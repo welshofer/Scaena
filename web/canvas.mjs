@@ -124,8 +124,9 @@ try {
     await page.mouse.move(fx + 8, fy + 8, { steps: 2 });
     await page.mouse.move(tx, ty, { steps: 8 });
     await page.waitForFunction((s) => document.querySelector("#status").textContent.includes(s), says, { timeout: 30000 }).catch(() => {});
-    // The last move's request answered.
-    await page.waitForTimeout(150);
+    // The last move's request answered: what the status says is for where the pointer is now, not
+    // a place it has left.
+    await page.waitForFunction(() => window.scaena.canvas.answered(), null, { timeout: 30000 }).catch(() => {});
     const said = await status(page);
     if (!hold) {
       await page.mouse.up();

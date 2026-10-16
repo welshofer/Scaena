@@ -10,6 +10,7 @@
 //! chart plots it. Any other column is text, even where its cells read as numbers (`007`).
 
 use super::{ColumnType, delimited, infer};
+use crate::code;
 use crate::format::{Locale, MINUS, NumberFormat};
 use crate::inserts::slug;
 use indexmap::IndexMap;
@@ -36,14 +37,19 @@ pub struct Cells {
 }
 
 /// `text` as cells, read in `locale`: at least two rows of at least two cells, each row with as
-/// many. None where it is not such, so it pastes as text.
+/// many. None where it is not such, so it pastes as text: where every row's first cell is empty,
+/// as code indented by tabs is, and where the text names its language, by a fence or a script's
+/// first line (PLAN 2.133).
 pub fn read(text: &str, locale: &Locale) -> Option<Cells> {
-    if !text.contains('\t') {
+    if !text.contains('\t') || matches!(code::detect(text, &code::Hints::default()), code::Detected::Named(_)) {
         return None;
     }
     let rows = delimited(text.trim_end_matches(['\r', '\n']), '\t').ok()?;
     let width = rows.first()?.len();
     if rows.len() < 2 || width < 2 || rows.iter().any(|r| r.len() != width) {
+        return None;
+    }
+    if rows.iter().all(|r| r[0].trim().is_empty()) {
         return None;
     }
     let (header, body) = rows.split_first()?;
@@ -313,6 +319,18 @@ mod tests {
         assert_eq!(read("a\tb\nc\n", en()), None);
         assert_eq!(read("a\tb\n", en()), None);
         assert_eq!(read("a\tb\nc\td\n", en()).map(|c| c.rows), Some(1));
+    }
+
+    /// Code is no sheet: lines indented by tabs, each its own row of one empty cell and its words,
+    /// and code whose fence or first line names its language.
+    #[test]
+    fn code_is_no_sheet() {
+        assert_eq!(read("\tif ready {\n\t\trun();\n\t}\n", en()), None);
+        assert_eq!(read("\tlet a = 1;\n\tlet b = 2;\n", en()), None);
+        assert_eq!(read("```tsv\na\tb\nc\td\n```\n", en()), None);
+        assert_eq!(read("#!/bin/sh\tx\nprintf\ty\n", en()), None);
+        // A sheet whose first column has a value somewhere is still a sheet.
+        assert_eq!(read("\tA\tB\nx\t1\t2\n", en()).map(|c| c.rows), Some(1));
     }
 
     /// Empty cells are nothing, in a column of numbers as in one of text; a negative that is

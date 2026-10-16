@@ -40,6 +40,7 @@ pub const LABELS: &[(&str, &str)] = &[
     ("credit", "Credit"),
     ("wrap", "Line Breaks"),
     ("maxLines", "Most Lines"),
+    ("code/language", "Language"),
     ("opacity", "Opacity"),
     ("transform/rotate", "Rotation"),
     ("enter", "Build In"),
@@ -160,6 +161,10 @@ pub const ANY_WORDS: &[(&str, &str)] =
 /// the deck writes `@name`, as [`source`] names it where its file is not known; else the word as
 /// words.
 pub fn word(prop: &str, word: &str) -> String {
+    // A language as a person calls it: `cpp` is C++ (PLAN 2.133).
+    if prop == "code/language" {
+        return crate::code::language(word).map_or_else(|| word.to_string(), |l| l.said.to_string());
+    }
     if let Some((_, _, said)) = WORDS.iter().find(|(p, w, _)| *p == prop && *w == word) {
         return said.to_string();
     }
@@ -675,7 +680,7 @@ pub const MARKED: &[(&str, &str)] = &[
     ("W314", "A credit here can't be read."),
     ("W410", "The picture has no description for people who can't see it."),
     ("W427", "A figure here no longer matches its data."),
-    ("W428", "This forecast has passed."),
+    ("W428", "What this shows has gone out of date."),
     ("I404", "This haiku's lines don't count 5, 7, and 5."),
 ];
 

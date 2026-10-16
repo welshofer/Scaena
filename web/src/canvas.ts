@@ -66,13 +66,13 @@
 //   away. A node of another type takes what its look shares with it (PLAN 2.58).
 // - An image dragged from the Files panel (PLAN 2.59) takes the place of the image node it is
 //   dropped on, a `choose` of `src`; dropped anywhere else, it is inserted there, as Insert does.
-import { ALT, type Key, MOD, MOD_ALT, SHIFT } from "./commands";
+import { ALT, type Key, MOD, MOD_ALT, menu, SHIFT } from "./commands";
 import { type Icon, iconSaid } from "./icon-set";
 import { listen } from "./life";
 import { marks } from "./marks";
 import { fitting } from "./pictures";
 import { BUNDLE_PATH, CLIP, DATA, PICTURE } from "./protocol";
-import type { Added, Arrange, Cells, DataMark, Diagram, Edited, FetchedMap, Finding, Framing, Grid, Insert, LayoutSlots, Lexicon, Look, Map6, MapTarget, NodeBox, NoteMark, Outline, Rect, SlotBox, SnapMode, Snapped, Targets, Waiting } from "./protocol";
+import type { Added, Arrange, Cells, DataMark, Diagram, Edited, FetchedMap, Finding, Framing, Grid, Insert, LayoutSlots, Lexicon, Look, Map6, MapTarget, NodeBox, NoteMark, Outline, PasteHints, Rect, SlotBox, SnapMode, Snapped, Targets, Waiting } from "./protocol";
 import { pointer } from "./theme-panel";
 import * as notes from "./notes";
 import { annotate, askWords, markName, noteName } from "./notes";
@@ -322,7 +322,9 @@ interface Press {
   click?: string;
   released?: boolean;
   asking?: boolean;
-  moved?: Starting & { client: [number, number] };
+  /** Where the pointer is, moved while the engine says what was pressed; `went` once it has gone
+   * past the slop since the press, wherever it is now: a drag, as one is past the slop at once. */
+  moved?: Starting & { client: [number, number]; went: boolean };
   /** On the one node selected already: a click there picks a chart's mark or annotation (PLAN 2.67). */
   within?: boolean;
   /** On an annotation of the chart selected: a drag moves a callout. */
@@ -832,6 +834,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     map: (node) => box(node)?.transform,
     chose: (selected) => editor.chose(selected),
     keeps: (to) => editor.keeps(to),
+    code: (node) => box(node)?.code?.language,
     // Typing in a shape's words stopped: the shape is selected, as a presentation app's is.
     left: (node) => {
       const shape = shapeOf(node);
@@ -1288,6 +1291,17 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     if (key && !drag && !marquee) parts.push(shape(key, [0, 0], "keyed"));
     const over = box(hovered);
     if (over && !chosen().includes(over.node) && !drag && !typed && !marquee && !armed && !pen && !turning && !reshaping && !cropping) parts.push(shape(over, [0, 0], "hover"));
+    // The language of the code selected, or under the pointer, a chip on its top right corner, which
+    // a press changes (PLAN 2.133).
+    const coded = [first, over].find((b) => b?.code);
+    if (coded?.code && !drag && !typed && !marquee && !armed && !pen && !turning && !reshaping && !cropping && !coded.transform) {
+      const [x, y, w] = coded.rect;
+      const said = escaped(coded.code.said);
+      const [cw, ch] = [(said.length * 7 + 16) * u, 20 * u];
+      parts.push(
+        `<g class="code-chip" data-chip="${escaped(coded.node)}" role="button" aria-label="Language: ${said}"><rect x="${x + w - cw}" y="${y - ch - 4 * u}" width="${cw}" height="${ch}" rx="${4 * u}"/><text x="${x + w - cw / 2}" y="${y - ch / 2 - 4 * u}" text-anchor="middle" dominant-baseline="middle" font-size="${12 * u}">${said}</text><title>${said}: a press changes the language</title></g>`,
+      );
+    }
     // The pen's strokes as they are drawn (PLAN 2.114), in the drawing's color and width.
     if (pen) {
       const { color, width } = pen;
@@ -2164,13 +2178,19 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     return { how, to, by, held };
   }
 
+  /** What the drag asks the worker with its pointer where it is now: one question asked once. */
+  function asking(d: Drag, aim = aimed(d)) {
+    return JSON.stringify([aim.by, aim.how, d.alt, d.loose]);
+  }
+
   /** Ask where the drag lands now, and paint its node there: one request at a time, the latest
    * pointer's. */
   async function pump(d: Drag) {
     const shown = editor.shown();
     if (busy || drag !== d || !shown) return;
-    const { how, to, by, held } = aimed(d);
-    const asked = JSON.stringify([by, how, d.alt, d.loose]);
+    const aim = aimed(d);
+    const { how, to, by, held } = aim;
+    const asked = asking(d, aim);
     if (asked === d.asked) return;
     d.asked = asked;
     d.how = how;
@@ -2914,6 +2934,14 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     if (!shown) return editor.say(WAITING);
     if (DATA.test(file.name)) return attach(at, file);
     const readable = PICTURE.test(file.name) ? file : await asPng(file);
+    // A source file, words, pastes as words, its name saying what language it is in (PLAN 2.133).
+    if (!readable && !onto && file.size <= 1 << 20 && (file.type === "" || /^text\/|json|xml|javascript|yaml|toml|x-sh|x-python/.test(file.type))) {
+      const words = await file.text().catch(() => "");
+      if (words && !words.includes("\u0000") && !words.includes("\uFFFD")) {
+        pointed = at;
+        return pasting(words, { file: file.name });
+      }
+    }
     // An image shows a PNG or a JPEG: anything else stays out of the bundle.
     if (!readable) return editor.say(`${file.name} is neither a picture (PNG, JPEG) nor data (CSV, JSON): nothing was added`);
     // One too large goes in as a smaller copy, made with nothing asked.
@@ -3203,14 +3231,14 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
   /** ⌘V: what the clipboard holds, `clip`, where the pointer last pressed, as Insert places a
    * node: a clip's nodes under ids new to the deck, or other text as a text in the theme's body
    * role. It enters in the state shown, selected; the status says what the theme lacked. */
-  function paste(clip: string) {
-    return inTurn(() => pasting(clip));
+  function paste(clip: string, hints?: PasteHints) {
+    return inTurn(() => pasting(clip, hints));
   }
-  async function pasting(clip: string) {
+  async function pasting(clip: string, hints?: PasteHints) {
     const shown = editor.shown();
     if (!shown) return editor.say(WAITING);
     try {
-      const pasted = await stage.pasting(editor.source(), shown.state, clip, landing(), editor.format());
+      const pasted = await stage.pasting(editor.source(), shown.state, clip, landing(), editor.format(), hints);
       const lacked = pasted.findings.map((f) => `${f.message.replace(/, which has .*$/, "")}, ${f.hint ?? "taken out"}`);
       const ids = [pasted.id, ...(pasted.also ?? [])];
       const done = [`${ids.length > 1 ? `${ids.length} objects pasted` : "Pasted"} on this slide`, ...lacked].join("; ");
@@ -3219,13 +3247,31 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       editor.say(`Not pasted: ${said(e)}`);
     }
   }
+  /** The languages a code text may be written in, a menu at `client` (PLAN 2.133): one chosen is
+   * one `choose` of `code/language`, written where the language lives. */
+  async function languages(node: string, client: Point) {
+    const shown = editor.shown();
+    if (!shown) return editor.say(WAITING);
+    const field = (await stage.choices(shown.state, node).catch(() => undefined))?.fields.find((f) => f.prop === "code/language");
+    if (!field || field.takes.kind !== "word") return;
+    const now = String(field.value ?? "plain");
+    const said = (word: string) => field.words?.said[word] ?? word;
+    const items = field.takes.words.map((word) => ({
+      label: word === now ? `${said(word)} ✓` : said(word),
+      run: () =>
+        word !== now &&
+        inTurn(() => change([{ op: "choose", node, prop: "code/language", value: word, state: shown.state }], "Changing the language…", `${Called(node)} is ${said(word)}`, node)),
+    }));
+    menu(client[0], client[1], items, overlay);
+  }
+
   /** Text from another app (PLAN 2.96): a sheet's cells, rows of cells split by tabs, become a
    * data source, typed as they read, and the table they were, where the pointer last pressed,
    * each column printing its figures as they were copied; words, a text, as a clip's text does. */
-  function pasteText(text: string) {
+  function pasteText(text: string, hints?: PasteHints) {
     return inTurn(async () => {
       const cells = editor.shown() && (await stage.cells(editor.source(), text).catch(() => null));
-      if (!cells) return pasting(text);
+      if (!cells) return pasting(text, hints);
       const file = new File([cells.csv], `${cells.name}.csv`, { type: "text/csv" });
       await attach(landing(), file, cells);
     });
@@ -3314,7 +3360,11 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
         }
         if (!words) return;
         e.preventDefault();
-        void pasteText(words);
+        // What says the words are code, and in which language (PLAN 2.133): the class of the
+        // HTML copied with them, and the mode VS Code copies them with.
+        const html = e.clipboardData?.getData("text/html") || undefined;
+        const vscode = e.clipboardData?.getData("vscode-editor-data") || undefined;
+        void pasteText(words, html || vscode ? { html, vscode } : undefined);
       },
     ],
   ];
@@ -3466,6 +3516,12 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     if (!shown || drag) return editor.say(shown ? "" : WAITING);
     overlay.setPointerCapture(e.pointerId);
     const client: [number, number] = [e.clientX, e.clientY];
+    // A code text's chip, which a press offers the languages at (PLAN 2.133).
+    const chip = (e.target as Element).closest?.("[data-chip]")?.getAttribute("data-chip");
+    if (chip) {
+      e.preventDefault();
+      return void languages(chip, [e.clientX, e.clientY]);
+    }
     // An empty slot's words, which a press fills it from (PLAN 3.30).
     const wait = waits[Number((e.target as Element).closest?.("[data-wait]")?.getAttribute("data-wait") ?? NaN)];
     if (wait) {
@@ -3528,7 +3584,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     // Moved past the slop before the engine answered, as a drag made while the worker paints is:
     // the press was a drag all along, from where the pointer is now, dropped there if let go.
     const moved = mine.moved;
-    const far = moved !== undefined && Math.hypot(moved.client[0] - client[0], moved.client[1] - client[1]) >= SLOP;
+    const far = moved?.went === true;
     if (far && mine.marquee && (press === mine || mine.released)) {
       if (press === mine) press = undefined;
       marquee = { from, at: moved.at, adding: shift };
@@ -3741,7 +3797,8 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       return;
     }
     if (press.asking) {
-      press.moved = { at, shift: e.shiftKey, alt: e.altKey, loose: e.metaKey || e.ctrlKey, client: [e.clientX, e.clientY] };
+      const went = press.moved?.went === true || Math.hypot(e.clientX - press.client[0], e.clientY - press.client[1]) >= SLOP;
+      press.moved = { at, shift: e.shiftKey, alt: e.altKey, loose: e.metaKey || e.ctrlKey, client: [e.clientX, e.clientY], went };
       return;
     }
     const far = Math.hypot(e.clientX - press.client[0], e.clientY - press.client[1]) >= SLOP;
@@ -3836,7 +3893,8 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     // A click on a chart's mark, or a table's row, chooses its rows where the data is shown (PLAN 2.64).
     if (!clicked.shift) void editor.pointedAt?.(clicked.from, false);
     if (clicked.asking) {
-      clicked.moved = { at: point(e), shift: e.shiftKey, alt: e.altKey, loose: e.metaKey || e.ctrlKey, client: [e.clientX, e.clientY] };
+      const went = clicked.moved?.went === true || Math.hypot(e.clientX - clicked.client[0], e.clientY - clicked.client[1]) >= SLOP;
+      clicked.moved = { at: point(e), shift: e.shiftKey, alt: e.altKey, loose: e.metaKey || e.ctrlKey, client: [e.clientX, e.clientY], went };
       clicked.released = true;
     } else if (clicked.toggle !== undefined) toggle(clicked.toggle);
     else if (clicked.marquee) select(clicked.click);
@@ -4412,6 +4470,9 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     /** Whether a drag is under way, or its request with the worker, or what stands where is asked
      * again: until it is answered, the boxes are the deck's before the last edit. */
     busy: () => busy || refreshing > 0 || drag !== undefined || starting !== undefined || reshaping !== undefined || cropping !== undefined,
+    /** Whether the drag under way has its answer for where its pointer is now: what it shows and
+     * says, its guides among them, are for that place, not one the pointer has left. */
+    answered: () => drag !== undefined && !busy && drag.asked === asking(drag),
     /** The text typed in, if one is. */
     typing: () => text.node(),
     /** Once every change typed so far is made, typing left with one under way among them: what a

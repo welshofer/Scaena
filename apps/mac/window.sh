@@ -284,6 +284,14 @@ if [[ "${vh:-}" =~ ^[0-9]+$ ]]; then
   else
     echo "no Text in the toolbar: $tx $ty $tw $th"
   fi
+  # Code pasted on the slide (PLAN 2.133): a code text in Rust, its chip saying so.
+  printf 'fn main() {\n    let total = 42;\n    println!("{total}");\n}\n' | pbcopy
+  events 'keystroke "v" using command down'
+  sleep 2
+  echo "the code pasted, its chip: $(frames value code-chip)"
+  shot code-pasted
+  events 'keystroke "z" using command down'
+  sleep 1
   # The same from the Insert menu, opened as a person opens it.
   echo "the slide holds, before:"
   holds canvas

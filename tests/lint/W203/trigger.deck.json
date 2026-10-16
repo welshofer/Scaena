@@ -1,5 +1,5 @@
 {
-  "scaena": "0.32",
+  "scaena": "0.33",
   "_comment": "W203 trigger: a headline that shrinks to its 48 cu minimum and still does not fit its header, and, on the next slide, code that shrinks to 24 cu, 12 pt at presentation size, and still runs past its slot.",
   "canvas": {"width": 1920, "height": 1080},
   "theme": "theme.json",

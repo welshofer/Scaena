@@ -136,7 +136,7 @@ public final class CanvasKeys: NSView {
     @objc public func paste(_ sender: Any?) {
         guard typing.typing else { return clip(.paste) }
         guard let text = NSPasteboard.general.string(forType: .string), !text.isEmpty else { return }
-        typing.insert(text)
+        typing.paste(text)
     }
 
     private func clip(_ what: Clipping) {

@@ -46,6 +46,8 @@ struct DeckView: View {
     @State private var also: [String] = []
     /// The nodes the state shown has locked by their own lock: what Lock undoes.
     @State private var ownLocks: Set<String> = []
+    /// The code texts in the state shown (PLAN 2.133), which Copy Code copies.
+    @State private var codes: Set<String> = []
     /// Whether the node selected is a group, which Ungroup takes apart.
     @State private var grouped = false
     /// Whether the node selected is a text, which a diagram may be drawn from (PLAN 2.110).
@@ -727,6 +729,7 @@ struct DeckView: View {
                 sources = (try? editor.session.dataSources()) ?? []
                 let boxes = shown.flatMap { try? editor.session.boxes(state: $0) } ?? []
                 ownLocks = Set(boxes.filter { $0.locked == $0.node }.map(\.node))
+                codes = Set(boxes.filter { $0.code != nil }.map(\.node))
                 if let shown, let node, let choices = try? editor.session.choices(state: shown, node: node) {
                     grouped = choices.type == "group"
                     texted = choices.type == "text"
@@ -1116,6 +1119,9 @@ struct DeckView: View {
         if selection.count == 2 { made.connect = { arrow in connect(arrow, in: shown) } }
         if one && texted { made.diagram = { kind in diagram(kind, in: shown) } }
         made.deletesElsewhere = elsewhere
+        // Code selected copies as text, and words paste as words (PLAN 2.133).
+        if one, let node, codes.contains(node) { made.copyCode = { copyCode(node, in: shown) } }
+        made.pasteAsText = { pasteAsText() }
         // In another of the deck's formats, a node given a layout of its own there (PLAN 2.85).
         if one, let node, let format = editor.format {
             made.placeAnew = { placeAnew(node, in: format, state: shown) }
@@ -1164,7 +1170,7 @@ struct DeckView: View {
         case .clip(let text):
             pasteText(text, in: shown, at: at)
         case .words(let text):
-            landWords(text, in: shown, at: at)
+            landWords(text, in: shown, at: at, hints: Pasteboard.hints())
         case .file(let data, let name):
             let ext = (name as NSString).pathExtension.lowercased()
             if ext == "csv" || ext == "json" {
@@ -1174,6 +1180,9 @@ struct DeckView: View {
             } else if let png = Pasteboard.png(data) {
                 let named = "\((name as NSString).deletingPathExtension).png"
                 fitting(png, named: named) { picture($0, named: named, in: shown, at: at) }
+            } else if let words = Self.words(data) {
+                // A source file pastes as words, its name saying their language (PLAN 2.133).
+                pasteText(words, in: shown, at: at, hints: PasteHints(file: name))
             } else {
                 said = "\(name) is neither a picture (PNG, JPEG) nor data (CSV, JSON): nothing was added"
             }
@@ -1182,20 +1191,53 @@ struct DeckView: View {
         }
     }
 
-    /// Words pasted or dropped in `state` about `at` (PLAN 2.96, 4.7): a sheet's cells as the
-    /// source they read as and the table they were; else a clip's text as its nodes, or a text.
-    private func landWords(_ text: String, in state: String, at: CGPoint, verb: String = "pasted") {
-        if let cells = (try? editor.session.cells(text)) ?? nil {
-            attach(Data(cells.csv.utf8), named: "\(cells.name).csv", cells: cells, in: state, at: at, verb: verb)
-        } else {
-            pasteText(text, in: state, at: at, verb: verb)
+    /// `data` as words, where it is a file of them: UTF-8, no larger than a megabyte, with no NUL.
+    static func words(_ data: Data) -> String? {
+        guard data.count <= 1 << 20, !data.contains(0) else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
+    /// Paste as Text (PLAN 2.133): the words on the pasteboard as words, never as code.
+    private func pasteAsText() {
+        guard let shown else { return }
+        guard let words = Pasteboard.words() else {
+            said = "nothing on the clipboard to paste as text"
+            return
+        }
+        let size = (try? editor.session.canvasSize()) ?? CGSize(width: 1920, height: 1080)
+        let at = pointed ?? CGPoint(x: size.width / 2, y: size.height / 2)
+        pasteText(words, in: shown, at: at, hints: PasteHints(plain: true))
+    }
+
+    /// Copy Code (PLAN 2.133): the words of the code selected, as the slide shows them, onto the
+    /// pasteboard as text alone.
+    private func copyCode(_ node: String, in state: String) {
+        perform {
+            let words = try editor.session.codeWords(state: state, node: node)
+            Pasteboard.write(words: words)
+            said = "The code copied as text: \(words.split(separator: "\n", omittingEmptySubsequences: false).count) lines"
         }
     }
 
-    /// A clip's text, or words, pasted in `state` about `at`.
-    private func pasteText(_ text: String, in state: String, at: CGPoint, verb: String = "pasted") {
+    /// Words pasted or dropped in `state` about `at` (PLAN 2.96, 4.7): a sheet's cells as the
+    /// source they read as and the table they were; else a clip's text as its nodes, or a text.
+    private func landWords(
+        _ text: String, in state: String, at: CGPoint, verb: String = "pasted", hints: PasteHints = PasteHints()
+    ) {
+        if let cells = (try? editor.session.cells(text)) ?? nil {
+            attach(Data(cells.csv.utf8), named: "\(cells.name).csv", cells: cells, in: state, at: at, verb: verb)
+        } else {
+            pasteText(text, in: state, at: at, verb: verb, hints: hints)
+        }
+    }
+
+    /// A clip's text, or words, pasted in `state` about `at`: code, where `hints` or how it reads
+    /// say it is, a code text in its language (PLAN 2.133).
+    private func pasteText(
+        _ text: String, in state: String, at: CGPoint, verb: String = "pasted", hints: PasteHints = PasteHints()
+    ) {
         perform {
-            let pasted = try editor.session.pasting(text, state: state, at: at)
+            let pasted = try editor.session.pasting(text, state: state, at: at, hints: hints)
             try document.make(pasted.patch, undo: undo, named: verb == "pasted" ? "Paste" : "Insert")
             node = pasted.id
             also = pasted.also
@@ -1289,8 +1331,9 @@ struct DeckView: View {
                 if let file = await Pasteboard.dropped(item) {
                     land(file.data, named: file.name, in: state, at: point)
                 } else if let text = await Pasteboard.droppedWords(item) {
-                    // Words land as they paste (PLAN 4.7).
-                    landWords(text, in: state, at: point, verb: "added")
+                    // Words land as they paste (PLAN 4.7), a source file's name saying their
+                    // language (PLAN 2.133).
+                    landWords(text, in: state, at: point, verb: "added", hints: PasteHints(file: item.suggestedName))
                 } else {
                     said = "Only a picture, data (CSV, JSON), or words can go on a slide"
                 }

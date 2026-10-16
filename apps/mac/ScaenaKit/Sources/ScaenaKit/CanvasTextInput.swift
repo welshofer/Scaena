@@ -314,7 +314,7 @@ public final class CanvasKeys: UIView {
             return
         }
         guard let text = UIPasteboard.general.string, !text.isEmpty else { return }
-        typing.insert(text)
+        typing.paste(text)
     }
 
     public override func selectAll(_ sender: Any?) {

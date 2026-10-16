@@ -84,6 +84,7 @@ import type {
   MapTarget,
   Mapped,
   FetchedMap,
+  PasteHints,
 } from "./protocol";
 import type { Icon } from "./icon-set";
 
@@ -160,6 +161,8 @@ type Reply = Extract<
       | "carets"
       | "characterChoices"
       | "bolding"
+      | "codeWords"
+      | "tidied"
       | "italicizing"
       | "themes"
       | "rethemed"
@@ -682,6 +685,17 @@ export class Stage {
 
   /** What ⌘B gives the characters `from` to `to` (Unicode scalar values) of `node`'s text in
    * `state`, on the deck the editor's `source` compiles to (PLAN 2.38): `style_text`'s `look`. */
+  /** `text` tidied as code in `language` is when it is pasted (PLAN 2.133, `code::tidy`). */
+  tidied(text: string, language: string): Promise<string> {
+    return this.request<"tidied">({ type: "tidied", id: ++this.asked, text, language }).then(({ text }) => text);
+  }
+
+  /** The words of code text `node` as `state` shows them: what Copy Code copies (PLAN 2.133). */
+  codeWords(source: string, state: string, node: string, format?: string): Promise<string> {
+    const asked = { type: "codeWords" as const, id: ++this.asked, source, state, node, format };
+    return this.request<"codeWords">(asked).then(({ words }) => words);
+  }
+
   bolding(source: string, state: string, node: string, from: number, to: number, format?: string): Promise<Record<string, unknown>> {
     const asked = { type: "bolding" as const, id: ++this.asked, source, state, node, from, to, format };
     return this.request<"bolding">(asked).then(({ look }) => look);
@@ -868,8 +882,8 @@ export class Stage {
   /** The patch that pastes `clip`, the clipboard's text, entering in `state` about `at` (canvas
    * units), on the deck `source` compiles to (PLAN 2.37). The files it carries are in the bundle
    * once it answers. */
-  pasting(source: string, state: string, clip: string, at: [number, number], format?: string): Promise<Pasted> {
-    return this.request<"pasted">({ type: "pasting", id: ++this.asked, source, state, clip, at, format }).then(({ pasted }) => pasted);
+  pasting(source: string, state: string, clip: string, at: [number, number], format?: string, hints?: PasteHints): Promise<Pasted> {
+    return this.request<"pasted">({ type: "pasting", id: ++this.asked, source, state, clip, at, format, hints }).then(({ pasted }) => pasted);
   }
 
   /** Each state at rest, `height` pixels high, in `format`, for the state strip (PLAN 2.35): with
@@ -1145,6 +1159,8 @@ export class Stage {
       case "carets":
       case "characterChoices":
       case "bolding":
+      case "codeWords":
+      case "tidied":
       case "italicizing":
       case "themes":
       case "rethemed":

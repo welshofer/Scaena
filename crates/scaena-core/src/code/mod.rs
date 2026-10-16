@@ -32,10 +32,14 @@
 //!   [`MAX_LINES`] are one plain token.
 //! - **Few tokens.** Neighbors of one class are one token, and whitespace goes to the token before
 //!   it.
+//!
+//! A paste's language is [`detect`]ed, and the paste made [`tidy`], by the editor, never at layout
+//! (PLAN 2.133).
 
 mod clike;
 mod console;
 mod css;
+mod detect;
 mod diff;
 mod dockerfile;
 mod generic;
@@ -52,8 +56,12 @@ mod scan;
 mod shell;
 mod sql;
 pub mod tables;
+mod tidy;
 mod toml;
 mod yaml;
+
+pub use detect::{Detected, Hints, JSON_WHOLE, LIKELY, READ_BYTES, READ_LINES, detect, vscode_mode};
+pub use tidy::{Tidied, tidy};
 
 use std::fmt;
 

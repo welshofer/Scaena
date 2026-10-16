@@ -681,7 +681,7 @@ pub struct Annotation {
     pub kind: AnnotationKind,
     /// Where it stands, by kind: a rule at `x` or `y`, a band from one to another of
     /// either, a callout at `x` (and `y`, or a `series`), a highlight on categories `x`
-    /// and series.
+    /// and series, or, naming neither, on every mark.
     pub at: AnnotationAt,
     /// What it says; a highlight says nothing.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -764,8 +764,9 @@ impl Annotation {
     /// Whether its place fits its kind (SPEC §3.7): a rule stands at one `x` or one
     /// numeric `y`; a band spans two of either; a callout stands at one `x`, with one
     /// numeric `y` or one `series`, and says something; a highlight picks out
-    /// categories, series, or both, and says nothing. A `donut`, with no axes and no
-    /// series, takes only highlights of its slices. The message says what to write.
+    /// categories, series, or both, or, naming neither, every mark (deck format 0.33), and says
+    /// nothing. A `donut`, with no axes and no series, takes only highlights of its slices. The
+    /// message says what to write.
     pub fn check(&self, donut: bool) -> Result<(), String> {
         let at = &self.at;
         if donut && self.kind != AnnotationKind::Highlight {
@@ -816,7 +817,6 @@ impl Annotation {
                     Err("a highlight picks out categories (`at.x`) and series; it takes no `at.y`".into())
                 }
                 (_, _, Some(_)) => Err("a highlight says nothing; a callout carries `text`".into()),
-                (None, ..) if at.series.is_none() => Err("a highlight picks out `at.x`, `at.series`, or both".into()),
                 _ => Ok(()),
             },
         }

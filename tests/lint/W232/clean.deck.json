@@ -1,5 +1,5 @@
 {
-  "scaena": "0.32",
+  "scaena": "0.33",
   "_comment": "W232 clean: the same text, in the weight its family draws.",
   "canvas": {"width": 1920, "height": 1080},
   "theme": "one-weight.theme.json",
