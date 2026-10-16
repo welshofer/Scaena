@@ -25,8 +25,20 @@ struct ThemeChooser: View {
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: Self.width), spacing: 16)], spacing: 16) {
-                ForEach(themes) { theme in tile(theme) }
+            // By family, each family a section (PLAN T.0d).
+            LazyVGrid(
+                columns: [GridItem(.adaptive(minimum: Self.width), spacing: 16)], alignment: .leading, spacing: 16
+            ) {
+                ForEach(themes.byFamily) { family in
+                    Section {
+                        ForEach(family.themes) { theme in tile(theme) }
+                    } header: {
+                        Text(family.name)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
             }
             HStack {
                 Spacer()

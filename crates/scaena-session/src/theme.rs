@@ -209,7 +209,10 @@ mod tests {
         let before: Vec<Vec<u8>> = states.iter().map(|state| s.png(state, 320).unwrap()).collect();
 
         let brought = s.library(DUSK, user()).unwrap().expect("it takes the library");
-        assert_eq!((brought.theme.as_str(), brought.roles.clone()), ("Dusk", vec!["hero".to_string()]));
+        assert_eq!(
+            (brought.theme.as_str(), brought.roles.clone()),
+            ("Dusk", vec!["hero".to_string(), "verse".to_string()])
+        );
         let shipped: Value = serde_json::from_str(DUSK).unwrap();
         let layouts = shipped["layouts"].as_object().unwrap().len();
         assert_eq!(s.starters().len(), layouts + 1, "every layout Dusk ships, and a blank slide");

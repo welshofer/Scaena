@@ -1,0 +1,149 @@
+{
+  "scaena": "0.32",
+  "meta": {
+    "title": "A haiku on a slide",
+    "author": "Scaena",
+    "created": "2026-10-15T00:00:00Z",
+    "lang": "en-US",
+    "description": "Reference deck for verse (PLAN O.4b): a haiku in the theme's verse role, its lines broken only where it breaks them, and who wrote it under it."
+  },
+  "canvas": {
+    "width": 1920.0,
+    "height": 1080.0,
+    "unit": "cu"
+  },
+  "theme": "themes/dusk.theme.json",
+  "fonts": [
+    {
+      "family": "Fraunces",
+      "file": "fonts/Fraunces-VF.ttf",
+      "axes": {
+        "wght": [
+          100.0,
+          900.0
+        ],
+        "opsz": [
+          9.0,
+          144.0
+        ]
+      }
+    },
+    {
+      "family": "Inter",
+      "file": "fonts/Inter-VF.ttf",
+      "axes": {
+        "wght": [
+          100.0,
+          900.0
+        ],
+        "opsz": [
+          14.0,
+          32.0
+        ]
+      }
+    },
+    {
+      "family": "JetBrains Mono",
+      "file": "fonts/JetBrainsMono-VF.ttf",
+      "axes": {
+        "wght": [
+          100.0,
+          800.0
+        ]
+      }
+    },
+    {
+      "family": "Fraunces",
+      "file": "fonts/Fraunces-Italic-VF.ttf",
+      "style": "italic",
+      "axes": {
+        "wght": [
+          100.0,
+          900.0
+        ],
+        "opsz": [
+          9.0,
+          144.0
+        ]
+      }
+    },
+    {
+      "family": "Inter",
+      "file": "fonts/Inter-Italic-VF.ttf",
+      "style": "italic",
+      "axes": {
+        "wght": [
+          100.0,
+          900.0
+        ],
+        "opsz": [
+          14.0,
+          32.0
+        ]
+      }
+    },
+    {
+      "family": "JetBrains Mono",
+      "file": "fonts/JetBrainsMono-Italic-VF.ttf",
+      "style": "italic",
+      "axes": {
+        "wght": [
+          100.0,
+          800.0
+        ]
+      }
+    }
+  ],
+  "spine": {
+    "sections": [
+      {
+        "id": "close",
+        "title": "Closing",
+        "beats": [
+          {
+            "id": "pond",
+            "claim": "A quiet close leaves the room with one image.",
+            "states": [
+              "haiku"
+            ],
+            "notes": "Read it slowly, a breath between the lines."
+          }
+        ]
+      }
+    ]
+  },
+  "nodes": {
+    "poem": {
+      "type": "text",
+      "role": "verse",
+      "text": "An old silent pond\nA frog jumps into the pond\nSplash! Silence again",
+      "fit": "shrink",
+      "semantic": "claim",
+      "at": {
+        "in": "quote"
+      }
+    },
+    "who": {
+      "type": "text",
+      "role": "caption",
+      "text": "After Matsuo Bashō",
+      "semantic": "evidence",
+      "at": {
+        "in": "who"
+      }
+    }
+  },
+  "states": [
+    {
+      "id": "haiku",
+      "mode": "delta",
+      "layout": "quote",
+      "props": {
+        "poem": {},
+        "who": {}
+      },
+      "hold": 8000.0,
+      "notes": "Bashō's frog, in English, five, seven, and five."
+    }
+  ]
+}

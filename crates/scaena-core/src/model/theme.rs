@@ -49,6 +49,65 @@ pub struct Theme {
     /// shows neither on (theme format 0.14, ADR-0028). The deck says whether they show.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub furniture: Option<Furniture>,
+    /// How its pictures are framed (theme format 0.21, PLAN T.3a, ADR-0031): every image takes
+    /// the frame, and no image says otherwise. None where it says none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pictures: Option<Pictures>,
+}
+
+/// How a theme frames its pictures (PLAN T.3a).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct Pictures {
+    pub frame: Frame,
+}
+
+/// A picture's frame: `none`, or a mat of a theme color around it, a keyline at its edge, or
+/// both, drawn inside the image's box, the picture inset by them.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(untagged)]
+pub enum Frame {
+    None(NoFrame),
+    Framed(Framing),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum NoFrame {
+    None,
+}
+
+/// A frame's bands, from the picture out: its keyline, then its mat.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+#[schemars(extend("minProperties" = 1))]
+pub struct Framing {
+    /// A band of color around the picture, as a print's mat.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mat: Option<Band>,
+    /// A thin line at the picture's edge, between it and the mat.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub keyline: Option<Band>,
+}
+
+/// A band of a frame: a color token or role, and how wide it is, canvas units.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct Band {
+    #[schemars(length(min = 1))]
+    pub color: String,
+    #[schemars(extend("exclusiveMinimum" = 0))]
+    pub width: f64,
+}
+
+impl Frame {
+    /// Its bands, `(keyline, mat)`: neither where it is none.
+    pub fn bands(&self) -> (Option<&Band>, Option<&Band>) {
+        match self {
+            Frame::None(_) => (None, None),
+            Frame::Framed(f) => (f.keyline.as_ref(), f.mat.as_ref()),
+        }
+    }
 }
 
 /// A theme's format as read: an older one this build reads is the current one (SPEC §3.1).
@@ -299,6 +358,17 @@ pub struct Family {
     /// such text upright: no italic is synthesized (lint W231).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub italic: Option<Face>,
+    /// Upright by design: the family has no italic because its script sets none, as Japanese
+    /// and Korean do not (ADR-0031, call 6), so it names none. A family that names no italic
+    /// without saying so has merely lost it. Text set `italic` in either is set upright, and
+    /// lint W231 says so all the same.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub upright: Option<bool>,
+    /// Kept whole: a save never subsets the family's files, its italic's among them (ADR-0031,
+    /// call 5). A font whose license reserves its name, as Pretendard's does, may not carry the
+    /// name in a subset, which the OFL counts a Modified Version (OFL 1.1, condition 3).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub whole: Option<bool>,
     /// Other families in this theme, in order. Bundle-only; system fonts are never consulted.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fallback: Option<Vec<String>>,
@@ -538,7 +608,7 @@ impl Slot {
 }
 
 /// What a layout's picture shows in a slot that waits (PLAN 3.31): `{ "picture": "backdrop" }`,
-/// `{ "chart": "bar" }`, or `{ "table": 3 }`.
+/// `{ "chart": "bar" }`, `{ "table": 3 }`, or `{ "map": "backdrop" }` (theme format 0.22).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields, rename_all = "lowercase")]
 pub enum Example {
@@ -546,8 +616,13 @@ pub enum Example {
     Picture(#[schemars(length(min = 1))] String),
     /// A chart of this kind, of a few rows made up for it.
     Chart(super::nodes::ChartKind),
-    /// A table of this many columns, of a few rows made up for it.
-    Table(#[schemars(range(min = 2, max = 6))] u32),
+    /// A table of this many columns, of a few rows made up for it: seven are a week's days, a
+    /// month's calendar (theme format 0.18, PLAN S.2).
+    Table(#[schemars(range(min = 2, max = 7))] u32),
+    /// A map's place (ADR-0030, PLAN O.1e, theme format 0.22): the picture this shader preset
+    /// draws, with a pin and a label over it, and no provider's map. Insert › Map… fills the
+    /// place.
+    Map(#[schemars(length(min = 1))] String),
 }
 
 /// What goes in a slot (PLAN 3.30): words, a paragraph to each line; a list's items; or a shape.
@@ -796,7 +871,7 @@ pub struct Charts {
     pub weather: Option<WeatherLook>,
 }
 
-/// How a weather chart draws (SPEC §3.7; theme format 0.23), every one a role or a token.
+/// How a weather chart draws (SPEC §3.7; theme format 0.25), every one a role or a token.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct WeatherLook {

@@ -1,0 +1,164 @@
+{
+  "name": "Daybreak",
+  "description": "Warm paper surface, near-black ink, one deep teal accent. Same families, roles, layouts, and presets as Dusk: a deck moves between them by swapping the file.",
+  "mode": "light",
+  "colors": {
+    "ink": "#16140F",
+    "paper": "#FBFAF6",
+    "paper-2": "#F1EEE6",
+    "accent": "#0F766E",
+    "accent-2": "#C2410C",
+    "muted": "#6B675E",
+    "line": "#DAD5C9"
+  },
+  "data": {
+    "categorical": [
+      "#2E2B27",
+      "#66625A",
+      "#4A463F",
+      "#57534C"
+    ],
+    "sequential": [
+      "#F1EEE6",
+      "#C9E3DF",
+      "#7FBFB6",
+      "#2E8F84",
+      "#0F766E"
+    ],
+    "diverging": [
+      "#C2410C",
+      "#F1EEE6",
+      "#0F766E"
+    ]
+  },
+  "families": {
+    "display": {
+      "family": "Fraunces",
+      "file": "fonts/Fraunces-VF.ttf",
+      "axes": {
+        "wght": [
+          100,
+          900
+        ],
+        "opsz": [
+          9,
+          144
+        ],
+        "SOFT": [
+          0,
+          100
+        ],
+        "WONK": [
+          0,
+          1
+        ]
+      },
+      "italic": {
+        "file": "fonts/Fraunces-Italic-VF.ttf",
+        "axes": {
+          "wght": [
+            100,
+            900
+          ],
+          "opsz": [
+            9,
+            144
+          ],
+          "SOFT": [
+            0,
+            100
+          ],
+          "WONK": [
+            0,
+            1
+          ]
+        }
+      },
+      "fallback": [
+        "body"
+      ]
+    },
+    "body": {
+      "family": "Inter",
+      "file": "fonts/Inter-VF.ttf",
+      "axes": {
+        "wght": [
+          100,
+          900
+        ],
+        "opsz": [
+          14,
+          32
+        ]
+      },
+      "italic": {
+        "file": "fonts/Inter-Italic-VF.ttf",
+        "axes": {
+          "wght": [
+            100,
+            900
+          ],
+          "opsz": [
+            14,
+            32
+          ]
+        }
+      },
+      "features": {
+        "cv11": true,
+        "ss01": false
+      }
+    },
+    "mono": {
+      "family": "JetBrains Mono",
+      "file": "fonts/JetBrainsMono-VF.ttf",
+      "axes": {
+        "wght": [
+          100,
+          800
+        ]
+      },
+      "italic": {
+        "file": "fonts/JetBrainsMono-Italic-VF.ttf",
+        "axes": {
+          "wght": [
+            100,
+            800
+          ]
+        }
+      }
+    }
+  },
+  "voice": "dusk",
+  "margin": [
+    96,
+    120
+  ],
+  "shaders": {
+    "palettes": {
+      "ambient": [
+        "#F6EFE2",
+        "#E8D9C4",
+        "#C9E3DF",
+        "#7FBFB6"
+      ],
+      "texture": [
+        "#FBFAF6",
+        "#F1E3D3",
+        "#E6B9A0",
+        "#C2410C"
+      ]
+    }
+  },
+  "charts": {
+    "weather": {
+      "chance": {
+        "color": "accent"
+      },
+      "icon": {
+        "color": "accent",
+        "weight": "regular"
+      }
+    }
+  }
+}

@@ -14,8 +14,17 @@
 // holding the engine's module and no deck (PLAN 2.28): a worker whose first message is `help`
 // is one.
 import { codeTables } from "@scaena/code-tables";
-import { hyphenation, weatherIcons } from "@scaena/hyphenation";
-import init, { Canvas, Player, engineModule, setCodeTables, setHyphenation, setIcons, shaderRows } from "@scaena/wasm";
+import { hyphenation, verse, weatherIcons } from "@scaena/hyphenation";
+import init, {
+  Canvas,
+  Player,
+  engineModule,
+  setCodeTables,
+  setHyphenation,
+  setIcons,
+  setVerse,
+  shaderRows,
+} from "@scaena/wasm";
 import { deleteKept, keptBundle, newBundle, readAll, remove, renameKept, write } from "./folders";
 import { finding } from "./words";
 import type {
@@ -46,6 +55,9 @@ import type {
   Look,
   Put,
   BundleFile,
+  MapRefresh,
+  MapTarget,
+  Mapped,
   Compared,
   Restored,
   Rewritten,
@@ -566,6 +578,29 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         const bytes = made.bytes.slice().buffer as ArrayBuffer;
         return post({ type: "pictureMade", id: data.id, bytes, ext: made.ext, alt: made.alt, model: made.model }, [bytes]);
       }
+      case "mapTarget":
+        current(data.source);
+        return post({ type: "mapTargeted", id: data.id, target: JSON.parse(player.mapTarget(data.state, data.node, data.slot, JSON.stringify(data.rect))) as MapTarget });
+      case "fetchMap": {
+        const { fetchMap } = await import("@scaena/generate");
+        const fetched = await fetchMap(data.ask, data.key);
+        if (!fetched.map) return post({ type: "mapFetched", id: data.id, places: fetched.places });
+        return post({ type: "mapFetched", id: data.id, map: fetched.map }, [fetched.map.png]);
+      }
+      case "mapping":
+        current(data.source);
+        return post({
+          type: "mapped",
+          id: data.id,
+          mapped: JSON.parse(player.mapping(JSON.stringify(data.target), JSON.stringify(data.fetched), JSON.stringify(data.pin), data.label, new Uint8Array(data.png))) as Mapped,
+        });
+      case "mapRefreshing":
+        current(data.source);
+        return post({
+          type: "mapRefresh",
+          id: data.id,
+          refresh: JSON.parse(player.mapRefreshing(data.state, data.node, data.zoom, data.center?.lat, data.center?.lon)) as MapRefresh,
+        });
       case "removeFile":
       case "putBack": {
         compiles(data.source);
@@ -724,6 +759,20 @@ function fetchedNow(url: string | undefined): Uint8Array | undefined {
   return request.status === 200 ? new Uint8Array(request.response as ArrayBuffer) : undefined;
 }
 
+/** The syllable table (PLAN O.4a), which the editor's module leaves out: asked for the first
+ * time a line of verse counts, as lint judges a haiku (I404), so fetched at once. */
+function syllables(): string | undefined {
+  if (!verse) return undefined;
+  const request = new XMLHttpRequest();
+  request.open("GET", verse, false);
+  try {
+    request.send();
+  } catch {
+    return undefined;
+  }
+  return request.status === 200 ? request.responseText : undefined;
+}
+
 interface DeckFiles {
   meta?: { title?: string };
   theme: string;
@@ -737,6 +786,7 @@ async function open(source: Source, painter: Painter, target: OffscreenCanvas, e
   await init(engine && { module_or_path: engine });
   setHyphenation(patterns);
   setCodeTables(tables);
+  setVerse(syllables);
   setIcons(icons);
   canvas = target;
   if (painter !== "cpu") {
@@ -771,12 +821,13 @@ async function open(source: Source, painter: Painter, target: OffscreenCanvas, e
  * section, each drawn as it is used, and every slide as it was. A page with no themes beside it,
  * as a single file has, opens the deck as it is, and so does one that cannot fetch the theme. */
 async function library() {
-  const { themes } = await import("@scaena/themes");
+  const { themes, aliases } = await import("@scaena/themes");
   if (!Object.keys(themes).length) return;
   try {
     const text = player.themeText();
     const name = text ? (JSON.parse((JSON.parse(text) as ThemeText).text) as { name?: unknown }).name : undefined;
-    const shipped = typeof name === "string" ? themes[name] : undefined;
+    // A copy named as the theme shipped before is its copy too: Gallery's is Salon's (PLAN T.0d).
+    const shipped = typeof name === "string" ? (themes[name] ?? themes[aliases[name] ?? ""]) : undefined;
     if (!shipped) return;
     const response = await fetch(shipped.url);
     if (response.ok) player.library(await response.text(), new Date().toISOString());
@@ -900,8 +951,8 @@ async function fetched(deck: string): Promise<Player> {
 /** The theme that ships as `theme`, which the page carries (`themes.ts`), fetched now: its file's
  * name, its text, and the fonts it names, by the paths its families give them. */
 async function shipped(theme: string): Promise<{ file: string; text: string; fonts: Map<string, Uint8Array> }> {
-  const { themes, fonts } = await import("@scaena/themes");
-  const chosen = themes[theme];
+  const { themes, aliases, fonts } = await import("@scaena/themes");
+  const chosen = themes[theme] ?? themes[aliases[theme] ?? ""];
   if (!chosen) throw new Error(`no theme ships as ${theme}: ${Object.keys(themes).join(", ") || "none here"}`);
   const fetched = async (url: string) => {
     const response = await fetch(url);
@@ -926,9 +977,10 @@ async function shipped(theme: string): Promise<{ file: string; text: string; fon
  * what it came to. The page opens it as it opens any bundle's files. */
 async function generating(job: Generate, engine?: WebAssembly.Module) {
   await init(engine && { module_or_path: engine });
-  // Lint lays the deck's texts out, which can hyphenate them and color their code, and its forecasts.
+  // Lint lays the deck's texts out, which can hyphenate them and color their code, counts a haiku, and lays out its forecasts.
   setHyphenation(patterns);
   setCodeTables(tables);
+  setVerse(syllables);
   setIcons(icons);
   const { generate } = await import("@scaena/generate");
   const theme = await shipped(job.theme);

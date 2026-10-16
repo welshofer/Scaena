@@ -9,6 +9,7 @@ use crate::code::is_code;
 use crate::layout::Grid;
 use crate::sample::Content;
 use crate::text::{TextAlign, TextLayout};
+use crate::theme::Wrap;
 use scaena_core::document::Props;
 use scaena_core::lint::{Finding, Severity};
 use scaena_core::model::nodes::TextFit;
@@ -387,15 +388,15 @@ impl Rule for W202MaxLines {
                     .at(cx.node_path(id))
                     .node(id)
                     .measure(json!({ "lines": n, "maxLines": max }))
-                    .hint(match is_code(props) {
-                        // Code keeps its lines at any size (ADR-0029).
+                    .hint(match is_code(props) || placed.text.wrap == Wrap::None {
+                        // Code keeps its lines at any size (ADR-0029), and verse (PLAN O.4b).
                         true => {
-                            "Give it fewer lines a step, or take its `maxLines` away: code keeps its lines at any size."
+                            "Give it fewer lines a step, or take its `maxLines` away: code and verse keep their lines at any size."
                         }
                         false => "Shorten it, or let it shrink (`fit: shrink`) to fit its lines.",
                     });
-                // Shrinking takes no line from code.
-                if placed.fit != TextFit::Shrink && !is_code(props) {
+                // Shrinking takes no line from code or verse.
+                if placed.fit != TextFit::Shrink && !is_code(props) && placed.text.wrap != Wrap::None {
                     f = f.fix(shrink(cx, state.index, id));
                 }
                 out.push(f);
@@ -562,15 +563,23 @@ impl Rule for W231Upright {
                     "text `{id}` asks for italic, but {} {has} no italic face: it is set upright",
                     named.join(" and ")
                 );
+                // A family upright by design has no italic to name: its script sets none
+                // (ADR-0031, call 6).
+                let by_design =
+                    (upright.iter()).all(|f| cx.theme.families().get(f).is_some_and(|d| d.upright == Some(true)));
+                let hint = if by_design {
+                    "The family is upright by design, since its script sets no italic: take `italic` away, or set \
+                     the text in a family that has one."
+                } else {
+                    "Name the family's italic face in the theme (`italic: { \"file\": … }`) and add its file to \
+                     the bundle, or take `italic` away."
+                };
                 out.push(
                     cx.finding(self.code(), self.severity(), state, message)
                         .at(cx.node_path(id))
                         .node(id)
                         .measure(json!({ "upright": upright }))
-                        .hint(
-                            "Name the family's italic face in the theme (`italic: { \"file\": … }`) and add its file to \
-                             the bundle, or take `italic` away.",
-                        ),
+                        .hint(hint),
                 );
             }
         }
@@ -644,6 +653,10 @@ impl Rule for W201Measure {
         for state in cx.states {
             for (id, placed, _) in texts(state) {
                 let t = &placed.text;
+                // Verse has no measure: its lines are as long as they are written (PLAN O.4b).
+                if t.wrap == Wrap::None {
+                    continue;
+                }
                 let wide = t.lines.iter().find(|l| l.width > t.measure + 0.5 && l.width <= placed.cell[2] + 0.5);
                 let Some(line) = wide else { continue };
                 let text = t.text[line.text.clone()].trim();
@@ -666,8 +679,8 @@ impl Rule for W201Measure {
 }
 
 /// W220: paragraphs (text of two lines or more) aligned more than one way in a state; a shape's
-/// words are none of them (PLAN 2.108), and nor is code, whose lines start from its block's left
-/// (PLAN 2.131).
+/// words are none of them (PLAN 2.108), nor is code, whose lines start from its block's left
+/// (PLAN 2.131), nor verse, set as a poem is wherever the slide's paragraphs stand (PLAN O.4b).
 pub struct W220MixedAlignment;
 impl Rule for W220MixedAlignment {
     fn code(&self) -> &'static str {
@@ -684,7 +697,11 @@ impl Rule for W220MixedAlignment {
             // the slide's.
             let words = |id: &str| cx.deck.nodes.get(id).and_then(|n| scaena_core::tracking::words_of(cx.deck, n));
             for (id, placed, props) in texts(state) {
-                if placed.text.lines.len() >= 2 && words(id).is_none() && !is_code(props) {
+                if placed.text.lines.len() >= 2
+                    && words(id).is_none()
+                    && !is_code(props)
+                    && placed.text.wrap != Wrap::None
+                {
                     let align = match placed.text.align {
                         TextAlign::Start => "start",
                         TextAlign::Center => "center",

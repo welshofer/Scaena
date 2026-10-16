@@ -33,7 +33,7 @@ pub struct Fetched {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub map: Option<MapAsked>,
     /// Which of the service's terms applied, where the request itself says so: Open-Meteo's
-    /// `free` service or its `customer` one (deck format 0.30).
+    /// `free` service or its `customer` one (deck format 0.31).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub terms: Option<Terms>,
     /// The person keeps it as of its date: lint does not judge its date (W428).

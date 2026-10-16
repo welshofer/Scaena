@@ -13,6 +13,7 @@ const DECKS: &[(&str, &str)] = &[
     ("higher-ed", include_str!("../../../docs/examples/higher-ed.deck.json")),
     ("code", include_str!("../../../docs/examples/code.deck.json")),
     ("weather", include_str!("../../../docs/examples/weather.deck.json")),
+    ("haiku", include_str!("../../../docs/examples/haiku.deck.json")),
     ("authorability", include_str!("../../../docs/examples/authorability/deck.json")),
     ("torture", include_str!("../../../tests/fixtures/torture.scaena/deck.json")),
     ("b1", include_str!("../../../tests/bench/b1.scaena/deck.json")),
@@ -21,7 +22,7 @@ const DECKS: &[(&str, &str)] = &[
 const THEMES: &[(&str, &str)] = &[
     ("dusk", include_str!("../../../docs/examples/themes/dusk.theme.json")),
     ("ember", include_str!("../../../docs/examples/themes/ember.theme.json")),
-    ("gallery", include_str!("../../../docs/examples/themes/gallery.theme.json")),
+    ("salon", include_str!("../../../docs/examples/themes/salon.theme.json")),
     ("authorability dusk", include_str!("../../../docs/examples/authorability/themes/dusk.theme.json")),
     ("authorability daybreak", include_str!("../../../docs/examples/authorability/themes/daybreak.theme.json")),
     ("torture", include_str!("../../../tests/fixtures/torture.scaena/theme.json")),

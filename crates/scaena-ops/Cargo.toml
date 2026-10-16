@@ -14,8 +14,9 @@ authors.workspace = true
 gpu = ["scaena-paint/gpu", "scaena-export/gpu"]
 # The themes that ship, with their fonts, in the binary, so `create` takes one by name
 # (PLAN 2.13), and the icons that ship (PLAN 2.104). The CLI, the MCP server, and the C ABI
-# carry them; the browser's module does not, as the web build carries them beside its pages.
-shipped = []
+# carry them, every font compressed (PLAN T.0c); the browser's module does not, as the web build
+# carries them beside its pages.
+shipped = ["dep:flate2"]
 # Decks made from a narrative Narrato writes (ADR-0026, PLAN G.1). Off in the browser's editor
 # module, which loads generation as a module of its own (PLAN G.5).
 narrato = ["dep:scaena-narrato", "dep:scaena-sources"]
@@ -35,11 +36,20 @@ serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 thiserror.workspace = true
+flate2 = { workspace = true, optional = true }
+
+# The shipped themes' fonts, found in the repository or the sha256 cache and compressed into the
+# binary (PLAN T.0c, `build.rs`).
+[build-dependencies]
+flate2.workspace = true
+sha2.workspace = true
 
 [dev-dependencies]
 # Its hyphenation patterns and the code scanners' tables, which the tests' decks hyphenate and
 # color by (ADR-0015, PLAN 2.132).
 scaena-engine = { workspace = true, features = ["hyphenation", "code-tables"] }
+# The syllable table compiled in (PLAN O.4a).
+scaena-core = { workspace = true, features = ["syllables"] }
 hayro.workspace = true
 # Rasterizes SVGs to compare with the painters (PLAN 1.21). Without its text feature: an
 # SVG's text is the transparent layer a reader selects, which no painter draws.

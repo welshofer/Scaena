@@ -112,6 +112,8 @@ pub enum Wrap {
     Greedy,
     Pretty,
     Balance,
+    /// Lines break only where the text breaks them (PLAN O.4b).
+    None,
 }
 
 impl From<node_model::Wrap> for Wrap {
@@ -120,6 +122,7 @@ impl From<node_model::Wrap> for Wrap {
             node_model::Wrap::Greedy => Wrap::Greedy,
             node_model::Wrap::Pretty => Wrap::Pretty,
             node_model::Wrap::Balance => Wrap::Balance,
+            node_model::Wrap::None => Wrap::None,
         }
     }
 }
@@ -402,6 +405,16 @@ impl Theme {
             let has = if names.is_empty() { "none".to_string() } else { names.join(", ") };
             EngineError::Theme(format!("unknown shadow `{name}`: the theme's shadows are {has}"))
         })
+    }
+
+    /// How the theme frames its pictures (PLAN T.3a): its keyline and its mat, each a width and
+    /// a color, from the picture out; none where it says none.
+    pub fn frame(&self) -> Result<Option<crate::images::Frame>, EngineError> {
+        let Some(pictures) = &self.pictures else { return Ok(None) };
+        let band = |b: Option<&model::Band>| b.map(|b| Ok::<_, EngineError>((b.width as f32, self.color(&b.color)?)));
+        let (keyline, mat) = pictures.frame.bands();
+        let (keyline, mat) = (band(keyline).transpose()?, band(mat).transpose()?);
+        Ok((keyline.is_some() || mat.is_some()).then_some(crate::images::Frame { keyline, mat }))
     }
 
     /// A stroke token's width.

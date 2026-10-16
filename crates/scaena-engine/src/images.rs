@@ -12,6 +12,12 @@
 //! its light and color (PLAN 2.117): the display list names the image's pixels so adjusted by an
 //! asset id of their own, which the painters make from the image's (`scaena_core::adjust`).
 //!
+//! Every picture takes its theme's frame (PLAN T.3a), and no image says otherwise: a keyline at
+//! the picture's edge, then a mat of a theme color around it, drawn inside the box as fills, the
+//! picture fitted, cropped, and focused within what they leave. `radius` then rounds the frame's
+//! outer corners, the picture's own concentric inside them, and a mask's shape is drawn larger
+//! for each band.
+//!
 //! Images are PNGs and JPEGs, each read by one decoder in Rust alone, the same pixels everywhere
 //! (SPEC §13): a JPEG by `scaena_core::jpeg`, in integers (ADR-0017). A JPEG's size is its size as
 //! seen, turned by its EXIF orientation, as its pixels are.
@@ -154,6 +160,23 @@ pub struct ImageNode {
     foot: f32,
     /// What the engine draws over the picture (ADR-0030): a pin, its label, and a credit.
     pub marks: Box<Marks>,
+    /// Its theme's frame (PLAN T.3a).
+    frame: Option<Frame>,
+}
+
+/// A picture's frame, as its theme says it (PLAN T.3a): its keyline and its mat, each a width,
+/// canvas units, and a color, from the picture out.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Frame {
+    pub keyline: Option<(f32, Color)>,
+    pub mat: Option<(f32, Color)>,
+}
+
+impl Frame {
+    /// How wide it is, canvas units: its bands together.
+    pub fn width(&self) -> f32 {
+        self.keyline.map_or(0.0, |k| k.0) + self.mat.map_or(0.0, |m| m.0)
+    }
 }
 
 /// What the engine draws over a picture (ADR-0030, decisions 13–14): a pin, its label beside it,
@@ -377,6 +400,7 @@ impl ImageNode {
             border,
             foot: 0.0,
             marks: Box::default(),
+            frame: theme.frame()?,
         })
     }
 
@@ -436,11 +460,30 @@ impl ImageNode {
         ImageNode { rect, radius: lerp(a.radius, b.radius, p).max(0.0), shadow, under, border, ..b.clone() }
     }
 
+    /// How far in from the box's edge its frame stands (PLAN T.3a), box-local, and how much of
+    /// each band's width it draws: all of it, but in a box so small that the frame would take more
+    /// than half its shorter side, where every band narrows alike.
+    fn inset(&self) -> (f32, f32) {
+        let Some(frame) = self.frame else { return (0.0, 1.0) };
+        let [_, _, w, h] = self.rect;
+        let room = w.min((h - self.foot).max(0.0)).max(0.0) / 4.0;
+        let width = frame.width();
+        if width <= room { (width, 1.0) } else { (room, room / width) }
+    }
+
     /// The pixels of the image that show, and where in the box, box-local: `(src, dst)`.
+    /// Within its frame (PLAN T.3a), where its theme gives one.
     pub fn placement(&self) -> (Rect, Rect) {
         let [_, _, w, h] = self.rect;
         // A credit set below keeps the box's foot (ADR-0030).
         let h = (h - self.foot).max(0.0);
+        let (t, _) = self.inset();
+        let (src, [dx, dy, dw, dh]) = self.fitted((w - 2.0 * t).max(0.0), (h - 2.0 * t).max(0.0));
+        (src, [dx + t, dy + t, dw, dh])
+    }
+
+    /// The pixels of the image that show, and where in a box `w` by `h` at the origin.
+    fn fitted(&self, w: f32, h: f32) -> (Rect, Rect) {
         let (iw, ih) = (self.info.width as f32, self.info.height as f32);
         let [fx, fy] = self.focal;
         // The crop, in pixels.
@@ -524,17 +567,42 @@ impl ImageNode {
                 vec![faded(drawn(under), below), faded(drawn(self.adjust), p)]
             }
         };
+        // Its frame (PLAN T.3a), from the picture out: the radius rounds its outer edge, and each
+        // edge inside it is rounded concentric with that one, the picture's too.
+        let (t, k) = self.inset();
+        let out = |d: f32| [dst[0] - d, dst[1] - d, dst[2] + 2.0 * d, dst[3] + 2.0 * d];
+        let rounding = |d: f32| (self.radius - (t - d)).max(0.0);
+        let shape = |d: f32| {
+            let [x, y, w, h] = out(d);
+            match &self.mask {
+                Some(mask) => mask.outline([x, y, w, h]),
+                None => RoundRect::rounded(x, y, w, h, rounding(d).min(w.min(h) / 2.0)).path(),
+            }
+        };
+        let ring = |inner: f32, outer: f32, color: Color| {
+            let mut path = shape(outer);
+            path.0.extend(shape(inner).0);
+            Op::Fill { path, rule: FillRule::EvenOdd, paint: Paint::Solid(color) }
+        };
+        let mut frame = Vec::new();
+        if let Some(f) = self.frame {
+            let keyline = f.keyline.map_or(0.0, |(w, _)| w * k);
+            frame.extend(f.keyline.map(|(_, color)| ring(0.0, keyline, color)));
+            frame.extend(f.mat.map(|(_, color)| ring(keyline, t, color)));
+        }
+        // What shows, its frame and all: the shadow is under it and the border around it.
+        let edge = out(t);
+        let [_, _, ew, eh] = edge;
         // Its shadow under what shows (PLAN 2.115), its outline the picture's: rounded as it is,
         // or an oval.
-        let [_, _, dw, dh] = dst;
         let shadow = self.shadow.map(|s| match &self.mask {
-            Some(Mask::Oval) => s.oval(dst),
-            _ => s.op(dst, self.radius.min(dw.min(dh) / 2.0)),
+            Some(Mask::Oval) => s.oval(edge),
+            _ => s.op(edge, self.radius.min(ew.min(eh) / 2.0)),
         });
         // Its border (PLAN 2.118) on top, around what shows as a shape's outline is stroked: the
         // mask's shape, the rounded corners, or the picture's edge.
         let border = self.border.as_ref().map(|(b, shown)| {
-            let [x, y, w, h] = dst;
+            let [x, y, w, h] = edge;
             let outline = match &self.mask {
                 Some(mask) => mask.outline([0.0, 0.0, w, h]),
                 None => RoundRect::rounded(0.0, 0.0, w, h, self.radius.min(w.min(h) / 2.0)).path(),
@@ -551,12 +619,9 @@ impl ImageNode {
             }
         });
         let clip = match &self.mask {
-            Some(mask) => mask.outline(dst),
-            None if self.radius > 0.0 => {
-                let [x, y, w, h] = dst;
-                RoundRect::rounded(x, y, w, h, self.radius.min(w.min(h) / 2.0)).path()
-            }
-            None => return shadow.into_iter().chain(images).chain(border).collect(),
+            Some(_) => shape(0.0),
+            None if rounding(0.0) > 0.0 => shape(0.0),
+            None => return shadow.into_iter().chain(frame).chain(images).chain(border).collect(),
         };
         let layer = Op::Layer {
             node: None,
@@ -568,7 +633,7 @@ impl ImageNode {
             clip: Some(clip),
             ops: images,
         };
-        shadow.into_iter().chain([layer]).chain(border).collect()
+        shadow.into_iter().chain(frame).chain([layer]).chain(border).collect()
     }
 }
 
@@ -599,6 +664,97 @@ mod tests {
         images.register("assets/logo.png", &png_of(400, 200, 6)).unwrap();
         let theme = Theme::from_json(include_str!("../../../docs/examples/themes/dusk.theme.json")).unwrap();
         ImageNode::resolve(&serde_json::from_value(props).unwrap(), &theme, &images, rect).unwrap()
+    }
+
+    /// In Dusk with a frame (PLAN T.3a): a keyline of 2 in its ink, then a mat of 8 in its card.
+    fn framed(props: Value, rect: Rect) -> ImageNode {
+        let mut images = BundleImages::new();
+        images.register("assets/photo.png", &png(400, 200)).unwrap();
+        let mut raw: Value =
+            serde_json::from_str(include_str!("../../../docs/examples/themes/dusk.theme.json")).unwrap();
+        raw["pictures"] = json!({ "frame": {
+            "mat": { "color": "surface-2", "width": 8 },
+            "keyline": { "color": "onSurface", "width": 2 }
+        } });
+        let theme = Theme::from_json(&raw.to_string()).unwrap();
+        ImageNode::resolve(&serde_json::from_value(props).unwrap(), &theme, &images, rect).unwrap()
+    }
+
+    /// Where a path reaches, as `[x, y, w, h]`: the bounds of its points.
+    fn reach(path: &Path) -> Rect {
+        let (mut lo, mut hi) = ([f32::MAX; 2], [f32::MIN; 2]);
+        for el in &path.0 {
+            let points = match *el {
+                PathEl::MoveTo(p) | PathEl::LineTo(p) => vec![p],
+                PathEl::QuadTo(a, b) => vec![a, b],
+                PathEl::CurveTo(a, b, c) => vec![a, b, c],
+                PathEl::Close => vec![],
+            };
+            for [x, y] in points {
+                lo = [lo[0].min(x), lo[1].min(y)];
+                hi = [hi[0].max(x), hi[1].max(y)];
+            }
+        }
+        [lo[0], lo[1], hi[0] - lo[0], hi[1] - lo[1]]
+    }
+
+    /// A frame's bands as drawn: each ring's color and where its outer edge reaches.
+    fn bands(ops: &[Op]) -> Vec<(Color, Rect)> {
+        ops.iter()
+            .filter_map(|op| match op {
+                Op::Fill { path, rule: FillRule::EvenOdd, paint: Paint::Solid(c) } => Some((*c, reach(path))),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// A picture's frame (PLAN T.3a): its theme's keyline, then its mat, drawn inside the box as
+    /// rings, and the picture fitted, cropped, and focused within what they leave; the radius
+    /// rounds the frame's outer edge and the picture's concentric inside it; a box too small for
+    /// it narrows every band alike; and a theme that frames nothing draws as it did.
+    #[test]
+    fn a_picture_takes_its_themes_frame_inside_its_box() {
+        let box_ = [0.0, 0.0, 100.0, 100.0];
+        let n = framed(json!({ "src": "assets/photo.png" }), box_);
+        // The middle square of the 2:1 picture, in what the frame leaves: 10 in from each side.
+        assert_eq!(n.placement(), ([100.0, 0.0, 200.0, 200.0], [10.0, 10.0, 80.0, 80.0]));
+        let ops = n.ops();
+        let theme = Theme::from_json(include_str!("../../../docs/examples/themes/dusk.theme.json")).unwrap();
+        let (ink, card) = (theme.color("onSurface").unwrap(), theme.color("surface-2").unwrap());
+        assert_eq!(bands(&ops), vec![(ink, [8.0, 8.0, 84.0, 84.0]), (card, box_)], "keyline, then mat");
+        assert!(matches!(ops.last(), Some(Op::Image { dst: [10.0, 10.0, 80.0, 80.0], .. })), "the picture on top");
+
+        // Its focal point and its crop, within the frame.
+        let n = framed(json!({ "src": "assets/photo.png", "focal": [0, 0.5] }), box_);
+        assert_eq!(n.placement(), ([0.0, 0.0, 200.0, 200.0], [10.0, 10.0, 80.0, 80.0]));
+        assert_eq!(n.point([10.0, 10.0]), Some([0.0, 0.0]), "the picture's corner at the frame's inside");
+        assert_eq!(n.point([5.0, 5.0]), None, "the mat is not the picture");
+        let n = framed(json!({ "src": "assets/photo.png", "fit": "fill", "crop": [0.5, 0, 0.5, 1] }), box_);
+        assert_eq!(n.placement(), ([200.0, 0.0, 200.0, 200.0], [10.0, 10.0, 80.0, 80.0]));
+
+        // A contained picture's frame hugs it.
+        let n = framed(json!({ "src": "assets/photo.png", "fit": "contain" }), box_);
+        assert_eq!(n.placement().1, [10.0, 30.0, 80.0, 40.0]);
+        assert_eq!(bands(&n.ops())[1].1, [0.0, 20.0, 100.0, 60.0]);
+
+        // A radius rounds the frame's outer edge, the picture's 10 less inside it; a shadow falls
+        // under the frame.
+        let n = framed(json!({ "src": "assets/photo.png", "radius": 16, "shadow": "soft" }), box_);
+        let ops = n.ops();
+        let Op::Shadow { rect, radius, .. } = ops[0] else { panic!("the shadow first: {ops:?}") };
+        assert_eq!((rect[2], rect[3], radius), (100.0, 100.0, 16.0));
+        let Some(Op::Layer { clip: Some(clip), .. }) = ops.last() else { panic!("a rounded picture: {ops:?}") };
+        assert_eq!(reach(clip), [10.0, 10.0, 80.0, 80.0]);
+        assert!(clip.0.iter().any(|el| matches!(el, PathEl::CurveTo(..) | PathEl::QuadTo(..))), "rounded by 6");
+
+        // In a box of 20, the frame takes a quarter of a side: 5, each band at half its width.
+        let n = framed(json!({ "src": "assets/photo.png" }), [0.0, 0.0, 20.0, 20.0]);
+        assert_eq!(n.placement().1, [5.0, 5.0, 10.0, 10.0]);
+        assert_eq!(bands(&n.ops())[0].1, [4.0, 4.0, 12.0, 12.0], "a keyline of 1");
+
+        // Dusk frames nothing: the picture fills its box.
+        assert_eq!(theme.frame().unwrap(), None);
+        assert!(matches!(node(json!({ "src": "assets/photo.png" }), box_).ops().as_slice(), [Op::Image { .. }]));
     }
 
     /// Shadows (PLAN 2.115): an image casts its shadow under what shows, a contained picture's

@@ -83,7 +83,7 @@ fn lint_with(bundle: &Path, args: &[&str]) -> (i32, Vec<Value>) {
 }
 
 /// Each rule's trigger, and where in the deck it finds what it finds.
-const RULES: [(&str, &[&str]); 44] = [
+const RULES: [(&str, &[&str]); 45] = [
     ("E100", &["/nodes/t"]),
     ("E101", &["/nodes/b", "/nodes/note", "/nodes/src"]),
     ("E110", &["/nodes/t"]),
@@ -128,6 +128,7 @@ const RULES: [(&str, &[&str]); 44] = [
     ("I401", &["/nodes/ghost"]),
     ("I402", &["/overrides/t"]),
     ("I403", &["/nodes/cobol/code/language", "/nodes/slip/code/language"]),
+    ("I404", &["/nodes/poem"]),
 ];
 
 #[test]
@@ -162,7 +163,7 @@ fn deck(data: Value, nodes: Value) -> Value {
     let props: serde_json::Map<String, Value> =
         nodes.as_object().unwrap().keys().map(|k| (k.clone(), serde_json::json!({}))).collect();
     serde_json::json!({
-        "scaena": "0.31",
+        "scaena": "0.32",
         "canvas": { "width": 1920, "height": 1080 },
         "theme": "theme.json",
         "fonts": [
@@ -475,6 +476,7 @@ fn the_example_decks_and_b1_lint_clean() {
         "docs/examples/ridgeline.deck.json",
         "docs/examples/code.deck.json",
         "docs/examples/weather.deck.json",
+        "docs/examples/haiku.deck.json",
         "tests/bench/b1.scaena",
     ] {
         let (exit, found) = lint(&Path::new(ROOT).join(bundle));

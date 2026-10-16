@@ -6,13 +6,13 @@ use scaena_ops::lint::{View, lint_state_in};
 use scaena_ops::states::starting;
 use std::path::{Path, PathBuf};
 
-/// The shipped themes, by name: Dusk, its light twin Daybreak, Ember, and Gallery.
-const SHIPPED: [(&str, &str); 4] = [
-    ("dusk", "../../docs/examples/themes/dusk.theme.json"),
-    ("daybreak", "../../docs/examples/authorability/themes/daybreak.theme.json"),
-    ("ember", "../../docs/examples/themes/ember.theme.json"),
-    ("gallery", "../../docs/examples/themes/gallery.theme.json"),
-];
+/// The shipped themes, as the registry lists them (PLAN T.0a): each by its slug and its file.
+fn shipped() -> Vec<(String, String)> {
+    let registry: serde_json::Value =
+        serde_json::from_slice(&std::fs::read("../../docs/themes/registry.json").unwrap()).unwrap();
+    let themes = registry["themes"].as_array().unwrap().iter();
+    themes.map(|t| (t["slug"].as_str().unwrap().into(), format!("../../{}", t["files"][0].as_str().unwrap()))).collect()
+}
 
 /// A new bundle in `theme`, titled, at a place of its own, in the fonts the theme ships with
 /// (`scaena_ops::shipped`'s, `docs/examples/fonts`): Daybreak's file sits beside the authorability
@@ -39,8 +39,8 @@ fn made(name: &str, theme: &str) -> PathBuf {
 fn every_shipped_layout_starts_a_slide_that_lint_finds_nothing_in() {
     // Every layout's findings in every theme, said at once.
     let mut wrong: Vec<String> = Vec::new();
-    for (name, theme) in SHIPPED {
-        let b = scaena_ops::open(&made(name, theme)).unwrap();
+    for (name, theme) in shipped() {
+        let b = scaena_ops::open(&made(&name, &theme)).unwrap();
         let t = scaena_ops::theme(&b).unwrap();
         let files = View::of(&b);
         let first = b.deck.states[0].id.clone();
@@ -81,8 +81,8 @@ fn every_shipped_layout_starts_a_slide_that_lint_finds_nothing_in() {
 fn every_shipped_layout_draws_its_example_in_each_slot_that_waits() {
     use scaena_core::model::theme::Example;
     let mut drawn = 0;
-    for (name, theme) in SHIPPED {
-        let b = scaena_ops::open(&made(&format!("{name}-examples"), theme)).unwrap();
+    for (name, theme) in shipped() {
+        let b = scaena_ops::open(&made(&format!("{name}-examples"), &theme)).unwrap();
         let t = scaena_ops::theme(&b).unwrap();
         let files = View::of(&b);
         let first = b.deck.states[0].id.clone();
@@ -117,6 +117,26 @@ fn every_shipped_layout_draws_its_example_in_each_slot_that_waits() {
                         assert_eq!(node["kind"], serde_json::to_value(kind).unwrap());
                     }
                     Example::Table(_) => assert_eq!(node["type"], "table"),
+                    Example::Map(preset) => {
+                        // A map's place: the picture, then a pin and a label over it (PLAN O.1e).
+                        assert_eq!(
+                            (node["preset"].as_str(), &node["z"]),
+                            (Some(preset.as_str()), &serde_json::json!(-2))
+                        );
+                        let over: Vec<_> = (deck.nodes.values())
+                            .map(|n| serde_json::to_value(n).unwrap())
+                            .filter(|n| n["at"]["in"] == *slot && n["type"] != "shader")
+                            .collect();
+                        assert!(
+                            over.iter().any(|n| n["kind"] == "path" && n["fill"] == "accent"),
+                            "{name}'s {layout}: a pin"
+                        );
+                        assert!(
+                            over.iter().any(|n| n["type"] == "text" && n["role"] == "label"),
+                            "{name}'s {layout}: a label"
+                        );
+                        seeds.push(node["seed"].as_u64().unwrap());
+                    }
                 }
                 drawn += 1;
             }
@@ -133,9 +153,9 @@ fn every_shipped_layout_draws_its_example_in_each_slot_that_waits() {
 /// reads as the picture's caption.
 #[test]
 fn a_title_slides_byline_is_no_caption_of_its_picture() {
-    for (name, theme) in SHIPPED {
+    for (name, theme) in shipped() {
         let t: scaena_core::model::theme::Theme =
-            serde_json::from_str(&std::fs::read_to_string(theme).unwrap()).unwrap();
+            serde_json::from_str(&std::fs::read_to_string(&theme).unwrap()).unwrap();
         let slots = &t.layouts["title"].slots;
         let span = |slot: &str| -> [u64; 2] {
             let col = serde_json::to_value(slots[slot].col).unwrap();
@@ -155,8 +175,8 @@ fn a_title_slides_byline_is_no_caption_of_its_picture() {
 /// small in the top of the slot.
 #[test]
 fn a_lists_points_are_set_larger_than_the_body() {
-    for (name, path) in SHIPPED {
-        let theme = scaena_core::model::Theme::from_json(&std::fs::read_to_string(path).unwrap()).unwrap();
+    for (name, path) in shipped() {
+        let theme = scaena_core::model::Theme::from_json(&std::fs::read_to_string(&path).unwrap()).unwrap();
         let size = |role: &str| theme.typography.roles[role].size;
         for (layout, slot) in
             [("bullets", "body"), ("numbered", "body"), ("bullets-photo", "body"), ("agenda-photo", "body")]
@@ -177,8 +197,8 @@ fn every_shipped_layout_starts_a_slide_mirrored_where_the_deck_reads_right_to_le
     use std::collections::BTreeMap;
     let mut wrong: Vec<String> = Vec::new();
     let mut compared = 0;
-    for (name, theme) in SHIPPED {
-        let b = scaena_ops::open(&made(&format!("{name}-mirrored"), theme)).unwrap();
+    for (name, theme) in shipped() {
+        let b = scaena_ops::open(&made(&format!("{name}-mirrored"), &theme)).unwrap();
         let t = scaena_ops::theme(&b).unwrap();
         let files = View::of(&b);
         let data = scaena_ops::lint::data_in(&b.deck, &files).unwrap();
@@ -243,4 +263,27 @@ fn every_shipped_layout_starts_a_slide_mirrored_where_the_deck_reads_right_to_le
     }
     assert!(compared > 1000, "boxes compared: {compared}");
     assert!(wrong.is_empty(), "{} wrong:\n{}", wrong.len(), wrong.join("\n"));
+}
+
+/// A slide started in the Haiku layout (PLAN O.4c) holds its prompt's own 5-7-5, centered in the
+/// theme's verse role, and lint finds nothing in it, in every theme.
+#[test]
+fn a_haiku_slide_counts_5_7_5_in_every_theme() {
+    for (name, theme) in shipped() {
+        let b = scaena_ops::open(&made(&format!("haiku-{name}"), &theme)).unwrap();
+        let t = scaena_ops::theme(&b).unwrap();
+        let first = b.deck.states[0].id.clone();
+        let started = starting(&b.deck, &t, &first, Some("haiku")).unwrap();
+        let poem = started.patch.iter().find(|op| op["op"] == "add_node" && op["node"]["at"]["in"] == "poem").unwrap();
+        assert_eq!(poem["node"]["role"], "verse", "{name}");
+        let text = poem["node"]["text"].as_str().unwrap();
+        let checked = scaena_core::verse::check(text, "en");
+        assert_eq!(checked.kept, scaena_core::verse::Kept::Kept, "{name}: {checked:?}");
+        let layout = &t.layouts["haiku"];
+        assert_eq!(layout.name.as_deref(), Some("Haiku"));
+        assert_eq!(layout.group.as_deref(), Some("Statements"));
+        let order: Vec<&String> = t.layouts.keys().collect();
+        let at = |k: &str| order.iter().position(|o| *o == k).unwrap();
+        assert_eq!(at("haiku"), at("key-point") + 1, "{name}: after Key Point");
+    }
 }

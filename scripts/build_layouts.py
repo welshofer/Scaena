@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
-"""The shipped themes' library of layouts (PLAN 3.30, 3.31), written into Dusk, Daybreak, Ember, and Gallery.
+"""The themes' library of layouts (PLAN 3.30, 3.31), written into each theme `docs/themes/registry.json` lists.
 
 Each layout is a slide a person starts from Add Slide: slots on the theme's 12 × 12 grid, each
 saying what goes in it. This script holds the library's catalog: the sections it is offered in,
 in order, and every layout in each: the 47 the themes had, and those added since. It writes each
 theme file's `layouts`, and nothing else in it.
 
-- **The layouts the themes had** keep the slots each theme gave them: Ember's sit where its design
-  wants them, and Dusk's and Daybreak's are one. This script puts each in its section and gives
+- **The layouts are keyed by geometry family** (PLAN T.0a), as the registry names each theme's:
+  Dusk's grid, which Daybreak and Salon share, or Ember's. A theme draws its family's layouts,
+  and a new theme, whose file holds none, takes the older ones from its family's first file.
+- **The layouts the themes had** keep the slots each family gave them: Ember's sit where its design
+  wants them, and Dusk's family's are one. This script puts each in its section and gives
   the slots that wait for a picture or a figure an `example`, what the layout's picture shows there.
 - **The layouts added since** are written here, once, on Dusk's grid: a headline in rows 1–2, what
   the slide holds in rows 3–10, and the kicker at the foot on the right. Ember's are made from
@@ -28,13 +31,14 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-THEMES = {
-    "dusk": [ROOT / "docs/examples/themes/dusk.theme.json", ROOT / "docs/examples/authorability/themes/dusk.theme.json"],
-    "daybreak": [ROOT / "docs/examples/authorability/themes/daybreak.theme.json"],
-    "ember": [ROOT / "docs/examples/themes/ember.theme.json"],
-    # Gallery (PLAN 2.102) takes Daybreak's layouts, on the same grid.
-    "gallery": [ROOT / "docs/examples/themes/gallery.theme.json"],
-}
+REGISTRY = ROOT / "docs/themes/registry.json"
+
+
+def themes(registry):
+    """Each theme the registry lists, in its order: its slug, its geometry family, and its files.
+    A theme's layouts are its family's (PLAN T.0a): Dusk's grid, which Daybreak and Salon share
+    (PLAN 2.102), or Ember's."""
+    return [(e["slug"], e["geometry"], [ROOT / f for f in e["files"]]) for e in registry["themes"]]
 
 # The sections Add Slide offers the layouts in, in order.
 SECTIONS = [
@@ -214,6 +218,12 @@ layout("Statements", "key-point", "One point on its card, set large, and what fo
     "point": slot((2, 11), (3, 6), "headline", "The one point to remember", inset=48, align={"y": "end"}),
     "follow": slot((2, 11), (7, 9), "body", "What follows from it", inset=48),
 }, ember={"card": ((2, 11), (3, 10)), "point": ((2, 11), (3, 7)), "follow": ((2, 11), (8, 10))})
+
+layout("Statements", "haiku", "A haiku, set as written in the middle of the slide, and who wrote it or what it is on.", {
+    "poem": slot((2, 11), (3, 8), "verse", "A haiku goes here\nseven syllables between\nfive more to close it", align={"x": "center", "y": "center"}, fit="shrink"),
+    "rule": rule((6, 7), (9, 9)),
+    "attribution": slot((4, 9), (10, 10), "caption", "Who wrote it, or what it is on", align={"x": "center"}),
+}, ember={"poem": ((2, 11), (3, 9)), "rule": ((6, 7), (10, 10)), "attribution": ((4, 9), (11, 11))})
 
 # Lists -----------------------------------------------------------------------------------------
 
@@ -880,7 +890,7 @@ layout("Closing", "call-to-action", "One thing to do next, set large, and a butt
 # The first sixteen of ADR-0031's slide types (PLAN S.1), each drawn as its table says.
 
 # Where a point of the grid stands in a slot, as a fraction of it, on Dusk's grid (Daybreak's and
-# Gallery's are alike, and Ember's rows near enough): what a line or an arrow's `points` give.
+# Salon's are alike, and Ember's rows near enough): what a line or an arrow's `points` give.
 ROW, ROW_GUTTER, TOP = 52, 24, 96
 
 
@@ -1159,6 +1169,343 @@ layout("Classroom", "quiz", "A question and four answers, each on its card: add 
     **{o: slot((c[0] + 1, c[1]), r, "title", "An answer", inset=24, align={"y": "center"}) for o, (c, r) in zip(ORDINALS, QUAD)},
 })
 
+# Maps (ADR-0030, PLAN O.1e) ---------------------------------------------------------------------
+# A map's place says "A map", and the layout's picture shows the theme's picture art there with a
+# pin and a label over it, no provider's map: Insert › Map… fills the place.
+
+MAP = {"map": "backdrop"}
+
+
+def map_place(col, row, bleed=None):
+    return slot(col, row, prompt="A map", bleed=bleed, example=MAP)
+
+
+layout("Pictures", "map", "A map of a place under a headline, and a line saying what it shows.", {
+    "kicker": KICKER,
+    "header": header(),
+    "art": map_place((1, 12), (3, 9)),
+    "note": slot((1, 8), (10, 10), "caption", "What the map shows"),
+})
+
+layout("Pictures", "map-words", "A map off the right edge, a headline and its words beside it: where it is, and why it matters.", {
+    "art": map_place((7, 12), (1, 12), bleed=True),
+    "header": slot((1, 6), (3, 5), "headline", "What this slide says"),
+    "body": slot((1, 6), (6, 10), "body", "Where it is, and why it matters, in a sentence or two."),
+}, ember={"header": ((1, 6), (2, 4)), "body": ((1, 6), (5, 11))})
+
+layout("Pictures", "map-full", "A map across the whole slide, and a headline over it.", {
+    "art": map_place((1, 12), (1, 12), bleed=True),
+    "header": slot((2, 9), (2, 3), "headline", "Where it is"),
+}, ember={"header": ((2, 9), (2, 3))})
+
+# ---------------------------------------------------------------------------------------------
+# The next of ADR-0031's slide types (PLAN S.2).
+
+# Titles ----------------------------------------------------------------------------------------
+
+layout("Titles", "paper-title", "A paper's title page: its title, its authors and where they work, the venue, and their logos.", {
+    "title": slot((1, 11), (3, 6), "display", "The paper's title", align={"y": "cap"}),
+    "authors": slot((1, 11), (7, 7), "lede", "A. Author, B. Author, C. Author"),
+    "affiliations": slot((1, 11), (8, 8), "caption", "¹ A university   ² A laboratory"),
+    "venue": slot((1, 7), (10, 11), "label", "A conference, 2026", align={"y": "end"}),
+    **{f"{o}-logo": slot(c, (10, 11), prompt="A logo", example=PICTURE, inset=16) for o, c in zip(ORDINALS, [(9, 10), (11, 12)])},
+}, ember={"title": ((1, 11), (3, 7)), "authors": ((1, 11), (8, 8)), "affiliations": ((1, 11), (9, 9)), "venue": ((1, 7), (11, 12)), **{f"{o}-logo": (c, (11, 12)) for o, c in zip(ORDINALS, [(9, 10), (11, 12)])}})
+
+# Statements ------------------------------------------------------------------------------------
+
+layout("Statements", "lyrics", "Two lines of a song, centered over a quiet picture, and who wrote it, small.", {
+    "art": picture((1, 12), (1, 12), "A quiet picture, edge to edge", bleed=True),
+    "words": slot((2, 11), (4, 8), "quote", "The first line of the song\nAnd the line that answers it", align={"x": "center", "y": "center"}),
+    "credit": slot((3, 10), (9, 9), "caption", "The song, and who wrote it", align={"x": "center"}),
+}, ember={"words": ((2, 11), (4, 9)), "credit": ((3, 10), (10, 10))})
+
+# Numbers ---------------------------------------------------------------------------------------
+
+layout("Numbers", "pictograph", "A share shown as ten figures, as many filled as it counts, and what it means.", {
+    "kicker": KICKER,
+    "header": header(),
+    **{f"figure-{i + 1}": icon((i + 1, i + 1), (3, 7), "user", inset=8, fill="accent" if i < 7 else "line") for i in range(10)},
+    "number": slot((1, 3), (8, 9), "figure", "7 in 10", align={"y": "end"}),
+    "claim": slot((4, 10), (8, 9), "title", "What the share means", align={"y": "end"}),
+    "note": slot((1, 8), (10, 10), "caption", "Its source"),
+})
+
+# Diagrams --------------------------------------------------------------------------------------
+
+# A choice at the left, a chance for each way it goes, and the outcomes each chance comes to, with
+# their odds: each joined to the next by a line from its right edge to the next one's left.
+def mid_y(row):
+    return (y_of(row[0], "top") + y_of(row[1], "bottom")) / 2
+
+
+def join(col, row, start, end):
+    """A line in `col` and `row` from `start` to `end`, through the corner a tree's branch takes."""
+    corner = ((start[0] + end[0]) / 2, start[1])
+    turn = ((start[0] + end[0]) / 2, end[1])
+    return rule(col, row, points=[at(col, row, *p) for p in [start, corner, turn, end]], stroke="onSurfaceMuted")
+
+
+CHANCES = [(4, 5), (8, 9)]
+OUTCOMES = [[(3, 3), (6, 6)], [(7, 7), (10, 10)]]
+layout("Diagrams", "decision-tree", "A choice, the chances each way it goes, and the outcomes they come to, each with its odds.", {
+    "kicker": KICKER,
+    "header": header(),
+    "choice-card": card((1, 2), (6, 7)),
+    **{f"{o}-chance-shape": ring((5, 5), r) for o, r in zip(ORDINALS, CHANCES)},
+    **{f"{o}-branch": join((3, 4), (3, 10), (x_of(2, "right"), mid_y((6, 7))), (x_of(5, "left"), mid_y(r))) for o, r in zip(ORDINALS, CHANCES)},
+    **{f"{o}-{p}-branch": join((6, 6), (3, 10), (x_of(5, "right"), mid_y(c)), (x_of(7, "left") - 16, mid_y(r))) for o, c, rows in zip(ORDINALS, CHANCES, OUTCOMES) for p, r in zip(["first", "second"], rows)},
+    "choice": slot((1, 2), (6, 7), "title", "Build?", inset=24, align={"x": "center", "y": "center"}),
+    **{o: slot((3, 4), (r, r), "label", w, align={"x": "center"}) for o, r, w in zip(ORDINALS, [3, 10], ["Build it", "Buy it"])},
+    **{f"{o}-{p}-odds": slot((7, 8), r, "label", w, align={"y": "center"}) for o, rows, ws in zip(ORDINALS, OUTCOMES, [["60%", "40%"], ["80%", "20%"]]) for p, r, w in zip(["first", "second"], rows, ws)},
+    **{f"{o}-{p}": slot((9, 12), r, "body", w, align={"y": "center"}) for o, rows, ws in zip(ORDINALS, OUTCOMES, [["Wins the market", "Late to it"], ["Ready in time", "Falls short"]]) for p, r, w in zip(["first", "second"], rows, ws)},
+})
+
+# The effect at the head, a spine to it, and a bone above and below for each kind of cause.
+SPINE = 7
+BONES = [((1, 3), "top"), ((5, 7), "top"), ((1, 3), "bottom"), ((5, 7), "bottom")]
+layout("Diagrams", "fishbone", "An effect at the head, and its causes along the bones, a kind of cause to each.", {
+    "kicker": KICKER,
+    "header": header(),
+    "spine": rule((1, 10), (SPINE, SPINE), shape="arrow", stroke="onSurfaceMuted"),
+    **{f"{o}-bone": rule((c[0], c[1] + 1), (5, 7) if side == "top" else (7, 9), points=[
+        at((c[0], c[1] + 1), (5, 7) if side == "top" else (7, 9), x_of(c[1] + 1, "right"), mid_y((SPINE, SPINE))),
+        at((c[0], c[1] + 1), (5, 7) if side == "top" else (7, 9), x_of(c[0], "left") + 67, y_of(5, "top") if side == "top" else y_of(9, "bottom")),
+    ], stroke="onSurfaceMuted") for o, (c, side) in zip(ORDINALS, BONES)},
+    "head-card": card((11, 12), (6, 8)),
+    "head": slot((11, 12), (6, 8), "title", "The effect", inset=24, align={"y": "center"}),
+    **{f"{o}-title": slot(c, (3, 3) if side == "top" else (10, 10), "label", w) for o, (c, side), w in zip(ORDINALS, BONES, ["People", "Process", "Tools", "Materials"])},
+    **{o: slot(c, (4, 4) if side == "top" else (11, 11), "caption", "A cause") for o, (c, side) in zip(ORDINALS, BONES)},
+})
+
+# Three tiers of boxes, each joined to the tier under it.
+TIERS = [(3, 4), (6, 7), (9, 10)]
+BOXES = [(4, 5), (7, 8), (10, 11)]
+layout("Diagrams", "architecture", "Systems as boxes in tiers, each joined by arrows to what it calls.", {
+    "kicker": KICKER,
+    "header": header(),
+    **{f"{t}-{o}-card": card(c, TIERS[i]) for i, t in enumerate(["client", "service"]) for o, c in zip(ORDINALS, BOXES)},
+    "data-card": card((4, 11), TIERS[2]),
+    **{f"{o}-call": rule(c, (5, 5), points=[[0.5, 0], [0.5, 1]], shape="arrow", stroke="onSurfaceMuted") for o, c in zip(ORDINALS, BOXES)},
+    **{f"{o}-query": rule(c, (8, 8), points=[[0.5, 0], [0.5, 1]], shape="arrow", stroke="onSurfaceMuted") for o, c in zip(ORDINALS, BOXES)},
+    **{f"{t}-tier": slot((1, 3), r, "label", w, align={"y": "center"}) for t, r, w in zip(["client", "service", "data"], TIERS, ["Clients", "Services", "Data"])},
+    **{f"{t}-{o}": slot(c, TIERS[i], "body", w, inset=16, align={"x": "center", "y": "center"}) for i, (t, ws) in enumerate(zip(["client", "service"], [["Web", "Mac", "iPad"], ["Accounts", "Billing", "Search"]])) for o, c, w in zip(ORDINALS, BOXES, ws)},
+    "data": slot((4, 11), TIERS[2], "body", "The database", inset=16, align={"x": "center", "y": "center"}),
+})
+
+# The question at the left, two parts of it, and two questions each part comes to, left to right.
+PARTS = [(3, 5), (8, 10)]
+SUBS = [[(3, 3), (5, 5)], [(8, 8), (10, 10)]]
+layout("Diagrams", "issue-tree", "A question split into the questions it comes to, left to right, two levels deep.", {
+    "kicker": KICKER,
+    "header": header(),
+    "root-card": card((1, 3), (5, 8)),
+    **{f"{o}-card": card((5, 7), r) for o, r in zip(ORDINALS, PARTS)},
+    **{f"{o}-branch": join((4, 4), (3, 10), (x_of(3, "right"), mid_y((5, 8))), (x_of(5, "left"), mid_y(r))) for o, r in zip(ORDINALS, PARTS)},
+    **{f"{o}-{p}-branch": join((8, 8), (3, 10), (x_of(7, "right"), mid_y(r)), (x_of(9, "left") - 16, mid_y(s))) for o, r, subs in zip(ORDINALS, PARTS, SUBS) for p, s in zip(["first", "second"], subs)},
+    "root": slot((1, 3), (5, 8), "title", "The question", inset=24, align={"y": "center"}),
+    **{o: slot((5, 7), r, "body", w, inset=24, align={"y": "center"}) for o, r, w in zip(ORDINALS, PARTS, ["A part of it", "Another part"])},
+    **{f"{o}-{p}": slot((9, 12), s, "caption", "A question it comes to", align={"y": "center"}) for o, subs in zip(ORDINALS, SUBS) for p, s in zip(["first", "second"], subs)},
+})
+
+# Frameworks ------------------------------------------------------------------------------------
+
+# Five levels, each a step higher than the one before, and where we stand marked over it.
+LEVELS = [((2 * k + 1, 2 * k + 2), (9 - k, 10)) for k in range(5)]
+layout("Frameworks", "maturity-model", "Levels of maturity as steps rising one after another, and where we stand among them.", {
+    "kicker": KICKER,
+    "header": header(),
+    **{f"{o}-step": card(c, r) for o, (c, r) in zip(ORDINALS, LEVELS)},
+    "here-arrow": rule(LEVELS[2][0], (6, 6), points=[[0.5, 0], [0.5, 1]], shape="arrow", stroke="accent"),
+    "here": slot(LEVELS[2][0], (5, 5), "label", "We are here", align={"x": "center", "y": "end"}),
+    "takeaway": slot((1, 4), (3, 5), "lede", "Where we stand, and the next step"),
+    **{o: slot(c, (r[0], r[0] + 1) if r[0] < 9 else r, "body", w, inset=16) for o, (c, r), w in zip(ORDINALS, LEVELS, ["Ad hoc", "Repeatable", "Defined", "Managed", "Leading"])},
+})
+
+# Briefing --------------------------------------------------------------------------------------
+
+layout("Briefing", "incident-review", "What happened, what it hurt, why, and what we'll do so it doesn't happen again.", {
+    "kicker": KICKER,
+    "header": header("What happened, in a line"),
+    **{f"{o}-card": card(c, r) for o, (c, r) in zip(ORDINALS, QUAD)},
+    **{f"{o}-title": slot(c, (r[0], r[0] + 1), "label", w, inset=24) for o, (c, r), w in zip(ORDINALS, QUAD, ["What happened", "The impact", "The root cause", "What we'll do"])},
+    **{o: slot(c, (r[0] + 2, r[1]), "caption", w, inset=24) for o, (c, r), w in zip(ORDINALS, QUAD, ["When it began, and when it ended", "Who it reached, and how badly", "Why it happened", {"bullet": ["The first fix", "The second"]}])},
+})
+
+# Options down the side, criteria across, each scored, and the total; the one chosen outlined.
+OPTION_ROWS = [(4, 5), (6, 7), (8, 9)]
+CRITERIA = [(5, 6), (7, 8), (9, 10)]
+layout("Briefing", "options-compared", "Courses of action scored against the criteria, each with its total, the one chosen outlined.", {
+    "kicker": KICKER,
+    "header": header(),
+    "first-card": card((1, 12), OPTION_ROWS[0]),
+    "third-card": card((1, 12), OPTION_ROWS[2]),
+    "chosen": ring((1, 12), OPTION_ROWS[1], shape="rect"),
+    "option-label": slot((1, 4), (3, 3), "label", "Option"),
+    **{f"{o}-criterion": slot(c, (3, 3), "label", w, align={"x": "center"}) for o, c, w in zip(ORDINALS, CRITERIA, ["Cost", "Speed", "Risk"])},
+    "total-label": slot((11, 12), (3, 3), "label", "Total", align={"x": "center"}),
+    **{o: slot((1, 4), r, "body", w, inset=24, align={"y": "center"}) for o, r, w in zip(ORDINALS, OPTION_ROWS, ["Wait", "Build", "Buy"])},
+    **{f"{o}-{p}": slot(c, r, "body", w, align={"x": "center", "y": "center"}) for o, r, ws in zip(ORDINALS, OPTION_ROWS, [["3", "1", "2"], ["2", "3", "3"], ["1", "3", "2"]]) for p, c, w in zip(ORDINALS, CRITERIA, ws)},
+    **{f"{o}-total": slot((11, 12), r, "figure", w, align={"x": "center", "y": "center"}) for o, r, w in zip(ORDINALS, OPTION_ROWS, ["6", "8", "6"])},
+})
+
+# Time ------------------------------------------------------------------------------------------
+
+layout("Time", "month", "A month as a calendar, a week to each row, with what falls on each day.", {
+    "kicker": KICKER,
+    "header": header("The month, and what falls in it"),
+    "main": slot((1, 12), (3, 10), prompt="A month's calendar", example={"table": 7}),
+})
+
+layout("Time", "event", "A date set large, what is happening and where, and a picture beside them: a save-the-date or an announcement.", {
+    "art": picture((8, 12), (1, 12), "A picture, off the edge", bleed=True),
+    "tag": slot((1, 6), (1, 1), "label", "Save the date"),
+    "date": slot((1, 6), (2, 6), "hero", "Nov 12", align={"y": "end"}, fit="shrink"),
+    "what": slot((1, 6), (8, 9), "title", "What's happening"),
+    "where": slot((1, 6), (10, 10), "body", "7 pm, and where"),
+}, ember={"tag": ((1, 6), 1), "date": ((1, 6), (2, 7)), "what": ((1, 6), (9, 10)), "where": ((1, 6), (11, 12))})
+
+# Pictures --------------------------------------------------------------------------------------
+
+layout("Pictures", "property", "A home or a place for sale: a picture off the left edge, its price, its rooms and size, and a second picture.", {
+    "art": picture((1, 8), (1, 12), "A picture of the place", bleed=True),
+    "price": slot((9, 12), (1, 3), "hero", "$1.2M", align={"y": "end"}, fit="shrink"),
+    "address": slot((9, 12), (5, 5), "title", "The address"),
+    **{k: slot((9, 12), (r, r), "body", w) for k, r, w in zip(["beds", "baths", "area"], [6, 7, 8], ["3 beds", "2 baths", "1,800 sq ft"])},
+    "second-art": picture((9, 12), (10, 12), "Another picture"),
+}, ember={"price": ((9, 12), (1, 3)), "address": ((9, 12), (5, 5)), "beds": ((9, 12), 6), "baths": ((9, 12), 7), "area": ((9, 12), 8), "second-art": ((9, 12), (10, 12))})
+
+# Editorial -------------------------------------------------------------------------------------
+
+layout("Editorial", "certificate", "A certificate inside its border: who receives it, for what, the date, and who signs it.", {
+    "border": ring((1, 12), (1, 12), shape="rect"),
+    "kind": slot((2, 11), (2, 2), "label", "Certificate of achievement", align={"x": "center"}),
+    "presented": slot((2, 11), (3, 3), "caption", "Presented to", align={"x": "center"}),
+    "name": slot((2, 11), (4, 6), "display", "A name", align={"x": "center", "y": "cap"}),
+    "for": slot((3, 10), (7, 8), "lede", "For what they achieved", align={"x": "center"}),
+    **{f"{o}-line": rule(c, (10, 10), points=[[0, 1], [1, 1]]) for o, c in zip(ORDINALS, [(2, 5), (8, 11)])},
+    **{f"{o}-sign": slot(c, (11, 11), "caption", w, align={"x": "center"}) for o, c, w in zip(ORDINALS, [(2, 5), (8, 11)], ["Who signs it", "The date"])},
+}, ember={"border": ((1, 12), (1, 12)), "kind": ((2, 11), 2), "presented": ((2, 11), 3), "name": ((2, 11), (4, 7)), "for": ((3, 10), (8, 9)), "first-line": ((2, 5), 10), "second-line": ((8, 11), 10), "first-sign": ((2, 5), 11), "second-sign": ((8, 11), 11)})
+
+layout("Editorial", "references", "The works cited, numbered, in small type.", {
+    "kicker": KICKER,
+    "header": header("References"),
+    "body": slot((1, 10), (3, 10), "caption", {"number": ["An author. A title. A journal, 2026.", "An author. A title. A publisher, 2025.", "An author. A title. A site, 2024."]}),
+})
+
+layout("Editorial", "patient-case", "A patient's case: how they came in, their history, what was found, and an image of it.", {
+    "kicker": KICKER,
+    "header": header("A case, in a line"),
+    "art": picture((8, 12), (3, 10), "An image of what was found"),
+    **{f"{k}-title": slot((1, 6), (r, r), "label", w) for k, r, w in zip(["presentation", "history", "findings"], [3, 6, 9], ["Presentation", "History", "Findings"])},
+    **{k: slot((1, 6), (r + 1, r + 2), "body", w) for k, r, w in zip(["presentation", "history", "findings"], [3, 6, 9], ["Who came in, and why", "What came before", "What the tests showed"])},
+})
+
+# Classroom -------------------------------------------------------------------------------------
+
+POINTS = [(4, 5), (6, 7), (8, 9)]
+layout("Classroom", "game-board", "A board of points under four categories, each card to link to its question.", {
+    "kicker": KICKER,
+    "header": header("The game"),
+    **{f"{o}-{p}-card": card(c, r) for o, c in zip(ORDINALS, QUARTERS) for p, r in zip(ORDINALS, POINTS)},
+    **{f"{o}-category": slot(c, (3, 3), "label", w, align={"x": "center"}) for o, c, w in zip(ORDINALS, QUARTERS, ["A category", "Another", "A third", "A fourth"])},
+    **{f"{o}-{p}": slot(c, r, "figure", w, align={"x": "center", "y": "center"}) for o, c in zip(ORDINALS, QUARTERS) for p, r, w in zip(ORDINALS, POINTS, ["100", "200", "300"])},
+})
+
+# Closing ---------------------------------------------------------------------------------------
+
+layout("Closing", "acknowledgments", "Who made it possible: thanks, the people by name, and the funders' and partners' logos.", {
+    "kicker": KICKER,
+    "header": header("With thanks"),
+    "thanks": slot((1, 6), (3, 5), "lede", "To the people and funders who made this possible"),
+    "names": slot((1, 6), (6, 10), "body", "Our collaborators, by name"),
+    **{f"logo-{i + 1}": slot(c, r, prompt="A logo", example=PICTURE, inset=24) for i, (c, r) in enumerate((c, r) for r in [(3, 4), (6, 7), (9, 10)] for c in [(7, 9), (10, 12)])},
+})
+
+layout("Closing", "join-or-scan", "A code to scan and the link to type: to join, to give, or to download.", {
+    "kicker": KICKER,
+    "code": slot((2, 4), (3, 8), prompt="A code to scan", example=PICTURE),
+    "ask": slot((6, 12), (3, 5), "display", "Join us", align={"y": "cap"}),
+    "link": slot((6, 12), (6, 7), "title", "example.org/join"),
+    "how": slot((6, 12), (8, 8), "caption", "Scan the code, or type the link"),
+})
+
+# ---------------------------------------------------------------------------------------------
+# The first five of ADR-0031's last slide types (PLAN S.3): those that need nothing new.
+
+# Diagrams --------------------------------------------------------------------------------------
+
+# Six tables in two rows of three, a circle in the middle of each third, each its number in the
+# middle and its guests down either side of it.
+SEATS = [(c, r) for r in [(3, 6), (7, 10)] for c in [(2, 3), (6, 7), (10, 11)]]
+GUESTS = [("Ana\nBen", "Cy\nDee"), ("Eve\nFin", "Gus\nHal"), ("Ida\nJo", "Kai\nLu"), ("Max\nNia", "Oli\nPam"), ("Quin\nRo", "Sam\nTess"), ("Uma\nVic", "Wes\nZoe")]
+layout("Diagrams", "seating-chart", "Tables as circles, each its number in the middle and its guests around it: who sits where.", {
+    "kicker": KICKER,
+    "header": header("Where everyone sits"),
+    **{f"{o}-table": slot(c, r, prompt={"shape": "ellipse", "fill": "surface-2"}) for o, (c, r) in zip(ORDINALS, SEATS)},
+    **{o: slot(c, r, "figure", str(i + 1), align={"x": "center", "y": "center"}) for i, (o, (c, r)) in enumerate(zip(ORDINALS, SEATS))},
+    **{f"{o}-left": slot((c[0] - 1, c[0] - 1), r, "caption", g[0], align={"x": "center", "y": "center"}) for o, (c, r), g in zip(ORDINALS, SEATS, GUESTS)},
+    **{f"{o}-right": slot((c[1] + 1, c[1] + 1), r, "caption", g[1], align={"x": "center", "y": "center"}) for o, (c, r), g in zip(ORDINALS, SEATS, GUESTS)},
+}, ember={
+    # Ember's rows a row lower, each table as tall as on Dusk's grid, not stretched to the foot.
+    f"{o}{k}": ((c[0] - 1, c[0] - 1) if k == "-left" else (c[1] + 1, c[1] + 1) if k == "-right" else c, (r[0] + 1, r[1] + 1))
+    for o, (c, r) in zip(ORDINALS, SEATS) for k in ["-table", "", "-left", "-right"]
+})
+
+# Pictures --------------------------------------------------------------------------------------
+
+# The page at the left, its passage ringed, and the passage enlarged beside it.
+PASSAGE = (6, 7)
+layout("Pictures", "exhibit-callout", "A page of a document with its key passage ringed, and the passage enlarged beside it.", {
+    "kicker": KICKER,
+    "header": header("What the document says"),
+    "page": slot((1, 5), (3, 10), prompt="A page of the document", example=PICTURE),
+    "ring": ring((2, 5), PASSAGE, shape="rect"),
+    "pointer": arrow((6, 6), PASSAGE, (x_of(6, "left"), mid_y(PASSAGE)), (x_of(6, "right"), mid_y(PASSAGE)), stroke="accent"),
+    "passage-card": card((7, 12), (3, 9)),
+    "passage": slot((7, 12), (3, 8), "quote", "The passage, enlarged", inset=48, align={"y": "center"}),
+    "source": slot((7, 12), (10, 10), "caption", "The exhibit, and its page"),
+})
+
+# Briefing --------------------------------------------------------------------------------------
+
+# Phases across, as chevrons, each pointing to the next; the lines of effort down the side; and a
+# card in each cell for what that line does in that phase.
+PHASES = [(4, 6), (7, 9), (10, 12)]
+EFFORTS = [(4, 5), (6, 7), (8, 9)]
+layout("Briefing", "concept-of-operations", "Phases across and lines of effort down, a card in each cell for what each line does in each phase.", {
+    "kicker": KICKER,
+    "header": header(),
+    **{f"{o}-phase-shape": slot(c, (3, 3), prompt={"shape": "polygon", "fill": "surface-2", "points": CHEVRON_FIRST if i == 0 else CHEVRON}) for i, (o, c) in enumerate(zip(ORDINALS, PHASES))},
+    **{f"{p}-{o}-card": box(c, r, inset=8) for p, r in zip(ORDINALS, EFFORTS) for o, c in zip(ORDINALS, PHASES)},
+    **{f"{o}-phase": slot(c, (3, 3), "label", w, align={"x": "center", "y": "center"}) for o, c, w in zip(ORDINALS, PHASES, ["Prepare", "Act", "Hand over"])},
+    **{f"{p}-effort": slot((1, 3), r, "body", w, align={"y": "center"}) for p, r, w in zip(ORDINALS, EFFORTS, ["People", "Systems", "Partners"])},
+    **{f"{p}-{o}": slot(c, r, "body", w, inset=24, align={"y": "center"}) for p, r, ws in zip(ORDINALS, EFFORTS, [["Hire", "Train", "Rotate"], ["Build", "Run", "Retire"], ["Brief", "Join", "Lead"]]) for o, c, w in zip(ORDINALS, PHASES, ws)},
+})
+
+# Editorial -------------------------------------------------------------------------------------
+
+# The logo and how to use it at the left; the palette's swatches, each named, and the type at the
+# right.
+SWATCHES = [(6, 7), (8, 9), (10, 11)]
+layout("Editorial", "brand-board", "A brand on one slide: its logo and how to use it, its colors, and its type.", {
+    "kicker": KICKER,
+    "header": header("The brand, at a glance"),
+    "logo": slot((1, 4), (3, 7), prompt="The logo", example=PICTURE, inset=24),
+    "logo-frame": slot((1, 4), (3, 7), prompt={"shape": "rect", "stroke": "line"}),
+    "logo-use": slot((1, 4), (8, 10), "caption", "Clear space all round, the height of the mark. Never stretched or recolored."),
+    **{f"{o}-swatch": card(c, (3, 5), fill=f) for o, c, f in zip(ORDINALS, SWATCHES, ["accent", "accent-2", "surface-2"])},
+    **{o: slot(c, (6, 6), "label", w) for o, c, w in zip(ORDINALS, SWATCHES, ["Primary", "Second", "Ground"])},
+    "type-sample": slot((6, 7), (8, 10), "display", "Aa", align={"y": "cap"}),
+    "type-title": slot((8, 12), (8, 9), "headline", "Our headlines"),
+    "type": slot((8, 12), (10, 10), "body", "And the words under them"),
+})
+
+layout("Editorial", "fine-print", "A safe-harbor statement or a disclaimer, in small type: what the audience is told before or after the talk.", {
+    "kicker": KICKER,
+    "header": header("Forward-looking statements"),
+    "body": slot((1, 10), (3, 10), "caption", "This presentation contains forward-looking statements. They involve risks and uncertainties, and actual results may differ materially. We assume no obligation to update them."),
+})
+
 # ---------------------------------------------------------------------------------------------
 # The 47 the themes had: the section each is offered in, and what its picture shows in each slot
 # that waits.
@@ -1212,10 +1559,9 @@ def timeline_rows(top, last=10):
 
 TITLE_KICKER = {"kicker": {"col": [1, 8], "row": [11, 12], "align": {"y": "end"}}}
 
+# By geometry family.
 OLD_SLOTS_IN = {
     "dusk": {"stat": {"number": {"row": [3, 7]}}, "timeline": timeline_rows(3), "title": TITLE_KICKER},
-    "daybreak": {"stat": {"number": {"row": [3, 7]}}, "timeline": timeline_rows(3), "title": TITLE_KICKER},
-    "gallery": {"title": TITLE_KICKER},
     "ember": {"timeline": timeline_rows(4, last=12)},
 }
 
@@ -1254,7 +1600,7 @@ NAMES = {
     "section-number": "Section Number",
     # Statements
     "statement": "Statement", "poster": "Poster", "quote": "Quote", "thesis": "Thesis", "big-question": "Big Question",
-    "manifesto": "Manifesto", "key-point": "Key Point",
+    "manifesto": "Manifesto", "key-point": "Key Point", "haiku": "Haiku",
     # Lists
     "bullets": "Bullets", "numbered": "Numbered List", "agenda": "Agenda", "three-rows": "Three Rows",
     "bullets-photo": "Bullets and Photo", "checklist": "Checklist", "agenda-photo": "Agenda and Photo",
@@ -1303,25 +1649,35 @@ NAMES = {
     "flowchart": "Flowchart", "swimlane": "Swimlane", "quad-chart": "Quad Chart", "decision-brief": "Decision Brief",
     "quiz": "Quiz",
     # The rest of S.1's, by the sections above
+    # S.2's
+    "paper-title": "Paper Title", "lyrics": "Lyrics", "pictograph": "Pictograph", "decision-tree": "Decision Tree",
+    "fishbone": "Fishbone", "architecture": "Architecture", "issue-tree": "Issue Tree",
+    "maturity-model": "Maturity Model", "incident-review": "Incident Review", "options-compared": "Options Compared",
+    "month": "Month", "event": "Event", "property": "Property", "certificate": "Certificate",
+    "references": "References", "patient-case": "Patient Case", "game-board": "Game Board",
+    "acknowledgments": "Acknowledgments", "join-or-scan": "Join or Scan",
     "kpi-dashboard": "KPI Dashboard", "status-report": "Status Report", "market-size": "Market Size",
     "positioning-map": "Positioning Map", "forecast": "Forecast", "feature-grid": "Feature Grid", "risk-matrix": "Risk Matrix",
     "business-model-canvas": "Business Model Canvas", "logo-wall": "Logo Wall", "device-mockup": "Device Mockup",
     "buyer-persona": "Buyer Persona",
+    # S.3's first five
+    "seating-chart": "Seating Chart", "exhibit-callout": "Exhibit Callout",
+    "concept-of-operations": "Concept of Operations", "brand-board": "Brand Board", "fine-print": "Fine Print",
+    # Maps (PLAN O.1e)
+    "map": "Map", "map-words": "Map and Words", "map-full": "Full-Bleed Map",
 }
 
 # The descriptions of the layouts the themes had, where one named what a person never reads in an
-# editor's window, a slot or a lint code (PLAN 3.18): by theme, `*` for each.
+# editor's window, a slot or a lint code (PLAN 3.18): by geometry family, `*` for each.
 DESCRIPTIONS = {
     "title": {"*": "The opening: the talk's title, a line on what it's about, and a picture beside them."},
     "figure": {
         "dusk": "A headline, the figure that shows it, and a note on it, each in its own rows: the data on the plain surface, with no picture behind it.",
-        "daybreak": "A headline, the figure that shows it, and a note on it, each in its own rows: the data on the plain surface, with no picture behind it.",
     },
     "narrow-figure": {"*": "A headline, a chart of two or three bars, and a note on it beside the chart."},
     "split": {"*": "Words, and the chart or table beside them: the data on the plain surface, with no picture behind it."},
     "full": {
         "dusk": "A headline over one thing that fills the grid, a picture, a chart, or a table, and a note on it.",
-        "daybreak": "A headline over one thing that fills the grid, a picture, a chart, or a table, and a note on it.",
     },
 }
 
@@ -1407,30 +1763,31 @@ def checked(theme, name, slots, new):
         assert 1 <= col[0] <= col[1] <= 12 and 1 <= row[0] <= row[1] <= 12, f"{theme}'s {name}: `{k}` is off the grid"
 
 
-def library(theme, old):
+def library(theme, old, geometry):
     """The theme's layouts, in the library's order: those it had, put in their sections and given
-    their examples, and those added here, Ember's made from Dusk's."""
+    their examples, and those added here, Ember's made from Dusk's, each as its geometry family
+    lays it out."""
     out = {}
     for section in SECTIONS:
         for name in ORDER[section]:
             if name in NEW:
                 spec = NEW[name]
                 slots = spec["slots"]
-                if theme == "ember":
+                if geometry == "ember":
                     slots = ember_slots(name, slots, spec["ember"])
                 layout = {"name": NAMES[name], "description": spec["description"], "group": section, "slots": slots}
             else:
                 assert name in old, f"{theme} has no layout `{name}`"
                 had = json.loads(json.dumps(old[name]))
                 told = DESCRIPTIONS.get(name, {})
-                described = told.get(theme, told.get("*", had.get("description")))
+                described = told.get(geometry, told.get("*", had.get("description")))
                 layout = {"name": NAMES[name], "description": described, "group": section}
                 layout.update({k: v for k, v in had.items() if k not in layout})
                 for key, example in OLD_EXAMPLES.get(name, {}).items():
                     layout["slots"][key]["example"] = example
                 for key, changes in OLD_SLOTS.get(name, {}).items():
                     layout["slots"][key].update(changes)
-                for key, changes in OLD_SLOTS_IN.get(theme, {}).get(name, {}).items():
+                for key, changes in OLD_SLOTS_IN.get(geometry, {}).get(name, {}).items():
                     layout["slots"][key].update(changes)
             checked(theme, name, layout["slots"], name in NEW)
             out[name] = layout
@@ -1503,17 +1860,31 @@ def written(text, layouts):
     return "\n".join(lines)
 
 
+def olds(listed):
+    """The layouts each theme had, by its first file: its own, and where its file lacks one, as a
+    new theme's does, the first file of its geometry family's (PLAN T.0a)."""
+    first = {}
+    out = {}
+    for slug, geometry, paths in listed:
+        own = json.loads(paths[0].read_text())["layouts"]
+        first.setdefault(geometry, own)
+        out[slug] = {**first[geometry], **own}
+    return out
+
+
 def main():
     check = "--check" in sys.argv[1:]
-    listed = {n for names in ORDER.values() for n in names}
-    assert set(NAMES) == listed, f"named but not offered, or offered but not named: {sorted(set(NAMES) ^ listed)}"
-    assert set(DESCRIPTIONS) <= listed, sorted(set(DESCRIPTIONS) - listed)
+    listed = themes(json.loads(REGISTRY.read_text()))
+    had = olds(listed)
+    offered = {n for names in ORDER.values() for n in names}
+    assert set(NAMES) == offered, f"named but not offered, or offered but not named: {sorted(set(NAMES) ^ offered)}"
+    assert set(DESCRIPTIONS) <= offered, sorted(set(DESCRIPTIONS) - offered)
     stale = []
-    for theme, paths in THEMES.items():
+    for slug, geometry, paths in listed:
+        layouts = library(slug, had[slug], geometry)
         for path in paths:
             text = path.read_text()
-            old = json.loads(text)["layouts"]
-            out = written(text, library(theme, old))
+            out = written(text, layouts)
             json.loads(out)
             if out != text:
                 stale.append(path)

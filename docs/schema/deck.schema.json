@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://scaena.dev/schema/deck-0.31.json",
+  "$id": "https://scaena.dev/schema/deck-0.32.json",
   "title": "Scaena deck document",
   "description": "Canonical deck.json. A deck is a scene graph (nodes) plus an ordered cue list (states) over a narrative spine, rendered against a theme. See docs/SPEC.md §3.",
   "type": "object",
@@ -10,7 +10,7 @@
     "scaena": {
       "description": "Format version (semver, major.minor[.patch]).",
       "type": "string",
-      "pattern": "^0\\.31(\\.[0-9]+)?$"
+      "pattern": "^0\\.32(\\.[0-9]+)?$"
     },
     "meta": { "$ref": "#/$defs/Meta" },
     "canvas": { "$ref": "#/$defs/Canvas" },
@@ -242,7 +242,7 @@
         "schema": { "type": "object", "additionalProperties": { "$ref": "#/$defs/FieldType" } },
         "parse": { "type": "object", "additionalProperties": { "type": "string" } },
         "fetched": {
-          "description": "Where its rows came from (ADR-0030, deck format 0.30): a forecast fetched once into the deck, credited at the foot of each chart or table that reads it.",
+          "description": "Where its rows came from (ADR-0030, deck format 0.31): a forecast fetched once into the deck, credited at the foot of each chart or table that reads it.",
           "$ref": "#/$defs/Fetched"
         }
       }
@@ -281,7 +281,7 @@
         "license": { "description": "The data's license, where the service names one: `ODbL-1.0`.", "type": "string" },
         "map": { "description": "A map's view, as it was asked (PLAN O.1b).", "$ref": "#/$defs/MapAsked" },
         "terms": {
-          "description": "Which of the service's terms applied, where the request itself says so: Open-Meteo's `free` service or its `customer` one (deck format 0.30).",
+          "description": "Which of the service's terms applied, where the request itself says so: Open-Meteo's `free` service or its `customer` one (deck format 0.31).",
           "$ref": "#/$defs/Terms"
         },
         "kept": {
@@ -710,7 +710,7 @@
         "legend": { "$ref": "#/$defs/Legend" },
         "annotations": { "type": "array", "items": { "$ref": "#/$defs/Annotation" } },
         "weather": {
-          "description": "A `weather` chart's fields, units, and parts (deck format 0.31, ADR-0030): any other kind is E106.",
+          "description": "A `weather` chart's fields, units, and parts (deck format 0.32, ADR-0030): any other kind is E106.",
           "$ref": "#/$defs/Weather"
         }
       }
@@ -1284,7 +1284,11 @@
       "type": "string",
       "enum": ["wrap", "shrink", "grow", "clip", "error"]
     },
-    "Wrap": { "type": "string", "enum": ["greedy", "pretty", "balance"] },
+    "Wrap": {
+      "description": "How a text's lines break where its words run past its width (SPEC §3.5).",
+      "type": "string",
+      "enum": ["greedy", "pretty", "balance", "none"]
+    },
     "TextBox": { "type": "string", "enum": ["cap", "line"] },
     "Numeric": {
       "type": "string",

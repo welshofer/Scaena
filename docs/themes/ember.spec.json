@@ -1,0 +1,189 @@
+{
+  "name": "Ember",
+  "description": "Near-black surface, warm white ink, one signal orange. Serif claims and figures over a neutral sans; data in quiet grays with the orange spent on the point.",
+  "mode": "dark",
+  "colors": {
+    "ink": "#F6F4EF",
+    "paper": "#0E0E12",
+    "paper-2": "#1A1A1F",
+    "accent": "#FF4100",
+    "accent-2": "#FFB27A",
+    "muted": "#BEBDC3",
+    "line": "#3A3A40"
+  },
+  "data": {
+    "categorical": [
+      "#C9C8CD",
+      "#9E9DA4",
+      "#7E7D84",
+      "#B3B2B8"
+    ],
+    "sequential": [
+      "#2A2A30",
+      "#5A2A1C",
+      "#8F3315",
+      "#C73A0C",
+      "#FF4100"
+    ],
+    "diverging": [
+      "#9E9DA4",
+      "#1A1A1F",
+      "#FF4100"
+    ]
+  },
+  "stroke": {
+    "thick": 5
+  },
+  "families": {
+    "display": {
+      "family": "Fraunces",
+      "file": "fonts/Fraunces-VF.ttf",
+      "axes": {
+        "wght": [
+          100,
+          900
+        ],
+        "opsz": [
+          9,
+          144
+        ],
+        "SOFT": [
+          0,
+          100
+        ],
+        "WONK": [
+          0,
+          1
+        ]
+      },
+      "italic": {
+        "file": "fonts/Fraunces-Italic-VF.ttf",
+        "axes": {
+          "wght": [
+            100,
+            900
+          ],
+          "opsz": [
+            9,
+            144
+          ],
+          "SOFT": [
+            0,
+            100
+          ],
+          "WONK": [
+            0,
+            1
+          ]
+        }
+      },
+      "fallback": [
+        "body"
+      ]
+    },
+    "body": {
+      "family": "Inter",
+      "file": "fonts/Inter-VF.ttf",
+      "axes": {
+        "wght": [
+          100,
+          900
+        ],
+        "opsz": [
+          14,
+          32
+        ]
+      },
+      "italic": {
+        "file": "fonts/Inter-Italic-VF.ttf",
+        "axes": {
+          "wght": [
+            100,
+            900
+          ],
+          "opsz": [
+            14,
+            32
+          ]
+        }
+      },
+      "features": {
+        "cv11": true,
+        "ss01": false
+      }
+    },
+    "mono": {
+      "family": "JetBrains Mono",
+      "file": "fonts/JetBrainsMono-VF.ttf",
+      "axes": {
+        "wght": [
+          100,
+          800
+        ]
+      },
+      "italic": {
+        "file": "fonts/JetBrainsMono-Italic-VF.ttf",
+        "axes": {
+          "wght": [
+            100,
+            800
+          ]
+        }
+      }
+    }
+  },
+  "voice": "ember",
+  "margin": [
+    72,
+    120
+  ],
+  "shaders": {
+    "palettes": {
+      "ambient": [
+        "#0E0E12",
+        "#2A1610",
+        "#7A2A0E",
+        "#FF4100"
+      ],
+      "texture": [
+        "#0E0E12",
+        "#1A1A1F",
+        "#3A3A40",
+        "#BEBDC3"
+      ]
+    }
+  },
+  "charts": {
+    "title": {
+      "role": "axis"
+    },
+    "pointRadius": 6,
+    "barGap": 0.45,
+    "annotation": {
+      "color": "accent",
+      "stroke": "thin",
+      "dimmed": 0.45
+    },
+    "weather": {
+      "chance": {
+        "color": "accent-2"
+      },
+      "icon": {
+        "color": "accent",
+        "weight": "fill"
+      }
+    }
+  },
+  "tables": {
+    "header": null,
+    "cell": {
+      "role": "body"
+    },
+    "rowRule": {
+      "stroke": "hairline",
+      "color": "line"
+    },
+    "rowGap": 10,
+    "stretch": true
+  }
+}
