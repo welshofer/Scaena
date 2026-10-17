@@ -1135,6 +1135,7 @@ struct DeckView: View {
         case .copy: copy(cut: false)
         case .cut: copy(cut: true)
         case .paste: paste()
+        case .pasteAsText: pasteAsText()
         }
     }
 

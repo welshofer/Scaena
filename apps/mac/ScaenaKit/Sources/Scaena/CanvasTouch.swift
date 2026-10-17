@@ -170,8 +170,8 @@ struct CanvasMenu: UIViewRepresentable {
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
-    func makeUIView(context: Context) -> UIView {
-        let view = UIView()
+    func makeUIView(context: Context) -> Edits {
+        let view = Edits()
         view.backgroundColor = .clear
         let menus = UIEditMenuInteraction(delegate: context.coordinator)
         view.addInteraction(menus)
@@ -179,11 +179,12 @@ struct CanvasMenu: UIViewRepresentable {
         return view
     }
 
-    func updateUIView(_ view: UIView, context: Context) {
+    func updateUIView(_ view: Edits, context: Context) {
         let held = context.coordinator
         held.deck = deck
         held.clip = clip
         held.around = around
+        view.clip = clip
         guard let asked, asked.count != held.shown else { return }
         held.shown = asked.count
         held.menus?.presentEditMenu(with: UIEditMenuConfiguration(identifier: nil, sourcePoint: asked.at))
@@ -219,13 +220,19 @@ struct CanvasMenu: UIViewRepresentable {
 
     /// What the menu offers (`CanvasOffer`, as the Mac's right click offers it, PLAN 3.23), as
     /// iPadOS's edit menu shows it: no lines between kinds.
+    ///
+    /// Paste is a command of the system's own edit, sent through the responder chain as UIKit
+    /// sends ⌘V: what it reads of the pasteboard then asks nothing of the person, where an action
+    /// that reads it on its own raises iPadOS's Allow Paste.
     static func items(_ deck: DeckActions?, clip: @escaping (Clipping) -> Void) -> [UIMenuElement] {
         CanvasOffer.offers(deck, clip: clip).compactMap(element)
     }
 
     private static func element(_ offer: CanvasOffer) -> UIMenuElement? {
         switch offer {
-        case .action(let title, let symbol, let destructive, let run):
+        case .action(let title, let symbol, _, let edit?, _):
+            return UICommand(title: title, image: symbol.flatMap { UIImage(systemName: $0) }, action: Edits.action(edit))
+        case .action(let title, let symbol, let destructive, nil, let run):
             let attributes: UIMenuElement.Attributes = destructive ? .destructive : []
             return UIAction(title: title, image: symbol.flatMap { UIImage(systemName: $0) }, attributes: attributes) { _ in
                 run()
@@ -234,6 +241,29 @@ struct CanvasMenu: UIViewRepresentable {
             return UIMenu(title: title, image: symbol.flatMap { UIImage(systemName: $0) }, children: children.compactMap(element))
         case .divider:
             return nil
+        }
+    }
+
+    /// The view the menu is shown over, which answers its paste where the responder chain brings
+    /// it here: a paste the system sends reads the pasteboard with no Allow Paste.
+    final class Edits: UIView {
+        var clip: (Clipping) -> Void = { _ in }
+
+        static func action(_ edit: CanvasOffer.Edit) -> Selector {
+            switch edit {
+            case .paste: #selector(UIResponderStandardEditActions.paste(_:))
+            }
+        }
+
+        override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
+            switch action {
+            case Self.action(.paste): true
+            default: super.canPerformAction(action, withSender: sender)
+            }
+        }
+
+        override func paste(_ sender: Any?) {
+            clip(.paste)
         }
     }
 }

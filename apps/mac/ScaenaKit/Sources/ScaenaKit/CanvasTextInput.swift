@@ -1042,7 +1042,8 @@ public final class CanvasPresses: UIView {
     public override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
         typealias Edits = UIResponderStandardEditActions
         switch action {
-        case #selector(Edits.copy(_:)), #selector(Edits.cut(_:)), #selector(Edits.paste(_:)):
+        case #selector(Edits.copy(_:)), #selector(Edits.cut(_:)), #selector(Edits.paste(_:)),
+            #selector(Edits.pasteAndMatchStyle(_:)):
             return clipping != nil
         case #selector(Edits.selectAll(_:)):
             return selectingAll != nil
@@ -1064,6 +1065,11 @@ public final class CanvasPresses: UIView {
 
     public override func paste(_ sender: Any?) {
         clipping?(.paste)
+    }
+
+    /// Paste as Text, as the system's Paste and Match Style sends it (PLAN 2.133).
+    public override func pasteAndMatchStyle(_ sender: Any?) {
+        clipping?(.pasteAsText)
     }
 
     public override func selectAll(_ sender: Any?) {

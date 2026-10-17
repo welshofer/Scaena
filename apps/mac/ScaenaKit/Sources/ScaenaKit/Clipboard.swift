@@ -9,9 +9,11 @@ import AppKit
 import UIKit
 #endif
 
-/// The Edit menu's Copy, Cut, and Paste on the canvas (PLAN 3.12), on the Mac and the iPad.
+/// The Edit menu's Copy, Cut, and Paste on the canvas (PLAN 3.12), on the Mac and the iPad, and
+/// Paste as Text, the words alone (PLAN 2.133), which the iPad's menu sends as the system's Paste
+/// and Match Style.
 public enum Clipping: Sendable {
-    case copy, cut, paste
+    case copy, cut, paste, pasteAsText
 }
 
 /// What a paste makes (PLAN 2.37): the copy of the node copied, the copies of the others copied

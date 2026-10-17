@@ -10,10 +10,18 @@ import UIKit
 /// One thing the canvas's menu offers (PLAN 3.23, 4.3): the iPad's long press and right click and
 /// the Mac's right click offer the same, each as its platform shows a menu.
 enum CanvasOffer {
-    case action(String, symbol: String?, destructive: Bool = false, run: () -> Void)
+    /// `edit`, where the action is one of the system's own edits, which the iPad sends as UIKit
+    /// sends it, through the responder chain: a paste so sent reads the pasteboard without iPadOS
+    /// asking whether it may.
+    case action(String, symbol: String?, destructive: Bool = false, edit: Edit? = nil, run: () -> Void)
     case menu(String, symbol: String?, [CanvasOffer])
     /// A line between kinds of things, where the platform draws one.
     case divider
+
+    /// The system's own edits a menu offers.
+    enum Edit {
+        case paste
+    }
 
     /// What the menu offers: what the clipboard and the Node menu can do now, and nothing else
     /// (PLAN 3.11, 3.12).
@@ -23,9 +31,11 @@ enum CanvasOffer {
             offers.append(.action("Cut", symbol: "scissors", run: { clip(.cut) }))
             offers.append(.action("Copy", symbol: "doc.on.doc", run: { clip(.copy) }))
         }
-        offers.append(.action("Paste", symbol: "doc.on.clipboard", run: { clip(.paste) }))
+        offers.append(.action("Paste", symbol: "doc.on.clipboard", edit: .paste, run: { clip(.paste) }))
         guard let deck else { return offers }
-        // Words pasted as words, and code copied as text (PLAN 2.133).
+        // Words pasted as words, and code copied as text (PLAN 2.133). An action of the app's own,
+        // not the system's Paste and Match Style: iPadOS shows that under its own title, which
+        // pushes Duplicate onto the edit menu's next page.
         if let pasteAsText = deck.pasteAsText {
             offers.append(.action("Paste as Text", symbol: "text.alignleft", run: pasteAsText))
         }
@@ -211,7 +221,7 @@ struct CanvasMenu: NSViewRepresentable {
 
     private static func item(_ offer: CanvasOffer) -> NSMenuItem {
         switch offer {
-        case .action(let title, let symbol, _, let run):
+        case .action(let title, let symbol, _, _, let run):
             let action = MenuRun(run)
             let item = NSMenuItem(title: title, action: #selector(MenuRun.chosen), keyEquivalent: "")
             item.target = action
