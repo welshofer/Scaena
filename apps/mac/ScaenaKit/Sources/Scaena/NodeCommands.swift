@@ -39,6 +39,8 @@ struct DeckActions {
     /// Insert › Map… (PLAN O.1d): a map of a place, in the image selected, the slide's empty place
     /// for a picture, or where the pointer last pressed.
     var insertMap: (() -> Void)? = nil
+    /// Ask for a haiku about a topic, the slide shown, or the whole talk, and place it (PLAN O.4g).
+    var haiku: (() -> Void)? = nil
     /// Join the first object selected to the second with an arrow, `true`, or a line, which
     /// follows them (PLAN 2.109).
     var connect: ((Bool) -> Void)? = nil
@@ -108,6 +110,8 @@ struct NodeCommands: Commands {
                 .disabled(deck?.makePicture == nil)
             Button("Map…") { deck?.insertMap?() }
                 .disabled(deck?.insertMap == nil)
+            Button("Haiku…") { deck?.haiku?() }
+                .disabled(deck?.haiku == nil)
             // The pen (PLAN 2.114): each drag on the slide a stroke, the strokes one drawing.
             Button(deck?.drawing == true ? "Stop Drawing" : "Drawing") { deck?.draw?() }
                 .disabled(deck?.draw == nil)

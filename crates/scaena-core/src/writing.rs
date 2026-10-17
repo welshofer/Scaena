@@ -8,6 +8,8 @@
 
 use serde::{Deserialize, Serialize};
 
+pub mod haiku;
+
 /// A task for a model.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "lowercase")]

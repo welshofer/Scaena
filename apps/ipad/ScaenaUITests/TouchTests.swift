@@ -9,7 +9,8 @@ import XCTest
 /// had selected, and the table put away gives the side back. The move and the copy are each one
 /// step that the toolbar's Undo takes back by touch, and a long press on Undo offers Redo, named
 /// for the step it makes again as the Edit menu names it, which makes the copy again (PLAN 4.11).
-/// With the pen up, a pinch still zooms, and draws nothing (PLAN 2.114).
+/// With the pen up, a pinch still zooms, and draws nothing (PLAN 2.114). A long press where nothing
+/// draws offers Haiku…, whose sheet asks what the poem is about and where it goes (PLAN O.4g).
 final class TouchTests: XCTestCase {
     override func setUp() {
         continueAfterFailure = false
@@ -190,6 +191,37 @@ final class TouchTests: XCTestCase {
             guard wait(5, { !place.exists }) else {
                 throw Unseen(description: "Cancel left the map's sheet: \(app.debugDescription)")
             }
+        }
+
+        try XCTContext.runActivity(named: "A long press where nothing draws offers Haiku…, whose sheet asks what it is about") { _ in
+            // Where nothing draws, nothing is selected and the slide waits for no verse: the
+            // sheet asks where the poem goes too (PLAN O.4g).
+            canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.03, dy: 0.97)).press(forDuration: 1.2)
+            let haiku = app.descendants(matching: .any).matching(NSPredicate(format: "label == 'Haiku…'")).firstMatch
+            // iPadOS pages a long edit menu: Haiku… may stand past its first page, where a person
+            // finds it by Forward.
+            let forward = app.buttons["Forward"]
+            var pages = 0
+            while !haiku.waitForExistence(timeout: 2), forward.exists, pages < 4 {
+                forward.tap()
+                pages += 1
+            }
+            guard haiku.waitForExistence(timeout: 3) else {
+                keep(app, as: "no-haiku")
+                throw Unseen(description: "a long press offered no Haiku…: \(app.debugDescription)")
+            }
+            keep(app, as: "haiku-offered")
+            haiku.tap()
+            let topic = app.descendants(matching: .any).matching(NSPredicate(format: "identifier == 'haiku-topic'")).firstMatch
+            guard topic.waitForExistence(timeout: 5) else {
+                throw Unseen(description: "Haiku… opened no sheet: \(app.debugDescription)")
+            }
+            let place = app.descendants(matching: .any).matching(NSPredicate(format: "identifier == 'haiku-where'")).firstMatch
+            XCTAssertTrue(place.exists, "with nothing selected, the sheet does not ask where the poem goes")
+            settle()
+            keep(app, as: "haiku-sheet")
+            app.buttons["Leave It"].tap()
+            XCTAssertTrue(wait(5) { !topic.exists }, "Leave It left the sheet open: \(app.debugDescription)")
         }
 
         try XCTContext.runActivity(named: "In the light table, a slide dragged onto another moves after it") { _ in

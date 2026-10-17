@@ -610,6 +610,17 @@
       #keeping li [data-open], #keeping li input { flex: 1; min-width: 0; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       #keeping li .here { color: var(--muted); font-size: 12px; }
       /* Make a picture (PLAN 2.107): what it shows, its look, and who makes it. */
+      #haiku { width: min(34em, 92vw); }
+      #haiku fieldset { border: 1px solid var(--line); border-radius: 4px; margin: 0 0 8px; display: flex; flex-wrap: wrap; gap: 4px 12px; }
+      #haiku fieldset[hidden] { display: none; }
+      #haiku input[type="text"] { font: inherit; background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 4px; padding: 4px 6px; }
+      #haiku-topic { width: 18em; }
+      #haiku .poem { padding-left: 0; list-style: none; }
+      #haiku .poem li { display: flex; align-items: center; gap: 8px; margin: 4px 0; }
+      #haiku .poem input { flex: 1; font-size: 16px; }
+      #haiku .count { min-width: 3.5em; color: var(--muted); font-variant-numeric: tabular-nums; }
+      #haiku .off { border-color: var(--error, #c0392b); color: var(--error, #c0392b); }
+      #haiku-status:empty { display: none; }
       #picturing { width: min(34em, 92vw); }
       #picturing textarea { font: inherit; font-size: 14px; background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 4px; padding: 6px; resize: vertical; }
       #picturing .fields { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -1037,6 +1048,38 @@
           <button type="button" id="writing-key" hidden>Add a key…</button>
           <button value="cancel" id="writing-leave" formnovalidate>Leave it</button>
           <button value="use" id="writing-use" hidden>Use it</button>
+        </menu>
+      </form>
+    </dialog>
+    <dialog id="haiku" aria-labelledby="haiku-title">
+      <form method="dialog">
+        <h2 id="haiku-title">Haiku</h2>
+        <fieldset>
+          <legend>About</legend>
+          <label><input type="radio" name="haiku-about" value="topic" checked> A topic <input type="text" id="haiku-topic" aria-label="What the haiku is about" placeholder="The first frost on the trail" maxlength="500"></label>
+          <label><input type="radio" name="haiku-about" value="slide"> This slide</label>
+          <label><input type="radio" name="haiku-about" value="talk"> The whole talk</label>
+        </fieldset>
+        <fieldset id="haiku-where">
+          <legend>Where</legend>
+          <label><input type="radio" name="haiku-to" value="new" checked> A new slide after this one</label>
+          <label><input type="radio" name="haiku-to" value="slide"> This slide</label>
+        </fieldset>
+        <label>Attribution <input type="text" id="haiku-attribution" placeholder="Who wrote it, or what it is on (optional)"></label>
+        <p id="haiku-status" aria-live="polite"></p>
+        <ol id="haiku-poem" class="poem" hidden>
+          <li><input type="text" id="haiku-line-0" aria-label="The first line"> <span class="count" id="haiku-count-0"></span></li>
+          <li><input type="text" id="haiku-line-1" aria-label="The second line"> <span class="count" id="haiku-count-1"></span></li>
+          <li><input type="text" id="haiku-line-2" aria-label="The third line"> <span class="count" id="haiku-count-2"></span></li>
+        </ol>
+        <p class="note" id="haiku-note" hidden></p>
+        <p class="note" id="haiku-by"></p>
+        <menu>
+          <button type="button" id="haiku-key" hidden>Add a key…</button>
+          <button type="button" id="haiku-write">Write</button>
+          <button type="button" id="haiku-another" hidden>Write Another</button>
+          <button value="cancel" id="haiku-leave" formnovalidate>Leave It</button>
+          <button value="use" id="haiku-use" hidden>Use It</button>
         </menu>
       </form>
     </dialog>

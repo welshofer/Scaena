@@ -320,6 +320,12 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         return post({ type: "writing", id: data.id, writing: JSON.parse(player.writing(JSON.stringify(data.ask))) as Writing });
       case "written":
         return post({ type: "written", id: data.id, written: JSON.parse(player.written(JSON.stringify(data.ask), data.answer)) as Written });
+      case "haiku": {
+        const arg = JSON.stringify(data.arg);
+        const said =
+          data.call === "haiku" ? player.haiku(arg) : data.call === "haikuTaken" ? player.haikuTaken(arg) : player.verseCounts(arg);
+        return post({ type: "haiku", id: data.id, result: JSON.parse(said) as unknown });
+      }
       case "words":
         if (worded?.state !== data.state) worded = { state: data.state, words: JSON.parse(player.words(data.state)) as Lexicon };
         return post({ type: "words", id: data.id, words: worded.words });

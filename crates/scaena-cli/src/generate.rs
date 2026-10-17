@@ -194,7 +194,7 @@ fn script_font(agent: &ureq::Agent, script: &scaena_ops::scripts::Script, json: 
 }
 
 /// `request` made: its status, its reason, and its body; status 0 where it never came back.
-fn fetch(agent: &ureq::Agent, request: &Request) -> Reply {
+pub(crate) fn fetch(agent: &ureq::Agent, request: &Request) -> Reply {
     let sent = if request.method == "GET" {
         let mut r = agent.get(&request.url);
         for (k, v) in &request.headers {

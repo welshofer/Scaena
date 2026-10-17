@@ -70,6 +70,8 @@ struct DeckView: View {
     @State private var picturingTheme = ""
     /// Where a map goes, while Insert › Map…'s sheet asks where it is of (PLAN O.1d).
     @State private var mapping: MapTarget?
+    /// Where a haiku goes, while Haiku…'s sheet asks for one (PLAN O.4g).
+    @State private var haikuing: HaikuTarget?
     /// The light table shown in place of the canvas, and the slides selected on it (PLAN 3.14).
     @State private var showsSlides = false
     /// Which of the window's columns show: the slides down the side fold away while the light
@@ -432,7 +434,11 @@ struct DeckView: View {
     private func inserting(_ kind: Insertable) -> InsertMenu {
         switch kind {
         case .text:
-            InsertMenu(title: "Text", symbol: "textbox", kinds: ["Text"], first: "body", inserts: inserts, insert: insertHere)
+            InsertMenu(
+                title: "Text", symbol: "textbox", kinds: ["Text"], first: "body", inserts: inserts, insert: insertHere,
+                also: shown.map { state -> [(title: String, action: () -> Void)] in
+                    [(title: "Haiku…", action: { writeHaiku(in: state) })]
+                } ?? [])
         case .shape:
             InsertMenu(
                 title: "Shape", symbol: "square.on.circle", kinds: ["Shape", "Shader"], first: nil, inserts: inserts,
@@ -798,6 +804,9 @@ struct DeckView: View {
             .sheet(item: $mapping) { target in
                 MapSheet(target: target) { map, label in putMap(map, at: target, label: label) }
             }
+            .sheet(item: $haikuing) { target in
+                HaikuSheet(session: editor.session, target: target) { placed in putHaiku(placed) }
+            }
             .sheet(isPresented: choosingTheme) {
                 ThemeChooser(themes: offeredThemes) { name in
                     offeredThemes = []
@@ -1114,6 +1123,7 @@ struct DeckView: View {
         made.chooseIcon = { choosingIcon = true }
         made.makePicture = { makePicture(in: shown) }
         made.insertMap = { insertMap(in: shown) }
+        made.haiku = { writeHaiku(in: shown) }
         made.draw = { takePen() }
         made.drawing = pen != nil
         if selection.count == 2 { made.connect = { arrow in connect(arrow, in: shown) } }
@@ -1748,6 +1758,25 @@ struct DeckView: View {
         perform {
             picturingTheme = try editor.session.themeText()?.text ?? ""
             picturing = try editor.session.pictureTarget(state: state, selected: selection, pressed: pointed)
+        }
+    }
+
+    /// Haiku… (PLAN O.4g): its sheet opened for where a haiku asked on `state` goes, as the
+    /// browser finds it: over the verse selected, in the slide's empty verse place, or, asked,
+    /// on a new slide after this one or where the pointer last pressed.
+    private func writeHaiku(in state: String) {
+        perform { haikuing = try editor.session.haikuTarget(state: state, selected: selection, pressed: pointed) }
+    }
+
+    /// The haiku taken put where it was asked for: one patch, one step to undo, its slide shown
+    /// and its verse selected.
+    private func putHaiku(_ placed: HaikuPlaced) {
+        perform {
+            try document.make(placed.patch, undo: undo, named: "Haiku")
+            chosen = placed.state
+            node = placed.node
+            also = []
+            said = "Haiku placed"
         }
     }
 

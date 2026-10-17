@@ -20,6 +20,7 @@ pub mod diagrams;
 pub mod export;
 pub mod files;
 pub mod find;
+pub mod haiku;
 #[cfg(feature = "narrato")]
 pub mod health;
 pub mod history;

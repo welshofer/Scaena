@@ -1667,3 +1667,46 @@ fn a_writing_tool_asks_once_and_its_answer_is_one_patch() {
     assert!(refused["error"]["message"].as_str().is_some_and(|m| m.contains("no task")), "{refused}");
     unsafe { scaena_session_free(s) };
 }
+
+/// A haiku through the C ABI (PLAN O.4d), as the browser's page asks it: what to ask, the answer
+/// handed back and asked once more where it is off 5-7-5, the second placed where the pointer last
+/// pressed in a theme with no verse role, set as written in its quote role, in one patch.
+#[test]
+fn a_haiku_is_asked_counted_asked_again_and_placed_in_one_patch() {
+    let s = open(B1);
+    let ask = json!({ "state": "cover", "about": "topic", "topic": "a deck that draws itself" });
+    let asked = call(s, "haiku", ask.clone());
+    assert_eq!(asked["prompt"], "Write a haiku about: a deck that draws itself", "{asked}");
+    let near = "An old silent pond\nA green frog jumps into the pond\nSplash! Silence again";
+    let first = call(s, "haikuTaken", json!({ "ask": ask, "answer": near }));
+    assert_eq!(first["next"], "again", "{first}");
+    assert!(first["prompt"].as_str().unwrap().contains("5, 8, and 5 syllables"));
+    let counted = call(
+        s,
+        "verseCounts",
+        json!({ "lines": ["An old silent pond", "A green frog jumps into the pond", "Splash! Silence again"] }),
+    );
+    assert_eq!(counted["kept"], "near", "{counted}");
+    let poem = json!({ "lines": ["An old silent pond", "A green frog jumps into the pond", "Splash! Silence again"], "checked": counted });
+    let kept = "An old silent pond\nA frog jumps into the pond\nSplash! Silence again";
+    let second = call(
+        s,
+        "haikuTaken",
+        json!({ "ask": ask, "answer": kept, "first": poem, "to": "slide", "at": [960, 540],
+                "by": { "model": "test-model-1", "provider": "Anthropic" }, "date": "October 15, 2026" }),
+    );
+    assert_eq!(second["next"], "offer", "{second}");
+    let placed = &second["placed"];
+    let ops = placed["patch"].as_array().unwrap().clone();
+    let added = ops.iter().find(|op| op["op"] == "add_node").unwrap();
+    assert_eq!(added["node"]["text"], "An old silent pond\nA frog jumps into the pond\nSplash! Silence again");
+    assert_eq!(added["node"]["wrap"], "none", "set as written in a theme with no verse role: {added}");
+    assert_eq!(tool(s, "deck_patch", json!({ "ops": ops }))["edited"], true);
+    let notes = ops.iter().find(|op| op["op"] == "set_state").unwrap()["value"].as_str().unwrap().to_string();
+    assert!(
+        notes.ends_with(
+            "Haiku written by test-model-1 with your Anthropic key on October 15, 2026, about a deck that draws itself."
+        ),
+        "{notes}"
+    );
+}

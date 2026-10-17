@@ -3186,6 +3186,7 @@ dependencies = [
  "criterion",
  "miette",
  "rmcp",
+ "scaena-chat",
  "scaena-core",
  "scaena-engine",
  "scaena-export",

@@ -17,6 +17,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 mod generate;
+mod haiku;
 mod maps;
 mod sources;
 
@@ -465,6 +466,12 @@ enum Cmd {
     /// and each text that runs past its place rewritten to fit. `--models` lists the models a
     /// key can use; `--slides` makes the deck from slides written elsewhere, with no call.
     Generate(Box<generate::GenerateArgs>),
+    /// A haiku about a topic, a slide, or the whole talk (PLAN O.4e, ADR-0030), written by the
+    /// model your key reaches, counted 5-7-5 by the engine and asked once more where it is off,
+    /// then placed in one patch: on a new Haiku slide, a slide's empty verse place, or over a
+    /// verse text. The notes say which model wrote it; `--lines` places lines given, asking no
+    /// model.
+    Haiku(Box<haiku::HaikuArgs>),
     /// MCP server on stdio (PLAN 1.17, SPEC §7.2): the operations above as tools, and the
     /// format's schemas, lint catalog, and examples as resources.
     Mcp,
@@ -810,6 +817,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
         }
         Cmd::Serve { bundle, port } => serve(&bundle, port, cli.json),
         Cmd::Generate(args) => generate::run(*args, cli.json),
+        Cmd::Haiku(args) => haiku::run(*args, cli.json),
         Cmd::Mcp => {
             let transport = std::sync::Arc::new(maps::Ureq::new());
             scaena_mcp::stdio_with(transport).context("serving MCP on stdio")?;

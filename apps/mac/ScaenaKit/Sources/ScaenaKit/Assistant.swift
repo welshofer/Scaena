@@ -273,6 +273,7 @@ public enum ToolWords {
         "deck_diff": ("Comparing versions…", "Compared versions", "Didn't compare versions"),
         "deck_export": ("Exporting the deck…", "Exported the deck", "Didn't export the deck"),
         "deck_find": ("Searching the deck…", "Searched the deck", "Didn't search the deck"),
+        "deck_haiku": ("Writing a haiku…", "Put a haiku on a slide", "Didn't write a haiku"),
         "deck_health": ("Reading the deck's story…", "Read the deck's story", "Didn't read the deck's story"),
         "deck_history": ("Reading the history…", "Looked at the history", "Didn't look at the history"),
         "deck_inspect": ("Looking over the deck…", "Looked over the deck", "Didn't look over the deck"),

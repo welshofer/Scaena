@@ -775,6 +775,31 @@ impl Player {
         serde_json::to_string(&self.0.written(&ask, answer).map_err(js)?).map_err(js)
     }
 
+    /// What to ask a model for a haiku, as JSON (PLAN O.4d): `ask` is `{ state, about, topic?,
+    /// another? }`, `about` one of `topic`, `slide`, or `talk`; the answer is `{ instructions,
+    /// prompt, lang, about }`.
+    pub fn haiku(&mut self, ask: &str) -> Result<String, JsError> {
+        let ask: scaena_session::haiku::HaikuAsk = serde_json::from_str(ask).map_err(js)?;
+        serde_json::to_string(&self.0.haiku(&ask).map_err(js)?).map_err(js)
+    }
+
+    /// What a model's answer, or lines the person edited, come to, as JSON (PLAN O.4d): `{ next:
+    /// "offer", poem, note?, placed? }` or `{ next: "again", prompt }`, `placed` the patch that
+    /// places the poem where `take.to` says.
+    #[wasm_bindgen(js_name = haikuTaken)]
+    pub fn haiku_taken(&mut self, take: &str) -> Result<String, JsError> {
+        let take: scaena_session::haiku::HaikuTake = serde_json::from_str(take).map_err(js)?;
+        serde_json::to_string(&self.0.haiku_taken(&take).map_err(js)?).map_err(js)
+    }
+
+    /// Each of `lines`' counts and how the poem keeps to 5-7-5, as JSON (PLAN O.4d): `lines` a
+    /// JSON array of strings.
+    #[wasm_bindgen(js_name = verseCounts)]
+    pub fn verse_counts(&self, lines: &str) -> Result<String, JsError> {
+        let lines: Vec<String> = serde_json::from_str(lines).map_err(js)?;
+        serde_json::to_string(&self.0.verse_counts(&lines)).map_err(js)
+    }
+
     /// `state`'s layers, as JSON (PLAN 2.50): `[{ node, type, shown, children? }]`, topmost
     /// first, as `scaena inspect --layers` says them.
     pub fn layers(&self, state: &str) -> Result<String, JsError> {

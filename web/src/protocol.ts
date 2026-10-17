@@ -1032,6 +1032,9 @@ export type ToWorker =
   | { type: "writing"; id: number; ask: WritingAsk }
   /** A model's `answer` to `ask` as it is offered, and the patch that takes it (PLAN 2.101). */
   | { type: "written"; id: number; ask: WritingAsk; answer: string }
+  /** A haiku (PLAN O.4f): what to ask, what an answer comes to with the patch that places it, or
+   * each line's count, as the session's `haiku`, `haikuTaken`, and `verseCounts` say them. */
+  | { type: "haiku"; id: number; call: HaikuCall; arg: unknown }
   | { type: "words"; id: number; state: string }
   /** The layouts `state` may take, best first, each painted at rest `height` pixels high, in the
    * deck the editor's `source` compiles to (PLAN 2.92). */
@@ -1411,6 +1414,52 @@ export interface Writing {
   prompt: string;
   picture?: string;
 }
+
+/** What the session says of a haiku (PLAN O.4f). */
+export type HaikuCall = "haiku" | "haikuTaken" | "verseCounts";
+
+/** What a haiku is asked about, from the state shown: a topic typed, the slide, or the talk; and,
+ * for Write Another, the poem not to write again. */
+export interface HaikuAsk {
+  state: string;
+  about: "topic" | "slide" | "talk";
+  topic?: string;
+  another?: string[];
+}
+
+/** What to ask the model for a haiku: its instructions and prompt, in the deck's language, and
+ * what it is about as its slide's notes will say it. */
+export interface HaikuWriting {
+  instructions: string;
+  prompt: string;
+  lang: string;
+  about: string;
+}
+
+/** A line's count, the fewest and the most syllables (or morae) it may be said in. */
+export interface VerseCount {
+  low: number;
+  high: number;
+}
+
+/** A poem counted against 5-7-5: each line, its count (none where it is uncounted) and target. */
+export interface Checked {
+  lines: { text: string; count?: VerseCount; target?: number }[];
+  kept: "kept" | "near" | "off" | "uncounted";
+}
+
+/** A haiku the engine counted: its lines and how they keep to 5-7-5. */
+export interface Poem {
+  lines: string[];
+  reading?: string[];
+  checked: Checked;
+}
+
+/** What an answer comes to: the poem offered, with a note where it is off 5-7-5 and the patch that
+ * places it where it was asked to go; or the second ask. */
+export type HaikuTaken =
+  | { next: "offer"; poem: Poem; note?: string; placed?: { patch: unknown[]; state: string; node: string } }
+  | { next: "again"; prompt: string; poem: Poem };
 
 /** An answer as it is offered, and the patch that takes it: null for one that is only read. */
 export interface Written {
@@ -1826,6 +1875,7 @@ export type FromWorker =
   | { type: "stateChoices"; id: number; choices: StateChoices }
   | { type: "writing"; id: number; writing: Writing }
   | { type: "written"; id: number; written: Written }
+  | { type: "haiku"; id: number; result: unknown }
   | { type: "words"; id: number; words: Lexicon }
   | { type: "layoutSuggestions"; id: number; suggestions: LayoutSuggestion[] }
   | { type: "look"; id: number; look: Look }

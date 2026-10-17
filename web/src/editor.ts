@@ -58,6 +58,7 @@ import { panel } from "./assistant/panel";
 import { TOOLS, writer } from "./writing";
 import { load } from "./assistant/keys";
 import { mapper } from "./maps";
+import { haikuKeys, haikuer } from "./haiku";
 import { picturer } from "./picturing";
 import { sourceOf } from "./bundle";
 import { canvas, canvasKeys, placed } from "./canvas";
@@ -1291,6 +1292,7 @@ async function edit(source: Source, opened?: Stage) {
    * a draw tool by its key (PLAN 2.123). */
   const MAKE_PICTURE = "make-picture";
   const INSERT_MAP = "insert-map";
+  const HAIKU = "haiku";
   const DRAW = "draw:";
   let offered = "";
   /** What may be inserted, by label, as the deck last offered it: what the palette lists. */
@@ -1330,6 +1332,7 @@ async function edit(source: Source, opened?: Stage) {
       draw,
       new Option("Make a picture…", MAKE_PICTURE),
       new Option("Map…", INSERT_MAP),
+      new Option("Haiku…", HAIKU),
     );
   }
   inserter.onchange = () => {
@@ -1339,6 +1342,7 @@ async function edit(source: Source, opened?: Stage) {
     if (chosen.value === "icon") return void insertIcon();
     if (chosen.value === MAKE_PICTURE) return void picturing.open();
     if (chosen.value === INSERT_MAP) return void mapping.open();
+    if (chosen.value === HAIKU) return void haiku.open();
     // A draw tool is its key's gesture: chosen again while it is taken up, it stays so.
     if (chosen.value.startsWith(DRAW)) {
       const key = chosen.value.slice(DRAW.length);
@@ -1996,6 +2000,30 @@ async function edit(source: Source, opened?: Stage) {
     put: (target, map, label) => board.putMap(target, map, label),
     say,
   });
+  /** A haiku (PLAN O.4f): about a topic, this slide, or the whole talk, by the model the assistant
+   * uses, counted 5-7-5 and asked once more where it is off, then placed in one patch. */
+  const haiku = haikuer(stage, {
+    who: () => assistant.who(),
+    shown: showing,
+    format,
+    source: () => view.state.doc.toString(),
+    target: async () => (ready() ? board.haikuTarget() : undefined),
+    apply: made,
+    say,
+    keys: () => {
+      tab("assistant");
+      $("#key").focus();
+    },
+  });
+  /** Write Another Haiku… on a verse text: the dialog opened about its slide, its lines the poem
+   * not to write again, and the new one taking their place. */
+  async function anotherHaiku(node: string) {
+    const now = showing();
+    if (!now) return;
+    const carets = await stage.carets(view.state.doc.toString(), now.state, node, format()).catch(() => null);
+    const lines = (carets?.text ?? "").split("\n").map((l) => l.trim()).filter(Boolean);
+    void haiku.open(lines.length ? lines : undefined);
+  }
   /** Ask the model the assistant uses to write `kind` for `node`, a text, or for the state shown. */
   function write(kind: WritingKind, node?: string) {
     if (assisting) return say("Nothing asked: the assistant is at work on the deck");
@@ -2150,6 +2178,13 @@ async function edit(source: Source, opened?: Stage) {
           run: () => write(kind, picked()[0]),
         }),
       ),
+      // Another haiku over a verse's (PLAN O.4f): asked about its slide, not to write this one again.
+      {
+        label: "Write Another Haiku…",
+        where: ["node"],
+        applies: () => one() && typeOf(picked()[0]) === "text",
+        run: () => void anotherHaiku(picked()[0]),
+      },
       // A picture's description, from the picture itself, by the model the assistant uses (PLAN 2.119).
       {
         label: TOOLS.describe,
@@ -2298,6 +2333,8 @@ async function edit(source: Source, opened?: Stage) {
       // A picture made by the user's image model (PLAN 2.107): in the slide's empty place for one,
       // else where the pointer last pressed; for an image selected, unless a lock holds it, the
       // command that replaces it.
+      // A haiku about a topic, this slide, or the whole talk (PLAN O.4f).
+      { label: "Write a haiku…", group: "Draw and insert", where: ["canvas"], applies: ready, run: () => void haiku.open() },
       {
         label: "Make a picture…",
         where: ["canvas"],
@@ -2431,6 +2468,7 @@ async function edit(source: Source, opened?: Stage) {
     ...findKeys(),
     ...dataKeys(),
     ...rehearsalKeys(),
+    ...haikuKeys(),
     ...sourceKeys(),
     ...editorKeys(),
   ]);
@@ -2734,6 +2772,8 @@ async function edit(source: Source, opened?: Stage) {
       picturing,
       /** Insert › Map… (PLAN O.1c): the sheet opened, and the last map fetched and put, settled. */
       mapping,
+      /** A haiku (PLAN O.4f): the dialog opened, and the last asked and taken, settled. */
+      haiku,
       /** The canvas: what it selected, what stands where, and its drag. */
       canvas: board,
       /** The layers panel: what it lists, and the patches it makes. */

@@ -79,6 +79,20 @@ fn each_adapter_asks_and_reads_as_the_browsers_does() {
         );
         assert_eq!(serde_json::to_value(asked).unwrap(), kept["picture"]["request"], "{id}: a picture asked about");
 
+        // A haiku asked once, as the CLI, the Mac, and the iPad ask it (PLAN O.4e).
+        let haiku = &conversation["haiku"];
+        let asked = scaena_chat::once(
+            provider,
+            conversation["model"].as_str().unwrap(),
+            None,
+            key,
+            true,
+            haiku["system"].as_str().unwrap(),
+            haiku["prompt"].as_str().unwrap(),
+            None,
+        );
+        assert_eq!(serde_json::to_value(asked).unwrap(), kept["haiku"]["request"], "{id}: a haiku asked");
+
         let failure = &conversation["failures"][&id];
         let status = failure["status"].as_u64().unwrap() as u16;
         let said = provider.read_turn(status, "", &body(&failure["body"])).unwrap_err().to_string();
