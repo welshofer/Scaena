@@ -21,8 +21,6 @@ enum CanvasOffer {
     /// The system's own edits a menu offers.
     enum Edit {
         case paste
-        /// Paste as Text: the system's Paste and Match Style.
-        case pasteAsText
     }
 
     /// What the menu offers: what the clipboard and the Node menu can do now, and nothing else
@@ -35,9 +33,11 @@ enum CanvasOffer {
         }
         offers.append(.action("Paste", symbol: "doc.on.clipboard", edit: .paste, run: { clip(.paste) }))
         guard let deck else { return offers }
-        // Words pasted as words, and code copied as text (PLAN 2.133).
+        // Words pasted as words, and code copied as text (PLAN 2.133). An action of the app's own,
+        // not the system's Paste and Match Style: iPadOS shows that under its own title, which
+        // pushes Duplicate onto the edit menu's next page.
         if let pasteAsText = deck.pasteAsText {
-            offers.append(.action("Paste as Text", symbol: "text.alignleft", edit: .pasteAsText, run: pasteAsText))
+            offers.append(.action("Paste as Text", symbol: "text.alignleft", run: pasteAsText))
         }
         if let copyCode = deck.copyCode {
             offers.append(.action("Copy Code", symbol: "chevron.left.forwardslash.chevron.right", run: copyCode))

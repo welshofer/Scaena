@@ -185,7 +185,6 @@ struct CanvasMenu: UIViewRepresentable {
         held.clip = clip
         held.around = around
         view.clip = clip
-        view.pastesText = deck?.pasteAsText != nil
         guard let asked, asked.count != held.shown else { return }
         held.shown = asked.count
         held.menus?.presentEditMenu(with: UIEditMenuConfiguration(identifier: nil, sourcePoint: asked.at))
@@ -222,11 +221,9 @@ struct CanvasMenu: UIViewRepresentable {
     /// What the menu offers (`CanvasOffer`, as the Mac's right click offers it, PLAN 3.23), as
     /// iPadOS's edit menu shows it: no lines between kinds.
     ///
-    /// A paste is a command of the system's own edit, sent through the responder chain as UIKit
+    /// Paste is a command of the system's own edit, sent through the responder chain as UIKit
     /// sends ⌘V: what it reads of the pasteboard then asks nothing of the person, where an action
-    /// that reads it on its own raises iPadOS's Allow Paste. It keeps the menu's own title, as
-    /// short as the rest: the system's "Paste and Match Style" pushes Duplicate onto the menu's
-    /// next page.
+    /// that reads it on its own raises iPadOS's Allow Paste.
     static func items(_ deck: DeckActions?, clip: @escaping (Clipping) -> Void) -> [UIMenuElement] {
         CanvasOffer.offers(deck, clip: clip).compactMap(element)
     }
@@ -247,34 +244,26 @@ struct CanvasMenu: UIViewRepresentable {
         }
     }
 
-    /// The view the menu is shown over, which answers its pastes where the responder chain brings
-    /// them here: a paste the system sends reads the pasteboard with no Allow Paste.
+    /// The view the menu is shown over, which answers its paste where the responder chain brings
+    /// it here: a paste the system sends reads the pasteboard with no Allow Paste.
     final class Edits: UIView {
         var clip: (Clipping) -> Void = { _ in }
-        /// Whether the menu offers Paste as Text.
-        var pastesText = false
 
         static func action(_ edit: CanvasOffer.Edit) -> Selector {
             switch edit {
             case .paste: #selector(UIResponderStandardEditActions.paste(_:))
-            case .pasteAsText: #selector(UIResponderStandardEditActions.pasteAndMatchStyle(_:))
             }
         }
 
         override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
             switch action {
             case Self.action(.paste): true
-            case Self.action(.pasteAsText): pastesText
             default: super.canPerformAction(action, withSender: sender)
             }
         }
 
         override func paste(_ sender: Any?) {
             clip(.paste)
-        }
-
-        override func pasteAndMatchStyle(_ sender: Any?) {
-            clip(.pasteAsText)
         }
     }
 }
