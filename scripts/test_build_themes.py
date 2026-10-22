@@ -239,10 +239,25 @@ class Backgrounds(unittest.TestCase):
             _, palettes, colors = self.palettes(slug, s)
             water, *light = palettes["lagoon"]
             lum = lambda c: themes.luminance(themes.rgb(c))  # noqa: E731
-            # The light rises from the water, which lies under the paper: deeper on a dark theme,
-            # a tint of the accent on a light one, its light the paler.
+            # The light rises from the water: on a light theme a tint of the accent under the paper,
+            # its light the paler; on a dark one a deep shade of it, about the paper's own depth.
             self.assertTrue(all(lum(l) > lum(water) for l in light), f"{slug}: {palettes['lagoon']}")
-            self.assertLess(lum(water), lum(colors["paper"]), slug)
+            if s["mode"] == "light":
+                self.assertLess(lum(water), lum(colors["paper"]), slug)
+            else:
+                self.assertLess(themes.contrast(themes.rgb(water), themes.rgb(colors["paper"])), 1.2, slug)
+
+    def test_a_dark_themes_light_stays_within_three_to_one_of_its_water(self):
+        for slug in ("dusk", "ember"):
+            _, palettes, colors = self.palettes(slug, SPECS[slug])
+            water, *light = palettes["lagoon"]
+            for c in light:
+                ratio = themes.contrast(themes.rgb(c), themes.rgb(water))
+                self.assertLessEqual(ratio, themes.CALM + 1e-6, f"{slug}'s {c} on its water {water}")
+                self.assertGreater(ratio, 2.5, f"{slug}'s {c} still shows on its water {water}")
+        # A light theme's light is left as it was: it only adds contrast to dark words.
+        _, palettes, _ = self.palettes("salon", SPECS["salon"])
+        self.assertEqual(palettes["lagoon"][-1], "#FFFFFF")
 
     def test_a_specs_own_palette_wins(self):
         mine = ["#000000", "#FFFFFF"]

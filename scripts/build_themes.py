@@ -238,7 +238,7 @@ def backgrounds(colors: dict, dark: bool) -> dict[str, list[str]]:
     p, p2, a, a2, ink = (colors[k] for k in ("paper", "paper-2", "accent", "accent-2", "ink"))
     deep, white = "#000000", "#FFFFFF"
     if dark:
-        water = mix(hexed(from_oklab(*mix(p, a, 0.35))), deep, 0.6)
+        water = mix(hexed(from_oklab(*mix(p, a, 0.35))), deep, 0.5)
         lights = [mix(p, a, 0.85), mix(hexed(from_oklab(*mix(a, a2, 0.5))), white, 0.35)]
     else:
         water, lights = mix(p, a, 0.35), [mix(p, a, 0.1), oklab(rgb(white))]
@@ -251,7 +251,35 @@ def backgrounds(colors: dict, dark: bool) -> dict[str, list[str]]:
         "haze": [oklab(rgb(p)), mix(p, a, 0.55), mix(p, a2, 0.45)],
         "dust": [mix(p, a, 0.9), mix(p, a2, 0.9), mix(p, ink, 0.85)],
     }
-    return {name: [held(c, colors) for c in palette] for name, palette in out.items()}
+    held_out = {name: [held(c, colors) for c in palette] for name, palette in out.items()}
+    if dark:
+        # On a dark theme the light is quiet behind the words: no filament stands out from the
+        # water by more than `CALM`, so none competes with the ink set over it.
+        water, *lights = held_out["lagoon"]
+        held_out["lagoon"] = [water, *(calmed(c, water) for c in lights)]
+    return held_out
+
+
+# How far a dark theme's caustic light may stand out from its water, as WCAG's contrast.
+CALM = 3.0
+
+
+def calmed(light: str, water: str) -> str:
+    """`light` taken toward black in Oklab, its hue kept, as little as keeps it within `CALM` of
+    `water`; as it is where it already is."""
+    lab, end = oklab(rgb(light)), (0.0, 0.0, 0.0)
+    at = lambda t: from_oklab(*(p + t * (q - p) for p, q in zip(lab, end)))  # noqa: E731
+    within = lambda t: contrast(at(t), rgb(water)) <= CALM  # noqa: E731
+    if within(0.0):
+        return light
+    lo, hi = 0.0, 1.0
+    for _ in range(40):
+        mid = (lo + hi) / 2
+        if within(mid):
+            hi = mid
+        else:
+            lo = mid
+    return hexed(at(hi))
 
 
 # A theme from its spec.
