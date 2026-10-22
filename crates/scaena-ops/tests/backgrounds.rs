@@ -76,3 +76,64 @@ fn a_slide_with_a_chart_says_why_backgrounds_stay_off_it() {
     assert_eq!(listed.held.as_deref(), Some(scaena_core::words::BACKGROUND_HELD));
     assert!(listed.options[0].current);
 }
+
+/// A new deck in Dusk, on its title slide, in the fonts the theme ships with.
+fn dusk(test: &str) -> PathBuf {
+    let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("backgrounds-{test}"));
+    let shipped = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("backgrounds-{test}-theme"));
+    for d in [&dir, &shipped] {
+        let _ = std::fs::remove_dir_all(d);
+    }
+    std::fs::create_dir_all(shipped.join("themes")).unwrap();
+    std::fs::create_dir_all(shipped.join("fonts")).unwrap();
+    for font in std::fs::read_dir("../../docs/examples/fonts").unwrap() {
+        let font = font.unwrap().path();
+        std::fs::copy(&font, shipped.join("fonts").join(font.file_name().unwrap())).unwrap();
+    }
+    let theme = shipped.join("themes/dusk.theme.json");
+    std::fs::copy("../../docs/examples/themes/dusk.theme.json", &theme).unwrap();
+    let req = scaena_ops::create::Create { theme, title: Some("High Country Trails".into()), ..Default::default() };
+    assert!(scaena_ops::create::create(&dir, &req).unwrap().created);
+    let b = scaena_ops::open(&dir).unwrap();
+    let started =
+        scaena_ops::states::starting(&b.deck, &scaena_ops::theme(&b).unwrap(), "start", Some("title")).unwrap();
+    assert!(scaena_ops::patch::patch(&b, &Value::Array(started.patch), false).unwrap().applied);
+    dir
+}
+
+/// The contrast errors lint finds in the bundle at `dir`.
+fn faint(dir: &Path) -> Vec<String> {
+    let found = scaena_ops::lint::lint(&scaena_ops::open(dir).unwrap()).unwrap().findings;
+    found.iter().filter(|f| matches!(f.code.as_str(), "E110" | "E111")).map(|f| format!("{f:?}")).collect()
+}
+
+#[test]
+fn a_background_keeps_the_slides_words_readable() {
+    let dir = dusk("readable");
+    let b = scaena_ops::open(&dir).unwrap();
+    let theme = scaena_ops::theme(&b).unwrap();
+    let first = b.deck.states.last().unwrap().id.clone();
+    assert!(faint(&dir).is_empty(), "the title slide reads as made");
+
+    // Backdrop alone leaves a text too faint to read over it…
+    let full = scaena_ops::backgrounds::setting(&b.deck, &theme, &View::of(&b), &first, Some("backdrop")).unwrap();
+    let ours = |op: &Value| matches!(op["op"].as_str(), Some("add_node" | "hide_node" | "remove_node" | "show_node"));
+    let bare: Vec<Value> = full.iter().filter(|op| ours(op)).cloned().collect();
+    assert!(bare.len() < full.len(), "the patch sets a color too: {full:?}");
+    let (bare, _) = scaena_ops::patch::patching(&b, &Value::Array(bare), None).unwrap();
+    assert!(bare.added.iter().any(|f| f.code == "E110"), "backdrop leaves a text faint: {:?}", bare.added);
+
+    // …which the patch sets in a color that reads there: one patch, one undo step.
+    let made = background(&b, &first, Some("backdrop")).unwrap();
+    assert!(made.applied, "{made:?}");
+    assert_eq!(faint(&dir), Vec::<String>::new());
+
+    // None leaves the color, which still reads.
+    let b = scaena_ops::open(&dir).unwrap();
+    let recolored = b.deck.to_value().unwrap();
+    assert!(background(&b, &first, None).unwrap().applied);
+    let after = scaena_ops::open(&dir).unwrap().deck.to_value().unwrap();
+    assert!(faint(&dir).is_empty());
+    let colors = |doc: &Value| doc.to_string().matches("\"color\"").count();
+    assert_eq!(colors(&after), colors(&recolored), "the colors stay");
+}

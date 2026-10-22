@@ -189,7 +189,8 @@ try {
   check(budget.map((o) => o.disabled).join() === ",true,true", `budget's presets are dimmed: ${budget.map((o) => o.disabled)}`);
   const held = await page.evaluate(() => document.querySelector("#look .backgrounds .held")?.textContent ?? "");
   check(held.startsWith("Backgrounds stay off slides with a chart or a table"), `it says why: ${held}`);
-  await page.click("#look .backgrounds #background-1");
+  // Dimmed, as aria-disabled says, and pressed all the same, as a person may.
+  await page.click("#look .backgrounds #background-1", { force: true });
   await page.waitForTimeout(500);
   check((await source()) === original, "a preset there is refused");
   check((await status()).includes("Backgrounds stay off"), `with the reason: ${await status()}`);
@@ -202,8 +203,9 @@ try {
   const given = await source();
   check(given !== original && /promise-background/.test(given), "promise takes Backdrop");
   await page.click("#look .backgrounds #background-0");
+  await page.waitForFunction(() => !/promise-background/.test(window.scaena.source()), null, { timeout: 30000 }).catch(() => {});
   await offeredWith(page, "None");
-  check(!/promise-background/.test(await source()), "None takes it away");
+  check(!/promise-background/.test(await source()), `None takes it away: ${await status()}`);
   await page.screenshot({ path: "target/web-smoke/backgrounds.png" }).catch(() => {});
 
   // Less motion: the swatches hold still.

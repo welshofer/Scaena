@@ -213,7 +213,9 @@ pub fn theming(
     let refused = !force && !delta(&invalid, &states, &invalid_after, &states, &[]).added.is_empty();
     let mut recolored = Vec::new();
     if recolor && !refused {
-        (deck, after, recolored) = recoloring(deck, &view, &before, &states, after)?;
+        let lint = |deck: &Deck| Ok(lint_in(deck, &view)?.findings);
+        let done = recoloring(deck, &before, &states, after, lint)?;
+        (deck, after, recolored) = (done.deck, done.after, done.recolored);
     }
     let Delta { added: worse, removed: better } = delta(&before, &states, &after, &states, &[]);
     let (worse, better) = (worse.into_iter().cloned().collect(), better.into_iter().cloned().collect());
@@ -237,19 +239,32 @@ pub fn theming(
     Ok((themed, Write { deck, files, why: Why::new(format!("theme --apply {rel}")) }))
 }
 
-/// `deck`, in the theme `files` hold, with each contrast error a re-theme brought (in `after` and
-/// not in `before`) fixed as its fix offers: the text set in the theme's color that reads where it
-/// stands (PLAN 2.82). The deck so recolored, what lint finds in it, and the errors fixed, one for
-/// each text. Two fixes that make one container in one state could each write it whole, so lint
-/// lays the deck out again and fixes what is left, three rounds at most.
-fn recoloring(
+/// A deck [`recoloring`] set in colors that read.
+pub(crate) struct Recolored {
+    /// The deck so recolored.
+    pub deck: Deck,
+    /// What lint finds in it.
+    pub after: Vec<Finding>,
+    /// The errors fixed, one for each text.
+    pub recolored: Vec<Finding>,
+    /// The fixes' ops, in the order they applied.
+    pub ops: Vec<Value>,
+}
+
+/// `deck` with each contrast error a change brought (in `after` and not in `before`) fixed as its
+/// fix offers: the text set in the theme's color that reads where it stands (PLAN 2.82), as a
+/// re-theme and a slide's background (PLAN 2.148) set it. `lint` is what lint finds in a deck. Two
+/// fixes that make one container in one state could each write it whole, so lint lays the deck out
+/// again and fixes what is left, three rounds at most.
+pub(crate) fn recoloring(
     mut deck: Deck,
-    files: &View,
     before: &[Finding],
     states: &[&str],
     mut after: Vec<Finding>,
-) -> Result<(Deck, Vec<Finding>, Vec<Finding>), OpsError> {
+    lint: impl Fn(&Deck) -> Result<Vec<Finding>, OpsError>,
+) -> Result<Recolored, OpsError> {
     let mut recolored: Vec<Finding> = Vec::new();
+    let mut ops: Vec<Value> = Vec::new();
     for _ in 0..3 {
         let faint: Vec<Finding> = (delta(before, states, &after, states, &[]).added.into_iter())
             .filter(|f| matches!(f.code.as_str(), "E110" | "E111") && f.fix.is_some())
@@ -267,6 +282,7 @@ fn recoloring(
             if scaena_core::patch::apply(&mut next, fix).is_ok() {
                 doc = next;
                 applied.push(fix);
+                ops.extend(fix.iter().cloned());
                 if !recolored.iter().any(|r| r.node == f.node) {
                     recolored.push(f.clone());
                 }
@@ -276,9 +292,9 @@ fn recoloring(
             break;
         }
         deck = Deck::from_json(&doc.to_string()).context("the deck, recolored")?;
-        after = lint_in(&deck, files)?.findings;
+        after = lint(&deck)?;
     }
-    Ok((deck, after, recolored))
+    Ok(Recolored { deck, after, recolored, ops })
 }
 
 /// Each of `theme`'s families, and its italic, whose file `held` says the bundle holds and

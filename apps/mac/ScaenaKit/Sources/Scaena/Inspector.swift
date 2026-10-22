@@ -1194,9 +1194,11 @@ private struct BackgroundsRow: View {
     private func tile(_ option: BackgroundOption, image: CGImage?, in offered: Backgrounds) -> some View {
         let offers = offered.offers(option)
         return Button {
-            guard offers, !option.current else { return }
+            guard offers, !option.current,
+                let patch = try? editor.session.backgroundPatch(state: offered.first, preset: option.preset)
+            else { return }
             leave()
-            make(option.patch)
+            make(patch)
         } label: {
             VStack(spacing: 4) {
                 Group {

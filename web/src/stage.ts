@@ -187,7 +187,8 @@ type Reply = Extract<
       | "filling"
       | "layoutSuggestions"
       | "backgrounds"
-      | "backgroundFrames";
+      | "backgroundFrames"
+      | "backgroundPatch";
   }
 >;
 
@@ -782,6 +783,12 @@ export class Stage {
     );
   }
 
+  /** The patch that gives `state`'s slide `preset` as its background, or none, each text too faint over it
+   * set in a color that reads there: what choosing one makes (PLAN 2.148). */
+  backgroundPatch(state: string, preset?: string): Promise<unknown[]> {
+    return this.request<"backgroundPatch">({ type: "backgroundPatch", id: ++this.asked, state, preset }).then(({ patch }) => patch);
+  }
+
   /** The backgrounds `backgrounds` drew last, each painted again with its effect's clock at `t` seconds:
    * a swatch's frame (PLAN 2.148). */
   backgroundFrames(t: number): Promise<ArrayBuffer[]> {
@@ -1203,6 +1210,7 @@ export class Stage {
       case "layoutSuggestions":
       case "backgrounds":
       case "backgroundFrames":
+      case "backgroundPatch":
       case "sheet":
       case "dataEdited":
       case "dataUndone":

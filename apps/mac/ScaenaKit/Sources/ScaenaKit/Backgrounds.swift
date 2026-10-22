@@ -61,6 +61,15 @@ extension ScaenaSession {
         try call("backgroundsPainted", ["state": .string(state), "height": .number(Double(max(height, 1)))])
     }
 
+    /// The patch that gives the slide of `state` `preset` as its background, or none, each text too
+    /// faint to read over it set in a color that reads there: what choosing one makes. An option's
+    /// own `patch` shows the slide with it, as a preview does.
+    public func backgroundPatch(state: String, preset: String?) throws -> [JSONValue] {
+        var args: [String: JSONValue] = ["state": .string(state)]
+        if let preset { args["preset"] = .string(preset) }
+        return try call("backgroundPatch", .object(args))
+    }
+
     /// The `i`th background `backgrounds` drew last, its effect's clock at `t` seconds (SPEC §3.8).
     public func backgroundPicture(_ i: Int, at t: Double = 0) throws -> Pixels {
         var error: UnsafeMutablePointer<CChar>?

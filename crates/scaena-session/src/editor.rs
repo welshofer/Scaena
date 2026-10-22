@@ -715,7 +715,9 @@ impl Session {
     pub fn backgrounds_painted(&mut self, state: &str, height: u32) -> Result<Value, Error> {
         use scaena_paint::Painter;
         self.build()?;
-        let offered = scaena_ops::backgrounds::offered(&self.deck, &self.theme, &Handed(&self.files), state)
+        let bundle = self.bundle();
+        let files = scaena_ops::lint::View::of(&bundle);
+        let offered = scaena_ops::backgrounds::offered(&self.deck, &self.theme, &files, state)
             .map_err(|e| Error::Ops(e.message))?;
         let base = self.deck.to_value().map_err(|e| Error::Ops(e.to_string()))?;
         let mut painter = scaena_paint::cpu::CpuPainter::default();
@@ -746,6 +748,17 @@ impl Session {
         let mut value = serde_json::to_value(&offered).map_err(|e| Error::Ops(e.to_string()))?;
         value["options"] = Value::Array(listed);
         Ok(value)
+    }
+
+    /// The patch that gives the slide of `state` `preset` as its background, or none (PLAN 2.148):
+    /// [`scaena_ops::backgrounds::setting`]'s, each text too faint to read over it set in the color
+    /// that reads there. What an editor makes when a background is chosen.
+    pub fn background_patch(&mut self, state: &str, preset: Option<&str>) -> Result<Value, Error> {
+        let bundle = self.bundle();
+        let files = scaena_ops::lint::View::of(&bundle);
+        let patch = scaena_ops::backgrounds::setting(&self.deck, &self.theme, &files, state, preset)
+            .map_err(|e| Error::Ops(e.message))?;
+        Ok(Value::Array(patch))
     }
 
     /// The `i`th background [`Session::backgrounds_painted`] drew last, painted again with each
@@ -873,6 +886,10 @@ mod tests {
             (s.background_picture(1, 0.0).unwrap().unwrap(), s.background_picture(1, 2.0).unwrap().unwrap());
         assert_ne!(still.rgba, on.rgba, "a background moves");
         assert!(s.background_picture(3, 0.0).unwrap().is_none());
+        // What a choice makes: the preview's patch, then any color that keeps a text readable.
+        let made = s.background_patch("intro", Some("backdrop")).unwrap();
+        let shown = options[1]["patch"].as_array().unwrap();
+        assert_eq!(&made.as_array().unwrap()[..shown.len()], &shown[..], "{made}");
 
         let base = s.deck.to_value().unwrap();
         let before = resolve_states(&s.deck).unwrap();

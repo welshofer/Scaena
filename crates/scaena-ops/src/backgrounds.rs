@@ -8,7 +8,11 @@
 //! - [`setting`] is that patch: the slide's background, each shader that fills its canvas as its
 //!   first state shows it, taken away (removed where no other slide shows it, else hidden from
 //!   this slide, the slides after it that showed it showing it again), and the preset's added,
-//!   entering in the slide's first state and kept to its slide (PLAN 3.24).
+//!   entering in the slide's first state and kept to its slide (PLAN 3.24). Each text on the
+//!   slide too faint to read over it is then set in the theme's color that reads there, as a
+//!   re-theme sets it (PLAN 2.82), in the same patch; None leaves those colors, which still read.
+//!   Each option's own patch is the slide with it alone, which a preview draws at once; the
+//!   editors ask for [`setting`]'s when one is chosen.
 //! - [`backgrounding`] checks it as a patch is checked, writing nothing, and [`background`]
 //!   writes it.
 
@@ -18,7 +22,6 @@ use crate::{Bundle, Context as _, OpsError};
 use scaena_core::document::{Deck, NodeType, Props};
 use scaena_core::model::theme::{Theme, Vocabulary};
 use scaena_core::patch::SemanticOp;
-use scaena_core::validate::BundleFiles;
 use scaena_core::words;
 use schemars::JsonSchema;
 use serde::Serialize;
@@ -54,7 +57,9 @@ pub struct Background {
     /// The slide's background now. A background no preset makes is none of these.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub current: bool,
-    /// The patch that gives the slide this background: none for the one it has.
+    /// The patch that shows the slide with this background, as a preview draws it: none for the one
+    /// it has. Giving the slide it is [`setting`]'s patch, which sets each text too faint to read
+    /// over it in a color that reads there too, and lints the slide to know which.
     pub patch: Vec<Value>,
 }
 
@@ -83,7 +88,7 @@ fn current(deck: &Deck, snap: &scaena_core::tracking::Snapshot) -> Vec<String> {
 }
 
 /// What `state`'s slide may take as its background in `theme`, each with its patch.
-pub fn offered(deck: &Deck, theme: &Theme, files: &dyn BundleFiles, state: &str) -> Result<Backgrounds, OpsError> {
+pub fn offered(deck: &Deck, theme: &Theme, files: &View, state: &str) -> Result<Backgrounds, OpsError> {
     let s = first_of(deck, state)?;
     let snaps = scaena_core::resolve_states(deck).context("tracking")?;
     let slide = deck.slide_of(&deck.states[s]);
@@ -102,7 +107,7 @@ pub fn offered(deck: &Deck, theme: &Theme, files: &dyn BundleFiles, state: &str)
         label: "None".into(),
         said: None,
         current: now.is_empty(),
-        patch: if now.is_empty() { Vec::new() } else { setting(deck, theme, files, state, None)? },
+        patch: if now.is_empty() { Vec::new() } else { placing(deck, theme, files, state, None)? },
     }];
     for (name, preset) in presets.into_iter().flatten() {
         let kind = serde_json::to_value(preset.kind).ok().and_then(|k| k.as_str().map(String::from));
@@ -113,7 +118,7 @@ pub fn offered(deck: &Deck, theme: &Theme, files: &dyn BundleFiles, state: &str)
             said: kind.as_deref().map(words::shader),
             kind,
             current,
-            patch: if current { Vec::new() } else { setting(deck, theme, files, state, Some(name))? },
+            patch: if current { Vec::new() } else { placing(deck, theme, files, state, Some(name))? },
         });
     }
     Ok(Backgrounds { first: deck.states[s].id.clone(), held, options })
@@ -127,11 +132,43 @@ fn seed(slide: &str) -> u64 {
 /// The patch that gives `state`'s slide `preset` as its background, or none (`None`): each shader
 /// that fills its canvas in its first state taken away, then the preset's entering there, kept to
 /// the slide. One that shows on another slide too is hidden from this one, and comes back on each
-/// slide after it that showed it. Refused for a preset the theme does not have.
+/// slide after it that showed it. Each text the slide's states show too faint to read then is set
+/// in the theme's color that reads where it stands (E110, E111), as a re-theme sets it (PLAN 2.82),
+/// which lints the slide. Refused for a preset the theme does not have.
 pub fn setting(
     deck: &Deck,
     theme: &Theme,
-    files: &dyn BundleFiles,
+    files: &View,
+    state: &str,
+    preset: Option<&str>,
+) -> Result<Vec<Value>, OpsError> {
+    let mut patch = placing(deck, theme, files, state, preset)?;
+    let slide = deck.slide_of(&deck.states[first_of(deck, state)?]);
+    let slid: Vec<&str> =
+        (deck.states.iter()).filter(|st| deck.slide_of(st) == slide).map(|st| st.id.as_str()).collect();
+    let lint = |deck: &Deck| Ok(crate::lint::lint_states_in(deck, files, &slid)?.findings);
+    let made = compiled(deck, files, &patch)?;
+    let after = lint(&made)?;
+    patch.extend(crate::theme::recoloring(made, &[], &slid, after, lint)?.ops);
+    Ok(patch)
+}
+
+/// `deck` with `patch` applied.
+fn compiled(deck: &Deck, files: &View, patch: &[Value]) -> Result<Deck, OpsError> {
+    let after = scaena_core::patch::compile(&deck.to_value()?, patch, files).map_err(|e| OpsError {
+        message: e.to_string(),
+        plan: None,
+        op: Some(e.index),
+    })?;
+    Deck::from_value(&after.doc).map_err(OpsError::new)
+}
+
+/// [`setting`]'s patch before it sets any text's color: the slide with the background, as a preview
+/// shows it.
+fn placing(
+    deck: &Deck,
+    theme: &Theme,
+    files: &View,
     state: &str,
     preset: Option<&str>,
 ) -> Result<Vec<Value>, OpsError> {
@@ -179,15 +216,8 @@ pub fn setting(
     // first state of each run that lost it, which those after it track.
     let hidden: Vec<&String> = old.iter().filter(|id| elsewhere(id)).collect();
     if !hidden.is_empty() {
-        let doc = deck.to_value()?;
         for k in s + 1..deck.states.len() {
-            let after = scaena_core::patch::compile(&doc, &patch, files).map_err(|e| OpsError {
-                message: e.to_string(),
-                plan: None,
-                op: Some(e.index),
-            })?;
-            let made = Deck::from_value(&after.doc).map_err(OpsError::new)?;
-            let now = scaena_core::resolve_states(&made).context("tracking")?;
+            let now = scaena_core::resolve_states(&compiled(deck, files, &patch)?).context("tracking")?;
             if deck.slide_of(&deck.states[k]) == slide {
                 continue;
             }

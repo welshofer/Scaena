@@ -348,6 +348,10 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         const options = listed.options.map((o, i) => ({ ...o, pixels: player.backgroundPixels(i, 0).buffer as ArrayBuffer }));
         return post({ type: "backgrounds", id: data.id, backgrounds: { ...listed, options } }, options.map((o) => o.pixels));
       }
+      case "backgroundPatch": {
+        const patch = JSON.parse(player.backgroundPatch(data.state, data.preset)) as unknown[];
+        return post({ type: "backgroundPatch", id: data.id, patch });
+      }
       case "backgroundFrames": {
         const pixels: ArrayBuffer[] = [];
         for (let i = 0; ; i++) {

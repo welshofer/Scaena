@@ -495,8 +495,9 @@ pub unsafe extern "C" fn scaena_picture(bytes: *const u8, len: usize) -> *mut c_
 /// pixels high, which [`scaena_layout_pixels`] takes. A slide's background (PLAN 2.148, 3.32):
 /// `backgroundsPainted {state, height}`, `{first, held?, options}`, None and each of the theme's
 /// shader presets, each `{preset?, kind?, label, said?, current?, patch, width, height}`, the slide
-/// drawn with it `height` pixels high, which [`scaena_background_pixels`] paints at a time. The
-/// slides a person may start (PLAN 3.30):
+/// drawn with it `height` pixels high, which [`scaena_background_pixels`] paints at a time; and
+/// `backgroundPatch {state, preset?}`, the patch one chosen makes, each text too faint over it set in
+/// a color that reads there. The slides a person may start (PLAN 3.30):
 /// `starters`, the slides a person may start as a picker lists them before any is drawn, each
 /// `{layout, name, description, group}`, then a blank one; `startersPainted {state, height,
 /// layouts?}`, one in each of the theme's layouts, then a blank
@@ -1562,6 +1563,12 @@ fn call(s: &mut Session, method: &str, args: &Value) -> Result<Value, Failure> {
         // by `scaena_background_pixels`.
         "backgroundsPainted" => {
             s.backgrounds_painted(arg("state")?, number("height")?.max(1.0) as u32).map_err(said)?
+        }
+        // The patch a background chosen makes, each text too faint over it set in a color that
+        // reads there: `{state, preset?}`.
+        "backgroundPatch" => {
+            let preset = args.get("preset").and_then(Value::as_str);
+            s.background_patch(arg("state")?, preset).map_err(said)?
         }
         // The slides a person may start after the slide shown, each as its layout's picture shows
         // it, painted: every layout's, or those `layouts` names, a null the blank one (PLAN 3.30,

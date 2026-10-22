@@ -1065,6 +1065,8 @@ export type ToWorker =
   | { type: "backgrounds"; id: number; state: string; height: number; format?: string }
   /** The backgrounds drawn last, each painted again with its effect's clock at `t` seconds (PLAN 2.148). */
   | { type: "backgroundFrames"; id: number; t: number }
+  /** The patch a background chosen makes, each text too faint over it set in a color that reads (PLAN 2.148). */
+  | { type: "backgroundPatch"; id: number; state: string; preset?: string }
   /** `state` painted at rest as the patch `ops` would make it, nothing made, until a `rest` lets
    * it go: a suggested layout pointed at (PLAN 2.92). */
   | { type: "preview"; id: number; state: string; ops: unknown[]; format?: string }
@@ -1859,6 +1861,7 @@ export type FromWorker =
   | { type: "layoutSuggestions"; id: number; suggestions: LayoutSuggestion[] }
   | { type: "backgrounds"; id: number; backgrounds: Backgrounds }
   | { type: "backgroundFrames"; id: number; pixels: ArrayBuffer[] }
+  | { type: "backgroundPatch"; id: number; patch: unknown[] }
   | { type: "look"; id: number; look: Look }
   | { type: "put"; id: number; put: Put }
   | { type: "carets"; id: number; carets: Carets | null }

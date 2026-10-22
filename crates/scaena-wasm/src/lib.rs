@@ -220,6 +220,14 @@ impl Player {
         Ok(self.0.backgrounds_painted(state, height).map_err(js)?.to_string())
     }
 
+    /// The patch that gives the slide of `state` `preset` as its background, or none, each text too
+    /// faint to read over it set in a color that reads there (PLAN 2.148): JSON, what a choice makes.
+    #[cfg(feature = "editor")]
+    #[wasm_bindgen(js_name = backgroundPatch)]
+    pub fn background_patch(&mut self, state: &str, preset: Option<String>) -> Result<String, JsError> {
+        Ok(self.0.background_patch(state, preset.as_deref()).map_err(js)?.to_string())
+    }
+
     /// The pixels of the `i`th background `backgroundsPainted` drew last, its effect's clock at `t`
     /// seconds: none past the last.
     #[cfg(feature = "editor")]

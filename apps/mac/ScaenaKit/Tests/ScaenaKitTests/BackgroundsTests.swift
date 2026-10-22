@@ -20,7 +20,7 @@ import Testing
 
     // Backdrop chosen: the slide takes it, and no other.
     let backdrop = try #require(offered.options.first { $0.preset == "backdrop" })
-    let before = try editor.make(backdrop.patch)
+    let before = try editor.make(try editor.session.backgroundPatch(state: offered.first, preset: backdrop.preset))
     let after = try editor.session.backgrounds(state: "intro", height: 90)
     #expect(after.options.first { $0.current }?.preset == "backdrop")
     #expect(try editor.session.backgrounds(state: "close", height: 90).options.allSatisfy { !$0.current })
