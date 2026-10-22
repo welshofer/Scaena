@@ -1,0 +1,5 @@
+Query chain:
+ →Find: Target Application 'com.welshofer.Scaena'
+  ↪︎Find: Descendants matching type TextField
+    ↪︎Find: Elements matching predicate 'identifier == "theme-body-size"'
+      ↪︎Find: First Match
