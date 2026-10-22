@@ -492,7 +492,11 @@ pub unsafe extern "C" fn scaena_picture(bytes: *const u8, len: usize) -> *mut c_
 /// take (PLAN 2.92, 3.26): `layoutsBegin {state}`, how many are to be judged; `layoutsStep`, the
 /// next judged, and whether any is left; and `layoutSuggestions {height}`, those judged, best
 /// first, each with the `set_state` that gives it and its picture's size, painted `height`
-/// pixels high, which [`scaena_layout_pixels`] takes. The slides a person may start (PLAN 3.30):
+/// pixels high, which [`scaena_layout_pixels`] takes. A slide's background (PLAN 2.148, 3.32):
+/// `backgroundsPainted {state, height}`, `{first, held?, options}`, None and each of the theme's
+/// shader presets, each `{preset?, kind?, label, said?, current?, patch, width, height}`, the slide
+/// drawn with it `height` pixels high, which [`scaena_background_pixels`] paints at a time. The
+/// slides a person may start (PLAN 3.30):
 /// `starters`, the slides a person may start as a picker lists them before any is drawn, each
 /// `{layout, name, description, group}`, then a blank one; `startersPainted {state, height,
 /// layouts?}`, one in each of the theme's layouts, then a blank
@@ -672,6 +676,36 @@ pub unsafe extern "C" fn scaena_layout_pixels(
         session.0.layout_picture(i).ok_or_else(|| {
             said(format!("no layout's picture {i} is kept: `layoutSuggestions` paints them, and each is taken once"))
         })
+    });
+    match painted {
+        Ok(raster) => ScaenaPixels { bytes: ScaenaBytes::of(raster.rgba), width: raster.width, height: raster.height },
+        Err(failure) => {
+            unsafe { report(error, failure) };
+            ScaenaPixels { bytes: ScaenaBytes::NONE, width: 0, height: 0 }
+        }
+    }
+}
+
+/// The `i`th background `backgroundsPainted` drew last (PLAN 2.148, 3.32): the slide with it, at
+/// rest, its effect `t` seconds on, as [`scaena_pixels`] gives a frame. Null bytes past the last,
+/// `*error` then saying why.
+///
+/// # Safety
+/// `session` is a live handle; `error` null or writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn scaena_background_pixels(
+    session: *mut ScaenaSession,
+    i: usize,
+    t: f64,
+    error: *mut *mut c_char,
+) -> ScaenaPixels {
+    let painted = guarded(|| {
+        let session = unsafe { handle(session, "session") }?;
+        session
+            .0
+            .background_picture(i, t)
+            .map_err(said)?
+            .ok_or_else(|| said(format!("no background's picture {i} is kept: `backgroundsPainted` draws them")))
     });
     match painted {
         Ok(raster) => ScaenaPixels { bytes: ScaenaBytes::of(raster.rgba), width: raster.width, height: raster.height },
@@ -1524,6 +1558,11 @@ fn call(s: &mut Session, method: &str, args: &Value) -> Result<Value, Failure> {
         "layoutsBegin" => json!(s.layouts_begin(arg("state")?).map_err(said)?),
         "layoutsStep" => json!(s.layouts_step().map_err(said)?),
         "layoutSuggestions" => json!(s.layouts_painted(number("height")?.max(1.0) as u32).map_err(said)?),
+        // What the slide may take as its background, each drawn (PLAN 2.148, 3.32): its pictures
+        // by `scaena_background_pixels`.
+        "backgroundsPainted" => {
+            s.backgrounds_painted(arg("state")?, number("height")?.max(1.0) as u32).map_err(said)?
+        }
         // The slides a person may start after the slide shown, each as its layout's picture shows
         // it, painted: every layout's, or those `layouts` names, a null the blank one (PLAN 3.30,
         // 3.31); and one started.

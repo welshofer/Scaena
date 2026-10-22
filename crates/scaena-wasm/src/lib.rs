@@ -208,6 +208,25 @@ impl Player {
     pub fn layout_pixels(&mut self, i: usize) -> wasm_bindgen::Clamped<Vec<u8>> {
         wasm_bindgen::Clamped(self.0.layout_pixels(i))
     }
+
+    /// What the slide of `state` may take as its background (PLAN 2.148): JSON, `{first, held?,
+    /// options}`, each option `{preset?, kind?, label, said?, current?, patch}` with its picture's
+    /// `width` and `height`, the slide drawn with it at rest `height` pixels high in the format
+    /// shown. `backgroundPixels(i, t)` paints the `i`th again `t` seconds on, as it moves.
+    #[cfg(feature = "editor")]
+    #[wasm_bindgen(js_name = backgroundsPainted)]
+    pub fn backgrounds_painted(&mut self, state: &str, height: u32) -> Result<String, JsError> {
+        Ok(self.0.backgrounds_painted(state, height).map_err(js)?.to_string())
+    }
+
+    /// The pixels of the `i`th background `backgroundsPainted` drew last, its effect `t` seconds
+    /// on: none past the last.
+    #[cfg(feature = "editor")]
+    #[wasm_bindgen(js_name = backgroundPixels)]
+    pub fn background_pixels(&mut self, i: usize, t: f64) -> Result<wasm_bindgen::Clamped<Vec<u8>>, JsError> {
+        let painted = self.0.background_picture(i, t).map_err(js)?;
+        Ok(wasm_bindgen::Clamped(painted.map(|p| p.rgba).unwrap_or_default()))
+    }
 }
 
 /// A frame whose shaders' rows are worked out on other workers (PLAN 2.28). The module has no

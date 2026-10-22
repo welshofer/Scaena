@@ -73,6 +73,12 @@ struct Inspector: View {
     /// The object selected, or the slide with none: what the theme offers for it, under this tab.
     private func one(_ state: String) -> some View {
         Form {
+            // The slide's background (PLAN 3.32): with nothing selected, above its layout.
+            if tab == .format, choices != nil, choices?.node == nil, characters == nil {
+                Section("Background") {
+                    BackgroundsRow(editor: editor, state: state, make: make)
+                }
+            }
             ForEach(shelves) { shelf in
                 if shelf.part == .more || shelf.part == .fitting {
                     Section {
@@ -1129,6 +1135,126 @@ private struct LayoutsRow<Named: View>: View {
             parts.append("Looks the same as \(alike.formatted(.list(type: .or)))")
         }
         if s.reach.count > 1 { parts.append("Changes \(s.reach.count) slides and steps") }
+        return parts.joined(separator: ". ")
+    }
+}
+
+/// The slide's background (PLAN 3.32), as the browser offers it (PLAN 2.148): None and each of the
+/// theme's shader presets, each the slide drawn small with it by the CPU painter, the one it has
+/// outlined. The pointer over one, or the focus on it, shows the slide with it on the canvas, moving
+/// as it plays, nothing made; a click gives the slide it, one step to undo. A slide with a chart or a
+/// table says why backgrounds stay off it, each dimmed, and None takes one away.
+private struct BackgroundsRow: View {
+    let editor: DeckEditor
+    let state: String
+    let make: ([JSONValue]) -> Void
+    @State private var offered: Backgrounds?
+    @State private var images: [CGImage?] = []
+    /// The background the pointer or the focus is on, shown on the canvas.
+    @State private var over: String?
+    @FocusState private var focused: String?
+
+    /// How high each is painted, pixels: a tile's width on a Retina screen.
+    private static let painted = 120
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if let held = offered?.held {
+                Text(held)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("backgrounds-held")
+            }
+            if let offered {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 72), spacing: 8)], spacing: 10) {
+                    ForEach(Array(offered.options.enumerated()), id: \.element.id) { i, option in
+                        tile(option, image: images.indices.contains(i) ? images[i] : nil, in: offered)
+                    }
+                }
+            }
+        }
+        .task(id: "\(state)\u{1f}\(editor.revision)\u{1f}\(editor.format ?? "")") {
+            try? await Task.sleep(for: .milliseconds(150))
+            guard !Task.isCancelled, let drawn = try? editor.session.backgroundsDrawn(state: state, height: Self.painted)
+            else { return }
+            offered = drawn.0
+            images = drawn.1
+        }
+        .onChange(of: focused) { _, now in
+            guard let offered else { return }
+            if let now, let option = offered.options.first(where: { $0.id == now }) {
+                show(option)
+            } else if over != nil {
+                leave()
+            }
+        }
+        .onDisappear { leave() }
+    }
+
+    private func tile(_ option: BackgroundOption, image: CGImage?, in offered: Backgrounds) -> some View {
+        let offers = offered.offers(option)
+        return Button {
+            guard offers, !option.current else { return }
+            leave()
+            make(option.patch)
+        } label: {
+            VStack(spacing: 4) {
+                Group {
+                    if let image {
+                        Image(decorative: image, scale: 1).resizable().aspectRatio(contentMode: .fit)
+                    } else {
+                        Rectangle().fill(.quaternary).aspectRatio(16 / 9, contentMode: .fit)
+                    }
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 4))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 4)
+                        .strokeBorder(
+                            option.current ? Color.accentColor : Color.secondary.opacity(over == option.id ? 0.8 : 0.3),
+                            lineWidth: option.current ? 2.5 : 1)
+                }
+                Text(option.label)
+                    .font(.caption)
+                    .lineLimit(1)
+                    .foregroundStyle(option.current ? .primary : .secondary)
+            }
+            .contentShape(Rectangle())
+            .opacity(offers ? 1 : 0.45)
+        }
+        .buttonStyle(.plain)
+        .focused($focused, equals: option.id)
+        .onHover { inside in
+            if inside {
+                show(option)
+            } else if over == option.id {
+                leave()
+            }
+        }
+        .help(Self.said(option, held: offers ? nil : offered.held))
+        .accessibilityLabel(option.preset == nil ? "No background" : "\(option.label) background")
+        .accessibilityValue(Self.said(option, held: offers ? nil : offered.held))
+        .accessibilityAddTraits(option.current ? .isSelected : [])
+        .accessibilityIdentifier("background-\(option.preset ?? "none")")
+    }
+
+    /// The slide with `option` on the canvas, moving as it plays; with the one it has, as it is.
+    private func show(_ option: BackgroundOption) {
+        over = option.id
+        if option.current { editor.still() } else { editor.show(option.patch) }
+    }
+
+    /// The canvas drawn as the deck is again.
+    private func leave() {
+        guard over != nil else { return }
+        over = nil
+        editor.still()
+    }
+
+    /// What a background is, in a person's words: its kind, whether the slide has it, or why it
+    /// stays off this slide.
+    private static func said(_ option: BackgroundOption, held: String?) -> String {
+        var parts = [option.said ?? "A plain slide"]
+        if let held { parts.append(held) } else { parts.append(option.current ? "The slide's background now" : "Click to use it") }
         return parts.joined(separator: ". ")
     }
 }

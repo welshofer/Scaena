@@ -369,6 +369,18 @@
       #look .suggested .verdict, #look .suggested .alike { color: var(--muted); }
       #look .suggested .error { color: var(--error); }
       #look .suggested .warning { color: var(--warning); }
+      /* The slide's background (PLAN 2.148): None and each of the theme's presets, each a swatch of
+         the slide with it, moving; dimmed where the slide shows data. */
+      #look .backgrounds { padding: 0 0 8px; }
+      #look .backgrounds h3 { margin: 0 0 4px; font-size: 12px; font-weight: 600; color: var(--muted); }
+      #look .backgrounds .held { margin: 0 0 4px; font-size: 11px; color: var(--muted); }
+      #look .swatches { display: flex; flex-wrap: wrap; gap: 6px; }
+      #look .swatches [role="option"] { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; padding: 3px; border: 1px solid var(--line); border-radius: 4px; font-size: 11px; cursor: pointer; }
+      #look .swatches [aria-selected="true"] { border-color: var(--info); box-shadow: inset 0 0 0 1px var(--info); }
+      #look .swatches [aria-disabled="true"] { opacity: 0.45; cursor: not-allowed; }
+      #look .swatches [role="option"]:focus-visible { outline: 2px solid var(--info); outline-offset: 1px; }
+      #look .swatches canvas { display: block; height: 54px; width: auto; background: #000; }
+      #look .swatches .kind { color: var(--muted); }
       .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }
       #tabs { display: flex; flex-wrap: wrap; flex: none; gap: 0 4px; padding: 0 12px; border-bottom: 1px solid var(--line); }
       /* The layers (PLAN 2.50): the state shown's nodes, topmost first, nested as they are held;

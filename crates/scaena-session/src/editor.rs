@@ -705,6 +705,71 @@ impl Session {
         Some(std::mem::replace(kept, scaena_paint::Raster { width: 0, height: 0, rgba: Vec::new() }))
     }
 
+    /// What the slide of `state` may take as its background (PLAN 2.148), as
+    /// [`scaena_ops::backgrounds::offered`] lists it: None, then each of the theme's shader presets,
+    /// each with the patch that gives the slide it, and why backgrounds stay off a slide with a
+    /// chart or a table (`held`). Each is drawn as `state` shows the slide with it, at rest in the
+    /// format shown, and painted `height` pixels high by a CPU painter of its own: as JSON, with its
+    /// picture's `width` and `height`. The drawings are kept, so that
+    /// [`Session::background_picture`] paints each again as its effect moves. Nothing is made.
+    pub fn backgrounds_painted(&mut self, state: &str, height: u32) -> Result<Value, Error> {
+        use scaena_paint::Painter;
+        self.build()?;
+        let offered = scaena_ops::backgrounds::offered(&self.deck, &self.theme, &Handed(&self.files), state)
+            .map_err(|e| Error::Ops(e.message))?;
+        let base = self.deck.to_value().map_err(|e| Error::Ops(e.to_string()))?;
+        let mut painter = scaena_paint::cpu::CpuPainter::default();
+        let (mut listed, mut kept) = (Vec::with_capacity(offered.options.len()), Vec::new());
+        for option in &offered.options {
+            let made = match option.patch.is_empty() {
+                true => self.deck.clone(),
+                false => {
+                    let doc = scaena_core::patch::compile(&base, &option.patch, &Handed(&self.files))
+                        .map_err(|e| Error::Ops(format!("{e:?}")))?
+                        .doc;
+                    Deck::from_value(&doc).map_err(|e| Error::Deck(e.to_string()))?
+                }
+            };
+            let Session { theme, data, engine, store, format, .. } = &mut *self;
+            let engine = engine.as_mut().expect("built above");
+            let req = FrameRequest { deck: &made, theme, data, state, t_ms: f64::INFINITY, format: format.as_deref() };
+            let list = engine.frame(&req)?.display_list;
+            let scale = height as f32 / list.viewport[1];
+            let picture = painter.paint(&list, store, scale)?;
+            let mut value = serde_json::to_value(option).map_err(|e| Error::Ops(e.to_string()))?;
+            value["width"] = picture.width.into();
+            value["height"] = picture.height.into();
+            listed.push(value);
+            kept.push((list, scale));
+        }
+        self.backdrops = kept;
+        let mut value = serde_json::to_value(&offered).map_err(|e| Error::Ops(e.to_string()))?;
+        value["options"] = Value::Array(listed);
+        Ok(value)
+    }
+
+    /// The `i`th background [`Session::backgrounds_painted`] drew last, painted again with each
+    /// effect's clock at `t` seconds (SPEC §3.8), where at rest it stands at the end of time: a
+    /// swatch that moves. None past the last.
+    pub fn background_picture(&mut self, i: usize, t: f64) -> Result<Option<scaena_paint::Raster>, Error> {
+        use scaena_paint::Painter;
+        let Some((list, scale)) = self.backdrops.get(i) else { return Ok(None) };
+        use scaena_core::displaylist::Op;
+        fn clock(ops: &mut [Op], t: f32) {
+            for op in ops {
+                match op {
+                    Op::Shader { t: at, .. } => *at = t,
+                    Op::Layer { ops, .. } => clock(ops, t),
+                    _ => {}
+                }
+            }
+        }
+        let mut list = list.clone();
+        clock(&mut list.ops, t as f32);
+        let mut painter = scaena_paint::cpu::CpuPainter::default();
+        Ok(Some(painter.paint(&list, &self.store, *scale)?))
+    }
+
     /// The layouts `state` may take, best first, judged and painted in one go
     /// ([`Session::layouts_begin`], each step, then [`Session::layouts_end`]).
     pub fn layout_suggestions(
@@ -786,6 +851,54 @@ mod tests {
             }
         }
         s
+    }
+
+    /// A slide's backgrounds (PLAN 2.148): None, then each of the theme's presets, each drawn as
+    /// the slide shows it, moving, and its patch giving the slide it and no other slide anything
+    /// new; a slide with a chart says why backgrounds stay off it.
+    #[test]
+    fn a_slides_backgrounds_come_painted_each_with_its_patch() {
+        let mut s = revenue();
+        let listed = s.backgrounds_painted("intro", 60).unwrap();
+        let options = listed["options"].as_array().unwrap();
+        let labels: Vec<&str> = options.iter().map(|o| o["label"].as_str().unwrap()).collect();
+        assert_eq!(labels, ["None", "Backdrop", "Texture"]);
+        assert_eq!(options[1]["said"], "Mesh Gradient");
+        assert!(listed.get("held").is_none(), "{listed}");
+        // Its own mesh is no preset's: none is the slide's now.
+        assert!(options.iter().all(|o| o.get("current").is_none()), "{listed}");
+        assert_eq!(options[1]["height"], 60);
+        // The mesh moves.
+        let (still, on) =
+            (s.background_picture(1, 0.0).unwrap().unwrap(), s.background_picture(1, 2.0).unwrap().unwrap());
+        assert_ne!(still.rgba, on.rgba, "a background moves");
+        assert!(s.background_picture(3, 0.0).unwrap().is_none());
+
+        let base = s.deck.to_value().unwrap();
+        let before = resolve_states(&s.deck).unwrap();
+        let shaders = |deck: &Deck, snap: &scaena_core::tracking::Snapshot| -> Vec<(String, Option<String>)> {
+            let shader = |id: &String| deck.nodes[id].node_type == scaena_core::document::NodeType::Shader;
+            let preset = |p: &scaena_core::document::Props| p.get("preset").and_then(Value::as_str).map(String::from);
+            snap.nodes.iter().filter(|(id, _)| shader(id)).map(|(id, p)| (id.clone(), preset(p))).collect()
+        };
+        for (i, want) in [(1, Some("backdrop")), (2, Some("texture")), (0, None)] {
+            let patch: Vec<Value> = serde_json::from_value(options[i]["patch"].clone()).unwrap();
+            let doc = scaena_core::patch::compile(&base, &patch, &Handed(&s.files)).unwrap().doc;
+            let made = Deck::from_value(&doc).unwrap();
+            let after = resolve_states(&made).unwrap();
+            let intro: Vec<Option<String>> = shaders(&made, &after[0]).into_iter().map(|(_, p)| p).collect();
+            assert_eq!(intro, want.map(String::from).into_iter().map(Some).collect::<Vec<_>>(), "{patch:?}");
+            // Every other slide shows what it showed: the close keeps its mesh.
+            for k in 1..before.len() {
+                assert_eq!(shaders(&made, &after[k]), shaders(&s.deck, &before[k]), "state {k} after {patch:?}");
+            }
+        }
+
+        // A slide with a chart is offered them with why they stay off it.
+        let listed = s.backgrounds_painted("mix", 60).unwrap();
+        assert_eq!(listed["first"], "revenue");
+        assert_eq!(listed["held"], scaena_core::words::BACKGROUND_HELD);
+        assert_eq!(listed["options"][0]["current"], true);
     }
 
     /// The layouts a state may take (PLAN 2.92), judged as `scaena inspect --layouts` judges

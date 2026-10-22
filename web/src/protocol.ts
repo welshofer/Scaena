@@ -440,6 +440,30 @@ export interface LayoutSuggestion {
   pixels: ArrayBuffer;
 }
 
+/** One background a slide may take (PLAN 2.148): None, or one of the theme's shader presets, by
+ * its name and its kind in words, with the patch that gives the slide it (none for the one it has)
+ * and the slide drawn with it at rest, `width` × `height` pixels of straight-alpha RGBA. */
+export interface BackgroundOption {
+  preset?: string;
+  kind?: string;
+  label: string;
+  /** Its kind in words: Mesh Gradient. */
+  said?: string;
+  current?: boolean;
+  patch: unknown[];
+  width: number;
+  height: number;
+  pixels: ArrayBuffer;
+}
+
+/** What a slide may take as its background (PLAN 2.148): its first state, where one enters; why
+ * backgrounds stay off it, where it shows a chart or a table (lint W311); and each option. */
+export interface Backgrounds {
+  first: string;
+  held?: string;
+  options: BackgroundOption[];
+}
+
 /** One property an inspector edits. */
 export interface Field {
   /** A property, or one key of an object property (`style/color`): what `choose` names. */
@@ -1036,6 +1060,11 @@ export type ToWorker =
   /** The layouts `state` may take, best first, each painted at rest `height` pixels high, in the
    * deck the editor's `source` compiles to (PLAN 2.92). */
   | { type: "layoutSuggestions"; id: number; state: string; height: number; format?: string }
+  /** What `state`'s slide may take as its background, each drawn at rest `height` pixels high
+   * (PLAN 2.148). */
+  | { type: "backgrounds"; id: number; state: string; height: number; format?: string }
+  /** The backgrounds drawn last, each painted again with its effect `t` seconds on (PLAN 2.148). */
+  | { type: "backgroundFrames"; id: number; t: number }
   /** `state` painted at rest as the patch `ops` would make it, nothing made, until a `rest` lets
    * it go: a suggested layout pointed at (PLAN 2.92). */
   | { type: "preview"; id: number; state: string; ops: unknown[]; format?: string }
@@ -1828,6 +1857,8 @@ export type FromWorker =
   | { type: "written"; id: number; written: Written }
   | { type: "words"; id: number; words: Lexicon }
   | { type: "layoutSuggestions"; id: number; suggestions: LayoutSuggestion[] }
+  | { type: "backgrounds"; id: number; backgrounds: Backgrounds }
+  | { type: "backgroundFrames"; id: number; pixels: ArrayBuffer[] }
   | { type: "look"; id: number; look: Look }
   | { type: "put"; id: number; put: Put }
   | { type: "carets"; id: number; carets: Carets | null }
