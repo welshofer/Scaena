@@ -4,7 +4,7 @@
 //   node web/backgrounds.mjs     (after `just web`; from the repository's root)
 //
 // On the trails example, with nothing selected:
-// - `cover` offers None, then the theme's presets, Backdrop and Texture, each a swatch of the slide
+// - `cover` offers None, then the theme's presets, Backdrop and Texture first, each a swatch of the slide
 //   with it, its kind in words: Backdrop, its mesh, is the cover's now. The swatches move while the
 //   row shows, and hold still under `prefers-reduced-motion`.
 // - A pointer over Texture shows the cover with it on the canvas, nothing made, and leaving lets it
@@ -120,7 +120,7 @@ try {
   check((await page.locator("#look .backgrounds [role=listbox]").count()) === 1, "the row is a listbox");
   const first = await swatches();
   check(first.length === cover.length && first.every((s) => s.height === 64), `each swatch is painted 64 pixels high: ${first.map((s) => s.height)}`);
-  check(new Set(first.map((s) => s.sum)).size === 3, "each draws the cover its own way");
+  check(new Set(first.map((s) => s.sum)).size === first.length, "each draws the cover its own way");
   // The swatches move while the row shows.
   await page.waitForFunction(() => window.scaena.look.backgrounds.clock() >= 1, null, { timeout: 30000 }).catch(() => {});
   const later = await swatches();
@@ -216,7 +216,7 @@ try {
   const a = await swatches(still);
   await still.waitForTimeout(1500);
   const b = await swatches(still);
-  check(a.length === 3 && a.every((s, i) => s.sum === b[i].sum), "under prefers-reduced-motion the swatches hold still");
+  check(a.length >= 3 && a.every((s, i) => s.sum === b[i]?.sum), "under prefers-reduced-motion the swatches hold still");
 } finally {
   await browser.close();
   server.close();
