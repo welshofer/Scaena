@@ -687,7 +687,7 @@ pub unsafe extern "C" fn scaena_layout_pixels(
 }
 
 /// The `i`th background `backgroundsPainted` drew last (PLAN 2.148, 3.32): the slide with it, at
-/// rest, its effect `t` seconds on, as [`scaena_pixels`] gives a frame. Null bytes past the last,
+/// rest, its effect's clock at `t` seconds, as [`scaena_pixels`] gives a frame. Null bytes past the last,
 /// `*error` then saying why.
 ///
 /// # Safety

@@ -782,7 +782,7 @@ export class Stage {
     );
   }
 
-  /** The backgrounds `backgrounds` drew last, each painted again with its effect `t` seconds on:
+  /** The backgrounds `backgrounds` drew last, each painted again with its effect's clock at `t` seconds:
    * a swatch's frame (PLAN 2.148). */
   backgroundFrames(t: number): Promise<ArrayBuffer[]> {
     return this.request<"backgroundFrames">({ type: "backgroundFrames", id: ++this.asked, t }).then(({ pixels }) => pixels);

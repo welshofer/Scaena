@@ -1063,7 +1063,7 @@ export type ToWorker =
   /** What `state`'s slide may take as its background, each drawn at rest `height` pixels high
    * (PLAN 2.148). */
   | { type: "backgrounds"; id: number; state: string; height: number; format?: string }
-  /** The backgrounds drawn last, each painted again with its effect `t` seconds on (PLAN 2.148). */
+  /** The backgrounds drawn last, each painted again with its effect's clock at `t` seconds (PLAN 2.148). */
   | { type: "backgroundFrames"; id: number; t: number }
   /** `state` painted at rest as the patch `ops` would make it, nothing made, until a `rest` lets
    * it go: a suggested layout pointed at (PLAN 2.92). */

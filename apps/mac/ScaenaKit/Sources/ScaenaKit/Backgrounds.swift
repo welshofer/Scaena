@@ -61,7 +61,7 @@ extension ScaenaSession {
         try call("backgroundsPainted", ["state": .string(state), "height": .number(Double(max(height, 1)))])
     }
 
-    /// The `i`th background `backgrounds` drew last, its effect `t` seconds on (SPEC §3.8).
+    /// The `i`th background `backgrounds` drew last, its effect's clock at `t` seconds (SPEC §3.8).
     public func backgroundPicture(_ i: Int, at t: Double = 0) throws -> Pixels {
         var error: UnsafeMutablePointer<CChar>?
         let painted = scaena_background_pixels(handle, i, t, &error)
