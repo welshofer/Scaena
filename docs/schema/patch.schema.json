@@ -516,16 +516,16 @@
           "maximum": 360
         },
         "x": {
-          "description": "A radial or conic gradient's center across the rect, 0 to 1.",
+          "description": "A radial or conic gradient's center across the rect, 0 to 1 within it, and as far as its width again either side outside it (deck format 0.34).",
           "type": "number",
-          "minimum": 0,
-          "maximum": 1
+          "minimum": -1,
+          "maximum": 2
         },
         "y": {
-          "description": "A radial or conic gradient's center down the rect, 0 to 1.",
+          "description": "A radial or conic gradient's center down the rect, likewise.",
           "type": "number",
-          "minimum": 0,
-          "maximum": 1
+          "minimum": -1,
+          "maximum": 2
         },
         "radius": {
           "description": "A radial gradient's radius, in shorter sides of the rect.",

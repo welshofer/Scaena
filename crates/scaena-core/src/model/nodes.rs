@@ -907,13 +907,14 @@ pub struct GradientParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(range(min = -360, max = 360))]
     pub angle: Option<f64>,
-    /// A radial or conic gradient's center across the rect, 0 to 1.
+    /// A radial or conic gradient's center across the rect, 0 to 1 within it, and as far as
+    /// its width again either side outside it (deck format 0.34).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[schemars(range(min = 0, max = 1))]
+    #[schemars(range(min = -1, max = 2))]
     pub x: Option<f64>,
-    /// A radial or conic gradient's center down the rect, 0 to 1.
+    /// A radial or conic gradient's center down the rect, likewise.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[schemars(range(min = 0, max = 1))]
+    #[schemars(range(min = -1, max = 2))]
     pub y: Option<f64>,
     /// A radial gradient's radius, in shorter sides of the rect.
     #[serde(default, skip_serializing_if = "Option::is_none")]

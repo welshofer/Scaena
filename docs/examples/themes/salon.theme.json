@@ -938,30 +938,38 @@
       ],
       "aurora": [
         "#FCFCFA",
-        "#BFD1F9",
-        "#F5C6B7",
-        "#F1F1EC"
+        "#597FE8",
+        "#E68164",
+        "#9DB7F3"
       ],
       "lagoon": [
-        "#D5E0F8",
-        "#F2F5FA",
+        "#A9BFF5",
+        "#E4EBF9",
         "#FFFFFF"
       ],
       "sweep": [
-        "#FCFCFA",
-        "#BFD1F8",
-        "#F1F1EC",
-        "#F8C5B5"
+        "#D8E2F9",
+        "#5B80E8",
+        "#F09E87",
+        "#9DB7F3",
+        "#D8E2F9",
+        "#5B80E8",
+        "#F09E87",
+        "#9DB7F3",
+        "#D8E2F9",
+        "#5B80E8",
+        "#F09E87",
+        "#9DB7F3"
       ],
       "haze": [
         "#FCFCFA",
-        "#F1F1EC",
-        "#BFD1F8"
+        "#7B9CEE",
+        "#F4B09C"
       ],
       "dust": [
-        "#BFD1FA",
-        "#F9C5B6",
-        "#D0D1D0"
+        "#597FE9",
+        "#DF5E3B",
+        "#838483"
       ]
     },
     "presets": {
@@ -1001,8 +1009,8 @@
         "params": {
           "scale": 0.22,
           "speed": 0.12,
-          "intensity": 0.9,
-          "sharpness": 5
+          "intensity": 1,
+          "sharpness": 6
         }
       },
       "sweep": {
@@ -1010,9 +1018,9 @@
         "palette": "sweep",
         "params": {
           "shape": "conic",
-          "x": 0.3,
-          "y": 0.35,
-          "speed": 4,
+          "x": -0.2,
+          "y": -0.3,
+          "speed": 5,
           "grain": 0.015
         }
       },

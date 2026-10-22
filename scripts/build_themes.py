@@ -202,16 +202,17 @@ def hexed(c: tuple[int, int, int]) -> str:
     return "#" + "".join(f"{v:02X}" for v in c)
 
 
-# What a title's or a section's text must read at over a background: its words in `ink`, its
-# kicker in `accent` at 20 cu (body text), and its lede in `muted` (display text), each with room
-# for a shader's grain and the blend between two of its colors.
-OVER = [("ink", 4.5), ("accent", 4.5), ("muted", 3.0)]
+# What a title's or a section's words, set in the theme's ink, must read at over a background:
+# 4.5:1, with room for a shader's grain and the blend between two of its colors. Its other text,
+# a kicker in the accent or a lede in the muted color, is set in the ink by the contrast fix the
+# background's choice makes with it, as a re-theme does (PLAN 2.147).
+OVER = [("ink", 4.5)]
 ROOM = 1.08
 
 
 def held(lab: tuple[float, float, float], colors: dict) -> str:
     """The color `lab`, taken toward black on a dark theme or white on a light one, in Oklab, as
-    little as reads under every color of `OVER` at its bar: its hue kept, its chroma with it."""
+    little as keeps the ink reading over it at its bar: its hue kept, its chroma with it."""
     dark = luminance(rgb(colors["paper"])) < luminance(rgb(colors["ink"]))
     end = (0.0, 0.0, 0.0) if dark else (1.0, 0.0, 0.0)
     at = lambda t: from_oklab(*(p + t * (q - p) for p, q in zip(lab, end)))  # noqa: E731
@@ -231,18 +232,24 @@ def held(lab: tuple[float, float, float], colors: dict) -> str:
 def backgrounds(colors: dict, dark: bool) -> dict[str, list[str]]:
     """Each background palette the base leaves to the theme, from its colors: an aurora of its
     accents over its paper (mesh), water and its light (caustics, the water first and the light from
-    dim to bright), a sweep around (a conic gradient), a haze (noise), and dust (particles). On a dark
-    theme the water lies under the paper, so the light has the more room to rise."""
+    dim to bright), a sweep of its accents (a conic gradient), a haze (noise), and dust (particles),
+    each strong enough to read at a glance and held only by the ink. On a dark theme the water lies
+    under the paper, so the light has the more room to rise."""
     p, p2, a, a2, ink = (colors[k] for k in ("paper", "paper-2", "accent", "accent-2", "ink"))
     deep, white = "#000000", "#FFFFFF"
-    water = mix(hexed(from_oklab(*mix(p, a, 0.3))), deep, 0.55) if dark else mix(p, a, 0.16)
-    lights = [mix(p, a, 0.65), mix(a, a2, 0.5)] if dark else [mix(p, a, 0.04), oklab(rgb(white))]
+    if dark:
+        water = mix(hexed(from_oklab(*mix(p, a, 0.35))), deep, 0.6)
+        lights = [mix(p, a, 0.85), mix(hexed(from_oklab(*mix(a, a2, 0.5))), white, 0.35)]
+    else:
+        water, lights = mix(p, a, 0.35), [mix(p, a, 0.1), oklab(rgb(white))]
     out = {
-        "aurora": [oklab(rgb(p)), mix(p, a, 0.55), mix(p2, a2, 0.45), oklab(rgb(p2))],
+        "aurora": [oklab(rgb(p)), mix(p, a, 0.8), mix(p2, a2, 0.7), mix(p, a, 0.4)],
         "lagoon": [water, *lights],
-        "sweep": [oklab(rgb(p)), mix(p, a, 0.4), oklab(rgb(p2)), mix(p, a2, 0.35)],
-        "haze": [oklab(rgb(p)), oklab(rgb(p2)), mix(p, a, 0.3)],
-        "dust": [mix(p, a, 0.8), mix(p, a2, 0.8), mix(p, ink, 0.6)],
+        # Its center stands beyond the canvas's corner, so a slide shows a part of its turn: three
+        # times around the palette, so that part runs through all of it.
+        "sweep": [mix(p, a, 0.15), mix(p, a, 0.7), mix(p, a2, 0.55), mix(p, a, 0.4)] * 3,
+        "haze": [oklab(rgb(p)), mix(p, a, 0.55), mix(p, a2, 0.45)],
+        "dust": [mix(p, a, 0.9), mix(p, a2, 0.9), mix(p, ink, 0.85)],
     }
     return {name: [held(c, colors) for c in palette] for name, palette in out.items()}
 

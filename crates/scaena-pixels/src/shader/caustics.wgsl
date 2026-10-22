@@ -8,7 +8,7 @@ struct Caustics {
     map0: vec4<f32>,       // the coarse layer's a, b, c, d
     map1: vec4<f32>,       // the fine layer's a, b, c, d
     shift: vec4<f32>,      // e, f of the coarse layer, then of the fine one
-    tune: vec4<f32>,       // 1 / a line's half width, intensity, grain, 0
+    tune: vec4<f32>,       // 1 / the coarse layer's line's half width, intensity, grain, 1 / the fine layer's
     bbox: vec4<u32>,       // x, y, width, height in device pixels
     misc: vec4<u32>,       // the coarse layer's key, the fine layer's, the grain key, output row stride in words
     stops: vec4<u32>,      // palette stops, 0, 0, 0
@@ -70,11 +70,11 @@ fn wave(x: f32) -> f32 {
 // Layer `k`'s light at the device pixel (px, py): its place in the layer's cells, bent by the
 // layer's two waves; then how near it lies to the edge between the two points nearest it, among
 // the nine cells around its own.
-fn light(k: u32, map: vec4<f32>, e: f32, f: f32, px: f32, py: f32) -> f32 {
+fn light(k: u32, map: vec4<f32>, e: f32, f: f32, inv_width: f32, px: f32, py: f32) -> f32 {
     let u0 = map.x * px + map.z * py + e;
     let v0 = map.y * px + map.w * py + f;
-    let u = u0 + 0.3 * wave(v0 * 0.31 + caustics.waves[2u * k]);
-    let v = v0 + 0.3 * wave(u0 * 0.31 + caustics.waves[2u * k + 1u]);
+    let u = u0 + 0.4 * wave(v0 * 0.31 + caustics.waves[2u * k]);
+    let v = v0 + 0.4 * wave(u0 * 0.31 + caustics.waves[2u * k + 1u]);
     let i = i32(floor(u));
     let j = i32(floor(v));
     var f1 = bitcast<f32>(0x7f7fffffu);
@@ -89,7 +89,7 @@ fn light(k: u32, map: vec4<f32>, e: f32, f: f32, px: f32, py: f32) -> f32 {
             f1 = min(f1, dd);
         }
     }
-    let s = 0.5 * (sqrt(f2) - sqrt(f1)) * caustics.tune.x;
+    let s = 0.5 * (sqrt(f2) - sqrt(f1)) * inv_width;
     let w = 1.0 + s * s;
     return 1.0 / (w * w);
 }
@@ -101,9 +101,10 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     }
     let px = f32(caustics.bbox.x + id.x) + 0.5;
     let py = f32(caustics.bbox.y + id.y) + 0.5;
-    let coarse = light(0u, caustics.map0, caustics.shift.x, caustics.shift.y, px, py);
-    let fine = 0.55 * light(1u, caustics.map1, caustics.shift.z, caustics.shift.w, px, py);
-    let lit = coarse + fine - coarse * fine;
+    let coarse = light(0u, caustics.map0, caustics.shift.x, caustics.shift.y, caustics.tune.x, px, py);
+    let fine = light(1u, caustics.map1, caustics.shift.z, caustics.shift.w, caustics.tune.w, px, py);
+    // The fine layer's light swells the coarse layer's, which shows at 0.3 where it is dark.
+    let lit = coarse * (0.3 + 0.7 * fine);
     // Each stop's share of the ramp at that place: the Oklab blend of the two either side.
     let n = caustics.stops.x;
     let along = clamp(caustics.tune.y * lit, 0.0, 1.0) * f32(n - 1u);

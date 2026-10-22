@@ -2,17 +2,18 @@
 //!
 //! Two layers of cells, the second finer than the first, turned against it, and flowing
 //! faster, so the light never reads as a grid; each layer bent by two slow waves, so its lines
-//! curve and waver. Each cell holds one seeded point, which
-//! wobbles about its place on a slow Lissajous path, as a mesh's points drift; a pixel's
-//! light in a layer comes from how near it lies to the edge between the two points nearest
-//! it (a Voronoi cell's edge, from F2² − F1²), sharpened by `sharpness`. The two layers'
-//! light is screened together, and, times `intensity`, picks a color along the palette's
-//! ramp, blended in Oklab: the first color is the water, the rest the light, dim to bright.
-//! `grain` adds seeded noise to Oklab lightness, per device pixel.
+//! curve and waver. Each cell holds one seeded point, which wobbles about its place on a slow
+//! Lissajous path, as a mesh's points drift; a pixel's light in a layer comes from how near it
+//! lies to the edge between the two points nearest it (a Voronoi cell's edge: F2 − F1, the
+//! second-nearest's distance less the nearest's), sharpened by `sharpness`. The coarse layer's
+//! light is the network, and the fine layer's, its lines softer, swells it, so each line is
+//! uneven and brightest where the two layers' lines cross. Times `intensity`, the light picks a
+//! color along the palette's ramp, blended in Oklab: the first color is the water, the rest the
+//! light, dim to bright. `grain` adds seeded noise to Oklab lightness, per device pixel.
 //!
 //! Each frame works out the paths' places once (`libm` sine and cosine); a cell's point is
-//! hashed from its cell and picks two of them. Per pixel it is `+ − × ÷`, a square root,
-//! `floor`, comparisons, and integer hashing, here and in `caustics.wgsl` alike.
+//! hashed from its cell and picks two of them. Per pixel it is `+ − × ÷`, square roots,
+//! rounding, `floor`, comparisons, and integer hashing, here and in `caustics.wgsl` alike.
 
 use super::Color;
 use super::{
@@ -38,11 +39,15 @@ const FINE: f64 = 0.55;
 const FASTER: f64 = 1.4;
 /// How far each layer's cells are bent, in cells, by waves `1 / BEND` cells long that run
 /// across them `RIPPLE` waves a second at `speed` 1: so the lines curve and waver.
-const WARP: f32 = 0.3;
+const WARP: f32 = 0.4;
 const BEND: f32 = 0.31;
 const RIPPLE: f64 = 0.5;
-/// The fine layer's share of the light, screened over the coarse layer's.
-const SHARE: f32 = 0.55;
+/// How much of the coarse layer's light shows where the fine layer is dark: the rest comes
+/// only where the fine layer's light crosses it, so each line is uneven and brightest where the
+/// two layers' lines meet.
+const FLOOR: f32 = 0.3;
+/// How much wider the fine layer's lines are than the coarse layer's: soft swells along them.
+const SOFTER: f32 = 2.5;
 /// A line's half width, in cells, at `sharpness` 1.
 const WIDTH: f32 = 0.25;
 /// Cells a second the light flows at `speed` 1.
@@ -67,7 +72,7 @@ pub struct Params {
 
 impl Default for Params {
     fn default() -> Self {
-        Params { scale: 0.18, speed: 0.1, intensity: 1.0, sharpness: 4.0, grain: 0.0 }
+        Params { scale: 0.18, speed: 0.1, intensity: 1.0, sharpness: 6.0, grain: 0.0 }
     }
 }
 
@@ -114,8 +119,8 @@ pub struct Frame {
     pub keys: [u32; 2],
     /// Seeds the grain.
     pub key: u32,
-    /// 1 over a line's half width, in cells.
-    pub inv_width: f32,
+    /// For each layer, 1 over a line's half width, in its cells.
+    pub inv_widths: [f32; 2],
     pub intensity: f32,
     pub grain: f32,
     /// Per stop: Oklab L, a, b, and alpha 0–1.
@@ -193,7 +198,7 @@ impl Frame {
             paths,
             keys,
             key: seed_key(seed),
-            inv_width: params.sharpness / WIDTH,
+            inv_widths: [params.sharpness / WIDTH, params.sharpness / (WIDTH * SOFTER)],
             intensity: params.intensity,
             grain: params.grain,
             colors,
@@ -236,7 +241,7 @@ impl Frame {
                 f1 = less(f1, dd);
             }
         }
-        lit(f1, f2, self.inv_width)
+        lit(f1, f2, self.inv_widths[k])
     }
 
     /// The pixel `(gx, gy)` of the box: sRGB RGBA8, straight alpha. `caustics.wgsl` is this
@@ -250,8 +255,7 @@ impl Frame {
             let [u, v] = bent(a * px + c * py + e, b * px + d * py + f, self.waves[k]);
             *l = self.light(k, u, v);
         }
-        let fine = SHARE * light[1];
-        let lit = light[0] + fine - light[0] * fine;
+        let lit = light[0] * (FLOOR + (1.0 - FLOOR) * light[1]);
         let s = (self.intensity * lit).clamp(0.0, 1.0) * (self.colors.len() - 1) as f32;
         let [mut l, mut ca, mut cb, mut alpha] = [0.0_f32; 4];
         for (j, c) in self.colors.iter().enumerate() {
@@ -366,7 +370,7 @@ impl Frame {
                     }
                     let light = &mut light[..n];
                     for i in 0..n {
-                        light[i] = lit(f1[i], f2[i], self.inv_width);
+                        light[i] = lit(f1[i], f2[i], self.inv_widths[k]);
                     }
                 }
                 // Where each pixel is along the ramp, then each stop's share of it, as SIMD.
@@ -374,8 +378,7 @@ impl Frame {
                 let (coarse, fine) = (&light[0][..n], &light[1][..n]);
                 let along = &mut along[..n];
                 for i in 0..n {
-                    let fine = SHARE * fine[i];
-                    let lit = coarse[i] + fine - coarse[i] * fine;
+                    let lit = coarse[i] * (FLOOR + (1.0 - FLOOR) * fine[i]);
                     along[i] = (self.intensity * lit).clamp(0.0, 1.0) * spans;
                 }
                 for v in [&mut *l, &mut *ca, &mut *cb, &mut *alpha] {
@@ -413,7 +416,7 @@ impl Frame {
         let mut out = Words(Vec::with_capacity(1680));
         let [[a0, b0, c0, d0, e0, f0], [a1, b1, c1, d1, e1, f1]] = self.maps;
         out.f32s([a0, b0, c0, d0, a1, b1, c1, d1, e0, f0, e1, f1]);
-        out.f32s([self.inv_width, self.intensity, self.grain, 0.0]);
+        out.f32s([self.inv_widths[0], self.intensity, self.grain, self.inv_widths[1]]);
         out.u32s(self.bbox);
         out.u32s([self.keys[0], self.keys[1], self.key, stride]);
         out.u32s([self.colors.len() as u32, 0, 0, 0]);

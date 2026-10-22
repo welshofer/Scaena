@@ -7097,7 +7097,7 @@
         "caustics-calm": {},
         "caustics-bright": {}
       },
-      "notes": "Pass: two panels of caustics (PLAN 2.147). Left, the kind's defaults in the water palette: deep blue water under a net of thin, pale cyan lines, two layers of cells at different sizes and turns, so no line runs straight across and no grid shows. Right, cells half the panel's shorter side across, sharper lines, and six times the speed, in the torture palette: teal water, its brightest lines reaching the gold at 1.4 intensity, with grain. Both show the moment the global timeline rests in this state."
+      "notes": "Pass: two panels of caustics (PLAN 2.147). Left, the kind's defaults in the water palette: deep blue water under a net of thin, curving filaments of pale cyan light, dim along most of their length and brightening to glints where the fine layer's swells cross them, so no line is even and none runs straight. Right, cells half the panel's shorter side across, sharper lines, more intensity, and six times the speed, in the torture palette: teal water under violet lines that flare to gold where the layers cross, with grain. Both show the moment the global timeline rests in this state."
     }
   ],
   "overrides": {

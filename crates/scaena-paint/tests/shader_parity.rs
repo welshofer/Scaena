@@ -159,6 +159,12 @@ fn every_other_kinds_cpu_reference_and_wgsl_agree() {
             rotated,
             [640, 480],
         ),
+        (
+            "conic, centered beyond the corner",
+            shader(Gradient, 4, 5.0, rect, &torture, &[("shape", 2.0), ("x", -0.2), ("y", -0.3), ("speed", 5.0)]),
+            id,
+            [640, 360],
+        ),
         ("noise, four octaves", shader(Noise, 5, 1.5, rect, &ember, &[("scale", 0.004)]), id, [640, 360]),
         (
             "noise, an hour in, one octave",
