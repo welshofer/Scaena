@@ -21,8 +21,8 @@ export interface Around {
   say(text: string): void;
 }
 
-/** How high a swatch is drawn, CSS pixels. */
-const SWATCH = 54;
+/** How high a swatch is painted, CSS pixels: about its column's width at 16:9, so it shows crisp. */
+const SWATCH = 64;
 /** How often a swatch moves on, milliseconds: a few frames a second. */
 const FRAME = 250;
 

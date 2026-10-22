@@ -9,7 +9,8 @@ import Testing
     let editor = DeckEditor(session: try ScaenaSession(files: example("revenue")))
     let (offered, images) = try editor.session.backgroundsDrawn(state: "intro", height: 90)
     #expect(offered.first == "intro" && offered.held == nil)
-    #expect(offered.options.map(\.label) == ["None", "Backdrop", "Texture"])
+    // None, then the theme's presets in its order.
+    #expect(Array(offered.options.map(\.label).prefix(3)) == ["None", "Backdrop", "Texture"])
     #expect(offered.options[1].said == "Mesh Gradient")
     // Its own mesh is no preset's: none is the slide's now.
     #expect(offered.options.allSatisfy { !$0.current })

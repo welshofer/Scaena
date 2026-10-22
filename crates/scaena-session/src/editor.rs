@@ -875,7 +875,7 @@ mod tests {
         let listed = s.backgrounds_painted("intro", 60).unwrap();
         let options = listed["options"].as_array().unwrap();
         let labels: Vec<&str> = options.iter().map(|o| o["label"].as_str().unwrap()).collect();
-        assert_eq!(labels, ["None", "Backdrop", "Texture"]);
+        assert_eq!(labels[..3], ["None", "Backdrop", "Texture"], "None, then the theme's presets in its order");
         assert_eq!(options[1]["said"], "Mesh Gradient");
         assert!(listed.get("held").is_none(), "{listed}");
         // Its own mesh is no preset's: none is the slide's now.
@@ -885,7 +885,7 @@ mod tests {
         let (still, on) =
             (s.background_picture(1, 0.0).unwrap().unwrap(), s.background_picture(1, 2.0).unwrap().unwrap());
         assert_ne!(still.rgba, on.rgba, "a background moves");
-        assert!(s.background_picture(3, 0.0).unwrap().is_none());
+        assert!(s.background_picture(options.len(), 0.0).unwrap().is_none());
         // What a choice makes: the preview's patch, then any color that keeps a text readable.
         let made = s.background_patch("intro", Some("backdrop")).unwrap();
         let shown = options[1]["patch"].as_array().unwrap();

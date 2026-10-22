@@ -111,14 +111,15 @@ try {
   await offeredWith(page, "Backdrop");
   const cover = await options();
   check(
-    cover.map((o) => `${o.name}${o.kind ? ` (${o.kind})` : ""}`).join(", ") === "None, Backdrop (Mesh Gradient), Texture (Noise)",
+    // None, then the theme's presets in its order.
+    cover.map((o) => `${o.name}${o.kind ? ` (${o.kind})` : ""}`).join(", ").startsWith("None, Backdrop (Mesh Gradient), Texture (Noise)"),
     `the cover offers ${cover.map((o) => `${o.name} ${o.kind}`).join(", ")}`,
   );
-  check(cover.map((o) => o.selected).join() === "false,true,false", "Backdrop is the cover's");
-  check(cover.map((o) => o.tabindex).join() === "-1,0,-1", "the focus roves: the one chosen takes it");
+  check(cover.map((o) => o.selected).join() === cover.map((_, i) => i === 1).join(), "Backdrop is the cover's");
+  check(cover.map((o) => o.tabindex).join() === cover.map((_, i) => (i === 1 ? 0 : -1)).join(), "the focus roves: the one chosen takes it");
   check((await page.locator("#look .backgrounds [role=listbox]").count()) === 1, "the row is a listbox");
   const first = await swatches();
-  check(first.length === 3 && first.every((s) => s.height === 54), `each swatch is 54 pixels high: ${first.map((s) => s.height)}`);
+  check(first.length === cover.length && first.every((s) => s.height === 64), `each swatch is painted 64 pixels high: ${first.map((s) => s.height)}`);
   check(new Set(first.map((s) => s.sum)).size === 3, "each draws the cover its own way");
   // The swatches move while the row shows.
   await page.waitForFunction(() => window.scaena.look.backgrounds.clock() >= 1, null, { timeout: 30000 }).catch(() => {});
@@ -186,7 +187,7 @@ try {
   await showState(page, "budget");
   await offeredWith(page, "None");
   const budget = await options();
-  check(budget.map((o) => o.disabled).join() === ",true,true", `budget's presets are dimmed: ${budget.map((o) => o.disabled)}`);
+  check(!budget[0]?.disabled && budget.slice(1).every((o) => o.disabled), `budget's presets are dimmed: ${budget.map((o) => o.disabled)}`);
   const held = await page.evaluate(() => document.querySelector("#look .backgrounds .held")?.textContent ?? "");
   check(held.startsWith("Backgrounds stay off slides with a chart or a table"), `it says why: ${held}`);
   // Dimmed, as aria-disabled says, and pressed all the same, as a person may.

@@ -38,7 +38,10 @@ fn a_slide_takes_a_background_and_gives_it_back() {
     let listed = offered(&b.deck, &theme, &View::of(&b), "intro").unwrap();
     let labels: Vec<(&str, Option<&str>)> =
         listed.options.iter().map(|o| (o.label.as_str(), o.said.as_deref())).collect();
-    assert_eq!(labels, [("None", None), ("Backdrop", Some("Mesh Gradient")), ("Texture", Some("Noise"))]);
+    // None, then each preset the theme has, in its order: Dusk's first two, then any it gains.
+    assert_eq!(labels[..3], [("None", None), ("Backdrop", Some("Mesh Gradient")), ("Texture", Some("Noise"))]);
+    let presets = theme.shaders.as_ref().and_then(|s| s.presets.as_ref()).map_or(0, |p| p.len());
+    assert_eq!(labels.len(), 1 + presets);
     let close = shown(&dir, "close");
 
     // Checked as a patch is, nothing written.
@@ -62,8 +65,8 @@ fn a_slide_takes_a_background_and_gives_it_back() {
 
     // A preset the theme lacks.
     let b = scaena_ops::open(&dir).unwrap();
-    let lacks = background(&b, "intro", Some("aurora")).unwrap_err();
-    assert_eq!(lacks.message, "the theme has no shader preset `aurora`");
+    let lacks = background(&b, "intro", Some("nowhere")).unwrap_err();
+    assert_eq!(lacks.message, "the theme has no shader preset `nowhere`");
 }
 
 #[test]
