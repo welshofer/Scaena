@@ -209,5 +209,47 @@ class TheFour(unittest.TestCase):
                 self.assertEqual(entry[k], s[k], f"{entry['slug']}'s {k}")
 
 
+
+class Backgrounds(unittest.TestCase):
+    """The background presets (PLAN 2.147): each the base names, in every theme, its palette worked
+    out from the theme's colors where the spec gives none, and held to read under a title's text."""
+
+    def palettes(self, slug, s):
+        theme = themes.themed(slug, s, BASE)
+        return theme["shaders"]["presets"], theme["shaders"]["palettes"], s["colors"]
+
+    def test_every_theme_takes_every_background_and_its_palette(self):
+        for slug, s in [*SPECS.items(), ("basel", spec())]:
+            presets, palettes, _ = self.palettes(slug, s)
+            self.assertEqual(list(presets), list(BASE["shaders"]["presets"]), slug)
+            for name, preset in presets.items():
+                self.assertIn(preset["palette"], palettes, f"{slug}'s {name}")
+
+    def test_each_color_worked_out_reads_under_the_text(self):
+        for slug, s in [*SPECS.items(), ("basel", spec())]:
+            _, palettes, colors = self.palettes(slug, s)
+            for name in ("aurora", "lagoon", "sweep", "haze", "dust"):
+                for c in palettes[name]:
+                    for text, bar in themes.OVER:
+                        ratio = themes.contrast(themes.rgb(colors[text]), themes.rgb(c))
+                        self.assertGreaterEqual(ratio, bar * themes.ROOM - 0.02, f"{slug}'s {name} {c} under {text}")
+
+    def test_the_water_lies_under_its_light(self):
+        for slug, s in [*SPECS.items(), ("basel", spec())]:
+            _, palettes, colors = self.palettes(slug, s)
+            water, *light = palettes["lagoon"]
+            lum = lambda c: themes.luminance(themes.rgb(c))  # noqa: E731
+            # The light rises from the water, which lies under the paper: deeper on a dark theme,
+            # a tint of the accent on a light one, its light the paler.
+            self.assertTrue(all(lum(l) > lum(water) for l in light), f"{slug}: {palettes['lagoon']}")
+            self.assertLess(lum(water), lum(colors["paper"]), slug)
+
+    def test_a_specs_own_palette_wins(self):
+        mine = ["#000000", "#FFFFFF"]
+        s = spec(shaders={"palettes": {"lagoon": mine}})
+        _, palettes, _ = self.palettes("basel", s)
+        self.assertEqual(palettes["lagoon"], mine)
+        self.assertNotEqual(palettes["aurora"], mine)
+
 if __name__ == "__main__":
     unittest.main()

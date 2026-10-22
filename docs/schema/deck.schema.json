@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://scaena.dev/schema/deck-0.33.json",
+  "$id": "https://scaena.dev/schema/deck-0.34.json",
   "title": "Scaena deck document",
   "description": "Canonical deck.json. A deck is a scene graph (nodes) plus an ordered cue list (states) over a narrative spine, rendered against a theme. See docs/SPEC.md §3.",
   "type": "object",
@@ -10,7 +10,7 @@
     "scaena": {
       "description": "Format version (semver, major.minor[.patch]).",
       "type": "string",
-      "pattern": "^0\\.33(\\.[0-9]+)?$"
+      "pattern": "^0\\.34(\\.[0-9]+)?$"
     },
     "meta": { "$ref": "#/$defs/Meta" },
     "canvas": { "$ref": "#/$defs/Canvas" },
@@ -167,6 +167,33 @@
           "minimum": 0,
           "maximum": 1
         }
+      }
+    },
+    "CausticsParams": {
+      "description": "The `caustics` shader's params (SPEC §3.8, deck format 0.34).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "scale": {
+          "description": "A cell of the light's network, in shorter sides of the rect.",
+          "type": "number",
+          "minimum": 0.02,
+          "maximum": 2
+        },
+        "speed": {
+          "description": "How fast the light wobbles and flows.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 2
+        },
+        "intensity": {
+          "description": "How far along the palette a line's middle reaches.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 2
+        },
+        "sharpness": { "description": "How thin the lines are.", "type": "number", "minimum": 1, "maximum": 16 },
+        "grain": { "description": "In Oklab lightness.", "type": "number", "minimum": 0, "maximum": 0.25 }
       }
     },
     "Meta": {
@@ -799,7 +826,7 @@
           "type": "string"
         },
         "params": {
-          "description": "Typed per kind (SPEC §3.8): `mesh` takes `MeshParams`, `gradient` `GradientParams`, `noise` `NoiseParams`, `grain` `GrainParams`, and `particles` `ParticlesParams`.",
+          "description": "Typed per kind (SPEC §3.8): `mesh` takes `MeshParams`, `gradient` `GradientParams`, `noise` `NoiseParams`, `grain` `GrainParams`, `particles` `ParticlesParams`, and `caustics` `CausticsParams`.",
           "type": "object",
           "additionalProperties": { "$ref": "#/$defs/ShaderParam" }
         }
@@ -824,6 +851,10 @@
         {
           "if": { "required": ["kind"], "properties": { "kind": { "const": "particles" } } },
           "then": { "properties": { "params": { "$ref": "#/$defs/ParticlesParams" } } }
+        },
+        {
+          "if": { "required": ["kind"], "properties": { "kind": { "const": "caustics" } } },
+          "then": { "properties": { "params": { "$ref": "#/$defs/CausticsParams" } } }
         }
       ]
     },
@@ -1745,7 +1776,7 @@
       "type": "string",
       "enum": ["start", "center", "end"]
     },
-    "ShaderKind": { "type": "string", "enum": ["mesh", "gradient", "noise", "grain", "particles"] },
+    "ShaderKind": { "type": "string", "enum": ["mesh", "gradient", "noise", "grain", "particles", "caustics"] },
     "ShaderParam": {
       "description": "A shader parameter: a number, or a name its kind lists (a gradient's `shape`).",
       "anyOf": [{ "type": "number" }, { "type": "string" }]

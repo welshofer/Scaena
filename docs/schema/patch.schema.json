@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://scaena.dev/schema/patch-0.33.json",
+  "$id": "https://scaena.dev/schema/patch-0.34.json",
   "title": "Scaena patch",
   "description": "A patch (SPEC §7.3): RFC 6902 ops and semantic ops, applied in order, all or none.",
   "type": "array",
@@ -605,6 +605,33 @@
         }
       }
     },
+    "CausticsParams": {
+      "description": "The `caustics` shader's params (SPEC §3.8, deck format 0.34).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "scale": {
+          "description": "A cell of the light's network, in shorter sides of the rect.",
+          "type": "number",
+          "minimum": 0.02,
+          "maximum": 2
+        },
+        "speed": {
+          "description": "How fast the light wobbles and flows.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 2
+        },
+        "intensity": {
+          "description": "How far along the palette a line's middle reaches.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 2
+        },
+        "sharpness": { "description": "How thin the lines are.", "type": "number", "minimum": 1, "maximum": 16 },
+        "grain": { "description": "In Oklab lightness.", "type": "number", "minimum": 0, "maximum": 0.25 }
+      }
+    },
     "Format": {
       "description": "Additional projections rendered from the same spine and nodes with other layout template sets.",
       "type": "string",
@@ -1142,7 +1169,7 @@
           "type": "string"
         },
         "params": {
-          "description": "Typed per kind (SPEC §3.8): `mesh` takes `MeshParams`, `gradient` `GradientParams`, `noise` `NoiseParams`, `grain` `GrainParams`, and `particles` `ParticlesParams`.",
+          "description": "Typed per kind (SPEC §3.8): `mesh` takes `MeshParams`, `gradient` `GradientParams`, `noise` `NoiseParams`, `grain` `GrainParams`, `particles` `ParticlesParams`, and `caustics` `CausticsParams`.",
           "type": "object",
           "additionalProperties": { "$ref": "#/$defs/ShaderParam" }
         }
@@ -1167,6 +1194,10 @@
         {
           "if": { "required": ["kind"], "properties": { "kind": { "const": "particles" } } },
           "then": { "properties": { "params": { "$ref": "#/$defs/ParticlesParams" } } }
+        },
+        {
+          "if": { "required": ["kind"], "properties": { "kind": { "const": "caustics" } } },
+          "then": { "properties": { "params": { "$ref": "#/$defs/CausticsParams" } } }
         }
       ]
     },
@@ -2088,7 +2119,7 @@
       "type": "string",
       "enum": ["start", "center", "end"]
     },
-    "ShaderKind": { "type": "string", "enum": ["mesh", "gradient", "noise", "grain", "particles"] },
+    "ShaderKind": { "type": "string", "enum": ["mesh", "gradient", "noise", "grain", "particles", "caustics"] },
     "ShaderParam": {
       "description": "A shader parameter: a number, or a name its kind lists (a gradient's `shape`).",
       "anyOf": [{ "type": "number" }, { "type": "string" }]

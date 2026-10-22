@@ -1,5 +1,5 @@
 {
-  "scaena-theme": "0.24",
+  "scaena-theme": "0.25",
   "name": "Dusk, right to left",
   "description": "Dusk with Noto Sans Arabic and Noto Sans Hebrew last in its text families' fallbacks, its italics left out, and the layouts its decks use: the PLAN T.5a fixtures' theme. Written by scripts/build_rtl_decks.py.",
   "tokens": {
@@ -1459,6 +1459,33 @@
         "#2B1A1A",
         "#7A2E1E",
         "#FFC857"
+      ],
+      "aurora": [
+        "#101014",
+        "#4B2016",
+        "#362B19",
+        "#17171D"
+      ],
+      "lagoon": [
+        "#140705",
+        "#4C1F13",
+        "#44250D"
+      ],
+      "sweep": [
+        "#101014",
+        "#47221A",
+        "#17171D",
+        "#362B1A"
+      ],
+      "haze": [
+        "#101014",
+        "#17171D",
+        "#44241E"
+      ],
+      "dust": [
+        "#4E1E10",
+        "#382A0F",
+        "#2D2C2C"
       ]
     },
     "presets": {
@@ -1480,6 +1507,58 @@
           "scale": 0.0015,
           "speed": 0.05,
           "contrast": 0.6
+        }
+      },
+      "aurora": {
+        "kind": "mesh",
+        "palette": "aurora",
+        "params": {
+          "points": 6,
+          "drift": 0.22,
+          "softness": 0.9,
+          "grain": 0.02
+        }
+      },
+      "lagoon": {
+        "kind": "caustics",
+        "palette": "lagoon",
+        "params": {
+          "scale": 0.22,
+          "speed": 0.12,
+          "intensity": 0.9,
+          "sharpness": 5
+        }
+      },
+      "sweep": {
+        "kind": "gradient",
+        "palette": "sweep",
+        "params": {
+          "shape": "conic",
+          "x": 0.3,
+          "y": 0.35,
+          "speed": 4,
+          "grain": 0.015
+        }
+      },
+      "haze": {
+        "kind": "noise",
+        "palette": "haze",
+        "params": {
+          "octaves": 3,
+          "scale": 0.0009,
+          "speed": 0.04,
+          "contrast": 0.9,
+          "grain": 0.01
+        }
+      },
+      "dust": {
+        "kind": "particles",
+        "palette": "dust",
+        "params": {
+          "count": 48,
+          "size": 0.006,
+          "speed": 0.012,
+          "softness": 0.8
         }
       }
     }

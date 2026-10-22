@@ -853,7 +853,9 @@ node! {
         {"if": {"properties": {"kind": {"const": "grain"}}, "required": ["kind"]},
          "then": {"properties": {"params": {"$ref": "#/$defs/GrainParams"}}}},
         {"if": {"properties": {"kind": {"const": "particles"}}, "required": ["kind"]},
-         "then": {"properties": {"params": {"$ref": "#/$defs/ParticlesParams"}}}}
+         "then": {"properties": {"params": {"$ref": "#/$defs/ParticlesParams"}}}},
+        {"if": {"properties": {"kind": {"const": "caustics"}}, "required": ["kind"]},
+         "then": {"properties": {"params": {"$ref": "#/$defs/CausticsParams"}}}}
     ]))]
     ShaderNode {
         pub kind: ShaderKind,
@@ -867,8 +869,8 @@ node! {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub preset: Option<String>,
         /// Typed per kind (SPEC §3.8): `mesh` takes [`MeshParams`], `gradient`
-        /// [`GradientParams`], `noise` [`NoiseParams`], `grain` [`GrainParams`], and
-        /// `particles` [`ParticlesParams`].
+        /// [`GradientParams`], `noise` [`NoiseParams`], `grain` [`GrainParams`],
+        /// `particles` [`ParticlesParams`], and `caustics` [`CausticsParams`].
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub params: Option<IndexMap<String, ShaderParam>>,
     }
@@ -890,6 +892,7 @@ pub enum ShaderKind {
     Noise,
     Grain,
     Particles,
+    Caustics,
 }
 
 /// The `gradient` shader's params (SPEC §3.8).
@@ -994,6 +997,32 @@ pub struct ParticlesParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(range(min = 0, max = 1))]
     pub softness: Option<f64>,
+}
+
+/// The `caustics` shader's params (SPEC §3.8, deck format 0.34).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CausticsParams {
+    /// A cell of the light's network, in shorter sides of the rect.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(range(min = 0.02, max = 2))]
+    pub scale: Option<f64>,
+    /// How fast the light wobbles and flows.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(range(min = 0, max = 2))]
+    pub speed: Option<f64>,
+    /// How far along the palette a line's middle reaches.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(range(min = 0, max = 2))]
+    pub intensity: Option<f64>,
+    /// How thin the lines are.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(range(min = 1, max = 16))]
+    pub sharpness: Option<f64>,
+    /// In Oklab lightness.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(range(min = 0, max = 0.25))]
+    pub grain: Option<f64>,
 }
 
 /// The `mesh` shader's params (SPEC §3.8).

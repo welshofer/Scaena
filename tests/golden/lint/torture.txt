@@ -187,6 +187,8 @@ W302 - connectors cn-f /nodes/cn-f/at/col
 W302 - connectors cn-rule /nodes/cn-rule/at/col
 W302 - code code-block /nodes/code-block/at/col
 W302 - verse verse-poem /nodes/verse-poem/at/col
+W302 - caustics caustics-calm /nodes/caustics-calm/at/col
+W302 - caustics caustics-bright /nodes/caustics-bright/at/col
 W421 - chart-next - /states/23
 W421 - images - /states/26
 W421 - containers - /states/27

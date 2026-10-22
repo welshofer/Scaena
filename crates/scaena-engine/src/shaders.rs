@@ -35,6 +35,7 @@ impl ShaderNode {
             Some("noise") => ShaderKind::Noise,
             Some("grain") => ShaderKind::Grain,
             Some("particles") => ShaderKind::Particles,
+            Some("caustics") => ShaderKind::Caustics,
             other => return Err(EngineError::Layout(format!("unknown shader kind {other:?}"))),
         };
         let seed = match props.get("seed") {

@@ -124,7 +124,7 @@ Rules:
 
 ```jsonc
 {
-  "scaena": "0.33",
+  "scaena": "0.34",
   "meta":   { "title": "...", "author": "...", "created": "...", "lang": "en-US" },
   "canvas": { "width": 1920, "height": 1080, "unit": "cu" },   // canvas units; 1 cu = 1 px at 1080p
   "formats": ["16:9", "9:16"],                               // the formats it is laid out in too (§3.4)
@@ -341,7 +341,7 @@ See `docs/schema/theme.schema.json`. Shape:
 
 ```jsonc
 {
-  "scaena-theme": "0.24",
+  "scaena-theme": "0.25",
   "name": "Dusk",
   "tokens": {
     "color":  { "ink": "#...", "paper": "#...", "accent": "#...", "muted": "...", "...": "..." },
@@ -582,7 +582,7 @@ Rules:
   "params": { "points": 5, "drift": 0.15, "softness": 0.8, "grain": 0.04 } }
 ```
 
-Kinds in v1: `mesh` (mesh gradient), `gradient` (linear/radial/conic), `noise` (simplex/fbm), `grain`, `particles` (seeded field). Each kind has a **typed parameter schema**, a **seed**, and only depends on `t` for motion.
+Kinds in v1: `mesh` (mesh gradient), `gradient` (linear/radial/conic), `noise` (simplex/fbm), `grain`, `particles` (seeded field); and since deck format 0.34 and theme format 0.25, `caustics` (light on water, PLAN 2.147). Each kind has a **typed parameter schema**, a **seed**, and only depends on `t` for motion.
 
 Requirements:
 - Every kind has a CPU reference implementation in Rust **and** a WGSL implementation; the GPU is an optimization. Parity is tested per kind with a per-pixel tolerance (§14).
@@ -591,7 +591,7 @@ Requirements:
 - For PDF/SVG export, shaders rasterize at a declared DPI (default 2× canvas) and embed as images.
 - **Clock.** A shader's `t` is the frame's time on the global timeline (§2.4), in seconds, so a background that persists across states drifts on through every transition, motion, and hold instead of starting over. At rest, a state's shaders show the moment it comes to rest; a frame `t` past its span, in its hold, shows that later time. The clock is an `f32` in the display list (§6), so past 3.4 × 10³⁸ s it holds at its largest value.
 - **Where the code lives.** Each kind's CPU reference and its WGSL twin sit side by side in `scaena-pixels::shader`, which `scaena-core::shader` re-exports: painters run them, and painters depend only on core. They are a crate of their own, with the JPEG decoder (§13), so the browser's modules can build what is done pixel by pixel for speed and the rest of core for size (§15). The engine resolves a node to a shader op (§6): the kind, the seed, the theme palette's colors, typed params, and its rect.
-- **Fast, and the same.** The CPU painter computes `mesh`, `grain`, and `noise` a block of a row at a time, one step of the reference across the block before the next, which the compiler runs as SIMD; `noise` hashes each lattice cell's corners once, not each pixel's four. Each pixel does its reference's arithmetic in its order, so the bytes are the reference's, which a test holds pixel for pixel. Off the web, every kind's rows are spread in bands over the cores, up to 8; no row reads another, so the bytes do not depend on how many. There, sRGB encoding reads two tables made from the 255 thresholds, which give the threshold search's byte for every `f32`, all 2³² of them tested.
+- **Fast, and the same.** The CPU painter computes `mesh`, `grain`, `noise`, and `caustics` a block of a row at a time, one step of the reference across the block before the next, which the compiler runs as SIMD; `noise` hashes each lattice cell's corners once, not each pixel's four, and `caustics` hashes each point of the cells 64 pixels of a row lie in, and of the ring around them, once, and measures every one of those pixels against it. Each pixel does its reference's arithmetic in its order, so the bytes are the reference's, which a test holds pixel for pixel. Off the web, every kind's rows are spread in bands over the cores, up to 8; no row reads another, so the bytes do not depend on how many. There, sRGB encoding reads two tables made from the 255 thresholds, which give the threshold search's byte for every `f32`, all 2³² of them tested.
 
 **Shaders stay off data** (PLAN 1.26). A shader is atmosphere for title and section slides. A chart or a table reads against a plain surface: a mesh, noise, or particles under its marks become noise in the data, and a gradient shifts the colors that encode it. Lint W311 warns about a shader painted behind a chart or a table where they overlap, in any state. The shipped themes' presets are for slides without data, and their example decks keep the mesh off data slides.
 
@@ -651,6 +651,16 @@ Requirements:
 | `size` | number, in shorter sides | above 0, up to 0.25 | 0.01 |
 | `speed` | number, shorter sides a second | 0–1 | 0.02 |
 | `softness` | number, of the radius | 0–1 | 0.5 |
+
+**`caustics` (PLAN 2.147).** Light on water: a network of thin, bright, wavering lines over the water's color. Two layers of square cells, each turned and offset its own seeded way, the second's cells 0.55 of the first's and moving 1.4 times as fast, so the light never reads as a grid. Each layer is bent by two waves 1/0.31 cells long, one across it and one down it, each 0.3 cells deep and running `speed` × ½ waves a second, so its lines curve and waver; a wave is two halves of a parabola meeting at the same slope, made of rounding and `+ − ×`, not a sine. Each cell holds one seeded point, resting between 0.2 and 0.8 of the way across and down it and wobbling 0.1 of a cell about that on a slow Lissajous path, as a mesh's points drift: each layer has 16 paths, their places worked out once a frame (`libm`), turning `speed` × 2π × (½ to 1½) radians a second, and a cell's hash picks one for each axis. A layer's light at a pixel comes from F2 − F1, how much farther the second-nearest point is than the nearest, among the nine cells around its own (the two nearest always lie among them): with s = (F2 − F1) / 2 / w in cells, w = 0.25 / `sharpness`, the light is 1 / (1 + s²)². The two layers' light is screened, the fine layer's at 0.55, and the whole flows `speed` × ½ cell a second in a seeded direction. Times `intensity`, it picks a color along the palette's ramp (up to 16), blended in Oklab: the first color is the water, the rest the light from dim to bright, so a line's middle reaches the last at `intensity` 1. `grain` adds seeded noise to Oklab lightness, per device pixel. Per pixel it is `+ − × ÷`, a square root, rounding, `floor`, comparisons, and integer hashing. A full-bleed 1080p frame takes about 1.65 times a mesh's on the CPU painter: on the 8 threads of §15's budget, about 11 ms, inside B3's 25.
+
+| param | type | range | default |
+|---|---|---|---|
+| `scale` | number, a cell in shorter sides | 0.02–2 | 0.18 |
+| `speed` | number, how fast the light wobbles and flows | 0–2 | 0.1 |
+| `intensity` | number, how far along the ramp a line's middle reaches | 0–2 | 1 |
+| `sharpness` | number, how thin the lines are | 1–16 | 4 |
+| `grain` | number, in Oklab L | 0–0.25 | 0 |
 
 Each kind's CPU reference and its WGSL twin are tested against each other on the GPU (`shader_parity`), per seed, time, transform, and parameters. Between two states a shader morphs by its uniforms (PLAN 1.12): with the same kind and seed and as many palette colors, its rect moves, its palette's colors mix in Oklab, and its params move from one value to the other, a param one side leaves out at its default. Three sorts of param do not move: a name a kind lists (a gradient's `shape`), a count (mesh `points`, noise `octaves`, particles `count`), which has nothing between, and a rate (`speed`, grain `fps`), whose phase on the global clock would race through (b − a)·t on the way. A shader whose kind, seed, or number of palette colors changes, or one of those params, cross-fades.
 

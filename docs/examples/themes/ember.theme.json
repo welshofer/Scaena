@@ -1,5 +1,5 @@
 {
-  "scaena-theme": "0.24",
+  "scaena-theme": "0.25",
   "name": "Ember",
   "description": "Near-black surface, warm white ink, one signal orange. Serif claims and figures over a neutral sans; data in quiet grays with the orange spent on the point.",
   "tokens": {
@@ -970,6 +970,33 @@
         "#1A1A1F",
         "#3A3A40",
         "#BEBDC3"
+      ],
+      "aurora": [
+        "#0E0E12",
+        "#380E07",
+        "#251A13",
+        "#1A1A1F"
+      ],
+      "lagoon": [
+        "#140503",
+        "#390D05",
+        "#321307"
+      ],
+      "sweep": [
+        "#0E0E12",
+        "#34110B",
+        "#1A1A1F",
+        "#251A13"
+      ],
+      "haze": [
+        "#0E0E12",
+        "#1A1A1F",
+        "#32130F"
+      ],
+      "dust": [
+        "#3B0B02",
+        "#28190F",
+        "#1D1C1C"
       ]
     },
     "presets": {
@@ -991,6 +1018,58 @@
           "scale": 0.0015,
           "speed": 0.05,
           "contrast": 0.6
+        }
+      },
+      "aurora": {
+        "kind": "mesh",
+        "palette": "aurora",
+        "params": {
+          "points": 6,
+          "drift": 0.22,
+          "softness": 0.9,
+          "grain": 0.02
+        }
+      },
+      "lagoon": {
+        "kind": "caustics",
+        "palette": "lagoon",
+        "params": {
+          "scale": 0.22,
+          "speed": 0.12,
+          "intensity": 0.9,
+          "sharpness": 5
+        }
+      },
+      "sweep": {
+        "kind": "gradient",
+        "palette": "sweep",
+        "params": {
+          "shape": "conic",
+          "x": 0.3,
+          "y": 0.35,
+          "speed": 4,
+          "grain": 0.015
+        }
+      },
+      "haze": {
+        "kind": "noise",
+        "palette": "haze",
+        "params": {
+          "octaves": 3,
+          "scale": 0.0009,
+          "speed": 0.04,
+          "contrast": 0.9,
+          "grain": 0.01
+        }
+      },
+      "dust": {
+        "kind": "particles",
+        "palette": "dust",
+        "params": {
+          "count": 48,
+          "size": 0.006,
+          "speed": 0.012,
+          "softness": 0.8
         }
       }
     }
