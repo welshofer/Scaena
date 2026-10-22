@@ -174,9 +174,10 @@ try {
   );
   check(!labels.some((l) => l.includes("params")), "no setting is labeled by its path");
   await page.fill("#look-params-drift", "0.3");
-  await page.dispatchEvent("#look-params-drift", "change");
+  // Let go, as a person leaves a field: its change is made once.
+  await page.locator("#look-params-drift").blur();
   await page.waitForFunction((s) => window.scaena.source() !== s, original, { timeout: 30000 }).catch(() => {});
-  check(/drift:0\.3/.test(await source()), "Drift is set on the mesh");
+  check(/drift: ?0\.3/.test(await source()), "Drift is set on the mesh");
   await undo();
   await page.waitForFunction((s) => window.scaena.source() === s, original, { timeout: 30000 }).catch(() => {});
   check((await source()) === original, "one undo takes it back");
