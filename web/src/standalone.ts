@@ -50,6 +50,7 @@ try {
       channel: `scaena:${location.href.split(/[?#]/)[0]}`,
       state: params.get("state"),
       read: (state) => readings.get(state) ?? "",
+      fit: params.get("fit") === "own" ? "own" : null,
     },
   );
 } catch (e) {
