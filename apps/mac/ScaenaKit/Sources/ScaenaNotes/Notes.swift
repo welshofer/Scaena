@@ -110,7 +110,8 @@ extension [NoteBlock] {
             case .lines(let lines):
                 out.append(contentsOf: lines.map(words))
             case .list(let ordered, let items):
-                var counts = Array(repeating: 0, count: 8)
+                // `[Int]`, said so: in an extension of `[NoteBlock]`, `Array` is that.
+                var counts = [Int](repeating: 0, count: 8)
                 for item in items {
                     let level = Swift.min(Swift.max(item.level, 0), 7)
                     counts[level] += 1
@@ -144,7 +145,7 @@ public struct NotesText: View {
 
     public var body: some View {
         if blocks.isEmpty {
-            Text(empty)
+            Text(verbatim: empty)
         } else {
             VStack(alignment: .leading, spacing: 10) {
                 ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
@@ -165,24 +166,24 @@ public struct NotesText: View {
 
     /// `lines` as one text, each on its own line.
     static func text(_ lines: [[NoteSpan]]) -> Text {
-        guard let first = lines.first else { return Text("") }
-        return lines.dropFirst().reduce(text(first)) { joined, line in joined + Text("\n") + text(line) }
+        guard let first = lines.first else { return Text(verbatim: "") }
+        return lines.dropFirst().reduce(text(first)) { joined, line in Text("\(joined)\n\(text(line))") }
     }
 
-    /// A line's spans, each in its look.
+    /// A line's spans, each in its look, joined by interpolation, which keeps each span's look.
     static func text(_ line: [NoteSpan]) -> Text {
         line.map { span -> Text in
-            var text = Text(span.text)
+            var text = Text(verbatim: span.text)
             if span.bold { text = text.bold() }
             if span.italic { text = text.italic() }
             if span.code { text = text.monospaced() }
             return text
         }
-        .reduce(Text(""), +)
+        .reduce(Text(verbatim: "")) { joined, span in Text("\(joined)\(span)") }
     }
 
     private func list(ordered: Bool, items: [NoteItem]) -> some View {
-        var counts = Array(repeating: 0, count: 8)
+        var counts = [Int](repeating: 0, count: 8)
         let marked: [(mark: String, item: NoteItem)] = items.map { item in
             let level = Swift.min(Swift.max(item.level, 0), 7)
             counts[level] += 1
@@ -192,7 +193,7 @@ public struct NotesText: View {
         return VStack(alignment: .leading, spacing: 4) {
             ForEach(Array(marked.enumerated()), id: \.offset) { _, row in
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text(row.mark).frame(minWidth: 18, alignment: .trailing)
+                    Text(verbatim: row.mark).frame(minWidth: 18, alignment: .trailing)
                     Self.text(row.item.spans).frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .padding(.leading, CGFloat(Swift.min(Swift.max(row.item.level, 0), 7)) * 18)
