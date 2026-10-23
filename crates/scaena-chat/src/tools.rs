@@ -9,12 +9,14 @@ use serde_json::{Value, json};
 
 /// Each MCP tool's schema, as `just bless` writes it from the server's code.
 const MCP: &[(&str, &str)] = &[
+    ("background_set", include_str!("../../../docs/schema/mcp/background_set.json")),
     ("data_attach", include_str!("../../../docs/schema/mcp/data_attach.json")),
     ("data_edit", include_str!("../../../docs/schema/mcp/data_edit.json")),
     ("deck_create", include_str!("../../../docs/schema/mcp/deck_create.json")),
     ("deck_diff", include_str!("../../../docs/schema/mcp/deck_diff.json")),
     ("deck_export", include_str!("../../../docs/schema/mcp/deck_export.json")),
     ("deck_find", include_str!("../../../docs/schema/mcp/deck_find.json")),
+    ("deck_generate", include_str!("../../../docs/schema/mcp/deck_generate.json")),
     ("deck_health", include_str!("../../../docs/schema/mcp/deck_health.json")),
     ("deck_history", include_str!("../../../docs/schema/mcp/deck_history.json")),
     ("deck_inspect", include_str!("../../../docs/schema/mcp/deck_inspect.json")),
@@ -26,6 +28,7 @@ const MCP: &[(&str, &str)] = &[
     ("map_fetch", include_str!("../../../docs/schema/mcp/map_fetch.json")),
     ("spine_read", include_str!("../../../docs/schema/mcp/spine_read.json")),
     ("spine_update", include_str!("../../../docs/schema/mcp/spine_update.json")),
+    ("state_start", include_str!("../../../docs/schema/mcp/state_start.json")),
     ("theme_apply", include_str!("../../../docs/schema/mcp/theme_apply.json")),
     ("theme_edit", include_str!("../../../docs/schema/mcp/theme_edit.json")),
 ];
@@ -97,7 +100,7 @@ pub fn summary(name: &str, json: &str, error: bool) -> String {
         };
     }
     match name {
-        "deck_patch" | "spine_update" => {
+        "deck_patch" | "spine_update" | "state_start" | "background_set" => {
             let done = if truthy(&r["applied"]) {
                 "Done"
             } else if any(&r["added"]) {
@@ -204,7 +207,7 @@ pub fn made(name: &str, json: &str, error: bool) -> bool {
     }
     let Ok(r) = serde_json::from_str::<Value>(json) else { return true };
     match name {
-        "deck_patch" | "spine_update" | "theme_apply" => truthy(&r["applied"]),
+        "deck_patch" | "spine_update" | "state_start" | "background_set" | "theme_apply" => truthy(&r["applied"]),
         "theme_edit" => truthy(&r["applied"]) && !truthy(&r["refused"]),
         "data_attach" => truthy(&r["attached"]),
         "data_edit" => truthy(&r["edited"]),

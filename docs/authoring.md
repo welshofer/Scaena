@@ -220,6 +220,8 @@ scaena render talk --state revenue --out revenue.png && open revenue.png
   - `scaena inspect talk --state revenue --resolved` shows what a state holds after the theme.
   - `scaena diff talk --from revenue --to mix` shows what a click changes.
   - `scaena patch` makes edits as JSON operations (SPEC §7.3).
+  - `scaena start talk revenue --layout bullets` adds a slide after the slide `revenue` is on, in one of the theme's layouts, as the editor's Add Slide does: its words to write over. `scaena inspect talk --state revenue --layouts` lists the layouts a slide may take.
+  - `scaena background talk revenue backdrop` gives a slide one of the theme's backgrounds, `--none` takes it away, and with neither it lists what the slide may take.
   - `scaena data talk q3` shows a data source's rows as written, each by its index, and any value its column does not read. `--edits` sets cells, adds rows, and takes them away, in one write of the file that keeps every other byte (SPEC §3.10).
   - `scaena files talk` lists the bundle's images, fonts, and data, what names each, and the objects drawn from each, in which states. `--remove` takes out files nothing names, and refuses the rest.
   - `scaena theme talk --edit ops.json` edits the theme the deck names by JSON Patch operations on it (`/tokens/color/accent`, `/type/roles/body/size`), refused where the deck would not check in the theme it leaves; `--apply theme.json` swaps in another theme, and `--apply salon` one that ships, by its name, with its fonts (SPEC §3.6).

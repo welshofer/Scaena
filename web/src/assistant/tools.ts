@@ -62,6 +62,8 @@ export function made(name: string, json: string, error: boolean): boolean {
   switch (name) {
     case "deck_patch":
     case "spine_update":
+    case "state_start":
+    case "background_set":
     case "theme_apply":
       return Boolean(r?.applied);
     case "theme_edit":
@@ -99,6 +101,8 @@ export function summary(name: string, json: string, error: boolean): string {
   switch (name) {
     case "deck_patch":
     case "spine_update":
+    case "state_start":
+    case "background_set":
       return (r.applied ? "Done" : r.added?.length ? "Refused" : "Tried, not made") + delta();
     case "deck_find": {
       const texts = r.found?.length ?? 0;

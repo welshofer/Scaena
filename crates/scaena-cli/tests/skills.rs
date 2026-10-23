@@ -166,7 +166,8 @@ impl Names {
                 }
             }
             // An MCP tool.
-            let toolish = ["deck_", "theme_", "data_", "spine_"].iter().any(|p| span.starts_with(p))
+            let prefixes = ["deck_", "theme_", "data_", "spine_", "state_", "background_", "icon_", "map_"];
+            let toolish = prefixes.iter().any(|p| span.starts_with(p))
                 && span.chars().all(|c| c.is_ascii_lowercase() || c == '_');
             if toolish && !self.tools.contains(span) {
                 out.push(format!("`{span}`: there is no such MCP tool"));
