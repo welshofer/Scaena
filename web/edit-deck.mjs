@@ -24,7 +24,7 @@
 // Each step is screenshotted into target/edit-deck/, with its time. Exits 1 on any failure.
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { decode, launch, serve } from "./serve.mjs";
+import { decode, launch, serve, tab } from "./serve.mjs";
 
 const out = "target/edit-deck";
 await mkdir(out, { recursive: true });
@@ -215,7 +215,7 @@ try {
     await show("miles");
     await page.waitForTimeout(500);
     const was = await painted();
-    await page.click("#tab-data");
+    await tab(page, "data");
     await until("the Data tab's sources", () => [...document.querySelectorAll("#data select[data-source] option")].some((o) => o.value === "miles"));
     await page.selectOption("#data select[data-source]", "miles");
     // The rows, not the table: the table is in the page before the worker's rows come.
@@ -246,7 +246,7 @@ try {
     // "June to September beat the plan": the first word, by the keys.
     await page.keyboard.press("Home");
     for (let i = 0; i < 4; i++) await page.keyboard.press("Shift+ArrowRight");
-    await page.click("#tab-data");
+    await tab(page, "data");
     const cell = page.locator('#data input[data-row="0"][data-col="1"]');
     await cell.click();
     const at = await mark();

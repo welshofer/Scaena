@@ -25,7 +25,7 @@
 // Each step is screenshotted into target/first-deck/, with its time. Exits 1 on any failure.
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { launch, serve } from "./serve.mjs";
+import { launch, serve, tab } from "./serve.mjs";
 
 const out = "target/first-deck";
 await mkdir(out, { recursive: true });
@@ -289,7 +289,7 @@ try {
   });
 
   await step("data-tab", async () => {
-    await page.click("#tab-data");
+    await tab(page, "data");
     // The table is in the page from the start; its rows come when the worker answers.
     await page.waitForFunction(() => document.querySelectorAll("#data table tbody tr").length > 0, null, { timeout: 30000 }).catch(() => {});
     const rows = await page.evaluate(() => document.querySelectorAll("#data table tbody tr").length);

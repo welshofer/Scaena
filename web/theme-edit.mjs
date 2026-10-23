@@ -17,7 +17,7 @@
 import { execFileSync } from "node:child_process";
 import { rm } from "node:fs/promises";
 import { createRequire } from "node:module";
-import { launch, serve } from "./serve.mjs";
+import { launch, serve, tab } from "./serve.mjs";
 
 const failures = [];
 const check = (ok, what) => {
@@ -45,7 +45,7 @@ try {
   // The revenue state, its chart and its headline on the theme's paper.
   await page.selectOption("#state", "revenue");
   await page.waitForFunction(() => window.scaena.at()?.index === 1, null, { timeout: 30000 }).catch(() => {});
-  await page.click("#tab-theming");
+  await tab(page, "theming");
   await page.waitForFunction(() => window.scaena.theme.theme() !== undefined, null, { timeout: 60000 });
 
   const source = () => page.evaluate(() => window.scaena.source());
@@ -146,7 +146,7 @@ try {
   // A save records each edit, by the user, and nothing as changed outside Scaena.
   const saved = await page.evaluate(() => window.scaena.save());
   check(saved?.recorded === true, `the save records the edits in the history: ${await status()}`);
-  await page.click("#tab-versions");
+  await tab(page, "versions");
   await page.waitForFunction(() => window.scaena.versions.listed()?.length > 1, null, { timeout: 30000 }).catch(() => {});
   const versions = await page.evaluate(() => window.scaena.versions.listed());
   const said = (versions ?? []).map((v) => `${v.author}: ${v.message}`);

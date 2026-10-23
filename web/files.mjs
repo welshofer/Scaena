@@ -18,7 +18,7 @@
 //   there, quoted.
 // Exits 1 on any failure.
 import { readFileSync } from "node:fs";
-import { launch, serve } from "./serve.mjs";
+import { launch, serve, tab } from "./serve.mjs";
 
 const server = await serve();
 const failures = [];
@@ -92,7 +92,7 @@ try {
   const original = await source();
 
   // The tab lists what the bundle holds, and what uses each.
-  await page.locator("#tab-files").click();
+  await tab(page, "files");
   await page.waitForFunction(() => window.scaena.files.listed().length > 0, null, { timeout: 30000 });
   const summary = await page.evaluate(() => document.querySelector("#files [data-summary]").textContent);
   check(/\d+ images? · \d+ fonts? · \d+ data files? · 1 file nothing uses/.test(summary), `the tab says what the bundle holds: ${summary}`);

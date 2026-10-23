@@ -803,29 +803,40 @@ async function edit(source: Source, opened?: Stage) {
     if (icon) await (swapping ? board.swapIcon(swapping, icon) : board.insertIcon(icon));
     $("#overlay").focus();
   }
-  const look = looks(stage, $("#look"), {
-    shown: showing,
-    slide: slideOf,
-    format,
-    source: () => view.state.doc.toString(),
-    apply: made,
-    say,
-    style: (given, words) => board.style(given, words),
-    arrange: (how) => board.arrange(how, false),
-    group: () => board.group(),
-    ungroup: () => board.ungroup(),
-    pick: () => board.pick(),
-    select: (node) => board.select(node),
-    pickLayout: (names, current) => {
-      const now = showing();
-      if (!now) return Promise.resolve(undefined);
-      return picking.pick({ purpose: { names, current }, source: view.state.doc.toString(), state: now.state, format: format() });
+  const look = looks(
+    stage,
+    $("#look"),
+    {
+      shown: showing,
+      slide: slideOf,
+      format,
+      source: () => view.state.doc.toString(),
+      apply: made,
+      say,
+      style: (given, words) => board.style(given, words),
+      arrange: (how) => board.arrange(how, false),
+      group: () => board.group(),
+      ungroup: () => board.ungroup(),
+      pick: () => board.pick(),
+      select: (node) => board.select(node),
+      pickLayout: (names, current) => {
+        const now = showing();
+        if (!now) return Promise.resolve(undefined);
+        return picking.pick({ purpose: { names, current }, source: view.state.doc.toString(), state: now.state, format: format() });
+      },
+      write: (kind, node) => write(kind, node),
+      // A map fetched again (PLAN O.1c), with the Geoapify key kept: none kept, Insert › Map… asks.
+      remap: (node, how) =>
+        void load("geoapify").then((kept) => (kept?.key ? board.refreshMap(node, kept.key, how) : say("No Geoapify key is kept: Insert › Map… keeps one"))),
+      // The tab a finding's field stands in (lift-up ATTR-4), and the timeline under the canvas.
+      reveal: (on) => tab(on === "animate" ? "animate" : "inspector"),
+      timeline: (show) => {
+        if (show !== undefined) hiding("cue", !show);
+        return !hidden("cue");
+      },
     },
-    write: (kind, node) => write(kind, node),
-    // A map fetched again (PLAN O.1c), with the Geoapify key kept: none kept, Insert › Map… asks.
-    remap: (node, how) =>
-      void load("geoapify").then((kept) => (kept?.key ? board.refreshMap(node, kept.key, how) : say("No Geoapify key is kept: Insert › Map… keeps one"))),
-  });
+    $("#animating"),
+  );
 
   /** The cue of the state shown (PLAN 2.44), under the preview: once the canvas is there. */
   let cueing: ReturnType<typeof cue> | undefined;
@@ -897,7 +908,8 @@ async function edit(source: Source, opened?: Stage) {
     // its characters selected (PLAN 2.38, 2.52).
     // So does focus in the Data tab, whose Quote quotes a cell in them (PLAN 2.72).
     keeps: (to) =>
-      to instanceof Node && ($("#look").contains(to) || $("#assistant").contains(to) || $("#data").contains(to) || to === $("#tab-data")),
+      to instanceof Node &&
+      ($("#look").contains(to) || $("#assistant").contains(to) || $("#data").contains(to) || to === $("#tab-data") || to === $("#tab-document")),
     zoomed: (zoom) => {
       $("#zoom output").textContent = `${Math.round(zoom * 100)}%`;
     },
@@ -2098,12 +2110,13 @@ async function edit(source: Source, opened?: Stage) {
   };
   const typeOf = (node: string) => layering.type(node, showing()?.state ?? "");
   /** Show the tab `id` under the preview, as a click on it does. */
-  const tab = (id: "inspector" | "layers" | "data" | "theming" | "files" | "versions" | "story" | "assistant") => {
+  const tab = (id: "inspector" | "animate" | "document" | "layers" | "data" | "theming" | "files" | "versions" | "story" | "assistant") => {
     // A tab asked for shows the inspector's column, hidden or not.
     hiding("panel", false);
     const button = $<HTMLButtonElement>(`#tab-${id}`);
     button.click();
-    return button;
+    // A panel chosen from More shows as More's own tab (lift-up ATTR-4): what the focus goes to.
+    return button.hidden ? $<HTMLButtonElement>("#tab-more") : button;
   };
   /** Show the state at `index`, its declaration at the cursor, as the strip does. */
   const goTo = (index: number) => {
@@ -2388,7 +2401,9 @@ async function edit(source: Source, opened?: Stage) {
       { label: "Open a .scaena file…", run: () => $("#open-file").click() },
       { label: "Open a folder…", applies: () => !$("#open-folder").hidden, run: () => $("#open-folder").click() },
       { label: "Decks kept in this browser…", run: () => $("#kept").click() },
-      { label: "Show the inspector", run: () => tab("inspector").focus() },
+      { label: "Show Format", run: () => tab("inspector").focus() },
+      { label: "Show Animate", run: () => tab("animate").focus() },
+      { label: "Show Document", run: () => tab("document").focus() },
       { label: "Hide the inspector", applies: () => !hidden("panel"), run: () => hiding("panel", true) },
       { label: hidden("cue") ? "Show the animations" : "Hide the animations", run: () => hiding("cue", !hidden("cue")) },
       { label: "Show the layers", run: () => tab("layers").focus() },
@@ -2785,29 +2800,79 @@ async function edit(source: Source, opened?: Stage) {
   });
 }
 
-/** The tabs under the preview: the inspector, the layers, the data, and the assistant. The arrow keys, Home, and
- * End move between them, and only the one shown is in the tab order. */
+/** The inspector's tabs (lift-up ATTR-4), a presentation app's on one row (PLAN 3.18): Format, Animate,
+ * and Document, a segmented control, and More, a menu of the rest (the layers, the assistant), which
+ * shows the panel chosen as its own tab, named for it. Document's panels, Theme, Data, Files,
+ * Versions, and Story, are a row of their own. In each row the arrow keys, Home, and End move between
+ * the tabs shown, and only the one chosen is in the tab order; on More, ↓ opens its menu, as a click
+ * does. A tab kept hidden under More, clicked (`tab()`, a test), shows its panel as the menu does,
+ * and one of Document's shows Document first. */
 function tabs() {
-  const buttons = [...document.querySelectorAll<HTMLButtonElement>('#tabs [role="tab"]')];
-  const pick = (button: HTMLButtonElement) => {
-    for (const other of buttons) {
-      const on = other === button;
-      other.setAttribute("aria-selected", String(on));
-      other.tabIndex = on ? 0 : -1;
-      $(`#${other.getAttribute("aria-controls")}`).hidden = !on;
-    }
-  };
-  buttons.forEach((button, i) => {
-    button.tabIndex = button.getAttribute("aria-selected") === "true" ? 0 : -1;
-    button.onclick = () => pick(button);
-    button.onkeydown = (e) => {
-      const to = { ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: buttons.length - 1 }[e.key];
+  const more = $<HTMLButtonElement>("#tab-more");
+  /** One row of tabs: `pick` shows one's panel and hides the others'. `shown` are those a person
+   * sees, which the arrow keys move between. */
+  function row(list: HTMLElement, picked?: (button: HTMLButtonElement) => void) {
+    const buttons = [...list.querySelectorAll<HTMLButtonElement>('[role="tab"]')].filter((b) => b !== more);
+    const shown = () => [...list.querySelectorAll<HTMLButtonElement>('[role="tab"]')].filter((b) => !b.hidden);
+    const pick = (button: HTMLButtonElement) => {
+      for (const other of buttons) {
+        const on = other === button;
+        other.setAttribute("aria-selected", String(on));
+        other.tabIndex = on ? 0 : -1;
+        $(`#${other.getAttribute("aria-controls")}`).hidden = !on;
+      }
+      picked?.(button);
+    };
+    const keys = (button: HTMLButtonElement) => (e: KeyboardEvent) => {
+      const ring = shown();
+      const i = ring.indexOf(button);
+      const to = { ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: ring.length - 1 }[e.key];
       if (to === undefined) return;
       e.preventDefault();
-      const next = buttons[(to + buttons.length) % buttons.length];
+      const next = ring[(to + ring.length) % ring.length];
+      if (next === more) {
+        // More stands for no panel until one is chosen from it: the focus goes to it alone.
+        next.focus();
+        return;
+      }
       pick(next);
       next.focus();
     };
+    for (const button of buttons) {
+      button.tabIndex = button.getAttribute("aria-selected") === "true" ? 0 : -1;
+      button.onclick = () => pick(button);
+      button.onkeydown = keys(button);
+    }
+    return { pick, keys };
+  }
+  const top = row($("#tabs"), (button) => {
+    // A panel chosen from More shows as More's own: named for it, selected, controlling it.
+    const under = button.hidden;
+    more.setAttribute("aria-selected", String(under));
+    more.tabIndex = under ? 0 : -1;
+    more.textContent = under ? button.textContent : "More";
+    if (under) more.setAttribute("aria-controls", button.getAttribute("aria-controls")!);
+    // Document's panel chosen is hidden and shown with Document: each panel reads its own `hidden`
+    // to know whether it is seen, and reads again as it is shown.
+    const chosen = $("#document .segments [aria-selected=\"true\"]").getAttribute("aria-controls");
+    $(`#${chosen}`).hidden = $("#document").hidden;
+  });
+  const under = [...document.querySelectorAll<HTMLButtonElement>('#tabs [role="tab"][hidden]')];
+  more.tabIndex = -1;
+  more.onclick = () => {
+    const at = more.getBoundingClientRect();
+    menu(at.left, at.bottom + 2, under.map((b) => ({ label: b.textContent ?? "", run: () => b.click() })), more);
+  };
+  const moreKeys = top.keys(more);
+  more.onkeydown = (e) => {
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      more.click();
+    } else moreKeys(e);
+  };
+  // Document's row: one of its tabs shows Document too, so a test or a command reaches each by its id.
+  row($("#document .segments"), () => {
+    if ($("#document").hidden) top.pick($<HTMLButtonElement>("#tab-document"));
   });
 }
 

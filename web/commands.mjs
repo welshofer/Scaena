@@ -22,7 +22,7 @@
 // - axe-core finds nothing against WCAG 2.1 AA in the palette open, nor in a menu open.
 // Exits 1 on any failure.
 import { createRequire } from "node:module";
-import { launch, serve } from "./serve.mjs";
+import { launch, serve, tab } from "./serve.mjs";
 
 const server = await serve();
 const failures = [];
@@ -291,7 +291,7 @@ try {
   // A layer.
   await page.evaluate(() => window.scaena.cursor(window.scaena.source().indexOf("state revenue") + "state ".length));
   await page.waitForFunction(() => window.scaena.shown() === 1 && window.scaena.canvas.boxed() === "revenue", null, { timeout: 30000 });
-  await page.locator("#tab-layers").click();
+  await tab(page, "layers");
   await page.waitForFunction(() => window.scaena.layers.listed().includes("note"), null, { timeout: 30000 });
   await page.locator('#layers li[data-layer="note"] > .row').click({ button: "right" });
   check(await menuOpen(), "a right click on a layer opens a menu");

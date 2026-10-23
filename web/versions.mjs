@@ -20,7 +20,7 @@ import { execFileSync } from "node:child_process";
 import { copyFile, mkdir, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { join } from "node:path";
-import { launch, serve } from "./serve.mjs";
+import { launch, serve, tab } from "./serve.mjs";
 
 const failures = [];
 const check = (ok, what) => {
@@ -60,7 +60,7 @@ try {
     page.on("console", (m) => m.type() === "error" && failures.push(`console: ${m.text()}`));
     await page.goto(`${site.origin}/web/dist/editor.html?painter=cpu&source=open&bundle=${deck}`);
     await page.waitForFunction(() => window.scaena?.last()?.valid, null, { timeout: 120000 });
-    await page.click("#tab-versions");
+    await tab(page, "versions");
     await page.waitForFunction(() => window.scaena.versions.listed() === null || window.scaena.versions.listed().length > 0, null, { timeout: 60000 });
     return page;
   };
@@ -173,12 +173,12 @@ try {
   /** The data file's first row's revenue, as the Data tab shows it once it reads `expected`, or
    * as it reads after a while. */
   const revenue = async (expected) => {
-    await page.click("#tab-data");
+    await tab(page, "data");
     await page
       .waitForFunction((v) => window.scaena.data.shown()?.sheet?.rows[0]?.[2] === v, expected, { timeout: 30000, polling: 100 })
       .catch(() => {});
     const value = await page.evaluate(() => window.scaena.data.shown()?.sheet?.rows[0]?.[2]);
-    await page.click("#tab-versions");
+    await tab(page, "versions");
     await settled();
     return value;
   };

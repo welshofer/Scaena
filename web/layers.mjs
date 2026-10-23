@@ -25,7 +25,7 @@
 // - axe-core finds nothing against WCAG 2.1 AA in the panel.
 // Exits 1 on any failure.
 import { createRequire } from "node:module";
-import { launch, serve } from "./serve.mjs";
+import { launch, serve, tab } from "./serve.mjs";
 
 const server = await serve();
 const failures = [];
@@ -72,7 +72,7 @@ try {
   // In `revenue`, with the Layers tab.
   await page.evaluate(() => window.scaena.cursor(window.scaena.source().indexOf("state revenue") + "state ".length));
   await page.waitForFunction(() => window.scaena.shown() === 1 && window.scaena.canvas.boxed() === "revenue", null, { timeout: 30000 });
-  await page.locator("#tab-layers").click();
+  await tab(page, "layers");
   check(await page.evaluate(() => !document.querySelector("#layers").hidden), "the Layers tab shows the panel");
   const original = await source();
   const all = ["note", "rev", "subtitle (hidden)", "title", "bg (hidden)"];
@@ -178,7 +178,7 @@ try {
   const containers = await page.evaluate(() => window.scaena.opened.states.indexOf("containers"));
   await page.evaluate(() => window.scaena.cursor(window.scaena.source().indexOf("state containers") + "state ".length));
   await page.waitForFunction((i) => window.scaena.shown() === i && window.scaena.canvas.boxed() === "containers", containers, { timeout: 30000 });
-  await page.locator("#tab-layers").click();
+  await tab(page, "layers");
   const torture = await source();
   /** Once the list, joined, has each of `want`. */
   const has = async (...want) => {

@@ -214,7 +214,7 @@ try {
   const roomy = await area();
   check(await page.locator("#panel").isHidden(), "Hide the inspector hides it");
   check(roomy.width > small.width * 1.4, `and the slide takes their room: ${small.width} → ${roomy.width}`);
-  await run("Show the inspector");
+  await run("Show Format");
   check(!(await page.locator("#panel").isHidden()), "Show the inspector shows it again");
   await run("Show the animations");
   await page.setViewportSize({ width: 1600, height: 1000 });
