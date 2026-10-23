@@ -15,8 +15,9 @@
 // where its pointer is over the slide it shows.
 //
 // The end of the show (PLAN 2.120), as Keynote's and PowerPoint's: going on past the last state
-// turns the screen black and says the show has ended; going on again, or Escape, leaves it, out of
-// fullscreen and back on the last slide, and going back shows the last slide. The presenter view's
+// turns the screen black and says the show has ended, and going on again keeps it there; a click
+// on it, or Escape, leaves it, out of fullscreen and back on the last slide, and going back shows
+// the last slide. The presenter view's
 // timer pauses and resets, and the time of day stands beside it (PLAN 2.121).
 //
 // For a screen reader (PLAN 2.8, SPEC §3.12): the canvas is hidden, and the page keeps how the
@@ -45,6 +46,51 @@ export interface Play {
   /** How a state reads, as HTML: the reading a single file carries for each state it plays.
    * Without it, the engine reads the state in the format shown. */
   read?: (state: string, format?: string) => string | Promise<string>;
+  /** `own`: the slide at its own size, scaled down where it does not fit, as the goldens are
+   * read from it (`?fit=own`); else as large as fits the room, at the screen's density (lift-up
+   * ATTR-2). */
+  fit?: "own" | null;
+}
+
+/** Paint `stage`'s frames at the size its slide fills `room` at, in device pixels, keeping its
+ * aspect (lift-up ATTR-2): as large as fits, as sharp as the screen, in a window of any size,
+ * fullscreen, and at any density. The canvas's attributes are that size, and its stylesheet shows
+ * it no larger than the room, so it stands at the slide's size on the page: a slide of
+ * 1920 × 1080 on a 2560 × 1440 screen at twice the density is painted 5120 × 2880, and shown
+ * 2560 × 1440. Fitted again when `watched` changes size, the window too, and when the density
+ * does. `room` is the room's size in CSS pixels. */
+function fitting(stage: Stage, room: () => [number, number], watched: Element[]) {
+  let last = "";
+  let asking: Promise<void> = Promise.resolve();
+  // The canvas shown at the slide's size in the room, CSS pixels, whatever size its frames are
+  // painted at: the CPU painter's, capped, are scaled up to it.
+  const shown = ([width, height]: [number, number]) => {
+    const [w, h] = room();
+    const scale = Math.min(w / width, h / height);
+    stage.canvas.style.width = `${(width * scale).toFixed(2)}px`;
+    stage.canvas.style.height = `${(height * scale).toFixed(2)}px`;
+  };
+  stage.onSized = shown;
+  const fit = () => {
+    const dpr = devicePixelRatio || 1;
+    const device = room().map((px) => Math.max(1, Math.round(px * dpr))) as [number, number];
+    const now = device.join("×");
+    if (now === last) return;
+    last = now;
+    // One at a time, in order: a fit asked for while one is painted goes after it.
+    asking = asking.then(() => stage.fit(device).then(shown, () => {}));
+  };
+  const observer = new ResizeObserver(fit);
+  for (const el of watched) observer.observe(el);
+  addEventListener("resize", fit);
+  // A change of density: the window moved to another screen, or the page zoomed.
+  const density = () => {
+    const query = matchMedia(`(resolution: ${devicePixelRatio}dppx)`);
+    query.addEventListener("change", () => (fit(), density()), { once: true });
+  };
+  density();
+  fit();
+  return fit;
 }
 
 /** The screen as the presenter turns it, black or white, the slide out of sight (PLAN 2.105). */
@@ -256,6 +302,17 @@ async function play(deck: Source, how: Play, channel: BroadcastChannel) {
   const scrub = $<HTMLInputElement>("#scrub");
   const stage = await Stage.open($("#stage"), deck, how.painter, how.engine);
   stage.onError = (e) => (status.textContent = `Error: ${e.message}`);
+  // The slide as large as fits the room the bar leaves, and fullscreen the screen, as sharp as
+  // the screen (lift-up ATTR-2); the bar's height changes as a narrow window wraps it.
+  if (how.fit !== "own") {
+    const bar = $(".bar");
+    const roomLeft = (): [number, number] => {
+      const body = document.body.getBoundingClientRect();
+      const foot = bar.offsetParent === null ? 0 : bar.getBoundingClientRect().height;
+      return [body.width, Math.max(0, body.height - foot)];
+    };
+    fitting(stage, roomLeft, [document.body, bar]);
+  }
   // The window is the deck's, by its title, as a single file's page is.
   document.title = titled(stage.opened);
   const format = () => formatPicker.value || undefined;
@@ -409,10 +466,9 @@ async function play(deck: Source, how: Play, channel: BroadcastChannel) {
   });
 
   /** On: finish a cue that is playing, else play the next state's; past the last, the show is
-   * over, and on from there leaves it. */
+   * over, and stays over as a presentation app's end does, until a click, Escape, or Back. */
   const on = () => {
-    if (!shown()) return;
-    if (ended) return leave();
+    if (!shown() || ended) return;
     const { index, t, playing } = stage.at;
     if (playing && t < slots[index].span) return void stage.seek(index, undefined, format());
     if (index + 1 < slots.length) stage.run(index + 1, 0, format(), still());
@@ -567,7 +623,7 @@ async function play(deck: Source, how: Play, channel: BroadcastChannel) {
   };
   stage.canvas.onpointerdown = end.onpointerdown = (e) => (down = e);
   stage.canvas.onpointerup = (e) => lifted(e, () => void follow(e).then((followed) => followed || on()));
-  end.onpointerup = (e) => lifted(e, on);
+  end.onpointerup = (e) => lifted(e, leave);
   /** A click on a link at rest follows it (PLAN 2.70): a state is shown, a web address opens in
    * a window of its own. Whether there was one. */
   const follow = async (e: PointerEvent): Promise<boolean> => {
@@ -578,6 +634,8 @@ async function play(deck: Source, how: Play, channel: BroadcastChannel) {
     const link = await stage.linkAt(slots[index].state, at, format()).catch(() => undefined);
     if (!link) return false;
     if ("href" in link) {
+      // Only a web address, as the engine draws one (`scaena_core::links`, lift-up SEC-2).
+      if (!/^(https?:\/\/|mailto:)\S+$/.test(link.href)) return false;
       open(link.href, "_blank", "noopener");
       return true;
     }
@@ -713,6 +771,16 @@ async function presentView(deck: Source, how: Play, channel: BroadcastChannel) {
     Stage.open($("#stage"), deck, how.painter, how.engine),
     Stage.open($("#upnext"), deck, how.painter, how.engine),
   ]);
+  // The slide as large as fits beside the notes, as sharp as the screen (lift-up ATTR-2).
+  if (how.fit !== "own") {
+    const main = $("main");
+    const inside = (): [number, number] => {
+      const style = getComputedStyle(main);
+      const pad = (side: string) => parseFloat(style.getPropertyValue(`padding-${side}`)) || 0;
+      return [main.clientWidth - pad("left") - pad("right"), main.clientHeight - pad("top") - pad("bottom")];
+    };
+    fitting(now, inside, [main]);
+  }
   let { states, notes } = now.opened;
   // The window is the deck's, marked as the presenter's, so that a window shared with the room
   // is told from it.

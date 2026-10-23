@@ -57,6 +57,7 @@ pub mod furniture;
 pub mod ids;
 pub mod inserts;
 pub mod layers;
+pub mod links;
 pub mod lint;
 pub mod lists;
 pub mod looks;

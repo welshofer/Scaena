@@ -22,8 +22,8 @@
 //   slide's number then Return goes there, one the deck lacks said, 0 among them; L shows the laser
 //   where the pointer is over the slide; ? lists the keys.
 // - The end of the show (PLAN 2.120): going on past the last state turns the screen black and says
-//   the show has ended, the status too; ← shows the last slide again, and going on again, a click,
-//   or Escape leaves it, back on the last slide, and in fullscreen out of it.
+//   the show has ended, the status too; ← shows the last slide again, going on again keeps it,
+//   and a click or Escape leaves it, back on the last slide, and in fullscreen out of it.
 // - The presenter view follows the player, shows the state's notes (its beat's, where it has
 //   none), and steers it: on, back, and with End and Home to the last and the first; and its own
 //   presenter's keys steer the room's screen, its laser pointed from the slide it shows, and drawn
@@ -38,6 +38,9 @@
 // - A link at rest shows a hand under the pointer.
 // - With `?fps`, the frame meter reads a played cue's frames: frames a second, the worst frame,
 //   late frames, and the mean paint (gate 2, criterion 1).
+// - At 2560 × 1440 and twice the density (lift-up ATTR-2), the slide fills the room the bar
+//   leaves, and in fullscreen the screen, painted at the size it is shown in device pixels by
+//   WebGPU, and by the CPU painter at the canvas's own size, scaled up.
 // Exits 1 on any failure.
 import { mkdir, readFile, symlink, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
@@ -279,7 +282,7 @@ try {
   check(!(await listed()).open, "and so does Escape");
 
   // The end of the show (PLAN 2.120): → past the last state turns the screen black and says the
-  // show has ended; ← shows the last slide again; → again, a click, or Escape leaves it.
+  // show has ended; ← shows the last slide again; → again keeps it; a click or Escape leaves it.
   const ending = () =>
     player.evaluate(() => {
       const end = document.querySelector(".end");
@@ -309,11 +312,9 @@ try {
   check(!end.shown && !end.ended && end.index === last, `← shows the last slide again: ${JSON.stringify(end)}`);
   await player.keyboard.press("ArrowRight");
   check((await ending()).ended, "→ ends the show again");
-  await player.keyboard.press("ArrowRight");
+  for (const key of ["ArrowRight", " ", "PageDown"]) await player.keyboard.press(key);
   end = await ending();
-  check(!end.shown && !end.ended && end.index === last && !end.status.endsWith("end of the show"), `and → again leaves it, on the last slide: ${JSON.stringify(end)}`);
-  await player.keyboard.press(" ");
-  check((await ending()).ended, "Space past the last ends the show too");
+  check(end.shown && end.ended && end.index === last, `and going on again keeps it, by →, Space, and PageDown: ${JSON.stringify(end)}`);
   await player.mouse.click(960, 400);
   end = await ending();
   check(!end.ended && end.index === last, "a click on the end of the show leaves it");
@@ -539,17 +540,20 @@ try {
       Math.abs(centred.top - (centred.room - centred.height) / 2) <= 1 && centred.background === "rgb(0, 0, 0)",
       `in the middle of the screen, on black: ${JSON.stringify(centred)}`,
     );
-    // At the end of the show, going on again leaves fullscreen, on the last slide (PLAN 2.120).
+    // At the end of the show, going on again keeps it, fullscreen; a click leaves fullscreen, on
+    // the last slide (PLAN 2.120).
     await player.keyboard.press("End");
     await until(player, (last) => window.scaena.at().index === last && !window.scaena.at().playing, "End in fullscreen", slots.length - 1);
     await player.keyboard.press("ArrowRight");
     const endedFull = await player.evaluate(() => window.scaena.ended() && document.fullscreenElement !== null);
     await player.keyboard.press("ArrowRight");
+    const keptFull = await player.evaluate(() => window.scaena.ended() && document.fullscreenElement !== null);
+    await player.mouse.click(400, 300);
     const left = await player.waitForFunction(() => document.fullscreenElement === null, null, { timeout: 5000 }).then(() => true, () => false);
     at = await player.evaluate(() => window.scaena.at());
     check(
-      endedFull && left && !(await player.evaluate(() => window.scaena.ended())) && at.index === slots.length - 1,
-      "in fullscreen, → past the last ends the show, and → again leaves fullscreen, on the last slide",
+      endedFull && keptFull && left && !(await player.evaluate(() => window.scaena.ended())) && at.index === slots.length - 1,
+      "in fullscreen, → past the last ends the show, → again keeps it, and a click leaves fullscreen, on the last slide",
     );
     if (!left) await player.keyboard.press("f");
   }
@@ -727,6 +731,66 @@ try {
   const plain = await open(url(revenue));
   check(await plain.locator("#meter").isHidden(), "without it, there is no meter");
   await plain.close();
+
+  // Full sharpness (lift-up ATTR-2): at 2560 × 1440 and twice the density, the slide fills the
+  // room the bar leaves, and in fullscreen the screen, and its frames are painted at the size it
+  // is shown, in device pixels, by WebGPU; by the CPU painter at the canvas's own size, scaled up
+  // to the room. The fullscreen frame is kept as target/web-smoke/sharp-2560x1440@2x.png.
+  const dense = await browser.newContext({ viewport: { width: 2560, height: 1440 }, deviceScaleFactor: 2 });
+  for (const painter of ["auto", "cpu"]) {
+    const page = await dense.newPage();
+    page.on("pageerror", (e) => failures.push(`dense ${painter}: ${e.message}`));
+    await page.goto(`${server.origin}/web/dist/?painter=${painter}&bundle=${revenue}`);
+    await page.waitForFunction(() => window.scaena, null, { timeout: 120000 });
+    const paints = await page.evaluate(() => window.scaena.painter);
+    /** The canvas's attributes, the box it is shown in, the room it has, and the density. */
+    const measure = () =>
+      page.evaluate(() => {
+        const c = document.querySelector("#stage");
+        const r = c.getBoundingClientRect();
+        const bar = document.querySelector(".bar");
+        const room = [innerWidth, bar.offsetParent === null ? innerHeight : innerHeight - bar.getBoundingClientRect().height];
+        return { backing: [c.width, c.height], shown: [r.width, r.height], room, dpr: devicePixelRatio };
+      });
+    /** `m` as the painter should have it: shown as large as fits the room, filling its shorter
+     * side, 16:9, and painted at the size shown in device pixels, or, by the CPU painter, at the
+     * canvas's own size, 1920 × 1080, the room being larger. */
+    const sharp = (m) => {
+      const fills = Math.abs(m.shown[1] - m.room[1]) <= 1 || Math.abs(m.shown[0] - m.room[0]) <= 1;
+      const fits = m.shown[0] <= m.room[0] + 0.5 && m.shown[1] <= m.room[1] + 0.5;
+      const shape = Math.abs(m.shown[0] / m.shown[1] - 16 / 9) < 0.005 && Math.abs(m.backing[0] / m.backing[1] - 16 / 9) < 0.005;
+      const device = [m.shown[0] * m.dpr, m.shown[1] * m.dpr];
+      const painted =
+        paints === "webgpu"
+          ? Math.abs(m.backing[0] - device[0]) <= 1 && Math.abs(m.backing[1] - device[1]) <= 1
+          : m.backing[0] === 1920 && m.backing[1] === 1080;
+      return fills && fits && shape && painted;
+    };
+    await page.waitForFunction(() => document.querySelector("#stage").width !== 1920, null, { timeout: 60000 }).catch(() => {});
+    const windowed = await measure();
+    check(sharp(windowed) && windowed.dpr === 2, `${paints}: at 2560 × 1440 at 2×, the slide fills the room the bar leaves, painted at the size shown: ${JSON.stringify(windowed)}`);
+    await page.keyboard.press("f");
+    const fullDense = await page.waitForFunction(() => document.fullscreenElement !== null, null, { timeout: 5000 }).then(() => true, () => false);
+    if (fullDense) {
+      await page.waitForFunction(() => document.querySelector(".bar").offsetParent === null, null, { timeout: 5000 }).catch(() => {});
+      await page
+        .waitForFunction((was) => document.querySelector("#stage").width !== was, windowed.backing[0], { timeout: 60000 })
+        .catch(() => {});
+      const full = await measure();
+      const screen = Math.abs(full.shown[0] - 2560) <= 1 && Math.abs(full.shown[1] - 1440) <= 1;
+      const whole = paints !== "webgpu" || (full.backing[0] === 5120 && full.backing[1] === 2880);
+      check(sharp(full) && screen && whole, `${paints}: fullscreen, it fills the screen, painted at the size shown: ${JSON.stringify(full)}`);
+      if (paints === "webgpu") {
+        await mkdir("target/web-smoke", { recursive: true });
+        for (let i = 0; i < 3; i++) await page.evaluate(() => new Promise(requestAnimationFrame));
+        await page.screenshot({ path: "target/web-smoke/sharp-2560x1440@2x.png" });
+      }
+      await page.keyboard.press("f");
+      await page.waitForFunction(() => document.fullscreenElement === null, null, { timeout: 5000 }).catch(() => {});
+    } else failures.push(`dense ${painter}: F did not make the player fullscreen`);
+    await page.close();
+  }
+  await dense.close();
 } catch (e) {
   failures.push(String(e));
 } finally {

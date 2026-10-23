@@ -27,7 +27,10 @@ impl Client {
     }
 }
 
-/// The open deck, in a few facts: its title, states, formats, and theme.
+/// The open deck, in a few facts: its title, states, formats, and theme; and its story, where it
+/// has one (narrative FUNC-2): the brief it was made from, the arc it was written to, and each
+/// beat's claim in spine order, so what the assistant does is aimed at the story the user asked
+/// for, not at lint alone.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Facts {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -38,6 +41,29 @@ pub struct Facts {
     /// The theme's name: its file's, without `.theme.json`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub theme: Option<String>,
+    /// The brief the deck was made from (`meta.narrative.brief`), where it was made from one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub brief: Option<Brief>,
+    /// The arc it was written to (`meta.narrative.arc`), where it names one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub arc: Option<String>,
+    /// Each beat's claim, in spine order, those left blank passed over.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub claims: Vec<String>,
+}
+
+/// The brief a deck was made from, as `meta.narrative.brief` keeps it (ADR-0026): what it is
+/// about, who it is for, what it is to do, and how long it was asked to run.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct Brief {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub topic: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub audience: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub goal: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub length: Option<String>,
 }
 
 impl Facts {
@@ -48,7 +74,64 @@ impl Facts {
             let file = path.rsplit('/').next().unwrap_or(path);
             file.strip_suffix(".theme.json").unwrap_or(file).to_string()
         });
-        Facts { title, states, formats, theme }
+        let text = |at: &str| deck.pointer(at).and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty());
+        let brief = deck.pointer("/meta/narrative/brief").map(|_| Brief {
+            topic: text("/meta/narrative/brief/topic").map(str::to_string),
+            audience: text("/meta/narrative/brief/audience").map(str::to_string),
+            goal: text("/meta/narrative/brief/goal").map(str::to_string),
+            length: text("/meta/narrative/brief/length").map(str::to_string),
+        });
+        let brief = brief.filter(|b| *b != Brief::default());
+        let arc = text("/meta/narrative/arc").map(str::to_string);
+        let claims = (deck.pointer("/spine/sections").and_then(Value::as_array).into_iter().flatten())
+            .flat_map(|section| section["beats"].as_array().into_iter().flatten())
+            .filter_map(|beat| beat["claim"].as_str().map(str::trim).filter(|c| !c.is_empty()))
+            .map(str::to_string)
+            .collect();
+        Facts { title, states, formats, theme, brief, arc, claims }
+    }
+
+    /// The deck's story, as the prompt tells it: nothing where the deck has none.
+    fn story(&self) -> String {
+        let mut about = Vec::new();
+        if let Some(brief) = &self.brief {
+            if let Some(topic) = &brief.topic {
+                about.push(format!("on {}", Value::from(topic.as_str())));
+            }
+            if let Some(audience) = &brief.audience {
+                about.push(format!("for {audience}"));
+            }
+            if let Some(goal) = &brief.goal {
+                about.push(format!("to {goal}"));
+            }
+            if let Some(length) = &brief.length {
+                about.push(format!("in {length}"));
+            }
+        }
+        if let Some(arc) = &self.arc {
+            about.push(format!("written to the {arc} arc"));
+        }
+        if about.is_empty() && self.claims.is_empty() {
+            return String::new();
+        }
+        let mut story = String::from("\n\nIts story");
+        if !about.is_empty() {
+            story.push_str(": ");
+            story.push_str(&about.join(", "));
+        }
+        if self.claims.is_empty() {
+            story.push('.');
+        } else {
+            story.push_str(if about.is_empty() {
+                ", by its beats' claims, in order:"
+            } else {
+                ". Its beats' claims, in order:"
+            });
+            for (i, claim) in self.claims.iter().enumerate() {
+                story.push_str(&format!("\n{}. {claim}", i + 1));
+            }
+        }
+        story
     }
 }
 
@@ -170,15 +253,15 @@ pub fn system_of(
 
 Scaena decks are states over one scene graph: nodes exist for the whole deck, each state says what changes, and the theme owns type and layout, so a deck names roles, slots, and presets, never pixels.
 
-Your tools are the Scaena MCP server's, working on the open deck: they take no `bundle`, `out`, or `painter`. Each edit you make (deck_patch, spine_update, data_attach, data_edit, theme_edit, deck_lint with `fix`) shows in the user's {place} as you make it, and they can undo it. Edit with deck_patch (`dry_run` first when unsure), check with deck_lint, and look with deck_render, which returns the frame as an image. {dropped} declares a data file the bundle holds, and data_edit reads a data source's rows and edits them in place: a cell set, a row added or taken away. theme_edit edits the deck's own theme, its colors, type roles, and spacing, by JSON Patch operations on it (resource_read of bundle://theme reads it as it is, and scaena://schema/theme says what it takes): a look asked of the whole deck, such as larger headlines or a warmer accent, is an edit of the theme, never a literal written into each node. There is no deck_create, theme_apply, deck_export, or deck_history here: {bundles}, so ask the user when the work needs a new bundle, another theme, an export, or an earlier version.
+Your tools are the Scaena MCP server's, working on the open deck: they take no `bundle`, `out`, or `painter`. Each edit you make (deck_patch, spine_update, data_attach, data_edit, theme_edit, deck_lint with `fix`) shows in the user's {place} as you make it, and they can undo it. Edit with deck_patch (`dry_run` first when unsure), check with deck_lint, read the story with deck_health, which scores how the slides pace, balance, and follow their arc and says what to look at on each, and look with deck_render, which returns the frame as an image. {dropped} declares a data file the bundle holds, and data_edit reads a data source's rows and edits them in place: a cell set, a row added or taken away. theme_edit edits the deck's own theme, its colors, type roles, and spacing, by JSON Patch operations on it (resource_read of bundle://theme reads it as it is, and scaena://schema/theme says what it takes): a look asked of the whole deck, such as larger headlines or a warmer accent, is an edit of the theme, never a literal written into each node. There is no deck_create, theme_apply, deck_export, or deck_history here: {bundles}, so ask the user when the work needs a new bundle, another theme, an export, or an earlier version.
 
 resource_read reads the resources: the schemas, the lint catalog, the specification by section (scaena://spec is its index), the skills, and examples. The patch ops are in scaena://schema/patch. Follow the author-deck skill below, and read the others when the work calls for them.
 
 A question may begin with what the user sees in the {place}, in brackets: the state shown, the nodes selected, and any characters selected in a text, counted as replace_text and style_text count them, with the text they make. \"This\", \"it\", \"these\", \"here\", and words like \"shorter\" or \"bolder\" mean what it names: change those, in that state, unless the question says otherwise.{after}
 
-Say briefly what you do and what you found, in the user's language. Lint to zero errors before you say a deck is done, and look at what you changed.
+Say briefly what you do and what you found, in the user's language. Lint to zero errors before you say a deck is done, and look at what you changed. Before you say a deck is done, read its health with deck_health and leave each slide saying its beat's claim.
 
-The deck: {title}{n} state{plural} ({states}){theme}{formats}.
+The deck: {title}{n} state{plural} ({states}){theme}{formats}.{story}
 
 The resources:
 {resources}
@@ -186,6 +269,7 @@ The resources:
 --- scaena://skills/author-deck ---
 {author_deck}",
         states = facts.states.join(", "),
+        story = facts.story(),
         resources = resources.join("\n"),
     )
 }
@@ -202,6 +286,44 @@ mod tests {
         assert_eq!(facts.title.as_deref(), Some("Q3"));
         assert_eq!(facts.theme.as_deref(), Some("dusk"));
         assert_eq!(Facts::of(&json!({ "theme": { "inline": true } }), vec![], vec![]).theme, None);
+        assert_eq!((facts.brief, facts.arc, facts.claims), (None, None, vec![]), "a deck with no story tells none");
+    }
+
+    /// A deck made from a brief tells the assistant its story (narrative FUNC-2): the brief, the
+    /// arc, and each beat's claim in spine order, so its edits aim at the story, not at lint alone.
+    #[test]
+    fn a_decks_facts_tell_its_story() {
+        let deck = json!({
+            "meta": { "title": "Ridgeline", "narrative": {
+                "arc": "Hero's Journey", "reasoning": "…",
+                "brief": { "topic": "Fifty-two miles of trail", "audience": "Donors", "goal": "inspire", "length": "5-10 slides" },
+            } },
+            "spine": { "sections": [
+                { "id": "a", "beats": [{ "id": "b1", "claim": "The trail was lost." }, { "id": "b2", "claim": "  " }] },
+                { "id": "b", "beats": [{ "id": "b3", "claim": "Volunteers rebuilt it." }] },
+            ] },
+        });
+        let facts = Facts::of(&deck, vec!["cover".into()], vec![]);
+        assert_eq!(facts.arc.as_deref(), Some("Hero's Journey"));
+        assert_eq!(facts.brief.as_ref().and_then(|b| b.goal.as_deref()), Some("inspire"));
+        assert_eq!(facts.claims, ["The trail was lost.", "Volunteers rebuilt it."], "a blank claim is passed over");
+        let system = system_of(Client::App, &facts, &[], &[], "skill");
+        assert!(
+            system.contains(
+                "The deck: \"Ridgeline\", 1 state (cover).\n\nIts story: on \"Fifty-two miles of trail\", for Donors, to inspire, in 5-10 slides, written to the Hero's Journey arc. Its beats' claims, in order:\n1. The trail was lost.\n2. Volunteers rebuilt it.\n\nThe resources:"
+            ),
+            "{system}"
+        );
+        assert!(system.contains("read its health with deck_health and leave each slide saying its beat's claim."));
+
+        // A brief with nothing in it tells nothing; claims alone are told by themselves.
+        let bare = Facts::of(&json!({ "meta": { "narrative": { "brief": {} } } }), vec![], vec![]);
+        assert_eq!(bare.brief, None);
+        assert_eq!(bare.story(), "");
+        let claims = Facts { claims: vec!["One.".into()], ..Facts::default() };
+        assert_eq!(claims.story(), "\n\nIts story, by its beats' claims, in order:\n1. One.");
+        let arc = Facts { arc: Some("Sparkline".into()), ..Facts::default() };
+        assert_eq!(arc.story(), "\n\nIts story: written to the Sparkline arc.");
     }
 
     #[test]

@@ -100,6 +100,60 @@ const post = (message: FromWorker, transfer: Transferable[] = []) => self.postMe
 const said = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 let player: Player;
+/** The bundle's files as the session holds them (lift-up STAB-2), kept in step after each message
+ * by the session's edition of them: what a fresh worker goes on from when the engine panics.
+ * wasm32 does not unwind: a panic traps, and the session is not used again. */
+let mirror = new Map<string, Uint8Array>();
+let mirrored: { of: Player; edition: number } | undefined;
+/** The panic's words, once the engine has stopped: every request after is refused with them. */
+let stopped: string | undefined;
+/** The last panic the engine's hook said, which the console hears first. */
+let panicked: string | undefined;
+const consoleError = console.error.bind(console);
+console.error = (...args: unknown[]) => {
+  const text = String(args[0] ?? "");
+  if (text.startsWith("panicked at")) panicked = text.split("\n").slice(1).join(" ").trim() || text;
+  consoleError(...args);
+};
+self.addEventListener("error", (e) => {
+  if (e.error instanceof WebAssembly.RuntimeError) crashed(e.error);
+});
+self.addEventListener("unhandledrejection", (e) => {
+  if (e.reason instanceof WebAssembly.RuntimeError) crashed(e.reason);
+});
+
+/** The mirror of the session's files, kept in step: every file copied again when their edition
+ * changed, or the session is another. */
+function mirrorFiles() {
+  if (!player || stopped !== undefined) return;
+  const edition = player.filesEdition();
+  if (mirrored?.of === player && mirrored.edition === edition) return;
+  const next = new Map<string, Uint8Array>();
+  for (const path of player.files()) {
+    const bytes = player.file(path);
+    if (bytes) next.set(path, bytes);
+  }
+  mirror = next;
+  mirrored = { of: player, edition };
+}
+
+/** The engine stopped on a panic: the page hears, with the bundle's files as they were, and every
+ * request after is refused. */
+function crashed(e: unknown) {
+  if (stopped !== undefined) return;
+  stopped = panicked ?? said(e);
+  asking?.abort();
+  const files: Record<string, ArrayBuffer> = {};
+  const transfer: ArrayBuffer[] = [];
+  for (const [path, bytes] of mirror) {
+    const whole = bytes.byteOffset === 0 && bytes.byteLength === bytes.buffer.byteLength;
+    const buffer = whole ? (bytes.buffer as ArrayBuffer) : (bytes.slice().buffer as ArrayBuffer);
+    files[path] = buffer;
+    transfer.push(buffer);
+  }
+  mirror = new Map();
+  post({ type: "crashed", message: stopped, name, files }, transfer);
+}
 /** The bundle's name, and where it is kept, if anywhere: a folder on disk, one in the
  * browser's storage, or the folder `scaena serve` serves it from. */
 let name = "deck";
@@ -164,10 +218,16 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
   const id = "id" in data ? data.id : undefined;
   const reads = READS.has(data.type);
   if (!reads) worded = undefined;
+  if (stopped !== undefined) {
+    if (id !== undefined) post({ type: "error", id, message: `the engine stopped: ${stopped}` });
+    return;
+  }
   try {
     switch (data.type) {
       case "open":
         return await open(data.source, data.painter, data.canvas, data.engine);
+      case "trap":
+        return player.trap();
       case "briefing": {
         await init(data.engine && { module_or_path: data.engine });
         const { choices } = await import("@scaena/generate");
@@ -186,8 +246,7 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         was.free();
         format = undefined;
         slots = opening();
-        [canvas.width, canvas.height] = size();
-        gpu?.resize(canvas.width, canvas.height);
+        sized(true);
         return post({ type: "reloaded", id: data.id, ...opened() });
       }
       case "show": {
@@ -279,6 +338,12 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         viewing = data.view ? Float32Array.from(data.view) : null;
         if (lastPainted) await paint(lastPainted.state, lastPainted.t, "keep");
         return post({ type: "viewed", id: data.id });
+      }
+      case "fit": {
+        room = data.room;
+        if (lastPainted) await paint(lastPainted.state, lastPainted.t, "keep");
+        else sized(true);
+        return post({ type: "fitted", id: data.id, size: [canvas.width, canvas.height] });
       }
       case "find":
         current(data.source);
@@ -719,11 +784,18 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         return post({ type: "themeEdited", id: data.id, result: done.edited, files: done.files, source: next, edited: await edit(next, data.index, data.format) });
       }
       case "writeFiles": {
-        player.writeFiles(JSON.stringify(data.files));
+        // A file kept as bytes, a recovery copy's picture (lift-up REL-4), goes in as it is.
+        player.writeFiles(JSON.stringify(data.files.filter((f) => !f.bytes).map(({ path, text }) => ({ path, text }))));
+        for (const f of data.files) if (f.bytes) player.addFile(f.path, new Uint8Array(f.bytes));
         if (!data.edit) return post({ type: "filesWritten", id: data.id });
         latest++;
         shown = { index: data.edit.index, format: data.edit.format };
         return post({ type: "filesWritten", id: data.id, edited: await edit(data.edit.source, data.edit.index, data.edit.format) });
+      }
+      case "file": {
+        const bytes = player.file(data.path);
+        const buffer = bytes ? (bytes.slice().buffer as ArrayBuffer) : null;
+        return post({ type: "file", id: data.id, bytes: buffer }, buffer ? [buffer] : []);
       }
       case "ask":
         return await ask(data.id, data.source, data.ask, data.drawn);
@@ -755,9 +827,15 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         return help(data.port);
     }
   } catch (e) {
+    if (e instanceof WebAssembly.RuntimeError) crashed(e);
     post({ type: "error", id, message: said(e) });
   } finally {
     if (!reads) worded = undefined;
+    try {
+      mirrorFiles();
+    } catch (e) {
+      if (e instanceof WebAssembly.RuntimeError) crashed(e);
+    }
   }
 };
 
@@ -845,11 +923,12 @@ async function open(source: Source, painter: Painter, target: OffscreenCanvas, e
   }
   from = source;
   await load(source);
-  // A deck made from a theme the page carries has its library already.
-  if (!("create" in source)) await library();
+  // A deck made from a theme the page carries has its library already, and one recovered from a
+  // worker's files has it as that worker brought it in.
+  if (!("create" in source || "recovered" in source)) await library();
   slots = opening();
-  [canvas.width, canvas.height] = size();
-  gpu?.resize(canvas.width, canvas.height);
+  // The page hears `ready` first; it asks for the fit it wants, and hears the size then.
+  sized(false);
   post({ type: "ready", ...opened() });
 }
 
@@ -941,6 +1020,18 @@ async function load(source: Source) {
     player = bundleOf(new Map(Object.entries(source.files).map(([path, bytes]) => [path, new Uint8Array(bytes)])));
     name = source.name;
     only = source.states;
+  } else if ("recovered" in source) {
+    // The files a worker held when its engine stopped (lift-up STAB-2), kept where it kept them.
+    player = bundleOf(new Map(Object.entries(source.recovered).map(([path, bytes]) => [path, new Uint8Array(bytes)])));
+    name = source.name;
+    const kept = source.kept;
+    if (kept && "opfs" in kept) home = keptIn(await keptBundle(kept.opfs), "opfs");
+    else if (kept && "folder" in kept) home = keptIn(kept.folder, "folder");
+    else if (kept) {
+      home = served(kept.url, kept.serve, name);
+      // A served bundle is read again from its URL.
+      from = { url: kept.url, serve: kept.serve };
+    }
   } else if ("zip" in source) {
     player = Player.fromZip(new Uint8Array(source.zip));
     const dir = await newBundle(source.name);
@@ -1341,8 +1432,53 @@ function opening(): Slot[] {
   }
 }
 
-/** The canvas frames are laid out on now, in whole pixels. */
-const size = () => Array.from(player.canvasSize(), Math.round) as [number, number];
+/** The room frames are painted to fill, in device pixels, as the page last said (lift-up
+ * ATTR-2); `null` paints them at the canvas's own size, as the editor's preview is. */
+let room: [number, number] | null = null;
+
+/** Whether the CPU painter paints a slide larger than its canvas: it does not. A slide larger on
+ * the screen is painted at the canvas's own size and scaled up by the browser, so its frames cost
+ * what they cost before and keep their pace (gate 2's bar: 60 a second, 30 where a cue draws a
+ * shader), where WebGPU paints every pixel of the screen. Measured in headless Chromium
+ * (web/fps.mjs, the trails example, fullscreen at 2560 × 1440 at 2×): painted at the canvas's
+ * size, a cue's frame takes 5–6 ms, as at 1080p; painted at half again as many pixels, 22 ms,
+ * and the cues fall to 30 a second. */
+const CPU_LARGER = false;
+
+/** The most a frame is on a side: WebGPU's texture limit, which the adapter is asked for. */
+const MAX_SIDE = 8192;
+
+/** The canvas at `size()`, where it is not that yet: its attributes, WebGPU's surface, and, where
+ * `tell`, the page told, which shows the canvas at the slide's size on it (lift-up ATTR-2). */
+function sized(tell: boolean) {
+  const [width, height] = size();
+  if (canvas.width === width && canvas.height === height) return;
+  [canvas.width, canvas.height] = [width, height];
+  gpu?.resize(width, height);
+  if (tell) post({ type: "sized", size: [width, height] });
+}
+
+/** The canvas frames are painted on now, in whole pixels: the canvas frames are laid out on, or
+ * that canvas as large as fits in the room, keeping its aspect, its height worked out from its
+ * width as the CPU painter works it out (`raster_size`), so a frame fills the canvas to the last
+ * row. The CPU painter paints it no larger than the canvas (`CPU_LARGER`). */
+function size(): [number, number] {
+  const [w, h] = player.canvasSize();
+  if (!room) return [Math.round(w), Math.round(h)];
+  // What a painter's raster holds at most (`scaena_paint::MAX_PIXELS`), and how much larger than
+  // the canvas the CPU painter paints: not at all.
+  const most = 1 << 25;
+  const larger = gpu || CPU_LARGER ? Infinity : 1;
+  const scale = Math.min(room[0] / w, room[1] / h, MAX_SIDE / w, MAX_SIDE / h, Math.sqrt(most / (w * h)), larger);
+  let width = Math.max(1, Math.round(w * scale));
+  let height = Math.max(1, Math.round((h * width) / w));
+  // Rounded up past the room, or past what a raster holds: a pixel narrower.
+  while (width > 1 && (height > Math.round(room[1]) || width * height > most)) {
+    width -= 1;
+    height = Math.max(1, Math.round((h * width) / w));
+  }
+  return [width, height];
+}
 
 /** Lay frames out in `next` from now on; `again` after the deck has changed. */
 /** Thumbnails are asked for again: the last one asked stops the one before it, the strip's of
@@ -1655,11 +1791,8 @@ type Beside = "paint" | "pace" | "keep";
  * (SPEC §3.8). */
 async function paint(state: string, t: number, beside: Beside = "paint") {
   lastPainted = { state, t };
-  const [width, height] = size();
-  if (canvas.width !== width || canvas.height !== height) {
-    [canvas.width, canvas.height] = [width, height];
-    gpu?.resize(width, height);
-  }
+  sized(true);
+  const [width, height] = [canvas.width, canvas.height];
   if (viewing !== undefined) player.setView(viewing);
   if (gpu) {
     player.paint(gpu, state, t);

@@ -19,9 +19,8 @@
 // Exits 1 on any failure.
 import { execFileSync } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { createRequire } from "node:module";
 import { join } from "node:path";
-import { launch, serve } from "./serve.mjs";
+import { axeInto, launch, serve } from "./serve.mjs";
 
 const failures = [];
 const check = (ok, what) => {
@@ -30,11 +29,10 @@ const check = (ok, what) => {
 };
 
 const fixture = (name) => readFile(`tests/fixtures/maps/${name}`);
-const axe = createRequire(import.meta.url).resolve("axe-core/axe.min.js");
 
 /** What axe-core finds against WCAG 2.1 A and AA on `page`. */
 async function audit(page, what) {
-  await page.addScriptTag({ path: axe });
+  await axeInto(page);
   const found = await page.evaluate(async () => {
     const result = await window.axe.run(document, { runOnly: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] });
     return result.violations.map((v) => `${v.id} (${v.impact}): ${v.nodes.map((n) => n.target.join(" ")).join(", ")}`);
