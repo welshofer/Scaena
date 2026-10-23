@@ -551,6 +551,7 @@ async function edit(source: Source, opened?: Stage) {
         : new URLSearchParams({ bundle: where ? `${where.kind}:${where.name}` : (params.get("bundle") ?? fallback) });
     if (params.has("painter")) playing.set("painter", painter);
     play.href = `index.html?${playing}`;
+    play.title = dirty() ? "The player, from the slide shown, once the deck is saved" : "The player, from the slide shown";
     // Nor a new deck, until it is saved.
     play.hidden = where?.kind === "folder" || (!where && ("create" in source || "files" in source));
     // A served bundle saves to its folder alone.
@@ -2669,6 +2670,37 @@ async function edit(source: Source, opened?: Stage) {
         tell();
       }
     },
+  };
+
+  /** The player's address, on the slide shown (lift-up FUNC-2): the link's, as `tell` set it where
+   * the deck is kept, and the state shown by its id. */
+  const playingFrom = () => {
+    const url = new URL(play.href);
+    const state = showing()?.state ?? last?.states[shown]?.[0];
+    if (state === undefined) url.searchParams.delete("state");
+    else url.searchParams.set("state", state);
+    return url.href;
+  };
+  // Play opens the player on the slide shown, on the deck as the editor has it: the player plays
+  // the deck as saved, so one with changes not saved is saved first, if the person says so, and
+  // the player's window, opened in the click, goes to it once it is. Declined, the link plays the
+  // deck as last saved.
+  play.onclick = (e) => {
+    play.href = playingFrom();
+    if (!dirty()) return;
+    if (!confirm("The deck has changes not saved, which the player would not play. Save it first?")) return;
+    e.preventDefault();
+    const opened = window.open("", "_blank");
+    void save().then(
+      (done) => {
+        if (done && opened) opened.location.href = playingFrom();
+        else opened?.close();
+      },
+      (error: unknown) => {
+        opened?.close();
+        failed(error);
+      },
+    );
   };
 
   // A state picked by its id, not its place among the options: an edit not yet compiled, such as
