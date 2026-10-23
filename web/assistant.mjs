@@ -477,16 +477,19 @@ try {
     // while the assistant still works; whole, the answer stands in its place.
     {
       scripted.state.trickle = 2500;
+      // The entries said so far: the words show in a new one, not in the last answer's.
+      const before = await page.evaluate(() => document.querySelectorAll("#transcript li.said").length);
       await page.evaluate(() => {
         window.asked = window.scaena.assistant.ask("Say that again.");
       });
       const partial = await page
         .waitForFunction(
-          () => {
-            const said = [...document.querySelectorAll("#transcript li.said")].at(-1)?.textContent ?? "";
+          (before) => {
+            const saids = document.querySelectorAll("#transcript li.said");
+            const said = saids.length > before ? (saids[saids.length - 1].textContent ?? "") : "";
             return said.length > 0 && !document.querySelector("#stop").hidden && said;
           },
-          null,
+          before,
           { timeout: 10000 },
         )
         .then((h) => h.jsonValue())
