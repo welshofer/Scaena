@@ -156,6 +156,29 @@ try {
     return result.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(" ")).join(", ")}`);
   });
   check(found.length === 0, `axe finds nothing in the layers: ${found.join("; ")}`);
+
+  // Two panels' edits in flight at once compose (lift-up REL-5): the lock pressed in the layers and
+  // a choice made in the inspector, in one task, each patch made on the source the other left.
+  await page.waitForFunction(() => window.scaena.look.offered()?.node, null, { timeout: 30000 }).catch(() => {});
+  const word = await page.evaluate(() => {
+    const field = window.scaena.look.offered()?.fields.find((f) => f.takes.kind === "word" && f.takes.words.length > 1);
+    return field && { prop: field.prop, value: field.takes.words.find((w) => w !== field.value) };
+  });
+  check(word !== undefined, `the inspector offers what is selected a word to choose: ${JSON.stringify(word)}`);
+  if (word) {
+    const was = await source();
+    await page.evaluate(({ prop, value }) => {
+      void window.scaena.look.choose(prop, value);
+      document.querySelector('#layers [data-layer="storm-photo"] [data-lock]').click();
+    }, word);
+    await page.waitForFunction((w) => window.scaena.source() !== w, was, { timeout: 30000 }).catch(() => {});
+    await page.evaluate(() => window.scaena.look.settled());
+    await page.waitForFunction(() => window.scaena.source().includes("locked:true"), null, { timeout: 30000 }).catch(() => {});
+    const chosen = `${word.prop.split("/").pop()}:${word.value}`;
+    const count = (text) => text.replace(/:\s+/g, ":").split(chosen).length - 1;
+    const now = await source();
+    check((await lockedNow()) && count(now) > count(was), `the lock and the choice (${chosen}) both stand: ${await photoLine()}`);
+  }
 } finally {
   await browser.close();
   await site.close();
