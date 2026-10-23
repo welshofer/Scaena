@@ -22,10 +22,14 @@ final class RemoteHost {
 
     /// The code a remote joins with, while the host is on.
     private(set) var code: String?
-    /// What the remote finds this device as.
+    /// What the remote finds this device as: its name alone, never the deck's (lift-up SEC-5).
     private(set) var name = ""
     /// How many remotes are joined.
     private(set) var joined = 0
+    /// How many wrong codes have been tried since the code was made.
+    private(set) var tried = 0
+    /// Whether the code was made anew after wrong ones, since the host was turned on.
+    private(set) var recoded = false
     private(set) var trouble: String?
     var on: Bool { code != nil }
 
@@ -46,11 +50,16 @@ final class RemoteHost {
     /// Offer `editor`'s deck, called `deck`, to remotes, played from the slide `from` names.
     func start(_ editor: DeckEditor, deck: String, from: @escaping () -> String?) {
         stop()
-        let name = String("\(Self.device): \(deck)".prefix(60))
+        let name = Remote.serviceName(device: Self.device)
         do {
             let server = try RemoteServer(name: name)
             server.command = { [weak self] command in self?.perform(command) }
             server.joined = { [weak self] count in self?.joined = count }
+            server.tried = { [weak self] count in self?.tried = count }
+            server.recoded = { [weak self] code in
+                self?.code = code
+                self?.recoded = true
+            }
             // What the network says of it is not a person's words (PLAN 3.18): the window says
             // what to do.
             server.failed = { [weak self] _ in self?.trouble = Self.unoffered }
@@ -78,6 +87,8 @@ final class RemoteHost {
         server = nil
         code = nil
         joined = 0
+        tried = 0
+        recoded = false
         drawn = [:]
     }
 
@@ -189,6 +200,12 @@ struct RemoteSheet: View {
                 Text(joined)
                     .multilineTextAlignment(.center)
                     .foregroundStyle(.secondary)
+                if let guessed {
+                    Text(guessed)
+                        .multilineTextAlignment(.center)
+                        .foregroundStyle(.secondary)
+                        .accessibilityIdentifier("remote-guessed")
+                }
             } else {
                 Text(
                     "A remote on an iPhone or an iPad plays the show from wherever you stand, and shows the notes and what comes next."
@@ -211,6 +228,19 @@ struct RemoteSheet: View {
         case 0: "On an iPhone or an iPad on this network, open the remote, choose \(host.name), and enter this code."
         case 1: "A remote is joined."
         default: "\(host.joined) remotes are joined."
+        }
+    }
+
+    /// Wrong codes tried, and the code made anew after enough of them (lift-up SEC-5): what a
+    /// presenter should know, since someone on the network may be guessing.
+    private var guessed: String? {
+        switch (host.recoded, host.tried) {
+        case (false, 0): nil
+        case (false, 1): "A wrong code was tried."
+        case (false, let tried): "\(tried) wrong codes were tried."
+        case (true, 0): "The code was changed after wrong codes were tried. Enter this one; a remote joined stays joined."
+        case (true, let tried):
+            "The code was changed after wrong codes were tried, and \(tried) more since. Turn the remote off if no one you know is trying."
         }
     }
 
