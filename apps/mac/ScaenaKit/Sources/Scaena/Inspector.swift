@@ -130,6 +130,9 @@ struct Inspector: View {
                         }
                     } else {
                         writing("Draft Presenter Notes", "sparkles") { write(.notes, in: state) }
+                        // Whether its words carry its beat's claim, the headline offered rewritten
+                        // to carry it (narrative FUNC-4).
+                        writing("Check the Claim", "checkmark.seal") { write(.claim, in: state) }
                     }
                 } header: {
                     Text("Writing")
