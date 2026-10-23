@@ -181,10 +181,11 @@ public struct GeneratorReply: Sendable {
         self.after = after
     }
 
-    /// `request` made by `URLSession`: status 0 where it never came back, saying why.
+    /// `request` made by `URLSession`: status 0 where it never came back, saying why. A redirect is
+    /// followed only where ``follows(_:)`` lets it, else answered as it came.
     public static func made(_ request: GeneratorRequest, by session: URLSession = .shared) async -> GeneratorReply {
         do {
-            let (data, response) = try await session.data(for: try request.urlRequest())
+            let (data, response) = try await session.data(for: try request.urlRequest(), delegate: Redirects())
             let http = response as? HTTPURLResponse
             return GeneratorReply(
                 status: http?.statusCode ?? 0, kind: http?.value(forHTTPHeaderField: "content-type") ?? "", body: data,
@@ -195,6 +196,31 @@ public struct GeneratorReply: Sendable {
     }
 
     var text: String { String(decoding: body, as: UTF8.self) }
+
+    /// Whether a redirect to `url` is followed: to an `https` address by a name of more than one
+    /// label, never an address written as numbers or `localhost`, so a public page a source names
+    /// cannot send the app on to this machine or its network (as `scaena_sources::fetch::public`
+    /// holds the address a source names itself; lift-up SEC-2).
+    public static func follows(_ url: URL) -> Bool {
+        guard url.scheme?.lowercased() == "https", var host = url.host(percentEncoded: false)?.lowercased() else {
+            return false
+        }
+        if host.hasSuffix(".") { host.removeLast() }
+        let last = host.split(separator: ".").last.map(String.init) ?? ""
+        let numbers = last.allSatisfy(\.isNumber) || last.hasPrefix("0x") || host.contains(":")
+        return host.contains(".") && !numbers && host != "localhost" && !host.hasSuffix(".localhost")
+    }
+}
+
+/// Holds each redirect a request meets to ``GeneratorReply/follows(_:)``.
+private final class Redirects: NSObject, URLSessionTaskDelegate, Sendable {
+    func urlSession(
+        _ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest
+    ) async -> URLRequest? {
+        guard let url = request.url, GeneratorReply.follows(url) else { return nil }
+        return request
+    }
 }
 
 /// A deck made from a prompt (PLAN G.6, ADR-0026), as `scaena generate` makes one: the engine reads

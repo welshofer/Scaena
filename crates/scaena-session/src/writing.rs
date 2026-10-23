@@ -1,6 +1,7 @@
 //! What a model is asked to write for the person editing (PLAN 2.101, `scaena_core::writing`): a
 //! text's words proofread, tightened, or rewritten, a slide's notes drafted, a finding explained,
-//! a picture described (PLAN 2.119). The session says what to ask, from the deck as it stands,
+//! a picture described (PLAN 2.119), a slide's words checked against its beat's claim and its
+//! headline rewritten to carry it (narrative FUNC-4). The session says what to ask, from the deck as it stands,
 //! with the picture a description is of, and the patch that takes an answer: the browser's page
 //! and the Mac each make the call to the model themselves, on the device or with the person's own
 //! key, and offer the answer to take or leave.
@@ -8,7 +9,7 @@
 use crate::{Error, Session};
 use base64::Engine as _;
 use scaena_core::document::{NodeType, Props};
-use scaena_core::writing::{Explained, Task, replacing};
+use scaena_core::writing::{Explained, Task, checked, replacing};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
@@ -79,14 +80,32 @@ impl Session {
 
     /// `answer` as it is offered for `ask`, and the patch that takes it, made on the deck as it
     /// stands: the changes that make the text read as the answer, each a `replace_text` written
-    /// where the text lives, the words it keeps keeping their runs; or the state's notes. One
-    /// patch, one step to undo. No answer, as a model that refuses or runs out of room gives,
-    /// changes nothing: it empties no text and no notes.
+    /// where the text lives, the words it keeps keeping their runs; or the state's notes; or,
+    /// for a claim check, the headline the answer rewrites, set in the slide's claim node the
+    /// same way, nothing where the words carry the claim. One patch, one step to undo. No
+    /// answer, as a model that refuses or runs out of room gives, changes nothing: it empties no
+    /// text and no notes.
     pub fn written(&mut self, ask: &Ask, answer: &str) -> Result<Written, Error> {
         let task = self.task(ask)?;
         let text = task.taken(answer);
         let none = text.trim().is_empty();
         let patch = match &task {
+            // The headline rewritten to carry the claim, where the answer offers one that reads
+            // otherwise; nothing where the words carry it, or no verdict can be read.
+            Task::Claim { headline, .. } => {
+                let offered = checked(&text).and_then(|c| c.headline);
+                let node = self.claim_node(&ask.state)?;
+                Some(match (offered, node, headline) {
+                    (Some(after), Some(id), Some(before)) if after.trim() != before.trim() => {
+                        (replacing(before, &after).into_iter())
+                            .map(|r| {
+                                json!({ "op": "replace_text", "state": ask.state, "node": id, "from": r.from, "to": r.to, "text": r.text })
+                            })
+                            .collect()
+                    }
+                    _ => Vec::new(),
+                })
+            }
             Task::Proofread { .. } | Task::Tighten { .. } | Task::Rewrite { .. } | Task::Notes { .. } if none => {
                 Some(Vec::new())
             }
@@ -117,6 +136,26 @@ impl Session {
             }
         };
         Ok(Written { text, patch })
+    }
+
+    /// The node that makes `state`'s claim, whose words a claim check may rewrite (narrative
+    /// FUNC-4): the text it shows with `semantic: claim`, else its first heading as it reads;
+    /// none where it shows neither.
+    fn claim_node(&mut self, state: &str) -> Result<Option<String>, Error> {
+        let i = self.deck.state_index(state).ok_or_else(|| Error::Ops(format!("no state `{state}`")))?;
+        let snapshots = scaena_core::resolve_states(&self.deck).map_err(|e| Error::Deck(e.to_string()))?;
+        let claims = (snapshots[i].nodes.iter())
+            .filter(|(id, props)| {
+                self.deck.nodes.get(*id).map(|n| n.node_type) == Some(NodeType::Text)
+                    && props.get("semantic").and_then(Value::as_str) == Some("claim")
+            })
+            .map(|(id, _)| id.clone())
+            .next();
+        if claims.is_some() {
+            return Ok(claims);
+        }
+        let parts = self.reads(state)?;
+        Ok(parts.iter().find(|p| p.role == "heading" && !p.text.trim().is_empty()).map(|p| p.node.clone()))
     }
 
     /// `node`'s props as `state` shows them, its overrides over them.
@@ -216,9 +255,26 @@ impl Session {
                 let parts: Vec<_> = self.reads(&ask.state)?.into_iter().filter(|p| p.node != node).collect();
                 Task::Describe { slide: scaena_core::writing::slide(&parts), text }
             }
+            // Whether the slide's words carry the claim its beat makes (narrative FUNC-4): the
+            // claim from the spine, the slide as it reads, and its headline, the claim node's words.
+            "claim" => {
+                let claim = (self.deck().spine.as_ref())
+                    .and_then(|s| s.sections.iter().flat_map(|s| &s.beats).find(|b| b.states.contains(&ask.state)))
+                    .map(|b| b.claim.clone())
+                    .filter(|c| !c.trim().is_empty())
+                    .ok_or_else(|| {
+                        Error::Ops("the slide is in no beat of the story, so it makes no claim to check".into())
+                    })?;
+                let slide = scaena_core::writing::slide(&self.reads(&ask.state)?);
+                let headline = match self.claim_node(&ask.state)? {
+                    Some(node) => words(self, &node)?.filter(|t| !t.trim().is_empty()),
+                    None => None,
+                };
+                Task::Claim { claim, slide, headline }
+            }
             other => {
                 return Err(Error::Ops(format!(
-                    "`{other}` is no task: proofread, tighten, rewrite, notes, explain, or describe"
+                    "`{other}` is no task: proofread, tighten, rewrite, notes, explain, describe, or claim"
                 )));
             }
         })
@@ -338,12 +394,19 @@ mod tests {
 
     /// The revenue example, its subtitle set by `runs`.
     fn revenue_runs(runs: Value) -> Session {
+        revenue_with(|deck| {
+            let subtitle = deck["nodes"]["subtitle"].as_object_mut().unwrap();
+            subtitle.shift_remove("text");
+            subtitle.insert("runs".into(), runs);
+        })
+    }
+
+    /// The revenue example, changed by `edit`.
+    fn revenue_with(edit: impl FnOnce(&mut Value)) -> Session {
         let dir = "../../docs/examples";
         let mut deck: Value =
             serde_json::from_str(&std::fs::read_to_string(format!("{dir}/revenue.deck.json")).unwrap()).unwrap();
-        let subtitle = deck["nodes"]["subtitle"].as_object_mut().unwrap();
-        subtitle.shift_remove("text");
-        subtitle.insert("runs".into(), runs);
+        edit(&mut deck);
         let deck = deck.to_string();
         let mut s =
             Session::new(&deck, &std::fs::read_to_string(format!("{dir}/themes/dusk.theme.json")).unwrap()).unwrap();
@@ -482,6 +545,58 @@ mod tests {
         assert_eq!(w.prompt, "Finding E100 (error): The words run out of their box.\nIts words: Q3 Review");
         assert!(s.written(&explain, "It overflows.").unwrap().patch.is_none(), "an explanation is only read");
         assert!(s.writing(&ask("polish", "intro", None)).is_err());
+    }
+
+    /// A slide's words are checked against the claim its beat makes (narrative FUNC-4): the
+    /// model is asked with the claim, the slide as it reads, and its headline, the claim node's
+    /// words; a headline it rewrites is taken as `replace_text`s on that node, the words it keeps
+    /// keeping their runs; words that carry the claim, or an answer with no verdict, take
+    /// nothing; and a slide in no beat has no claim to check.
+    #[test]
+    fn a_slides_words_are_checked_against_its_beats_claim() {
+        let mut s = revenue();
+        let claim = ask("claim", "revenue", None);
+        let w = s.writing(&claim).unwrap();
+        assert_eq!(w.title, "The Claim");
+        assert_eq!(w.task.text(), Some("Revenue doubled"));
+        assert_eq!(
+            w.prompt,
+            "The claim its beat makes: Revenue doubled year over year, and Pro drove it.\nThe slide reads:\nTitle: Revenue doubled\nPicture: Quarterly revenue by product, Q4 2025 through Q3 2026.\nText: Revenue in $M. Enterprise recognized on delivery.\nIts headline: Revenue doubled"
+        );
+        let drifted = "Drifts: the slide says revenue doubled, not that Pro drove it.\nHeadline: Revenue doubled, and Pro drove it";
+        let written = s.written(&claim, drifted).unwrap();
+        assert_eq!(written.text, drifted);
+        let patch = written.patch.unwrap();
+        assert_eq!(
+            patch,
+            vec![
+                json!({ "op": "replace_text", "state": "revenue", "node": "title", "from": 15, "to": 15, "text": ", and Pro drove it" })
+            ]
+        );
+        assert!(s.typed(&Value::Array(patch), None).unwrap());
+        assert_eq!(s.carets("revenue", "title").unwrap().unwrap().text, "Revenue doubled, and Pro drove it");
+        // Words that carry the claim, the same headline, or no verdict take nothing.
+        for answer in
+            ["Carries.", "Drifts: a little.\nHeadline: Revenue doubled, and Pro drove it", "I cannot say.", ""]
+        {
+            assert!(s.written(&claim, answer).unwrap().patch.unwrap().is_empty(), "{answer:?}");
+        }
+        // The cover's claim is its subtitle, the text with `semantic: claim`.
+        let intro = s.writing(&ask("claim", "intro", None)).unwrap();
+        assert_eq!(intro.task.text(), Some("This quarter changed the shape of the business."));
+        assert!(intro.prompt.starts_with("The claim its beat makes: This quarter changed the shape of the business."));
+        // A slide in no beat has no claim to check.
+        let mut s = revenue_with(|deck| {
+            for section in deck["spine"]["sections"].as_array_mut().unwrap() {
+                for beat in section["beats"].as_array_mut().unwrap() {
+                    if beat["id"] == "doubled" {
+                        beat["states"] = json!(["revenue"]);
+                    }
+                }
+            }
+        });
+        let e = s.writing(&ask("claim", "mix", None)).unwrap_err();
+        assert!(e.to_string().contains("no beat of the story"), "{e}");
     }
 
     /// A picture is described from itself as the slide shows it, and the slide's other words

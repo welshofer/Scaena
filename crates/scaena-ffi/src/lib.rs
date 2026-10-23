@@ -1446,7 +1446,7 @@ fn call(s: &mut Session, method: &str, args: &Value) -> Result<Value, Failure> {
         "timeline" => s.slots().map_err(said)?,
         "files" => json!(s.files()),
         "imageFiles" => json!(s.image_files()),
-        "digest" => json!(s.frame(arg("state")?, f64::INFINITY).map_err(said)?.digest().map_err(said)?),
+        "digest" => json!(s.digest(arg("state")?).map_err(said)?),
         "reading" => json!(s.reading(arg("state")?).map_err(said)?),
         "reads" => value(serde_json::to_value(s.reads(arg("state")?).map_err(said)?))?,
         "source" => json!(s.source()),
