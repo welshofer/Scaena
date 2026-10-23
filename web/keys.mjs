@@ -110,8 +110,12 @@ try {
   await page.waitForTimeout(300);
   check(!(await open()), "? in the source leaves the keys shut");
   check((await page.evaluate(() => window.scaena.source())).length === was.length + 1, "and types a ?");
+  // The source with its ? does not compile: the editor takes that before the undo, so the undo's
+  // compile is the last it takes, and the slides go by keys below once it has (PLAN 2.126).
+  await page.waitForFunction(() => window.scaena.last()?.valid === false, null, { timeout: 30000 }).catch(() => {});
+  check((await page.evaluate(() => window.scaena.last()?.valid)) === false, "the source with its ? does not compile");
   await page.keyboard.press("Control+z");
-  await page.waitForFunction((w) => window.scaena.source() === w, was, { timeout: 30000 }).catch(() => {});
+  await page.waitForFunction((w) => window.scaena.source() === w && window.scaena.last()?.valid, was, { timeout: 30000 }).catch(() => {});
 
   // The palette names Show the keys, with ?, and runs it; the Keys button opens them too.
   await page.locator("#overlay").focus();
