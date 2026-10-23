@@ -170,6 +170,13 @@ try {
   check(download.suggestedFilename() === "revenue.scaena" && zip[0] === 0x50 && zip[1] === 0x4b, `a download is a .scaena zip: ${download.suggestedFilename()}, ${zip.length} bytes`);
   const status = await page.locator("#status").textContent();
   check(/its fonts cut to what it draws, \d+ KB to \d+ KB/.test(status), `the page says how far its fonts were subset: ${status}`);
+  // Lint said again, here of the slide in another size, keeps the download's words, as it keeps
+  // a save's.
+  await page.selectOption("#format", "9:16");
+  await page.waitForFunction(() => document.querySelector("#status").textContent.includes(" — "), null, { timeout: 30000 }).catch(() => {});
+  const relinted = await page.locator("#status").textContent();
+  check(relinted.startsWith("Downloaded revenue.scaena"), `and lint, said again, keeps them: ${relinted}`);
+  await page.selectOption("#format", "");
 
   // The download, opened: copied into the browser's storage.
   await page.evaluate(
