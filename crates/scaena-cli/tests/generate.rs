@@ -566,12 +566,17 @@ fn pictures_are_made_by_the_users_image_model_and_kept_in_the_bundle() {
     assert_eq!(scaena(&["validate", bundle]).status.code(), Some(0));
 }
 
-/// How many times the slides have been asked for, across the kept run below: the first time,
-/// the provider is too busy to write them.
+/// How many times the slides have been asked for, across the kept run below: the first
+/// [`BUSY`] times, the provider is too busy to write them.
 static SLIDES_ASKED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
+/// How many times a run asks a busy provider for the slides before it gives up:
+/// `scaena_narrato::TRIES` (narrative REL-1).
+const BUSY: usize = 6;
+
 /// A provider for a run that fails twice (narrative REL-2): the research written and the arc
-/// chosen, it is too busy to write the slides the first time; the second, it writes them and
+/// chosen, it is too busy to write the slides every time the first run asks, the wait it asks
+/// for a millisecond (narrative REL-1); the next run, it writes them and
 /// then never answers the look at them drawn.
 fn kept_run(method: &str, path: &str, body: &str) -> Answer {
     if method == "POST" && path == "/v1/messages" {
@@ -580,9 +585,10 @@ fn kept_run(method: &str, path: &str, body: &str) -> Answer {
         } else if !body.contains("\"web_search\"")
             && !body.contains("=== CATALOG ===")
             && !body.contains("runs past its place")
-            && SLIDES_ASKED.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0
+            && SLIDES_ASKED.fetch_add(1, std::sync::atomic::Ordering::SeqCst) < BUSY
         {
-            let busy = r#"{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}"#;
+            let busy =
+                r#"{"type":"error","error":{"type":"overloaded_error","message":"Overloaded: try again in 1ms"}}"#;
             return (529, "application/json", busy.as_bytes().to_vec());
         }
     }
@@ -622,7 +628,8 @@ fn a_failed_run_keeps_the_research_and_the_slides_and_says_how_to_go_on() {
     let report = std::fs::read_to_string(&research).unwrap();
     assert!(report.contains("Shipping emits about 3% of CO2."), "{report}");
     assert!(!slides.exists());
-    assert_eq!(asked.lock().unwrap().iter().filter(|a| a.method == "POST").count(), 3, "research, arc, slides");
+    let posted = asked.lock().unwrap().iter().filter(|a| a.method == "POST").count();
+    assert_eq!(posted, 2 + BUSY, "research, arc, and the slides each time they are asked again");
     // The command goes on from the report, asking for no research: the slides come back and are
     // kept as they arrive, before the model is shown them drawn, where this run is stopped.
     let line = resume.strip_prefix("scaena ").unwrap();
@@ -653,9 +660,12 @@ fn a_failed_run_keeps_the_research_and_the_slides_and_says_how_to_go_on() {
     assert!(research.exists());
     let asked = asked.lock().unwrap();
     let posts: Vec<&Asked> = asked.iter().filter(|a| a.method == "POST").collect();
-    assert_eq!(posts.len(), 6, "then the arc, the slides, and the look");
-    assert!(!posts[3..].iter().any(|a| a.body.contains("\"web_search\"")), "the research was not asked for again");
-    assert!(posts[4].body.contains("Shipping emits about 3% of CO2."), "the slides are grounded in the kept report");
+    assert_eq!(posts.len(), posted + 3, "then the arc, the slides, and the look");
+    assert!(!posts[posted..].iter().any(|a| a.body.contains("\"web_search\"")), "the research was not asked for again");
+    assert!(
+        posts[posted + 1].body.contains("Shipping emits about 3% of CO2."),
+        "the slides are grounded in the kept report"
+    );
     drop(asked);
     // Going on from the slides, on the arc they were written on, makes the deck with no call and
     // takes the kept folder away.
