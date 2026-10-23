@@ -11,6 +11,11 @@
 //   times. Keep makes each state reached hold that long, one `set_state` of `hold` each, as one
 //   patch: one step to undo. A state not reached keeps its hold.
 // - Nothing the rehearsal does changes the deck until Keep.
+// - A rehearsal's timings are safe from a second Escape (lift-up USE-2): Escape is the reflex that
+//   ends a run-through, and it opens the results; Escape again is held off once, the status saying
+//   that the results stay, and the next closes the results, which keep what the rehearsal took:
+//   Rehearsal Results… in the palette opens the table again, where Keep still keeps the timings,
+//   until the next rehearsal.
 import type { Key } from "./commands";
 import { listen } from "./life";
 import type { Slot } from "./protocol";
@@ -82,8 +87,11 @@ export function rehearsal(stage: Stage, bar: HTMLElement, dialog: HTMLDialogElem
   let began = 0;
   let running = false;
   let ticking: ReturnType<typeof setInterval> | undefined;
-  /** What the last rehearsal kept, for the table and a test. */
+  /** What the last rehearsal kept, for the table and a test; it stays until the next rehearsal,
+   * so the results open again after a close (USE-2). */
   let kept: Rehearsed[] = [];
+  /** Whether Escape on the results was held off once since they opened. */
+  let heldOff = false;
 
   /** Count the time since the state shown came up toward it. */
   function count() {
@@ -150,10 +158,18 @@ export function rehearsal(stage: Stage, bar: HTMLElement, dialog: HTMLDialogElem
       keeps: spent[i] > 0 ? Math.max(0, Math.round((spent[i] - slot.span) / 100) * 100) : undefined,
     }));
     const last = index;
+    results();
+    editor.show(last);
+  }
+
+  /** The last rehearsal's results, in the dialog: whether there are any. */
+  function results(): boolean {
+    if (!kept.length || dialog.open) return kept.length > 0;
     table();
     dialog.returnValue = "";
+    heldOff = false;
     dialog.showModal();
-    editor.show(last);
+    return true;
   }
 
   function table() {
@@ -192,8 +208,15 @@ export function rehearsal(stage: Stage, bar: HTMLElement, dialog: HTMLDialogElem
   listen(bar.querySelector<HTMLElement>("[data-on]")!, "click", () => go(1));
   listen(bar.querySelector<HTMLElement>("[data-back]")!, "click", () => go(-1));
   listen(bar.querySelector<HTMLElement>("[data-end]")!, "click", () => stop());
+  // Escape on the results (USE-2): held off once, then they close, and stay to open again.
+  listen(dialog, "cancel", (e) => {
+    if (heldOff) return;
+    heldOff = true;
+    e.preventDefault();
+    editor.say("Escape again closes the results, which stay: Rehearsal Results… opens them again, to keep");
+  });
   listen(dialog, "close", async () => {
-    if (dialog.returnValue !== "keep") return editor.say("Rehearsal: nothing kept");
+    if (dialog.returnValue !== "keep") return editor.say("Rehearsal: nothing kept · Rehearsal Results… shows what each slide took again, to keep");
     const ops = kept.filter((k) => k.keeps !== undefined && k.keeps !== k.hold).map((k) => ({ op: "set_state", id: k.state, prop: "hold", value: k.keeps }));
     if (!ops.length) return editor.say("Rehearsal: every timing is as it was");
     await editor.keep(ops, `${ops.length} timing${ops.length === 1 ? "" : "s"} from the rehearsal`);
@@ -204,6 +227,8 @@ export function rehearsal(stage: Stage, bar: HTMLElement, dialog: HTMLDialogElem
     stop,
     /** Whether a rehearsal is running. */
     running: () => running,
+    /** The last rehearsal's results opened again (USE-2): whether there are any. */
+    results,
     /** What the last rehearsal kept, for a test. */
     kept: () => kept,
   };
