@@ -56,7 +56,10 @@ fn slides_written_elsewhere_make_a_bundle_with_no_call() {
     assert!(made["arc"].as_str().is_some_and(|a| !a.is_empty()));
     let deck: Value = serde_json::from_str(&std::fs::read_to_string(dir.join("deck.json")).unwrap()).unwrap();
     assert_eq!(deck["theme"], "themes/ember.theme.json");
-    assert_eq!(deck["states"].as_array().unwrap().len(), 56);
+    // A slide for each, and the steps its short lists build by (narrative ATTR-2).
+    let states = deck["states"].as_array().unwrap();
+    assert_eq!(states.iter().filter(|s| s.get("slide").is_none()).count(), 56);
+    assert!(states.len() > 56, "{}", states.len());
     assert_eq!(deck["meta"]["narrative"]["generator"], "narrato");
     // The bundle validates as it is on disk.
     assert_eq!(scaena(&["validate", bundle]).status.code(), Some(0));
@@ -279,15 +282,10 @@ fn anthropic(text: &str) -> Vec<u8> {
 }
 
 /// Narrato's answers, as Anthropic gives them: the arc recorded, five of the catalog's slides,
-/// nothing to change on them as drawn, and no rewrite; and a web page.
+/// nothing to change on them as drawn, and no rewrite.
 fn narrato(method: &str, path: &str, body: &str) -> Answer {
     let answers = Path::new(env!("CARGO_MANIFEST_DIR")).join("../scaena-narrato/tests/answers");
     match (method, path) {
-        ("GET", "/about.html") => {
-            let page = "<html><head><title>Tidewater</title></head><body><h1>Carbon-negative freight</h1>\
-                        <p>Four ports run on our barges.</p></body></html>";
-            (200, "text/html; charset=utf-8", page.as_bytes().to_vec())
-        }
         ("POST", "/v1/messages") if body.contains("=== CATALOG ===") => {
             (200, "application/json", std::fs::read(answers.join("anthropic-arc.json")).unwrap())
         }
@@ -317,7 +315,6 @@ fn sources_ground_the_slides_a_pdf_beside_them_and_a_sheet_kept_as_data() {
     std::fs::write(given.join("q3.csv"), "region,revenue\nGulf,4.1\nAtlantic,2.2\n").unwrap();
     std::fs::write(given.join("deck.pdf"), b"%PDF-1.7\n% a test\n").unwrap();
     let source = |f: &str| given.join(f).to_string_lossy().into_owned();
-    let page = format!("{base}/about.html");
     let mut c = Command::new(env!("CARGO_BIN_EXE_scaena"));
     for k in KEYS.into_iter().chain(PROXIES) {
         c.env_remove(k);
@@ -327,17 +324,15 @@ fn sources_ground_the_slides_a_pdf_beside_them_and_a_sheet_kept_as_data() {
         .args(["--json", "generate", dir.to_str().unwrap(), "Tidewater's Series A"])
         .args(["--provider", "anthropic", "--model", "a-model", "--base", &base])
         .args(["--source", &source("notes.md"), "--source", &source("q3.csv"), "--source", &source("deck.pdf")])
-        .args(["--source", &page])
         .output()
         .unwrap();
     let said = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
     assert_eq!(out.status.code(), Some(0), "{said}");
     let made = json(&out);
     let names: Vec<&str> = made["sources"].as_array().unwrap().iter().map(|s| s["name"].as_str().unwrap()).collect();
-    assert_eq!(names, ["notes.md", "q3.csv", "deck.pdf", page.as_str()]);
+    assert_eq!(names, ["notes.md", "q3.csv", "deck.pdf"]);
     // The arc sees no document; the slides see every source, the PDF beside the prompt.
     let asked = asked.lock().unwrap();
-    assert!(asked.iter().any(|a| a.method == "GET" && a.path == "/about.html"), "the page was fetched");
     let calls: Vec<&Asked> = asked.iter().filter(|a| a.method == "POST" && a.path == "/v1/messages").collect();
     assert_eq!(calls.len(), 3, "the arc, the slides, and the look at them drawn; nothing ran over");
     let arc: Value = serde_json::from_str(&calls[0].body).unwrap();
@@ -348,7 +343,7 @@ fn sources_ground_the_slides_a_pdf_beside_them_and_a_sheet_kept_as_data() {
     assert_eq!(content[0]["type"], "document");
     assert_eq!(content[0]["source"]["data"], "JVBERi0xLjcKJSBhIHRlc3QK");
     let prompt = content.last().unwrap()["text"].as_str().unwrap();
-    for part in ["=== SOURCE: notes.md ===", "Revenue tripled to $4.1M", "=== SOURCE: deck.pdf ===", "Four ports run"] {
+    for part in ["=== SOURCE: notes.md ===", "Revenue tripled to $4.1M", "=== SOURCE: deck.pdf ==="] {
         assert!(prompt.contains(part), "{part}: {prompt}");
     }
     assert!(prompt.contains("</source_material>"), "the sources are held as data: {prompt}");
@@ -363,6 +358,32 @@ fn sources_ground_the_slides_a_pdf_beside_them_and_a_sheet_kept_as_data() {
     assert_eq!(deck["data"]["q3"]["schema"]["revenue"], "number");
     assert_eq!(made["data"][0]["id"], "q3");
     assert_eq!(scaena(&["validate", dir.to_str().unwrap()]).status.code(), Some(0));
+}
+
+#[test]
+fn a_web_source_on_this_machine_is_refused_before_any_call() {
+    // A web source is a public https address: a page on this machine, its network, or plain
+    // http is refused as the sources are read, before the page or the provider is asked.
+    let (base, asked) = serve(narrato);
+    for page in [format!("{base}/about.html"), "https://127.0.0.1/about.html".into(), "https://169.254.169.254/".into()]
+    {
+        let dir = place("local-page");
+        let mut c = Command::new(env!("CARGO_BIN_EXE_scaena"));
+        for k in KEYS.into_iter().chain(PROXIES) {
+            c.env_remove(k);
+        }
+        let out = c
+            .env("ANTHROPIC_API_KEY", "sk-test")
+            .args(["--json", "generate", dir.to_str().unwrap(), "Tidewater's Series A"])
+            .args(["--provider", "anthropic", "--model", "a-model", "--base", &base, "--source", &page])
+            .output()
+            .unwrap();
+        let out = json(&out);
+        let message = out["error"]["message"].as_str().unwrap_or_default();
+        assert!(message.contains("a web source is a public https address"), "{page}: {out:#}");
+        assert!(!dir.exists());
+    }
+    assert!(asked.lock().unwrap().is_empty(), "nothing was asked");
 }
 
 #[test]

@@ -1,5 +1,5 @@
 {
-  "scaena": "0.34",
+  "scaena": "0.35",
   "meta": {
     "title": "The State of Higher Education 2026",
     "author": "Jeff Selingo",
@@ -7027,7 +7027,8 @@
       "mode": "absolute",
       "layout": "figure",
       "transition": {
-        "duration": "standard"
+        "duration": "standard",
+        "style": "circleWave"
       },
       "props": {
         "strain-head": {},

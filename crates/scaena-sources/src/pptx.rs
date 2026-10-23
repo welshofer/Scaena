@@ -167,6 +167,9 @@ fn kind(local: &str) -> String {
     k.to_string()
 }
 
+/// The most points of a series read: a point indexed past it is left out.
+const MOST_POINTS: usize = 4_096;
+
 /// The cached points of a `cat`, `val`, or `tx`, in order by their index, gaps empty.
 fn points(container: Option<&Element>) -> Vec<String> {
     let Some(c) = container else { return Vec::new() };
@@ -179,7 +182,7 @@ fn points(container: Option<&Element>) -> Vec<String> {
     let mut by_index: Vec<(usize, String)> = cache
         .all("pt")
         .filter_map(|pt| {
-            let idx = pt.attr("idx").map_or(Some(0), |i| i.parse().ok())?;
+            let idx = pt.attr("idx").map_or(Some(0), |i| i.parse().ok()).filter(|&i: &usize| i < MOST_POINTS)?;
             Some((idx, pt.child("v").map(|v| v.text().trim().to_string()).unwrap_or_default()))
         })
         .collect();

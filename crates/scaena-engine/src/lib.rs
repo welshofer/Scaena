@@ -44,6 +44,7 @@ pub mod marks;
 pub mod motion;
 pub mod pin;
 pub mod render;
+pub mod reveals;
 pub mod sample;
 pub mod scale;
 pub mod shaders;

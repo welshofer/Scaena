@@ -430,7 +430,7 @@ pub(crate) fn at(base: Option<&str>, fallback: &str, path: &str) -> String {
 }
 
 /// `text` as one part of a URL's path.
-fn component(text: &str) -> String {
+pub(crate) fn component(text: &str) -> String {
     let mut out = String::new();
     for b in text.bytes() {
         if b.is_ascii_alphanumeric() || b"-_.~".contains(&b) {
