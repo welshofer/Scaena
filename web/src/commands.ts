@@ -284,8 +284,11 @@ export function sheet(dialog: HTMLDialogElement, commands: () => Command[], keys
     if (dialog.open) dialog.close();
   }
 
-  // Escape closes a modal dialog by itself; either way, focus goes back where it was.
+  // Escape closes a modal dialog by itself; either way, focus goes back where it was. The close is
+  // told a task after it, so focus put somewhere since, as a press on the canvas puts it, stays.
   listen(dialog, "close", () => {
+    const now = document.activeElement;
+    if (now && now !== document.body && !dialog.contains(now)) return;
     if (back instanceof HTMLElement && back.isConnected) back.focus();
   });
   dialog.onclick = (e) => {
