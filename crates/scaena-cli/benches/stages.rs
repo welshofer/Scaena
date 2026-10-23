@@ -29,6 +29,7 @@
 //! | `mcp_render` | start `scaena mcp`, `deck_render` the slowest state, stop it | ≤ 1 s (B1) |
 //! | `video` | the longest cue at 1080p60: frames sampled, painted on every core, and handed to an ffmpeg that discards them | ≥ 1× realtime (B1, B2), ≥ 0.5× (B3) |
 //! | `video_gpu` | the same, painted by vello on the GPU, each frame while the ones before it are read back (`--features gpu`, an adapter) | ≥ 2× realtime |
+//! | `shader` | a full-bleed 1080p shader on every core, B3's mesh beside a `caustics` (PLAN 2.147) | within B3's ≤ 25 ms |
 //! | `probe/cpu` | sort a fixed list: how fast the machine is, not the code | — |
 //!
 //! The decks are read from this checkout, or, where `SCAENA_BENCH_DECKS` names a directory,
@@ -208,6 +209,7 @@ fn main() {
     cold(&mut c, &decks);
     layout(&mut c, &decks);
     paint(&mut c, &decks);
+    shaders(&mut c);
     lint(&mut c, &decks);
     processes(&mut c, &decks, &out);
     video(&mut c, &decks, &out);
@@ -351,6 +353,36 @@ fn paint(c: &mut Criterion, decks: &[Deck]) {
     }
     g.finish();
     gpu(c, decks);
+}
+
+/// A full-bleed shader at 1080p, worked out on every core as the CPU painter works it out: B3's
+/// mesh, in its theme's `ambient` palette, beside the theme presets' `caustics` (PLAN 2.147), which
+/// must fit the budget the mesh fits.
+fn shaders(c: &mut Criterion) {
+    use scaena_core::displaylist::{Color, Op, ShaderKind};
+    let palette = ["#1B1430", "#3A1F4F", "#B0452C", "#FF6A3D"].map(|c| Color::from_hex(c).unwrap()).to_vec();
+    let op = |kind, params: &[(&str, f32)]| Op::Shader {
+        kind,
+        seed: 1,
+        t: 2.0,
+        rect: [0.0, 0.0, 1920.0, 1080.0],
+        palette: palette.clone(),
+        params: params.iter().map(|(k, v)| (k.to_string(), *v)).collect(),
+    };
+    let ops = [
+        ("mesh", op(ShaderKind::Mesh, &[("points", 6.0), ("drift", 0.14), ("softness", 0.85), ("grain", 0.02)])),
+        (
+            "caustics",
+            op(ShaderKind::Caustics, &[("scale", 0.22), ("speed", 0.12), ("intensity", 0.9), ("sharpness", 5.0)]),
+        ),
+    ];
+    let mut g = c.benchmark_group("shader");
+    for (name, op) in &ops {
+        let job = scaena_core::shader::job(op, [1.0, 0.0, 0.0, 1.0, 0.0, 0.0], [1920, 1080]).unwrap().unwrap();
+        let cores = scaena_core::shader::cores();
+        g.bench_function(*name, |b| b.iter(|| job.render_on(cores)));
+    }
+    g.finish();
 }
 
 #[cfg(feature = "gpu")]

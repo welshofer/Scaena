@@ -138,7 +138,7 @@ fn every_other_kinds_cpu_reference_and_wgsl_agree() {
     let (c, s) = (0.866_025_403_784_438_6, 0.5);
     let rotated = [c, s, -s, c, 400.0, -100.0];
     let rect = [0.0, 0.0, 640.0, 360.0];
-    use ShaderKind::{Gradient, Grain, Noise, Particles};
+    use ShaderKind::{Caustics, Gradient, Grain, Noise, Particles};
     let cases: Vec<(&str, Op, [f64; 6], [u32; 2])> = vec![
         ("linear gradient", shader(Gradient, 1, 0.0, rect, &torture, &[("angle", 120.0)]), id, [640, 360]),
         (
@@ -159,6 +159,12 @@ fn every_other_kinds_cpu_reference_and_wgsl_agree() {
             rotated,
             [640, 480],
         ),
+        (
+            "conic, centered beyond the corner",
+            shader(Gradient, 4, 5.0, rect, &torture, &[("shape", 2.0), ("x", -0.2), ("y", -0.3), ("speed", 5.0)]),
+            id,
+            [640, 360],
+        ),
         ("noise, four octaves", shader(Noise, 5, 1.5, rect, &ember, &[("scale", 0.004)]), id, [640, 360]),
         (
             "noise, an hour in, one octave",
@@ -177,6 +183,25 @@ fn every_other_kinds_cpu_reference_and_wgsl_agree() {
         (
             "hard translucent particles, rotated",
             shader(Particles, 10, 0.0, [0.0, 0.0, 600.0, 300.0], &glass, &[("softness", 0.0), ("size", 0.08)]),
+            rotated,
+            [640, 480],
+        ),
+        ("caustics", shader(Caustics, 11, 2.0, rect, &torture, &[]), id, [640, 360]),
+        (
+            "caustics, an hour in, sharp, grain",
+            shader(Caustics, 12, 3600.0, rect, &ember, &[("sharpness", 16.0), ("speed", 2.0), ("grain", 0.05)]),
+            id,
+            [640, 360],
+        ),
+        (
+            "fine translucent caustics at 2x",
+            shader(Caustics, 13, 7.5, [10.0, 5.0, 200.0, 100.0], &glass, &[("scale", 0.05), ("intensity", 2.0)]),
+            scale2,
+            [440, 220],
+        ),
+        (
+            "large caustics, rotated",
+            shader(Caustics, 14, 0.5, [0.0, 0.0, 600.0, 300.0], &torture, &[("scale", 2.0), ("sharpness", 1.0)]),
             rotated,
             [640, 480],
         ),
