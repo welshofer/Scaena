@@ -68,7 +68,8 @@ import { dataKeys, sheets } from "./data";
 import { filesPanel } from "./files";
 import { storyPanel } from "./story";
 import { finder, findKeys } from "./find";
-import { deleteKept, keptNames, renameKept } from "./folders";
+import { deleteKept, keptBundle, keptNames, renameKept } from "./folders";
+import { discard, find, keep, savedAt, type Copy } from "./recovery";
 import { formatsRow } from "./formats";
 import { layerKeys, layers } from "./layers";
 import { ended, listen as heed, observing } from "./life";
@@ -520,6 +521,58 @@ async function edit(source: Source, opened?: Stage) {
   let filed = 0;
   let filedSaved = 0;
   const dirty = () => filed !== filedSaved || (savedSource !== undefined && view.state.doc.toString() !== savedSource);
+  /** The folder on disk the bundle is kept in, where the page has its handle. */
+  let folderHandle: FileSystemDirectoryHandle | undefined = "folder" in source ? source.folder : undefined;
+
+  // The recovery copy (lift-up REL-4): what is not saved, the source and the files written since
+  // the save, kept in this browser a few seconds after each change and when the page is hidden,
+  // taken away by a save, and offered when the deck opens again (`recovery.ts`).
+  /** What names the deck's copy: where it is kept, else where it came from. */
+  const copyKey = () => {
+    if (where) return `${where.kind}:${where.name}`;
+    if ("url" in source) return `url:${new URL(source.url, location.href).href}`;
+    if ("create" in source) return `new:${source.create.title}`;
+    return `files:${name}`;
+  };
+  /** How long after a change the copy is written, ms. */
+  const COPY_AFTER = 2000;
+  let copyTimer: ReturnType<typeof setTimeout> | undefined;
+  /** Each file the copy holds, with how many times it had been written when it was kept. */
+  let copied = new Map<string, number>();
+  /** One copy at a time. */
+  let copying: Promise<void> = Promise.resolve();
+  /** Keep the copy now: the source, and each file written since the save that the copy lacks; or,
+   * with nothing to save, take it away. A browser that keeps nothing keeps no copy. */
+  const keepCopy = () => {
+    clearTimeout(copyTimer);
+    copyTimer = undefined;
+    const run = async () => {
+      const key = copyKey();
+      if (!dirty()) {
+        copied = new Map();
+        return discard(key);
+      }
+      const { written, removed } = stage.unsaved();
+      const files = new Map<string, Uint8Array>();
+      for (const [path, n] of written) {
+        if (copied.get(path) === n) continue;
+        const bytes = await stage.file(path);
+        if (bytes) files.set(path, new Uint8Array(bytes));
+      }
+      await keep(key, { at: Date.now(), name, source: view.state.doc.toString(), files: [...written.keys()], removed }, files);
+      copied = new Map(written);
+    };
+    copying = copying.then(run, run).catch((e: unknown) => console.warn(`The recovery copy was not kept: ${said(e)}`));
+    return copying;
+  };
+  /** Keep the copy once typing stops. */
+  const scheduleCopy = () => {
+    if (savedSource === undefined) return;
+    clearTimeout(copyTimer);
+    copyTimer = setTimeout(() => void keepCopy(), COPY_AFTER);
+  };
+  /** `at`, ms since the epoch, as the offer says it. */
+  const when = (at: number) => new Date(at).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
   /** The Files panel's Undo and Redo are the editor's: with nothing to undo or redo, they wait. */
   const undoable = (state: EditorState) => {
     $<HTMLButtonElement>("#files [data-undo]").disabled = undoDepth(state) === 0;
@@ -555,6 +608,7 @@ async function edit(source: Source, opened?: Stage) {
     play.hidden = where?.kind === "folder" || (!where && ("create" in source || "files" in source));
     // A served bundle saves to its folder alone.
     $<HTMLButtonElement>("#save-as").hidden = where?.kind === "serve";
+    scheduleCopy();
   };
   address(where);
   tell();
@@ -708,6 +762,52 @@ async function edit(source: Source, opened?: Stage) {
   savedSource = view.state.doc.toString();
   tell();
   undoable(view.state);
+  // The page hidden, a tab put behind or closed: the copy is kept now, not when typing stops.
+  heed(document, "visibilitychange", () => {
+    if (document.visibilityState === "hidden" && copyTimer) void keepCopy();
+  });
+  void offerCopy().catch(() => {});
+
+  /** A copy of changes not saved, kept when this deck was open before (lift-up REL-4): offered,
+   * unless the deck was saved after it, or it holds nothing the deck lacks. */
+  async function offerCopy() {
+    const key = copyKey();
+    const copy = await find(key);
+    if (!copy) return;
+    const kept = where?.kind === "opfs" ? await keptBundle(where.name).catch(() => undefined) : folderHandle;
+    const saved = await savedAt(kept);
+    const same = copy.source === view.state.doc.toString() && !copy.files.length && !copy.removed.length;
+    if ((saved !== undefined && saved > copy.at) || same) return discard(key);
+    const dialog = $<HTMLDialogElement>("#recovering");
+    dialog.querySelector("[data-said]")!.textContent = `Changes made to ${titled() || name} at ${when(copy.at)} were not saved. Recover them, or discard them?`;
+    dialog.returnValue = "";
+    dialog.onclose = () => {
+      if (dialog.returnValue === "recover") void recover(copy).catch(failed);
+      else if (dialog.returnValue === "discard") void discard(key);
+    };
+    dialog.showModal();
+  }
+
+  /** `copy` made the deck again: its files written into the bundle, then its source taken as one
+   * change, one step to undo; the deck is then as it was, to save. */
+  async function recover(copy: Copy & { file: (path: string) => Promise<Uint8Array | null> }) {
+    say("Recovering…");
+    const files: { path: string; text: string | null; bytes?: ArrayBuffer }[] = [];
+    for (const path of copy.files) {
+      const bytes = await copy.file(path);
+      if (bytes) files.push({ path, text: "", bytes: bytes.buffer as ArrayBuffer });
+    }
+    for (const path of copy.removed) files.push({ path, text: null });
+    if (files.length) {
+      await stage.writeFiles(files);
+      filed++;
+    }
+    copied = new Map();
+    const changes = change(view.state.doc.toString(), copy.source);
+    view.dispatch({ changes, userEvent: "input.recover", annotations: isolateHistory.of("full") });
+    tell();
+    say(`Recovered the changes from ${when(copy.at)}${files.length ? `, with ${many(files.length, "file")}` : ""}: save to keep them`);
+  }
 
   // The canvas first (PLAN 2.80): the source is a pane that folds away. It opens as the address
   // asks (`?source=open` or `folded`), else as this browser last left it, else folded.
@@ -1807,7 +1907,10 @@ async function edit(source: Source, opened?: Stage) {
       status.textContent = `Not saved: ${said(e)}`;
       return;
     }
-    if ("folder" in to) await folders("readwrite", (store) => store.put(to.folder, to.folder.name));
+    if ("folder" in to) {
+      folderHandle = to.folder;
+      await folders("readwrite", (store) => store.put(to.folder, to.folder.name));
+    }
     return took(done, sent, files);
   }
 
@@ -1815,6 +1918,10 @@ async function edit(source: Source, opened?: Stage) {
    * them left them: the bundle kept where it went, the paths the save renamed renamed in the source,
    * and the page's address naming it. */
   async function took(done: Extract<FromWorker, { type: "saved" }>, sent: string, files: number) {
+    // Saved: the copy of what was not, under the key before and after, goes.
+    const was = copyKey();
+    clearTimeout(copyTimer);
+    copied = new Map();
     where = done.where;
     name = done.where.name;
     view.dispatch({ changes: change(view.state.doc.toString(), renamedIn(view.state.doc.toString(), done.renamed)) });
@@ -1827,6 +1934,7 @@ async function edit(source: Source, opened?: Stage) {
     }
     savedSource = renamedIn(sent, done.renamed);
     filedSaved = files;
+    void Promise.all([discard(was), discard(copyKey())]).catch(() => {});
     address(where);
     tell();
     void listKept();
@@ -2645,6 +2753,7 @@ async function edit(source: Source, opened?: Stage) {
   current = {
     close: () => {
       clearTimeout(pending);
+      if (copyTimer) void keepCopy();
       hearing?.close();
       board.close();
       view.destroy();
@@ -2663,6 +2772,7 @@ async function edit(source: Source, opened?: Stage) {
     rekeep: async (from, to) => {
       const kept = await stage.rekeep(from, to);
       if (kept && where?.kind === "opfs" && where.name === from && kept.name !== from) {
+        void discard(copyKey());
         where = kept;
         name = kept.name;
         address(where);
@@ -2711,6 +2821,9 @@ async function edit(source: Source, opened?: Stage) {
       /** Drop a file named `name` at `at` in the source (the cursor by default). */
       drop: (name: string, bytes: ArrayBuffer, at?: number) => drop([new File([bytes], name)], at ?? view.state.selection.main.head),
       where: () => ({ name, where, dirty: dirty() }),
+      /** The recovery copy kept now, for a test (lift-up REL-4). */
+      keepCopy,
+      copyKey,
       source: () => view.state.doc.toString(),
       /** Put `text` in the editor, as typing would: the cursor ends where the change does,
        * and the next lint sees it. */
