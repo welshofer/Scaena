@@ -228,7 +228,7 @@ function namedFor(source: Source): string {
   if ("opfs" in source) return source.opfs;
   if ("folder" in source) return source.folder.name;
   if ("create" in source) return `“${source.create.title}”`;
-  if ("files" in source) return source.name;
+  if ("files" in source || "recovered" in source) return source.name;
   return decodeURIComponent(new URL(source.url, location.href).pathname.replace(/\/$/, "").replace(/^.*\//, ""));
 }
 
@@ -526,6 +526,44 @@ async function edit(source: Source, opened?: Stage) {
   const dirty = () => filed !== filedSaved || (savedSource !== undefined && view.state.doc.toString() !== savedSource);
   /** The folder on disk the bundle is kept in, where the page has its handle. */
   let folderHandle: FileSystemDirectoryHandle | undefined = "folder" in source ? source.folder : undefined;
+  /** How many times the engine has been started again after a panic (lift-up STAB-2). */
+  let restarts = 0;
+  // The engine stopped on a panic, which wasm32 does not unwind from: the stage is started again
+  // in a fresh worker, from the bundle's files as the old one held them and the source as it
+  // stands here, kept where the bundle is kept, so Save still works; the state shown is shown
+  // again, and the person is told in plain words.
+  stage.onCrashed = (crash) => void restarted(crash);
+  async function restarted(crash: { message: string; files: Record<string, ArrayBuffer> }) {
+    const why = crash.message ? ` (${crash.message})` : "";
+    say(`The engine stopped on an error${why}: starting it again…`);
+    const kept =
+      where?.kind === "opfs"
+        ? { opfs: where.name }
+        : where?.kind === "folder" && folderHandle
+          ? { folder: folderHandle }
+          : where?.kind === "serve" && "url" in source && source.serve
+            ? { url: source.url, serve: source.serve }
+            : undefined;
+    try {
+      await stage.restart({ recovered: crash.files, name, kept });
+    } catch (e) {
+      say(`The engine stopped on an error${why}, and could not be started again: ${said(e)}. Download the deck to keep what you changed.`);
+      return;
+    }
+    restarts++;
+    // What the old worker held of the page: the part of the canvas shown, the formats beside it,
+    // the source it compiled, which showing the state shown and linting it again compiles in the
+    // fresh one, the words, and the thumbnails.
+    taken = undefined;
+    lexicon = undefined;
+    await board.restarted();
+    formatting.restarted();
+    const doc = view.state.doc;
+    const found = await lint(view);
+    if (view.state.doc === doc) view.dispatch(setDiagnostics(view.state, found));
+    states.reformat();
+    say(`The engine stopped on an error${why}, and was started again from the deck as it stands: nothing is lost. Save when you can.`);
+  }
 
   // The recovery copy (lift-up REL-4): what is not saved, the source and the files written since
   // the save, kept in this browser a few seconds after each change and when the page is hidden,
@@ -2865,6 +2903,9 @@ async function edit(source: Source, opened?: Stage) {
       /** Drop a file named `name` at `at` in the source (the cursor by default). */
       drop: (name: string, bytes: ArrayBuffer, at?: number) => drop([new File([bytes], name)], at ?? view.state.selection.main.head),
       where: () => ({ name, where, dirty: dirty() }),
+      /** Panic in the engine, for a test (lift-up STAB-2), and how many times it was started again. */
+      crash: () => stage.trap(),
+      restarts: () => restarts,
       /** The recovery copy kept now, for a test (lift-up REL-4). */
       keepCopy,
       copyKey,

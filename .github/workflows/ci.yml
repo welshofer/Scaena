@@ -437,6 +437,9 @@ jobs:
       # out, one patch each, every state reading as it read (PLAN 2.97).
       - run: node web/slides.mjs
       - run: node web/storage.mjs
+      # The editor started again after a panic in the engine, from the bundle's files as the worker
+      # held them, so Save still works (lift-up STAB-2).
+      - run: node web/panic.mjs
       # The recovery copy of what is not saved, kept in the browser and offered when the deck opens
       # again (lift-up REL-4).
       - run: node web/recovery.mjs
