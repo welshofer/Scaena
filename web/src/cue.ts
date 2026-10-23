@@ -267,7 +267,7 @@ export function cue(stage: Stage, into: HTMLElement, preview: HTMLElement, edito
       if (!at) return editor.say("Nothing changed: the source has an error to fix first");
       editor.say(doing);
       try {
-        const { source, edited } = await stage.make(editor.source(), [op], at.index, editor.format());
+        const { source, edited } = await stage.make(editor.source, [op], at.index, editor.format());
         editor.apply(source, edited, done);
         editor.say(done);
       } catch (e) {

@@ -43,7 +43,7 @@ import {
 } from "@codemirror/commands";
 import { syntaxHighlighting } from "@codemirror/language";
 import { type Diagnostic, forceLinting, lintGutter, lintKeymap, linter, nextDiagnostic, openLintPanel, previousDiagnostic, setDiagnostics } from "@codemirror/lint";
-import { Compartment, EditorState, MapMode, StateEffect } from "@codemirror/state";
+import { Compartment, EditorState, MapMode, StateEffect, Transaction } from "@codemirror/state";
 import {
   drawSelection,
   EditorView,
@@ -939,14 +939,14 @@ async function edit(source: Source, opened?: Stage) {
   /** What the last gesture on the canvas or choice in the inspector said: it stays in the status,
    * what lint finds after it, until the source is edited by hand. */
   let told: string | undefined;
-  /** The source a line said of the deck as it opened was said of (`current.say`): it stays
-   * through that source's lint, until the source is edited. */
+  /** The source `told` was said over: it stays through that source's lint, one an edit made before
+   * it asked for among them, until the source is edited. */
   let toldOf: string | undefined;
   /** What lint's last report said, which a line taken back leaves standing. */
   let reported = "";
   const say = (text: string) => {
     told = text;
-    toldOf = undefined;
+    toldOf = view.state.doc.toString();
     status.textContent = text;
   };
   /** Take back `text`, if the status still says it: `instead` in its place, or what lint said. */
@@ -1243,7 +1243,7 @@ async function edit(source: Source, opened?: Stage) {
     make: async (ops, done) => {
       const now = showing();
       if (!now) return;
-      const { source, edited } = await stage.make(view.state.doc.toString(), ops, now.index, format());
+      const { source, edited } = await stage.make(() => view.state.doc.toString(), ops, now.index, format());
       made(source, edited);
       say(done);
     },
@@ -1317,7 +1317,7 @@ async function edit(source: Source, opened?: Stage) {
     show: (index) => void show(index),
     keep: async (ops, what) => {
       try {
-        const { source, edited } = await stage.make(view.state.doc.toString(), ops, shown, format());
+        const { source, edited } = await stage.make(() => view.state.doc.toString(), ops, shown, format());
         made(source, edited);
         say(`Kept ${what} · ⌘Z undoes them`);
         return true;
@@ -2013,7 +2013,10 @@ async function edit(source: Source, opened?: Stage) {
     copied = new Map();
     where = done.where;
     name = done.where.name;
-    view.dispatch({ changes: change(view.state.doc.toString(), renamedIn(view.state.doc.toString(), done.renamed)) });
+    // The paths the save renamed, renamed in the source: no step to undo, since the files are named
+    // so now, and an undo after the save takes back the edit before it, not them (#414).
+    const renamed = change(view.state.doc.toString(), renamedIn(view.state.doc.toString(), done.renamed));
+    view.dispatch({ changes: renamed, annotations: Transaction.addToHistory.of(false) });
     // The folder keeps the deck's source too: it is what the editor shows, renamed as the save
     // renamed files.
     if (scnOnDisk) {
@@ -2286,7 +2289,7 @@ async function edit(source: Source, opened?: Stage) {
     const spot = keys.length ? Object.fromEntries(keys.map((k) => [k, at[k]])) : { in: "grid" };
     try {
       const op = { op: "place", node, at: spot, format: f, anew: true };
-      const { source, edited } = await stage.make(view.state.doc.toString(), [op], now.index, f);
+      const { source, edited } = await stage.make(() => view.state.doc.toString(), [op], now.index, f);
       made(source, edited);
       say(`${sentence(object(lexicon, node, true))} has a layout of its own in ${f}: a move there moves it there alone · ⌘Z undoes it`);
     } catch (e) {
@@ -2856,10 +2859,7 @@ async function edit(source: Source, opened?: Stage) {
       ended();
     },
     dirty,
-    say: (text) => {
-      say(text);
-      toldOf = view.state.doc.toString();
-    },
+    say,
     kept: () => (where?.kind === "opfs" ? where.name : undefined),
     // New's deck opens typing in its title, its words selected (PLAN 3.21): whether it does.
     typeTitle: async () => {

@@ -191,7 +191,7 @@ export function writer(stage: Stage, host: WritingHost) {
       // A text by the words it now reads, as the canvas shows it; notes by their slide.
       const what = ask.kind === "describe" ? "the picture" : ask.node !== undefined ? quote(taking.text) : host.slide(ask.state ?? now.state);
       if (!taking.patch?.length) return void host.say(`Nothing to change: ${what} already reads so`);
-      const { source, edited } = await stage.make(host.source(), taking.patch, now.index, host.format());
+      const { source, edited } = await stage.make(host.source, taking.patch, now.index, host.format());
       host.apply(source, edited, TOOK[ask.kind](what));
       host.say(`${TOOK[ask.kind](what)} · ⌘Z undoes it`);
     } catch (e) {

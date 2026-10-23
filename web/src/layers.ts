@@ -131,7 +131,7 @@ export function layers(stage: Stage, into: HTMLElement, editor: LayersEditor) {
       try {
         const patch = typeof ops === "function" ? await ops() : ops;
         if (!patch.length) return editor.say(none);
-        const { source, edited } = await stage.make(editor.source(), patch, now.index, editor.format());
+        const { source, edited } = await stage.make(editor.source, patch, now.index, editor.format());
         editor.apply(source, edited, done);
         editor.say(done);
       } catch (e) {

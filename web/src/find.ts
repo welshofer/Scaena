@@ -130,7 +130,7 @@ export function finder(stage: Stage, bar: HTMLElement, editor: FindEditor) {
     if (!shown || !ops.length) return false;
     const next = then === undefined ? -1 : editor.states().indexOf(then);
     try {
-      const { source, edited } = await stage.make(editor.source(), ops, next >= 0 ? next : shown.index, editor.format());
+      const { source, edited } = await stage.make(editor.source, ops, next >= 0 ? next : shown.index, editor.format());
       editor.apply(source, edited, done);
       editor.say(done);
       return true;
