@@ -552,7 +552,7 @@ Every layout also has `in(canvas)`, the whole canvas, and `in(grid)`, the margin
 | Springs (`spring:`) | `snappy`, `gentle`, `heavy`, `bouncy` |
 | Colors | `ink`, `paper`, `paper-2`, `accent`, `accent-2`, `muted`, `line` |
 | Color roles | `surface`, `surface-2`, `onSurface`, `onSurfaceMuted`, `accent`, `onAccent`, `line` |
-| Shader presets (`preset:`) | `backdrop`, a mesh behind a title; `texture`, a slow noise field |
+| Shader presets (`preset:`) | `backdrop` and `aurora`, meshes behind a title; `texture` and `haze`, slow noise fields; `lagoon`, light on water (a caustics shader); `sweep`, a conic gradient turning slowly; `dust`, drifting particles |
 
 A color names a theme color or a color role: `style:{color: accent}` on text, `fill:surface-2` on a shape or a container. A shader takes a preset whole, its kind included: `bg shader:mesh preset:backdrop at:in(canvas) z:-100`.
 
