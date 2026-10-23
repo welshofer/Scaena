@@ -65,48 +65,62 @@ impl From<ShaderError> for PaintError {
 }
 
 /// What display lists name besides themselves, loaded once per bundle and shared by every
-/// frame (SPEC §6): font bytes by bundle id, and images, decoded, by content id.
+/// frame (SPEC §6): font bytes by bundle id, and images by content id, each its file, decoded
+/// the first time a frame names it (lift-up STAB-3).
 #[derive(Debug, Clone, Default)]
 pub struct Assets {
     blobs: BTreeMap<String, Blob<u8>>,
-    images: BTreeMap<String, Arc<Picture>>,
-    /// Images' pixels adjusted (PLAN 2.117), by the asset id a display list names them by, made
-    /// the first time one does and kept for the frames after: those the last two frames named,
-    /// however many, and of the rest the latest few, since each step of an adjustment names
-    /// other pixels.
-    adjusted: Arc<Mutex<Adjusted>>,
+    images: BTreeMap<String, Blob<u8>>,
+    /// The pictures decoded, and images' pixels adjusted (PLAN 2.117) by the asset id a display
+    /// list names them by: made the first time one does and kept for the frames after, those the
+    /// last two frames named however many, and of the rest the latest, under a budget.
+    made: Arc<Mutex<Made>>,
 }
 
-/// Adjusted pictures, and the frames painted from them.
+/// Pictures made from the images' files, and the frames painted from them.
 #[derive(Debug, Default)]
-struct Adjusted {
+struct Made {
     /// How many frames [`Assets::frame`] has begun.
     frame: u64,
-    /// By asset id, each with the last frame that named it: the least lately named first.
-    kept: VecDeque<(String, u64, Arc<Picture>)>,
+    /// Each image decoded, by its content id, with the last frame that named it: the least lately
+    /// named first.
+    decoded: VecDeque<(String, u64, Arc<Picture>)>,
+    /// Each image adjusted, by the asset id that names it so, likewise.
+    adjusted: VecDeque<(String, u64, Arc<Picture>)>,
+    /// The most pixels the decoded pictures keep, past those the last two frames named; for a
+    /// test, other than [`DECODED_PIXELS`].
+    budget: Option<u64>,
 }
 
 /// The most adjusted pictures [`Assets`] keeps, and the most pixels among them, past those the
 /// last two frames named.
 const ADJUSTED_KEPT: usize = 8;
 const ADJUSTED_PIXELS: u64 = 64 << 20;
+/// The most pixels the images decoded keep, past those the last two frames named: some 512 MB as
+/// straight and premultiplied pixels together, whatever a deck holds (lift-up STAB-3).
+pub const DECODED_PIXELS: u64 = 64 << 20;
 
-impl Adjusted {
-    /// Lets the least lately named go while more than [`ADJUSTED_KEPT`] are kept or their pixels
-    /// pass [`ADJUSTED_PIXELS`], never one this frame or the last named: a frame painted again
-    /// makes none of its pictures anew, however many it names. Where no frame was begun, the
-    /// least lately named goes first, whichever.
-    fn trim(&mut self) {
-        let pixels = |p: &Picture| u64::from(p.width) * u64::from(p.height);
-        let mut total: u64 = self.kept.iter().map(|(_, _, p)| pixels(p)).sum();
-        while self.kept.len() > 1 && (self.kept.len() > ADJUSTED_KEPT || total > ADJUSTED_PIXELS) {
-            let frame = self.frame;
-            let Some(at) = self.kept.iter().position(|&(_, named, _)| frame == 0 || named + 1 < frame) else {
-                break;
-            };
-            if let Some((_, _, p)) = self.kept.remove(at) {
-                total -= pixels(&p);
-            }
+/// The picture `id` names in `kept`, as named by frame `frame`: moved to the back, the latest.
+fn named(kept: &mut VecDeque<(String, u64, Arc<Picture>)>, id: &str, frame: u64) -> Option<Arc<Picture>> {
+    let at = kept.iter().position(|(name, ..)| name == id)?;
+    let (name, _, picture) = kept.remove(at)?;
+    kept.push_back((name, frame, picture.clone()));
+    Some(picture)
+}
+
+/// Lets the least lately named of `kept` go while there are more than `most` or their pixels
+/// pass `pixels`, never one this frame or the last named: a frame painted again makes none of its
+/// pictures anew, however many it names. Where no frame was begun, the least lately named goes
+/// first, whichever, the last one kept.
+fn trim(kept: &mut VecDeque<(String, u64, Arc<Picture>)>, frame: u64, most: usize, pixels: u64) {
+    let size = |p: &Picture| u64::from(p.width) * u64::from(p.height);
+    let mut total: u64 = kept.iter().map(|(_, _, p)| size(p)).sum();
+    while kept.len() > 1 && (kept.len() > most || total > pixels) {
+        let Some(at) = kept.iter().position(|&(_, named, _)| frame == 0 || named + 1 < frame) else {
+            break;
+        };
+        if let Some((_, _, p)) = kept.remove(at) {
+            total -= size(&p);
         }
     }
 }
@@ -144,18 +158,30 @@ impl Assets {
         self.blobs.insert(id.to_string(), Blob::new(Arc::new(bytes)));
     }
 
-    /// Decode the PNG or JPEG `bytes` and keep it under `id`, the content id display lists
-    /// name it by (`sha256:…`, SPEC §3.3).
+    /// Keep the PNG or JPEG `bytes` under `id`, the content id display lists name it by
+    /// (`sha256:…`, SPEC §3.3), its header read but its pixels decoded only when a frame first
+    /// names it (lift-up STAB-3).
     pub fn insert_image(&mut self, id: &str, bytes: &[u8]) -> Result<(), PaintError> {
-        self.images.insert(id.to_string(), Arc::new(Picture::decode(bytes)?));
+        Picture::check(bytes)?;
+        self.images.insert(id.to_string(), Blob::new(Arc::new(bytes.to_vec())));
         Ok(())
     }
 
-    /// Keep the image `id` names as `from` decoded it, decoding nothing: what a store made again
-    /// for a deck that names other images takes from the one it replaces. Whether `from` held it.
+    /// Keep the image `id` names as `from` holds it, its file and its pixels if decoded, decoding
+    /// nothing: what a store made again for a deck that names other images takes from the one it
+    /// replaces. Whether `from` held it.
     pub fn take_image(&mut self, id: &str, from: &Assets) -> bool {
-        let Some(picture) = from.images.get(id) else { return false };
-        self.images.insert(id.to_string(), picture.clone());
+        let Some(file) = from.images.get(id) else { return false };
+        self.images.insert(id.to_string(), file.clone());
+        if !Arc::ptr_eq(&self.made, &from.made) {
+            let theirs = from.made.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+            if let Some(kept) = theirs.decoded.iter().find(|(name, ..)| name == id).cloned() {
+                let mut made = self.made.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+                if !made.decoded.iter().any(|(name, ..)| name == id) {
+                    made.decoded.push_back(kept);
+                }
+            }
+        }
         true
     }
 
@@ -168,31 +194,63 @@ impl Assets {
     /// Begins a frame: what a painter calls before it paints a display list, and an export before
     /// each page, so that the adjusted pictures the frame names are kept for the next.
     pub fn frame(&self) {
-        self.adjusted.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).frame += 1;
+        let mut made = self.made.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        made.frame += 1;
+        // What the frames before named and this one may not goes, so the budget holds between
+        // decodes too.
+        let (frame, budget) = (made.frame, made.budget.unwrap_or(DECODED_PIXELS));
+        trim(&mut made.decoded, frame, usize::MAX, budget);
     }
 
-    /// The decoded image a display list names: by its content id, or by that id with how its
-    /// pixels are adjusted after it (PLAN 2.117, [`Adjust::name`]), made from the image's own
-    /// the first time a frame names them and kept while the frames after name them.
+    /// The decoded image a display list names: by its content id, decoded from its file the
+    /// first time a frame names it (lift-up STAB-3), or by that id with how its pixels are
+    /// adjusted after it (PLAN 2.117, [`Adjust::name`]), made from the image's own; each kept
+    /// while the frames after name it, and under [`DECODED_PIXELS`] or [`ADJUSTED_PIXELS`].
     pub fn image(&self, id: &str) -> Result<Arc<Picture>, PaintError> {
-        if let Some(picture) = self.images.get(id) {
-            return Ok(picture.clone());
+        if let Some(file) = self.images.get(id) {
+            return self.decoded(id, file);
         }
         let missing = || PaintError::MissingImage(id.to_string());
         let (own, adjust) = Adjust::named(id).ok_or_else(missing)?;
-        let source = self.images.get(own).ok_or_else(missing)?;
-        let mut adjusted = self.adjusted.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        let frame = adjusted.frame;
-        if let Some(at) = adjusted.kept.iter().position(|(name, ..)| name == id)
-            && let Some((name, _, picture)) = adjusted.kept.remove(at)
-        {
-            adjusted.kept.push_back((name, frame, picture.clone()));
+        let file = self.images.get(own).ok_or_else(missing)?;
+        let mut made = self.made.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let frame = made.frame;
+        if let Some(picture) = named(&mut made.adjusted, id, frame) {
             return Ok(picture);
         }
-        let picture = Arc::new(source.adjusted(adjust));
-        adjusted.kept.push_back((id.to_string(), frame, picture.clone()));
-        adjusted.trim();
+        drop(made);
+        let picture = Arc::new(self.decoded(own, file)?.adjusted(adjust));
+        let mut made = self.made.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let frame = made.frame;
+        made.adjusted.push_back((id.to_string(), frame, picture.clone()));
+        trim(&mut made.adjusted, frame, ADJUSTED_KEPT, ADJUSTED_PIXELS);
         Ok(picture)
+    }
+
+    /// Image `id`, its file `file`, decoded: kept from before, or decoded now and kept.
+    fn decoded(&self, id: &str, file: &Blob<u8>) -> Result<Arc<Picture>, PaintError> {
+        let mut made = self.made.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let frame = made.frame;
+        if let Some(picture) = named(&mut made.decoded, id, frame) {
+            return Ok(picture);
+        }
+        drop(made);
+        let picture = Arc::new(Picture::decode_file(file)?);
+        let mut made = self.made.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let frame = made.frame;
+        if let Some(kept) = named(&mut made.decoded, id, frame) {
+            return Ok(kept);
+        }
+        made.decoded.push_back((id.to_string(), frame, picture.clone()));
+        let budget = made.budget.unwrap_or(DECODED_PIXELS);
+        trim(&mut made.decoded, frame, usize::MAX, budget);
+        Ok(picture)
+    }
+
+    /// For a test: the most pixels decoded pictures keep, in place of [`DECODED_PIXELS`].
+    #[doc(hidden)]
+    pub fn decoded_budget(&self, pixels: u64) {
+        self.made.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).budget = Some(pixels);
     }
 }
 
@@ -202,8 +260,14 @@ impl Picture {
     /// the same pixels on every target, and turned by its EXIF orientation (ADR-0017). Color
     /// profiles are not applied: pixels are sRGB.
     pub fn decode(bytes: &[u8]) -> Result<Picture, PaintError> {
+        Picture::decode_file(&Blob::new(Arc::new(bytes.to_vec())))
+    }
+
+    /// [`Picture::decode`] of `file`, a JPEG keeping the file itself, not a copy of it.
+    fn decode_file(file: &Blob<u8>) -> Result<Picture, PaintError> {
+        let bytes = file.data();
         if scaena_core::jpeg::is_jpeg(bytes) {
-            return Picture::jpeg(bytes);
+            return Picture::jpeg(file);
         }
         let bad = |e: png::DecodingError| PaintError::Png(e.to_string());
         let mut decoder = png::Decoder::new(std::io::Cursor::new(bytes));
@@ -234,7 +298,25 @@ impl Picture {
         })
     }
 
-    fn jpeg(bytes: &[u8]) -> Result<Picture, PaintError> {
+    /// Whether `bytes` read as a PNG or a JPEG an image may be, by their header alone: what is
+    /// checked before a picture is kept to decode later.
+    pub fn check(bytes: &[u8]) -> Result<(), PaintError> {
+        if scaena_core::jpeg::is_jpeg(bytes) {
+            scaena_core::jpeg::Header::read(bytes).map_err(|e| PaintError::Jpeg(e.to_string()))?;
+            return Ok(());
+        }
+        let mut decoder = png::Decoder::new(std::io::Cursor::new(bytes));
+        decoder.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16);
+        let reader = decoder.read_info().map_err(|e| PaintError::Png(e.to_string()))?;
+        let (width, height) = reader.info().size();
+        if width.max(height) > scaena_core::displaylist::MAX_IMAGE_SIDE {
+            return Err(PaintError::Png(format!("{width} × {height} px: larger than an image may be (SPEC §3.3)")));
+        }
+        Ok(())
+    }
+
+    fn jpeg(file: &Blob<u8>) -> Result<Picture, PaintError> {
+        let bytes = file.data();
         let bad = |e: scaena_core::jpeg::JpegError| PaintError::Jpeg(e.to_string());
         let header = scaena_core::jpeg::Header::read(bytes).map_err(bad)?;
         let seen = scaena_core::jpeg::decode(bytes).map_err(bad)?;
@@ -243,7 +325,7 @@ impl Picture {
             height: seen.height,
             rgba: Blob::new(Arc::new(seen.rgba)),
             jpeg: Some(Jpeg {
-                bytes: Blob::new(Arc::new(bytes.to_vec())),
+                bytes: file.clone(),
                 width: header.width,
                 height: header.height,
                 orientation: header.orientation,
@@ -390,7 +472,7 @@ mod picture_tests {
         for e in 1..=(ADJUSTED_KEPT as i16 + 1) {
             assets.image(&Adjust { exposure: e, ..Adjust::default() }.name("sha256:ab")).unwrap();
         }
-        assert_eq!(assets.adjusted.lock().unwrap().kept.len(), ADJUSTED_KEPT);
+        assert_eq!(assets.made.lock().unwrap().adjusted.len(), ADJUSTED_KEPT);
         assert!(!Arc::ptr_eq(&picture, &assets.image(&id).unwrap()), "made again once let go");
     }
 
@@ -420,10 +502,70 @@ mod picture_tests {
         assets.frame();
         let kept = assets.image(&named(1)).unwrap();
         assets.image(&named(-3)).unwrap();
-        let names: Vec<String> = assets.adjusted.lock().unwrap().kept.iter().map(|(n, ..)| n.clone()).collect();
+        let names: Vec<String> = assets.made.lock().unwrap().adjusted.iter().map(|(n, ..)| n.clone()).collect();
         assert_eq!(names.len(), ADJUSTED_KEPT, "{names:?}");
         assert!(Arc::ptr_eq(&kept, &first[0]), "named in the last two frames: kept");
         assert_eq!(names[ADJUSTED_KEPT - 2..], [named(1), named(-3)], "the latest last: {names:?}");
+    }
+
+    /// A picture is kept as its file and decoded the first time a frame names it, not as it is
+    /// kept: a file whose header reads is taken, and one whose pixels do not is refused when they
+    /// are drawn (lift-up STAB-3).
+    #[test]
+    fn a_picture_is_decoded_when_first_drawn() {
+        let mut assets = Assets::new();
+        let good = png(png::ColorType::Rgba, png::BitDepth::Eight, 1, &[200, 40, 30, 255], None);
+        // The same header with its pixels' data cut away.
+        let cut = good[..good.len() - 20].to_vec();
+        assets.insert_image("sha256:cut", &cut).expect("its header reads");
+        assert!(assets.made.lock().unwrap().decoded.is_empty(), "nothing decoded as it is kept");
+        assert!(matches!(assets.image("sha256:cut"), Err(PaintError::Png(_))), "refused as it is drawn");
+        assert!(
+            matches!(assets.insert_image("sha256:gif", b"GIF89a"), Err(PaintError::Png(_))),
+            "no image at all is refused"
+        );
+        // A JPEG keeps its file, not a copy of it.
+        let jpeg = std::fs::read("../../tests/fixtures/jpeg/baseline-420.jpg").unwrap();
+        assets.insert_image("sha256:jpeg", &jpeg).unwrap();
+        let picture = assets.image("sha256:jpeg").unwrap();
+        let kept = assets.images.get("sha256:jpeg").unwrap();
+        assert!(
+            std::ptr::eq(picture.jpeg.as_ref().unwrap().bytes.data().as_ptr(), kept.data().as_ptr()),
+            "one copy of the file"
+        );
+    }
+
+    /// Decoded pictures stay under their budget: those the last two frames named are kept however
+    /// many, and the rest go, the least lately drawn first, to be decoded again when drawn again,
+    /// the same pixels (lift-up STAB-3).
+    #[test]
+    fn decoded_pictures_stay_under_their_budget() {
+        let mut assets = Assets::new();
+        // Four 4 × 4 pictures, each 16 pixels, under a budget of 32.
+        let pixels = |i: u8| (0..16).flat_map(|_| [i * 40, 10, 20, 255]).collect::<Vec<u8>>();
+        for i in 0..4 {
+            assets
+                .insert_image(
+                    &format!("sha256:{i}"),
+                    &png(png::ColorType::Rgba, png::BitDepth::Eight, 4, &pixels(i), None),
+                )
+                .unwrap();
+        }
+        assets.decoded_budget(32);
+        let kept =
+            |assets: &Assets| assets.made.lock().unwrap().decoded.iter().map(|(n, ..)| n.clone()).collect::<Vec<_>>();
+        assets.frame();
+        let first: Vec<_> = (0..4).map(|i| assets.image(&format!("sha256:{i}")).unwrap()).collect();
+        assert_eq!(kept(&assets).len(), 4, "one frame names all four: all kept");
+        assets.frame();
+        assets.frame();
+        assert!(Arc::ptr_eq(&first[3], &assets.image("sha256:3").unwrap()), "kept until let go");
+        assets.image("sha256:2").unwrap();
+        assert_eq!(kept(&assets), ["sha256:3", "sha256:2"], "two frames on, the rest go: {:?}", kept(&assets));
+        let again = assets.image("sha256:0").unwrap();
+        assert!(!Arc::ptr_eq(&first[0], &again), "decoded again once let go");
+        assert_eq!(first[0].rgba.data(), again.rgba.data(), "the same pixels");
+        assert_eq!(first[0].rgba.data()[..4], [0, 10, 20, 255]);
     }
 }
 
@@ -777,18 +919,28 @@ pub mod cpu {
     }
 
     /// What one frame of a [`CpuPainter`] leaves for the next: its render context, reset and
-    /// drawn into again while frames keep their size and SIMD level. A frame then allocates
-    /// little besides its pixels, where a new context allocated its tiles, strips, and
-    /// coverage each time, and grew them again as the frame filled them. A context reset
-    /// paints the same bytes as a new one.
+    /// drawn into again while frames keep their size and SIMD level, and `vello_cpu`'s
+    /// resources, which hold the glyph outlines a frame prepared (lift-up PERF-1). A frame
+    /// then allocates little besides its pixels, where a new context allocated its tiles,
+    /// strips, and coverage each time, and grew them again as the frame filled them; and the
+    /// glyphs it draws that the last frames drew, at the same size in the same font, are drawn
+    /// from their outlines as prepared then, which `vello_cpu` lets go once a glyph has gone
+    /// unused for 64 frames. The outlines are only the font's own, so a context reset and a
+    /// cache full of them paint the same bytes as a new context and an empty cache: the
+    /// torture goldens hold the painter to it.
     #[derive(Default)]
     pub struct Kept {
         ctx: Option<RenderContext>,
+        /// `vello_cpu`'s resources: one set for the painter, as it asks, whose glyph cache
+        /// serves every frame. A picture is drawn from its own pixmap, not registered in it,
+        /// so nothing else gathers there.
+        resources: Resources,
     }
 
     impl Kept {
-        /// A context `width` × `height` at `level`, reset: the one kept, where it is that.
-        fn context(&mut self, width: u16, height: u16, level: Level) -> &mut RenderContext {
+        /// A context `width` × `height` at `level`, reset: the one kept, where it is that; and
+        /// the resources, as they are.
+        fn frame(&mut self, width: u16, height: u16, level: Level) -> (&mut RenderContext, &mut Resources) {
             let fits = self.ctx.as_ref().is_some_and(|ctx| {
                 let same = std::mem::discriminant(&ctx.render_settings().level) == std::mem::discriminant(&level);
                 ctx.width() == width && ctx.height() == height && same
@@ -799,7 +951,7 @@ pub mod cpu {
             let settings = RenderSettings { level, ..Default::default() };
             let ctx = self.ctx.get_or_insert_with(|| RenderContext::new_with(width, height, settings));
             ctx.reset();
-            ctx
+            (ctx, &mut self.resources)
         }
     }
 
@@ -862,22 +1014,17 @@ pub mod cpu {
             let (width, height) = raster(dl, scale)?;
             let mut pixels = pixels.into_iter();
             let shaded: Vec<_> = jobs.into_iter().map(|job| Some((job?.bbox(), pixels.next()?))).collect();
-            let ctx = self.kept.context(width, height, self.level);
-            let mut resources = Resources::new();
+            let (ctx, resources) = self.kept.frame(width, height, self.level);
             let shaded = shaded.into_iter();
             fonts.frame();
-            let mut cx = Cx { ctx: &mut *ctx, resources: &mut resources, store: fonts, fonts: &dl.fonts, shaded };
+            let mut cx = Cx { ctx: &mut *ctx, resources: &mut *resources, store: fonts, fonts: &dl.fonts, shaded };
             cx.ops(&dl.ops, Affine::scale(f64::from(scale)))?;
             ctx.flush();
             // The frame's pixels, zeroed as `Pixmap::new` zeroes them, but by the allocator:
             // the frame covers the buffer, so packing draws every pixel over it.
             let mut rgba = vec![0u8; usize::from(width) * usize::from(height) * 4];
             let target = PixmapMut::new(width, height, &mut rgba).expect("a buffer of the frame's size");
-            ctx.render_with(
-                target,
-                &mut resources,
-                RasterizerSettings { render_mode: self.mode, ..Default::default() },
-            );
+            ctx.render_with(target, resources, RasterizerSettings { render_mode: self.mode, ..Default::default() });
             unpremultiply(&mut rgba);
             Ok(Raster { width: u32::from(width), height: u32::from(height), rgba })
         }
@@ -1053,6 +1200,46 @@ pub mod cpu {
                     assert_eq!(raster.pixel(x, y), [0; 4], "outside ({x},{y}) at {level:?}");
                 }
             }
+        }
+
+        /// A frame's glyph outlines serve the frames after it (lift-up PERF-1): the painter
+        /// keeps `vello_cpu`'s resources, so the outlines a frame prepared are still cached
+        /// once it is painted, and still there after a frame that draws no glyph, where a
+        /// painter that made the resources anew for each frame let them go with it.
+        #[test]
+        fn glyph_outlines_prepared_for_a_frame_serve_the_next() {
+            use scaena_core::displaylist::{FontRef, Glyph};
+            const FONT: &str =
+                concat!(env!("CARGO_MANIFEST_DIR"), "/../../tests/fixtures/torture.scaena/fonts/EBGaramond-VF.ttf");
+            let mut store = Assets::new();
+            store.insert_font("fonts/EBGaramond-VF.ttf", std::fs::read(FONT).unwrap());
+            let mut dl = DisplayList::new([64.0, 32.0]);
+            let font = dl.font(FontRef { id: "fonts/EBGaramond-VF.ttf".into(), index: 0 });
+            dl.ops.push(Op::Glyphs {
+                font,
+                size: 16.0,
+                coords: Vec::new(),
+                paint: Paint::Solid(Color([0, 0, 0, 255])),
+                text: "abc".into(),
+                glyphs: (0..3).map(|i| Glyph { id: 68 + i, x: 4.0 + 12.0 * i as f32, y: 20.0 }).collect(),
+                clusters: Vec::new(),
+            });
+            // `vello_cpu` keeps its count to itself; its `Debug` says it.
+            let cached = |painter: &CpuPainter| {
+                let said = format!("{:?}", painter.kept.resources);
+                let after = &said[said.find("static_map: ").expect("the outline cache's count") + 12..];
+                after[..after.find(|c: char| !c.is_ascii_digit()).unwrap_or(after.len())].parse::<usize>().unwrap()
+            };
+            let mut painter = CpuPainter::default();
+            assert_eq!(cached(&painter), 0);
+            let first = painter.paint(&dl, &store, 1.0).unwrap();
+            assert_eq!(cached(&painter), 3, "the frame's three glyphs, prepared once");
+            painter.paint(&DisplayList::new([64.0, 32.0]), &store, 1.0).unwrap();
+            assert_eq!(cached(&painter), 3, "kept through a frame that draws none");
+            let again = painter.paint(&dl, &store, 1.0).unwrap();
+            assert_eq!(cached(&painter), 3, "drawn from the outlines prepared, not prepared again");
+            assert!(again.rgba == first.rgba, "the cached outlines paint the bytes the first frame painted");
+            assert!(first.rgba.chunks(4).any(|p| p[3] != 0), "the glyphs inked something");
         }
 
         /// The painter's unpremultiply is vello's own, byte for byte: every alpha against

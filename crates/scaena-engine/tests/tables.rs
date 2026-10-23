@@ -240,3 +240,42 @@ fn rows_move_by_key_when_the_order_changes() {
     assert_eq!(now.len(), 1, "one Asia Pacific, moving, not two fading: {now:?}");
     assert!(to < now[0].0 && now[0].0 < from && now[0].1 == 1.0, "{now:?}");
 }
+
+/// A sheet of thousands of rows pasted as a table (PLAN 2.96) is refused in the time its
+/// first rows take to shape, not after every cell is: its rows are set until they pass
+/// the cell, one row past, and the rest counted (lift-up STAB-4). Lint lays out the same
+/// rows and counts them all.
+#[test]
+fn a_table_of_thousands_of_rows_is_refused_in_milliseconds() {
+    let rows: Vec<Value> =
+        (0..4000).map(|i| json!({ "region": format!("Region {i}"), "rev": i * 10, "growth": 0.01 })).collect();
+    let d = deck(Value::Array(rows), json!([{ "id": "s", "layout": "specimen", "props": { "t": {} } }]));
+    let snap = &scaena_core::resolve_states(&d).unwrap()[0];
+    let (theme, mut fonts, mut text, data) = (theme(), fonts(&d), TextEngine::new(), DataFiles::new());
+    let mut cx =
+        Ctx { text: &mut text, fonts: &mut fonts, theme: &theme, deck: &d, data: &data, colors: &[], lenient: false };
+    let started = std::time::Instant::now();
+    let err = tables::compile(&mut cx, &snap.nodes["t"], [1600.0, 600.0]).unwrap_err().to_string();
+    let took = started.elapsed();
+    assert!(err.contains("table shows 4000 rows in"), "{err}");
+    assert!(err.contains("\"limit\""), "{err}");
+    assert!(took < std::time::Duration::from_secs(1), "{took:?} to refuse 4000 rows");
+    // Lint lays out the rows that reach the cell's foot and the one past it, no more.
+    cx.lenient = true;
+    let t = tables::compile(&mut cx, &snap.nodes["t"], [1600.0, 600.0]).unwrap();
+    let why = t.overflow.as_deref().unwrap();
+    assert!(why.contains("table shows 4000 rows in"), "{why}");
+    let last = t.bands.last().unwrap().1;
+    assert!(t.bands.len() < 100 && last[1] <= 600.5 && last[1] + last[3] > 600.0, "{} rows set", t.bands.len());
+    assert_eq!(t.rows.len(), t.bands.len());
+    // A key that repeats among them is still refused.
+    let mut twice: Vec<Value> =
+        (0..4000).map(|i| json!({ "region": format!("Region {i}"), "rev": i, "growth": 0.0 })).collect();
+    twice[3999]["region"] = json!("Region 7");
+    let d = deck(Value::Array(twice), json!([{ "id": "s", "layout": "specimen", "props": { "t": {} } }]));
+    let snap = &scaena_core::resolve_states(&d).unwrap()[0];
+    let mut cx =
+        Ctx { text: &mut text, fonts: &mut fonts, theme: &theme, deck: &d, data: &data, colors: &[], lenient: false };
+    let err = tables::compile(&mut cx, &snap.nodes["t"], [1600.0, 600.0]).unwrap_err().to_string();
+    assert!(err.contains("row key `Region 7` repeats"), "{err}");
+}
