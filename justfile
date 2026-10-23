@@ -258,6 +258,7 @@ web-smoke: site
     node web/strip.mjs
     node web/slides.mjs
     node web/storage.mjs
+    node web/panic.mjs
     node web/recovery.mjs
     node web/assistant.mjs
     node web/writing.mjs
