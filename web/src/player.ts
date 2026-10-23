@@ -577,6 +577,8 @@ async function play(deck: Source, how: Play, channel: BroadcastChannel) {
     const link = await stage.linkAt(slots[index].state, at, format()).catch(() => undefined);
     if (!link) return false;
     if ("href" in link) {
+      // Only a web address, as the engine draws one (`scaena_core::links`, lift-up SEC-2).
+      if (!/^(https?:\/\/|mailto:)\S+$/.test(link.href)) return false;
       open(link.href, "_blank", "noopener");
       return true;
     }

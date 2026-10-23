@@ -80,8 +80,10 @@ import type { Stage } from "./stage";
 import { covered, paragraphs, type Selected, typing } from "./typing";
 import { an, findings, fractions, inserting as insertSaid, named, object, reaching, sentence, source as sourceSaid } from "./words";
 
-/** `text` as SVG holds it: the words of a slot's prompt (PLAN 3.30). */
-const escaped = (text: string) => text.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]!);
+/** `text` as SVG holds it, as text or in a quoted attribute: the words of a slot's prompt (PLAN 3.30), and
+ * a slot's name, which a theme writes as it likes (lift-up SEC-1). */
+const escaped = (text: string) =>
+  text.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
 
 /** What the canvas answers that no command runs by name (PLAN 2.65): the pointer's gestures and the
  * keys held with them, and the keys that move what is selected. The keys sheet lists them with the
@@ -1349,8 +1351,9 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       for (const slot of slotting.layout.slots) {
         const r = slotDrag?.slot.name === slot.name ? slotDrag.rect : slot.rect;
         const keyedHere = slotting.layout.slots[slotKeyed ?? -1]?.name === slot.name ? " keyed" : "";
-        parts.push(rect(r, (slot.own ? "layout-slot own" : "layout-slot") + keyedHere, ` data-slot="${slot.name}"`));
-        parts.push(`<text class="slot-name" x="${r[0] + 8 * u}" y="${r[1] + 18 * u}" font-size="${13 * u}">${slot.name}</text>`);
+        const name = escaped(slot.name);
+        parts.push(rect(r, (slot.own ? "layout-slot own" : "layout-slot") + keyedHere, ` data-slot="${name}"`));
+        parts.push(`<text class="slot-name" x="${r[0] + 8 * u}" y="${r[1] + 18 * u}" font-size="${13 * u}">${name}</text>`);
         if (slotDrag) continue;
         const [x, y, w, h] = r;
         const s = 7 * u;
@@ -1360,7 +1363,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
         };
         for (const edge of EDGES) {
           const [cx, cy] = spot[edge];
-          parts.push(rect([cx - s / 2, cy - s / 2, s, s], "handle slot-handle", ` data-slot="${slot.name}" data-slot-edge="${edge}" style="cursor:${CURSORS[edge]}-resize"`));
+          parts.push(rect([cx - s / 2, cy - s / 2, s, s], "handle slot-handle", ` data-slot="${name}" data-slot-edge="${edge}" style="cursor:${CURSORS[edge]}-resize"`));
         }
       }
       if (slotDrag?.landed) parts.push(rect(slotDrag.landed.rect, "landing"));

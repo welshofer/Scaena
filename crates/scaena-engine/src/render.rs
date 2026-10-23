@@ -22,7 +22,7 @@ use crate::shapes::ShapeNode;
 use crate::tables;
 use crate::text::{GRID_EPSILON, ListMark, Span, TextAlign, TextEngine, TextLayout, TextSpec};
 use crate::theme::{Numeric, TextBox, Theme, Wrap};
-use scaena_core::displaylist::{Color, DisplayList, LinkTarget, Rect};
+use scaena_core::displaylist::{Color, DisplayList, Rect};
 use scaena_core::document::{NodeType, Props};
 use scaena_core::model::Format;
 use scaena_core::model::nodes::TextFit;
@@ -1403,11 +1403,7 @@ fn text_spec(deck: &Deck, theme: &Theme, props: &Props, slot_role: Option<&str>)
                     Some(name) => theme.text_role(name).map(|r| (r.weight, r.italic))?,
                     None => (role.weight, role.italic),
                 };
-                let link = run.get("link").and_then(|l| match (l.get("href"), l.get("state")) {
-                    (Some(Value::String(href)), _) => Some(LinkTarget::Href(href.clone())),
-                    (_, Some(Value::String(state))) => Some(LinkTarget::State(state.clone())),
-                    _ => None,
-                });
+                let link = run.get("link").and_then(scaena_core::links::target);
                 let mut style = cascade::run_role(theme, &role, run)?;
                 if code.is_some() {
                     style.case = None;

@@ -15,8 +15,7 @@
 //   names each link and where it goes.
 // - axe-core finds nothing in the player on the case.
 // Exits 1 on any failure.
-import { createRequire } from "node:module";
-import { launch, serve } from "./serve.mjs";
+import { axeInto, launch, serve } from "./serve.mjs";
 
 const failures = [];
 const check = (ok, what) => {
@@ -24,7 +23,6 @@ const check = (ok, what) => {
   if (!ok) failures.push(what);
 };
 
-const axe = createRequire(import.meta.url).resolve("axe-core/axe.min.js");
 const site = await serve();
 const browser = await launch();
 try {
@@ -203,7 +201,7 @@ try {
     .then(() => player.evaluate(() => document.querySelector('#reading [data-node="link-text"]').innerHTML))
     .catch(() => "");
   check(reading.includes('<a href="https://example.com/scaena/method">') && reading.includes('data-state="shapes" title="To Shapes, in this deck"'), `the reading names each link and where it goes: ${reading}`);
-  await player.addScriptTag({ path: axe });
+  await axeInto(player);
   const violations = await player.evaluate(async () => {
     const result = await window.axe.run(document, { runOnly: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] });
     return result.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(" ")).join(", ")}`);
