@@ -43,7 +43,7 @@ import {
 } from "@codemirror/commands";
 import { syntaxHighlighting } from "@codemirror/language";
 import { type Diagnostic, forceLinting, lintGutter, lintKeymap, linter, nextDiagnostic, openLintPanel, previousDiagnostic, setDiagnostics } from "@codemirror/lint";
-import { Compartment, EditorState, MapMode, StateEffect } from "@codemirror/state";
+import { Compartment, EditorState, MapMode, StateEffect, Transaction } from "@codemirror/state";
 import {
   drawSelection,
   EditorView,
@@ -1982,7 +1982,10 @@ async function edit(source: Source, opened?: Stage) {
     copied = new Map();
     where = done.where;
     name = done.where.name;
-    view.dispatch({ changes: change(view.state.doc.toString(), renamedIn(view.state.doc.toString(), done.renamed)) });
+    // The paths the save renamed, renamed in the source: no step to undo, since the files are named
+    // so now, and an undo after the save takes back the edit before it, not them (#414).
+    const renamed = change(view.state.doc.toString(), renamedIn(view.state.doc.toString(), done.renamed));
+    view.dispatch({ changes: renamed, annotations: Transaction.addToHistory.of(false) });
     // The folder keeps the deck's source too: it is what the editor shows, renamed as the save
     // renamed files.
     if (scnOnDisk) {
