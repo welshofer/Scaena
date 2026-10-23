@@ -4,6 +4,7 @@
 // Playwright and its Chromium, as crates/scaena-wasm/www/smoke.mjs does; `playwright`
 // resolves as `require` does, so a global install works with NODE_PATH.
 import { createServer } from "node:http";
+import { readFileSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { extname, join, normalize } from "node:path";
@@ -35,6 +36,13 @@ export async function serve(root = process.cwd(), { at = "/", more = {}, seen, i
   }).listen(0, "127.0.0.1");
   await new Promise((ok) => server.once("listening", ok));
   return { origin: `http://127.0.0.1:${server.address().port}`, close: () => server.close() };
+}
+
+/** axe-core put into `page`, as a script tag would put it, for a walk to run (WCAG 2.1 AA): by
+ * DevTools, since the pages' Content-Security-Policy refuses a script written into them (lift-up
+ * SEC-4), as it should. */
+export function axeInto(page) {
+  return page.evaluate(readFileSync(createRequire(import.meta.url).resolve("axe-core/axe.min.js"), "utf8"));
 }
 
 /** Headless Chromium with WebGPU, which leaves WebGPU canvases blank unless its compositor

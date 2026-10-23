@@ -13,8 +13,7 @@
 //   its box, no handle for it stands in the picture's middle, and a drag from there moves it.
 // - axe-core finds nothing with the handles shown, and the keys sheet lists the gestures.
 // Exits 1 on any failure.
-import { createRequire } from "node:module";
-import { launch, serve } from "./serve.mjs";
+import { axeInto, launch, serve } from "./serve.mjs";
 
 const failures = [];
 const check = (ok, what) => {
@@ -22,7 +21,6 @@ const check = (ok, what) => {
   if (!ok) failures.push(what);
 };
 
-const axe = createRequire(import.meta.url).resolve("axe-core/axe.min.js");
 const site = await serve();
 const browser = await launch();
 try {
@@ -105,7 +103,7 @@ try {
   const cover = await choose("image-cover");
   check(cover?.fit === "cover" && JSON.stringify(cover.crop) === "[0,0,1,1]", `the image's framing: ${JSON.stringify(cover)}`);
   check((await page.locator("#overlay svg [data-crop]").count()) === 4 && (await page.locator("#overlay svg .handle.focal").count()) === 1, "a crop handle inside each side, and the focal point");
-  await page.addScriptTag({ path: axe });
+  await axeInto(page);
   const found = await page.evaluate(async () => {
     const result = await window.axe.run(document, { runOnly: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] });
     return result.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(" ")).join(", ")}`);

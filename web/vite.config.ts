@@ -70,6 +70,50 @@ const bundles: Plugin = {
   },
 };
 
+/** What the player's and the editor's pages may load and run (lift-up SEC-4): a Content-Security-Policy
+ * written into each page the build writes, as the single file's page carries its own
+ * (`standalone.html`).
+ * - Scripts are the site's own files and the engine's WebAssembly, never one written into a page, so
+ *   a deck's words or a theme's names that slip into markup run nothing. Workers are the site's,
+ *   or a `blob:`.
+ * - Styles may be inline: the pages and the overlay set them on what they draw.
+ * - Pictures and fonts are the site's, or made in the page (`data:`, `blob:`).
+ * - `connect-src` is the site, `data:` and `blob:`, and any HTTPS host. The assistant's providers
+ *   alone (api.anthropic.com, api.openai.com, generativelanguage.googleapis.com) would not do: a
+ *   deck opens from any address that answers CORS (`?bundle=`), and a deck made from a prompt reads
+ *   the pages, repositories, and maps its sources name (`scaena_sources::fetch`, Geoapify). So the
+ *   policy keeps a script from running; it does not keep one that runs from reaching a host.
+ * - Nothing else: no plugins, no frames, no `<base>`, no form posted.
+ * The development server goes without, as its client writes scripts of its own. */
+const policy = [
+  "default-src 'self'",
+  "script-src 'self' 'wasm-unsafe-eval'",
+  "worker-src 'self' blob:",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob:",
+  "font-src 'self' data: blob:",
+  "media-src 'self' data: blob:",
+  "connect-src 'self' data: blob: https:",
+  "manifest-src 'self'",
+  "object-src 'none'",
+  "frame-src 'none'",
+  "base-uri 'none'",
+  "form-action 'none'",
+].join("; ");
+
+const secured: Plugin = {
+  name: "scaena-content-security-policy",
+  apply: "build",
+  transformIndexHtml: {
+    order: "pre",
+    handler: (html) => {
+      const charset = '<meta charset="utf-8" />';
+      if (!html.includes(charset)) throw new Error(`a page with no \`${charset}\` to write the policy after`);
+      return html.replace(charset, `${charset}\n    <meta http-equiv="Content-Security-Policy" content="${policy}" />`);
+    },
+  },
+};
+
 /** The site, installed (PLAN 2.73): `sw.js`, a service worker that keeps every file the build
  * writes, so the pages, the engine, and each module they load later work with no network; and the
  * web app manifest and its icon, by which a browser installs the site. The pages register it only
@@ -180,7 +224,7 @@ async function answer(request) {
 export default defineConfig({
   // Relative paths: the build plays from any directory.
   base: "./",
-  plugins: [thumbnails, bundles, singleFile, offline],
+  plugins: [thumbnails, bundles, singleFile, secured, offline],
   // The WASM engine and its glue, as `just wasm` builds them (PLAN 0.8); the font subsetter,
   // which the worker loads only to download a bundle (PLAN 2.4); the history, which it loads
   // only to save a bundle that keeps one (PLAN 2.9); and the assistant, with what it reads,

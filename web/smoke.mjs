@@ -39,6 +39,33 @@ try {
     console.log(`${painter}: frames painted in ${ms[0].toFixed(1)}–${ms.at(-1).toFixed(1)} ms, median ${ms[ms.length >> 1].toFixed(1)}`);
     await page.close();
   }
+  // Each page carries the build's Content-Security-Policy (lift-up SEC-4): it opens and draws as
+  // above, with no violation, and a script written into the page runs nothing.
+  for (const page of ["", "editor.html"]) {
+    const tab = await browser.newPage();
+    const violations = [];
+    tab.on("console", (m) => m.type() === "error" && !m.text().includes("Content Security Policy") && failures.push(`${page || "player"}: console: ${m.text()}`));
+    tab.on("pageerror", (e) => failures.push(`${page || "player"}: ${e.message}`));
+    await tab.exposeFunction("violated", (v) => violations.push(v));
+    await tab.addInitScript(() => document.addEventListener("securitypolicyviolation", (e) => window.violated(`${e.violatedDirective} ${e.blockedURI}`)));
+    await tab.goto(`${server.origin}/web/dist/${page}?painter=cpu&bundle=/tests/fixtures/torture.scaena/deck.json`);
+    await tab.waitForFunction(() => window.scaena?.painter || window.scaena?.last?.()?.valid, null, { timeout: 120000 }).catch(() => {});
+    const policy = await tab.evaluate(() => document.querySelector('meta[http-equiv="Content-Security-Policy"]')?.content ?? "");
+    if (!/script-src 'self' 'wasm-unsafe-eval'(;|$)/.test(policy)) failures.push(`${page || "player"}: no policy that keeps scripts to the site's: ${policy}`);
+    if (violations.length) failures.push(`${page || "player"}: the policy refused what the page loads: ${violations.join(", ")}`);
+    const ran = await tab.evaluate(async () => {
+      const s = Object.assign(document.createElement("script"), { textContent: "window.written = 1" });
+      document.body.append(s);
+      const img = Object.assign(document.createElement("img"), { src: "data:,", onerror: null });
+      img.setAttribute("onerror", "window.written = 2");
+      document.body.append(img);
+      await new Promise((r) => setTimeout(r, 200));
+      return window.written;
+    });
+    if (ran !== undefined) failures.push(`${page || "player"}: a script written into the page ran (${ran})`);
+    else console.log(`${page || "player"}: the policy holds, and refuses a script written into the page`);
+    await tab.close();
+  }
 } catch (e) {
   failures.push(String(e));
 } finally {
