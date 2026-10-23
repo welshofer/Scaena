@@ -26,15 +26,39 @@ public struct Keychain: Sendable {
 
     private static let geoapifyAccount = "geoapify"
 
+    /// The key kept under `account`. One kept before in a Mac's file-based keychain moves to the
+    /// data-protection keychain the first time it is read, where this process may keep it there;
+    /// one kept before readable on another device, or while the device is locked, is narrowed.
     private func read(_ account: String) -> String? {
-        var query = item(account)
+        if let found = copy(item(account)) {
+            if found.accessible != Self.accessible as String {
+                let narrowed = [kSecAttrAccessible as String: Self.accessible]
+                SecItemUpdate(item(account) as CFDictionary, narrowed as CFDictionary)
+            }
+            return found.key
+        }
+        guard let key = copy(legacy(account))?.key else { return nil }
+        var moved = item(account)
+        moved[kSecValueData as String] = Data(key.utf8)
+        moved[kSecAttrAccessible as String] = Self.accessible
+        if SecItemAdd(moved as CFDictionary, nil) == errSecSuccess {
+            SecItemDelete(legacy(account) as CFDictionary)
+        }
+        return key
+    }
+
+    /// The key `query` finds, and how it may be read.
+    private func copy(_ query: [String: Any]) -> (key: String, accessible: String?)? {
+        var query = query
         query[kSecReturnData as String] = true
+        query[kSecReturnAttributes as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         var found: CFTypeRef?
-        guard SecItemCopyMatching(query as CFDictionary, &found) == errSecSuccess, let data = found as? Data else {
-            return nil
-        }
-        return String(data: data, encoding: .utf8)
+        guard SecItemCopyMatching(query as CFDictionary, &found) == errSecSuccess,
+            let attributes = found as? [String: Any], let data = attributes[kSecValueData as String] as? Data,
+            let key = String(data: data, encoding: .utf8)
+        else { return nil }
+        return (key, attributes[kSecAttrAccessible as String] as? String)
     }
 
     /// Keep `key` for `provider`, in place of any kept; none, or an empty one, takes it away.
@@ -45,21 +69,49 @@ public struct Keychain: Sendable {
     }
 
     private func write(_ key: String?, account: String, label: String, about: String) throws {
-        let gone = SecItemDelete(item(account) as CFDictionary)
-        guard gone == errSecSuccess || gone == errSecItemNotFound else { throw refusal(gone) }
+        for query in [item(account), legacy(account)] {
+            let gone = SecItemDelete(query as CFDictionary)
+            guard gone == errSecSuccess || gone == errSecItemNotFound || gone == errSecMissingEntitlement else {
+                throw refusal(gone)
+            }
+        }
         guard let key, !key.isEmpty else { return }
         var added = item(account)
         added[kSecValueData as String] = Data(key.utf8)
         added[kSecAttrLabel as String] = label
         added[kSecAttrDescription as String] = about
-        let status = SecItemAdd(added as CFDictionary, nil)
+        added[kSecAttrAccessible as String] = Self.accessible
+        var status = SecItemAdd(added as CFDictionary, nil)
+        if status == errSecMissingEntitlement {
+            // A Mac build signed without a keychain group (ad hoc, or `swift test`) has no
+            // data-protection keychain: the key is kept in the file-based one, as before.
+            var kept = legacy(account)
+            kept[kSecValueData as String] = Data(key.utf8)
+            kept[kSecAttrLabel as String] = label
+            kept[kSecAttrDescription as String] = about
+            status = SecItemAdd(kept as CFDictionary, nil)
+        }
         guard status == errSecSuccess else { throw refusal(status) }
     }
 
     /// The providers a key is kept for.
     public var providers: [Provider] { Provider.allCases.filter { key(for: $0) != nil } }
 
+    /// How a key may be read: only while the device is unlocked, and never on another device, so
+    /// no backup or sync carries it off.
+    private static var accessible: CFString { kSecAttrAccessibleWhenUnlockedThisDeviceOnly }
+
+    /// A key's item in the data-protection keychain, the iPad's and, where the app is signed for
+    /// it, the Mac's: readable by this app alone, unlike the Mac's file-based keychain.
     private func item(_ account: String) -> [String: Any] {
+        var item = legacy(account)
+        item[kSecUseDataProtectionKeychain as String] = true
+        return item
+    }
+
+    /// A key's item wherever the Keychain looks by default: on a Mac, the file-based keychain,
+    /// where a key was kept before.
+    private func legacy(_ account: String) -> [String: Any] {
         [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
