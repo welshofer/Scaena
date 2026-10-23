@@ -308,6 +308,14 @@ public final class ScaenaChat {
         try step("request", ["key": .string(key)])
     }
 
+    /// The answer as it is written (narrative ATTR-3): `chunk`, the next piece of the body the
+    /// client reads, in whatever pieces the network hands it; the words it completes, for the
+    /// window to show. `answer` then reads the body whole.
+    public func heard(_ chunk: String) throws -> String {
+        let said: JSONValue = try step("heard", ["chunk": .string(chunk)])
+        return said["text"]?.string ?? ""
+    }
+
     /// Read the answer to `request`: what comes next. A provider's refusal is thrown, and the
     /// conversation is as it was.
     public func answer(status: Int, body: String) throws -> Next {

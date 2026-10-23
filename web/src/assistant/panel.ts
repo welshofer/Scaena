@@ -263,10 +263,23 @@ export function panel(stage: Stage, editor: Editor): Panel {
    * there were then (PLAN 2.93). */
   let drawn = new Map<string, Drawing>();
   let were = new Set<string>();
+  /** What the model is saying, as it is written: the entry its words go into until they are whole. */
+  let saying: HTMLElement | undefined;
   function hear(event: AssistantEvent) {
     switch (event.kind) {
-      case "text":
-        return void entry("said", event.text);
+      case "saying": {
+        saying ??= entry("said");
+        saying.append(event.text);
+        saying.scrollIntoView({ block: "end" });
+        return;
+      }
+      case "text": {
+        // Said whole: the words as they were written, in their place, or in a new entry.
+        const li = saying ?? entry("said");
+        saying = undefined;
+        li.textContent = event.text;
+        return;
+      }
       case "call": {
         const li = entry("call");
         // What the call does, in a person's words; the tool and what it was given, opened.

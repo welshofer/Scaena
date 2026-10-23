@@ -63,6 +63,93 @@ private func answering(_ text: String) -> String {
     #expect(try chat.conversation() == .array([]))
 }
 
+/// Anthropic's answer `text`, as it streams it: each word its own event, so a window shows them
+/// as they are written (narrative ATTR-3).
+private func streaming(_ text: String) -> [String] {
+    var events = [
+        #"event: message_start\#ndata: {"type": "message_start", "message": {"id": "msg_1", "type": "message", "role": "assistant", "content": [], "usage": {"input_tokens": 10, "output_tokens": 0}}}\#n\#n"#,
+        #"event: content_block_start\#ndata: {"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": ""}}\#n\#n"#,
+    ]
+    for word in text.split(separator: " ", omittingEmptySubsequences: false).enumerated() {
+        let piece = (word.offset == 0 ? "" : " ") + word.element
+        events.append(#"event: content_block_delta\#ndata: {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "\#(piece)"}}\#n\#n"#)
+    }
+    events += [
+        #"event: content_block_stop\#ndata: {"type": "content_block_stop", "index": 0}\#n\#n"#,
+        #"event: message_delta\#ndata: {"type": "message_delta", "delta": {"stop_reason": "end_turn"}, "usage": {"output_tokens": 2}}\#n\#n"#,
+        #"event: message_stop\#ndata: {"type": "message_stop"}\#n\#n"#,
+    ]
+    return events
+}
+
+/// An answer streamed is read as one sent whole (narrative ATTR-3): the words each piece
+/// completes come out as it is fed, and `answer` reads the body assembled.
+@Test func aStreamedAnswerReadsAsOneSentWhole() throws {
+    let session = try ScaenaSession(directory: b1)
+    let chat = try ScaenaChat(provider: .anthropic, model: "a-model")
+    try chat.ask("Is it clean?", on: session)
+    _ = try chat.request(key: "sk-test")
+    let events = streaming("The cover is clean.")
+    var heard: [String] = []
+    // Fed in pieces that cut events mid-way: a line, then the rest.
+    let body = events.joined()
+    let cut = body.index(body.startIndex, offsetBy: 200)
+    heard.append(try chat.heard(String(body[..<cut])))
+    heard.append(try chat.heard(String(body[cut...])))
+    #expect(heard.joined() == "The cover is clean.", "\(heard)")
+    guard case .done(let said, let stop, let usage) = try chat.answer(status: 200, body: body) else {
+        Issue.record("the model answered")
+        return
+    }
+    #expect(said == "The cover is clean." && stop == "end")
+    #expect(usage == Usage(input: 10, output: 2))
+}
+
+/// The assistant shows the answer's words as they arrive (narrative ATTR-3): with the stream
+/// held after its first words, the conversation shows them before the answer is whole, and the
+/// whole answer stands in their place at the end.
+@MainActor
+@Test func theAssistantShowsTheAnswerAsItIsWritten() async throws {
+    let editor = DeckEditor(session: try ScaenaSession(directory: b1))
+    let events = streaming("The cover is clean.")
+    let seen = Seen()
+    let assistant = Assistant(editor: editor, send: { _ in (Data(), 0) }) { _, heard in
+        var whole = ""
+        for (i, event) in events.enumerated() {
+            whole += event
+            await heard(event)
+            // After the first word, what the window shows meanwhile.
+            if i == 2 { await seen.keep(await MainActor.run { said(assistant) }) }
+        }
+        return (Data(whole.utf8), 200)
+    }
+    assistant.ask("Is the cover clean?", provider: .anthropic, model: "a-model", key: "sk-test")
+    for _ in 0..<500 where assistant.working {
+        try await Task.sleep(for: .milliseconds(10))
+    }
+    #expect(!assistant.working)
+    #expect(await seen.kept == ["The"], "the first word shows before the rest is written")
+    #expect(said(assistant) == ["The cover is clean."], "the answer whole, in its place")
+    #expect(assistant.usage == Usage(input: 10, output: 2))
+}
+
+/// What the conversation shows the model as having said.
+@MainActor
+private func said(_ assistant: Assistant) -> [String] {
+    assistant.entries.compactMap { entry in
+        if case .said(let text) = entry.kind { text } else { nil }
+    }
+}
+
+/// What a test saw at one moment.
+private actor Seen {
+    private(set) var kept: [String] = []
+
+    func keep(_ seen: [String]) {
+        kept = seen
+    }
+}
+
 /// The models a key can use: the request, and the list its answer gives.
 @Test func aKeyListsItsModels() throws {
     let request = try Provider.openai.modelsRequest(key: "sk-test")

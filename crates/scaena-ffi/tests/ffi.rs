@@ -618,6 +618,27 @@ fn the_assistant_asks_with_the_users_key_and_runs_each_call_on_the_bundle() {
     assert_eq!(last["results"][1]["error"], true);
     assert!(last["results"][1]["json"].as_str().unwrap().contains("the user stopped the assistant"));
 
+    // An answer read as it is written (narrative ATTR-3): each piece fed gives the words it
+    // completes, and `answer` reads the whole body as one sent whole.
+    step(chat, s, "ask", json!({ "text": "Once more." }));
+    step(chat, null_mut(), "request", json!({ "key": "sk-test" }));
+    let events = "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"m\",\"role\":\"assistant\",\"content\":[],\"usage\":{\"input_tokens\":3}}}\n\n\
+                  event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n\
+                  event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"Once \"}}\n\n\
+                  event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"more.\"}}\n\n\
+                  event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":2}}\n\n";
+    let (first, rest) = events.split_at(events.find("more.").unwrap() - 40);
+    let heard = step(chat, null_mut(), "heard", json!({ "chunk": first }));
+    assert_eq!(heard["text"], "Once ", "{heard}");
+    let heard = step(chat, null_mut(), "heard", json!({ "chunk": rest }));
+    assert_eq!(heard["text"], "more.", "{heard}");
+    let next = step(chat, null_mut(), "answer", json!({ "status": 200, "body": events }));
+    assert_eq!(
+        next,
+        json!({ "next": "done", "text": "Once more.", "stop": "end", "usage": { "input": 3, "output": 2 } })
+    );
+    let conversation = step(chat, null_mut(), "conversation", Value::Null);
+
     // A provider's refusal is an error, and the conversation is as it was.
     let refused = stepped(
         chat,

@@ -30,10 +30,34 @@ public final class Assistant {
     /// How a request is made, and what it answered: its body and status.
     public typealias Send = @Sendable (URLRequest) async throws -> (Data, Int)
 
+    /// How a request is made whose answer is read as it is written (narrative ATTR-3): each
+    /// piece of the body handed to `heard` as it arrives, and the whole body and status at the end.
+    public typealias Stream = @Sendable (URLRequest, _ heard: @Sendable (String) async -> Void) async throws -> (Data, Int)
+
     /// A request made with `URLSession`, under the app's sandbox and the system's proxies.
     nonisolated public static let urlSession: Send = { request in
         let (data, response) = try await URLSession.shared.data(for: request)
         return (data, (response as? HTTPURLResponse)?.statusCode ?? 0)
+    }
+
+    /// A request made with `URLSession`, its answer read line by line as it arrives.
+    nonisolated public static let urlSessionStream: Stream = { request, heard in
+        let (bytes, response) = try await URLSession.shared.bytes(for: request)
+        var whole = Data()
+        var line = Data()
+        for try await byte in bytes {
+            line.append(byte)
+            if byte == 0x0A {
+                whole.append(line)
+                await heard(String(decoding: line, as: UTF8.self))
+                line.removeAll(keepingCapacity: true)
+            }
+        }
+        if !line.isEmpty {
+            whole.append(line)
+            await heard(String(decoding: line, as: UTF8.self))
+        }
+        return (whole, (response as? HTTPURLResponse)?.statusCode ?? 0)
     }
 
     public let editor: DeckEditor
@@ -54,13 +78,30 @@ public final class Assistant {
     @ObservationIgnored public var mapSend: Generator.Send = { await GeneratorReply.made($0) }
 
     private let send: Send
+    private let stream: Stream?
     @ObservationIgnored private var chat: ScaenaChat?
     @ObservationIgnored private var asking: Task<Void, Never>?
     @ObservationIgnored private var counted = 0
+    /// The entry the answer being written goes into, until it is whole (narrative ATTR-3).
+    @ObservationIgnored private var saying: Int?
 
-    public init(editor: DeckEditor, send: @escaping Send = Assistant.urlSession) {
+    /// The assistant on `editor`'s deck, its requests made by `stream`, which reads each answer as
+    /// it is written (narrative ATTR-3), else by `send`, which reads it whole: `URLSession`'s in
+    /// the app, a stand-in in a test.
+    public init(editor: DeckEditor, send: @escaping Send, stream: Stream?) {
         self.editor = editor
         self.send = send
+        self.stream = stream
+    }
+
+    /// The assistant on `editor`'s deck, as the app makes it: each answer read as it is written.
+    public convenience init(editor: DeckEditor) {
+        self.init(editor: editor, send: Assistant.urlSession, stream: Assistant.urlSessionStream)
+    }
+
+    /// The assistant on `editor`'s deck, each answer read whole by `send`: a test's stand-in.
+    public convenience init(editor: DeckEditor, send: @escaping Send) {
+        self.init(editor: editor, send: send, stream: nil)
     }
 
     /// Ask `text` of `model`, of `provider`'s, with `key`: begun with what the window shows. A
@@ -118,7 +159,8 @@ public final class Assistant {
             while true {
                 try Task.checkCancellation()
                 let request = try chat.request(key: key).urlRequest()
-                let (data, status) = try await send(request)
+                saying = nil
+                let (data, status) = try await answered(request, chat: chat)
                 try Task.checkCancellation()
                 let body = String(decoding: data, as: UTF8.self)
                 let next: Next
@@ -127,18 +169,19 @@ public final class Assistant {
                 } catch {
                     // A refusal, or an answer that does not read, said in a person's words (PLAN
                     // 3.18), never the provider's own: the conversation is as it was.
+                    unsaid()
                     add(.failed(Why.answered(chat.provider, status: status, body: body)))
                     return
                 }
                 switch next {
                 case .done(let text, let stop, let used):
                     count(used)
-                    if !text.isEmpty { add(.said(text)) }
+                    said(text)
                     add(.done(stop))
                     return
                 case .calls(let text, let calls, let used):
                     count(used)
-                    if !text.isEmpty { add(.said(text)) }
+                    said(text)
                     for (index, call) in calls.enumerated() {
                         // A call the user stopped before it ran is answered as stopped.
                         if Task.isCancelled { break }
@@ -240,8 +283,45 @@ public final class Assistant {
         }
     }
 
+    /// `request` made and its answer read: as it is written where the assistant streams, each
+    /// piece's words shown as they come (narrative ATTR-3); else whole.
+    private func answered(_ request: URLRequest, chat: ScaenaChat) async throws -> (Data, Int) {
+        guard let stream else { return try await send(request) }
+        return try await stream(request) { chunk in
+            await self.heard(chunk, chat: chat)
+        }
+    }
+
+    /// A piece of the answer, as it arrives: the words it completes shown in the entry the answer
+    /// is written into.
+    private func heard(_ chunk: String, chat: ScaenaChat) {
+        guard let words = try? chat.heard(chunk), !words.isEmpty else { return }
+        if let at = saying, case .said(let sofar) = entries[at].kind {
+            entries[at].kind = .said(sofar + words)
+        } else {
+            saying = add(.said(words))
+        }
+    }
+
+    /// The answer's words, whole: in the entry they were written into, or a new one.
+    private func said(_ text: String) {
+        defer { saying = nil }
+        if let at = saying {
+            if text.isEmpty { entries.remove(at: at) } else { entries[at].kind = .said(text) }
+        } else if !text.isEmpty {
+            add(.said(text))
+        }
+    }
+
+    /// The words written so far taken away: the answer did not read.
+    private func unsaid() {
+        if let at = saying { entries.remove(at: at) }
+        saying = nil
+    }
+
     /// A question stopped: every call of the last answer answered, as stopped where it never ran.
     private func settle(_ chat: ScaenaChat) {
+        saying = nil
         _ = try? chat.next()
         add(.done("stopped"))
     }
