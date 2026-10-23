@@ -856,14 +856,16 @@ impl Engine {
         let (text, fonts, lenient) = (&mut self.text, &mut self.fonts, self.lenient);
         let mut specs: HashMap<String, (TextSpec, TextBox)> = HashMap::new();
         // A table's size as content, set once whatever taffy asks: its columns across, its
-        // rows down, and whether it spans its cell.
+        // rows down, and whether it spans its cell. Its rows are set only until they pass
+        // the canvas, which no cell of it outreaches (STAB-4).
         let mut tables: HashMap<String, ([f32; 2], bool)> = HashMap::new();
+        let canvas = grid.canvas()[1];
         let mut measure = |id: &str, known: taffy::Size<Option<f32>>, available: taffy::Size<taffy::AvailableSpace>| {
             let props = &snap.nodes[id];
             if deck.nodes[id].node_type == NodeType::Table {
                 if !tables.contains_key(id) {
                     let mut cx = Ctx { text: &mut *text, fonts: &mut *fonts, theme, deck, data, colors: &[], lenient };
-                    let set = tables::set(&mut cx, props).map_err(|e| in_node(id, e))?;
+                    let set = tables::set(&mut cx, props, Some(canvas)).map_err(|e| in_node(id, e))?;
                     tables.insert(id.to_string(), ([set.width(), set.height()], set.stretches()));
                 }
                 let (content, stretch) = tables[id];
