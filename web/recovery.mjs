@@ -52,7 +52,9 @@ try {
   const source = () => page.evaluate(() => window.scaena.source());
   const where = () => page.evaluate(() => window.scaena.where());
   const status = () => page.locator("#status").textContent();
-  /** The copies the browser keeps: each directory under `recovery/`, its files, and its record. */
+  /** The copies the browser keeps: each directory under `recovery/`, its files, and its record. A
+   * save removes a copy while this reads it (`uncopied` polls as the save runs), so a directory
+   * gone mid-walk is no copy, not an error. */
   const copies = () =>
     page.evaluate(async () => {
       const root = await navigator.storage.getDirectory();
@@ -60,17 +62,21 @@ try {
       if (!all) return [];
       const out = [];
       for await (const [name, dir] of all.entries()) {
-        const files = [];
-        const walk = async (d, prefix) => {
-          for await (const [n, h] of d.entries()) {
-            if (h.kind === "directory") await walk(h, `${prefix}${n}/`);
-            else files.push(prefix + n);
-          }
-        };
-        await walk(dir, "");
-        const text = async (path) => (await (await dir.getFileHandle(path).catch(() => null))?.getFile())?.text();
-        const record = await text("copy.json");
-        out.push({ name, files: files.sort(), record: record ? JSON.parse(record) : null, source: await text("source.scn") });
+        try {
+          const files = [];
+          const walk = async (d, prefix) => {
+            for await (const [n, h] of d.entries()) {
+              if (h.kind === "directory") await walk(h, `${prefix}${n}/`);
+              else files.push(prefix + n);
+            }
+          };
+          await walk(dir, "");
+          const text = async (path) => (await (await dir.getFileHandle(path).catch(() => null))?.getFile())?.text();
+          const record = await text("copy.json");
+          out.push({ name, files: files.sort(), record: record ? JSON.parse(record) : null, source: await text("source.scn") });
+        } catch (e) {
+          if (e?.name !== "NotFoundError") throw e;
+        }
       }
       return out;
     });
