@@ -43,7 +43,7 @@ import {
 } from "@codemirror/commands";
 import { syntaxHighlighting } from "@codemirror/language";
 import { type Diagnostic, forceLinting, lintGutter, lintKeymap, linter, nextDiagnostic, openLintPanel, previousDiagnostic, setDiagnostics } from "@codemirror/lint";
-import { Compartment, EditorState, MapMode, StateEffect } from "@codemirror/state";
+import { Compartment, EditorState, MapMode, StateEffect, Transaction } from "@codemirror/state";
 import {
   drawSelection,
   EditorView,
@@ -228,7 +228,7 @@ function namedFor(source: Source): string {
   if ("opfs" in source) return source.opfs;
   if ("folder" in source) return source.folder.name;
   if ("create" in source) return `“${source.create.title}”`;
-  if ("files" in source) return source.name;
+  if ("files" in source || "recovered" in source) return source.name;
   return decodeURIComponent(new URL(source.url, location.href).pathname.replace(/\/$/, "").replace(/^.*\//, ""));
 }
 
@@ -526,6 +526,44 @@ async function edit(source: Source, opened?: Stage) {
   const dirty = () => filed !== filedSaved || (savedSource !== undefined && view.state.doc.toString() !== savedSource);
   /** The folder on disk the bundle is kept in, where the page has its handle. */
   let folderHandle: FileSystemDirectoryHandle | undefined = "folder" in source ? source.folder : undefined;
+  /** How many times the engine has been started again after a panic (lift-up STAB-2). */
+  let restarts = 0;
+  // The engine stopped on a panic, which wasm32 does not unwind from: the stage is started again
+  // in a fresh worker, from the bundle's files as the old one held them and the source as it
+  // stands here, kept where the bundle is kept, so Save still works; the state shown is shown
+  // again, and the person is told in plain words.
+  stage.onCrashed = (crash) => void restarted(crash);
+  async function restarted(crash: { message: string; files: Record<string, ArrayBuffer> }) {
+    const why = crash.message ? ` (${crash.message})` : "";
+    say(`The engine stopped on an error${why}: starting it again…`);
+    const kept =
+      where?.kind === "opfs"
+        ? { opfs: where.name }
+        : where?.kind === "folder" && folderHandle
+          ? { folder: folderHandle }
+          : where?.kind === "serve" && "url" in source && source.serve
+            ? { url: source.url, serve: source.serve }
+            : undefined;
+    try {
+      await stage.restart({ recovered: crash.files, name, kept });
+    } catch (e) {
+      say(`The engine stopped on an error${why}, and could not be started again: ${said(e)}. Download the deck to keep what you changed.`);
+      return;
+    }
+    restarts++;
+    // What the old worker held of the page: the part of the canvas shown, the formats beside it,
+    // the source it compiled, which showing the state shown and linting it again compiles in the
+    // fresh one, the words, and the thumbnails.
+    taken = undefined;
+    lexicon = undefined;
+    await board.restarted();
+    formatting.restarted();
+    const doc = view.state.doc;
+    const found = await lint(view);
+    if (view.state.doc === doc) view.dispatch(setDiagnostics(view.state, found));
+    states.reformat();
+    say(`The engine stopped on an error${why}, and was started again from the deck as it stands: nothing is lost. Save when you can.`);
+  }
 
   // The recovery copy (lift-up REL-4): what is not saved, the source and the files written since
   // the save, kept in this browser a few seconds after each change and when the page is hidden,
@@ -872,14 +910,14 @@ async function edit(source: Source, opened?: Stage) {
   /** What the last gesture on the canvas or choice in the inspector said: it stays in the status,
    * what lint finds after it, until the source is edited by hand. */
   let told: string | undefined;
-  /** The source a line said of the deck as it opened was said of (`current.say`): it stays
-   * through that source's lint, until the source is edited. */
+  /** The source `told` was said over: it stays through that source's lint, one an edit made before
+   * it asked for among them, until the source is edited. */
   let toldOf: string | undefined;
   /** What lint's last report said, which a line taken back leaves standing. */
   let reported = "";
   const say = (text: string) => {
     told = text;
-    toldOf = undefined;
+    toldOf = view.state.doc.toString();
     status.textContent = text;
   };
   /** Take back `text`, if the status still says it: `instead` in its place, or what lint said. */
@@ -1174,7 +1212,7 @@ async function edit(source: Source, opened?: Stage) {
     make: async (ops, done) => {
       const now = showing();
       if (!now) return;
-      const { source, edited } = await stage.make(view.state.doc.toString(), ops, now.index, format());
+      const { source, edited } = await stage.make(() => view.state.doc.toString(), ops, now.index, format());
       made(source, edited);
       say(done);
     },
@@ -1248,7 +1286,7 @@ async function edit(source: Source, opened?: Stage) {
     show: (index) => void show(index),
     keep: async (ops, what) => {
       try {
-        const { source, edited } = await stage.make(view.state.doc.toString(), ops, shown, format());
+        const { source, edited } = await stage.make(() => view.state.doc.toString(), ops, shown, format());
         made(source, edited);
         say(`Kept ${what} · ⌘Z undoes them`);
         return true;
@@ -1944,7 +1982,10 @@ async function edit(source: Source, opened?: Stage) {
     copied = new Map();
     where = done.where;
     name = done.where.name;
-    view.dispatch({ changes: change(view.state.doc.toString(), renamedIn(view.state.doc.toString(), done.renamed)) });
+    // The paths the save renamed, renamed in the source: no step to undo, since the files are named
+    // so now, and an undo after the save takes back the edit before it, not them (#414).
+    const renamed = change(view.state.doc.toString(), renamedIn(view.state.doc.toString(), done.renamed));
+    view.dispatch({ changes: renamed, annotations: Transaction.addToHistory.of(false) });
     // The folder keeps the deck's source too: it is what the editor shows, renamed as the save
     // renamed files.
     if (scnOnDisk) {
@@ -2217,7 +2258,7 @@ async function edit(source: Source, opened?: Stage) {
     const spot = keys.length ? Object.fromEntries(keys.map((k) => [k, at[k]])) : { in: "grid" };
     try {
       const op = { op: "place", node, at: spot, format: f, anew: true };
-      const { source, edited } = await stage.make(view.state.doc.toString(), [op], now.index, f);
+      const { source, edited } = await stage.make(() => view.state.doc.toString(), [op], now.index, f);
       made(source, edited);
       say(`${sentence(object(lexicon, node, true))} has a layout of its own in ${f}: a move there moves it there alone · ⌘Z undoes it`);
     } catch (e) {
@@ -2472,6 +2513,7 @@ async function edit(source: Source, opened?: Stage) {
       { label: "Add a step", where: ["state"], applies: () => now() !== undefined, run: () => states.add("step") },
       { label: "Add a slide…", where: ["state"], applies: () => now() !== undefined, run: () => void states.gallery() },
       { label: step() ? "Delete this step" : "Delete this slide", where: ["state"], applies: () => now() !== undefined && count() > 1, run: () => states.remove(now()!) },
+      { label: "Duplicate this slide", where: ["state"], applies: () => now() !== undefined, run: () => states.duplicate(now()!) },
       { label: "Export it as a PNG…", where: ["state"], applies: () => now() !== undefined, run: () => openExport("png") },
       // Its notes, drafted from how it reads by the model the assistant uses (PLAN 2.101).
       { label: "Draft its notes", where: ["state"], applies: () => now() !== undefined, run: () => write("notes") },
@@ -2527,6 +2569,8 @@ async function edit(source: Source, opened?: Stage) {
         run: () => formatting.show(!formatting.open()),
       },
       { label: "Rehearse the deck", applies: () => last?.valid === true, run: () => void rehearsing.start() },
+      // The last rehearsal's results again, to keep (lift-up USE-2).
+      { label: "Rehearsal Results…", applies: () => rehearsing.kept().length > 0 && !rehearsing.running(), run: () => rehearsing.results() },
       { label: "Edit the layout", applies: () => showing() !== undefined, run: () => void board.layoutMode(true) },
       { label: "New layout from this one…", applies: () => showing() !== undefined, run: () => void board.newLayout() },
       { label: "Show the deck's files", run: () => tab("files").focus() },
@@ -2782,10 +2826,7 @@ async function edit(source: Source, opened?: Stage) {
       ended();
     },
     dirty,
-    say: (text) => {
-      say(text);
-      toldOf = view.state.doc.toString();
-    },
+    say,
     kept: () => (where?.kind === "opfs" ? where.name : undefined),
     // New's deck opens typing in its title, its words selected (PLAN 3.21): whether it does.
     typeTitle: async () => {
@@ -2847,6 +2888,9 @@ async function edit(source: Source, opened?: Stage) {
       /** Drop a file named `name` at `at` in the source (the cursor by default). */
       drop: (name: string, bytes: ArrayBuffer, at?: number) => drop([new File([bytes], name)], at ?? view.state.selection.main.head),
       where: () => ({ name, where, dirty: dirty() }),
+      /** Panic in the engine, for a test (lift-up STAB-2), and how many times it was started again. */
+      crash: () => stage.trap(),
+      restarts: () => restarts,
       /** The recovery copy kept now, for a test (lift-up REL-4). */
       keepCopy,
       copyKey,

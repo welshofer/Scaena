@@ -41,6 +41,7 @@ Errors:
 1. **Spine first.**
    - From the brief, write `spine.sections[].beats[]`: one `claim` sentence per beat, `evidence` refs, and `notes`.
    - Aim for 3–7 beats. If the brief is thin, ask one question, then proceed.
+   - On a deck that exists, read its spine before anything else: `spine_read` (from the CLI, `scaena export <bundle> --format spine`). Each beat's claim is what its slides must say, so an edit serves a claim or changes the spine; `spine_update` replaces the spine, checked as a patch is. Then read its story (step 6) to know what it needs before you touch a slide.
 2. **Data.**
    - Register sources under `data` (`data/*.csv|json`), each with a `schema`; `data_attach` writes both.
    - Charts bind with `"data": "@name"`. Each datum is a mark keyed by its x and series, which carries it from state to state (SPEC §3.7).
@@ -64,18 +65,28 @@ Errors:
    - One state per click. Set `layout`, then only what changes: text, `kind`, `at`, `remove`. Group builds with `slide`.
    - A state tracks the one before it, so a new slide keeps the last slide's nodes on screen unless it lists them in `remove`. Or it may set `mode: "absolute"` and list everything it shows, which keeps each slide self-contained.
    - Leave motion for the `motion-pass` skill, apart from at most one `enter` per new object.
-   - Between slides that share nothing, a slide transition moves each slide whole instead of morphing: `"transition": { "style": "push", "direction": "left", "duration": "standard" }`, `dissolve`, `push`, `cover`, `reveal`, or `wipe` (SPEC §3.9). Keep Magic Move, no `style`, where the slides share what they show.
+   - Between slides that share nothing, a slide transition moves each slide whole instead of morphing: `"transition": { "style": "push", "direction": "left", "duration": "standard" }`, `dissolve`, `push`, `cover`, `reveal`, or `wipe`, or the slide entered through shapes that grow, `circle`, `circleWave`, `diamond`, `diamondWave`, or `radial` (SPEC §3.9). Keep Magic Move, no `style`, where the slides share what they show.
    - Give every state a `hold` if the deck will run on its own (video, a kiosk). A player advances by holds too, so a deck presented live has none.
 5. **Lint loop.**
    - Run `scaena lint <bundle> --json` (`deck_lint`). Fix every error, and take warnings seriously: W300 and W301 mean you reached for pixels, so use a role, slot, or token instead.
    - Many errors carry a `fix`. `lint --fix` (`deck_lint` with `fix`) applies the ones lint has checked by laying the state out again.
-   - Re-run until clean. Then run the `tighten-copy` skill over the words.
-6. **Inspect.**
+   - Re-run until clean. Then run the `tighten-copy` skill over the words: each slide keeps its claim and two to five points, and what it cuts goes to the notes.
+6. **Read the story.**
+   - `scaena health <bundle> --json` (`deck_health`) measures the deck as a talk (SPEC §7.7), each measure 0–100 with what it says:
+     - **pacing**: the slides against the length the brief asked (`meta.narrative.brief.length`), else the 18 a talk of no length is paced for;
+     - **balance**: the points each slide makes, two to five reading as full, and whether its notes give the speaker enough to say, about 30 characters at the least;
+     - **coherence**: how each slide follows from the one before, read by their words alone, so it has no score, only where the talk turns sharply;
+     - **fidelity**: how closely the intensity the slides declare (each beat's `media.narrato`) follows the curve of the arc the deck was written to (`meta.narrative.arc`);
+     - **intensity** and **tone**: how closely each slide's words carry what it declares; English only, never in the score.
+   - `score` weighs pacing, balance, and fidelity. `slides` reads each slide: its beat, its headline, where the arc's curve stands at its place, what it declares, what its words read, and how it stands (`ok`, `bends`, `drifted`).
+   - Each finding names a slide and says what to look at; its `ask` is a question to answer in the deck, not a fix to apply blindly: a slide that reads flatter than its place in the arc wants stronger words or a move, not a number changed. Where a finding carries a `fix`, it only declares what the words already read, or the beat a moved slide now stands in; apply it with `deck_patch`.
+   - A deck with no `meta.narrative` is measured against a talk's curve. Give it an arc with `scaena generate --slides`, which writes `meta.narrative` as Narrato's decks carry it, or leave fidelity aside and read pacing, balance, and the findings.
+7. **Inspect.**
    - `inspect --state <id>` confirms tracking did what you meant.
    - `--timeline` shows when each motion runs, and over how many words, lines, or marks.
    - `--data` shows the rows a chart or table reads after its `dataTransform`.
    - `diff --from a --to b` confirms that a build changes only what it should.
-7. **Edit with patches.**
+8. **Edit with patches.**
    - Once a deck exists, change it with ops (SPEC §7.3, `docs/schema/patch.schema.json`; `docs/examples/revenue.patch.json` is one). Dry-run first: the result is the patch as JSON Patch and what lint finds differently (`added`, `removed`).
    - Prefer the semantic ops:
      - `set_prop` and `set_text` with a `state` change what that state shows.
@@ -83,11 +94,11 @@ Errors:
      - `show_node` and `hide_node` make a node enter or leave.
      - `add_state` with `beat` adds a build to its beat.
    - A patch applies whole or not at all. One that would make the deck invalid is refused, and the error names the op that failed.
-8. **Look.**
+9. **Look.**
    - Render a state, view the PNG, fix what is wrong, and repeat.
    - `--t <ms>` renders a frame inside the state's cue (its transition, then its motions), and `--format 9:16` another of the deck's formats.
    - Rendering needs the deck's font files in the bundle; `deck_create` copies them.
-9. **Report:** beats, states, the lint summary, and anything you could not express without an override.
+10. **Report:** beats, states, the lint summary, the health score with its findings, and anything you could not express without an override.
 
 ## What layout will tell you
 

@@ -306,7 +306,7 @@ impl Shape {
 }
 
 /// A circle of four cubic quarter circles, clockwise from the top.
-fn circle([x, y]: Point, r: f32) -> Path {
+pub(crate) fn circle([x, y]: Point, r: f32) -> Path {
     let k = KAPPA * r;
     Path(vec![
         PathEl::MoveTo([x, y - r]),
@@ -321,7 +321,7 @@ fn circle([x, y]: Point, r: f32) -> Path {
 /// An annular sector from turn `start` to turn `end` (clockwise from twelve o'clock),
 /// cubic segments of at most a quarter turn each. Angles go through `libm`, whose
 /// pure-Rust sines read the same on every platform (SPEC §13).
-fn arc(center: Point, inner: f32, outer: f32, start: f32, end: f32) -> Path {
+pub(crate) fn arc(center: Point, inner: f32, outer: f32, start: f32, end: f32) -> Path {
     let turn = core::f32::consts::TAU;
     let at = |r: f32, t: f32| [center[0] + r * libm::sinf(t * turn), center[1] - r * libm::cosf(t * turn)];
     // Cubic segments of one radius from turn `a` to `b`, either way round.

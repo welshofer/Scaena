@@ -329,10 +329,16 @@ fn unzip_from(reader: impl Read + std::io::Seek, path: &Path) -> Result<BTreeMap
     Ok(out)
 }
 
-/// The files under `dir`, as paths relative to `root` with `/` between parts.
+/// The files under `dir`, as paths relative to `root` with `/` between parts; none whose name
+/// starts with a dot, as a partial a save left behind does ([`write_whole`]), and as the Mac's
+/// open and `scaena serve`'s scan pass them over.
 fn walk(root: &Path, dir: &Path, out: &mut Vec<String>) -> Result<(), StoreError> {
     for entry in std::fs::read_dir(dir)? {
-        let path = entry?.path();
+        let entry = entry?;
+        if entry.file_name().to_string_lossy().starts_with('.') {
+            continue;
+        }
+        let path = entry.path();
         if path.is_dir() {
             walk(root, &path, out)?;
         } else if let Ok(rel) = path.strip_prefix(root) {
@@ -350,6 +356,71 @@ fn normal(rel: &str) -> Result<String, StoreError> {
         return Err(StoreError::OutsideBundle(rel.to_string()));
     }
     Ok(parts.join("/"))
+}
+
+/// Write `bytes` at `path` whole, or not at all (lift-up REL-3): to a file beside it named
+/// `.<name>.partial`, made new, so nothing left in its place, a link included, can take the
+/// write elsewhere; synced; then renamed over `path`, which the file system does in one step.
+/// A crash, a full disk, or a process killed partway leaves what was at `path` as it was, and
+/// at most the partial, which a bundle's listing passes over and the next write replaces.
+/// `path`'s directory must exist.
+pub fn write_whole(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    let partial = staged(path, bytes)?;
+    std::fs::rename(&partial, path).inspect_err(|_| {
+        let _ = std::fs::remove_file(&partial);
+    })
+}
+
+/// Write each of `files` at its path whole or not at all, and all of them as nearly together as a
+/// file system allows (lift-up REL-3): every file's bytes go to a partial beside it first
+/// ([`write_whole`]'s), synced, and only once each is written whole is each renamed into place,
+/// in `files`' order. A disk that fills or a path that cannot be written stops the write before
+/// any file has changed; a rename that fails leaves those before it written and those after it,
+/// `deck.json` among them where it is last, as they were. Each file's directory is made.
+pub fn write_all(files: &[(PathBuf, &[u8])]) -> std::io::Result<()> {
+    let mut partials: Vec<PathBuf> = Vec::with_capacity(files.len());
+    let unstaged = |partials: &[PathBuf]| {
+        for partial in partials {
+            let _ = std::fs::remove_file(partial);
+        }
+    };
+    for (path, bytes) in files {
+        let made = path.parent().filter(|p| !p.as_os_str().is_empty()).map_or(Ok(()), std::fs::create_dir_all);
+        match made.and_then(|()| staged(path, bytes)) {
+            Ok(partial) => partials.push(partial),
+            Err(e) => {
+                unstaged(&partials);
+                return Err(e);
+            }
+        }
+    }
+    for (i, (path, _)) in files.iter().enumerate() {
+        if let Err(e) = std::fs::rename(&partials[i], path) {
+            unstaged(&partials[i..]);
+            return Err(e);
+        }
+    }
+    Ok(())
+}
+
+/// `bytes` written whole and synced to the partial beside `path`, `.<name>.partial`, made new;
+/// the partial's path. One left there by an earlier write is replaced.
+fn staged(path: &Path, bytes: &[u8]) -> std::io::Result<PathBuf> {
+    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let partial = path.with_file_name(format!(".{name}.partial"));
+    let _ = std::fs::remove_file(&partial);
+    std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&partial)
+        .and_then(|mut file| {
+            std::io::Write::write_all(&mut file, bytes)?;
+            file.sync_all()
+        })
+        .inspect_err(|_| {
+            let _ = std::fs::remove_file(&partial);
+        })?;
+    Ok(partial)
 }
 
 fn inside(root: &Path, rel: &str) -> Result<PathBuf, StoreError> {
