@@ -812,8 +812,8 @@ interface DeckFiles {
   theme: string;
   fonts?: { file: string }[];
   data?: Record<string, { source?: unknown }>;
-  states: { id: string; notes?: string }[];
-  spine?: { sections?: { title?: string; beats?: { claim?: string; states?: string[]; notes?: string }[] }[] };
+  states: { id: string }[];
+  spine?: { sections?: { title?: string; beats?: { claim?: string; states?: string[] }[] }[] };
 }
 
 async function open(source: Source, painter: Painter, target: OffscreenCanvas, engine?: WebAssembly.Module) {
@@ -873,7 +873,6 @@ async function library() {
 /** The open bundle, as the page hears of it. */
 function opened(): Opened {
   const deck = JSON.parse(new TextDecoder().decode(player.file("deck.json"))) as DeckFiles;
-  const noted = notes(deck);
   return {
     name,
     title: deck.meta?.title || undefined,
@@ -881,7 +880,8 @@ function opened(): Opened {
     states: slots.map((slot) => slot.state),
     formats: player.formats(),
     own: (JSON.parse(player.sizes()) as { own: string | null }).own ?? undefined,
-    notes: slots.map((slot) => noted.get(slot.state) ?? ""),
+    // The engine's, the same the Mac's presenter and the remote read (SPEC §2.6).
+    notes: slots.map((slot) => player.notes(slot.state)),
     outline: outline(deck),
     painter: gpu ? "webgpu" : "cpu",
     adapter: gpu?.adapter ?? "vello_cpu",
@@ -1315,15 +1315,6 @@ function outline(files: DeckFiles): Section[] {
   const rest = files.states.filter((s) => !placed.has(s.id)).map((s) => ({ state: s.id }));
   if (sections.length && rest.length) sections.push({ states: rest });
   return sections;
-}
-
-/** Each state's notes, by its id: its own, else those of the first beat that names it. */
-function notes(files: DeckFiles): Map<string, string> {
-  const beats = new Map<string, string>();
-  for (const section of files.spine?.sections ?? [])
-    for (const beat of section.beats ?? [])
-      for (const state of beat.states ?? []) if (!beats.has(state)) beats.set(state, beat.notes ?? "");
-  return new Map(files.states.map((s) => [s.id, s.notes ?? beats.get(s.id) ?? ""]));
 }
 
 /** The deck's timeline in the format frames are laid out in: the slots of the states it

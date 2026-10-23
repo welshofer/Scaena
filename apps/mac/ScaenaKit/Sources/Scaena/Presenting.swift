@@ -542,10 +542,10 @@ final class Showing {
         }
     }
 
-    /// `state`'s notes, for the presenter.
+    /// `state`'s notes, for the presenter and the remote (SPEC §2.6): its own, else its beat's,
+    /// which a generated deck writes them on.
     func notes(_ state: String) -> String {
-        let choices = try? editor.session.stateChoices(state: state)
-        return choices?.fields.first { $0.prop == "notes" }?.value?.string ?? ""
+        (try? editor.session.notes(state: state)) ?? ""
     }
 
     /// The canvas, canvas units.

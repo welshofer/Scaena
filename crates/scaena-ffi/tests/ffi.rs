@@ -1266,6 +1266,20 @@ fn states_and_slides_are_added_moved_and_timed_as_the_browsers_are() {
     unsafe { scaena_session_free(t) };
 }
 
+/// The notes a presenter reads (SPEC §2.6): a state's own, else those of the first beat that
+/// names it, as the browser's presenter view reads them, so the Mac's and the remote show a
+/// generated deck's, which are written on its beats.
+#[test]
+fn a_presenter_reads_a_states_own_notes_else_its_beats() {
+    let s = revenue();
+    let beats = call(s, "notes", json!({ "state": "revenue" }));
+    assert!(beats.as_str().unwrap().starts_with("Pause on the Q3 bar before the build."), "{beats}");
+    assert_eq!(call(s, "notes", json!({ "state": "intro" })), json!("Open on the title. Don't talk over the build."));
+    let unknown = answered(s, "notes", &json!({ "state": "no-such-state" }));
+    assert!(unknown["error"]["message"].as_str().is_some_and(|m| m.contains("no-such-state")), "{unknown}");
+    unsafe { scaena_session_free(s) };
+}
+
 /// The revenue example as a bundle: its deck, and the fonts, themes, data, and images the examples
 /// share.
 fn revenue() -> *mut ScaenaSession {

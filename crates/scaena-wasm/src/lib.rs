@@ -143,6 +143,12 @@ impl Player {
         serde_json::to_string(&self.0.link_at(state, [x, y]).map_err(js)?).map_err(js)
     }
 
+    /// The notes a presenter reads for `state` (SPEC §2.6): its own, else those of the first
+    /// beat that names it, else empty.
+    pub fn notes(&self, state: &str) -> Result<String, JsError> {
+        self.0.notes(state).map_err(js)
+    }
+
     /// How `state` reads at rest, in the format shown, as HTML (SPEC §3.12): each node it
     /// shows that is read, in paint order, an element that names it (`data-node`).
     pub fn reading(&mut self, state: &str) -> Result<String, JsError> {

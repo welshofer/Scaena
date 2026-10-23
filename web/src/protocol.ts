@@ -1522,7 +1522,8 @@ export interface Opened {
    * lists of that shape is its own canvas, laid out as it is, so an editor offers it once, by
    * that name. */
   own?: string;
-  /** Each state's speaker notes: its own, else its beat's (SPEC §3.11), else empty. */
+  /** Each state's speaker notes, the engine's (SPEC §2.6): its own, else its first beat's,
+   * else empty. */
   notes: string[];
   /** The spine's sections in its order, each with its title (else its first beat's claim)
    * and its states, each with its beat's claim; then the states no beat names, in a section

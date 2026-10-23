@@ -25,6 +25,10 @@ extension ScaenaSession {
     /// 3.17): what VoiceOver speaks of the canvas.
     public func reads(state: String) throws -> [ReadPart] { try call("reads", ["state": .string(state)]) }
 
+    /// The notes a presenter reads for `state` (SPEC §2.6): its own, else those of the first beat
+    /// that names it, else empty. What the presenter's window, the remote, and a rehearsal show.
+    public func notes(state: String) throws -> String { try call("notes", ["state": .string(state)]) }
+
     /// What the browser's editor calls each node `state` shows (PLAN 2.99): by its kind as a person
     /// names it, a shape by its kind (a Rectangle, the library's by its shape, a Star, PLAN 2.106), a
     /// connector an Arrow or a Line, and a container with a panel of its own a Card.

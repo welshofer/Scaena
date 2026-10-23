@@ -231,3 +231,15 @@ private func slots() throws -> [ScaenaSession.Slot] {
     timer.toggle(at: at(200))
     #expect(timer.elapsed(at: at(3_725)) == 3_525 && timer.reads(at: at(3_725)) == "58:45")
 }
+
+/// The notes a presenter reads (SPEC §2.6, lift-up STAB-1): a state's own, else those of the
+/// first beat that names it, which a generated deck writes them on, so the presenter's window, the
+/// remote, and a rehearsal read what the deck has.
+@Test func aPresenterReadsAStatesOwnNotesElseItsBeats() throws {
+    let session = try ScaenaSession(files: example("revenue"))
+    // `revenue` has none of its own; the beat `doubled` names it.
+    #expect(try session.notes(state: "revenue").hasPrefix("Pause on the Q3 bar before the build."))
+    // `intro`'s own win over its beat's.
+    #expect(try session.notes(state: "intro") == "Open on the title. Don't talk over the build.")
+    #expect(throws: ScaenaError.self) { try session.notes(state: "no-such-state") }
+}

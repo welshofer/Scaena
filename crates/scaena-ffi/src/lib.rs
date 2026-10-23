@@ -436,7 +436,8 @@ pub unsafe extern "C" fn scaena_picture(bytes: *const u8, len: usize) -> *mut c_
 /// `states`, `formats`, `sizes` (`{own, anew}`: the deck's own canvas named by its shape, and the
 /// formats it lays out anew), `setFormat {format?}`, `canvasSize`, `duration {state}`, `timeline`,
 /// `files`, `imageFiles`, `digest {state}`, `reading {state}`, `reads {state}` (each node read,
-/// in turn: its role and its words, PLAN 3.17), `source`, `compiledFrom
+/// in turn: its role and its words, PLAN 3.17), `notes {state}` (what a presenter reads: the
+/// state's own, else its first beat's, SPEC §2.6), `source`, `compiledFrom
 /// {source}`, `compile {source}`, `lint {state?}`, `fix {patch}`, `inspect {state}`, `boxes
 /// {state}`, `hit {state, x, y}`, `layers {state}`, `carets {state, node}`, `choices {state,
 /// node}`, `stateChoices {state}`, `words {state}` (its objects by what they show, and the
@@ -1448,6 +1449,7 @@ fn call(s: &mut Session, method: &str, args: &Value) -> Result<Value, Failure> {
         "imageFiles" => json!(s.image_files()),
         "digest" => json!(s.frame(arg("state")?, f64::INFINITY).map_err(said)?.digest().map_err(said)?),
         "reading" => json!(s.reading(arg("state")?).map_err(said)?),
+        "notes" => json!(s.notes(arg("state")?).map_err(said)?),
         "reads" => value(serde_json::to_value(s.reads(arg("state")?).map_err(said)?))?,
         "source" => json!(s.source()),
         "compiledFrom" => json!(s.compiled_from(arg("source")?)),

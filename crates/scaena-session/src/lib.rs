@@ -2323,6 +2323,15 @@ impl Session {
         Ok(scaena_core::reading::html(&self.deck, snap, &list))
     }
 
+    /// The notes a presenter reads for `state` (SPEC §2.6): its own, else those of the first
+    /// beat that names it, else empty. What the browser's presenter view, the Mac's and the
+    /// iPad's, the remote, and a rehearsal show.
+    pub fn notes(&self, state: &str) -> Result<String, Error> {
+        scaena_core::spine::notes(&self.deck, state)
+            .map(str::to_string)
+            .ok_or_else(|| EngineError::UnknownState(state.to_string()).into())
+    }
+
     /// How `state` reads at rest, in the format shown, a part for each node read, in turn (SPEC
     /// §3.12): what a screen reader speaks for each node on the Mac's canvas (PLAN 3.17).
     pub fn reads(&mut self, state: &str) -> Result<Vec<scaena_core::reading::Part>, Error> {
