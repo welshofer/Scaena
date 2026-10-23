@@ -230,8 +230,8 @@ private func tried(_ endpoint: NWEndpoint, _ parameters: NWParameters, _ seconds
     #expect(try receiving.open(first) == Data("on".utf8))
     #expect(throws: (any Error).self, "replayed") { try receiving.open(first) }
     #expect(try receiving.open(second) == Data("back".utf8))
-    let other = Sealed(keys: ofRemote, side: .remote)
-    #expect(throws: (any Error).self, "the other way's key") { try other.open(try sending.seal(Data("end".utf8))) }
+    let elsewhere = Sealed(keys: ofRemote, side: .remote)
+    #expect(throws: (any Error).self, "the other way's key") { try elsewhere.open(try sending.seal(Data("end".utf8))) }
 }
 
 /// What a presenter offers its deck as is its device's name alone (lift-up SEC-5), within what a
