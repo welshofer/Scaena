@@ -16,7 +16,8 @@ import { goldenFrames, launch, serve, shoot } from "./serve.mjs";
 
 const out = process.argv[2] ?? "target/web-smoke";
 const server = await serve();
-const player = (painter) => `${server.origin}/web/dist/?painter=${painter}`;
+// The slide at its own size (`fit=own`): the goldens are read from it as painted, pixel for pixel.
+const player = (painter) => `${server.origin}/web/dist/?painter=${painter}&fit=own`;
 
 const frames = await goldenFrames();
 const browser = await launch();

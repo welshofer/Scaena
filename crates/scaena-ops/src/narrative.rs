@@ -278,8 +278,10 @@ pub enum Progress {
     Chose { arc: String, fallback: Option<String> },
     /// The slides are asked, at least this many.
     Writing { slides: usize },
-    /// The slides came back, cut short or whole.
-    Wrote { slides: usize, truncated: bool },
+    /// The slides came back, cut short or whole: `text` is the answer as the model wrote it, what
+    /// `--slides` takes, for a client that keeps it so a run that fails later resumes from it
+    /// (narrative REL-2).
+    Wrote { slides: usize, truncated: bool, text: String },
     /// Texts that run past their place are asked to be rewritten.
     Fitting { texts: usize },
     /// The rewrites came back, these many kept.
@@ -436,7 +438,8 @@ pub fn generate(
     generation.give_icons(icons_found(&generation.icon_words()));
     let narrative = (generation.narrative().cloned())
         .ok_or_else(|| OpsError::new("the narrative is not written: a key asks the model for it"))?;
-    say(Progress::Wrote { slides: narrative.slides.len(), truncated: narrative.truncated });
+    let text = generation.written_text().unwrap_or_default().to_string();
+    say(Progress::Wrote { slides: narrative.slides.len(), truncated: narrative.truncated, text });
     let model: Theme = serde_json::from_str(&theme).context("the theme")?;
     let asked = painter.map(|p| asking(&narrative, &model, p.look)).unwrap_or_default();
     let (pictures, assets, unmade) = match painter {

@@ -18,6 +18,7 @@
 // - ⌘0 shows the whole canvas again, and another format does too. ⌘+ and ⌘0 zoom the slide from a
 //   slide focused in the strip too, never the browser's page.
 // Exits 1 on any failure.
+import { mkdir, writeFile } from "node:fs/promises";
 import { launch, serve } from "./serve.mjs";
 
 const server = await serve();
@@ -69,15 +70,46 @@ try {
     return png;
   };
   const near = (a, b, by = 1) => Math.abs(a - b) <= by;
+  /** The frame the worker committed to the preview's canvas, read from the canvas itself: its
+   * SHA-256 (null while the canvas is blank), or its PNG with `png`. A screenshot can lag it, and it
+   * can lag the worker's answer, so a check of what is painted waits on it. */
+  await page.evaluate(() => {
+    window.committed = async (png) => {
+      const stage = document.querySelector("#stage");
+      const copy = new OffscreenCanvas(stage.width, stage.height);
+      copy.getContext("2d").drawImage(stage, 0, 0);
+      if (png) return [...new Uint8Array(await (await copy.convertToBlob()).arrayBuffer())];
+      const pixels = copy.getContext("2d").getImageData(0, 0, copy.width, copy.height).data;
+      if (!pixels.some((v) => v !== 0)) return null;
+      return [...new Uint8Array(await crypto.subtle.digest("SHA-256", pixels))].map((b) => b.toString(16).padStart(2, "0")).join("");
+    };
+  });
+  const frame = () => page.evaluate(() => window.committed());
+  /** Until the canvas holds a frame `test` takes, with what the editor says it shows: whether it came. */
+  const framed = (test, arg) => page.waitForFunction(test, arg, { timeout: 30000 }).then(() => true, () => false);
+  /** The canvas's frame and the screenshot, for the failure's artifact: a recurrence shows which lied. */
+  const kept = async (name, shot) => {
+    await mkdir("target/web-smoke", { recursive: true });
+    await writeFile(`target/web-smoke/zoom-${name}-shot.png`, shot);
+    await writeFile(`target/web-smoke/zoom-${name}-frame.png`, Buffer.from(await page.evaluate(() => window.committed(true))));
+  };
+
+  // The first state, as the editor opened it: its one paint at rest on the canvas.
+  await framed(async () => window.scaena.at()?.index === 0 && (await window.committed()) !== null);
+  const opened = await frame();
 
   // Show `revenue`, where the chart is.
   const at = (await source()).indexOf("state revenue") + "state ".length;
   await page.evaluate((offset) => window.scaena.cursor(offset), at);
   await page.waitForFunction(() => window.scaena.canvas.boxed() === "revenue" && window.scaena.canvas.boxes().length > 0, null, { timeout: 30000 });
+  // Its frame on the canvas, the one paint the move asks for: the boxes come from another request,
+  // and a frame taken with them alone can be the state before (#456's run for 81db04d).
+  await framed(async (o) => window.scaena.at()?.index === 1 && !window.scaena.at().playing && (await window.committed()) !== o, opened);
   const original = await source();
   const [W, H] = await page.evaluate(() => window.scaena.canvas.size());
   check((await zoomed()) === 1 && (await shows()) === "100%", `the whole canvas at first: ${await shows()}`);
   const whole = await shot();
+  const wholeFrame = await frame();
   const pixels = await page.evaluate(() => [document.querySelector("#stage").width, document.querySelector("#stage").height]);
 
   /** Drag `node` from its middle `dx` page pixels across and half that down, off the grid (Shift),
@@ -127,8 +159,7 @@ try {
   check((await shows()) === "150%", `and the control says so: ${await shows()}`);
   const [cx, cy, cw, ch] = await box("rev");
   await page.evaluate(([x, y]) => window.scaena.canvas.zoom(2, [x, y]), [cx + cw / 2, cy + ch / 2]);
-  const zoomedShot = await shot();
-  check(!zoomedShot.equals(whole), "the preview shows less of the deck, closer");
+  check(await framed(async (w) => (await window.committed()) !== w, wholeFrame), "the preview shows less of the deck, closer");
   const after = await page.evaluate(() => [document.querySelector("#stage").width, document.querySelector("#stage").height]);
   check(after[0] === pixels[0] && after[1] === pixels[1], `in the same pixels, painted at the size shown: ${after}`);
 
@@ -276,13 +307,14 @@ try {
   await page.waitForFunction(() => window.scaena.canvas.zoomed() === 1, null, { timeout: 10000 }).catch(() => {});
   const fit = await view();
   check(fit[0] === 0 && fit[1] === 0 && fit[2] === W && (await shows()) === "100%", `⌘0: the whole canvas, ${await shows()}`);
-  // Once the worker has painted it so.
-  let again = await shot();
-  for (let k = 0; k < 40 && !again.equals(whole); k++) {
-    await page.waitForTimeout(250);
-    again = await shot();
+  // Once the worker has painted it so, on the canvas.
+  const asWas = await framed(async (w) => (await window.committed()) === w, wholeFrame);
+  const again = await shot();
+  if (!asWas || !again.equals(whole)) {
+    await kept("fit", again);
+    await writeFile("target/web-smoke/zoom-whole-shot.png", whole);
   }
-  check(again.equals(whole), "painted as it was");
+  check(asWas, "painted as it was");
 
   // ⌘+ and ⌘0 zoom the slide from anywhere on the page that does not take them itself, as from a
   // slide focused in the strip: not the browser's zoom of the whole page.

@@ -62,11 +62,16 @@ impl Bundle {
     /// - `manifest.json`.
     ///
     /// `to` is a directory, or a zip when it ends in `.scaena`. A directory must be absent,
-    /// empty, or this bundle's own; saving in place removes the files it renamed.
+    /// empty, or this bundle's own; saving in place removes the files it renamed. Each file is
+    /// written whole or not at all, and every file's bytes before any is put in place
+    /// ([`crate::write_all`]), the deck's files first, then its theme, then `deck.json`, then
+    /// the manifest, so a save that stops partway leaves a bundle that opens: the deck as it
+    /// was, naming no file that is not there (lift-up REL-3). A `.scaena` is written whole or
+    /// not at all ([`crate::write_whole`]).
     pub fn save(&self, to: &Path, opts: &SaveOptions) -> Result<Saved, StoreError> {
         let Saving { files, replaced, saved } = self.saving(opts)?;
         if to.extension().and_then(|e| e.to_str()) == Some("scaena") && !to.is_dir() {
-            std::fs::write(to, zip(&files)?)?;
+            crate::write_whole(to, &zip(&files)?)?;
         } else {
             self.write_dir(to, &files, &replaced)?;
         }
@@ -289,13 +294,9 @@ impl Bundle {
         if to.exists() && !in_place && std::fs::read_dir(to)?.next().is_some() {
             return Err(StoreError::Occupied(to.to_path_buf()));
         }
-        for (rel, bytes) in out {
-            let path = to.join(rel);
-            if let Some(parent) = path.parent() {
-                std::fs::create_dir_all(parent)?;
-            }
-            std::fs::write(path, bytes)?;
-        }
+        let files: Vec<(std::path::PathBuf, &[u8])> =
+            self.in_order(out).map(|(rel, bytes)| (to.join(rel), bytes.as_slice())).collect();
+        crate::write_all(&files)?;
         if in_place {
             for rel in replaced.iter().filter(|rel| !out.contains_key(*rel)) {
                 std::fs::remove_file(to.join(rel))?;
@@ -308,25 +309,24 @@ impl Bundle {
 impl Bundle {
     /// Write `files` (bundle path → bytes) into the bundle where it is, each replacing what
     /// is there: in its directory, or into its zip, which is rewritten. Nothing else changes;
-    /// a save ([`Bundle::save`]) is what puts a bundle in canonical form.
+    /// a save ([`Bundle::save`]) is what puts a bundle in canonical form. Each file is written
+    /// whole or not at all, and all of them as nearly together as the file system allows, the
+    /// theme and `deck.json` after the rest, as a save writes them ([`crate::write_all`]).
     pub fn write(&self, files: &BTreeMap<String, Vec<u8>>) -> Result<(), StoreError> {
         match &self.files {
             Files::Dir(root) => {
-                for (rel, bytes) in files {
-                    let path = crate::inside(root, rel)?;
-                    if let Some(parent) = path.parent() {
-                        std::fs::create_dir_all(parent)?;
-                    }
-                    std::fs::write(path, bytes)?;
+                let mut paths = Vec::with_capacity(files.len());
+                for (rel, bytes) in self.in_order(files) {
+                    paths.push((crate::inside(root, rel)?, bytes.as_slice()));
                 }
-                Ok(())
+                Ok(crate::write_all(&paths)?)
             }
             Files::Zip(entries) => {
                 let mut all = (**entries).clone();
                 for (rel, bytes) in files {
                     all.insert(crate::normal(rel)?, bytes.clone());
                 }
-                std::fs::write(&self.root, zip(&all)?)?;
+                crate::write_whole(&self.root, &zip(&all)?)?;
                 Ok(())
             }
         }
@@ -352,7 +352,7 @@ impl Bundle {
                     std::fs::remove_file(crate::inside(root, rel)?)?;
                 }
                 if let Some(bytes) = manifest {
-                    std::fs::write(crate::inside(root, "manifest.json")?, bytes)?;
+                    crate::write_whole(&crate::inside(root, "manifest.json")?, &bytes)?;
                 }
                 Ok(())
             }
@@ -364,10 +364,28 @@ impl Bundle {
                 if let Some(bytes) = manifest {
                     all.insert("manifest.json".into(), bytes);
                 }
-                std::fs::write(&self.root, zip(&all)?)?;
+                crate::write_whole(&self.root, &zip(&all)?)?;
                 Ok(())
             }
         }
+    }
+}
+
+impl Bundle {
+    /// `files` in the order a directory bundle is written in: every other file in path order,
+    /// then the theme file the deck names, then `deck.json`, then `manifest.json`, as the
+    /// browser's save writes them (`web/src/worker.ts`). A write that stops partway then leaves
+    /// the deck as it was, naming no file that is not there, with the theme it was drawn in,
+    /// and a manifest that lists nothing the bundle lacks.
+    fn in_order<'a>(&self, files: &'a BTreeMap<String, Vec<u8>>) -> impl Iterator<Item = (&'a String, &'a Vec<u8>)> {
+        let theme = match &self.deck.theme {
+            Some(Value::String(path)) => Some(path.as_str()),
+            _ => None,
+        };
+        let last: Vec<&str> = theme.into_iter().chain(["deck.json", "manifest.json"]).collect();
+        let rest = files.iter().filter(move |(rel, _)| !last.contains(&rel.as_str()));
+        let then = theme.into_iter().chain(["deck.json", "manifest.json"]).filter_map(|rel| files.get_key_value(rel));
+        rest.chain(then)
     }
 }
 
