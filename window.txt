@@ -1,0 +1,186 @@
+/Users/runner/work/Scaena/Scaena/target/mac/window/Scaena.app: replacing existing signature
+saved /Users/runner/work/Scaena/Scaena/target/mac/window/trails.scaena: 20 files
+  subset fonts/Fraunces-VF.ttf: 277 KB → 277 KB
+  subset fonts/Inter-VF.ttf: 464 KB → 353 KB
+  subset fonts/JetBrainsMono-VF.ttf: 149 KB → 130 KB
+  subset fonts/Fraunces-Italic-VF.ttf: 321 KB → 321 KB
+  subset fonts/Inter-Italic-VF.ttf: 481 KB → 366 KB
+  subset fonts/JetBrainsMono-Italic-VF.ttf: 153 KB → 133 KB
+  assets/trails-ridge.png → assets/a81b573617499dc538413626bd010673b5dde5f3318cf8a78aaecb0120baed87.png
+  fonts/Fraunces-Italic-VF.ttf → fonts/Fraunces-Italic-778e8ee27bcbd425.ttf
+  fonts/Fraunces-VF.ttf → fonts/Fraunces-744bb5b7a199b885.ttf
+  fonts/Inter-Italic-VF.ttf → fonts/Inter-Italic-0ceaef921fccd6b1.ttf
+  fonts/Inter-VF.ttf → fonts/Inter-d78901d009daf77a.ttf
+  fonts/JetBrainsMono-Italic-VF.ttf → fonts/JetBrainsMono-Italic-0cbc5e7fc9aaf6ee.ttf
+  fonts/JetBrainsMono-VF.ttf → fonts/JetBrainsMono-7d7c222450f58b2a.ttf
+the app's icon: AppIcon, 1024 px
+the canvas as VoiceOver hears it: AXStaticText "Annual meeting · October 2026" 301 302 231 26;AXHeading "High Country Trails" 301 333 261 90;AXHeading "What a summer of Saturdays built." 301 428 231 27;
+screen: 1024 768 0 31 1024 677
+window as opened: 20 44 984 648
+the View menu: Show Tab Bar, Show All Tabs, missing value, missing value, Show Toolbar, Customize Toolbar…, missing value, Light Table, missing value, Show Timeline, Show Other Sizes, Show Grid, Show Safe Area, Show Issues, Show Source, missing value, Show Assistant, Show Inspector, Format, Animate, Document, missing value, missing value, Zoom In, Zoom Out, Fit Slide, missing value, Find in Deck…, missing value, Show Sidebar, Enter Full Screen
+narrowest, as it opens: 889
+    AXSplitGroup 0 31 889 676:
+      AXGroup 8 39 220 660
+      AXSplitter 228 83 0 624
+      AXGroup 0 31 889 676
+narrowest, the inspector hidden: 600
+    AXSplitGroup 0 31 600 676:
+      AXGroup 8 39 220 660
+      AXSplitter 228 83 0 624
+      AXGroup 0 31 600 676
+View › Show Sidebar
+narrowest, the slides and the inspector hidden: 600
+    AXSplitGroup 0 31 600 676:
+      AXGroup 0 31 600 676
+narrowest, the slides hidden: 661
+    AXSplitGroup 0 31 661 676:
+      AXGroup 0 31 661 676
+View › Show Sidebar
+View › Show Toolbar
+narrowest, the toolbar hidden: 889
+    AXSplitGroup 0 31 889 676:
+      AXGroup 8 63 220 636
+      AXSplitter 228 63 0 644
+      AXGroup 0 31 889 676
+View › Show Toolbar
+View › Show Source
+narrowest, the source shown: 1398
+    AXSplitGroup 0 31 1398 676:
+      AXGroup 8 39 220 660
+      AXSplitter 228 83 0 624
+      AXGroup 0 31 1398 676
+    AXSplitGroup 0 31 1097 676:
+      AXGroup 0 31 662 676
+      AXSplitter 662 83 1 624
+      AXGroup 663 31 434 676
+View › Show Source
+window fitted to the screen: 0 31 1024 676
+what it holds, three deep:
+AXWindow "trails.scaena" 0 31 1024 676
+  AXGroup "group" 0 31 1024 676
+    AXSplitGroup "split group" 0 31 1024 676
+      AXGroup "group" 8 39 220 660
+      AXSplitter "splitter" 228 83 0 624
+      AXGroup "group" 0 31 1024 676
+  AXToolbar "toolbar" 0 31 1024 52
+    AXButton "Hide Sidebar" 181 31 47 52
+    AXGroup "group" 232 31 61 52
+      AXMenuButton "View" 236 39 53 36
+    AXGroup "group" 293 31 52 52
+      AXMenuButton #zoom "Zoom" 297 39 44 36
+    AXButton #add-slide "Add Slide" 505 31 46 52
+    AXButton "Play" 551 31 41 52
+    AXGroup "group" 592 31 49 52
+      AXPopUpButton #insert-Text "Text" 596 39 41 36
+    AXGroup "group" 641 31 43 52
+      AXMenuButton #insert-Shape "Shape" 647 39 38 36
+    AXGroup "group" 684 31 41 52
+      AXMenuButton #insert-Image "Image" 685 39 40 36
+    AXGroup "group" 725 31 43 52
+      AXMenuButton #insert-Chart "Chart" 726 39 42 36
+    AXGroup "group" 768 31 41 52
+      AXMenuButton #insert-Table "Table" 769 39 40 36
+    AXGroup "group" 809 31 40 52
+      AXCheckBox #tab-format "Format" 814 43 31 28
+    AXGroup "group" 849 31 37 52
+      AXCheckBox #tab-animate "Animate" 854 43 28 28
+    AXGroup "group" 886 31 41 52
+      AXCheckBox #tab-document "Document" 889 43 28 28
+    AXPopUpButton "more toolbar items" 979 38 38 38
+  AXButton "close button" 18 49 16 16
+  AXButton "full screen button" 64 49 16 16
+    AXGroup "group" 65 50 14 14
+      AXGroup "group" 65 50 14 14
+  AXButton "minimize button" 41 49 16 16
+  AXStaticText "text" 345 31 160 52
+the slide: 256 272 439 246
+click at 475, 395
+the inspector's rotation: 0; size: 144
+drag at 475, 395, 565, 435
+the drop landed: within 2 s
+right at 475, 395
+Tab: the canvas says "“What a summer of Saturdays built.” selected, 4 of 4 · Return goes into it or its handles" at 249 533 454 42; the slide at 256 272 439 246
+frontmost: true
+the toolbar's Text: 596 39 41 36
+click at 616, 57
+the text inserted, typed in: within 0 s
+the words typed, shown: within 2 s
+the code pasted, its chip: Rust
+the slide holds, before:
+AXStaticText "Annual meeting · October 2026" 283 293 255 30
+AXHeading "High Country Trails" 283 328 287 99
+AXHeading "What a summer of Saturdays built." 283 432 255 30
+AXStaticText "Seen on a Mac" 381 380 222 12
+Insert › Text: Display, Headline, Title, Body, Caption, Label, Value, Lede, Kicker, Figure, Quote, Verse, Numeral, Hero, Code, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true
+insert: menu item Display of menu Text of menu item Text of menu Insert of menu bar item Insert of menu bar 1 of application process Scaena
+the slide holds, after:
+AXStaticText "Annual meeting · October 2026" 283 293 255 30
+AXHeading "High Country Trails" 283 328 287 99
+AXHeading "What a summer of Saturdays built." 283 432 255 30
+AXStaticText "Seen on a Mac" 381 380 222 12
+AXHeading "Display" 381 450 189 47
+Insert › Map…: Where at 297 316 430 24, the key's field at 297 255 430 24
+View › Show Safe Area
+View › Show Safe Area
+fitted, the canvas: 256 272 439 246
+zoomed twice, the canvas: 228 148 495 494; the zoom reads 46%, against the slide's own size
+zoomed in, nothing selected, → pans: within 0 s; the canvas reads Slide 1
+Shift+→ pans: within 0 s
+PageDown, the canvas shows: Slide 2, within 0 s, and says "" (Slide 2 shown); the canvas at 228 148 495 494 (as zoomed: 228 148 495 494), the zoom reading 46%
+PageUp, the canvas shows: Slide 1, within 0 s, and says "Slide 1 shown" (Slide 1 shown)
+fitted again, the canvas: 256 272 439 246
+click at 528, 57
+the gallery drawn: within 0 s
+click at 236, 268
+Frameworks shown: within 0 s
+click at 236, 156
+click at 434, 206
+the slide started holds:
+AXStaticText "Your name · the date" 283 467 255 30
+AXHeading "The talk's title" 283 328 287 99
+AXHeading "What it's about, in a line" 283 432 255 30
+the picture's place says "A picture, or a backdrop", its words at 590 364 63 63
+⌘Z, the slide shown holds:
+AXStaticText "Annual meeting · October 2026" 283 293 255 30
+AXHeading "High Country Trails" 283 328 287 99
+AXHeading "What a summer of Saturdays built." 283 432 255 30
+AXStaticText "Seen on a Mac" 381 380 222 12
+AXHeading "Display" 381 450 189 47
+the Slide menu: New Slide, New Step, missing value, Duplicate Slide, Delete Slide, true, true, false, true, true
+New Slide, the canvas shows: Slide 2, within 0 s
+⌘Z, the canvas shows: Slide 1, within 0 s
+⌘Z, the canvas says: 
+View › Show Timeline
+the slide, the timeline hidden: 439 × 246; shown: 439 × 246
+click at 116, 132
+ten slides down, the canvas shows: Slide 11
+the chart's lane: 438 673 273 12
+click at 705, 679
+the chart's data: Trails Funding; small multiples by: AXRadioButton "None" 754 372 69 24;AXRadioButton "Source" 824 372 68 24;AXRadioButton "Amount" 893 372 68 24;
+click at 475, 342
+View › Show Timeline
+the toolbar's Format: 814 43 31 28; Animate: 854 43 28 28; Document: 889 43 28 28
+the theme's paper: "Paper" at 810 510 36 16, set in "Background, Text on Accent" at 810 527 72 26, its field at 898 520 96 24
+the theme's paper-2: "Paper 2" at 810 574 47 16, set in "Background 2" at 810 591 67 13, its field at 898 578 96 24
+the theme's paper: 898 520 96 24, #101014
+click at 946, 532
+typed and Return: ; the Edit menu: Undo, Redo, true, false
+⌘Z: #101014; the Edit menu: Undo, Redo, true, true
+⌘⇧Z: #2B1B3D
+⌘Z again: 
+click at 651, 481
+a picture too large, pasted: no alert: 61:88: execution error: System Events got an error: Can’t get window 1 of process "Scaena". Invalid index. (-1719); the copy went in: within 8 s
+click at 0, 768
+drag at 365, 456, 475, 468
+a stroke of the pen: the canvas says "" (A drawing drawn on this slide), and holds 1 drawing (1)
+the pen after a stroke and Escape: the Insert menu offers neither (Drawing: the pen is down)
+the light table: cover 24 107 319 198, agenda 363 107 319 198, promise 24 325 319 199, the slider 498 687 180 14
+click at 676, 694
+the slider at its end: cover 24 107 658 389, agenda 24 516 658 389
+the light table put away, the slides down the side: 0 768 0 0
+New from a Prompt: the windows New from a Prompt, trails.scaena ; the topic 325 93 477 32, Generate 736 668 80 24
+the length it asks for: 5–10 slides
+Escape: the windows trails.scaena 
+Settings: the windows Assistant, trails.scaena ; Anthropic's field 262 309 472 16
+click at 498, 317
+a key of Gemini's form in Anthropic's field: the hint 264 346 182 15
