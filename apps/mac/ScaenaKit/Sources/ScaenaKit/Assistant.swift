@@ -69,6 +69,14 @@ public final class Assistant {
     /// A question another panel drafted for the user to send (the story's, PLAN G.9): the
     /// assistant's panel takes it into its box, and it is gone from here.
     public var drafted: String?
+    /// Why the provider is being asked again, and when, while it is (narrative REL-3): "Anthropic
+    /// is busy. Trying again in 4 s (2 of 3)…"; none while nothing waits.
+    public private(set) var waiting: String?
+    /// How long a turn may go with nothing from the provider before it is asked again: two
+    /// minutes; a test shortens it.
+    public var silence: TimeInterval = 120
+    /// The waits before asking again, in seconds; a test shortens them.
+    public var waits: [TimeInterval] = [2, 4, 8]
     /// Hears each change the assistant makes to the deck: the source it replaced and the files it
     /// wrote beside the deck, for an undo.
     @ObservationIgnored public var edited: (_ before: String, _ files: [Rewritten]) -> Void = { _, _ in }
@@ -158,19 +166,15 @@ public final class Assistant {
         do {
             while true {
                 try Task.checkCancellation()
-                let request = try chat.request(key: key).urlRequest()
-                saying = nil
-                let (data, status) = try await answered(request, chat: chat)
-                try Task.checkCancellation()
-                let body = String(decoding: data, as: UTF8.self)
+                let request = try chat.request(key: key).urlRequest(timeoutInterval: silence)
                 let next: Next
                 do {
-                    next = try chat.answer(status: status, body: body)
-                } catch {
+                    next = try await turn(request, chat: chat)
+                } catch let refusal as Refusal {
                     // A refusal, or an answer that does not read, said in a person's words (PLAN
                     // 3.18), never the provider's own: the conversation is as it was.
                     unsaid()
-                    add(.failed(Why.answered(chat.provider, status: status, body: body)))
+                    add(.failed(refusal.said))
                     return
                 }
                 switch next {
@@ -281,6 +285,49 @@ public final class Assistant {
         } catch let error as ScaenaError {
             return try stop(error.message)
         }
+    }
+
+    /// A provider's answer that is no answer, in a person's words.
+    private struct Refusal: Error {
+        let said: String
+    }
+
+    /// One turn of the model: `request` made and its answer read, and, where the provider is busy
+    /// (408, 429), down (5xx), or silent past its deadline, asked again after a wait, up to
+    /// `waits.count` times, the window told of each wait (narrative REL-3). A refusal that is
+    /// not worth asking again, a key not taken or a question too long, is thrown as a `Refusal`;
+    /// the user's stop, as a cancellation.
+    private func turn(_ request: URLRequest, chat: ScaenaChat) async throws -> Next {
+        defer { waiting = nil }
+        for attempt in 0... {
+            saying = nil
+            let again: String
+            do {
+                let (data, status) = try await answered(request, chat: chat)
+                try Task.checkCancellation()
+                let body = String(decoding: data, as: UTF8.self)
+                do {
+                    return try chat.answer(status: status, body: body)
+                } catch {
+                    let why = Why.Answer(status: status, body: body)
+                    guard why == .busy || why == .down else {
+                        throw Refusal(said: Why.answered(chat.provider, status: status, body: body))
+                    }
+                    again = why == .busy ? "\(chat.provider.name) is busy." : "\(chat.provider.name) couldn't answer just now."
+                }
+            } catch let error as URLError where error.code == .timedOut {
+                again = "\(chat.provider.name) went quiet."
+            }
+            try Task.checkCancellation()
+            guard attempt < waits.count else {
+                throw Refusal(said: again + " Try again in a moment.")
+            }
+            unsaid()
+            let wait = waits[attempt]
+            waiting = "\(again) Trying again in \(Int(wait)) s (\(attempt + 1) of \(waits.count))…"
+            try await Task.sleep(for: .seconds(wait))
+        }
+        fatalError("a turn ends by returning or throwing")
     }
 
     /// `request` made and its answer read: as it is written where the assistant streams, each

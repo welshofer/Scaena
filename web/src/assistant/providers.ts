@@ -66,6 +66,9 @@ export interface Ask {
   /** Hears the answer's words as they are written (narrative ATTR-3), each piece as it
    * completes; the turn gives them whole at the end. */
   onText?: (text: string) => void;
+  /** Hears each piece of the answer as it arrives, words or not: a sign the provider is still
+   * writing (narrative REL-3). */
+  onChunk?: () => void;
 }
 
 export interface Provider {
@@ -187,7 +190,7 @@ export const anthropic: Provider = {
       body: JSON.stringify(body),
       signal: ask.signal,
     });
-    const answered = await answer("anthropic", response, ask.onText);
+    const answered = await answer("anthropic", response, ask.onText, ask.onChunk);
     const content = (answered.content ?? []) as { type: string; text?: string; id?: string; name?: string; input?: unknown }[];
     const stop = answered.stop_reason === "tool_use" ? "tools" : answered.stop_reason === "end_turn" ? "end" : answered.stop_reason === "max_tokens" ? "length" : "other";
     return {
@@ -271,7 +274,7 @@ export const openai: Provider = {
       body: JSON.stringify(body),
       signal: ask.signal,
     });
-    const answered = await answer("openai", response, ask.onText);
+    const answered = await answer("openai", response, ask.onText, ask.onChunk);
     const choice = answered.choices?.[0] ?? {};
     const message = choice.message ?? {};
     const calls = ((message.tool_calls ?? []) as { id: string; function: { name: string; arguments: string } }[]).map((c) => ({
@@ -352,7 +355,7 @@ export const gemini: Provider = {
       body: JSON.stringify(body),
       signal: ask.signal,
     });
-    const answered = await answer("gemini", response, ask.onText);
+    const answered = await answer("gemini", response, ask.onText, ask.onChunk);
     const candidate = answered.candidates?.[0] ?? {};
     const parts = (candidate.content?.parts ?? []) as { text?: string; thought?: boolean; functionCall?: { id?: string; name: string; args?: unknown } }[];
     const calls = parts.flatMap((p, i) =>

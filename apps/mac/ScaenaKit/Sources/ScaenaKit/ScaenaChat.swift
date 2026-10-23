@@ -102,10 +102,12 @@ public struct ProviderRequest: Decodable, Sendable {
     /// The JSON to send; none for a GET.
     public let body: String?
 
-    /// The request as `URLSession` makes it. A model may think for minutes before it answers.
-    public func urlRequest() throws -> URLRequest {
+    /// The request as `URLSession` makes it, given up on after `timeoutInterval` seconds with
+    /// nothing from the provider. A model may think for minutes before it answers; an assistant
+    /// that reads the answer as it is written gives it two minutes of silence (narrative REL-3).
+    public func urlRequest(timeoutInterval: TimeInterval = 600) throws -> URLRequest {
         guard let address = URL(string: url) else { throw ScaenaError(message: "\(url) is no address") }
-        var request = URLRequest(url: address, timeoutInterval: 600)
+        var request = URLRequest(url: address, timeoutInterval: timeoutInterval)
         request.httpMethod = method
         for (name, value) in headers {
             request.setValue(value, forHTTPHeaderField: name)

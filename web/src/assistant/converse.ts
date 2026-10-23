@@ -2,7 +2,7 @@
 // results go back, and so on until it answers without a call, the user stops it, or it has
 // called tools as many rounds as one question allows.
 import type { AssistantEvent } from "../protocol";
-import { unasked } from "../words";
+import { answerOf, unanswered, unasked } from "../words";
 import type { Call, Message, Provider, Result, Tool, Turn } from "./providers";
 
 /** What the page hears as the assistant works. */
@@ -26,6 +26,82 @@ export interface Options {
   rounds?: number;
   /** The most frames the model is sent again: older ones are named, not shown. */
   frames?: number;
+  /** How long one turn may go without a word from the provider before it is given up and
+   * asked again (narrative REL-3); two minutes without it. */
+  timeoutMs?: number;
+  /** How many times a turn a busy, down, or silent provider is asked again; three without it. */
+  retries?: number;
+}
+
+/** How long a turn may go with nothing from the provider. */
+const SILENCE_MS = 120_000;
+/** The waits before asking again, in seconds, where the provider names none. */
+const WAITS = [2, 4, 8];
+
+/** Whether a turn that failed so is worth asking again (narrative REL-3): the provider busy
+ * (408, 429), down (5xx, Anthropic's 529), or silent past its deadline; never a key refused, a
+ * question too long, or the safety system. */
+function again(e: unknown, silent: boolean): boolean {
+  if (silent) return true;
+  const answer = answerOf(e);
+  if (!answer) return false;
+  const why = unanswered(answer.status, answer.words);
+  return why === "busy" || why === "down";
+}
+
+/** `ms` passed, or `signal` aborted. */
+function pause(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(done, ms);
+    function done() {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", done);
+      resolve();
+    }
+    signal.addEventListener("abort", done, { once: true });
+  });
+}
+
+/** One turn of `o`'s provider, asked again after a wait when it is busy, down, or silent, up to
+ * `o.retries` times, the panel told of each wait; the turn, or what the last ask threw. */
+async function turn(o: Options, messages: Message[]): Promise<Turn> {
+  const retries = o.retries ?? WAITS.length;
+  for (let attempt = 0; ; attempt++) {
+    // A deadline on silence: each piece of the answer that arrives puts it off again.
+    const silence = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const alive = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => silence.abort(), o.timeoutMs ?? SILENCE_MS);
+    };
+    alive();
+    const signal = AbortSignal.any([o.signal, silence.signal]);
+    try {
+      return await o.provider.turn({
+        model: o.model,
+        key: o.key,
+        base: o.base,
+        system: o.system,
+        tools: o.tools,
+        messages,
+        signal,
+        // The words as they are written, which the panel shows before the answer is whole.
+        onText: (text) => o.emit({ kind: "saying", text }),
+        onChunk: alive,
+      });
+    } catch (e) {
+      const silent = silence.signal.aborted && !o.signal.aborted;
+      if (o.signal.aborted || attempt >= retries || !again(e, silent)) throw silent ? new Error("504 Silent: the provider sent nothing for two minutes") : e;
+      const asked = (e as { retryAfter?: number }).retryAfter;
+      const seconds = Math.min(60, Math.max(1, Math.ceil(asked ?? WAITS[Math.min(attempt, WAITS.length - 1)])));
+      const message = silent ? `${o.provider.name} went quiet.` : unasked(o.provider.name, e).replace(/ Try again in a moment\.$/, ".");
+      o.emit({ kind: "waiting", message, seconds, attempt: attempt + 1, of: retries });
+      await pause(seconds * 1000, o.signal);
+      if (o.signal.aborted) throw e;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
 }
 
 /** The conversation as the model is sent it: the newest `frames` frames, and the older ones
@@ -57,31 +133,21 @@ export async function converse(o: Options): Promise<void> {
   for (let round = 0; ; round++) {
     if (stopped()) return o.emit({ kind: "done", stop: "stopped" });
     if (round === rounds) return o.emit({ kind: "done", stop: "steps" });
-    let turn: Turn;
+    let answered: Turn;
     try {
-      turn = await o.provider.turn({
-        model: o.model,
-        key: o.key,
-        base: o.base,
-        system: o.system,
-        tools: o.tools,
-        messages: recent(o.conversation, o.frames ?? 2),
-        signal: o.signal,
-        // The words as they are written, which the panel shows before the answer is whole.
-        onText: (text) => o.emit({ kind: "saying", text }),
-      });
+      answered = await turn(o, recent(o.conversation, o.frames ?? 2));
     } catch (e) {
       if (stopped()) return o.emit({ kind: "done", stop: "stopped" });
       // A refusal, or no way to the provider, in a person's words (PLAN 3.18), as the Mac's
       // assistant says it: never the provider's own, nor its status.
       return o.emit({ kind: "failed", message: unasked(o.provider.name, e) });
     }
-    o.conversation.push({ role: "assistant", text: turn.text, calls: turn.calls, raw: turn.raw });
-    if (turn.usage) o.emit({ kind: "usage", ...turn.usage });
-    if (turn.text) o.emit({ kind: "text", text: turn.text });
-    if (!turn.calls.length) return o.emit({ kind: "done", stop: turn.stop });
+    o.conversation.push({ role: "assistant", text: answered.text, calls: answered.calls, raw: answered.raw });
+    if (answered.usage) o.emit({ kind: "usage", ...answered.usage });
+    if (answered.text) o.emit({ kind: "text", text: answered.text });
+    if (!answered.calls.length) return o.emit({ kind: "done", stop: answered.stop });
     const results: Result[] = [];
-    for (const call of turn.calls) {
+    for (const call of answered.calls) {
       // A call the user stopped before it ran is answered as stopped: every call has an answer.
       if (stopped()) {
         results.push({ id: call.id, name: call.name, json: JSON.stringify({ message: "the user stopped the assistant" }), error: true });

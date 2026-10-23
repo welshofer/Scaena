@@ -148,8 +148,11 @@ struct AssistantPanel: View {
                     ForEach(assistant.entries) { entry in
                         EntryRow(entry: entry, assistant: assistant).id(entry.id)
                     }
-                    // What it is doing while it works: the call running says so itself.
-                    if assistant.working, !calling {
+                    // What it is doing while it works: the call running says so itself; a
+                    // provider asked again, the wait (narrative REL-3).
+                    if let waiting = assistant.waiting {
+                        Text(waiting).font(.callout).foregroundStyle(.secondary)
+                    } else if assistant.working, !calling {
                         Text("Thinking…").font(.callout).foregroundStyle(.secondary).modifier(Sweep())
                     }
                 }

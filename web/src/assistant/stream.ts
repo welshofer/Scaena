@@ -234,7 +234,7 @@ export function isSse(body: string): boolean {
  * completes; a JSON body, an error's or an OpenAI-compatible server's that does not stream, is
  * read whole. An error the stream carried mid-way is thrown as a refusal with that error's status
  * (529 for Anthropic's overloaded, 500 otherwise). */
-export async function answer(provider: ProviderId, response: Response, onText?: (text: string) => void): Promise<any> {
+export async function answer(provider: ProviderId, response: Response, onText?: (text: string) => void, onChunk?: () => void): Promise<any> {
   const text = await (async () => {
     if (!response.ok || !response.body) return response.text();
     const reader = response.body.getReader();
@@ -245,6 +245,7 @@ export async function answer(provider: ProviderId, response: Response, onText?: 
     let decided = false;
     for (;;) {
       const { value, done } = await reader.read();
+      onChunk?.();
       const piece = decoder.decode(value, { stream: !done });
       if (!decided) {
         head += piece;
@@ -280,8 +281,20 @@ export async function answer(provider: ProviderId, response: Response, onText?: 
   }
   if (!response.ok) {
     const said = body?.error?.message ?? body?.message ?? text.slice(0, 300);
-    throw new Error(`${response.status} ${response.statusText}: ${said}`.trim());
+    // With how long the provider asks to wait before asking again, where it says (REL-3).
+    throw Object.assign(new Error(`${response.status} ${response.statusText}: ${said}`.trim()), { retryAfter: retryAfter(response) });
   }
   if (body === undefined) throw new Error(`not JSON: ${text.slice(0, 300)}`);
   return body;
+}
+
+/** The seconds a refusal asks the client to wait (`Retry-After`, as seconds or a date), where it
+ * says; none otherwise. */
+export function retryAfter(response: Response): number | undefined {
+  const header = response.headers.get("retry-after");
+  if (!header) return undefined;
+  const seconds = Number(header);
+  if (Number.isFinite(seconds)) return Math.max(0, seconds);
+  const at = Date.parse(header);
+  return Number.isFinite(at) ? Math.max(0, (at - Date.now()) / 1000) : undefined;
 }

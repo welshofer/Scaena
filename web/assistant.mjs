@@ -233,7 +233,10 @@ function words(text) {
  * event of a streamed answer, then wait that long before the rest. */
 async function provider(wire) {
   const requests = [];
-  const state = { slow: 0, trickle: 0 };
+  /** `busy`: that many requests answered 429 with Retry-After: 1 before the answer; `hang`: that
+   * many answered with nothing at all, the socket left open, before the answer (narrative REL-3). */
+  const state = { slow: 0, trickle: 0, busy: 0, hang: 0 };
+  const hung = [];
   const server = createServer(async (req, res) => {
     const cors = {
       "access-control-allow-origin": req.headers.origin ?? "*",
@@ -253,6 +256,15 @@ async function provider(wire) {
     for await (const chunk of req) text += chunk;
     const body = JSON.parse(text);
     requests.push({ headers: req.headers, body });
+    if (state.busy > 0) {
+      state.busy--;
+      return res.writeHead(429, { ...cors, "content-type": "application/json", "retry-after": "1" }).end(JSON.stringify({ error: { type: "rate_limit_error", message: "Rate limited" } }));
+    }
+    if (state.hang > 0) {
+      state.hang--;
+      res.writeHead(200, { ...cors, "content-type": "text/event-stream" });
+      return void hung.push(res);
+    }
     if (state.slow) await new Promise((ok) => setTimeout(ok, state.slow));
     const i = wire.answered(body);
     const answer = i < SCRIPT.length ? wire.call(SCRIPT[i], i) : wire.answer();
@@ -268,7 +280,15 @@ async function provider(wire) {
     res.end(events.slice(Math.max(first, 1)).join(""));
   }).listen(0, "127.0.0.1");
   await new Promise((ok) => server.once("listening", ok));
-  return { origin: `http://127.0.0.1:${server.address().port}`, requests, state, close: () => server.close() };
+  return {
+    origin: `http://127.0.0.1:${server.address().port}`,
+    requests,
+    state,
+    close: () => {
+      for (const res of hung) res.end();
+      server.close();
+    },
+  };
 }
 
 const site = await serve();
@@ -279,7 +299,8 @@ try {
     const page = await context.newPage();
     page.on("pageerror", (e) => failures.push(`page: ${e.message}`));
     page.on("console", (m) => m.type() === "error" && !/Failed to load resource/.test(m.text()) && failures.push(`console: ${m.text()}`));
-    await page.goto(`${site.origin}/web/dist/editor.html?painter=cpu&source=open&bundle=/${bundle}/deck.json`);
+    // A turn gives up on silence after 3 s here, not two minutes (narrative REL-3).
+    await page.goto(`${site.origin}/web/dist/editor.html?painter=cpu&source=open&bundle=/${bundle}/deck.json&assistant-timeout=3000`);
     await page.waitForFunction(() => window.scaena?.last(), null, { timeout: 120000 });
     await page.click("#tab-assistant");
     return page;
@@ -497,6 +518,39 @@ try {
       const saids = await page.evaluate(() => [...document.querySelectorAll("#transcript li.said")].map((li) => li.textContent));
       check(saids.at(-1) === PLAIN && saids.filter((t) => t === PLAIN).length === 2, `${id}: the answer stands whole in the words' place, once: ${JSON.stringify(saids.slice(-2))}`);
       scripted.state.trickle = 0;
+    }
+
+    // A busy provider is asked again (narrative REL-3): two 429s with Retry-After: 1, the wait
+    // said where Working… was, then the answer; and one that goes silent is given up on at the
+    // deadline and asked again, the question still answered.
+    {
+      const before = scripted.requests.length;
+      scripted.state.busy = 2;
+      await page.evaluate(() => {
+        window.asked = window.scaena.assistant.ask("Once more.");
+      });
+      const waited = await page
+        .waitForFunction(() => /Trying again in \d+ s \(1 of 3\)/.test(document.querySelector("#thinking").textContent) && document.querySelector("#thinking").textContent, null, { timeout: 10000 })
+        .then((h) => h.jsonValue())
+        .catch(() => "");
+      check(waited.startsWith("Anthropic is busy.") || waited.startsWith("OpenAI is busy.") || waited.startsWith("Gemini is busy."), `${id}: the wait is said in a person's words: "${waited}"`);
+      const again = await page.evaluate(() => window.asked);
+      check(again.kind === "done" && again.stop === "end" && scripted.requests.length === before + 3, `${id}: asked again after each 429, then answered (${JSON.stringify(again)}, ${scripted.requests.length - before} requests)`);
+      const quiet = scripted.requests.length;
+      scripted.state.hang = 1;
+      const silent = await page.evaluate(() => window.scaena.assistant.ask("And again."));
+      check(silent.kind === "done" && silent.stop === "end" && scripted.requests.length === quiet + 2, `${id}: a silent provider is asked again at the deadline, and answers (${JSON.stringify(silent)}, ${scripted.requests.length - quiet} requests)`);
+      // Stop during the wait stops at once.
+      scripted.state.busy = 3;
+      await page.evaluate(() => {
+        window.asked = window.scaena.assistant.ask("Yet again.");
+      });
+      await page.waitForFunction(() => /Trying again/.test(document.querySelector("#thinking").textContent), null, { timeout: 10000 }).catch(() => {});
+      const stoppedAt = Date.now();
+      await page.click("#stop");
+      const stopped = await page.evaluate(() => window.asked);
+      check(stopped.kind === "done" && stopped.stop === "stopped" && Date.now() - stoppedAt < 1500, `${id}: Stop during the wait stops at once (${JSON.stringify(stopped)})`);
+      scripted.state.busy = 0;
     }
 
     if (id === "anthropic") {

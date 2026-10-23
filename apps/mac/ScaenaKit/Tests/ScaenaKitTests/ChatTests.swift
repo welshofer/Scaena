@@ -133,6 +133,84 @@ private func streaming(_ text: String) -> [String] {
     #expect(assistant.usage == Usage(input: 10, output: 2))
 }
 
+/// A busy provider is asked again (narrative REL-3): two 429s, each waited out with the wait
+/// said, then the answer; a provider that stays busy is given up on in a person's words; and a
+/// key not taken is never asked again.
+@MainActor
+@Test func theAssistantAsksABusyProviderAgain() async throws {
+    let editor = DeckEditor(session: try ScaenaSession(directory: b1))
+    let busy = #"{"error": {"type": "rate_limit_error", "message": "Rate limited"}}"#
+    let answers = Answers([(busy, 429), (busy, 429), (answering("Clean."), 200)])
+    let seen = Seen()
+    let assistant = Assistant(editor: editor) { request in await answers.answer(request) }
+    assistant.waits = [0.05, 0.05, 0.05]
+    assistant.ask("Is it clean?", provider: .anthropic, model: "a-model", key: "sk-test")
+    for _ in 0..<500 where assistant.working {
+        if let waiting = assistant.waiting { await seen.keep([waiting]) }
+        try await Task.sleep(for: .milliseconds(5))
+    }
+    #expect(!assistant.working)
+    #expect(await answers.asked.count == 3, "asked again after each 429")
+    #expect(await seen.kept.first?.hasPrefix("Anthropic is busy. Trying again in 0 s (") == true, "\(await seen.kept)")
+    #expect(assistant.waiting == nil)
+    #expect(said(assistant) == ["Clean."])
+    guard case .done("end") = assistant.entries.last?.kind else {
+        Issue.record("the answer came: \(assistant.entries)")
+        return
+    }
+
+    // Busy past its waits: given up on, in a person's words.
+    let stays = Answers([(busy, 429), (busy, 429), (busy, 429), (busy, 429)])
+    let given = Assistant(editor: editor) { request in await stays.answer(request) }
+    given.waits = [0.01, 0.01, 0.01]
+    given.ask("Again?", provider: .anthropic, model: "a-model", key: "sk-test")
+    for _ in 0..<500 where given.working {
+        try await Task.sleep(for: .milliseconds(5))
+    }
+    #expect(await stays.asked.count == 4)
+    guard case .failed(let why) = given.entries.last?.kind else {
+        Issue.record("given up on: \(given.entries)")
+        return
+    }
+    #expect(why == "Anthropic is busy. Try again in a moment.")
+
+    // A key not taken is asked once.
+    let refused = Answers([(#"{"error": {"message": "invalid x-api-key"}}"#, 401)])
+    let once = Assistant(editor: editor) { request in await refused.answer(request) }
+    once.ask("Again?", provider: .anthropic, model: "a-model", key: "sk-test")
+    for _ in 0..<500 where once.working {
+        try await Task.sleep(for: .milliseconds(5))
+    }
+    #expect(await refused.asked.count == 1)
+    guard case .failed(let notAccepted) = once.entries.last?.kind else {
+        Issue.record("refused: \(once.entries)")
+        return
+    }
+    #expect(notAccepted == "Anthropic didn't accept your key. Check it, or replace it.")
+}
+
+/// A provider that goes quiet is given up on at the deadline and asked again (narrative REL-3).
+@MainActor
+@Test func theAssistantAsksASilentProviderAgain() async throws {
+    let editor = DeckEditor(session: try ScaenaSession(directory: b1))
+    let quiet = Answers([(answering("Clean."), 200)])
+    let count = Seen()
+    let assistant = Assistant(editor: editor) { request in
+        // The first ask times out, as URLSession says it; the next answers.
+        if await count.kept.isEmpty {
+            await count.keep(["timed out"])
+            throw URLError(.timedOut)
+        }
+        return await quiet.answer(request)
+    }
+    assistant.waits = [0.05]
+    assistant.ask("Is it clean?", provider: .anthropic, model: "a-model", key: "sk-test")
+    for _ in 0..<500 where assistant.working {
+        try await Task.sleep(for: .milliseconds(5))
+    }
+    #expect(await quiet.asked.count == 1 && said(assistant) == ["Clean."])
+}
+
 /// What the conversation shows the model as having said.
 @MainActor
 private func said(_ assistant: Assistant) -> [String] {
@@ -159,19 +237,25 @@ private actor Seen {
     #expect(throws: ScaenaError.self) { try Provider.gemini.models(status: 403, body: "{}") }
 }
 
-/// What a stand-in for the network answers, in order, and the requests it was asked.
+/// What a stand-in for the network answers, in order, each with its status, and the requests it
+/// was asked.
 private actor Answers {
-    private var bodies: [String]
+    private var bodies: [(String, Int)]
     private(set) var asked: [URLRequest] = []
 
     init(_ bodies: [String]) {
-        self.bodies = bodies
+        self.bodies = bodies.map { ($0, 200) }
+    }
+
+    init(_ answers: [(String, Int)]) {
+        self.bodies = answers
     }
 
     func answer(_ request: URLRequest) -> (Data, Int) {
         asked.append(request)
         guard !bodies.isEmpty else { return (Data(#"{"error": {"message": "no more"}}"#.utf8), 500) }
-        return (Data(bodies.removeFirst().utf8), 200)
+        let (body, status) = bodies.removeFirst()
+        return (Data(body.utf8), status)
     }
 }
 
