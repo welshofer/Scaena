@@ -133,7 +133,8 @@ try {
   const tortured = await context.newPage();
   watch(tortured, "torture");
   const navigated = performance.now();
-  await tortured.goto(`${torture.url}?painter=cpu`);
+  // At its own size (`fit=own`): the goldens are read from it as painted, pixel for pixel.
+  await tortured.goto(`${torture.url}?painter=cpu&fit=own`);
   await ready(tortured);
   console.log(`the torture deck's file shows its first frame ${(performance.now() - navigated).toFixed(0)} ms after navigation`);
   const ms = await shoot(tortured, frames, join(out, "standalone-cpu"), "standalone cpu", failures);

@@ -185,8 +185,7 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         was.free();
         format = undefined;
         slots = opening();
-        [canvas.width, canvas.height] = size();
-        gpu?.resize(canvas.width, canvas.height);
+        sized(true);
         return post({ type: "reloaded", id: data.id, ...opened() });
       }
       case "show": {
@@ -278,6 +277,12 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         viewing = data.view ? Float32Array.from(data.view) : null;
         if (lastPainted) await paint(lastPainted.state, lastPainted.t, "keep");
         return post({ type: "viewed", id: data.id });
+      }
+      case "fit": {
+        room = data.room;
+        if (lastPainted) await paint(lastPainted.state, lastPainted.t, "keep");
+        else sized(true);
+        return post({ type: "fitted", id: data.id, size: [canvas.width, canvas.height] });
       }
       case "find":
         current(data.source);
@@ -845,8 +850,8 @@ async function open(source: Source, painter: Painter, target: OffscreenCanvas, e
   // A deck made from a theme the page carries has its library already.
   if (!("create" in source)) await library();
   slots = opening();
-  [canvas.width, canvas.height] = size();
-  gpu?.resize(canvas.width, canvas.height);
+  // The page hears `ready` first; it asks for the fit it wants, and hears the size then.
+  sized(false);
   post({ type: "ready", ...opened() });
 }
 
@@ -1346,8 +1351,53 @@ function opening(): Slot[] {
   }
 }
 
-/** The canvas frames are laid out on now, in whole pixels. */
-const size = () => Array.from(player.canvasSize(), Math.round) as [number, number];
+/** The room frames are painted to fill, in device pixels, as the page last said (lift-up
+ * ATTR-2); `null` paints them at the canvas's own size, as the editor's preview is. */
+let room: [number, number] | null = null;
+
+/** Whether the CPU painter paints a slide larger than its canvas: it does not. A slide larger on
+ * the screen is painted at the canvas's own size and scaled up by the browser, so its frames cost
+ * what they cost before and keep their pace (gate 2's bar: 60 a second, 30 where a cue draws a
+ * shader), where WebGPU paints every pixel of the screen. Measured in headless Chromium
+ * (web/fps.mjs, the trails example, fullscreen at 2560 × 1440 at 2×): painted at the canvas's
+ * size, a cue's frame takes 5–6 ms, as at 1080p; painted at half again as many pixels, 22 ms,
+ * and the cues fall to 30 a second. */
+const CPU_LARGER = false;
+
+/** The most a frame is on a side: WebGPU's texture limit, which the adapter is asked for. */
+const MAX_SIDE = 8192;
+
+/** The canvas at `size()`, where it is not that yet: its attributes, WebGPU's surface, and, where
+ * `tell`, the page told, which shows the canvas at the slide's size on it (lift-up ATTR-2). */
+function sized(tell: boolean) {
+  const [width, height] = size();
+  if (canvas.width === width && canvas.height === height) return;
+  [canvas.width, canvas.height] = [width, height];
+  gpu?.resize(width, height);
+  if (tell) post({ type: "sized", size: [width, height] });
+}
+
+/** The canvas frames are painted on now, in whole pixels: the canvas frames are laid out on, or
+ * that canvas as large as fits in the room, keeping its aspect, its height worked out from its
+ * width as the CPU painter works it out (`raster_size`), so a frame fills the canvas to the last
+ * row. The CPU painter paints it no larger than the canvas (`CPU_LARGER`). */
+function size(): [number, number] {
+  const [w, h] = player.canvasSize();
+  if (!room) return [Math.round(w), Math.round(h)];
+  // What a painter's raster holds at most (`scaena_paint::MAX_PIXELS`), and how much larger than
+  // the canvas the CPU painter paints: not at all.
+  const most = 1 << 25;
+  const larger = gpu || CPU_LARGER ? Infinity : 1;
+  const scale = Math.min(room[0] / w, room[1] / h, MAX_SIDE / w, MAX_SIDE / h, Math.sqrt(most / (w * h)), larger);
+  let width = Math.max(1, Math.round(w * scale));
+  let height = Math.max(1, Math.round((h * width) / w));
+  // Rounded up past the room, or past what a raster holds: a pixel narrower.
+  while (width > 1 && (height > Math.round(room[1]) || width * height > most)) {
+    width -= 1;
+    height = Math.max(1, Math.round((h * width) / w));
+  }
+  return [width, height];
+}
 
 /** Lay frames out in `next` from now on; `again` after the deck has changed. */
 /** Thumbnails are asked for again: the last one asked stops the one before it, the strip's of
@@ -1660,11 +1710,8 @@ type Beside = "paint" | "pace" | "keep";
  * (SPEC §3.8). */
 async function paint(state: string, t: number, beside: Beside = "paint") {
   lastPainted = { state, t };
-  const [width, height] = size();
-  if (canvas.width !== width || canvas.height !== height) {
-    [canvas.width, canvas.height] = [width, height];
-    gpu?.resize(width, height);
-  }
+  sized(true);
+  const [width, height] = [canvas.width, canvas.height];
   if (viewing !== undefined) player.setView(viewing);
   if (gpu) {
     player.paint(gpu, state, t);

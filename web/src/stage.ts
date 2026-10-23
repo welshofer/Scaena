@@ -126,6 +126,7 @@ type Reply = Extract<
       | "linked"
       | "laidOut"
       | "viewed"
+      | "fitted"
       | "focal"
       | "found"
       | "replacement"
@@ -215,6 +216,9 @@ export class Stage {
   onError: (error: Error) => void = () => {};
   /** The formats beside the canvas are painted: `state`, `t` ms into its cue (PLAN 2.62). */
   onBesides: (state: string, t: number) => void = () => {};
+  /** Called as the canvas's attributes change: `size`, which frames are painted at from then
+   * on, fitted to the room (`fit`), the format shown, or the bundle read again (lift-up ATTR-2). */
+  onSized: (size: [number, number]) => void = () => {};
   /** Requests not yet answered, by id. */
   private waiting = new Map<number, { resolve: (reply: Reply) => void; reject: (error: Error) => void }>();
   /** What hears each step of the assistant's answer to a question, by the question's id. */
@@ -453,6 +457,14 @@ export class Stage {
   targets(state: string, node: string, format?: string): Promise<Targets> {
     return this.request<"targets">({ type: "targets", id: ++this.asked, state, node, format }).then(({ targets }) => targets);
   }
+  /** Paint frames at the size of the slide as large as fits in `room`, device pixels, keeping
+   * the canvas's aspect, so a slide fills the screen as sharp as the screen is (lift-up ATTR-2);
+   * at the canvas's own size with `null`. Resolves with the canvas's size from now on, once what
+   * is shown is painted again so. */
+  fit(room: [number, number] | null): Promise<[number, number]> {
+    return this.request<"fitted">({ type: "fit", id: ++this.asked, room }).then(({ size }) => size);
+  }
+
   /** The theme's grid in `format`, as the canvas's guides draw it (PLAN 2.57). */
   grid(format?: string): Promise<Grid> {
     return this.request<"grid">({ type: "grid", id: ++this.asked, format }).then(({ grid }) => grid);
@@ -1148,6 +1160,7 @@ export class Stage {
       case "linked":
       case "laidOut":
       case "viewed":
+      case "fitted":
       case "focal":
       case "found":
       case "replacement":
@@ -1245,6 +1258,8 @@ export class Stage {
         return this.help(data.count);
       case "besides":
         return this.onBesides(data.state, data.t);
+      case "sized":
+        return this.onSized(data.size);
       case "ready":
         return;
       // What a worker that makes a deck from a prompt says (PLAN G.5): a stage's never does.
