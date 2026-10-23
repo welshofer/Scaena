@@ -910,14 +910,14 @@ async function edit(source: Source, opened?: Stage) {
   /** What the last gesture on the canvas or choice in the inspector said: it stays in the status,
    * what lint finds after it, until the source is edited by hand. */
   let told: string | undefined;
-  /** The source a line said of the deck as it opened was said of (`current.say`): it stays
-   * through that source's lint, until the source is edited. */
+  /** The source `told` was said over: it stays through that source's lint, one an edit made before
+   * it asked for among them, until the source is edited. */
   let toldOf: string | undefined;
   /** What lint's last report said, which a line taken back leaves standing. */
   let reported = "";
   const say = (text: string) => {
     told = text;
-    toldOf = undefined;
+    toldOf = view.state.doc.toString();
     status.textContent = text;
   };
   /** Take back `text`, if the status still says it: `instead` in its place, or what lint said. */
@@ -2823,10 +2823,7 @@ async function edit(source: Source, opened?: Stage) {
       ended();
     },
     dirty,
-    say: (text) => {
-      say(text);
-      toldOf = view.state.doc.toString();
-    },
+    say,
     kept: () => (where?.kind === "opfs" ? where.name : undefined),
     // New's deck opens typing in its title, its words selected (PLAN 3.21): whether it does.
     typeTitle: async () => {
