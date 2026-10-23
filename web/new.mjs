@@ -214,8 +214,19 @@ try {
   // After several New, ⌘Z is the deck open's, once, wherever the page does not take it itself:
   // from its slide focused in the strip, and from a menu in the inspector.
   const opened = await page.evaluate(() => window.scaena.source());
+  // Undone once the editor has taken the undo's compile too, and shows a state it holds: until
+  // then the state it showed can be one the undo took away, and a choice made there changes nothing.
   const undone = async () => {
-    await page.waitForFunction((s) => window.scaena.source() === s, opened, { timeout: 30000, polling: 50 }).catch(() => {});
+    await page
+      .waitForFunction(
+        (s) => {
+          const last = window.scaena.last();
+          return window.scaena.source() === s && last?.valid && !last.error && last.states[window.scaena.shown()] !== undefined;
+        },
+        opened,
+        { timeout: 30000, polling: 50 },
+      )
+      .catch(() => {});
     return (await page.evaluate(() => window.scaena.source())) === opened;
   };
   await page.click("#strip [data-add=step]");
