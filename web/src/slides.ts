@@ -279,7 +279,7 @@ export function slides(stage: Stage, into: HTMLElement, button: HTMLButtonElemen
         const ids = order(ops);
         const at = ids.indexOf(shown.state);
         const index = at >= 0 ? at : Math.max(0, ids.indexOf(keep()[0] ?? ""));
-        const { source, edited } = await stage.make(editor.source(), ops, index, editor.format());
+        const { source, edited } = await stage.make(editor.source, ops, index, editor.format());
         // Selected once the deck the change made reaches the table.
         pending = { from: order_(), keep };
         editor.apply(source, edited);

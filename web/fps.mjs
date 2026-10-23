@@ -17,8 +17,10 @@
 // docs/gate-2.md has Safari's steps by hand. Options: `--bundle PATH` (the trails example by
 // default), `--painter gpu|cpu` (the player's choice by default: WebGPU where there is an
 // adapter), `--states a,b`, `--helpers N` (the most workers the CPU painter shares a shader's
-// rows with, PLAN 2.28; 0 for none), and `--headless`, which in Chromium paints WebGPU on
-// SwiftShader.
+// rows with, PLAN 2.28; 0 for none), `--viewport WxH` (1920x1080 by default) and `--dpr N` (1),
+// the window's size and the screen's density, at which the slide fills the window (lift-up
+// ATTR-2), `--fullscreen`, which fills the screen with it, and `--headless`, which in Chromium
+// paints WebGPU on SwiftShader.
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
@@ -37,6 +39,9 @@ const painter = option("painter", undefined);
 const only = option("states", undefined)?.split(",");
 const helpers = option("helpers", undefined);
 const headless = args.includes("--headless");
+const [viewWidth, viewHeight] = option("viewport", "1920x1080").split("x").map(Number);
+const dpr = Number(option("dpr", "1"));
+const fullscreen = args.includes("--fullscreen");
 /** The states that draw a shader: each shows a shader node. */
 const shaded = (() => {
   const path = join(root, bundle);
@@ -66,7 +71,7 @@ const server = await serve(root);
 const browser = await open();
 const reading = /^([\d.]+) fps · worst (\d+) ms · (\d+) late of (\d+) · paint ([\d.]+) ms$/;
 try {
-  const page = await browser.newPage({ viewport: { width: 1920, height: 1080 } });
+  const page = await browser.newPage({ viewport: { width: viewWidth, height: viewHeight }, deviceScaleFactor: dpr });
   const query = new URLSearchParams({ bundle: `/${bundle}`, fps: "" });
   if (painter) query.set("painter", painter);
   if (helpers !== undefined) query.set("helpers", helpers);
@@ -74,7 +79,19 @@ try {
   await page.waitForFunction(() => window.scaena, null, { timeout: 120000 });
   const slots = await page.evaluate(() => window.scaena.timeline());
   const paints = await page.evaluate(() => (window.scaena.opened().painter === "webgpu" ? "WebGPU" : "CPU painter"));
+  if (fullscreen) {
+    await page.keyboard.press("f");
+    await page.waitForFunction(() => document.fullscreenElement !== null, null, { timeout: 5000 });
+  }
+  // The canvas as fitted to the window: a frame or two after the page asked.
+  await page.waitForTimeout(500);
+  const canvas = await page.evaluate(() => {
+    const c = document.querySelector("#stage");
+    const r = c.getBoundingClientRect();
+    return `${c.width} × ${c.height} px, shown ${Math.round(r.width)} × ${Math.round(r.height)}`;
+  });
   console.log(`${browserName}${headless ? ", headless" : ""} · ${await browser.version()} · ${paints} · ${bundle}`);
+  console.log(`window ${viewWidth} × ${viewHeight} at ${dpr}×${fullscreen ? ", fullscreen" : ""} · canvas ${canvas}`);
   console.log(`${"state".padEnd(16)} ${"cue".padStart(6)} ${"hold".padStart(6)}   reading`);
   const rows = [];
   for (const [k, slot] of slots.entries()) {

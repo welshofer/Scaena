@@ -58,8 +58,9 @@ final class AssistantTests: XCTestCase {
             field.typeText("AIzaSyA-not-an-anthropic-key")
             XCTAssertTrue(hint.waitForExistence(timeout: 5), "a Gemini key typed for Anthropic is not said so")
             keep(app, as: "key-hinted")
-            // Taken back, the hint goes.
-            field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 40))
+            // Taken back, the hint goes: once the field reads empty, which the simulator's keyboard
+            // does not promise of the deletes it is sent.
+            XCTAssertTrue(emptied(field), "the field is not emptied: \(field.value ?? "")")
             XCTAssertTrue(wait(5) { !hint.exists }, "the hint stays with the field empty")
         }
 
@@ -118,5 +119,27 @@ final class AssistantTests: XCTestCase {
             app.buttons.matching(NSPredicate(format: "label == 'Done'")).firstMatch.tap()
             XCTAssertTrue(add.waitForExistence(timeout: 10), "with no key kept, the panel offers none to add")
         }
+    }
+
+    /// Empties `field` a key at a time until it reads empty: at least as many deletes as it holds
+    /// characters, typed again where a round left some. The simulator's keyboard drops keys it is sent while its
+    /// queue is busy ("Keyboard queue task timeout detected" in the app's log): on #448's run every
+    /// one of 40 deletes was lost, the field still held the key, and its hint rightly stayed. The
+    /// field itself says when it is empty, so what follows is asked of the app, not the keyboard.
+    @MainActor
+    private func emptied(_ field: XCUIElement) -> Bool {
+        for round in 1...3 {
+            let held = masked(field)
+            if round > 1, held == 0 { return true }
+            field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: max(held, 40)))
+            if wait(5, { masked(field) == 0 }) { return true }
+        }
+        return masked(field) == 0
+    }
+
+    /// How many characters a secure field holds, as XCUITest reads its value: a bullet each.
+    @MainActor
+    private func masked(_ field: XCUIElement) -> Int {
+        ((field.value as? String) ?? "").filter { $0 == "\u{2022}" }.count
     }
 }

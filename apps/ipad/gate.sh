@@ -13,6 +13,8 @@
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 root=$(cd "$here/../.." && pwd)
+# What the engine's build phase said, where Xcode's log keeps none of it (apps/ipad/engine.sh).
+engine_log() { [ -f "$root/target/ipad/engine.log" ] && { echo "--- target/ipad/engine.log:" >&2; tail -n 60 "$root/target/ipad/engine.log" >&2; }; return 0; }
 # Words, not arrays: macOS's bash 3.2 calls an empty array unbound under `set -u`.
 if [ -n "${1:-}" ]; then
   "$here/engine.sh" device release
@@ -34,6 +36,7 @@ status=0
 # shellcheck disable=SC2086
 xcodebuild test -project Scaena.xcodeproj -scheme ScaenaGate -configuration "$configuration" \
   -destination "$destination" -resultBundlePath "$results" $signing >"$said" 2>&1 || status=$?
+[ "$status" -eq 0 ] || engine_log
 summary=$("$here/results.sh" "$results")
 echo "$summary"
 # The readings as the tests printed them, from the result bundle or else from xcodebuild's log.
