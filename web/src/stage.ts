@@ -126,6 +126,7 @@ type Reply = Extract<
       | "linked"
       | "laidOut"
       | "viewed"
+      | "fitted"
       | "focal"
       | "found"
       | "replacement"
@@ -214,8 +215,16 @@ export class Stage {
   onAt: (at: At) => void = () => {};
   /** Called when the worker fails outside a request. */
   onError: (error: Error) => void = () => {};
+  /** Called when the engine stopped on a panic (lift-up STAB-2), the worker stopped and every
+   * request waiting on it refused: the bundle's files as the worker held them, with its name, for
+   * the page to start the stage again from (`restart`). A page that does not hears an error. */
+  onCrashed: (crash: { message: string; name: string; files: Record<string, ArrayBuffer> }) => void = (crash) =>
+    this.onError(new Error(`the engine stopped: ${crash.message}`));
   /** The formats beside the canvas are painted: `state`, `t` ms into its cue (PLAN 2.62). */
   onBesides: (state: string, t: number) => void = () => {};
+  /** Called as the canvas's attributes change: `size`, which frames are painted at from then
+   * on, fitted to the room (`fit`), the format shown, or the bundle read again (lift-up ATTR-2). */
+  onSized: (size: [number, number]) => void = () => {};
   /** Requests not yet answered, by id. */
   private waiting = new Map<number, { resolve: (reply: Reply) => void; reject: (error: Error) => void }>();
   /** What hears each step of the assistant's answer to a question, by the question's id. */
@@ -225,6 +234,8 @@ export class Stage {
   private asked = 0;
   /** The name each file dropped had, by its path in the bundle, which names it by its content. */
   private dropped = new Map<string, string>();
+  /** The patch being made, which the next waits for (`make`). */
+  private making: Promise<void> = Promise.resolve();
 
   /** The bundle's files written since the last save, as the page heard of them (lift-up REL-4),
    * each with how many times, and those taken out: what a recovery copy keeps beside the source. A
@@ -236,13 +247,19 @@ export class Stage {
   private helpers: Worker[] = [];
 
   private constructor(
-    readonly canvas: HTMLCanvasElement,
+    public canvas: HTMLCanvasElement,
     private worker: Worker,
     /** The bundle as the worker opened it, or last read it again. */
     public opened: Opened,
     /** How the engine's worker was started: its helpers start the same way. */
     private engine: Engine,
+    /** Who paints, as the page asked. */
+    private painter: Painter,
   ) {
+    this.hear(worker);
+  }
+
+  private hear(worker: Worker) {
     worker.onmessage = ({ data }: MessageEvent<FromWorker>) => this.listen(data);
     worker.onerror = (e) => this.onError(new Error(e.message));
   }
@@ -252,6 +269,31 @@ export class Stage {
    * back to the CPU painter starts over. A bundle that does not open puts `canvas` back, as
    * whoever painted it left it. */
   static async open(canvas: HTMLCanvasElement, source: Source, painter: Painter, engine: Engine): Promise<Stage> {
+    const started = await Stage.start(canvas, source, painter, engine);
+    return new Stage(started.canvas, started.worker, started.opened, engine, painter);
+  }
+
+  /** Start the stage again on `source`, the bundle's files as its worker held them (lift-up
+   * STAB-2): a fresh worker of its own, painting into a fresh canvas in this one's place; the
+   * requests waiting on the old one are refused. The bundle as the fresh worker opened it. */
+  async restart(source: Source): Promise<Opened> {
+    this.halt(new Error("the engine stopped"));
+    const started = await Stage.start(this.canvas, source, this.painter, this.engine);
+    this.canvas = started.canvas;
+    this.worker = started.worker;
+    this.opened = started.opened;
+    this.hear(started.worker);
+    return started.opened;
+  }
+
+  /** A worker of `engine`'s opened on `source`, painting into a fresh canvas in `canvas`'s
+   * place: the canvas, the worker, and the bundle as it opened it. */
+  private static async start(
+    canvas: HTMLCanvasElement,
+    source: Source,
+    painter: Painter,
+    engine: Engine,
+  ): Promise<{ canvas: HTMLCanvasElement; worker: Worker; opened: Opened }> {
     const fresh = canvas.cloneNode() as HTMLCanvasElement;
     canvas.replaceWith(fresh);
     const worker = engine.spawn();
@@ -266,13 +308,13 @@ export class Stage {
       const first = await reply;
       if (first.type === "ready") {
         const { type: _, ...opened } = first;
-        return new Stage(fresh, worker, opened, engine);
+        return { canvas: fresh, worker, opened };
       }
       worker.terminate();
       const message = first.type === "error" ? first.message : `the worker said ${first.type} first`;
       if (first.type === "error" && first.webgpu && painter === "auto") {
         console.warn(`${message}; the CPU painter paints instead`);
-        return await Stage.open(fresh, source, "cpu", engine);
+        return await Stage.start(fresh, source, "cpu", engine);
       }
       throw new Error(message);
     } catch (e) {
@@ -462,6 +504,14 @@ export class Stage {
   targets(state: string, node: string, format?: string): Promise<Targets> {
     return this.request<"targets">({ type: "targets", id: ++this.asked, state, node, format }).then(({ targets }) => targets);
   }
+  /** Paint frames at the size of the slide as large as fits in `room`, device pixels, keeping
+   * the canvas's aspect, so a slide fills the screen as sharp as the screen is (lift-up ATTR-2);
+   * at the canvas's own size with `null`. Resolves with the canvas's size from now on, once what
+   * is shown is painted again so. */
+  fit(room: [number, number] | null): Promise<[number, number]> {
+    return this.request<"fitted">({ type: "fit", id: ++this.asked, room }).then(({ size }) => size);
+  }
+
   /** The theme's grid in `format`, as the canvas's guides draw it (PLAN 2.57). */
   grid(format?: string): Promise<Grid> {
     return this.request<"grid">({ type: "grid", id: ++this.asked, format }).then(({ grid }) => grid);
@@ -499,8 +549,23 @@ export class Stage {
 
   /** Make `ops` by the user on the deck `source` compiles to, and show slot `index` from it: the
    * deck's source after, and what the edit came to. */
-  make(source: string, ops: unknown[], index: number, format?: string): Promise<{ source: string; edited: Edited }> {
-    return this.request<"made">({ type: "make", id: ++this.asked, source, ops, index, format }).then(({ source, edited }) => {
+  make(source: () => string, ops: unknown[], index: number, format?: string): Promise<{ source: string; edited: Edited }> {
+    // One patch at a time for the whole page (lift-up REL-5): each made on the source as it stands
+    // when its turn comes, after the last one was taken, and made again on the source as it stands
+    // if something else changed it meanwhile (a keystroke, a data edit), so that two panels' edits
+    // in flight compose instead of the second overwriting the first.
+    const turn = this.making.then(async () => {
+      for (let tries = 1; ; tries++) {
+        const from = source();
+        const made = await this.request<"made">({ type: "make", id: ++this.asked, source: from, ops, index, format });
+        if (source() === from || tries === 3) return made;
+      }
+    });
+    // The next turn waits a task more, so the caller has taken this one (each takes its patch as
+    // soon as it is made) before the next reads the source.
+    const taken = () => new Promise<void>((settle) => setTimeout(settle));
+    this.making = turn.then(taken, taken);
+    return turn.then(({ source, edited }) => {
       if (edited.at) {
         this.at = edited.at;
         this.onAt(edited.at);
@@ -1152,6 +1217,19 @@ export class Stage {
     this.thumbing.clear();
   }
 
+  /** Stop the worker, and refuse every request waiting on it with `error`: it answers no more. */
+  private halt(error: Error) {
+    const waiting = [...this.waiting.values()];
+    this.close();
+    for (const { reject } of waiting) reject(error);
+  }
+
+  /** Panic in the engine, to test the page's recovery (lift-up STAB-2): the editor's module alone
+   * carries it. */
+  trap() {
+    this.send({ type: "trap" });
+  }
+
   /** Start `count` workers to work out shaders' rows beside the engine's (PLAN 2.28), each as
    * the engine's worker was started, and hand it a port to each: no more than `?helpers=`
    * allows. One that fails to start is stopped: the engine's worker works its rows out itself. */
@@ -1213,6 +1291,7 @@ export class Stage {
       case "linked":
       case "laidOut":
       case "viewed":
+      case "fitted":
       case "focal":
       case "found":
       case "replacement":
@@ -1299,6 +1378,11 @@ export class Stage {
         }
         return;
       }
+      case "crashed": {
+        this.halt(new Error(`the engine stopped: ${data.message}`));
+        this.onCrashed({ message: data.message, name: data.name, files: data.files });
+        return;
+      }
       case "error": {
         const waiting = data.id === undefined ? undefined : this.waiting.get(data.id);
         if (waiting) {
@@ -1311,6 +1395,8 @@ export class Stage {
         return this.help(data.count);
       case "besides":
         return this.onBesides(data.state, data.t);
+      case "sized":
+        return this.onSized(data.size);
       case "ready":
         return;
       // What a worker that makes a deck from a prompt says (PLAN G.5): a stage's never does.

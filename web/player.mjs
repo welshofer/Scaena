@@ -38,8 +38,11 @@
 // - A link at rest shows a hand under the pointer.
 // - With `?fps`, the frame meter reads a played cue's frames: frames a second, the worst frame,
 //   late frames, and the mean paint (gate 2, criterion 1).
+// - At 2560 × 1440 and twice the density (lift-up ATTR-2), the slide fills the room the bar
+//   leaves, and in fullscreen the screen, painted at the size it is shown in device pixels by
+//   WebGPU, and by the CPU painter at the canvas's own size, scaled up.
 // Exits 1 on any failure.
-import { readFile } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import { launch, serve } from "./serve.mjs";
 
 const server = await serve();
@@ -699,6 +702,66 @@ try {
   const plain = await open(url(revenue));
   check(await plain.locator("#meter").isHidden(), "without it, there is no meter");
   await plain.close();
+
+  // Full sharpness (lift-up ATTR-2): at 2560 × 1440 and twice the density, the slide fills the
+  // room the bar leaves, and in fullscreen the screen, and its frames are painted at the size it
+  // is shown, in device pixels, by WebGPU; by the CPU painter at the canvas's own size, scaled up
+  // to the room. The fullscreen frame is kept as target/web-smoke/sharp-2560x1440@2x.png.
+  const dense = await browser.newContext({ viewport: { width: 2560, height: 1440 }, deviceScaleFactor: 2 });
+  for (const painter of ["auto", "cpu"]) {
+    const page = await dense.newPage();
+    page.on("pageerror", (e) => failures.push(`dense ${painter}: ${e.message}`));
+    await page.goto(`${server.origin}/web/dist/?painter=${painter}&bundle=${revenue}`);
+    await page.waitForFunction(() => window.scaena, null, { timeout: 120000 });
+    const paints = await page.evaluate(() => window.scaena.painter);
+    /** The canvas's attributes, the box it is shown in, the room it has, and the density. */
+    const measure = () =>
+      page.evaluate(() => {
+        const c = document.querySelector("#stage");
+        const r = c.getBoundingClientRect();
+        const bar = document.querySelector(".bar");
+        const room = [innerWidth, bar.offsetParent === null ? innerHeight : innerHeight - bar.getBoundingClientRect().height];
+        return { backing: [c.width, c.height], shown: [r.width, r.height], room, dpr: devicePixelRatio };
+      });
+    /** `m` as the painter should have it: shown as large as fits the room, filling its shorter
+     * side, 16:9, and painted at the size shown in device pixels, or, by the CPU painter, at the
+     * canvas's own size, 1920 × 1080, the room being larger. */
+    const sharp = (m) => {
+      const fills = Math.abs(m.shown[1] - m.room[1]) <= 1 || Math.abs(m.shown[0] - m.room[0]) <= 1;
+      const fits = m.shown[0] <= m.room[0] + 0.5 && m.shown[1] <= m.room[1] + 0.5;
+      const shape = Math.abs(m.shown[0] / m.shown[1] - 16 / 9) < 0.005 && Math.abs(m.backing[0] / m.backing[1] - 16 / 9) < 0.005;
+      const device = [m.shown[0] * m.dpr, m.shown[1] * m.dpr];
+      const painted =
+        paints === "webgpu"
+          ? Math.abs(m.backing[0] - device[0]) <= 1 && Math.abs(m.backing[1] - device[1]) <= 1
+          : m.backing[0] === 1920 && m.backing[1] === 1080;
+      return fills && fits && shape && painted;
+    };
+    await page.waitForFunction(() => document.querySelector("#stage").width !== 1920, null, { timeout: 60000 }).catch(() => {});
+    const windowed = await measure();
+    check(sharp(windowed) && windowed.dpr === 2, `${paints}: at 2560 × 1440 at 2×, the slide fills the room the bar leaves, painted at the size shown: ${JSON.stringify(windowed)}`);
+    await page.keyboard.press("f");
+    const fullDense = await page.waitForFunction(() => document.fullscreenElement !== null, null, { timeout: 5000 }).then(() => true, () => false);
+    if (fullDense) {
+      await page.waitForFunction(() => document.querySelector(".bar").offsetParent === null, null, { timeout: 5000 }).catch(() => {});
+      await page
+        .waitForFunction((was) => document.querySelector("#stage").width !== was, windowed.backing[0], { timeout: 60000 })
+        .catch(() => {});
+      const full = await measure();
+      const screen = Math.abs(full.shown[0] - 2560) <= 1 && Math.abs(full.shown[1] - 1440) <= 1;
+      const whole = paints !== "webgpu" || (full.backing[0] === 5120 && full.backing[1] === 2880);
+      check(sharp(full) && screen && whole, `${paints}: fullscreen, it fills the screen, painted at the size shown: ${JSON.stringify(full)}`);
+      if (paints === "webgpu") {
+        await mkdir("target/web-smoke", { recursive: true });
+        for (let i = 0; i < 3; i++) await page.evaluate(() => new Promise(requestAnimationFrame));
+        await page.screenshot({ path: "target/web-smoke/sharp-2560x1440@2x.png" });
+      }
+      await page.keyboard.press("f");
+      await page.waitForFunction(() => document.fullscreenElement === null, null, { timeout: 5000 }).catch(() => {});
+    } else failures.push(`dense ${painter}: F did not make the player fullscreen`);
+    await page.close();
+  }
+  await dense.close();
 } catch (e) {
   failures.push(String(e));
 } finally {

@@ -11,8 +11,7 @@
 // - A right click on the photo on the canvas offers the same, from the photo that node draws.
 // - axe-core finds nothing against WCAG 2.1 AA with the tab shown.
 // Exits 1 on any failure.
-import { createRequire } from "node:module";
-import { launch, serve } from "./serve.mjs";
+import { axeInto, launch, serve } from "./serve.mjs";
 
 const failures = [];
 const check = (ok, what) => {
@@ -21,7 +20,6 @@ const check = (ok, what) => {
 };
 const RIDGE = "assets/trails-ridge.png";
 
-const axe = createRequire(import.meta.url).resolve("axe-core/axe.min.js");
 const site = await serve();
 const browser = await launch();
 try {
@@ -134,7 +132,7 @@ try {
   }
 
   // Nothing against WCAG 2.1 AA with the tab shown.
-  await page.addScriptTag({ path: axe });
+  await axeInto(page);
   const found = await page.evaluate(async () => {
     const result = await window.axe.run({ include: [["#theming"]] }, { runOnly: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] });
     return result.violations.map((v) => `${v.id}: ${v.nodes.length}`);

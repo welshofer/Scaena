@@ -11,8 +11,7 @@
 // - A right click on it offers to unlock it; ⇧⌘L locks what is selected, and unlocks it.
 // - axe-core finds nothing against WCAG 2.1 AA in the Layers tab.
 // Exits 1 on any failure.
-import { createRequire } from "node:module";
-import { launch, serve } from "./serve.mjs";
+import { axeInto, launch, serve } from "./serve.mjs";
 
 const failures = [];
 const check = (ok, what) => {
@@ -20,7 +19,6 @@ const check = (ok, what) => {
   if (!ok) failures.push(what);
 };
 
-const axe = createRequire(import.meta.url).resolve("axe-core/axe.min.js");
 const site = await serve();
 const browser = await launch();
 try {
@@ -152,12 +150,35 @@ try {
   check((await source()) === original, "⇧⌘L again unlocks it, the deck as it was");
 
   // Nothing against WCAG 2.1 AA in the layers.
-  await page.addScriptTag({ path: axe });
+  await axeInto(page);
   const found = await page.evaluate(async () => {
     const result = await window.axe.run({ include: [["#layers"]] }, { runOnly: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] });
     return result.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(" ")).join(", ")}`);
   });
   check(found.length === 0, `axe finds nothing in the layers: ${found.join("; ")}`);
+
+  // Two panels' edits in flight at once compose (lift-up REL-5): the lock pressed in the layers and
+  // a choice made in the inspector, in one task, each patch made on the source the other left.
+  await page.waitForFunction(() => window.scaena.look.offered()?.node, null, { timeout: 30000 }).catch(() => {});
+  const word = await page.evaluate(() => {
+    const field = window.scaena.look.offered()?.fields.find((f) => f.takes.kind === "word" && f.takes.words.length > 1);
+    return field && { prop: field.prop, value: field.takes.words.find((w) => w !== field.value) };
+  });
+  check(word !== undefined, `the inspector offers what is selected a word to choose: ${JSON.stringify(word)}`);
+  if (word) {
+    const was = await source();
+    await page.evaluate(({ prop, value }) => {
+      void window.scaena.look.choose(prop, value);
+      document.querySelector('#layers [data-layer="storm-photo"] [data-lock]').click();
+    }, word);
+    await page.waitForFunction((w) => window.scaena.source() !== w, was, { timeout: 30000 }).catch(() => {});
+    await page.evaluate(() => window.scaena.look.settled());
+    await page.waitForFunction(() => window.scaena.source().includes("locked:true"), null, { timeout: 30000 }).catch(() => {});
+    const chosen = `${word.prop.split("/").pop()}:${word.value}`;
+    const count = (text) => text.replace(/:\s+/g, ":").split(chosen).length - 1;
+    const now = await source();
+    check((await lockedNow()) && count(now) > count(was), `the lock and the choice (${chosen}) both stand: ${await photoLine()}`);
+  }
 } finally {
   await browser.close();
   await site.close();

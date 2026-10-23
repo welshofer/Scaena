@@ -19,10 +19,9 @@
 //   edits, byte for byte.
 // Exits 1 on any failure.
 import { execFileSync } from "node:child_process";
-import { createRequire } from "node:module";
 import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { launch, serve } from "./serve.mjs";
+import { axeInto, launch, serve } from "./serve.mjs";
 
 const out = "target/web-data";
 rmSync(out, { recursive: true, force: true });
@@ -50,7 +49,6 @@ const check = (ok, what) => {
   console.log(`${ok ? "ok  " : "FAIL"} ${what}`);
   if (!ok) failures.push(what);
 };
-const axe = createRequire(import.meta.url).resolve("axe-core/axe.min.js");
 
 const browser = await launch();
 try {
@@ -98,7 +96,7 @@ try {
     marked.invalid === "true" && marked.title.includes("`n/a` is not a number") && marked.listed.length === 1 && marked.listed[0].startsWith("revenue, row 4"),
     `the cell that does not read is marked, with why, and listed: ${JSON.stringify(marked)}`,
   );
-  await page.addScriptTag({ path: axe });
+  await axeInto(page);
   const violations = await page.evaluate(async () => (await window.axe.run(document.querySelector("#data"), { runOnly: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] })).violations);
   check(violations.length === 0, `axe finds nothing in the Data panel${violations.length ? `: ${violations.map((v) => `${v.id} (${v.nodes.length})`).join(", ")}` : ""}`);
   // In a window of 1440 × 900 the four columns fit the panel: each as wide as what it holds.
