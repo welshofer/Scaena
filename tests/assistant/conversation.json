@@ -296,6 +296,29 @@
           "only"
         ],
         "formats": []
+      },
+      {
+        "title": "Fifty-two miles",
+        "states": [
+          "cover",
+          "lost",
+          "rebuilt",
+          "close"
+        ],
+        "formats": [],
+        "theme": "ember",
+        "brief": {
+          "topic": "Fifty-two miles of trail rebuilt by volunteers",
+          "audience": "Donors",
+          "goal": "inspire",
+          "length": "5-10 slides"
+        },
+        "arc": "Hero's Journey",
+        "claims": [
+          "The trail was lost to the storm.",
+          "Volunteers rebuilt it in one summer.",
+          "Your gift keeps it open."
+        ]
       }
     ],
     "resources": [
@@ -313,6 +336,7 @@
         "house-style",
         "brand-voice"
       ],
+      [],
       []
     ],
     "authorDeck": "# Author a deck\n\nStart from the brief.",

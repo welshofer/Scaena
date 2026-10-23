@@ -354,7 +354,9 @@ try {
   const last = await page.evaluate(() => window.scaena.last());
   const errors = last.findings.filter((f) => f.severity === "error").map((f) => f.code);
   check(last.valid && errors.length === 0, `it lints with no error: ${errors}`);
-  check(await page.locator("#play").isHidden(), "Play waits for a save");
+  // Kept nowhere yet, it plays all the same: Play keeps it in this browser first (PLAN 2.12).
+  check(await page.locator("#play").isVisible(), "Play is there before a save");
+  check((await page.getAttribute("#play", "title")) === "The player, on the deck kept in this browser first", "and says it keeps the deck in this browser first");
 
   // Its story.
   await page.click("#tab-story");

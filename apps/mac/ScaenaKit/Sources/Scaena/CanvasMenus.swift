@@ -15,6 +15,9 @@ enum CanvasOffer {
     /// A line between kinds of things, where the platform draws one.
     case divider
 
+    /// Paste's title, by which the iPad's menu puts the system's own Paste in its place.
+    static let paste = "Paste"
+
     /// What the menu offers: what the clipboard and the Node menu can do now, and nothing else
     /// (PLAN 3.11, 3.12).
     static func offers(_ deck: DeckActions?, clip: @escaping (Clipping) -> Void) -> [CanvasOffer] {
@@ -23,7 +26,7 @@ enum CanvasOffer {
             offers.append(.action("Cut", symbol: "scissors", run: { clip(.cut) }))
             offers.append(.action("Copy", symbol: "doc.on.doc", run: { clip(.copy) }))
         }
-        offers.append(.action("Paste", symbol: "doc.on.clipboard", run: { clip(.paste) }))
+        offers.append(.action(paste, symbol: "doc.on.clipboard", run: { clip(.paste) }))
         guard let deck else { return offers }
         // Words pasted as words, and code copied as text (PLAN 2.133).
         if let pasteAsText = deck.pasteAsText {

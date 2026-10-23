@@ -335,6 +335,18 @@ fn write(path: &Path, bytes: &[u8]) -> Result<(), OpsError> {
     std::fs::write(path, bytes).map_err(|e| OpsError::new(format!("writing {}: {e}", path.display())))
 }
 
+/// `id`, a `what` of the deck, as the name of a file an export writes: refused unless it is an
+/// id (`^[a-z][a-z0-9_-]{0,63}$`, E105), so a deck nobody validated writes nothing outside
+/// `--out` (lift-up SEC-3).
+fn file_named<'a>(id: &'a str, what: &str) -> Result<&'a str, OpsError> {
+    if scaena_core::ids::is_valid_id(id) {
+        return Ok(id);
+    }
+    Err(OpsError::new(format!(
+        "{what} `{id}` is no id (`^[a-z][a-z0-9_-]{{0,63}}$`, E105), so it names no file to export; rename it"
+    )))
+}
+
 /// Every state `states` names, checked, in its order; every state of the deck without it.
 fn named(deck: &scaena_core::Deck, states: Option<&[String]>) -> Result<Vec<String>, OpsError> {
     let Some(states) = states else { return Ok(deck.states.iter().map(|s| s.id.clone()).collect()) };
@@ -387,6 +399,11 @@ fn spine(b: &Bundle, out: Option<&Path>, size: Option<&str>, progress: &Progress
         files.push(path.display().to_string());
         Ok::<String, OpsError>(name)
     };
+    for (beat, entry) in &projection.beats {
+        if entry.state.is_some() {
+            file_named(beat, "the beat")?;
+        }
+    }
     let mut pixels = None;
     progress.start(projection.beats.values().filter(|entry| entry.state.is_some()).count());
     for (beat, entry) in &mut projection.beats {
@@ -548,6 +565,9 @@ fn images(
     progress: &Progress,
 ) -> Result<Exported, OpsError> {
     let pages = named(&b.deck, states)?;
+    for state in &pages {
+        file_named(state, "the state")?;
+    }
     progress.start(pages.len());
     let theme = crate::theme(b)?;
     let data = data_files(b)?;
