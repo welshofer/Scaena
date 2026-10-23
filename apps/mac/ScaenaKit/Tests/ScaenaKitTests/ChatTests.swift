@@ -113,16 +113,18 @@ private func streaming(_ text: String) -> [String] {
     let editor = DeckEditor(session: try ScaenaSession(directory: b1))
     let events = streaming("The cover is clean.")
     let seen = Seen()
+    let shown = Shown()
     let assistant = Assistant(editor: editor, send: { _ in (Data(), 0) }) { _, heard in
         var whole = ""
         for (i, event) in events.enumerated() {
             whole += event
             await heard(event)
             // After the first word, what the window shows meanwhile.
-            if i == 2 { await seen.keep(await MainActor.run { said(assistant) }) }
+            if i == 2 { await seen.keep(await MainActor.run { shown.assistant.map(said) ?? [] }) }
         }
         return (Data(whole.utf8), 200)
     }
+    shown.assistant = assistant
     assistant.ask("Is the cover clean?", provider: .anthropic, model: "a-model", key: "sk-test")
     for _ in 0..<500 where assistant.working {
         try await Task.sleep(for: .milliseconds(10))
@@ -217,6 +219,13 @@ private func said(_ assistant: Assistant) -> [String] {
     assistant.entries.compactMap { entry in
         if case .said(let text) = entry.kind { text } else { nil }
     }
+}
+
+/// The assistant whose window a stream's closure reads, set once the assistant is made: the
+/// closure cannot name the assistant it is handed to.
+@MainActor
+private final class Shown {
+    var assistant: Assistant?
 }
 
 /// What a test saw at one moment.
