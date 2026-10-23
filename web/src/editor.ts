@@ -2399,6 +2399,8 @@ async function edit(source: Source, opened?: Stage) {
         run: () => formatting.show(!formatting.open()),
       },
       { label: "Rehearse the deck", applies: () => last?.valid === true, run: () => void rehearsing.start() },
+      // The last rehearsal's results again, to keep (lift-up USE-2).
+      { label: "Rehearsal Results…", applies: () => rehearsing.kept().length > 0 && !rehearsing.running(), run: () => rehearsing.results() },
       { label: "Edit the layout", applies: () => showing() !== undefined, run: () => void board.layoutMode(true) },
       { label: "New layout from this one…", applies: () => showing() !== undefined, run: () => void board.newLayout() },
       { label: "Show the deck's files", run: () => tab("files").focus() },
