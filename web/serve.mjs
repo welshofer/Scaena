@@ -15,17 +15,19 @@ const types = { ".html": "text/html", ".js": "text/javascript", ".wasm": "applic
 
 /** The repository at `root`, served on a free port: `{ origin, close }`. `at` is the path it
  * is served at, ending in `/` (`/` by default), and `more` names the media types of other
- * extensions. */
-export async function serve(root = process.cwd(), { at = "/", more = {} } = {}) {
+ * extensions. Each path asked is pushed on `seen`, where one is given; and `instead(path)` may
+ * give the body to answer a path with in place of its file (a newer `sw.js`, lift-up REL-2). */
+export async function serve(root = process.cwd(), { at = "/", more = {}, seen, instead } = {}) {
   const known = { ...types, ...more };
   const server = createServer(async (req, res) => {
     const asked = decodeURIComponent(new URL(req.url, "http://x").pathname);
+    seen?.push(asked);
     if (!asked.startsWith(at)) return res.writeHead(404).end();
     let path = normalize(join(root, asked.slice(at.length - 1)));
     if (!path.startsWith(root)) return res.writeHead(403).end();
     if (path.endsWith("/")) path = join(path, "index.html");
     try {
-      const body = await readFile(path);
+      const body = instead?.(asked) ?? (await readFile(path));
       res.writeHead(200, { "content-type": known[extname(path)] ?? "application/octet-stream" }).end(body);
     } catch {
       res.writeHead(404).end();
