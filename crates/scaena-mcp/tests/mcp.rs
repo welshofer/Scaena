@@ -212,11 +212,13 @@ async fn an_agent_builds_a_deck_with_the_tools_alone() {
     let png = base64::engine::general_purpose::STANDARD.decode(&image.data).unwrap();
     assert!(png.starts_with(b"\x89PNG"));
     let facts: Value = serde_json::from_str(&text(&rendered)).unwrap();
-    assert_eq!((facts["size"].clone(), facts["digest"].as_str().map(str::len)), (json!([1920, 1080]), Some(16)));
-    // The same state renders to the same drawing.
-    let again = call(&client, "deck_render", json!({ "bundle": bundle, "state": "revenue" })).await;
-    let again: Value = serde_json::from_str(&text(&again)).unwrap();
-    assert_eq!(again["digest"], facts["digest"]);
+    // Half the canvas without a size: what a model needs to see, at a quarter of the tokens.
+    assert_eq!((facts["size"].clone(), facts["digest"].as_str().map(str::len)), (json!([960, 540]), Some(16)));
+    assert_eq!(u32::from_be_bytes(png[16..20].try_into().unwrap()), 960, "the PNG is as wide as it says");
+    // Every pixel when asked; the same state renders to the same drawing.
+    let full = call(&client, "deck_render", json!({ "bundle": bundle, "state": "revenue", "size": "1920x1080" })).await;
+    let full: Value = serde_json::from_str(&text(&full)).unwrap();
+    assert_eq!((full["size"].clone(), &full["digest"]), (json!([1920, 1080]), &facts["digest"]));
 
     let inspected = ok(&client, "deck_inspect", json!({ "bundle": bundle, "state": "revenue", "data": true })).await;
     assert_eq!(inspected["states"][0]["data"]["rev"]["rows"].as_array().unwrap().len(), 4, "{inspected:#}");

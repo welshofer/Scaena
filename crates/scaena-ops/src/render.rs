@@ -33,8 +33,10 @@ pub struct Request {
     pub t: Option<f64>,
     /// One of the deck's `formats`, laid out again with the theme's template set for it.
     pub format: Option<String>,
-    /// `WxH` pixels, the canvas's aspect ratio; the canvas's size without it.
+    /// `WxH` pixels, the canvas's aspect ratio; the canvas's size times `scale` without it.
     pub size: Option<String>,
+    /// Output pixels per canvas unit where `size` is unset: 1 without it.
+    pub scale: Option<f32>,
     pub painter: Painter,
 }
 
@@ -122,7 +124,7 @@ pub fn render(path: &Path, req: &Request) -> Result<Rendered, OpsError> {
 
     let scale = match req.size.as_deref() {
         Some(size) => scale_for(size, dl.viewport)?,
-        None => 1.0,
+        None => req.scale.unwrap_or(1.0),
     };
     // Built after the frame, so a state the engine cannot draw costs no GPU start-up.
     let (mut painter, adapter): (Box<dyn scaena_paint::Painter>, Option<String>) = match req.painter {

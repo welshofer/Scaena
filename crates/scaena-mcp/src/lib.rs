@@ -143,6 +143,10 @@ impl Scaena {
     }
 }
 
+/// Output pixels per canvas unit of a `deck_render` that asks for no size: half the canvas,
+/// enough for a model to see what a state draws, at a quarter of the image's tokens (PERF-4).
+const RENDER_SCALE: f32 = 0.5;
+
 /// How long `deck_export` waits for an export before it answers that the export is still
 /// running: under the minute a client commonly gives a tool call (Claude Code's limit, and
 /// the TypeScript SDK's default), with room to answer.
@@ -488,7 +492,9 @@ pub struct DeckRender {
     /// One of the deck's `formats` (`9:16`), laid out again with its template set.
     #[serde(default)]
     pub format: Option<String>,
-    /// `WxH` pixels, with the canvas's aspect ratio; the canvas's size without it.
+    /// `WxH` pixels, with the canvas's aspect ratio. Without it, half the canvas's size
+    /// (960×540 for 1920×1080): enough to see what a state draws, at a quarter of the image's
+    /// tokens. Give the canvas's own size for every pixel.
     #[serde(default)]
     pub size: Option<String>,
     #[serde(default)]
@@ -780,13 +786,15 @@ impl Scaena {
             .map(|states| Json(Inspected { states }))
     }
 
-    #[tool(description = "Render a state to a PNG, returned as an image: at rest, or `t` ms into its cue. \
-        With the display list's digest: one digest, one drawing.")]
+    #[tool(description = "Render a state to a PNG, returned as an image: at rest, or `t` ms into its cue, at half \
+        the canvas's size unless `size` asks for another (the canvas's own for every pixel). With the display \
+        list's digest: one digest, one drawing.")]
     async fn deck_render(&self, Parameters(a): Parameters<DeckRender>) -> Result<CallToolResult, String> {
         let req = scaena_ops::render::Request {
             state: a.state.clone(),
             t: a.t,
             format: a.format,
+            scale: a.size.is_none().then_some(RENDER_SCALE),
             size: a.size,
             painter: a.painter,
         };

@@ -1,6 +1,6 @@
 {
   "name": "deck_render",
-  "description": "Render a state to a PNG, returned as an image: at rest, or `t` ms into its cue. With the display list's digest: one digest, one drawing.",
+  "description": "Render a state to a PNG, returned as an image: at rest, or `t` ms into its cue, at half the canvas's size unless `size` asks for another (the canvas's own for every pixel). With the display list's digest: one digest, one drawing.",
   "inputSchema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "$defs": {
@@ -31,7 +31,7 @@
         "default": null
       },
       "size": {
-        "description": "`WxH` pixels, with the canvas's aspect ratio; the canvas's size without it.",
+        "description": "`WxH` pixels, with the canvas's aspect ratio. Without it, half the canvas's size\n(960×540 for 1920×1080): enough to see what a state draws, at a quarter of the image's\ntokens. Give the canvas's own size for every pixel.",
         "type": ["string", "null"],
         "default": null
       },
