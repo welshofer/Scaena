@@ -2987,6 +2987,15 @@ function tabs() {
     }
     return { pick, keys };
   }
+  /** Document's panel chosen is hidden and shown with Document: each panel reads its own `hidden`
+   * to know whether it is seen, asks the worker nothing while it is not, and reads again as it is
+   * shown. Kept in step from the start: a panel that thought itself seen would ask the worker for
+   * the source on every edit, and a burst of edits could then compile an older source over the
+   * deck the last one made. */
+  const documentShown = () => {
+    const chosen = $("#document .segments [aria-selected=\"true\"]").getAttribute("aria-controls");
+    for (const panel of document.querySelectorAll<HTMLElement>('#document > [role="tabpanel"]')) panel.hidden = panel.id !== chosen || $("#document").hidden;
+  };
   const top = row($("#tabs"), (button) => {
     // A panel chosen from More shows as More's own: named for it, selected, controlling it.
     const under = button.hidden;
@@ -2994,10 +3003,7 @@ function tabs() {
     more.tabIndex = under ? 0 : -1;
     more.textContent = under ? button.textContent : "More";
     if (under) more.setAttribute("aria-controls", button.getAttribute("aria-controls")!);
-    // Document's panel chosen is hidden and shown with Document: each panel reads its own `hidden`
-    // to know whether it is seen, and reads again as it is shown.
-    const chosen = $("#document .segments [aria-selected=\"true\"]").getAttribute("aria-controls");
-    $(`#${chosen}`).hidden = $("#document").hidden;
+    documentShown();
   });
   const under = [...document.querySelectorAll<HTMLButtonElement>('#tabs [role="tab"][hidden]')];
   more.tabIndex = -1;
@@ -3016,6 +3022,7 @@ function tabs() {
   row($("#document .segments"), () => {
     if ($("#document").hidden) top.pick($<HTMLButtonElement>("#tab-document"));
   });
+  documentShown();
 }
 
 tabs();
