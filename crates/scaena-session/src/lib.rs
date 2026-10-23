@@ -775,7 +775,7 @@ impl Session {
 
     /// What identifies `state`'s drawing at rest, in the format shown: its display list's digest
     /// (FNV-1a over its postcard bytes, as the goldens keep it), the one [`Session::frame`] at
-    /// rest gives: the state a drag moves a node of draws it moved, as its frames do. One digest,
+    /// rest gives: a drag, or a patch previewed, draws in it as in a frame. One digest,
     /// one drawing, so a thumbnail painted from it stands until it changes (PLAN 2.35). What the
     /// canvas laid out stands: the state is laid out apart from it, unless it is that state, and
     /// its digest kept by a hash of all it is drawn from, across edits, so an edit lays out again
@@ -784,14 +784,14 @@ impl Session {
         let slot = self.kept_timeline()?.slot(state).ok_or_else(|| EngineError::UnknownState(state.to_string()))?;
         // Its shaders at the time it comes to rest, as a frame at rest draws them.
         let time = (slot.start + slot.span) / 1000.0;
-        // A drag draws the state it moves a node of from its layout at rest, laying nothing out
-        // (ADR-0013): the drawing moves with the pointer, so nothing of it is kept.
-        if let Some((nodes, by)) = &self.moving
-            && let Some((shown, scene)) = &self.rest
-            && shown == state
-        {
-            let nodes: Vec<&str> = nodes.iter().map(String::as_str).collect();
-            return scene.moved(time, &nodes, *by).digest().map_err(|e| Error::Ops(e.to_string()));
+        // A drag, or a patch previewed, draws the state otherwise than it is at rest and moves
+        // with the pointer (ADR-0013): a frame of it, as before, with nothing kept.
+        #[cfg(feature = "editor")]
+        let previewing = self.previewing.is_some();
+        #[cfg(not(feature = "editor"))]
+        let previewing = false;
+        if self.moving.is_some() || previewing {
+            return self.frame(state, f64::INFINITY)?.digest().map_err(|e| Error::Ops(e.to_string()));
         }
         let key = self.rest_key(state, time)?;
         if let Some(digest) = self.digests.get(&key) {
@@ -2754,13 +2754,12 @@ mod tests {
         let again: Vec<String> = states.iter().map(|st| s.digest(st).unwrap()).collect();
         assert_eq!(again, digests);
         assert_eq!(s.digests.len(), states.len());
-        // A drag draws the shown state's node moved, in its digest as in its frame, and keeps
-        // nothing of it; the other states' stand.
+        // A drag draws its node moved, in a digest as in a frame, and keeps nothing of it.
         s.set_moving(Some((vec!["case".to_string()], [40.0, 30.0])));
         let moved = s.digest(&shown).unwrap();
         assert_ne!(moved, digests[3]);
         assert_eq!(moved, s.frame(&shown, f64::INFINITY).unwrap().digest().unwrap());
-        assert_eq!(s.digest(&states[4]).unwrap(), digests[4]);
+        assert_eq!(s.digest(&states[4]).unwrap(), s.frame(&states[4], f64::INFINITY).unwrap().digest().unwrap());
         s.set_moving(None);
         assert_eq!(s.digest(&shown).unwrap(), digests[3]);
         assert_eq!(s.digests.len(), states.len());
