@@ -70,14 +70,15 @@ export function made(m: Generated): string {
 /** A source given: a file, or a link. */
 type Given = { file: File } | { link: string };
 
-/** Wire the dialog: `opener` opens it, and a deck made opens by `open`, its line by `tell`.
- * Changes not saved are asked about before a deck is made, not as it opens: what a model wrote
- * is never thrown away for them. */
+/** Wire the dialog: `opener` opens it, and a deck made opens by `open`, its story shown by
+ * `story`, which gives its score, and its line by `tell`. Changes not saved are asked about
+ * before a deck is made, not as it opens: what a model wrote is never thrown away for them. */
 export function prompting(
   engine: Engine,
   opener: HTMLElement,
   dirty: () => boolean,
   open: (source: Source) => Promise<void>,
+  story: () => Promise<number | undefined>,
   tell: (line: string) => void,
 ) {
   const dialog = $<HTMLDialogElement>("#prompting");
@@ -133,7 +134,10 @@ export function prompting(
   };
 
   const fill = (choices: Choices) => {
-    const options = (select: HTMLSelectElement, values: [string, string][], chosen: string) => {
+    // What was chosen stays chosen where the worker is started again, after a run failed.
+    const options = (select: HTMLSelectElement, values: [string, string][], fallback: string) => {
+      const was = select.value;
+      const chosen = select.options.length && values.some(([value]) => value === was) ? was : fallback;
       select.replaceChildren(...values.map(([value, label]) => new Option(label, value, false, value === chosen)));
     };
     options(goal, choices.goals.map((g) => [g, g]), choices.defaults.goal);
@@ -316,7 +320,10 @@ export function prompting(
       const deck = await done;
       dialog.close("generated");
       await open({ files: deck.files, name: deck.name });
-      tell(made(deck.made));
+      // The deck lands on its story (narrative USE-2): the arc's curve, the pacing against the
+      // brief, and each slide's fix, where Gamma lands on its outline; its score in the line.
+      const score = await story();
+      tell(score === undefined ? made(deck.made) : `${made(deck.made)} · story ${score} of 100`);
     } catch (err) {
       // Closed while it ran, it says nothing more.
       if (worker !== making) return;

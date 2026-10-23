@@ -247,6 +247,7 @@ try {
   check(refused.includes("invalid x-api-key"), `the provider's refusal in its words: ${refused}`);
   await page.waitForFunction(() => !document.querySelector("#prompting-go").disabled, null, { timeout: 30000 });
   check(true, "Generate can be pressed again");
+  check((await page.inputValue("#prompting-goal")) === "Persuade", "what was chosen stays chosen after a failed run");
   state.fail = false;
 
   // Cancel stops it; the deck open stays open.
@@ -275,6 +276,9 @@ try {
   check(made.where === undefined, `the deck made is kept nowhere until it is saved: ${JSON.stringify(made)}`);
   const status = await page.textContent("#status");
   check(/Made: 5 slides on the arc Problem–Solution, 2 pictures/.test(status), `the status says what was made: ${status}`);
+  // The deck lands on its story (narrative USE-2): the Story tab shown, its score in the line.
+  check(/ · story \d+ of 100\b/.test(status), `the status says the story's score: ${status}`);
+  check((await page.getAttribute("#tab-story", "aria-selected")) === "true", "the Story tab is shown as the deck lands");
   // Two pictures, the cover's and the ending's, by the best image model the key lists.
   check(painted.length === 2, `two pictures asked for: ${painted.length}`);
   check(
