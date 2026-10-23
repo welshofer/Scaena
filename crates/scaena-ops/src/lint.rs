@@ -118,6 +118,18 @@ pub fn lint_state_in(deck: &Deck, files: &View, state: &str) -> Result<Linted, O
     lint_scoped(deck, files, Some(state))
 }
 
+/// What `lint` finds in `deck` with the files `files`, the layout rules laying out `states` alone,
+/// each after the state before it: what a change to one slide is judged by (PLAN 2.148).
+pub fn lint_states_in(deck: &Deck, files: &View, states: &[&str]) -> Result<Linted, OpsError> {
+    let theme = files.theme(deck)?;
+    lint_with(deck, files, theme.as_deref(), |theme| {
+        let mut assets = Assets::new();
+        let mut engine = engine_in(deck, files, theme, Some(&mut assets))?;
+        let data = data_in(deck, files)?;
+        layout_rules_on(&mut engine, deck, theme, &data, &assets, states)
+    })
+}
+
 fn lint_scoped(deck: &Deck, files: &View, only: Option<&str>) -> Result<Linted, OpsError> {
     let theme = files.theme(deck)?;
     lint_with(deck, files, theme.as_deref(), |theme| {

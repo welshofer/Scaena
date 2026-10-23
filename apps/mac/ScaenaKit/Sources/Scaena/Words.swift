@@ -45,6 +45,12 @@ enum Words {
         "transition/duration": "Duration", "transition/ease": "Easing", "transition/spring": "Spring",
         "transition/match": "Magic Move", "transition/style": "Transition", "transition/direction": "Direction",
         "hold": "Advance", "notes": "Presenter Notes",
+        // A background effect's settings (PLAN 2.148).
+        "params/points": "Color Points", "params/drift": "Drift", "params/softness": "Softness",
+        "params/grain": "Grain", "params/shape": "Shape", "params/angle": "Angle", "params/x": "Center Across",
+        "params/y": "Center Down", "params/radius": "Radius", "params/speed": "Speed", "params/scale": "Scale",
+        "params/octaves": "Detail", "params/contrast": "Contrast", "params/amount": "Amount",
+        "params/fps": "Changes a Second", "params/count": "Particles", "params/size": "Particle Size",
     ]
 
     /// A chart's property as its kind of chart reads it (`kind`, the chart's): a donut's `x` names

@@ -469,17 +469,48 @@ pub fn choices(
         };
         Some(Field { prop: prop.into(), takes, value: value.cloned(), lives, literal, theme, words: None })
     });
+    let mut fields: Vec<Field> = fields.collect();
+    if node_type == NodeType::Shader {
+        fields.extend(shader_params(deck, theme, i, node, snapshots[i].nodes.get(node), over, &shown));
+    }
     let fetched = (node_type == NodeType::Image).then(|| fetched_said(&shown)).flatten();
     Ok(Choices {
         node: node.into(),
         node_type,
         state: state.into(),
-        fields: fields.collect(),
+        fields,
         said: None,
         noun: None,
         fetched,
         framed: None,
     })
+}
+
+/// A background effect's settings (PLAN 2.148): each param its kind takes, in the order the schema
+/// lists them (`MeshParams`), as it allows them; its value as the node shows it, written where it
+/// lives, and the theme's where the node's preset gives one, which shows where the node sets none.
+fn shader_params(
+    deck: &Deck,
+    theme: &Theme,
+    i: usize,
+    node: &str,
+    snapped: Option<&Props>,
+    over: Option<&Props>,
+    shown: &Props,
+) -> Vec<Field> {
+    let Some(kind) = shown.get("kind").and_then(Value::as_str).filter(|k| !k.is_empty()) else { return Vec::new() };
+    let def = format!("{}{}Params", kind[..1].to_ascii_uppercase(), &kind[1..]);
+    let checker = Checker::deck();
+    let presets = theme.shaders.as_ref().and_then(|s| s.presets.as_ref());
+    let preset = shown.get("preset").and_then(Value::as_str).and_then(|p| presets?.get(p));
+    let fields = checker.def_properties(&def).into_iter().filter_map(|key| {
+        let takes = allowed(checker.def_property(&def, key)?, false)?;
+        let value = shown.get("params").and_then(|p| p.get(key)).cloned();
+        let lives = value.as_ref().map(|_| lives_at(deck, i, node, snapped, over, "params", Some(key)));
+        let gives = preset.and_then(|p| p.params.as_ref()?.get(key)).and_then(|v| serde_json::to_value(v).ok());
+        Some(Field { prop: format!("params/{key}"), takes, value, lives, literal: false, theme: gives, words: None })
+    });
+    fields.collect()
 }
 
 /// Where a fetched picture came from, said (ADR-0030): "Map from Geoapify, fetched 15 October

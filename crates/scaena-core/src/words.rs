@@ -86,6 +86,24 @@ pub const LABELS: &[(&str, &str)] = &[
     ("transition/direction", "Direction"),
     ("hold", "Advance"),
     ("notes", "Presenter Notes"),
+    // A background effect's settings (PLAN 2.148), each kind's as SPEC §3.8 lists them.
+    ("params/points", "Color Points"),
+    ("params/drift", "Drift"),
+    ("params/softness", "Softness"),
+    ("params/grain", "Grain"),
+    ("params/shape", "Shape"),
+    ("params/angle", "Angle"),
+    ("params/x", "Center Across"),
+    ("params/y", "Center Down"),
+    ("params/radius", "Radius"),
+    ("params/speed", "Speed"),
+    ("params/scale", "Scale"),
+    ("params/octaves", "Detail"),
+    ("params/contrast", "Contrast"),
+    ("params/amount", "Amount"),
+    ("params/fps", "Changes a Second"),
+    ("params/count", "Particles"),
+    ("params/size", "Particle Size"),
 ];
 
 /// A property as the inspector labels it: from [`LABELS`], else its last key as words.
@@ -658,6 +676,25 @@ pub fn day(date: &str) -> String {
         _ => date.to_string(),
     }
 }
+
+/// A background effect's kind as a person calls it (PLAN 2.148): `mesh` as Mesh Gradient.
+pub const SHADERS: &[(&str, &str)] = &[
+    ("mesh", "Mesh Gradient"),
+    ("gradient", "Gradient"),
+    ("noise", "Noise"),
+    ("grain", "Film Grain"),
+    ("particles", "Particles"),
+    ("caustics", "Caustics"),
+];
+
+/// A background effect's kind said: from [`SHADERS`], else the kind as words.
+pub fn shader(kind: &str) -> String {
+    SHADERS.iter().find(|(k, _)| *k == kind).map_or_else(|| phrase(kind), |(_, said)| said.to_string())
+}
+
+/// Why a slide with a chart or a table takes no background (PLAN 2.148, lint W311).
+pub const BACKGROUND_HELD: &str =
+    "Backgrounds stay off slides with a chart or a table: data reads best against a plain surface.";
 
 /// A shape's kind said: `rect` as Rectangle.
 pub fn shape(kind: &str) -> String {

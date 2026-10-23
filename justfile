@@ -226,6 +226,7 @@ web-smoke: site
     node web/furniture.mjs
     node web/icons.mjs
     node web/suggest.mjs
+    node web/backgrounds.mjs
     node web/insert.mjs
     node web/words.mjs
     node web/connect.mjs

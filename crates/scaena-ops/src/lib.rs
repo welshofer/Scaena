@@ -12,6 +12,7 @@
 //! path, which never reads a clock (SPEC §13).
 
 pub mod arrange;
+pub mod backgrounds;
 pub mod clipboard;
 pub mod compile;
 pub mod create;
