@@ -628,6 +628,41 @@ fn a_slide_transition_moves_each_slide_whole() {
     let [_, entered] = quarter(&mut deck_with(linear("wipe", Some("up"))));
     let clip = entered.2.expect("a wipe clips the slide entered");
     assert_eq!(clip, scaena_core::displaylist::Path::rect([0.0, 0.75 * h, w, 0.25 * h]));
+
+    // Shapes that grow (PLAN 2.149): the slide left still and whole, the slide entered still and
+    // whole inside the shapes, which the engine's own mask makes from the progress alone.
+    let size = [w, h];
+    let ways = |d: Option<&str>| match d {
+        Some("right") => [1.0, 0.0],
+        Some("up") => [0.0, -1.0],
+        Some("down") => [0.0, 1.0],
+        _ => [-1.0, 0.0],
+    };
+    use scaena_engine::reveals::{Cell, cells, radial};
+    for (style, direction) in [
+        ("circle", None),
+        ("circleWave", Some("up")),
+        ("diamond", None),
+        ("diamondWave", None),
+        ("radial", Some("right")),
+    ] {
+        let mut fx = deck_with(linear(style, direction));
+        let [left, entered] = quarter(&mut fx);
+        let way = ways(direction);
+        let mask = match style {
+            "circle" => cells(Cell::Circle, None, 0.25, size),
+            "circleWave" => cells(Cell::Circle, Some(way), 0.25, size),
+            "diamond" => cells(Cell::Diamond, None, 0.25, size),
+            "diamondWave" => cells(Cell::Diamond, Some(way), 0.25, size),
+            _ => radial(way, 0.25, size),
+        };
+        assert!(left.2.is_none() && left.0 == entered.0 && (left.1, entered.1) == (1.0, 1.0), "{style}");
+        assert_eq!(entered.2.as_ref(), Some(&mask), "{style}: the slide entered inside its shapes");
+        assert!(holds(&left.3, "a") && !holds(&entered.3, "a") && holds(&entered.3, "b"), "{style}");
+        // At its start, the slide left alone; at its end, the slide entered alone.
+        assert_eq!(fx.dl("two", 0.0), fx.dl("one", f64::INFINITY), "{style}");
+        assert_eq!(fx.dl("two", 400.0), fx.dl("two", f64::INFINITY), "{style}");
+    }
 }
 
 #[test]
