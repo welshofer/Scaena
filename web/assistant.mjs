@@ -340,6 +340,14 @@ try {
     if (id === "anthropic") {
       // A question asked again stops when the user says so, and the source takes typing again.
       scripted.state.slow = 4000;
+      // Stop shows as the question is asked, while the strip finishes drawing and before the
+      // worker has it: a press then stops it too.
+      const early = await page.evaluate(() => {
+        const asked = window.scaena.assistant.ask("Make it shorter.");
+        document.querySelector("#stop").click();
+        return asked;
+      });
+      check(early.kind === "done" && early.stop === "stopped", `Stop pressed before the question is sent stops it (${JSON.stringify(early)})`);
       await page.evaluate(() => {
         window.asked = window.scaena.assistant.ask("Make it shorter.");
       });
