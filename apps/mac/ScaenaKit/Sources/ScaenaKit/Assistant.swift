@@ -334,15 +334,17 @@ public final class Assistant {
     /// piece's words shown as they come (narrative ATTR-3); else whole.
     private func answered(_ request: URLRequest, chat: ScaenaChat) async throws -> (Data, Int) {
         guard let stream else { return try await send(request) }
+        // The closure crosses to the session's task, so it carries nothing of the conversation:
+        // each piece is read by the conversation the assistant holds, on the main actor.
         return try await stream(request) { chunk in
-            await self.heard(chunk, chat: chat)
+            await self.heard(chunk)
         }
     }
 
     /// A piece of the answer, as it arrives: the words it completes shown in the entry the answer
     /// is written into.
-    private func heard(_ chunk: String, chat: ScaenaChat) {
-        guard let words = try? chat.heard(chunk), !words.isEmpty else { return }
+    private func heard(_ chunk: String) {
+        guard let chat, let words = try? chat.heard(chunk), !words.isEmpty else { return }
         if let at = saying, case .said(let sofar) = entries[at].kind {
             entries[at].kind = .said(sofar + words)
         } else {
