@@ -7,6 +7,7 @@ import type { AssistantEvent, Edited, ProviderId, Rewritten, Seeing, Thumb } fro
 import type { Stage } from "../stage";
 import type { Who } from "../writing";
 import * as keys from "./keys";
+import { render } from "./markdown";
 
 /** The editor, as the panel works with it. */
 export interface Editor {
@@ -276,10 +277,11 @@ export function panel(stage: Stage, editor: Editor): Panel {
         return;
       }
       case "text": {
-        // Said whole: the words as they were written, in their place, or in a new entry.
+        // Said whole, as it reads (narrative ATTR-4): its lists, code, emphasis, and links,
+        // a link to a slide showing it; in the words' place, or in a new entry.
         const li = saying ?? entry("said");
         saying = undefined;
-        li.textContent = event.text;
+        render(event.text, li, { states: editor.states?.(), show: (state) => editor.show(state) });
         return;
       }
       case "call": {
