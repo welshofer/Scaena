@@ -192,14 +192,25 @@ pub enum Expr {
     Not(Box<Expr>),
     Negate(Box<Expr>),
     Binary(&'static str, Box<Expr>, Box<Expr>, usize),
+    /// Operators of one precedence, left to right: `a - b + c` is `((a - b) + c)`, each operator
+    /// with where it was written. Held as a list, not nested, so a chain of any length binds,
+    /// evaluates, and drops in a loop (lift-up STAB-1).
+    Chain(Box<Expr>, Vec<(&'static str, Expr, usize)>),
     In(Box<Expr>, Vec<Expr>, usize),
     Call(String, Vec<Expr>, usize),
 }
+
+/// How deep an expression nests: parentheses, `!`, `-`, a call's arguments, and a list each go
+/// one deeper. Past it an expression is refused, never a stack overflow (lift-up STAB-1). A chain
+/// of operators of one precedence (`a + b + c`) nests no deeper however long: it is one
+/// [`Expr::Chain`], walked in a loop.
+pub const MAX_DEPTH: usize = crate::document::MAX_NESTING;
 
 struct Parser {
     tokens: Vec<(usize, Token)>,
     next: usize,
     end: usize,
+    depth: usize,
 }
 
 impl Parser {
@@ -227,17 +238,30 @@ impl Parser {
         if self.eat(op) { Ok(()) } else { self.fail(format!("expected `{op}`")) }
     }
 
+    /// `f` one level deeper, or why not.
+    fn nested<T>(&mut self, f: impl FnOnce(&mut Parser) -> Result<T, ExprError>) -> Result<T, ExprError> {
+        if self.depth == MAX_DEPTH {
+            return self.fail(format!("nests more than {MAX_DEPTH} deep"));
+        }
+        self.depth += 1;
+        let inner = f(self);
+        self.depth -= 1;
+        inner
+    }
+
     fn binary(
         &mut self,
         ops: &[&'static str],
         next: fn(&mut Parser) -> Result<Expr, ExprError>,
     ) -> Result<Expr, ExprError> {
-        let mut left = next(self)?;
+        let first = next(self)?;
+        let mut rest = Vec::new();
         loop {
             let at = self.at();
-            let Some(op) = ops.iter().copied().find(|op| self.eat(op)) else { return Ok(left) };
-            left = Expr::Binary(op, Box::new(left), Box::new(next(self)?), at);
+            let Some(op) = ops.iter().copied().find(|op| self.eat(op)) else { break };
+            rest.push((op, next(self)?, at));
         }
+        Ok(if rest.is_empty() { first } else { Expr::Chain(Box::new(first), rest) })
     }
 
     fn or(&mut self) -> Result<Expr, ExprError> {
@@ -249,7 +273,7 @@ impl Parser {
     }
 
     fn not(&mut self) -> Result<Expr, ExprError> {
-        if self.eat("!") { Ok(Expr::Not(Box::new(self.not()?))) } else { self.compare() }
+        if self.eat("!") { Ok(Expr::Not(Box::new(self.nested(Parser::not)?))) } else { self.compare() }
     }
 
     fn compare(&mut self) -> Result<Expr, ExprError> {
@@ -258,7 +282,7 @@ impl Parser {
         if matches!(self.peek(), Some(Token::Name(n)) if n == "in") {
             self.next += 1;
             self.expect("[")?;
-            return Ok(Expr::In(Box::new(left), self.list("]")?, at));
+            return Ok(Expr::In(Box::new(left), self.nested(|p| p.list("]"))?, at));
         }
         match ["==", "!=", "<=", ">=", "<", ">"].into_iter().find(|op| self.eat(op)) {
             Some(op) => Ok(Expr::Binary(op, Box::new(left), Box::new(self.sum()?), at)),
@@ -275,7 +299,7 @@ impl Parser {
     }
 
     fn unary(&mut self) -> Result<Expr, ExprError> {
-        if self.eat("-") { Ok(Expr::Negate(Box::new(self.unary()?))) } else { self.atom() }
+        if self.eat("-") { Ok(Expr::Negate(Box::new(self.nested(Parser::unary)?))) } else { self.atom() }
     }
 
     /// Expressions up to `close`, comma-separated.
@@ -306,11 +330,11 @@ impl Parser {
                 "false" => Expr::Bool(false),
                 "null" => Expr::Null,
                 "in" => return Err(ExprError { at, message: "`in` needs a value before it".into(), data: false }),
-                _ if self.eat("(") => Expr::Call(name, self.list(")")?, at),
+                _ if self.eat("(") => Expr::Call(name, self.nested(|p| p.list(")"))?, at),
                 _ => Expr::Field(name, at),
             },
             Token::Op("(") => {
-                let inner = self.or()?;
+                let inner = self.nested(Parser::or)?;
                 self.expect(")")?;
                 inner
             }
@@ -332,7 +356,7 @@ impl Parser {
 /// Parse `src`.
 pub fn parse(src: &str) -> Result<Expr, ExprError> {
     let tokens = tokens(src)?;
-    let mut p = Parser { tokens, next: 0, end: src.chars().count() };
+    let mut p = Parser { tokens, next: 0, end: src.chars().count(), depth: 0 };
     if p.tokens.is_empty() {
         return p.fail("an empty expression");
     }
@@ -364,6 +388,7 @@ impl Expr {
         let wrong = |at: usize, message: String| ExprError { at, message, data: true };
         let at = |e: &Expr| match e {
             Expr::Field(_, at) | Expr::Binary(.., at) | Expr::In(.., at) | Expr::Call(.., at) => *at,
+            Expr::Chain(_, rest) => rest.last().map_or(0, |r| r.2),
             _ => 0,
         };
         Ok(match self {
@@ -386,32 +411,13 @@ impl Expr {
                 Type::Number | Type::Null => Type::Number,
                 t => return Err(wrong(at(e), format!("`-` takes a number, not {}", t.name()))),
             },
-            Expr::Binary(op, l, r, pos) => {
-                let (a, b) = (l.check(names, types)?, r.check(names, types)?);
-                let both = a.with(b);
-                let bad = || wrong(*pos, format!("`{op}` cannot take {} and {}", a.name(), b.name()));
-                match *op {
-                    "+" => match both {
-                        Some(t @ (Type::Number | Type::Text | Type::Null)) => t,
-                        _ => return Err(bad()),
-                    },
-                    "-" | "*" | "/" | "%" => match both {
-                        Some(Type::Number | Type::Null) => Type::Number,
-                        _ => return Err(bad()),
-                    },
-                    "==" | "!=" => match both {
-                        Some(_) => Type::Bool,
-                        None => return Err(bad()),
-                    },
-                    "<" | "<=" | ">" | ">=" => match both {
-                        Some(Type::Number | Type::Text | Type::Date | Type::Null) => Type::Bool,
-                        _ => return Err(bad()),
-                    },
-                    _ => match both {
-                        Some(Type::Bool | Type::Null) => Type::Bool,
-                        _ => return Err(bad()),
-                    },
+            Expr::Binary(op, l, r, pos) => binary_type(op, l.check(names, types)?, r.check(names, types)?, *pos)?,
+            Expr::Chain(first, rest) => {
+                let mut a = first.check(names, types)?;
+                for (op, r, pos) in rest {
+                    a = binary_type(op, a, r.check(names, types)?, *pos)?;
                 }
+                a
             }
             Expr::In(e, items, pos) => {
                 let t = e.check(names, types)?;
@@ -495,6 +501,35 @@ impl Expr {
     }
 }
 
+/// The type `op` gives of `a` and `b`, or why it cannot take them.
+fn binary_type(op: &str, a: Type, b: Type, pos: usize) -> Result<Type, ExprError> {
+    let both = a.with(b);
+    let bad =
+        || ExprError { at: pos, message: format!("`{op}` cannot take {} and {}", a.name(), b.name()), data: true };
+    Ok(match op {
+        "+" => match both {
+            Some(t @ (Type::Number | Type::Text | Type::Null)) => t,
+            _ => return Err(bad()),
+        },
+        "-" | "*" | "/" | "%" => match both {
+            Some(Type::Number | Type::Null) => Type::Number,
+            _ => return Err(bad()),
+        },
+        "==" | "!=" => match both {
+            Some(_) => Type::Bool,
+            None => return Err(bad()),
+        },
+        "<" | "<=" | ">" | ">=" => match both {
+            Some(Type::Number | Type::Text | Type::Date | Type::Null) => Type::Bool,
+            _ => return Err(bad()),
+        },
+        _ => match both {
+            Some(Type::Bool | Type::Null) => Type::Bool,
+            _ => return Err(bad()),
+        },
+    })
+}
+
 impl Bound {
     /// The expression's value on `row`.
     pub fn eval(&self, row: &[Datum], names: &[String]) -> Datum {
@@ -533,6 +568,18 @@ fn eval(e: &Expr, row: &[Datum], names: &[String]) -> Datum {
             }
             let b = eval(r, row, names);
             binary(op, a, b)
+        }
+        Expr::Chain(first, rest) => {
+            let mut a = eval(first, row, names);
+            for (op, r, _) in rest {
+                // As `Binary` does, link by link: `&&` and `||` stop early.
+                a = match *op {
+                    "&&" if !truth(&a) => Datum::Bool(false),
+                    "||" if truth(&a) => Datum::Bool(true),
+                    _ => binary(op, a, eval(r, row, names)),
+                };
+            }
+            a
         }
         Expr::In(e, items, _) => {
             let v = eval(e, row, names);
@@ -678,6 +725,40 @@ mod tests {
         assert_eq!(eval("lower(region) + '-' + upper('x')"), Datum::Text("na-X".into()));
         assert_eq!(eval("if(revenue > cost, 'up', 'down')"), Datum::Text("up".into()));
         assert_eq!(eval("len('añb')"), Datum::Number(3.0), "characters, not bytes");
+    }
+
+    /// Nesting past [`MAX_DEPTH`] is refused with why, however deep, never a stack overflow; at it,
+    /// an expression parses as before. A chain of any length is no deeper (lift-up STAB-1).
+    #[test]
+    fn nesting_too_deep_is_refused_and_a_chain_of_any_length_is_not() {
+        let deep = 100_000;
+        let nested = |open: &str, close: &str, n: usize| format!("{}revenue{}", open.repeat(n), close.repeat(n));
+        for src in [
+            nested("(", ")", deep),
+            format!("{}on", "!".repeat(deep)),
+            format!("{}1", "-".repeat(deep)),
+            nested("max(", ")", deep),
+            format!("{}1", "-(".repeat(deep)),
+            nested("(", ")", MAX_DEPTH + 1),
+            nested("abs(", ")", MAX_DEPTH + 1),
+        ] {
+            let e = parse(&src).unwrap_err();
+            assert_eq!(e.message, "nests more than 64 deep", "{}", &src[..20]);
+        }
+        assert_eq!(eval(&nested("(", ")", MAX_DEPTH)), Datum::Number(120.0));
+        assert_eq!(eval(&nested("abs(", ")", MAX_DEPTH)), Datum::Number(120.0));
+        assert_eq!(eval(&format!("{}on", "!".repeat(MAX_DEPTH))), Datum::Bool(true));
+        // Chains: summed, multiplied, subtracted left to right, and tested, each 100,000 long.
+        assert_eq!(eval(&format!("0{}", " + 1".repeat(deep))), Datum::Number(deep as f64));
+        assert_eq!(eval(&format!("1{}", " * 1".repeat(deep))), Datum::Number(1.0));
+        assert_eq!(eval(&format!("0{}", " - 1 + 2".repeat(deep))), Datum::Number(deep as f64));
+        assert_eq!(eval(&format!("on{}", " && on".repeat(deep))), Datum::Bool(true));
+        assert_eq!(eval(&format!("!on{}", " || !on".repeat(deep))), Datum::Bool(false));
+        assert_eq!(eval("!on && on || on"), Datum::Bool(true));
+        let mixed = format!("revenue{} - cost", " + revenue * 2 - cost / 3".repeat(deep));
+        assert_eq!(eval(&mixed), Datum::Number(120.0 + deep as f64 * (240.0 - 30.0) - 90.0));
+        let e = parse(&format!("1{} + 'a'", " + 1".repeat(deep))).unwrap().bind(&[], &[]).unwrap_err();
+        assert_eq!(e.message, "`+` cannot take a number and text");
     }
 
     #[test]
