@@ -67,6 +67,8 @@ export async function converse(o: Options): Promise<void> {
         tools: o.tools,
         messages: recent(o.conversation, o.frames ?? 2),
         signal: o.signal,
+        // The words as they are written, which the panel shows before the answer is whole.
+        onText: (text) => o.emit({ kind: "saying", text }),
       });
     } catch (e) {
       if (stopped()) return o.emit({ kind: "done", stop: "stopped" });

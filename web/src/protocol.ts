@@ -1496,6 +1496,9 @@ export interface Seeing {
 
 /** What the page hears as the assistant works. */
 export type AssistantEvent =
+  /** The model is saying `text`: more of the answer it is writing, which `text` then gives
+   * whole (narrative ATTR-3). */
+  | { kind: "saying"; text: string }
   /** The model said `text`. */
   | { kind: "text"; text: string }
   /** It calls tool `name`. */
