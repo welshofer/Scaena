@@ -1,6 +1,6 @@
 {
   "name": "deck_inspect",
-  "description": "Each state as it resolves (SPEC §2.2): its nodes with their props, what enters and exits. `resolved` adds each text node's look through the theme, `timeline` each motion as placed on the state's clock, `data` the rows each chart and table reads.",
+  "description": "Each state as it resolves (SPEC §2.2): its nodes with their props, what enters and exits. `resolved` adds each text node's look through the theme, `timeline` each motion as placed on the state's clock, `data` the rows each chart and table reads. With `state`: `layouts` the layouts the state may take, best first, each with the `set_state` that gives it; `state_choices` what an inspector offers for the state itself (its layout, transition, hold, notes, and slide number and footer); `choices` (a node) what the theme offers for each of its properties and where each lives, which `choose` writes; `inserts` what may be inserted, each as `add_node` adds it; `layers` the nodes as the editor's layers list them; `boxes` where each node stands and `at` what draws at a point; `targets` (a node) where it may go, with `snap` and `to` the `place` that puts it there; `look` (a node) its look and, with `onto`, the patch that pastes it on others; `arrange` (nodes) with `align`, `spread`, `order`, `before`, `after`, `into`, or `by` the patch that arranges them.",
   "inputSchema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "$defs": {

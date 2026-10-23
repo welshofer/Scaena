@@ -32,27 +32,47 @@ esac
 # Mac; it gets a terminal's environment instead, with cargo's and rustup's own settings, so that
 # what the terminal built is not built again. (`${keep[@]+…}`: bash 3.2's way to an array that
 # may be empty.)
+# Cargo's own folder comes first on PATH, before the re-exec: Xcode's phases get Xcode's PATH, not
+# the shell's, and a runner may keep cargo only where rustup put it.
+cargo_bin="${CARGO_HOME:-$HOME/.cargo}/bin"
 if [ -n "${SDKROOT:-}" ]; then
   keep=()
   while IFS= read -r setting; do
     case "$setting" in CARGO_*=* | RUSTUP_*=* | RUSTFLAGS=*) keep+=("$setting") ;; esac
   done < <(env)
   exec env -i HOME="$HOME" \
-    PATH="${CARGO_HOME:-$HOME/.cargo}/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" \
+    PATH="$cargo_bin:$HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" \
     ${keep[@]+"${keep[@]}"} "$0" "$@"
 fi
 cd "$root"
-rustup target list --installed | grep -qx "$target" || rustup target add "$target"
-# Cargo's whole output kept, so a build that fails says why, in Xcode's log too.
+# What cargo and rustup said, kept: a build that fails says why, in Xcode's log and the CI scripts'.
 log="$root/target/ipad/engine.log"
 mkdir -p "$(dirname "$log")"
-cargo rustc -q --color never -p scaena-ffi --lib --crate-type staticlib --target "$target" $release --locked -- --print native-static-libs >"$log" 2>&1 || true
-libs=$(sed -n 's/.*native-static-libs: //p' "$log")
-if [ -z "$libs" ]; then
-  echo "rustc named no system libraries for $target: the build failed. The end of $log:" >&2
-  tail -n 40 "$log" >&2
+: >"$log"
+failed() {
+  {
+    echo "apps/ipad/engine.sh: $1. The end of $log:"
+    tail -n 40 "$log"
+    echo "cargo: $(command -v cargo || echo none); rustup: $(command -v rustup || echo none)"
+    echo "PATH=$PATH"
+    env | grep -E '^(CARGO_|RUSTUP_|RUSTFLAGS=|HOME=)' | sort
+  } >&2
   exit 1
+}
+# Cargo where PATH has none: where rustup says it is, or rustup's own default folder.
+if ! command -v cargo >/dev/null 2>&1; then
+  found=$(rustup which cargo 2>>"$log" || true)
+  [ -z "$found" ] && [ -x "$HOME/.cargo/bin/cargo" ] && found="$HOME/.cargo/bin/cargo"
+  [ -n "$found" ] || failed "no cargo on PATH, and rustup names none"
+  PATH="$(dirname "$found"):$PATH"
 fi
+if ! rustup target list --installed 2>>"$log" | grep -qx "$target"; then
+  rustup target add "$target" >>"$log" 2>&1 || failed "rustup could not add $target"
+fi
+cargo rustc -q --color never -p scaena-ffi --lib --crate-type staticlib --target "$target" $release --locked \
+  -- --print native-static-libs >>"$log" 2>&1 || failed "cargo could not build the engine for $target"
+libs=$(sed -n 's/.*native-static-libs: //p' "$log")
+[ -n "$libs" ] || failed "rustc named no system libraries for $target"
 out="$root/target/ipad/$platform-$configuration"
 mkdir -p "$out"
 ln -sf "$root/target/$target/$profile/libscaena_ffi.a" "$out/libscaena_ffi.a"

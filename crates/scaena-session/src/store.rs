@@ -327,6 +327,8 @@ impl Session {
         // A frame held for its shaders' rows goes on to be painted, with the files it was drawn
         // with: a save changes no frame.
         next.shading = self.shading.take();
+        // The files are others now: a copy kept in step by their edition copies them again.
+        next.files_edition = self.files_edition + 1;
         *self = next;
         Ok(())
     }
@@ -642,9 +644,11 @@ pub(crate) mod tests {
         assert_eq!(fonts(&saved.files), fonts(&s.files));
         assert!(saved.replaced.contains("fonts/Inter-VF.ttf") && !saved.files.contains_key("fonts/Inter-VF.ttf"));
 
+        let edition = s.files_edition();
         s.adopt(&saved).unwrap();
         assert_eq!(s.files(), saved.files.keys().cloned().collect::<Vec<_>>());
         assert!(s.source().contains("Revenue more than doubled") && !s.source().contains("Inter-VF.ttf"));
+        assert!(s.files_edition() > edition, "the files are others: a copy kept by their edition copies them again");
         assert_eq!(drawn(&mut s, &saved.saved.renamed), before, "a save changes no frame");
         assert!(s.lint(None, None).is_ok());
     }

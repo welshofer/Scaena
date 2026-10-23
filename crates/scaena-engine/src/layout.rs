@@ -93,6 +93,11 @@ impl Grid {
         self
     }
 
+    /// The canvas it is resolved against, `[width, height]` in canvas units.
+    pub fn canvas(&self) -> [f32; 2] {
+        self.canvas
+    }
+
     /// Whether its deck reads right to left.
     pub fn is_mirrored(&self) -> bool {
         self.mirrored

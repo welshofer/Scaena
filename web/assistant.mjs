@@ -85,6 +85,8 @@ const SCRIPT = [
   { name: "icon_find", args: { query: "rocket", weight: "fill", limit: 2 } },
   // A patch the deck refuses: a layout the theme has not.
   { name: "deck_patch", args: { ops: [{ op: "set_state", id: "start", prop: "layout", value: "no-such-layout" }] } },
+  // The deck's story, read by the generator's module (narrative FUNC-2).
+  { name: "deck_health", args: {} },
 ];
 const ANSWER = "The headline fits its slot now, and the deck lints clean.";
 
@@ -250,8 +252,12 @@ try {
     const tools = wire.tools(first.body);
     const names = tools.map((t) => t.name);
     check(
-      ["deck_read", "deck_patch", "deck_lint", "deck_inspect", "deck_diff", "deck_render", "spine_read", "spine_update", "data_attach", "data_edit", "theme_edit", "icon_find", "resource_read"].every((n) => names.includes(n)),
+      ["deck_read", "deck_patch", "deck_lint", "deck_inspect", "deck_diff", "deck_render", "spine_read", "spine_update", "deck_health", "data_attach", "data_edit", "theme_edit", "icon_find", "resource_read"].every((n) => names.includes(n)),
       `${id}: the tools: ${names.join(", ")}`,
+    );
+    check(
+      system.includes("read its health with deck_health and leave each slide saying its beat's claim"),
+      `${id}: the system prompt says to read the story before the deck is called done`,
     );
     check(
       tools.every((t) => !t.schema.properties?.bundle && !t.schema.properties?.out && !JSON.stringify(t.schema).includes("$ref")),
@@ -285,12 +291,34 @@ try {
     // Each call headed by what it came to: the patch that was made edited the deck; the one the
     // deck refused did not, and says so.
     check(!JSON.parse(result(8).json ?? "{}").applied, `${id}: the patch naming a layout the theme has not is not made (${result(8).json?.slice(0, 160)})`);
+    const health = parsed(9);
+    check(
+      !result(9).error && Number.isInteger(health.score) && health.slides?.length === 1 && Array.isArray(health.findings),
+      `${id}: deck_health reads the deck's story, by the generator's module: ${result(9).json?.slice(0, 160)}`,
+    );
     const heads = await page.evaluate(() => [...document.querySelectorAll("#transcript li.call .doing")].map((d) => d.textContent));
     check(heads[0] === "Edited the deck" && heads[5] === "Edited the theme", `${id}: a call made is headed by what it did: ${heads[0]} · ${heads[5]}`);
     check(heads[7] === "Didn't edit the deck", `${id}: a call refused is headed as not done: ${heads[7]}`);
+    const stories = await page.evaluate(() => [...document.querySelectorAll("#transcript li.call")].map((li) => [li.querySelector(".doing")?.textContent, li.querySelector(".outcome")?.textContent]));
+    check(
+      stories[8]?.[0] === "Read the deck's story" && /^Story \d+ of 100, \d+ findings?$/.test(stories[8]?.[1] ?? ""),
+      `${id}: the story read is headed and summed up: ${stories[8]?.join(" · ")}`,
+    );
     if (id === "gemini") {
       const model = requests[1].body.contents.find((c) => c.role === "model");
       check(model?.parts?.[0]?.thoughtSignature === "signature-0", "gemini: a call's thought signature goes back as it came");
+    }
+
+    // The Story tab's Ask puts its question to the assistant, which now has the tool to answer it
+    // (narrative FUNC-2): the question in the box, the tab shown.
+    if (id === "anthropic") {
+      await page.click("#tab-story");
+      await page.waitForFunction(() => document.querySelector("#story [data-ask]"), null, { timeout: 60000 });
+      const asked = await page.evaluate(() => {
+        document.querySelector("#story [data-ask]").click();
+        return { question: document.querySelector("#question").value, shown: document.querySelector("#tab-assistant").getAttribute("aria-selected") };
+      });
+      check(asked.shown === "true" && asked.question.length > 20, `the Story tab's Ask puts its question to the assistant: ${asked.question.slice(0, 80)}`);
     }
 
     await settled(page);
@@ -340,6 +368,14 @@ try {
     if (id === "anthropic") {
       // A question asked again stops when the user says so, and the source takes typing again.
       scripted.state.slow = 4000;
+      // Stop shows as the question is asked, while the strip finishes drawing and before the
+      // worker has it: a press then stops it too.
+      const early = await page.evaluate(() => {
+        const asked = window.scaena.assistant.ask("Make it shorter.");
+        document.querySelector("#stop").click();
+        return asked;
+      });
+      check(early.kind === "done" && early.stop === "stopped", `Stop pressed before the question is sent stops it (${JSON.stringify(early)})`);
       await page.evaluate(() => {
         window.asked = window.scaena.assistant.ask("Make it shorter.");
       });

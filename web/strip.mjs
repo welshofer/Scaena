@@ -229,6 +229,35 @@ try {
   );
   check(await back(original), "and the step is undone");
 
+  // ⌘D with the strip focused copies the slide of the state focused, just after itself (lift-up
+  // FUNC-1): one `duplicate_slide`, as the light table copies one, the copy shown, one undo; and
+  // the key is taken, so the browser does not bookmark the page. So does the state's right-click
+  // menu's Duplicate this slide.
+  await item("mix").click();
+  await shows(2);
+  await item("mix").focus();
+  const taken = await page.evaluate(() => {
+    const e = new KeyboardEvent("keydown", { key: "d", ctrlKey: true, bubbles: true, cancelable: true });
+    document.activeElement.dispatchEvent(e);
+    return e.defaultPrevented;
+  });
+  check(taken, "⌘D in the strip is taken from the browser");
+  check(await holds(["intro", "revenue", "mix", "revenue-2", "mix-2", "close"]), `⌘D on a step copies its slide just after itself: ${await order()}`);
+  check(await says("Slide 2 copied just after itself"), `the status says so: ${await status()}`);
+  check(await shows(3), "and shows the copy");
+  await undo();
+  check(await back(original), "one undo takes the copy back");
+  await item("intro").click();
+  await shows(0);
+  await item("intro").click({ button: "right" });
+  const duplicating = page.locator(".context-menu [role=menuitem]", { hasText: "Duplicate this slide" });
+  check((await duplicating.count()) === 1, "a right click on a slide offers Duplicate this slide");
+  await duplicating.click();
+  check(await holds(["intro", "intro-2", "revenue", "mix", "close"]), `which copies it just after itself: ${await order()}`);
+  check(await shows(1), "and shows the copy");
+  await undo();
+  check(await back(original), "one undo takes it back");
+
   // + Slide opens the theme's layouts by their sections, each a slide started in it (PLAN 3.30,
   // 3.31): a section's tiles drawn as they are shown, a few at a time.
   const gallery = async () => {
