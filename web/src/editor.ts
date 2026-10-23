@@ -654,7 +654,11 @@ async function edit(source: Source, opened?: Stage) {
     if (params.has("painter")) playing.set("painter", painter);
     play.href = `index.html?${playing}`;
     play.hidden = where?.kind === "folder";
-    play.title = unkept() ? "The player, on the deck kept in this browser first" : "The player, on the deck as last saved";
+    play.title = unkept()
+      ? "The player, on the deck kept in this browser first"
+      : dirty()
+        ? "The player, from the slide shown, once the deck is saved"
+        : "The player, from the slide shown";
     // A served bundle saves to its folder alone.
     $<HTMLButtonElement>("#save-as").hidden = where?.kind === "serve";
     scheduleCopy();
@@ -662,21 +666,6 @@ async function edit(source: Source, opened?: Stage) {
   address(where);
   tell();
   void listKept();
-  // A new deck plays once it is kept: Play keeps it in this browser first, as its first save does,
-  // then opens the player on it, in the window opened as it was pressed.
-  play.onclick = (e) => {
-    if (!unkept()) return;
-    e.preventDefault();
-    const shown = window.open("about:blank", "_blank");
-    void save()
-      .then((done) => {
-        if (!done) return void shown?.close();
-        say("Kept in this browser to play it");
-        if (shown) shown.location.href = play.href;
-        else window.open(play.href, "_blank");
-      })
-      .catch(failed);
-  };
 
   /** What the last edit came to, and each edit's round trip for the page's own record. */
   let last: Edited | undefined;
@@ -2886,6 +2875,41 @@ async function edit(source: Source, opened?: Stage) {
         tell();
       }
     },
+  };
+
+  /** The player's address, on the slide shown (lift-up FUNC-2): the link's, as `tell` set it where
+   * the deck is kept, and the state shown by its id. */
+  const playingFrom = () => {
+    const url = new URL(play.href);
+    const state = showing()?.state ?? last?.states[shown]?.[0];
+    if (state === undefined) url.searchParams.delete("state");
+    else url.searchParams.set("state", state);
+    return url.href;
+  };
+  // Play opens the player on the slide shown, on the deck as the editor has it: the player plays
+  // the deck as saved, so one with changes not saved is saved first, if the person says so, and
+  // the player's window, opened in the click, goes to it once it is. Declined, the link plays the
+  // deck as last saved. A new deck plays once it is kept: Play keeps it in this browser first, as
+  // its first save does, with nothing asked.
+  play.onclick = (e) => {
+    play.href = playingFrom();
+    const fresh = unkept();
+    if (!fresh && !dirty()) return;
+    if (!fresh && !confirm("The deck has changes not saved, which the player would not play. Save it first?")) return;
+    e.preventDefault();
+    const opened = window.open("about:blank", "_blank");
+    void save().then(
+      (done) => {
+        if (!done) return void opened?.close();
+        if (fresh) say("Kept in this browser to play it");
+        if (opened) opened.location.href = playingFrom();
+        else window.open(playingFrom(), "_blank");
+      },
+      (error: unknown) => {
+        opened?.close();
+        failed(error);
+      },
+    );
   };
 
   // A state picked by its id, not its place among the options: an edit not yet compiled, such as
