@@ -10,8 +10,7 @@
 // - Typing into the figure makes it words: it quotes nothing.
 // - axe-core finds nothing with the Data tab shown.
 // Exits 1 on any failure.
-import { createRequire } from "node:module";
-import { launch, serve } from "./serve.mjs";
+import { axeInto, launch, serve } from "./serve.mjs";
 
 const failures = [];
 const check = (ok, what) => {
@@ -19,7 +18,6 @@ const check = (ok, what) => {
   if (!ok) failures.push(what);
 };
 
-const axe = createRequire(import.meta.url).resolve("axe-core/axe.min.js");
 const site = await serve();
 const browser = await launch();
 try {
@@ -84,7 +82,7 @@ try {
   check(await comes(quoted), `the characters quote the cell, their row by its quarter and product, the figure set: ${(await source()).match(/title[^\n]*quote[^\n]*/)?.[0]}`);
   check(await says("quotes revenue of row 10 of the data “Q3 Revenue”"), `the status says so, the data by its file's name: ${await status()}`);
   check((await page.evaluate(() => window.scaena.canvas.typing())) === "title", "typing goes on");
-  await page.addScriptTag({ path: axe });
+  await axeInto(page);
   const found = await page.evaluate(async () => {
     const result = await window.axe.run(document, { runOnly: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] });
     return result.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(" ")).join(", ")}`);
