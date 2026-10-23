@@ -711,7 +711,15 @@ impl Scaena {
 
     #[tool(description = "Each state as it resolves (SPEC §2.2): its nodes with their props, what enters and exits. \
         `resolved` adds each text node's look through the theme, `timeline` each motion as placed on the state's \
-        clock, `data` the rows each chart and table reads.")]
+        clock, `data` the rows each chart and table reads. With `state`: `layouts` the layouts the state may take, \
+        best first, each with the `set_state` that gives it; `state_choices` what an inspector offers for the state \
+        itself (its layout, transition, hold, notes, and slide number and footer); `choices` (a node) what the theme \
+        offers for each of its properties and where each lives, which `choose` writes; `inserts` what may be \
+        inserted, each as `add_node` adds it; `layers` the nodes as the editor's layers list them; `boxes` where \
+        each node stands and `at` what draws at a point; `targets` (a node) where it may go, with `snap` and `to` \
+        the `place` that puts it there; `look` (a node) its look and, with `onto`, the patch that pastes it on \
+        others; `arrange` (nodes) with `align`, `spread`, `order`, `before`, `after`, `into`, or `by` the patch \
+        that arranges them.")]
     async fn deck_inspect(&self, Parameters(a): Parameters<DeckInspect>) -> Result<Json<Inspected>, String> {
         blocking(move || scaena_ops::inspect::inspect(&open(&a.bundle)?, a.state.as_deref(), a.views))
             .await
@@ -992,18 +1000,26 @@ impl Scaena {
     }
 }
 
+/// What the server tells a client as it connects: the model in a sentence, the loop, and where
+/// to start. The spine and the deck's health come first: a deck is a story, and every edit serves
+/// a beat's claim (SPEC §2.6, §7.7).
+pub const INSTRUCTIONS: &str = "Scaena decks are states over one scene graph: nodes exist for the whole deck, each \
+    state says what changes, and the theme owns type and layout, so a deck names roles, slots, and presets, never \
+    pixels. A deck is a story: its spine's beats each carry one claim, and every slide serves one. On a deck that \
+    exists, read the spine first (spine_read) and its narrative health (deck_health: pacing, balance, how the \
+    slides follow the arc, and a finding on each slide with what to ask of it), then edit toward the claims, and \
+    change the spine (spine_update) when the claims are wrong. Make a bundle with deck_create (a theme that ships, \
+    dusk, daybreak, ember, or salon, needs no file), attach data with data_attach, edit with deck_patch, check with \
+    deck_lint, read the story again with deck_health, and look with deck_render. The resources hold the schemas, the lint \
+    catalog, the specification by section (scaena://spec is its index), the skills (procedures to follow: \
+    scaena://skills/author-deck first), and examples.";
+
 #[tool_handler(router = self.tool_router)]
 impl ServerHandler for Scaena {
     fn get_info(&self) -> ServerConfig {
         let capabilities = ServerCapabilities::builder().enable_tools().enable_resources().build();
         let server = Implementation::new("scaena", env!("CARGO_PKG_VERSION"));
-        ServerConfig::new(capabilities).with_server_info(server).with_instructions(
-            "Scaena decks are states over one scene graph: nodes exist for the whole deck, each state says what changes, \
-             and the theme owns type and layout, so a deck names roles, slots, and presets, never pixels. Make a bundle \
-             with deck_create (a theme that ships, dusk, daybreak, ember, or salon, needs no file), attach data with data_attach, edit with deck_patch, check with deck_lint, and look with \
-             deck_render. The resources hold the schemas, the lint catalog, the specification by section (scaena://spec is \
-             its index), the skills (procedures to follow: scaena://skills/author-deck first), and examples.",
-        )
+        ServerConfig::new(capabilities).with_server_info(server).with_instructions(INSTRUCTIONS)
     }
 
     async fn list_resources(
