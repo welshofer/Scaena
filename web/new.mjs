@@ -5,9 +5,11 @@
 //
 // - New, from its dialog: a title and a theme that ships. The deck is the theme and its fonts, as
 //   `deck_create` makes one, on a title slide in the theme's title layout, its words to type over
-//   and its picture's place outlined, which no undo takes back (PLAN 3.30). It compiles and lints
-//   with no error, kept nowhere, named for its title, and Play waits for a save. Each theme
-//   makes one, and the dialog shows the theme chosen as its title slide, drawn at build (PLAN T.0c).
+//   and its picture's place outlined, which no undo takes back (PLAN 3.30), typing in its title,
+//   its words selected, so the first keys replace them (PLAN 3.21). It compiles and lints
+//   with no error, kept nowhere, named for its title. Each theme makes one, and the dialog shows
+//   the theme chosen as its title slide, drawn at build (PLAN T.0c); Play on one kept nowhere
+//   keeps it in the browser's storage first, says so, and plays it.
 // - Its first save goes into the browser's storage under its name; Play then plays it.
 // - Save as, from its dialog, keeps it in the browser's storage under another name, and the
 //   address names that. Save as a folder (any directory handle; here one in the browser's
@@ -111,8 +113,16 @@ try {
     .waitForFunction(() => window.scaena.canvas.waiting().find((w) => w.slot === "art"), null, { timeout: 30000 })
     .then((h) => h.jsonValue(), () => undefined);
   check(art?.typed === false, `its picture's place outlined: ${art?.words}`);
-  // The slide has the keys, not New…, so a space opens no second New.
-  check((await page.evaluate(() => document.activeElement?.id)) === "overlay", "the slide has the keys once the deck opens");
+  // It opens typing in its title, not on New…; Escape leaves the title as it was, and a space
+  // then opens no second New.
+  const titleOf = /^\s*(\S+) text\b[^\n]*\bat:in\(title\)/m.exec(source)?.[1];
+  const typingTitle = await page.waitForFunction(() => window.scaena.canvas.typing(), null, { timeout: 30000 }).then((h) => h.jsonValue(), () => undefined);
+  check(titleOf !== undefined && typingTitle === titleOf, `it opens typing in its title: ${typingTitle}`);
+  await page.keyboard.press("Escape");
+  await page.waitForFunction(() => window.scaena.canvas.typing() === undefined, null, { timeout: 10000 }).catch(() => {});
+  check((await page.evaluate(() => window.scaena.source())) === source, "Escape leaves the title as it was");
+  // New… has not kept the keys, so a space opens no second New.
+  check((await page.evaluate(() => document.activeElement?.id)) !== "new-deck", "New… does not keep the keys once the deck opens");
   await page.keyboard.press("Space");
   await page.waitForTimeout(300);
   check(!(await page.locator("#making").evaluate((d) => d.open)), "a space then opens no second New");
@@ -122,7 +132,7 @@ try {
   await page.waitForTimeout(1000);
   check((await page.evaluate(() => window.scaena.source())) === source, "no undo goes back to an empty state");
   check((await page.evaluate(() => window.scaena.last().valid)) && (await errors()).length === 0, `it compiles and lints with no error: ${await errors()}`);
-  check(await page.locator("#play").isHidden(), "Play waits for a save");
+  check(await page.locator("#play").isVisible(), "Play is there before a save");
   check(!(await page.locator("#stage").screenshot()).equals(revenue), "the preview shows it");
 
   // Its title typed over, then its first save: into the browser's storage under its name.
@@ -177,6 +187,29 @@ try {
       `${theme} makes a deck on a title slide with no error: ${await errors()}`,
     );
   }
+
+  // New, then typing: the first keys take the place of the title's words.
+  await page.click("#new-deck");
+  await page.fill("#making-name", "Typed over");
+  await page.click("#making-create");
+  await ready("typed-over");
+  await page.waitForFunction(() => window.scaena.canvas.typing(), null, { timeout: 30000 }).catch(() => {});
+  await page.keyboard.type("Notes from the field");
+  await page.keyboard.press("Escape");
+  const typedOver = await page
+    .waitForFunction(() => /^\s*\S+ text\b[^\n]*"Notes from the field"[^\n]*\bat:in\(title\)/m.test(window.scaena.source()), null, { timeout: 30000 })
+    .then(() => true, () => false);
+  check(typedOver, "New, then typing, takes the place of the title's words");
+
+  // Play on a deck kept nowhere keeps it in the browser first, says so, and plays it.
+  const [played] = await Promise.all([context.waitForEvent("page"), page.click("#play")]);
+  await page.waitForFunction(() => document.querySelector("#status").textContent.startsWith("Kept in this browser"), null, { timeout: 30000 }).catch(() => {});
+  const keptFirst = await page.evaluate(() => window.scaena.where().where?.kind === "opfs");
+  const playSaid = await page.evaluate(() => document.querySelector("#status").textContent);
+  await played.waitForURL(/index\.html/, { timeout: 30000 }).catch(() => {});
+  const playing = await played.waitForFunction(() => window.scaena?.at?.(), null, { timeout: 60000 }).then(() => true, () => false);
+  check(keptFirst && playSaid === "Kept in this browser to play it" && playing && played.url().includes("bundle=opfs%3Atyped-over"), `Play keeps a new deck in the browser, says so, and plays it: ${playSaid}, ${played.url()}`);
+  await played.close();
 
   // After several New, ⌘Z is the deck open's, once, wherever the page does not take it itself:
   // from its slide focused in the strip, and from a menu in the inspector.

@@ -89,3 +89,30 @@ fn a_link_is_underlined_and_followed_where_it_is_drawn() {
     let read = scaena_core::reading::html(&deck, &snaps[i], &dl);
     assert!(read.contains(r##"<p data-node="link-text">Read how the deck is <a href="https://example.com/scaena/method">set and checked on the web</a>, or go back to <a href="#shapes" data-state="shapes" title="To Shapes, in this deck">the shapes case</a> and look again.</p>"##), "{read}");
 }
+
+/// A link to anything but a web address, in a deck the player opens without validating it,
+/// draws and reads as its words, linking nowhere (lift-up SEC-2): no `link` op, no underline,
+/// and no `a` in how the state reads.
+#[test]
+fn a_link_to_anything_but_a_web_address_goes_nowhere() {
+    let theme = Theme::from_json(&String::from_utf8(read("theme.json")).unwrap()).unwrap();
+    let data = DataFiles::new();
+    for href in ["javascript:alert(document.domain)", "file:///etc/passwd", "shortcuts://run-shortcut?name=x"] {
+        let source = String::from_utf8(read("deck.json")).unwrap().replace("https://example.com/scaena/method", href);
+        let deck: Deck = serde_json::from_str(&source).unwrap();
+        let mut fonts = BundleFonts::new();
+        for font in &deck.fonts {
+            fonts.register(&font.file, read(&font.file)).unwrap();
+        }
+        let req =
+            FrameRequest { deck: &deck, theme: &theme, data: &data, state: "links", t_ms: f64::INFINITY, format: None };
+        let mut engine = Engine::new(fonts);
+        let dl = engine.frame(&req).unwrap().display_list;
+        let targets: Vec<LinkTarget> = dl.links().into_iter().map(|l| l.target).collect();
+        assert_eq!(targets, [LinkTarget::State("shapes".into())], "{href}");
+        let snaps = scaena_core::resolve_states(&deck).unwrap();
+        let read = scaena_core::reading::html(&deck, &snaps[deck.state_index("links").unwrap()], &dl);
+        assert!(read.contains("Read how the deck is set and checked on the web, or go back to <a "), "{href}: {read}");
+        assert!(!read.contains(href.split(':').next().unwrap()), "{href}: {read}");
+    }
+}
