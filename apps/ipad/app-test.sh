@@ -7,6 +7,8 @@
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 root=$(cd "$here/../.." && pwd)
+# What the engine's build phase said, where Xcode's log keeps none of it (apps/ipad/engine.sh).
+engine_log() { [ -f "$root/target/ipad/engine.log" ] && { echo "--- target/ipad/engine.log:" >&2; tail -n 60 "$root/target/ipad/engine.log" >&2; }; return 0; }
 "$here/engine.sh" sim debug
 cd "$here"
 xcodegen generate --quiet
@@ -14,7 +16,7 @@ udid=$("$here/simulator.sh")
 destination="platform=iOS Simulator,arch=arm64,id=$udid"
 built="$root/target/ipad/derived"
 xcodebuild build-for-testing -quiet -project Scaena.xcodeproj -scheme ScaenaApp -destination "$destination" \
-  -derivedDataPath "$built"
+  -derivedDataPath "$built" || { engine_log; exit 1; }
 # Installed before the tests run, so that B1 can go in its folder: the tests install it again
 # over itself, which keeps what the folder holds.
 xcrun simctl install "$udid" "$built/Build/Products/Debug-iphonesimulator/ScaenaApp.app"
@@ -33,6 +35,7 @@ logging=$!
 status=0
 xcodebuild test-without-building -quiet -project Scaena.xcodeproj -scheme ScaenaApp -destination "$destination" \
   -derivedDataPath "$built" -resultBundlePath "$results" || status=$?
+[ "$status" -eq 0 ] || engine_log
 kill "$logging" 2>/dev/null || true
 "$here/results.sh" "$results" "$root/target/ipad/shots"
 cp "$said" "$root/target/ipad/shots/log.txt" 2>/dev/null || true
