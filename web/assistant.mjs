@@ -274,7 +274,8 @@ async function provider(wire) {
     const id = Object.keys(WIRE).find((k) => WIRE[k] === wire);
     const events = SSE[id](answer);
     res.writeHead(200, { ...cors, "content-type": "text/event-stream", "cache-control": "no-cache" });
-    const first = events.findIndex((e) => /text_delta|"content":"|"text":"(?!Looking)/.test(e)) + 1;
+    // The first event with a word in it: Anthropic's block start carries an empty text.
+    const first = events.findIndex((e) => /text_delta|"content":"[^"]|"text":"(?!Looking)[^"]/.test(e)) + 1;
     res.write(events.slice(0, Math.max(first, 1)).join(""));
     if (state.trickle) await new Promise((ok) => setTimeout(ok, state.trickle));
     res.end(events.slice(Math.max(first, 1)).join(""));
