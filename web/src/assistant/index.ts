@@ -9,7 +9,7 @@ import { findIcons, iconSet } from "../icon-set";
 import type { MapAsk, MapRefresh, MapTarget, Mapped, Rewritten, Seeing } from "../protocol";
 import { converse, type Event } from "./converse";
 import { type Call, type Message, type ProviderId, providers, type Result } from "./providers";
-import { type Listed, seen, system } from "./prompt";
+import { type Brief, type Deck, type Listed, seen, system } from "./prompt";
 import { made, summary, tools } from "./tools";
 
 export type { Event } from "./converse";
@@ -128,16 +128,47 @@ export async function write(writing: Writing, signal?: AbortSignal): Promise<{ t
   return { text: turn.text, usage: turn.usage };
 }
 
-/** The open deck, in a few facts: its title, states, formats, and theme. */
-function facts(session: Session) {
+/** The open deck, in a few facts: its title, states, formats, and theme; and its story, where
+ * it has one (narrative FUNC-2): the brief it was made from, the arc it was written to, and each
+ * beat's claim in spine order, as `scaena_chat::Facts::of` reads them. */
+function facts(session: Session): Deck {
   const read = session.tool("deck_read", "{}");
   try {
-    const deck = (JSON.parse(read.json) as { deck?: { meta?: { title?: string }; theme?: unknown } }).deck;
+    const deck = (JSON.parse(read.json) as { deck?: ReadDeck }).deck;
     const theme = typeof deck?.theme === "string" ? deck.theme.replace(/^.*\//, "").replace(/\.theme\.json$/, "") : undefined;
-    return { title: deck?.meta?.title, states: session.states(), formats: session.formats(), theme };
+    const word = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : undefined);
+    const narrative = deck?.meta?.narrative;
+    const given = narrative?.brief;
+    const brief: Brief | undefined = given && {
+      topic: word(given.topic),
+      audience: word(given.audience),
+      goal: word(given.goal),
+      length: word(given.length),
+    };
+    const told = brief && Object.values(brief).some((v) => v !== undefined) ? brief : undefined;
+    const claims = (deck?.spine?.sections ?? []).flatMap((s) => (s.beats ?? []).flatMap((b) => word(b.claim) ?? []));
+    return {
+      title: deck?.meta?.title,
+      states: session.states(),
+      formats: session.formats(),
+      theme,
+      ...(told && { brief: told }),
+      ...(word(narrative?.arc) && { arc: word(narrative?.arc) }),
+      ...(claims.length && { claims }),
+    };
   } finally {
     read.free();
   }
+}
+
+/** The deck as `deck_read` returns it, as far as the facts read it. */
+interface ReadDeck {
+  meta?: {
+    title?: string;
+    narrative?: { arc?: unknown; brief?: { topic?: unknown; audience?: unknown; goal?: unknown; length?: unknown } };
+  };
+  theme?: unknown;
+  spine?: { sections?: { beats?: { claim?: unknown }[] }[] };
 }
 
 /** Run `call` on the session as `author`: what it returned, a line saying what that came to,
@@ -158,6 +189,7 @@ async function run(
   });
   if (call.name === "resource_read") return answer(...read(session, call.args));
   if (call.name === "icon_find") return answer(...(await iconFind(call.args)));
+  if (call.name === "deck_health") return answer(...(await deckHealth(session, call.args)));
   if (call.name === "map_fetch") return mapFetch(session, call, edited, author, mapKey);
   let out: { result: Result; summary: string; made: boolean };
   let changed: boolean;
@@ -271,6 +303,27 @@ async function mapFetch(
     return { result: { id: call.id, name: call.name, json, error: patched.result.error }, summary: patched.result.error ? patched.summary : mapped.said, made: patched.made };
   } catch (e) {
     return stop(e instanceof Error ? e.message : String(e));
+  }
+}
+
+/** `deck_health`: the deck's story (PLAN G.9, SPEC §7.7), read by the generator's module as the
+ * Story tab reads it, since the editor's module carries none of it (narrative FUNC-2); the Mac's
+ * session answers it itself. Or why it does not read. */
+async function deckHealth(session: Session, args: unknown): Promise<[string, boolean]> {
+  if (Object.keys((args ?? {}) as object).length) return [JSON.stringify({ message: "deck_health takes nothing" }), true];
+  const read = session.tool("deck_read", "{}");
+  let deck: string;
+  try {
+    if (read.error) return [read.json, true];
+    deck = JSON.stringify((JSON.parse(read.json) as { deck: unknown }).deck);
+  } finally {
+    read.free();
+  }
+  try {
+    const { health } = await import("@scaena/generate");
+    return [JSON.stringify(await health(deck)), false];
+  } catch (e) {
+    return [JSON.stringify({ message: e instanceof Error ? e.message : String(e) }), true];
   }
 }
 

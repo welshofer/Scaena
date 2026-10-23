@@ -48,10 +48,8 @@ jobs:
       - id: diff
         env:
           EVENT: ${{ github.event_name }}
-          ACTION: ${{ github.event.action }}
           DRAFT: ${{ github.event.pull_request.draft }}
-          BEFORE: ${{ github.event.before }}
-          AFTER: ${{ github.event.after }}
+          LABELED: ${{ contains(github.event.pull_request.labels.*.name, 'apple') }}
           TAG: ${{ startsWith(github.ref, 'refs/tags/') }}
         run: |
           # Prose is Markdown outside what the build and tests read: SPEC and its parts under
@@ -72,23 +70,24 @@ jobs:
           # Everything on Linux, but for a draft.
           full=true
           if [ "$EVENT" = pull_request ] && [ "$DRAFT" = true ]; then full=false; fi
-          # macOS at the checkpoints; on a push to a ready pull request, only where the push itself
-          # touches what can paint differently there.
+          # macOS at the checkpoints; on a ready pull request, only where it touches what can paint
+          # or build differently there, or where it carries the `apple` label (read as the event
+          # comes: a label added takes effect at the pull request's next push or ready_for_review).
+          apple() {
+            for f in $(git diff --name-only "$@"); do
+              case "$f" in
+                crates/scaena-paint/* | crates/scaena-pixels/* | crates/scaena-core/src/shader.rs | crates/scaena-ffi/* | apps/mac/* | apps/ipad/* | tests/golden/* | Cargo.lock | .github/workflows/ci.yml | scripts/shots.sh) return 0 ;;
+              esac
+            done
+            return 1
+          }
           macos=false
           case "$EVENT" in
             schedule | workflow_dispatch) macos=true ;;
             push) macos=$TAG ;;
             pull_request)
               if [ "$DRAFT" != true ]; then
-                macos=true
-                if [ "$ACTION" = synchronize ] && git fetch -q --depth=1 origin "$BEFORE" "$AFTER"; then
-                  macos=false
-                  for f in $(git diff --name-only "$BEFORE" "$AFTER"); do
-                    case "$f" in
-                      crates/scaena-paint/* | crates/scaena-pixels/* | crates/scaena-core/src/shader.rs | crates/scaena-ffi/* | apps/mac/* | apps/ipad/* | tests/golden/* | Cargo.lock | .github/workflows/ci.yml | scripts/shots.sh) macos=true ;;
-                    esac
-                  done
-                fi
+                if [ "$LABELED" = true ] || apple HEAD^1 HEAD; then macos=true; fi
               fi ;;
           esac
           if [ "$macos" = true ]; then os='["ubuntu-latest","macos-latest"]'; else os='["ubuntu-latest"]'; fi
