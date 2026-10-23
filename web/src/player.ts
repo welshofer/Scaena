@@ -15,8 +15,9 @@
 // where its pointer is over the slide it shows.
 //
 // The end of the show (PLAN 2.120), as Keynote's and PowerPoint's: going on past the last state
-// turns the screen black and says the show has ended; going on again, or Escape, leaves it, out of
-// fullscreen and back on the last slide, and going back shows the last slide. The presenter view's
+// turns the screen black and says the show has ended, and going on again keeps it there; a click
+// on it, or Escape, leaves it, out of fullscreen and back on the last slide, and going back shows
+// the last slide. The presenter view's
 // timer pauses and resets, and the time of day stands beside it (PLAN 2.121).
 //
 // For a screen reader (PLAN 2.8, SPEC §3.12): the canvas is hidden, and the page keeps how the
@@ -408,10 +409,9 @@ async function play(deck: Source, how: Play, channel: BroadcastChannel) {
   });
 
   /** On: finish a cue that is playing, else play the next state's; past the last, the show is
-   * over, and on from there leaves it. */
+   * over, and stays over as a presentation app's end does, until a click, Escape, or Back. */
   const on = () => {
-    if (!shown()) return;
-    if (ended) return leave();
+    if (!shown() || ended) return;
     const { index, t, playing } = stage.at;
     if (playing && t < slots[index].span) return void stage.seek(index, undefined, format());
     if (index + 1 < slots.length) stage.run(index + 1, 0, format(), still());
@@ -566,7 +566,7 @@ async function play(deck: Source, how: Play, channel: BroadcastChannel) {
   };
   stage.canvas.onpointerdown = end.onpointerdown = (e) => (down = e);
   stage.canvas.onpointerup = (e) => lifted(e, () => void follow(e).then((followed) => followed || on()));
-  end.onpointerup = (e) => lifted(e, on);
+  end.onpointerup = (e) => lifted(e, leave);
   /** A click on a link at rest follows it (PLAN 2.70): a state is shown, a web address opens in
    * a window of its own. Whether there was one. */
   const follow = async (e: PointerEvent): Promise<boolean> => {
