@@ -1202,6 +1202,10 @@ async function edit(source: Source, opened?: Stage) {
    * a slide to show, a fix that is one change to undo, and a question for the assistant. */
   const story = storyPanel(stage, $("#story"), {
     source: () => view.state.doc.toString(),
+    check: (state) => {
+      if (assisting) return say("Nothing asked: the assistant is at work on the deck");
+      void writing.offer({ kind: "claim", state });
+    },
     show: async (state) => {
       const index = last?.states.findIndex(([id]) => id === state) ?? -1;
       const start = last?.states[index]?.[1];
@@ -2517,6 +2521,9 @@ async function edit(source: Source, opened?: Stage) {
       { label: "Export it as a PNG…", where: ["state"], applies: () => now() !== undefined, run: () => openExport("png") },
       // Its notes, drafted from how it reads by the model the assistant uses (PLAN 2.101).
       { label: "Draft its notes", where: ["state"], applies: () => now() !== undefined, run: () => write("notes") },
+      // Whether its words carry its beat's claim, judged by the same model, which offers the
+      // headline rewritten to carry it (narrative FUNC-4).
+      { label: "Check its claim", where: ["state"], applies: () => now() !== undefined, run: () => write("claim") },
       { label: "Show the light table", applies: () => now() !== undefined && !table.open(), run: () => table.toggle(true) },
       { label: "Close the light table", applies: () => table.open(), run: () => table.toggle(false) },
       // Page Down and Page Up on the slide (PLAN 2.126).
