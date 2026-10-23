@@ -1266,9 +1266,12 @@ export type ToWorker =
   | {
       type: "writeFiles";
       id: number;
-      files: { path: string; text: string | null }[];
+      files: { path: string; text: string | null; bytes?: ArrayBuffer }[];
       edit?: { source: string; index: number; format?: string };
     }
+  /** The file at `path` in the bundle, as the session holds it (lift-up REL-4): what a recovery
+   * copy keeps of a file written since the save. */
+  | { type: "file"; id: number; path: string }
   /** Ask the assistant (PLAN 2.6): the editor's `source` must compile to a deck that
    * validates, which its tools then work on. Each step comes back as an `assistant` event,
    * until one that is `done` or `failed`. */
@@ -1957,6 +1960,8 @@ export type FromWorker =
    * deck's source after, and what the edit came to. */
   | { type: "restored"; id: number; restored: Restored; files: Rewritten[]; source?: string; edited?: Edited }
   | { type: "filesWritten"; id: number; edited?: Edited }
+  /** The file asked for, or null where the bundle holds none at its path. */
+  | { type: "file"; id: number; bytes: ArrayBuffer | null }
   | { type: "themeText"; id: number; theme: ThemeText | null }
   | { type: "codeColors"; id: number; colors: CodeColor[] }
   /** What a theme edit did; where it wrote, the theme file before and after (none for an inline
