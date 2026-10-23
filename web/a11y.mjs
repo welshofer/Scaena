@@ -18,10 +18,9 @@
 // Exits 1 on any failure.
 import { execFileSync } from "node:child_process";
 import { mkdir, readFile } from "node:fs/promises";
-import { createRequire } from "node:module";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { launch, serve } from "./serve.mjs";
+import { axeInto, launch, serve } from "./serve.mjs";
 
 const server = await serve();
 const revenue = "/docs/examples/revenue.deck.json";
@@ -41,11 +40,10 @@ execFileSync("cargo", ["run", "-q", "-p", "scaena-cli", "--locked", "--", "expor
 });
 const exported = await readFile(file, "utf8");
 const readings = Object.fromEntries([...exported.matchAll(/<template data-state="([^"]+)">(.*?)<\/template>/gs)].map((m) => [m[1], m[2]]));
-const axe = createRequire(import.meta.url).resolve("axe-core/axe.min.js");
 
 /** What axe-core finds against WCAG 2.1 A and AA on `page`, each rule with the nodes it names. */
 async function audit(page, what) {
-  await page.addScriptTag({ path: axe });
+  await axeInto(page);
   const found = await page.evaluate(async () => {
     const result = await window.axe.run(document, { runOnly: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] });
     return result.violations.map((v) => `${v.id} (${v.impact}): ${v.nodes.map((n) => n.target.join(" ")).join(", ")}`);

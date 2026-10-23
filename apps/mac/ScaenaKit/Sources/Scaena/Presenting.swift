@@ -529,7 +529,11 @@ final class Showing {
     private func follow(_ link: LinkTarget) -> Bool {
         switch link {
         case .href(let href):
-            guard let url = URL(string: href) else { return false }
+            // Only a web address, as the engine draws one (`scaena_core::links`, lift-up SEC-2):
+            // never a file, a share, or another app's scheme, one click into a show.
+            guard let url = URL(string: href), ["https", "http", "mailto"].contains(url.scheme ?? "") else {
+                return false
+            }
             #if os(macOS)
             return NSWorkspace.shared.open(url)
             #else

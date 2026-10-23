@@ -13,8 +13,7 @@
 // - Discard keeps nothing.
 // - axe-core finds nothing against WCAG 2.1 AA with the bar shown, or the table.
 // Exits 1 on any failure.
-import { createRequire } from "node:module";
-import { launch, serve } from "./serve.mjs";
+import { axeInto, launch, serve } from "./serve.mjs";
 
 const failures = [];
 const check = (ok, what) => {
@@ -24,7 +23,6 @@ const check = (ok, what) => {
 /** How far a time the page kept may be from the time the test waited, ms. */
 const SLACK = 300;
 
-const axe = createRequire(import.meta.url).resolve("axe-core/axe.min.js");
 const site = await serve();
 const browser = await launch();
 try {
@@ -34,7 +32,7 @@ try {
   page.on("console", (m) => m.type() === "error" && failures.push(`console: ${m.text()}`));
   await page.goto(`${site.origin}/web/dist/editor.html?painter=cpu&source=open&bundle=/docs/examples/revenue.deck.json`);
   await page.waitForFunction(() => window.scaena?.last()?.valid, null, { timeout: 120000 });
-  await page.addScriptTag({ path: axe });
+  await axeInto(page);
   const audit = () =>
     page.evaluate(async () => {
       const result = await window.axe.run(document, { runOnly: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] });
