@@ -1247,12 +1247,9 @@ pub fn deck_as(
     let mut chosen = Vec::with_capacity(count);
     let mut section_number = 0;
     let mut running: Option<String> = None;
-<<<<<<< HEAD
     // Whether the section open is titled by a divider of its own.
     let mut divided = false;
-=======
     let mut previous: Option<(String, &Slide)> = None;
->>>>>>> origin/main
     for (i, (slide, v)) in narrative.slides.iter().zip(&varied).enumerate() {
         let beat = (slide.beat_index.filter(|b| *b < names.len()))
             .unwrap_or_else(|| scaena_narrato::beats::beat_of(i, count, names.len()));
@@ -1282,15 +1279,10 @@ pub fn deck_as(
             picture,
             icons,
         };
-<<<<<<< HEAD
-        let made = deck.slide(slots, i > 0)?;
-        let divider = layout.starts_with("section") && !slide.slide_title.is_empty();
-        if divider {
-=======
         let entrance = entrance(&layout, slide, previous.as_ref().map(|(l, s)| (l.as_str(), *s)), i + 1 == count);
         let made = deck.slide(slots, entrance)?;
-        if layout.starts_with("section") && !slide.slide_title.is_empty() {
->>>>>>> origin/main
+        let divider = layout.starts_with("section") && !slide.slide_title.is_empty();
+        if divider {
             running = Some(slide.slide_title.clone());
         }
         previous = Some((layout.clone(), slide));
