@@ -464,12 +464,18 @@ impl Generating {
                 let looking = key.filter(|_| args.get("look").and_then(Value::as_bool) != Some(false));
                 if let Some(key) = looking {
                     let seen = scaena_ops::narrative::seeing(narrative, &model, &placed, making.layouts());
-                    let drawn = making.drawn(scaena_ops::narrative::LOOK_WIDTH).map_err(said)?;
-                    if let Some(asked) = w.generation.look_request(key, &seen, &drawn) {
-                        let slides = seen.len();
-                        self.seen = seen;
-                        self.making = Some((making, Vec::new()));
-                        return Ok(json!({ "look": { "request": request(asked), "slides": slides } }));
+                    // A slide that would not draw for the model to see leaves the deck as made,
+                    // saying why (narrative STAB-3): the look is a polish, never the deck.
+                    match making.drawn(scaena_ops::narrative::LOOK_WIDTH) {
+                        Ok(drawn) => {
+                            if let Some(asked) = w.generation.look_request(key, &seen, &drawn) {
+                                let slides = seen.len();
+                                self.seen = seen;
+                                self.making = Some((making, Vec::new()));
+                                return Ok(json!({ "look": { "request": request(asked), "slides": slides } }));
+                            }
+                        }
+                        Err(why) => making.unlooked(format!("the slides could not be drawn for the model: {why}")),
                     }
                 }
                 let fit = self.fitting(making, key)?;
