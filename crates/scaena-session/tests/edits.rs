@@ -781,3 +781,65 @@ fn any_edit_leaves_a_deck_the_engine_draws_or_refuses() {
     let _ = std::panic::take_hook();
     assert!(failed.is_empty(), "{} of {count} edits panicked the engine:\n{}", failed.len(), failed.join("\n"));
 }
+
+/// What a shared deck may carry that once stopped the engine (lift-up STAB-1, STAB-5): a
+/// chart's expression nested thousands deep, or a chain of thousands of operators; a source's
+/// value nested thousands deep; and a forecast whose first date is no day. Each is drawn,
+/// linted, or refused with why, never a stack overflow or a panic.
+#[test]
+fn deep_nesting_and_a_forecasts_short_date_are_drawn_or_refused() {
+    let bundles = bundles(false);
+    let shared = &bundles.iter().find(|b| b.name == "revenue").unwrap().files;
+    let examples = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/examples");
+    let open = |name: &str, edit: &dyn Fn(&mut Value)| {
+        let mut deck: Value =
+            serde_json::from_slice(&std::fs::read(examples.join(format!("{name}.deck.json"))).unwrap()).unwrap();
+        let theme = std::fs::read_to_string(examples.join(deck["theme"].as_str().unwrap())).unwrap();
+        edit(&mut deck);
+        session(&Bundle { name: "edited", deck, theme, files: shared.clone() })
+    };
+    let deep = 50_000;
+    let filters = [
+        (format!("{}quarter == '2026-Q3'{}", "(".repeat(deep), ")".repeat(deep)), true),
+        (format!("{}(quarter == '2026-Q3')", "!".repeat(deep)), true),
+        (format!("{}1 > 0", "-".repeat(deep)), true),
+        (format!("quarter == '2026-Q3'{}", " && true".repeat(deep)), false),
+    ];
+    for (filter, refused) in &filters {
+        let mut s = open("charts", &|deck| {
+            for node in deck["nodes"].as_object_mut().unwrap().values_mut() {
+                if let Some(t) = node.get_mut("dataTransform").filter(|t| t.is_array()) {
+                    for step in t.as_array_mut().unwrap() {
+                        if step.get("filter").is_some() {
+                            step["filter"] = filter.as_str().into();
+                        }
+                    }
+                }
+            }
+        });
+        let source = s.source();
+        s.compile(&source);
+        for state in s.states() {
+            let _ = s.frame(&state, f64::INFINITY);
+        }
+        let found = s.lint(None, Some(1_800_000_000)).unwrap();
+        let nested = found.findings.iter().any(|f| f.finding.message.contains("nests more than 64 deep"));
+        assert_eq!(nested, *refused, "{:#?}", found.findings);
+    }
+    // A source typed with a value nested past what deck.json holds.
+    let mut s = open("revenue", &|_| {});
+    let source = s.source().replacen("axes:{", &format!("axes:{{deep: {}1{}, ", "[".repeat(deep), "]".repeat(deep)), 1);
+    let compiled = s.compile(&source);
+    assert!(!compiled.valid);
+    // A forecast whose first date is too short to be a day, or is cut inside a character, as the
+    // assistant's lint reads the deck opened, which validation refuses.
+    for first in ["2026", "2026-10-1é", ""] {
+        let mut s = open("weather", &|deck| {
+            deck["data"]["boston"]["fetched"]["kept"] = false.into();
+            deck["data"]["boston"]["source"]["inline"][0]["date"] = first.into();
+        });
+        let by = Caller { author: "agent:test", at: None };
+        let called = s.tool("deck_lint", json!({ "now": "2027-01-15" }), by).unwrap();
+        assert!(called.result.contains("W428"), "{first:?}: {}", called.result);
+    }
+}
