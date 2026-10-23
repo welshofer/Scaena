@@ -605,3 +605,5 @@ jobs:
         with:
           node-version: 22
       - run: node --experimental-strip-types web/exchanges.mjs
+      # The assistant's answers render as they read (narrative ATTR-4): the blocks and elements.
+      - run: node --experimental-strip-types web/markdown.mjs

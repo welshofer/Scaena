@@ -88,7 +88,9 @@ const SCRIPT = [
   // The deck's story, read by the generator's module (narrative FUNC-2).
   { name: "deck_health", args: {} },
 ];
-const ANSWER = "The headline fits its slot now, and the deck lints clean.";
+/** The answer, markdown as a model writes it (narrative ATTR-4), and how it reads once rendered. */
+const ANSWER = "The headline fits its slot now, and the deck lints clean:\n\n- **start** is the slide to look at\n- `start` is linked here\n\nDone.";
+const PLAIN = "The headline fits its slot now, and the deck lints clean:start is the slide to look atstart is linked hereDone.";
 
 /** Each provider's wire format: how many answers a request holds already, the results of the
  * calls it answers, what to answer, and where its key goes. */
@@ -400,9 +402,16 @@ try {
     check(last.valid && !last.findings.some((f) => f.severity === "error"), `${id}: and lints clean: ${last.findings.map((f) => f.code).join(", ") || "nothing found"}`);
     const transcript = await page.evaluate(() => window.scaena.assistant.transcript());
     check(
-      transcript.filter((t) => t.startsWith("call")).length === SCRIPT.length && transcript.at(-1) === `said: ${ANSWER}`,
-      `${id}: the conversation shows each call and the answer (${transcript.length} entries)`,
+      transcript.filter((t) => t.startsWith("call")).length === SCRIPT.length && transcript.at(-1) === `said: ${PLAIN}`,
+      `${id}: the conversation shows each call and the answer (${transcript.length} entries): ${transcript.at(-1)}`,
     );
+    // The answer as it reads (narrative ATTR-4): its list and emphasis as elements, never markup
+    // from the model's text, and the state named in a code span a link that shows it.
+    const rendered = await page.evaluate(() => {
+      const li = [...document.querySelectorAll("#transcript li.said")].at(-1);
+      return { items: li.querySelectorAll("ul li").length, strong: li.querySelector("strong")?.textContent, link: li.querySelector("a.state")?.dataset.state, raw: li.textContent.includes("**") };
+    });
+    check(rendered.items === 2 && rendered.strong === "start" && rendered.link === "start" && !rendered.raw, `${id}: the answer reads as a list, bold, and a link to the slide: ${JSON.stringify(rendered)}`);
     const shown = await page.$eval("#transcript img", (img) => img.naturalWidth).catch(() => 0);
     check(shown === 960, `${id}: and the frame the model saw`);
     // Under each call that changed what a state draws, that state before and after (PLAN 2.93):
@@ -486,7 +495,7 @@ try {
       const again = await page.evaluate(() => window.asked);
       check(again.kind === "done" && again.stop === "end", `${id}: the streamed answer ends (${JSON.stringify(again)})`);
       const saids = await page.evaluate(() => [...document.querySelectorAll("#transcript li.said")].map((li) => li.textContent));
-      check(saids.at(-1) === ANSWER && saids.filter((t) => t === ANSWER).length === 2, `${id}: the answer stands whole in the words' place, once: ${JSON.stringify(saids.slice(-2))}`);
+      check(saids.at(-1) === PLAIN && saids.filter((t) => t === PLAIN).length === 2, `${id}: the answer stands whole in the words' place, once: ${JSON.stringify(saids.slice(-2))}`);
       scripted.state.trickle = 0;
     }
 

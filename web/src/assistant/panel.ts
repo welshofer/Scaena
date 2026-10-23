@@ -12,6 +12,8 @@ import * as keys from "./keys";
 export interface Editor {
   /** The source as it stands. */
   source(): string;
+  /** The states the deck has, by id: what an answer may link to (narrative ATTR-4). */
+  states?(): string[];
   /** Take `source`, which the assistant's edit made, and what the worker found compiling,
    * showing, and linting it; and select what the question has changed so far, `touched`, once
    * the canvas stands in it (PLAN 2.52). */
