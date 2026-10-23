@@ -142,11 +142,11 @@ fn an_arc_the_model_misnames_is_the_heuristics_and_says_so() {
         serde_json::json!({ "content": [{ "type": "text", "text": text }], "stop_reason": "end_turn" }).to_string()
     };
     let mut g = Generation::new(brief(), settings(Provider::Anthropic)).unwrap();
-    assert_eq!(g.answer(200, "OK", &answered("Kishōtenketsu")).unwrap(), Step::Slides);
+    assert_eq!(g.answer(200, "OK", &answered("Kishōtenketsu"), None).unwrap(), Step::Slides);
     assert_eq!(g.arc().unwrap().selection, "Problem\u{2013}Solution", "the heuristic's choice for a pitch");
     assert_eq!(g.fallback(), Some("the model named `Kishōtenketsu`, not an arc of the catalog"));
     let mut g = Generation::new(brief(), settings(Provider::Anthropic)).unwrap();
-    g.answer(200, "OK", &answered("Hero's Journey for Change")).unwrap();
+    g.answer(200, "OK", &answered("Hero's Journey for Change"), None).unwrap();
     assert_eq!(g.arc().unwrap().selection, "Hero\u{2019}s Journey for Change");
     assert_eq!(g.fallback(), None);
     // Chosen by name, too: `--arc problem-solution` is the catalog's arc.
