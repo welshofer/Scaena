@@ -16,8 +16,7 @@
 // Exits 1 on any failure.
 import { execFileSync } from "node:child_process";
 import { rm } from "node:fs/promises";
-import { createRequire } from "node:module";
-import { launch, serve } from "./serve.mjs";
+import { axeInto, launch, serve } from "./serve.mjs";
 
 const failures = [];
 const check = (ok, what) => {
@@ -32,7 +31,6 @@ const bundle = `${root}/revenue`;
 await rm(root, { recursive: true, force: true });
 scaena("save", "docs/examples/revenue.deck.json", "--to", bundle, "--history", "--keep-fonts");
 
-const axe = createRequire(import.meta.url).resolve("axe-core/axe.min.js");
 const site = await serve();
 const browser = await launch();
 try {
@@ -77,7 +75,7 @@ try {
   check(gutter === "24" && sides.includes("Margin, top and bottom") && sides.includes("Spacing step"), `its spacing: gutter ${gutter}; ${sides.join(", ")}`);
 
   // axe-core, with the tab shown.
-  await page.addScriptTag({ path: axe });
+  await axeInto(page);
   const found = await page.evaluate(async () => {
     const result = await window.axe.run(document, { runOnly: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] });
     return result.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(" ")).join(", ")}`);
