@@ -4,6 +4,7 @@
 // Playwright and its Chromium, as crates/scaena-wasm/www/smoke.mjs does; `playwright`
 // resolves as `require` does, so a global install works with NODE_PATH.
 import { createServer } from "node:http";
+import { readFileSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { extname, join, normalize } from "node:path";
@@ -15,17 +16,19 @@ const types = { ".html": "text/html", ".js": "text/javascript", ".wasm": "applic
 
 /** The repository at `root`, served on a free port: `{ origin, close }`. `at` is the path it
  * is served at, ending in `/` (`/` by default), and `more` names the media types of other
- * extensions. */
-export async function serve(root = process.cwd(), { at = "/", more = {} } = {}) {
+ * extensions. Each path asked is pushed on `seen`, where one is given; and `instead(path)` may
+ * give the body to answer a path with in place of its file (a newer `sw.js`, lift-up REL-2). */
+export async function serve(root = process.cwd(), { at = "/", more = {}, seen, instead } = {}) {
   const known = { ...types, ...more };
   const server = createServer(async (req, res) => {
     const asked = decodeURIComponent(new URL(req.url, "http://x").pathname);
+    seen?.push(asked);
     if (!asked.startsWith(at)) return res.writeHead(404).end();
     let path = normalize(join(root, asked.slice(at.length - 1)));
     if (!path.startsWith(root)) return res.writeHead(403).end();
     if (path.endsWith("/")) path = join(path, "index.html");
     try {
-      const body = await readFile(path);
+      const body = instead?.(asked) ?? (await readFile(path));
       res.writeHead(200, { "content-type": known[extname(path)] ?? "application/octet-stream" }).end(body);
     } catch {
       res.writeHead(404).end();
@@ -33,6 +36,13 @@ export async function serve(root = process.cwd(), { at = "/", more = {} } = {}) 
   }).listen(0, "127.0.0.1");
   await new Promise((ok) => server.once("listening", ok));
   return { origin: `http://127.0.0.1:${server.address().port}`, close: () => server.close() };
+}
+
+/** axe-core put into `page`, as a script tag would put it, for a walk to run (WCAG 2.1 AA): by
+ * DevTools, since the pages' Content-Security-Policy refuses a script written into them (lift-up
+ * SEC-4), as it should. */
+export function axeInto(page) {
+  return page.evaluate(readFileSync(createRequire(import.meta.url).resolve("axe-core/axe.min.js"), "utf8"));
 }
 
 /** Headless Chromium with WebGPU, which leaves WebGPU canvases blank unless its compositor
