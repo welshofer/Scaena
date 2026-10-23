@@ -159,6 +159,13 @@ impl Checker {
         Some(self.follow(self.member(self.defs.get(def)?, prop)?))
     }
 
+    /// The names of definition `def`'s own properties, in the schema's order: a shader's params
+    /// by its kind (`MeshParams`, PLAN 2.148). None for a definition it does not have.
+    pub fn def_properties(&self, def: &str) -> Vec<&str> {
+        let props = self.defs.get(def).and_then(|d| d.get("properties")).and_then(Value::as_object);
+        props.into_iter().flat_map(|p| p.keys().map(String::as_str)).collect()
+    }
+
     /// `name` among the properties of `schema`, else of the definition it refers to: a
     /// node's own properties, then those every node has. Of a value written more ways than
     /// one, the first way that has it: an `align`'s `x` is its axes' (PLAN 3.25).

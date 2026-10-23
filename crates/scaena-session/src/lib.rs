@@ -164,6 +164,10 @@ pub struct Session {
     /// 3.30).
     #[cfg(feature = "editor")]
     started: Vec<scaena_paint::Raster>,
+    /// What `backgroundsPainted` drew last (PLAN 2.148): each background's slide, as a display
+    /// list, and the scale it is painted at, kept so each is painted again at another time.
+    #[cfg(feature = "editor")]
+    backdrops: Vec<(DisplayList, f32)>,
     /// What the next save records in the bundle's history, if it keeps one, besides the save:
     /// each edit an operation made since the bundle was opened or saved, after the deck
     /// before it (PLAN 2.9).
@@ -360,6 +364,8 @@ impl Session {
             suggested: Vec::new(),
             #[cfg(feature = "editor")]
             started: Vec::new(),
+            #[cfg(feature = "editor")]
+            backdrops: Vec::new(),
             #[cfg(feature = "editor")]
             recorded: Vec::new(),
             #[cfg(feature = "editor")]
@@ -4170,7 +4176,8 @@ mod tests {
         let offered = s.inserts();
         let of = |kind: &str| offered.iter().filter(|i| i.node["type"] == kind).count();
         assert_eq!(of("text"), s.theme.typography.roles.len() - 1, "a text in each of Dusk's roles but `axis`");
-        assert_eq!((of("shape"), of("image"), of("shader")), (20, 0, 2), "the revenue bundle holds no PNG");
+        // The revenue bundle holds no PNG, and Dusk has seven backgrounds (PLAN 2.147).
+        assert_eq!((of("shape"), of("image"), of("shader")), (20, 0, 7));
         let n = |label: &str| offered.iter().position(|i| i.label == label).unwrap();
         let within =
             |c: [f32; 4], p: [f32; 2]| c[0] <= p[0] && p[0] <= c[0] + c[2] && c[1] <= p[1] && p[1] <= c[1] + c[3];
@@ -5371,7 +5378,7 @@ mod tests {
         s.set_deck(rename(&s.deck, "assets/copy.png", "assets/absent.png"));
         let err = s.frame("images", f64::INFINITY).unwrap_err();
         assert!(matches!(&err, Error::Missing(p) if p == "assets/absent.png"), "{err}");
-        assert_eq!(s.states().len(), 69);
+        assert_eq!(s.states().len(), 70);
     }
 
     /// A pen's drawing and an icon are each a path on a view (PLAN 2.104, 2.114): the drawing,

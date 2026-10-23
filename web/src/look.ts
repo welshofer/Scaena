@@ -45,6 +45,7 @@ import type { Arrange, Choices, Edited, Field, LayoutSuggestion, Lives, StateCho
 import type { Stage } from "./stage";
 import type { Selected } from "./typing";
 import { counted, fractions, PARTS, quote, reaching, seconds } from "./words";
+import { backgrounds } from "./backgrounds";
 
 /** What the inspector's edits ask of the editor around them. */
 export interface Around {
@@ -289,6 +290,9 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
   let previewed: string | undefined;
   let previewing: string | undefined;
   let previews: Promise<void> | undefined;
+  /** The slide's background, offered with nothing selected (PLAN 2.148). */
+  const backdrops = backgrounds(stage, around);
+  backdrops.listen(into);
 
   /** Show what the deck offers for node `next` in the state shown, with `also` selected beside it,
    * or for the state with none. */
@@ -566,12 +570,15 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
     const layout = !chars && !("node" in offered) ? offered.fields.find((f) => f.prop === "layout") : undefined;
     const choosing = layout?.takes.kind === "name" && layout.takes.names.length > 1;
     const layouts = choosing ? `<section class="layouts" aria-label="Layouts, best first" hidden></section>` : "";
+    // The slide's background (PLAN 2.148): with nothing selected, above its layouts.
+    const backdrop = !chars && !("node" in offered) ? `<section class="backgrounds" aria-label="Background" hidden></section>` : "";
     into.innerHTML = `
       <h2>${html(title)}</h2>
       ${named ? `<p class="named">${html(named)}</p>` : ""}
       ${keeping}
       ${arrange || grouping ? `<div class="arrange">${arrange}${grouping}</div>` : ""}
       ${text ? writing : ""}
+      ${backdrop}
       ${layouts}
       ${map}
       <div class="fields">${rows.join("")}</div>
@@ -579,6 +586,8 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
       ${furnishing}
       ${text ? "" : writing}
       ${reading}`;
+    const swatches = into.querySelector<HTMLElement>(".backgrounds");
+    if (swatches) backdrops.attach(swatches);
     // A layout previewed is let go: the canvas shows the state at rest as it is.
     if (previewing !== undefined || previewed !== undefined) preview(undefined);
     // The last suggested for the state shown stand: an edit has them judged again once every
@@ -923,7 +932,10 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
     linted: () => {
       if (into.querySelector(".layouts")) suggestSoon();
       else suggested = undefined;
+      backdrops.linted();
     },
+    /** The slide's backgrounds (PLAN 2.148), for a test. */
+    backgrounds: backdrops,
     /** The layouts last suggested for the state shown, best first (PLAN 2.92), once they are,
      * for a test. */
     suggested: () =>

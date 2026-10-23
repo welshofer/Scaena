@@ -8,9 +8,12 @@
 // - The network gone: the player opens again at the site's address and plays every state of the
 //   demo deck, each painting a frame that is not blank; the editor opens on it, compiles and lints
 //   it, and downloads it, the subsetter loaded from what the site keeps.
+// - Every theme the registry lists, with its thumbnail and its fonts, is among what the site keeps,
+//   and offline the editor makes a deck in each, with its fonts alone, and saves it in the browser
+//   (PLAN T.0c). The site's install, every file the build wrote, is recorded.
 // - Nothing the pages ask is refused, and nothing is asked of another origin.
 // Exits 1 on any failure.
-import { readdir, readFile } from "node:fs/promises";
+import { readdir, readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { decode, launch, serve } from "./serve.mjs";
 
@@ -29,6 +32,15 @@ const decks = await readdir(join(root, "decks"));
 const deck = JSON.parse(await readFile(join(root, "decks", decks[0], "deck.json"), "utf8"));
 const states = deck.states.map((s) => s.id);
 const built = (await readdir(join(root, "assets"))).map((f) => `assets/${f}`);
+// The themes that ship (PLAN T.0c): each by its name, with the fonts its families name.
+const registry = JSON.parse(await readFile("docs/themes/registry.json", "utf8")).themes;
+const shipped = await Promise.all(
+  registry.map(async (t) => {
+    const theme = JSON.parse(await readFile(t.files[0], "utf8"));
+    const fonts = new Set(Object.values(theme.type.families).flatMap((f) => [f.file, f.italic?.file].filter(Boolean)));
+    return { slug: t.slug, name: t.name, fonts: fonts.size };
+  }),
+);
 
 const browser = await launch();
 try {
@@ -62,6 +74,11 @@ try {
   const missing = built.filter((f) => !keeps.kept.includes(`${home}${f}`));
   check(keeps.site && !missing.length, `its service worker keeps every file the build wrote (${keeps.kept.length})${missing.length ? `; not: ${missing.join(", ")}` : ""}`);
   check(keeps.controlled, "and answers the page");
+  const thumbnails = shipped.filter((t) => !built.some((f) => f.startsWith(`assets/${t.slug}-`) && f.endsWith(".png")));
+  check(!thumbnails.length, `it keeps each theme's thumbnail, drawn at build${thumbnails.length ? `; not: ${thumbnails.map((t) => t.name)}` : ""}`);
+  const files = [...built, ...(await readdir(root)).filter((f) => f !== "assets" && f !== "decks")];
+  const sizes = await Promise.all(files.map(async (f) => (await stat(join(root, f))).size));
+  console.log(`     the site's install: ${files.length} files, ${sizes.reduce((a, b) => a + b, 0)} bytes, the demo deck aside`);
   const manifest = keeps.manifest ? await (await fetch(keeps.manifest)).json().catch(() => undefined) : undefined;
   check(manifest?.start_url === "./" && manifest?.display === "standalone" && manifest?.icons?.length, `the page names the web app manifest that installs the site: ${keeps.manifest?.slice(site.origin.length)}`);
   await page.goto(`${home}editor.html?painter=cpu`);
@@ -94,6 +111,23 @@ try {
   const [download] = await Promise.all([page.waitForEvent("download", { timeout: 60000 }), page.click("#download")]).catch(() => [undefined]);
   const zip = download ? await readFile(await download.path()) : Buffer.alloc(0);
   check(zip[0] === 0x50 && zip[1] === 0x4b, `Download works, the subsetter loaded from what the site keeps: ${zip.length} bytes`);
+
+  // Offline, a deck in each theme, made and saved in the browser with its fonts alone (PLAN T.0c).
+  for (const theme of shipped) {
+    const title = `An offline ${theme.slug} deck`;
+    await page.evaluate(([name, title]) => window.scaena.open({ create: { theme: name, title } }), [theme.name, title]);
+    const name = `an-offline-${theme.slug}-deck`;
+    await page.waitForFunction((name) => (window.scaena.last() && window.scaena.where().name === name) || document.querySelector("#status")?.textContent.startsWith("Error"), name, { timeout: 120000 }).catch(() => {});
+    const made = await page.evaluate(() => ({ valid: window.scaena.last()?.valid, errors: window.scaena.last()?.findings.filter((f) => f.severity === "error").length }));
+    const saved = await page.evaluate(() => window.scaena.save()).catch((e) => ({ error: String(e) }));
+    const fonts = await page.evaluate(async (name) => {
+      const dir = await (await (await navigator.storage.getDirectory()).getDirectoryHandle("bundles")).getDirectoryHandle(name);
+      const out = [];
+      for await (const [file] of (await dir.getDirectoryHandle("fonts")).entries()) out.push(file);
+      return out.length;
+    }, name).catch(() => -1);
+    check(made.valid && made.errors === 0 && saved?.where?.kind === "opfs" && fonts === theme.fonts, `offline, ${theme.name} makes a deck and saves it in the browser with its ${theme.fonts} fonts: ${JSON.stringify({ ...made, saved: saved?.where ?? saved, fonts })}`);
+  }
 
   check(!outside.length, `nothing is asked of another origin${outside.length ? `: ${[...new Set(outside)].join(", ")}` : ""}`);
   check(!refused.length, `nothing the pages ask is refused${refused.length ? `: ${refused.join("; ")}` : ""}`);

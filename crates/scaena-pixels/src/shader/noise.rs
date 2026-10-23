@@ -312,7 +312,7 @@ fn share(hash: u32, x: f32, y: f32, z: f32) -> f32 {
 /// 2²³ up every float is whole. A whole float, either zero, an infinity, or NaN is its own
 /// floor (`floor_is_floor_for_every_float`).
 #[inline(always)]
-fn floor(x: f32) -> (f32, i32) {
+pub(super) fn floor(x: f32) -> (f32, i32) {
     let whole = x as i32;
     let t = whole as f32;
     let (below, small) = (t > x, x.abs() < 8_388_608.0);

@@ -7,8 +7,9 @@
 //   `deck_create` makes one, on a title slide in the theme's title layout, its words to type over
 //   and its picture's place outlined, which no undo takes back (PLAN 3.30), typing in its title,
 //   its words selected, so the first keys replace them (PLAN 3.21). It compiles and lints
-//   with no error, kept nowhere, named for its title. Each theme makes one, and Play on one
-//   kept nowhere keeps it in the browser's storage first, says so, and plays it.
+//   with no error, kept nowhere, named for its title. Each theme makes one, and the dialog shows
+//   the theme chosen as its title slide, drawn at build (PLAN T.0c); Play on one kept nowhere
+//   keeps it in the browser's storage first, says so, and plays it.
 // - Its first save goes into the browser's storage under its name; Play then plays it.
 // - Save as, from its dialog, keeps it in the browser's storage under another name, and the
 //   address names that. Save as a folder (any directory handle; here one in the browser's
@@ -83,6 +84,16 @@ try {
   await page.click("#new-deck");
   await page.fill("#making-name", "Field notes: what’s next");
   await page.selectOption("#making-theme", "Daybreak");
+  // The theme chosen shown as its title slide, drawn at build by the CPU painter (PLAN T.0c).
+  await page.waitForFunction(() => document.querySelector("#making-preview")?.complete, null, { timeout: 10000 }).catch(() => {});
+  const preview = await page.evaluate(() => {
+    const img = document.querySelector("#making-preview");
+    return { src: img.getAttribute("src"), alt: img.alt, width: img.naturalWidth, height: img.naturalHeight, hidden: img.hidden };
+  });
+  check(
+    /daybreak-[^/]*\.png$/.test(preview.src ?? "") && preview.width === 480 && preview.height === 270 && !preview.hidden && preview.alt === "A title slide in Daybreak",
+    `New shows the theme chosen as its title slide: ${JSON.stringify(preview)}`,
+  );
   await page.click("#making-create");
   await ready("field-notes-whats-next");
   const made = await where();
@@ -110,6 +121,8 @@ try {
   await page.keyboard.press("Escape");
   await page.waitForFunction(() => window.scaena.canvas.typing() === undefined, null, { timeout: 10000 }).catch(() => {});
   check((await page.evaluate(() => window.scaena.source())) === source, "Escape leaves the title as it was");
+  // New… has not kept the keys, so a space opens no second New.
+  check((await page.evaluate(() => document.activeElement?.id)) !== "new-deck", "New… does not keep the keys once the deck opens");
   await page.keyboard.press("Space");
   await page.waitForTimeout(300);
   check(!(await page.locator("#making").evaluate((d) => d.open)), "a space then opens no second New");

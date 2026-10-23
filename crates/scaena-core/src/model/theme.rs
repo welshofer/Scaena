@@ -789,7 +789,9 @@ pub struct Shaders {
     {"if": {"properties": {"kind": {"const": "grain"}}, "required": ["kind"]},
      "then": {"properties": {"params": {"$ref": "#/$defs/GrainParams"}}}},
     {"if": {"properties": {"kind": {"const": "particles"}}, "required": ["kind"]},
-     "then": {"properties": {"params": {"$ref": "#/$defs/ParticlesParams"}}}}
+     "then": {"properties": {"params": {"$ref": "#/$defs/ParticlesParams"}}}},
+    {"if": {"properties": {"kind": {"const": "caustics"}}, "required": ["kind"]},
+     "then": {"properties": {"params": {"$ref": "#/$defs/CausticsParams"}}}}
 ]))]
 pub struct ShaderPreset {
     pub kind: ShaderKind,

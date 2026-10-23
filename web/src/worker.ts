@@ -47,6 +47,8 @@ import type {
   Insert,
   Layer,
   LayoutSuggestion,
+  Backgrounds,
+  BackgroundOption,
   Thumb,
   Opened,
   Painter,
@@ -337,6 +339,27 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         const listed = JSON.parse(player.layoutSuggestions(data.height)) as Omit<LayoutSuggestion, "pixels">[];
         const suggestions = listed.map((s, i) => ({ ...s, pixels: player.layoutPixels(i).buffer as ArrayBuffer }));
         return post({ type: "layoutSuggestions", id: data.id, suggestions }, suggestions.map((s) => s.pixels));
+      }
+      case "backgrounds": {
+        layOut(data.format);
+        const listed = JSON.parse(player.backgroundsPainted(data.state, data.height)) as Omit<Backgrounds, "options"> & {
+          options: Omit<BackgroundOption, "pixels">[];
+        };
+        const options = listed.options.map((o, i) => ({ ...o, pixels: player.backgroundPixels(i, 0).buffer as ArrayBuffer }));
+        return post({ type: "backgrounds", id: data.id, backgrounds: { ...listed, options } }, options.map((o) => o.pixels));
+      }
+      case "backgroundPatch": {
+        const patch = JSON.parse(player.backgroundPatch(data.state, data.preset)) as unknown[];
+        return post({ type: "backgroundPatch", id: data.id, patch });
+      }
+      case "backgroundFrames": {
+        const pixels: ArrayBuffer[] = [];
+        for (let i = 0; ; i++) {
+          const painted = player.backgroundPixels(i, data.t);
+          if (!painted.length) break;
+          pixels.push(painted.buffer as ArrayBuffer);
+        }
+        return post({ type: "backgroundFrames", id: data.id, pixels }, pixels);
       }
       case "preview": {
         latest++;

@@ -83,8 +83,8 @@ impl Params {
                     }
                 }
                 "angle" => p.angle = within(name, v, -360.0, 360.0)?,
-                "x" => p.x = within(name, v, 0.0, 1.0)?,
-                "y" => p.y = within(name, v, 0.0, 1.0)?,
+                "x" => p.x = within(name, v, -1.0, 2.0)?,
+                "y" => p.y = within(name, v, -1.0, 2.0)?,
                 "radius" if v > 0.0 && v <= 4.0 => p.radius = v,
                 "radius" => {
                     let problem = format!("{v}: expected above 0, up to 4");
@@ -236,7 +236,7 @@ mod tests {
         let map = |pairs: &[(&str, f32)]| pairs.iter().map(|(k, v)| (k.to_string(), *v)).collect::<BTreeMap<_, _>>();
         assert_eq!(Params::from_map(&map(&[])).unwrap(), Params::default());
         assert_eq!(Params::from_map(&map(&[("shape", 2.0)])).unwrap().shape, Shape::Conic);
-        for (k, v) in [("shape", 3.0), ("angle", 400.0), ("x", 1.5), ("radius", 0.0), ("grain", 0.3), ("hue", 1.0)] {
+        for (k, v) in [("shape", 3.0), ("angle", 400.0), ("x", 2.5), ("radius", 0.0), ("grain", 0.3), ("hue", 1.0)] {
             let err = Params::from_map(&map(&[(k, v)])).unwrap_err().to_string();
             assert!(err.contains(k), "{k} = {v}: {err}");
         }

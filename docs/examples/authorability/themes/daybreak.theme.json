@@ -1,5 +1,5 @@
 {
-  "scaena-theme": "0.24",
+  "scaena-theme": "0.25",
   "name": "Daybreak",
   "description": "Warm paper surface, near-black ink, one deep teal accent. Same families, roles, layouts, and presets as Dusk: a deck moves between them by swapping the file.",
   "tokens": {
@@ -980,6 +980,41 @@
         "#F1E3D3",
         "#E6B9A0",
         "#C2410C"
+      ],
+      "aurora": [
+        "#FBFAF6",
+        "#4E9088",
+        "#D6795A",
+        "#A5C4BD"
+      ],
+      "lagoon": [
+        "#B0CBC4",
+        "#E5ECE8",
+        "#FFFFFF"
+      ],
+      "sweep": [
+        "#DBE6E0",
+        "#649C95",
+        "#E2987F",
+        "#A5C4BD",
+        "#DBE6E0",
+        "#649C95",
+        "#E2987F",
+        "#A5C4BD",
+        "#DBE6E0",
+        "#649C95",
+        "#E2987F",
+        "#A5C4BD"
+      ],
+      "haze": [
+        "#FBFAF6",
+        "#85B0A9",
+        "#E8AA94"
+      ],
+      "dust": [
+        "#4B8F87",
+        "#CF6440",
+        "#858380"
       ]
     },
     "presets": {
@@ -1001,6 +1036,58 @@
           "scale": 0.0015,
           "speed": 0.05,
           "contrast": 0.6
+        }
+      },
+      "aurora": {
+        "kind": "mesh",
+        "palette": "aurora",
+        "params": {
+          "points": 6,
+          "drift": 0.22,
+          "softness": 0.9,
+          "grain": 0.02
+        }
+      },
+      "lagoon": {
+        "kind": "caustics",
+        "palette": "lagoon",
+        "params": {
+          "scale": 0.22,
+          "speed": 0.12,
+          "intensity": 1,
+          "sharpness": 6
+        }
+      },
+      "sweep": {
+        "kind": "gradient",
+        "palette": "sweep",
+        "params": {
+          "shape": "conic",
+          "x": -0.2,
+          "y": -0.3,
+          "speed": 5,
+          "grain": 0.015
+        }
+      },
+      "haze": {
+        "kind": "noise",
+        "palette": "haze",
+        "params": {
+          "octaves": 3,
+          "scale": 0.0009,
+          "speed": 0.04,
+          "contrast": 0.9,
+          "grain": 0.01
+        }
+      },
+      "dust": {
+        "kind": "particles",
+        "palette": "dust",
+        "params": {
+          "count": 48,
+          "size": 0.006,
+          "speed": 0.012,
+          "softness": 0.8
         }
       }
     }

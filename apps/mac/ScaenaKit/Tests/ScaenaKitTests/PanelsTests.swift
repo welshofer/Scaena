@@ -34,6 +34,25 @@ private let torture = repository.appending(path: "tests/fixtures/torture.scaena"
     #expect(try color() == "#101014", "undone: the theme written back")
 }
 
+/// Every theme that ships makes a deck, on the Mac and the iPad alike, with its own fonts and no
+/// other theme's, and saves it with them; a deck put in each other theme takes that one too (PLAN
+/// T.0c): the static library carries every family, and hands over only the theme's own.
+@Test func everyThemeThatShipsMakesAndSavesADeckWithItsFontsAlone() throws {
+    let shipped = try ScaenaSession.create(theme: "Dusk", title: "Themes").shippedThemes()
+    #expect(!shipped.isEmpty)
+    for theme in shipped {
+        let made = try ScaenaSession.create(theme: theme.name, title: "Field notes")
+        let fonts = try made.bundleFiles().filter { $0.type == "font" }
+        #expect(!fonts.isEmpty, "\(theme.name) carries fonts")
+        #expect(fonts.allSatisfy { !$0.named.isEmpty }, "\(theme.name): each font one its theme names")
+        let saved = try made.save()
+        #expect(saved.files.filter { $0.hasPrefix("fonts/") }.count == fonts.count, "\(theme.name): saved with its fonts")
+        for other in shipped where other.name != theme.name {
+            #expect(try made.retheme(ships: other.name).applied, "\(theme.name) → \(other.name)")
+        }
+    }
+}
+
 /// Code's colors in the theme panel (PLAN 2.144): each kind as it is drawn, derived where the theme
 /// names none; one named is one theme edit, the objects it goes in added, which writing the theme
 /// back undoes; and From the Accent takes the name away.

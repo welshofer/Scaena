@@ -1,5 +1,7 @@
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { readFile } from "node:fs/promises";
 import { join, normalize, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -33,6 +35,23 @@ const singleFile: Plugin = {
     });
   },
 };
+
+/** Each theme that ships drawn small by the CPU painter (PLAN T.0c), its title slide as New starts
+ * one, into `target/themes/<slug>.png`, which `src/themes.ts` imports: drawn once as the build or
+ * the dev server starts, by `scaena-cli`'s `theme_thumbnails` example. */
+const thumbnails: Plugin = {
+  name: "scaena-theme-thumbnails",
+  buildStart() {
+    execFileSync("cargo", ["run", "-q", "--locked", "-p", "scaena-cli", "--example", "theme_thumbnails", "--", join(repo, "target/themes")], {
+      cwd: repo,
+      stdio: "inherit",
+    });
+  },
+};
+
+/** The cache of upstream fonts by sha256 that `scripts/build_bundle_fonts.py --fetch --shipped`
+ * fills (PLAN T.0b, T.0c), where `src/themes.ts` finds each font git does not hold. */
+const fontCache = process.env.SCAENA_FONT_CACHE ?? join(homedir(), ".cache/scaena-fonts");
 
 /** In development, the repository's bundles at their paths in it (`/tests/fixtures/torture.scaena`),
  * as a static server at the repository's root serves them beside the built player. */
@@ -144,7 +163,7 @@ async function answer(request) {
 export default defineConfig({
   // Relative paths: the build plays from any directory.
   base: "./",
-  plugins: [bundles, singleFile, offline],
+  plugins: [thumbnails, bundles, singleFile, offline],
   // The WASM engine and its glue, as `just wasm` builds them (PLAN 0.8); the font subsetter,
   // which the worker loads only to download a bundle (PLAN 2.4); the history, which it loads
   // only to save a bundle that keeps one (PLAN 2.9); and the assistant, with what it reads,
@@ -154,7 +173,8 @@ export default defineConfig({
   // which a worker of its own loads to make a deck from a prompt (PLAN G.5); the hyphenation
   // patterns the engine's module leaves out, each fetched the first time a text hyphenates in its
   // language (ADR-0015); and the code scanners' tables it leaves out too, each fetched the first
-  // time a code text in a language that reads it lays out (PLAN 2.132).
+  // time a code text in a language that reads it lays out (PLAN 2.132); and the fonts of the
+  // themes that ship that git does not hold, from the sha256 cache (PLAN T.0c).
   resolve: {
     alias: {
       "@scaena/wasm": join(repo, "crates/scaena-wasm/www/pkg/scaena_wasm.js"),
@@ -166,12 +186,13 @@ export default defineConfig({
       "@scaena/generate": join(web, "src/generate.ts"),
       "@scaena/assistant": join(web, "src/assistant/index.ts"),
       "@scaena/themes": join(web, "src/themes.ts"),
+      "@scaena/font-cache": fontCache,
       "@scaena/hyphenation": join(web, "src/hyphenation.ts"),
       "@scaena/code-tables": join(web, "src/code-tables.ts"),
     },
   },
   worker: { format: "es" },
-  server: { fs: { allow: [repo] } },
+  server: { fs: { allow: [repo, fontCache] } },
   build: {
     target: "es2022",
     // The player (PLAN 2.1–2.2) and the source editor (PLAN 2.3), sharing the engine's worker.
