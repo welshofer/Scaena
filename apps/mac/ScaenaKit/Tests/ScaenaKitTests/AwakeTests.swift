@@ -22,11 +22,11 @@ private func holdsOffDisplaySleep() -> Bool {
     return ours.contains { $0[kIOPMAssertionTypeKey as String] as? String == kIOPMAssertionTypePreventUserIdleDisplaySleep as String }
 }
 #else
-/// Whether the iPad's idle timer is off, as UIKit holds it. UIKit honors the setting in an active
-/// app alone, and puts it back as the app activates (`Awake` sets it again then), so a test host
-/// not yet active reads it as it is, and the test holds `Awake`'s count alone.
-@MainActor private func idleTimerOff() -> Bool? {
-    UIApplication.shared.applicationState == .active ? UIApplication.shared.isIdleTimerDisabled : nil
+/// The iPad's idle timer as `Awake` last set it: off (true) or on. A test host's UIApplication
+/// shows no scene and reads `isIdleTimerDisabled` back as unset however often it is set, so the
+/// test watches the switch `Awake` throws, which is UIKit's in the app.
+@MainActor private final class IdleTimer {
+    var off: Bool?
 }
 #endif
 
@@ -49,6 +49,13 @@ private func holdsOffDisplaySleep() -> Bool {
 @Test @MainActor func theScreenStaysAwakeWhileAShowRuns() {
     #if os(macOS)
     #expect(soon(false, holdsOffDisplaySleep), "before: nothing holds the display awake")
+    #else
+    let timer = IdleTimer()
+    let uikit = Awake.idleTimer
+    Awake.idleTimer = { timer.off = $0 }
+    defer { Awake.idleTimer = uikit }
+    // Unset reads as on: the switch must have been thrown.
+    let idleTimerOff = { timer.off ?? false }
     #endif
     let before = Awake.held
     let show = Awake(reason: "A test presents a deck")

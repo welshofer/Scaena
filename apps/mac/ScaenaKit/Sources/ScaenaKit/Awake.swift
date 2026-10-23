@@ -20,6 +20,10 @@ public final class Awake {
     #if os(macOS)
     private var activity: (any NSObjectProtocol)?
     #else
+    /// What turns the iPad's idle timer off (true) and on again: UIKit's. A test host's
+    /// UIApplication, which shows no scene, reads the setting back as unset however often it is
+    /// made, so a test watches the switch thrown here instead.
+    public static var idleTimer: @MainActor (Bool) -> Void = { UIApplication.shared.isIdleTimerDisabled = $0 }
     /// The app watched for becoming active: UIKit puts the idle timer back as an app activates, so
     /// one held through a launch or a return from the background is set again.
     private static var activating: (any NSObjectProtocol)?
@@ -53,8 +57,8 @@ public final class Awake {
     /// main run loop, and as the app activates.
     private static func apply() {
         #if !os(macOS)
-        UIApplication.shared.isIdleTimerDisabled = held > 0
-        Task { @MainActor in UIApplication.shared.isIdleTimerDisabled = held > 0 }
+        idleTimer(held > 0)
+        Task { @MainActor in idleTimer(held > 0) }
         if activating == nil {
             activating = NotificationCenter.default.addObserver(
                 forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main
