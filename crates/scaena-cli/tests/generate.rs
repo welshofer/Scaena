@@ -215,7 +215,7 @@ fn a_live_generation_makes_a_deck_where_a_key_is_set() {
 }
 
 /// A provider on this machine: each request answered by `answer` (its method, path, and body),
-/// each request's method, path, and body kept. Answers close their connection.
+/// each request's method, path, and body kept as it arrives. Answers close their connection.
 /// An answer: its status, its content type, and its body.
 type Answer = (u16, &'static str, Vec<u8>);
 
@@ -251,8 +251,9 @@ fn serve(answer: fn(&str, &str, &str) -> Answer) -> (String, Arc<Mutex<Vec<Asked
             let mut body = vec![0; length];
             reader.read_exact(&mut body).unwrap();
             let body = String::from_utf8_lossy(&body).into_owned();
+            // Kept as it arrives, before its answer, which may take a while.
+            kept.lock().unwrap().push(Asked { method: method.clone(), path: path.clone(), body: body.clone() });
             let (status, kind, reply) = answer(&method, &path, &body);
-            kept.lock().unwrap().push(Asked { method, path, body });
             let head = format!(
                 "HTTP/1.1 {status} OK\r\ncontent-type: {kind}\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
                 reply.len()
@@ -562,6 +563,120 @@ fn pictures_are_made_by_the_users_image_model_and_kept_in_the_bundle() {
         assert!(dir.join(src).is_file(), "{src}");
         assert!(image["alt"].as_str().is_some_and(|a| !a.is_empty()));
     }
+    assert_eq!(scaena(&["validate", bundle]).status.code(), Some(0));
+}
+
+/// How many times the slides have been asked for, across the kept run below: the first time,
+/// the provider is too busy to write them.
+static SLIDES_ASKED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// A provider for a run that fails twice (narrative REL-2): the research written and the arc
+/// chosen, it is too busy to write the slides the first time; the second, it writes them and
+/// then never answers the look at them drawn.
+fn kept_run(method: &str, path: &str, body: &str) -> Answer {
+    if method == "POST" && path == "/v1/messages" {
+        if body.contains("art director") {
+            std::thread::sleep(std::time::Duration::from_secs(90));
+        } else if !body.contains("\"web_search\"")
+            && !body.contains("=== CATALOG ===")
+            && !body.contains("runs past its place")
+            && SLIDES_ASKED.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0
+        {
+            let busy = r#"{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}"#;
+            return (529, "application/json", busy.as_bytes().to_vec());
+        }
+    }
+    researched(method, path, body)
+}
+
+/// A failed run keeps what it paid for as it arrived, the research's report and the slides as
+/// the model wrote them, in the bundle's `.generating`, and says the command that goes on from
+/// them; the deck made, the folder is gone (narrative REL-2).
+#[test]
+fn a_failed_run_keeps_the_research_and_the_slides_and_says_how_to_go_on() {
+    let (base, asked) = serve(kept_run);
+    let dir = place("kept");
+    let bundle = dir.to_str().unwrap();
+    let kept = dir.join(".generating");
+    let (research, slides) = (kept.join("research.md"), kept.join("slides.json"));
+    let command = |args: &[&str]| {
+        let mut c = Command::new(env!("CARGO_BIN_EXE_scaena"));
+        for k in KEYS.into_iter().chain(PROXIES).chain(["SCAENA_MODEL"]) {
+            c.env_remove(k);
+        }
+        c.env("ANTHROPIC_API_KEY", "sk-test").args(["--json", "generate", bundle, "Tidewater's Series A"]);
+        c.args(args).args(["--provider", "anthropic", "--model", "a-model", "--base", &base]);
+        c
+    };
+    // The research came back and the slides did not: the report is kept, and the error says the
+    // command that goes on from it, the report a source in place of `--research`.
+    let out = command(&["--research", "--audience", "Investors"]).output().unwrap();
+    assert_eq!(out.status.code(), Some(2), "{}", String::from_utf8_lossy(&out.stderr));
+    let error = json(&out)["error"]["message"].as_str().unwrap().to_string();
+    assert!(error.contains("Overloaded") && error.contains("go on from it with"), "{error}");
+    let resume = error.lines().last().unwrap().trim().to_string();
+    assert!(resume.starts_with("scaena generate"), "{resume}");
+    assert!(resume.contains(&format!("--source {}", research.display())), "{resume}");
+    assert!(resume.contains("'Tidewater'\\''s Series A'") && resume.contains("--audience Investors"), "{resume}");
+    assert!(!resume.contains("--research") && !resume.contains("--slides") && !resume.contains("sk-test"), "{resume}");
+    let report = std::fs::read_to_string(&research).unwrap();
+    assert!(report.contains("Shipping emits about 3% of CO2."), "{report}");
+    assert!(!slides.exists());
+    assert_eq!(asked.lock().unwrap().iter().filter(|a| a.method == "POST").count(), 3, "research, arc, slides");
+    // The command goes on from the report, asking for no research: the slides come back and are
+    // kept as they arrive, before the model is shown them drawn, where this run is stopped.
+    let line = resume.strip_prefix("scaena ").unwrap();
+    let mut going_on = Command::new("sh");
+    for k in KEYS.into_iter().chain(PROXIES).chain(["SCAENA_MODEL"]) {
+        going_on.env_remove(k);
+    }
+    let mut child = going_on
+        .env("ANTHROPIC_API_KEY", "sk-test")
+        .args(["-c", &format!("exec {} {line}", env!("CARGO_BIN_EXE_scaena"))])
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    let started = std::time::Instant::now();
+    while !asked.lock().unwrap().iter().any(|a| a.body.contains("art director")) {
+        assert!(started.elapsed().as_secs() < 240, "the look at the slides drawn was never asked for");
+        assert!(child.try_wait().unwrap().is_none(), "the run ended before the look");
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    child.kill().unwrap();
+    child.wait().unwrap();
+    let mut said = String::new();
+    child.stderr.take().unwrap().read_to_string(&mut said).unwrap();
+    assert!(said.contains("going on from what an earlier run kept"), "{said}");
+    let written: Value = serde_json::from_str(&std::fs::read_to_string(&slides).unwrap()).unwrap();
+    assert_eq!(written["slides"].as_array().unwrap().len(), 5);
+    assert!(research.exists());
+    let asked = asked.lock().unwrap();
+    let posts: Vec<&Asked> = asked.iter().filter(|a| a.method == "POST").collect();
+    assert_eq!(posts.len(), 6, "then the arc, the slides, and the look");
+    assert!(!posts[3..].iter().any(|a| a.body.contains("\"web_search\"")), "the research was not asked for again");
+    assert!(posts[4].body.contains("Shipping emits about 3% of CO2."), "the slides are grounded in the kept report");
+    drop(asked);
+    // Going on from the slides, on the arc they were written on, makes the deck with no call and
+    // takes the kept folder away.
+    let out = scaena(&[
+        "--json",
+        "generate",
+        bundle,
+        "Tidewater's Series A",
+        "--slides",
+        slides.to_str().unwrap(),
+        "--arc",
+        "Problem–Solution",
+        "--source",
+        research.to_str().unwrap(),
+    ]);
+    let made = json(&out);
+    assert_eq!(out.status.code(), Some(0), "{made:#}");
+    assert_eq!((made["created"]["created"].as_bool(), made["arc"].as_str()), (Some(true), Some("Problem–Solution")));
+    assert_eq!(made["layouts"].as_array().unwrap().len(), 5);
+    assert!(made.get("resume").is_none(), "{made:#}");
+    assert!(!kept.exists(), "the kept folder is gone once the deck is made");
     assert_eq!(scaena(&["validate", bundle]).status.code(), Some(0));
 }
 

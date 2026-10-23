@@ -20,8 +20,7 @@
 //   takes. Zoomed in, the arrows pan: the sheet says so (PLAN 2.125).
 // - axe-core finds nothing against WCAG 2.1 AA with the sheet open.
 // Exits 1 on any failure.
-import { createRequire } from "node:module";
-import { launch, serve } from "./serve.mjs";
+import { axeInto, launch, serve } from "./serve.mjs";
 
 const failures = [];
 const check = (ok, what) => {
@@ -31,7 +30,6 @@ const check = (ok, what) => {
 /** The groups, in the order the sheet lists them (`GROUPS` in web/src/commands.ts). */
 const ORDER = ["Select", "Edit", "Arrange", "Move and resize", "Points and corners", "Type", "Draw and insert", "See", "Slides", "Layers", "Animations", "Find and replace", "The data", "Annotate", "Layouts", "Rehearse", "The source", "The editor"];
 
-const axe = createRequire(import.meta.url).resolve("axe-core/axe.min.js");
 const site = await serve();
 const browser = await launch();
 try {
@@ -84,7 +82,7 @@ try {
   check(count === (await page.evaluate(() => window.scaena.keys.listed().length)), `the sheet shows what it lists: ${count} keys`);
 
   // axe-core, the sheet open.
-  await page.addScriptTag({ path: axe });
+  await axeInto(page);
   const found = await page.evaluate(async () => {
     const result = await window.axe.run(document, { runOnly: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] });
     return result.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(" ")).join(", ")}`);

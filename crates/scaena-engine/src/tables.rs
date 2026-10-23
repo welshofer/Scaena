@@ -17,7 +17,7 @@ use scaena_core::displaylist::{Color, Point};
 use scaena_core::document::Props;
 use scaena_core::format::{Locale, MINUS};
 use serde_json::Value;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 
 /// A table laid out for one snapshot, relative to its cell.
 #[derive(Debug, Clone, PartialEq)]
@@ -82,10 +82,14 @@ pub struct Typeset {
     /// The data source it reads, as the deck names it.
     source: String,
     columns: Vec<Column>,
-    /// Each body row's key.
+    /// Each body row's key, of the rows set.
     keys: Vec<String>,
-    /// Each body row's rows of its source, through the table's `dataTransform`.
+    /// Each body row's rows of its source, through the table's `dataTransform`, of the
+    /// rows set.
     from: Vec<Vec<usize>>,
+    /// How many body rows the data has: those set, and those left once they passed the
+    /// room given ([`set`]).
+    rows: usize,
     /// The header row's text by column; none without a header.
     header: Option<Vec<Option<TextLayout>>>,
     /// Each body row's text by column; a null or empty cell has none.
@@ -104,15 +108,18 @@ pub struct Typeset {
 /// Lay out a table node's resolved props for a cell `size` wide and high.
 pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<TableLayout, EngineError> {
     let lenient = cx.lenient;
-    set(cx, props)?.place(size, lenient)
+    set(cx, props, Some(size[1]))?.place(size, lenient)
 }
 
 /// Set a table node's resolved props: its rows through `dataTransform`, its columns, and
-/// every cell's text in the theme's table styles.
-pub fn set(cx: &mut Ctx, props: &Props) -> Result<Typeset, EngineError> {
+/// each cell's text in the theme's table styles. `room` is how high the table may stand:
+/// its cell, or the canvas where a container has yet to give it one. Its body rows are
+/// set only until they pass it, one row past, and the rest counted; with no room, every
+/// row is set.
+pub fn set(cx: &mut Ctx, props: &Props, room: Option<f32>) -> Result<Typeset, EngineError> {
     let source = props.get("data").and_then(Value::as_str).and_then(|d| d.strip_prefix('@'));
     let source = source.ok_or_else(|| EngineError::Layout("table has no `data`".into()))?;
-    let (table, from) = data::traced(data::load(cx.deck, cx.data, source)?, props.get("dataTransform"))?;
+    let (table, mut from) = data::traced(data::load(cx.deck, cx.data, source)?, props.get("dataTransform"))?;
     let locale = Locale::of(cx.deck.meta.as_ref().and_then(|m| m.lang.as_deref()));
     let col = |name: &str| table.column(name).ok_or_else(|| EngineError::Data(format!("no column `{name}`")));
 
@@ -162,9 +169,10 @@ pub fn set(cx: &mut Ctx, props: &Props) -> Result<Typeset, EngineError> {
         None => columns[0].index,
     };
     let mut keys: Vec<String> = Vec::with_capacity(table.rows.len());
+    let mut seen: HashSet<String> = HashSet::with_capacity(table.rows.len());
     for row in &table.rows {
         let k = row[key].label();
-        if keys.contains(&k) {
+        if !seen.insert(k.clone()) {
             return Err(EngineError::Data(format!(
                 "row key `{k}` repeats; table keys must be unique (give the table a `key` field)"
             )));
@@ -219,8 +227,18 @@ pub fn set(cx: &mut Ctx, props: &Props) -> Result<Typeset, EngineError> {
         }
         false => None,
     };
-    let mut body: Vec<Vec<Option<TextLayout>>> = Vec::with_capacity(table.rows.len());
+    // Body rows, until they pass the room given: the row that crosses it is set, and the
+    // rest counted, so a table of thousands of rows is refused in the time its first rows
+    // take to shape.
+    let rows = table.rows.len();
+    let mut body: Vec<Vec<Option<TextLayout>>> = Vec::new();
+    let mut deep = header.as_deref().map_or(0.0, |h| row_depth(row_gap, h));
     for row in &table.rows {
+        if let Some(room) = room
+            && deep > room + 0.5
+        {
+            break;
+        }
         let mut cells = Vec::with_capacity(columns.len());
         for c in &columns {
             let d = &row[c.index];
@@ -232,8 +250,11 @@ pub fn set(cx: &mut Ctx, props: &Props) -> Result<Typeset, EngineError> {
             let text = typeset_minus(text, minus);
             cells.push(if text.is_empty() { None } else { Some(set(text, &cell_role, c.numeric)?) });
         }
+        deep += row_depth(row_gap, &cells);
         body.push(cells);
     }
+    keys.truncate(body.len());
+    from.truncate(body.len());
 
     // Widths: each column as wide as its widest text.
     let mut widths: Vec<f32> = vec![0.0; columns.len()];
@@ -248,6 +269,7 @@ pub fn set(cx: &mut Ctx, props: &Props) -> Result<Typeset, EngineError> {
         columns,
         keys,
         from,
+        rows,
         header,
         body,
         widths,
@@ -271,9 +293,10 @@ impl Typeset {
         self.widths.iter().sum::<f32>() + self.column_gap * (self.widths.len() - 1) as f32
     }
 
-    /// How tall its rows are, the header's included, each its tallest text with
+    /// How tall the rows it set are, the header's included, each its tallest text with
     /// `tables.rowGap` above and below. Rules lie on the lines between rows and take no
-    /// room of their own.
+    /// room of their own. A table whose rows passed the room given stands at least this
+    /// tall.
     pub fn height(&self) -> f32 {
         self.header.iter().chain(&self.body).fold(0.0, |y, row| y + row_depth(self.row_gap, row))
     }
@@ -285,8 +308,8 @@ impl Typeset {
     }
 
     /// Lay the table out in a cell `size` wide and high. A table that needs more room
-    /// than that is an error that says what to cut; under `lenient`, rows that do not fit
-    /// are laid out anyway, and why kept for lint (E100).
+    /// than that is an error that says what to cut; under `lenient`, the rows set that do
+    /// not fit are laid out anyway, and why kept for lint (E100).
     pub fn place(self, size: [f32; 2], lenient: bool) -> Result<TableLayout, EngineError> {
         let need = self.width();
         let Typeset {
@@ -294,6 +317,7 @@ impl Typeset {
             columns,
             keys,
             from,
+            rows: all,
             header,
             body,
             mut widths,
@@ -375,8 +399,10 @@ impl Typeset {
             let head = out.rule.as_ref().map_or(0.0, |r| r.from[1]);
             let pitch = (y - head) / rows.max(1) as f32;
             let fits = ((size[1] - head) / pitch).floor().max(0.0);
+            // The rows left unset stand as the rows set do.
+            let tall = if all == rows { y } else { head + pitch * all as f32 };
             let why = format!(
-                "table shows {rows} rows in {y:.0} cu, and its cell is {:.0} high: keep about {fits:.0} with `dataTransform` ({{ \"limit\": {fits:.0} }}), or give it more room",
+                "table shows {all} rows in {tall:.0} cu, and its cell is {:.0} high: keep about {fits:.0} with `dataTransform` ({{ \"limit\": {fits:.0} }}), or give it more room",
                 size[1]
             );
             if !lenient {

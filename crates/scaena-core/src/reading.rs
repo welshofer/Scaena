@@ -60,7 +60,7 @@ pub fn readings(deck: &Deck, snap: &Snapshot) -> HashMap<String, Reading> {
             // A chart's or a table's data fetched from a service: its credit, read after it (ADR-0030).
             if matches!(t, NodeType::Chart | NodeType::Table) && read.kind != Kind::Artifact {
                 read.credit = crate::fetched::reads(deck, props)
-                    .map(|runs| runs.into_iter().map(|r| (r.text, r.link.map(LinkTarget::Href))).collect())
+                    .map(|runs| runs.into_iter().map(|r| (r.text, credited(r.link))).collect())
                     .unwrap_or_default();
             }
             Some((id.clone(), read))
@@ -115,9 +115,8 @@ pub fn reading(t: NodeType, props: &Props) -> Reading {
             None => format!("Map of {place}"),
         })
     });
-    let credit = fetched
-        .map(|f| f.credit.into_iter().map(|r| (r.text, r.link.map(LinkTarget::Href))).collect())
-        .unwrap_or_default();
+    let credit =
+        fetched.map(|f| f.credit.into_iter().map(|r| (r.text, credited(r.link))).collect()).unwrap_or_default();
     Reading { kind, alt, lang: text("lang").map(str::to_string), items, verse, credit }
 }
 
@@ -437,17 +436,18 @@ fn drawn_stretches(props: &Props) -> Vec<(String, Option<LinkTarget>)> {
 
 /// A text node's words in stretches, each with where it links, if it does (PLAN 2.70): its
 /// `text`, or each of its runs.
+/// Where a credit's run links, if it is a web address a reader may follow (lift-up SEC-2).
+fn credited(link: Option<String>) -> Option<LinkTarget> {
+    link.filter(|href| crate::links::followable(href)).map(LinkTarget::Href)
+}
+
 fn stretches(props: &Props) -> Vec<(String, Option<LinkTarget>)> {
     match (props.get("text"), props.get("runs")) {
         (Some(Value::String(text)), _) => vec![(text.clone(), None)],
         (_, Some(Value::Array(runs))) => runs
             .iter()
             .filter_map(|r| {
-                let link = r.get("link").and_then(|l| match (l.get("href"), l.get("state")) {
-                    (Some(Value::String(h)), _) => Some(LinkTarget::Href(h.clone())),
-                    (_, Some(Value::String(s))) => Some(LinkTarget::State(s.clone())),
-                    _ => None,
-                });
+                let link = r.get("link").and_then(crate::links::target);
                 Some((r.get("text")?.as_str()?.to_string(), link))
             })
             .collect(),
