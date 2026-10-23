@@ -48,10 +48,13 @@ public final class Awake {
     }
 
     /// The iPad's idle timer off while any is held, and on again once none is; nothing more on the
-    /// Mac, whose activities each hold their own.
+    /// Mac, whose activities each hold their own. UIKit drops a set made as the app comes up (the
+    /// first one a test host makes reads back unset), so it is set again on the next turn of the
+    /// main run loop, and as the app activates.
     private static func apply() {
         #if !os(macOS)
         UIApplication.shared.isIdleTimerDisabled = held > 0
+        Task { @MainActor in UIApplication.shared.isIdleTimerDisabled = held > 0 }
         if activating == nil {
             activating = NotificationCenter.default.addObserver(
                 forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main
