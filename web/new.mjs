@@ -211,6 +211,19 @@ try {
   check(keptFirst && playSaid === "Kept in this browser to play it" && playing && played.url().includes("bundle=opfs%3Atyped-over"), `Play keeps a new deck in the browser, says so, and plays it: ${playSaid}, ${played.url()}`);
   await played.close();
 
+  // ⌘Z after the save takes back the typing before it, not the paths the save renamed: the
+  // bundle's files are named so now.
+  const afterSave = await page.evaluate(() => window.scaena.source());
+  const fonts = (s) => [...s.matchAll(/"(fonts\/[^"]+)"/g)].map((m) => m[1]).sort().join(", ");
+  await page.locator("#overlay").focus();
+  await page.keyboard.press("Control+z");
+  await page.waitForFunction(() => !window.scaena.source().includes("Notes from the field"), null, { timeout: 30000 }).catch(() => {});
+  const unsaved = await page.evaluate(() => window.scaena.source());
+  check(!unsaved.includes("Notes from the field") && fonts(unsaved) === fonts(afterSave), `⌘Z after the save takes back the typing and keeps the paths it renamed: ${fonts(unsaved)}`);
+  await page.keyboard.press("Control+Shift+z");
+  await page.waitForFunction((s) => window.scaena.source() === s, afterSave, { timeout: 30000 }).catch(() => {});
+  check((await page.evaluate(() => window.scaena.source())) === afterSave, "and ⌘⇧Z makes the typing again");
+
   // After several New, ⌘Z is the deck open's, once, wherever the page does not take it itself:
   // from its slide focused in the strip, and from a menu in the inspector.
   const opened = await page.evaluate(() => window.scaena.source());
