@@ -783,7 +783,7 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
     around.say(`Changing ${name}…`);
     try {
       const states = await stage.reach(ops);
-      const { source, edited } = await stage.make(around.source(), ops, now.index, around.format());
+      const { source, edited } = await stage.make(around.source, ops, now.index, around.format());
       around.apply(source, edited);
       const given = value === null ? "back to the theme’s" : field ? told(field, value) : String(value);
       around.say(`${name}: ${given}${several} · ${reaching(states, now.state, around.slide)}`);
@@ -801,7 +801,7 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
       const now = around.shown();
       if (!now) return;
       try {
-        const { source, edited } = await stage.make(around.source(), ops, now.index, around.format());
+        const { source, edited } = await stage.make(around.source, ops, now.index, around.format());
         around.apply(source, edited);
         around.say(`${told} · ⌘Z undoes it`);
       } catch (e) {

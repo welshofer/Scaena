@@ -129,6 +129,11 @@ pub fn summary(name: &str, json: &str, error: bool) -> String {
             };
             format!("{found}; {done}{}", delta(p))
         }
+        // The deck's story: its score, and how much there is to look at (narrative FUNC-2).
+        "deck_health" => {
+            let findings = r["findings"].as_array().map_or(0, Vec::len);
+            format!("Story {} of 100, {}", shown(&r["score"]), many(findings, "finding"))
+        }
         "data_attach" => {
             let done = if truthy(&r["attached"]) {
                 format!("Added {}: {} rows", shown(&r["source"]), shown(&r["rows"]))
@@ -338,6 +343,8 @@ mod tests {
         assert_eq!(summary("resource_read", "é𝄞", false), "3 characters");
         assert_eq!(summary("deck_lint", &"x".repeat(300), false), "x".repeat(200));
         assert_eq!(summary("spine_read", "{}", false), "Done");
+        assert_eq!(summary("deck_health", r#"{"score":72,"findings":[{},{}]}"#, false), "Story 72 of 100, 2 findings");
+        assert_eq!(summary("deck_health", r#"{"score":100,"findings":[]}"#, false), "Story 100 of 100, 0 findings");
     }
 
     /// A call is headed as done only where it did what its words say: an edit refused, only
