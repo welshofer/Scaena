@@ -1740,12 +1740,12 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
         - the pasteboard read as the browser's clipboard is: a clip beside its text, a picture, words outranking a picture of them, and a TIFF as a PNG;
         - through `DeckEditor`, a clip, words, a look, a sheet's cells with their table, and a picture, each made.
     - **What waits.** A run on a Mac, copying from Numbers, Preview, and the Finder.
-- [ ] 3.13 Several selected: Shift+click and a marquee, moved together, aligned, spread, and ordered; ⌘G and ⌘⇧G group and ungroup (PLAN 2.42, 2.43). *(Built; waits on a run on a Mac.)*
+- [ ] 3.13 Several selected: Shift+click and a marquee, moved together, aligned, spread, and ordered; ⌥⌘G and ⇧⌥⌘G group and ungroup (PLAN 2.42, 2.43). *(Built; waits on a run on a Mac.)*
     - **Selecting several.** Shift and a click add a child of the same container to what is selected, or take one out. A drag from where nothing draws is a marquee: it selects what lies wholly inside it, children of the canvas a pointer reaches; with Shift, it adds them.
     - **Moving them.** A drag of one of them moves them all, as the browser's canvas moves several (`together`): the engine draws them moved (`setMoving` takes several), the first snapped as it would be alone and the rest as far as it went, with the guides the box around them meets. The drop is one patch, kept to the state with Option.
     - **Acting on them.** Delete, Duplicate, Copy, Cut, Lock, and Paste Look act on every node selected, each one patch; a paste of several selects them all.
     - **The inspector** offers what they all share (`Field.shared`), each choice a `choose` for each node in one patch, and buttons that align them on an edge or a middle, spread them across or down, put them in front or behind (`arranging`), and group them.
-    - **The Node menu** groups them where they stand (⌘G, `grouping`), takes a group apart (⌘⇧G, an `ungroup`), and orders them among what their container paints (⌘], ⌘[, with Option to the front and the back).
+    - **The Node menu** groups them where they stand (⌥⌘G, `grouping`), takes a group apart (⇧⌥⌘G, an `ungroup`; Keynote's keys, since ⌘G is the Mac's Find Next, lift-up USE-5), and orders them among what their container paints (⌘], ⌘[, with Option to the front and the back).
     - **The ABI.** `together`, `arranging`, and `grouping` join the session's calls.
     - Tests:
       - the `ffi` suite's `several_nodes_move_arrange_and_group_together` on B1: three nodes moved together, aligned, spread, and ordered, grouped and taken apart, and a way that is none said;

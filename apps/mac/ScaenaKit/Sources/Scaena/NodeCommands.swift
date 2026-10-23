@@ -76,15 +76,19 @@ extension FocusedValues {
 /// the bundle offer, landing where the pointer last pressed on the canvas; in the Edit menu,
 /// Duplicate (⌘D), Delete, from this slide on, Delete from All Slides, and Copy Style (⌥⌘C) and
 /// Paste Style (⌥⌘V, PLAN 2.58); and the Arrange menu: the order among what their container paints
-/// (⌥⌘], ⌘], ⌘[, ⌥⌘[, PLAN 2.42), Group (⌘G) and Ungroup (⌘⇧G, PLAN 2.43), Connect with Arrow
-/// and with Line (PLAN 2.109), and Lock (⇧⌘L); and Insert's Diagram from Text, the text selected
-/// drawn as a process, a cycle, or a hierarchy (PLAN 2.110). Each
-/// acts on every object selected (PLAN 3.13). The canvas takes Delete and Shift+Delete itself, as
-/// the browser's does. Between Insert and Arrange, as a presentation app has it, the Slide menu:
-/// New Slide (⇧⌘N), New Step, Duplicate Slide, and Delete Slide, on the slide shown.
+/// (⌥⌘], ⌘], ⌘[, ⌥⌘[, PLAN 2.42), Group (⌥⌘G) and Ungroup (⇧⌥⌘G, PLAN 2.43, Keynote's keys, since
+/// ⌘G is the Mac's Find Next, lift-up USE-5), Connect with Arrow and with Line (PLAN 2.109), and
+/// Lock (⇧⌘L); and Insert's Diagram from Text, the text selected drawn as a process, a cycle, or a
+/// hierarchy (PLAN 2.110). Each acts on every object selected (PLAN 3.13). The canvas takes Delete
+/// and Shift+Delete itself, as the browser's does. Between Insert and Arrange, as a presentation
+/// app has it, the Slide menu: New Slide (⇧⌘N), New Step, Duplicate Slide, and Delete Slide, on the
+/// slide shown; and the Format menu, on the text typed in: Bold (⌘B), Italic (⌘I), Add Link (⌘K),
+/// and the lists, which the canvas takes itself while a text is typed in and the menu names, so
+/// Help's search finds them. Each key is `MenuKey`'s, the iPad's canvas's too.
 struct NodeCommands: Commands {
     @FocusedValue(\.deck) private var deck
     @FocusedValue(\.panes) private var panes
+    @FocusedValue(\.canvasActions) private var canvas
 
     var body: some Commands {
         CommandMenu("Insert") {
@@ -131,6 +135,23 @@ struct NodeCommands: Commands {
             Button("Delete Slide") { panes?.deleteSlide?() }
                 .disabled(panes?.deleteSlide == nil)
         }
+        CommandMenu("Format") {
+            Button("Bold") { canvas?.bold?() }
+                .keyboardShortcut(MenuKey.bold.key, modifiers: MenuKey.bold.modifiers)
+                .disabled(canvas?.bold == nil)
+            Button("Italic") { canvas?.italic?() }
+                .keyboardShortcut(MenuKey.italic.key, modifiers: MenuKey.italic.modifiers)
+                .disabled(canvas?.italic == nil)
+            Divider()
+            Button("Add Link…") { canvas?.link?() }
+                .keyboardShortcut(MenuKey.link.key, modifiers: MenuKey.link.modifiers)
+                .disabled(canvas?.link == nil)
+            Divider()
+            Button("Bulleted List") { canvas?.list?("bullet") }
+                .disabled(canvas?.list == nil)
+            Button("Numbered List") { canvas?.list?("number") }
+                .disabled(canvas?.list == nil)
+        }
         CommandGroup(after: .pasteboard) {
             Button("Paste as Text") { deck?.pasteAsText?() }
                 .disabled(deck?.pasteAsText == nil)
@@ -138,7 +159,7 @@ struct NodeCommands: Commands {
                 .disabled(deck?.copyCode == nil)
             Divider()
             Button("Duplicate") { deck?.duplicate?() }
-                .keyboardShortcut("d", modifiers: .command)
+                .keyboardShortcut(MenuKey.duplicate.key, modifiers: MenuKey.duplicate.modifiers)
                 .disabled(deck?.duplicate == nil)
             Button("Delete from This Slide On") { deck?.delete?(false) }
                 .disabled(deck?.delete == nil)
@@ -146,31 +167,31 @@ struct NodeCommands: Commands {
                 .disabled(deck?.delete == nil)
             Divider()
             Button("Copy Style") { deck?.copyLook?() }
-                .keyboardShortcut("c", modifiers: [.command, .option])
+                .keyboardShortcut(MenuKey.copyLook.key, modifiers: MenuKey.copyLook.modifiers)
                 .disabled(deck?.copyLook == nil)
             Button("Paste Style") { deck?.pasteLook?() }
-                .keyboardShortcut("v", modifiers: [.command, .option])
+                .keyboardShortcut(MenuKey.pasteLook.key, modifiers: MenuKey.pasteLook.modifiers)
                 .disabled(deck?.pasteLook == nil)
         }
         CommandMenu("Arrange") {
             Button("Bring to Front") { deck?.order?("front") }
-                .keyboardShortcut("]", modifiers: [.command, .option])
+                .keyboardShortcut(MenuKey.bringToFront.key, modifiers: MenuKey.bringToFront.modifiers)
                 .disabled(deck?.order == nil)
             Button("Bring Forward") { deck?.order?("forward") }
-                .keyboardShortcut("]", modifiers: .command)
+                .keyboardShortcut(MenuKey.bringForward.key, modifiers: MenuKey.bringForward.modifiers)
                 .disabled(deck?.order == nil)
             Button("Send Backward") { deck?.order?("backward") }
-                .keyboardShortcut("[", modifiers: .command)
+                .keyboardShortcut(MenuKey.sendBackward.key, modifiers: MenuKey.sendBackward.modifiers)
                 .disabled(deck?.order == nil)
             Button("Send to Back") { deck?.order?("back") }
-                .keyboardShortcut("[", modifiers: [.command, .option])
+                .keyboardShortcut(MenuKey.sendToBack.key, modifiers: MenuKey.sendToBack.modifiers)
                 .disabled(deck?.order == nil)
             Divider()
             Button("Group") { deck?.group?() }
-                .keyboardShortcut("g", modifiers: .command)
+                .keyboardShortcut(MenuKey.group.key, modifiers: MenuKey.group.modifiers)
                 .disabled(deck?.group == nil)
             Button("Ungroup") { deck?.ungroup?() }
-                .keyboardShortcut("g", modifiers: [.command, .shift])
+                .keyboardShortcut(MenuKey.ungroup.key, modifiers: MenuKey.ungroup.modifiers)
                 .disabled(deck?.ungroup == nil)
             Button("Connect with Arrow") { deck?.connect?(true) }
                 .disabled(deck?.connect == nil)
@@ -178,7 +199,7 @@ struct NodeCommands: Commands {
                 .disabled(deck?.connect == nil)
             Divider()
             Button(deck?.locked == true ? "Unlock" : "Lock") { deck?.lock?() }
-                .keyboardShortcut("l", modifiers: [.command, .shift])
+                .keyboardShortcut(MenuKey.lock.key, modifiers: MenuKey.lock.modifiers)
                 .disabled(deck?.lock == nil)
             if deck?.placeAnew != nil {
                 Divider()
