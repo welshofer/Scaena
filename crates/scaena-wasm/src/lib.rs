@@ -1713,14 +1713,15 @@ impl Making {
         self.0.report().to_string()
     }
 
-    /// How many states the deck made has; none where it would not validate.
+    /// How many slides the deck made has; none where it would not validate.
     #[wasm_bindgen(getter)]
     pub fn count(&self) -> usize {
         self.0.count()
     }
 
-    /// The `index`th state at rest, drawn `width` pixels wide by the CPU painter, opaque: an
-    /// `ImageData`, which the page makes a JPEG of for the model to see (PLAN G.13).
+    /// The `index`th slide, whole at its last state and at rest, drawn `width` pixels wide by
+    /// the CPU painter, opaque: an `ImageData`, which the page makes a JPEG of for the model to
+    /// see (PLAN G.13).
     pub fn pixels(&self, index: usize, width: u32) -> Result<web_sys::ImageData, JsError> {
         let raster = self.0.pixels(index, width).map_err(js)?;
         let clamped = wasm_bindgen::Clamped(raster.rgba.as_slice());
