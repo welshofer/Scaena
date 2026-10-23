@@ -38,8 +38,9 @@ public struct Playhead: Equatable, Sendable {
 /// up to 120 Hz on ProMotion (PLAN 3.2, SPEC §9.3). It shows its playhead (PLAN 3.4): a time
 /// into the state's cue, held, or the cue played on from it by the view's own display link,
 /// then at rest. Once nothing moves, it idles until the state, the playhead, the deck, or the
-/// size changes. SwiftUI shows it through `ScaenaCanvas`. On the iPad it is a `UIView` on the
-/// same layer, painted the same way (PLAN 4.1, SPEC §9.4).
+/// size changes: its display link rests, so an open deck wakes the main thread for no frame it
+/// does not paint (lift-up PERF-2). SwiftUI shows it through `ScaenaCanvas`. On the iPad it is a
+/// `UIView` on the same layer, painted the same way (PLAN 4.1, SPEC §9.4).
 @MainActor
 public final class ScaenaView: PlatformView {
     /// The session whose frames it shows.
@@ -84,8 +85,11 @@ public final class ScaenaView: PlatformView {
     private var told: CFTimeInterval = 0
     /// How long the cue runs, ms: past it, the state is at rest.
     private var cue: Double = 0
-    /// Whether the frame shown is not the playhead's.
-    private var dirty = true
+    /// Whether the frame shown is not the playhead's: a frame is owed, and the display link, resting,
+    /// ticks again.
+    private var dirty = true {
+        didSet { if dirty { link?.isPaused = false } }
+    }
     /// The revision `onPainted` was told last.
     private var reported: Int?
 
@@ -163,6 +167,10 @@ public final class ScaenaView: PlatformView {
 
     private var metalLayer: CAMetalLayer? { layer as? CAMetalLayer }
 
+    /// Whether the display link ticks (lift-up PERF-2): while a frame is owed, the frame shown not
+    /// the playhead's or the cue playing on; resting between, and in no window.
+    public var ticking: Bool { link.map { !$0.isPaused } ?? false }
+
     /// Paint on `next`'s ticks, asking for 120 Hz, in place of the link it had; none while the
     /// view is in no window.
     private func attach(_ next: CADisplayLink?) {
@@ -205,8 +213,19 @@ public final class ScaenaView: PlatformView {
     }
 
     @objc private func step(_ link: CADisplayLink) {
+        tick(at: link.timestamp)
+    }
+
+    /// A tick of the display link at `now`, on its clock: the frame owed painted, where the frame
+    /// shown is not the playhead's or the cue plays on; else nothing, and the link rests until
+    /// something changes (lift-up PERF-2). What each tick does; called by hand, it paints the frame
+    /// now.
+    public func tick(at now: CFTimeInterval) {
         guard dirty || playhead.playing, let session, let state, let layer = metalLayer, bounds.width > 0
-        else { return }
+        else {
+            link?.isPaused = true
+            return
+        }
         do {
             if surface == nil {
                 let size = layer.drawableSize
@@ -218,9 +237,9 @@ public final class ScaenaView: PlatformView {
             var over = false
             if playhead.playing {
                 let from = playhead.ms.isFinite && playhead.ms < cue ? max(playhead.ms, 0) : 0
-                let start = began ?? link.timestamp - from / 1000
+                let start = began ?? now - from / 1000
                 began = start
-                let ms = (link.timestamp - start) * 1000
+                let ms = (now - start) * 1000
                 over = ms >= cue
                 at = over ? .infinity : ms
             }
@@ -233,10 +252,10 @@ public final class ScaenaView: PlatformView {
             if over {
                 playhead = .rest
                 began = nil
-                tell(link.timestamp)
+                tell(now)
             } else {
                 playhead.ms = at
-                if link.timestamp - told >= 1.0 / 30 { tell(link.timestamp) }
+                if now - told >= 1.0 / 30 { tell(now) }
             }
         } catch {
             failure = error as? ScaenaError ?? ScaenaError(message: "\(error)")
@@ -245,7 +264,7 @@ public final class ScaenaView: PlatformView {
             if playhead.playing {
                 playhead = .rest
                 began = nil
-                tell(link.timestamp)
+                tell(now)
             }
         }
     }
