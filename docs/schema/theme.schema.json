@@ -1,13 +1,13 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://scaena.dev/schema/theme-0.24.json",
+  "$id": "https://scaena.dev/schema/theme-0.25.json",
   "title": "Scaena theme (design system)",
   "description": "Tokens, typographic roles, layout templates, motion, and palettes. Documents reference these by name; they never store resolved values. See docs/SPEC.md §3.6.",
   "type": "object",
   "required": ["scaena-theme", "name", "tokens", "type", "grid", "layouts", "motion"],
   "additionalProperties": false,
   "properties": {
-    "scaena-theme": { "description": "Theme format version.", "type": "string", "pattern": "^0\\.24(\\.[0-9]+)?$" },
+    "scaena-theme": { "description": "Theme format version.", "type": "string", "pattern": "^0\\.25(\\.[0-9]+)?$" },
     "name": { "type": "string", "minLength": 1 },
     "description": { "type": "string" },
     "tokens": { "$ref": "#/$defs/Tokens" },
@@ -75,16 +75,16 @@
           "maximum": 360
         },
         "x": {
-          "description": "A radial or conic gradient's center across the rect, 0 to 1.",
+          "description": "A radial or conic gradient's center across the rect, 0 to 1 within it, and as far as its width again either side outside it (deck format 0.34).",
           "type": "number",
-          "minimum": 0,
-          "maximum": 1
+          "minimum": -1,
+          "maximum": 2
         },
         "y": {
-          "description": "A radial or conic gradient's center down the rect, 0 to 1.",
+          "description": "A radial or conic gradient's center down the rect, likewise.",
           "type": "number",
-          "minimum": 0,
-          "maximum": 1
+          "minimum": -1,
+          "maximum": 2
         },
         "radius": {
           "description": "A radial gradient's radius, in shorter sides of the rect.",
@@ -162,6 +162,33 @@
           "minimum": 0,
           "maximum": 1
         }
+      }
+    },
+    "CausticsParams": {
+      "description": "The `caustics` shader's params (SPEC §3.8, deck format 0.34).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "scale": {
+          "description": "A cell of the light's network, in shorter sides of the rect.",
+          "type": "number",
+          "minimum": 0.02,
+          "maximum": 2
+        },
+        "speed": {
+          "description": "How fast the light wobbles and flows.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 2
+        },
+        "intensity": {
+          "description": "How far along the palette a line's middle reaches.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 2
+        },
+        "sharpness": { "description": "How thin the lines are.", "type": "number", "minimum": 1, "maximum": 16 },
+        "grain": { "description": "In Oklab lightness.", "type": "number", "minimum": 0, "maximum": 0.25 }
       }
     },
     "Tokens": {
@@ -802,10 +829,14 @@
         {
           "if": { "required": ["kind"], "properties": { "kind": { "const": "particles" } } },
           "then": { "properties": { "params": { "$ref": "#/$defs/ParticlesParams" } } }
+        },
+        {
+          "if": { "required": ["kind"], "properties": { "kind": { "const": "caustics" } } },
+          "then": { "properties": { "params": { "$ref": "#/$defs/CausticsParams" } } }
         }
       ]
     },
-    "ShaderKind": { "type": "string", "enum": ["mesh", "gradient", "noise", "grain", "particles"] },
+    "ShaderKind": { "type": "string", "enum": ["mesh", "gradient", "noise", "grain", "particles", "caustics"] },
     "ShaderParam": {
       "description": "A shader parameter: a number, or a name its kind lists (a gradient's `shape`).",
       "anyOf": [{ "type": "number" }, { "type": "string" }]

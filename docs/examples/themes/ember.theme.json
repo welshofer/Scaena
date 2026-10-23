@@ -1,5 +1,5 @@
 {
-  "scaena-theme": "0.24",
+  "scaena-theme": "0.25",
   "name": "Ember",
   "description": "Near-black surface, warm white ink, one signal orange. Serif claims and figures over a neutral sans; data in quiet grays with the orange spent on the point.",
   "tokens": {
@@ -970,6 +970,41 @@
         "#1A1A1F",
         "#3A3A40",
         "#BEBDC3"
+      ],
+      "aurora": [
+        "#0E0E12",
+        "#C43817",
+        "#8A6248",
+        "#65281D"
+      ],
+      "lagoon": [
+        "#1D0805",
+        "#AF300F",
+        "#805443"
+      ],
+      "sweep": [
+        "#2D1918",
+        "#AF361B",
+        "#886249",
+        "#65281D",
+        "#2D1918",
+        "#AF361B",
+        "#886249",
+        "#65281D",
+        "#2D1918",
+        "#AF361B",
+        "#886249",
+        "#65281D"
+      ],
+      "haze": [
+        "#0E0E12",
+        "#892F1E",
+        "#6F513F"
+      ],
+      "dust": [
+        "#C6350C",
+        "#8D6142",
+        "#6B6A69"
       ]
     },
     "presets": {
@@ -991,6 +1026,58 @@
           "scale": 0.0015,
           "speed": 0.05,
           "contrast": 0.6
+        }
+      },
+      "aurora": {
+        "kind": "mesh",
+        "palette": "aurora",
+        "params": {
+          "points": 6,
+          "drift": 0.22,
+          "softness": 0.9,
+          "grain": 0.02
+        }
+      },
+      "lagoon": {
+        "kind": "caustics",
+        "palette": "lagoon",
+        "params": {
+          "scale": 0.22,
+          "speed": 0.12,
+          "intensity": 1,
+          "sharpness": 6
+        }
+      },
+      "sweep": {
+        "kind": "gradient",
+        "palette": "sweep",
+        "params": {
+          "shape": "conic",
+          "x": -0.2,
+          "y": -0.3,
+          "speed": 5,
+          "grain": 0.015
+        }
+      },
+      "haze": {
+        "kind": "noise",
+        "palette": "haze",
+        "params": {
+          "octaves": 3,
+          "scale": 0.0009,
+          "speed": 0.04,
+          "contrast": 0.9,
+          "grain": 0.01
+        }
+      },
+      "dust": {
+        "kind": "particles",
+        "palette": "dust",
+        "params": {
+          "count": 48,
+          "size": 0.006,
+          "speed": 0.012,
+          "softness": 0.8
         }
       }
     }

@@ -369,6 +369,19 @@
       #look .suggested .verdict, #look .suggested .alike { color: var(--muted); }
       #look .suggested .error { color: var(--error); }
       #look .suggested .warning { color: var(--warning); }
+      /* The slide's background (PLAN 2.148): None and each of the theme's presets, each a swatch of
+         the slide with it, moving; dimmed where the slide shows data. */
+      #look .backgrounds { padding: 0 0 8px; }
+      #look .backgrounds h3 { margin: 0 0 4px; font-size: 12px; font-weight: 600; color: var(--muted); }
+      #look .backgrounds .held { margin: 0 0 4px; font-size: 11px; color: var(--muted); }
+      /* Four to a row, each as wide as its column: eight presets in two even rows (PLAN 2.148). */
+      #look .swatches { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+      #look .swatches [role="option"] { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; padding: 3px; border: 1px solid var(--line); border-radius: 4px; font-size: 11px; cursor: pointer; }
+      #look .swatches [aria-selected="true"] { border-color: var(--info); box-shadow: inset 0 0 0 1px var(--info); }
+      #look .swatches [aria-disabled="true"] { opacity: 0.45; cursor: not-allowed; }
+      #look .swatches [role="option"]:focus-visible { outline: 2px solid var(--info); outline-offset: 1px; }
+      #look .swatches canvas { display: block; width: 100%; height: auto; background: #000; }
+      #look .swatches .kind { color: var(--muted); }
       .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }
       #tabs { display: flex; flex-wrap: wrap; flex: none; gap: 0 4px; padding: 0 12px; border-bottom: 1px solid var(--line); }
       /* The layers (PLAN 2.50): the state shown's nodes, topmost first, nested as they are held;
@@ -602,6 +615,7 @@
       #exporting-size[hidden] { display: none; }
       #exporting-width { width: 7em; }
       dialog input, dialog select { font: inherit; font-size: 14px; background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 4px; padding: 4px 6px; }
+      #making-preview { width: 100%; height: auto; aspect-ratio: 16 / 9; border: 1px solid var(--line); border-radius: 4px; }
       dialog menu { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; margin: 4px 0 0; padding: 0; }
       #skip { position: fixed; left: 8px; top: -100px; z-index: 30; padding: 6px 10px; background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 4px; }
       #skip:focus { top: 8px; }
@@ -876,6 +890,7 @@
         <h2 id="making-title">New deck</h2>
         <label>Title <input id="making-name" name="title" required autocomplete="off" value="Untitled" /></label>
         <label>Theme <select id="making-theme" name="theme"></select></label>
+        <img id="making-preview" width="240" height="135" alt="" />
         <p class="note">A title slide to type over, on a 16:9 canvas, with the theme and its fonts. It is kept nowhere until you save it.</p>
         <menu>
           <button value="cancel" formnovalidate>Cancel</button>

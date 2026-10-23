@@ -65,6 +65,7 @@ fn shader_params(generator: &mut schemars::SchemaGenerator) {
     generator.subschema_for::<nodes::NoiseParams>();
     generator.subschema_for::<nodes::GrainParams>();
     generator.subschema_for::<nodes::ParticlesParams>();
+    generator.subschema_for::<nodes::CausticsParams>();
 }
 
 /// `docs/schema/theme.schema.json`.
