@@ -30,7 +30,7 @@ use scaena_engine::sample::Transition;
 use scaena_engine::theme::Theme;
 use scaena_engine::{Engine, EngineError, FrameRequest, project};
 use scaena_paint::{Assets, PaintError};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
 #[cfg(feature = "editor")]
@@ -106,6 +106,16 @@ pub struct Session {
     /// The state last asked what stands where, laid out at rest, so a pointer's every move
     /// lays out nothing (ADR-0013).
     rest: Option<(String, scaena_engine::sample::Scene)>,
+    /// Each state's drawing at rest, by a hash of all it is drawn from ([`Session::digest`],
+    /// lift-up PERF-4): kept across edits, so an edit lays out again only the states it changed.
+    digests: HashMap<u64, String>,
+    /// What every state's key is hashed from, worked out once for what is laid out: what every
+    /// state is drawn from, the deck as laid out in the format shown where that is not the
+    /// deck itself, and each state resolved.
+    drawn: Option<Drawn>,
+    /// How many times the bundle's files have changed: part of each key, so a font or an image
+    /// handed over again with other bytes draws anew.
+    files_rev: u64,
     /// Where the node last asked about may go, by its state and its id: a drag asks again
     /// with every move, and lays nothing out (ADR-0013).
     targets: Vec<(String, String, scaena_engine::geometry::Targets)>,
@@ -200,6 +210,20 @@ pub struct Session {
     #[cfg(feature = "editor")]
     viewing: Option<Box<Session>>,
 }
+
+/// What every state's key is hashed from ([`Session::digest`]).
+struct Drawn {
+    /// What every state is drawn from, which no state's snapshot says ([`scaena_engine::render::drawn_from`]).
+    key: u64,
+    /// The deck as laid out in the format shown, where the format lays it out anew; else the
+    /// session's deck is it.
+    projected: Option<Deck>,
+    /// Each state resolved.
+    snapshots: Vec<scaena_core::Snapshot>,
+}
+
+/// The most states' drawings a session keeps ([`Session::digest`]): past it, it lets them all go.
+const DIGESTS_KEPT: usize = 4096;
 
 /// The deck's sizes as an editor offers them ([`Session::sizes`]): its own canvas named by its
 /// shape (`16:9`), where a format is it, and the formats it lays out anew (`9:16`).
@@ -335,6 +359,9 @@ impl Session {
             timeline: None,
             transition: None,
             rest: None,
+            digests: HashMap::new(),
+            drawn: None,
+            files_rev: 0,
             targets: Vec::new(),
             moving: None,
             view: None,
@@ -567,6 +594,7 @@ impl Session {
         self.timeline = None;
         self.transition = None;
         self.rest = None;
+        self.drawn = None;
         self.targets.clear();
         self.moving = None;
         #[cfg(feature = "editor")]
@@ -590,6 +618,7 @@ impl Session {
         {
             self.validated = None;
         }
+        self.files_rev += 1;
         Arc::make_mut(&mut self.files)
     }
 
@@ -742,6 +771,82 @@ impl Session {
             self.rest = Some((state.to_string(), engine.at_rest(&req)?));
         }
         Ok(&self.rest.as_ref().expect("laid out above").1)
+    }
+
+    /// What identifies `state`'s drawing at rest, in the format shown: its display list's digest
+    /// (FNV-1a over its postcard bytes, as the goldens keep it), the one [`Session::frame`] at
+    /// rest gives: the state a drag moves a node of draws it moved, as its frames do. One digest,
+    /// one drawing, so a thumbnail painted from it stands until it changes (PLAN 2.35). What the
+    /// canvas laid out stands: the state is laid out apart from it, unless it is that state, and
+    /// its digest kept by a hash of all it is drawn from, across edits, so an edit lays out again
+    /// only the states it changed (lift-up PERF-4).
+    pub fn digest(&mut self, state: &str) -> Result<String, Error> {
+        let slot = self.kept_timeline()?.slot(state).ok_or_else(|| EngineError::UnknownState(state.to_string()))?;
+        // Its shaders at the time it comes to rest, as a frame at rest draws them.
+        let time = (slot.start + slot.span) / 1000.0;
+        // A drag draws the state it moves a node of from its layout at rest, laying nothing out
+        // (ADR-0013): the drawing moves with the pointer, so nothing of it is kept.
+        if let Some((nodes, by)) = &self.moving
+            && let Some((shown, scene)) = &self.rest
+            && shown == state
+        {
+            let nodes: Vec<&str> = nodes.iter().map(String::as_str).collect();
+            return scene.moved(time, &nodes, *by).digest().map_err(|e| Error::Ops(e.to_string()));
+        }
+        let key = self.rest_key(state, time)?;
+        if let Some(digest) = self.digests.get(&key) {
+            return Ok(digest.clone());
+        }
+        let dl = match &self.rest {
+            Some((shown, scene)) if shown == state => scene.draw_at(time),
+            _ => {
+                // The engine is built by now: the timeline took it.
+                let engine = self.engine.as_mut().expect("built for the timeline");
+                let format = self.format.as_deref();
+                let req = FrameRequest {
+                    deck: &self.deck,
+                    theme: &self.theme,
+                    data: &self.data,
+                    state,
+                    t_ms: f64::INFINITY,
+                    format,
+                };
+                engine.at_rest(&req)?.draw_at(time)
+            }
+        };
+        let digest = dl.digest().map_err(|e| Error::Ops(e.to_string()))?;
+        if self.digests.len() >= DIGESTS_KEPT {
+            self.digests.clear();
+        }
+        self.digests.insert(key, digest.clone());
+        Ok(digest)
+    }
+
+    /// A hash of everything `state` at rest is drawn from, at `time` seconds on the global
+    /// timeline ([`scaena_engine::render::rest_key`]): the format shown, how often the bundle's
+    /// files have changed, and what every state is drawn from and each state resolved, worked
+    /// out once for what is laid out.
+    fn rest_key(&mut self, state: &str, time: f64) -> Result<u64, Error> {
+        if self.drawn.is_none() {
+            let (deck, theme) = project(&self.deck, &self.theme, self.format.as_deref())?;
+            let key = scaena_engine::render::drawn_from(&deck, &theme, &self.data);
+            let snapshots = scaena_core::resolve_states(&deck).map_err(EngineError::from)?;
+            let projected = match deck {
+                std::borrow::Cow::Owned(deck) => Some(deck),
+                std::borrow::Cow::Borrowed(_) => None,
+            };
+            self.drawn = Some(Drawn { key, projected, snapshots });
+        }
+        let drawn = self.drawn.as_ref().expect("worked out above");
+        let deck = drawn.projected.as_ref().unwrap_or(&self.deck);
+        let i = (drawn.snapshots.iter().position(|s| s.state_id == state))
+            .ok_or_else(|| EngineError::UnknownState(state.to_string()))?;
+        let mut h = std::hash::DefaultHasher::new();
+        use std::hash::{Hash, Hasher};
+        self.format.hash(&mut h);
+        self.files_rev.hash(&mut h);
+        scaena_engine::render::rest_key(drawn.key, deck, &drawn.snapshots, i, time).hash(&mut h);
+        Ok(h.finish())
     }
 
     /// Each visible node's box in `state` at rest, in the format shown (ADR-0013): those that
@@ -2628,6 +2733,140 @@ mod tests {
         s.add_file(font, bytes[..bytes.len() / 2].to_vec());
         s.add_file(font, bytes);
         assert_eq!(s.timeline().unwrap(), fresh.timeline().unwrap());
+    }
+
+    /// A thumbnail's digest (lift-up PERF-4) is the frame's at rest, what the canvas laid out
+    /// stands while every state's is asked, and after an edit to one slide each state's is a
+    /// fresh session's, only the states the edit changed laid out again.
+    #[test]
+    fn digests_leave_the_shown_layout_standing_and_follow_an_edit() {
+        let mut s = torture();
+        let states = s.states();
+        let shown = states[3].clone();
+        s.boxes(&shown).unwrap();
+        let digests: Vec<String> = states.iter().map(|st| s.digest(st).unwrap()).collect();
+        assert_eq!(s.rest.as_ref().map(|(st, _)| st.as_str()), Some(shown.as_str()), "the shown layout stands");
+        assert_eq!(s.digests.len(), states.len());
+        for (st, digest) in states.iter().zip(&digests) {
+            assert_eq!(*digest, s.frame(st, f64::INFINITY).unwrap().digest().unwrap(), "{st}");
+        }
+        // Asked again, nothing is laid out: the memo answers.
+        let again: Vec<String> = states.iter().map(|st| s.digest(st).unwrap()).collect();
+        assert_eq!(again, digests);
+        assert_eq!(s.digests.len(), states.len());
+        // A drag draws the shown state's node moved, in its digest as in its frame, and keeps
+        // nothing of it; the other states' stand.
+        s.set_moving(Some((vec!["case".to_string()], [40.0, 30.0])));
+        let moved = s.digest(&shown).unwrap();
+        assert_ne!(moved, digests[3]);
+        assert_eq!(moved, s.frame(&shown, f64::INFINITY).unwrap().digest().unwrap());
+        assert_eq!(s.digest(&states[4]).unwrap(), digests[4]);
+        s.set_moving(None);
+        assert_eq!(s.digest(&shown).unwrap(), digests[3]);
+        assert_eq!(s.digests.len(), states.len());
+        // One state's text edited: its digest changes, the rest stand, and each is what a session
+        // opened on the edited deck draws; only the states that changed were laid out again.
+        let mut deck = s.deck.clone();
+        let edited = states[10].clone();
+        deck.states[10].props.get_mut("case").unwrap().insert("text".into(), serde_json::json!("10 · Edited"));
+        s.set_deck(deck.clone());
+        let after: Vec<String> = states.iter().map(|st| s.digest(st).unwrap()).collect();
+        let mut fresh = torture();
+        fresh.set_deck(deck);
+        for (st, digest) in states.iter().zip(&after) {
+            assert_eq!(*digest, fresh.digest(st).unwrap(), "{st}");
+        }
+        let changed: Vec<&str> = states
+            .iter()
+            .zip(&digests)
+            .zip(&after)
+            .filter(|((_, a), b)| a != b)
+            .map(|((st, _), _)| st.as_str())
+            .collect();
+        assert_eq!(changed, [edited.as_str()]);
+        assert_eq!(s.digests.len(), states.len() + 1, "only the state edited was laid out again");
+        // A slide's number moves: the states after one taken out draw their numbers anew, and
+        // their digests follow (ADR-0028), as do a format's and a font's.
+        let mut deck = s.deck.clone();
+        deck.states.remove(0);
+        s.set_deck(deck.clone());
+        fresh.set_deck(deck);
+        for st in &states[1..] {
+            assert_eq!(s.digest(st).unwrap(), fresh.digest(st).unwrap(), "{st}");
+        }
+        s.set_format(Some("9:16")).unwrap();
+        fresh.set_format(Some("9:16")).unwrap();
+        for st in &states[1..4] {
+            assert_eq!(s.digest(st).unwrap(), fresh.digest(st).unwrap(), "{st} in 9:16");
+            assert_eq!(s.digest(st).unwrap(), s.frame(st, f64::INFINITY).unwrap().digest().unwrap(), "{st} in 9:16");
+        }
+        let font = "fonts/JetBrainsMono-VF.ttf";
+        let bytes = std::fs::read(format!("{BUNDLE}/{font}")).unwrap();
+        let (before, kept) = (s.digest(&states[1]).unwrap(), s.digests.len());
+        s.add_file(font, bytes[..bytes.len() / 2].to_vec());
+        let cut = s.digest(&states[1]).unwrap();
+        assert_eq!(cut, s.frame(&states[1], f64::INFINITY).unwrap().digest().unwrap());
+        assert_eq!(s.digests.len(), kept + 1, "a font handed over again lays the state out anew");
+        s.add_file(font, bytes);
+        assert_eq!(s.digest(&states[1]).unwrap(), before);
+    }
+
+    /// B1's thumbnails timed (lift-up PERF-4): every state's digest after opening, after an edit
+    /// to one state, and asked again with nothing changed, by the memo and by a frame at rest.
+    /// `cargo test -p scaena-session --release -- --ignored b1_digests --nocapture`.
+    #[test]
+    #[ignore]
+    fn b1_digests_timed() {
+        let dir = "../../tests/bench/b1.scaena";
+        let read = |p: &str| std::fs::read(format!("{dir}/{p}")).unwrap();
+        let mut s = Session::new(
+            &String::from_utf8(read("deck.json")).unwrap(),
+            &String::from_utf8(read("theme.json")).unwrap(),
+        )
+        .unwrap();
+        for font in std::fs::read_dir(format!("{dir}/fonts")).unwrap() {
+            let name = font.unwrap().file_name().into_string().unwrap();
+            s.add_file(&format!("fonts/{name}"), read(&format!("fonts/{name}")));
+        }
+        let states = s.states();
+        let shown = states[5].clone();
+        let timed = |s: &mut Session, what: &str, by: &dyn Fn(&mut Session, &str) -> String| {
+            s.boxes(&shown).unwrap();
+            let started = std::time::Instant::now();
+            for st in &states {
+                by(s, st);
+            }
+            let took = started.elapsed();
+            let stood = s.rest.as_ref().is_some_and(|(st, _)| *st == shown);
+            println!(
+                "{what}: {:.1} ms for {} states; the shown layout {}",
+                took.as_secs_f64() * 1000.0,
+                states.len(),
+                if stood { "stands" } else { "was let go" }
+            );
+        };
+        let memo = |s: &mut Session, st: &str| s.digest(st).unwrap();
+        let frame = |s: &mut Session, st: &str| s.frame(st, f64::INFINITY).unwrap().digest().unwrap();
+        let edit = |s: &mut Session, n: usize| {
+            let mut deck = s.deck.clone();
+            deck.states[20]
+                .props
+                .get_mut("body")
+                .unwrap()
+                .insert("text".into(), serde_json::json!(format!("Edited {n}")));
+            s.set_deck(deck);
+        };
+        timed(&mut s, "frame: after opening", &frame);
+        edit(&mut s, 1);
+        timed(&mut s, "frame: after an edit to one state", &frame);
+        timed(&mut s, "frame: nothing changed", &frame);
+        let mut s = s;
+        s.digests.clear();
+        edit(&mut s, 2);
+        timed(&mut s, "memo: after opening", &memo);
+        edit(&mut s, 3);
+        timed(&mut s, "memo: after an edit to one state", &memo);
+        timed(&mut s, "memo: nothing changed", &memo);
     }
 
     /// Set `s` up for the golden frame `name`, and say which state it is and when: `state`

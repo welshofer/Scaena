@@ -133,7 +133,7 @@ impl Player {
     /// digest (FNV-1a over its postcard bytes, as the goldens keep it). One digest, one
     /// drawing, so a thumbnail painted from it stands until it changes (PLAN 2.35).
     pub fn digest(&mut self, state: &str) -> Result<String, JsError> {
-        self.0.frame(state, f64::INFINITY).map_err(js)?.digest().map_err(js)
+        self.0.digest(state).map_err(js)
     }
 
     /// The link drawn at `x`, `y` (canvas units) in `state` at rest, in the format shown, as JSON
