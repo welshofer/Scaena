@@ -309,6 +309,7 @@ pub enum ShaderKind {
     Noise,
     Grain,
     Particles,
+    Caustics,
 }
 
 // --- colors -------------------------------------------------------------------

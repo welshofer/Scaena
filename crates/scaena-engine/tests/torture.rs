@@ -498,7 +498,7 @@ fn glyph_runs_say_what_they_set() {
 
 #[test]
 fn every_shader_kind_draws_as_its_shader_op() {
-    for kind in ["gradient", "noise", "grain", "particles"] {
+    for kind in ["gradient", "noise", "grain", "particles", "caustics"] {
         let mut fx = fixture();
         let node = &mut fx.deck.nodes["mesh-bg"].props;
         node.insert("kind".into(), kind.into());
