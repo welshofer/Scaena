@@ -312,7 +312,7 @@ try {
     // The Story tab's Ask puts its question to the assistant, which now has the tool to answer it
     // (narrative FUNC-2): the question in the box, the tab shown.
     if (id === "anthropic") {
-      await page.click("#tab-story");
+      await tab(page, "story");
       await page.waitForFunction(() => document.querySelector("#story [data-ask]"), null, { timeout: 60000 });
       const asked = await page.evaluate(() => {
         document.querySelector("#story [data-ask]").click();
