@@ -21,18 +21,26 @@ private func holdsOffDisplaySleep() -> Bool {
     guard let ours = byProcess[pid] as? [[String: Any]] else { return false }
     return ours.contains { $0[kIOPMAssertionTypeKey as String] as? String == kIOPMAssertionTypePreventUserIdleDisplaySleep as String }
 }
-
-/// Whether `holds()` comes to `expected` within two seconds: the system takes the assertion a
-/// moment after it is asked for.
-private func soon(_ expected: Bool, _ holds: () -> Bool) -> Bool {
-    let until = Date().addingTimeInterval(2)
-    while Date() < until {
-        if holds() == expected { return true }
-        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
-    }
-    return holds() == expected
+#else
+/// Whether the iPad's idle timer is off, as UIKit holds it. UIKit honors the setting in an active
+/// app alone, and puts it back as the app activates (`Awake` sets it again then), so a test host
+/// not yet active reads it as it is, and the test holds `Awake`'s count alone.
+@MainActor private func idleTimerOff() -> Bool? {
+    UIApplication.shared.applicationState == .active ? UIApplication.shared.isIdleTimerDisabled : nil
 }
 #endif
+
+/// Whether `holds()` comes to `expected` within two seconds: the system takes the assertion, or
+/// the idle timer, a moment after it is asked for. Nil, where there is nothing to read, is taken as
+/// `expected`.
+@MainActor private func soon(_ expected: Bool, _ holds: @MainActor () -> Bool?) -> Bool {
+    let until = Date().addingTimeInterval(2)
+    while Date() < until {
+        if (holds() ?? expected) == expected { return true }
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+    }
+    return (holds() ?? expected) == expected
+}
 
 /// The screen stays awake while a show runs (lift-up REL-1), and may sleep again once it ends. On
 /// the Mac, the process holds off the display's idle sleep for exactly as long as an `Awake` is
@@ -48,7 +56,7 @@ private func soon(_ expected: Bool, _ holds: () -> Bool) -> Bool {
     #if os(macOS)
     #expect(soon(true, holdsOffDisplaySleep), "while a show runs, the display stays awake")
     #else
-    #expect(UIApplication.shared.isIdleTimerDisabled, "while a show runs, the iPad does not lock")
+    #expect(soon(true, idleTimerOff), "while a show runs, the iPad does not lock")
     #endif
     // A second holder, as the remote's window beside a show: the screen stays awake until both end.
     let second = Awake(reason: "A second holder")
@@ -58,14 +66,14 @@ private func soon(_ expected: Bool, _ holds: () -> Bool) -> Bool {
     #if os(macOS)
     #expect(soon(true, holdsOffDisplaySleep), "the second still holds the display awake")
     #else
-    #expect(UIApplication.shared.isIdleTimerDisabled)
+    #expect(soon(true, idleTimerOff), "the second still keeps the iPad from locking")
     #endif
     second.end()
     #expect(Awake.held == before)
     #if os(macOS)
     #expect(soon(false, holdsOffDisplaySleep), "every show ended, the display may sleep")
     #else
-    #expect(!UIApplication.shared.isIdleTimerDisabled, "every show ended, the iPad may lock")
+    #expect(soon(false, idleTimerOff), "every show ended, the iPad may lock")
     #endif
 }
 

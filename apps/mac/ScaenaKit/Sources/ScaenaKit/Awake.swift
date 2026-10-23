@@ -19,6 +19,10 @@ public final class Awake {
 
     #if os(macOS)
     private var activity: (any NSObjectProtocol)?
+    #else
+    /// The app watched for becoming active: UIKit puts the idle timer back as an app activates, so
+    /// one held through a launch or a return from the background is set again.
+    private static var activating: (any NSObjectProtocol)?
     #endif
     private var ended = false
 
@@ -26,10 +30,9 @@ public final class Awake {
     public init(reason: String) {
         #if os(macOS)
         activity = ProcessInfo.processInfo.beginActivity(options: [.idleDisplaySleepDisabled, .userInitiated], reason: reason)
-        #else
-        UIApplication.shared.isIdleTimerDisabled = true
         #endif
         Awake.held += 1
+        Awake.apply()
     }
 
     /// Let the screen sleep again, once.
@@ -40,8 +43,22 @@ public final class Awake {
         #if os(macOS)
         if let activity { ProcessInfo.processInfo.endActivity(activity) }
         activity = nil
-        #else
-        if Awake.held == 0 { UIApplication.shared.isIdleTimerDisabled = false }
+        #endif
+        Awake.apply()
+    }
+
+    /// The iPad's idle timer off while any is held, and on again once none is; nothing more on the
+    /// Mac, whose activities each hold their own.
+    private static func apply() {
+        #if !os(macOS)
+        UIApplication.shared.isIdleTimerDisabled = held > 0
+        if activating == nil {
+            activating = NotificationCenter.default.addObserver(
+                forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main
+            ) { _ in
+                Task { @MainActor in Awake.apply() }
+            }
+        }
         #endif
     }
 }
