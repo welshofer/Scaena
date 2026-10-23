@@ -164,7 +164,13 @@ try {
   const shift = [center(kicker)[0] - center(targets.cell)[0], center(kicker)[1] - center(targets.cell)[1]];
   const to = [center(note)[0] + shift[0], center(note)[1] + shift[1]];
   const midway = await drag(page, center(note), to, [], { hold: true, says: "in the Kicker slot" });
-  const moving = await shot(page);
+  // The worker paints the node moved after it answers where the pointer is: the shot waits for
+  // that paint, a moment on a loaded runner, rather than reading the stage before it lands.
+  let moving = await shot(page);
+  for (let waited = 0; waited < 50 && moving.equals(before); waited++) {
+    await page.waitForTimeout(100);
+    moving = await shot(page);
+  }
   await page.mouse.up();
   check(midway.includes("in the Kicker slot") && midway.includes("on 2 steps of Slide 2"), `before the drop, the status says where and on which slides: ${midway}`);
   check(!moving.equals(before), "while it moves, the note's layer is drawn where it is dragged");
