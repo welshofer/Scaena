@@ -240,9 +240,9 @@ private func slots() throws -> [ScaenaSession.Slot] {
 @Test func aPresenterReadsAStatesOwnNotesElseItsBeats() throws {
     let session = try ScaenaSession(files: example("revenue"))
     // `revenue` has none of its own; the beat `doubled` names it.
-    #expect(try session.notes(state: "revenue").hasPrefix("Pause on the Q3 bar before the build."))
+    #expect(try session.notes(state: "revenue").text.hasPrefix("Pause on the Q3 bar before the build."))
     // `intro`'s own win over its beat's.
-    #expect(try session.notes(state: "intro") == "Open on the title. Don't talk over the build.")
+    #expect(try session.notes(state: "intro").text == "Open on the title. Don't talk over the build.")
     #expect(throws: ScaenaError.self) { try session.notes(state: "no-such-state") }
 }
 
