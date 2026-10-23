@@ -36,7 +36,11 @@
         "default": null
       },
       "painter": { "$ref": "#/$defs/Painter", "default": "cpu" },
-      "out": { "description": "Also write the PNG here.", "type": ["string", "null"], "default": null }
+      "out": {
+        "description": "Also write the PNG here: under the server's working directory or the bundle's folder.",
+        "type": ["string", "null"],
+        "default": null
+      }
     },
     "additionalProperties": false,
     "required": ["bundle", "state"]

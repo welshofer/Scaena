@@ -141,7 +141,7 @@ impl Player {
     /// digest (FNV-1a over its postcard bytes, as the goldens keep it). One digest, one
     /// drawing, so a thumbnail painted from it stands until it changes (PLAN 2.35).
     pub fn digest(&mut self, state: &str) -> Result<String, JsError> {
-        self.0.frame(state, f64::INFINITY).map_err(js)?.digest().map_err(js)
+        self.0.digest(state).map_err(js)
     }
 
     /// The link drawn at `x`, `y` (canvas units) in `state` at rest, in the format shown, as JSON
@@ -1721,14 +1721,15 @@ impl Making {
         self.0.report().to_string()
     }
 
-    /// How many states the deck made has; none where it would not validate.
+    /// How many slides the deck made has; none where it would not validate.
     #[wasm_bindgen(getter)]
     pub fn count(&self) -> usize {
         self.0.count()
     }
 
-    /// The `index`th state at rest, drawn `width` pixels wide by the CPU painter, opaque: an
-    /// `ImageData`, which the page makes a JPEG of for the model to see (PLAN G.13).
+    /// The `index`th slide, whole at its last state and at rest, drawn `width` pixels wide by
+    /// the CPU painter, opaque: an `ImageData`, which the page makes a JPEG of for the model to
+    /// see (PLAN G.13).
     pub fn pixels(&self, index: usize, width: u32) -> Result<web_sys::ImageData, JsError> {
         let raster = self.0.pixels(index, width).map_err(js)?;
         let clamped = wasm_bindgen::Clamped(raster.rgba.as_slice());

@@ -122,3 +122,40 @@ fn a_deck_reads_its_slides_notes_charts_and_sections() {
     // No slide of it is a slide of the deck: only these words reach the model.
     assert!(read("pitch.pptx", b"not a zip").is_err());
 }
+
+#[test]
+fn a_cell_or_a_point_indexed_past_what_a_file_can_hold_allocates_nothing() {
+    // One attribute in a file dropped in: a cell past XFD is a workbook no application wrote.
+    let workbook =
+        r#"<workbook xmlns="m" xmlns:r="r"><sheets><sheet name="S" sheetId="1" r:id="rId1"/></sheets></workbook>"#;
+    let rels = r#"<Relationships xmlns="p"><Relationship Id="rId1" Type="http://schemas/worksheet" Target="worksheets/sheet1.xml"/></Relationships>"#;
+    let sheet = r#"<worksheet xmlns="m"><sheetData><row r="1"><c r="A1"><v>1</v></c><c r="ZZZZZZ1"><v>2</v></c></row></sheetData></worksheet>"#;
+    let xlsx = package(&[
+        ("xl/workbook.xml", workbook),
+        ("xl/_rels/workbook.xml.rels", rels),
+        ("xl/worksheets/sheet1.xml", sheet),
+    ]);
+    let err = read("crafted.xlsx", &xlsx).unwrap_err().to_string();
+    assert!(err.contains("ZZZZZZ1") && err.contains("XFD"), "{err}");
+
+    // A chart's point indexed past any series a deck plots is left out; the rest read.
+    let presentation = r#"<p:presentation xmlns:p="p" xmlns:r="r"><p:sldIdLst><p:sldId id="256" r:id="rId2"/></p:sldIdLst></p:presentation>"#;
+    let rels = r#"<Relationships xmlns="p"><Relationship Id="rId2" Type="http://schemas/slide" Target="slides/slide1.xml"/></Relationships>"#;
+    let slide = r#"<p:sld xmlns:p="p" xmlns:a="a" xmlns:r="r" xmlns:c="c"><p:cSld><p:spTree>
+  <p:graphicFrame><a:graphic><a:graphicData><c:chart r:id="rId9"/></a:graphicData></a:graphic></p:graphicFrame>
+</p:spTree></p:cSld></p:sld>"#;
+    let slide_rels = r#"<Relationships xmlns="p"><Relationship Id="rId9" Type="http://schemas/chart" Target="../charts/chart1.xml"/></Relationships>"#;
+    let chart = r#"<c:chartSpace xmlns:c="c"><c:chart><c:plotArea><c:barChart><c:ser>
+    <c:cat><c:strRef><c:strCache><c:pt idx="0"><c:v>2025</c:v></c:pt><c:pt idx="9999999999"><c:v>2026</c:v></c:pt></c:strCache></c:strRef></c:cat>
+    <c:val><c:numRef><c:numCache><c:pt idx="0"><c:v>4</c:v></c:pt><c:pt idx="9999999999"><c:v>5</c:v></c:pt></c:numCache></c:numRef></c:val>
+  </c:ser></c:barChart></c:plotArea></c:chart></c:chartSpace>"#;
+    let pptx = package(&[
+        ("ppt/presentation.xml", presentation),
+        ("ppt/_rels/presentation.xml.rels", rels),
+        ("ppt/slides/slide1.xml", slide),
+        ("ppt/slides/_rels/slide1.xml.rels", slide_rels),
+        ("ppt/charts/chart1.xml", chart),
+    ]);
+    let s = read("crafted.pptx", &pptx).unwrap();
+    assert!(s.text.contains("2025=4") && !s.text.contains("2026"), "{}", s.text);
+}

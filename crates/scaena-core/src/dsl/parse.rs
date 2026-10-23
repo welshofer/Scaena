@@ -43,7 +43,13 @@ struct Parser<'a> {
     /// Where each part of the deck came from: a JSON pointer to a byte offset and length, in
     /// the order the source marks them.
     spans: IndexMap<String, (usize, usize)>,
+    /// How many values the one being read is inside.
+    depth: usize,
 }
+
+/// How deep a value's lists and objects nest, as deep as `deck.json` may (serde_json reads no
+/// deeper). Past it a value is refused, never a stack overflow (lift-up STAB-1).
+const MAX_DEPTH: usize = 128;
 
 /// One line's tokens, read in order.
 struct Toks<'a> {
@@ -273,8 +279,18 @@ impl<'a> Parser<'a> {
 
     // --- values ------------------------------------------------------------------
 
-    /// A value, recorded at `ptr`.
+    /// A value, recorded at `ptr`, no deeper than [`MAX_DEPTH`].
     fn value(&mut self, t: &mut Toks, ptr: &str) -> Result<Value, DslError> {
+        if self.depth == MAX_DEPTH && matches!(t.peek(), Some(Tok::LBracket | Tok::LBrace)) {
+            return Err(t.err(&format!("nests more than {MAX_DEPTH} deep")));
+        }
+        self.depth += 1;
+        let v = self.value_at(t, ptr);
+        self.depth -= 1;
+        v
+    }
+
+    fn value_at(&mut self, t: &mut Toks, ptr: &str) -> Result<Value, DslError> {
         let Some(token) = t.next() else { return Err(t.err("expected a value")) };
         let v = match &token.tok {
             Tok::Str(s) | Tok::Percent(s) | Tok::Ref(s) | Tok::Ratio(s) => Value::String(s.clone()),

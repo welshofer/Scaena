@@ -63,6 +63,8 @@ pub struct Scaena {
     wait: Duration,
     /// What makes `map_fetch`'s requests.
     reach: Reach,
+    /// Where `out` may be written besides beside a bundle; the working directory without it.
+    dir: Option<PathBuf>,
 }
 
 impl Default for Scaena {
@@ -72,7 +74,7 @@ impl Default for Scaena {
             route.attr.input_schema = standard(&route.attr.input_schema);
             route.attr.output_schema = route.attr.output_schema.as_deref().map(standard);
         }
-        Scaena { tool_router, exports: Arc::default(), wait: EXPORT_WAIT, reach: Reach::default() }
+        Scaena { tool_router, exports: Arc::default(), wait: EXPORT_WAIT, reach: Reach::default(), dir: None }
     }
 }
 
@@ -87,6 +89,57 @@ impl Scaena {
     pub fn with_transport(mut self, transport: Arc<dyn scaena_objects::Transport + Send + Sync>) -> Self {
         self.reach = Reach(Some(transport));
         self
+    }
+
+    /// The same server, writing `out` under `dir` in place of its working directory.
+    pub fn with_dir(mut self, dir: PathBuf) -> Self {
+        self.dir = Some(dir);
+        self
+    }
+
+    /// Where a tool writes `out`: under this server's working directory or the folder that holds
+    /// `bundle`, read through every link, and refused anywhere else. A path an agent was told by
+    /// what it read (a deck, a data file, a page) reaches nothing else the user can write.
+    fn writable(&self, out: &str, bundle: &str) -> Result<PathBuf, OpsError> {
+        self.within(out, bundle, "writes")
+    }
+
+    /// The file a tool copies into a bundle, held as [`Self::writable`] holds what it writes: so a
+    /// path an agent was told reads nothing else the user can, into a bundle that is shared.
+    fn readable(&self, file: &Path, bundle: &str) -> Result<PathBuf, OpsError> {
+        self.within(&file.to_string_lossy(), bundle, "reads")
+    }
+
+    /// `out` read through every link, where it is under this server's working directory or the
+    /// folder that holds `bundle`; else why not, saying where this server `does` its work.
+    fn within(&self, out: &str, bundle: &str, does: &str) -> Result<PathBuf, OpsError> {
+        let here = match &self.dir {
+            Some(dir) => dir.clone(),
+            None => std::env::current_dir().map_err(|e| OpsError::new(format!("this server has no folder: {e}")))?,
+        };
+        let beside = std::fs::canonicalize(bundle).ok().and_then(|b| b.parent().map(Path::to_path_buf));
+        let roots: Vec<PathBuf> =
+            [Some(here.clone()), beside].into_iter().flatten().filter_map(|r| std::fs::canonicalize(r).ok()).collect();
+        let refused = || {
+            let places: Vec<String> = roots.iter().map(|r| r.display().to_string()).collect();
+            OpsError::new(format!("{out} is outside where this server {does}: under {}", places.join(" or ")))
+        };
+        let asked = Path::new(out);
+        if out.is_empty() || asked.components().any(|c| matches!(c, std::path::Component::ParentDir)) {
+            return Err(refused());
+        }
+        let asked = here.join(asked);
+        // The nearest part of it that is there, read through its links; the rest is made new.
+        let mut there = asked.as_path();
+        let mut made = Vec::new();
+        while std::fs::symlink_metadata(there).is_err() {
+            let (Some(name), Some(parent)) = (there.file_name(), there.parent()) else { return Err(refused()) };
+            made.push(name);
+            there = parent;
+        }
+        let mut real = std::fs::canonicalize(there).map_err(|_| refused())?;
+        real.extend(made.iter().rev());
+        if roots.iter().any(|r| real.starts_with(r)) { Ok(real) } else { Err(refused()) }
     }
 }
 
@@ -440,7 +493,7 @@ pub struct DeckRender {
     pub size: Option<String>,
     #[serde(default)]
     pub painter: scaena_ops::render::Painter,
-    /// Also write the PNG here.
+    /// Also write the PNG here: under the server's working directory or the bundle's folder.
     #[serde(default)]
     pub out: Option<String>,
 }
@@ -459,7 +512,8 @@ pub struct DeckExport {
     #[serde(default)]
     pub states: Option<Vec<String>>,
     /// Where to write it: a file (pdf, video, html, spine), or a directory that gets an
-    /// image per state (png, svg). Only the spine needs none.
+    /// image per state (png, svg), under the server's working directory or the bundle's
+    /// folder. Only the spine needs none.
     #[serde(default)]
     pub out: Option<String>,
     /// `WxH` pixels for png, svg, and video, in the canvas's aspect ratio; the canvas's
@@ -736,11 +790,12 @@ impl Scaena {
             size: a.size,
             painter: a.painter,
         };
-        let out = a.out.clone();
+        let out = a.out.as_deref().map(|out| self.writable(out, &a.bundle)).transpose().map_err(failure)?;
         let frame = blocking(move || {
             let frame = scaena_ops::render::render(Path::new(&a.bundle), &req)?;
             if let Some(out) = &out {
-                std::fs::write(out, &frame.png).map_err(|e| OpsError::new(format!("writing {out}: {e}")))?;
+                std::fs::write(out, &frame.png)
+                    .map_err(|e| OpsError::new(format!("writing {}: {e}", out.display())))?;
             }
             Ok(frame)
         })
@@ -769,7 +824,7 @@ impl Scaena {
         let req = scaena_ops::export::Request {
             format: a.format.clone(),
             states: a.states.clone(),
-            out: a.out.clone().map(Into::into),
+            out: a.out.as_deref().map(|out| self.writable(out, &a.bundle)).transpose().map_err(failure)?,
             size: a.size.clone(),
             fps: a.fps,
             audio: a.audio.clone().map(Into::into),
@@ -891,7 +946,9 @@ impl Scaena {
         context: RequestContext<RoleServer>,
     ) -> Result<Json<scaena_ops::create::Attached>, String> {
         let author = author(&context);
-        blocking(move || scaena_ops::create::attach(&open_by(&a.bundle, author)?, &a.data)).await.map(Json)
+        let mut data = a.data;
+        data.file = self.readable(&data.file, &a.bundle).map_err(failure)?;
+        blocking(move || scaena_ops::create::attach(&open_by(&a.bundle, author)?, &data)).await.map(Json)
     }
 
     #[tool(description = "Put a map on a slide (ADR-0030): a picture of `place` (an address, a place, or `lat, lon`) \
