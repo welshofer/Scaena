@@ -1,5 +1,6 @@
 import Foundation
 import ScaenaKit
+import Security
 import Testing
 
 /// An answer of Anthropic's that says `text` and calls `calls`, each `(id, name, input as JSON)`.
@@ -258,6 +259,33 @@ private func keychainWritable() -> Bool {
     try keychain.set(nil, for: .openai)
     #expect(keychain.key(for: .openai) == nil)
     #expect(keychain.providers.isEmpty)
+}
+
+/// A key is kept to this device, readable only while it is unlocked, in the data-protection
+/// keychain wherever this process may use it: the iPad's always, a Mac's where the app is signed
+/// for it. A test run with no keychain group on a Mac keeps it in the file-based keychain.
+@Test(.enabled(if: keychainWritable())) func aKeyIsKeptToThisDeviceWhileItIsUnlocked() throws {
+    let service = "com.scaena.tests.\(UUID().uuidString)"
+    let keychain = Keychain(service: service)
+    try keychain.set("sk-one", for: .openai)
+    defer { try? keychain.set(nil, for: .openai) }
+    let query: [String: Any] = [
+        kSecClass as String: kSecClassGenericPassword,
+        kSecAttrService as String: service,
+        kSecAttrAccount as String: Provider.openai.rawValue,
+        kSecUseDataProtectionKeychain as String: true,
+        kSecReturnAttributes as String: true,
+        kSecMatchLimit as String: kSecMatchLimitOne,
+    ]
+    var found: CFTypeRef?
+    let status = SecItemCopyMatching(query as CFDictionary, &found)
+    #if os(macOS)
+        guard status == errSecSuccess else { return }
+    #endif
+    #expect(status == errSecSuccess)
+    let accessible = (found as? [String: Any])?[kSecAttrAccessible as String] as? String
+    #expect(accessible == kSecAttrAccessibleWhenUnlockedThisDeviceOnly as String)
+    #expect(keychain.key(for: .openai) == "sk-one")
 }
 
 /// Each tool the MCP server serves (`docs/schema/mcp`) has a person's words for the window (PLAN

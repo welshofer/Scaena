@@ -33,7 +33,7 @@ export interface CueEditor {
   format(): string | undefined;
   source(): string;
   /** Take `source`, a patch's, as one change: one step to undo. */
-  apply(source: string, edited: Edited): void;
+  apply(source: string, edited: Edited, said?: string): void;
   say(text: string): void;
   /** The node the canvas selects, and select one there. */
   chosen(): string | undefined;
@@ -268,7 +268,7 @@ export function cue(stage: Stage, into: HTMLElement, preview: HTMLElement, edito
       editor.say(doing);
       try {
         const { source, edited } = await stage.make(editor.source, [op], at.index, editor.format());
-        editor.apply(source, edited);
+        editor.apply(source, edited, done);
         editor.say(done);
       } catch (e) {
         editor.say(`Not changed: ${said(e)}`);

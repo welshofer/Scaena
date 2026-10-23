@@ -158,11 +158,19 @@ try {
   check(at && empty[0] >= at[0] - 1 && empty[1] >= at[1] - 1, `about where it was dropped: ${JSON.stringify(at)}`);
   check(await undo(original), "one undo takes it back");
 
-  // Insert does the same from the keyboard. The panel draws its rows again once the worker answers
-  // for the undone deck, which replaces the button; so the row is focused only once it shows the
-  // picture unused again, else Enter would go to a button no longer there.
+  // Insert does the same from the keyboard. The panel draws its rows again whenever the worker
+  // answers, and the button focused stays focused, so Enter goes to it however late that is.
   await page.waitForFunction((p) => (window.scaena.files.listed().find((f) => f.path === p)?.named.length ?? 1) === 0, stray, { timeout: 30000 }).catch(() => {});
   await page.locator(`#files [data-path="${stray}"] [data-insert]`).focus();
+  const kept = await page.evaluate(async () => {
+    const was = document.activeElement;
+    void window.scaena.files.refresh();
+    // Once the list is drawn again: the button focused is another element.
+    for (let i = 0; i < 600 && was.isConnected; i++) await new Promise((r) => setTimeout(r, 50));
+    const now = document.activeElement;
+    return now?.matches("#files [data-insert]") ? now.getAttribute("aria-label") : now?.tagName;
+  });
+  check(kept === `Insert ${stray.replace(/^.*\//, "")}`, `the list drawn again, Insert keeps the focus: ${kept}`);
   await page.keyboard.press("Enter");
   await page.waitForFunction((s) => window.scaena.source() !== s, original, { timeout: 30000 }).catch(() => {});
   await says("inserted on this slide");

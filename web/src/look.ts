@@ -56,7 +56,7 @@ export interface Around {
   format(): string | undefined;
   source(): string;
   /** Take `source`, the patch made: one step to undo. */
-  apply(source: string, edited: Edited): void;
+  apply(source: string, edited: Edited, said?: string): void;
   say(text: string): void;
   /** Give the characters selected in the text typed in `look` (`style_text`): whether it was. */
   style(look: Record<string, unknown>, words?: string): Promise<boolean>;
@@ -539,7 +539,10 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
       : picture
         ? [`<button type="button" data-write="describe" title="What it shows, said for someone who can’t see it, by the assistant's model, which is shown the picture">Describe</button>`]
         : !chars && !nodes.length
-          ? [`<button type="button" data-write="notes" title="What you say while it shows, drafted from its words by the assistant's model">Draft Notes</button>`]
+          ? [
+              `<button type="button" data-write="notes" title="What you say while it shows, drafted from its words by the assistant's model">Draft Notes</button>`,
+              `<button type="button" data-write="claim" title="Whether its words carry the claim its beat makes, judged by the assistant's model, which offers the headline rewritten to carry it">Check the Claim</button>`,
+            ]
           : [];
     const writing = writes.length
       ? `<div class="arrange writing"><span class="arrange-kind">Writing</span><span class="arrange-buttons" role="group" aria-label="Writing">${writes.join("")}</span></div>`
@@ -784,8 +787,8 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
     try {
       const states = await stage.reach(ops);
       const { source, edited } = await stage.make(around.source, ops, now.index, around.format());
-      around.apply(source, edited);
       const given = value === null ? "back to the theme’s" : field ? told(field, value) : String(value);
+      around.apply(source, edited, `${name}: ${given}${several}`);
       around.say(`${name}: ${given}${several} · ${reaching(states, now.state, around.slide)}`);
     } catch (e) {
       around.say(`Not changed: ${said(e)}`);
@@ -802,7 +805,7 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
       if (!now) return;
       try {
         const { source, edited } = await stage.make(around.source, ops, now.index, around.format());
-        around.apply(source, edited);
+        around.apply(source, edited, told);
         around.say(`${told} · ⌘Z undoes it`);
       } catch (e) {
         around.say(`Not changed: ${said(e)}`);
