@@ -167,9 +167,9 @@ public final class ScaenaView: PlatformView {
 
     private var metalLayer: CAMetalLayer? { layer as? CAMetalLayer }
 
-    /// Whether the display link ticks (lift-up PERF-2): while a frame is owed, the frame shown not
-    /// the playhead's or the cue playing on; resting between, and in no window.
-    public var ticking: Bool { link.map { !$0.isPaused } ?? false }
+    /// Whether the view paints (lift-up PERF-2): a frame is owed, the frame shown not the playhead's,
+    /// or the cue plays on. Its display link ticks while this holds, and rests between.
+    public var painting: Bool { dirty || playhead.playing }
 
     /// Paint on `next`'s ticks, asking for 120 Hz, in place of the link it had; none while the
     /// view is in no window.
