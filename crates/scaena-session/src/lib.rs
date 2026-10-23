@@ -164,6 +164,10 @@ pub struct Session {
     /// 3.30).
     #[cfg(feature = "editor")]
     started: Vec<scaena_paint::Raster>,
+    /// What `backgroundsPainted` drew last (PLAN 2.148): each background's slide, as a display
+    /// list, and the scale it is painted at, kept so each is painted again at another time.
+    #[cfg(feature = "editor")]
+    backdrops: Vec<(DisplayList, f32)>,
     /// What the next save records in the bundle's history, if it keeps one, besides the save:
     /// each edit an operation made since the bundle was opened or saved, after the deck
     /// before it (PLAN 2.9).
@@ -360,6 +364,8 @@ impl Session {
             suggested: Vec::new(),
             #[cfg(feature = "editor")]
             started: Vec::new(),
+            #[cfg(feature = "editor")]
+            backdrops: Vec::new(),
             #[cfg(feature = "editor")]
             recorded: Vec::new(),
             #[cfg(feature = "editor")]
