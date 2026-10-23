@@ -951,6 +951,10 @@ export type ToWorker =
    * (`generated`). Stopping the worker stops it. */
   | { type: "briefing"; engine?: WebAssembly.Module }
   | { type: "generate"; generate: Generate; engine?: WebAssembly.Module }
+  /** The outline as the person settled it (narrative FUNC-1): the slides are written to it. */
+  | { type: "storySettled"; outline: StoryOutline }
+  /** Another arc for the outline, by name, or the heuristic's where none: outlined again. */
+  | { type: "outlineAgain"; arc?: string }
   /** Paint `state` `t` ms into its cue, or at rest without `t`. */
   | { type: "show"; id: number; state: string; t?: number; format?: string }
   /** The deck's timeline. */
@@ -1323,6 +1327,9 @@ export interface Generate {
   /** Whether the model is shown each slide as it is drawn, and may give one another of its
    * layouts and tighten its words (PLAN G.13); yes where it is not given. */
   look?: boolean;
+  /** Whether the outline is shown first (narrative FUNC-1): the arc, the big idea, and each beat's
+   * claim, which the person settles before the slides are written; the slides at once where not. */
+  outline?: boolean;
 }
 
 /** Narrato's brief (`scaena_narrato::Brief`): what the deck is about, in the user's words, and
@@ -1359,6 +1366,11 @@ export type GeneratingEvent =
   | { kind: "researched"; sources: number; cut: boolean }
   | { kind: "choosing" }
   | { kind: "chose"; arc: string; fallback?: string }
+  /** The outline before the slides (narrative FUNC-1): asked, written with this many beats, and
+   * settled by the person with this many. */
+  | { kind: "outlining" }
+  | { kind: "outlined"; beats: number }
+  | { kind: "settled"; beats: number }
   | { kind: "writing"; slides: number }
   | { kind: "wrote"; slides: number; truncated: boolean }
   | { kind: "painting"; pictures: number; model: string }
@@ -1370,6 +1382,19 @@ export type GeneratingEvent =
   | { kind: "fitting"; texts: number }
   | { kind: "fitted"; texts: number }
   | { kind: "unfitted"; why: string };
+
+/** The deck's outline before its slides (narrative FUNC-1): the big idea, and each beat with the
+ * one claim its slides must leave the audience with and the slides it takes. */
+export interface StoryOutline {
+  bigIdea: string;
+  beats: StoryBeat[];
+}
+
+export interface StoryBeat {
+  name: string;
+  claim: string;
+  slides: number;
+}
 
 /** What a deck made from a prompt came to, as `scaena generate --json` says it. */
 export interface Generated {
@@ -1807,6 +1832,9 @@ export type FromWorker =
   | { type: "briefing"; choices: Choices }
   /** How far the deck being made from a prompt has come. */
   | { type: "generating"; event: GeneratingEvent }
+  /** The outline the model wrote (narrative FUNC-1), on `arc`, chosen for `reasoning`: shown for
+   * the person to settle (`settled`) or to outline again on another arc (`outlineAgain`). */
+  | { type: "storyOutlined"; outline: StoryOutline; arc: string; reasoning: string; fallback?: string }
   /** The deck made from a prompt: the bundle's files by their paths, its name, and what it came
    * to. Kept nowhere until it is saved. */
   | { type: "generated"; files: Record<string, ArrayBuffer>; name: string; made: Generated }

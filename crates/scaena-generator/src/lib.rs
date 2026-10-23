@@ -286,7 +286,41 @@ impl Generation {
         self.inner.choose_arc(name.as_deref());
     }
 
-    /// Where it stands: `arc`, `slides`, or `done`.
+    /// Ask for the outline before the slides (narrative FUNC-1): once the arc is chosen, the next
+    /// request is the outline's, whose answer `outline` gives, to settle or take as it is.
+    #[wasm_bindgen(js_name = outlineFirst)]
+    pub fn outline_first(&mut self) -> Result<(), JsError> {
+        self.inner.outline_first().map_err(error)
+    }
+
+    /// The outline, JSON `{ bigIdea, beats: [{ name, claim, slides }] }`, once the model wrote it
+    /// or the person settled one; none before.
+    pub fn outline(&self) -> Option<String> {
+        self.inner.outline().map(|o| serde_json::to_string(o).expect("an outline is JSON"))
+    }
+
+    /// The beats the slides are spread over at this length, JSON `[{ name, claim, slides }]`: the
+    /// outline's where one stands, else the arc's with no claims; none before the arc is chosen.
+    pub fn plan(&self) -> Option<String> {
+        self.inner.plan().map(|p| serde_json::to_string(&p).expect("a plan is JSON"))
+    }
+
+    /// The outline as the person settled it, JSON as `outline` gives it: what the slides are
+    /// written to (narrative FUNC-1). Refused with why where no beat keeps a claim.
+    pub fn settle(&mut self, outline: &str) -> Result<String, JsError> {
+        let outline: scaena_narrato::Outline =
+            serde_json::from_str(outline).map_err(|e| error(format!("the outline: {e}")))?;
+        self.inner.settle(&outline).map_err(error)?;
+        Ok(self.said())
+    }
+
+    /// Where it stands, as `answer` says it, with no answer read: JSON `{ step, slides, arc?,
+    /// reasoning?, fallback?, written?, truncated?, outline? }`.
+    pub fn standing(&self) -> String {
+        self.said()
+    }
+
+    /// Where it stands: `arc`, `outline`, `slides`, or `done`.
     pub fn step(&self) -> String {
         serde_json::to_value(self.inner.step()).ok().and_then(|v| v.as_str().map(str::to_string)).unwrap_or_default()
     }
@@ -324,9 +358,11 @@ impl Generation {
             "step": self.step(),
             "slides": self.inner.target(),
             "arc": self.inner.arc().map(|a| a.selection.clone()),
+            "reasoning": self.inner.arc().map(|a| a.reasoning.clone()),
             "fallback": self.inner.fallback(),
             "written": narrative.map(|n| n.slides.len()),
             "truncated": narrative.map(|n| n.truncated),
+            "outline": self.inner.outline(),
         })
         .to_string()
     }

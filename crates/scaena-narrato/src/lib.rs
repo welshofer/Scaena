@@ -21,6 +21,7 @@ pub mod heuristic;
 mod js;
 pub mod layouts;
 pub mod look;
+pub mod outline;
 pub mod pictures;
 pub mod prompt;
 pub mod providers;
@@ -30,6 +31,7 @@ pub mod schema;
 pub use answer::{ChartData, Series, Slide};
 pub use brief::{Brief, BriefError};
 pub use heuristic::{ArcChoice, Candidate};
+pub use outline::Outline;
 pub use providers::{Answer, Document, Picture, Provider, Request, Stop, Usage};
 
 use serde::{Deserialize, Serialize};
@@ -77,6 +79,10 @@ pub struct Narrative {
     /// none has no icon.
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub icons: std::collections::BTreeMap<String, Icon>,
+    /// The outline the slides were written to, where the person settled one first (narrative
+    /// FUNC-1): the deck's sections follow its beats.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub outline: Option<Outline>,
 }
 
 /// An icon a slide's word names (PLAN G.23): its name in its set, and its outline on its view.
@@ -133,6 +139,9 @@ pub enum NarratoError {
 pub enum Step {
     /// The arc is to be chosen.
     Arc,
+    /// The outline is to be written, the person having asked to see it before the slides
+    /// (narrative FUNC-1).
+    Outline,
     /// The slides are to be written.
     Slides,
     /// The narrative is written.
@@ -149,6 +158,9 @@ pub struct Generation {
     arc: Option<ArcChoice>,
     /// Why the arc was chosen by the heuristic, where the model's choice did not come back.
     fallback: Option<String>,
+    /// The outline the person settled, where they asked to see one (narrative FUNC-1): what the
+    /// slides are written to.
+    outline: Option<Outline>,
     narrative: Option<Narrative>,
 }
 
@@ -161,6 +173,7 @@ impl Generation {
             step: Step::Arc,
             arc: None,
             fallback: None,
+            outline: None,
             narrative: None,
         })
     }
@@ -190,6 +203,60 @@ impl Generation {
 
     pub fn narrative(&self) -> Option<&Narrative> {
         self.narrative.as_ref()
+    }
+
+    /// The outline, once the model wrote it or the person settled one (narrative FUNC-1).
+    pub fn outline(&self) -> Option<&Outline> {
+        self.outline.as_ref()
+    }
+
+    /// The beats the slides are spread over at this length, as the slides' prompt plans them:
+    /// the outline's where one is settled, else the arc's ([`beats::plan`]); none before the
+    /// arc is chosen.
+    pub fn plan(&self) -> Option<Vec<outline::Beat>> {
+        let arc = arcs::arc(&self.arc.as_ref()?.selection);
+        if let Some(outline) = &self.outline {
+            return Some(outline.beats.clone());
+        }
+        let planned = beats::plan(arc, self.target());
+        Some(
+            (planned.iter().filter(|&&(_, from, to)| to >= from))
+                .map(|&(beat, from, to)| outline::Beat {
+                    name: arc.beats[beat].clone(),
+                    claim: String::new(),
+                    slides: to - from + 1,
+                })
+                .collect(),
+        )
+    }
+
+    /// Ask the model for the outline before the slides (narrative FUNC-1): the next request is
+    /// the outline's, and its answer puts the outline where [`Generation::outline`] reads it, to
+    /// be settled or taken as it is. Only once the arc is chosen and before the slides are.
+    pub fn outline_first(&mut self) -> Result<(), NarratoError> {
+        match self.step {
+            Step::Slides | Step::Outline if self.arc.is_some() => {
+                self.step = Step::Outline;
+                Ok(())
+            }
+            Step::Done => Err(NarratoError::Done),
+            _ => Err(NarratoError::Answer("the arc is chosen before the outline is asked".into())),
+        }
+    }
+
+    /// The outline as the person settled it (narrative FUNC-1), which the slides are written to:
+    /// its claims as they stand, its beats in their order, blank claims passed over, and the
+    /// slides spread over them again ([`outline::settled`]). Only once the arc is chosen and
+    /// before the slides are written; an outline with no claim left is refused.
+    pub fn settle(&mut self, outline: &Outline) -> Result<(), NarratoError> {
+        match self.step {
+            Step::Slides | Step::Outline if self.arc.is_some() => {}
+            Step::Done => return Err(NarratoError::Done),
+            _ => return Err(NarratoError::Answer("the arc is chosen before the outline is settled".into())),
+        }
+        self.outline = Some(outline::settled(outline, self.target()).map_err(NarratoError::Answer)?);
+        self.step = Step::Slides;
+        Ok(())
     }
 
     /// The words the narrative's slides name icons by ([`Narrative::icon_words`]); none before
@@ -246,9 +313,16 @@ impl Generation {
                 0.2,
                 &[][..],
             ),
+            Step::Outline => {
+                let chosen = self.arc.as_ref()?;
+                let arc = arcs::arc(&chosen.selection);
+                let plan = beats::plan(arc, self.target());
+                let text = outline::prompt(&self.brief, arc, &chosen.reasoning, &plan);
+                (outline::OUTLINE_SYSTEM, text, Shape::Outline, room(outline::OUTLINE_MAX_TOKENS), 0.3, &[][..])
+            }
             Step::Slides => {
                 let arc = arcs::arc(&self.arc.as_ref()?.selection);
-                let text = prompt::generation(&self.brief, arc, self.target());
+                let text = prompt::generation_outlined(&self.brief, arc, self.target(), self.outline.as_ref());
                 (prompt::SLIDES_SYSTEM, text, Shape::Slides, room(SLIDES_MAX_TOKENS), 0.7, documents)
             }
             Step::Done => return None,
@@ -262,7 +336,7 @@ impl Generation {
             prompt: &prompt,
             shape,
             // Vzestup holds Anthropic's arc selection to its shape by the rider alone.
-            anthropic_schema: shape == Shape::Slides,
+            anthropic_schema: shape != Shape::Arc,
             max_tokens,
             temperature: Some(temperature),
             documents,
@@ -380,6 +454,21 @@ impl Generation {
                 self.step = Step::Slides;
                 Ok(self.step)
             }
+            // An outline that fails to come back is an error that says why, and the step stands
+            // to be asked again, or passed over for the slides at once.
+            Step::Outline => {
+                if status == 0 {
+                    return Err(NarratoError::Provider(format!("the request did not complete: {status_text}")));
+                }
+                let read =
+                    self.settings.provider.read_answer(status, status_text, body).map_err(NarratoError::Provider)?;
+                let chosen = self.arc.as_ref().expect("the arc is chosen before the outline is asked");
+                let arc = arcs::arc(&chosen.selection);
+                let plan = beats::plan(arc, self.target());
+                self.outline = Some(outline::read(&read.text, arc, &plan).map_err(NarratoError::Answer)?);
+                self.step = Step::Slides;
+                Ok(self.step)
+            }
             Step::Slides => {
                 if status == 0 {
                     return Err(NarratoError::Provider(format!("the request did not complete: {status_text}")));
@@ -398,7 +487,7 @@ impl Generation {
     /// The arc is chosen first; too few slides for the length asked are refused.
     pub fn written(&mut self, text: &str, stopped: bool) -> Result<Step, NarratoError> {
         let arc = match (self.step, &self.arc) {
-            (Step::Slides, Some(arc)) => arc.clone(),
+            (Step::Slides | Step::Outline, Some(arc)) => arc.clone(),
             (Step::Done, _) => return Err(NarratoError::Done),
             _ => return Err(NarratoError::Answer("the arc is chosen before the slides are written".into())),
         };
@@ -416,6 +505,7 @@ impl Generation {
             truncated: written.recovered || stopped,
             brief: Brief { source_content: None, ..self.brief.clone() },
             icons: Default::default(),
+            outline: self.outline.clone(),
         });
         self.step = Step::Done;
         Ok(self.step)

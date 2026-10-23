@@ -270,6 +270,28 @@ impl Generating {
                 w.generation.written(arg("text")?, false).map_err(said)?;
                 where_it_stands(&w.generation)
             }
+            // The outline before the slides (narrative FUNC-1): asked once the arc is chosen, the
+            // next `request` the outline's; `settle` takes it as the person settled it, and
+            // `chooseArc` another arc, by name or the heuristic's, to outline again.
+            "outline" => {
+                let w = self.written()?;
+                w.generation.outline_first().map_err(said)?;
+                where_it_stands(&w.generation)
+            }
+            "settle" => {
+                let w = self.written()?;
+                let outline: scaena_narrato::Outline =
+                    serde_json::from_value(args.get("outline").cloned().unwrap_or(Value::Null))
+                        .map_err(|e| said(format!("settle: `outline`: {e}")))?;
+                w.generation.settle(&outline).map_err(said)?;
+                where_it_stands(&w.generation)
+            }
+            "chooseArc" => {
+                let w = self.written()?;
+                let arc = args.get("arc").and_then(Value::as_str).filter(|a| !a.is_empty());
+                w.generation.choose_arc(arc);
+                where_it_stands(&w.generation)
+            }
             "imageModels" => {
                 let provider = provider(arg("provider")?)?;
                 let base = args.get("base").and_then(Value::as_str).filter(|b| !b.is_empty());
@@ -587,7 +609,9 @@ fn researched(topic: &str, report: &Report) -> Source {
     Source { name: source_name(topic), kind: Kind::Research, text: report.source_text(), sheets: Vec::new(), pdf: None }
 }
 
-/// Where a generation stands: `{step, slides, arc?, fallback?, written?, truncated?}`.
+/// Where a generation stands: `{step, slides, arc?, reasoning?, fallback?, written?, truncated?,
+/// outline?, plan?}`, the outline once written or settled (narrative FUNC-1) and the beats the
+/// slides are spread over once the arc is chosen.
 fn where_it_stands(g: &Generation) -> Value {
     let narrative = g.narrative();
     let step: Step = g.step();
@@ -595,8 +619,11 @@ fn where_it_stands(g: &Generation) -> Value {
         "step": step,
         "slides": g.target(),
         "arc": g.arc().map(|a| a.selection.clone()),
+        "reasoning": g.arc().map(|a| a.reasoning.clone()),
         "fallback": g.fallback(),
         "written": narrative.map(|n| n.slides.len()),
         "truncated": narrative.map(|n| n.truncated),
+        "outline": g.outline(),
+        "plan": g.plan(),
     })
 }

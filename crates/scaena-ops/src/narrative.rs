@@ -1232,7 +1232,12 @@ pub fn deck_as(
     // Its words set as a typesetter sets them: "Canada\u{2019}s", "2021\u{2013}2024" (G.16).
     let narrative = &typeset_all(narrative);
     let arc = narrative.narrative_arc();
-    let names = arc.beat_names();
+    // The beats the slides are spread over: the outline's where the person settled one before
+    // the slides were written (narrative FUNC-1), else the arc's.
+    let names: Vec<&str> = match &narrative.outline {
+        Some(outline) => (outline.beats.iter()).map(|b| b.name.split(':').next().unwrap_or(&b.name).trim()).collect(),
+        None => arc.beat_names(),
+    };
     let count = narrative.slides.len();
     let varied = varied(narrative);
 
@@ -1330,6 +1335,9 @@ pub fn deck_as(
     }
     if narrative.truncated {
         meta["narrative"]["truncated"] = json!(true);
+    }
+    if let Some(outline) = &narrative.outline {
+        meta["narrative"]["outline"] = json!(outline);
     }
     let mut out = json!({
         "scaena": scaena_core::FORMAT_VERSION,
@@ -3158,6 +3166,7 @@ mod tests {
             slides,
             truncated: false,
             icons: Default::default(),
+            outline: None,
             brief: Brief {
                 topic: "Pitch a Series A round for our carbon-negative cargo platform.".into(),
                 audience: "Investors".into(),

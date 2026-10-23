@@ -296,6 +296,14 @@ fn narrato(method: &str, path: &str, body: &str) -> Answer {
         ("POST", "/v1/messages") if body.contains("art director") => {
             (200, "application/json", anthropic(r#"{"slides":[]}"#))
         }
+        // The outline before the slides (narrative FUNC-1): a claim for each of the six beats.
+        ("POST", "/v1/messages") if body.contains("planning a presentation before its slides") => {
+            let beats: Vec<Value> = (1..=6)
+                .map(|n| serde_json::json!({ "beat": n, "claim": format!("Claim {n}: the beat's one sentence.") }))
+                .collect();
+            let outline = serde_json::json!({ "bigIdea": "Cargo can pay for its carbon.", "beats": beats });
+            (200, "application/json", anthropic(&outline.to_string()))
+        }
         ("POST", "/v1/messages") => {
             let catalog: Value = serde_json::from_slice(&std::fs::read(answers.join("catalog.json")).unwrap()).unwrap();
             let slides: Vec<Value> = [0, 1, 4, 54, 55].iter().map(|i| catalog["slides"][i].clone()).collect();
@@ -361,6 +369,93 @@ fn sources_ground_the_slides_a_pdf_beside_them_and_a_sheet_kept_as_data() {
     assert_eq!(deck["data"]["q3"]["source"], "data/q3.csv", "{:#}", deck["data"]);
     assert_eq!(deck["data"]["q3"]["schema"]["revenue"], "number");
     assert_eq!(made["data"][0]["id"], "q3");
+    assert_eq!(scaena(&["validate", dir.to_str().unwrap()]).status.code(), Some(0));
+}
+
+/// The outline before the slides (narrative FUNC-1): `--outline FILE` asks the arc and the
+/// outline, writes it, and makes nothing; edited, `--from-outline FILE` writes the slides to it,
+/// Scaena's block carrying the edits into the slides' prompt and the deck's sections following
+/// its beats.
+#[test]
+fn an_outline_is_written_first_and_the_slides_follow_the_edited_one() {
+    let (base, asked) = serve(narrato);
+    let dir = place("outlined");
+    let outline = place("outlined-outline").with_extension("json");
+    let _ = std::fs::remove_file(&outline);
+    let run = |args: &[&str]| {
+        let mut c = Command::new(env!("CARGO_BIN_EXE_scaena"));
+        for k in KEYS.into_iter().chain(PROXIES) {
+            c.env_remove(k);
+        }
+        c.env("ANTHROPIC_API_KEY", "sk-test")
+            .args(["--json", "generate", dir.to_str().unwrap(), "Tidewater's Series A"])
+            .args(["--provider", "anthropic", "--model", "a-model", "--base", &base])
+            .args(args)
+            .output()
+            .unwrap()
+    };
+    let out = run(&["--outline", outline.to_str().unwrap()]);
+    let said = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+    assert_eq!(out.status.code(), Some(0), "{said}");
+    assert!(!dir.exists(), "no deck is made before the outline is settled");
+    let written: Value = serde_json::from_str(&std::fs::read_to_string(&outline).unwrap()).unwrap();
+    assert_eq!(json(&out), written, "what is printed is what is written");
+    assert_eq!(written["arc"], "Problem\u{2013}Solution");
+    assert_eq!(written["bigIdea"], "Cargo can pay for its carbon.");
+    let beats = written["beats"].as_array().unwrap();
+    assert_eq!(beats.len(), 6);
+    assert_eq!(beats[0]["claim"], "Claim 1: the beat's one sentence.");
+    assert_eq!(beats.iter().map(|b| b["slides"].as_u64().unwrap()).sum::<u64>(), 8, "eight slides, the length's least");
+    {
+        let calls = asked.lock().unwrap();
+        let posts: Vec<&Asked> = calls.iter().filter(|a| a.method == "POST").collect();
+        assert_eq!(posts.len(), 2, "the arc, then the outline; no slides");
+        assert!(
+            posts[1].body.contains("Beat 1 \\\"Problem: Define core challenge and stakes\\\""),
+            "{}",
+            posts[1].body
+        );
+    }
+
+    // The person moves the third beat first, rewrites the second's claim, drops the last, and
+    // adds one of their own.
+    let mut edited = written.clone();
+    let beats = edited["beats"].as_array_mut().unwrap();
+    let third = beats.remove(2);
+    beats.insert(0, third);
+    beats[1]["claim"] = Value::String("Carriers cannot cut it with today's ships.".into());
+    beats.pop();
+    beats.push(serde_json::json!({ "name": "Thanks", "claim": "Thank you for listening.", "slides": 0 }));
+    std::fs::write(&outline, serde_json::to_string_pretty(&edited).unwrap()).unwrap();
+    asked.lock().unwrap().clear();
+    let out = run(&["--from-outline", outline.to_str().unwrap()]);
+    let said = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+    assert_eq!(out.status.code(), Some(0), "{said}");
+    let made = json(&out);
+    assert_eq!(made["created"]["created"], true, "{said}");
+    assert_eq!(made["arc"], "Problem\u{2013}Solution", "the outline's arc, with no call for one");
+    let calls = asked.lock().unwrap();
+    let posts: Vec<&Asked> = calls.iter().filter(|a| a.method == "POST").collect();
+    assert_eq!(posts.len(), 2, "the slides and the look at them; no arc, no outline: {said}");
+    let slides: Value = serde_json::from_str(&posts[0].body).unwrap();
+    let prompt = slides["messages"][0]["content"].as_array().unwrap().last().unwrap()["text"].as_str().unwrap();
+    assert!(prompt.contains("**Slot shapes (Scaena)**"), "{prompt}");
+    let block = &prompt[prompt.find("**Outline (Scaena)**").expect("the outline's block")..];
+    assert!(block.contains("The big idea, which every slide serves: \"Cargo can pay for its carbon.\""), "{block}");
+    let moved = written["beats"][2]["name"].as_str().unwrap();
+    assert!(block.contains(&format!("Beat 1 \"{moved}\"")), "the beat moved first: {block}");
+    assert!(block.contains("Beat 2 \"Problem: Define core challenge and stakes\" \u{2192} slide"), "{block}");
+    assert!(block.contains(": Carriers cannot cut it with today's ships.\n"), "the claim rewritten: {block}");
+    assert!(block.contains("Beat 6 \"Thanks\" \u{2192} slide"), "the beat added: {block}");
+    assert!(!block.contains("Call to Action"), "the beat dropped: {block}");
+    // The deck keeps the outline, and its sections are the outline's beats in its order.
+    let deck: Value = serde_json::from_str(&std::fs::read_to_string(dir.join("deck.json")).unwrap()).unwrap();
+    assert_eq!(deck["meta"]["narrative"]["outline"]["bigIdea"], "Cargo can pay for its carbon.");
+    assert_eq!(deck["meta"]["narrative"]["outline"]["beats"].as_array().unwrap().len(), 6);
+    let sections: Vec<&str> =
+        deck["spine"]["sections"].as_array().unwrap().iter().map(|s| s["title"].as_str().unwrap()).collect();
+    assert_eq!(sections[0], moved.split(':').next().unwrap().trim(), "{sections:?}");
+    assert!(sections.iter().all(|s| *s != "Call to Action"), "{sections:?}");
     assert_eq!(scaena(&["validate", dir.to_str().unwrap()]).status.code(), Some(0));
 }
 

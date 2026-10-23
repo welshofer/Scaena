@@ -109,6 +109,9 @@ pub enum Shape {
     Fit,
     /// The deck seen as it is drawn, and what to change on it (Scaena's own call, [`crate::look`]).
     Look,
+    /// The outline before the slides: the big idea and each beat's claim (Scaena's own call,
+    /// [`crate::outline`], narrative FUNC-1).
+    Outline,
 }
 
 /// A document the model reads beside the prompt: a PDF, sent as itself (ADR-0026).
@@ -196,12 +199,14 @@ impl Provider {
             Shape::Slides => schema::slides_gemini(),
             Shape::Fit => crate::fit::schema_gemini(),
             Shape::Look => crate::look::schema_gemini(),
+            Shape::Outline => crate::outline::schema_gemini(),
         };
         let name = match call.shape {
             Shape::Arc => "arc",
             Shape::Slides => "deck",
             Shape::Fit => "fit",
             Shape::Look => "look",
+            Shape::Outline => "outline",
         };
         match self {
             Provider::Anthropic => {

@@ -52,6 +52,73 @@ public struct Brief: Encodable, Sendable {
     }
 }
 
+/// The deck's outline before its slides (narrative FUNC-1): the big idea, and each beat with the one
+/// claim its slides must leave the audience with and the slides it takes, as the engine's
+/// `scaena_narrato::Outline` keeps it.
+public struct StoryOutline: Codable, Sendable, Equatable {
+    public struct Beat: Codable, Sendable, Equatable {
+        /// Its name: the arc's, or the person's own for a beat they added.
+        public var name: String
+        /// The one sentence its slides must leave the audience with.
+        public var claim: String
+        /// The slides it takes, as the plan spreads them.
+        public var slides: Int
+
+        public init(name: String, claim: String, slides: Int = 0) {
+            self.name = name
+            self.claim = claim
+            self.slides = slides
+        }
+    }
+
+    public var bigIdea: String
+    public var beats: [Beat]
+
+    public init(bigIdea: String, beats: [Beat]) {
+        self.bigIdea = bigIdea
+        self.beats = beats
+    }
+}
+
+/// The outline as the model wrote it, shown for the person to settle (narrative FUNC-1): on `arc`,
+/// chosen for `reasoning`, or the heuristic's where `fallback` says why.
+public struct Outlined: Sendable, Equatable {
+    public let outline: StoryOutline
+    public let arc: String
+    public let reasoning: String
+    public let fallback: String?
+
+    public init(outline: StoryOutline, arc: String, reasoning: String, fallback: String? = nil) {
+        self.outline = outline
+        self.arc = arc
+        self.reasoning = reasoning
+        self.fallback = fallback
+    }
+
+    /// An outline as one reads, for a window shown with none written: what the screenshots CI keeps
+    /// show of the step.
+    public static let sample = Outlined(
+        outline: StoryOutline(
+            bigIdea: "A trail is kept by the people who walk it.",
+            beats: [
+                .init(name: "Problem: Define core challenge and stakes", claim: "The storm took fifty-two miles of trail in one night.", slides: 1),
+                .init(name: "Impact: Quantify cost of inaction", claim: "Every closed mile costs the valley a season of visitors.", slides: 1),
+                .init(name: "Existing Approaches: Why they fall short", claim: "Contract crews cannot reach the high sections before the snow.", slides: 1),
+                .init(name: "Solution: Introduce your answer", claim: "Volunteers rebuilt it in one summer, a mile a weekend.", slides: 1),
+                .init(name: "Proof: Case studies, data, demos", claim: "Ninety thousand people walked it again this year.", slides: 2),
+                .init(name: "Call to Action: Next steps", claim: "Your gift keeps the crews on the trail next summer.", slides: 2),
+            ]),
+        arc: "Problem–Solution",
+        reasoning: "Donors know the trail; the talk moves them from the loss to what their gift keeps open.")
+}
+
+/// What the person decided of the outline shown: settled, so the slides are written to it; or
+/// another arc, by name or the heuristic's where none, to outline again.
+public enum OutlineDecision: Sendable, Equatable {
+    case settled(StoryOutline)
+    case anotherArc(String?)
+}
+
 /// How far a deck being made from a prompt has come, as `scaena generate` says it.
 public enum GeneratingStep: Equatable, Sendable {
     case fetchingFont(family: String, language: String, megabytes: Double)
@@ -62,6 +129,11 @@ public enum GeneratingStep: Equatable, Sendable {
     case researched(sources: Int, cut: Bool)
     case choosing
     case chose(arc: String, fallback: String?)
+    /// The outline before the slides (narrative FUNC-1): asked, written with this many beats, and
+    /// settled by the person with this many.
+    case outlining
+    case outlined(beats: Int)
+    case settled(beats: Int)
     case writing(slides: Int)
     case wrote(slides: Int, truncated: Bool)
     case painting(pictures: Int, model: String)
@@ -87,6 +159,9 @@ public enum GeneratingStep: Equatable, Sendable {
         case .choosing: "Choosing the arc…"
         case .chose(let arc, let fallback):
             fallback.map { "Arc: \(arc), the heuristic's (\($0))" } ?? "Arc: \(arc)"
+        case .outlining: "Outlining the story: the big idea, and what each beat says…"
+        case .outlined(let beats): "Outline: \(beats) beats. Read it, change what you will, then Write the Slides."
+        case .settled(let beats): "Outline settled: \(beats) beats"
         case .writing(let slides): "Writing the slides, at least \(slides)…"
         case .wrote(let slides, let truncated): "\(slides) slides written\(truncated ? ", the answer cut short" : "")"
         case .painting(let pictures, let model): "Making \(pictures) pictures with \(model)… (a minute or two)"
@@ -393,9 +468,12 @@ public final class Generator {
         let slides: Int?
         let request: GeneratorRequest?
         let arc: String?
+        let reasoning: String?
         let fallback: String?
         let written: Int?
         let truncated: Bool?
+        /// The outline, once the model wrote it or the person settled one (narrative FUNC-1).
+        let outline: StoryOutline?
     }
 
     private struct Making: Decodable {
@@ -584,23 +662,30 @@ public final class Generator {
         return MadePicture(bytes: made.bytes, ext: made.ext, alt: made.alt, model: model)
     }
 
+    /// How the person settles the outline shown (narrative FUNC-1): their decision, or none where
+    /// they stopped, which stops the deck.
+    public typealias Settle = @MainActor (Outlined) async -> OutlineDecision?
+
     /// The deck `brief` asks for, grounded in the sources read, written by `provider`'s `model`
     /// with `key`, on `arc` where one is named, in the theme that ships as `theme`, its pictures
     /// made by `painter` where one is given, and shown to the model as it is drawn unless `look`
     /// says not (PLAN G.13): the bundle made, opened, and what it came to. `hear` hears how far it
-    /// has come.
+    /// has come. With `outline`, the outline is written first and shown by it, and the slides
+    /// follow what the person decided of it (narrative FUNC-1); without, the slides come at once.
     public func generate(
         brief: Brief, arc: String? = nil, provider: Provider, model: String, base: String? = nil, key: String,
-        theme: String, painter: Painter? = nil, look: Bool = true, hear: (GeneratingStep) -> Void
+        theme: String, painter: Painter? = nil, look: Bool = true, outline: Settle? = nil,
+        hear: (GeneratingStep) -> Void
     ) async throws -> (ScaenaSession, Generated) {
         try await prepare(language: brief.language, theme: theme, hear: hear)
         var args = try asking(brief: brief, provider: provider, model: model, base: base)
         if let arc { args["arc"] = .string(arc) }
         let _: JSONValue = try step("begin", args)
+        if arc != nil, outline != nil { let _: Standing = try step("outline") }
         while true {
             let standing: Standing = try step("request", ["key": .string(key)])
             guard let request = standing.request else { break }
-            hear(standing.step == "arc" ? .choosing : .writing(slides: standing.slides ?? 0))
+            hear(standing.step == "arc" ? .choosing : standing.step == "outline" ? .outlining : .writing(slides: standing.slides ?? 0))
             let reply = await send(request)
             let now: Standing = try step(
                 "answer",
@@ -609,9 +694,30 @@ public final class Generator {
                     "statusText": .string(reply.status == 0 ? reply.text : HTTPURLResponse.localizedString(forStatusCode: reply.status)),
                     "body": .string(reply.status == 0 ? "" : reply.text),
                 ])
-            if standing.step == "arc" {
+            switch standing.step {
+            case "arc":
                 hear(.chose(arc: now.arc ?? "", fallback: now.fallback))
-            } else {
+                // The outline before the slides: the next request is the outline's.
+                if outline != nil { let _: Standing = try step("outline") }
+            case "outline":
+                guard let outline, let written = now.outline else { break }
+                hear(.outlined(beats: written.beats.count))
+                let shown = Outlined(outline: written, arc: now.arc ?? "", reasoning: now.reasoning ?? "", fallback: now.fallback)
+                guard let decided = await outline(shown) else { throw CancellationError() }
+                switch decided {
+                case .settled(let settled):
+                    let encoded = try JSONDecoder().decode(JSONValue.self, from: try JSONEncoder().encode(settled))
+                    let after: Standing = try step("settle", ["outline": encoded])
+                    hear(.settled(beats: after.outline?.beats.count ?? 0))
+                case .anotherArc(let name):
+                    // Chosen with no call, and outlined again.
+                    var choosing: [String: JSONValue] = [:]
+                    if let name { choosing["arc"] = .string(name) }
+                    let chosen: Standing = try step("chooseArc", choosing)
+                    hear(.chose(arc: chosen.arc ?? "", fallback: nil))
+                    let _: Standing = try step("outline")
+                }
+            default:
                 hear(.wrote(slides: now.written ?? 0, truncated: now.truncated ?? false))
             }
         }
