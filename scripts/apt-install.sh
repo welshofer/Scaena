@@ -13,15 +13,23 @@
 # After that the archive's URIs point at the next mirror: the runner's own first, then
 # Ubuntu's, then kernel.org's, two rounds through them. What was fetched stays in apt's cache.
 #
-# SCAENA_APT_SOURCES, SCAENA_APT_SUDO, SCAENA_APT_CACHE, and SCAENA_APT_LIMITS ("interval floor
-# pause": seconds between reads, bytes a second, seconds between mirrors) are for
-# scripts/test_apt_install.py.
+# With SCAENA_APT_KEEP, a folder CI caches by the runner's image and the packages, no mirror is
+# asked at all once a run has kept what it fetched there: apt's package lists and the packages
+# themselves, put back and installed with no network. What does not install so is fetched as
+# above, and kept again.
+#
+# SCAENA_APT_SOURCES, SCAENA_APT_SUDO, SCAENA_APT_CACHE ("lists archives"), and SCAENA_APT_LIMITS
+# ("interval floor pause": seconds between reads, bytes a second, seconds between mirrors) are
+# for scripts/test_apt_install.py.
 set -uo pipefail
 sources=${SCAENA_APT_SOURCES:-/etc/apt/sources.list.d/ubuntu.sources}
 [ -f "$sources" ] || sources=/etc/apt/sources.list
 sudo=${SCAENA_APT_SUDO-sudo}
 read -r -a cache <<<"${SCAENA_APT_CACHE:-/var/lib/apt/lists /var/cache/apt/archives}"
 read -r interval floor pause <<<"${SCAENA_APT_LIMITS:-30 20000 5}"
+lists=${cache[0]}
+archives=${cache[1]}
+keep=${SCAENA_APT_KEEP:-}
 apt=(-o Acquire::Retries=1 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20)
 
 # The bytes apt has fetched so far, partial files among them.
@@ -49,6 +57,24 @@ watched() {
   wait "$pid"
 }
 
+# Keeps the package lists and the packages fetched, for the next run on this image.
+kept() {
+  [ -n "$keep" ] || return 0
+  rm -rf "$keep" && mkdir -p "$keep/lists" "$keep/archives" || return 0
+  cp "$archives"/*.deb "$keep/archives/" 2>/dev/null
+  find "$lists" -maxdepth 1 -type f ! -name lock -exec cp {} "$keep/lists/" \; 2>/dev/null
+  echo "apt-get: kept $(du -sh "$keep" | cut -f1) for the next run in $keep" >&2
+}
+
+if [ -n "$keep" ] && compgen -G "$keep/archives/*.deb" >/dev/null; then
+  if $sudo cp "$keep"/lists/* "$lists/" && $sudo cp "$keep"/archives/*.deb "$archives/" &&
+    $sudo apt-get "${apt[@]}" install -y --no-install-recommends --no-download "$@"; then
+    echo "apt-get: installed from what an earlier run kept, with no network" >&2
+    exit 0
+  fi
+  echo "apt-get: what was kept does not install; fetching" >&2
+fi
+
 # The archive's mirror as the runner has it (not the security pocket's), then the fallbacks.
 own=$(grep -oE '(https?|mirror\+file)://[^ ]+' "$sources" | grep -v security | head -n1)
 mirrors=()
@@ -67,7 +93,7 @@ for round in 1 2; do
     fi
     if watched $sudo apt-get "${apt[@]}" -o APT::Update::Error-Mode=any update &&
       watched $sudo apt-get "${apt[@]}" install -y --no-install-recommends --download-only "$@" &&
-      $sudo apt-get "${apt[@]}" install -y --no-install-recommends "$@"; then
+      kept && $sudo apt-get "${apt[@]}" install -y --no-install-recommends "$@"; then
       exit 0
     fi
     echo "apt-get: $mirror failed or was too slow (round $round of 2)" >&2
