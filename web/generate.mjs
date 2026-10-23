@@ -197,13 +197,14 @@ try {
   const local = await failed();
   check(local.includes("a web source is a public https address"), `a link to this machine is refused: ${local}`);
   await removeAll();
-  // The press's site, a public address: a page it lets no other page read has no CORS header.
+  // The press's site, a public address. A page it lets no other page read fails the fetch as
+  // CORS fails it (a response fulfilled here skips that check, so the request is aborted).
   const press = "https://press.example.com";
-  await page.route(`${press}/**`, (route) => {
-    const open = route.request().url().endsWith("/press.html");
-    const headers = { "content-type": "text/html; charset=utf-8", ...(open ? { "access-control-allow-origin": "*" } : {}) };
-    return route.fulfill({ status: 200, body: PAGE, headers });
-  });
+  await page.route(`${press}/**`, (route) =>
+    route.request().url().endsWith("/press.html")
+      ? route.fulfill({ status: 200, body: PAGE, headers: { "content-type": "text/html; charset=utf-8", "access-control-allow-origin": "*" } })
+      : route.abort("accessdenied"),
+  );
   await link(`${press}/closed.html`);
   await page.click("#prompting-go");
   const closed = await failed();
