@@ -602,6 +602,13 @@ try {
       check(keys.session === null && keys.local && !keys.local.includes("anthropic-test-key"), "kept on this device, it is encrypted");
       await page.reload();
       await page.waitForFunction(() => window.scaena?.last(), null, { timeout: 120000 });
+      // The editor offers the copy it kept of what the assistant changed and ⌘Z took back, the
+      // theme written twice (lift-up REL-4), a modal over the page: discarded, since it is the
+      // key that is checked here.
+      await page
+        .waitForSelector("#recovering[open]", { timeout: 5000 })
+        .then(() => page.click("#recovering [value=discard]"))
+        .catch(() => {});
       await page.click("#tab-assistant");
       await page.waitForFunction(() => document.querySelector("#key").value, null, { timeout: 10000 });
       check((await page.$eval("#key", (k) => k.value)) === "anthropic-test-key", "and comes back after a reload");
