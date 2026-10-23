@@ -2344,6 +2344,7 @@ async function edit(source: Source, opened?: Stage) {
       { label: "Add a step", where: ["state"], applies: () => now() !== undefined, run: () => states.add("step") },
       { label: "Add a slide…", where: ["state"], applies: () => now() !== undefined, run: () => void states.gallery() },
       { label: step() ? "Delete this step" : "Delete this slide", where: ["state"], applies: () => now() !== undefined && count() > 1, run: () => states.remove(now()!) },
+      { label: "Duplicate this slide", where: ["state"], applies: () => now() !== undefined, run: () => states.duplicate(now()!) },
       { label: "Export it as a PNG…", where: ["state"], applies: () => now() !== undefined, run: () => openExport("png") },
       // Its notes, drafted from how it reads by the model the assistant uses (PLAN 2.101).
       { label: "Draft its notes", where: ["state"], applies: () => now() !== undefined, run: () => write("notes") },
