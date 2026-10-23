@@ -225,9 +225,11 @@ struct CanvasMenu: UIViewRepresentable {
 
     private static func element(_ offer: CanvasOffer) -> UIMenuElement? {
         switch offer {
-        case .action(let title, let symbol, let destructive, let run):
+        case .action(let title, let symbol, let destructive, let on, let run):
             let attributes: UIMenuElement.Attributes = destructive ? .destructive : []
-            return UIAction(title: title, image: symbol.flatMap { UIImage(systemName: $0) }, attributes: attributes) { _ in
+            return UIAction(
+                title: title, image: symbol.flatMap { UIImage(systemName: $0) }, attributes: attributes, state: on ? .on : .off
+            ) { _ in
                 run()
             }
         case .menu(let title, let symbol, let children):

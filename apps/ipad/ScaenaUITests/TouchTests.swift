@@ -267,6 +267,113 @@ final class TouchTests: XCTestCase {
 
     /// How close the canvas is shown, as it tells VoiceOver: "whole" where nothing is zoomed.
     @MainActor
+    /// Several selected by touch alone (lift-up FUNC-4), on B1's cover: with the toolbar's Select
+    /// held, a tap adds the subtitle to the title selected, and a tap on the title takes it out, as
+    /// Shift and a click do; let go, a tap selects one again. A long press offers Only on This Slide,
+    /// which a tap holds, shown checked at the next long press, as Option would keep a gesture to
+    /// the slide. In the light table, with Select held, a tap adds a slide to those picked, as ⌘ and
+    /// a click do.
+    @MainActor
+    func testSelectSeveralByTouch() throws {
+        let app = launched()
+        try openB1(in: app)
+        let all = app.descendants(matching: .any)
+        let canvas = all.matching(NSPredicate(format: "identifier == 'canvas'")).firstMatch
+        XCTAssertTrue(canvas.waitForExistence(timeout: 10), "no canvas: \(app.debugDescription)")
+        let title = canvas.descendants(matching: .any).matching(NSPredicate(format: "label == 'Scaena'")).firstMatch
+        let subtitle = canvas.descendants(matching: .any)
+            .matching(NSPredicate(format: "label BEGINSWITH 'Why this exists'")).firstMatch
+        guard title.waitForExistence(timeout: 10), subtitle.exists else {
+            throw Unseen(description: "the cover reads no title and subtitle: \(app.debugDescription)")
+        }
+        // Select in the toolbar, beside Undo; a test finds it by its id.
+        let select = app.navigationBars.buttons.matching(NSPredicate(format: "identifier == 'select-several'")).firstMatch
+        guard select.waitForExistence(timeout: 5) else {
+            throw Unseen(description: "no Select in the toolbar: \(app.debugDescription)")
+        }
+        settle()
+
+        try XCTContext.runActivity(named: "With Select held, a tap adds to the selection, and another takes from it") { _ in
+            title.tap()
+            guard wait(5, { title.isSelected && !subtitle.isSelected }) else {
+                throw Unseen(description: "a tap did not select the title alone: \(app.debugDescription)")
+            }
+            select.tap()
+            subtitle.tap()
+            guard wait(5, { title.isSelected && subtitle.isSelected }) else {
+                keep(app, as: "not-two-selected")
+                throw Unseen(description: "with Select held, a tap on the subtitle did not add it: \(app.debugDescription)")
+            }
+            keep(app, as: "two-selected")
+            title.tap()
+            guard wait(5, { !title.isSelected && subtitle.isSelected }) else {
+                throw Unseen(description: "with Select held, a tap on the title did not take it out: \(app.debugDescription)")
+            }
+            // Let go, a tap selects one alone again.
+            select.tap()
+            title.tap()
+            guard wait(5, { title.isSelected && !subtitle.isSelected }) else {
+                throw Unseen(description: "with Select let go, a tap did not select the title alone: \(app.debugDescription)")
+            }
+        }
+
+        try XCTContext.runActivity(named: "A long press offers Only on This Slide, which a tap holds") { _ in
+            title.press(forDuration: 1.2)
+            let only = all.matching(NSPredicate(format: "label == 'Only on This Slide'")).firstMatch
+            guard only.waitForExistence(timeout: 5) else {
+                keep(app, as: "no-only-this-slide")
+                throw Unseen(description: "a long press offered no Only on This Slide: \(app.debugDescription)")
+            }
+            XCTAssertFalse(only.isSelected, "Only on This Slide is shown held before it was asked for")
+            only.tap()
+            settle(1)
+            title.press(forDuration: 1.2)
+            guard only.waitForExistence(timeout: 5) else {
+                throw Unseen(description: "a second long press offered no Only on This Slide: \(app.debugDescription)")
+            }
+            keep(app, as: "only-this-slide")
+            XCTAssertTrue(only.isSelected, "Only on This Slide is not shown held once asked for")
+            // Let it go.
+            only.tap()
+            settle(1)
+        }
+
+        try XCTContext.runActivity(named: "In the light table, with Select held, a tap adds a slide") { _ in
+            let view = app.buttons.matching(NSPredicate(format: "label == 'View'")).firstMatch
+            guard view.waitForExistence(timeout: 5) else {
+                throw Unseen(description: "no View in the toolbar: \(app.debugDescription)")
+            }
+            view.tap()
+            let table = all.matching(NSPredicate(format: "label == 'Light Table'")).firstMatch
+            guard table.waitForExistence(timeout: 5) else {
+                throw Unseen(description: "the View menu offers no light table: \(app.debugDescription)")
+            }
+            table.tap()
+            let cover = all.matching(NSPredicate(format: "identifier == 'slide-cover'")).firstMatch
+            let third = all.matching(NSPredicate(format: "identifier == 'slide-belief-1'")).firstMatch
+            guard cover.waitForExistence(timeout: 10), third.exists else {
+                throw Unseen(description: "the light table shows no cover and belief-1: \(app.debugDescription)")
+            }
+            cover.tap()
+            guard wait(5, { cover.isSelected && !third.isSelected }) else {
+                throw Unseen(description: "a tap did not pick the cover alone: \(app.debugDescription)")
+            }
+            select.tap()
+            third.tap()
+            guard wait(5, { cover.isSelected && third.isSelected }) else {
+                keep(app, as: "not-two-slides")
+                throw Unseen(description: "with Select held, a tap did not add belief-1: \(app.debugDescription)")
+            }
+            keep(app, as: "two-slides")
+            // Let go, a tap picks one alone again.
+            select.tap()
+            third.tap()
+            guard wait(5, { !cover.isSelected && third.isSelected }) else {
+                throw Unseen(description: "with Select let go, a tap did not pick belief-1 alone: \(app.debugDescription)")
+            }
+        }
+    }
+
     private func shown(_ canvas: XCUIElement) -> String {
         let value = canvas.value as? String ?? ""
         return value.isEmpty ? "whole" : value

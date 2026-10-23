@@ -10,7 +10,8 @@ import UIKit
 /// One thing the canvas's menu offers (PLAN 3.23, 4.3): the iPad's long press and right click and
 /// the Mac's right click offer the same, each as its platform shows a menu.
 enum CanvasOffer {
-    case action(String, symbol: String?, destructive: Bool = false, run: () -> Void)
+    /// `on`: a setting held, shown checked.
+    case action(String, symbol: String?, destructive: Bool = false, on: Bool = false, run: () -> Void)
     case menu(String, symbol: String?, [CanvasOffer])
     /// A line between kinds of things, where the platform draws one.
     case divider
@@ -79,6 +80,12 @@ enum CanvasOffer {
         if let lock = deck.lock {
             offers.append(.action(deck.locked ? "Unlock" : "Lock", symbol: deck.locked ? "lock.open" : "lock", run: lock))
         }
+        #if !os(macOS)
+        // Each gesture kept to the slide shown, where there is no Option key to hold (lift-up FUNC-4).
+        if let keep = deck.keepToSlide {
+            offers.append(.action("Only on This Slide", symbol: "pin", on: deck.keptToSlide, run: keep))
+        }
+        #endif
         if let placeAnew = deck.placeAnew {
             offers.append(.action("Lay Out on Its Own in This Size", symbol: "rectangle.badge.plus", run: placeAnew))
         }
@@ -211,9 +218,10 @@ struct CanvasMenu: NSViewRepresentable {
 
     private static func item(_ offer: CanvasOffer) -> NSMenuItem {
         switch offer {
-        case .action(let title, let symbol, _, let run):
+        case .action(let title, let symbol, _, let on, let run):
             let action = MenuRun(run)
             let item = NSMenuItem(title: title, action: #selector(MenuRun.chosen), keyEquivalent: "")
+            item.state = on ? .on : .off
             item.target = action
             // The item keeps what it runs: a menu item's target is not kept.
             item.representedObject = action
