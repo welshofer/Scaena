@@ -25,7 +25,10 @@ use serde_json::{Map, Value, json};
 /// (PLAN 2.104): the session answers it where its library carries them (`shipped`, the Mac's),
 /// and the browser's page from the set it carries beside its pages, which its module lacks.
 /// `map_fetch` fetches a map (ADR-0030): the client makes its requests, which the session cannot,
-/// and puts it on the slide by [`crate::Session::mapping`] (PLAN O.1c, O.1d).
+/// and puts it on the slide by [`crate::Session::mapping`] (PLAN O.1c, O.1d). `deck_health` reads
+/// the deck's narrative health (PLAN G.9, SPEC §7.7): the session answers it where it carries
+/// generation (`generate`, the Mac's), and the browser's page from the generator's module, as its
+/// Story tab reads it, since the editor's module carries none of it.
 pub const TOOLS: &[&str] = &[
     "deck_read",
     "deck_patch",
@@ -36,6 +39,7 @@ pub const TOOLS: &[&str] = &[
     "deck_render",
     "spine_read",
     "spine_update",
+    "deck_health",
     "data_attach",
     "data_edit",
     "theme_edit",
@@ -294,6 +298,10 @@ struct ThemeEdit {
 #[serde(deny_unknown_fields)]
 struct SpineRead {}
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DeckHealth {}
+
 #[cfg(feature = "shipped")]
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -449,6 +457,18 @@ impl Session {
             "spine_read" => {
                 let _: SpineRead = args(name, a)?;
                 Called::of(scaena_ops::read::spine(&b))
+            }
+            // The deck's story, as `scaena health` reads it (PLAN G.9): where this library
+            // carries generation. The browser's page reads it by the generator's module.
+            #[cfg(feature = "generate")]
+            "deck_health" => {
+                let _: DeckHealth = args(name, a)?;
+                Called::of(scaena_ops::health::health(self.deck())?)
+            }
+            #[cfg(not(feature = "generate"))]
+            "deck_health" => {
+                let _: DeckHealth = args(name, a)?;
+                Err(ops("deck_health: the page reads the deck's story, by the generator's module"))
             }
             "spine_update" => {
                 let a: SpineUpdate = args(name, a)?;
@@ -725,6 +745,32 @@ mod tests {
         assert!(updated.edited, "{}", updated.result);
         let read = call(&mut s, "spine_read", json!({}));
         assert_eq!(read.result["spine"]["sections"][0]["beats"][0]["id"], "hello", "{}", read.result);
+    }
+
+    /// The assistant reads the deck's story as the Story tab does (narrative FUNC-2): a
+    /// health with its score, each slide, and what to look at, over the spine's beats.
+    #[cfg(feature = "generate")]
+    #[test]
+    fn health_reads_the_decks_story() {
+        let mut s = dusk();
+        let patch = json!({ "ops": [
+            { "op": "add", "path": "/states/0/layout", "value": "figure" },
+            { "op": "add_node", "id": "headline", "state": "start",
+              "node": { "type": "text", "role": "headline", "semantic": "claim", "at": { "in": "header" }, "text": "The trail" } },
+        ] });
+        call(&mut s, "deck_patch", patch);
+        let spine = json!({ "sections": [{ "id": "only", "beats": [
+            { "id": "lost", "claim": "The trail was lost.", "states": ["start"] },
+        ] }] });
+        call(&mut s, "spine_update", json!({ "spine": spine }));
+        let health = call(&mut s, "deck_health", json!({}));
+        assert!(!health.edited);
+        assert!(health.result["score"].is_u64(), "{}", health.result);
+        assert_eq!(health.result["slides"][0]["title"], "The trail was lost.", "{}", health.result);
+        assert_eq!(health.result["slides"][0]["beat"], "lost", "{}", health.result);
+        assert!(health.result["findings"].is_array(), "{}", health.result);
+        let refused = s.tool("deck_health", json!({ "bundle": "x" }), AGENT).err().map(|e| failure(&e));
+        assert!(refused.is_some_and(|f| f["message"].as_str().unwrap().contains("bundle")), "takes nothing");
     }
 
     #[test]
