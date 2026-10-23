@@ -295,8 +295,11 @@ async function provider(wire) {
 const site = await serve();
 const browser = await launch();
 try {
-  const context = await browser.newContext({ viewport: { width: 1600, height: 1000 }, deviceScaleFactor: 1 });
+  /** The editor on the bundle, in a browser of its own: the page before it left the assistant's
+   * edits not saved, and a page that opened the deck again beside it would be offered them first
+   * (lift-up REL-4). */
   const open = async () => {
+    const context = await browser.newContext({ viewport: { width: 1600, height: 1000 }, deviceScaleFactor: 1 });
     const page = await context.newPage();
     page.on("pageerror", (e) => failures.push(`page: ${e.message}`));
     page.on("console", (m) => m.type() === "error" && !/Failed to load resource/.test(m.text()) && failures.push(`console: ${m.text()}`));
