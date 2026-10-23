@@ -76,6 +76,13 @@ const TALL: [(&str, Option<f64>); 4] =
 /// session, the browser, and the Mac draw the deck as it is.
 const FRAMED: [(&str, &str); 5] =
     [("images", "mat"), ("shadows", "mat"), ("maps", "mat"), ("images", "keyline"), ("shadows", "keyline")];
+/// Slide transitions that show the slide entered through shapes that grow (PLAN 2.149), each
+/// given to case 51's `lists` as it comes from the photos of case 50, over a second, linearly, as
+/// (style, direction): drawn a quarter, half, and three quarters of the way, named
+/// `lists@fraction+style`. Each wave goes a way of its own, and the hand starts where its default
+/// says. They are the deck edited, so they stay out of `raw.fnv1a`, as [`FRAMED`]'s do.
+const REVEALS: [(&str, Option<&str>); 5] =
+    [("circle", None), ("circleWave", None), ("diamond", None), ("diamondWave", Some("down")), ("radial", None)];
 const SERIF: &str = "fonts/RobotoSerif-VF.ttf";
 const GARAMOND: &str = "fonts/EBGaramond-VF.ttf";
 const HEBREW: &str = "fonts/NotoSansHebrew-VF.ttf";
@@ -93,7 +100,18 @@ fn read(path: &str) -> Vec<u8> {
 }
 
 fn fixture_with(theme_edit: impl FnOnce(&mut serde_json::Value), reverse_fonts: bool) -> Fixture {
-    let deck = Deck::from_json(&String::from_utf8(read("deck.json")).unwrap()).unwrap();
+    fixture_of(|_| {}, theme_edit, reverse_fonts)
+}
+
+/// The torture deck and theme, each edited first.
+fn fixture_of(
+    deck_edit: impl FnOnce(&mut serde_json::Value),
+    theme_edit: impl FnOnce(&mut serde_json::Value),
+    reverse_fonts: bool,
+) -> Fixture {
+    let mut raw: serde_json::Value = serde_json::from_slice(&read("deck.json")).unwrap();
+    deck_edit(&mut raw);
+    let deck = Deck::from_json(&raw.to_string()).unwrap();
     let mut raw: serde_json::Value = serde_json::from_slice(&read("theme.json")).unwrap();
     theme_edit(&mut raw);
     let theme = Theme::from_json(&raw.to_string()).unwrap();
@@ -302,6 +320,50 @@ fn framed_display_lists_match_goldens() {
         }
     }
     assert!(changed.is_empty(), "framed display lists differ for {changed:?}; see tests/golden/torture/actual/");
+}
+
+/// The torture deck with `lists` coming in by the slide transition `style`, going `direction`.
+fn revealing(style: &str, direction: Option<&str>) -> Fixture {
+    let edit = |raw: &mut serde_json::Value| {
+        let states = raw["states"].as_array_mut().unwrap();
+        let lists = states.iter_mut().find(|s| s["id"] == "lists").unwrap();
+        let mut transition = serde_json::json!({ "duration": 1000, "ease": [0, 0, 1, 1], "style": style });
+        if let Some(d) = direction {
+            transition["direction"] = serde_json::json!(d);
+        }
+        lists["transition"] = transition;
+    };
+    fixture_of(edit, |_| {}, false)
+}
+
+/// Slide transitions through shapes that grow (PLAN 2.149), held to goldens as the deck's own
+/// frames are; at either end of the cue, the slide left alone and then the slide entered alone.
+#[test]
+fn revealed_display_lists_match_goldens() {
+    let bless = std::env::var_os("SCAENA_BLESS").is_some();
+    let mut changed = Vec::new();
+    let (photos, lists) = (fixture().frame("photos").unwrap(), fixture().frame("lists").unwrap());
+    for (style, direction) in REVEALS {
+        let mut fx = revealing(style, direction);
+        assert_eq!(fx.duration("lists"), 1000.0, "{style}");
+        assert_eq!(fx.frame_at("lists", 0.0).unwrap(), photos, "{style}: at its start, the photos alone");
+        assert_eq!(fx.frame_at("lists", 1000.0).unwrap(), lists, "{style}: at its end, the lists alone");
+        for at in [0.25, 0.5, 0.75] {
+            let name = format!("lists@{at}+{style}");
+            let mut dl = fx.frame_at("lists", at * 1000.0).unwrap_or_else(|e| panic!("{name}: {e}"));
+            quantize(&mut dl);
+            let json = dl.to_golden_json().unwrap();
+            let path = format!("{GOLDEN}/{name}.dl.json");
+            if bless {
+                std::fs::write(&path, &json).unwrap();
+            } else if std::fs::read_to_string(&path).ok().as_deref() != Some(json.as_str()) {
+                std::fs::create_dir_all(format!("{GOLDEN}/actual")).unwrap();
+                std::fs::write(format!("{GOLDEN}/actual/{name}.dl.json"), &json).unwrap();
+                changed.push(name);
+            }
+        }
+    }
+    assert!(changed.is_empty(), "revealed display lists differ for {changed:?}; see tests/golden/torture/actual/");
 }
 
 /// A frame only adds: every op of a framed state's picture is the unframed one's but its box,

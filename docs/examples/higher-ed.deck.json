@@ -7027,7 +7027,8 @@
       "mode": "absolute",
       "layout": "figure",
       "transition": {
-        "duration": "standard"
+        "duration": "standard",
+        "style": "circleWave"
       },
       "props": {
         "strain-head": {},
