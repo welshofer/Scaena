@@ -83,6 +83,14 @@ impl Player {
         self.0.file(path).map(<[u8]>::to_vec)
     }
 
+    /// How many times the bundle's files have been changed since the session began (lift-up
+    /// STAB-2): the worker keeps its copy of them in step by it, for a fresh worker to go on from
+    /// after a panic, which wasm32 does not unwind from.
+    #[wasm_bindgen(js_name = filesEdition)]
+    pub fn files_edition(&self) -> f64 {
+        self.0.files_edition() as f64
+    }
+
     pub fn states(&self) -> Vec<String> {
         self.0.states()
     }
@@ -1939,5 +1947,16 @@ mod web {
             frame.present();
             Ok(())
         }
+    }
+}
+
+/// A panic asked for, to test the editor's recovery from one (lift-up STAB-2): the editor's
+/// module alone carries it; the player's never does. It traps as any panic in the engine does,
+/// the session's borrow held, so the session is not to be used again.
+#[cfg(feature = "editor")]
+#[wasm_bindgen]
+impl Player {
+    pub fn trap(&mut self) {
+        panic!("a panic asked for, to test the editor's recovery");
     }
 }

@@ -21,6 +21,7 @@
 // - A handle, which stands clear of the box it resizes, resizes a grid container by tracks, and a
 //   pause shows it laid out before the drop.
 // Exits 1 on any failure.
+import { mkdir, writeFile } from "node:fs/promises";
 import { launch, serve } from "./serve.mjs";
 
 const server = await serve();
@@ -84,6 +85,20 @@ try {
     await page.evaluate(() => (document.querySelector("#overlay svg").style.visibility = ""));
     return png;
   };
+  /** The frame the worker committed to the preview's canvas, read from the canvas itself: its
+   * SHA-256, or its PNG with `png`. */
+  const committed = (page) =>
+    page.evaluate(() => {
+      window.committed = async (png) => {
+        const stage = document.querySelector("#stage");
+        const copy = new OffscreenCanvas(stage.width, stage.height);
+        copy.getContext("2d").drawImage(stage, 0, 0);
+        if (png) return [...new Uint8Array(await (await copy.convertToBlob()).arrayBuffer())];
+        const pixels = copy.getContext("2d").getImageData(0, 0, copy.width, copy.height).data;
+        return [...new Uint8Array(await crypto.subtle.digest("SHA-256", pixels))].map((b) => b.toString(16).padStart(2, "0")).join("");
+      };
+    });
+  const frame = (page, png = false) => page.evaluate((png) => window.committed(png), png);
   /** How the inspector says `node` is placed in the state shown, once it says `expected`. */
   const placedAs = async (page, node, expected) => {
     const read = (n) => document.querySelector(`#inspector tr[data-node="${n}"]`)?.children[1]?.textContent ?? "";
@@ -137,6 +152,7 @@ try {
 
   // The revenue example: `note` in its slot, in `revenue` and `mix`.
   const page = await open("/docs/examples/revenue.deck.json");
+  await committed(page);
   await showState(page, "revenue", 1);
   const original = await source(page);
   const note = await box(page, "note");
@@ -159,15 +175,27 @@ try {
   const kicker = targets.slots?.kicker;
   check(targets.by === "grid" && Boolean(kicker), `the note's targets are the grid's slots: ${Object.keys(targets.slots ?? {})}`);
   const before = await shot(page);
+  const rest = await frame(page);
   await click(page, center(note));
   let n = await trips(page);
   const shift = [center(kicker)[0] - center(targets.cell)[0], center(kicker)[1] - center(targets.cell)[1]];
   const to = [center(note)[0] + shift[0], center(note)[1] + shift[1]];
   const midway = await drag(page, center(note), to, [], { hold: true, says: "in the Kicker slot" });
+  // The canvas's own frame, not a screenshot: on a loaded runner the compositor's surface can lag
+  // what the canvas holds (#448's run 39922562592 shot the rest frame mid-drag).
+  const drawn = await page
+    .waitForFunction(async (r) => (await window.committed()) !== r, rest, { timeout: 30000 })
+    .then(() => true, () => false);
+  // The screenshot too, kept with the canvas's frame where they disagree: a recurrence shows which.
   const moving = await shot(page);
+  if (!drawn || moving.equals(before)) {
+    await mkdir("target/web-smoke", { recursive: true });
+    await writeFile("target/web-smoke/canvas-moving-shot.png", moving);
+    await writeFile("target/web-smoke/canvas-moving-frame.png", Buffer.from(await frame(page, true)));
+  }
   await page.mouse.up();
   check(midway.includes("in the Kicker slot") && midway.includes("on 2 steps of Slide 2"), `before the drop, the status says where and on which slides: ${midway}`);
-  check(!moving.equals(before), "while it moves, the note's layer is drawn where it is dragged");
+  check(drawn, "while it moves, the note's layer is drawn where it is dragged");
   await settled(page, n);
   const placed = await source(page);
   check(placed !== original, "the drop changes the source");
@@ -195,10 +223,28 @@ try {
   await click(page, center(note));
   n = await trips(page);
   const early = await page.evaluate(() => window.scaena.canvas.early());
-  await page.evaluate(() => {
-    for (let i = 0; i < 3000; i++) void window.scaena.canvas.targets("note");
-  });
-  const late = await drag(page, center(note), to, [], { says: "in the Kicker slot" });
+  // The press and its move past the slop go to the canvas in the page's same task as the requests
+  // that keep the worker busy, so both are in before it can answer the press, however loaded the
+  // machine; the browser's own input could come after the answer.
+  const [[fx, fy], [tx, ty]] = [await client(page, center(note)), await client(page, to)];
+  const pointer = (moves, busy = false) =>
+    page.evaluate(
+      ([moves, busy]) => {
+        if (busy) for (let i = 0; i < 3000; i++) void window.scaena.canvas.targets("note");
+        for (const [type, x, y] of moves) {
+          const buttons = type === "pointerup" ? 0 : 1;
+          const e = { bubbles: true, cancelable: true, pointerId: 1, pointerType: "mouse", isPrimary: true, button: 0, buttons, clientX: x, clientY: y };
+          document.querySelector("#overlay").dispatchEvent(new PointerEvent(type, e));
+        }
+      },
+      [moves, busy],
+    );
+  await pointer([["pointerdown", fx, fy], ["pointermove", fx + 8, fy + 8]], true);
+  await pointer([["pointermove", tx, ty]]);
+  await page.waitForFunction(() => document.querySelector("#status").textContent.includes("in the Kicker slot"), null, { timeout: 30000 }).catch(() => {});
+  await page.waitForFunction(() => window.scaena.canvas.answered(), null, { timeout: 30000 }).catch(() => {});
+  const late = await status(page);
+  await pointer([["pointerup", tx, ty]]);
   check(late.includes("in the Kicker slot"), `a drag pressed while the worker is busy moves the note: ${late}`);
   check((await page.evaluate(() => window.scaena.canvas.early())) > early, "it began from the moves made before the engine answered");
   await settled(page, n);
