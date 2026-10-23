@@ -90,6 +90,11 @@ pub struct Session {
     /// the bundle's files in it, and a save writes the deck as edited into it (PLAN 2.4).
     /// Shared, so an operation reads the bundle without copying its fonts.
     files: Arc<BTreeMap<String, Vec<u8>>>,
+    /// How many times the files have been changed since the session began: a client keeps a copy
+    /// of them in step by it, to go on from after a panic (lift-up STAB-2), and it is part of each
+    /// state's digest key, so a font or an image handed over again with other bytes draws anew
+    /// (lift-up PERF-4).
+    files_edition: u64,
     /// The data files the deck names, as the engine reads them.
     data: DataFiles,
     /// The layout engine, built on the first frame from the fonts and images the deck
@@ -113,9 +118,6 @@ pub struct Session {
     /// state is drawn from, the deck as laid out in the format shown where that is not the
     /// deck itself, and each state resolved.
     drawn: Option<Drawn>,
-    /// How many times the bundle's files have changed: part of each key, so a font or an image
-    /// handed over again with other bytes draws anew.
-    files_rev: u64,
     /// Where the node last asked about may go, by its state and its id: a drag asks again
     /// with every move, and lays nothing out (ADR-0013).
     targets: Vec<(String, String, scaena_engine::geometry::Targets)>,
@@ -353,6 +355,7 @@ impl Session {
             deck,
             theme,
             files: Arc::new(files),
+            files_edition: 0,
             data: DataFiles::new(),
             engine: None,
             timed: scaena_engine::Timed::default(),
@@ -361,7 +364,6 @@ impl Session {
             rest: None,
             digests: HashMap::new(),
             drawn: None,
-            files_rev: 0,
             targets: Vec::new(),
             moving: None,
             view: None,
@@ -580,6 +582,13 @@ impl Session {
         self.files.get(path).map(Vec::as_slice)
     }
 
+    /// How many times the bundle's files have been changed since the session began: one more
+    /// each time any is written or taken out. A client that keeps a copy of them, to go on from
+    /// after a panic, copies them again when it changes (lift-up STAB-2).
+    pub fn files_edition(&self) -> u64 {
+        self.files_edition
+    }
+
     /// Let go of what was laid out: the deck or its files changed. A drag, or a patch
     /// previewed, ends with it.
     fn forget(&mut self) {
@@ -618,7 +627,7 @@ impl Session {
         {
             self.validated = None;
         }
-        self.files_rev += 1;
+        self.files_edition += 1;
         Arc::make_mut(&mut self.files)
     }
 
@@ -844,7 +853,7 @@ impl Session {
         let mut h = std::hash::DefaultHasher::new();
         use std::hash::{Hash, Hasher};
         self.format.hash(&mut h);
-        self.files_rev.hash(&mut h);
+        self.files_edition.hash(&mut h);
         scaena_engine::render::rest_key(drawn.key, deck, &drawn.snapshots, i, time).hash(&mut h);
         Ok(h.finish())
     }
@@ -2638,6 +2647,22 @@ pub struct CodeColor {
 
 #[cfg(test)]
 mod tests {
+    /// The files' edition counts each write and each file taken out, and nothing else (lift-up
+    /// STAB-2): what a worker keeps its copy of the files in step by.
+    #[test]
+    fn the_files_edition_counts_writes_alone() {
+        let mut s = revenue();
+        let was = s.files_edition();
+        assert!(s.file("deck.json").is_some());
+        assert_eq!(s.files_edition(), was, "a read changes nothing");
+        s.add_file("data/extra.csv", b"a,b\n1,2\n".to_vec());
+        assert_eq!(s.files_edition(), was + 1, "a file handed over");
+        s.add_file("data/extra.csv", b"a,b\n3,4\n".to_vec());
+        assert_eq!(s.files_edition(), was + 2, "written again");
+        s.remove_file("data/extra.csv").unwrap();
+        assert_eq!(s.files_edition(), was + 3, "taken out");
+    }
+
     use super::*;
 
     const BUNDLE: &str = "../../tests/fixtures/torture.scaena";

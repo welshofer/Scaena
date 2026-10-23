@@ -127,6 +127,9 @@ export function formatsRow(stage: Stage, into: HTMLElement, toggle: HTMLButtonEl
     },
     /** The state shown, or the format the canvas shows, changed. */
     shown: () => mark(),
+    /** The stage's worker started again (lift-up STAB-2): the figures are made again, their
+     * canvases handed to it. */
+    restarted: () => build(),
     /** What the figures last showed, and how many times they were painted, for a test. */
     painted: () => painted,
   };

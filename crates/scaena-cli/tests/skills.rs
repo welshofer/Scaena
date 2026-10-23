@@ -215,6 +215,39 @@ fn skills_name_only_what_exists() {
     assert!(problems.is_empty(), "{problems:#?}");
 }
 
+/// An agent is sent to the deck's story (narrative USE-4): the author-deck skill reads the spine
+/// first and the deck's health after lint, naming what each measure means; tighten-copy keeps a
+/// slide's claim and its two to five points, the rest going to the notes, as health's balance
+/// reads a slide; and the server's first words name the spine and the health before the tools.
+#[test]
+fn the_skills_and_the_server_send_an_agent_to_the_story() {
+    let skills = skills();
+    let text = |name: &str| skills.iter().find(|(n, _)| n == name).map(|(_, t)| t.as_str()).unwrap();
+    let author = text("author-deck");
+    let story = author.find("**Read the story.**").expect("author-deck reads the story");
+    let lint = author.find("**Lint loop.**").unwrap();
+    assert!(lint < story, "the story is read after lint");
+    assert!(author[story..].contains("`deck_health`") && author[story..].contains("`scaena health <bundle> --json`"));
+    for measure in ["pacing", "balance", "coherence", "fidelity", "intensity", "tone"] {
+        assert!(author[story..].contains(&format!("**{measure}**")), "author-deck says what {measure} measures");
+    }
+    assert!(author[story..].contains("`ask`"), "a finding's ask is a question to answer in the deck");
+    assert!(author[..lint].contains("`spine_read`"), "author-deck reads the spine first");
+    let tighten = text("tighten-copy");
+    assert!(
+        tighten.contains("two to five points") && tighten.contains("`deck_health`"),
+        "tighten-copy keeps the points"
+    );
+    assert!(tighten.contains("never changes what a slide claims"), "tighten-copy keeps the claim");
+    for tool in ["spine_read", "spine_update", "deck_health"] {
+        assert!(scaena_mcp::INSTRUCTIONS.contains(tool), "the server's instructions name {tool}");
+    }
+    assert!(
+        scaena_mcp::INSTRUCTIONS.find("spine_read") < scaena_mcp::INSTRUCTIONS.find("deck_patch"),
+        "the spine comes before the tools that edit"
+    );
+}
+
 #[test]
 fn every_skill_is_served_and_listed() {
     let spec = std::fs::read_to_string(format!("{ROOT}/docs/SPEC.md")).unwrap();
