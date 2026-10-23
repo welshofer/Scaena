@@ -309,8 +309,8 @@ fn said(p: &Progress) -> String {
             tried + 1,
             scaena_narrato::TRIES
         ),
-        Progress::Wrote { slides, truncated: false } => format!("{slides} slides written"),
-        Progress::Wrote { slides, truncated: true } => format!("{slides} slides written, the answer cut short"),
+        Progress::Wrote { slides, truncated: false, .. } => format!("{slides} slides written"),
+        Progress::Wrote { slides, truncated: true, .. } => format!("{slides} slides written, the answer cut short"),
         Progress::Fitting { texts } => format!("{texts} texts run past their place: asking for them shorter…"),
         Progress::Fitted { texts } => format!("{texts} rewritten to fit"),
         Progress::Painting { pictures } => format!("making {pictures} pictures for the slides… (a minute or two)"),
@@ -377,6 +377,161 @@ fn research(
     })
 }
 
+/// Where a run keeps what it has paid for as it arrives, under the bundle's directory.
+const KEPT: &str = ".generating";
+
+/// What a run keeps as it arrives, in `DIR/.generating` (narrative REL-2): deep research's
+/// report, as `research.md`, and the slides as the model wrote them, as `slides.json`, the two
+/// costliest answers. A run that fails after either says the command that goes on from them,
+/// `--slides` and `--source` standing in for the calls, so neither is paid for again; the folder
+/// is removed once the deck is made.
+struct Kept {
+    dir: PathBuf,
+    json: bool,
+    research: Option<PathBuf>,
+    slides: Option<PathBuf>,
+    /// The arc the slides were written on, which a resumed run must take.
+    arc: Option<String>,
+}
+
+impl Kept {
+    fn new(dir: &Path, json: bool) -> Kept {
+        Kept { dir: dir.join(KEPT), json, research: None, slides: None, arc: None }
+    }
+
+    /// `text` kept as `name`, where the disk takes it: one that refuses only means the run
+    /// resumes from nothing, which is said, never an error.
+    fn keep(&self, name: &str, text: &str) -> Option<PathBuf> {
+        let path = self.dir.join(name);
+        match std::fs::create_dir_all(&self.dir).and_then(|()| std::fs::write(&path, text)) {
+            Ok(()) => Some(path),
+            Err(e) => {
+                if !self.json {
+                    eprintln!("not kept at {}: {e}", path.display());
+                }
+                None
+            }
+        }
+    }
+
+    fn research(&mut self, text: &str) {
+        self.research = self.keep("research.md", text);
+    }
+
+    fn slides(&mut self, text: &str) {
+        self.slides = self.keep("slides.json", text);
+    }
+
+    /// The folder taken away, once the deck is made, or on a run that kept nothing.
+    fn remove(&self) {
+        if self.dir.exists() {
+            let _ = std::fs::remove_dir_all(&self.dir);
+        }
+    }
+
+    /// The command that goes on from what is kept, where anything is: the arguments as given,
+    /// but the kept research a `--source` in place of `--research`, and the kept slides
+    /// `--slides` on the arc they were written on, which makes no call.
+    fn resume(&self, a: &GenerateArgs, dir: &Path) -> Option<String> {
+        if self.research.is_none() && self.slides.is_none() {
+            return None;
+        }
+        let mut args = vec!["scaena".to_string(), "generate".into(), quoted(&dir.to_string_lossy())];
+        if let Some(prompt) = &a.prompt {
+            args.push(quoted(prompt));
+        }
+        let flag = |args: &mut Vec<String>, name: &str, value: Option<&str>| {
+            if let Some(value) = value {
+                args.push(format!("--{name}"));
+                args.push(quoted(value));
+            }
+        };
+        let path = |p: Option<&Path>| p.map(|p| p.to_string_lossy().into_owned());
+        if a.theme != "dusk" {
+            flag(&mut args, "theme", Some(&a.theme));
+        }
+        match &self.slides {
+            Some(slides) => {
+                flag(&mut args, "slides", path(Some(slides)).as_deref());
+                flag(&mut args, "arc", self.arc.as_deref().or(a.arc.as_deref()));
+            }
+            None => {
+                flag(&mut args, "provider", a.provider.as_deref());
+                flag(&mut args, "model", a.model.as_deref());
+                flag(&mut args, "base", a.base.as_deref());
+                flag(&mut args, "arc", a.arc.as_deref());
+                if a.no_look {
+                    args.push("--no-look".into());
+                }
+                flag(&mut args, "look-answer", path(a.look_answer.as_deref()).as_deref());
+            }
+        }
+        flag(&mut args, "audience", a.audience.as_deref());
+        flag(&mut args, "goal", a.goal.as_deref());
+        flag(&mut args, "length", a.length.as_deref());
+        flag(&mut args, "modality", a.modality.as_deref());
+        flag(&mut args, "outcome", a.outcome.as_deref());
+        flag(&mut args, "language", a.language.as_deref());
+        flag(&mut args, "persona", a.persona.as_deref());
+        flag(&mut args, "voice", a.voice.as_deref());
+        for source in &a.source {
+            flag(&mut args, "source", Some(source));
+        }
+        flag(&mut args, "source", path(self.research.as_deref()).as_deref());
+        flag(&mut args, "sec-contact", a.sec_contact.as_deref());
+        flag(&mut args, "pictures", a.pictures.as_deref());
+        flag(&mut args, "picture-model", a.picture_model.as_deref());
+        if a.picture_look != "illustration" {
+            flag(&mut args, "picture-look", Some(&a.picture_look));
+        }
+        if a.picture_quality != "medium" {
+            flag(&mut args, "picture-quality", Some(&a.picture_quality));
+        }
+        flag(&mut args, "picture-base", a.picture_base.as_deref());
+        Some(args.join(" "))
+    }
+
+    /// `e`, with the command that goes on from what is kept, where anything is.
+    fn resumable(&self, e: anyhow::Error, a: &GenerateArgs, dir: &Path) -> anyhow::Error {
+        match self.resume(a, dir) {
+            Some(command) => {
+                anyhow!("{e:#}\n\nwhat was paid for is kept in {}: go on from it with\n  {command}", self.dir.display())
+            }
+            None => e,
+        }
+    }
+}
+
+/// `arg` as a shell takes it whole: as it is where it is plain, else in single quotes.
+fn quoted(arg: &str) -> String {
+    let plain = |c: char| c.is_ascii_alphanumeric() || "_-./:@=+,".contains(c);
+    if !arg.is_empty() && arg.chars().all(plain) {
+        arg.to_string()
+    } else {
+        format!("'{}'", arg.replace('\'', "'\\''"))
+    }
+}
+
+/// Whether `dir` may take a new bundle: not there yet, or empty, or holding only what an earlier
+/// run kept (`KEPT`), which this run goes on from or writes over, as said.
+fn vacant(dir: &Path, going_on: bool, json: bool) -> Result<()> {
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        let names: Vec<_> = entries.flatten().map(|e| e.file_name()).collect();
+        if names.len() == 1 && names[0] == KEPT {
+            if !json {
+                let kept = dir.join(KEPT);
+                let kept = kept.display();
+                match going_on {
+                    true => eprintln!("going on from what an earlier run kept in {kept}"),
+                    false => eprintln!("an earlier run kept its answers in {kept}, which this run writes over"),
+                }
+            }
+            return Ok(());
+        }
+    }
+    scaena_ops::create::vacant(dir).map_err(Into::into)
+}
+
 /// The first of `vars` the environment holds, not blank.
 fn env(vars: &[&str]) -> Option<String> {
     vars.iter().find_map(|v| std::env::var(v).ok().filter(|k| !k.trim().is_empty()))
@@ -424,7 +579,10 @@ pub fn run(a: GenerateArgs, json: bool) -> Result<ExitCode> {
     }
     let dir = a.dir.as_deref().context("say where the bundle goes: scaena generate DIR \"what it is about\"")?;
     // Before a call is paid for: the place, the theme, the brief, the key, then the sources.
-    scaena_ops::create::vacant(dir)?;
+    let under_kept = |path: &str| Path::new(path).starts_with(dir.join(KEPT));
+    let going_on =
+        a.slides.as_deref().is_some_and(|p| under_kept(&p.to_string_lossy())) || a.source.iter().any(|s| under_kept(s));
+    vacant(dir, going_on, json)?;
     let theme = ThemeSource::of(Path::new(&a.theme))?;
     let agent = agent();
     // A deck in a script the theme's fonts do not draw takes the script's font, fetched once and
@@ -514,9 +672,14 @@ pub fn run(a: GenerateArgs, json: bool) -> Result<ExitCode> {
         }
         read.push(crate::sources::read(spec, &agent, &reach).with_context(|| format!("--source {spec}"))?);
     }
+    // What the costliest answers give is kept as it arrives, so a run that fails after them goes
+    // on from it (narrative REL-2).
+    let mut kept = Kept::new(dir, json);
     if a.research {
         let key = key.as_deref().context("deep research asks a model: --slides makes no call")?;
-        read.push(research(&brief, provider, &model, a.base.as_deref(), key, &agent, json)?);
+        let report = research(&brief, provider, &model, a.base.as_deref(), key, &agent, json)?;
+        kept.research(&report.text);
+        read.push(report);
     }
     let grounding = scaena_ops::narrative::grounding(&read, provider)?;
     brief.source_content = grounding.content.clone();
@@ -546,7 +709,13 @@ pub fn run(a: GenerateArgs, json: bool) -> Result<ExitCode> {
         );
     }
     let mut client = Client { agent: &agent };
+    let paid = a.slides.is_none();
     let mut say = |p: Progress| {
+        match &p {
+            Progress::Chose { arc, .. } => kept.arc = Some(arc.clone()),
+            Progress::Wrote { text, .. } if paid => kept.slides(text),
+            _ => {}
+        }
         if !json {
             eprintln!("{}", said(&p));
         }
@@ -560,7 +729,7 @@ pub fn run(a: GenerateArgs, json: bool) -> Result<ExitCode> {
         (None, true) => Looking::No,
         (None, false) => Looking::Asked,
     };
-    let (made, write) = scaena_ops::narrative::generate(
+    let generated = scaena_ops::narrative::generate(
         generation,
         key.as_deref(),
         &grounding.documents,
@@ -571,18 +740,29 @@ pub fn run(a: GenerateArgs, json: bool) -> Result<ExitCode> {
         &font,
         &mut client,
         &mut say,
-    )?;
-    let mut kept = Vec::new();
+    );
+    // A failure after an answer was kept says how to go on from it.
+    let (made, write) = generated.map_err(|e| kept.resumable(e.into(), &a, dir))?;
+    let mut sheets = Vec::new();
     if let Some(write) = write {
         // Each sheet given, a data source of the deck's, which a chart can plot.
-        let (write, sheets) = scaena_ops::narrative::keeping(write, &scaena_sources::tables(&read))?;
-        kept = sheets;
-        scaena_ops::create::make(dir, write)?;
+        let written = scaena_ops::narrative::keeping(write, &scaena_sources::tables(&read))
+            .map_err(|e| kept.resumable(e.into(), &a, dir))
+            .and_then(|(write, sheets)| {
+                scaena_ops::create::make(dir, write).map_err(|e| kept.resumable(e.into(), &a, dir))?;
+                Ok(sheets)
+            })?;
+        sheets = written;
+        kept.remove();
     }
+    let resume = kept.resume(&a, dir);
     if json {
         let mut out = serde_json::to_value(&made)?;
         out["sources"] = serde_json::to_value(&grounding.given)?;
-        out["data"] = serde_json::to_value(&kept)?;
+        out["data"] = serde_json::to_value(&sheets)?;
+        if let Some(command) = &resume {
+            out["resume"] = serde_json::Value::String(command.clone());
+        }
         println!("{}", serde_json::to_string_pretty(&out)?);
     } else if made.created.created {
         let d = dir.display();
@@ -615,7 +795,7 @@ pub fn run(a: GenerateArgs, json: bool) -> Result<ExitCode> {
             let cut = if g.truncated { ", cut short to fit" } else { "" };
             println!("  grounded in {} ({}, {} KB{cut})", g.name, g.kind, g.bytes.div_ceil(1024));
         }
-        for k in &kept {
+        for k in &sheets {
             match (&k.id, &k.why) {
                 (Some(id), _) => println!("  data: @{id} from {}", k.sheet),
                 (None, Some(why)) => println!("  data: {} not kept: {why}", k.sheet),
@@ -627,6 +807,9 @@ pub fn run(a: GenerateArgs, json: bool) -> Result<ExitCode> {
     } else {
         println!("not made: {} would not validate", dir.display());
         crate::report(&made.created.findings, false);
+        if let Some(command) = &resume {
+            println!("what was paid for is kept in {}: go on from it with\n  {command}", kept.dir.display());
+        }
     }
     Ok(if !made.created.created || made.created.errors > 0 { ExitCode::from(1) } else { ExitCode::SUCCESS })
 }

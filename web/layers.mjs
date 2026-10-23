@@ -24,8 +24,7 @@
 //   before it. A container into what it holds, or a node into a text, is refused.
 // - axe-core finds nothing against WCAG 2.1 AA in the panel.
 // Exits 1 on any failure.
-import { createRequire } from "node:module";
-import { launch, serve } from "./serve.mjs";
+import { axeInto, launch, serve } from "./serve.mjs";
 
 const server = await serve();
 const failures = [];
@@ -33,7 +32,6 @@ const check = (ok, what) => {
   console.log(`${ok ? "ok  " : "FAIL"} ${what}`);
   if (!ok) failures.push(what);
 };
-const axe = createRequire(import.meta.url).resolve("axe-core/axe.min.js");
 
 const browser = await launch();
 try {
@@ -279,7 +277,7 @@ try {
   check((await source()) === torture, "and nothing changes");
 
   // axe-core on the panel.
-  await page.addScriptTag({ path: axe });
+  await axeInto(page);
   const found = await page.evaluate(async () => {
     const result = await window.axe.run({ include: [["#layers"], ["#tabs"]] }, { runOnly: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] });
     return result.violations.map((v) => `${v.id} (${v.impact}): ${v.nodes.map((n) => n.target.join(" ")).join(", ")}`);

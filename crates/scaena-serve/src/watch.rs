@@ -389,20 +389,10 @@ fn stamp(path: &Path) -> Option<Stamp> {
     Some(Stamp { len: meta.len(), modified: meta.modified().ok() })
 }
 
-/// Write `bytes` at `path` whole: to a file beside it whose name starts with a dot, which a
-/// scan passes over, then renamed into place. That file is made new, so nothing left in its
-/// place, a link included, can take the write elsewhere.
+/// Write `bytes` at `path` whole: the store's own write ([`scaena_store::write_whole`]), to a
+/// file beside it whose name starts with a dot, which a scan passes over, then renamed into
+/// place. That file is made new, so nothing left in its place, a link included, can take the
+/// write elsewhere.
 fn write_whole(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-    let partial = path.with_file_name(format!(".{name}.scaena-serve"));
-    let _ = std::fs::remove_file(&partial);
-    std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&partial)
-        .and_then(|mut file| std::io::Write::write_all(&mut file, bytes))
-        .and_then(|()| std::fs::rename(&partial, path))
-        .inspect_err(|_| {
-            let _ = std::fs::remove_file(&partial);
-        })
+    scaena_store::write_whole(path, bytes)
 }

@@ -23,7 +23,14 @@ export type Source =
   /** A new deck (PLAN 2.12), as `deck_create` makes one: one of the themes that ship
    * (`themes.ts`, by its name), the fonts it names, and one state with nothing on it, titled
    * `title`. Kept nowhere until it is saved. */
-  | { create: { theme: string; title: string } };
+  | { create: { theme: string; title: string } }
+  /** A bundle's files as a worker held them when its engine stopped on a panic (lift-up STAB-2),
+   * and where it is kept, if anywhere: a fresh worker goes on from them, and saves there. */
+  | { recovered: Record<string, ArrayBuffer>; name: string; kept?: Kept };
+
+/** Where a recovered bundle is kept: the browser's storage by name, a folder on disk by its handle,
+ * or the folder `scaena serve` serves it from, by the deck's URL and the page's id. */
+export type Kept = { opfs: string } | { folder: FileSystemDirectoryHandle } | { url: string; serve: string };
 
 /** Where Save as puts a bundle (PLAN 2.12): a folder on disk the page was given, or the
  * browser's storage under a name (`name-2`, … where that is taken). */
@@ -950,6 +957,9 @@ export type ToWorker =
    * asks for, saying how far it has come (`generating`) and handing back its files
    * (`generated`). Stopping the worker stops it. */
   | { type: "briefing"; engine?: WebAssembly.Module }
+  /** Panic, to test the page's recovery from one (lift-up STAB-2): the editor's module alone
+   * carries it; the player's answers with an error. */
+  | { type: "trap" }
   | { type: "generate"; generate: Generate; engine?: WebAssembly.Module }
   /** Paint `state` `t` ms into its cue, or at rest without `t`. */
   | { type: "show"; id: number; state: string; t?: number; format?: string }
@@ -1007,6 +1017,10 @@ export type ToWorker =
   /** Paint the preview through `view`, `[x, y, w, h]` canvas units, at the size shown, or the whole
    * canvas with none; and paint what is shown again so (PLAN 2.46). */
   | { type: "view"; id: number; view: [number, number, number, number] | null }
+  /** Paint frames at the size of the slide shown as large as fits in `room`, device pixels,
+   * keeping the canvas's aspect, from now on; at the canvas's own size with none (lift-up
+   * ATTR-2). What is shown is painted again so. */
+  | { type: "fit"; id: number; room: [number, number] | null }
   /** Each text of the deck `source` compiles to that `query` matches (PLAN 2.47). */
   | { type: "find"; id: number; source: string; query: Query }
   /** The patch that replaces what `query` matches with `with`: every match, or with `one`,
@@ -1256,9 +1270,12 @@ export type ToWorker =
   | {
       type: "writeFiles";
       id: number;
-      files: { path: string; text: string | null }[];
+      files: { path: string; text: string | null; bytes?: ArrayBuffer }[];
       edit?: { source: string; index: number; format?: string };
     }
+  /** The file at `path` in the bundle, as the session holds it (lift-up REL-4): what a recovery
+   * copy keeps of a file written since the save. */
+  | { type: "file"; id: number; path: string }
   /** Ask the assistant (PLAN 2.6): the editor's `source` must compile to a deck that
    * validates, which its tools then work on. Each step comes back as an `assistant` event,
    * until one that is `done` or `failed`. */
@@ -1842,6 +1859,8 @@ export type FromWorker =
   | { type: "laidOut"; id: number; layout: LayoutSlots | null }
   /** The preview is painted through the view asked for. */
   | { type: "viewed"; id: number }
+  /** Frames are painted at `size` from now on: the canvas's attributes. */
+  | { type: "fitted"; id: number; size: [number, number] }
   | { type: "found"; id: number; found: Found[] }
   /** The ops of a replacement, a `replace_text` for each match it replaces. */
   | { type: "replacement"; id: number; ops: unknown[] }
@@ -1948,6 +1967,8 @@ export type FromWorker =
    * deck's source after, and what the edit came to. */
   | { type: "restored"; id: number; restored: Restored; files: Rewritten[]; source?: string; edited?: Edited }
   | { type: "filesWritten"; id: number; edited?: Edited }
+  /** The file asked for, or null where the bundle holds none at its path. */
+  | { type: "file"; id: number; bytes: ArrayBuffer | null }
   | { type: "themeText"; id: number; theme: ThemeText | null }
   | { type: "codeColors"; id: number; colors: CodeColor[] }
   /** What a theme edit did; where it wrote, the theme file before and after (none for an inline
@@ -1968,6 +1989,13 @@ export type FromWorker =
   | { type: "helpers"; count: number }
   /** The formats beside the canvas show `state` `t` ms into its cue (PLAN 2.62). */
   | { type: "besides"; state: string; t: number }
+  /** The canvas's attributes are `size` from now on: frames are painted at it, the slide fitted
+   * to the room (lift-up ATTR-2), the format shown, or the bundle read again changing it. */
+  | { type: "sized"; size: [number, number] }
   /** Request `id` failed, or, without one, opening or playing did. `webgpu`: setting
    * WebGPU up failed, and the CPU painter may still paint. */
-  | { type: "error"; id?: number; message: string; webgpu?: boolean };
+  | { type: "error"; id?: number; message: string; webgpu?: boolean }
+  /** The engine stopped on a panic (lift-up STAB-2), which wasm32 does not unwind from: `message`
+   * the panic's words, and the bundle's files as the worker held them, with its name, for a fresh
+   * worker to go on from. The worker answers every request after with an error. */
+  | { type: "crashed"; message: string; name: string; files: Record<string, ArrayBuffer> };

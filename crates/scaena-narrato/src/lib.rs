@@ -166,6 +166,8 @@ pub struct Generation {
     tried: usize,
     /// How long to wait before the step is asked again, where its last answer was for now.
     again: Option<f64>,
+    /// The slides as the model wrote them, the text [`Generation::written`] read.
+    written: Option<String>,
 }
 
 impl Generation {
@@ -180,6 +182,7 @@ impl Generation {
             narrative: None,
             tried: 0,
             again: None,
+            written: None,
         })
     }
 
@@ -220,6 +223,13 @@ impl Generation {
     /// How many times the step has been asked and answered for now, not for good.
     pub fn tried(&self) -> usize {
         self.tried
+    }
+
+    /// The slides as the model wrote them, the text [`Generation::written`] read, once it has:
+    /// what a client keeps so a run that fails after them resumes from it, as `--slides` takes
+    /// it, with no call paid for again (narrative REL-2).
+    pub fn written_text(&self) -> Option<&str> {
+        self.written.as_deref()
     }
 
     /// The words the narrative's slides name icons by ([`Narrative::icon_words`]); none before
@@ -458,6 +468,7 @@ impl Generation {
         {
             return Err(NarratoError::Incomplete { delivered: written.slides.len(), minimum });
         }
+        self.written = Some(text.to_string());
         self.narrative = Some(Narrative {
             arc: arc.selection,
             arc_reasoning: arc.reasoning,
