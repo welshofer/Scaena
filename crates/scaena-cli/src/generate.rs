@@ -304,6 +304,11 @@ fn said(p: &Progress) -> String {
         Progress::Chose { arc, fallback: None } => format!("arc: {arc}"),
         Progress::Chose { arc, fallback: Some(why) } => format!("arc: {arc}, the heuristic's ({why})"),
         Progress::Writing { slides } => format!("writing the slides, at least {slides}…"),
+        Progress::Retrying { wait, tried } => format!(
+            "the provider is busy or did not answer: asking again in {wait:.0} s (try {} of {})…",
+            tried + 1,
+            scaena_narrato::TRIES
+        ),
         Progress::Wrote { slides, truncated: false } => format!("{slides} slides written"),
         Progress::Wrote { slides, truncated: true } => format!("{slides} slides written, the answer cut short"),
         Progress::Fitting { texts } => format!("{texts} texts run past their place: asking for them shorter…"),

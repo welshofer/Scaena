@@ -5,7 +5,7 @@
 //! the key in its headers and nowhere else. No HTTP: the client makes each call, and reads
 //! each answer back here.
 
-use crate::providers::{Provider, Request, at, with_json};
+use crate::providers::{Provider, Request, at, try_again_in, with_json};
 use crate::{Slide, js};
 use base64::Engine;
 use serde::{Deserialize, Serialize};
@@ -422,21 +422,6 @@ impl std::fmt::Display for Unmade {
 /// The statuses a provider answers with for now, not for good (Vzestup's retry list: a rate
 /// limit, a server's failure, and Cloudflare's edge before OpenAI's).
 const AGAIN: [u16; 8] = [429, 500, 502, 503, 504, 520, 522, 524];
-
-/// The wait a rate limit's words ask for: "Please try again in 12s", "in 850ms".
-fn try_again_in(text: &str) -> Option<f64> {
-    let rest = &text[text.find("try again in ")? + "try again in ".len()..];
-    let number: String = rest.chars().take_while(|c| c.is_ascii_digit() || *c == '.').collect();
-    let value: f64 = number.parse().ok()?;
-    let unit = &rest[number.len()..];
-    Some(if unit.starts_with("ms") {
-        value / 1000.0
-    } else if unit.starts_with('m') && !unit.starts_with("ms") {
-        value * 60.0
-    } else {
-        value
-    })
-}
 
 /// The picture an answer to [`request`] holds, or why there is none. `after` is the answer's
 /// `Retry-After`, where it has one.

@@ -46,6 +46,18 @@ pub const FIT_MAX_TOKENS: u32 = 16_000;
 /// Room for what the model would change on the deck it sees, thinking included.
 pub const LOOK_MAX_TOKENS: u32 = 16_000;
 
+/// How many times a step is asked while its provider is busy or does not answer (narrative
+/// REL-1): the pictures' six, so that one busy answer on the dearest call ends no run.
+pub const TRIES: usize = 6;
+/// The longest wait before a step is asked again, in seconds.
+pub const LONGEST_WAIT: f64 = 60.0;
+
+/// Whether `status` answers for now, not for good: no answer (0), a timeout, a rate limit, or a
+/// server's failure, Anthropic's 529 and Cloudflare's edge among them.
+pub fn busy(status: u16) -> bool {
+    matches!(status, 0 | 408 | 429 | 500..=599)
+}
+
 /// Who writes the deck: a provider, the model the user picked from those their key lists, and
 /// where its API is.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -150,6 +162,10 @@ pub struct Generation {
     /// Why the arc was chosen by the heuristic, where the model's choice did not come back.
     fallback: Option<String>,
     narrative: Option<Narrative>,
+    /// How many times the step was asked and answered for now, not for good.
+    tried: usize,
+    /// How long to wait before the step is asked again, where its last answer was for now.
+    again: Option<f64>,
 }
 
 impl Generation {
@@ -162,6 +178,8 @@ impl Generation {
             arc: None,
             fallback: None,
             narrative: None,
+            tried: 0,
+            again: None,
         })
     }
 
@@ -190,6 +208,18 @@ impl Generation {
 
     pub fn narrative(&self) -> Option<&Narrative> {
         self.narrative.as_ref()
+    }
+
+    /// How long to wait, in seconds, before the step is asked again ([`Generation::request`]
+    /// gives the same request): where the last answer was for now, not for good. None where
+    /// it was read, and after the last of [`TRIES`].
+    pub fn again(&self) -> Option<f64> {
+        self.again
+    }
+
+    /// How many times the step has been asked and answered for now, not for good.
+    pub fn tried(&self) -> usize {
+        self.tried
     }
 
     /// The words the narrative's slides name icons by ([`Narrative::icon_words`]); none before
@@ -358,10 +388,30 @@ impl Generation {
         fit::read(&read.text, longs).map_err(NarratoError::Answer)
     }
 
-    /// Read the response to [`Generation::request`]: `status` 0 where it never came back. Arc
-    /// selection that fails in any way falls back to the heuristic, saying why; the slides that
-    /// fail are an error, and the step stands to be asked again.
-    pub fn answer(&mut self, status: u16, status_text: &str, body: &str) -> Result<Step, NarratoError> {
+    /// Read the response to [`Generation::request`]: `status` 0 where it never came back, and
+    /// `after` its `Retry-After`, where it has one. An answer for now, not for good (`busy`: no
+    /// answer, a timeout, a rate limit, a server's failure) leaves the step standing to be asked
+    /// again, after the wait [`Generation::again`] says, up to [`TRIES`] times in all (narrative
+    /// REL-1). After the last, or any other failure, arc selection falls back to the heuristic,
+    /// saying why; the slides that fail are an error, and the step stands to be asked again.
+    pub fn answer(
+        &mut self,
+        status: u16,
+        status_text: &str,
+        body: &str,
+        after: Option<&str>,
+    ) -> Result<Step, NarratoError> {
+        if self.step == Step::Done {
+            return Err(NarratoError::Done);
+        }
+        if busy(status) && self.tried + 1 < TRIES {
+            self.tried += 1;
+            self.again = Some(providers::wait(after, body, self.tried));
+            return Ok(self.step);
+        }
+        self.again = None;
+        let tried = std::mem::take(&mut self.tried) + 1;
+        let asked = |why: String| if tried > 1 { format!("{why} (asked {tried} times)") } else { why };
         match self.step {
             Step::Arc => {
                 let chosen = match status {
@@ -374,7 +424,7 @@ impl Generation {
                     Ok(choice) => self.arc = Some(choice),
                     Err(why) => {
                         self.arc = Some(heuristic::choose(&self.brief));
-                        self.fallback = Some(why);
+                        self.fallback = Some(asked(why));
                     }
                 }
                 self.step = Step::Slides;
@@ -382,10 +432,10 @@ impl Generation {
             }
             Step::Slides => {
                 if status == 0 {
-                    return Err(NarratoError::Provider(format!("the request did not complete: {status_text}")));
+                    return Err(NarratoError::Provider(asked(format!("the request did not complete: {status_text}"))));
                 }
-                let read =
-                    self.settings.provider.read_answer(status, status_text, body).map_err(NarratoError::Provider)?;
+                let read = (self.settings.provider.read_answer(status, status_text, body))
+                    .map_err(|why| NarratoError::Provider(asked(why)))?;
                 self.written(&read.text, read.stop == Stop::Length)
             }
             Step::Done => Err(NarratoError::Done),

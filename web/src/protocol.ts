@@ -1360,6 +1360,7 @@ export type GeneratingEvent =
   | { kind: "choosing" }
   | { kind: "chose"; arc: string; fallback?: string }
   | { kind: "writing"; slides: number }
+  | { kind: "retrying"; seconds: number; tried: number }
   | { kind: "wrote"; slides: number; truncated: boolean }
   | { kind: "painting"; pictures: number; model: string }
   | { kind: "painted"; pictures: number; unmade: string[] }

@@ -183,12 +183,21 @@ export async function generate(
         const step = generation.step();
         hear(step === "arc" ? { kind: "choosing" } : { kind: "writing", slides: generation.target() });
         const reply = await send(JSON.parse(asked));
-        const at = JSON.parse(generation.answer(reply.status, reply.statusText, reply.body)) as {
+        const at = JSON.parse(generation.answer(reply.status, reply.statusText, reply.body, reply.after)) as {
           arc?: string;
           fallback?: string | null;
           written?: number | null;
           truncated?: boolean | null;
+          wait?: number | null;
+          tried?: number | null;
         };
+        // An answer for now (busy, a server's failure, none): the same step asked again after
+        // the wait the generator says, up to six times (narrative REL-1).
+        if (at.wait != null) {
+          hear({ kind: "retrying", seconds: at.wait, tried: at.tried ?? 0 });
+          await new Promise((r) => setTimeout(r, at.wait! * 1000));
+          continue;
+        }
         if (step === "arc") hear({ kind: "chose", arc: at.arc ?? "", fallback: at.fallback ?? undefined });
         else hear({ kind: "wrote", slides: at.written ?? 0, truncated: at.truncated ?? false });
       }

@@ -262,7 +262,8 @@ impl Generating {
             }
             "answer" => {
                 let w = self.written()?;
-                w.generation.answer(status(), &status_text(), arg("body")?).map_err(said)?;
+                let after = args.get("after").and_then(Value::as_str);
+                w.generation.answer(status(), &status_text(), arg("body")?, after).map_err(said)?;
                 where_it_stands(&w.generation)
             }
             "written" => {
@@ -587,7 +588,9 @@ fn researched(topic: &str, report: &Report) -> Source {
     Source { name: source_name(topic), kind: Kind::Research, text: report.source_text(), sheets: Vec::new(), pdf: None }
 }
 
-/// Where a generation stands: `{step, slides, arc?, fallback?, written?, truncated?}`.
+/// Where a generation stands: `{step, slides, arc?, fallback?, written?, truncated?, wait?}`,
+/// `wait` the seconds to wait before the same step is asked again, where its last answer was
+/// for now (narrative REL-1).
 fn where_it_stands(g: &Generation) -> Value {
     let narrative = g.narrative();
     let step: Step = g.step();
@@ -598,5 +601,7 @@ fn where_it_stands(g: &Generation) -> Value {
         "fallback": g.fallback(),
         "written": narrative.map(|n| n.slides.len()),
         "truncated": narrative.map(|n| n.truncated),
+        "wait": g.again(),
+        "tried": g.tried(),
     })
 }
