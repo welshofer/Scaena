@@ -23,7 +23,14 @@ export type Source =
   /** A new deck (PLAN 2.12), as `deck_create` makes one: one of the themes that ship
    * (`themes.ts`, by its name), the fonts it names, and one state with nothing on it, titled
    * `title`. Kept nowhere until it is saved. */
-  | { create: { theme: string; title: string } };
+  | { create: { theme: string; title: string } }
+  /** A bundle's files as a worker held them when its engine stopped on a panic (lift-up STAB-2),
+   * and where it is kept, if anywhere: a fresh worker goes on from them, and saves there. */
+  | { recovered: Record<string, ArrayBuffer>; name: string; kept?: Kept };
+
+/** Where a recovered bundle is kept: the browser's storage by name, a folder on disk by its handle,
+ * or the folder `scaena serve` serves it from, by the deck's URL and the page's id. */
+export type Kept = { opfs: string } | { folder: FileSystemDirectoryHandle } | { url: string; serve: string };
 
 /** Where Save as puts a bundle (PLAN 2.12): a folder on disk the page was given, or the
  * browser's storage under a name (`name-2`, … where that is taken). */
@@ -950,6 +957,9 @@ export type ToWorker =
    * asks for, saying how far it has come (`generating`) and handing back its files
    * (`generated`). Stopping the worker stops it. */
   | { type: "briefing"; engine?: WebAssembly.Module }
+  /** Panic, to test the page's recovery from one (lift-up STAB-2): the editor's module alone
+   * carries it; the player's answers with an error. */
+  | { type: "trap" }
   | { type: "generate"; generate: Generate; engine?: WebAssembly.Module }
   /** Paint `state` `t` ms into its cue, or at rest without `t`. */
   | { type: "show"; id: number; state: string; t?: number; format?: string }
@@ -1969,4 +1979,8 @@ export type FromWorker =
   | { type: "besides"; state: string; t: number }
   /** Request `id` failed, or, without one, opening or playing did. `webgpu`: setting
    * WebGPU up failed, and the CPU painter may still paint. */
-  | { type: "error"; id?: number; message: string; webgpu?: boolean };
+  | { type: "error"; id?: number; message: string; webgpu?: boolean }
+  /** The engine stopped on a panic (lift-up STAB-2), which wasm32 does not unwind from: `message`
+   * the panic's words, and the bundle's files as the worker held them, with its name, for a fresh
+   * worker to go on from. The worker answers every request after with an error. */
+  | { type: "crashed"; message: string; name: string; files: Record<string, ArrayBuffer> };

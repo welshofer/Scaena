@@ -99,6 +99,60 @@ const post = (message: FromWorker, transfer: Transferable[] = []) => self.postMe
 const said = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 let player: Player;
+/** The bundle's files as the session holds them (lift-up STAB-2), kept in step after each message
+ * by the session's edition of them: what a fresh worker goes on from when the engine panics.
+ * wasm32 does not unwind: a panic traps, and the session is not used again. */
+let mirror = new Map<string, Uint8Array>();
+let mirrored: { of: Player; edition: number } | undefined;
+/** The panic's words, once the engine has stopped: every request after is refused with them. */
+let stopped: string | undefined;
+/** The last panic the engine's hook said, which the console hears first. */
+let panicked: string | undefined;
+const consoleError = console.error.bind(console);
+console.error = (...args: unknown[]) => {
+  const text = String(args[0] ?? "");
+  if (text.startsWith("panicked at")) panicked = text.split("\n").slice(1).join(" ").trim() || text;
+  consoleError(...args);
+};
+self.addEventListener("error", (e) => {
+  if (e.error instanceof WebAssembly.RuntimeError) crashed(e.error);
+});
+self.addEventListener("unhandledrejection", (e) => {
+  if (e.reason instanceof WebAssembly.RuntimeError) crashed(e.reason);
+});
+
+/** The mirror of the session's files, kept in step: every file copied again when their edition
+ * changed, or the session is another. */
+function mirrorFiles() {
+  if (!player || stopped !== undefined) return;
+  const edition = player.filesEdition();
+  if (mirrored?.of === player && mirrored.edition === edition) return;
+  const next = new Map<string, Uint8Array>();
+  for (const path of player.files()) {
+    const bytes = player.file(path);
+    if (bytes) next.set(path, bytes);
+  }
+  mirror = next;
+  mirrored = { of: player, edition };
+}
+
+/** The engine stopped on a panic: the page hears, with the bundle's files as they were, and every
+ * request after is refused. */
+function crashed(e: unknown) {
+  if (stopped !== undefined) return;
+  stopped = panicked ?? said(e);
+  asking?.abort();
+  const files: Record<string, ArrayBuffer> = {};
+  const transfer: ArrayBuffer[] = [];
+  for (const [path, bytes] of mirror) {
+    const whole = bytes.byteOffset === 0 && bytes.byteLength === bytes.buffer.byteLength;
+    const buffer = whole ? (bytes.buffer as ArrayBuffer) : (bytes.slice().buffer as ArrayBuffer);
+    files[path] = buffer;
+    transfer.push(buffer);
+  }
+  mirror = new Map();
+  post({ type: "crashed", message: stopped, name, files }, transfer);
+}
 /** The bundle's name, and where it is kept, if anywhere: a folder on disk, one in the
  * browser's storage, or the folder `scaena serve` serves it from. */
 let name = "deck";
@@ -163,10 +217,16 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
   const id = "id" in data ? data.id : undefined;
   const reads = READS.has(data.type);
   if (!reads) worded = undefined;
+  if (stopped !== undefined) {
+    if (id !== undefined) post({ type: "error", id, message: `the engine stopped: ${stopped}` });
+    return;
+  }
   try {
     switch (data.type) {
       case "open":
         return await open(data.source, data.painter, data.canvas, data.engine);
+      case "trap":
+        return player.trap();
       case "briefing": {
         await init(data.engine && { module_or_path: data.engine });
         const { choices } = await import("@scaena/generate");
@@ -752,9 +812,15 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         return help(data.port);
     }
   } catch (e) {
+    if (e instanceof WebAssembly.RuntimeError) crashed(e);
     post({ type: "error", id, message: said(e) });
   } finally {
     if (!reads) worded = undefined;
+    try {
+      mirrorFiles();
+    } catch (e) {
+      if (e instanceof WebAssembly.RuntimeError) crashed(e);
+    }
   }
 };
 
@@ -842,8 +908,9 @@ async function open(source: Source, painter: Painter, target: OffscreenCanvas, e
   }
   from = source;
   await load(source);
-  // A deck made from a theme the page carries has its library already.
-  if (!("create" in source)) await library();
+  // A deck made from a theme the page carries has its library already, and one recovered from a
+  // worker's files has it as that worker brought it in.
+  if (!("create" in source || "recovered" in source)) await library();
   slots = opening();
   [canvas.width, canvas.height] = size();
   gpu?.resize(canvas.width, canvas.height);
@@ -937,6 +1004,18 @@ async function load(source: Source) {
     player = bundleOf(new Map(Object.entries(source.files).map(([path, bytes]) => [path, new Uint8Array(bytes)])));
     name = source.name;
     only = source.states;
+  } else if ("recovered" in source) {
+    // The files a worker held when its engine stopped (lift-up STAB-2), kept where it kept them.
+    player = bundleOf(new Map(Object.entries(source.recovered).map(([path, bytes]) => [path, new Uint8Array(bytes)])));
+    name = source.name;
+    const kept = source.kept;
+    if (kept && "opfs" in kept) home = keptIn(await keptBundle(kept.opfs), "opfs");
+    else if (kept && "folder" in kept) home = keptIn(kept.folder, "folder");
+    else if (kept) {
+      home = served(kept.url, kept.serve, name);
+      // A served bundle is read again from its URL.
+      from = { url: kept.url, serve: kept.serve };
+    }
   } else if ("zip" in source) {
     player = Player.fromZip(new Uint8Array(source.zip));
     const dir = await newBundle(source.name);

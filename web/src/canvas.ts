@@ -4289,6 +4289,12 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     /** Zoom the preview (PLAN 2.46): a step closer or farther, as ⌘+ and ⌘− do, the whole canvas, as
      * ⌘0 does, or as close as a number, about canvas point `about` or the middle of what is shown.
      * Resolves once the preview is painted so. */
+    /** The stage's worker started again (lift-up STAB-2): the part of the canvas shown is sent to
+     * it, as the one before was told. */
+    restarted: () => {
+      sent = "";
+      return look(view);
+    },
     zoom: (how: "in" | "out" | "fit" | number, about?: [number, number]) =>
       how === "fit" ? fit() : typeof how === "number" ? zoomTo(how, about) : zoomStep(how === "in" ? 1 : -1, about),
     /** Move what is zoomed in by `dx`, `dy` canvas units, as the wheel and a drag with Space do. */
