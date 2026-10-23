@@ -1241,7 +1241,7 @@ let shown: { index: number; format?: string } = { index: 0 };
  * the editor as source. The assistant's code and what it reads load the first time. */
 async function ask(id: number, source: string, question: Asking, drawn?: Drawn) {
   saveable(source);
-  const assistant = await import("@scaena/assistant");
+  // Made before the assistant's code loads, so a stop that comes meanwhile stops this question.
   asking?.abort();
   const stop = (asking = new AbortController());
   const emit = (event: AssistantEvent, transfer: Transferable[] = []) => post({ type: "assistant", id, event }, transfer);
@@ -1260,6 +1260,7 @@ async function ask(id: number, source: string, question: Asking, drawn?: Drawn) 
     emit(event, event.drawn?.flatMap((t) => (t.pixels ? [t.pixels] : [])));
   };
   try {
+    const assistant = await import("@scaena/assistant");
     await assistant.ask(player, Player.toolNames(), question, emit, edited, stop.signal);
   } catch (e) {
     emit({ kind: "failed", message: said(e) });
