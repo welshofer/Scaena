@@ -161,7 +161,7 @@ export interface Editor {
   /** `node`'s `transform` in the state shown, resolved (PLAN 2.51): what its rotate handle turns. */
   transform(node: string): { rotate?: number; anchor?: [number, number] } | undefined;
   /** Take `source`, a patch's, as one change: one step to undo. */
-  apply(source: string, edited: Edited): void;
+  apply(source: string, edited: Edited, said?: string): void;
   /** Take `source` as typed: one step to undo with what was typed just before it (`joins`), or
    * the first of a burst of typing. */
   typed(source: string, edited: Edited, joins: boolean): void;
@@ -2331,9 +2331,10 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     editor.say("Placing…");
     try {
       const { source, edited } = await stage.make(editor.source(), ops, shown.index, editor.format());
-      editor.apply(source, edited);
+      const told = done ?? `${op?.node === undefined ? "Placed" : `${Called(op.node)} placed`}: ${placed(op?.at ?? {}, aim?.by, words)}`;
+      editor.apply(source, edited, told);
       await refresh();
-      editor.say(done ?? `${op?.node === undefined ? "Placed" : `${Called(op.node)} placed`}: ${placed(op?.at ?? {}, aim?.by, words)}`);
+      editor.say(told);
     } catch (e) {
       await still(`Not placed: ${said(e)}`);
     }
@@ -2348,7 +2349,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     editor.say(doing);
     try {
       const { source, edited } = await stage.make(editor.source(), ops, shown.index, editor.format());
-      editor.apply(source, edited);
+      editor.apply(source, edited, done);
       await refresh();
       if (Array.isArray(next)) selectAll(next.filter((n) => box(n) !== undefined));
       else if (next !== undefined) select(next ?? undefined);

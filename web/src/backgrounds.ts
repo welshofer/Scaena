@@ -17,7 +17,7 @@ export interface Around {
   slide(state: string): string;
   format(): string | undefined;
   source(): string;
-  apply(source: string, edited: Edited): void;
+  apply(source: string, edited: Edited, said?: string): void;
   say(text: string): void;
 }
 
@@ -167,8 +167,9 @@ export function backgrounds(stage: Stage, around: Around) {
       // Its own patch shows it; the one made sets each text too faint over it in a color that reads.
       const patch = await stage.backgroundPatch(b.first, o.preset);
       const { source, edited } = await stage.make(around.source(), patch, now.index, around.format());
-      around.apply(source, edited);
-      around.say(`${slide}: background ${o.preset === undefined ? "taken away" : o.label} · ⌘Z undoes it`);
+      const told = `${slide}: background ${o.preset === undefined ? "taken away" : o.label}`;
+      around.apply(source, edited, told);
+      around.say(`${told} · ⌘Z undoes it`);
       drawn = undefined;
       if (box?.isConnected) void ask();
     } catch (e) {

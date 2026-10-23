@@ -31,7 +31,7 @@ export interface WritingHost {
   format(): string | undefined;
   source(): string;
   /** Take `source`, the patch made: one step to undo. */
-  apply(source: string, edited: Edited): void;
+  apply(source: string, edited: Edited, said?: string): void;
   say(text: string): void;
   /** Show the assistant, its key in focus: where a key goes. */
   keys(): void;
@@ -192,7 +192,7 @@ export function writer(stage: Stage, host: WritingHost) {
       const what = ask.kind === "describe" ? "the picture" : ask.node !== undefined ? quote(taking.text) : host.slide(ask.state ?? now.state);
       if (!taking.patch?.length) return void host.say(`Nothing to change: ${what} already reads so`);
       const { source, edited } = await stage.make(host.source(), taking.patch, now.index, host.format());
-      host.apply(source, edited);
+      host.apply(source, edited, TOOK[ask.kind](what));
       host.say(`${TOOK[ask.kind](what)} · ⌘Z undoes it`);
     } catch (e) {
       host.say(`Not changed: ${said(e)}`);

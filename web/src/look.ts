@@ -56,7 +56,7 @@ export interface Around {
   format(): string | undefined;
   source(): string;
   /** Take `source`, the patch made: one step to undo. */
-  apply(source: string, edited: Edited): void;
+  apply(source: string, edited: Edited, said?: string): void;
   say(text: string): void;
   /** Give the characters selected in the text typed in `look` (`style_text`): whether it was. */
   style(look: Record<string, unknown>, words?: string): Promise<boolean>;
@@ -784,8 +784,8 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
     try {
       const states = await stage.reach(ops);
       const { source, edited } = await stage.make(around.source(), ops, now.index, around.format());
-      around.apply(source, edited);
       const given = value === null ? "back to the theme’s" : field ? told(field, value) : String(value);
+      around.apply(source, edited, `${name}: ${given}${several}`);
       around.say(`${name}: ${given}${several} · ${reaching(states, now.state, around.slide)}`);
     } catch (e) {
       around.say(`Not changed: ${said(e)}`);
@@ -802,7 +802,7 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
       if (!now) return;
       try {
         const { source, edited } = await stage.make(around.source(), ops, now.index, around.format());
-        around.apply(source, edited);
+        around.apply(source, edited, told);
         around.say(`${told} · ⌘Z undoes it`);
       } catch (e) {
         around.say(`Not changed: ${said(e)}`);

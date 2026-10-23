@@ -475,6 +475,12 @@ const rewrites = invertedEffects.of((tr) =>
  * again, so a node an undo brings back finds the file it draws. */
 const fileTaken = StateEffect.define<{ path: string; out: boolean }>();
 const takes = invertedEffects.of((tr) => tr.effects.filter((e) => e.is(fileTaken)).map((e) => fileTaken.of({ ...e.value, out: !e.value.out })));
+/** What a change is, in a person's words, carried by its transaction (lift-up USE-4): an undo says
+ * what it took back, and a redo what it made again. The inverse carries the same words. */
+const described = StateEffect.define<string>();
+const describes = invertedEffects.of((tr) => tr.effects.filter((e) => e.is(described)).map((e) => described.of(e.value)));
+/** `words` as a change is described: without the status's "⌘Z undoes it", which an undo makes untrue. */
+const describing = (words: string) => words.replace(/\s*·\s*⌘Z undoes it$/, "");
 
 async function edit(source: Source, opened?: Stage) {
   const status = $("#status");
@@ -683,6 +689,10 @@ async function edit(source: Source, opened?: Stage) {
    * source its edit made (PLAN 2.52). */
   let touching: { source: string; nodes: string[] } | undefined;
 
+  /** What the last change was, in a person's words, where it said (lift-up USE-4): what Undo
+   * takes back; and what the last undo took back: what Redo makes again. */
+  let lastDone: string | undefined;
+  let lastUndone: string | undefined;
   const view = new EditorView({
     parent: $("#code"),
     state: EditorState.create({
@@ -693,6 +703,7 @@ async function edit(source: Source, opened?: Stage) {
         history(),
         rewrites,
         takes,
+        describes,
         drawSelection(),
         highlightActiveLine(),
         keymap.of([...defaultKeymap, ...historyKeymap, ...findingKeys, indentWithTab]),
@@ -745,6 +756,24 @@ async function edit(source: Source, opened?: Stage) {
           for (const tr of update.transactions) {
             if (!tr.isUserEvent("undo") && !tr.isUserEvent("redo")) continue;
             for (const e of tr.effects) if (e.is(fileTaken)) void filing.taken(e.value.path, e.value.out, tr.isUserEvent("redo"));
+          }
+          // An undo or a redo says what it took back or made again (lift-up USE-4), as the Data and
+          // Files tabs say of theirs: a file taken out or put back is the Files tab's to say.
+          for (const tr of update.transactions) {
+            const words = tr.effects.find((e) => e.is(described))?.value;
+            if (tr.isUserEvent("undo") || tr.isUserEvent("redo")) {
+              if (tr.effects.some((e) => e.is(fileTaken))) continue;
+              const redo = tr.isUserEvent("redo");
+              const what = words ?? "an edit of the source";
+              say(`${redo ? "Made again" : "Undone"}: ${what}`);
+              // Said of the source the undo made: it stays through that source's lint.
+              toldOf = update.state.doc.toString();
+              lastUndone = redo ? undefined : what;
+              lastDone = redo ? what : undefined;
+            } else if (tr.docChanged || words !== undefined) {
+              lastDone = words ?? (tr.isUserEvent("input.type") ? "what was typed" : "an edit of the source");
+              lastUndone = undefined;
+            }
           }
           if (update.selectionSet) follow();
           undoable(update.state);
@@ -902,12 +931,14 @@ async function edit(source: Source, opened?: Stage) {
   /** The words for the state shown (PLAN 2.99): its objects by what they show, the theme's names
    * said. Asked for each time the state shown is inspected. */
   let lexicon: Lexicon | undefined;
-  /** Take `source`, a patch made on the canvas or in the inspector: one change, one step to undo. */
-  const made = (source: string, edited: Edited) => {
+  /** Take `source`, a patch made on the canvas or in the inspector: one change, one step to undo,
+   * which `said`, the change in a person's words, names when it is undone (lift-up USE-4). */
+  const made = (source: string, edited: Edited, said?: string) => {
     taken = { source, edited, showings };
     anchor();
     const changes = change(view.state.doc.toString(), source);
-    view.dispatch({ changes, userEvent: "input.canvas", annotations: isolateHistory.of("full") });
+    const effects = said ? [described.of(describing(said))] : [];
+    view.dispatch({ changes, effects, userEvent: "input.canvas", annotations: isolateHistory.of("full") });
   };
   /** The node selected, its look chosen from the theme in the inspector (PLAN 2.33): each choice a
    * patch, as each gesture on the canvas is. */
@@ -975,7 +1006,7 @@ async function edit(source: Source, opened?: Stage) {
       view.dispatch(
         joins
           ? { changes, userEvent: "input.type.compose" }
-          : { changes, userEvent: "input.type", annotations: isolateHistory.of("before") },
+          : { changes, effects: [described.of("what was typed")], userEvent: "input.type", annotations: isolateHistory.of("before") },
       );
     },
     // The canvas shows what an undo made at once, not once the editor would lint.
@@ -1206,7 +1237,7 @@ async function edit(source: Source, opened?: Stage) {
           return r;
         }
         // One change, which carries the data files the restore wrote for its undo.
-        const effects = filesWritten.of(done.files);
+        const effects = [filesWritten.of(done.files), described.of(`Version ${version.n} restored`)];
         anchor();
         if (done.source === view.state.doc.toString()) {
           view.dispatch({ effects, annotations: isolateHistory.of("full") });
@@ -1280,13 +1311,13 @@ async function edit(source: Source, opened?: Stage) {
       if (done.source === view.state.doc.toString()) {
         if (!effects.length) return void say(`Theme: ${what}, as it was`);
         anchor();
-        view.dispatch({ effects, annotations: isolateHistory.of("full") });
+        view.dispatch({ effects: [...effects, described.of(`Theme: ${what}`)], annotations: isolateHistory.of("full") });
         wrote(done.edited);
       } else {
         anchor();
         taken = { source: done.source, edited: done.edited, showings };
         const changes = change(view.state.doc.toString(), done.source);
-        view.dispatch({ changes, effects, userEvent: "input.theme", annotations: isolateHistory.of("full") });
+        view.dispatch({ changes, effects: [...effects, described.of(`Theme: ${what}`)], userEvent: "input.theme", annotations: isolateHistory.of("full") });
       }
       const issues = r.added.length || r.removed.length ? ` · ${issuesChanged(r.added.length, r.removed.length)}` : "";
       say(`Theme: ${what}${issues} · ⌘Z undoes it`);
@@ -2062,11 +2093,11 @@ async function edit(source: Source, opened?: Stage) {
       touching = touched?.length ? { source, nodes: touched } : undefined;
       // A theme it edited goes in the source's history with the theme's text before and after,
       // as the Theme tab's edit does (PLAN 2.61): ⌘Z writes the theme back.
-      const effects = files.length ? [filesWritten.of(files)] : [];
+      const effects = [...(files.length ? [filesWritten.of(files)] : []), described.of("the assistant’s edit")];
       // An edit that leaves the source as it is wrote a file beside it: a data file (`data_edit`),
       // or the theme (`theme_edit`).
       if (source === view.state.doc.toString()) {
-        if (effects.length) {
+        if (files.length) {
           anchor();
           view.dispatch({ effects, annotations: isolateHistory.of("full") });
         }
@@ -2490,8 +2521,10 @@ async function edit(source: Source, opened?: Stage) {
   function deckCommands(): Command[] {
     const rethemes = [...themePicker.querySelectorAll("option")].filter((o) => o.value && !o.defaultSelected);
     return [
-      { label: "Undo", keys: `${MOD}Z`, group: "Edit", applies: () => undoDepth(view.state) > 0 && !assisting, run: () => undo(view) && forceLinting(view) },
-      { label: "Redo", keys: `${MOD}${SHIFT}Z`, group: "Edit", applies: () => redoDepth(view.state) > 0 && !assisting, run: () => redo(view) && forceLinting(view) },
+      // Each named by the change it takes back or makes again, where the last change said what
+      // it was (lift-up USE-4).
+      { label: lastDone ? `Undo ${lastDone}` : "Undo", keys: `${MOD}Z`, group: "Edit", applies: () => undoDepth(view.state) > 0 && !assisting, run: () => undo(view) && forceLinting(view) },
+      { label: lastUndone ? `Redo ${lastUndone}` : "Redo", keys: `${MOD}${SHIFT}Z`, group: "Edit", applies: () => redoDepth(view.state) > 0 && !assisting, run: () => redo(view) && forceLinting(view) },
       { label: "Find in the deck's texts", keys: `${MOD}F`, group: "Find and replace", run: () => finding?.open() },
       ...rethemes.map(
         (o): Command => ({
