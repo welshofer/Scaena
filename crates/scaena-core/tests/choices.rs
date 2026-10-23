@@ -130,10 +130,11 @@ fn a_text_offers_its_role_style_and_props_from_the_theme_and_the_schema() {
 
 #[test]
 fn each_node_type_offers_what_its_theme_names() {
-    // A shader takes the presets of its kind: Dusk's `backdrop` is a mesh, `texture` noise.
+    // A shader takes the presets of its kind: Dusk's `backdrop` and `aurora` are meshes, `texture`
+    // and `haze` noise.
     let bg = offered(&example(), "intro", "bg");
     let Takes::Name { names, .. } = &field(&bg, "preset").takes else { panic!() };
-    assert_eq!(names, &["backdrop"]);
+    assert_eq!(names, &["backdrop", "aurora"]);
     assert_eq!(
         (field(&bg, "palette").value.clone(), field(&bg, "palette").lives.clone()),
         (Some(json!("ambient")), Some(Where::Node))

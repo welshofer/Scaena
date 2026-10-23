@@ -232,7 +232,12 @@ char *scaena_picture(const uint8_t *bytes, size_t len);
 // take (PLAN 2.92, 3.26): `layoutsBegin {state}`, how many are to be judged; `layoutsStep`, the
 // next judged, and whether any is left; and `layoutSuggestions {height}`, those judged, best
 // first, each with the `set_state` that gives it and its picture's size, painted `height`
-// pixels high, which [`scaena_layout_pixels`] takes. The slides a person may start (PLAN 3.30):
+// pixels high, which [`scaena_layout_pixels`] takes. A slide's background (PLAN 2.148, 3.32):
+// `backgroundsPainted {state, height}`, `{first, held?, options}`, None and each of the theme's
+// shader presets, each `{preset?, kind?, label, said?, current?, patch, width, height}`, the slide
+// drawn with it `height` pixels high, which [`scaena_background_pixels`] paints at a time; and
+// `backgroundPatch {state, preset?}`, the patch one chosen makes, each text too faint over it set in
+// a color that reads there. The slides a person may start (PLAN 3.30):
 // `starters`, the slides a person may start as a picker lists them before any is drawn, each
 // `{layout, name, description, group}`, then a blank one; `startersPainted {state, height,
 // layouts?}`, one in each of the theme's layouts, then a blank
@@ -249,7 +254,9 @@ char *scaena_picture(const uint8_t *bytes, size_t len);
 //
 // # Safety
 // `session` is a live handle; `method` a NUL-terminated string; `args` one, or null.
-char *scaena_call(struct ScaenaSession *session, const char *method, const char *args);
+char *scaena_call(struct ScaenaSession *session,
+                  const char *method,
+                  const char *args);
 
 // Run the MCP server's operation `name` on the bundle with `args` (its tool's arguments, less
 // `bundle`, `out`, and `painter`), as `author` (null: `agent`) at `at` (RFC 3339, or null):
@@ -311,6 +318,17 @@ struct ScaenaPixels scaena_pixels_in(struct ScaenaSession *session,
 // # Safety
 // `session` is a live handle; `error` null or writable.
 struct ScaenaPixels scaena_layout_pixels(struct ScaenaSession *session, size_t i, char **error);
+
+// The `i`th background `backgroundsPainted` drew last (PLAN 2.148, 3.32): the slide with it, at
+// rest, its effect's clock at `t` seconds, as [`scaena_pixels`] gives a frame. Null bytes past the last,
+// `*error` then saying why.
+//
+// # Safety
+// `session` is a live handle; `error` null or writable.
+struct ScaenaPixels scaena_background_pixels(struct ScaenaSession *session,
+                                             size_t i,
+                                             double t,
+                                             char **error);
 
 // The `i`th picture `startersPainted` painted last (PLAN 3.30), taken: a slide started in that
 // layout, at rest, as [`scaena_pixels`] gives a frame. Null bytes for one taken already, or past

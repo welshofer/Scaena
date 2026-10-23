@@ -213,7 +213,9 @@ pub fn theming(
     let refused = !force && !delta(&invalid, &states, &invalid_after, &states, &[]).added.is_empty();
     let mut recolored = Vec::new();
     if recolor && !refused {
-        (deck, after, recolored) = recoloring(deck, &view, &before, &states, after)?;
+        let lint = |deck: &Deck| Ok(lint_in(deck, &view)?.findings);
+        let done = recoloring(deck, &before, &states, after, lint)?;
+        (deck, after, recolored) = (done.deck, done.after, done.recolored);
     }
     let Delta { added: worse, removed: better } = delta(&before, &states, &after, &states, &[]);
     let (worse, better) = (worse.into_iter().cloned().collect(), better.into_iter().cloned().collect());
@@ -237,19 +239,32 @@ pub fn theming(
     Ok((themed, Write { deck, files, why: Why::new(format!("theme --apply {rel}")) }))
 }
 
-/// `deck`, in the theme `files` hold, with each contrast error a re-theme brought (in `after` and
-/// not in `before`) fixed as its fix offers: the text set in the theme's color that reads where it
-/// stands (PLAN 2.82). The deck so recolored, what lint finds in it, and the errors fixed, one for
-/// each text. Two fixes that make one container in one state could each write it whole, so lint
-/// lays the deck out again and fixes what is left, three rounds at most.
-fn recoloring(
+/// A deck [`recoloring`] set in colors that read.
+pub(crate) struct Recolored {
+    /// The deck so recolored.
+    pub deck: Deck,
+    /// What lint finds in it.
+    pub after: Vec<Finding>,
+    /// The errors fixed, one for each text.
+    pub recolored: Vec<Finding>,
+    /// The fixes' ops, in the order they applied.
+    pub ops: Vec<Value>,
+}
+
+/// `deck` with each contrast error a change brought (in `after` and not in `before`) fixed as its
+/// fix offers: the text set in the theme's color that reads where it stands (PLAN 2.82), as a
+/// re-theme and a slide's background (PLAN 2.148) set it. `lint` is what lint finds in a deck. Two
+/// fixes that make one container in one state could each write it whole, so lint lays the deck out
+/// again and fixes what is left, three rounds at most.
+pub(crate) fn recoloring(
     mut deck: Deck,
-    files: &View,
     before: &[Finding],
     states: &[&str],
     mut after: Vec<Finding>,
-) -> Result<(Deck, Vec<Finding>, Vec<Finding>), OpsError> {
+    lint: impl Fn(&Deck) -> Result<Vec<Finding>, OpsError>,
+) -> Result<Recolored, OpsError> {
     let mut recolored: Vec<Finding> = Vec::new();
+    let mut ops: Vec<Value> = Vec::new();
     for _ in 0..3 {
         let faint: Vec<Finding> = (delta(before, states, &after, states, &[]).added.into_iter())
             .filter(|f| matches!(f.code.as_str(), "E110" | "E111") && f.fix.is_some())
@@ -267,6 +282,7 @@ fn recoloring(
             if scaena_core::patch::apply(&mut next, fix).is_ok() {
                 doc = next;
                 applied.push(fix);
+                ops.extend(fix.iter().cloned());
                 if !recolored.iter().any(|r| r.node == f.node) {
                     recolored.push(f.clone());
                 }
@@ -276,9 +292,9 @@ fn recoloring(
             break;
         }
         deck = Deck::from_json(&doc.to_string()).context("the deck, recolored")?;
-        after = lint_in(&deck, files)?.findings;
+        after = lint(&deck)?;
     }
-    Ok((deck, after, recolored))
+    Ok(Recolored { deck, after, recolored, ops })
 }
 
 /// Each of `theme`'s families, and its italic, whose file `held` says the bundle holds and
@@ -509,6 +525,10 @@ pub struct Library {
     /// Whether the look the theme gives code (PLAN 2.132), which the copy lacked, was brought: only
     /// into a copy whose deck shows no code text, so no code draws otherwise than it did.
     pub code: bool,
+    /// The backgrounds added (PLAN 2.147): the shader presets the theme ships that the copy
+    /// lacked, by their names, in the theme's order, each with its palette where the copy lacked
+    /// that.
+    pub backgrounds: Vec<String>,
 }
 
 /// Whether a theme named `copy` is the theme that ships as `name`: the same name, or one it
@@ -535,9 +555,10 @@ pub fn same(copy: &str, name: &str) -> bool {
 /// motion preset whose duration, easing, and color the copy names, with the spring it springs on
 /// where the copy lacks that, so the cue offers every build a deck started in the theme does. The
 /// look the theme gives code, which the copy lacks, comes in only where the deck shows no code
-/// text, `code_shown` false (PLAN 2.132): a code text it shows keeps the colors it is drawn in. None
-/// where `theme` is not a copy of `shipped`, another name or another grid, or has every layout,
-/// name, placement, build, and look it would bring.
+/// text, `code_shown` false (PLAN 2.132): a code text it shows keeps the colors it is drawn in. The
+/// backgrounds the theme ships that the copy lacks come in with their palettes (PLAN 2.147), so a
+/// background picker offers each. None where `theme` is not a copy of `shipped`, another name or
+/// another grid, or has every layout, name, placement, build, look, and background it would bring.
 pub fn library(theme: &Value, shipped: &Value, code_shown: bool) -> Option<(Value, Library)> {
     let name = shipped.get("name")?.as_str()?;
     // A copy named as the theme shipped before is its copy too: Gallery's is Salon's (PLAN T.0d).
@@ -604,6 +625,10 @@ pub fn library(theme: &Value, shipped: &Value, code_shown: bool) -> Option<(Valu
     if let Some((_, added)) = &shadows {
         brought.shadows = added.clone();
     }
+    let backgrounds = backgrounds(theme, shipped);
+    if let Some((_, _, added)) = &backgrounds {
+        brought.backgrounds = added.clone();
+    }
     // Code's look (PLAN 2.132), where the copy has none and nothing in the deck draws in the one it
     // has: the theme's own colors would recolor code a slide shows.
     let code = shipped.get("code").filter(|_| theme.get("code").is_none() && !code_shown);
@@ -613,6 +638,7 @@ pub fn library(theme: &Value, shipped: &Value, code_shown: bool) -> Option<(Valu
         && !brought.furniture
         && builds.is_none()
         && shadows.is_none()
+        && backgrounds.is_none()
         && code.is_none()
     {
         return None;
@@ -635,6 +661,13 @@ pub fn library(theme: &Value, shipped: &Value, code_shown: bool) -> Option<(Valu
     }
     if let Some((all, _)) = shadows {
         theme["tokens"]["shadow"] = Value::Object(all);
+    }
+    if let Some((presets, palettes, _)) = backgrounds {
+        if !theme.get("shaders").is_some_and(Value::is_object) {
+            theme["shaders"] = Value::Object(serde_json::Map::new());
+        }
+        theme["shaders"]["presets"] = Value::Object(presets);
+        theme["shaders"]["palettes"] = Value::Object(palettes);
     }
     if let Some(code) = code {
         theme["code"] = code.clone();
@@ -663,6 +696,38 @@ fn shadows(copy: &Value, shipped: &Value) -> Option<(serde_json::Map<String, Val
         all.entry(name).or_insert(shadow);
     }
     Some((all, added))
+}
+
+/// A copy's shader presets and palettes with the theme's backgrounds brought in, and the names of
+/// the presets added.
+type Backgrounds = (serde_json::Map<String, Value>, serde_json::Map<String, Value>, Vec<String>);
+
+/// The shader presets `copy` takes from `shipped` (PLAN 2.147), and their palettes: every preset
+/// the theme ships, in its order, the copy's own where it has one of that name, then the copy's
+/// others; each palette an added preset names that the copy lacks, after the copy's own; and the
+/// names of the presets added. None where the copy lacks none.
+fn backgrounds(copy: &Value, shipped: &Value) -> Option<Backgrounds> {
+    let theirs = shipped.pointer("/shaders/presets")?.as_object()?;
+    let ours = copy.pointer("/shaders/presets").and_then(Value::as_object).cloned().unwrap_or_default();
+    let added: Vec<String> = theirs.keys().filter(|k| !ours.contains_key(*k)).cloned().collect();
+    if added.is_empty() {
+        return None;
+    }
+    let mut presets = serde_json::Map::new();
+    for (name, preset) in theirs {
+        presets.insert(name.clone(), ours.get(name).unwrap_or(preset).clone());
+    }
+    for (name, preset) in ours {
+        presets.entry(name).or_insert(preset);
+    }
+    let mut palettes = copy.pointer("/shaders/palettes").and_then(Value::as_object).cloned().unwrap_or_default();
+    for name in &added {
+        let palette = theirs[name].get("palette").and_then(Value::as_str);
+        if let Some(colors) = palette.and_then(|p| shipped.pointer("/shaders/palettes")?.get(p)) {
+            palettes.entry(palette.unwrap_or_default()).or_insert_with(|| colors.clone());
+        }
+    }
+    Some((presets, palettes, added))
 }
 
 /// `furniture`, the theme's as it ships, for `copy` (taking the roles `taken` too), its layouts

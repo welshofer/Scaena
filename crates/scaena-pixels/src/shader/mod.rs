@@ -10,9 +10,10 @@
 //! painter calls [`Job::render`]; a GPU painter dispatches [`Job::wgsl`] over the same box
 //! with [`Job::uniforms`] and copies the bytes it writes into a texture.
 //!
-//! Every v1 kind is here (PLAN 0.11, 1.10): `mesh`, `gradient`, `noise`, `grain`, and
-//! `particles`.
+//! Every kind is here: v1's `mesh`, `gradient`, `noise`, `grain`, and `particles` (PLAN 0.11,
+//! 1.10), and `caustics` (PLAN 2.147).
 
+pub mod caustics;
 pub mod gradient;
 pub mod grain;
 pub mod mesh;
@@ -49,6 +50,8 @@ pub enum Job {
     Noise(noise::Frame),
     Grain(grain::Frame),
     Particles(particles::Frame),
+    /// Boxed: its paths make it the largest frame by far.
+    Caustics(Box<caustics::Frame>),
 }
 
 impl Job {
@@ -60,6 +63,7 @@ impl Job {
             Job::Noise(f) => f.bbox,
             Job::Grain(f) => f.bbox,
             Job::Particles(f) => f.bbox,
+            Job::Caustics(f) => f.bbox,
         }
     }
 
@@ -101,6 +105,7 @@ impl Job {
             Job::Noise(f) => f.render_rows(first, out),
             Job::Grain(f) => f.render_rows(first, out),
             Job::Particles(f) => rows(f.bbox, first, out, |x, y| f.pixel(x, y)),
+            Job::Caustics(f) => f.render_rows(first, out),
         }
     }
 
@@ -114,6 +119,7 @@ impl Job {
             Job::Noise(_) => noise::WGSL,
             Job::Grain(_) => grain::WGSL,
             Job::Particles(_) => particles::WGSL,
+            Job::Caustics(_) => caustics::WGSL,
         }
     }
 
@@ -125,6 +131,7 @@ impl Job {
             Job::Noise(f) => f.uniforms(stride),
             Job::Grain(f) => f.uniforms(stride),
             Job::Particles(f) => f.uniforms(stride),
+            Job::Caustics(f) => f.uniforms(stride),
         }
     }
 }

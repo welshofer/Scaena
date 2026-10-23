@@ -183,6 +183,9 @@ try {
   // The editor.
   const editor = await open(`${server.origin}/web/dist/editor.html?painter=cpu&source=open&bundle=${revenue}`, () => window.scaena?.last());
   await editor.waitForFunction(() => window.scaena.wholes().length > 0, null, { timeout: 60000 }).catch(() => {});
+  // The slide's backgrounds, a listbox of swatches (PLAN 2.148), drawn.
+  await editor.waitForSelector("#look .backgrounds [role=option]", { timeout: 60000 }).catch(() => {});
+  check((await editor.locator("#look .backgrounds [role=option]").count()) > 1, "the inspector offers the slide's backgrounds");
   await audit(editor, "the editor, its inspector");
   // The node selected, its look chosen from the theme (PLAN 2.33).
   await editor.evaluate(() => window.scaena.canvas.select("title"));
