@@ -248,9 +248,16 @@ try {
   await page.keyboard.press("End");
   await page.keyboard.type(" Smile at the board.");
   await page.keyboard.press("Control+s");
+  // The save writes deck.json as it is polled: a file read just as the write lands is no longer
+  // readable (NotReadableError), which is the deck not saved yet, and read again.
+  const deckNow = () =>
+    listing(page, "plain", "deck.json").catch((e) => {
+      if (String(e).includes("NotReadableError")) return "";
+      throw e;
+    });
   let noted = false;
   for (const end = Date.now() + 30000; !noted && Date.now() < end; await page.waitForTimeout(200))
-    noted = (await listing(page, "plain", "deck.json")).includes("Smile at the board.");
+    noted = (await deckNow()).includes("Smile at the board.");
   check(noted, "notes typed, then ⌘S from the field: the save holds them");
   await page.waitForFunction(() => !window.scaena.where().dirty, null, { timeout: 30000 }).catch(() => {});
   const focused = await page.evaluate(() => document.activeElement?.id);
