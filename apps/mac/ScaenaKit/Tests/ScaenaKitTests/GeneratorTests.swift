@@ -15,6 +15,19 @@ private actor Asked {
     }
 }
 
+/// The steps a generator made away from the main actor, each with whether it was made on the
+/// main thread, as its queue tells them.
+private final class Away: @unchecked Sendable {
+    private let lock = NSLock()
+    private var taken: [(step: String, main: Bool)] = []
+
+    func add(_ step: String, main: Bool) {
+        lock.withLock { taken.append((step, main)) }
+    }
+
+    var steps: [(step: String, main: Bool)] { lock.withLock { taken } }
+}
+
 /// An Anthropic answer whose text is `text`.
 private func anthropic(_ text: String) -> Data {
     let answer: JSONValue = .object([
@@ -67,6 +80,10 @@ private func anthropic(_ text: String) -> Data {
     let read = try generator.add(name: "notes.md", data: Data(notes.utf8))
     #expect(read == .read(name: "notes.md", kind: "markdown"))
 
+    // The deck built and every slide drawn away from the main actor (lift-up narrative PERF-3).
+    let away = Away()
+    generator.away = { away.add($0, main: Thread.isMainThread) }
+
     var heard: [GeneratingStep] = []
     let (session, made) = try await generator.generate(
         brief: Brief(topic: "Carbon-negative cargo is ready to scale", audience: "Investors"),
@@ -93,6 +110,11 @@ private func anthropic(_ text: String) -> Data {
     #expect(looked.count == 1)
     #expect((looked.first?.body ?? "").components(separatedBy: "image/jpeg").count - 1 == made.layouts.count)
     #expect(made.words.contains("\(pictures) picture"))
+    // Built and drawn, then drawn again as the model's look changed it; fitted where a text ran on.
+    let slow = away.steps.map(\.step)
+    #expect(Array(slow.prefix(2)) == ["make", "looked"], "the slow steps: \(slow)")
+    #expect(Set(slow).isSubset(of: ["make", "looked", "fitted"]), "the slow steps: \(slow)")
+    #expect(away.steps.allSatisfy { !$0.main }, "a slow step was made on the main thread: \(away.steps)")
 
     // Its story (PLAN G.9), as the Story panel reads it: the arc it was written to, each slide what it
     // declares, coherence by words unscored; a fix made, and the finding gone.
