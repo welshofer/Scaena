@@ -1252,6 +1252,7 @@ pub fn deck_as(
     let mut chosen = Vec::with_capacity(count);
     let mut section_number = 0;
     let mut running: Option<String> = None;
+    let mut previous: Option<(String, &Slide)> = None;
     for (i, (slide, v)) in narrative.slides.iter().zip(&varied).enumerate() {
         let beat = (slide.beat_index.filter(|b| *b < names.len()))
             .unwrap_or_else(|| scaena_narrato::beats::beat_of(i, count, names.len()));
@@ -1281,10 +1282,12 @@ pub fn deck_as(
             picture,
             icons,
         };
-        let made = deck.slide(slots, i > 0)?;
+        let entrance = entrance(&layout, slide, previous.as_ref().map(|(l, s)| (l.as_str(), *s)), i + 1 == count);
+        let made = deck.slide(slots, entrance)?;
         if layout.starts_with("section") && !slide.slide_title.is_empty() {
             running = Some(slide.slide_title.clone());
         }
+        previous = Some((layout.clone(), slide));
         chosen.push(layout);
 
         // The spine: a section for each run of slides in one beat, a beat for each slide.
@@ -1864,6 +1867,42 @@ fn sentence(text: &str) -> String {
 }
 
 /// What a slide's slots are filled from.
+/// How a generated slide enters, from the deck's structure (narrative ATTR-1), so that the arc
+/// the model chose shows in play, as a presentation app's presets and a storyteller's turning
+/// points mark the movements of a talk: `style`, a slide transition (PLAN 2.111) where the
+/// structure asks for one, else the plain transition that morphs what both slides share; and
+/// `slow`, the theme's `slow` duration in place of its `standard`. None where the slide is the
+/// deck's first.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Entrance {
+    style: Option<&'static str>,
+    slow: bool,
+}
+
+/// A valence at or under which a slide reads as grave: Narrato writes `expectedValence` from −1,
+/// grave, to +1, hopeful.
+const GRAVE: f64 = -0.5;
+
+/// How the slide in `layout` enters after `previous`, the slide before it in its layout: a
+/// section divider, and the first slide of the part it opens, push in, so each movement of the
+/// talk is a turn of the page; the closing slide dissolves in slowly; a grave turn, a slide that
+/// reads grave after one that did not, takes the slow pace; and content slides between keep the
+/// plain transition, which morphs what two slides in one layout share. The same narrative gives
+/// the same entrances. None for the deck's first slide.
+fn entrance(layout: &str, slide: &Slide, previous: Option<(&str, &Slide)>, last: bool) -> Option<Entrance> {
+    let (before, earlier) = previous?;
+    let divider = |l: &str| l.starts_with("section");
+    let valence = |s: &Slide| s.expected_valence.unwrap_or(0.0);
+    let grave = valence(slide) <= GRAVE && valence(earlier) > GRAVE;
+    Some(if last {
+        Entrance { style: Some("dissolve"), slow: true }
+    } else if divider(layout) || divider(before) {
+        Entrance { style: Some("push"), slow: grave }
+    } else {
+        Entrance { style: None, slow: grave }
+    })
+}
+
 struct Slots<'a> {
     theme: &'a Theme,
     layout: &'a str,
@@ -2618,9 +2657,9 @@ impl Builder {
         self.unique(&base, Taken::State)
     }
 
-    /// The slide `s` describes: its nodes, and its state showing them, in after a fade where
-    /// another slide went before.
-    fn slide(&mut self, s: Slots, after: bool) -> Result<SlideMade, OpsError> {
+    /// The slide `s` describes: its nodes, and its state showing them, in by `entrance` where
+    /// another slide went before (narrative ATTR-1).
+    fn slide(&mut self, s: Slots, entrance: Option<Entrance>) -> Result<SlideMade, OpsError> {
         let template = s
             .theme
             .layouts
@@ -2800,10 +2839,23 @@ impl Builder {
             }
         }
         let mut state = json!({ "id": s.state, "mode": "absolute", "layout": s.layout, "props": props });
-        if after {
-            state["transition"] = json!({ "duration": "standard", "ease": "standard" });
+        let durations = &s.theme.motion.durations;
+        let mut transition = durations.get("standard").map_or(420.0, |d| d.0);
+        if let Some(e) = entrance {
+            // The theme's `slow` where it names one, else its `standard`.
+            let pace = if e.slow && durations.contains_key("slow") { "slow" } else { "standard" };
+            transition = durations.get(pace).map_or(transition, |d| d.0);
+            let mut t = json!({ "duration": pace, "ease": "standard" });
+            if let Some(style) = e.style {
+                t["style"] = json!(style);
+            }
+            if e.style == Some("push") {
+                // In from the right, as a page turns; from the left where the deck reads right to left.
+                t["direction"] = json!(if self.mirrored { "right" } else { "left" });
+            }
+            state["transition"] = t;
         }
-        if let Some(choreography) = builds(s.theme, built, &charts) {
+        if let Some(choreography) = builds(s.theme, built, &charts, transition) {
             state["choreography"] = choreography;
         }
         self.states.push(state);
@@ -2828,17 +2880,17 @@ fn by_bullet_preset(theme: &Theme) -> Option<&str> {
     theme.motion.presets.keys().map(String::as_str).find(|name| splits(name))
 }
 
-/// How a slide builds once its transition ends (G.17): each of its items rising after the one
-/// before it, as the theme's `rise` has it, the gap between them more than half the theme's
-/// `standard` duration, so that no more than two move at once; and each chart growing from its
-/// baseline, a mark at a time, as the theme's `grow` has it. Two to six items build, within the
-/// theme's `maxBuild` (lint W321); one item, or more, comes in with the slide.
-fn builds(theme: &Theme, mut built: Vec<(usize, Vec<String>)>, charts: &[String]) -> Option<Value> {
+/// How a slide builds once its transition, `transition` ms long, ends (G.17): each of its items
+/// rising after the one before it, as the theme's `rise` has it, the gap between them more than
+/// half the theme's `standard` duration, so that no more than two move at once; and each chart
+/// growing from its baseline, a mark at a time, as the theme's `grow` has it. Two to six items
+/// build, within the theme's `maxBuild` (lint W321); one item, or more, comes in with the slide.
+fn builds(theme: &Theme, mut built: Vec<(usize, Vec<String>)>, charts: &[String], transition: f64) -> Option<Value> {
     let mut items = Vec::new();
     let standard = theme.motion.durations.get("standard").map_or(420.0, |d| d.0);
     let gap = (standard * 0.6).round();
     // The transition, the gaps, and the last item's own rise.
-    let span = |n: usize| 2.0 * standard + gap * n.saturating_sub(1) as f64;
+    let span = |n: usize| transition + standard + gap * n.saturating_sub(1) as f64;
     if (2..=6).contains(&built.len()) && span(built.len()) <= theme.motion.max_build.unwrap_or(2500.0) {
         scaena_core::sort::by_key(&mut built, |(k, _)| *k);
         for (i, (_, ids)) in built.iter().enumerate() {
@@ -4205,6 +4257,53 @@ mod tests {
             let built = deck(&n, &theme, &Pictures::new()).unwrap();
             assert_eq!(built.deck["states"].as_array().unwrap().len(), 3, "{:?}", built.layouts);
         }
+    }
+
+    /// A generated deck enters by its structure (narrative ATTR-1): each section divider and the
+    /// first slide of its part push in, the closing slide dissolves in slowly, a grave turn takes
+    /// the slow pace, and the content slides between keep the plain transition that morphs what
+    /// they share; the cover has none. The same narrative gives the same entrances, and a deck
+    /// that reads right to left pushes from the left.
+    #[test]
+    fn a_generated_deck_enters_by_its_structure() {
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let climate = climate();
+        let built = deck(&climate, &theme, &Pictures::new()).unwrap();
+        let again = deck(&climate, &theme, &Pictures::new()).unwrap();
+        assert_eq!(built.deck["states"], again.deck["states"], "the same narrative, the same entrances");
+        let transition = |i: usize| built.deck["states"][i]["transition"].clone();
+        assert!(transition(0).is_null(), "the cover enters by nothing");
+        let dividers = [2, 7, 11, 15, 21];
+        assert!(dividers.iter().all(|i| built.layouts[*i] == "section"), "{:?}", built.layouts);
+        let push = |slow: bool| json!({ "style": "push", "direction": "left", "duration": if slow { "slow" } else { "standard" }, "ease": "standard" });
+        for i in dividers {
+            assert_eq!(transition(i), push(false), "divider {i}");
+        }
+        // The first slide of each part pushes in too; the one after The Stakes reads grave after a
+        // divider that did not, so it takes the slow pace.
+        for i in [8, 16, 22] {
+            assert_eq!(transition(i), push(false), "slide {i}");
+        }
+        assert_eq!(transition(12), push(true), "a grave turn at the part's first slide");
+        // A grave turn between content slides keeps the plain transition, slowed: the hottest year
+        // after the agenda, the highway to climate hell after who emits.
+        let plain = |slow: bool| json!({ "duration": if slow { "slow" } else { "standard" }, "ease": "standard" });
+        assert_eq!(transition(3), push(true), "the hottest year, grave after The Signal's divider");
+        assert_eq!(transition(10), plain(true));
+        assert_eq!(transition(6), plain(true), "every vital sign, at the grave mark after a slide above it");
+        for i in [1, 4, 5, 9, 13, 14, 17, 18, 19, 20, 23] {
+            assert_eq!(transition(i), plain(false), "slide {i}");
+        }
+        assert_eq!(transition(24), json!({ "style": "dissolve", "duration": "slow", "ease": "standard" }), "the close");
+        // It validates and lints no worse: no build runs past the theme's limit with a slow entrance.
+        let (made, _) = making(built, "Data Storytelling", Path::new("dusk.theme.json"), dusk(), &font).unwrap();
+        assert!(made.created.created && made.created.errors == 0, "{:#?}", made.created.findings);
+        assert!(!made.created.findings.iter().any(|f| f.code.starts_with("W32")), "{:#?}", made.created.findings);
+        // A deck that reads right to left pushes from the left.
+        let mut arabic = climate.clone();
+        arabic.brief.language = Some("Arabic".into());
+        let rtl = deck(&arabic, &theme, &Pictures::new()).unwrap();
+        assert_eq!(rtl.deck["states"][2]["transition"]["direction"], "right");
     }
 
     /// A source as `scaena-sources` reads one.

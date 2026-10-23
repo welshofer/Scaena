@@ -172,13 +172,15 @@ try {
   await page.keyboard.press("End");
   await page.waitForFunction(() => window.scaena.at().index === 3, null, { timeout: 30000 });
   check((await reading(page)) === '<h1 data-node="title">Thank you</h1>', "End: the last state, and its reading");
-  // The end of the show (PLAN 2.120): → past the last, a black screen that says so; → again leaves it.
+  // The end of the show (PLAN 2.120): → past the last, a black screen that says so; → again keeps it, ← leaves it.
   await page.waitForFunction(() => !window.scaena.at().playing, null, { timeout: 30000 }).catch(() => {});
   await page.keyboard.press("ArrowRight");
   const ended = await page.evaluate(() => ({ ended: window.scaena.ended(), words: document.querySelector(".end").hidden ? "" : document.querySelector(".end").textContent }));
   check(ended.ended && ended.words.startsWith("The show has ended."), `→ past the last ends the show, and says so: ${JSON.stringify(ended)}`);
   await page.keyboard.press("ArrowRight");
-  check(await page.evaluate(() => !window.scaena.ended() && window.scaena.at().index === 3), "→ again leaves it, on the last state");
+  check(await page.evaluate(() => window.scaena.ended()), "→ again keeps it");
+  await page.keyboard.press("ArrowLeft");
+  check(await page.evaluate(() => !window.scaena.ended() && window.scaena.at().index === 3), "← leaves it, on the last state");
   await page.keyboard.press("Home");
   await page.waitForFunction(() => window.scaena.at().index === 0, null, { timeout: 30000 });
   check((await reading(page)) === intro, "Home: the first again");
