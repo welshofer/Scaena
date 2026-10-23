@@ -206,7 +206,9 @@ private func tried(_ endpoint: NWEndpoint, _ parameters: NWParameters, _ seconds
     let ofPresenter = try presenter.keys(from: remote.hello)
     #expect(ofPresenter.proves(.remote, ofRemote.tag(.remote)), "the ends with one code prove themselves")
     #expect(ofRemote.proves(.presenter, ofPresenter.tag(.presenter)))
-    #expect(!ofRemote.proves(.remote, ofRemote.tag(.remote)), "each end's tag is its own")
+    // Each end's tag is its own: one sent back to the end that made it proves nothing of the other.
+    #expect(!ofRemote.proves(.presenter, ofRemote.tag(.remote)), "each end's tag is its own")
+    #expect(!ofPresenter.proves(.remote, ofPresenter.tag(.presenter)))
     // Another code: the hellos pass alike, and neither end proves itself.
     let stranger = try Pairing(side: .remote, code: "1234")
     let ofStranger = try stranger.keys(from: presenter.hello)
