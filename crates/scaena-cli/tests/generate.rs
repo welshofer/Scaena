@@ -564,3 +564,67 @@ fn pictures_are_made_by_the_users_image_model_and_kept_in_the_bundle() {
     }
     assert_eq!(scaena(&["validate", bundle]).status.code(), Some(0));
 }
+
+/// What each source gave is said before a call is paid for (narrative USE-5): the sources share
+/// a million bytes, the first given taking it first, so one given after a source that took them
+/// all is refused before the arc is asked for, and `--allow-cut` makes the deck without it, each
+/// source's room said as the run goes.
+#[test]
+fn a_source_with_no_room_is_refused_before_any_call_unless_cut_is_allowed() {
+    let (base, asked) = serve(narrato);
+    let given = place("unroomed-sources");
+    std::fs::create_dir_all(&given).unwrap();
+    let big = "Four ports run on our barges, and the fifth is next. ".repeat(21_000);
+    assert!(big.len() > 1_000_000);
+    std::fs::write(given.join("big.txt"), &big).unwrap();
+    std::fs::write(given.join("notes.md"), "# Tidewater\nRevenue tripled to $4.1M in four ports.").unwrap();
+    let source = |f: &str| given.join(f).to_string_lossy().into_owned();
+    let run = |dir: &str, more: &[&str]| {
+        let mut c = Command::new(env!("CARGO_BIN_EXE_scaena"));
+        for k in KEYS.into_iter().chain(PROXIES).chain(["SCAENA_MODEL"]) {
+            c.env_remove(k);
+        }
+        c.env("ANTHROPIC_API_KEY", "sk-test")
+            .args(["--json", "generate", dir, "Tidewater's Series A"])
+            .args(["--source", &source("big.txt"), "--source", &source("notes.md")])
+            .args(["--provider", "anthropic", "--model", "a-model", "--base", &base])
+            .args(more)
+            .output()
+            .unwrap()
+    };
+    let out = run(place("unroomed").to_str().unwrap(), &[]);
+    assert_eq!(out.status.code(), Some(2), "{}", String::from_utf8_lossy(&out.stderr));
+    let message = json(&out)["error"]["message"].as_str().unwrap().to_string();
+    assert!(
+        message.starts_with("no room for ") && message.contains("notes.md") && message.contains("--allow-cut"),
+        "{message}"
+    );
+    assert_eq!(asked.lock().unwrap().len(), 0, "refused before any call");
+    // Allowed, the deck is made without it, and each source's room is said before the arc is asked for.
+    let dir = place("unroomed-cut");
+    let out = run(dir.to_str().unwrap(), &["--allow-cut"]);
+    let said = String::from_utf8_lossy(&out.stderr).into_owned();
+    assert_eq!(out.status.code(), Some(0), "{said}{}", String::from_utf8_lossy(&out.stdout));
+    let made = json(&out);
+    assert_eq!(made["sources"][0]["truncated"], true);
+    assert_eq!(
+        (made["sources"][1]["bytes"].as_u64(), made["sources"][1]["truncated"].as_bool()),
+        (Some(0), Some(true))
+    );
+    // Said in the plain run too, before the arc: the stderr's lines in order.
+    let out = Command::new(env!("CARGO_BIN_EXE_scaena"))
+        .env("ANTHROPIC_API_KEY", "sk-test")
+        .args(["generate", place("unroomed-said").to_str().unwrap(), "Tidewater's Series A", "--allow-cut"])
+        .args(["--source", &source("big.txt"), "--source", &source("notes.md")])
+        .args(["--provider", "anthropic", "--model", "a-model", "--base", &base])
+        .output()
+        .unwrap();
+    let said = String::from_utf8_lossy(&out.stderr).into_owned();
+    let line =
+        |start: &str| said.lines().position(|l| l.starts_with(start)).unwrap_or_else(|| panic!("{start}: {said}"));
+    assert!(
+        line("grounded in big.txt (text, 977 KB, cut short to fit)") < line("no room for notes.md (markdown)"),
+        "{said}"
+    );
+    assert!(line("no room for notes.md") < line("choosing the arc"), "{said}");
+}

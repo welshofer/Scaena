@@ -83,6 +83,11 @@ pub struct GenerateArgs {
     /// agent, or Anthropic's model with web search. It takes minutes; its report is a source.
     #[arg(long)]
     research: bool,
+    /// Go on when a source got no room in the million bytes the sources share, the first given
+    /// taking it first; without it, the deck is not asked for, so the model is not told to trace
+    /// each slide to what it was never shown.
+    #[arg(long)]
+    allow_cut: bool,
     /// Who makes the slides' pictures (PLAN G.10): `openai` or `gemini`, with its key from the
     /// environment, or `none`; else the first of those whose key the environment holds. Two in
     /// five slides get one, ten at most: the cover, the dividers, the ending, and the rest by
@@ -372,6 +377,18 @@ fn research(
     })
 }
 
+/// What a source gave the deck, in a line: its bytes in the prompt, cut short to fit where they
+/// were, or no room at all.
+fn given(g: &scaena_sources::Given) -> String {
+    match (g.bytes, g.truncated) {
+        (0, _) => {
+            format!("no room for {} ({}): the sources before it took the million bytes they share", g.name, g.kind)
+        }
+        (bytes, true) => format!("grounded in {} ({}, {} KB, cut short to fit)", g.name, g.kind, bytes.div_ceil(1024)),
+        (bytes, false) => format!("grounded in {} ({}, {} KB)", g.name, g.kind, bytes.div_ceil(1024)),
+    }
+}
+
 /// The first of `vars` the environment holds, not blank.
 fn env(vars: &[&str]) -> Option<String> {
     vars.iter().find_map(|v| std::env::var(v).ok().filter(|k| !k.trim().is_empty()))
@@ -511,10 +528,28 @@ pub fn run(a: GenerateArgs, json: bool) -> Result<ExitCode> {
     }
     if a.research {
         let key = key.as_deref().context("deep research asks a model: --slides makes no call")?;
-        read.push(research(&brief, provider, &model, a.base.as_deref(), key, &agent, json)?);
+        // Asked for last and the costliest, the report is packed first, so it is the last cut.
+        read.insert(0, research(&brief, provider, &model, a.base.as_deref(), key, &agent, json)?);
     }
     let grounding = scaena_ops::narrative::grounding(&read, provider)?;
     brief.source_content = grounding.content.clone();
+    // What each source gave, said before a call is paid for (narrative USE-5): the sources share
+    // a million bytes, the first given taking it first, and one that got none is refused unless
+    // the deck is to be made without it.
+    if !json {
+        for g in &grounding.given {
+            eprintln!("{}", given(g));
+        }
+    }
+    let unroomed: Vec<&str> = grounding.given.iter().filter(|g| g.bytes == 0).map(|g| g.name.as_str()).collect();
+    if !unroomed.is_empty() && !a.allow_cut && a.slides.is_none() {
+        bail!(
+            "no room for {}: the sources share {} KB, the first given taking it first; give fewer, or smaller, or \
+             --allow-cut to make the deck without it",
+            unroomed.join(", "),
+            scaena_sources::SOURCE_CONTENT_CAP / 1024
+        );
+    }
     let settings = Settings { provider, model: model.clone(), base: a.base.clone(), browser: false };
     let mut generation = Generation::new(brief, settings).map_err(|e| anyhow!(e))?;
     match &a.slides {
@@ -607,8 +642,7 @@ pub fn run(a: GenerateArgs, json: bool) -> Result<ExitCode> {
             println!("  pictures: {}", made.pictures);
         }
         for g in &grounding.given {
-            let cut = if g.truncated { ", cut short to fit" } else { "" };
-            println!("  grounded in {} ({}, {} KB{cut})", g.name, g.kind, g.bytes.div_ceil(1024));
+            println!("  {}", given(g));
         }
         for k in &kept {
             match (&k.id, &k.why) {

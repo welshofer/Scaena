@@ -177,6 +177,12 @@ export async function generate(
     }
     if (job.research) await research(g, brief, asking, job, sources, hear);
     const generation = new g.Generation(brief, asking, sources);
+    // What each source gave, said before a call is paid for (narrative USE-5): the sources share
+    // a million bytes, the first given taking it first, and one cut short, or given no room, says
+    // so here, not after the deck is made.
+    for (const given of JSON.parse(generation.given()) as Generated["sources"]) {
+      hear({ kind: "grounded", name: given.name, what: given.kind, kilobytes: Math.ceil(given.bytes / 1024), cut: given.truncated });
+    }
     try {
       if (job.arc) generation.chooseArc(job.arc);
       for (let asked = generation.request(job.key); asked; asked = generation.request(job.key)) {

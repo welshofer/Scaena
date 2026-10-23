@@ -293,6 +293,11 @@ try {
   );
   check(slides?.prompt.includes(`=== SOURCE: ${origin}/press.html ===`) && slides.prompt.includes("third route"), "the web page is in the slides' prompt");
   check(slides?.prompt.includes("=== SOURCE: q3.csv ==="), "the CSV is in the slides' prompt");
+  const grounded = (await lines()).filter((l) => l.startsWith("Grounded in "));
+  check(
+    grounded.length === 3 && grounded.some((l) => /^Grounded in notes\.md \(markdown, 1 KB\)$/.test(l)),
+    `what each source gave is said before the arc is asked for: ${grounded.join(" · ")}`,
+  );
   const look = requests.find((r) => r.asked === "look");
   const drawn = look?.body.messages[0].content.filter((c) => c.type === "image") ?? [];
   check(

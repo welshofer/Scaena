@@ -57,6 +57,7 @@ public enum GeneratingStep: Equatable, Sendable {
     case fetchingFont(family: String, language: String, megabytes: Double)
     case reading(String)
     case read(name: String, kind: String)
+    case grounded(name: String, kind: String, kilobytes: Int, cut: Bool)
     case researching(String)
     case researchingNow(String)
     case researched(sources: Int, cut: Bool)
@@ -81,6 +82,10 @@ public enum GeneratingStep: Equatable, Sendable {
             "Fetching \(family), the font a deck in \(language) is set in (\(String(format: "%.1f", megabytes)) MB)…"
         case .reading(let name): "Reading \(name)…"
         case .read(let name, let kind): "Read \(name) (\(kind))"
+        case .grounded(let name, let kind, 0, _):
+            "No room for \(name) (\(kind)): the sources before it took the million bytes they share"
+        case .grounded(let name, let kind, let kilobytes, let cut):
+            "Grounded in \(name) (\(kind), \(kilobytes) KB\(cut ? ", cut short to fit" : ""))"
         case .researching(let topic): "Researching \(topic)… (minutes)"
         case .researchingNow(let doing): doing
         case .researched(let sources, let cut): "Researched: \(sources) sources\(cut ? ", cut short" : "")"
@@ -388,6 +393,17 @@ public final class Generator {
         return args
     }
 
+    /// What each source gave the deck, as `begin` says it.
+    private struct Begun: Decodable {
+        struct Given: Decodable {
+            let name: String
+            let kind: String
+            let bytes: Int
+            let truncated: Bool
+        }
+        let given: [Given]
+    }
+
     private struct Standing: Decodable {
         let step: String
         let slides: Int?
@@ -596,7 +612,11 @@ public final class Generator {
         try await prepare(language: brief.language, theme: theme, hear: hear)
         var args = try asking(brief: brief, provider: provider, model: model, base: base)
         if let arc { args["arc"] = .string(arc) }
-        let _: JSONValue = try step("begin", args)
+        let begun: Begun = try step("begin", args)
+        // What each source gave, said before a call is paid for (narrative USE-5).
+        for given in begun.given {
+            hear(.grounded(name: given.name, kind: given.kind, kilobytes: (given.bytes + 1023) / 1024, cut: given.truncated))
+        }
         while true {
             let standing: Standing = try step("request", ["key": .string(key)])
             guard let request = standing.request else { break }
