@@ -77,10 +77,16 @@ public final class DeckEditor {
     @ObservationIgnored private var compiled = 0
     /// Where every state is linted, away from the window (PLAN 4.13).
     @ObservationIgnored private let linter = Linter()
+    /// Where what reads the deck as it stands is done, away from the window: its health (lift-up
+    /// narrative PERF-1).
+    @ObservationIgnored let offMain = OffMain(label: "ScaenaKit.health")
     /// For a test: called on the caller's actor once a lint of every state has taken the deck it
     /// lints and counted itself, before it waits for the layout, so an edit made there is one
     /// made while it is under way, with no clock to catch it by (PLAN 4.13).
     @ObservationIgnored var begun: (() -> Void)?
+    /// For a test: called on the caller's actor once a read of the deck's health has taken the
+    /// deck it reads, before it waits for the answer, as `begun` is for a lint.
+    @ObservationIgnored var reading: (() -> Void)?
     /// Each state drawn small, by the digest of its drawing at rest and the width asked.
     @ObservationIgnored private var drawings: [String: (digest: String, width: Int, image: CGImage)] = [:]
     /// Each slide to start as its layout's picture shows it (PLAN 3.31), by its layout, `""` the
@@ -262,6 +268,19 @@ public final class DeckEditor {
         whole = linting.whole
     }
 
+    /// The deck's narrative health (PLAN G.9), read away from the window, as `lintEvery` lays the
+    /// deck out (lift-up narrative PERF-1): the deck as it stands taken, and read on a queue of its
+    /// own while the caller's actor (the window's) goes on answering. None where an edit changed
+    /// the deck while it was read, so an older deck's story never stands for this one's. Where no
+    /// source compiled to a deck that validates, the deck the session holds is read, as before.
+    public func health(isolation: isolated (any Actor)? = #isolation) async throws -> Health? {
+        guard valid, let laying = session.laying() else { return try session.health() }
+        let began = compiled
+        reading?()
+        let health = try await offMain.run { try laying.health() }
+        return began == compiled ? health : nil
+    }
+
     /// `state` drawn at rest `width` pixels wide by the CPU painter: drawn again only when its
     /// drawing changed, as the browser's strip draws it (PLAN 2.35).
     public func drawing(_ state: String, width: Int) -> CGImage? {
@@ -337,6 +356,25 @@ public final class DeckEditor {
         findings = compiling.findings
         lintShown()
         return before
+    }
+}
+
+/// Where work on a deck taken from the session (a `Laying`) is done, away from the caller's actor
+/// (lift-up narrative PERF-1): one piece at a time, on a queue of its own, its answer awaited.
+/// What reads the deck as it stands, its health first, runs here while the window answers; the
+/// caller drops an answer for a deck an edit has changed since it was taken.
+final class OffMain: Sendable {
+    private let queue: DispatchQueue
+
+    init(label: String) {
+        queue = DispatchQueue(label: label, qos: .utility)
+    }
+
+    /// `work`'s answer, done on the queue once the work before it is.
+    func run<T: Sendable>(_ work: @escaping @Sendable () throws -> T) async throws -> T {
+        try await withCheckedThrowingContinuation { (done: CheckedContinuation<T, any Error>) in
+            queue.async { done.resume(with: Result { try work() }) }
+        }
     }
 }
 
