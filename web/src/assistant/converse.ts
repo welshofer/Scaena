@@ -94,7 +94,7 @@ async function turn(o: Options, messages: Message[]): Promise<Turn> {
       if (o.signal.aborted || attempt >= retries || !again(e, silent)) throw silent ? new Error("504 Silent: the provider sent nothing for two minutes") : e;
       const asked = (e as { retryAfter?: number }).retryAfter;
       const seconds = Math.min(60, Math.max(1, Math.ceil(asked ?? WAITS[Math.min(attempt, WAITS.length - 1)])));
-      const message = silent ? `${o.provider.name} went quiet.` : unasked(o.provider.name, e).replace(/ Try again in a moment\.$/, ".");
+      const message = silent ? `${o.provider.name} went quiet.` : unasked(o.provider.name, e).replace(/ Try again in a moment\.$/, "");
       o.emit({ kind: "waiting", message, seconds, attempt: attempt + 1, of: retries });
       await pause(seconds * 1000, o.signal);
       if (o.signal.aborted) throw e;

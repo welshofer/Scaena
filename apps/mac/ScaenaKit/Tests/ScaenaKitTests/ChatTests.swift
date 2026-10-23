@@ -153,7 +153,8 @@ private func streaming(_ text: String) -> [String] {
     }
     #expect(!assistant.working)
     #expect(await answers.asked.count == 3, "asked again after each 429")
-    #expect(await seen.kept.first?.hasPrefix("Anthropic is busy. Trying again in 0 s (") == true, "\(await seen.kept)")
+    let kept = await seen.kept
+    #expect(kept.first?.hasPrefix("Anthropic is busy. Trying again in 0 s (") == true, "\(kept)")
     #expect(assistant.waiting == nil)
     #expect(said(assistant) == ["Clean."])
     guard case .done("end") = assistant.entries.last?.kind else {
