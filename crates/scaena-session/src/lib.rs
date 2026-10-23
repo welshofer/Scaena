@@ -2324,12 +2324,11 @@ impl Session {
     }
 
     /// The notes a presenter reads for `state` (SPEC §2.6): its own, else those of the first
-    /// beat that names it, else empty. What the browser's presenter view, the Mac's and the
-    /// iPad's, the remote, and a rehearsal show.
-    pub fn notes(&self, state: &str) -> Result<String, Error> {
-        scaena_core::spine::notes(&self.deck, state)
-            .map(str::to_string)
-            .ok_or_else(|| EngineError::UnknownState(state.to_string()).into())
+    /// beat that names it, else empty; as written, and as the blocks they read as, lines, a
+    /// list, or a table (`scaena_core::notes`). What the browser's presenter view, the Mac's and
+    /// the iPad's, the remote, and a rehearsal show.
+    pub fn notes(&self, state: &str) -> Result<scaena_core::notes::Notes, Error> {
+        scaena_core::notes::of(&self.deck, state).ok_or_else(|| EngineError::UnknownState(state.to_string()).into())
     }
 
     /// How `state` reads at rest, in the format shown, a part for each node read, in turn (SPEC

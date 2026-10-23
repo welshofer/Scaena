@@ -51,6 +51,7 @@ import type {
   BackgroundOption,
   Thumb,
   Opened,
+  SpeakerNotes,
   Painter,
   Pasted,
   Picture,
@@ -880,8 +881,9 @@ function opened(): Opened {
     states: slots.map((slot) => slot.state),
     formats: player.formats(),
     own: (JSON.parse(player.sizes()) as { own: string | null }).own ?? undefined,
-    // The engine's, the same the Mac's presenter and the remote read (SPEC §2.6).
-    notes: slots.map((slot) => player.notes(slot.state)),
+    // The engine's, the same the Mac's presenter and the remote read (SPEC §2.6), as written
+    // and as the blocks a speaker reads.
+    notes: slots.map((slot) => JSON.parse(player.notes(slot.state)) as SpeakerNotes),
     outline: outline(deck),
     painter: gpu ? "webgpu" : "cpu",
     adapter: gpu?.adapter ?? "vello_cpu",

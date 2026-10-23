@@ -30,6 +30,7 @@
 import type { At, LinkTarget, Painter, Section, Slot, Source } from "./protocol";
 import { reader } from "./reading";
 import { line, listen, served } from "./served";
+import { renderNotes } from "./speaker-notes";
 import { type Engine, Stage } from "./stage";
 import { numbered, place } from "./words";
 
@@ -839,10 +840,12 @@ async function presentView(deck: Source, how: Play, channel: BroadcastChannel) {
         await now.show(states[at.index], at.t, at.format);
         $("#where").textContent = place(slots, at.index);
         // Other notes start at their top, however far the last were scrolled; a step that keeps its
-        // slide's notes keeps them where they stood.
-        const written = notes[at.index] || "No notes.";
-        if (pane.textContent !== written) {
-          pane.textContent = written;
+        // slide's notes keeps them where they stood. They are drawn as a speaker reads them
+        // (SPEC §2.6): lines, a list, or a table, never a `- ` or a `|`.
+        const written = notes[at.index];
+        if (pane.dataset.notes !== written.text) {
+          pane.dataset.notes = written.text;
+          renderNotes(pane, written.blocks);
           pane.scrollTop = 0;
         }
         // The next state, painted again for another state, or in the format the player turned to.

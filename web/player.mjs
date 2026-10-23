@@ -39,7 +39,8 @@
 // - With `?fps`, the frame meter reads a played cue's frames: frames a second, the worst frame,
 //   late frames, and the mean paint (gate 2, criterion 1).
 // Exits 1 on any failure.
-import { readFile } from "node:fs/promises";
+import { mkdir, readFile, symlink, writeFile } from "node:fs/promises";
+import { join, resolve } from "node:path";
 import { launch, serve } from "./serve.mjs";
 
 const server = await serve();
@@ -685,6 +686,34 @@ try {
   check(quickly.startsWith("The player has closed."), `a player closed as its view opens is said to have closed, and stays so: ${quickly}`);
   await quick.close();
   await longView.close();
+
+  // The notes as a speaker reads them (SPEC §2.6, lift-up USE-1): the markdown a generated deck's
+  // model writes, kept as written in the deck, shows in the presenter view as a list and a table,
+  // each word in its look, never a `- ` or a `|`. On a copy of the revenue example with such notes
+  // on its third state, served beside the examples' fonts and themes.
+  const walk = "target/notes-walk";
+  await mkdir(walk, { recursive: true });
+  const marked = structuredClone(deck);
+  const written = "Lead with the **number**.\n- Pro is a third\n- Then the ask\n\n| Tier | Share |\n|---|---|\n| Pro | 33% |";
+  marked.states[2].notes = written;
+  await writeFile(join(walk, "revenue.deck.json"), JSON.stringify(marked));
+  for (const dir of ["fonts", "themes", "data", "assets"]) await symlink(resolve("docs/examples", dir), join(walk, dir)).catch(() => {});
+  const markedPlayer = await open(url(`/${walk}/revenue.deck.json`));
+  await markedPlayer.evaluate(() => window.scaena.seek(2));
+  const reader = await open(url(`/${walk}/revenue.deck.json`, "presenter"));
+  await reader.waitForFunction(() => window.scaena.follows() && document.querySelector("#notes ul"), null, { timeout: 15000 }).catch(() => {});
+  const read = await reader.evaluate(() => {
+    const pane = document.querySelector("#notes");
+    const texts = (selector) => [...pane.querySelectorAll(selector)].map((e) => e.textContent);
+    return { items: texts("ul li"), bold: texts("p strong"), heads: texts("thead th"), cells: texts("tbody td"), text: pane.textContent };
+  });
+  check(
+    read.items.join("|") === "Pro is a third|Then the ask" && read.bold.join() === "number" && read.heads.join("|") === "Tier|Share" && read.cells.join("|") === "Pro|33%" && !/^- |\|/m.test(read.text),
+    `the presenter view shows notes as a speaker reads them, a list and a table, the words in their looks: ${JSON.stringify(read)}`,
+  );
+  await reader.screenshot({ path: join(walk, "presenter-notes.png") }).catch(() => {});
+  await reader.close();
+  await markedPlayer.close();
 
   // The frame meter (gate 2, criterion 1): with ?fps, a cue played says how its frames went.
   const metered = await open(`${url("/tests/fixtures/torture.scaena")}&fps`);

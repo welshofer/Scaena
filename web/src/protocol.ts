@@ -1507,6 +1507,29 @@ export type AssistantEvent =
   /** It failed: the provider refused, or the network did. */
   | { kind: "failed"; message: string };
 
+/** A run of words of a state's speaker notes in one look (`scaena_core::notes`). */
+export interface NotesSpan {
+  text: string;
+  bold?: boolean;
+  italic?: boolean;
+  code?: boolean;
+}
+
+/** A block of a state's speaker notes as a presenter reads them (SPEC §2.6): lines as written,
+ * each kept on its own; a list, each item at its level; or a table, its first row headings where
+ * `header`. */
+export type NotesBlock =
+  | { kind: "lines"; lines: NotesSpan[][] }
+  | { kind: "list"; ordered: boolean; items: { level: number; spans: NotesSpan[] }[] }
+  | { kind: "table"; header: boolean; rows: NotesSpan[][][] };
+
+/** A state's speaker notes as a presenter reads them: the words as the deck holds them, and the
+ * blocks they read as. */
+export interface SpeakerNotes {
+  text: string;
+  blocks: NotesBlock[];
+}
+
 /** An open bundle, as the worker reports it. */
 export interface Opened {
   /** The bundle's name: its folder's, or its deck file's without `.deck.json`. */
@@ -1523,8 +1546,8 @@ export interface Opened {
    * that name. */
   own?: string;
   /** Each state's speaker notes, the engine's (SPEC §2.6): its own, else its first beat's,
-   * else empty. */
-  notes: string[];
+   * else empty; as written, and as the blocks a speaker reads. */
+  notes: SpeakerNotes[];
   /** The spine's sections in its order, each with its title (else its first beat's claim)
    * and its states, each with its beat's claim; then the states no beat names, in a section
    * with no title. Empty for a deck without a spine (SPEC §3.11–3.12). */

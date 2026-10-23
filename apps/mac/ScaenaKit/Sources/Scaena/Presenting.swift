@@ -4,6 +4,7 @@ import AppKit
 import UIKit
 #endif
 import ScaenaKit
+import ScaenaNotes
 import SwiftUI
 
 #if os(macOS)
@@ -543,9 +544,9 @@ final class Showing {
     }
 
     /// `state`'s notes, for the presenter and the remote (SPEC §2.6): its own, else its beat's,
-    /// which a generated deck writes them on.
-    func notes(_ state: String) -> String {
-        (try? editor.session.notes(state: state)) ?? ""
+    /// which a generated deck writes them on, as written and as the blocks a speaker reads.
+    func notes(_ state: String) -> Notes {
+        (try? editor.session.notes(state: state)) ?? .none
     }
 
     /// The canvas, canvas units.
@@ -872,7 +873,7 @@ struct KeyList: View {
 struct PresenterView: View {
     let showing: Showing
     @FocusState private var focused: Bool
-    @State private var notes = ""
+    @State private var notes = Notes.none
     @State private var next: CGImage?
     @Environment(\.displayScale) private var scale
 
@@ -981,10 +982,11 @@ struct PresenterView: View {
                     }
                     Text("Notes").font(.headline).foregroundStyle(.secondary).padding(.top, 8)
                     ScrollView {
-                        Text(notes.isEmpty ? "No notes." : notes)
+                        NotesText(notes.blocks)
                             .font(.title3)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .textSelection(.enabled)
+                            .accessibilityIdentifier("presenter-notes")
                     }
                 }
                 .frame(width: wide ? 360 : nil)
@@ -1008,7 +1010,7 @@ struct PresenterView: View {
         .paces(showing)
         .onAppear { focused = true }
         .task(id: show.index) {
-            notes = show.slot.map { showing.notes($0.state) } ?? ""
+            notes = show.slot.map { showing.notes($0.state) } ?? .none
             next = show.next.flatMap { showing.editor.drawing($0.state, width: Int(360 * scale)) }
         }
     }
