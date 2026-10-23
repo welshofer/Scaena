@@ -166,7 +166,7 @@ export function backgrounds(stage: Stage, around: Around) {
     try {
       // Its own patch shows it; the one made sets each text too faint over it in a color that reads.
       const patch = await stage.backgroundPatch(b.first, o.preset);
-      const { source, edited } = await stage.make(around.source(), patch, now.index, around.format());
+      const { source, edited } = await stage.make(around.source, patch, now.index, around.format());
       around.apply(source, edited);
       around.say(`${slide}: background ${o.preset === undefined ? "taken away" : o.label} · ⌘Z undoes it`);
       drawn = undefined;

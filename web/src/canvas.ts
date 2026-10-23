@@ -2330,7 +2330,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     const op = ops[0] as { node?: string; at?: Placement } | undefined;
     editor.say("Placing…");
     try {
-      const { source, edited } = await stage.make(editor.source(), ops, shown.index, editor.format());
+      const { source, edited } = await stage.make(editor.source, ops, shown.index, editor.format());
       editor.apply(source, edited);
       await refresh();
       editor.say(done ?? `${op?.node === undefined ? "Placed" : `${Called(op.node)} placed`}: ${placed(op?.at ?? {}, aim?.by, words)}`);
@@ -2347,7 +2347,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     if (!shown) return false;
     editor.say(doing);
     try {
-      const { source, edited } = await stage.make(editor.source(), ops, shown.index, editor.format());
+      const { source, edited } = await stage.make(editor.source, ops, shown.index, editor.format());
       editor.apply(source, edited);
       await refresh();
       if (Array.isArray(next)) selectAll(next.filter((n) => box(n) !== undefined));

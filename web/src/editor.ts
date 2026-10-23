@@ -1212,7 +1212,7 @@ async function edit(source: Source, opened?: Stage) {
     make: async (ops, done) => {
       const now = showing();
       if (!now) return;
-      const { source, edited } = await stage.make(view.state.doc.toString(), ops, now.index, format());
+      const { source, edited } = await stage.make(() => view.state.doc.toString(), ops, now.index, format());
       made(source, edited);
       say(done);
     },
@@ -1286,7 +1286,7 @@ async function edit(source: Source, opened?: Stage) {
     show: (index) => void show(index),
     keep: async (ops, what) => {
       try {
-        const { source, edited } = await stage.make(view.state.doc.toString(), ops, shown, format());
+        const { source, edited } = await stage.make(() => view.state.doc.toString(), ops, shown, format());
         made(source, edited);
         say(`Kept ${what} · ⌘Z undoes them`);
         return true;
@@ -2255,7 +2255,7 @@ async function edit(source: Source, opened?: Stage) {
     const spot = keys.length ? Object.fromEntries(keys.map((k) => [k, at[k]])) : { in: "grid" };
     try {
       const op = { op: "place", node, at: spot, format: f, anew: true };
-      const { source, edited } = await stage.make(view.state.doc.toString(), [op], now.index, f);
+      const { source, edited } = await stage.make(() => view.state.doc.toString(), [op], now.index, f);
       made(source, edited);
       say(`${sentence(object(lexicon, node, true))} has a layout of its own in ${f}: a move there moves it there alone · ⌘Z undoes it`);
     } catch (e) {

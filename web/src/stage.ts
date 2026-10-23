@@ -228,6 +228,8 @@ export class Stage {
   /** What takes each thumbnail as it is painted, by the request's id. */
   private thumbing = new Map<number, (thumb: Thumb) => void>();
   private asked = 0;
+  /** The patch being made, which the next waits for (`make`). */
+  private making: Promise<void> = Promise.resolve();
 
   /** The bundle's files written since the last save, as the page heard of them (lift-up REL-4),
    * each with how many times, and those taken out: what a recovery copy keeps beside the source. A
@@ -533,8 +535,23 @@ export class Stage {
 
   /** Make `ops` by the user on the deck `source` compiles to, and show slot `index` from it: the
    * deck's source after, and what the edit came to. */
-  make(source: string, ops: unknown[], index: number, format?: string): Promise<{ source: string; edited: Edited }> {
-    return this.request<"made">({ type: "make", id: ++this.asked, source, ops, index, format }).then(({ source, edited }) => {
+  make(source: () => string, ops: unknown[], index: number, format?: string): Promise<{ source: string; edited: Edited }> {
+    // One patch at a time for the whole page (lift-up REL-5): each made on the source as it stands
+    // when its turn comes, after the last one was taken, and made again on the source as it stands
+    // if something else changed it meanwhile (a keystroke, a data edit), so that two panels' edits
+    // in flight compose instead of the second overwriting the first.
+    const turn = this.making.then(async () => {
+      for (let tries = 1; ; tries++) {
+        const from = source();
+        const made = await this.request<"made">({ type: "make", id: ++this.asked, source: from, ops, index, format });
+        if (source() === from || tries === 3) return made;
+      }
+    });
+    // The next turn waits a task more, so the caller has taken this one (each takes its patch as
+    // soon as it is made) before the next reads the source.
+    const taken = () => new Promise<void>((settle) => setTimeout(settle));
+    this.making = turn.then(taken, taken);
+    return turn.then(({ source, edited }) => {
       if (edited.at) {
         this.at = edited.at;
         this.onAt(edited.at);

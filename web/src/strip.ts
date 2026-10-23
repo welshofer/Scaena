@@ -193,7 +193,7 @@ export function strip(stage: Stage, into: HTMLElement, editor: StripEditor) {
       if (!editor.shown()) return editor.say(WAITING);
       editor.say(doing);
       try {
-        const { source, edited } = await stage.make(editor.source(), ops, Math.max(0, to(slots)), editor.format());
+        const { source, edited } = await stage.make(editor.source, ops, Math.max(0, to(slots)), editor.format());
         editor.apply(source, edited);
         editor.say(done);
       } catch (e) {
