@@ -31,8 +31,10 @@ pub struct TransitionSpec {
     /// other, nothing morphing between them. Without one, what both states show morphs.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub style: Option<TransitionStyle>,
-    /// Which way a `push`, a `cover`, a `reveal`, or a `wipe` moves: `left`, the default, which
-    /// brings the slide entered in from the right, `right`, `up`, or `down`.
+    /// Which way a `push`, a `cover`, a `reveal`, a `wipe`, a `circleWave`, or a `diamondWave`
+    /// moves: `left`, the default, which brings the slide entered in from the right, `right`, `up`,
+    /// or `down`. A `radial`'s hand starts so the slide entered shows first on that side: straight
+    /// up for `left`, at three o'clock for `up`, six for `right`, and nine for `down`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("default" = "left"))]
     pub direction: Option<TransitionDirection>,
@@ -40,7 +42,7 @@ pub struct TransitionSpec {
 
 /// A slide transition (PLAN 2.111).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "camelCase")]
 pub enum TransitionStyle {
     /// The slide entered fades in over the slide left.
     Dissolve,
@@ -52,6 +54,16 @@ pub enum TransitionStyle {
     Reveal,
     /// An edge sweeps across, the slide entered behind it.
     Wipe,
+    /// Circles grow across the slide, the slide entered inside them (PLAN 2.149).
+    Circle,
+    /// Circles grow in a wave across the slide, the way `direction` goes.
+    CircleWave,
+    /// Diamonds grow across the slide together.
+    Diamond,
+    /// Diamonds grow in a wave across the slide, the way `direction` goes.
+    DiamondWave,
+    /// A clock's hand sweeps round the slide's middle, the slide entered in its wake.
+    Radial,
 }
 
 /// Which way a slide transition moves (PLAN 2.111).

@@ -144,6 +144,28 @@ private func playing(_ editor: DeckEditor) -> [String] {
     #expect(try b1Editor.session.motionOffers(state: "goal", node: nil).isEmpty, "no exit under a slide transition")
 }
 
+/// The Animate tab offers every slide transition, the five that show the slide entered through
+/// shapes that grow among them (PLAN 2.149), each in a person's words, and one chosen is the cue's.
+@Test func theStateOffersTheTransitionsThatGrowInPlainWords() throws {
+    let editor = DeckEditor(session: try ScaenaSession(directory: b1))
+    let fields = try editor.session.stateChoices(state: "goal").fields
+    let style = try #require(fields.first { $0.prop == "transition/style" })
+    let growing = ["circle", "circleWave", "diamond", "diamondWave", "radial"]
+    guard case .word(let words) = style.takes else {
+        Issue.record("a transition's style is one of its words: \(style.takes)")
+        return
+    }
+    #expect(words == ["dissolve", "push", "cover", "reveal", "wipe"] + growing)
+    #expect(growing.map { style.said[$0] } == ["Circle", "Circle Wave", "Diamond", "Diamond Wave", "Radial"])
+
+    for chosen in growing {
+        try editor.make([["op": "set_state", "id": "goal", "prop": "transition/style", "value": .string(chosen)]])
+        let cue = try editor.session.cue(state: "goal")
+        #expect(cue.transition.style == chosen && cue.transition.duration > 0, "\(chosen) plays")
+        #expect(cue.bars.map(\.id) == ["transition"], "\(chosen) moves the slide left whole: no exit plays")
+    }
+}
+
 /// The canvas and the cue select together, as the browser's: the bars of what the canvas selects
 /// stand out, and those of what a group holds; a node with no motion here, none.
 @Test func theBarsOfWhatTheCanvasSelectsStandOut() throws {
