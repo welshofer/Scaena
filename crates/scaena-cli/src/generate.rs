@@ -608,7 +608,7 @@ pub fn run(a: GenerateArgs, json: bool) -> Result<ExitCode> {
     // A deck in letters the theme's fonts cannot draw would be blank where its words stand.
     scaena_ops::narrative::writable(a.language.as_deref(), &theme_text, theme.shipped, &font)?;
     if let Some(name) = &a.arc
-        && !scaena_narrato::arcs::arcs().iter().any(|arc| arc.arc.eq_ignore_ascii_case(name))
+        && scaena_narrato::arcs::named(name).is_none()
     {
         let names: Vec<&str> = scaena_narrato::arcs::arcs().iter().map(|arc| arc.arc.as_str()).collect();
         bail!("`{name}` is no arc of Narrato's: {}", names.join(", "));
