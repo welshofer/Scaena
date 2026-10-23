@@ -1438,8 +1438,10 @@ export interface Asking {
 }
 
 /** What a person asks a model to write (PLAN 2.101): a text's words proofread, tightened, or
- * rewritten; a slide's notes drafted; an issue explained; a picture described (PLAN 2.119). */
-export type WritingKind = "proofread" | "tighten" | "rewrite" | "notes" | "explain" | "describe";
+ * rewritten; a slide's notes drafted; an issue explained; a picture described (PLAN 2.119); a
+ * slide's words checked against its beat's claim, its headline rewritten to carry it (narrative
+ * FUNC-4). */
+export type WritingKind = "proofread" | "tighten" | "rewrite" | "notes" | "explain" | "describe" | "claim";
 
 /** A writing tool asked of the deck as it stands: the task, the state shown, and the text it is
  * about, or the finding to explain, as the window says it (`said`). */
@@ -1456,7 +1458,9 @@ export interface WritingAsk {
  * instructions and the prompt; and, for a description, the picture as the slide shows it, a PNG in
  * base64, which the model is shown (PLAN 2.119). */
 export interface Writing {
-  task: { kind: WritingKind; text?: string };
+  /** The task, with the words it works on where it works on a text's, the description a picture
+   * has, or, for a claim check, the headline it may rewrite. */
+  task: { kind: WritingKind; text?: string; headline?: string };
   title: string;
   instructions: string;
   prompt: string;

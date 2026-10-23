@@ -38,16 +38,35 @@ pub fn read(spec: &str, agent: &ureq::Agent, reach: &Reach) -> Result<Source> {
     }
 }
 
-/// `get` made: its status, its content type, and its body.
+/// The most redirects a GET follows.
+const MOST_REDIRECTS: usize = 10;
+
+/// `get` made: its status, its content type, and its body. Each redirect is followed here, held
+/// to what a web source may name (`scaena_sources::fetch::redirected`), so a public page cannot
+/// send the CLI on to one on this machine or its network.
 fn fetched(agent: &ureq::Agent, get: &Get) -> Result<(u16, String, Vec<u8>)> {
-    let mut request = agent.get(&get.url);
-    for (k, v) in &get.headers {
-        request = request.header(k, v);
-    }
-    let mut response = request.call().map_err(|e| anyhow!("{}: {e}", get.url))?;
+    let mut url = get.url.clone();
+    let mut hops = 0;
+    let mut response = loop {
+        let mut request = agent.get(&url).config().max_redirects(0).build();
+        for (k, v) in &get.headers {
+            request = request.header(k, v);
+        }
+        let response = request.call().map_err(|e| anyhow!("{url}: {e}"))?;
+        let location = response.headers().get("location").and_then(|v| v.to_str().ok());
+        match location {
+            Some(to) if response.status().is_redirection() => {
+                hops += 1;
+                if hops > MOST_REDIRECTS {
+                    bail!("{}: redirected more than {MOST_REDIRECTS} times", get.url);
+                }
+                url = scaena_sources::fetch::redirected(&url, to).map_err(|e| anyhow!("{e}"))?;
+            }
+            _ => break response,
+        }
+    };
     let status = response.status().as_u16();
     let kind = (response.headers().get("content-type").and_then(|v| v.to_str().ok())).unwrap_or_default().to_string();
-    let body =
-        response.body_mut().with_config().limit(get.most).read_to_vec().map_err(|e| anyhow!("{}: {e}", get.url))?;
+    let body = response.body_mut().with_config().limit(get.most).read_to_vec().map_err(|e| anyhow!("{url}: {e}"))?;
     Ok((status, kind, body))
 }

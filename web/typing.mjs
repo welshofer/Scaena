@@ -271,8 +271,10 @@ try {
   // Saved straight after typing, by Escape and ⌘S at once, or by ⌘S with the caret still in the
   // text: the save holds what was typed, each key once, and the bar and the tab say it is saved.
   // Keys typed back to back, then Escape, go in once each. An undo back to what was saved leaves
-  // nothing to save.
-  const saving = await open("/docs/examples/revenue.deck.json");
+  // nothing to save. A browser of its own: the first page typed in this deck without saving, and a
+  // page that opened it again beside it would be offered those changes first (lift-up REL-4).
+  const own = await browser.newContext({ viewport: { width: 1920, height: 1200 }, deviceScaleFactor: 1 });
+  const saving = await open("/docs/examples/revenue.deck.json", own);
   await saving.locator("#save").click();
   await saving.waitForFunction(() => window.scaena.where().where && !window.scaena.where().dirty, null, { timeout: 60000 });
   check((await saving.title()) === "Q3 Review · Scaena", `the tab names the deck: ${await saving.title()}`);
