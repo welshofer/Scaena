@@ -17,8 +17,7 @@
 // - The keys sheet lists what annotates; axe-core finds nothing against WCAG 2.1 AA with a mark
 //   picked and its menu open.
 // Exits 1 on any failure.
-import { createRequire } from "node:module";
-import { launch, serve } from "./serve.mjs";
+import { axeInto, launch, serve } from "./serve.mjs";
 
 const failures = [];
 const check = (ok, what) => {
@@ -26,7 +25,6 @@ const check = (ok, what) => {
   if (!ok) failures.push(what);
 };
 
-const axe = createRequire(import.meta.url).resolve("axe-core/axe.min.js");
 const site = await serve();
 const browser = await launch();
 try {
@@ -117,7 +115,7 @@ try {
   }
   check(!offered.includes("Take the highlight off 2026-Q3 · Pro"), "and no highlight to take off");
   // axe-core, a mark picked and its menu open.
-  await page.addScriptTag({ path: axe });
+  await axeInto(page);
   const found = await page.evaluate(async () => {
     const result = await window.axe.run(document, { runOnly: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] });
     return result.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(" ")).join(", ")}`);

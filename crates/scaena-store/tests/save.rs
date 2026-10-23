@@ -192,3 +192,83 @@ fn a_file_added_to_a_bundle_goes_where_its_kind_goes() {
     assert_eq!(scaena_store::place("dir/Inter-VF.ttf", b"font"), "fonts/Inter-VF.ttf");
     assert_eq!(scaena_store::place("q3.csv", b"a,b"), "data/q3.csv");
 }
+
+/// A save that stops partway leaves a bundle that opens (lift-up REL-3). Each file is written
+/// whole or not at all, every file's bytes written before any is put in place, and the deck's
+/// files before `deck.json`: a font that cannot be put in place stops the save before the deck is
+/// touched, so `deck.json` names no file that is not there; and a `deck.json` that cannot be
+/// written leaves the bundle as it was, and no partial in its listing.
+#[test]
+fn a_save_that_stops_partway_leaves_the_deck_as_it_was() {
+    let dir = scratch("partway").join("b1.scaena");
+    copy_dir(Path::new("../../tests/bench/b1.scaena"), &dir);
+    let bundle = Bundle::open(&dir).unwrap();
+    let before = std::fs::read(dir.join("deck.json")).unwrap();
+    // A font the save names anew, by its content: a directory stands where it would go, which
+    // no file can be renamed over.
+    let saving = bundle.saving(&opts()).unwrap();
+    let font = saving.files.keys().find(|p| p.starts_with("fonts/") && !dir.join(p).exists()).unwrap();
+    std::fs::create_dir_all(dir.join(font)).unwrap();
+    let err = bundle.save(&dir, &opts()).unwrap_err();
+    assert!(matches!(err, scaena_store::StoreError::Io(_)), "{err}");
+    assert_eq!(std::fs::read(dir.join("deck.json")).unwrap(), before, "the fonts come before deck.json");
+    let (deck, held) = scaena_store::open_unparsed(&dir).unwrap();
+    assert_eq!(validate_bundle(&deck, &held).unwrap(), [], "the bundle opens as it was");
+    assert!(!dir.join(font).join("x").exists() && dir.join(font).is_dir(), "the font's place is still the directory");
+    std::fs::remove_dir(dir.join(font)).unwrap();
+    // The deck's own write stops: its partial cannot be made. Every file's bytes are written
+    // before any is put in place, so nothing has changed, the theme among it, and no partial
+    // is listed.
+    let listed = files(&dir);
+    let theme = std::fs::read(dir.join("theme.json")).unwrap();
+    std::fs::create_dir(dir.join(".deck.json.partial")).unwrap();
+    let err = bundle.save(&dir, &opts()).unwrap_err();
+    assert!(matches!(err, scaena_store::StoreError::Io(_)), "{err}");
+    assert_eq!(std::fs::read(dir.join("deck.json")).unwrap(), before, "deck.json is as it was");
+    assert_eq!(std::fs::read(dir.join("theme.json")).unwrap(), theme, "and the theme");
+    assert_eq!(files(&dir), listed, "no file was put in place, and no partial is listed");
+    let (deck, held) = scaena_store::open_unparsed(&dir).unwrap();
+    assert_eq!(validate_bundle(&deck, &held).unwrap(), [], "the bundle opens as it was");
+    std::fs::remove_dir(dir.join(".deck.json.partial")).unwrap();
+    // Nothing in the way, the save goes through, and leaves no partial behind.
+    bundle.save(&dir, &opts()).unwrap();
+    assert_ne!(std::fs::read(dir.join("deck.json")).unwrap(), before, "saved in canonical form");
+    assert!(!dir.join(".deck.json.partial").exists());
+    let (deck, held) = scaena_store::open_unparsed(&dir).unwrap();
+    assert_eq!(validate_bundle(&deck, &held).unwrap(), []);
+}
+
+/// A `.scaena` zip is written whole or not at all: one that cannot be written is left as it
+/// was, and opens (lift-up REL-3).
+#[test]
+fn a_zip_that_cannot_be_written_is_left_as_it_was() {
+    let dir = scratch("zip-partway");
+    let zip = dir.join("b1.scaena");
+    Bundle::open(Path::new("../../tests/bench/b1.scaena")).unwrap().save(&zip, &opts()).unwrap();
+    let before = std::fs::read(&zip).unwrap();
+    std::fs::create_dir(dir.join(".b1.scaena.partial")).unwrap();
+    let err = Bundle::open(&zip).unwrap().save(&zip, &opts()).unwrap_err();
+    assert!(matches!(err, scaena_store::StoreError::Io(_)), "{err}");
+    assert_eq!(std::fs::read(&zip).unwrap(), before, "the zip is as it was");
+    let (deck, files) = scaena_store::open_unparsed(&zip).unwrap();
+    assert_eq!(validate_bundle(&deck, &files).unwrap(), []);
+}
+
+/// A write into the bundle where it is ([`Bundle::write`]) writes `deck.json` after the rest, each
+/// whole or not at all: one that stops on another file leaves the deck as it was (lift-up REL-3).
+#[test]
+fn a_write_that_stops_partway_leaves_the_deck_as_it_was() {
+    let dir = scratch("write-partway").join("b1.scaena");
+    copy_dir(Path::new("../../tests/bench/b1.scaena"), &dir);
+    let bundle = Bundle::open(&dir).unwrap();
+    let before = std::fs::read(dir.join("deck.json")).unwrap();
+    std::fs::create_dir(dir.join("notes.txt")).unwrap();
+    let files = [("deck.json".to_string(), b"{}".to_vec()), ("notes.txt".to_string(), b"mine".to_vec())].into();
+    let err = bundle.write(&files).unwrap_err();
+    assert!(matches!(err, scaena_store::StoreError::Io(_)), "{err}");
+    assert_eq!(std::fs::read(dir.join("deck.json")).unwrap(), before, "deck.json comes last");
+    std::fs::remove_dir(dir.join("notes.txt")).unwrap();
+    bundle.write(&files).unwrap();
+    assert_eq!(std::fs::read(dir.join("deck.json")).unwrap(), b"{}");
+    assert_eq!(std::fs::read(dir.join("notes.txt")).unwrap(), b"mine");
+}

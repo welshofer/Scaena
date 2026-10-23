@@ -14,8 +14,7 @@
 // - The player's live region reads the lists as lists: `ul` and `ol`, nested by level.
 // - axe-core finds nothing in the editor on the case, and the keys sheet lists the list keys.
 // Exits 1 on any failure.
-import { createRequire } from "node:module";
-import { launch, serve } from "./serve.mjs";
+import { axeInto, launch, serve } from "./serve.mjs";
 
 const failures = [];
 const check = (ok, what) => {
@@ -23,7 +22,6 @@ const check = (ok, what) => {
   if (!ok) failures.push(what);
 };
 
-const axe = createRequire(import.meta.url).resolve("axe-core/axe.min.js");
 const site = await serve();
 const browser = await launch();
 try {
@@ -83,7 +81,7 @@ try {
   check(listOf(original, "list-points") === points, `the points as written: ${listOf(original, "list-points")}`);
 
   // axe-core on the case.
-  await page.addScriptTag({ path: axe });
+  await axeInto(page);
   const found = await page.evaluate(async () => {
     const result = await window.axe.run(document, { runOnly: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] });
     return result.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(" ")).join(", ")}`);

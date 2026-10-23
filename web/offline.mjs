@@ -11,6 +11,10 @@
 // - Every theme the registry lists, with its thumbnail and its fonts, is among what the site keeps,
 //   and offline the editor makes a deck in each, with its fonts alone, and saves it in the browser
 //   (PLAN T.0c). The site's install, every file the build wrote, is recorded.
+// - A new build (lift-up REL-2): a newer sw.js served, the editor finds it, its worker fetches
+//   every file of the site past the browser's HTTP cache and waits beside the one answering the
+//   page, which keeps its build; the page offers "A new version is ready: reload", and pressed, it
+//   loads again answered by the new worker alone, the old build's cache gone.
 // - Nothing the pages ask is refused, and nothing is asked of another origin.
 // Exits 1 on any failure.
 import { readdir, readFile, stat } from "node:fs/promises";
@@ -20,7 +24,10 @@ import { decode, launch, serve } from "./serve.mjs";
 const root = join(process.cwd(), "target/site");
 const at = "/scaena/demo/";
 const media = { ".css": "text/css", ".png": "image/png", ".ttf": "font/ttf", ".csv": "text/csv", ".txt": "text/plain", ".md": "text/markdown", ".svg": "image/svg+xml", ".webmanifest": "application/manifest+json" };
-const site = await serve(root, { at, more: media });
+/** Each path the server is asked, and the sw.js it answers with in place of the build's. */
+const seen = [];
+let newer;
+const site = await serve(root, { at, more: media, seen, instead: (asked) => (asked === `${at}sw.js` ? newer : undefined) });
 const home = `${site.origin}${at}`;
 const failures = [];
 const check = (ok, what) => {
@@ -85,6 +92,43 @@ try {
   check(!(await opened(page, () => window.scaena?.last?.())), "the editor opens the demo deck");
   await page.waitForFunction(() => document.documentElement.dataset.offline === "ready", null, { timeout: 60000 }).catch(() => {});
   check(await page.isVisible("#offline"), "and says it works offline");
+
+  // A new build (lift-up REL-2): the same files under another version. The editor, told to look,
+  // finds it; its worker installs beside the one answering the page, and waits.
+  newer = (await readFile(join(root, "sw.js"), "utf8")).replace(/^const version = "[^"]+";$/m, 'const version = "newer";');
+  check(newer.includes('"newer"'), "a newer sw.js is served in place of the build's");
+  seen.length = 0;
+  const was = await page.evaluate(async () => ({ worker: navigator.serviceWorker.controller?.scriptURL, caches: await caches.keys() }));
+  await page.evaluate(() => navigator.serviceWorker.getRegistration().then((r) => r.update()));
+  await page.waitForFunction(() => !document.querySelector("#update")?.hidden, null, { timeout: 60000 }).catch(() => {});
+  check(await page.isVisible("#update"), `the editor offers it: ${await page.textContent("#update")}`);
+  const fetched = built.filter((f) => seen.includes(`${at}${f}`));
+  check(
+    fetched.length === built.length,
+    `the new worker fetched every file of the site past the browser's HTTP cache (${fetched.length} of ${built.length})`,
+  );
+  const waiting = await page.evaluate(async () => {
+    const r = await navigator.serviceWorker.getRegistration();
+    return { waiting: Boolean(r?.waiting), worker: navigator.serviceWorker.controller?.scriptURL, caches: await caches.keys(), page: document.documentElement.dataset.offline };
+  });
+  check(
+    waiting.waiting && waiting.worker === was.worker && waiting.caches.includes("scaena-site-newer") && was.caches.every((c) => waiting.caches.includes(c)),
+    `it waits beside the worker answering the page, which keeps its build: ${JSON.stringify(waiting)}`,
+  );
+  // Pressed, the new worker takes over, and the page loads again, answered by it alone.
+  await Promise.all([page.waitForEvent("load", { timeout: 60000 }), page.click("#update")]);
+  check(!(await opened(page, () => window.scaena?.last?.())), "reload: the editor opens again");
+  await page.waitForFunction(() => document.documentElement.dataset.offline === "ready", null, { timeout: 60000 }).catch(() => {});
+  const took = await page.evaluate(async () => {
+    const r = await navigator.serviceWorker.getRegistration();
+    return { waiting: Boolean(r?.waiting), controlled: Boolean(navigator.serviceWorker.controller), caches: (await caches.keys()).filter((c) => c.startsWith("scaena-site-")), offered: !document.querySelector("#update")?.hidden };
+  });
+  check(
+    took.controlled && !took.waiting && !took.offered && JSON.stringify(took.caches) === JSON.stringify(["scaena-site-newer"]),
+    `answered by the new build alone, the old build's cache gone: ${JSON.stringify(took)}`,
+  );
+  // The build's own sw.js again, which the pages opened offline cannot look for.
+  newer = undefined;
 
   // The network gone.
   await context.setOffline(true);
