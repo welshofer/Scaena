@@ -82,6 +82,51 @@ try {
   await page.waitForTimeout(500);
   check((await source()) === was, "Discard keeps nothing");
 
+  // A second Escape keeps the timings safe (lift-up USE-2): Escape stops the run and opens the
+  // results; Escape on them is held off once, the status saying they stay; the next closes them;
+  // and Rehearsal Results… in the palette opens them again, where Keep keeps the timings.
+  const status = () => page.locator("#status").textContent();
+  const open = () => page.evaluate(() => document.querySelector("#rehearsed").open);
+  await rehearse();
+  await press("ArrowRight", 1500);
+  await press("Escape", 100);
+  await stopped();
+  check(await open(), "Escape stops a run, and opens the results");
+  await press("Escape", 100);
+  await page.waitForTimeout(200);
+  check(await open(), "Escape on the results is held off once");
+  check((await status()).startsWith("Escape again closes the results, which stay"), `and the status says they stay: ${await status()}`);
+  await press("Escape", 100);
+  await page.waitForFunction(() => !document.querySelector("#rehearsed").open, null, { timeout: 5000 }).catch(() => {});
+  check(!(await open()), "Escape again closes them");
+  check((await source()) === was, "nothing kept");
+  const took = await page.evaluate(() => window.scaena.rehearsal.kept());
+  check(took.length === slots.length && took.some((k) => k.spent > 0), `the results stay: ${took.filter((k) => k.spent > 0).length} state(s) reached`);
+  check((await status()).includes("Rehearsal Results…"), `the status says how to see them again: ${await status()}`);
+  await page.locator("#overlay").focus();
+  await page.keyboard.press("Control+k");
+  await page.waitForFunction(() => document.querySelector("#palette").open, null, { timeout: 10000 });
+  await page.keyboard.type("Rehearsal Results");
+  await page.keyboard.press("Enter");
+  await stopped();
+  check(await open(), "Rehearsal Results… in the palette opens them again");
+  const again = await page.locator("#rehearsed tbody tr").count();
+  check(again === slots.length, `with every state's row: ${again}`);
+  const reached = took.filter((k) => k.keeps !== undefined && k.keeps !== k.hold);
+  await page.click("#rehearsed-keep");
+  await page
+    .waitForFunction((r) => window.scaena.last()?.valid && r.every((k) => window.scaena.last().slots.find((s) => s.state === k.state)?.hold === k.keeps), reached, { timeout: 30000 })
+    .catch(() => {});
+  const kept2 = await page.evaluate(() => window.scaena.last().slots.map((s) => ({ state: s.state, hold: s.hold })));
+  check(
+    reached.length > 0 && reached.every((k) => kept2.find((h) => h.state === k.state)?.hold === k.keeps),
+    `Keep from there keeps the timings: ${JSON.stringify(kept2)}, from ${JSON.stringify(reached)}: ${await status()}`,
+  );
+  await page.locator(".cm-content").focus();
+  await page.keyboard.press("Control+z");
+  await page.waitForFunction((w) => window.scaena.source() === w, was, { timeout: 30000 }).catch(() => {});
+  check((await source()) === was, "and ⌘Z takes them back");
+
   // A rehearsal timed: on, on, back, on, each after a wait; Escape stops.
   await rehearse();
   await press("ArrowRight", 900); // intro: 0.9 s

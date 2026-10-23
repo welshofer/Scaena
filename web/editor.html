@@ -922,7 +922,7 @@
         <label>Title <input id="making-name" name="title" required autocomplete="off" value="Untitled" /></label>
         <label>Theme <select id="making-theme" name="theme"></select></label>
         <img id="making-preview" width="240" height="135" alt="" />
-        <p class="note">A title slide to type over, on a 16:9 canvas, with the theme and its fonts. It is kept nowhere until you save it.</p>
+        <p class="note">A title slide to type over, on a 16:9 canvas, with the theme and its fonts. It is kept nowhere until you save it; what you change meanwhile is kept in this browser, to recover.</p>
         <menu>
           <button value="cancel" formnovalidate>Cancel</button>
           <button value="create" id="making-create">Create</button>
@@ -1009,6 +1009,17 @@
         <p class="count" aria-live="polite"></p>
         <menu>
           <button value="cancel" formnovalidate>Cancel</button>
+        </menu>
+      </form>
+    </dialog>
+    <dialog id="recovering" aria-labelledby="recovering-title">
+      <form method="dialog">
+        <h2 id="recovering-title">Changes not saved</h2>
+        <p data-said></p>
+        <p class="note">The editor keeps a copy of what is not saved in this browser, a few seconds after each change, until the deck is saved.</p>
+        <menu>
+          <button value="discard">Discard</button>
+          <button value="recover" autofocus>Recover</button>
         </menu>
       </form>
     </dialog>
