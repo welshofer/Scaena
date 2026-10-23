@@ -537,7 +537,7 @@ try {
         .waitForFunction(() => /Trying again in \d+ s \(1 of 3\)/.test(document.querySelector("#thinking").textContent) && document.querySelector("#thinking").textContent, null, { timeout: 10000 })
         .then((h) => h.jsonValue())
         .catch(() => "");
-      check(waited.startsWith("Anthropic is busy.") || waited.startsWith("OpenAI is busy.") || waited.startsWith("Gemini is busy."), `${id}: the wait is said in a person's words: "${waited}"`);
+      check(/^(Anthropic|OpenAI|Gemini) is busy\. Trying again in \d+ s \(1 of \d+\)…$/.test(waited), `${id}: the wait is said in a person's words: "${waited}"`);
       const again = await page.evaluate(() => window.asked);
       check(again.kind === "done" && again.stop === "end" && scripted.requests.length === before + 3, `${id}: asked again after each 429, then answered (${JSON.stringify(again)}, ${scripted.requests.length - before} requests)`);
       const quiet = scripted.requests.length;
