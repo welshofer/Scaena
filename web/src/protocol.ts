@@ -1017,6 +1017,10 @@ export type ToWorker =
   /** Paint the preview through `view`, `[x, y, w, h]` canvas units, at the size shown, or the whole
    * canvas with none; and paint what is shown again so (PLAN 2.46). */
   | { type: "view"; id: number; view: [number, number, number, number] | null }
+  /** Paint frames at the size of the slide shown as large as fits in `room`, device pixels,
+   * keeping the canvas's aspect, from now on; at the canvas's own size with none (lift-up
+   * ATTR-2). What is shown is painted again so. */
+  | { type: "fit"; id: number; room: [number, number] | null }
   /** Each text of the deck `source` compiles to that `query` matches (PLAN 2.47). */
   | { type: "find"; id: number; source: string; query: Query }
   /** The patch that replaces what `query` matches with `with`: every match, or with `one`,
@@ -1854,6 +1858,8 @@ export type FromWorker =
   | { type: "laidOut"; id: number; layout: LayoutSlots | null }
   /** The preview is painted through the view asked for. */
   | { type: "viewed"; id: number }
+  /** Frames are painted at `size` from now on: the canvas's attributes. */
+  | { type: "fitted"; id: number; size: [number, number] }
   | { type: "found"; id: number; found: Found[] }
   /** The ops of a replacement, a `replace_text` for each match it replaces. */
   | { type: "replacement"; id: number; ops: unknown[] }
@@ -1982,6 +1988,9 @@ export type FromWorker =
   | { type: "helpers"; count: number }
   /** The formats beside the canvas show `state` `t` ms into its cue (PLAN 2.62). */
   | { type: "besides"; state: string; t: number }
+  /** The canvas's attributes are `size` from now on: frames are painted at it, the slide fitted
+   * to the room (lift-up ATTR-2), the format shown, or the bundle read again changing it. */
+  | { type: "sized"; size: [number, number] }
   /** Request `id` failed, or, without one, opening or playing did. `webgpu`: setting
    * WebGPU up failed, and the CPU painter may still paint. */
   | { type: "error"; id?: number; message: string; webgpu?: boolean }
