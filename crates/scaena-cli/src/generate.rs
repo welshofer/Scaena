@@ -468,6 +468,7 @@ impl Kept {
                     args.push("--no-look".into());
                 }
                 flag(&mut args, "look-answer", path(a.look_answer.as_deref()).as_deref());
+                flag(&mut args, "from-outline", path(a.from_outline.as_deref()).as_deref());
             }
         }
         flag(&mut args, "audience", a.audience.as_deref());
