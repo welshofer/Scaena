@@ -253,9 +253,10 @@ try {
   });
   await page.mouse.click(desk[0], desk[1]);
   const offSlide = await page
-    .waitForFunction(() => window.scaena.canvas.selected() === undefined && document.querySelector('#look [data-prop^="transition/"]'), null, { timeout: 30000 })
+    .waitForFunction(() => window.scaena.canvas.selected() === undefined && document.querySelector('#animating [data-prop^="transition/"]'), null, { timeout: 30000 })
     .then(() => true)
     .catch(() => false);
+  // The slide's transition is the Animate tab's (lift-up ATTR-4), offered whether or not it shows.
   check(offSlide, `a click on the desk selects nothing, and the inspector shows the slide's settings: ${await page.evaluate(() => window.scaena.canvas.selected())}`);
   check((await page.evaluate(() => document.activeElement?.id)) === "overlay", "and the canvas keeps the keys");
 
