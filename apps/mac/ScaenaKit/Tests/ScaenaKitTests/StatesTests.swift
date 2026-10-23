@@ -244,3 +244,19 @@ private func playing(_ editor: DeckEditor) -> [String] {
         #expect(zip(marks, marks.dropFirst()).allSatisfy { ($1 - $0) / scale * width >= 47.99 })
     }
 }
+
+/// A rehearsal carries each state's notes as a presenter reads them (SPEC §2.6, lift-up USE-3): the
+/// state's own, else its beat's, which the stage shows beside the slide with the next slide's name,
+/// and steps with the rehearsal.
+@Test func aRehearsalCarriesEachStatesNotes() throws {
+    let session = try ScaenaSession(files: example("revenue"))
+    let slots = try session.timeline()
+    var rehearsal = try Rehearsal(slots: slots, notes: slots.map { try session.notes(state: $0.state) })
+    #expect(rehearsal.notes.count == slots.count)
+    #expect(rehearsal.current?.text == "Open on the title. Don't talk over the build.")
+    #expect(rehearsal.next?.state == "revenue")
+    rehearsal.go(1)
+    #expect(rehearsal.current?.text.hasPrefix("Pause on the Q3 bar before the build.") == true, "its beat's")
+    // Given none, it shows none.
+    #expect(Rehearsal(slots: slots).current == nil)
+}

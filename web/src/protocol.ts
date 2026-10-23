@@ -1057,6 +1057,9 @@ export type ToWorker =
   /** A model's `answer` to `ask` as it is offered, and the patch that takes it (PLAN 2.101). */
   | { type: "written"; id: number; ask: WritingAsk; answer: string }
   | { type: "words"; id: number; state: string }
+  /** The notes a presenter reads for `state` (SPEC §2.6), as written and as the blocks a
+   * speaker reads: what a rehearsal shows. */
+  | { type: "notes"; id: number; state: string }
   /** The layouts `state` may take, best first, each painted at rest `height` pixels high, in the
    * deck the editor's `source` compiles to (PLAN 2.92). */
   | { type: "layoutSuggestions"; id: number; state: string; height: number; format?: string }
@@ -1882,6 +1885,7 @@ export type FromWorker =
   | { type: "writing"; id: number; writing: Writing }
   | { type: "written"; id: number; written: Written }
   | { type: "words"; id: number; words: Lexicon }
+  | { type: "notes"; id: number; notes: SpeakerNotes }
   | { type: "layoutSuggestions"; id: number; suggestions: LayoutSuggestion[] }
   | { type: "backgrounds"; id: number; backgrounds: Backgrounds }
   | { type: "backgroundFrames"; id: number; pixels: ArrayBuffer[] }

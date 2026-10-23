@@ -1,12 +1,15 @@
 import ScaenaKit
+import ScaenaNotes
 import SwiftUI
 
 /// A rehearsal in the window (PLAN 2.63, 3.14), in place of the canvas: the deck played as
 /// presented, from its first state, each state's cue as it comes, then the state at rest until the
 /// presenter goes on. → ↓ Page Down Space Return or a click go on; ← ↑ Page Up Delete go back;
 /// Escape stops, as does going on from the last state. The bar says which state is shown, how
-/// long it has been shown, and how long the rehearsal has run. Nothing changes the deck until
-/// Keep, in what each state took (`RehearsedSheet`).
+/// long it has been shown, and how long the rehearsal has run. Beside the slide, the state's notes
+/// as a speaker reads them and the next slide's name, as the presenter's window shows them (SPEC
+/// §2.6, lift-up USE-3). Nothing changes the deck until Keep, in what each state took
+/// (`RehearsedSheet`).
 struct RehearsalStage: View {
     let editor: DeckEditor
     @Binding var rehearsal: Rehearsal
@@ -21,11 +24,28 @@ struct RehearsalStage: View {
             Divider()
             if let state = rehearsal.state {
                 let size = (try? editor.session.canvasSize()) ?? CGSize(width: 1920, height: 1080)
-                ScaenaCanvas(session: editor.session, state: state, revision: editor.revision, playhead: $playhead)
-                    .aspectRatio(size.width / max(size.height, 1), contentMode: .fit)
-                    .overlay { Color.clear.contentShape(Rectangle()).onTapGesture { go(1) } }
-                    .padding()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                HStack(alignment: .top, spacing: 0) {
+                    ScaenaCanvas(session: editor.session, state: state, revision: editor.revision, playhead: $playhead)
+                        .aspectRatio(size.width / max(size.height, 1), contentMode: .fit)
+                        .overlay { Color.clear.contentShape(Rectangle()).onTapGesture { go(1) } }
+                        .padding()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Next").font(.headline).foregroundStyle(.secondary)
+                        Text(rehearsal.next.map { Words.slide($0.state, in: rehearsal.slots) } ?? "The end")
+                            .accessibilityIdentifier("rehearsal-next")
+                        Text("Notes").font(.headline).foregroundStyle(.secondary).padding(.top, 8)
+                        ScrollView {
+                            NotesText(rehearsal.current?.blocks ?? [])
+                                .font(.title3)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .textSelection(.enabled)
+                                .accessibilityIdentifier("rehearsal-notes")
+                        }
+                    }
+                    .frame(width: 300)
+                    .padding([.top, .trailing, .bottom])
+                }
             }
         }
         .focusable()

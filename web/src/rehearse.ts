@@ -5,7 +5,9 @@
 //   → ↓ PageDown Space Enter, a click on the canvas, or On go on; ← ↑ PageUp Backspace, or Back, go
 //   back; Escape, or End, stops, and so does going on from the last state.
 // - The bar over the canvas says which state is shown, how long it has been shown, and how long the
-//   rehearsal has run.
+//   rehearsal has run. Under it, the state's notes as a speaker reads them and the next slide's
+//   name, as the presenter view shows them (SPEC §2.6, lift-up USE-3): a speaker rehearses the
+//   talk, not the slides alone.
 // - At the end, what each state took: a state's cue plays, then its hold, so the hold the time
 //   keeps is the time less the cue's span, to a tenth of a second. A state shown twice keeps both
 //   times. Keep makes each state reached hold that long, one `set_state` of `hold` each, as one
@@ -13,7 +15,8 @@
 // - Nothing the rehearsal does changes the deck until Keep.
 import type { Key } from "./commands";
 import { listen } from "./life";
-import type { Slot } from "./protocol";
+import type { Slot, SpeakerNotes } from "./protocol";
+import { renderNotes } from "./speaker-notes";
 import type { Stage } from "./stage";
 
 /** What the rehearsal asks of the editor around it. */
@@ -23,6 +26,8 @@ export interface RehearsalEditor {
   slots(): Promise<Slot[] | undefined>;
   /** The format the canvas shows, if not the deck's own. */
   format(): string | undefined;
+  /** The notes a presenter reads for `state` (SPEC §2.6). */
+  notes(state: string): Promise<SpeakerNotes>;
   /** Show state `index` at rest again, the rehearsal over. */
   show(index: number): void;
   /** Make `ops` one change of the deck, one step to undo; whether it was made. */
@@ -68,9 +73,19 @@ export const clock = (ms: number) => {
   return `${m}:${String(Math.floor(s - m * 60)).padStart(2, "0")}`;
 };
 
-/** The rehearsal: its bar in `bar`, its table in `dialog`, over `stage` and the canvas `preview`. */
-export function rehearsal(stage: Stage, bar: HTMLElement, dialog: HTMLDialogElement, preview: HTMLElement, editor: RehearsalEditor) {
+/** The rehearsal: its bar in `bar`, the notes and the next slide's name in `pane`, its table in
+ * `dialog`, over `stage` and the canvas `preview`. */
+export function rehearsal(
+  stage: Stage,
+  bar: HTMLElement,
+  pane: HTMLElement,
+  dialog: HTMLDialogElement,
+  preview: HTMLElement,
+  editor: RehearsalEditor,
+) {
   const where = bar.querySelector<HTMLElement>("[data-where]")!;
+  const nextName = pane.querySelector<HTMLElement>("[data-next]")!;
+  const notes = pane.querySelector<HTMLElement>("[data-notes]")!;
   const rows = dialog.querySelector<HTMLTableSectionElement>("tbody")!;
   const total = dialog.querySelector<HTMLElement>("[data-total]")!;
   /** The states as the rehearsal began, and the time each was shown. */
@@ -102,6 +117,23 @@ export function rehearsal(stage: Stage, bar: HTMLElement, dialog: HTMLDialogElem
   function play() {
     stage.run(index, 0, editor.format(), false, true);
     tell();
+    noted();
+  }
+
+  /** The notes of the state shown, drawn as a speaker reads them, and the next slide's name, as
+   * the presenter view shows them; an answer for a state no longer shown is dropped. */
+  function noted() {
+    const at = index;
+    const next = slots[at + 1];
+    nextName.textContent = next ? `Next: ${next.said ?? next.state}` : "Next: the end";
+    editor.notes(slots[at].state).then(
+      (read) => {
+        if (!running || index !== at) return;
+        renderNotes(notes, read.blocks);
+        notes.scrollTop = 0;
+      },
+      () => renderNotes(notes, []),
+    );
   }
 
   async function start() {
@@ -114,6 +146,7 @@ export function rehearsal(stage: Stage, bar: HTMLElement, dialog: HTMLDialogElem
     began = since = performance.now();
     running = true;
     bar.hidden = false;
+    pane.hidden = false;
     document.addEventListener("keydown", key, true);
     preview.addEventListener("pointerdown", click, true);
     ticking = setInterval(tell, 250);
@@ -141,6 +174,7 @@ export function rehearsal(stage: Stage, bar: HTMLElement, dialog: HTMLDialogElem
     preview.removeEventListener("pointerdown", click, true);
     stage.pause();
     bar.hidden = true;
+    pane.hidden = true;
     kept = slots.map((slot, i) => ({
       state: slot.state,
       said: slot.said ?? slot.state,

@@ -64,11 +64,23 @@ try {
   check((await at()) === 0, "and plays from the first state");
   const where = await page.locator("#rehearsing [data-where]").textContent();
   check(where.startsWith("Rehearsing Slide 1 · "), `the bar says where it is: ${where}`);
+  // Under it, the state's notes as a speaker reads them, and the next slide's name, as the
+  // presenter view shows them (SPEC §2.6, lift-up USE-3): intro's own, then revenue's beat's.
+  const noted = () => page.evaluate(() => ({ next: document.querySelector("#rehearsal-notes [data-next]").textContent, notes: document.querySelector("#rehearsal-notes [data-notes]").textContent }));
+  await page.waitForFunction(() => document.querySelector("#rehearsal-notes [data-notes]").textContent, null, { timeout: 5000 }).catch(() => {});
+  const first = await noted();
+  check(
+    !(await page.locator("#rehearsal-notes").isHidden()) && first.notes === "Open on the title. Don't talk over the build." && first.next === "Next: Slide 2",
+    `under the bar, the slide's notes and the next slide's name: ${JSON.stringify(first)}`,
+  );
   const found = await audit();
   check(!found.length, `axe finds nothing with the bar shown${found.length ? `:\n    ${found.join("\n    ")}` : ""}`);
   await press("ArrowRight", 100);
   await page.waitForFunction(() => window.scaena.at().index === 1, null, { timeout: 5000 }).catch(() => {});
   check((await at()) === 1, "→ goes on to the next state");
+  await page.waitForFunction(() => document.querySelector("#rehearsal-notes [data-notes]").textContent.startsWith("Pause on the Q3 bar"), null, { timeout: 5000 }).catch(() => {});
+  const second = await noted();
+  check(second.notes.startsWith("Pause on the Q3 bar before the build.") && second.next === "Next: Slide 2, step 2", `with revenue's notes, its beat's, and the next: ${JSON.stringify(second)}`);
   await press("ArrowLeft", 100);
   await page.waitForFunction(() => window.scaena.at().index === 0, null, { timeout: 5000 }).catch(() => {});
   check((await at()) === 0, "← goes back");
@@ -76,6 +88,7 @@ try {
   await stopped();
   check(await page.evaluate(() => document.querySelector("#rehearsed").open), "Escape stops it, and shows what each state took");
   check(await page.locator("#rehearsing").isHidden(), "the bar is gone");
+  check(await page.locator("#rehearsal-notes").isHidden(), "and so are the notes");
   const inTable = await audit();
   check(!inTable.length, `axe finds nothing with the table shown${inTable.length ? `:\n    ${inTable.join("\n    ")}` : ""}`);
   await page.locator("#rehearsed button[value=cancel]").click();

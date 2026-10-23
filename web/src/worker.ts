@@ -326,6 +326,8 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
       case "words":
         if (worded?.state !== data.state) worded = { state: data.state, words: JSON.parse(player.words(data.state)) as Lexicon };
         return post({ type: "words", id: data.id, words: worded.words });
+      case "notes":
+        return post({ type: "notes", id: data.id, notes: JSON.parse(player.notes(data.state)) as SpeakerNotes });
       case "layoutSuggestions": {
         layOut(data.format);
         // A layout at a time, each a lint of the state in every format and a frame: what else the
