@@ -121,6 +121,9 @@ export function panel(stage: Stage, editor: Editor): Panel {
   const settings = keys.settings();
   const used = { input: 0, output: 0 };
   let working = false;
+  /** The question being asked, to stop. Stop shows as it is asked, before the worker has it,
+   * while the strip finishes drawing: a press then stops it before it is sent. */
+  let stopping: AbortController | undefined;
 
   const which = () => provider.value as ProviderId;
   const tell = (text: string) => (note.textContent = text);
@@ -234,7 +237,7 @@ export function panel(stage: Stage, editor: Editor): Panel {
     used.input = used.output = 0;
     usageLine.textContent = "";
   };
-  stop.onclick = () => stage.stop();
+  stop.onclick = () => stopping?.abort();
   $<HTMLFormElement>("#asking").onsubmit = (e) => {
     e.preventDefault();
     void ask(question.value);
@@ -366,6 +369,7 @@ export function panel(stage: Stage, editor: Editor): Panel {
     question.value = "";
     // What the editor shows as it is asked: the source locks below, and shows nothing then.
     const seeing = editor.seeing();
+    const stopped = (stopping = new AbortController()).signal;
     working = true;
     thinking.hidden = false;
     editor.lock(true);
@@ -379,6 +383,13 @@ export function panel(stage: Stage, editor: Editor): Panel {
       const known = Object.fromEntries([...drawn].map(([state, d]) => [state, d.digest]));
       // The Geoapify key kept, which `map_fetch` fetches a map with (ADR-0030): none, and it says so.
       const mapKey = (await keys.load("geoapify").catch(() => undefined))?.key;
+      if (stopped.aborted) {
+        const done: AssistantEvent = { kind: "done", stop: "stopped" };
+        hear(done);
+        return done;
+      }
+      // Sent after the question, so the worker stops this one.
+      stopped.addEventListener("abort", () => stage.stop(), { once: true });
       return await stage.ask(
         editor.source(),
         { provider: which(), model: model.value, key: key.value, base: base.value || undefined, text, seeing, mapKey },
@@ -388,6 +399,7 @@ export function panel(stage: Stage, editor: Editor): Panel {
     } catch (e) {
       return failure(e instanceof Error ? e.message : String(e));
     } finally {
+      stopping = undefined;
       working = false;
       thinking.hidden = true;
       editor.lock(false);
