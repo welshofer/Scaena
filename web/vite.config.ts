@@ -111,17 +111,28 @@ const offline: Plugin = {
 /** The service worker's script: `files`, the site's, kept in a cache named for `version`. */
 function worker(version: string, files: string[]): string {
   return `// Scaena's service worker (PLAN 2.73), written by the build: the site with no network.
-// - The site's files, every one the build wrote, are kept as the worker installs, and answered
-//   from the cache, a query aside (\`editor.html?bundle=…\`).
+// - The site's files, every one the build wrote, are kept as the worker installs, each fetched past
+//   the browser's HTTP cache (lift-up REL-2), so a page an older build left there is never kept
+//   beside this build's modules; and answered from the cache, a query aside
+//   (\`editor.html?bundle=…\`).
+// - A newer build's worker installs beside this one and waits: the pages keep this build whole
+//   until one asks for the new one (\`skipWaiting\`, from the page's "A new version is ready"),
+//   and each page then loads again (\`offline.ts\`). Pages never run one build's pages with
+//   another's modules.
 // - Anything else under the site (a deck's files) is asked of the network, and the answer kept for
-//   when there is none. Requests elsewhere, and a page's events (\`scaena serve\`), pass by.
+//   when there is none; one that cannot be kept (the quota full) is answered all the same. Requests
+//   elsewhere, and a page's events (\`scaena serve\`), pass by.
 const version = ${JSON.stringify(version)};
 const files = ${JSON.stringify(files)};
 const site = "scaena-site-" + version;
 const kept = "scaena-kept";
 
 self.addEventListener("install", (e) => {
-  e.waitUntil(caches.open(site).then((cache) => cache.addAll(files)));
+  e.waitUntil(caches.open(site).then((cache) => cache.addAll(files.map((f) => new Request(f, { cache: "reload" })))));
+});
+
+self.addEventListener("message", (e) => {
+  if (e.data === "skipWaiting") self.skipWaiting();
 });
 
 self.addEventListener("activate", (e) => {
@@ -149,7 +160,13 @@ async function answer(request) {
   const cache = await caches.open(kept);
   try {
     const response = await fetch(request);
-    if (response.ok) await cache.put(request, response.clone());
+    if (response.ok) {
+      try {
+        await cache.put(request, response.clone());
+      } catch {
+        // Not kept, the quota full or the response too large to keep: the network's answer stands.
+      }
+    }
     return response;
   } catch (error) {
     const was = await cache.match(request);
