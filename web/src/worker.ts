@@ -716,11 +716,18 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         return post({ type: "themeEdited", id: data.id, result: done.edited, files: done.files, source: next, edited: await edit(next, data.index, data.format) });
       }
       case "writeFiles": {
-        player.writeFiles(JSON.stringify(data.files));
+        // A file kept as bytes, a recovery copy's picture (lift-up REL-4), goes in as it is.
+        player.writeFiles(JSON.stringify(data.files.filter((f) => !f.bytes).map(({ path, text }) => ({ path, text }))));
+        for (const f of data.files) if (f.bytes) player.addFile(f.path, new Uint8Array(f.bytes));
         if (!data.edit) return post({ type: "filesWritten", id: data.id });
         latest++;
         shown = { index: data.edit.index, format: data.edit.format };
         return post({ type: "filesWritten", id: data.id, edited: await edit(data.edit.source, data.edit.index, data.edit.format) });
+      }
+      case "file": {
+        const bytes = player.file(data.path);
+        const buffer = bytes ? (bytes.slice().buffer as ArrayBuffer) : null;
+        return post({ type: "file", id: data.id, bytes: buffer }, buffer ? [buffer] : []);
       }
       case "ask":
         return await ask(data.id, data.source, data.ask, data.drawn);
