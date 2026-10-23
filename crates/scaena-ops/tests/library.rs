@@ -67,9 +67,26 @@ fn an_older_copy_takes_the_library_and_draws_as_it_did() {
     assert_eq!(theme["furniture"], shipped["furniture"]);
 
     // Nothing else of the theme changes but the format it is written in, which reads, the builds
-    // it lacked (PLAN 2.112), and the shadows it lacked (PLAN 2.115).
-    for part in ["name", "description", "grid", "shaders", "charts", "tables", "density"] {
+    // it lacked (PLAN 2.112), the shadows it lacked (PLAN 2.115), and the backgrounds it lacked
+    // (PLAN 2.147).
+    for part in ["name", "description", "grid", "charts", "tables", "density"] {
         assert_eq!(theme[part], older[part], "{part}");
+    }
+    // Every background the theme ships, in its order, the copy's own as they were, each with its
+    // palette; the copy's palettes as they were.
+    let shaders =
+        |t: &Value, key: &str| -> Vec<String> { t["shaders"][key].as_object().unwrap().keys().cloned().collect() };
+    assert_eq!(shaders(&theme, "presets"), shaders(&shipped, "presets"));
+    assert_eq!(brought.backgrounds, ["aurora", "lagoon", "sweep", "haze", "dust"]);
+    for p in shaders(&older, "presets") {
+        assert_eq!(theme["shaders"]["presets"][&p], older["shaders"]["presets"][&p], "{p}, as it was");
+    }
+    for p in shaders(&older, "palettes") {
+        assert_eq!(theme["shaders"]["palettes"][&p], older["shaders"]["palettes"][&p], "{p}, as it was");
+    }
+    for p in &brought.backgrounds {
+        let palette = shipped["shaders"]["presets"][p]["palette"].as_str().unwrap();
+        assert_eq!(theme["shaders"]["palettes"][palette], shipped["shaders"]["palettes"][palette], "{p}'s palette");
     }
     let mut tokens = theme["tokens"].clone();
     tokens.as_object_mut().unwrap().remove("shadow");

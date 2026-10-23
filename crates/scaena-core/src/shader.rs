@@ -6,7 +6,7 @@
 //! core.
 
 pub use scaena_pixels::shader::{
-    BAND, Job, MAX_STOPS, ShaderError, bands, cores, gradient, grain, mesh, noise, particles,
+    BAND, Job, MAX_STOPS, ShaderError, bands, caustics, cores, gradient, grain, mesh, noise, particles,
 };
 
 use crate::displaylist::{Op, ShaderKind};
@@ -45,6 +45,10 @@ pub fn job(op: &Op, device: [f64; 6], size: [u32; 2]) -> Result<Option<Job>, Sha
             let params = particles::Params::from_map(params)?;
             particles::Frame::new(seed, t, palette, &params, rect, device, size)?.map(Job::Particles)
         }
+        ShaderKind::Caustics => {
+            let params = caustics::Params::from_map(params)?;
+            caustics::Frame::new(seed, t, palette, &params, rect, device, size)?.map(|f| Job::Caustics(Box::new(f)))
+        }
     })
 }
 
@@ -57,6 +61,7 @@ pub fn check(kind: ShaderKind, params: &BTreeMap<String, f32>) -> Result<(), Sha
         ShaderKind::Noise => noise::Params::from_map(params).map(drop),
         ShaderKind::Grain => grain::Params::from_map(params).map(drop),
         ShaderKind::Particles => particles::Params::from_map(params).map(drop),
+        ShaderKind::Caustics => caustics::Params::from_map(params).map(drop),
     }
 }
 
@@ -85,6 +90,7 @@ pub fn interpolates(kind: ShaderKind, param: &str) -> bool {
             | (ShaderKind::Noise, "octaves" | "speed")
             | (ShaderKind::Grain, "fps")
             | (ShaderKind::Particles, "count" | "speed")
+            | (ShaderKind::Caustics, "speed")
     )
 }
 
@@ -125,6 +131,16 @@ pub fn default(kind: ShaderKind, param: &str) -> Option<f32> {
         ShaderKind::Particles => {
             let p = particles::Params::default();
             vec![("count", p.count as f32), ("size", p.size), ("speed", p.speed), ("softness", p.softness)]
+        }
+        ShaderKind::Caustics => {
+            let p = caustics::Params::default();
+            vec![
+                ("scale", p.scale),
+                ("speed", p.speed),
+                ("intensity", p.intensity),
+                ("sharpness", p.sharpness),
+                ("grain", p.grain),
+            ]
         }
     };
     values.into_iter().find(|(name, _)| *name == param).map(|(_, v)| v)
@@ -171,6 +187,7 @@ mod tests {
             (ShaderKind::Noise, &["scale", "octaves", "speed", "contrast", "grain"]),
             (ShaderKind::Grain, &["amount", "fps"]),
             (ShaderKind::Particles, &["count", "size", "speed", "softness"]),
+            (ShaderKind::Caustics, &["scale", "speed", "intensity", "sharpness", "grain"]),
         ];
         for (kind, params) in kinds {
             let all: BTreeMap<String, f32> = params
@@ -201,9 +218,14 @@ mod tests {
     fn rows_in_bands_are_the_render() {
         let palette = vec![Color([20, 10, 40, 255]), Color([255, 240, 220, 200]), Color([90, 180, 120, 255])];
         let (w, h) = (150_usize, 515_usize);
-        for kind in
-            [ShaderKind::Mesh, ShaderKind::Gradient, ShaderKind::Noise, ShaderKind::Grain, ShaderKind::Particles]
-        {
+        for kind in [
+            ShaderKind::Mesh,
+            ShaderKind::Gradient,
+            ShaderKind::Noise,
+            ShaderKind::Grain,
+            ShaderKind::Particles,
+            ShaderKind::Caustics,
+        ] {
             let rect = [0.0, 0.0, w as f32, h as f32];
             let op = Op::Shader { kind, seed: 3, t: 1.25, rect, palette: palette.clone(), params: BTreeMap::new() };
             let job = job(&op, [1.0, 0.0, 0.0, 1.0, 0.0, 0.0], [w as u32, h as u32]).unwrap().unwrap();
