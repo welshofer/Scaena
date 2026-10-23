@@ -85,3 +85,48 @@ extension ScaenaSession {
         return ops.isEmpty ? nil : ops
     }
 }
+
+/// Why the model on the device gave a writing tool no answer where the user's own model may give
+/// one (lift-up STAB-4): more than it takes at once, its guardrails, a language it does not write,
+/// or its model not on the device yet. Any other failure is no reason to ask elsewhere.
+public struct Declined: LocalizedError, Sendable, Equatable {
+    public enum Reason: Sendable, Equatable {
+        case tooLong, guardrails, language, notReady
+    }
+
+    public let reason: Reason
+
+    public init(_ reason: Reason) {
+        self.reason = reason
+    }
+
+    /// It, in a person's words (PLAN 3.18), as the sheet notes it.
+    public var said: String {
+        switch reason {
+        case .tooLong: "Apple Intelligence can't take this much at once"
+        case .guardrails: "Apple Intelligence declined this"
+        case .language: "Apple Intelligence doesn't write this language"
+        case .notReady: "Apple Intelligence isn't ready on this device yet"
+        }
+    }
+
+    public var errorDescription: String? { "\(said)." }
+}
+
+/// Who answers a writing tool where the model on the device is asked first (lift-up STAB-4): its
+/// answer, or, where it declines (`Declined`) and the user keeps a key, the user's own model's,
+/// with why it was asked. Without a key the decline is thrown; any other failure is thrown as it
+/// came.
+public enum Answering {
+    public static func answer(
+        _ onDevice: @Sendable () async throws -> String,
+        else byKey: (@Sendable () async throws -> String)?
+    ) async throws -> (text: String, declined: Declined?) {
+        do {
+            return (try await onDevice(), nil)
+        } catch let declined as Declined {
+            guard let byKey else { throw declined }
+            return (try await byKey(), declined)
+        }
+    }
+}

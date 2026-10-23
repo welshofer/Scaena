@@ -35,7 +35,8 @@ enum OnDevice {
         }
     }
 
-    /// `prompt` answered by the on-device model, told `instructions`.
+    /// `prompt` answered by the on-device model, told `instructions`. Where it declines what the
+    /// user's own model may take, `Declined` says why (lift-up STAB-4).
     static func respond(instructions: String, prompt: String) async throws -> String {
         #if canImport(FoundationModels)
         if #available(macOS 26.0, *) {
@@ -45,6 +46,9 @@ enum OnDevice {
                 return response.content.trimmingCharacters(in: .whitespacesAndNewlines)
             } catch let error as CancellationError {
                 throw error
+            } catch let error as LanguageModelSession.GenerationError {
+                if let declined = declined(error) { throw declined }
+                throw Unanswered()
             } catch {
                 throw Unanswered()
             }
@@ -52,6 +56,21 @@ enum OnDevice {
         #endif
         throw Unavailable()
     }
+
+    #if canImport(FoundationModels)
+    /// What the on-device model declined that another model may answer: more than its context
+    /// takes, its guardrails, a language it does not write, or its model not on the device yet.
+    @available(macOS 26.0, *)
+    private static func declined(_ error: LanguageModelSession.GenerationError) -> Declined? {
+        switch error {
+        case .exceededContextWindowSize: Declined(.tooLong)
+        case .guardrailViolation: Declined(.guardrails)
+        case .unsupportedLanguageOrLocale: Declined(.language)
+        case .assetsUnavailable: Declined(.notReady)
+        default: nil
+        }
+    }
+    #endif
 }
 
 /// Who answers the writing tools (PLAN 2.101): the on-device model where the device has one,
@@ -83,14 +102,38 @@ enum Writer {
     static var describes: Bool { byKey() != nil }
 
     /// `writing` answered: on the device, or by the assistant's model with the user's key; one
-    /// shown a `picture` by the assistant's model alone.
-    static func respond(instructions: String, prompt: String, picture: String? = nil) async throws -> String {
-        if OnDevice.available, picture == nil {
-            return try await OnDevice.respond(instructions: instructions, prompt: prompt)
+    /// shown a `picture` by the assistant's model alone. What the device declines that the user's
+    /// model may take goes to it where a key is kept, and the answer says so (lift-up STAB-4).
+    static func respond(instructions: String, prompt: String, picture: String? = nil) async throws -> Answer {
+        let who = byKey()
+        let byTheKey: (@Sendable () async throws -> String)? = who.map { who in
+            { @Sendable in
+                try await who.provider.write(
+                    model: who.model, key: who.key, instructions: instructions, prompt: prompt, picture: picture)
+            }
         }
-        guard let who = byKey() else { throw OnDevice.Unavailable() }
-        return try await who.provider.write(
-            model: who.model, key: who.key, instructions: instructions, prompt: prompt, picture: picture)
+        if OnDevice.available, picture == nil {
+            do {
+                let (text, declined) = try await Answering.answer(
+                    { try await OnDevice.respond(instructions: instructions, prompt: prompt) }, else: byTheKey)
+                guard let declined, let who else { return Answer(text: text) }
+                return Answer(
+                    text: text,
+                    whence: "\(declined.said), so \(who.model) wrote it instead, with your \(who.provider.name) key.")
+            } catch is Declined {
+                // No key kept: the device's model could not answer, as before.
+                throw OnDevice.Unanswered()
+            }
+        }
+        guard let byTheKey else { throw OnDevice.Unavailable() }
+        return Answer(text: try await byTheKey())
+    }
+
+    /// A writing tool's answer, and where it came from where that is not what the sheet said
+    /// before it was asked (lift-up STAB-4).
+    struct Answer {
+        let text: String
+        var whence: String? = nil
     }
 
     /// What each tool is called before the engine names it, and where nothing is asked, as the
@@ -141,7 +184,7 @@ enum Writer {
 struct Asked: Identifiable {
     let id = UUID()
     let title: String
-    let ask: () async throws -> String
+    let ask: () async throws -> Writer.Answer
     /// The model's answer as it is offered.
     var shown: (String) -> String = { $0 }
     /// The patch that takes the answer, edited or not: none where it changes nothing.
@@ -153,7 +196,7 @@ struct Asked: Identifiable {
 /// The model's answer as it comes: thinking, then the answer to take or leave, or why none came.
 struct OfferSheet: View {
     let title: String
-    let ask: () async throws -> String
+    let ask: () async throws -> Writer.Answer
     /// The model's answer as it is offered.
     var shown: (String) -> String = { $0 }
     /// The patch that takes the answer, edited or not, none where it changes nothing; no taking
@@ -168,6 +211,8 @@ struct OfferSheet: View {
     @State private var failure: String?
     /// Why the answer was not taken.
     @State private var refused: String?
+    /// Where the answer came from, where the model asked first declined (lift-up STAB-4).
+    @State private var answered: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -189,7 +234,7 @@ struct OfferSheet: View {
                 ProgressView(OnDevice.available ? "Thinking on this \(Words.device)…" : "Asking…")
             }
             if let refused { Text(refused).font(.callout).foregroundStyle(.red) }
-            Text(whence).font(.caption).foregroundStyle(.secondary)
+            Text(answered ?? whence).font(.caption).foregroundStyle(.secondary)
             HStack {
                 Spacer()
                 if let take, let answer {
@@ -216,7 +261,9 @@ struct OfferSheet: View {
         .frame(width: 420)
         .task {
             do {
-                let said = shown(try await ask())
+                let written = try await ask()
+                answered = written.whence
+                let said = shown(written.text)
                 // No answer, as a model that refuses or runs out of room gives: nothing to take.
                 if said.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     failure = "No answer from the model: it wrote nothing. Ask again, or try another model."
