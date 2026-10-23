@@ -173,7 +173,10 @@ try {
   // A slot's name is the theme's to write as it likes, and a shared bundle carries its own theme:
   // Layout shows it as words, never as markup (lift-up SEC-1).
   const hostile = 'x" onmouseover="window.pwned=1"><image href="x" onerror="window.pwned=2"/><text>';
-  const theirs = await context.newPage();
+  // A context of its own: the first page's edits left a recovery copy (lift-up REL-4), whose dialog
+  // a page in the same storage would open over the canvas.
+  const fresh = await browser.newContext({ viewport: { width: 1600, height: 1000 }, deviceScaleFactor: 1 });
+  const theirs = await fresh.newPage();
   theirs.on("pageerror", (e) => failures.push(`their theme: ${e.message}`));
   await theirs.route("**/docs/examples/themes/dusk.theme.json", async (route) => {
     const theme = await (await route.fetch()).json();
@@ -193,7 +196,7 @@ try {
   check(slotted, "its outline carries its name whole");
   await theirs.hover("#overlay svg .slot-name >> nth=4").catch(() => {});
   check((await theirs.evaluate(() => window.pwned)) === undefined, "and runs nothing");
-  await theirs.close();
+  await fresh.close();
 } finally {
   await browser.close();
   await site.close();
