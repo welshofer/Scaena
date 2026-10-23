@@ -219,12 +219,14 @@ public final class ScaenaView: PlatformView {
     /// A tick of the display link at `now`, on its clock: the frame owed painted, where the frame
     /// shown is not the playhead's or the cue plays on; else nothing, and the link rests until
     /// something changes (lift-up PERF-2). What each tick does; called by hand, it paints the frame
-    /// now.
-    public func tick(at now: CFTimeInterval) {
+    /// now. Whether a frame was painted: none where none is owed, where the layer had no drawable
+    /// to give (the next tick paints it), or where painting failed (`failure`).
+    @discardableResult
+    public func tick(at now: CFTimeInterval) -> Bool {
         guard dirty || playhead.playing, let session, let state, let layer = metalLayer, bounds.width > 0
         else {
             link?.isPaused = true
-            return
+            return false
         }
         do {
             if surface == nil {
@@ -244,11 +246,11 @@ public final class ScaenaView: PlatformView {
                 at = over ? .infinity : ms
             }
             // A layer with no drawable to give skips the frame: the next tick paints it.
-            guard try surface?.paint(session, state: state, at: at) == true else { return }
+            guard try surface?.paint(session, state: state, at: at) == true else { return false }
             failure = nil
             dirty = false
             painted()
-            guard playhead.playing else { return }
+            guard playhead.playing else { return true }
             if over {
                 playhead = .rest
                 began = nil
@@ -257,6 +259,7 @@ public final class ScaenaView: PlatformView {
                 playhead.ms = at
                 if now - told >= 1.0 / 30 { tell(now) }
             }
+            return true
         } catch {
             failure = error as? ScaenaError ?? ScaenaError(message: "\(error)")
             dirty = false
@@ -266,6 +269,7 @@ public final class ScaenaView: PlatformView {
                 began = nil
                 tell(now)
             }
+            return false
         }
     }
 
