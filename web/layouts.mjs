@@ -12,8 +12,7 @@
 // - New layout from this one copies it under a name asked for, and the state shown takes it.
 // - axe-core finds nothing with the slots shown, and the keys sheet lists the gestures.
 // Exits 1 on any failure.
-import { createRequire } from "node:module";
-import { launch, serve } from "./serve.mjs";
+import { axeInto, launch, serve } from "./serve.mjs";
 
 const failures = [];
 const check = (ok, what) => {
@@ -21,7 +20,6 @@ const check = (ok, what) => {
   if (!ok) failures.push(what);
 };
 
-const axe = createRequire(import.meta.url).resolve("axe-core/axe.min.js");
 const site = await serve();
 const browser = await launch();
 try {
@@ -84,7 +82,7 @@ try {
   check(shown?.layout === "figure" && shown.slots.map((s) => s.name).join() === "kicker,header,main,note", `Layout shows figure's slots: ${shown?.slots.map((s) => s.name)}`);
   check((await page.locator("#overlay svg .layout-slot").count()) === 4 && (await page.locator("#overlay svg .slot-name").count()) === 4, "each drawn and named");
   check((await page.locator("#layout-edit").getAttribute("aria-pressed")) === "true", "the button is pressed");
-  await page.addScriptTag({ path: axe });
+  await axeInto(page);
   const found = await page.evaluate(async () => {
     const result = await window.axe.run(document, { runOnly: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] });
     return result.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(" ")).join(", ")}`);
@@ -171,6 +169,35 @@ try {
   await page.waitForSelector("#keys[open]", { timeout: 10000 }).catch(() => {});
   const sheet = await page.evaluate(() => [...document.querySelectorAll("#keys tr")].map((tr) => tr.textContent));
   check(sheet.some((l) => l.includes("Drag a slot")), "the keys sheet lists dragging a slot");
+
+  // A slot's name is the theme's to write as it likes, and a shared bundle carries its own theme:
+  // Layout shows it as words, never as markup (lift-up SEC-1).
+  const hostile = 'x" onmouseover="window.pwned=1"><image href="x" onerror="window.pwned=2"/><text>';
+  // Their bundle opens in a browser of its own: in this one, the copy the editor keeps of the slot
+  // edits above, not yet saved (lift-up REL-4), would offer itself over their page and take the
+  // clicks.
+  const theirsContext = await browser.newContext({ viewport: { width: 1600, height: 1000 }, deviceScaleFactor: 1 });
+  const theirs = await theirsContext.newPage();
+  theirs.on("pageerror", (e) => failures.push(`their theme: ${e.message}`));
+  await theirs.route("**/docs/examples/themes/dusk.theme.json", async (route) => {
+    const theme = await (await route.fetch()).json();
+    theme.layouts.figure.slots[hostile] = { col: [9, 12], row: [1, 2] };
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify(theme) });
+  });
+  await theirs.goto(`${site.origin}/web/dist/editor.html?painter=cpu&bundle=/docs/examples/revenue.deck.json`);
+  await theirs.waitForFunction(() => window.scaena?.last()?.valid, null, { timeout: 120000 });
+  await theirs.selectOption("#state", "revenue");
+  await theirs.waitForFunction(() => window.scaena.canvas.boxed() === "revenue", null, { timeout: 30000 }).catch(() => {});
+  await theirs.click("#layout-edit");
+  await theirs.waitForFunction(() => window.scaena.canvas.slotting()?.layout === "figure", null, { timeout: 30000 }).catch(() => {});
+  const named = await theirs.evaluate(() => [...document.querySelectorAll("#overlay svg .slot-name")].map((t) => t.textContent));
+  check(named.includes(hostile), `a slot named with markup is named as written: ${JSON.stringify(named)}`);
+  check((await theirs.locator("#overlay svg image").count()) === 0, "and draws nothing its name writes");
+  const slotted = await theirs.evaluate((h) => [...document.querySelectorAll("#overlay svg .layout-slot")].some((r) => r.getAttribute("data-slot") === h), hostile);
+  check(slotted, "its outline carries its name whole");
+  await theirs.hover("#overlay svg .slot-name >> nth=4").catch(() => {});
+  check((await theirs.evaluate(() => window.pwned)) === undefined, "and runs nothing");
+  await theirsContext.close();
 } finally {
   await browser.close();
   await site.close();

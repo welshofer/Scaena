@@ -107,6 +107,9 @@ export function summary(name: string, json: string, error: boolean): string {
       if (!p) return found;
       return `${found}; ${p.applied ? "replaced" : p.added?.length ? "refused" : "tried, not replaced"}${delta(p)}`;
     }
+    // The deck's story: its score, and how much there is to look at (narrative FUNC-2).
+    case "deck_health":
+      return `Story ${r.score} of 100, ${many(r.findings?.length ?? 0, "finding")}`;
     case "data_attach":
       return (r.attached ? `Added ${r.source}: ${r.rows} rows` : "Refused") + delta();
     case "data_edit": {

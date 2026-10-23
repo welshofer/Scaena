@@ -3,7 +3,9 @@
 // build names, the site's demo deck (PLAN 2.7), or else the torture deck), or `opfs:NAME`, a
 // bundle the browser keeps (PLAN 2.4); `?painter=gpu` or `cpu` chooses who paints (WebGPU
 // where the browser has an adapter, else the CPU painter, by default); `?state=` is the state
-// to open on; `?view=presenter`, the presenter view. Edit opens the editor on the bundle.
+// to open on; `?view=presenter`, the presenter view; `?fit=own` shows the slide at its own size,
+// scaled down where it does not fit, where the page fills the room with it, as sharp as the
+// screen (lift-up ATTR-2). Edit opens the editor on the bundle.
 // `?serve`: `scaena serve` serves the page, and it shows each change to the bundle on disk
 // (PLAN 2.11).
 import "./player.css";
@@ -28,6 +30,7 @@ try {
     engine: worker,
     channel: `scaena:${new URL(bundle, location.href).href}`,
     state: params.get("state"),
+    fit: params.get("fit") === "own" ? "own" : null,
   });
 } catch (e) {
   document.querySelector("#status")!.textContent = `Error: ${e instanceof Error ? e.message : String(e)}`;

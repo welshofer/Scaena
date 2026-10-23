@@ -27,6 +27,8 @@ export interface MarksHost {
   boxes(): NodeBox[] | undefined;
   /** The part of the canvas the preview shows, canvas units. */
   view(): Rect;
+  /** The layer's size, CSS px, as the canvas last observed it (lift-up PERF-3); none until it has. */
+  size?(): [number, number] | undefined;
   /** Select `node`, as a click on it does. */
   select(node: string): void;
   /** Take `f`'s fix: one patch, one step to undo. */
@@ -129,7 +131,8 @@ export function marks(layer: HTMLElement, pop: HTMLElement, host: MarksHost) {
   /** Where each mark stands, CSS px in the layer: a node's at its box's top right corner, kept
    * inside what is shown and clear of the marks before it; none for a box out of view. */
   function placed(all: Mark[]): { mark: Mark; at: [number, number] }[] {
-    const { width, height } = layer.getBoundingClientRect();
+    // The size the canvas observed, read from the layout only until it has (PERF-3).
+    const [width, height] = host.size?.() ?? (({ width, height }) => [width, height])(layer.getBoundingClientRect());
     const view = host.view();
     const px = ([x, y]: [number, number]): [number, number] => [((x - view[0]) / view[2]) * width, ((y - view[1]) / view[3]) * height];
     const clamp = (v: number, hi: number) => Math.min(Math.max(v, EDGE), Math.max(EDGE, hi - EDGE));
