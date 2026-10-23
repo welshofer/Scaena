@@ -42,7 +42,7 @@ enum Prompting {
             bundle = folder.appending(path: "\(name) \(n).scaena", directoryHint: .isDirectory)
             n += 1
         }
-        let files = try document.snapshot(contentType: .scaenaDeck)
+        let files = try document.savedNow()
         try ScaenaDocument.wrapper(files).write(to: bundle, options: .atomic, originalContentsURL: nil)
         ScaenaDocument.handing(said, as: name)
         return bundle

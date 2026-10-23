@@ -120,10 +120,42 @@ final class ScaenaDocument: ReferenceFileDocument {
         return try ScaenaSession(files: files)
     }
 
-    /// The bundle saved now: its files by their paths, fonts subset and the history recorded. The
-    /// session goes on from the save, which names files by their content. What is saved is the
-    /// deck shown: a source typed that does not compile is not the deck yet.
-    func snapshot(contentType: UTType) throws -> [String: Data] {
+    /// What a save reads of the session, taken on the main actor as SwiftUI asks for it, and the
+    /// session to go on from the save (lift-up PERF-5). Sendable: the session is touched only back
+    /// on the main actor.
+    struct Taken: @unchecked Sendable {
+        let snapshot: ScaenaSession.Snapshot
+        let session: ScaenaSession
+    }
+
+    /// The bundle as it stands, taken in a moment: what is slow in a save is done off the main
+    /// actor, in `fileWrapper` (lift-up PERF-5). What is saved is the deck shown: a source typed
+    /// that does not compile is not the deck yet.
+    func snapshot(contentType: UTType) throws -> Taken {
+        Taken(snapshot: try session.snapshot(), session: session)
+    }
+
+    /// The bundle saved, off the main actor, as SwiftUI writes it: its files by their paths, fonts
+    /// subset and the history recorded. The session goes on from the save, which names files by
+    /// their content, back on the main actor, where it is still as it was taken: an edit made
+    /// meanwhile is kept, and the next save names its files again (lift-up PERF-5).
+    func fileWrapper(snapshot taken: Taken, configuration: WriteConfiguration) throws -> FileWrapper {
+        let saved = try taken.snapshot.save(subset: true)
+        var files: [String: Data] = [:]
+        for path in saved.files {
+            files[path] = saved.file(path)
+        }
+        let wrapper = Self.wrapper(files)
+        DispatchQueue.main.async {
+            // A save not gone on from is one the next save makes again: nothing is lost.
+            _ = try? taken.session.adopt(saved, since: taken.snapshot)
+        }
+        return wrapper
+    }
+
+    /// The bundle saved now, on the caller's thread, and the session gone on from it: what a deck
+    /// made from a prompt is written as once, before any window shows it (PLAN G.6).
+    func savedNow() throws -> [String: Data] {
         let saved = try session.save(subset: true)
         var files: [String: Data] = [:]
         for path in saved.files {
@@ -131,10 +163,6 @@ final class ScaenaDocument: ReferenceFileDocument {
         }
         try session.adopt(saved)
         return files
-    }
-
-    func fileWrapper(snapshot: [String: Data], configuration: WriteConfiguration) throws -> FileWrapper {
-        Self.wrapper(snapshot)
     }
 
     /// A bundle's files, by their paths in it, as the folder that holds them.
