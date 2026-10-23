@@ -398,6 +398,17 @@ async function controls() {
   const title = $<HTMLInputElement>("#making-name");
   const theme = $<HTMLSelectElement>("#making-theme");
   theme.replaceChildren(...familySections());
+  // The theme chosen, as its title slide drawn at build (PLAN T.0c).
+  const preview = $<HTMLImageElement>("#making-preview");
+  const previewed = () => {
+    const chosen = themes[theme.value];
+    preview.hidden = !chosen;
+    if (!chosen) return;
+    preview.src = chosen.thumbnail;
+    preview.alt = `A title slide in ${theme.value}`;
+  };
+  theme.onchange = previewed;
+  previewed();
   $<HTMLButtonElement>("#new-deck").onclick = () => {
     making.returnValue = "";
     making.showModal();
@@ -405,7 +416,10 @@ async function controls() {
   };
   making.onclose = () => {
     if (making.returnValue !== "create") return;
-    void open({ create: { theme: theme.value, title: title.value.trim() || "Untitled" } }).catch(failed);
+    // The slide takes the keys once the deck is open, not New…, which a space would open again.
+    void open({ create: { theme: theme.value, title: title.value.trim() || "Untitled" } })
+      .then(() => $<HTMLElement>("#overlay").focus())
+      .catch(failed);
   };
   // From a prompt (PLAN G.5): a deck Narrato writes, made in a worker of its own.
   prompting(

@@ -5,7 +5,7 @@
 //
 // On the revenue example:
 // - The Insert menu offers what Dusk and the bundle name: a text in each of the theme's roles, the
-//   shapes and the shape library's polygons (PLAN 2.106), and the theme's two shader presets; once
+//   shapes and the shape library's polygons (PLAN 2.106), and the theme's seven shader presets (PLAN 2.147); once
 //   a PNG is dropped into the bundle, the image. Under Draw, the draw tools with their keys (PLAN
 //   2.123): each chosen does what its key does, Rectangle arming the canvas as R does and Pen
 //   taking up the pen as P does.
@@ -145,7 +145,7 @@ try {
     "Octagon", "Star", "Chevron", "Right Arrow", "Left Arrow", "Up Arrow", "Down Arrow", "Plus", "Callout", "Line", "Arrow",
   ];
   check(JSON.stringify(offered.Shape) === JSON.stringify(shapes), `the shapes, by their names: ${offered.Shape}`);
-  check(offered["Background Effect"]?.length === 2, `the theme's shader presets: ${offered["Background Effect"]}`);
+  check(offered["Background Effect"]?.length === 7, `the theme's shader presets: ${offered["Background Effect"]}`);
   check(!offered.Image, "no image: the bundle holds no PNG");
 
   // The draw tools, each with its key, each its key's gesture (PLAN 2.123).

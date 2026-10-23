@@ -126,10 +126,16 @@ try {
   await page.exposeFunction("seen", (t) => seen.push(t));
   await page.evaluate(() => {
     const was = window.scaena.formats.painted()?.count ?? 0;
+    // Looked at until the cue has begun and ended: a paint can come before the player says it
+    // plays, and stopping there sees none of the cue's.
+    const until = performance.now() + 30000;
+    let begun = false;
     const look = () => {
       const p = window.scaena.formats.painted();
       if (p && p.count > was) window.seen(p.t);
-      if (window.scaena.at().playing || !p || p.count === was) requestAnimationFrame(look);
+      const playing = window.scaena.at().playing;
+      begun ||= playing;
+      if ((!begun || playing) && performance.now() < until) requestAnimationFrame(look);
     };
     requestAnimationFrame(look);
   });
