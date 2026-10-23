@@ -158,7 +158,10 @@ try {
   check(at && empty[0] >= at[0] - 1 && empty[1] >= at[1] - 1, `about where it was dropped: ${JSON.stringify(at)}`);
   check(await undo(original), "one undo takes it back");
 
-  // Insert does the same from the keyboard.
+  // Insert does the same from the keyboard. The panel draws its rows again once the worker answers
+  // for the undone deck, which replaces the button; so the row is focused only once it shows the
+  // picture unused again, else Enter would go to a button no longer there.
+  await page.waitForFunction((p) => (window.scaena.files.listed().find((f) => f.path === p)?.named.length ?? 1) === 0, stray, { timeout: 30000 }).catch(() => {});
   await page.locator(`#files [data-path="${stray}"] [data-insert]`).focus();
   await page.keyboard.press("Enter");
   await page.waitForFunction((s) => window.scaena.source() !== s, original, { timeout: 30000 }).catch(() => {});

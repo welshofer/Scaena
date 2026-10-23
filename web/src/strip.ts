@@ -11,12 +11,14 @@
 // - A state dragged to another place, or moved with Alt and an arrow key, moves there
 //   (`move_state`), and Delete removes it (`remove_state`). No id names it here, so none is
 //   renamed here: the source names it.
+// - ⌘D copies the slide of the state focused, just after itself (`duplicate_slide`, as the light
+//   table copies one), and keeps the key from the browser, whose ⌘D adds a bookmark.
 // - Each is one patch, by the user, one step to undo; what the deck refuses, the status says why.
 // - A thumbnail is painted again only when its state's drawing changed (the digest of its display
 //   list), once every state is laid out after an edit.
 // - Each state with findings in the format shown says how many, in the color of the worst (PLAN
 //   2.49).
-import { ALT, type Key } from "./commands";
+import { ALT, MOD, type Key } from "./commands";
 import { counted, worst } from "./marks";
 import type { Edited, Finding, Slot, Thumb } from "./protocol";
 import type { Picking } from "./picker";
@@ -27,6 +29,7 @@ export const stripKeys = (): Key[] => [
   { keys: "← → Home End", label: "Among the slides: show the slide or step before or after, the first, or the last", group: "Slides" },
   { keys: `${ALT}← ${ALT}→`, label: "Move the slide or step before or after the one beside it", group: "Slides" },
   { keys: "Delete", label: "Delete the slide or step", group: "Slides" },
+  { keys: `${MOD}D`, label: "Duplicate the slide, just after itself", group: "Slides" },
   { keys: "Enter Space", label: "Show the slide or step", group: "Slides" },
 ];
 
@@ -190,7 +193,7 @@ export function strip(stage: Stage, into: HTMLElement, editor: StripEditor) {
       if (!editor.shown()) return editor.say(WAITING);
       editor.say(doing);
       try {
-        const { source, edited } = await stage.make(editor.source(), ops, Math.max(0, to(slots)), editor.format());
+        const { source, edited } = await stage.make(editor.source, ops, Math.max(0, to(slots)), editor.format());
         editor.apply(source, edited);
         editor.say(done);
       } catch (e) {
@@ -254,6 +257,21 @@ export function strip(stage: Stage, into: HTMLElement, editor: StripEditor) {
     return make([{ op: "remove_state", id: state }], "Removing…", `${named(state)} removed`, (all) => Math.min(index(state), all.length - 2));
   }
 
+  /** A copy of the slide `state` is on, just after it (PLAN 2.97's `duplicate_slide`): the
+   * copy's first state shows. */
+  function duplicate(state: string) {
+    const on = slots.find((s) => s.state === state);
+    if (!on) return editor.say(WAITING);
+    const of = on.slide ?? on.state;
+    const last = (all: Slot[]) => all.reduce((at, s, i) => ((s.slide ?? s.state) === of ? i : at), -1);
+    return make(
+      [{ op: "duplicate_slide", slide: of }],
+      "Copying…",
+      `${slide(state)} copied just after itself · an edit to the copy leaves the slide it copies`,
+      (all) => last(all) + 1,
+    );
+  }
+
   const item = (e: Event) => (e.target as Element).closest<HTMLElement>("li[data-state]");
   const index = (state: string) => slots.findIndex((s) => s.state === state);
   /** `state` as a person counts it, and the slide it is on (PLAN 2.99). */
@@ -269,6 +287,12 @@ export function strip(stage: Stage, into: HTMLElement, editor: StripEditor) {
     if (!li || (e.target as Element).tagName === "INPUT") return;
     const state = li.dataset.state!;
     const at = index(state);
+    // ⌘D copies the slide; taken here, so the browser does not bookmark the page.
+    if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "d") {
+      e.preventDefault();
+      void duplicate(state);
+      return;
+    }
     const steps: Record<string, number> = { ArrowLeft: -1, ArrowRight: 1, Home: -at, End: slots.length - 1 - at };
     if (e.key in steps) {
       e.preventDefault();
@@ -340,6 +364,7 @@ export function strip(stage: Stage, into: HTMLElement, editor: StripEditor) {
     start,
     move,
     remove,
+    duplicate,
     /** The changes made through the strip, for a test: once they are. */
     settled: () => making,
     /** Each state's thumbnail digest, for a test. */

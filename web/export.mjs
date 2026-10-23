@@ -24,11 +24,10 @@
 // Exits 1 on any failure.
 import { execFileSync } from "node:child_process";
 import { inflateRawSync } from "node:zlib";
-import { createRequire } from "node:module";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { compare, decode, launch, serve } from "./serve.mjs";
+import { axeInto, compare, decode, launch, serve } from "./serve.mjs";
 
 const out = "target/web-export";
 rmSync(out, { recursive: true, force: true });
@@ -43,7 +42,6 @@ const check = (ok, what) => {
   console.log(`${ok ? "ok  " : "FAIL"} ${what}`);
   if (!ok) failures.push(what);
 };
-const axe = createRequire(import.meta.url).resolve("axe-core/axe.min.js");
 /** The files of a zip, by name, from its central directory: each stored or deflated. */
 const unzip = (zip) => {
   const files = new Map();
@@ -99,7 +97,7 @@ try {
     const shown = await page.locator("#exporting-size").isVisible();
     check(shown === (as === "png"), `the width is ${as === "png" ? "shown for a PNG" : `not shown for ${as.toUpperCase()}`}`);
   }
-  await page.addScriptTag({ path: axe });
+  await axeInto(page);
   const violations = await page.evaluate(async () => (await window.axe.run(document.querySelector("#exporting"), { runOnly: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] })).violations);
   check(violations.length === 0, `axe finds nothing in Export…${violations.length ? `: ${violations.map((v) => `${v.id} (${v.nodes.length})`).join(", ")}` : ""}`);
 
