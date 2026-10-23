@@ -114,6 +114,30 @@ public final class Typing {
         return true
     }
 
+    /// Begin typing over `node`'s words, as `state` shows it, as a presentation app does when a key
+    /// is pressed with a text selected (lift-up FUNC-3): typing begins in it with every character
+    /// selected, so the key replaces them, and goes on from there. False for a node that is no text
+    /// there, and while a text is typed in already.
+    @discardableResult
+    public func enterOver(_ node: String, in state: String, fork: Bool = false) -> Bool {
+        guard !typing, enter(node, in: state, at: nil, fork: fork) else { return false }
+        selectAll()
+        return true
+    }
+
+    /// Whether `text` is what a key types over a text selected (lift-up FUNC-3): characters a
+    /// person reads, not a control character, a key the input system names by a private-use
+    /// character (an arrow, a function key), or nothing.
+    public static func printable(_ text: String) -> Bool {
+        !text.isEmpty
+            && text.unicodeScalars.allSatisfy { scalar in
+                switch scalar.properties.generalCategory {
+                case .control, .format, .privateUse, .surrogate, .unassigned, .lineSeparator, .paragraphSeparator: false
+                default: true
+                }
+            }
+    }
+
     /// Stop typing; the node stays selected.
     public func leave() {
         node = nil

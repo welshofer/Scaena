@@ -505,3 +505,53 @@ private func carets(_ json: String) throws -> Carets {
     typing.inking = false
     #expect(typing.writable().map(\.node).contains("title"), "the pen down, the Pencil writes again")
 }
+
+/// A key pressed with a text selected and no text typed in types over its words, as a presentation
+/// app does (lift-up FUNC-3): typing begins in it with every character selected, the key replaces
+/// them, and typing goes on from there; while a text is typed in, nothing begins anew; and only a
+/// character a person reads is such a key.
+@MainActor
+@Test func aKeyPressedWithATextSelectedTypesOverItsWords() throws {
+    let editor = DeckEditor(session: try ScaenaSession(directory: b1))
+    editor.shown = "cover"
+    let typing = Typing(editor: editor)
+    #expect(!typing.enterOver("nobody", in: "cover"), "no text, nothing to type over")
+    #expect(typing.enterOver("title", in: "cover"))
+    #expect(typing.typing && typing.selected == "Scaena", "its words are selected")
+    #expect(!typing.enterOver("subtitle", in: "cover"), "a text typed in keeps the keys")
+    typing.insert("H")
+    typing.insert("i")
+    #expect(typing.carets?.text == "Hi" && typing.node == "title")
+    #expect(editor.source.contains("Hi"), "the words are in the deck")
+    typing.leave()
+
+    #expect(Typing.printable("a") && Typing.printable("é") && Typing.printable("3") && Typing.printable("-"))
+    #expect(!Typing.printable("") && !Typing.printable("\t") && !Typing.printable("\r") && !Typing.printable("\u{1b}"))
+    #expect(!Typing.printable("\u{F702}"), "an arrow key, as the input system names it")
+
+    #if os(macOS)
+    // Through the text input system: a letter typed with the title selected, nothing typed in.
+    let view = CanvasKeys(typing: typing)
+    view.frame = NSRect(x: 0, y: 0, width: 960, height: 540)
+    view.canvas = CGSize(width: 1920, height: 1080)
+    var asked = 0
+    view.typeOver = {
+        asked += 1
+        return typing.enterOver("title", in: "cover")
+    }
+    let nowhere = NSRange(location: NSNotFound, length: 0)
+    view.insertText("\u{F704}", replacementRange: nowhere)
+    #expect(asked == 0 && !typing.typing, "a function key types over nothing")
+    view.insertText("S", replacementRange: nowhere)
+    #expect(asked == 1 && typing.typing && typing.carets?.text == "S", "\(typing.carets?.text ?? "")")
+    view.insertText("o", replacementRange: nowhere)
+    #expect(asked == 1 && typing.carets?.text == "So", "typing goes on in the text")
+    typing.leave()
+    // A dead key composes over the words.
+    view.setMarkedText("´", selectedRange: NSRange(location: 1, length: 0), replacementRange: nowhere)
+    #expect(asked == 2 && typing.typing && view.hasMarkedText() && typing.carets?.text == "´")
+    view.insertText("e", replacementRange: nowhere)
+    #expect(typing.carets?.text == "e")
+    typing.leave()
+    #endif
+}

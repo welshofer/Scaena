@@ -34,6 +34,10 @@ public final class CanvasKeys: NSView {
     /// What the canvas does with the Edit menu's Copy, Cut, and Paste while no text is typed in
     /// (PLAN 3.12): the nodes selected copied as a clip, or what the pasteboard holds pasted.
     public var clipping: (@MainActor (Clipping) -> Void)?
+    /// What the canvas does with a character typed while no text is typed in (lift-up FUNC-3):
+    /// typing begun over the words of the one text selected, as a presentation app does, whether
+    /// it did; the character then replaces them.
+    public var typeOver: (@MainActor () -> Bool)?
 
     public init(typing: Typing) {
         self.typing = typing
@@ -263,9 +267,10 @@ public final class CanvasKeys: NSView {
 
 extension CanvasKeys: @preconcurrency NSTextInputClient {
     public func insertText(_ string: Any, replacementRange: NSRange) {
-        // Characters typed with no text typed in do nothing yet.
-        guard typing.typing else { return }
         let text = Self.plain(string)
+        // A character typed with no text typed in types over the words of the text selected, if
+        // one is (lift-up FUNC-3); a key the input system names otherwise does nothing.
+        guard typing.typing || (Typing.printable(text) && typeOver?() == true) else { return }
         if replacementRange.location == NSNotFound {
             typing.insert(text)
         } else {
@@ -277,7 +282,8 @@ extension CanvasKeys: @preconcurrency NSTextInputClient {
     }
 
     public func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
-        guard typing.typing else { return }
+        // A dead key pressed with a text selected composes over its words (lift-up FUNC-3).
+        guard typing.typing || typeOver?() == true else { return }
         if replacementRange.location != NSNotFound {
             // The input method composes again what is written there.
             typing.unmark()
@@ -351,11 +357,13 @@ public struct CanvasKeysHost: NSViewRepresentable {
     public let clipping: @MainActor (Clipping) -> Void
     public let finding: (@MainActor (NSTextFinder.Action) -> Void)?
     public let pressed: (@MainActor (NSEvent) -> Bool)?
+    public let typeOver: (@MainActor () -> Bool)?
 
     public init(
         typing: Typing, canvas: CGSize, shown: CGRect? = nil, command: @escaping @MainActor (Selector) -> Bool,
         clipping: @escaping @MainActor (Clipping) -> Void,
-        finding: (@MainActor (NSTextFinder.Action) -> Void)? = nil, pressed: (@MainActor (NSEvent) -> Bool)? = nil
+        finding: (@MainActor (NSTextFinder.Action) -> Void)? = nil, pressed: (@MainActor (NSEvent) -> Bool)? = nil,
+        typeOver: (@MainActor () -> Bool)? = nil
     ) {
         self.typing = typing
         self.canvas = canvas
@@ -364,6 +372,7 @@ public struct CanvasKeysHost: NSViewRepresentable {
         self.clipping = clipping
         self.finding = finding
         self.pressed = pressed
+        self.typeOver = typeOver
     }
 
     public func makeNSView(context: Context) -> CanvasKeys {
@@ -379,6 +388,7 @@ public struct CanvasKeysHost: NSViewRepresentable {
         view.clipping = clipping
         view.finding = finding
         view.pressed = pressed
+        view.typeOver = typeOver
     }
 }
 #endif
