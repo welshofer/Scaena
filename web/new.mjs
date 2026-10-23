@@ -206,6 +206,12 @@ try {
   await page.waitForFunction(() => document.querySelector("#status").textContent.startsWith("Kept in this browser"), null, { timeout: 30000 }).catch(() => {});
   const keptFirst = await page.evaluate(() => window.scaena.where().where?.kind === "opfs");
   const playSaid = await page.evaluate(() => document.querySelector("#status").textContent);
+  // It stays said once lint has read the deck again: what lint finds comes after it, until the
+  // source is edited.
+  const linted = await page.evaluate(() => window.scaena.trips().length);
+  await page.waitForFunction((n) => window.scaena.trips().length > n, linted, { timeout: 30000 }).catch(() => {});
+  const stillSaid = await page.evaluate(() => document.querySelector("#status").textContent);
+  check(stillSaid.startsWith("Kept in this browser to play it"), `and it stays said once lint has run: ${stillSaid}`);
   await played.waitForURL(/index\.html/, { timeout: 30000 }).catch(() => {});
   const playing = await played.waitForFunction(() => window.scaena?.at?.(), null, { timeout: 60000 }).then(() => true, () => false);
   check(keptFirst && playSaid === "Kept in this browser to play it" && playing && played.url().includes("bundle=opfs%3Atyped-over"), `Play keeps a new deck in the browser, says so, and plays it: ${playSaid}, ${played.url()}`);
