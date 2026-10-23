@@ -33,7 +33,8 @@
 // - Each is named as a person counts it (PLAN 2.99): Slide 2, Step 2; no id names one. A state
 //   another builds on is not removed, and the status says why.
 // - The state shown, taken away, leaves no error on the page, and ⌘Z and ⇧⌘Z with the strip
-//   focused undo and redo (PLAN 2.77).
+//   focused undo and redo (PLAN 2.77). An undo says what it took back, and a redo what it made
+//   again, in the words the change was made in (lift-up USE-4).
 // On the trails example, the strip draws each thumbnail as it is painted, the first before every
 // state is linted.
 // Exits 1 on any failure.
@@ -210,6 +211,7 @@ try {
   const after = await painted(["revenue-2"]);
   check(after["revenue-2"] === after.revenue, "its thumbnail is revenue's drawing, digest for digest");
   await undo();
+  check(await says("Undone: A step added after Slide 2"), `the status says what the undo took back (lift-up USE-4): ${await status()}`);
   check(await back(original), "one undo takes it back");
   check(await holds(["intro", "revenue", "mix", "close"]), "and the strip with it");
   const label = () => page.evaluate(() => document.querySelector("#state").selectedOptions[0]?.textContent);
@@ -535,10 +537,12 @@ try {
   await item("mix").focus();
   await page.keyboard.press("Control+z");
   check(await holds(["intro", "revenue", "mix", "close"]), `⌘Z in the strip puts it back: ${await order()}`);
+  check(await says("Undone: Slide 3 removed"), `and the status says what it took back (lift-up USE-4): ${await status()}`);
   check(await back(original), "as it was");
   await item("mix").focus();
   await page.keyboard.press("Control+Shift+z");
   check(await holds(["intro", "revenue", "mix"]), `⇧⌘Z in the strip takes it away again: ${await order()}`);
+  check(await says("Made again: Slide 3 removed"), `and the status says what it made again: ${await status()}`);
 
   // A deck of many states, opened: the strip draws its thumbnails as they are painted, the first
   // before every state is linted.

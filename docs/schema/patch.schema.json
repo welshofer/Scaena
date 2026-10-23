@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://scaena.dev/schema/patch-0.34.json",
+  "$id": "https://scaena.dev/schema/patch-0.35.json",
   "title": "Scaena patch",
   "description": "A patch (SPEC §7.3): RFC 6902 ops and semantic ops, applied in order, all or none.",
   "type": "array",
@@ -2185,7 +2185,7 @@
           "$ref": "#/$defs/TransitionStyle"
         },
         "direction": {
-          "description": "Which way a `push`, a `cover`, a `reveal`, or a `wipe` moves: `left`, the default, which brings the slide entered in from the right, `right`, `up`, or `down`.",
+          "description": "Which way a `push`, a `cover`, a `reveal`, a `wipe`, a `circleWave`, or a `diamondWave` moves: `left`, the default, which brings the slide entered in from the right, `right`, `up`, or `down`. A `radial`'s hand starts so the slide entered shows first on that side: straight up for `left`, at three o'clock for `up`, six for `right`, and nine for `down`.",
           "$ref": "#/$defs/TransitionDirection",
           "default": "left"
         }
@@ -2203,7 +2203,28 @@
           "type": "string",
           "const": "reveal"
         },
-        { "description": "An edge sweeps across, the slide entered behind it.", "type": "string", "const": "wipe" }
+        { "description": "An edge sweeps across, the slide entered behind it.", "type": "string", "const": "wipe" },
+        {
+          "description": "Circles grow across the slide, the slide entered inside them (PLAN 2.149).",
+          "type": "string",
+          "const": "circle"
+        },
+        {
+          "description": "Circles grow in a wave across the slide, the way `direction` goes.",
+          "type": "string",
+          "const": "circleWave"
+        },
+        { "description": "Diamonds grow across the slide together.", "type": "string", "const": "diamond" },
+        {
+          "description": "Diamonds grow in a wave across the slide, the way `direction` goes.",
+          "type": "string",
+          "const": "diamondWave"
+        },
+        {
+          "description": "A clock's hand sweeps round the slide's middle, the slide entered in its wake.",
+          "type": "string",
+          "const": "radial"
+        }
       ]
     },
     "TransitionDirection": {

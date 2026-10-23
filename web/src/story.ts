@@ -24,6 +24,9 @@ export interface StoryEditor {
   make(ops: unknown[], done: string): Promise<void>;
   /** Put `question` to the assistant: its tab shown, the question in its box. */
   ask(question: string): void;
+  /** Check `state`'s words against its beat's claim by the writing tools' model, which offers
+   * the headline rewritten to carry it (narrative FUNC-4). */
+  check(state: string): void;
   say(text: string): void;
 }
 
@@ -197,6 +200,13 @@ export function storyPanel(stage: Stage, into: HTMLElement, editor: StoryEditor)
     ask.textContent = "Ask the assistant";
     ask.addEventListener("click", () => editor.ask(run.map((f) => f.ask).join(" ")));
     actions.append(ask);
+    const check = document.createElement("button");
+    check.type = "button";
+    check.dataset.check = "";
+    check.title = "Whether its words carry the claim its beat makes, judged by the assistant's model, which offers the headline rewritten to carry it";
+    check.textContent = "Check the claim";
+    check.addEventListener("click", () => editor.check(state));
+    actions.append(check);
     li.append(actions);
     return li;
   }

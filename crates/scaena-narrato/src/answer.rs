@@ -86,18 +86,17 @@ fn unfenced(text: &str) -> &str {
 }
 
 /// The arc an answer to arc selection chose (Narrato's `parseArcJson`): one the catalog does
-/// not name exactly is matched case aside, else is the catalog's first. Text that does not
-/// read as the answer is an error.
+/// not name exactly is matched as a model writes it ([`arcs::named`]: case, dashes, and
+/// apostrophes aside, or by a part). Text that does not read as the answer is an error, and so
+/// is a name no arc of the catalog is matched by (narrative STAB-5): Narrato's `parseArcJson`
+/// made it the catalog's first in silence; here the error says the name, and the generation
+/// falls back to the heuristic's choice for the brief, saying so, as it does when the call fails.
 pub fn arc(text: &str) -> Result<ArcChoice, String> {
     let parsed: Value = serde_json::from_str(unfenced(text)).map_err(|e| format!("arc selection did not read: {e}"))?;
     let selection = parsed.get("selection").and_then(Value::as_str).ok_or("arc selection named no arc")?;
-    let catalog = arcs::arcs();
-    let selection = match catalog.iter().find(|a| a.arc == selection) {
+    let selection = match arcs::named(selection) {
         Some(a) => a.arc.clone(),
-        None => {
-            let lc = selection.to_lowercase();
-            catalog.iter().find(|a| a.arc.to_lowercase() == lc).unwrap_or(&catalog[0]).arc.clone()
-        }
+        None => return Err(format!("the model named `{selection}`, not an arc of the catalog")),
     };
     let candidates = (parsed.get("candidates").and_then(Value::as_array).into_iter().flatten())
         .map(|c| Candidate {
@@ -273,9 +272,28 @@ mod tests {
         let chosen = arc(r#"{"selection":"data storytelling","reasoning":"Numbers.","candidates":[{"arc":"Data Storytelling","score":{"overall":0.9}}]}"#).unwrap();
         assert_eq!(chosen.selection, "Data Storytelling");
         assert_eq!(chosen.candidates[0].score, 0.9);
-        let unknown =
-            arc("```json\n{\"selection\":\"Kishōtenketsu\",\"reasoning\":\"\",\"candidates\":[]}\n```").unwrap();
-        assert_eq!(unknown.selection, "Hero's Journey");
+        // As a model writes a name (narrative STAB-5): a hyphen for the en dash, a straight
+        // apostrophe for the curly one, the arrows left out, a part of the name, or more around it.
+        let snapped =
+            |selection: &str| arc(&format!(r#"{{"selection":"{selection}","reasoning":"","candidates":[]}}"#));
+        for (written, catalog) in [
+            ("Problem-Solution", "Problem\u{2013}Solution"),
+            ("problem solution", "Problem\u{2013}Solution"),
+            ("Hero's Journey for Change", "Hero\u{2019}s Journey for Change"),
+            ("Hero's Journey", "Hero's Journey"),
+            ("PARL", "PARL (Problem, Action, Result, Learning)"),
+            ("What Is / What Could Be", "What Is \u{2192} What Could Be"),
+            ("Conflict - Struggle - Resolution", "Conflict \u{2192} Struggle \u{2192} Resolution"),
+            ("Roadmap", "Roadmap / Future-State"),
+            ("The Data Storytelling arc", "Data Storytelling"),
+        ] {
+            assert_eq!(snapped(written).unwrap().selection, catalog, "{written}");
+        }
+        // A name no arc of the catalog is matched by is an error that says it, never the first
+        // arc in silence.
+        let unknown = arc("```json\n{\"selection\":\"Kishōtenketsu\",\"reasoning\":\"\",\"candidates\":[]}\n```");
+        assert_eq!(unknown.unwrap_err(), "the model named `Kishōtenketsu`, not an arc of the catalog");
+        assert!(snapped("The").is_err(), "a word too short to name an arc names none");
         assert!(arc("not json").is_err());
     }
 

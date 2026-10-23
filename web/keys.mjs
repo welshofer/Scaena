@@ -186,8 +186,11 @@ try {
   await page.keyboard.press("Control+Alt+Shift+F");
   check(await page.evaluate(() => document.activeElement?.closest("#strip")?.getAttribute?.("id") === "strip" && document.activeElement.dataset.state === document.querySelector("#state").value), `Ctrl+Alt+Shift+F on the slide shown among the slides: ${await page.evaluate(() => document.activeElement?.id)}`);
   {
-    // A page's first Tab: Go to the slide, which Enter takes.
-    const fresh = await context.newPage();
+    // A page's first Tab: Go to the slide, which Enter takes. A browser of its own: in this one,
+    // the deck has unsaved changes, and a page that opened it again would be offered them first
+    // (lift-up REL-4).
+    const another = await browser.newContext({ viewport: { width: 1600, height: 1000 }, deviceScaleFactor: 1 });
+    const fresh = await another.newPage();
     fresh.on("pageerror", (e) => failures.push(`page: ${e.message}`));
     await fresh.goto(`${site.origin}/web/dist/editor.html?painter=cpu&bundle=/docs/examples/revenue.deck.json`);
     await fresh.waitForFunction(() => window.scaena?.last()?.valid && window.scaena.canvas.boxes().length, null, { timeout: 120000 });
@@ -196,7 +199,7 @@ try {
     check(first[0] === "skip" && first[1] === "Go to the slide", `a page's first Tab is Go to the slide: ${first}`);
     await fresh.keyboard.press("Enter");
     check(await fresh.evaluate(() => document.activeElement?.id === "overlay"), "and Enter puts the focus on the slide");
-    await fresh.close();
+    await another.close();
   }
 
   // F8 and Shift+F8, as the sheet says: to the next finding in the source, and back. A headline
