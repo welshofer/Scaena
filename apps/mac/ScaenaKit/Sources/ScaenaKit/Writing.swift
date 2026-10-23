@@ -2,9 +2,10 @@ import Foundation
 
 /// What a person asks a model to write (PLAN 2.101, `scaena_core::writing`): a text's words
 /// proofread, tightened, or rewritten; a slide's notes drafted; an issue explained; a picture
-/// described from itself (PLAN 2.119).
+/// described from itself (PLAN 2.119); a slide's words checked against its beat's claim, its
+/// headline rewritten to carry it (narrative FUNC-4).
 public enum WritingKind: String, Codable, CaseIterable, Sendable {
-    case proofread, tighten, rewrite, notes, explain, describe
+    case proofread, tighten, rewrite, notes, explain, describe, claim
 }
 
 /// A writing tool asked of the deck as it stands: the task, the state shown, and the text it is

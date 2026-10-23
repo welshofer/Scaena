@@ -539,7 +539,10 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
       : picture
         ? [`<button type="button" data-write="describe" title="What it shows, said for someone who can’t see it, by the assistant's model, which is shown the picture">Describe</button>`]
         : !chars && !nodes.length
-          ? [`<button type="button" data-write="notes" title="What you say while it shows, drafted from its words by the assistant's model">Draft Notes</button>`]
+          ? [
+              `<button type="button" data-write="notes" title="What you say while it shows, drafted from its words by the assistant's model">Draft Notes</button>`,
+              `<button type="button" data-write="claim" title="Whether its words carry the claim its beat makes, judged by the assistant's model, which offers the headline rewritten to carry it">Check the Claim</button>`,
+            ]
           : [];
     const writing = writes.length
       ? `<div class="arrange writing"><span class="arrange-kind">Writing</span><span class="arrange-buttons" role="group" aria-label="Writing">${writes.join("")}</span></div>`
