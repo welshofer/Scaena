@@ -56,7 +56,10 @@ fn slides_written_elsewhere_make_a_bundle_with_no_call() {
     assert!(made["arc"].as_str().is_some_and(|a| !a.is_empty()));
     let deck: Value = serde_json::from_str(&std::fs::read_to_string(dir.join("deck.json")).unwrap()).unwrap();
     assert_eq!(deck["theme"], "themes/ember.theme.json");
-    assert_eq!(deck["states"].as_array().unwrap().len(), 56);
+    // A slide for each, and the steps its short lists build by (narrative ATTR-2).
+    let states = deck["states"].as_array().unwrap();
+    assert_eq!(states.iter().filter(|s| s.get("slide").is_none()).count(), 56);
+    assert!(states.len() > 56, "{}", states.len());
     assert_eq!(deck["meta"]["narrative"]["generator"], "narrato");
     // The bundle validates as it is on disk.
     assert_eq!(scaena(&["validate", bundle]).status.code(), Some(0));
