@@ -265,8 +265,6 @@ final class TouchTests: XCTestCase {
         }
     }
 
-    /// How close the canvas is shown, as it tells VoiceOver: "whole" where nothing is zoomed.
-    @MainActor
     /// Several selected by touch alone (lift-up FUNC-4), on B1's cover: with the toolbar's Select
     /// held, a tap adds the subtitle to the title selected, and a tap on the title takes it out, as
     /// Shift and a click do; let go, a tap selects one again. A long press offers Only on This Slide,
@@ -374,6 +372,8 @@ final class TouchTests: XCTestCase {
         }
     }
 
+    /// How close the canvas is shown, as it tells VoiceOver: "whole" where nothing is zoomed.
+    @MainActor
     private func shown(_ canvas: XCUIElement) -> String {
         let value = canvas.value as? String ?? ""
         return value.isEmpty ? "whole" : value
