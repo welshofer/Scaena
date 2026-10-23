@@ -4336,6 +4336,16 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     putPicture,
     /** A slide made here: its layout's empty slots are outlined once it shows. */
     freshen: (state: string) => void fresh.add(state),
+    /** Type in `node` with its words selected, so what is typed takes their place, as an inserted
+     * text's are (PLAN 3.21): New's title. */
+    typeOver: async (node: string) => {
+      // A deck just opened lays its boxes out once its first compile is in: until then, ask again.
+      for (let tries = 0; !box(node) && tries < 50; tries++) {
+        await refresh().catch(() => {});
+        if (!box(node)) await new Promise((r) => setTimeout(r, 100));
+      }
+      if (box(node)) await inTurn(() => type(node, undefined, false, true));
+    },
     /** Draw the safe area around the canvas's edge, or stop, as ⌥⌘' does (PLAN 3.29); and whether
      * it is drawn, and what lies inside it. */
     shield,

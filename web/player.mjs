@@ -22,8 +22,8 @@
 //   slide's number then Return goes there, one the deck lacks said, 0 among them; L shows the laser
 //   where the pointer is over the slide; ? lists the keys.
 // - The end of the show (PLAN 2.120): going on past the last state turns the screen black and says
-//   the show has ended, the status too; ← shows the last slide again, and going on again, a click,
-//   or Escape leaves it, back on the last slide, and in fullscreen out of it.
+//   the show has ended, the status too; ← shows the last slide again, going on again keeps it,
+//   and a click or Escape leaves it, back on the last slide, and in fullscreen out of it.
 // - The presenter view follows the player, shows the state's notes (its beat's, where it has
 //   none), and steers it: on, back, and with End and Home to the last and the first; and its own
 //   presenter's keys steer the room's screen, its laser pointed from the slide it shows, and drawn
@@ -278,7 +278,7 @@ try {
   check(!(await listed()).open, "and so does Escape");
 
   // The end of the show (PLAN 2.120): → past the last state turns the screen black and says the
-  // show has ended; ← shows the last slide again; → again, a click, or Escape leaves it.
+  // show has ended; ← shows the last slide again; → again keeps it; a click or Escape leaves it.
   const ending = () =>
     player.evaluate(() => {
       const end = document.querySelector(".end");
@@ -308,11 +308,9 @@ try {
   check(!end.shown && !end.ended && end.index === last, `← shows the last slide again: ${JSON.stringify(end)}`);
   await player.keyboard.press("ArrowRight");
   check((await ending()).ended, "→ ends the show again");
-  await player.keyboard.press("ArrowRight");
+  for (const key of ["ArrowRight", " ", "PageDown"]) await player.keyboard.press(key);
   end = await ending();
-  check(!end.shown && !end.ended && end.index === last && !end.status.endsWith("end of the show"), `and → again leaves it, on the last slide: ${JSON.stringify(end)}`);
-  await player.keyboard.press(" ");
-  check((await ending()).ended, "Space past the last ends the show too");
+  check(end.shown && end.ended && end.index === last, `and going on again keeps it, by →, Space, and PageDown: ${JSON.stringify(end)}`);
   await player.mouse.click(960, 400);
   end = await ending();
   check(!end.ended && end.index === last, "a click on the end of the show leaves it");
@@ -538,17 +536,20 @@ try {
       Math.abs(centred.top - (centred.room - centred.height) / 2) <= 1 && centred.background === "rgb(0, 0, 0)",
       `in the middle of the screen, on black: ${JSON.stringify(centred)}`,
     );
-    // At the end of the show, going on again leaves fullscreen, on the last slide (PLAN 2.120).
+    // At the end of the show, going on again keeps it, fullscreen; a click leaves fullscreen, on
+    // the last slide (PLAN 2.120).
     await player.keyboard.press("End");
     await until(player, (last) => window.scaena.at().index === last && !window.scaena.at().playing, "End in fullscreen", slots.length - 1);
     await player.keyboard.press("ArrowRight");
     const endedFull = await player.evaluate(() => window.scaena.ended() && document.fullscreenElement !== null);
     await player.keyboard.press("ArrowRight");
+    const keptFull = await player.evaluate(() => window.scaena.ended() && document.fullscreenElement !== null);
+    await player.mouse.click(400, 300);
     const left = await player.waitForFunction(() => document.fullscreenElement === null, null, { timeout: 5000 }).then(() => true, () => false);
     at = await player.evaluate(() => window.scaena.at());
     check(
-      endedFull && left && !(await player.evaluate(() => window.scaena.ended())) && at.index === slots.length - 1,
-      "in fullscreen, → past the last ends the show, and → again leaves fullscreen, on the last slide",
+      endedFull && keptFull && left && !(await player.evaluate(() => window.scaena.ended())) && at.index === slots.length - 1,
+      "in fullscreen, → past the last ends the show, → again keeps it, and a click leaves fullscreen, on the last slide",
     );
     if (!left) await player.keyboard.press("f");
   }
