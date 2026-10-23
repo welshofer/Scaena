@@ -202,7 +202,7 @@ struct CanvasMenu: UIViewRepresentable {
             _ interaction: UIEditMenuInteraction, menuFor configuration: UIEditMenuConfiguration,
             suggestedActions: [UIMenuElement]
         ) -> UIMenu? {
-            UIMenu(children: CanvasMenu.items(deck, clip: clip))
+            UIMenu(children: CanvasMenu.items(deck, clip: clip, paste: CanvasMenu.paste(in: suggestedActions)))
         }
 
         /// The menu stands clear of what it is for, as much of it as the canvas shows; at the press
@@ -218,9 +218,31 @@ struct CanvasMenu: UIViewRepresentable {
     }
 
     /// What the menu offers (`CanvasOffer`, as the Mac's right click offers it, PLAN 3.23), as
-    /// iPadOS's edit menu shows it: no lines between kinds.
-    static func items(_ deck: DeckActions?, clip: @escaping (Clipping) -> Void) -> [UIMenuElement] {
-        CanvasOffer.offers(deck, clip: clip).compactMap(element)
+    /// iPadOS's edit menu shows it: no lines between kinds. `paste`, where the system suggests it,
+    /// stands in for the menu's own Paste: iPadOS asks to allow a paste an app's own action reads,
+    /// and the app's main thread waits on the answer, but asks nothing of its own Paste command,
+    /// which the canvas's keys answer as they answer ⌘V (`CanvasPresses.paste`).
+    static func items(
+        _ deck: DeckActions?, clip: @escaping (Clipping) -> Void, paste: UIMenuElement? = nil
+    ) -> [UIMenuElement] {
+        CanvasOffer.offers(deck, clip: clip).compactMap { offer in
+            if let paste, case .action(CanvasOffer.paste, _, _, _) = offer { return paste }
+            return element(offer)
+        }
+    }
+
+    /// The system's own Paste among what it suggests for the menu: there while what has the
+    /// keyboard can paste, the canvas's keys among them.
+    static func paste(in suggested: [UIMenuElement]) -> UIMenuElement? {
+        for element in suggested {
+            if let command = element as? UICommand,
+                command.action == #selector(UIResponderStandardEditActions.paste(_:))
+            {
+                return command
+            }
+            if let menu = element as? UIMenu, let found = paste(in: menu.children) { return found }
+        }
+        return nil
     }
 
     private static func element(_ offer: CanvasOffer) -> UIMenuElement? {
