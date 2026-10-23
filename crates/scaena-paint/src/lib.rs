@@ -777,18 +777,28 @@ pub mod cpu {
     }
 
     /// What one frame of a [`CpuPainter`] leaves for the next: its render context, reset and
-    /// drawn into again while frames keep their size and SIMD level. A frame then allocates
-    /// little besides its pixels, where a new context allocated its tiles, strips, and
-    /// coverage each time, and grew them again as the frame filled them. A context reset
-    /// paints the same bytes as a new one.
+    /// drawn into again while frames keep their size and SIMD level, and `vello_cpu`'s
+    /// resources, which hold the glyph outlines a frame prepared (lift-up PERF-1). A frame
+    /// then allocates little besides its pixels, where a new context allocated its tiles,
+    /// strips, and coverage each time, and grew them again as the frame filled them; and the
+    /// glyphs it draws that the last frames drew, at the same size in the same font, are drawn
+    /// from their outlines as prepared then, which `vello_cpu` lets go once a glyph has gone
+    /// unused for 64 frames. The outlines are only the font's own, so a context reset and a
+    /// cache full of them paint the same bytes as a new context and an empty cache: the
+    /// torture goldens hold the painter to it.
     #[derive(Default)]
     pub struct Kept {
         ctx: Option<RenderContext>,
+        /// `vello_cpu`'s resources: one set for the painter, as it asks, whose glyph cache
+        /// serves every frame. A picture is drawn from its own pixmap, not registered in it,
+        /// so nothing else gathers there.
+        resources: Resources,
     }
 
     impl Kept {
-        /// A context `width` × `height` at `level`, reset: the one kept, where it is that.
-        fn context(&mut self, width: u16, height: u16, level: Level) -> &mut RenderContext {
+        /// A context `width` × `height` at `level`, reset: the one kept, where it is that; and
+        /// the resources, as they are.
+        fn frame(&mut self, width: u16, height: u16, level: Level) -> (&mut RenderContext, &mut Resources) {
             let fits = self.ctx.as_ref().is_some_and(|ctx| {
                 let same = std::mem::discriminant(&ctx.render_settings().level) == std::mem::discriminant(&level);
                 ctx.width() == width && ctx.height() == height && same
@@ -799,7 +809,7 @@ pub mod cpu {
             let settings = RenderSettings { level, ..Default::default() };
             let ctx = self.ctx.get_or_insert_with(|| RenderContext::new_with(width, height, settings));
             ctx.reset();
-            ctx
+            (ctx, &mut self.resources)
         }
     }
 
@@ -862,22 +872,17 @@ pub mod cpu {
             let (width, height) = raster(dl, scale)?;
             let mut pixels = pixels.into_iter();
             let shaded: Vec<_> = jobs.into_iter().map(|job| Some((job?.bbox(), pixels.next()?))).collect();
-            let ctx = self.kept.context(width, height, self.level);
-            let mut resources = Resources::new();
+            let (ctx, resources) = self.kept.frame(width, height, self.level);
             let shaded = shaded.into_iter();
             fonts.frame();
-            let mut cx = Cx { ctx: &mut *ctx, resources: &mut resources, store: fonts, fonts: &dl.fonts, shaded };
+            let mut cx = Cx { ctx: &mut *ctx, resources: &mut *resources, store: fonts, fonts: &dl.fonts, shaded };
             cx.ops(&dl.ops, Affine::scale(f64::from(scale)))?;
             ctx.flush();
             // The frame's pixels, zeroed as `Pixmap::new` zeroes them, but by the allocator:
             // the frame covers the buffer, so packing draws every pixel over it.
             let mut rgba = vec![0u8; usize::from(width) * usize::from(height) * 4];
             let target = PixmapMut::new(width, height, &mut rgba).expect("a buffer of the frame's size");
-            ctx.render_with(
-                target,
-                &mut resources,
-                RasterizerSettings { render_mode: self.mode, ..Default::default() },
-            );
+            ctx.render_with(target, resources, RasterizerSettings { render_mode: self.mode, ..Default::default() });
             unpremultiply(&mut rgba);
             Ok(Raster { width: u32::from(width), height: u32::from(height), rgba })
         }
@@ -1053,6 +1058,46 @@ pub mod cpu {
                     assert_eq!(raster.pixel(x, y), [0; 4], "outside ({x},{y}) at {level:?}");
                 }
             }
+        }
+
+        /// A frame's glyph outlines serve the frames after it (lift-up PERF-1): the painter
+        /// keeps `vello_cpu`'s resources, so the outlines a frame prepared are still cached
+        /// once it is painted, and still there after a frame that draws no glyph, where a
+        /// painter that made the resources anew for each frame let them go with it.
+        #[test]
+        fn glyph_outlines_prepared_for_a_frame_serve_the_next() {
+            use scaena_core::displaylist::{FontRef, Glyph};
+            const FONT: &str =
+                concat!(env!("CARGO_MANIFEST_DIR"), "/../../tests/fixtures/torture.scaena/fonts/EBGaramond-VF.ttf");
+            let mut store = Assets::new();
+            store.insert_font("fonts/EBGaramond-VF.ttf", std::fs::read(FONT).unwrap());
+            let mut dl = DisplayList::new([64.0, 32.0]);
+            let font = dl.font(FontRef { id: "fonts/EBGaramond-VF.ttf".into(), index: 0 });
+            dl.ops.push(Op::Glyphs {
+                font,
+                size: 16.0,
+                coords: Vec::new(),
+                paint: Paint::Solid(Color([0, 0, 0, 255])),
+                text: "abc".into(),
+                glyphs: (0..3).map(|i| Glyph { id: 68 + i, x: 4.0 + 12.0 * i as f32, y: 20.0 }).collect(),
+                clusters: Vec::new(),
+            });
+            // `vello_cpu` keeps its count to itself; its `Debug` says it.
+            let cached = |painter: &CpuPainter| {
+                let said = format!("{:?}", painter.kept.resources);
+                let after = &said[said.find("static_map: ").expect("the outline cache's count") + 12..];
+                after[..after.find(|c: char| !c.is_ascii_digit()).unwrap_or(after.len())].parse::<usize>().unwrap()
+            };
+            let mut painter = CpuPainter::default();
+            assert_eq!(cached(&painter), 0);
+            let first = painter.paint(&dl, &store, 1.0).unwrap();
+            assert_eq!(cached(&painter), 3, "the frame's three glyphs, prepared once");
+            painter.paint(&DisplayList::new([64.0, 32.0]), &store, 1.0).unwrap();
+            assert_eq!(cached(&painter), 3, "kept through a frame that draws none");
+            let again = painter.paint(&dl, &store, 1.0).unwrap();
+            assert_eq!(cached(&painter), 3, "drawn from the outlines prepared, not prepared again");
+            assert!(again.rgba == first.rgba, "the cached outlines paint the bytes the first frame painted");
+            assert!(first.rgba.chunks(4).any(|p| p[3] != 0), "the glyphs inked something");
         }
 
         /// The painter's unpremultiply is vello's own, byte for byte: every alpha against

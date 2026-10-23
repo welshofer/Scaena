@@ -126,6 +126,7 @@ type Reply = Extract<
       | "linked"
       | "laidOut"
       | "viewed"
+      | "fitted"
       | "focal"
       | "found"
       | "replacement"
@@ -156,6 +157,7 @@ type Reply = Extract<
       | "compared"
       | "restored"
       | "filesWritten"
+      | "file"
       | "themeText"
       | "codeColors"
       | "themeEdited"
@@ -213,8 +215,16 @@ export class Stage {
   onAt: (at: At) => void = () => {};
   /** Called when the worker fails outside a request. */
   onError: (error: Error) => void = () => {};
+  /** Called when the engine stopped on a panic (lift-up STAB-2), the worker stopped and every
+   * request waiting on it refused: the bundle's files as the worker held them, with its name, for
+   * the page to start the stage again from (`restart`). A page that does not hears an error. */
+  onCrashed: (crash: { message: string; name: string; files: Record<string, ArrayBuffer> }) => void = (crash) =>
+    this.onError(new Error(`the engine stopped: ${crash.message}`));
   /** The formats beside the canvas are painted: `state`, `t` ms into its cue (PLAN 2.62). */
   onBesides: (state: string, t: number) => void = () => {};
+  /** Called as the canvas's attributes change: `size`, which frames are painted at from then
+   * on, fitted to the room (`fit`), the format shown, or the bundle read again (lift-up ATTR-2). */
+  onSized: (size: [number, number]) => void = () => {};
   /** Requests not yet answered, by id. */
   private waiting = new Map<number, { resolve: (reply: Reply) => void; reject: (error: Error) => void }>();
   /** What hears each step of the assistant's answer to a question, by the question's id. */
@@ -223,17 +233,29 @@ export class Stage {
   private thumbing = new Map<number, (thumb: Thumb) => void>();
   private asked = 0;
 
+  /** The bundle's files written since the last save, as the page heard of them (lift-up REL-4),
+   * each with how many times, and those taken out: what a recovery copy keeps beside the source. A
+   * save clears both. */
+  private writtenSince = new Map<string, number>();
+  private removedSince = new Set<string>();
+
   /** Workers that work out shaders' rows for the engine's worker, when it asks (PLAN 2.28). */
   private helpers: Worker[] = [];
 
   private constructor(
-    readonly canvas: HTMLCanvasElement,
+    public canvas: HTMLCanvasElement,
     private worker: Worker,
     /** The bundle as the worker opened it, or last read it again. */
     public opened: Opened,
     /** How the engine's worker was started: its helpers start the same way. */
     private engine: Engine,
+    /** Who paints, as the page asked. */
+    private painter: Painter,
   ) {
+    this.hear(worker);
+  }
+
+  private hear(worker: Worker) {
     worker.onmessage = ({ data }: MessageEvent<FromWorker>) => this.listen(data);
     worker.onerror = (e) => this.onError(new Error(e.message));
   }
@@ -243,6 +265,31 @@ export class Stage {
    * back to the CPU painter starts over. A bundle that does not open puts `canvas` back, as
    * whoever painted it left it. */
   static async open(canvas: HTMLCanvasElement, source: Source, painter: Painter, engine: Engine): Promise<Stage> {
+    const started = await Stage.start(canvas, source, painter, engine);
+    return new Stage(started.canvas, started.worker, started.opened, engine, painter);
+  }
+
+  /** Start the stage again on `source`, the bundle's files as its worker held them (lift-up
+   * STAB-2): a fresh worker of its own, painting into a fresh canvas in this one's place; the
+   * requests waiting on the old one are refused. The bundle as the fresh worker opened it. */
+  async restart(source: Source): Promise<Opened> {
+    this.halt(new Error("the engine stopped"));
+    const started = await Stage.start(this.canvas, source, this.painter, this.engine);
+    this.canvas = started.canvas;
+    this.worker = started.worker;
+    this.opened = started.opened;
+    this.hear(started.worker);
+    return started.opened;
+  }
+
+  /** A worker of `engine`'s opened on `source`, painting into a fresh canvas in `canvas`'s
+   * place: the canvas, the worker, and the bundle as it opened it. */
+  private static async start(
+    canvas: HTMLCanvasElement,
+    source: Source,
+    painter: Painter,
+    engine: Engine,
+  ): Promise<{ canvas: HTMLCanvasElement; worker: Worker; opened: Opened }> {
     const fresh = canvas.cloneNode() as HTMLCanvasElement;
     canvas.replaceWith(fresh);
     const worker = engine.spawn();
@@ -257,13 +304,13 @@ export class Stage {
       const first = await reply;
       if (first.type === "ready") {
         const { type: _, ...opened } = first;
-        return new Stage(fresh, worker, opened, engine);
+        return { canvas: fresh, worker, opened };
       }
       worker.terminate();
       const message = first.type === "error" ? first.message : `the worker said ${first.type} first`;
       if (first.type === "error" && first.webgpu && painter === "auto") {
         console.warn(`${message}; the CPU painter paints instead`);
-        return await Stage.open(fresh, source, "cpu", engine);
+        return await Stage.start(fresh, source, "cpu", engine);
       }
       throw new Error(message);
     } catch (e) {
@@ -453,6 +500,14 @@ export class Stage {
   targets(state: string, node: string, format?: string): Promise<Targets> {
     return this.request<"targets">({ type: "targets", id: ++this.asked, state, node, format }).then(({ targets }) => targets);
   }
+  /** Paint frames at the size of the slide as large as fits in `room`, device pixels, keeping
+   * the canvas's aspect, so a slide fills the screen as sharp as the screen is (lift-up ATTR-2);
+   * at the canvas's own size with `null`. Resolves with the canvas's size from now on, once what
+   * is shown is painted again so. */
+  fit(room: [number, number] | null): Promise<[number, number]> {
+    return this.request<"fitted">({ type: "fit", id: ++this.asked, room }).then(({ size }) => size);
+  }
+
   /** The theme's grid in `format`, as the canvas's guides draw it (PLAN 2.57). */
   grid(format?: string): Promise<Grid> {
     return this.request<"grid">({ type: "grid", id: ++this.asked, format }).then(({ grid }) => grid);
@@ -518,6 +573,7 @@ export class Stage {
     return this.request<"dataEdited">({ type: "dataEdit", id: ++this.asked, source, name, edits, index, format }).then(
       ({ result, source, edited }) => {
         this.moved(edited);
+        if (result.file && !result.refused) this.wrote([result.file]);
         return { result, source, edited };
       },
     );
@@ -577,6 +633,7 @@ export class Stage {
   removeFile(source: string, path: string, index: number, format?: string): Promise<Edited> {
     return this.request<"removed">({ type: "removeFile", id: ++this.asked, source, path, index, format }).then(({ edited }) => {
       this.moved(edited);
+      this.wrote([], [path]);
       return edited;
     });
   }
@@ -587,6 +644,7 @@ export class Stage {
   putBack(source: string, path: string, index: number, format?: string): Promise<Edited> {
     return this.request<"removed">({ type: "putBack", id: ++this.asked, source, path, index, format }).then(({ edited }) => {
       this.moved(edited);
+      this.wrote([path]);
       return edited;
     });
   }
@@ -611,6 +669,7 @@ export class Stage {
   restoreVersion(source: string, version: Version, index: number, format?: string) {
     return this.request<"restored">({ type: "restoreVersion", id: ++this.asked, source, version, index, format }).then((done) => {
       if (done.edited) this.moved(done.edited);
+      this.rewrote(done.files);
       return done;
     });
   }
@@ -638,15 +697,17 @@ export class Stage {
   ): Promise<{ result: ThemeEdited; files: Rewritten[]; source?: string; edited?: Edited }> {
     return this.request<"themeEdited">({ type: "themeEdit", id: ++this.asked, source, ops, photo, index, format }).then((done) => {
       if (done.edited) this.moved(done.edited);
+      this.rewrote(done.files);
       return done;
     });
   }
 
   /** Files written back, as an undo or a redo of a restore or a theme edit has them; with `edit`,
    * the deck its source compiles to shown and linted again, as an edit is. */
-  writeFiles(files: { path: string; text: string | null }[], edit?: { source: string; index: number; format?: string }): Promise<Edited | undefined> {
+  writeFiles(files: { path: string; text: string | null; bytes?: ArrayBuffer }[], edit?: { source: string; index: number; format?: string }): Promise<Edited | undefined> {
     return this.request<"filesWritten">({ type: "writeFiles", id: ++this.asked, files, edit }).then(({ edited }) => {
       if (edited) this.moved(edited);
+      this.rewrote(files.map(({ path, text, bytes }) => ({ path, after: bytes ? "" : text })));
       return edited;
     });
   }
@@ -661,6 +722,44 @@ export class Stage {
   }
 
   /** Where an edit left the deck shown, if it says. */
+  /** Files `written` since the save, as the page heard, and `removed` from the bundle (lift-up
+   * REL-4): a file written is no longer removed, and one removed no longer written. */
+  wrote(written: Iterable<string>, removed: Iterable<string> = []) {
+    for (const path of written) {
+      this.writtenSince.set(path, (this.writtenSince.get(path) ?? 0) + 1);
+      this.removedSince.delete(path);
+    }
+    for (const path of removed) {
+      this.writtenSince.delete(path);
+      this.removedSince.add(path);
+    }
+  }
+
+  /** Files rewritten, each to its text `after`, none taking it out. */
+  private rewrote(files: { path: string; after: string | null }[]) {
+    this.wrote(
+      files.filter((f) => f.after !== null).map((f) => f.path),
+      files.filter((f) => f.after === null).map((f) => f.path),
+    );
+  }
+
+  /** A save `done`: every file is where the bundle is kept. */
+  private saved<T>(done: T): T {
+    this.writtenSince.clear();
+    this.removedSince.clear();
+    return done;
+  }
+
+  /** The files written since the last save, each with how many times, and those taken out. */
+  unsaved(): { written: Map<string, number>; removed: string[] } {
+    return { written: new Map(this.writtenSince), removed: [...this.removedSince] };
+  }
+
+  /** The file at `path` in the bundle, as the worker holds it; null where it holds none. */
+  file(path: string): Promise<ArrayBuffer | null> {
+    return this.request<"file">({ type: "file", id: ++this.asked, path }).then(({ bytes }) => bytes);
+  }
+
   private moved(edited: Edited | undefined) {
     if (!edited?.at) return;
     this.at = edited.at;
@@ -991,13 +1090,13 @@ export class Stage {
    * browser's storage (PLAN 2.4). The session goes on from the save. With `keep`, a bundle that
    * keeps no history begins one with it (PLAN 2.87). */
   save(source: string, keep = false): Promise<Extract<FromWorker, { type: "saved" }>> {
-    return this.request<"saved">({ type: "save", id: ++this.asked, source, keep });
+    return this.request<"saved">({ type: "save", id: ++this.asked, source, keep }).then((done) => this.saved(done));
   }
 
   /** Save as (PLAN 2.12): `source` saved `to` a place of its own, where the bundle is kept from
    * then on. */
   saveAs(source: string, to: SaveTo): Promise<Extract<FromWorker, { type: "saved" }>> {
-    return this.request<"saved">({ type: "saveAs", id: ++this.asked, source, to });
+    return this.request<"saved">({ type: "saveAs", id: ++this.asked, source, to }).then((done) => this.saved(done));
   }
 
   /** Rename the bundle the browser keeps as `from` to `to`, or with no `to` delete it (PLAN
@@ -1019,7 +1118,10 @@ export class Stage {
   /** Add a file dropped on the page to the bundle; resolves to its path there. A picture an image
    * could not show, one too large among them, is refused and kept out of the bundle. */
   drop(name: string, bytes: ArrayBuffer): Promise<string> {
-    return this.request<"dropped">({ type: "drop", id: ++this.asked, name, bytes }).then(({ path }) => path);
+    return this.request<"dropped">({ type: "drop", id: ++this.asked, name, bytes }).then(({ path }) => {
+      this.wrote([path]);
+      return path;
+    });
   }
 
   /** What the PNG or JPEG `bytes` are as a picture, read as the engine reads it before it is
@@ -1033,7 +1135,10 @@ export class Stage {
    * deck `source` compiles to: one it declares already (no `attached`), or one declared as
    * `data_attach` declares it, by the patch, which `make` applies; empty where it is refused. */
   attaching(source: string, name: string, bytes: ArrayBuffer, schema?: Record<string, string>): Promise<{ path: string; data: string; attached: Attached | null; patch: unknown[] }> {
-    return this.request<"attached">({ type: "attaching", id: ++this.asked, source, name, bytes, schema }).then(({ path, data, attached, patch }) => ({ path, data, attached, patch }));
+    return this.request<"attached">({ type: "attaching", id: ++this.asked, source, name, bytes, schema }).then(({ path, data, attached, patch }) => {
+      if (attached) this.wrote([path]);
+      return { path, data, attached, patch };
+    });
   }
 
   /** `text` pasted on the canvas as a sheet's cells, read in the language of the deck `source`
@@ -1085,6 +1190,19 @@ export class Stage {
     this.waiting.clear();
     this.hearing.clear();
     this.thumbing.clear();
+  }
+
+  /** Stop the worker, and refuse every request waiting on it with `error`: it answers no more. */
+  private halt(error: Error) {
+    const waiting = [...this.waiting.values()];
+    this.close();
+    for (const { reject } of waiting) reject(error);
+  }
+
+  /** Panic in the engine, to test the page's recovery (lift-up STAB-2): the editor's module alone
+   * carries it. */
+  trap() {
+    this.send({ type: "trap" });
   }
 
   /** Start `count` workers to work out shaders' rows beside the engine's (PLAN 2.28), each as
@@ -1148,6 +1266,7 @@ export class Stage {
       case "linked":
       case "laidOut":
       case "viewed":
+      case "fitted":
       case "focal":
       case "found":
       case "replacement":
@@ -1178,6 +1297,7 @@ export class Stage {
       case "compared":
       case "restored":
       case "filesWritten":
+      case "file":
       case "themeText":
       case "codeColors":
       case "themeEdited":
@@ -1233,6 +1353,11 @@ export class Stage {
         }
         return;
       }
+      case "crashed": {
+        this.halt(new Error(`the engine stopped: ${data.message}`));
+        this.onCrashed({ message: data.message, name: data.name, files: data.files });
+        return;
+      }
       case "error": {
         const waiting = data.id === undefined ? undefined : this.waiting.get(data.id);
         if (waiting) {
@@ -1245,6 +1370,8 @@ export class Stage {
         return this.help(data.count);
       case "besides":
         return this.onBesides(data.state, data.t);
+      case "sized":
+        return this.onSized(data.size);
       case "ready":
         return;
       // What a worker that makes a deck from a prompt says (PLAN G.5): a stage's never does.
