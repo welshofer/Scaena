@@ -427,7 +427,7 @@ try {
     check(pdf.name.endsWith(".pdf") && pdf.bytes.subarray(0, 5).toString() === "%PDF-", `Export… downloads ${pdf.name}, ${pdf.bytes.length} B`);
   });
   await step("download", async () => {
-    const zip = await downloaded(() => page.click("#download"));
+    const zip = await downloaded(() => page.click("#file-open").then(() => page.click("#download")));
     check(zip.name.endsWith(".scaena") && zip.bytes[0] === 0x50 && zip.bytes[1] === 0x4b, `Download gives ${zip.name}, ${zip.bytes.length} B`);
   });
 

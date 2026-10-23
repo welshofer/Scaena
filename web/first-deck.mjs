@@ -174,7 +174,7 @@ try {
   let title;
   let subtitle;
   await step("new", async () => {
-    await page.click("#new-deck");
+    await page.click("#file-open").then(() => page.click("#new-deck"));
     await page.fill("#making-name", "Trail report");
     await page.selectOption("#making-theme", "Dusk");
     await page.click("#making-create");
@@ -376,7 +376,7 @@ try {
   });
   let zip;
   await step("download", async () => {
-    zip = await downloaded(() => page.click("#download"));
+    zip = await downloaded(() => page.click("#file-open").then(() => page.click("#download")));
     check(zip.name === "trail-report.scaena", `Download gives ${zip.name}, ${zip.bytes.length} B`);
   });
 
@@ -385,7 +385,7 @@ try {
     await page.goto(editor);
     await page.waitForFunction(() => window.scaena?.last(), null, { timeout: 120000 });
     // The input is hidden; its button is what a person clicks, or presses Enter on.
-    const [chooser] = await Promise.all([page.waitForEvent("filechooser"), page.click("#open-scaena")]);
+    const [chooser] = await Promise.all([page.waitForEvent("filechooser"), page.click("#file-open").then(() => page.click("#open-scaena"))]);
     await chooser.setFiles({ name: zip.name, mimeType: "application/zip", buffer: zip.bytes });
     // The browser keeps what it opens, under a name of its own beside the deck kept there already.
     await page.waitForFunction(() => /^trail-report/.test(window.scaena.where().name ?? "") && window.scaena.last(), null, { timeout: 120000 });

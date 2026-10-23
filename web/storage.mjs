@@ -165,7 +165,7 @@ try {
   check(asset in (await listing(page, "bundles/revenue")), "a save keeps it");
 
   // Download .scaena: fonts subset by the subsetter's module.
-  const [download] = await Promise.all([page.waitForEvent("download"), page.click("#download")]);
+  const [download] = await Promise.all([page.waitForEvent("download"), page.click("#file-open").then(() => page.click("#download"))]);
   const zip = await readFile(await download.path());
   check(download.suggestedFilename() === "revenue.scaena" && zip[0] === 0x50 && zip[1] === 0x4b, `a download is a .scaena zip: ${download.suggestedFilename()}, ${zip.length} bytes`);
   const status = await page.locator("#status").textContent();
@@ -211,7 +211,7 @@ try {
     const refused = await page.locator("#status").textContent();
     check(refused.startsWith("Not downloaded") && refused.includes(inter) && refused.includes("damaged"), `a damaged font stops a download, which names it: ${refused}`);
     await put(whole);
-    const [again] = await Promise.all([page.waitForEvent("download"), page.click("#download")]);
+    const [again] = await Promise.all([page.waitForEvent("download"), page.click("#file-open").then(() => page.click("#download"))]);
     check(again.suggestedFilename() === "downloaded.scaena", `with the font whole again, the next download goes through: ${await page.locator("#status").textContent()}`);
   }
 
@@ -283,7 +283,7 @@ try {
     await page.keyboard.press("Enter");
     await page.waitForFunction(() => document.querySelector("#keeping [data-said]").textContent, null, { timeout: 30000 }).catch(() => {});
   };
-  await page.click("#kept");
+  await page.click("#file-open").then(() => page.click("#kept"));
   await page.waitForFunction(() => document.querySelector("#keeping").open && document.querySelectorAll("#keeping li").length, null, { timeout: 10000 }).catch(() => {});
   check(JSON.stringify(await listed()) === JSON.stringify(["downloaded", "revenue"]) && JSON.stringify(await keeps()) === JSON.stringify(["downloaded", "revenue"]), `Kept in this browser lists the decks it keeps: ${await listed()}`);
   check(await page.evaluate(() => document.querySelector("#keeping").contains(document.activeElement)), "the focus in the list");
@@ -314,7 +314,7 @@ try {
   // The deck open here: opened from the list, marked, kept from deletion, and renamed where it is.
   await row("Q3 board").locator("[data-open]").click();
   await ready("Q3 board");
-  await page.click("#kept");
+  await page.click("#file-open").then(() => page.click("#kept"));
   await page.waitForFunction(() => document.querySelector("#keeping").open, null, { timeout: 10000 }).catch(() => {});
   const here = await page.evaluate(() => {
     const li = document.querySelector('#keeping li[data-name="Q3 board"]');

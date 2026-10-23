@@ -104,6 +104,7 @@ import { scn, scnHighlight } from "./scn";
 import { client, listen, served, status as onDisk } from "./served";
 import { worker } from "./spawn";
 import { Stage } from "./stage";
+import { toolbar } from "./toolbar";
 import { slides as lightTable, slidesKeys } from "./slides";
 import { strip, stripKeys } from "./strip";
 import { type Selected, typingKeys } from "./typing";
@@ -486,6 +487,8 @@ async function edit(source: Source, opened?: Stage) {
   const inspector = $("#inspector");
   const listing = $("#listing");
   const whereLine = $("#where");
+  // The toolbar's icons, its File menu, and its keys (lift-up ATTR-5).
+  toolbar($("#toolbar"));
   const play = $<HTMLAnchorElement>("#play");
   const stage = opened ?? (await Stage.open($<HTMLCanvasElement>("#stage"), source, painter, worker));
   stage.onError = failed;
