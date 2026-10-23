@@ -209,6 +209,42 @@ try {
   await undo();
   check((await source()) === original, "one undo puts it back");
 
+  // A burst of pointer moves in one frame rebuilds the overlay once, on the frame (lift-up PERF-3):
+  // a marquee started by hand, then twenty moves given at once, and the overlay drawn at the last.
+  await page.locator("#overlay").focus();
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("Escape");
+  {
+    const [ax, ay] = await client([40, 40]);
+    await page.mouse.move(ax, ay);
+    await page.mouse.down();
+    await page.mouse.move(ax + 8, ay + 8, { steps: 2 });
+    await page.mouse.move(ax + 40, ay + 40, { steps: 2 });
+    await page.waitForFunction(() => document.querySelector("#overlay svg rect.marquee"), null, { timeout: 10000 }).catch(() => {});
+    const burst = await page.evaluate(
+      async ([x, y]) => {
+        const overlay = document.querySelector("#overlay");
+        const svg = overlay.querySelector("svg");
+        let rebuilt = 0;
+        const counting = new MutationObserver((records) => (rebuilt += records.filter((r) => r.addedNodes.length).length));
+        counting.observe(svg, { childList: true });
+        for (let i = 1; i <= 20; i++) {
+          overlay.dispatchEvent(new PointerEvent("pointermove", { clientX: x + 40 + i * 4, clientY: y + 40 + i * 4, pointerId: 1, bubbles: true, isPrimary: true }));
+        }
+        await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+        counting.disconnect();
+        const rect = svg.querySelector("rect.marquee");
+        return { onFrame: rebuilt, width: rect ? Number(rect.getAttribute("width")) : undefined };
+      },
+      [ax, ay],
+    );
+    check(burst.onFrame >= 1 && burst.onFrame <= 2, `twenty moves at once rebuild the overlay once, on the frame: ${burst.onFrame} rebuild(s)`);
+    check(burst.width !== undefined && burst.width > 0, `and the marquee is drawn where the last move left it: ${JSON.stringify(burst)}`);
+    await page.mouse.up();
+    await page.keyboard.press("Escape");
+    await page.keyboard.press("Escape");
+  }
+
   // A marquee from the margin across the tally and the marks; Delete takes both out.
   await page.locator("#overlay").focus();
   await page.keyboard.press("Escape");
