@@ -129,14 +129,17 @@ try {
   await page.waitForFunction(() => document.querySelector("#keys").open, null, { timeout: 5000 }).catch(() => {});
   check(await open(), "the Keys button opens them");
   await page.keyboard.press("Escape");
-  // Closed, and the focus back on the Keys button that opened it: the sheet gives it back as it
-  // hears its close event, a task after it closes, and focus given back after the canvas is
-  // focused below would take the grid's key from it.
-  await page
-    .waitForFunction(() => !document.querySelector("#keys").open && document.activeElement?.id === "keys-open", null, {
-      timeout: 5000,
-    })
-    .catch(() => {});
+  await page.waitForFunction(() => !document.querySelector("#keys").open, null, { timeout: 5000 }).catch(() => {});
+  // The sheet hears its close a task after it closes: focus put on the slide in between stays
+  // there, so a key pressed on it goes to it.
+  const kept = await page.evaluate(async () => {
+    document.querySelector("#keys-open").click();
+    document.querySelector("#keys").close();
+    document.querySelector("#overlay").focus();
+    await new Promise((r) => setTimeout(r, 50));
+    return document.activeElement?.id;
+  });
+  check(kept === "overlay", `focus put on the slide as the sheet closes stays there: ${kept}`);
 
   // The grid's key, as the sheet says it, draws the grid.
   const grid = rowsOf("See").find((r) => r.label === "Show the grid")?.keys;
