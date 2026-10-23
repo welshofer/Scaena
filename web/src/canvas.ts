@@ -80,8 +80,10 @@ import type { Stage } from "./stage";
 import { covered, paragraphs, type Selected, typing } from "./typing";
 import { an, findings, fractions, inserting as insertSaid, named, object, reaching, sentence, source as sourceSaid } from "./words";
 
-/** `text` as SVG holds it: the words of a slot's prompt (PLAN 3.30). */
-const escaped = (text: string) => text.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]!);
+/** `text` as SVG holds it, as text or in a quoted attribute: the words of a slot's prompt (PLAN 3.30), and
+ * a slot's name, which a theme writes as it likes (lift-up SEC-1). */
+const escaped = (text: string) =>
+  text.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
 
 /** What the canvas answers that no command runs by name (PLAN 2.65): the pointer's gestures and the
  * keys held with them, and the keys that move what is selected. The keys sheet lists them with the
@@ -842,11 +844,15 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     },
   });
 
+  /** The overlay's size, CSS px, as last observed (lift-up PERF-3): the marks' layer is the same
+   * box, so their placing reads no layout on each draw. */
+  let overlaySize: [number, number] | undefined;
   /** Lint's findings on the state shown (PLAN 2.49), on the boxes of the state they stand in. */
   const pins = marks(layer, pop, {
     shown: () => editor.shown(),
     boxes: () => (boxed !== undefined && boxed === editor.shown()?.state ? boxes : undefined),
     view: () => view,
+    size: () => overlaySize,
     select: (node) => select(node),
     fix: (f) => editor.fix(f),
     go: (f) => editor.go(f),
@@ -1152,7 +1158,23 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     editor.say(on ? "The safe area: 3/8 inch around the slide's edge, inside which to keep what must not be cut off" : "The safe area is hidden");
   }
 
+  /** A draw a pointer's move asks for (lift-up PERF-3): one for each frame, however many moves
+   * come in it, so a burst of moves rebuilds the overlay once, and the layout is read after the
+   * frame's writes, by `draw()` on the frame. A draw made meanwhile stands for it. */
+  let soon: number | undefined;
+  function drawSoon() {
+    if (soon !== undefined) return;
+    soon = requestAnimationFrame(() => {
+      soon = undefined;
+      draw();
+    });
+  }
+
   function draw() {
+    if (soon !== undefined) {
+      cancelAnimationFrame(soon);
+      soon = undefined;
+    }
     const u = unit();
     const parts: string[] = [];
     const rect = ([x, y, w, h]: Rect, cls: string, extra = "") =>
@@ -1349,8 +1371,9 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       for (const slot of slotting.layout.slots) {
         const r = slotDrag?.slot.name === slot.name ? slotDrag.rect : slot.rect;
         const keyedHere = slotting.layout.slots[slotKeyed ?? -1]?.name === slot.name ? " keyed" : "";
-        parts.push(rect(r, (slot.own ? "layout-slot own" : "layout-slot") + keyedHere, ` data-slot="${slot.name}"`));
-        parts.push(`<text class="slot-name" x="${r[0] + 8 * u}" y="${r[1] + 18 * u}" font-size="${13 * u}">${slot.name}</text>`);
+        const name = escaped(slot.name);
+        parts.push(rect(r, (slot.own ? "layout-slot own" : "layout-slot") + keyedHere, ` data-slot="${name}"`));
+        parts.push(`<text class="slot-name" x="${r[0] + 8 * u}" y="${r[1] + 18 * u}" font-size="${13 * u}">${name}</text>`);
         if (slotDrag) continue;
         const [x, y, w, h] = r;
         const s = 7 * u;
@@ -1360,7 +1383,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
         };
         for (const edge of EDGES) {
           const [cx, cy] = spot[edge];
-          parts.push(rect([cx - s / 2, cy - s / 2, s, s], "handle slot-handle", ` data-slot="${slot.name}" data-slot-edge="${edge}" style="cursor:${CURSORS[edge]}-resize"`));
+          parts.push(rect([cx - s / 2, cy - s / 2, s, s], "handle slot-handle", ` data-slot="${name}" data-slot-edge="${edge}" style="cursor:${CURSORS[edge]}-resize"`));
         }
       }
       if (slotDrag?.landed) parts.push(rect(slotDrag.landed.rect, "landing"));
@@ -1481,7 +1504,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       r.step = nearest(o.radii, radius);
       editor.say(`${Called(o.node)}: corners ${rounded(r.step)}${kept}`);
     }
-    draw();
+    drawSoon();
   }
 
   /** Reshape `r` let go: one `choose` of the shape's `points` or `radius`; a point pressed and let
@@ -1642,7 +1665,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       c.focal = [thousandth((p[0] - rx) / rw), thousandth((p[1] - ry) / rh)];
       editor.say(`${Called(f.node)}: its focal point at ${fractions(["x", "y"], c.focal)}${kept}`);
     }
-    draw();
+    drawSoon();
   }
 
   /** Cropping `c` let go: one `choose` of the image's `crop` or `focal`. */
@@ -2026,7 +2049,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     const [c, r] = [cellsOf(d.slot.col, g.columns.length), cellsOf(d.slot.row, g.rows.length)];
     d.landed = slotLanding(d.rect, d.edge ? undefined : [c[1] - c[0] + 1, r[1] - r[0] + 1]);
     if (d.landed) editor.say(`${sentence(slotSaid(d.slot.name))} → ${placed({ col: d.landed.col, row: d.landed.row })}`);
-    draw();
+    drawSoon();
   }
   /** A slot let go: one `theme_edit` that puts it where it landed. */
   async function slotDrop() {
@@ -2203,7 +2226,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       if (drag !== d) return;
       d.snapped = how ? reply.snapped : null;
       d.states = reply.states;
-      draw();
+      drawSoon();
       tell(d);
       if (d.kind === "resize") {
         clearTimeout(d.pause);
@@ -2286,7 +2309,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     const now = t.start + t.round * t.way;
     t.now = shift ? Math.round(now / 15) * 15 : Math.round(now);
     editor.say(`${Called(t.node)} turns to ${t.now}°${keeping(alt) ? " · kept to this slide" : ""}`);
-    draw();
+    drawSoon();
   }
 
   /** Turn `t` let go: one `choose` of its angle, written where it lives, or kept to the state
@@ -3754,11 +3777,11 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       // Every point the pointer gave since the last move: a quick stroke keeps its curve.
       const given = e.getCoalescedEvents?.() ?? [];
       for (const g of given.length ? given : [e]) stroke.points.push(point(g));
-      return draw();
+      return drawSoon();
     }
     if (sketch) {
       [sketch.at, sketch.shift] = [point(e), e.shiftKey];
-      draw();
+      drawSoon();
       return void land(sketch);
     }
     const at = point(e);
@@ -3769,7 +3792,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     }
     if (drag) {
       [drag.at, drag.shift, drag.alt, drag.loose] = [at, e.shiftKey, e.altKey, e.metaKey || e.ctrlKey];
-      if (drag.kind === "move") draw();
+      if (drag.kind === "move") drawSoon();
       void pump(drag);
       return;
     }
@@ -3779,11 +3802,11 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     if (cropping) return cropTo(cropping, at, [e.clientX, e.clientY], e.altKey);
     if (carrying) {
       [carrying.at, carrying.alt] = [at, e.altKey];
-      return draw();
+      return drawSoon();
     }
     if (marquee) {
       marquee.at = at;
-      return draw();
+      return drawSoon();
     }
     if (!press) {
       // What a click would select, from the boxes the engine gave: nothing is asked. A shape's
@@ -3792,7 +3815,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       const under = top === undefined ? undefined : (shapeOf(top) ?? top);
       if (under !== hovered) {
         hovered = under;
-        draw();
+        drawSoon();
       }
       return;
     }
@@ -4275,7 +4298,11 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     { passive: false },
   );
 
-  const sized = new ResizeObserver(() => draw());
+  const sized = new ResizeObserver((entries) => {
+    const box = entries.at(-1)?.contentRect;
+    if (box) overlaySize = [box.width, box.height];
+    draw();
+  });
   sized.observe(overlay);
 
   return {
@@ -4289,6 +4316,12 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     /** Zoom the preview (PLAN 2.46): a step closer or farther, as ⌘+ and ⌘− do, the whole canvas, as
      * ⌘0 does, or as close as a number, about canvas point `about` or the middle of what is shown.
      * Resolves once the preview is painted so. */
+    /** The stage's worker started again (lift-up STAB-2): the part of the canvas shown is sent to
+     * it, as the one before was told. */
+    restarted: () => {
+      sent = "";
+      return look(view);
+    },
     zoom: (how: "in" | "out" | "fit" | number, about?: [number, number]) =>
       how === "fit" ? fit() : typeof how === "number" ? zoomTo(how, about) : zoomStep(how === "in" ? 1 : -1, about),
     /** Move what is zoomed in by `dx`, `dy` canvas units, as the wheel and a drag with Space do. */
@@ -4322,6 +4355,16 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     putPicture,
     /** A slide made here: its layout's empty slots are outlined once it shows. */
     freshen: (state: string) => void fresh.add(state),
+    /** Type in `node` with its words selected, so what is typed takes their place, as an inserted
+     * text's are (PLAN 3.21): New's title. */
+    typeOver: async (node: string) => {
+      // A deck just opened lays its boxes out once its first compile is in: until then, ask again.
+      for (let tries = 0; !box(node) && tries < 50; tries++) {
+        await refresh().catch(() => {});
+        if (!box(node)) await new Promise((r) => setTimeout(r, 100));
+      }
+      if (box(node)) await inTurn(() => type(node, undefined, false, true));
+    },
     /** Draw the safe area around the canvas's edge, or stop, as ⌥⌘' does (PLAN 3.29); and whether
      * it is drawn, and what lies inside it. */
     shield,
