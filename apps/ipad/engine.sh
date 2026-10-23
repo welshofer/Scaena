@@ -43,9 +43,14 @@ if [ -n "${SDKROOT:-}" ]; then
 fi
 cd "$root"
 rustup target list --installed | grep -qx "$target" || rustup target add "$target"
-libs=$(cargo rustc -q --color never -p scaena-ffi --lib --crate-type staticlib --target "$target" $release --locked -- --print native-static-libs 2>&1 | sed -n 's/.*native-static-libs: //p')
+# Cargo's whole output kept, so a build that fails says why, in Xcode's log too.
+log="$root/target/ipad/engine.log"
+mkdir -p "$(dirname "$log")"
+cargo rustc -q --color never -p scaena-ffi --lib --crate-type staticlib --target "$target" $release --locked -- --print native-static-libs >"$log" 2>&1 || true
+libs=$(sed -n 's/.*native-static-libs: //p' "$log")
 if [ -z "$libs" ]; then
-  echo "rustc named no system libraries for $target: did the build fail?" >&2
+  echo "rustc named no system libraries for $target: the build failed. The end of $log:" >&2
+  tail -n 40 "$log" >&2
   exit 1
 fi
 out="$root/target/ipad/$platform-$configuration"
