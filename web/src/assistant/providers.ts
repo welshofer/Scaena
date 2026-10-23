@@ -4,6 +4,8 @@
 // provider's request, and its response back. No model is named here: each lists the models the
 // key can use, and the user picks one.
 import type { ProviderId } from "../protocol";
+// With its extension: `web/exchanges.mjs` loads this under Node, which resolves none.
+import { answer } from "./stream.ts";
 
 /** A tool the model may call: its name, what it does, and its arguments as JSON Schema. */
 export interface Tool {
@@ -61,6 +63,9 @@ export interface Ask {
   tools: Tool[];
   messages: Message[];
   signal?: AbortSignal;
+  /** Hears the answer's words as they are written (narrative ATTR-3), each piece as it
+   * completes; the turn gives them whole at the end. */
+  onText?: (text: string) => void;
 }
 
 export interface Provider {
@@ -173,6 +178,8 @@ export const anthropic: Provider = {
       // A question asked once, with nothing to call, sends no tools (PLAN 2.101).
       ...(ask.tools.length && { tools: ask.tools.map((t) => ({ name: t.name, description: t.description, input_schema: inlined(t.schema) })) }),
       messages,
+      // The answer as it is written, as server-sent events (narrative ATTR-3).
+      stream: true,
     };
     const response = await fetch(at(ask.base, this.base, "/v1/messages"), {
       method: "POST",
@@ -180,14 +187,14 @@ export const anthropic: Provider = {
       body: JSON.stringify(body),
       signal: ask.signal,
     });
-    const answer = await json(response);
-    const content = (answer.content ?? []) as { type: string; text?: string; id?: string; name?: string; input?: unknown }[];
-    const stop = answer.stop_reason === "tool_use" ? "tools" : answer.stop_reason === "end_turn" ? "end" : answer.stop_reason === "max_tokens" ? "length" : "other";
+    const answered = await answer("anthropic", response, ask.onText);
+    const content = (answered.content ?? []) as { type: string; text?: string; id?: string; name?: string; input?: unknown }[];
+    const stop = answered.stop_reason === "tool_use" ? "tools" : answered.stop_reason === "end_turn" ? "end" : answered.stop_reason === "max_tokens" ? "length" : "other";
     return {
       text: content.flatMap((c) => (c.type === "text" && c.text ? [c.text] : [])).join("\n\n"),
       calls: content.flatMap((c) => (c.type === "tool_use" ? [{ id: c.id!, name: c.name!, args: c.input }] : [])),
       stop,
-      usage: answer.usage && { input: answer.usage.input_tokens ?? 0, output: answer.usage.output_tokens ?? 0 },
+      usage: answered.usage && { input: answered.usage.input_tokens ?? 0, output: answered.usage.output_tokens ?? 0 },
     };
   },
 };
@@ -250,6 +257,9 @@ export const openai: Provider = {
     const body = {
       model: ask.model,
       messages,
+      // The answer as it is written, as server-sent events, the usage in its last chunk (narrative ATTR-3).
+      stream: true,
+      stream_options: { include_usage: true },
       // OpenAI refuses an empty list of tools: a question asked once sends none (PLAN 2.101).
       ...(ask.tools.length && {
         tools: ask.tools.map((t) => ({ type: "function", function: { name: t.name, description: t.description, parameters: inlined(t.schema) } })),
@@ -261,8 +271,8 @@ export const openai: Provider = {
       body: JSON.stringify(body),
       signal: ask.signal,
     });
-    const answer = await json(response);
-    const choice = answer.choices?.[0] ?? {};
+    const answered = await answer("openai", response, ask.onText);
+    const choice = answered.choices?.[0] ?? {};
     const message = choice.message ?? {};
     const calls = ((message.tool_calls ?? []) as { id: string; function: { name: string; arguments: string } }[]).map((c) => ({
       id: c.id,
@@ -274,7 +284,7 @@ export const openai: Provider = {
       text: typeof message.content === "string" ? message.content : "",
       calls,
       stop: calls.length ? "tools" : reason === "stop" ? "end" : reason === "length" ? "length" : "other",
-      usage: answer.usage && { input: answer.usage.prompt_tokens ?? 0, output: answer.usage.completion_tokens ?? 0 },
+      usage: answered.usage && { input: answered.usage.prompt_tokens ?? 0, output: answered.usage.completion_tokens ?? 0 },
     };
   },
 };
@@ -335,14 +345,15 @@ export const gemini: Provider = {
       }),
     };
     const model = ask.model.replace(/^models\//, "");
-    const response = await fetch(at(ask.base, this.base, `/v1beta/models/${encodeURIComponent(model)}:generateContent`), {
+    // The answer as it is written, as server-sent events (narrative ATTR-3).
+    const response = await fetch(at(ask.base, this.base, `/v1beta/models/${encodeURIComponent(model)}:streamGenerateContent?alt=sse`), {
       method: "POST",
       headers: { "x-goog-api-key": ask.key, "content-type": "application/json" },
       body: JSON.stringify(body),
       signal: ask.signal,
     });
-    const answer = await json(response);
-    const candidate = answer.candidates?.[0] ?? {};
+    const answered = await answer("gemini", response, ask.onText);
+    const candidate = answered.candidates?.[0] ?? {};
     const parts = (candidate.content?.parts ?? []) as { text?: string; thought?: boolean; functionCall?: { id?: string; name: string; args?: unknown } }[];
     const calls = parts.flatMap((p, i) =>
       p.functionCall ? [{ id: p.functionCall.id ?? `${LOCAL}${i}-${p.functionCall.name}`, name: p.functionCall.name, args: p.functionCall.args ?? {} }] : [],
@@ -353,7 +364,7 @@ export const gemini: Provider = {
       calls,
       stop: calls.length ? "tools" : reason === "STOP" ? "end" : reason === "MAX_TOKENS" ? "length" : "other",
       raw: parts,
-      usage: answer.usageMetadata && { input: answer.usageMetadata.promptTokenCount ?? 0, output: answer.usageMetadata.candidatesTokenCount ?? 0 },
+      usage: answered.usageMetadata && { input: answered.usageMetadata.promptTokenCount ?? 0, output: answered.usageMetadata.candidatesTokenCount ?? 0 },
     };
   },
 };

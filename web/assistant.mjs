@@ -88,7 +88,9 @@ const SCRIPT = [
   // The deck's story, read by the generator's module (narrative FUNC-2).
   { name: "deck_health", args: {} },
 ];
-const ANSWER = "The headline fits its slot now, and the deck lints clean.";
+/** The answer, markdown as a model writes it (narrative ATTR-4), and how it reads once rendered. */
+const ANSWER = "The headline fits its slot now, and the deck lints clean:\n\n- **start** is the slide to look at\n- `start` is linked here\n\nDone.";
+const PLAIN = "The headline fits its slot now, and the deck lints clean:start is the slide to look atstart is linked hereDone.";
 
 /** Each provider's wire format: how many answers a request holds already, the results of the
  * calls it answers, what to answer, and where its key goes. */
@@ -142,7 +144,7 @@ const WIRE = {
   },
   gemini: {
     models: { path: "/v1beta/models", body: { models: [{ name: "models/scripted", supportedGenerationMethods: ["generateContent"] }] } },
-    turn: "/v1beta/models/scripted:generateContent",
+    turn: "/v1beta/models/scripted:streamGenerateContent",
     answered: (b) => b.contents.filter((c) => c.role === "model").length,
     results: (b) => {
       const parts = b.contents.at(-1)?.parts ?? [];
@@ -165,11 +167,73 @@ const WIRE = {
   },
 };
 
+/** `answer`, one of `WIRE`'s, as the provider streams it (narrative ATTR-3): the events a
+ * streamed request is answered with, the words of its text each an event of its own, so the
+ * page shows them as they come. */
+const SSE = {
+  anthropic: (answer) => {
+    const events = [];
+    const event = (type, data) => events.push(`event: ${type}\ndata: ${JSON.stringify({ type, ...data })}\n\n`);
+    event("message_start", { message: { id: "msg_scripted", type: "message", role: "assistant", content: [], usage: { input_tokens: answer.usage.input_tokens, output_tokens: 0 } } });
+    answer.content.forEach((block, index) => {
+      if (block.type === "text") {
+        event("content_block_start", { index, content_block: { type: "text", text: "" } });
+        for (const piece of words(block.text)) event("content_block_delta", { index, delta: { type: "text_delta", text: piece } });
+      } else {
+        event("content_block_start", { index, content_block: { type: "tool_use", id: block.id, name: block.name, input: {} } });
+        const json = JSON.stringify(block.input);
+        const half = Math.ceil(json.length / 2);
+        event("content_block_delta", { index, delta: { type: "input_json_delta", partial_json: json.slice(0, half) } });
+        event("content_block_delta", { index, delta: { type: "input_json_delta", partial_json: json.slice(half) } });
+      }
+      event("content_block_stop", { index });
+    });
+    event("message_delta", { delta: { stop_reason: answer.stop_reason }, usage: { output_tokens: answer.usage.output_tokens } });
+    event("message_stop", {});
+    return events;
+  },
+  openai: (answer) => {
+    const choice = answer.choices[0];
+    const chunk = (delta, finish_reason = null, usage) => `data: ${JSON.stringify({ id: "chatcmpl-scripted", choices: [{ index: 0, delta, finish_reason }], usage: usage ?? null })}\n\n`;
+    const events = [chunk({ role: "assistant" })];
+    if (choice.message.content) for (const piece of words(choice.message.content)) events.push(chunk({ content: piece }));
+    (choice.message.tool_calls ?? []).forEach((call, index) => {
+      const args = call.function.arguments;
+      const half = Math.ceil(args.length / 2);
+      events.push(chunk({ tool_calls: [{ index, id: call.id, type: "function", function: { name: call.function.name, arguments: args.slice(0, half) } }] }));
+      events.push(chunk({ tool_calls: [{ index, function: { arguments: args.slice(half) } }] }));
+    });
+    events.push(chunk({}, choice.finish_reason));
+    events.push(`data: ${JSON.stringify({ id: "chatcmpl-scripted", choices: [], usage: answer.usage })}\n\n`, "data: [DONE]\n\n");
+    return events;
+  },
+  gemini: (answer) => {
+    const candidate = answer.candidates[0];
+    const chunk = (parts, last) => `data: ${JSON.stringify({ candidates: [{ content: { role: "model", parts }, ...(last && { finishReason: candidate.finishReason }) }], ...(last && { usageMetadata: answer.usageMetadata }) })}\n\n`;
+    const events = [];
+    const parts = candidate.content.parts;
+    parts.forEach((part, i) => {
+      const last = i === parts.length - 1;
+      if (typeof part.text === "string") {
+        const pieces = words(part.text);
+        pieces.forEach((piece, j) => events.push(chunk([{ ...part, text: piece }], last && j === pieces.length - 1)));
+      } else events.push(chunk([part], last));
+    });
+    return events;
+  },
+};
+
+/** `text` in pieces, a word and its space each. */
+function words(text) {
+  return text.match(/\S+\s*|\s+/g) ?? [text];
+}
+
 /** A scripted provider on a port of its own, answering as the browser asks across origins:
- * each request it took, and `slow`, to answer only after a while. */
+ * each request it took; `slow`, to answer only after a while; and `trickle`, to send the first
+ * event of a streamed answer, then wait that long before the rest. */
 async function provider(wire) {
   const requests = [];
-  const state = { slow: 0 };
+  const state = { slow: 0, trickle: 0 };
   const server = createServer(async (req, res) => {
     const cors = {
       "access-control-allow-origin": req.headers.origin ?? "*",
@@ -191,7 +255,18 @@ async function provider(wire) {
     requests.push({ headers: req.headers, body });
     if (state.slow) await new Promise((ok) => setTimeout(ok, state.slow));
     const i = wire.answered(body);
-    reply(200, i < SCRIPT.length ? wire.call(SCRIPT[i], i) : wire.answer());
+    const answer = i < SCRIPT.length ? wire.call(SCRIPT[i], i) : wire.answer();
+    // Streamed, as the page asks (narrative ATTR-3): each event written as it is, the first word
+    // held apart by `trickle` so the page is seen showing it before the rest.
+    if (!(body.stream || path.endsWith(":streamGenerateContent"))) return reply(200, answer);
+    const id = Object.keys(WIRE).find((k) => WIRE[k] === wire);
+    const events = SSE[id](answer);
+    res.writeHead(200, { ...cors, "content-type": "text/event-stream", "cache-control": "no-cache" });
+    // The first event with a word in it: Anthropic's block start carries an empty text.
+    const first = events.findIndex((e) => /text_delta|"content":"[^"]|"text":"(?!Looking)[^"]/.test(e)) + 1;
+    res.write(events.slice(0, Math.max(first, 1)).join(""));
+    if (state.trickle) await new Promise((ok) => setTimeout(ok, state.trickle));
+    res.end(events.slice(Math.max(first, 1)).join(""));
   }).listen(0, "127.0.0.1");
   await new Promise((ok) => server.once("listening", ok));
   return { origin: `http://127.0.0.1:${server.address().port}`, requests, state, close: () => server.close() };
@@ -200,8 +275,11 @@ async function provider(wire) {
 const site = await serve();
 const browser = await launch();
 try {
-  const context = await browser.newContext({ viewport: { width: 1600, height: 1000 }, deviceScaleFactor: 1 });
+  /** The editor on the bundle, in a browser of its own: the page before it left the assistant's
+   * edits not saved, and a page that opened the deck again beside it would be offered them first
+   * (lift-up REL-4). */
   const open = async () => {
+    const context = await browser.newContext({ viewport: { width: 1600, height: 1000 }, deviceScaleFactor: 1 });
     const page = await context.newPage();
     page.on("pageerror", (e) => failures.push(`page: ${e.message}`));
     page.on("console", (m) => m.type() === "error" && !/Failed to load resource/.test(m.text()) && failures.push(`console: ${m.text()}`));
@@ -328,9 +406,16 @@ try {
     check(last.valid && !last.findings.some((f) => f.severity === "error"), `${id}: and lints clean: ${last.findings.map((f) => f.code).join(", ") || "nothing found"}`);
     const transcript = await page.evaluate(() => window.scaena.assistant.transcript());
     check(
-      transcript.filter((t) => t.startsWith("call")).length === SCRIPT.length && transcript.at(-1) === `said: ${ANSWER}`,
-      `${id}: the conversation shows each call and the answer (${transcript.length} entries)`,
+      transcript.filter((t) => t.startsWith("call")).length === SCRIPT.length && transcript.at(-1) === `said: ${PLAIN}`,
+      `${id}: the conversation shows each call and the answer (${transcript.length} entries): ${transcript.at(-1)}`,
     );
+    // The answer as it reads (narrative ATTR-4): its list and emphasis as elements, never markup
+    // from the model's text, and the state named in a code span a link that shows it.
+    const rendered = await page.evaluate(() => {
+      const li = [...document.querySelectorAll("#transcript li.said")].at(-1);
+      return { items: li.querySelectorAll("ul li").length, strong: li.querySelector("strong")?.textContent, link: li.querySelector("a.state")?.dataset.state, raw: li.textContent.includes("**") };
+    });
+    check(rendered.items === 2 && rendered.strong === "start" && rendered.link === "start" && !rendered.raw, `${id}: the answer reads as a list, bold, and a link to the slide: ${JSON.stringify(rendered)}`);
     const shown = await page.$eval("#transcript img", (img) => img.naturalWidth).catch(() => 0);
     check(shown === 960, `${id}: and the frame the model saw`);
     // Under each call that changed what a state draws, that state before and after (PLAN 2.93):
@@ -389,7 +474,39 @@ try {
       const editable = await page.$eval("#code .cm-content", (e) => e.getAttribute("contenteditable"));
       check(editable === "true", "and the source takes typing again");
       scripted.state.slow = 0;
+    }
 
+    // The answer's words show as they are written (narrative ATTR-3): the scripted provider
+    // sends the answer's first word, then holds the rest, and the transcript shows that word
+    // while the assistant still works; whole, the answer stands in its place.
+    {
+      scripted.state.trickle = 2500;
+      // The entries said so far: the words show in a new one, not in the last answer's.
+      const before = await page.evaluate(() => document.querySelectorAll("#transcript li.said").length);
+      await page.evaluate(() => {
+        window.asked = window.scaena.assistant.ask("Say that again.");
+      });
+      const partial = await page
+        .waitForFunction(
+          (before) => {
+            const saids = document.querySelectorAll("#transcript li.said");
+            const said = saids.length > before ? (saids[saids.length - 1].textContent ?? "") : "";
+            return said.length > 0 && !document.querySelector("#stop").hidden && said;
+          },
+          before,
+          { timeout: 10000 },
+        )
+        .then((h) => h.jsonValue())
+        .catch(() => "");
+      check(partial && partial.length < ANSWER.length && ANSWER.startsWith(partial), `${id}: the first words show before the answer is whole: "${partial}"`);
+      const again = await page.evaluate(() => window.asked);
+      check(again.kind === "done" && again.stop === "end", `${id}: the streamed answer ends (${JSON.stringify(again)})`);
+      const saids = await page.evaluate(() => [...document.querySelectorAll("#transcript li.said")].map((li) => li.textContent));
+      check(saids.at(-1) === PLAIN && saids.filter((t) => t === PLAIN).length === 2, `${id}: the answer stands whole in the words' place, once: ${JSON.stringify(saids.slice(-2))}`);
+      scripted.state.trickle = 0;
+    }
+
+    if (id === "anthropic") {
       // The key's field: masked, shown when asked; its form said as it is typed; checked with the
       // provider, which lists its models or refuses it.
       const keyState = () => page.$eval("#keystatus", (p) => ({ state: p.dataset.state, text: p.textContent }));
@@ -434,6 +551,13 @@ try {
       check(keys.session === null && keys.local && !keys.local.includes("anthropic-test-key"), "kept on this device, it is encrypted");
       await page.reload();
       await page.waitForFunction(() => window.scaena?.last(), null, { timeout: 120000 });
+      // The editor offers the copy it kept of what the assistant changed and ⌘Z took back, the
+      // theme written twice (lift-up REL-4), a modal over the page: discarded, since it is the
+      // key that is checked here.
+      await page
+        .waitForSelector("#recovering[open]", { timeout: 5000 })
+        .then(() => page.click("#recovering [value=discard]"))
+        .catch(() => {});
       await page.click("#tab-assistant");
       await page.waitForFunction(() => document.querySelector("#key").value, null, { timeout: 10000 });
       check((await page.$eval("#key", (k) => k.value)) === "anthropic-test-key", "and comes back after a reload");
