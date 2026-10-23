@@ -284,6 +284,7 @@ fn painter(a: &GenerateArgs, agent: &ureq::Agent) -> Result<Option<(pictures::Se
     let quality = Quality::named(&a.picture_quality)
         .ok_or_else(|| anyhow!("`{}` is no quality: low, medium, or high", a.picture_quality))?;
     let model = match &a.picture_model {
+        Some(m) if !pictures::named(m) => bail!("`{m}` is no model's name: letters, digits, `.`, `_`, and `-`"),
         Some(m) => m.clone(),
         None => {
             let reply = fetch(agent, &provider.models(&key, a.picture_base.as_deref(), false));
