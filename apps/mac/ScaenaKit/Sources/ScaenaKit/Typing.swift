@@ -127,9 +127,11 @@ public final class Typing {
 
     /// Whether `text` is what a key types over a text selected (lift-up FUNC-3): characters a
     /// person reads, not a control character, a key the input system names by a private-use
-    /// character (an arrow, a function key), or nothing.
+    /// character (an arrow, a function key), a key UIKit names by its constant's own words
+    /// (`UIKeyCommand.inputEscape` is "UIKeyInputEscape", which the iPad simulator gives as
+    /// Escape's characters), or nothing.
     public static func printable(_ text: String) -> Bool {
-        !text.isEmpty
+        !text.isEmpty && !text.hasPrefix("UIKeyInput")
             && text.unicodeScalars.allSatisfy { scalar in
                 switch scalar.properties.generalCategory {
                 case .control, .format, .privateUse, .surrogate, .unassigned, .lineSeparator, .paragraphSeparator: false

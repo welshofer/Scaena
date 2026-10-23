@@ -528,6 +528,9 @@ private func carets(_ json: String) throws -> Carets {
     #expect(Typing.printable("a") && Typing.printable("é") && Typing.printable("3") && Typing.printable("-"))
     #expect(!Typing.printable("") && !Typing.printable("\t") && !Typing.printable("\r") && !Typing.printable("\u{1b}"))
     #expect(!Typing.printable("\u{F702}"), "an arrow key, as the input system names it")
+    #expect(
+        !Typing.printable("UIKeyInputEscape") && !Typing.printable("UIKeyInputPageDown"),
+        "a key as UIKit names it, which the iPad simulator gives as Escape's characters")
 
     #if os(macOS)
     // Through the text input system: a letter typed with the title selected, nothing typed in.
