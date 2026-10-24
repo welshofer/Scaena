@@ -448,13 +448,15 @@ async function look(
 ) {
   const layouts = JSON.stringify((JSON.parse(making.report()) as { layouts: string[] }).layouts);
   const seen = generation.seeing(theme.text, placed, layouts);
-  const drawn = [];
-  for (let i = 0; i < making.count; i++) drawn.push(await jpeg(making.pixels(i, LOOK_WIDTH)));
-  const asked = generation.lookRequest(key, seen, JSON.stringify(drawn));
-  if (!asked) return;
-  hear({ kind: "looking", slides: drawn.length });
-  const reply = await send(JSON.parse(asked));
+  // A slide that would not draw for the model to see, as a deck the model asked for that cannot be
+  // made again, leaves the deck as it was, saying why (narrative STAB-3): the look is a polish.
   try {
+    const drawn = [];
+    for (let i = 0; i < making.count; i++) drawn.push(await jpeg(making.pixels(i, LOOK_WIDTH)));
+    const asked = generation.lookRequest(key, seen, JSON.stringify(drawn));
+    if (!asked) return;
+    hear({ kind: "looking", slides: drawn.length });
+    const reply = await send(JSON.parse(asked));
     const changes = JSON.parse(generation.lookAnswer(reply.status, reply.statusText, reply.body, seen)) as {
       slide: number;
     }[];

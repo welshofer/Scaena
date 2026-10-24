@@ -120,6 +120,12 @@ public struct ToolCall: Decodable, Identifiable, Sendable {
     public let id: String
     public let name: String
     public let args: JSONValue
+
+    public init(id: String, name: String, args: JSONValue) {
+        self.id = id
+        self.name = name
+        self.args = args
+    }
 }
 
 /// Tokens in and out, as the provider counts them.
@@ -322,6 +328,32 @@ public final class ScaenaChat {
     /// Run the last answer's call `index` on `session`, by `agent:` and the model's name, at `date`.
     public func run(_ index: Int, on session: ScaenaSession, at date: Date = Date()) throws -> Ran {
         try step("run", ["index": .number(Double(index)), "at": .string(date.formatted(.iso8601))], on: session)
+    }
+
+    /// Whether `call` only reads the deck, so it may run apart from the window on a snapshot's
+    /// session (narrative lift-up PERF-2): `deck_render`, `deck_health`, and `deck_lint` without
+    /// `fix`. Every other call runs on the session itself, as the window's own edits do.
+    public static func readsAlone(_ call: ToolCall) -> Bool {
+        let args = (try? JSONEncoder().encode(call.args)).map { String(decoding: $0, as: UTF8.self) }
+        return scaena_chat_reads_alone(call.name, args)
+    }
+
+    /// `call` run on `session`, a snapshot's (`ScaenaSession.Snapshot.opened`), by `agent:` and
+    /// `model`, at `date`, on the thread that calls it (narrative lift-up PERF-2): what it came to,
+    /// for `took` to hand the conversation on its own thread. Only for a call that reads alone.
+    public static func runApart(
+        _ call: ToolCall, model: String, on session: ScaenaSession, at date: Date = Date()
+    ) throws -> JSONValue {
+        let asked: JSONValue = ["id": .string(call.id), "name": .string(call.name), "args": call.args]
+        let json = String(decoding: try JSONEncoder().encode(asked), as: UTF8.self)
+        return try ScaenaSession.decode(
+            scaena_chat_run_apart(session.handle, model, json, date.formatted(.iso8601)), as: JSONValue.self)
+    }
+
+    /// The last answer's call `index`, run apart on a snapshot's session (`runApart`, narrative
+    /// lift-up PERF-2): `ran`, what it came to, taken as `run` takes what it runs.
+    public func took(_ index: Int, ran: JSONValue) throws -> Ran {
+        try step("took", ["index": .number(Double(index)), "ran": ran])
     }
 
     /// The last answer's call `index`, run by the client itself (`map_fetch`, whose requests the

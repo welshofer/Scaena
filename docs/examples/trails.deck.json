@@ -1,5 +1,5 @@
 {
-  "scaena": "0.35",
+  "scaena": "0.36",
   "meta": {
     "title": "High Country Trails: the 2026 season",
     "lang": "en-US",
@@ -1647,7 +1647,7 @@
     {
       "id": "promise",
       "mode": "absolute",
-      "layout": "title",
+      "layout": "title-center",
       "transition": "fast",
       "props": {
         "promise-title": {},
