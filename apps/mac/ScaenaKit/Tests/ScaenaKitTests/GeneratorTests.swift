@@ -148,6 +148,80 @@ private func anthropic(_ text: String) -> Data {
     }
 }
 
+/// The outline before the slides (narrative FUNC-1): asked once the arc is chosen and shown to
+/// settle; moved, rewritten, cut, and added to, it goes into the slides' prompt as Scaena's block,
+/// and the deck's sections follow its beats. Without it asked for, the slides come at once.
+@MainActor
+@Test func theOutlineIsShownToSettleBeforeTheSlides() async throws {
+    let arc = try Data(contentsOf: answers.appending(path: "anthropic-arc.json"))
+    let slides = try Data(contentsOf: answers.appending(path: "anthropic-slides.json"))
+    let outline = #"{"bigIdea": "Cargo can pay for its carbon.", "beats": [{"beat": 1, "claim": "Shipping's carbon bill is due."}, {"beat": 2, "claim": "Carriers cannot cut it with today's ships."}, {"beat": 3, "claim": "The fixes tried so far fall short."}, {"beat": 4, "claim": "Tidewater's lanes run carbon-negative."}, {"beat": 5, "claim": "Shippers pay more for them."}, {"beat": 6, "claim": "Join the round."}]}"#
+    let asked = Asked()
+    let generator = Generator { request in
+        await asked.add(request)
+        let body = request.body ?? ""
+        if body.contains("=== CATALOG ===") { return GeneratorReply(status: 200, body: arc) }
+        if body.contains("planning a presentation before its slides") { return GeneratorReply(status: 200, body: anthropic(outline)) }
+        if body.contains("runs past its place") { return GeneratorReply(status: 200, body: anthropic(#"{"texts": []}"#)) }
+        if body.contains("art director") { return GeneratorReply(status: 200, body: anthropic(#"{"slides": []}"#)) }
+        return GeneratorReply(status: 200, body: slides)
+    }
+    var heard: [GeneratingStep] = []
+    var shown: Outlined?
+    let (session, made) = try await generator.generate(
+        brief: Brief(topic: "Carbon-negative cargo is ready to scale", audience: "Investors"),
+        provider: .anthropic, model: "a-model", key: "sk-writer", theme: "dusk", look: false,
+        outline: { outlined in
+            shown = outlined
+            // The proof moved before the mechanism, the second beat's claim rewritten, the last
+            // dropped, and a beat of the person's own added.
+            var settled = outlined.outline
+            let proof = settled.beats.remove(at: 4)
+            settled.beats.insert(proof, at: 3)
+            settled.beats[1].claim = "No carrier can cut it alone."
+            settled.beats.removeLast()
+            settled.beats.append(.init(name: "Thanks", claim: "Thank you for listening."))
+            return .settled(settled)
+        }
+    ) { heard.append($0) }
+    #expect(shown?.arc == "Problem–Solution")
+    #expect(shown?.outline.bigIdea == "Cargo can pay for its carbon.")
+    #expect(shown?.outline.beats.count == 6)
+    #expect(shown?.outline.beats[0].claim == "Shipping's carbon bill is due.")
+    #expect(heard.contains(.outlining))
+    #expect(heard.contains(.outlined(beats: 6)))
+    #expect(heard.contains(.settled(beats: 6)))
+    #expect(made.created.created)
+    let requests = await asked.requests.filter { $0.url.hasSuffix("/v1/messages") }
+    #expect(requests.count == 3, "the arc, the outline, then the slides")
+    let written = requests[2].body ?? ""
+    #expect(written.contains("**Outline (Scaena)**"))
+    #expect(written.contains("No carrier can cut it alone."))
+    #expect(written.contains("Beat 6 \\\"Thanks\\\""), "\(written)")
+    #expect(!written.contains("Join the round."), "the beat dropped")
+    // The deck keeps the outline, and its first section is the outline's first beat.
+    let deck = try session.tool("deck_read", [:])
+    #expect(deck.result["deck"]?["meta"]?["narrative"]?["outline"]?["bigIdea"]?.string == "Cargo can pay for its carbon.")
+    #expect(deck.result["deck"]?["spine"]?["sections"]?[0]?["title"]?.string == "Problem")
+
+    // Slides at once, with no outline asked for: two calls.
+    let plain = Asked()
+    let direct = Generator { request in
+        await plain.add(request)
+        let body = request.body ?? ""
+        if body.contains("=== CATALOG ===") { return GeneratorReply(status: 200, body: arc) }
+        if body.contains("runs past its place") { return GeneratorReply(status: 200, body: anthropic(#"{"texts": []}"#)) }
+        return GeneratorReply(status: 200, body: slides)
+    }
+    _ = try await direct.generate(
+        brief: Brief(topic: "Carbon-negative cargo is ready to scale"), provider: .anthropic, model: "a-model",
+        key: "sk-writer", theme: "dusk", look: false
+    ) { _ in }
+    let direct2 = await plain.requests.filter { $0.url.hasSuffix("/v1/messages") }
+    #expect(direct2.count == 2)
+    #expect(!(direct2[1].body ?? "").contains("**Outline (Scaena)**"))
+}
+
 /// A provider that refuses says why, in its words, and no deck is made.
 @MainActor
 @Test func aProvidersRefusalIsSaidInItsWords() async throws {
