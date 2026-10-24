@@ -368,7 +368,8 @@ async function play(deck: Source, how: Play, channel: BroadcastChannel) {
     } finally {
       asking = false;
     }
-    stage.canvas.style.cursor = link ? "pointer" : "";
+    // A link's hand too hides once the pointer rests (lift-up ATTR-4).
+    stage.canvas.style.cursor = link && !document.body.classList.contains("idle") ? "pointer" : "";
   };
   /** Say where the deck is: in the controls, to the presenter view, and to the page. */
   const report = (at: At) => {
@@ -565,15 +566,19 @@ async function play(deck: Source, how: Play, channel: BroadcastChannel) {
     return [(e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height];
   };
   // Fullscreen, the pointer over the slide hides once it has rested two seconds, as a presentation
-  // app's does, and shows again as it moves (lift-up ATTR-4).
+  // app's does, from the moment the show fills the screen, and shows again as it moves (lift-up
+  // ATTR-4).
   let idling: ReturnType<typeof setTimeout> | undefined;
   const rest = (moving: boolean) => {
     clearTimeout(idling);
     document.body.classList.remove("idle");
     if (moving && document.fullscreenElement)
-      idling = setTimeout(() => document.body.classList.add("idle"), 2000);
+      idling = setTimeout(() => {
+        document.body.classList.add("idle");
+        void hover();
+      }, 2000);
   };
-  document.addEventListener("fullscreenchange", () => rest(false));
+  document.addEventListener("fullscreenchange", () => rest(true));
   stage.canvas.addEventListener("pointermove", (e) => {
     pointer = over(e);
     if (laser) pointAt(pointer);
