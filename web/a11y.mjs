@@ -222,38 +222,79 @@ try {
   await editor.focus(".cm-content");
   await editor.keyboard.press("F8");
   check((await gutter()) === line, `F8 goes to the next finding: line ${await gutter()}`);
+  // The inspector's tabs on one row (lift-up ATTR-4, PLAN 3.18): Format, Animate, Document, and
+  // More, a menu of the layers and the assistant; Document's panels a row of their own. The arrow
+  // keys move along each row, and only tabs a person sees are in the ring.
+  const tab = (panel) =>
+    editor.evaluate(
+      (p) => [
+        document.activeElement?.id,
+        [...document.querySelectorAll('[role="tab"][aria-selected="true"]')].filter((t) => !t.closest("[hidden]")).map((t) => t.id).join(" "),
+        document.querySelector(p).hidden,
+      ],
+      panel,
+    );
+  const rowOf = (list) =>
+    editor.evaluate((l) => new Set([...document.querySelectorAll(`${l} [role="tab"]:not([hidden])`)].map((b) => b.offsetTop)).size, list);
+  // At its narrowest: the source folded, in a window 1000 px wide, the panel is 280 px.
+  const widths = await editor.evaluate(() => [innerWidth, innerHeight]);
+  await editor.click("#source-toggle");
+  await editor.setViewportSize({ width: 1000, height: widths[1] });
+  const narrow = await editor.evaluate(() => document.querySelector("#panel").getBoundingClientRect().width);
+  check((await rowOf("#tabs")) === 1, `the tabs stand on one row at the panel's narrowest (${narrow} px): ${await rowOf("#tabs")} row(s)`);
+  await editor.setViewportSize({ width: widths[0], height: widths[1] });
+  await editor.click("#source-toggle");
   await editor.focus("#tab-inspector");
   await editor.keyboard.press("ArrowRight");
-  const tab = (panel) =>
-    editor.evaluate((p) => [document.activeElement?.id, document.querySelector('[role="tab"][aria-selected="true"]').id, document.querySelector(p).hidden], panel);
-  check(JSON.stringify(await tab("#layers")) === JSON.stringify(["tab-layers", "tab-layers", false]), `→ on the tabs shows the layers: ${JSON.stringify(await tab("#layers"))}`);
-  await audit(editor, "the editor, its layers");
+  check(JSON.stringify(await tab("#animate")) === JSON.stringify(["tab-animate", "tab-animate", false]), `→ on the tabs shows Animate: ${JSON.stringify(await tab("#animate"))}`);
+  await audit(editor, "the editor, Animate");
   await editor.keyboard.press("ArrowRight");
-  check(JSON.stringify(await tab("#data")) === JSON.stringify(["tab-data", "tab-data", false]), `→ again shows the data: ${JSON.stringify(await tab("#data"))}`);
+  check(
+    JSON.stringify(await tab("#document")) === JSON.stringify(["tab-document", "tab-document tab-theming", false]),
+    `→ again shows Document, at its theme: ${JSON.stringify(await tab("#document"))}`,
+  );
+  check((await rowOf("#document .segments")) === 1, `Document's panels stand on one row: ${await rowOf("#document .segments")} row(s)`);
+  await editor.waitForFunction(() => window.scaena.theme.theme() !== undefined, null, { timeout: 60000 }).catch(() => {});
+  await audit(editor, "the editor, its theme");
+  await editor.focus("#tab-theming");
+  await editor.keyboard.press("ArrowRight");
+  check(JSON.stringify(await tab("#data")) === JSON.stringify(["tab-data", "tab-document tab-data", false]), `→ along Document's row shows the data: ${JSON.stringify(await tab("#data"))}`);
   await editor.waitForFunction(() => window.scaena.data.shown()?.sheet.rows.length > 0, null, { timeout: 60000 }).catch(() => {});
   await audit(editor, "the editor, its data");
   await editor.keyboard.press("ArrowRight");
-  check(JSON.stringify(await tab("#theming")) === JSON.stringify(["tab-theming", "tab-theming", false]), `→ again shows the theme: ${JSON.stringify(await tab("#theming"))}`);
-  await editor.waitForFunction(() => window.scaena.theme.theme() !== undefined, null, { timeout: 60000 }).catch(() => {});
-  await audit(editor, "the editor, its theme");
-  await editor.keyboard.press("ArrowRight");
-  check(JSON.stringify(await tab("#files")) === JSON.stringify(["tab-files", "tab-files", false]), `→ again shows the bundle's files: ${JSON.stringify(await tab("#files"))}`);
+  check(JSON.stringify(await tab("#files")) === JSON.stringify(["tab-files", "tab-document tab-files", false]), `→ again shows the bundle's files: ${JSON.stringify(await tab("#files"))}`);
   await editor.waitForFunction(() => window.scaena.files.listed().length > 0, null, { timeout: 60000 }).catch(() => {});
   await audit(editor, "the editor, its files");
   await editor.keyboard.press("ArrowRight");
-  check(JSON.stringify(await tab("#versions")) === JSON.stringify(["tab-versions", "tab-versions", false]), `→ again shows the deck's versions: ${JSON.stringify(await tab("#versions"))}`);
+  check(JSON.stringify(await tab("#versions")) === JSON.stringify(["tab-versions", "tab-document tab-versions", false]), `→ again shows the deck's versions: ${JSON.stringify(await tab("#versions"))}`);
   await editor.waitForFunction(() => window.scaena.versions.listed() === null, null, { timeout: 60000 }).catch(() => {});
   await audit(editor, "the editor, its versions");
   await editor.keyboard.press("ArrowRight");
-  check(JSON.stringify(await tab("#story")) === JSON.stringify(["tab-story", "tab-story", false]), `→ again shows the deck's story: ${JSON.stringify(await tab("#story"))}`);
+  check(JSON.stringify(await tab("#story")) === JSON.stringify(["tab-story", "tab-document tab-story", false]), `→ again shows the deck's story: ${JSON.stringify(await tab("#story"))}`);
   await editor.waitForFunction(() => window.scaena.story.health() !== undefined, null, { timeout: 60000 }).catch(() => {});
   check(await editor.evaluate(() => window.scaena.story.health() !== undefined), "the deck's story is read");
   await audit(editor, "the editor, its story");
   await editor.keyboard.press("ArrowRight");
-  check(JSON.stringify(await tab("#assistant")) === JSON.stringify(["tab-assistant", "tab-assistant", false]), `→ again shows the assistant: ${JSON.stringify(await tab("#assistant"))}`);
+  check((await tab("#theming"))[0] === "tab-theming", "→ again comes round to the theme");
+  // More: ↓ opens its menu, whose items are the panels it keeps; one chosen shows as More's own tab.
+  await editor.focus("#tab-document");
+  await editor.keyboard.press("ArrowRight");
+  check((await tab("#document"))[0] === "tab-more", `→ from Document goes to More, which stands for no panel yet: ${JSON.stringify(await tab("#document"))}`);
+  await editor.keyboard.press("ArrowDown");
+  const items = await editor.evaluate(() => [...document.querySelectorAll('.context-menu [role="menuitem"]')].map((b) => b.textContent));
+  check(JSON.stringify(items) === JSON.stringify(["Layers", "Assistant"]), `↓ on More opens its menu: ${JSON.stringify(items)}`);
+  await audit(editor, "the editor, More's menu");
+  await editor.keyboard.press("Enter");
+  check(JSON.stringify(await tab("#layers")) === JSON.stringify(["tab-more", "tab-more", false]), `Enter on Layers shows the layers as More's own tab: ${JSON.stringify(await tab("#layers"))}`);
+  check((await editor.textContent("#tab-more")) === "Layers", `named for it: ${await editor.textContent("#tab-more")}`);
+  await audit(editor, "the editor, its layers");
+  await editor.keyboard.press("ArrowDown");
+  await editor.keyboard.press("ArrowDown");
+  await editor.keyboard.press("Enter");
+  check(JSON.stringify(await tab("#assistant")) === JSON.stringify(["tab-more", "tab-more", false]), `and so the assistant: ${JSON.stringify(await tab("#assistant"))}`);
   await audit(editor, "the editor, its assistant");
   await editor.keyboard.press("ArrowRight");
-  check((await tab("#inspector"))[0] === "tab-inspector", "→ again comes round to the inspector");
+  check((await tab("#inspector"))[0] === "tab-inspector" && !(await tab("#inspector"))[2], "→ again comes round to Format");
   await editor.close();
 
   // A single file, from its address on disk.
