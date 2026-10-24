@@ -8,7 +8,8 @@ use serde_json::{Map, Value, json};
 
 /// The slides' contract as Gemini's `responseSchema` takes it, as Vzestup writes it, with
 /// Scaena's `icons` after Vzestup's fields: a word for each bullet naming its pictogram (PLAN
-/// G.23), which no field asks for in Vzestup.
+/// G.23), which no field asks for in Vzestup; and its `sourceRef`, the source a slide's facts come
+/// from (narrative FUNC-3).
 pub fn slides_gemini() -> Value {
     json!({
         "type": "OBJECT",
@@ -53,7 +54,8 @@ pub fn slides_gemini() -> Value {
                         "intent": { "type": "STRING" },
                         "expectedIntensity": { "type": "NUMBER" },
                         "expectedValence": { "type": "NUMBER" },
-                        "icons": { "type": "ARRAY", "items": { "type": "STRING" } }
+                        "icons": { "type": "ARRAY", "items": { "type": "STRING" } },
+                        "sourceRef": { "type": "STRING" }
                     },
                     "required": [
                         "slideTitle", "subtitle", "layoutSuggestion", "keyBullets", "visualDescription",
@@ -178,8 +180,10 @@ mod tests {
 
         let openai = strict(&anthropic);
         let slide = &openai["properties"]["slides"]["items"];
-        assert_eq!(slide["required"].as_array().unwrap().len(), 16);
+        assert_eq!(slide["required"].as_array().unwrap().len(), 17);
         assert_eq!(slide["properties"]["icons"]["anyOf"][1], json!({ "type": "null" }));
+        // Scaena's: the source a slide's facts come from, which a slide may leave out (FUNC-3).
+        assert_eq!(slide["properties"]["sourceRef"], json!({ "type": ["string", "null"] }));
         assert_eq!(slide["properties"]["supportingFacts"], json!({ "type": ["string", "null"] }));
         assert_eq!(slide["properties"]["chartData"]["anyOf"][1], json!({ "type": "null" }));
         assert_eq!(slide["properties"]["slideTitle"], json!({ "type": "string" }));

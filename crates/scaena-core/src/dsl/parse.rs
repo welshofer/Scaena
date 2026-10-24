@@ -47,9 +47,12 @@ struct Parser<'a> {
     depth: usize,
 }
 
-/// How deep a value's lists and objects nest, as deep as `deck.json` may (serde_json reads no
-/// deeper). Past it a value is refused, never a stack overflow (lift-up STAB-1).
-const MAX_DEPTH: usize = 128;
+/// How deep lists and objects nest in the deck, its own object the first: as deep as `deck.json`
+/// may, since serde_json reads 127 inside each other and no deeper. It is counted from the deck,
+/// not from the value written, so a value that would nest past it once in the deck is refused at
+/// its source line; past it, never a stack overflow, nor a deck no reader opens (lift-up STAB-1,
+/// and the 20261024 plan's STAB-1).
+const MAX_DEPTH: usize = 127;
 
 /// One line's tokens, read in order.
 struct Toks<'a> {
@@ -279,10 +282,12 @@ impl<'a> Parser<'a> {
 
     // --- values ------------------------------------------------------------------
 
-    /// A value, recorded at `ptr`, no deeper than [`MAX_DEPTH`].
+    /// A value, recorded at `ptr`, no deeper than [`MAX_DEPTH`] in the deck: a list or an object
+    /// opened at `ptr` stands inside one for each of its segments, and the deck's own.
     fn value(&mut self, t: &mut Toks, ptr: &str) -> Result<Value, DslError> {
-        if self.depth == MAX_DEPTH && matches!(t.peek(), Some(Tok::LBracket | Tok::LBrace)) {
-            return Err(t.err(&format!("nests more than {MAX_DEPTH} deep")));
+        let inside = ptr.matches('/').count() + 1;
+        if inside.max(self.depth) >= MAX_DEPTH && matches!(t.peek(), Some(Tok::LBracket | Tok::LBrace)) {
+            return Err(t.err(&format!("nests more than {MAX_DEPTH} deep in the deck, as deep as deck.json may")));
         }
         self.depth += 1;
         let v = self.value_at(t, ptr);

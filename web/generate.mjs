@@ -7,6 +7,9 @@
 //
 // - The dialog offers Narrato's goals, lengths, and arcs, read from the generator's module as it
 //   opens, and says who writes the deck: the assistant's provider and model, with the user's key.
+// - With no key kept, the dialog takes one in place (lift-up 10-24 USE-1): Generate waits, a key
+//   pasted is checked by listing its models, and the model chosen is the assistant's from then on,
+//   the key kept for the tab as the Assistant tab keeps it.
 // - What a browser cannot read says so, and where it is read: an SEC filing, and a page whose
 //   site lets no other page read it. A provider that refuses the key says so in the dialog,
 //   which stays open to try again.
@@ -141,6 +144,45 @@ try {
   page.on("dialog", (d) => d.accept());
   await page.goto(`${site.origin}/web/dist/editor.html?painter=cpu&bundle=/docs/examples/revenue.deck.json`);
   await page.waitForFunction(() => window.scaena?.last() && window.scaena.where().name === "revenue", null, { timeout: 120000 });
+  // No key kept: the dialog takes one in place, in a page of its own, so what it chose leaves the
+  // rest of the walk as it was. The scripted server is where Anthropic is asked.
+  const keyPage = await browser.newPage({ viewport: { width: 1600, height: 1000 }, deviceScaleFactor: 1 });
+  keyPage.on("pageerror", (e) => failures.push(`page: ${e.message}`));
+  await keyPage.goto(`${site.origin}/web/dist/editor.html?painter=cpu&bundle=/docs/examples/revenue.deck.json`);
+  await keyPage.waitForFunction(() => window.scaena?.last() && window.scaena.where().name === "revenue", null, { timeout: 120000 });
+  await keyPage.evaluate((origin) => {
+    localStorage.setItem("scaena.assistant", JSON.stringify({ provider: "anthropic", models: {}, bases: { anthropic: origin } }));
+    sessionStorage.removeItem("scaena.key.anthropic");
+  }, origin);
+  await keyPage.click("#new-prompt");
+  await keyPage.waitForFunction(() => !document.querySelector("#prompting-key")?.hidden, null, { timeout: 30000 }).catch(() => {});
+  const keyless = await keyPage.evaluate(() => ({
+    asked: document.querySelector("#prompting-key")?.hidden === false,
+    go: document.querySelector("#prompting-go").disabled,
+    who: document.querySelector("#prompting-who").textContent,
+  }));
+  check(keyless.asked && keyless.go && !keyless.who.includes("Assistant tab"), `with no key kept, the dialog asks for one in place, Generate waiting: ${JSON.stringify(keyless)}`);
+  await keyPage.fill("#prompting-key-value", "sk-ant-walk-in-the-dialog");
+  await keyPage.waitForFunction(() => document.querySelector("#prompting-key-model").options.length > 0 && !document.querySelector("#prompting-go").disabled, null, { timeout: 30000 }).catch(() => {});
+  const keyed = await keyPage.evaluate(() => ({
+    models: [...document.querySelector("#prompting-key-model").options].map((o) => o.value),
+    said: document.querySelector("#prompting-key-said").textContent,
+    go: document.querySelector("#prompting-go").disabled,
+    who: document.querySelector("#prompting-who").textContent,
+    kept: sessionStorage.getItem("scaena.key.anthropic"),
+    chosen: JSON.parse(localStorage.getItem("scaena.assistant")),
+  }));
+  check(
+    keyed.models.length === 3 && keyed.said.startsWith("The key works") && !keyed.go && keyed.who.startsWith(`Written by Anthropic's ${keyed.models[0]}`),
+    `a key pasted is checked by its models, and Generate is ready: ${JSON.stringify({ ...keyed, chosen: undefined })}`,
+  );
+  check(
+    keyed.kept === "sk-ant-walk-in-the-dialog" && keyed.chosen.provider === "anthropic" && keyed.chosen.models.anthropic === keyed.models[0],
+    `kept for this tab, the model the assistant's: ${JSON.stringify({ kept: keyed.kept, chosen: keyed.chosen })}`,
+  );
+  await keyPage.click("#prompting-cancel");
+  await keyPage.close();
+
   // The assistant's settings, as its tab keeps them: Anthropic at the scripted server, a model,
   // and a key for this tab.
   await page.evaluate((origin) => {
@@ -278,8 +320,17 @@ try {
   check((await page.evaluate(() => window.scaena.where().name)) === "revenue", "the deck open stays open");
   state.slow = 0;
 
-  // Grounded in a Markdown file, a CSV, and a web page.
+  // Grounded in a Markdown file, a CSV, and a web page, each slide naming the source its facts
+  // come from (narrative FUNC-3): the notes, the page for the second.
   requests.length = 0;
+  state.slides = (() => {
+    const answer = JSON.parse(SLIDES);
+    const text = answer.content.find((c) => c.type === "text");
+    const written = JSON.parse(text.text);
+    written.slides.forEach((s, i) => (s.sourceRef = i === 1 ? `${press}/press.html` : "notes.md"));
+    text.text = JSON.stringify(written);
+    return JSON.stringify(answer);
+  })();
   await opened();
   await page.setInputFiles("#prompting-files", [
     { name: "notes.md", mimeType: "text/markdown", buffer: Buffer.from(NOTES) },
@@ -381,6 +432,12 @@ try {
   const marks = await page.locator("#story [data-arc] [data-slide]").count();
   check(marks === 5, `a mark on the arc for each slide: ${marks}`);
   const said = await page.locator("#story [data-findings] li").allTextContents();
+  // Each slide names what its words came from, and its row says so (narrative FUNC-3).
+  const cited = await page.evaluate(() => window.scaena.story.health().slides.map((s) => (s.sources ?? []).join()));
+  check(slides?.prompt.includes("`sourceRef`"), "the slides' prompt asks each slide for its source");
+  check(cited[0] === "notes.md" && cited[1] === `${press}/press.html` && cited.every((c) => c), `each slide cites its source: ${cited.join(" | ")}`);
+  const from = await page.evaluate(() => [...document.querySelectorAll("#story [data-findings] li")].map((li) => [li.dataset.slide, li.querySelector("[data-sources]")?.textContent]));
+  check(from.length > 0 && from.every(([n, f]) => f === `From ${cited[Number(n) - 1]}`), `each row says what its slide came from: ${JSON.stringify(from)}`);
   const rows = await page.evaluate(() => [...document.querySelectorAll("#story [data-findings] li")].map((li) => li.dataset.slide));
   const looked = await page.evaluate(() => [...new Set(window.scaena.story.health().findings.map((f) => String(f.slide)))]);
   check(rows.join() === looked.join(), `a row for each slide with something to look at, in order: ${rows}`);
@@ -424,6 +481,14 @@ try {
   await asked.click();
   check((await page.getAttribute("#tab-assistant", "aria-selected")) === "true", "a question opens the assistant's tab");
   check((await page.inputValue("#question")) === question, `the question is in its box: ${question}`);
+  // The Files tab lists what the deck was grounded in, each with the slides citing it (FUNC-3).
+  await tab(page, "files");
+  await page.waitForSelector("#files [data-grounded] li", { timeout: 30000 }).catch(() => {});
+  const grounded = await page.locator("#files [data-grounded] li").allTextContents();
+  check(
+    grounded.length === 3 && grounded.some((g) => g.startsWith("notes.md") && /cited by Slide 1, Slide 3/.test(g)) && grounded.some((g) => g.includes("press.html") && /cited by Slide 2\b/.test(g)),
+    `the Files tab lists what the deck was grounded in, each with its slides: ${grounded.join(" | ")}`,
+  );
 
   // Items that each name an icon are set under the icons the worker finds in the set that ships,
   // fetched for them (PLAN G.23): each a path on its view, named by the icon.
