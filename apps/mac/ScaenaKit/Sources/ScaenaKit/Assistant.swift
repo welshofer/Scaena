@@ -197,6 +197,8 @@ public final class Assistant {
                         let ran: Ran
                         if call.name == "map_fetch" {
                             ran = try await mapFetch(index, args: call.args, chat: chat)
+                        } else if ScaenaChat.readsAlone(call) {
+                            ran = try await apart(index, call: call, chat: chat)
                         } else {
                             ran = try chat.run(index, on: editor.session)
                         }
@@ -218,6 +220,20 @@ public final class Assistant {
         } catch {
             if Task.isCancelled { settle(chat) } else { add(.failed(Why.said(error, of: chat.provider))) }
         }
+    }
+
+    /// The last answer's call `index`, which only reads the deck (`deck_lint`, `deck_render`,
+    /// `deck_health`), run away from the window on a session of a snapshot of the deck as it is,
+    /// where the editor reads the deck's health (`OffMain`, narrative lift-up PERF-1, PERF-2):
+    /// laying every state out or drawing a frame takes the window's actor for none of it, so the
+    /// window answers, and the sweep goes on, while it works.
+    private func apart(_ index: Int, call: ToolCall, chat: ScaenaChat) async throws -> Ran {
+        let snapshot = try editor.session.snapshot()
+        let model = chat.model
+        let ran = try await editor.offMain.run {
+            try ScaenaChat.runApart(call, model: model, on: try snapshot.opened())
+        }
+        return try chat.took(index, ran: ran)
     }
 
     /// `map_fetch` (ADR-0030, PLAN O.1d), the last answer's call `index`, run as Insert › Map… runs:

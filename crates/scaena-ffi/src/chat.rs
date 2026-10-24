@@ -117,6 +117,25 @@ impl Asking {
                 self.ran.push(ToolResult { id: call.id, name: call.name, json, error, png: None });
                 ran
             }
+            "took" => {
+                // A call of the last answer run apart from the conversation, on a session of a
+                // snapshot's (`run_apart`, narrative lift-up PERF-2): `ran` is what it came to,
+                // taken as `run` takes what it ran.
+                let index = args.get("index").and_then(Value::as_u64).ok_or_else(|| said("took: `index`"))?;
+                let call = (self.calls().and_then(|calls| calls.get(index as usize)).cloned())
+                    .ok_or_else(|| said(format!("took: the last answer made no call {index}")))?;
+                let ran = args.get("ran").cloned().ok_or_else(|| said("took: `ran`, what the call came to"))?;
+                if ran.get("id").and_then(Value::as_str) != Some(call.id.as_str()) {
+                    return Err(said(format!("took: `ran` is not what call {index} came to")));
+                }
+                let json =
+                    (ran.get("json").and_then(Value::as_str)).ok_or_else(|| said("took: `ran.json`"))?.to_string();
+                let error = ran.get("error").and_then(Value::as_bool).unwrap_or(false);
+                let png = ran.get("png").and_then(Value::as_str).map(str::to_string);
+                self.ran.retain(|r| r.id != call.id);
+                self.ran.push(ToolResult { id: call.id, name: call.name, json, error, png });
+                ran
+            }
             "next" => {
                 let results = self.answered().ok_or_else(|| said("next: the model's last answer made no calls"))?;
                 json!(self.chat.results(results))
@@ -242,6 +261,13 @@ fn skills(s: &Session) -> Vec<String> {
         .filter(|name| !name.is_empty() && !name.contains('/'))
         .map(str::to_string)
         .collect()
+}
+
+/// Run `call` on `s`, a session of a snapshot's, as `model`'s agent, at `at`, apart from any
+/// conversation (narrative lift-up PERF-2): what `run` gives, which the conversation's `took` takes
+/// back. Only for a tool that reads alone ([`scaena_session::assistant::reads_alone`]).
+pub fn run_apart(s: &mut Session, model: &str, call: &Call, at: Option<i64>) -> Value {
+    run(s, model, call, at).1
 }
 
 /// Run `call` on the session as the model's agent, at `at`: its result for the model, and what

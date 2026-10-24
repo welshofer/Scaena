@@ -77,6 +77,9 @@ jsonschema = "0.58"
 indexmap   = { version = "2.14", features = ["serde"] }
 postcard   = { version = "1.1", features = ["alloc"] }
 
+# The store opens a bundle's file with O_NOFOLLOW, whose value differs from one unix to another.
+libc = "0.2"
+
 # errors / diagnostics
 thiserror = "2.0"
 anyhow    = "1.0"

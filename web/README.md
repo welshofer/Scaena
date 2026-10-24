@@ -32,7 +32,7 @@ The page reads these parameters:
 | → ↓ PageDown Space Enter, a click or a tap, a swipe left | go on: play the next state's cue, or finish the one playing; past the last state, the end of the show, a black screen that says the show has ended, and on from there leaves it, out of fullscreen and back on the last slide (PLAN 2.120) |
 | ← ↑ PageUp Backspace, a swipe right | go back: the state before, at rest; at the end of the show, the last slide again |
 | Home, End | the first state, the last |
-| F | fullscreen, the slide alone, in the middle of the screen on black |
+| F | fullscreen, the slide alone, in the middle of the screen on black; the screen stays awake until it is left (a screen wake lock, as in the presenter view) |
 | P | the presenter view, in a second window; with it open, it comes to the front as it is, its timer running |
 | B or . | a black screen, the deck waiting where it was; a key or a click brings the slide back (PLAN 2.105) |
 | W or , | a white screen, the same way |
