@@ -378,7 +378,7 @@ try {
     const li = document.querySelector('#keeping li[data-name="Q3 board"]');
     return { marked: li?.querySelector(".here")?.textContent, deletable: !li?.querySelector("[data-delete]").disabled };
   });
-  check(here.marked === "open here" && !here.deletable, `the deck open here is marked, and not deleted: ${JSON.stringify(here)}`);
+  check(here.marked === "Open here" && !here.deletable, `the deck open here is marked, and not deleted: ${JSON.stringify(here)}`);
   await renamed("Q3 board", "Board");
   check(JSON.stringify(await keeps()) === JSON.stringify(["Board"]) && (await where()).where?.name === "Board" && new URL(page.url()).searchParams.get("bundle") === "opfs:Board", `renamed, the deck open goes on where it is kept now: ${JSON.stringify((await where()).where)}, ${page.url()}`);
   await page.keyboard.press("Escape");

@@ -407,6 +407,31 @@ try {
     await page.keyboard.press("Delete");
     check(await back(original), "Delete takes it out again");
   }
+
+  // Insert › Image… (the QA pass's J3): a picture picked from the disk lands as one dropped does,
+  // its path its `src`, one patch, one undo; the palette offers it too.
+  const offeredImage = (await inserts(page))[""] ?? [];
+  check(offeredImage.includes("Image…"), `Insert offers Image…: ${offeredImage.join(", ")}`);
+  const fromDisk = await source();
+  await press([400, 300]);
+  const [chooser] = await Promise.all([page.waitForEvent("filechooser", { timeout: 10000 }).catch(() => undefined), insert(page, "Image…")]);
+  check(chooser !== undefined, "Image… opens a file picker");
+  if (chooser) {
+    await chooser.setFiles({ name: "board.png", mimeType: "image/png", buffer: png });
+    await page.waitForFunction((s) => window.scaena.source() !== s && !window.scaena.canvas.busy(), fromDisk, { timeout: 30000 }).catch(() => {});
+    check(await reads(JSON.stringify(path)), `the picture picked is inserted, its path its \`src\`: ${await status()}`);
+    check((await status()).includes("board.png"), `the status names it by the file picked: ${await status()}`);
+    await page.locator("#overlay").focus();
+    await page.keyboard.press("Control+z");
+    check(await back(fromDisk), "one undo takes it out");
+  }
+  await page.locator("#overlay").focus();
+  await page.keyboard.press("Control+k");
+  await page.waitForFunction(() => document.querySelector("#palette").open, null, { timeout: 10000 }).catch(() => {});
+  await page.keyboard.type("insert an image");
+  const listed = await page.evaluate(() => window.scaena.commands.shown());
+  check(JSON.stringify(listed).includes("Insert an image…"), `the palette offers Insert an image…: ${JSON.stringify(listed).slice(0, 200)}`);
+  await page.keyboard.press("Escape");
   check(await page.evaluate(() => window.scaena.last().valid), "the source still compiles and validates");
 } finally {
   await browser.close();
