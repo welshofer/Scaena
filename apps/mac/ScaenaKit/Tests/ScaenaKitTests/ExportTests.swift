@@ -24,3 +24,29 @@ import Testing
     #expect(zipped.range(of: Data("B1 - Slide 1.png".utf8)) != nil, "its first slide, by its number")
     #expect(throws: ScaenaError.self) { try session.slides(width: 0, name: "B1") }
 }
+
+/// An export for the Share sheet or Quick Look is written into a folder of its own, taken away
+/// once it is shared or seen, and what a quit left is swept as the app starts once it is older than
+/// a day (lift-up REL-5); nothing else in the folder is touched.
+@Test func anExportsFolderIsTakenAwayOnceDoneAndOldOnesAreSwept() throws {
+    let room = FileManager.default.temporaryDirectory.appending(path: "exports-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: room, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: room) }
+    let other = room.appending(path: "Kept")
+    try FileManager.default.createDirectory(at: other, withIntermediateDirectories: true)
+
+    let shared = try ExportFolders.write(Data("%PDF-".utf8), named: "Deck.pdf", in: room)
+    #expect(try Data(contentsOf: shared) == Data("%PDF-".utf8))
+    #expect(shared.deletingLastPathComponent().lastPathComponent.hasPrefix(ExportFolders.prefix))
+    ExportFolders.remove(shared)
+    #expect(!FileManager.default.fileExists(atPath: shared.deletingLastPathComponent().path))
+    // A URL in no export folder takes nothing away.
+    ExportFolders.remove(other.appending(path: "Deck.pdf"))
+    #expect(FileManager.default.fileExists(atPath: other.path))
+
+    let left = try ExportFolders.write(Data([1]), named: "Deck - Slides.zip", in: room)
+    #expect(ExportFolders.sweep(now: Date(), in: room) == 0, "a folder made just now is kept")
+    #expect(ExportFolders.sweep(now: Date().addingTimeInterval(2 * 24 * 60 * 60), in: room) == 1)
+    #expect(!FileManager.default.fileExists(atPath: left.deletingLastPathComponent().path))
+    #expect(FileManager.default.fileExists(atPath: other.path), "a folder of another name is kept")
+}
