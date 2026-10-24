@@ -294,7 +294,7 @@ pub fn slide_writing(
         None => patched.added.clone(),
     };
     let mut left: Vec<Finding> = left;
-    left.sort_by_key(|f| f.code != "E100");
+    scaena_core::sort::by_key(&mut left, |f| f.code != "E100");
     let out = SlideWritten { patched, slide: written.states, layout: written.layout, beat: written.beat, fixed, left };
     Ok((out, write))
 }
