@@ -550,8 +550,8 @@ try {
   await presenter.keyboard.press("Home");
   await presenter.keyboard.press("Enter");
   at = await until(player, (k) => window.scaena.at().index === k, "the navigator's first slide", 0, 2000);
-  const closed = (await presenter.evaluate(() => window.scaena.navigator())) === null;
-  check(at.index === 0 && closed, "Home then Return goes to the first slide in the player, and closes it");
+  const putAway = (await presenter.evaluate(() => window.scaena.navigator())) === null;
+  check(at.index === 0 && putAway, "Home then Return goes to the first slide in the player, and closes it");
   await presenter.click("#navigate");
   await presenter.waitForFunction(() => window.scaena.navigator(), null, { timeout: 5000 }).catch(() => {});
   await presenter.keyboard.press("End");
