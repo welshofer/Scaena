@@ -50,6 +50,7 @@ pub fn rules() -> Vec<Box<dyn Rule>> {
         Box::new(text::W231Upright),
         Box::new(text::W232Lighter),
         Box::new(space::W303UnderFurniture),
+        Box::new(space::W304EmptyPlace),
         Box::new(text::W310LabelCollision),
         Box::new(space::W311ShaderBehindData),
         Box::new(text::W312ChartTextSize),

@@ -843,3 +843,41 @@ fn deep_nesting_and_a_forecasts_short_date_are_drawn_or_refused() {
         assert!(called.result.contains("W428"), "{first:?}: {}", called.result);
     }
 }
+
+/// The deepest deck a person may write, containers nested `MAX_NESTING` deep, is compiled,
+/// drawn, and linted on a thread with the stack a Mac's dispatch queue gives its workers,
+/// 512 KB, where the editor lints off the main thread (PLAN 4.13); a debug build, which the
+/// Swift tests link, takes twice that. The browser's worker holds it too, in the editor, the
+/// player, and a single file, and one deeper is E106.
+#[test]
+fn the_deepest_deck_a_person_may_write_fits_a_workers_stack() {
+    let bundles = bundles(false);
+    let revenue = bundles.iter().find(|b| b.name == "revenue").unwrap();
+    let mut deck = revenue.deck.clone();
+    let depth = scaena_core::document::MAX_NESTING;
+    for i in 1..=depth {
+        let at = if i == 1 { json!({ "in": "canvas" }) } else { json!({ "parent": format!("s{}", i - 1) }) };
+        deck["nodes"][format!("s{i}")] = json!({ "type": "stack", "at": at, "semantic": "decoration" });
+        deck["states"][0]["props"][format!("s{i}")] = json!({});
+    }
+    deck["nodes"]["deep"] =
+        json!({ "type": "text", "role": "body", "text": "64 deep", "at": { "parent": format!("s{depth}") } });
+    deck["states"][0]["props"]["deep"] = json!({});
+    let bundle = Bundle { name: "deep", deck, theme: revenue.theme.clone(), files: revenue.files.clone() };
+    let stack = if cfg!(debug_assertions) { 1 << 20 } else { 512 << 10 };
+    std::thread::Builder::new()
+        .stack_size(stack)
+        .spawn(move || {
+            let mut s = session(&bundle);
+            let source = s.source();
+            assert!(s.compile(&source).valid, "the deck compiles");
+            for state in s.states() {
+                s.frame(&state, f64::INFINITY).unwrap();
+            }
+            let found = s.lint(None, Some(1_800_000_000)).unwrap();
+            assert!(!found.findings.iter().any(|f| f.finding.code == "E106"), "{:#?}", found.findings);
+        })
+        .unwrap()
+        .join()
+        .expect("drawn and linted within the stack");
+}

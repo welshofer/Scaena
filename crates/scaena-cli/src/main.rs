@@ -252,6 +252,11 @@ enum Cmd {
         /// `--features gpu`). Every other export paints with the CPU painter.
         #[arg(long, value_enum, default_value_t = PainterArg::Cpu)]
         painter: PainterArg,
+        /// How a video and the spine pace the timeline: `beats` gives each state with no
+        /// `hold` its share of its beat's `duration`, as the talk is given; `holds` plays each
+        /// state's hold alone, as a player auto-advances.
+        #[arg(long, value_enum, default_value_t = PaceArg::Beats)]
+        pace: PaceArg,
     },
     /// Apply a patch: JSON Patch (RFC 6902) and semantic ops, all or none, and say what
     /// changes in what `validate` and `lint` find. A patch that would make the deck invalid
@@ -551,6 +556,23 @@ impl From<PainterArg> for Painter {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, ValueEnum)]
+enum PaceArg {
+    /// Each state with no `hold` its share of its beat's `duration`.
+    Beats,
+    /// Each state its `hold` alone.
+    Holds,
+}
+
+impl From<PaceArg> for scaena_core::spine::Pace {
+    fn from(pace: PaceArg) -> Self {
+        match pace {
+            PaceArg::Beats => scaena_core::spine::Pace::Beats,
+            PaceArg::Holds => scaena_core::spine::Pace::Holds,
+        }
+    }
+}
+
 #[derive(Clone, Copy, ValueEnum)]
 enum SeverityArg {
     Error,
@@ -752,9 +774,9 @@ fn run(cli: Cli) -> Result<ExitCode> {
             }
             Ok(ExitCode::SUCCESS)
         }
-        Cmd::Export { bundle, format, out, states, size, fps, audio, painter } => {
-            let painter = painter.into();
-            let req = scaena_ops::export::Request { format, states, out, size, fps, audio, painter };
+        Cmd::Export { bundle, format, out, states, size, fps, audio, painter, pace } => {
+            let (painter, pace) = (painter.into(), pace.into());
+            let req = scaena_ops::export::Request { format, states, out, size, fps, audio, painter, pace };
             let exported = scaena_ops::export::export(&open(&bundle)?, &req)?;
             if cli.json {
                 println!("{}", serde_json::to_string_pretty(&exported)?);
@@ -2143,8 +2165,14 @@ fn num(x: f64) -> String {
 /// the display list if asked for.
 fn render(args: RenderArgs, json: bool) -> Result<ExitCode> {
     let RenderArgs { bundle, state, t, format, size, out, display_list, painter } = args;
-    let req =
-        scaena_ops::render::Request { state: state.clone(), t, format: format.clone(), size, painter: painter.into() };
+    let req = scaena_ops::render::Request {
+        state: state.clone(),
+        t,
+        format: format.clone(),
+        size,
+        scale: None,
+        painter: painter.into(),
+    };
     let r = scaena_ops::render::render(&bundle, &req)?;
     if let Some(path) = &display_list {
         std::fs::write(path, r.display_list.to_golden_json()?)
