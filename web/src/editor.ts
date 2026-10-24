@@ -122,9 +122,12 @@ const said = (e: unknown) => (e instanceof Error ? e.message : String(e));
 const themeName = (path: string) => sentence(path.replace(/^.*\//, "").replace(/\.theme\.json$|\.json$/, ""));
 /** What an edit did to what lint finds, said: 2 new issues, 1 gone; or no new issues. */
 const issuesChanged = (worse: number, better: number) => `${worse ? many(worse, "new issue") : "no new issues"}${better ? `, ${better} gone` : ""}`;
-/** `rows` of a source as a sentence says them: `row 3`, or `rows 1 and 3`. */
-const rowsSaid = (rows: number[]) =>
-  rows.length === 1 ? `row ${rows[0]}` : `rows ${rows.slice(0, -1).join(", ")} and ${rows[rows.length - 1]}`;
+/** `rows` of a source, by index, as a sentence says them, counted from 1 as a person counts
+ * them: `row 3`, or `rows 1 and 3`. */
+const rowsSaid = (indices: number[]) => {
+  const rows = indices.map((r) => r + 1);
+  return rows.length === 1 ? `row ${rows[0]}` : `rows ${rows.slice(0, -1).join(", ")} and ${rows[rows.length - 1]}`;
+};
 const html = (text: string) => text.replace(/[&<>"]/g, (c) => `&${{ "&": "amp", "<": "lt", ">": "gt", '"': "quot" }[c]};`);
 
 /** The source's keys for its findings: CodeMirror's, and Shift-F8 back to the one before. */
@@ -284,7 +287,7 @@ async function listKept() {
     });
     opening.dataset.open = "";
     li.append(opening);
-    if (name === here) li.append(Object.assign(document.createElement("span"), { className: "here", textContent: "open here" }));
+    if (name === here) li.append(Object.assign(document.createElement("span"), { className: "here", textContent: "Open here" }));
     const deleting = button("Delete…", `Delete ${name}`, () => unkeep(name));
     deleting.dataset.delete = "";
     if (name === here) {
@@ -625,15 +628,17 @@ async function edit(source: Source, opened?: Stage) {
     $<HTMLButtonElement>("#files [data-undo]").disabled = undoDepth(state) === 0;
     $<HTMLButtonElement>("#files [data-redo]").disabled = redoDepth(state) === 0;
   };
-  /** The deck's title, as its source's header says it: what the tab names. */
-  const titled = () => {
-    const header = savedSource === undefined ? null : /^deck\s+("(?:[^"\\\n]|\\.)*")/m.exec(view.state.doc.toString());
+  /** The deck's title, as its source's `deck` line writes it. */
+  const heading = () => {
+    const header = /^deck\s+("(?:[^"\\\n]|\\.)*")/m.exec(view.state.doc.toString());
     try {
       return header ? (JSON.parse(header[1]) as string) : undefined;
     } catch {
       return undefined;
     }
   };
+  /** The deck's title, once its source is read: what the tab names. */
+  const titled = () => (savedSource === undefined ? undefined : heading());
   /** Whether the deck is kept nowhere yet: made by New, or from files dropped. */
   const unkept = () => !where && ("create" in source || "files" in source);
   const tell = () => {
@@ -642,7 +647,8 @@ async function edit(source: Source, opened?: Stage) {
       opfs: `Kept in this browser as ${where?.name}`,
       serve: `In the folder ${where?.name}, served${scnOnDisk ? ", from its deck.scn" : ""}`,
     };
-    const kept = where ? kinds[where.kind] : `${name}, not saved`;
+    // A deck kept nowhere yet is named by its title, not the name it would be kept by.
+    const kept = where ? kinds[where.kind] : `${titled() || name}, not saved`;
     whereLine.textContent = `${kept}${dirty() ? " · edited" : ""}`;
     // The tab names the deck, as a window's title does, and says when it has changes not saved.
     document.title = `${titled() || name}${dirty() ? " — edited" : ""} · Scaena`;
@@ -1490,6 +1496,16 @@ async function edit(source: Source, opened?: Stage) {
       if (redo(view)) forceLinting(view);
     } else if (undo(view)) forceLinting(view);
   });
+  /** Insert › Image… (the QA pass's J3): a PNG or a JPEG picked from the disk, put on the slide
+   * as one dropped there is. */
+  function pickImage() {
+    const input = Object.assign(document.createElement("input"), { type: "file", accept: "image/png,image/jpeg,.png,.jpg,.jpeg" });
+    input.addEventListener("change", () => {
+      const file = input.files?.[0];
+      if (file) void board.insertPicture(file);
+    });
+    input.click();
+  }
   /** What may be inserted (PLAN 2.34), grouped by type, as the deck offers it: asked again after
    * each edit, since the theme and the bundle's images change. Insert opens it as a menu
    * (`opens`): browsing the menu inserts nothing, and a choice is one patch (lift-up USE-3). */
@@ -1540,6 +1556,8 @@ async function edit(source: Source, opened?: Stage) {
         },
       });
     }
+    // A picture from the disk (the QA pass's J3), as one dropped lands.
+    items.push({ label: "Image…", run: pickImage });
     items.push({ label: "Make a picture…", run: () => void picturing.open() }, { label: "Map…", run: () => void mapping.open() });
     insertItems = items;
   }
@@ -1635,7 +1653,10 @@ async function edit(source: Source, opened?: Stage) {
         const [worse, better] = [themed.added.length, themed.removed.length];
         const n = themed.recolored.length;
         const recolored = n ? ` · ${n} text${n === 1 ? "" : "s"} recolored to read on what lies behind ${n === 1 ? "it" : "them"}` : "";
-        say(`Theme ${label}${recolored} · ${issuesChanged(worse, better)}`);
+        // A text the theme set past its box, or over another, fitted as lint's fix fits it.
+        const r = themed.refitted.length;
+        const refitted = r ? ` · ${r} text${r === 1 ? "" : "s"} fitted to ${r === 1 ? "its box" : "their boxes"}` : "";
+        say(`Theme ${label}${recolored}${refitted} · ${issuesChanged(worse, better)}`);
       }
     } catch (e) {
       say(`Not re-themed: ${said(e)}`);
@@ -2542,6 +2563,8 @@ async function edit(source: Source, opened?: Stage) {
       { label: "Paste as Text", where: ["canvas"], applies: ready, run: pastedAsText },
       ...inserts,
       icon,
+      // A picture from the disk (the QA pass's J3), as one dropped lands.
+      { label: "Insert an image…", where: ["canvas"], group: "Draw and insert", applies: () => ready(), run: pickImage },
       // A map (ADR-0030, PLAN O.1c): in the slide's empty place for a picture, else where the
       // pointer last pressed; for an image selected, the command that puts one in it.
       {

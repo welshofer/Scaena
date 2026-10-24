@@ -21,6 +21,7 @@ pub mod heuristic;
 mod js;
 pub mod layouts;
 pub mod look;
+pub mod outline;
 pub mod pictures;
 pub mod prompt;
 pub mod providers;
@@ -30,6 +31,7 @@ pub mod schema;
 pub use answer::{ChartData, Series, Slide};
 pub use brief::{Brief, BriefError};
 pub use heuristic::{ArcChoice, Candidate};
+pub use outline::Outline;
 pub use providers::{Answer, Document, Picture, Provider, Request, Stop, Usage};
 
 use serde::{Deserialize, Serialize};
@@ -45,6 +47,18 @@ pub const GEMINI_MAX_TOKENS: u32 = 65_536;
 pub const FIT_MAX_TOKENS: u32 = 16_000;
 /// Room for what the model would change on the deck it sees, thinking included.
 pub const LOOK_MAX_TOKENS: u32 = 16_000;
+
+/// How many times a step is asked while its provider is busy or does not answer (narrative
+/// REL-1): the pictures' six, so that one busy answer on the dearest call ends no run.
+pub const TRIES: usize = 6;
+/// The longest wait before a step is asked again, in seconds.
+pub const LONGEST_WAIT: f64 = 60.0;
+
+/// Whether `status` answers for now, not for good: no answer (0), a timeout, a rate limit, or a
+/// server's failure, Anthropic's 529 and Cloudflare's edge among them.
+pub fn busy(status: u16) -> bool {
+    matches!(status, 0 | 408 | 429 | 500..=599)
+}
 
 /// Who writes the deck: a provider, the model the user picked from those their key lists, and
 /// where its API is.
@@ -82,6 +96,10 @@ pub struct Narrative {
     /// its brief, and each beat cites the one its slide names ([`Slide::source_ref`]).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub sources: Vec<Provenance>,
+    /// The outline the slides were written to, where the person settled one first (narrative
+    /// FUNC-1): the deck's sections follow its beats.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub outline: Option<Outline>,
 }
 
 /// Where a source the deck was grounded in came from (narrative FUNC-3): its name, as the prompt
@@ -151,6 +169,9 @@ pub enum NarratoError {
 pub enum Step {
     /// The arc is to be chosen.
     Arc,
+    /// The outline is to be written, the person having asked to see it before the slides
+    /// (narrative FUNC-1).
+    Outline,
     /// The slides are to be written.
     Slides,
     /// The narrative is written.
@@ -167,7 +188,14 @@ pub struct Generation {
     arc: Option<ArcChoice>,
     /// Why the arc was chosen by the heuristic, where the model's choice did not come back.
     fallback: Option<String>,
+    /// The outline the person settled, where they asked to see one (narrative FUNC-1): what the
+    /// slides are written to.
+    outline: Option<Outline>,
     narrative: Option<Narrative>,
+    /// How many times the step was asked and answered for now, not for good.
+    tried: usize,
+    /// How long to wait before the step is asked again, where its last answer was for now.
+    again: Option<f64>,
     /// The slides as the model wrote them, the text [`Generation::written`] read.
     written: Option<String>,
     /// What the deck is grounded in, as the client gave it ([`Generation::give_sources`]).
@@ -183,7 +211,10 @@ impl Generation {
             step: Step::Arc,
             arc: None,
             fallback: None,
+            outline: None,
             narrative: None,
+            tried: 0,
+            again: None,
             written: None,
             sources: Vec::new(),
         })
@@ -214,6 +245,72 @@ impl Generation {
 
     pub fn narrative(&self) -> Option<&Narrative> {
         self.narrative.as_ref()
+    }
+
+    /// The outline, once the model wrote it or the person settled one (narrative FUNC-1).
+    pub fn outline(&self) -> Option<&Outline> {
+        self.outline.as_ref()
+    }
+
+    /// The beats the slides are spread over at this length, as the slides' prompt plans them:
+    /// the outline's where one is settled, else the arc's ([`beats::plan`]); none before the
+    /// arc is chosen.
+    pub fn plan(&self) -> Option<Vec<outline::Beat>> {
+        let arc = arcs::arc(&self.arc.as_ref()?.selection);
+        if let Some(outline) = &self.outline {
+            return Some(outline.beats.clone());
+        }
+        let planned = beats::plan(arc, self.target());
+        Some(
+            (planned.iter().filter(|&&(_, from, to)| to >= from))
+                .map(|&(beat, from, to)| outline::Beat {
+                    name: arc.beats[beat].clone(),
+                    claim: String::new(),
+                    slides: to - from + 1,
+                })
+                .collect(),
+        )
+    }
+
+    /// Ask the model for the outline before the slides (narrative FUNC-1): the next request is
+    /// the outline's, and its answer puts the outline where [`Generation::outline`] reads it, to
+    /// be settled or taken as it is. Only once the arc is chosen and before the slides are.
+    pub fn outline_first(&mut self) -> Result<(), NarratoError> {
+        match self.step {
+            Step::Slides | Step::Outline if self.arc.is_some() => {
+                self.step = Step::Outline;
+                Ok(())
+            }
+            Step::Done => Err(NarratoError::Done),
+            _ => Err(NarratoError::Answer("the arc is chosen before the outline is asked".into())),
+        }
+    }
+
+    /// The outline as the person settled it (narrative FUNC-1), which the slides are written to:
+    /// its claims as they stand, its beats in their order, blank claims passed over, and the
+    /// slides spread over them again ([`outline::settled`]). Only once the arc is chosen and
+    /// before the slides are written; an outline with no claim left is refused.
+    pub fn settle(&mut self, outline: &Outline) -> Result<(), NarratoError> {
+        match self.step {
+            Step::Slides | Step::Outline if self.arc.is_some() => {}
+            Step::Done => return Err(NarratoError::Done),
+            _ => return Err(NarratoError::Answer("the arc is chosen before the outline is settled".into())),
+        }
+        self.outline = Some(outline::settled(outline, self.target()).map_err(NarratoError::Answer)?);
+        self.step = Step::Slides;
+        Ok(())
+    }
+
+    /// How long to wait, in seconds, before the step is asked again ([`Generation::request`]
+    /// gives the same request): where the last answer was for now, not for good. None where
+    /// it was read, and after the last of [`TRIES`].
+    pub fn again(&self) -> Option<f64> {
+        self.again
+    }
+
+    /// How many times the step has been asked and answered for now, not for good.
+    pub fn tried(&self) -> usize {
+        self.tried
     }
 
     /// The slides as the model wrote them, the text [`Generation::written`] read, once it has:
@@ -286,9 +383,16 @@ impl Generation {
                 0.2,
                 &[][..],
             ),
+            Step::Outline => {
+                let chosen = self.arc.as_ref()?;
+                let arc = arcs::arc(&chosen.selection);
+                let plan = beats::plan(arc, self.target());
+                let text = outline::prompt(&self.brief, arc, &chosen.reasoning, &plan);
+                (outline::OUTLINE_SYSTEM, text, Shape::Outline, room(outline::OUTLINE_MAX_TOKENS), 0.3, &[][..])
+            }
             Step::Slides => {
                 let arc = arcs::arc(&self.arc.as_ref()?.selection);
-                let text = prompt::generation(&self.brief, arc, self.target());
+                let text = prompt::generation_outlined(&self.brief, arc, self.target(), self.outline.as_ref());
                 (prompt::SLIDES_SYSTEM, text, Shape::Slides, room(SLIDES_MAX_TOKENS), 0.7, documents)
             }
             Step::Done => return None,
@@ -302,7 +406,7 @@ impl Generation {
             prompt: &prompt,
             shape,
             // Vzestup holds Anthropic's arc selection to its shape by the rider alone.
-            anthropic_schema: shape == Shape::Slides,
+            anthropic_schema: shape != Shape::Arc,
             max_tokens,
             temperature: Some(temperature),
             documents,
@@ -398,10 +502,30 @@ impl Generation {
         fit::read(&read.text, longs).map_err(NarratoError::Answer)
     }
 
-    /// Read the response to [`Generation::request`]: `status` 0 where it never came back. Arc
-    /// selection that fails in any way falls back to the heuristic, saying why; the slides that
-    /// fail are an error, and the step stands to be asked again.
-    pub fn answer(&mut self, status: u16, status_text: &str, body: &str) -> Result<Step, NarratoError> {
+    /// Read the response to [`Generation::request`]: `status` 0 where it never came back, and
+    /// `after` its `Retry-After`, where it has one. An answer for now, not for good (`busy`: no
+    /// answer, a timeout, a rate limit, a server's failure) leaves the step standing to be asked
+    /// again, after the wait [`Generation::again`] says, up to [`TRIES`] times in all (narrative
+    /// REL-1). After the last, or any other failure, arc selection falls back to the heuristic,
+    /// saying why; the slides that fail are an error, and the step stands to be asked again.
+    pub fn answer(
+        &mut self,
+        status: u16,
+        status_text: &str,
+        body: &str,
+        after: Option<&str>,
+    ) -> Result<Step, NarratoError> {
+        if self.step == Step::Done {
+            return Err(NarratoError::Done);
+        }
+        if busy(status) && self.tried + 1 < TRIES {
+            self.tried += 1;
+            self.again = Some(providers::wait(after, body, self.tried));
+            return Ok(self.step);
+        }
+        self.again = None;
+        let tried = std::mem::take(&mut self.tried) + 1;
+        let asked = |why: String| if tried > 1 { format!("{why} (asked {tried} times)") } else { why };
         match self.step {
             Step::Arc => {
                 let chosen = match status {
@@ -414,18 +538,33 @@ impl Generation {
                     Ok(choice) => self.arc = Some(choice),
                     Err(why) => {
                         self.arc = Some(heuristic::choose(&self.brief));
-                        self.fallback = Some(why);
+                        self.fallback = Some(asked(why));
                     }
                 }
                 self.step = Step::Slides;
                 Ok(self.step)
             }
+            // An outline that fails to come back is an error that says why, and the step stands
+            // to be asked again, or passed over for the slides at once.
+            Step::Outline => {
+                if status == 0 {
+                    return Err(NarratoError::Provider(asked(format!("the request did not complete: {status_text}"))));
+                }
+                let read = (self.settings.provider.read_answer(status, status_text, body))
+                    .map_err(|why| NarratoError::Provider(asked(why)))?;
+                let chosen = self.arc.as_ref().expect("the arc is chosen before the outline is asked");
+                let arc = arcs::arc(&chosen.selection);
+                let plan = beats::plan(arc, self.target());
+                self.outline = Some(outline::read(&read.text, arc, &plan).map_err(NarratoError::Answer)?);
+                self.step = Step::Slides;
+                Ok(self.step)
+            }
             Step::Slides => {
                 if status == 0 {
-                    return Err(NarratoError::Provider(format!("the request did not complete: {status_text}")));
+                    return Err(NarratoError::Provider(asked(format!("the request did not complete: {status_text}"))));
                 }
-                let read =
-                    self.settings.provider.read_answer(status, status_text, body).map_err(NarratoError::Provider)?;
+                let read = (self.settings.provider.read_answer(status, status_text, body))
+                    .map_err(|why| NarratoError::Provider(asked(why)))?;
                 self.written(&read.text, read.stop == Stop::Length)
             }
             Step::Done => Err(NarratoError::Done),
@@ -438,7 +577,7 @@ impl Generation {
     /// The arc is chosen first; too few slides for the length asked are refused.
     pub fn written(&mut self, text: &str, stopped: bool) -> Result<Step, NarratoError> {
         let arc = match (self.step, &self.arc) {
-            (Step::Slides, Some(arc)) => arc.clone(),
+            (Step::Slides | Step::Outline, Some(arc)) => arc.clone(),
             (Step::Done, _) => return Err(NarratoError::Done),
             _ => return Err(NarratoError::Answer("the arc is chosen before the slides are written".into())),
         };
@@ -458,6 +597,7 @@ impl Generation {
             brief: Brief { source_content: None, ..self.brief.clone() },
             icons: Default::default(),
             sources: self.sources.clone(),
+            outline: self.outline.clone(),
         });
         self.step = Step::Done;
         Ok(self.step)

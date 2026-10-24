@@ -602,6 +602,81 @@ fn the_assistant_is_given_each_tool_its_prompt_names() {
     unsafe { scaena_session_free(s) };
 }
 
+/// A call that only reads runs apart from the window (narrative lift-up PERF-2): `deck_lint`
+/// without `fix`, `deck_render`, and `deck_health` run on a snapshot's session on another thread,
+/// and come to what they come to on the session, which the conversation takes back as `run`'s;
+/// a call that writes is refused there, and runs on the session.
+#[test]
+fn a_call_that_only_reads_runs_apart_on_a_snapshot_and_comes_to_what_it_does_on_the_session() {
+    let reads =
+        |name: &str, args: Value| unsafe { scaena_chat_reads_alone(c(name).as_ptr(), c(&args.to_string()).as_ptr()) };
+    assert!(reads("deck_lint", json!({ "state": "cover" })) && reads("deck_render", json!({})));
+    assert!(reads("deck_health", Value::Null) || reads("deck_health", json!({})));
+    assert!(!reads("deck_lint", json!({ "fix": true })) && !reads("deck_patch", json!({ "ops": [] })));
+    assert!(!reads("resource_read", json!({ "uri": "scaena://spec" })));
+
+    let s = open(B1);
+    let mut error = null_mut();
+    let chat = unsafe { scaena_chat_new(c(r#"{"provider":"anthropic","model":"a-model"}"#).as_ptr(), &mut error) };
+    step(chat, s, "ask", json!({ "text": "Is the cover clean?" }));
+    let calls = [
+        ("t1", "deck_lint", json!({ "state": "cover" })),
+        ("t2", "deck_render", json!({ "state": "cover" })),
+        ("t3", "resource_read", json!({ "uri": "scaena://spec" })),
+    ];
+    let next = step(chat, null_mut(), "answer", json!({ "status": 200, "body": calling(&calls) }));
+    let at = "2026-10-08T12:00:00Z";
+    // What each comes to on the session itself, from a conversation of its own.
+    let other = unsafe { scaena_chat_new(c(r#"{"provider":"anthropic","model":"a-model"}"#).as_ptr(), &mut error) };
+    step(other, s, "ask", json!({ "text": "Is the cover clean?" }));
+    step(other, null_mut(), "answer", json!({ "status": 200, "body": calling(&calls) }));
+    let want: Vec<Value> = (0..3).map(|index| step(other, s, "run", json!({ "index": index, "at": at }))).collect();
+
+    struct Sent(*mut ScaenaSnapshot);
+    // SAFETY: the thread it goes to holds it alone until it is handed back.
+    unsafe impl Send for Sent {}
+    let snapshot = Sent(unsafe { scaena_snapshot_new(s) });
+    let apart = std::thread::spawn(move || {
+        let snapshot = snapshot;
+        let mut error = null_mut();
+        let reader = unsafe { scaena_snapshot_open(snapshot.0, &mut error) };
+        assert!(!reader.is_null(), "opened: {}", took(error));
+        let run = |call: &Value| -> Value {
+            let answer = unsafe {
+                scaena_chat_run_apart(reader, c("a-model").as_ptr(), c(&call.to_string()).as_ptr(), c(at).as_ptr())
+            };
+            serde_json::from_str(&took(answer)).unwrap()
+        };
+        let ran: Vec<Value> = [0, 1].iter().map(|i| run(&next["calls"][*i])).collect();
+        let refused = run(&json!({ "id": "t9", "name": "deck_lint", "args": { "fix": true } }));
+        unsafe { scaena_session_free(reader) };
+        unsafe { scaena_snapshot_free(snapshot.0) };
+        (ran, refused)
+    });
+    let (ran, refused) = apart.join().unwrap();
+    assert!(refused["error"]["message"].as_str().is_some_and(|m| m.contains("writes")), "{refused}");
+    for (i, ran) in ran.iter().enumerate() {
+        assert_eq!(ran["ok"], want[i], "call {i} comes to what it does on the session");
+        let taken = step(chat, null_mut(), "took", json!({ "index": i, "ran": ran["ok"] }));
+        assert_eq!(taken, want[i]);
+    }
+    let mismatched = stepped(chat, null_mut(), "took", json!({ "index": 2, "ran": ran[0]["ok"] }));
+    assert!(mismatched["error"]["message"].is_string(), "{mismatched}");
+    step(chat, s, "run", json!({ "index": 2, "at": at }));
+    assert_eq!(step(chat, null_mut(), "next", Value::Null), json!(true));
+    // The model is handed what it is handed when every call runs on the session: the frame too.
+    step(other, null_mut(), "next", Value::Null);
+    let results = |chat| {
+        let body = body_of(&step(chat, null_mut(), "request", json!({ "key": "sk-test" })));
+        body["messages"].as_array().unwrap().last().unwrap()["content"].clone()
+    };
+    assert_eq!(results(chat), results(other));
+    assert_eq!(results(chat)[1]["content"][1]["type"], "image");
+    unsafe { scaena_chat_free(chat) };
+    unsafe { scaena_chat_free(other) };
+    unsafe { scaena_session_free(s) };
+}
+
 #[test]
 fn the_assistant_asks_with_the_users_key_and_runs_each_call_on_the_bundle() {
     // The providers, outside a conversation: the models a key can use.
@@ -1861,4 +1936,32 @@ fn every_theme_in_the_registry_makes_and_saves_a_deck_with_its_fonts_alone() {
         }
         unsafe { scaena_session_free(s) };
     }
+}
+
+/// A call that lays a deck out and lints it, as a re-theme does before and after, has the stack it
+/// takes on whatever thread Swift calls from, a segment added where the caller's runs low: a Swift
+/// Testing thread holds 512 KB, and the iPad's main thread 1 MB. Called here from a thread of
+/// 256 KB, which the re-theme overran on the caller's own stack (#533).
+#[test]
+fn a_re_theme_is_answered_on_a_stack_of_its_own() {
+    struct Sent(*mut ScaenaSession);
+    unsafe impl Send for Sent {}
+    let s = Sent(open(B1));
+    let caller = std::thread::Builder::new()
+        .stack_size(256 << 10)
+        .spawn(move || {
+            let s = s;
+            let answer = answered(s.0, "retheme", &json!({ "ships": "daybreak" }));
+            let tool = tool(s.0, "deck_lint", json!({}));
+            (s, answer, tool)
+        })
+        .unwrap();
+    let (s, answer, linted) = caller.join().expect("the caller's own stack holds");
+    // B1 names layouts Daybreak lacks, so the theme is refused: once the deck is linted in it, which
+    // is the depth a re-theme takes, and which the answer says.
+    assert!(answer.get("error").is_none(), "{answer}");
+    assert_eq!(answer["ok"]["theme"], "themes/daybreak.theme.json", "{answer}");
+    assert!(answer["ok"]["added"].as_array().is_some_and(|a| !a.is_empty()), "linted in the theme: {answer}");
+    assert!(linted.get("error").is_none(), "{linted}");
+    unsafe { scaena_session_free(s.0) };
 }

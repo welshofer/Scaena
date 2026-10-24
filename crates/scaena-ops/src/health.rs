@@ -717,6 +717,7 @@ mod tests {
             truncated: false,
             icons: Default::default(),
             sources: Vec::new(),
+            outline: None,
             brief: Brief {
                 topic: "Climate change, where we stand, for an audience of colleagues".into(),
                 audience: "Colleagues".into(),

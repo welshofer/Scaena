@@ -113,8 +113,11 @@ public struct Themed: Decodable, Sendable {
     /// How many texts the theme left too faint to read were set in its color that reads where
     /// each stands (PLAN 2.82).
     public let recolored: Int
+    /// How many texts the theme set past their boxes, or over another, were fitted as lint's
+    /// checked fix fits them: shrunk to fit.
+    public let refitted: Int
 
-    private enum Keys: String, CodingKey { case theme, applied, refused, added, recolored }
+    private enum Keys: String, CodingKey { case theme, applied, refused, added, recolored, refitted }
 
     public init(from decoder: any Decoder) throws {
         let fields = try decoder.container(keyedBy: Keys.self)
@@ -125,6 +128,7 @@ public struct Themed: Decodable, Sendable {
         refusals = found
         why = messages(found)
         recolored = try fields.decodeIfPresent([JSONValue].self, forKey: .recolored)?.count ?? 0
+        refitted = try fields.decodeIfPresent([JSONValue].self, forKey: .refitted)?.count ?? 0
     }
 }
 

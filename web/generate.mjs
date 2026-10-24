@@ -28,7 +28,7 @@
 //   unscored, a mark on the arc for each slide. A finding's slide is shown at a press; its fix is
 //   one change, which ⌘Z takes back; and its question goes into the assistant's box.
 // Exits 1 on any failure.
-import { readFile } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { launch, serve, tab } from "./serve.mjs";
 
@@ -102,13 +102,21 @@ const provider = createServer(async (req, res) => {
     ? "fit"
     : system.includes("art director")
       ? "look"
-      : prompt.includes("=== CATALOG ===")
-        ? "arc"
-        : "slides";
+      : system.includes("planning a presentation before its slides")
+        ? "outline"
+        : prompt.includes("=== CATALOG ===")
+          ? "arc"
+          : "slides";
   requests.push({ headers: req.headers, body, prompt, asked });
   if (state.slow) await new Promise((ok) => setTimeout(ok, state.slow));
   if (state.fail) return reply(401, { type: "error", error: { type: "authentication_error", message: "invalid x-api-key" } });
   if (asked === "arc") return reply(200, ARC);
+  // The outline before the slides (narrative FUNC-1): the big idea and a claim for each of the
+  // arc's six beats.
+  if (asked === "outline") {
+    const beats = [1, 2, 3, 4, 5, 6].map((beat) => ({ beat, claim: `Claim ${beat}: what this beat's slides leave behind.` }));
+    return reply(200, { content: [{ type: "text", text: JSON.stringify({ bigIdea: "Cargo can pay for its carbon.", beats }) }], stop_reason: "end_turn" });
+  }
   if (asked === "slides") return reply(200, state.slides ?? SLIDES);
   if (asked === "look") {
     const look = { slides: [{ slide: 1, layout: "", title: "Carbon-negative cargo, ready to scale", subtitle: "", bullets: [], why: "One idea, one line." }] };
@@ -289,8 +297,45 @@ try {
   await link(`${press}/press.html`);
   const listed = await page.locator("#prompting-sources li").allTextContents();
   check(listed.length === 3, `the sources are listed: ${listed.map((l) => l.replace(/\s*Remove$/, "")).join(", ")}`);
+  check(await page.isChecked("#prompting-show-outline"), "the outline is shown first by default");
   await page.click("#prompting-go");
+  // The outline before the slides (narrative FUNC-1): the arc and why, the big idea, and each beat's
+  // claim, to change before the slides are written; the slides' call waits on it.
+  await page.waitForSelector("#prompting-outline:not([hidden])", { timeout: 120000 });
+  const arcSaid = await page.textContent("#prompting-outline-arc");
+  check(arcSaid.startsWith("Arc: Problem–Solution."), `the outline names its arc and why: ${arcSaid}`);
+  check((await page.inputValue("#prompting-big-idea")) === "Cargo can pay for its carbon.", "the big idea, to type over");
+  const claims = await page.locator("#prompting-beats .claim").evaluateAll((all) => all.map((c) => c.value));
+  check(claims.length === 6 && claims[0] === "Claim 1: what this beat's slides leave behind.", `a claim for each of the six beats: ${claims.length}`);
+  const names = await page.locator("#prompting-beats .name").evaluateAll((all) => all.map((n) => n.value));
+  check(names[0].startsWith("Problem:") && names[5].startsWith("Call to Action:"), `each beat named as the arc names it: ${names.join(" | ")}`);
+  check(requests.filter((r) => r.asked === "slides").length === 0, "no slides are written while the outline is read");
+  check(!(await page.isDisabled("#prompting-write")), "Write the slides can be pressed while the rest of the brief waits");
+  const progress1 = await lines();
+  check(progress1.some((l) => l.startsWith("Outline: 6 beats.")), `the progress says the outline is there to read: ${progress1.at(-1)}`);
+  // Changed: the second beat's claim rewritten, the third moved first, the last removed, and a beat
+  // of the person's own added.
+  await page.locator("#prompting-beats .claim").nth(1).fill("No carrier can cut it alone.");
+  await page.locator("#prompting-beats li").nth(2).locator("button[aria-label='Move the beat up']").click();
+  await page.locator("#prompting-beats li").nth(1).locator("button[aria-label='Move the beat up']").click();
+  await page.locator("#prompting-beats li").nth(5).locator("button[aria-label='Remove the beat']").click();
+  await page.click("#prompting-add-beat");
+  await page.locator("#prompting-beats li").last().locator(".name").fill("Thanks");
+  await page.locator("#prompting-beats li").last().locator(".claim").fill("Thank you for listening.");
+  await page.fill("#prompting-big-idea", "Cargo pays for its carbon.");
+  await mkdir("target/web-generate", { recursive: true });
+  await page.locator("#prompting").screenshot({ path: "target/web-generate/outline.png" });
+  await page.click("#prompting-write");
   await page.waitForFunction(() => window.scaena.where().name !== "revenue" && window.scaena.last(), null, { timeout: 180000 });
+  const outlined = requests.filter((r) => r.asked === "outline");
+  check(outlined.length === 1 && outlined[0].prompt.includes("Beat 1 \"Problem: Define core challenge and stakes\" → 1 slide"), `the outline was asked once, each beat with its slides: ${outlined[0]?.prompt.slice(0, 120)}`);
+  const toOutline = requests.find((r) => r.asked === "slides")?.prompt ?? "";
+  const block = toOutline.slice(toOutline.indexOf("**Outline (Scaena)**"));
+  check(toOutline.includes("**Slot shapes (Scaena)**") && block.length > 0, "the slides' prompt carries Narrato's text, then the outline's block");
+  check(block.includes("\"Cargo pays for its carbon.\""), "with the big idea as typed");
+  check(/Beat 1 "Existing Approaches[^\n]*\n\s+Beat 2 "Problem/.test(block), `the beats in the order settled: ${block.slice(0, 400)}`);
+  check(block.includes(": No carrier can cut it alone.\n") && block.includes("Beat 6 \"Thanks\"") && !block.includes("Claim 6:"), "the claim rewritten, the beat added, the beat removed");
+  check(await page.locator("#prompting").evaluate((d) => !d.open), "the deck made, the dialog closed");
   const made = await page.evaluate(() => window.scaena.where());
   check(made.where === undefined, `the deck made is kept nowhere until it is saved: ${JSON.stringify(made)}`);
   const status = await page.textContent("#status");
@@ -407,6 +452,8 @@ try {
   // fetched for them (PLAN G.23): each a path on its view, named by the icon.
   state.slides = ICONED;
   await opened();
+  // Slides at once, the outline not asked for: a person who wants them now gets them.
+  await page.uncheck("#prompting-show-outline");
   await page.click("#prompting-go");
   // Made, opened, and compiled: the new deck's first compile is its `last`.
   await page
@@ -426,6 +473,7 @@ try {
   state.slides = DASHED;
   check(DASHED !== ICONED, "the dashed answer differs from the iconed one");
   await opened();
+  await page.uncheck("#prompting-show-outline");
   await page.click("#prompting-go");
   await page
     .waitForFunction((was) => window.scaena.source() !== was && window.scaena.source().includes("alt:Compass") && window.scaena.last(), iconed, { timeout: 180000 })
