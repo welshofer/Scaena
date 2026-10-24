@@ -114,6 +114,23 @@ public final class Laying: @unchecked Sendable {
     public func health() throws -> Health {
         try ScaenaSession.decode(scaena_laying_health(handle), as: Health.self)
     }
+
+    /// `state` at rest in `format`, or on the deck's own canvas where none, painted by the CPU
+    /// painter `width` pixels wide: the session's pixels at rest, drawn on the thread that calls
+    /// it, by an engine built at the first and kept for the next (lift-up PERF-2).
+    public func pixels(format: String?, state: String, width: Int) throws -> ScaenaSession.Pixels {
+        var error: UnsafeMutablePointer<CChar>?
+        let wide = UInt32(max(width, 1))
+        // A format by its name, or none: the C string made only where there is one.
+        let painted: ScaenaPixels
+        if let format {
+            painted = scaena_laying_pixels(handle, format, state, wide, &error)
+        } else {
+            painted = scaena_laying_pixels(handle, nil, state, wide, &error)
+        }
+        let rgba = try ScaenaSession.take(painted.bytes, error)
+        return ScaenaSession.Pixels(rgba: rgba, width: Int(painted.width), height: Int(painted.height))
+    }
 }
 
 /// What an inspector offers (PLAN 2.33, 2.36): each property of a node in a state, or of the
@@ -512,6 +529,12 @@ extension ScaenaSession {
     /// to `lint(laid:)`. None where no source compiled to a deck that validates.
     public func laying() -> Laying? {
         scaena_laying_new(handle).map(Laying.init)
+    }
+
+    /// Whether `laying` was taken from the deck as it stands: not once another source compiled, a
+    /// file was handed over, or the theme was edited, when what it draws is an older deck's.
+    public func holds(_ laying: Laying) -> Bool {
+        scaena_laying_holds(handle, laying.handle)
     }
 
     /// What lint finds on every state, as `lint()` says it, from what `laid` found once laid out,

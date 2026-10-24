@@ -738,6 +738,39 @@ async fn a_long_export_keeps_going_while_the_client_asks_after_it() {
     client.cancel().await.unwrap();
 }
 
+/// Writes to one bundle at once each land (the 20261024 plan's REL-2): an agent calls tools in
+/// parallel, and two patches that read the same deck must not write one over the other while
+/// both say they were made. A deck file names its bundle as its folder does.
+#[tokio::test(flavor = "multi_thread")]
+async fn writes_to_one_bundle_at_once_each_land() {
+    let root = scratch("at-once");
+    let bundle = root.join("q3");
+    let opts = scaena_store::SaveOptions { subset_fonts: false, now: "2026-10-24T00:00:00Z".into(), history: false };
+    scaena_ops::open(&Path::new(EXAMPLES).join("revenue.deck.json")).unwrap().save(&bundle, &opts).unwrap();
+    let server = scaena_mcp::Scaena::default().with_dir(root.clone());
+    let client = serve(server, ClientConfig::default(), ClientLifecycleMode::Initialize).await;
+    let names = [path(&bundle), path(&bundle.join("deck.json"))];
+    let patches: Vec<_> = (0..16)
+        .map(|i| {
+            let ops = json!([{ "op": "add_node", "id": format!("note{i}"), "state": "intro",
+                "node": { "type": "text", "role": "body", "text": format!("Note {i}"), "at": { "in": "canvas" } } }]);
+            let args = json!({ "bundle": names[i % 2], "ops": ops }).as_object().unwrap().clone();
+            let peer = client.peer().clone();
+            tokio::spawn(async move {
+                peer.call_tool(CallToolRequestParams::new("deck_patch".to_string()).with_arguments(args)).await.unwrap()
+            })
+        })
+        .collect();
+    for patch in patches {
+        let done = patch.await.unwrap();
+        assert_ne!(done.is_error, Some(true), "{}", text(&done));
+    }
+    let deck = scaena_ops::open(&bundle).unwrap().deck;
+    let lost: Vec<String> = (0..16).map(|i| format!("note{i}")).filter(|id| !deck.nodes.contains_key(id)).collect();
+    assert!(lost.is_empty(), "patches said they were made, and the deck lacks {lost:?}");
+    client.cancel().await.unwrap();
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn an_agents_edits_are_its_own_in_a_bundles_history() {
     let bundle = scratch("history").join("q3");
