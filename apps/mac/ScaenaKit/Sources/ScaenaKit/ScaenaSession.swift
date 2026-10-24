@@ -161,6 +161,12 @@ public final class ScaenaSession {
     /// How long `state`'s cue runs, ms. Past it, the state is at rest.
     public func duration(of state: String) throws -> Double { try call("duration", ["state": .string(state)]) }
 
+    /// Lay out the cue into `state` ahead, while the state shown rests: the state a show goes on
+    /// to, whose first frame then lays out nothing (lift-up PERF-1).
+    public func prepare(_ state: String) throws {
+        let _: JSONValue = try call("prepare", ["state": .string(state)])
+    }
+
     /// The deck as canonical `.scn`.
     public func source() throws -> String { try call("source") }
 
