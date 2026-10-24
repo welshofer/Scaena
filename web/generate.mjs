@@ -395,7 +395,7 @@ try {
   check((await page.getAttribute("#tab-assistant", "aria-selected")) === "true", "a question opens the assistant's tab");
   check((await page.inputValue("#question")) === question, `the question is in its box: ${question}`);
   // The Files tab lists what the deck was grounded in, each with the slides citing it (FUNC-3).
-  await page.click("#tab-files");
+  await tab(page, "files");
   await page.waitForSelector("#files [data-grounded] li", { timeout: 30000 }).catch(() => {});
   const grounded = await page.locator("#files [data-grounded] li").allTextContents();
   check(
