@@ -493,9 +493,17 @@ try {
       picker.value = format;
       picker.dispatchEvent(new Event("change"));
     }, format);
-    // Shown there once its status says 9:16, or no longer says it.
+    // Shown there once its status says where the deck is again, in 9:16 or no longer in it: an error
+    // the status still says is not the format shown.
     await player
-      .waitForFunction((format) => document.querySelector("#status").textContent.includes("9:16") === (format === "9:16"), format, { timeout: 15000 })
+      .waitForFunction(
+        (format) => {
+          const said = document.querySelector("#status").textContent;
+          return !said.startsWith("Error:") && said.includes("9:16") === (format === "9:16");
+        },
+        format,
+        { timeout: 15000 },
+      )
       .catch(() => failures.push(`the player turned to ${format || "its own size"}`));
   };
   const upright = (want) =>
