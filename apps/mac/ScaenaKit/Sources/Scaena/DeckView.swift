@@ -805,11 +805,15 @@ struct DeckView: View {
                 }
             }
             // A deck New made: the themes that ship offered first, once its window is up. A deck
-            // made from a prompt says what it came to.
+            // made from a prompt says what it came to, and lands on its story (narrative USE-2):
+            // the Document tab's Story panel, with the arc's curve and each slide's fix.
             .task {
                 if let opening = document.opening {
                     document.opening = nil
                     said = opening
+                    showsInspector = true
+                    tab = .document
+                    documentPanel = .story
                 }
                 guard document.startsNew else { return }
                 document.startsNew = false

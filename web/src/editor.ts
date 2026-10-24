@@ -216,6 +216,8 @@ let current:
       close: () => void;
       dirty: () => boolean;
       say: (text: string) => void;
+      /** The deck's story read: its score (narrative USE-2). */
+      story: () => Promise<number>;
       kept: () => string | undefined;
       rekeep: (from: string, to?: string) => Promise<void>;
       typeTitle: () => Promise<boolean>;
@@ -428,6 +430,15 @@ async function controls() {
     $("#new-prompt"),
     () => current?.dirty() ?? false,
     (source) => open(source, true),
+    async () => {
+      // The Story tab shown reads the deck's health itself; the score goes in the line.
+      $<HTMLButtonElement>("#tab-story").click();
+      try {
+        return await current?.story();
+      } catch {
+        return undefined;
+      }
+    },
     (line) => current?.say(line),
   );
 }
@@ -2873,6 +2884,7 @@ async function edit(source: Source, opened?: Stage) {
     },
     dirty,
     say,
+    story: async () => (await stage.health(view.state.doc.toString())).score,
     kept: () => (where?.kind === "opfs" ? where.name : undefined),
     // New's deck opens typing in its title, its words selected (PLAN 3.21): whether it does.
     typeTitle: async () => {
