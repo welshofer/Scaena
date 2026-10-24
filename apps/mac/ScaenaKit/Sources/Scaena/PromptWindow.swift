@@ -509,6 +509,8 @@ struct PromptView: View {
             }
         }
         .padding(.horizontal)
+        // A container of its own, so its fields and buttons keep their own identifiers.
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("prompt-outline")
     }
 
