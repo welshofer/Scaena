@@ -19,7 +19,8 @@ out/
 `spine.json` holds:
 - **The deck.** `scaena` (the format version of the deck it came from), `title`, `lang` (BCP 47), `canvas`, and `formats`.
 - **`spine`**, as the deck holds it (SPEC §3.11). It has sections, each with beats. Each beat has `claim`, `evidence` (`@data` refs, assets, URLs), `states`, `notes`, `duration` (estimated seconds), and `media`, which holds free-form hints for each projection (`infographic`, `podcast`, …).
-- **`states`**, every state in cue-list order. Each has `id`, `slide`, `notes`, and `hold`. Its `start` and `span` (ms) place it on the global timeline (SPEC §2.4): its cue runs from `start` for `span`, then its `hold` follows.
+- **`states`**, every state in cue-list order. Each has `id`, `slide`, `notes`, and `hold`. `notes` is what a presenter reads for it: its own, else its beat's (SPEC §2.6). Its `start` and `span` (ms) place it on the global timeline (SPEC §2.4): its cue runs from `start` for `span`, then it rests for `rest` ms.
+- **`pace`**, how that timeline was paced. Under `beats`, the default, a state with no `hold` rests for its share of its beat's `duration`, less the cues of the beat's states, so a generated talk, which has no holds, runs as long as its beats say. A `hold` the deck gives, as Rehearse keeps one, always wins. Under `holds` (`--pace holds`), each state rests its `hold` alone, as a player auto-advances: a state with none goes on at once.
 - **`beats`**, keyed by id, in spine order. Each has:
   - `section`;
   - `state`: the state that shows the beat, the last of its states in the deck's order (a build at its fullest, as a PDF page shows it);
@@ -60,12 +61,12 @@ scaena inspect <bundle> --state <state> --data --json   # [{ state_id, …, data
 ## Motion
 
 ```
-scaena export <bundle> --format mp4|webm|prores --out deck.mp4 [--size 1920x1080] [--fps 60] [--audio track.wav] [--states a,b] [--painter gpu]
+scaena export <bundle> --format mp4|webm|prores --out deck.mp4 [--size 1920x1080] [--fps 60] [--audio track.wav] [--states a,b] [--painter gpu] [--pace beats|holds]
 ```
 
-- **Timing.** The video plays the global timeline: each state's cue, then its hold. With `--states`, it plays only those states, in that order (SPEC §10).
+- **Timing.** The video plays the global timeline as the spine paces it: each state's cue, then its hold, or where it has none its share of its beat's `duration` (`--pace beats`, the default). `--pace holds` plays the holds alone. With `--states`, it plays only those states, in that order (SPEC §10).
 - **Chapters.** The file carries a chapter for each beat, titled by its claim. In MP4 and QuickTime this is a chapter track; in WebM, Matroska chapters. If no beat names a state, that state gets a chapter of its own, titled by its slide's id. A deck without a spine gets no chapters.
-- **The `--json` result** lists the same `chapters` as `{ beat, title, start, end }`, in ms into the video. It also lists `timeline`: each state's `start`, `span`, and `hold`.
+- **The `--json` result** lists the same `chapters` as `{ beat, title, start, end }`, in ms into the video. It also lists `timeline`: each state's `start`, `span`, and `hold`, its time at rest as paced, and `pace`.
 - **Finding a beat.** Played whole, the video's clock is the global timeline, so `spine.json`'s `beats[<id>].start` and `end` are the beat's place in the video. With `--states`, read the result's `chapters` instead.
 - **A clip per beat.** Cut the video at a chapter's marks. Or export the beat's states alone, in the deck's order, with `--states`.
 - **Single frames.** Frame *k* is the moment `scaena render --state <state> --t <ms>` draws. A pipeline that composites its own motion can render stills at the moments it needs.
@@ -81,11 +82,13 @@ scaena export <bundle> --format mp4|webm|prores --out deck.mp4 [--size 1920x1080
 To lay the narration under the video:
 1. Synthesize a clip for each beat.
 2. A beat lasts `end − start` ms on the timeline.
-   - Where the clip is longer, lengthen the beat. Raise the `hold` of its `state` by the difference. `i` is that state's position in `states`:
+   - Where the clip is longer, lengthen the beat. Raise its `duration` by the difference, in seconds. `s` and `b` are its section's and its own position in the spine:
 
      ```
-     echo '[{ "op": "add", "path": "/states/<i>/hold", "value": <its hold + the difference, ms> }]' | scaena patch <bundle> --ops - --json
+     echo '[{ "op": "add", "path": "/spine/sections/<s>/beats/<b>/duration", "value": <its duration + the difference, s> }]' | scaena patch <bundle> --ops - --json
      ```
+
+     A beat whose states all have a `hold` takes no share of its duration: raise the `hold` of its `state` instead (`/states/<i>/hold`, ms, `i` its position in `states`).
 
      `patch` refuses a change that would leave the deck invalid, and reports the lint delta.
    - Where the clip is shorter, pad it with silence.

@@ -233,7 +233,7 @@ try {
     roomy.width > small.width && fills && proportioned,
     `and the slide takes their room: ${small.width} → ${roomy.width}, filling the stage: ${JSON.stringify(fill)}`,
   );
-  await run("Show the inspector");
+  await run("Show Format");
   check(!(await page.locator("#panel").isHidden()), "Show the inspector shows it again");
   await run("Show the animations");
   await page.setViewportSize({ width: 1600, height: 1000 });
