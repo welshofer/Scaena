@@ -401,6 +401,10 @@ enum Cmd {
         /// blank slide without it.
         #[arg(long)]
         layout: Option<String>,
+        /// The one sentence the slide tells, in a beat of its own just after the beat of STATE.
+        /// Without it, the slide joins that beat.
+        #[arg(long)]
+        claim: Option<String>,
         /// Say what would change, and write nothing.
         #[arg(long)]
         dry_run: bool,
@@ -852,7 +856,9 @@ fn run(cli: Cli) -> Result<ExitCode> {
             };
             map(&a, cli.json)
         }
-        Cmd::Start { bundle, state, layout, dry_run } => start(&bundle, &state, layout.as_deref(), dry_run, cli.json),
+        Cmd::Start { bundle, state, layout, claim, dry_run } => {
+            start(&bundle, &state, layout.as_deref(), claim.as_deref(), dry_run, cli.json)
+        }
         Cmd::Background { bundle, state, preset, none, dry_run } => {
             background(&bundle, &state, preset.as_deref(), none, dry_run, cli.json)
         }
@@ -1076,7 +1082,7 @@ fn new(dir: &Path, theme: &str, title: &str, json: bool) -> Result<ExitCode> {
 }
 
 fn theme_apply(bundle: &Path, theme: &Path, dry_run: bool, force: bool, json: bool) -> Result<ExitCode> {
-    let t = scaena_ops::theme::theme_apply(&open(bundle)?, theme, dry_run, force)?;
+    let t = scaena_ops::theme::theme_apply(&open(bundle)?, theme, None, dry_run, force)?;
     if json {
         println!("{}", serde_json::to_string_pretty(&t)?);
     } else if t.refused {
@@ -1318,9 +1324,16 @@ fn data(bundle: &Path, source: &str, edits: Option<&Path>, dry_run: bool, json: 
 /// `scaena start` (PLAN 3.30): a slide started in a layout after a state's slide, as one patch,
 /// reported as `patch` reports one, with the new state's id. Exits 1 where it is refused or
 /// errors remain, as `patch` does.
-fn start(bundle: &Path, state: &str, layout: Option<&str>, dry_run: bool, json: bool) -> Result<ExitCode> {
+fn start(
+    bundle: &Path,
+    state: &str,
+    layout: Option<&str>,
+    claim: Option<&str>,
+    dry_run: bool,
+    json: bool,
+) -> Result<ExitCode> {
     let b = open(bundle)?;
-    let s = scaena_ops::states::start(&b, state, layout, dry_run)?;
+    let s = scaena_ops::states::start(&b, state, layout, claim, dry_run)?;
     if json {
         println!("{}", serde_json::to_string_pretty(&s)?);
     } else {
@@ -1466,7 +1479,7 @@ fn files(bundle: &Path, remove: Option<&[String]>, dry_run: bool, json: bool) ->
         }
         return Ok(code);
     }
-    let listed = scaena_ops::files::Listed { files: scaena_ops::files::files(&b)? };
+    let listed = scaena_ops::files::listed(&b)?;
     if json {
         println!("{}", serde_json::to_string_pretty(&listed)?);
         return Ok(ExitCode::SUCCESS);
@@ -1490,6 +1503,21 @@ fn files(bundle: &Path, remove: Option<&[String]>, dry_run: bool, json: bool) ->
             println!("    named by {}", names.join(", "));
             for used in &f.used {
                 println!("    {} in {}", used.node, used.states.join(", "));
+            }
+        }
+    }
+    // What a deck made from a prompt was grounded in, which is no file of the bundle (FUNC-3).
+    if !listed.sources.is_empty() {
+        println!("grounded in");
+        for s in &listed.sources {
+            let cut = if s.truncated { ", cut short to fit" } else { "" };
+            println!("  {}  {}, {}{cut}", s.name, s.kind, size(s.bytes));
+            if let Some(url) = s.url.as_deref().filter(|u| *u != s.name) {
+                println!("    at {url}");
+            }
+            match s.cited.as_slice() {
+                [] => println!("    no beat cites it"),
+                beats => println!("    cited by {}", beats.join(", ")),
             }
         }
     }

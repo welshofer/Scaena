@@ -759,6 +759,7 @@ pub const LISTED: &[(&str, &str)] = &[
     ("W424", "More than one claim is on screen at once."),
     ("W425", "Two parts of the story in a row make the same claim."),
     ("W426", "This part of the story plays out of the outline's order."),
+    ("W429", "This part of the story is not told on a slide yet."),
     ("I400", "This step is the same as the one before it."),
     ("I401", "It never shows on any slide."),
     ("I402", "Settings of its own keep a theme change from reaching it."),
