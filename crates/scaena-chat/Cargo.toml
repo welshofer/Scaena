@@ -11,6 +11,8 @@ authors.workspace = true
 [dependencies]
 # What the model reads: the resources it is told of, and the author-deck skill (SPEC §11).
 scaena-resources.workspace = true
+# The deck's words fenced as data where they enter the prompt (lift-up SEC-3).
+scaena-fence.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
