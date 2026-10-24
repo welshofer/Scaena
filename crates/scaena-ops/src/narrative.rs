@@ -2855,8 +2855,9 @@ impl Slots<'_> {
             (None, "figure") if name == "callout" && self.layout == "line-chart" => at_least("numeral"),
             (None, "caption") if name == "note" && self.layout == "line-chart" => at_least("body"),
             // A journey's cells, a few words each, as large as their places take, up to the lede,
-            // all of a slide's at one size (dogfood pass 5).
-            (None, "caption") if self.layout == "journey" && journey_cell(name) => at_least("lede"),
+            // all of a slide's at one size (dogfood pass 5), set in the body where the theme sets
+            // them so (lift-up dogfood) or in the caption where an older copy does.
+            (None, "caption" | "body") if self.layout == "journey" && journey_cell(name) => at_least("lede"),
             _ => None,
         }
     }
