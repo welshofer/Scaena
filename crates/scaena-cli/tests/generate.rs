@@ -3,7 +3,7 @@
 //! the command says which to set, before any call is made; and with sources, a provider on this
 //! machine answers as a provider would, and the requests it is sent show what grounds the deck.
 
-use serde_json::Value;
+use serde_json::{Value, json};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
@@ -66,6 +66,49 @@ fn slides_written_elsewhere_make_a_bundle_with_no_call() {
     // A place taken is refused before anything is made.
     let again = json(&scaena(&["--json", "generate", bundle, "again", "--slides", &catalog()]));
     assert!(again["error"]["message"].as_str().unwrap().contains("not an empty directory"));
+}
+
+/// The sources a deck is grounded in are kept beside its brief, each beat cites the one its slide
+/// names, lint finds nothing in the citations, and `scaena files` lists each with the beats
+/// citing it (narrative FUNC-3).
+#[test]
+fn each_beat_cites_the_source_its_slide_names() {
+    let dir = place("cited");
+    let bundle = dir.to_str().unwrap();
+    let notes = place("cited-notes").with_extension("md");
+    std::fs::write(&notes, "# Tidewater field notes\n\nPort calls doubled in Q3.").unwrap();
+    let name = notes.file_name().unwrap().to_str().unwrap().to_string();
+    let text = std::fs::read_to_string(catalog()).unwrap();
+    let mut written: Value = serde_json::from_str(&text).unwrap();
+    for slide in written["slides"].as_array_mut().unwrap().iter_mut().skip(1).take(3) {
+        slide["sourceRef"] = json!(name);
+    }
+    written["slides"][4]["sourceRef"] = json!("elsewhere.pdf");
+    let slides = place("cited-slides").with_extension("json");
+    std::fs::write(&slides, written.to_string()).unwrap();
+    let (slides, notes) = (slides.to_str().unwrap(), notes.to_str().unwrap());
+    let out = scaena(&["--json", "generate", bundle, "Tidewater's Series A", "--slides", slides, "--source", notes]);
+    assert_eq!(out.status.code(), Some(0), "{}", String::from_utf8_lossy(&out.stdout));
+    let deck: Value = serde_json::from_str(&std::fs::read_to_string(dir.join("deck.json")).unwrap()).unwrap();
+    let kept = &deck["meta"]["narrative"]["sources"];
+    assert_eq!(kept[0]["name"], json!(name), "{kept}");
+    assert_eq!((kept[0]["kind"].as_str(), kept[0].get("url")), (Some("markdown"), None));
+    let cited = format!("source:{name}");
+    let beats: Vec<&Value> =
+        (deck["spine"]["sections"].as_array().unwrap().iter()).flat_map(|s| s["beats"].as_array().unwrap()).collect();
+    let citing: Vec<&str> = (beats.iter())
+        .filter(|b| b["evidence"].as_array().is_some_and(|e| e.contains(&json!(cited))))
+        .map(|b| b["id"].as_str().unwrap())
+        .collect();
+    assert_eq!(citing.len(), 3, "{citing:?}");
+    assert!(!beats.iter().any(|b| b["evidence"].to_string().contains("elsewhere.pdf")), "not grounded in it");
+    let lint = json(&scaena(&["--json", "lint", bundle]));
+    assert!(!lint.to_string().contains("W423"), "{lint}");
+    let files = json(&scaena(&["--json", "files", bundle]));
+    assert_eq!(files["sources"][0]["name"], json!(name));
+    assert_eq!(files["sources"][0]["cited"], json!(citing));
+    let said = String::from_utf8(scaena(&["files", bundle]).stdout).unwrap();
+    assert!(said.contains("grounded in") && said.contains(&format!("cited by {}", citing.join(", "))), "{said}");
 }
 
 /// A deck in Ukrainian is written in Ukrainian, which the shipped fonts draw, and one with a
@@ -295,6 +338,14 @@ fn narrato(method: &str, path: &str, body: &str) -> Answer {
         ("POST", "/v1/messages") if body.contains("art director") => {
             (200, "application/json", anthropic(r#"{"slides":[]}"#))
         }
+        // The outline before the slides (narrative FUNC-1): a claim for each of the six beats.
+        ("POST", "/v1/messages") if body.contains("planning a presentation before its slides") => {
+            let beats: Vec<Value> = (1..=6)
+                .map(|n| serde_json::json!({ "beat": n, "claim": format!("Claim {n}: the beat's one sentence.") }))
+                .collect();
+            let outline = serde_json::json!({ "bigIdea": "Cargo can pay for its carbon.", "beats": beats });
+            (200, "application/json", anthropic(&outline.to_string()))
+        }
         ("POST", "/v1/messages") => {
             let catalog: Value = serde_json::from_slice(&std::fs::read(answers.join("catalog.json")).unwrap()).unwrap();
             let slides: Vec<Value> = [0, 1, 4, 54, 55].iter().map(|i| catalog["slides"][i].clone()).collect();
@@ -357,6 +408,93 @@ fn sources_ground_the_slides_a_pdf_beside_them_and_a_sheet_kept_as_data() {
     assert_eq!(deck["data"]["q3"]["source"], "data/q3.csv", "{:#}", deck["data"]);
     assert_eq!(deck["data"]["q3"]["schema"]["revenue"], "number");
     assert_eq!(made["data"][0]["id"], "q3");
+    assert_eq!(scaena(&["validate", dir.to_str().unwrap()]).status.code(), Some(0));
+}
+
+/// The outline before the slides (narrative FUNC-1): `--outline FILE` asks the arc and the
+/// outline, writes it, and makes nothing; edited, `--from-outline FILE` writes the slides to it,
+/// Scaena's block carrying the edits into the slides' prompt and the deck's sections following
+/// its beats.
+#[test]
+fn an_outline_is_written_first_and_the_slides_follow_the_edited_one() {
+    let (base, asked) = serve(narrato);
+    let dir = place("outlined");
+    let outline = place("outlined-outline").with_extension("json");
+    let _ = std::fs::remove_file(&outline);
+    let run = |args: &[&str]| {
+        let mut c = Command::new(env!("CARGO_BIN_EXE_scaena"));
+        for k in KEYS.into_iter().chain(PROXIES) {
+            c.env_remove(k);
+        }
+        c.env("ANTHROPIC_API_KEY", "sk-test")
+            .args(["--json", "generate", dir.to_str().unwrap(), "Tidewater's Series A"])
+            .args(["--provider", "anthropic", "--model", "a-model", "--base", &base])
+            .args(args)
+            .output()
+            .unwrap()
+    };
+    let out = run(&["--outline", outline.to_str().unwrap()]);
+    let said = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+    assert_eq!(out.status.code(), Some(0), "{said}");
+    assert!(!dir.exists(), "no deck is made before the outline is settled");
+    let written: Value = serde_json::from_str(&std::fs::read_to_string(&outline).unwrap()).unwrap();
+    assert_eq!(json(&out), written, "what is printed is what is written");
+    assert_eq!(written["arc"], "Problem\u{2013}Solution");
+    assert_eq!(written["bigIdea"], "Cargo can pay for its carbon.");
+    let beats = written["beats"].as_array().unwrap();
+    assert_eq!(beats.len(), 6);
+    assert_eq!(beats[0]["claim"], "Claim 1: the beat's one sentence.");
+    assert_eq!(beats.iter().map(|b| b["slides"].as_u64().unwrap()).sum::<u64>(), 8, "eight slides, the length's least");
+    {
+        let calls = asked.lock().unwrap();
+        let posts: Vec<&Asked> = calls.iter().filter(|a| a.method == "POST").collect();
+        assert_eq!(posts.len(), 2, "the arc, then the outline; no slides");
+        assert!(
+            posts[1].body.contains("Beat 1 \\\"Problem: Define core challenge and stakes\\\""),
+            "{}",
+            posts[1].body
+        );
+    }
+
+    // The person moves the third beat first, rewrites the second's claim, drops the last, and
+    // adds one of their own.
+    let mut edited = written.clone();
+    let beats = edited["beats"].as_array_mut().unwrap();
+    let third = beats.remove(2);
+    beats.insert(0, third);
+    beats[1]["claim"] = Value::String("Carriers cannot cut it with today's ships.".into());
+    beats.pop();
+    beats.push(serde_json::json!({ "name": "Thanks", "claim": "Thank you for listening.", "slides": 0 }));
+    std::fs::write(&outline, serde_json::to_string_pretty(&edited).unwrap()).unwrap();
+    asked.lock().unwrap().clear();
+    let out = run(&["--from-outline", outline.to_str().unwrap()]);
+    let said = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+    assert_eq!(out.status.code(), Some(0), "{said}");
+    let made = json(&out);
+    assert_eq!(made["created"]["created"], true, "{said}");
+    assert_eq!(made["arc"], "Problem\u{2013}Solution", "the outline's arc, with no call for one");
+    let calls = asked.lock().unwrap();
+    let posts: Vec<&Asked> = calls.iter().filter(|a| a.method == "POST").collect();
+    assert_eq!(posts.len(), 2, "the slides and the look at them; no arc, no outline: {said}");
+    let slides: Value = serde_json::from_str(&posts[0].body).unwrap();
+    let prompt = slides["messages"][0]["content"].as_array().unwrap().last().unwrap()["text"].as_str().unwrap();
+    assert!(prompt.contains("**Slot shapes (Scaena)**"), "{prompt}");
+    let block = &prompt[prompt.find("**Outline (Scaena)**").expect("the outline's block")..];
+    assert!(block.contains("The big idea, which every slide serves: \"Cargo can pay for its carbon.\""), "{block}");
+    let moved = written["beats"][2]["name"].as_str().unwrap();
+    assert!(block.contains(&format!("Beat 1 \"{moved}\"")), "the beat moved first: {block}");
+    assert!(block.contains("Beat 2 \"Problem: Define core challenge and stakes\" \u{2192} slide"), "{block}");
+    assert!(block.contains(": Carriers cannot cut it with today's ships.\n"), "the claim rewritten: {block}");
+    assert!(block.contains("Beat 6 \"Thanks\" \u{2192} slide"), "the beat added: {block}");
+    assert!(!block.contains("Call to Action"), "the beat dropped: {block}");
+    // The deck keeps the outline, and its sections are the outline's beats in its order.
+    let deck: Value = serde_json::from_str(&std::fs::read_to_string(dir.join("deck.json")).unwrap()).unwrap();
+    assert_eq!(deck["meta"]["narrative"]["outline"]["bigIdea"], "Cargo can pay for its carbon.");
+    assert_eq!(deck["meta"]["narrative"]["outline"]["beats"].as_array().unwrap().len(), 6);
+    let sections: Vec<&str> =
+        deck["spine"]["sections"].as_array().unwrap().iter().map(|s| s["title"].as_str().unwrap()).collect();
+    assert_eq!(sections[0], moved.split(':').next().unwrap().trim(), "{sections:?}");
+    assert!(sections.iter().all(|s| *s != "Call to Action"), "{sections:?}");
     assert_eq!(scaena(&["validate", dir.to_str().unwrap()]).status.code(), Some(0));
 }
 
@@ -654,12 +792,17 @@ fn a_pictures_key_that_lists_no_model_loses_the_pictures_not_the_deck() {
     assert!(out["error"]["message"].as_str().unwrap().contains("OPENAI_API_KEY"), "{out:#}");
 }
 
-/// How many times the slides have been asked for, across the kept run below: the first time,
-/// the provider is too busy to write them.
+/// How many times the slides have been asked for, across the kept run below: the first
+/// [`BUSY`] times, the provider is too busy to write them.
 static SLIDES_ASKED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
+/// How many times a run asks a busy provider for the slides before it gives up:
+/// `scaena_narrato::TRIES` (narrative REL-1).
+const BUSY: usize = 6;
+
 /// A provider for a run that fails twice (narrative REL-2): the research written and the arc
-/// chosen, it is too busy to write the slides the first time; the second, it writes them and
+/// chosen, it is too busy to write the slides every time the first run asks, the wait it asks
+/// for a millisecond (narrative REL-1); the next run, it writes them and
 /// then never answers the look at them drawn.
 fn kept_run(method: &str, path: &str, body: &str) -> Answer {
     if method == "POST" && path == "/v1/messages" {
@@ -668,9 +811,10 @@ fn kept_run(method: &str, path: &str, body: &str) -> Answer {
         } else if !body.contains("\"web_search\"")
             && !body.contains("=== CATALOG ===")
             && !body.contains("runs past its place")
-            && SLIDES_ASKED.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0
+            && SLIDES_ASKED.fetch_add(1, std::sync::atomic::Ordering::SeqCst) < BUSY
         {
-            let busy = r#"{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}"#;
+            let busy =
+                r#"{"type":"error","error":{"type":"overloaded_error","message":"Overloaded: try again in 1ms"}}"#;
             return (529, "application/json", busy.as_bytes().to_vec());
         }
     }
@@ -710,7 +854,8 @@ fn a_failed_run_keeps_the_research_and_the_slides_and_says_how_to_go_on() {
     let report = std::fs::read_to_string(&research).unwrap();
     assert!(report.contains("Shipping emits about 3% of CO2."), "{report}");
     assert!(!slides.exists());
-    assert_eq!(asked.lock().unwrap().iter().filter(|a| a.method == "POST").count(), 3, "research, arc, slides");
+    let posted = asked.lock().unwrap().iter().filter(|a| a.method == "POST").count();
+    assert_eq!(posted, 2 + BUSY, "research, arc, and the slides each time they are asked again");
     // The command goes on from the report, asking for no research: the slides come back and are
     // kept as they arrive, before the model is shown them drawn, where this run is stopped.
     let line = resume.strip_prefix("scaena ").unwrap();
@@ -741,9 +886,12 @@ fn a_failed_run_keeps_the_research_and_the_slides_and_says_how_to_go_on() {
     assert!(research.exists());
     let asked = asked.lock().unwrap();
     let posts: Vec<&Asked> = asked.iter().filter(|a| a.method == "POST").collect();
-    assert_eq!(posts.len(), 6, "then the arc, the slides, and the look");
-    assert!(!posts[3..].iter().any(|a| a.body.contains("\"web_search\"")), "the research was not asked for again");
-    assert!(posts[4].body.contains("Shipping emits about 3% of CO2."), "the slides are grounded in the kept report");
+    assert_eq!(posts.len(), posted + 3, "then the arc, the slides, and the look");
+    assert!(!posts[posted..].iter().any(|a| a.body.contains("\"web_search\"")), "the research was not asked for again");
+    assert!(
+        posts[posted + 1].body.contains("Shipping emits about 3% of CO2."),
+        "the slides are grounded in the kept report"
+    );
     drop(asked);
     // Going on from the slides, on the arc they were written on, makes the deck with no call and
     // takes the kept folder away.

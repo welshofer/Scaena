@@ -13,7 +13,7 @@
 //   file it draws; redone, it is taken out again. The next save takes it out where the bundle is
 //   kept.
 import { listen, observing } from "./life";
-import { BUNDLE_PATH, type BundleFile, type Edited, type Lexicon, type Named, PICTURE } from "./protocol";
+import { BUNDLE_PATH, type BundleFile, type Edited, type Grounded, type Lexicon, type Named, PICTURE } from "./protocol";
 import type { Stage } from "./stage";
 import { named, object, sourced } from "./words";
 
@@ -82,6 +82,8 @@ export function filesPanel(stage: Stage, into: HTMLElement, editor: FilesEditor)
   const list = into.querySelector<HTMLElement>("[data-files]")!;
   /** The files as the worker last listed them. */
   let listed: BundleFile[] = [];
+  /** What the deck was grounded in, as the worker last listed it (narrative FUNC-3). */
+  let grounded: Grounded[] = [];
   /** Listings asked for: the last answer wins. */
   let asking = 0;
   /** One change at a time, each made on the bundle the one before left. */
@@ -92,13 +94,14 @@ export function filesPanel(stage: Stage, into: HTMLElement, editor: FilesEditor)
     if (into.hidden) return;
     const asked = ++asking;
     try {
-      const got = await stage.bundleFiles(editor.source());
+      const got = await stage.listing(editor.source());
       if (asked !== asking) return;
-      listed = got;
+      ({ files: listed, grounded } = got);
       draw();
     } catch (e) {
       if (asked !== asking) return;
       listed = [];
+      grounded = [];
       head.textContent = `The files show once the source has no error to fix: ${said(e)}`;
       list.replaceChildren();
     }
@@ -127,9 +130,21 @@ export function filesPanel(stage: Stage, into: HTMLElement, editor: FilesEditor)
         return `<h3>${heading}</h3><ul aria-label="${heading}">${rows.join("")}</ul>`;
       })
       .join("");
+    // What a deck made from a prompt was grounded in, which is no file of the bundle (FUNC-3).
+    if (grounded.length) list.insertAdjacentHTML("beforeend", `<h3>Grounded in</h3><ul aria-label="Grounded in" data-grounded>${grounded.map(source).join("")}</ul>`);
     if (!at) return;
     const again = [...list.querySelectorAll<HTMLElement>("[data-path]")].find((r) => r.dataset.path === at[0]);
     again?.querySelectorAll("button")[at[1]]?.focus();
+  }
+
+  /** One source the deck was grounded in: its name, its kind and size, where it is, and the
+   * slides whose beats cite it. */
+  function source(g: Grounded): string {
+    const slide = (state: string) => editor.slide?.(state) ?? state;
+    const at = g.url && g.url !== g.name ? `<p class="at"><a href="${html(g.url)}" target="_blank" rel="noopener">${html(g.url)}</a></p>` : "";
+    const cut = g.truncated ? ", cut short to fit" : "";
+    const cited = g.states.length ? `<p class="named">cited by ${html([...new Set(g.states.map(slide))].join(", "))}</p>` : `<p class="unnamed">No slide cites it.</p>`;
+    return `<li data-source="${html(g.name)}"><span class="name" title="${html(g.name)}">${html(g.name)}</span> <span class="size">${html(g.kind)}, ${size(g.bytes)}${cut}</span>${at}${cited}</li>`;
   }
 
   /** One file: its path and size, what names it, and the nodes drawn from it. */
