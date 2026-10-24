@@ -92,11 +92,14 @@ fn compiled(_: &str) -> Option<&'static [u8]> {
 /// What gives a trie that is not compiled in: given a language's code, its file's bytes.
 type Loader = Box<dyn Fn(&str) -> Option<Vec<u8>>>;
 
+/// A language's trie as handed over, or why it could not be had.
+type Had = Result<Rc<[u8]>, String>;
+
 thread_local! {
     /// The tries handed over, by language, and why each the loader could not give was not had:
     /// asked again only once another loader is set (lift-up PERF-5), so a language whose patterns
     /// cannot be had costs one request, not one for each word.
-    static HANDED: RefCell<BTreeMap<&'static str, Result<Rc<[u8]>, String>>> = RefCell::default();
+    static HANDED: RefCell<BTreeMap<&'static str, Had>> = RefCell::default();
     static LOADER: RefCell<Option<Loader>> = RefCell::default();
 }
 
