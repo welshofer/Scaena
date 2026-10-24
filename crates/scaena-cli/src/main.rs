@@ -401,6 +401,10 @@ enum Cmd {
         /// blank slide without it.
         #[arg(long)]
         layout: Option<String>,
+        /// The one sentence the slide tells, in a beat of its own just after the beat of STATE.
+        /// Without it, the slide joins that beat.
+        #[arg(long)]
+        claim: Option<String>,
         /// Say what would change, and write nothing.
         #[arg(long)]
         dry_run: bool,
@@ -852,7 +856,9 @@ fn run(cli: Cli) -> Result<ExitCode> {
             };
             map(&a, cli.json)
         }
-        Cmd::Start { bundle, state, layout, dry_run } => start(&bundle, &state, layout.as_deref(), dry_run, cli.json),
+        Cmd::Start { bundle, state, layout, claim, dry_run } => {
+            start(&bundle, &state, layout.as_deref(), claim.as_deref(), dry_run, cli.json)
+        }
         Cmd::Background { bundle, state, preset, none, dry_run } => {
             background(&bundle, &state, preset.as_deref(), none, dry_run, cli.json)
         }
@@ -1318,9 +1324,16 @@ fn data(bundle: &Path, source: &str, edits: Option<&Path>, dry_run: bool, json: 
 /// `scaena start` (PLAN 3.30): a slide started in a layout after a state's slide, as one patch,
 /// reported as `patch` reports one, with the new state's id. Exits 1 where it is refused or
 /// errors remain, as `patch` does.
-fn start(bundle: &Path, state: &str, layout: Option<&str>, dry_run: bool, json: bool) -> Result<ExitCode> {
+fn start(
+    bundle: &Path,
+    state: &str,
+    layout: Option<&str>,
+    claim: Option<&str>,
+    dry_run: bool,
+    json: bool,
+) -> Result<ExitCode> {
     let b = open(bundle)?;
-    let s = scaena_ops::states::start(&b, state, layout, dry_run)?;
+    let s = scaena_ops::states::start(&b, state, layout, claim, dry_run)?;
     if json {
         println!("{}", serde_json::to_string_pretty(&s)?);
     } else {
