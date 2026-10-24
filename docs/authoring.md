@@ -409,6 +409,8 @@ Each layout's slots say what goes in them (`prompt`, SPEC §3.6): words to type 
 | `pros-cons` | `kicker`, `header`, `first-title`, `first`, `second-title`, `second` | Pros and Cons, in Comparison |
 | `three-columns` | `kicker`, `header`, `first-title`, `second-title`, `third-title`, `first`, `second`, `third` | Three Columns, in Comparison |
 | `cards` | `kicker`, `header`, `first-card`, `second-card`, `third-card`, `first-title`, `second-title`, `third-title`, `first`, `second`, `third` | Cards, in Comparison |
+| `four-columns` | `kicker`, `header`, `first-title`, `second-title`, `third-title`, `fourth-title`, `first`, `second`, `third`, `fourth` | Four Columns, in Comparison |
+| `four-cards` | `kicker`, `header`, `first-card`, `second-card`, `third-card`, `fourth-card`, `first-title`, `second-title`, `third-title`, `fourth-title`, `first`, `second`, `third`, `fourth` | Four Cards, in Comparison |
 | `before-after` | `kicker`, `header`, `first-art`, `arrow`, `second-art`, `first`, `second` | Before and After, in Comparison |
 | `head-to-head` | `kicker`, `header`, `middle-card`, `first-title`, `second-title`, `first-criterion`, `second-criterion`, `third-criterion`, `first-left`, `second-left`, `third-left`, `first-right`, `second-right`, `third-right` | Head to Head, in Comparison |
 | `scenarios` | `kicker`, `header`, `first-card`, `second-card`, `third-card`, `first-title`, `second-title`, `third-title`, `first-figure`, `second-figure`, `third-figure`, `first`, `second`, `third` | Scenarios, in Comparison |
