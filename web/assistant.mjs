@@ -151,7 +151,9 @@ const WIRE = {
         .filter((p) => p.functionResponse)
         .map((p, i) => {
           const r = p.functionResponse.response;
-          return { json: JSON.stringify(r.result ?? r.error), error: "error" in r, png: pngs[i] };
+          // A result that is no JSON, as a fenced one is, goes as the string it is.
+          const told = r.result ?? r.error;
+          return { json: typeof told === "string" ? told : JSON.stringify(told), error: "error" in r, png: pngs[i] };
         });
     },
     call: (step, i) => ({
@@ -267,8 +269,20 @@ try {
       `${id}: no tool takes a bundle or an output path, and every schema is whole`,
     );
 
-    const result = (n) => wire.results(requests[n].body)[0] ?? {};
+    // Each result reaches the model fenced as data under its tool's name (lift-up SEC-3): read back
+    // from its fence, its escaped closings as written.
+    const fence = /^<data label="([a-z0-9-]+)">\n([\s\S]*)\n<\/data>$/;
+    const sent = (n) => wire.results(requests[n].body)[0] ?? {};
+    const result = (n) => {
+      const r = sent(n);
+      const m = r.json?.match(fence);
+      return m ? { ...r, json: m[2].replace(/<\\\/(data)/gi, "</$1"), label: m[1] } : r;
+    };
     const parsed = (n) => JSON.parse(result(n).json ?? "{}");
+    check(
+      [result(1).label, result(2).label, result(6).label, result(9).label].join() === "deck-patch,deck-lint,theme-edit,deck-health",
+      `${id}: each tool's result reaches the model fenced under its name (${sent(1).json?.slice(0, 40)})`,
+    );
     const patched = parsed(1);
     check(patched.applied === true && patched.added?.some((f) => f.code === "E100"), `${id}: deck_patch applied, and lint finds an E100 it did not (${result(1).json?.slice(0, 160)})`);
     const linted = parsed(2);
