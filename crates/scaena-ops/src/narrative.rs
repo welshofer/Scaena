@@ -2056,6 +2056,16 @@ fn figure_role(role: &str) -> bool {
     matches!(role, "figure" | "hero" | "value" | "numeral")
 }
 
+/// Someone else's words in quotation marks, the marks a model may have set taken off first.
+fn quoted(text: &str) -> String {
+    format!("\u{201c}{}\u{201d}", unquoted(text))
+}
+
+/// Who said a quote, led by a dash: "\u{2014} Head of Logistics".
+fn attributed(who: &str) -> String {
+    format!("\u{2014} {}", who.trim().trim_start_matches(['\u{2014}', '\u{2013}', '-']).trim())
+}
+
 fn unquoted(text: &str) -> String {
     text.trim().trim_matches(['"', '\u{201c}', '\u{201d}', '\u{2018}', '\u{2019}', '\'']).trim().to_string()
 }
@@ -2354,8 +2364,9 @@ impl Slots<'_> {
             "hub" => self.subtitle().or_else(|| self.title()),
             "number" if matches!(layout, "section" | "section-photo") => Some(format!("{:02}", self.section)),
             "number" => self.item(0).map(|i| i.figure().unwrap_or_else(|| i.whole.clone())),
-            "quote" => self.item(0).map(|i| unquoted(&i.whole)).or_else(|| self.title()),
-            "who" => self.item(1).map(|i| i.whole.clone()).or_else(|| self.subtitle()),
+            // A quote in its marks, so that it never reads as the presenter's own words.
+            "quote" => self.item(0).map(|i| quoted(&i.whole)).or_else(|| self.title()),
+            "who" => self.item(1).map(|i| attributed(&i.whole)).or_else(|| self.subtitle()),
             "meaning" => self.item(0).map(|i| i.whole.clone()).or_else(|| self.subtitle()),
             "example" => self.item(1).map(|i| i.whole.clone()),
             "takeaway" => self.item(0).map(|i| i.whole.clone()).or_else(|| self.subtitle()),
@@ -2530,8 +2541,8 @@ impl Slots<'_> {
                 let item = self.item(k)?;
                 let (words, who) = said(item);
                 text(match part {
-                    "" => Some(words),
-                    "note" => who,
+                    "" => Some(quoted(&words)),
+                    "note" => who.map(|w| attributed(&w)),
                     _ => None,
                 })
             }
@@ -3616,6 +3627,38 @@ mod tests {
             assert!(nodes.iter().all(|(_, said)| !said.trim().is_empty()), "{wanted}: {nodes:?}");
         }
         assert!(wrong.is_empty(), "{wrong:#?}");
+    }
+
+    /// Someone else's words are set in quotation marks, the one who said them led by a dash, so
+    /// that they never read as the presenter's own.
+    #[test]
+    fn a_quote_is_set_in_quotation_marks_and_its_source_after_a_dash() {
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let (summary, slides) = catalog();
+        let made = |name: &str| {
+            let slide = slides.iter().find(|s| s.layout_suggestion == name).unwrap().clone();
+            let made = deck(
+                &narrative(&summary, vec![slides[0].clone(), slide, slides[55].clone()]),
+                &theme,
+                &Pictures::new(),
+            )
+            .unwrap();
+            let state = made.deck["states"][1]["id"].as_str().unwrap().to_string();
+            shown(&made.deck, &state)
+        };
+        let has = |said: &[(String, String)], slot: &str, words: &str| {
+            assert!(said.iter().any(|(s, w)| s == slot && w == words), "{slot} = {words:?} in {said:#?}");
+        };
+        let quote = made("Quote");
+        has(
+            &quote,
+            "quote",
+            "\u{201c}We have net-zero targets and no way to ship a single box without emitting\u{201d}",
+        );
+        has(&quote, "who", "\u{2014} Head of Logistics, a Fortune 500 retailer");
+        let testimonials = made("Testimonials");
+        has(&testimonials, "first", "\u{201c}We cut our freight emissions below zero in one quarter\u{201d}");
+        has(&testimonials, "first-note", "\u{2014} VP Supply Chain, national grocer");
     }
 
     #[test]
