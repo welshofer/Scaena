@@ -938,7 +938,7 @@ struct KeyList: View {
         }
         .font(.title3)
         .padding(24)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
+        .floating(in: RoundedRectangle(cornerRadius: 14))
         .environment(\.colorScheme, .dark)
         .frame(maxWidth: 640)
         .accessibilityElement(children: .contain)
