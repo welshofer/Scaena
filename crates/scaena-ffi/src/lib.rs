@@ -92,6 +92,25 @@ fn said(message: impl std::fmt::Display) -> Failure {
 }
 
 /// `f`'s result, with a panic caught and said.
+/// The stack a call that lays out and lints runs on (lift-up PERF-1's `OffMain` holds the same):
+/// a re-theme lints the deck before and after, which takes some 350 KB of stack on Linux in debug
+/// and more on Apple's, where a Swift Testing thread holds 512 KB and the iPad's main thread 1 MB.
+const DEEP: usize = 16 << 20;
+
+/// `f` run on a thread of its own with [`DEEP`] stack, the caller waiting for it: what a call of
+/// the session's may need, however deep a deck lays out, on whichever thread Swift calls from. A
+/// panic in it goes on in the caller, where [`guarded`] says it; where no thread can be made, `f`
+/// runs where it is called.
+fn deep<T: Send>(f: impl FnOnce() -> T + Send) -> T {
+    let held = std::sync::Mutex::new(Some(f));
+    let run = || held.lock().unwrap_or_else(|e| e.into_inner()).take().map(|f| f());
+    let ran = std::thread::scope(|scope| {
+        let thread = std::thread::Builder::new().name("scaena-deep".into()).stack_size(DEEP).spawn_scoped(scope, run);
+        thread.ok().map(|t| t.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic)))
+    });
+    ran.flatten().or_else(run).expect("run once")
+}
+
 fn guarded<T>(f: impl FnOnce() -> Result<T, Failure>) -> Result<T, Failure> {
     match catch_unwind(AssertUnwindSafe(f)) {
         Ok(result) => result,
@@ -550,7 +569,7 @@ pub unsafe extern "C" fn scaena_call(
                 serde_json::from_str(a).map_err(|e| said(format!("{method}: the arguments are not JSON: {e}")))?
             }
         };
-        call(&mut session.0, method, &args)
+        deep(|| call(&mut session.0, method, &args))
     }))
 }
 
@@ -580,7 +599,7 @@ pub unsafe extern "C" fn scaena_tool(
         };
         let author = unsafe { maybe_text(author, "author") }?.unwrap_or("agent");
         let at = unsafe { maybe_text(at, "at") }?.and_then(scaena_session::store::seconds);
-        match session.0.tool(name, args, Caller { author, at }) {
+        match deep(|| session.0.tool(name, args, Caller { author, at })) {
             Ok(called) => {
                 let result: Value = serde_json::from_str(&called.result).map_err(said)?;
                 Ok(json!({ "ok": result, "edited": called.edited }))
