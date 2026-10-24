@@ -258,7 +258,30 @@ public struct GeneratorReply: Sendable {
     /// followed only where ``follows(_:)`` lets it, else answered as it came.
     public static func made(_ request: GeneratorRequest, by session: URLSession = .shared) async -> GeneratorReply {
         do {
-            let (data, response) = try await session.data(for: try request.urlRequest(), delegate: Redirects())
+            let (data, response): (Data, URLResponse)
+            if let most = request.most {
+                // A source's body read no further than its plan's `most`, as it arrives: a page or a
+                // redirect a person names can stream gigabytes, and the app would run out of memory
+                // before a check after the whole (the 20261024 plan's SEC-2), as the CLI reads it.
+                let (bytes, answered) = try await session.bytes(for: try request.urlRequest(), delegate: Redirects())
+                let tooMuch = GeneratorReply(
+                    status: 0, kind: "", body: Data("\(request.url) answered with more than \(most >> 20) MB".utf8))
+                if answered.expectedContentLength > Int64(most) {
+                    bytes.task.cancel()
+                    return tooMuch
+                }
+                var read = Data()
+                for try await byte in bytes {
+                    read.append(byte)
+                    if read.count > most {
+                        bytes.task.cancel()
+                        return tooMuch
+                    }
+                }
+                (data, response) = (read, answered)
+            } else {
+                (data, response) = try await session.data(for: try request.urlRequest(), delegate: Redirects())
+            }
             let http = response as? HTTPURLResponse
             return GeneratorReply(
                 status: http?.statusCode ?? 0, kind: http?.value(forHTTPHeaderField: "content-type") ?? "", body: data,
@@ -560,8 +583,11 @@ public final class Generator {
         let texts: Int
     }
 
+    /// One round of the look answered: the next round where one is left (narrative PERF-5), else
+    /// what the look came to and the fit asked for.
     private struct Looking: Decodable, Sendable {
-        let looked: Int
+        let look: Making.Look?
+        let looked: Int?
         let unlooked: String?
         let fit: Fit?
     }
@@ -823,9 +849,12 @@ public final class Generator {
         var fit = making.fit
         // The deck shown to the model as it is drawn (PLAN G.13), each slide's change kept where
         // lint finds the slide no worse; then the fit, asked after it.
-        if let seeing = making.look {
-            hear(.looking(slides: seeing.slides))
-            let reply = await send(seeing.request)
+        // The look goes a dozen slides a round (narrative PERF-5): each answer asks the next
+        // round, until the engine says what the look came to.
+        var seeing = making.look
+        if let first = seeing { hear(.looking(slides: first.slides)) }
+        while let round = seeing {
+            let reply = await send(round.request)
             let looking: Looking = try await stepAway(
                 "looked",
                 [
@@ -834,7 +863,9 @@ public final class Generator {
                     "body": .string(reply.status == 0 ? "" : reply.text),
                     "key": .string(key),
                 ])
-            if let why = looking.unlooked { hear(.unlooked(why)) } else { hear(.looked(slides: looking.looked)) }
+            seeing = looking.look
+            if seeing != nil { continue }
+            if let why = looking.unlooked { hear(.unlooked(why)) } else { hear(.looked(slides: looking.looked ?? 0)) }
             fit = looking.fit
         }
         if let fit {

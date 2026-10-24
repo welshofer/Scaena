@@ -113,7 +113,7 @@ try {
   await again.close();
 
   // What loads when asked: the subsetter, to download.
-  const [download] = await Promise.all([editor.waitForEvent("download"), editor.click("#download")]);
+  const [download] = await Promise.all([editor.waitForEvent("download"), editor.click("#file-open").then(() => editor.click("#download"))]);
   const zip = await readFile(await download.path());
   check(zip[0] === 0x50 && zip[1] === 0x4b, `Download loads the subsetter from the site: ${download.suggestedFilename()}, ${zip.length} bytes`);
 

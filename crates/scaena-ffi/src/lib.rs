@@ -386,6 +386,56 @@ pub unsafe extern "C" fn scaena_laying_health(laying: *mut ScaenaLaying) -> *mut
     }))
 }
 
+/// `state` at rest in `format`, one of the deck's formats, or its own canvas where null, from
+/// `laying`'s deck, painted by the CPU painter `width` pixels wide, the height keeping the canvas's
+/// aspect: the pixels [`scaena_pixels`] gives at rest, with nothing dragged or previewed, drawn
+/// on the thread that calls it, which touches no session, so the Mac's thumbnails and a remote's
+/// slides are drawn while the window answers (lift-up PERF-2). The engine it draws with is
+/// built at the first and kept for the next. Null bytes where it cannot be painted, `*error`
+/// then saying why.
+///
+/// # Safety
+/// `laying` is a live handle from [`scaena_laying_new`], used by one thread at a time; `format`
+/// null or a NUL-terminated string; `state` one; `error` null or writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn scaena_laying_pixels(
+    laying: *mut ScaenaLaying,
+    format: *const c_char,
+    state: *const c_char,
+    width: u32,
+    error: *mut *mut c_char,
+) -> ScaenaPixels {
+    let painted = guarded(|| {
+        let laying = unsafe { handle(laying, "laying") }?;
+        let format = unsafe { maybe_text(format, "format") }?;
+        let state = unsafe { text(state, "state") }?;
+        deep(|| laying.0.pixels(format, state, width)).map_err(said)
+    });
+    match painted {
+        Ok(raster) => ScaenaPixels { bytes: ScaenaBytes::of(raster.rgba), width: raster.width, height: raster.height },
+        Err(failure) => {
+            unsafe { report(error, failure) };
+            ScaenaPixels { bytes: ScaenaBytes::NONE, width: 0, height: 0 }
+        }
+    }
+}
+
+/// Whether `laying` was taken from the deck `session` holds as it stands: false once another
+/// source compiled, a file was handed over, or the theme was edited, so what it draws is of an
+/// older deck.
+///
+/// # Safety
+/// `session` and `laying` are live handles, on the session's thread.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn scaena_laying_holds(session: *mut ScaenaSession, laying: *mut ScaenaLaying) -> bool {
+    guarded(|| {
+        let session = unsafe { handle(session, "session") }?;
+        let laying = unsafe { handle(laying, "laying") }?;
+        Ok(session.0.holds(&laying.0))
+    })
+    .unwrap_or(false)
+}
+
 /// Free a laying.
 ///
 /// # Safety
