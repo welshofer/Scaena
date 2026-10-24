@@ -137,6 +137,12 @@ impl Player {
         self.0.frame(state, t_ms).map_err(js)?.to_postcard().map_err(js)
     }
 
+    /// Lay out the cue into `state` ahead, while the state shown rests: the state a show goes on
+    /// to, whose first frame then lays out nothing (lift-up PERF-1).
+    pub fn prepare(&mut self, state: &str) -> Result<(), JsError> {
+        self.0.prepare(state).map_err(js)
+    }
+
     /// What identifies `state`'s drawing at rest, in the format shown: its display list's
     /// digest (FNV-1a over its postcard bytes, as the goldens keep it). One digest, one
     /// drawing, so a thumbnail painted from it stands until it changes (PLAN 2.35).

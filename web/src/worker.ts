@@ -2035,6 +2035,8 @@ function run(index: number, t: number, run: number, still = false, alone = false
   let rested = -1;
   /** When the run's last frame was painted, by the display's clock. */
   let last: number | undefined;
+  /** The slot whose cue came to rest and laid out the next one's (lift-up PERF-1). */
+  let prepared = -1;
   const frame = async (now: number) => {
     if (run !== latest) return;
     let t = offset + Math.max(0, now - start);
@@ -2061,11 +2063,32 @@ function run(index: number, t: number, run: number, still = false, alone = false
       post({ type: "at", index, t: shown, global: slot.start + shown, playing, frame: timing });
       if (still) rested = index;
     }
+    // Its cue over, held or waiting, the next one's is laid out meanwhile; a cut never samples one.
+    if (!still && t >= slot.span && prepared !== index) {
+      prepared = index;
+      ahead(index + 1, run);
+    }
     if (!playing) return;
     if (still) setTimeout(() => frame(performance.now()), slot.span + slot.hold - t);
     else next(frame);
   };
   next(frame);
+}
+
+/** Lay out the cue into slot `index` while the one before it rests or holds, so going on draws its
+ * first frame at once (lift-up PERF-1): once the worker has answered what waits, and only while run
+ * `run` is the one shown. */
+function ahead(index: number, run: number) {
+  const slot = slots[index];
+  if (!slot || slot.span <= 0) return;
+  setTimeout(() => {
+    if (run !== latest) return;
+    try {
+      player.prepare(slot.state);
+    } catch (e) {
+      console.warn(`the next cue could not be laid out ahead: ${said(e)}`);
+    }
+  }, 0);
 }
 
 const next = (frame: (now: number) => void) => {
