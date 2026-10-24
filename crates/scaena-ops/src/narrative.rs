@@ -1430,15 +1430,19 @@ pub fn deck_as(
 
         // The spine: a section for each run of slides in one beat, a beat for each slide. A
         // section is titled by what its slides say (narrative ATTR-5): its divider's title, else
-        // the beat's name as the model wrote it on the run's first slide, else the arc's name for
-        // the beat, which reads as a template ("Problem", "Solution") in the PDF's outline, the
-        // player's picker, and the Story tab.
+        // the beat's name as the model wrote it on the run's first slide, else that slide's
+        // headline, else the arc's name for the beat, which reads as a template ("Problem",
+        // "Solution") in the PDF's outline, the player's picker, and the Story tab. Narrato
+        // echoes the arc's names, so a name that is one of them is no name of the model's.
         if last_beat != Some(beat) {
-            let named = slide.beat_name.as_deref().map(str::trim).filter(|n| !n.is_empty());
-            let name = match (divider, named) {
-                (true, _) => slide.slide_title.as_str(),
-                (false, Some(named)) => named,
-                (false, None) => names.get(beat).copied().unwrap_or("Section"),
+            let named = (slide.beat_name.as_deref().map(str::trim))
+                .filter(|n| !n.is_empty() && !names.iter().any(|arc| arc.eq_ignore_ascii_case(n)));
+            let headline = Some(slide.slide_title.as_str()).filter(|t| !t.trim().is_empty());
+            let name = match (divider, named, headline) {
+                (true, _, _) => slide.slide_title.as_str(),
+                (false, Some(named), _) => named,
+                (false, None, Some(headline)) => headline,
+                (false, None, None) => names.get(beat).copied().unwrap_or("Section"),
             };
             let id = deck.unique(&slug(name, "section"), Taken::Section);
             sections.push(json!({ "id": id, "title": name, "beats": [] }));
@@ -1722,7 +1726,7 @@ impl Item {
 
     /// What it names: its label, or, where it leads with its figure, its detail's first clause.
     fn name(&self) -> Option<String> {
-        if self.figure_first() { Some(head(&self.detail).0) } else { self.label.clone() }
+        if self.figure_first() { Some(change(&self.detail).0) } else { self.label.clone() }
     }
 }
 
@@ -1732,7 +1736,22 @@ fn items(slide: &Slide, v: &Varied) -> Vec<Item> {
     if matches!(v.layout.identity(), "title" | "section") {
         return Vec::new();
     }
-    slide.key_bullets.iter().map(|b| item(b)).filter(|i| !i.whole.is_empty()).collect()
+    let mut items: Vec<Item> = slide.key_bullets.iter().map(|b| item(b)).filter(|i| !i.whole.is_empty()).collect();
+    // Questions and their answers are one structure: where one question runs too long to title
+    // its answer, none does, and each reads "question? answer", never "question?: answer".
+    let asked = |i: &Item| i.label.is_none() && (i.whole.contains("?: ") || i.whole.contains("!: "));
+    if items.iter().any(asked) {
+        for i in &mut items {
+            if let Some(label) = i.label.take_if(|l| l.ends_with(['?', '!'])) {
+                i.whole = format!("{label} {}", i.detail);
+            }
+            if i.label.is_none() {
+                i.whole = i.whole.replacen("?: ", "? ", 1).replacen("!: ", "! ", 1);
+                i.detail = i.whole.clone();
+            }
+        }
+    }
+    items
 }
 
 /// The icon each of `slide`'s `items` is set under (PLAN G.23): the one its word names, as the
@@ -1802,6 +1821,31 @@ fn head(text: &str) -> (String, String) {
     }
 }
 
+/// `text`'s name and what is said after it, as [`head`] cuts them, but a name whole where all
+/// that follows it is a date: "Q3 revenue, up 12%" → ("Q3 revenue", "up 12%"); "Hours dark during
+/// Storm Nadia, 2026" names it whole, the year no change beside a figure.
+fn change(text: &str) -> (String, String) {
+    let (name, rest) = head(text);
+    const MONTHS: &str = "january february march april may june july august september october november december";
+    let dated = !rest.is_empty()
+        && rest.split_whitespace().all(|w| {
+            let w = w.trim_end_matches(['.', ',']).to_lowercase();
+            w.bytes().all(|b| b.is_ascii_digit()) || MONTHS.split(' ').any(|m| m.starts_with(&w) && w.len() >= 3)
+        })
+        && rest.bytes().any(|b| b.is_ascii_digit());
+    if dated { (text.trim().to_string(), String::new()) } else { (name, rest) }
+}
+
+/// `text` without the figure it opens with: "2,400 a month from inbound" → "a month from
+/// inbound"; `text` as it is where it opens otherwise.
+fn without_figure(text: &str) -> String {
+    let text = text.trim();
+    match figure(text).and_then(|f| text.strip_prefix(f.as_str())) {
+        Some(rest) => rest.trim_start_matches([',', ';', ':']).trim().to_string(),
+        None => text.to_string(),
+    }
+}
+
 /// The first figure in `text`: a number with its currency sign, its suffix, or its percent.
 fn figure(text: &str) -> Option<String> {
     let chars: Vec<char> = text.chars().collect();
@@ -1818,8 +1862,15 @@ fn figure(text: &str) -> Option<String> {
     while end > start && matches!(chars[end - 1], ',' | '.') {
         end -= 1;
     }
+    // A magnitude a language without spaces writes after its figure, and its currency after
+    // that: "41.2\u{4e07}\u{30c9}\u{30eb}" is $412K, never "41.2".
     let rest: String = chars[end..].iter().take(3).collect();
-    let suffix = ["%", "\u{d7}", "x", "M", "B", "K", "k", "bn", "m", "pp", "pts"]
+    if MAGNITUDES.iter().any(|m| rest.starts_with(m)) {
+        let after: String = chars[end + 1..].iter().take(2).collect();
+        let currency = CURRENCIES.iter().filter(|c| after.starts_with(*c)).map(|c| c.chars().count()).max();
+        return Some(chars[begin..end + 1 + currency.unwrap_or(0)].iter().collect());
+    }
+    let suffix = ["%", "\u{d7}", "x", "M", "B", "K", "k", "T", "bn", "tn", "m", "pp", "pts"]
         .iter()
         .filter(|s| rest.starts_with(*s))
         .max_by_key(|s| s.len())
@@ -1829,6 +1880,15 @@ fn figure(text: &str) -> Option<String> {
     let suffix = if suffix > 0 && after.is_none_or(|c| !c.is_alphanumeric()) { suffix } else { 0 };
     Some(chars[begin..end + suffix].iter().collect())
 }
+
+/// The magnitudes Japanese, Chinese, and Korean write after a figure: ten thousand, a hundred
+/// million, a trillion, a thousand.
+const MAGNITUDES: [&str; 8] =
+    ["\u{4e07}", "\u{5104}", "\u{5146}", "\u{5343}", "\u{4ebf}", "\u{b9cc}", "\u{c5b5}", "\u{cc9c}"];
+
+/// The currencies written after such a magnitude: dollars, yen, yuan, won.
+const CURRENCIES: [&str; 6] =
+    ["\u{30c9}\u{30eb}", "\u{5186}", "\u{5143}", "\u{7f8e}\u{5143}", "\u{c6d0}", "\u{b2ec}\u{b7ec}"];
 
 /// Whether `text` is a figure and little else, what a number's place shows: "42%", "$4.1M",
 /// "2024", "6 weeks", "212 kt", "1.55\u{b0}C", "4.5 mm/yr".
@@ -1977,6 +2037,8 @@ fn layout_for(
         "how-it-works" => "how-it-works",
         "pipeline" => "pipeline",
         "stack" => "stack",
+        // Three questions on three cards, none left empty.
+        "faq" if n == 3 && theme.layouts.contains_key("cards") => "cards",
         "faq" => "faq",
         "glossary" => "glossary",
         "checklist" => "checklist",
@@ -2378,12 +2440,15 @@ impl Slots<'_> {
         self.items.iter().map(|i| i.whole.clone()).collect()
     }
 
-    /// Words a card holds: each item whole where every item is short, else what each names, so
-    /// the cards of one slide read alike.
+    /// Words a card holds: each item whole where every item is short, else what each names, with
+    /// the figure its words give, so the cards of one slide read alike: "US freight spend · $1.1T".
     fn short(&self, item: &Item) -> String {
         let long = self.items.iter().any(|i| i.label.is_some() && i.whole.chars().count() > 36);
         match &item.label {
-            Some(label) if long => label.clone(),
+            Some(label) if long => match figure(&item.detail).filter(|f| !label.contains(f.as_str())) {
+                Some(f) => format!("{label} \u{b7} {f}"),
+                None => label.clone(),
+            },
             _ => item.whole.clone(),
         }
     }
@@ -2491,6 +2556,19 @@ impl Slots<'_> {
         {
             return text(self.item(k).and_then(|i| i.label.clone()));
         }
+        // A 2×2's axes, where its items say where each stands on them.
+        if self.layout == "matrix"
+            && let Some((y, x, _)) = self.axes()
+        {
+            let axis = |more: bool, of: &str| Some(Fill::Text(format!("{} {of}", if more { "More" } else { "Less" })));
+            match name {
+                "y-high" => return axis(true, &y),
+                "y-low" => return axis(false, &y),
+                "x-high" => return axis(true, &x),
+                "x-low" => return axis(false, &x),
+                _ => {}
+            }
+        }
         if keeps_prompt(name) {
             // The theme's prompts are English: a deck in another language says them in its own,
             // a column's head, an axis's end, a month (dogfood 2), else keeps the theme's word.
@@ -2538,7 +2616,11 @@ impl Slots<'_> {
             }
             "hub" => self.subtitle().or_else(|| self.title()),
             "number" if matches!(layout, "section" | "section-photo") => self.section.map(|n| format!("{n:02}")),
-            "number" => self.item(0).map(|i| i.figure().unwrap_or_else(|| i.whole.clone())),
+            // A figure with its unit is set whole: "11 days", not "11".
+            "number" => self.item(0).map(|i| match numeric(&i.whole) {
+                true => i.whole.clone(),
+                false => i.figure().unwrap_or_else(|| i.whole.clone()),
+            }),
             // A quote in its marks, so that it never reads as the presenter's own words.
             "quote" => self.item(0).map(|i| quoted(&i.whole)).or_else(|| self.title()),
             "who" => self.item(1).map(|i| attributed(&i.whole)).or_else(|| self.subtitle()),
@@ -2586,7 +2668,9 @@ impl Slots<'_> {
             "title" if figure_role(role) && dated => item.label.clone().or_else(|| figure(&item.whole)),
             "title" if figure_role(role) => item.figure().or_else(|| item.label.clone()),
             "title" if item.figure_first() && !sibling("") => Some(sentence(&item.detail)),
-            "title" | "item" | "task" if item.figure_first() => item.name().map(|n| sentence(&n)),
+            "title" | "item" | "task" if item.figure_first() && figure_apart => item.name().map(|n| sentence(&n)),
+            // Its figure shown nowhere else: the figure titles it, its words under it.
+            "title" | "item" | "task" if item.figure_first() => item.label.clone(),
             "title" | "item" | "task" => item.name(),
             "date" => item.label.clone(),
             "figure" | "target" | "price" | "amount" => {
@@ -2595,13 +2679,18 @@ impl Slots<'_> {
             "note" => said(item).1,
             "" => Some(match (&item.label, figure_apart, name_apart) {
                 // "$4.1M: Q3 revenue, up 12%" with its figure and its name apart: "Up 12%".
-                (Some(_), true, true) if item.figure_first() => sentence(&head(&item.detail).1),
+                (Some(_), true, true) if item.figure_first() => sentence(&change(&item.detail).1),
                 (Some(_), true, _) if item.figure_first() => sentence(&item.detail),
                 // "Leads: 1,200, 28% go on" with its figure apart: "28% go on".
-                (Some(_), true, true) => sentence(&after_figure(&item.detail).unwrap_or_else(|| item.detail.clone())),
+                // "Leads: 2,400 a month from inbound" with its figure apart: "A month from inbound".
+                (Some(_), true, true) => {
+                    sentence(&after_figure(&item.detail).unwrap_or_else(|| without_figure(&item.detail)))
+                }
                 (Some(_), _, true) => sentence(&item.detail),
                 // Its figure apart, its name here: "Houston: 41% of volume" → "Houston";
                 // "Revenue: $4.1M, up 12%" → "Revenue, up 12%".
+                // A timeline's moment under its date: "Jan 2025: Permit denied" → "Permit denied".
+                (Some(_), true, false) if dated => sentence(&item.detail),
                 (Some(label), true, false) => match after_figure(&item.detail) {
                     Some(rest) if !rest.is_empty() => format!("{label}, {rest}"),
                     _ => label.clone(),
@@ -2800,8 +2889,11 @@ impl Slots<'_> {
                     _ => None,
                 })
             }
-            // Each a quadrant's title, placed on the axes.
-            ("matrix", _, Some((k, ""))) => text(self.item(k).map(|i| self.short(i))),
+            // Each a quadrant's title, placed on the axes: where its words say, by them.
+            ("matrix", _, Some((k, ""))) => match self.axes() {
+                Some((_, _, at)) => text(self.item(at[k]).map(|i| i.label.clone().unwrap_or_else(|| i.whole.clone()))),
+                None => text(self.item(k).map(|i| self.short(i))),
+            },
             // A picture's caption under it: the state, and what it is.
             ("before-after", _, Some((k, ""))) => text(self.item(k).map(|i| i.whole.clone())),
             // What you need, then the method's steps.
@@ -2838,6 +2930,46 @@ impl Slots<'_> {
         }
     }
 
+    /// A 2×2's axes and which item stands in each quadrant, where each of its four items says
+    /// where it stands on the same two scales: "Port software: high impact, low cost". The first
+    /// scale named runs up the slide, the second across; the quadrants run top left, top right,
+    /// bottom left, bottom right, as the layout sets them.
+    fn axes(&self) -> Option<(String, String, [usize; 4])> {
+        if self.items.len() != 4 {
+            return None;
+        }
+        // "high impact" → ("impact", true).
+        let level = |clause: &str| {
+            let (word, of) = clause.trim().split_once(' ')?;
+            let more = match word.to_lowercase().as_str() {
+                "high" | "more" => true,
+                "low" | "less" => false,
+                _ => return None,
+            };
+            Some((of.trim().trim_end_matches('.').to_lowercase(), more))
+        };
+        let read = |i: &Item| -> Option<[(String, bool); 2]> {
+            let (a, b) = i.detail.split_once(", ").or_else(|| i.detail.split_once(" and "))?;
+            Some([level(a)?, level(b)?])
+        };
+        let first = read(&self.items[0])?;
+        let (y, x) = (first[0].0.clone(), first[1].0.clone());
+        if y == x {
+            return None;
+        }
+        let mut at = [usize::MAX; 4];
+        for (k, item) in self.items.iter().enumerate() {
+            let said = read(item)?;
+            let on = |scale: &str| said.iter().find(|(of, _)| of == scale).map(|(_, more)| *more);
+            let quadrant = usize::from(!on(&y)?) * 2 + usize::from(on(&x)?);
+            if at[quadrant] != usize::MAX {
+                return None;
+            }
+            at[quadrant] = k;
+        }
+        Some((y, x, at))
+    }
+
     /// The items for and against: those whose label is one of `pro`'s words, and the rest; else
     /// the first half and the second.
     fn sides(&self, pro: &[&str]) -> (Vec<String>, Vec<String>) {
@@ -2845,7 +2977,9 @@ impl Slots<'_> {
         let labelled = self.items.iter().all(|i| i.label.is_some());
         if labelled && self.items.iter().any(is_pro) {
             let (a, b): (Vec<&Item>, Vec<&Item>) = self.items.iter().partition(|i| is_pro(i));
-            let details = |side: Vec<&Item>| side.iter().map(|i| sentence(&i.detail)).collect();
+            // A side's points written on one line, "a; b; c", are each a point.
+            let details =
+                |side: Vec<&Item>| side.iter().flat_map(|i| listed(&i.detail)).map(|p| sentence(&p)).collect();
             return (details(a), details(b));
         }
         let half = self.items.len().div_ceil(2);
@@ -3471,7 +3605,15 @@ fn square(items: &[Item]) -> bool {
 /// Whether a timeline's moments are told in sentences, more words than a quarter of the slide
 /// sets on a line or two (G.16).
 fn told(items: &[Item]) -> bool {
-    items.iter().any(|i| i.detail.split_whitespace().count() > 4)
+    items.iter().any(|i| words(&i.detail) > 4)
+}
+
+/// How many words `text` says: those between its spaces, and in a script that sets none, a word
+/// for each two of its characters.
+fn words(text: &str) -> usize {
+    let spaceless = |c: char| matches!(c as u32, 0x3040..=0x30ff | 0x3400..=0x9fff | 0xac00..=0xd7af | 0xf900..=0xfaff);
+    let set = text.chars().filter(|c| spaceless(*c)).count();
+    text.split_whitespace().filter(|w| !w.chars().any(spaceless)).count() + set.div_ceil(2)
 }
 
 /// `narrative` with the words each slide shows set as a typesetter sets them ([`typeset`]).
@@ -4096,6 +4238,202 @@ mod tests {
             assert!(nodes.iter().all(|(_, said)| !said.trim().is_empty()), "{wanted}: {nodes:?}");
         }
         assert!(wrong.is_empty(), "{wrong:#?}");
+    }
+
+    /// Each figure and its unit stays on the slide, set once, at the lengths a model writes
+    /// "label: detail" bullets (40 to 90 characters), where the catalog's own are short.
+    #[test]
+    fn every_figure_and_its_unit_stays_on_the_slide_at_the_lengths_models_write() {
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let (summary, slides) = catalog();
+        let made = |name: &str, bullets: &[&str]| {
+            let mut slide = slides.iter().find(|s| s.layout_suggestion == name).unwrap().clone();
+            slide.key_bullets = bullets.iter().map(|b| b.to_string()).collect();
+            let made = deck(
+                &narrative(&summary, vec![slides[0].clone(), slide, slides[55].clone()]),
+                &theme,
+                &Pictures::new(),
+            )
+            .unwrap();
+            let state = made.deck["states"][1]["id"].as_str().unwrap().to_string();
+            let mut said = shown(&made.deck, &state);
+            said.sort();
+            (made.layouts[1].clone(), said)
+        };
+        let has = |said: &[(String, String)], slot: &str, words: &str| {
+            assert!(said.iter().any(|(s, w)| s == slot && w == words), "{slot} = {words:?} in {said:#?}");
+        };
+        let lacks = |said: &[(String, String)], slot: &str| {
+            assert!(!said.iter().any(|(s, _)| s == slot), "no {slot} in {said:#?}");
+        };
+        // A big number keeps its unit: "11 days", not "11".
+        let (_, number) = made("Big Number", &["11 days", "without power after Storm Elsa, October 2023"]);
+        has(&number, "number", "11 days");
+        has(&number, "claim", "without power after Storm Elsa, October 2023");
+        let (_, number) = made("Big Number", &["12 hours", "median first reply time on a support ticket"]);
+        has(&number, "number", "12 hours");
+        // A funnel's stage keeps its figure beside its name.
+        let (_, funnel) = made(
+            "Funnel",
+            &[
+                "US freight spend: $1.1T a year moves by truck, rail, and sea",
+                "Ocean and coastal: $180B of it moves by water along our coasts",
+                "Gulf corridor: $24B a year between Houston, New Orleans, and Tampa",
+                "Our first lanes: $2.1B in reach with the four ports we serve",
+            ],
+        );
+        has(&funnel, "first", "US freight spend \u{b7} $1.1T");
+        has(&funnel, "second", "Ocean and coastal \u{b7} $180B");
+        // A step that leads with its figure keeps it as its title, its words under it once.
+        let (layout, cards) = made(
+            "Steps",
+            &[
+                "10 people: have the disease, at 1% prevalence in a thousand tested",
+                "9 of them: test positive, since the test catches 90% of true cases",
+                "99 people: test positive without the disease, a 10% false-positive rate",
+                "108 positives: only 9 are sick, so a positive means about 8%",
+            ],
+        );
+        assert_eq!(layout, "numbered-cards");
+        has(&cards, "first-title", "10 people");
+        has(&cards, "first", "Have the disease, at 1% prevalence in a thousand tested");
+        has(&cards, "fourth-title", "108 positives");
+        // A figure shown apart is not said again at the head of its words.
+        let (_, scenarios) = made(
+            "Scenarios",
+            &[
+                "Bear: $9.5M ARR if the Gulf corridor alone signs and fuel stays high",
+                "Base: $22.0M ARR if two Atlantic lanes open on the plan's schedule",
+                "Bull: $52.0M ARR if licensing deals close with two top-ten carriers",
+            ],
+        );
+        has(&scenarios, "third-figure", "$52.0M");
+        has(&scenarios, "third", "ARR if licensing deals close with two top-ten carriers");
+        let (_, pipeline) = made(
+            "Pipeline",
+            &[
+                "Leads: 2,400 a month from inbound and the freight marketplaces",
+                "Pilots: 140 run this year, and 27% of them convert to a contract",
+                "Contracts: 38 signed annual contracts, and 95% of them renew",
+                "Revenue: $9.6M contracted over the next two years",
+            ],
+        );
+        has(&pipeline, "first-figure", "2,400");
+        has(&pipeline, "first", "A month from inbound and the freight marketplaces");
+        // A comma inside a figure's name is no change beside it.
+        let (_, grid) = made(
+            "KPI Grid",
+            &[
+                "0: Hours dark during Storm Nadia, 2026",
+                "4.2 min: Median outage restored, down from 11",
+                "98.7%: Customers reached by text, up 6 points",
+                "$3.1M: Saved in truck rolls this year",
+            ],
+        );
+        has(&grid, "first-title", "Hours dark during Storm Nadia, 2026");
+        lacks(&grid, "first");
+        has(&grid, "second-title", "Median outage restored");
+        has(&grid, "second", "Down from 11");
+        // Three questions go on three cards, each titled by its question where all are short.
+        let (layout, faq) = made(
+            "FAQ",
+            &[
+                "Is the removal permanent?: Yes, mineralized carbon stays put for centuries",
+                "What if fuel prices spike?: Lanes are priced on a fuel index",
+                "Who verifies it?: An accredited auditor checks every voyage",
+            ],
+        );
+        assert_eq!(layout, "cards");
+        has(&faq, "first-title", "Is the removal permanent?");
+        has(&faq, "first", "Yes, mineralized carbon stays put for centuries");
+        // Where one runs too long to title its card, none is titled, and each reads as asked and
+        // answered, with no colon after its question mark.
+        let (layout, faq) = made(
+            "FAQ",
+            &[
+                "If a test is 90% accurate and you test positive, what are the odds you're sick?: About 9%, because the disease is rare",
+                "Why is it so low when the test is so good?: Most positives come from the many healthy people tested",
+                "What should a doctor do next?: Test again, since a second positive raises the odds to about 47%",
+            ],
+        );
+        assert_eq!(layout, "cards");
+        has(
+            &faq,
+            "first",
+            "If a test is 90% accurate and you test positive, what are the odds you\u{2019}re sick? About 9%, because the disease is rare",
+        );
+        has(
+            &faq,
+            "second",
+            "Why is it so low when the test is so good? Most positives come from the many healthy people tested",
+        );
+        lacks(&faq, "first-title");
+        lacks(&faq, "second-title");
+        // A side's points, written on one line, are a list of them.
+        let (_, sides) = made(
+            "Pros / Cons",
+            &[
+                "Pro: cuts tailpipe emissions 80%; works with today's ships; needs no new ports",
+                "Con: feedstock is scarce and costly; still carbon-positive overall; prices swing with harvests",
+            ],
+        );
+        has(&sides, "first", "Cuts tailpipe emissions 80%\nWorks with today\u{2019}s ships\nNeeds no new ports");
+        // A 2×2 reads its axes from its items and puts each where its position words say.
+        let (_, matrix) = made(
+            "2\u{d7}2 Matrix",
+            &[
+                "Own fleet: low impact, high cost",
+                "Port software: high impact, low cost",
+                "Dashboards: low impact, low cost",
+                "Atlantic lanes: high impact, high cost",
+            ],
+        );
+        has(&matrix, "y-high", "More impact");
+        has(&matrix, "y-low", "Less impact");
+        has(&matrix, "x-high", "More cost");
+        has(&matrix, "x-low", "Less cost");
+        has(&matrix, "first", "Port software");
+        has(&matrix, "second", "Atlantic lanes");
+        has(&matrix, "third", "Dashboards");
+        has(&matrix, "fourth", "Own fleet");
+        // Short moments on a timeline: each its date over the rule and its event under it.
+        let (layout, timeline) = made(
+            "Timeline",
+            &[
+                "Jan 2025: Permit denied",
+                "Mar 2025: Appeal filed",
+                "Jun 2025: Permit granted",
+                "Sep 2025: Ground broken",
+            ],
+        );
+        assert_eq!(layout, "timeline");
+        has(&timeline, "first-title", "Jan 2025");
+        has(&timeline, "first", "Permit denied");
+        // Moments told in Japanese are told in sentences too.
+        let (layout, _) = made(
+            "Timeline",
+            &[
+                "2023年: 試作機が排気の92%を回収した",
+                "2024年: 初の実証航海を終えた",
+                "2025年: 三社と契約を結んだ",
+                "2026年: 四つの港で運航を始めた",
+            ],
+        );
+        assert_eq!(layout, "milestones");
+    }
+
+    /// A figure keeps the magnitude a language writes after it: "41.2万ドル" is $412K.
+    #[test]
+    fn a_figure_keeps_its_magnitude_in_any_language() {
+        assert_eq!(figure("41.2万ドルの予算超過").as_deref(), Some("41.2万ドル"));
+        assert_eq!(figure("予算は3億円").as_deref(), Some("3億円"));
+        assert_eq!(figure("1.2亿元的收入").as_deref(), Some("1.2亿元"));
+        assert_eq!(figure("5兆円").as_deref(), Some("5兆円"));
+        assert_eq!(figure("매출 3억원 달성").as_deref(), Some("3억원"));
+        assert_eq!(figure("12만 명").as_deref(), Some("12만"));
+        assert_eq!(figure("US spend: $1.1T a year").as_deref(), Some("$1.1T"));
+        assert_eq!(figure("5Mbps").as_deref(), Some("5"));
+        assert!(numeric("41.2万ドル") && numeric("11 days") && numeric("3億円"));
     }
 
     /// Someone else's words are set in quotation marks, the one who said them led by a dash, so
@@ -5151,7 +5489,7 @@ mod tests {
 
     /// A section is titled by what its slides say (narrative ATTR-5): its divider's title, where
     /// the run has one, first or after a slide; else the beat's name as the model wrote it; else
-    /// the arc's name for the beat.
+    /// its first slide's headline.
     #[test]
     fn a_section_is_titled_by_its_divider_else_the_models_beat_name_else_the_arcs() {
         let (summary, slides) = catalog();
@@ -5178,11 +5516,42 @@ mod tests {
         let made = deck(&narrative(&summary, picked), &theme, &Pictures::new()).unwrap();
         let spine = made.deck["spine"]["sections"].as_array().unwrap();
         let titles: Vec<&str> = spine.iter().map(|s| s["title"].as_str().unwrap()).collect();
-        let names = scaena_narrato::arcs::arc("Problem\u{2013}Solution").beat_names();
-        assert_eq!(titles, ["Hook", "The problem is the cost of proof", names[2], "Where the money goes"]);
+        let headline = typeset(&at("Big Number").slide_title);
+        assert_eq!(titles, ["Hook", "The problem is the cost of proof", headline.as_str(), "Where the money goes"]);
         let beats: Vec<usize> = spine.iter().map(|s| s["beats"].as_array().unwrap().len()).collect();
         assert_eq!(beats, [1, 2, 1, 3]);
         assert_eq!(spine[1]["id"], "the-problem-is-the-cost-of-proof");
+    }
+
+    /// Narrato echoes each beat's name from the arc's list, so a name that is the arc's is the
+    /// template's, not the model's: a section with no divider is titled by its first slide's
+    /// headline, and by the arc's name only where that slide has none.
+    #[test]
+    fn a_section_named_as_the_arc_names_its_beat_takes_its_first_headline() {
+        let (summary, slides) = catalog();
+        let names = scaena_narrato::arcs::arc("Problem\u{2013}Solution").beat_names();
+        let at = |layout: &str| slides.iter().find(|s| s.layout_suggestion == layout).unwrap().clone();
+        let beat = |mut slide: Slide, index: usize| {
+            slide.beat_index = Some(index);
+            slide.beat_name = Some(names[index].to_string());
+            slide
+        };
+        let mut untitled = at("Statement");
+        untitled.slide_title = String::new();
+        let picked = vec![
+            beat(at("Title"), 0),
+            beat(at("Bullet List"), 1),
+            beat(at("Big Number"), 1),
+            beat(untitled, 2),
+            beat(at("Closing"), 3),
+        ];
+        let headline = |i: usize| typeset(&picked[i].slide_title);
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let made = deck(&narrative(&summary, picked.clone()), &theme, &Pictures::new()).unwrap();
+        let spine = made.deck["spine"]["sections"].as_array().unwrap();
+        let titles: Vec<&str> = spine.iter().map(|s| s["title"].as_str().unwrap()).collect();
+        assert_eq!(titles, [headline(0).as_str(), headline(1).as_str(), names[2], headline(4).as_str()]);
+        assert!(titles.iter().zip(&names).all(|(t, n)| t != n || *t == names[2]), "{titles:?} {names:?}");
     }
 
     #[test]
