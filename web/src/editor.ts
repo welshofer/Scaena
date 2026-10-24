@@ -68,7 +68,7 @@ import { dataKeys, sheets } from "./data";
 import { filesPanel } from "./files";
 import { storyPanel } from "./story";
 import { finder, findKeys } from "./find";
-import { deleteKept, keptBundle, keptNames, renameKept } from "./folders";
+import { deleteKept, keptBundle, keptNames, persist, persisted, renameKept } from "./folders";
 import { discard, find, keep, savedAt, type Copy } from "./recovery";
 import { formatsRow } from "./formats";
 import { layerKeys, layers } from "./layers";
@@ -307,6 +307,11 @@ async function listKept() {
   };
   $("#keeping ul").replaceChildren(...names.map(row));
   $("#keeping [data-none]").hidden = names.length > 0;
+  // Whether the browser keeps them for good, or may clear them when short of room (lift-up
+  // 10-24b REL-4).
+  $("#keeping [data-persisted]").textContent = (await persisted())
+    ? "This browser keeps them until you delete them."
+    : "This browser may clear them when it runs short of room: Download keeps a copy of your own.";
 }
 
 /** Say `text` in Kept in this browser, over the page, and in the status under it. */
@@ -634,6 +639,7 @@ async function edit(source: Source, opened?: Stage) {
       }
       await keep(key, { at: Date.now(), name, source: view.state.doc.toString(), files: [...written.keys()], removed }, files);
       copied = new Map(written);
+      void persist(say);
     };
     copying = copying.then(run, run).catch((e: unknown) => console.warn(`The recovery copy was not kept: ${said(e)}`));
     return copying;
@@ -2093,6 +2099,8 @@ async function edit(source: Source, opened?: Stage) {
    * them left them: the bundle kept where it went, the paths the save renamed renamed in the source,
    * and the page's address naming it. */
   async function took(done: Extract<FromWorker, { type: "saved" }>, sent: string, files: number) {
+    // Kept in this browser: the browser is asked to keep it for good (lift-up 10-24b REL-4).
+    if (done.where.kind === "opfs") void persist(say);
     // Saved: the copy of what was not, under the key before and after, goes.
     const was = copyKey();
     clearTimeout(copyTimer);
