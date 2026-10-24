@@ -1,3 +1,4 @@
+import ScaenaNotes
 import SwiftUI
 
 #if canImport(UIKit)
@@ -192,8 +193,9 @@ private struct RemoteShow: View {
                     }
                 }
                 ScrollView {
-                    Text(place.notes.isEmpty ? "No notes." : place.notes)
+                    NotesText(text: place.notes, blocks: place.read)
                         .frame(maxWidth: .infinity, alignment: .leading)
+                        .accessibilityIdentifier("remote-notes")
                 }
             }
             HStack(spacing: 12) {

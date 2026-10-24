@@ -115,7 +115,8 @@ try {
   const copy = await page.evaluate(() => window.scaena.canvas.selected());
   check(copy !== "title" && (await source()).includes(`\n  ${copy} `), `the copy is in the source, selected: ${copy}`);
   // Undo and Redo are named by the change each takes back or makes again (lift-up USE-4).
-  const did = (await status()).replace(/\s*·\s*⌘Z undoes it$/, "");
+  // Without lint's count, which follows the words once the state's lint answers.
+  const did = (await status()).replace(/\s+—\s[^—]*$/, "").replace(/\s*·\s*⌘Z undoes it$/, "");
   const undoing = await palette("undo");
   check(undoing[0] === `Undo ${did}`, `the palette's Undo says what it takes back: ${undoing[0]}`);
   await page.keyboard.press("Escape");

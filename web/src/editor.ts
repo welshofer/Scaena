@@ -1316,9 +1316,10 @@ async function edit(source: Source, opened?: Stage) {
   formatting.formats(sizes(stage.opened.formats), own());
   /** The deck played as presented, each state's time kept, and kept as its hold on request: one
    * patch, one step to undo (PLAN 2.63). */
-  const rehearsing = rehearsal(stage, $("#rehearsing"), $<HTMLDialogElement>("#rehearsed"), $("#preview"), {
+  const rehearsing = rehearsal(stage, $("#rehearsing"), $("#rehearsal-notes"), $<HTMLDialogElement>("#rehearsed"), $("#preview"), {
     slots: async () => (showing() || last?.valid ? stage.timeline(format()) : undefined),
     format,
+    notes: (state) => stage.notes(state),
     show: (index) => void show(index),
     keep: async (ops, what) => {
       try {
