@@ -151,6 +151,8 @@ struct DeckRead {
     scn: bool,
     #[serde(default)]
     files: bool,
+    #[serde(default)]
+    theme: bool,
 }
 
 #[derive(Deserialize)]
@@ -159,6 +161,8 @@ struct DeckPatch {
     ops: Vec<Map<String, Value>>,
     #[serde(default)]
     dry_run: bool,
+    #[serde(default)]
+    verbose: bool,
 }
 
 #[derive(Deserialize)]
@@ -333,6 +337,8 @@ struct StateStart {
     #[serde(default)]
     claim: Option<String>,
     #[serde(default)]
+    id: Option<String>,
+    #[serde(default)]
     dry_run: bool,
 }
 
@@ -368,8 +374,12 @@ struct Rendered {
 
 fn args<T: DeserializeOwned>(tool: &str, args: Value) -> Result<T, Error> {
     // A tool called with no arguments may be sent `null`.
-    let args = if args.is_null() { json!({}) } else { args };
-    serde_json::from_value(args).map_err(|e| ops(format!("{tool}: {e}")))
+    let args = match args {
+        Value::Null => Map::new(),
+        Value::Object(args) => args,
+        _ => return Err(ops(format!("{tool}: its arguments are an object of them, by name"))),
+    };
+    scaena_ops::arguments::read(args).map_err(|e| ops(format!("{tool}: {e}")))
 }
 
 impl Session {
@@ -380,7 +390,7 @@ impl Session {
         match name {
             "deck_read" => {
                 let a: DeckRead = args(name, a)?;
-                Called::of(scaena_ops::read::read(&b, a.scn, a.files)?)
+                Called::of(scaena_ops::read::read(&b, a.scn, a.files, a.theme)?)
             }
             "deck_patch" => {
                 let a: DeckPatch = args(name, a)?;
@@ -393,8 +403,10 @@ impl Session {
                 };
                 let (mut patched, deck) = scaena_ops::patch::editing(&b, &ops, None, validated, judge)?;
                 patched.applied &= !a.dry_run;
+                let made = deck.as_ref().map(|w| &w.deck);
+                let reported = scaena_ops::patch::Reported::of(&b.deck, made, &ops, patched, a.verbose);
                 let edited = self.write(deck.filter(|_| !a.dry_run), by)?;
-                Ok(Called { edited, ..Called::of(patched)? })
+                Ok(Called { edited, ..Called::of(reported)? })
             }
             "deck_find" => {
                 let a: DeckFind = args(name, a)?;
@@ -504,7 +516,13 @@ impl Session {
             // A slide started as Add Slide starts one (PLAN 3.30), linted as an edit is.
             "state_start" => {
                 let a: StateStart = args(name, a)?;
-                let mut added = scaena_ops::states::starting(&b.deck, &self.theme, &a.state, a.layout.as_deref())?;
+                let mut added = scaena_ops::states::starting_as(
+                    &b.deck,
+                    &self.theme,
+                    &a.state,
+                    a.layout.as_deref(),
+                    a.id.as_deref(),
+                )?;
                 if let Some(claim) = a.claim.as_deref() {
                     added = scaena_ops::states::claimed(&b.deck, added, claim)?;
                 }
@@ -517,7 +535,9 @@ impl Session {
                 let (mut patched, deck) = scaena_ops::patch::editing(&b, &ops, Some(&what), validated, judge)?;
                 patched.applied &= !a.dry_run;
                 let edited = self.write(deck.filter(|_| !a.dry_run), by)?;
-                Ok(Called { edited, ..Called::of(scaena_ops::states::Started { id: added.id, patched })? })
+                let started =
+                    scaena_ops::states::Started { id: added.id, filled: added.filled, empty: added.empty, patched };
+                Ok(Called { edited, ..Called::of(started)? })
             }
             // A slide's background set to a theme preset, or taken away (PLAN 2.148).
             "background_set" => {
