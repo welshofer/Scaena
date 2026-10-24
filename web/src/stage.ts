@@ -10,6 +10,7 @@ import type {
   Attached,
   At,
   Cells,
+  CodeKey,
   DataEdited,
   DataMark,
   DataSource,
@@ -24,6 +25,7 @@ import type {
   Hit,
   Insert,
   Inspected,
+  Keyed,
   Layer,
   LayoutSuggestion,
   Backgrounds,
@@ -169,6 +171,10 @@ type Reply = Extract<
       | "bolding"
       | "codeWords"
       | "tidied"
+      | "keyed"
+      | "coding"
+      | "uncoding"
+      | "tidying"
       | "italicizing"
       | "themes"
       | "rethemed"
@@ -813,8 +819,31 @@ export class Stage {
     return this.request<"characterChoices">(asked).then(({ choices }) => choices);
   }
 
-  /** What ⌘B gives the characters `from` to `to` (Unicode scalar values) of `node`'s text in
-   * `state`, on the deck the editor's `source` compiles to (PLAN 2.38): `style_text`'s `look`. */
+  /** `text` with `from` to `to` (UTF-16) selected after `key` in code whose tab stops are `tab`
+   * columns apart, in `language`, as a code editor answers it (PLAN 2.139, `code::keyed`): a
+   * Makefile's stop a tab; none for a key code does not answer. */
+  keyed(text: string, from: number, to: number, key: CodeKey, tab: number, language?: string): Promise<Keyed | null> {
+    const asked = { type: "keyed" as const, id: ++this.asked, text, from, to, key, tab, language };
+    return this.request<"keyed">(asked).then(({ keyed }) => keyed);
+  }
+
+  /** Make Code's patch of `node` (PLAN 2.139): `code` in `language`, else in the language its words
+   * read as, and the theme's code role, what code does not take taken away. */
+  coding(source: string, node: string, language?: string): Promise<unknown[]> {
+    return this.request<"coding">({ type: "coding", id: ++this.asked, source, node, language }).then(({ patch }) => patch);
+  }
+
+  /** Not Code's patch of `node` (PLAN 2.139): `code` taken away everywhere, the text in `body`. */
+  uncoding(source: string, node: string): Promise<unknown[]> {
+    return this.request<"uncoding">({ type: "uncoding", id: ++this.asked, source, node }).then(({ patch }) => patch);
+  }
+
+  /** Tidy Code's patch of `node` as `state` shows it (PLAN 2.139): `[]` where it is tidy. */
+  tidying(source: string, state: string, node: string): Promise<unknown[]> {
+    const asked = { type: "tidying" as const, id: ++this.asked, source, state, node };
+    return this.request<"tidying">(asked).then(({ patch }) => patch);
+  }
+
   /** `text` tidied as code in `language` is when it is pasted (PLAN 2.133, `code::tidy`). */
   tidied(text: string, language: string): Promise<string> {
     return this.request<"tidied">({ type: "tidied", id: ++this.asked, text, language }).then(({ text }) => text);
@@ -826,6 +855,8 @@ export class Stage {
     return this.request<"codeWords">(asked).then(({ words }) => words);
   }
 
+  /** What ⌘B gives the characters `from` to `to` (Unicode scalar values) of `node`'s text in
+   * `state`, on the deck the editor's `source` compiles to (PLAN 2.38): `style_text`'s `look`. */
   bolding(source: string, state: string, node: string, from: number, to: number, format?: string): Promise<Record<string, unknown>> {
     const asked = { type: "bolding" as const, id: ++this.asked, source, state, node, from, to, format };
     return this.request<"bolding">(asked).then(({ look }) => look);
@@ -1346,6 +1377,10 @@ export class Stage {
       case "bolding":
       case "codeWords":
       case "tidied":
+      case "keyed":
+      case "coding":
+      case "uncoding":
+      case "tidying":
       case "italicizing":
       case "themes":
       case "rethemed":

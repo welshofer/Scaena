@@ -1690,6 +1690,8 @@ pub fn deck_as(
             Planned { beat, items, icons, layout }
         })
         .collect();
+    let mut planned = planned;
+    rebroken(&mut planned, narrative, &varied, theme, pictures, layouts);
     let numbers = divider_numbers(narrative, &planned);
     // The part of the talk a slide is in, as its foot names it: its divider's title, for the
     // slides of the beat the divider opened, and none once the talk moves to another.
@@ -1835,6 +1837,56 @@ pub fn deck_as(
         out["data"] = Value::Object(deck.data);
     }
     Ok(Made { deck: out, layouts: chosen, assets: BTreeMap::new() })
+}
+
+/// `planned` with no three slides in a row on one of the theme's layouts (lift-up ATTR-2):
+/// Narrato breaks its runs by its own names, which several of come to one of the theme's
+/// (`body`, `image-text`, and `callout` each to `bullets`), so a run is broken again once each
+/// slide has its theme layout. The middle of three takes the first other layout of places that sets
+/// its items as they are written ([`others`]: labelled points as columns or cards); a layout the
+/// person chose for a slide stays, and so does a slide only a list sets. The slides moved, by their
+/// index.
+fn rebroken(
+    planned: &mut [Planned],
+    narrative: &Narrative,
+    varied: &[Varied],
+    theme: &Theme,
+    pictures: &Pictures,
+    layouts: &BTreeMap<usize, String>,
+) -> Vec<usize> {
+    let mut moved = Vec::new();
+    let mut i = 1;
+    while i + 1 < planned.len() {
+        let run = planned[i - 1].layout == planned[i].layout && planned[i].layout == planned[i + 1].layout;
+        let chosen = (i - 1..=i + 1).any(|k| layouts.contains_key(&k));
+        if !run || chosen {
+            i += 1;
+            continue;
+        }
+        let p = &planned[i];
+        let (slide, v) = (&narrative.slides[i], &varied[i]);
+        let options = others(
+            v.layout.identity(),
+            slide,
+            &p.items,
+            theme,
+            pictures.contains_key(&i),
+            p.icons.is_some(),
+            &p.layout,
+        );
+        // Another list is no other look, and numbering points that have no order says something
+        // false of them: a run is broken only by a layout of places that sets them as they are.
+        match options.into_iter().find(|l| !matches!(l.as_str(), "bullets" | "numbered")) {
+            Some(layout) => {
+                planned[i].layout = layout;
+                moved.push(i);
+                // The next run starts after the one broken.
+                i += 2;
+            }
+            None => i += 1,
+        }
+    }
+    moved
 }
 
 /// Each slide of `narrative` after Narrato's variety pass, but for its cap on dividers: Vzestup
@@ -3093,10 +3145,20 @@ impl Slots<'_> {
                     .or_else(|| self.slide.chart_data.as_ref().and_then(latest)),
             ),
             // The takeaway; then, where the layout has no place for it, the chart's source a line
-            // of its own.
+            // of its own. A takeaway that names the headline's first and last figures again says
+            // nothing the room has not just read, and gives way to what the latest figure counts
+            // and when, from the chart's own data: "without power in 2026".
             ("line-chart", "note", _) => {
-                let takeaway =
-                    self.item(0).map(|i| if i.figure_first() { sentence(&i.detail) } else { i.whole.clone() });
+                let item = self.item(0);
+                let said = item.map(|i| if i.figure_first() { sentence(&i.detail) } else { i.whole.clone() });
+                let takeaway = match said {
+                    Some(t) if self.title().is_some_and(|h| restates(&h, &t)) => {
+                        // The latest figure is the callout's only where no takeaway leads with its own.
+                        let latest = !item.is_some_and(Item::figure_first);
+                        self.slide.chart_data.as_ref().filter(|_| latest).and_then(|c| counted(c, self.subtitle()))
+                    }
+                    said => said,
+                };
                 let source = self.caption().filter(|_| !self.has("source"));
                 text(match (takeaway.filter(|t| !t.is_empty()), source) {
                     (Some(t), Some(c)) => Some(format!("{t}\n{c}")),
@@ -4260,6 +4322,51 @@ fn named_figure(chart: &ChartData, series: Option<&str>, said: [Option<&str>; 2]
     })
 }
 
+/// What a line's latest figure counts, and when, from its own data: its axis's title less the
+/// unit the figure carries and the rate the line runs at, else its series' name whole, then its
+/// last category: "without power in 2026" under "2 hours" from "Hours without power per year".
+fn counted(chart: &ChartData, subtitle: Option<String>) -> Option<String> {
+    let when = chart.categories.last()?;
+    // A series' own name is said whole; an axis's title loses what the figure beside it says.
+    let (measure, titled) = match subtitle {
+        Some(t) => (t, true),
+        None => (chart.series.first().and_then(|s| s.name.clone()).unwrap_or_default(), false),
+    };
+    let mut words: Vec<&str> = measure.split(',').next().unwrap_or_default().split_whitespace().collect();
+    let unit = if titled { chart.unit.as_deref().unwrap_or_default().trim() } else { "" };
+    if words.first().is_some_and(|w| !unit.is_empty() && w.eq_ignore_ascii_case(unit)) {
+        words.remove(0);
+    }
+    if words.last().is_some_and(|w| !unit.is_empty() && w.eq_ignore_ascii_case(unit)) {
+        words.pop();
+    }
+    let rates = ["year", "quarter", "month", "week", "day", "hour"];
+    if let [.., per, every] = words.as_slice()
+        && matches!(per.to_lowercase().as_str(), "per" | "a" | "each" | "every")
+        && rates.contains(&every.to_lowercase().as_str())
+    {
+        words.truncate(words.len() - 2);
+    }
+    let mut measure = words.join(" ");
+    // Lowercased as the middle of a sentence, an acronym kept: "ARR in Q3", "outages in 2026".
+    let acronym = measure
+        .split_whitespace()
+        .next()
+        .is_some_and(|w| w.chars().filter(|c| c.is_alphabetic()).all(char::is_uppercase));
+    if !acronym && let Some(first) = measure.chars().next() {
+        measure = first.to_lowercase().chain(measure.chars().skip(1)).collect();
+    }
+    Some(if measure.is_empty() { format!("in {when}") } else { format!("{measure} in {when}") })
+}
+
+/// Whether `note` names the first and last of the figures `headline` writes, two or more: "Outage
+/// hours fell to 2 in 2026, after 286 in the storm year" under "Outage hours fell from 286 to 2".
+fn restates(headline: &str, note: &str) -> bool {
+    let (said, again) = (figures(headline), figures(note));
+    let named = |f: &f64| again.contains(f);
+    said.len() >= 2 && said.first().is_some_and(named) && said.last().is_some_and(named)
+}
+
 /// The figures `text` writes, as numbers: "$1,140" is 1140, "4.9%" is 4.9.
 fn figures(text: &str) -> Vec<f64> {
     text.split(|c: char| !(c.is_ascii_digit() || c == '.' || c == ','))
@@ -5359,6 +5466,56 @@ mod tests {
     }
 
     #[test]
+    fn three_slides_on_one_of_the_themes_layouts_are_broken_once_they_have_it() {
+        // Narrato reads "Bullet List", "Image + Text", and "Bar Chart" as three layouts and breaks
+        // no run of them, but with no picture and no data each comes to the theme's bullets, three
+        // in a row (lift-up ATTR-2).
+        // The middle one takes another layout that sets its items; a layout the person chose
+        // stays.
+        let list = |title: &str, layout: &str| {
+            serde_json::json!({ "slideTitle": title, "subtitle": "", "layoutSuggestion": layout,
+              "keyBullets": ["Verification: weeks per container", "Offsets: no one sees the ledger",
+                "Shippers: they pay twice"],
+              "beatIndex": 1, "beatName": "Problem" })
+        };
+        let text = serde_json::json!({
+            "executiveSummary": "Proof is the product.",
+            "slides": [
+                { "slideTitle": "Proof is the product", "subtitle": "A talk", "layoutSuggestion": "Title",
+                  "keyBullets": [], "beatIndex": 0, "beatName": "Hook" },
+                list("Why green freight stalls", "Bullet List"),
+                list("What shippers told us", "Image + Text"),
+                list("Where the money goes", "Bar Chart"),
+                { "slideTitle": "Thank you", "subtitle": "", "layoutSuggestion": "Closing", "keyBullets": [],
+                  "beatIndex": 2, "beatName": "Close" },
+            ]
+        })
+        .to_string();
+        let written = answer::slides(&text).unwrap();
+        let n = narrative(&written.executive_summary, written.slides);
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let unbroken = |made: &Made| (made.layouts.windows(3)).all(|w| !(w[0] == w[1] && w[1] == w[2]));
+        let made = deck(&n, &theme, &Pictures::new()).unwrap();
+        assert!(unbroken(&made), "{:?}", made.layouts);
+        assert_eq!((made.layouts[1].as_str(), made.layouts[3].as_str()), ("bullets", "bullets"), "{:?}", made.layouts);
+        assert_eq!(made.layouts[2], "three-columns", "a list of labelled points as columns");
+        // Points with no labels and no order have no other layout but a list: they stay bullets,
+        // never numbered, which would say they have an order.
+        let plain = text
+            .replace("Verification: weeks per container", "Verification takes weeks")
+            .replace("Offsets: no one sees the ledger", "No one sees the offsets' ledger")
+            .replace("Shippers: they pay twice", "Shippers pay twice");
+        let written = answer::slides(&plain).unwrap();
+        let unlabelled =
+            deck(&narrative(&written.executive_summary, written.slides), &theme, &Pictures::new()).unwrap();
+        assert_eq!(unlabelled.layouts[1..4], ["bullets", "bullets", "bullets"], "{:?}", unlabelled.layouts);
+        // The person's own layout for the middle one is kept, run or no run.
+        let chosen: BTreeMap<usize, String> = [(2, "bullets".to_string())].into();
+        let kept = deck_as(&n, &theme, &Pictures::new(), &chosen).unwrap();
+        assert_eq!(kept.layouts[1..4], ["bullets", "bullets", "bullets"], "{:?}", kept.layouts);
+    }
+
+    #[test]
     fn a_text_that_cannot_come_clear_of_what_lies_across_it_is_left_as_it_was() {
         // A picture over the whole of a divider: its title, grown to its place, collides with it
         // however small it is set, the collision as large for its size. One step shows it, and
@@ -5636,6 +5793,20 @@ mod tests {
         );
         assert_eq!(said("Outage hours fell to 2 by 2024"), None, "an end is labelled already, a year is no figure");
         assert_eq!(figures("$1,140 and 4.9%, in 2024."), [1140.0, 4.9, 2024.0]);
+        // A takeaway that names the headline's first and last figures again gives way; one that
+        // adds to them, or a headline of one figure, keeps it.
+        let headline = "Outage hours fell from 286 to 2 in three years";
+        assert!(restates(headline, "Outage hours fell to 2 in 2026, after 286 in the storm year"));
+        assert!(!restates(headline, "Outage hours fell to 2 in 2026, the lowest in the county"));
+        assert!(!restates("ARR reached $910K", "ARR reached $910K in September"));
+        // Where it gives way, the latest figure is said from the data: what it counts, and when.
+        let outages: ChartData = serde_json::from_value(json!({
+            "categories": ["2021", "2026"], "series": [{ "name": "Outage hours", "values": [24, 2] }], "unit": "hours",
+        }))
+        .unwrap();
+        let said = |subtitle: Option<&str>| counted(&outages, subtitle.map(String::from));
+        assert_eq!(said(Some("Hours without power per year, Port Alder")).as_deref(), Some("without power in 2026"));
+        assert_eq!(said(None).as_deref(), Some("outage hours in 2026"));
         assert_eq!((grouped(1140.0, 0), grouped(-2.5, 1)), ("1,140".to_string(), "\u{2212}2.5".to_string()));
         let node = chart_node(
             &chart,

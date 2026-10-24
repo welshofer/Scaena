@@ -83,9 +83,10 @@ fn lint_with(bundle: &Path, args: &[&str]) -> (i32, Vec<Value>) {
 }
 
 /// Each rule's trigger, and where in the deck it finds what it finds.
-const RULES: [(&str, &[&str]); 48] = [
+const RULES: [(&str, &[&str]); 49] = [
     ("E100", &["/nodes/t"]),
     ("E101", &["/nodes/b", "/nodes/note", "/nodes/src"]),
+    ("E107", &["/nodes/pic"]),
     ("E110", &["/nodes/t"]),
     ("E111", &["/nodes/t"]),
     ("E120", &["/nodes/t"]),
