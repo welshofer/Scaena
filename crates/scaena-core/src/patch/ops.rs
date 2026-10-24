@@ -2174,9 +2174,8 @@ fn hide_node(d: &Doc, node: &str, state: &str) -> Result<Vec<JsonOp>, String> {
 fn place(d: &Doc, after: Option<&str>, before: Option<&str>, moving: Option<usize>) -> Result<Option<usize>, String> {
     let ids: Vec<&str> =
         d.states().iter().enumerate().filter(|(k, _)| Some(*k) != moving).map(|(_, s)| id_of(s)).collect();
-    let find = |id: &str| {
-        ids.iter().position(|s| *s == id).ok_or_else(|| missing("state", "states", id, ids.iter().copied()))
-    };
+    let find =
+        |id: &str| ids.iter().position(|s| *s == id).ok_or_else(|| missing("state", "states", id, ids.iter().copied()));
     match (after, before) {
         (Some(_), Some(_)) => Err("say `after` or `before`, not both".into()),
         (Some(after), None) => Ok(Some(find(after)? + 1)),

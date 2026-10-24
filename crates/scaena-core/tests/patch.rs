@@ -2329,7 +2329,10 @@ fn an_id_the_deck_has_not_is_refused_with_the_one_meant() {
     let state = refused(json!([{ "op": "set_state", "id": "revnue", "prop": "hold", "value": 1 }]));
     assert!(state.ends_with("no state `revnue`; did you mean `revenue`?"), "{state}");
     let far = refused(json!([{ "op": "set_text", "node": "zzzzzz", "text": "Q3" }]));
-    assert!(far.ends_with("no node `zzzzzz`; the deck's nodes include `bg`, `title`, `subtitle`, `rev`, `note`"), "{far}");
+    assert!(
+        far.ends_with("no node `zzzzzz`; the deck's nodes include `bg`, `title`, `subtitle`, `rev`, `note`"),
+        "{far}"
+    );
     let moved = refused(json!([{ "op": "move_state", "id": "mix", "after": "clsoe" }]));
     assert!(moved.ends_with("no state `clsoe`; did you mean `close`?"), "{moved}");
 }
