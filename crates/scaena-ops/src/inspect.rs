@@ -122,9 +122,12 @@ pub struct Views {
     pub state_choices: bool,
     /// The layouts the state inspected may take, best first (PLAN 2.92): each of the theme's
     /// layouts that `state_choices` offers, with what lint finds in the state laid out in it,
-    /// fewest errors, then fewest warnings, then the theme's order; the states its patch
-    /// changes; and that patch, one `set_state`. Those that draw the state alike, in `format`
-    /// or on the deck's canvas, are one, which names the rest (`alike`).
+    /// fewest errors, then fewest warnings, then the layout it takes now, then those whose places
+    /// it leaves fewest empty (`empty`), then those that set fewest of its texts in another role
+    /// (`recast`), then the theme's order, so a layout it fills, with as many items as the layout
+    /// has, comes before one it fills in part; the states its patch changes; and that patch, one
+    /// `set_state`. Those that draw the state alike, in `format` or on the deck's canvas, are
+    /// one, which names the rest (`alike`).
     #[serde(default)]
     pub layouts: bool,
     /// What may be inserted in the state inspected (PLAN 2.34): a text in each of the
@@ -1612,45 +1615,7 @@ pub fn deleting(
     state: &str,
     everywhere: bool,
 ) -> Result<Vec<Value>, OpsError> {
-    let snaps = scaena_core::resolve_states(deck).context("tracking")?;
-    let snap =
-        snaps.iter().find(|s| s.state_id == state).ok_or_else(|| OpsError::new(format!("unknown state `{state}`")))?;
-    if let Some(node) = nodes.iter().find(|node| !snap.nodes.contains_key(**node)) {
-        return Err(OpsError::new(format!("`{node}` is not on screen in `{state}`")));
-    }
-    let holding: Vec<&Snapshot> = if everywhere { snaps.iter().collect() } else { vec![snap] };
-    let mut gone: Vec<String> = Vec::new();
-    for node in nodes {
-        for id in held(&holding, node) {
-            if !gone.contains(&id) {
-                gone.push(id);
-            }
-        }
-    }
-    let ends = |id: &String| deck.nodes.get(id).and_then(scaena_core::tracking::connects_of);
-    let with_end = |id: &String| ends(id).is_some_and(|(from, to)| gone.iter().any(|g| g == from || g == to));
-    let (joined, gone): (Vec<String>, Vec<String>) = gone.iter().cloned().partition(with_end);
-    let remove = |id: &String| serde_json::json!({ "op": "remove_node", "id": id });
-    if everywhere {
-        return Ok(gone.iter().map(remove).collect());
-    }
-    let hide: Vec<Value> =
-        gone.iter().map(|id| serde_json::json!({ "op": "hide_node", "node": id, "state": state })).collect();
-    let doc = deck.to_value().context("the deck")?;
-    let hidden = scaena_core::patch::compile(&doc, &hide, files).map_err(|e| OpsError::new(e.message))?;
-    let after = Deck::from_value(&hidden.doc).map_err(OpsError::new)?;
-    let after = scaena_core::resolve_states(&after).context("tracking")?;
-    let shown = |id: &String| after.iter().any(|s| s.nodes.contains_key(id));
-    // A connector deleted with its end, which no state shows then, goes from the deck first.
-    let left = joined.iter().filter(|id| !shown(id)).map(remove);
-    Ok(left.chain(gone.iter().zip(hide).map(|(id, hide)| if shown(id) { hide } else { remove(id) })).collect())
-}
-
-/// `node` and each node it holds in `snaps`, at any depth: the deepest first, `node` last.
-pub(crate) fn held(snaps: &[&Snapshot], node: &str) -> Vec<String> {
-    let mut ids = depths(snaps, node);
-    scaena_core::sort::by_key(&mut ids, |(_, depth)| std::cmp::Reverse(*depth));
-    ids.into_iter().map(|(id, _)| id).chain(std::iter::once(node.to_string())).collect()
+    scaena_core::patch::deleting(deck, files, nodes, state, everywhere).map_err(OpsError::new)
 }
 
 /// `node` and each node it holds in `snaps`, at any depth: `node` first, then each before
@@ -1665,22 +1630,7 @@ pub(crate) fn held_down(snaps: &[&Snapshot], node: &str) -> Vec<String> {
 /// Each node `node` holds in `snaps`, at any depth, with how deep: in the order `snaps` declare
 /// them.
 fn depths(snaps: &[&Snapshot], node: &str) -> Vec<(String, usize)> {
-    let mut depth: IndexMap<String, usize> = IndexMap::new();
-    for snap in snaps {
-        let parent = |id: &str| snap.nodes.get(id)?.get("at")?.get("parent")?.as_str().map(String::from);
-        for id in snap.nodes.keys() {
-            let (mut up, mut steps) = (parent(id), 1);
-            while let Some(p) = up.filter(|_| steps <= snap.nodes.len()) {
-                if p == node {
-                    let d = depth.entry(id.clone()).or_default();
-                    *d = (*d).max(steps);
-                    break;
-                }
-                (up, steps) = (parent(&p), steps + 1);
-            }
-        }
-    }
-    depth.into_iter().collect()
+    scaena_core::patch::depths(snaps, node)
 }
 
 /// State `state`'s cue, each motion with where `doc`, the deck as written, writes it.

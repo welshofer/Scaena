@@ -42,3 +42,16 @@ Four things are open:
 - The remote shows the slides as pictures, so a cue's motion is not seen on it. It does not need to be: the audience watches the stage, and the remote shows where the show is.
 - A remote that loses Wi-Fi mid-show says so and can join again with the same code, while the host stays on.
 - A Mac as the remote, or one remote driving several presenters, can come later on the same messages.
+
+## Amendment: pairing by the code (lift-up SEC-5, 2026-10-23)
+
+Decision 2 derived TLS's pre-shared key from the code alone. A handshake with a pre-shared key of four digits can be tried against offline: one join recorded on the network, and ten thousand keys, gives the code; and nothing limited tries online. The Bonjour name also told the room the deck's file name.
+
+Now:
+- **A password-authenticated key exchange pairs the ends**: SPEKE on P-256, with CryptoKit alone (`ScaenaRemote`'s `Pairing`). The code is hashed to a point of the curve: SHA-256 of a fixed label, the code, and a counter, the first x that is a point's, which every code of four digits reaches within 16 tries. The presenter works it out when it makes the code, so nothing a joining device can time depends on it. Each end raises it to a random secret and sends the result, which is a random point whatever the code, and raises the other's to its secret: the same key at both ends, never sent. A join recorded on the network tests no code offline, however many are tried against it. Every code's point is on the curve, whose order is prime, so a hello tells nothing of the code. (A first cut hashed the code to a u-coordinate on Curve25519, which lands on the curve for 4,979 codes and on its twist for 5,021; X25519 keeps a twist's point on the twist, so a hello told which half the code was in. P-256 replaced it.) Each end then proves it holds the key by a tag over both hellos, the remote first; a wrong code is one try, online. A point of low order, whose key anyone could make, is refused.
+- **Every message after is sealed** under keys derived from the pairing, one each way (ChaCha20-Poly1305, `Sealed`), each numbered in its nonce and read in turn, so none is read, changed, replayed, or reordered on the wire. The connection is plain TCP; TLS is gone with its pre-shared key.
+- **Tries are limited.** The presenter counts wrong codes (`RemoteServer.tried`). After five, it makes its code anew and says so (`recoded`), its sheet shows the new one, remotes still pairing are let go, and no remote pairs for five seconds, twice as long each time, up to five minutes, until a remote joins. A remote joined stays joined. A connection that speaks no pairing, or sends no proof, is no try, so a port scanner cannot change the code; at most sixteen pair at once. The sheet says how many wrong codes were tried, and that the code changed.
+- **The Bonjour name is the device's alone**, within the 63 bytes a service's name may hold (`Remote.serviceName`). The deck's name reaches a remote only once it is joined, in each place.
+- The code stays four digits, as a presentation app's remote pairs with, and is still shown only in the editor.
+
+Not done, and open: the presenter approving each remote in the sheet before places and commands flow. With the pairing and the limit on tries it is defense in depth, and a call for Jay on how the sheet should read.

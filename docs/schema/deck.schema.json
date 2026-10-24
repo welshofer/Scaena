@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://scaena.dev/schema/deck-0.35.json",
+  "$id": "https://scaena.dev/schema/deck-0.37.json",
   "title": "Scaena deck document",
   "description": "Canonical deck.json. A deck is a scene graph (nodes) plus an ordered cue list (states) over a narrative spine, rendered against a theme. See docs/SPEC.md §3.",
   "type": "object",
@@ -10,7 +10,7 @@
     "scaena": {
       "description": "Format version (semver, major.minor[.patch]).",
       "type": "string",
-      "pattern": "^0\\.35(\\.[0-9]+)?$"
+      "pattern": "^0\\.37(\\.[0-9]+)?$"
     },
     "meta": { "$ref": "#/$defs/Meta" },
     "canvas": { "$ref": "#/$defs/Canvas" },
@@ -525,13 +525,20 @@
         "id": { "$ref": "#/$defs/Id" },
         "claim": { "description": "One sentence the audience should leave with.", "type": "string" },
         "evidence": {
-          "description": "@data refs, asset refs, or URLs.",
+          "description": "@data refs, asset refs, URLs, or `source:NAME`, a source the deck was grounded in by the name `meta.narrative.sources` gives it.",
           "type": "array",
           "items": { "type": "string" }
         },
         "states": { "$ref": "#/$defs/IdList" },
-        "notes": { "description": "Speaker notes.", "type": "string" },
-        "duration": { "description": "Estimated seconds.", "type": "number", "minimum": 0 },
+        "notes": {
+          "description": "Speaker notes: what a presenter reads for each state it names that has none of its own (SPEC §2.6).",
+          "type": "string"
+        },
+        "duration": {
+          "description": "Estimated seconds: what a video and the spine give its states with no `hold`, less their cues (SPEC §2.4).",
+          "type": "number",
+          "minimum": 0
+        },
         "media": {
           "description": "Projection hints (infographic priority, podcast script, …).",
           "type": "object",
@@ -624,7 +631,11 @@
         "wrap": { "$ref": "#/$defs/Wrap" },
         "maxLines": { "type": "integer", "minimum": 1 },
         "minSize": { "type": "number", "exclusiveMinimum": 0 },
-        "maxSize": { "type": "number", "exclusiveMinimum": 0 },
+        "maxSize": {
+          "description": "The most its size may grow to under `fit: grow`; under `fit: shrink`, where it is under the text's size, the most it is set at (deck format 0.36).",
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
         "box": { "$ref": "#/$defs/TextBox" },
         "features": { "type": "object", "additionalProperties": { "$ref": "#/$defs/FeatureValue" } },
         "axes": {
@@ -1809,8 +1820,15 @@
         },
         "remove": { "description": "Nodes that exit in this state.", "$ref": "#/$defs/IdList" },
         "choreography": { "type": "array", "items": { "$ref": "#/$defs/ChoreoItem" } },
-        "hold": { "description": "Auto-advance dwell in ms (video and kiosk).", "type": "number", "minimum": 0 },
-        "notes": { "type": "string" },
+        "hold": {
+          "description": "Auto-advance dwell in ms (video and kiosk). It wins over its beat's `duration`.",
+          "type": "number",
+          "minimum": 0
+        },
+        "notes": {
+          "description": "Speaker notes, which a presenter reads over its beat's (SPEC §2.6).",
+          "type": "string"
+        },
         "_comment": { "type": "string" }
       }
     },
@@ -1938,7 +1956,7 @@
         "wrap": { "anyOf": [{ "$ref": "#/$defs/Wrap" }, { "type": "null" }] },
         "maxLines": { "anyOf": [{ "type": "integer", "minimum": 1 }, { "type": "null" }] },
         "minSize": { "anyOf": [{ "type": "number", "exclusiveMinimum": 0 }, { "type": "null" }] },
-        "maxSize": { "anyOf": [{ "type": "number", "exclusiveMinimum": 0 }, { "type": "null" }] },
+        "maxSize": { "anyOf": [{ "exclusiveMinimum": 0, "type": "number" }, { "type": "null" }] },
         "box": { "anyOf": [{ "$ref": "#/$defs/TextBox" }, { "type": "null" }] },
         "features": {
           "anyOf": [

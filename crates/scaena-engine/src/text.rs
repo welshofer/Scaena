@@ -308,6 +308,11 @@ pub struct TextLayout {
     /// Widest line, trailing whitespace and hung quotes excluded.
     pub width: f32,
     pub height: f32,
+    /// Where its glyphs' ink stands, from the paragraph top: from the highest point of its first
+    /// line's letters to the lowest of its last's, a descender that hangs past `height` where
+    /// the leading is tight (a display role's 0.9). What lint E101 judges. Its line boxes where
+    /// nothing draws.
+    pub ink: (f32, f32),
     /// The breaking actually used.
     pub wrap: Wrap,
     /// Why the requested `pretty` or `balance` fell back to greedy, if it did.
@@ -2067,6 +2072,7 @@ fn read_layout(
     let mut upright = p.upright;
     let mut top = 0.0_f32;
     let mut underlines = Vec::new();
+    let mut inked: Option<(f32, f32)> = None;
     // On a line grid, how far the lines so far have moved down: each gap between
     // baselines rounded up to whole grid lines, the room above the line that moved.
     let (mut moved, mut before) = (0.0_f32, None);
@@ -2168,6 +2174,14 @@ fn read_layout(
                 .collect();
             taken.1 += glyphs.len();
             fonts.check_glyphs(run.font(), run.normalized_coords(), glyphs.iter().map(|g| g.id))?;
+            for g in &glyphs {
+                if let Some((up, down)) = fonts.reach(run.font(), run.normalized_coords(), g.id) {
+                    let size = run.font_size();
+                    inked = Some(inked.map_or((g.y - up * size, g.y + down * size), |(top, bottom): (f32, f32)| {
+                        (top.min(g.y - up * size), bottom.max(g.y + down * size))
+                    }));
+                }
+            }
             let next = GlyphRun {
                 font: fonts.font_ref(run.font())?,
                 size: run.font_size(),
@@ -2274,6 +2288,7 @@ fn read_layout(
         runs,
         width,
         height: layout.height() + moved,
+        ink: inked.unwrap_or((0.0, layout.height() + moved)),
         wrap: p.wrap,
         fallback: p.fallback,
         words: p.words,

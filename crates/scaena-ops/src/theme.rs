@@ -15,7 +15,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 mod aliases;
 /// The names the themes that ship answer to besides their own (PLAN T.0d): `scripts/build_themes.py`
@@ -50,6 +50,11 @@ pub struct Themed {
     /// each text recolored (PLAN 2.82): a text that read in the deck's theme reads in this one,
     /// set in its color that reads where the text stands. What lint finds after is in `added`.
     pub recolored: Vec<Finding>,
+    /// The overflows and overlaps the theme brought (E100, E101) that lint's checked fix puts
+    /// right, each fixed, one for each node: a text that fitted in the deck's theme and runs past
+    /// its box in this one shrinks to fit it, as `lint --fix` would. What lint finds after, an
+    /// overlap no fix reaches among it, is in `added`.
+    pub refitted: Vec<Finding>,
 }
 
 /// Point the bundle's deck at the theme file `theme`, copying it to `themes/` unless it is
@@ -60,7 +65,9 @@ pub struct Themed {
 /// none of comes from the theme's own bundle, beside the theme file, and is copied in with it
 /// (`beside`), so a theme in a typeface the deck has never used brings it. The deck's `fonts`
 /// lists each of the theme's families the bundle holds, as rendering needs it to (E102). A text the theme leaves too faint to read is set in its color that reads where
-/// the text stands (below); the deck is not otherwise touched, and is written canonically.
+/// the text stands (below), and one it leaves running past its box, or over another, is fitted as
+/// lint's checked fix fits it (`refitted`); the deck is not otherwise touched, and is written
+/// canonically.
 ///
 /// A theme that lacks a name the deck uses would leave it invalid, and an invalid deck is
 /// not laid out, so lint could not say what else the theme breaks. Such a theme is refused,
@@ -69,8 +76,16 @@ pub struct Themed {
 ///
 /// A text the theme leaves too faint to read where it stands, which a contrast error finds (E110,
 /// E111), is set in the theme's color that reads there, as the error's fix offers (PLAN 2.82,
-/// `recolored`), so a deck reads in a theme it takes as it read in its own.
-pub fn theme_apply(b: &Bundle, theme: &Path, dry_run: bool, force: bool) -> Result<Themed, OpsError> {
+/// `recolored`), so a deck reads in a theme it takes as it read in its own. A text the theme sets
+/// larger than its box, or over another (E100, E101), is fitted as lint's checked fix offers, a
+/// text shrunk to fit (`refitted`): a deck made in one theme's measures fits another's.
+pub fn theme_apply(
+    b: &Bundle,
+    theme: &Path,
+    fonts_within: Option<&Path>,
+    dry_run: bool,
+    force: bool,
+) -> Result<Themed, OpsError> {
     #[cfg(feature = "shipped")]
     if !theme.exists()
         && let Some(t) = theme.to_str().and_then(crate::shipped::theme)
@@ -90,7 +105,7 @@ pub fn theme_apply(b: &Bundle, theme: &Path, dry_run: bool, force: bool) -> Resu
     };
     let name = theme.file_name().and_then(|n| n.to_str()).context("the theme has no file name")?;
     let rel = inside.clone().unwrap_or_else(|| format!("themes/{name}"));
-    let fonts = if inside.is_some() { BTreeMap::new() } else { beside(theme, &text) };
+    let fonts = if inside.is_some() { BTreeMap::new() } else { beside(theme, fonts_within, &text) };
     applying(b, &rel, &text, &fonts, inside.is_none(), dry_run, force)
 }
 
@@ -119,8 +134,10 @@ fn applying(
 
 /// The font files `text`, the theme file at `theme`, names, as its own bundle holds them: each
 /// path from the theme's folder, or from the folder above it, a bundle's `themes/` being in its
-/// root. A face found in neither is left to the bundle being themed.
-fn beside(theme: &Path, text: &str) -> BTreeMap<String, Vec<u8>> {
+/// root, and no higher than `within`, taking it in, where one is given (see
+/// [`crate::create::Create::fonts_within`]). A face found in neither is left to the bundle being
+/// themed.
+fn beside(theme: &Path, within: Option<&Path>, text: &str) -> BTreeMap<String, Vec<u8>> {
     let mut fonts = BTreeMap::new();
     let Ok(parsed) = serde_json::from_str::<serde_json::Value>(text) else { return fonts };
     let folder = theme.parent().unwrap_or(Path::new("."));
@@ -128,7 +145,16 @@ fn beside(theme: &Path, text: &str) -> BTreeMap<String, Vec<u8>> {
     for family in families.into_iter().flat_map(|f| f.values()) {
         for face in [Some(family), family.get("italic")].into_iter().flatten() {
             let Some(file) = face.get("file").and_then(|f| f.as_str()) else { continue };
-            let found = [folder.join(file), folder.join("..").join(file)].iter().find_map(|p| std::fs::read(p).ok());
+            if crate::create::fonts_named(file).is_err() {
+                continue;
+            }
+            // A link out of the folder is passed over as a face not found.
+            let dirs = [folder.to_path_buf(), folder.join("..")];
+            let held = |dir: &&PathBuf| within.is_none_or(|w| dir.canonicalize().is_ok_and(|d| d.starts_with(w)));
+            let found = crate::create::font_in(dirs.iter().filter(held).map(|d| d.as_path()), file)
+                .ok()
+                .flatten()
+                .and_then(|p| std::fs::read(p).ok());
             if let Some(bytes) = found {
                 fonts.insert(file.to_string(), bytes);
             }
@@ -146,8 +172,9 @@ fn beside(theme: &Path, text: &str) -> BTreeMap<String, Vec<u8>> {
 /// deck as it is, with the theme to copy in all the same. `applied` says whether the write
 /// names the theme. The family the deck's theme took for a script's font, the new theme takes
 /// too, and is written with it (PLAN G.22). With `recolor`, each text the theme leaves too faint
-/// to read is set in its color that reads where the text stands (PLAN 2.82), as a re-theme does;
-/// a theme edit (`theme_editing`) changes the theme alone.
+/// to read is set in its color that reads where the text stands (PLAN 2.82), and each it leaves
+/// running past its box or over another is fitted by lint's checked fix (`refitted`), as a
+/// re-theme does; a theme edit (`theme_editing`) changes the theme alone.
 pub fn theming(
     b: &Bundle,
     rel: &str,
@@ -211,11 +238,13 @@ pub fn theming(
     let invalid = validate_bundle(&b.deck.to_json()?, &View::of(b))?;
     let invalid_after = validate_bundle(&deck.to_json()?, &view)?;
     let refused = !force && !delta(&invalid, &states, &invalid_after, &states, &[]).added.is_empty();
-    let mut recolored = Vec::new();
+    let (mut recolored, mut refitted) = (Vec::new(), Vec::new());
     if recolor && !refused {
         let lint = |deck: &Deck| Ok(lint_in(deck, &view)?.findings);
         let done = recoloring(deck, &before, &states, after, lint)?;
         (deck, after, recolored) = (done.deck, done.after, done.recolored);
+        let done = fixing_added(deck, &before, &states, after, lint, refits)?;
+        (deck, after, refitted) = (done.deck, done.after, done.recolored);
     }
     let Delta { added: worse, removed: better } = delta(&before, &states, &after, &states, &[]);
     let (worse, better) = (worse.into_iter().cloned().collect(), better.into_iter().cloned().collect());
@@ -234,6 +263,7 @@ pub fn theming(
         errors: errors(&after),
         refused,
         recolored,
+        refitted,
     };
     let deck = if refused { b.deck.clone() } else { deck };
     Ok((themed, Write { deck, files, why: Why::new(format!("theme --apply {rel}")) }))
@@ -257,17 +287,38 @@ pub(crate) struct Recolored {
 /// fixes that make one container in one state could each write it whole, so lint lays the deck out
 /// again and fixes what is left, three rounds at most.
 pub(crate) fn recoloring(
+    deck: Deck,
+    before: &[Finding],
+    states: &[&str],
+    after: Vec<Finding>,
+    lint: impl Fn(&Deck) -> Result<Vec<Finding>, OpsError>,
+) -> Result<Recolored, OpsError> {
+    fixing_added(deck, before, states, after, lint, |f| matches!(f.code.as_str(), "E110" | "E111"))
+}
+
+/// Whether a finding a re-theme brought is one it fits as lint's checked fix offers: a text run
+/// past its box (E100), or a node drawn over another (E101).
+fn refits(f: &Finding) -> bool {
+    matches!(f.code.as_str(), "E100" | "E101")
+}
+
+/// `deck` with each finding a change brought (in `after` and not in `before`) that `pick` takes
+/// and that carries a fix lint checked, fixed as that fix offers; the findings fixed are one for
+/// each node, in `recolored`. Two fixes that make one container in one state could each write it
+/// whole, so lint lays the deck out again and fixes what is left, three rounds at most.
+fn fixing_added(
     mut deck: Deck,
     before: &[Finding],
     states: &[&str],
     mut after: Vec<Finding>,
     lint: impl Fn(&Deck) -> Result<Vec<Finding>, OpsError>,
+    pick: impl Fn(&Finding) -> bool,
 ) -> Result<Recolored, OpsError> {
     let mut recolored: Vec<Finding> = Vec::new();
     let mut ops: Vec<Value> = Vec::new();
     for _ in 0..3 {
         let faint: Vec<Finding> = (delta(before, states, &after, states, &[]).added.into_iter())
-            .filter(|f| matches!(f.code.as_str(), "E110" | "E111") && f.fix.is_some())
+            .filter(|f| pick(f) && f.fix.is_some())
             .cloned()
             .collect();
         let mut doc = deck.to_value()?;

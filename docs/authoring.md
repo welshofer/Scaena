@@ -147,7 +147,7 @@ cd target/site && python3 serve.py      # then open http://localhost:8080/editor
   - **Slides** shows the light table: every slide, large, in place of the preview. Select slides as you would files, then drag them, or press Alt with an arrow, to move them; ⌘D copies them and Delete takes them out. Each slide still shows what it showed, and a copy is its own: change it, and the slide it copies stays as it was. Enter shows a slide; Escape closes the table.
 - **A state's look.** With nothing selected (Escape, until the status says so), the inspector shows the state itself: its layout, how it comes in, how long it holds, and your notes.
   - The layouts offered are those with a place for each object on the slide. A layout goes where it is set, so the states of a build change together, and the status says how many; tick "layout only in" to keep it to the state shown.
-  - Above them, the inspector draws the state in each layout it may take, best first: fewest errors, then fewest warnings, each saying what lint finds there. Layouts that would show it alike are one picture, which names the others. Point at one, or Tab to it, and the slide shows in it, nothing changed until you click it or press Enter. `scaena inspect BUNDLE --state S --layouts` lists the same. A slide whose objects stand on the grid, in no layout's places, has no pictures: every layout would show it alike.
+  - Above them, the inspector draws the state in each layout it may take, best first: fewest errors, then fewest warnings, then those the slide fills, its figures set as figures, each saying what lint finds there. Layouts that would show it alike are one picture, which names the others. Point at one, or Tab to it, and the slide shows in it, nothing changed until you click it or press Enter. `scaena inspect BUNDLE --state S --layouts` lists the same. A slide whose objects stand on the grid, in no layout's places, has no pictures: every layout would show it alike.
   - How it comes in is a duration from the theme (or a cut), an ease, or a spring. A hold is in seconds: how long the state stays before the deck goes on by itself.
   - **Slide Number and Footer** numbers every slide and sets the words you type at the foot of each, where the theme places them, in its type: the number at the right, the footer from the left. A slide's number is its place in the deck, so it is right after every move, copy, and removal. The theme leaves both off its title, divider, and full-bleed layouts; **On this slide** shows them there anyway, or hides them on any slide.
   - Each choice is one ⌘Z.
@@ -330,7 +330,7 @@ section open "Open"
 section growth "Growth"
   beat doubled "Pro drove the growth." evidence:[@q3] states:[revenue, mix]
 
-state cover layout:title
+state cover layout:title-center
   title text role:display "Q3 Review" semantic:navigation at:in(title)
   claim text role:title "Revenue doubled this year." semantic:claim at:in(subtitle)
   notes "Let the title sit before you speak."
@@ -354,7 +354,7 @@ Line by line:
 - **Fonts and data.** `font` lists each of the theme's font families, with its file in the bundle, and each family's italic face (`style:italic`), which text in italic is set in. `data q3 "…"` declares a data source and its columns' types. A chart reads it as `@q3`.
 - **Fonts a theme keeps as they are.** A theme family may say `upright: true`: it has no italic by design, because its script sets none, as Japanese and Korean do not. Text in italic is set upright in it, and lint still says so (W231). A family may also say `whole: true`, and then no save subsets its files, in the editor, on the Mac and the iPad, or with `scaena save`: a font whose license reserves its name, as Pretendard's does, may not keep that name once it is cut down. Both are the theme's to say, not the deck's (SPEC §3.6).
 - **The spine.** `section` and `beat` say what each part claims, and which states make the claim. The PDF, the video's chapters, and the narrative lint read them.
-- **`state cover layout:title`** is the first click, on the theme's `title` layout.
+- **`state cover layout:title-center`** is the first click, on the theme's `title-center` layout: a title and the line under it, centered. The theme's `title` layout keeps a place for a picture beside them, which lint (W304) says is empty until one fills it.
   - `title text role:display "Q3 Review" … at:in(title)` declares an object where it first appears: its id, its type, its text, its role, and its slot.
   - `notes` are the speaker's notes.
 - **`state revenue layout:figure transition:standard`** is the next click, on another layout:
@@ -457,7 +457,7 @@ Each layout's slots say what goes in them (`prompt`, SPEC §3.6): words to type 
 | `ranking` | `kicker`, `header`, `first-card`, `third-card`, `first-rank`, `second-rank`, `third-rank`, `fourth-rank`, `first`, `second`, `third`, `fourth`, `first-figure`, `second-figure`, `third-figure`, `fourth-figure` | Ranking, in Numbers |
 | `progress` | `kicker`, `header`, `first-track`, `second-track`, `third-track`, `first-bar`, `second-bar`, `third-bar`, `first`, `second`, `third`, `first-figure`, `second-figure`, `third-figure` | Progress, in Numbers |
 | `number-photo` | `art`, `number`, `claim`, `under` | Number and Photo, in Numbers |
-| `metric-trend` | `kicker`, `header`, `number`, `claim`, `main`, `note` | Number and Trend, in Numbers |
+| `metric-trend` | `kicker`, `header`, `number`, `claim`, `main`, `note`, `source` | Number and Trend, in Numbers |
 | `kpi-dashboard` | `kicker`, `header`, `first-figure`, `second-figure`, `third-figure`, `fourth-figure`, `first-title`, `second-title`, `third-title`, `fourth-title`, `first`, `second`, `third`, `fourth`, `first-chart`, `second-chart` | KPI Dashboard, in Numbers |
 | `status-report` | `kicker`, `header`, `first-card`, `third-card`, `stream-label`, `status-label`, `next-label`, `risk-label`, `first-icon`, `second-icon`, `third-icon`, `first`, `second`, `third`, `first-status`, `second-status`, `third-status`, `first-next`, `second-next`, `third-next`, `first-risk`, `second-risk`, `third-risk` | Status Report, in Numbers |
 | `market-size` | `header`, `first-circle`, `second-circle`, `third-circle`, `first-figure`, `second-figure`, `third-figure`, `first-title`, `second-title`, `third-title`, `first`, `second`, `third` | Market Size, in Numbers |
@@ -467,12 +467,12 @@ Each layout's slots say what goes in them (`prompt`, SPEC §3.6): words to type 
 | `split` | `body`, `main` | Chart and Words, in Charts |
 | `figure-numbers` | `kicker`, `header`, `main`, `first-title`, `first`, `second-title`, `second` | Chart and Numbers, in Charts |
 | `bar-chart` | `kicker`, `header`, `main`, `takeaway`, `note` | Bar Chart, in Charts |
-| `line-chart` | `kicker`, `header`, `main`, `callout`, `note` | Line Chart, in Charts |
+| `line-chart` | `kicker`, `header`, `main`, `callout`, `note`, `source` | Line Chart, in Charts |
 | `donut-chart` | `kicker`, `header`, `main`, `first-title`, `first`, `second-title`, `second` | Donut Chart, in Charts |
 | `table` | `kicker`, `header`, `main`, `note` | Table, in Charts |
 | `chart-bullets` | `kicker`, `header`, `main`, `body` | Chart and Bullets, in Charts |
 | `two-charts` | `kicker`, `header`, `first-title`, `second-title`, `first-chart`, `second-chart` | Two Charts, in Charts |
-| `positioning-map` | `kicker`, `header`, `main`, `takeaway`, `note` | Positioning Map, in Charts |
+| `positioning-map` | `kicker`, `header`, `main`, `takeaway`, `note`, `source` | Positioning Map, in Charts |
 | `full` | `kicker`, `header`, `main`, `note` | Full Bleed, in Pictures |
 | `art-left` | `kicker`, `header`, `art`, `body` | Art Left, in Pictures |
 | `art-right` | `kicker`, `header`, `body`, `art` | Art Right, in Pictures |
@@ -685,7 +685,7 @@ For tables, stats, rows of cards, other chart kinds, and shader backgrounds, see
 - **Present** from the player: → and ← step, F goes fullscreen, and **Presenter** opens the presenter view, its timer paused and reset by its Pause and Reset, the time of day beside it. B blacks the screen until a key brings the slide back, a slide's number then Return goes there, L is the laser, and ? lists the keys. Past the last slide, a black screen says the show has ended: → or Escape leaves it, out of fullscreen, and ← shows the last slide. `?fps` in the player's address shows its frame rate.
 - **One file that plays anywhere, offline:** `scaena export talk --format html --out talk.html`. It is the player and the deck in one HTML file, for a USB stick or an email.
 - **PDF:** `scaena export talk --format pdf --out talk.pdf`. It draws each slide at its last state, in spine order, with real text a reader can copy.
-- **Images and video:** `--format png` or `--format svg` write each state into a directory. `--format mp4` plays the timeline, cues and holds, at `--fps`, with a chapter per beat.
+- **Images and video:** `--format png` or `--format svg` write each state into a directory, named by its slide and step (`Slide 03.png`, or `Slide 03, step 1.png`, `Slide 03, step 2.png` for a slide with steps) so the files sort in the deck's order; each SVG is titled by its slide's headline. `--format mp4` plays the timeline, cues and holds, at `--fps`, with a chapter per beat.
 
 ## Reference
 

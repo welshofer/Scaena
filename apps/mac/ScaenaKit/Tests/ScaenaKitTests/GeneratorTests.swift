@@ -15,6 +15,19 @@ private actor Asked {
     }
 }
 
+/// The steps a generator made away from the main actor, each with whether it was made on the
+/// main thread and the stack of the thread it was made on, as that thread tells them.
+private final class Away: @unchecked Sendable {
+    private let lock = NSLock()
+    private var taken: [(step: String, main: Bool, stack: Int)] = []
+
+    func add(_ step: String, main: Bool, stack: Int) {
+        lock.withLock { taken.append((step, main, stack)) }
+    }
+
+    var steps: [(step: String, main: Bool, stack: Int)] { lock.withLock { taken } }
+}
+
 /// An Anthropic answer whose text is `text`.
 private func anthropic(_ text: String) -> Data {
     let answer: JSONValue = .object([
@@ -67,6 +80,10 @@ private func anthropic(_ text: String) -> Data {
     let read = try generator.add(name: "notes.md", data: Data(notes.utf8))
     #expect(read == .read(name: "notes.md", kind: "markdown"))
 
+    // The deck built and every slide drawn away from the main actor (lift-up narrative PERF-3).
+    let away = Away()
+    generator.away = { away.add($0, main: Thread.isMainThread, stack: Thread.current.stackSize) }
+
     var heard: [GeneratingStep] = []
     let (session, made) = try await generator.generate(
         brief: Brief(topic: "Carbon-negative cargo is ready to scale", audience: "Investors"),
@@ -93,6 +110,13 @@ private func anthropic(_ text: String) -> Data {
     #expect(looked.count == 1)
     #expect((looked.first?.body ?? "").components(separatedBy: "image/jpeg").count - 1 == made.layouts.count)
     #expect(made.words.contains("\(pictures) picture"))
+    // Built and drawn, then drawn again as the model's look changed it; fitted where a text ran on.
+    let slow = away.steps.map(\.step)
+    #expect(Array(slow.prefix(2)) == ["make", "looked"], "the slow steps: \(slow)")
+    #expect(Set(slow).isSubset(of: ["make", "looked", "fitted"]), "the slow steps: \(slow)")
+    #expect(away.steps.allSatisfy { !$0.main }, "a slow step was made on the main thread: \(away.steps)")
+    // On a stack that holds a deck being built: a dispatch queue's 512 KB worker overflows it.
+    #expect(away.steps.allSatisfy { $0.stack >= Generator.stack }, "a slow step's stack: \(away.steps)")
 
     // Its story (PLAN G.9), as the Story panel reads it: the arc it was written to, each slide what it
     // declares, coherence by words unscored; a fix made, and the finding gone.
@@ -120,6 +144,80 @@ private func anthropic(_ text: String) -> Data {
             #expect(request.headers["authorization"] == nil)
         }
     }
+}
+
+/// The outline before the slides (narrative FUNC-1): asked once the arc is chosen and shown to
+/// settle; moved, rewritten, cut, and added to, it goes into the slides' prompt as Scaena's block,
+/// and the deck's sections follow its beats. Without it asked for, the slides come at once.
+@MainActor
+@Test func theOutlineIsShownToSettleBeforeTheSlides() async throws {
+    let arc = try Data(contentsOf: answers.appending(path: "anthropic-arc.json"))
+    let slides = try Data(contentsOf: answers.appending(path: "anthropic-slides.json"))
+    let outline = #"{"bigIdea": "Cargo can pay for its carbon.", "beats": [{"beat": 1, "claim": "Shipping's carbon bill is due."}, {"beat": 2, "claim": "Carriers cannot cut it with today's ships."}, {"beat": 3, "claim": "The fixes tried so far fall short."}, {"beat": 4, "claim": "Tidewater's lanes run carbon-negative."}, {"beat": 5, "claim": "Shippers pay more for them."}, {"beat": 6, "claim": "Join the round."}]}"#
+    let asked = Asked()
+    let generator = Generator { request in
+        await asked.add(request)
+        let body = request.body ?? ""
+        if body.contains("=== CATALOG ===") { return GeneratorReply(status: 200, body: arc) }
+        if body.contains("planning a presentation before its slides") { return GeneratorReply(status: 200, body: anthropic(outline)) }
+        if body.contains("runs past its place") { return GeneratorReply(status: 200, body: anthropic(#"{"texts": []}"#)) }
+        if body.contains("art director") { return GeneratorReply(status: 200, body: anthropic(#"{"slides": []}"#)) }
+        return GeneratorReply(status: 200, body: slides)
+    }
+    var heard: [GeneratingStep] = []
+    var shown: Outlined?
+    let (session, made) = try await generator.generate(
+        brief: Brief(topic: "Carbon-negative cargo is ready to scale", audience: "Investors"),
+        provider: .anthropic, model: "a-model", key: "sk-writer", theme: "dusk", look: false,
+        outline: { outlined in
+            shown = outlined
+            // The proof moved before the mechanism, the second beat's claim rewritten, the last
+            // dropped, and a beat of the person's own added.
+            var settled = outlined.outline
+            let proof = settled.beats.remove(at: 4)
+            settled.beats.insert(proof, at: 3)
+            settled.beats[1].claim = "No carrier can cut it alone."
+            settled.beats.removeLast()
+            settled.beats.append(.init(name: "Thanks", claim: "Thank you for listening."))
+            return .settled(settled)
+        }
+    ) { heard.append($0) }
+    #expect(shown?.arc == "Problem–Solution")
+    #expect(shown?.outline.bigIdea == "Cargo can pay for its carbon.")
+    #expect(shown?.outline.beats.count == 6)
+    #expect(shown?.outline.beats[0].claim == "Shipping's carbon bill is due.")
+    #expect(heard.contains(.outlining))
+    #expect(heard.contains(.outlined(beats: 6)))
+    #expect(heard.contains(.settled(beats: 6)))
+    #expect(made.created.created)
+    let requests = await asked.requests.filter { $0.url.hasSuffix("/v1/messages") }
+    #expect(requests.count == 3, "the arc, the outline, then the slides")
+    let written = requests[2].body ?? ""
+    #expect(written.contains("**Outline (Scaena)**"))
+    #expect(written.contains("No carrier can cut it alone."))
+    #expect(written.contains("Beat 6 \\\"Thanks\\\""), "\(written)")
+    #expect(!written.contains("Join the round."), "the beat dropped")
+    // The deck keeps the outline, and its first section is the outline's first beat.
+    let deck = try session.tool("deck_read", [:])
+    #expect(deck.result["deck"]?["meta"]?["narrative"]?["outline"]?["bigIdea"]?.string == "Cargo can pay for its carbon.")
+    #expect(deck.result["deck"]?["spine"]?["sections"]?[0]?["title"]?.string == "Problem")
+
+    // Slides at once, with no outline asked for: two calls.
+    let plain = Asked()
+    let direct = Generator { request in
+        await plain.add(request)
+        let body = request.body ?? ""
+        if body.contains("=== CATALOG ===") { return GeneratorReply(status: 200, body: arc) }
+        if body.contains("runs past its place") { return GeneratorReply(status: 200, body: anthropic(#"{"texts": []}"#)) }
+        return GeneratorReply(status: 200, body: slides)
+    }
+    _ = try await direct.generate(
+        brief: Brief(topic: "Carbon-negative cargo is ready to scale"), provider: .anthropic, model: "a-model",
+        key: "sk-writer", theme: "dusk", look: false
+    ) { _ in }
+    let direct2 = await plain.requests.filter { $0.url.hasSuffix("/v1/messages") }
+    #expect(direct2.count == 2)
+    #expect(!(direct2[1].body ?? "").contains("**Outline (Scaena)**"))
 }
 
 /// A provider that refuses says why, in its words, and no deck is made.
@@ -240,4 +338,41 @@ private func anthropic(_ text: String) -> Data {
     #expect(choices.arcs.contains("Problem–Solution"))
     #expect(!choices.modalities.isEmpty)
     #expect(choices.themes.map(\.name) == ["dusk", "daybreak", "ember", "salon"])
+}
+
+/// A server that answers every request with `Endless.chunks` chunks of 64 KB and no length.
+private final class Endless: URLProtocol {
+    nonisolated(unsafe) static var chunks = 64
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        let response = HTTPURLResponse(
+            url: request.url!, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: ["Content-Type": "text/html"])!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        for _ in 0..<Endless.chunks {
+            client?.urlProtocol(self, didLoad: Data(count: 1 << 16))
+        }
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
+}
+
+/// A source's answer is read no further than its plan's `most` (the 20261024 plan's SEC-2): one
+/// that runs past it is refused as it does, saying so; one within it reads whole.
+@Test func aSourcePastItsMostIsRefusedAsItIsRead() async throws {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [Endless.self]
+    let session = URLSession(configuration: configuration)
+    let asked = Data(#"{"method":"GET","url":"https://example.com/page","headers":{},"most":1048576}"#.utf8)
+    let request = try JSONDecoder().decode(GeneratorRequest.self, from: asked)
+    Endless.chunks = 64
+    let refused = await GeneratorReply.made(request, by: session)
+    #expect(refused.status == 0)
+    #expect(refused.text == "https://example.com/page answered with more than 1 MB", "\(refused.text.prefix(80))")
+    Endless.chunks = 8
+    let whole = await GeneratorReply.made(request, by: session)
+    #expect(whole.status == 200 && whole.body.count == 8 << 16)
 }

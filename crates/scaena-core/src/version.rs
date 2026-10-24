@@ -80,13 +80,30 @@ pub(crate) fn unshadows(version: &str) -> bool {
     DECK.read(version) != version && parse(version) < parse(SHADOWS)
 }
 
+/// The deck format in which a text that shrinks is held under its own `maxSize`. Before it a
+/// `maxSize` meant something only to a text that grows, and a generated deck's set of texts side
+/// by side could carry one on a text a fix had made shrink: a deck saved in an older format reads
+/// without it there, and draws as it did.
+const CAPPED: &str = "0.36";
+
+/// Whether a deck saved in `version` reads with the `maxSize` of each text that shrinks taken
+/// away: one saved before a shrinking text was held under it, in a format this build reads.
+pub(crate) fn uncaps(version: &str) -> bool {
+    DECK.read(version) != version && parse(version) < parse(CAPPED)
+}
+
 /// `doc`, a deck as saved, as this build reads it: its format the current one where it is an
-/// older one this build reads, and its `shadow`s taken away where it was saved before they drew,
-/// on each node, in each state's deltas, and in the overrides. What validation checks and the
-/// source compiles.
+/// older one this build reads; its `shadow`s taken away where it was saved before they drew, on
+/// each node, in each state's deltas, and in the overrides; and the `maxSize` of each text whose
+/// own `fit` is `shrink` taken away where it was saved before that held it. What validation
+/// checks and the source compiles.
 pub(crate) fn deck_as_read(doc: &mut Value) {
-    let unshadowed = doc.get("scaena").and_then(Value::as_str).is_some_and(unshadows);
+    let version = doc.get("scaena").and_then(Value::as_str).unwrap_or_default().to_string();
+    let (unshadowed, uncapped) = (unshadows(&version), uncaps(&version));
     DECK.as_read(doc, "scaena");
+    if uncapped {
+        uncap(doc);
+    }
     if !unshadowed {
         return;
     }
@@ -94,6 +111,38 @@ pub(crate) fn deck_as_read(doc: &mut Value) {
         for props in props.and_then(Value::as_object_mut).into_iter().flat_map(|m| m.values_mut()) {
             if let Some(props) = props.as_object_mut() {
                 props.remove("shadow");
+            }
+        }
+    };
+    take(doc.get_mut("nodes"));
+    take(doc.get_mut("overrides"));
+    for state in doc.get_mut("states").and_then(Value::as_array_mut).into_iter().flatten() {
+        take(state.get_mut("props"));
+    }
+}
+
+/// `doc` without the `maxSize` of each node whose own `fit`, on the node or in a state's deltas,
+/// is `shrink` and never `grow`: on the node, in each state's deltas, and in the overrides.
+fn uncap(doc: &mut Value) {
+    let fits = |props: Option<&Value>| -> Vec<(String, String)> {
+        (props.and_then(Value::as_object).into_iter().flatten())
+            .filter_map(|(id, p)| Some((id.clone(), p.get("fit")?.as_str()?.to_string())))
+            .collect()
+    };
+    let mut said = fits(doc.get("nodes"));
+    for state in doc.get("states").and_then(Value::as_array).into_iter().flatten() {
+        said.extend(fits(state.get("props")));
+    }
+    let shrinks = |id: &str| {
+        let fit: Vec<&str> = said.iter().filter(|(of, _)| of == id).map(|(_, f)| f.as_str()).collect();
+        fit.contains(&"shrink") && !fit.contains(&"grow")
+    };
+    let take = |props: Option<&mut Value>| {
+        for (id, props) in props.and_then(Value::as_object_mut).into_iter().flat_map(|m| m.iter_mut()) {
+            if shrinks(id)
+                && let Some(props) = props.as_object_mut()
+            {
+                props.remove("maxSize");
             }
         }
     };
@@ -138,7 +187,7 @@ mod tests {
     #[test]
     fn the_current_format_reads_as_written() {
         assert_eq!(DECK.read(crate::FORMAT_VERSION), crate::FORMAT_VERSION);
-        assert_eq!(DECK.read("0.35.1"), "0.35.1");
+        assert_eq!(DECK.read("0.37.1"), "0.37.1");
         assert_eq!(DECK.unread(crate::FORMAT_VERSION), None);
         assert_eq!(THEME.unread(crate::THEME_FORMAT_VERSION), None);
     }
@@ -198,5 +247,40 @@ mod tests {
         deck_as_read(&mut drawn);
         assert_eq!(drawn["nodes"]["card"]["shadow"], serde_json::json!({ "y": 8, "spread": 4 }));
         assert!(!unshadows(crate::FORMAT_VERSION) && !unshadows("0.3") && unshadows(crate::OLDEST_FORMAT_VERSION));
+    }
+
+    #[test]
+    fn a_deck_saved_before_a_shrinking_text_was_capped_reads_without_its_cap() {
+        let saved = |version: &str| {
+            serde_json::json!({
+                "scaena": version,
+                "nodes": {
+                    "shrinks": { "type": "text", "fit": "shrink", "maxSize": 22 },
+                    "grows": { "type": "text", "fit": "grow", "maxSize": 40 },
+                    "slot": { "type": "text", "maxSize": 30 },
+                    "fixed": { "type": "text", "fit": "grow", "maxSize": 28 }
+                },
+                "states": [{ "id": "one", "props": {
+                    "shrinks": { "maxSize": 20 },
+                    "fixed": { "fit": "shrink" }
+                } }],
+                "overrides": { "shrinks": { "maxSize": 18 } }
+            })
+        };
+        let mut old = saved("0.35");
+        deck_as_read(&mut old);
+        assert_eq!(old["scaena"], crate::FORMAT_VERSION);
+        assert_eq!(old["nodes"]["shrinks"], serde_json::json!({ "type": "text", "fit": "shrink" }));
+        assert_eq!(old["states"][0]["props"]["shrinks"], serde_json::json!({}));
+        assert_eq!(old["overrides"]["shrinks"], serde_json::json!({}));
+        // A text that grows, one whose fit is its slot's, and one that grows somewhere keep theirs.
+        assert_eq!(old["nodes"]["grows"]["maxSize"], 40);
+        assert_eq!(old["nodes"]["slot"]["maxSize"], 30);
+        assert_eq!(old["nodes"]["fixed"]["maxSize"], 28);
+        // From the format that holds a shrinking text under it, its maxSize is read as written.
+        let mut capped = saved(CAPPED);
+        deck_as_read(&mut capped);
+        assert_eq!(capped["nodes"]["shrinks"]["maxSize"], 22);
+        assert!(!uncaps(crate::FORMAT_VERSION) && uncaps("0.35") && uncaps(crate::OLDEST_FORMAT_VERSION));
     }
 }

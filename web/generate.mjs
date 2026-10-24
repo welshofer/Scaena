@@ -7,6 +7,9 @@
 //
 // - The dialog offers Narrato's goals, lengths, and arcs, read from the generator's module as it
 //   opens, and says who writes the deck: the assistant's provider and model, with the user's key.
+// - With no key kept, the dialog takes one in place (lift-up 10-24 USE-1): Generate waits, a key
+//   pasted is checked by listing its models, and the model chosen is the assistant's from then on,
+//   the key kept for the tab as the Assistant tab keeps it.
 // - What a browser cannot read says so, and where it is read: an SEC filing, and a page whose
 //   site lets no other page read it. A provider that refuses the key says so in the dialog,
 //   which stays open to try again.
@@ -28,9 +31,9 @@
 //   unscored, a mark on the arc for each slide. A finding's slide is shown at a press; its fix is
 //   one change, which ⌘Z takes back; and its question goes into the assistant's box.
 // Exits 1 on any failure.
-import { readFile } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import { createServer } from "node:http";
-import { launch, serve } from "./serve.mjs";
+import { launch, serve, tab } from "./serve.mjs";
 
 const failures = [];
 const check = (ok, what) => {
@@ -102,13 +105,21 @@ const provider = createServer(async (req, res) => {
     ? "fit"
     : system.includes("art director")
       ? "look"
-      : prompt.includes("=== CATALOG ===")
-        ? "arc"
-        : "slides";
+      : system.includes("planning a presentation before its slides")
+        ? "outline"
+        : prompt.includes("=== CATALOG ===")
+          ? "arc"
+          : "slides";
   requests.push({ headers: req.headers, body, prompt, asked });
   if (state.slow) await new Promise((ok) => setTimeout(ok, state.slow));
   if (state.fail) return reply(401, { type: "error", error: { type: "authentication_error", message: "invalid x-api-key" } });
   if (asked === "arc") return reply(200, ARC);
+  // The outline before the slides (narrative FUNC-1): the big idea and a claim for each of the
+  // arc's six beats.
+  if (asked === "outline") {
+    const beats = [1, 2, 3, 4, 5, 6].map((beat) => ({ beat, claim: `Claim ${beat}: what this beat's slides leave behind.` }));
+    return reply(200, { content: [{ type: "text", text: JSON.stringify({ bigIdea: "Cargo can pay for its carbon.", beats }) }], stop_reason: "end_turn" });
+  }
   if (asked === "slides") return reply(200, state.slides ?? SLIDES);
   if (asked === "look") {
     const look = { slides: [{ slide: 1, layout: "", title: "Carbon-negative cargo, ready to scale", subtitle: "", bullets: [], why: "One idea, one line." }] };
@@ -133,6 +144,45 @@ try {
   page.on("dialog", (d) => d.accept());
   await page.goto(`${site.origin}/web/dist/editor.html?painter=cpu&bundle=/docs/examples/revenue.deck.json`);
   await page.waitForFunction(() => window.scaena?.last() && window.scaena.where().name === "revenue", null, { timeout: 120000 });
+  // No key kept: the dialog takes one in place, in a page of its own, so what it chose leaves the
+  // rest of the walk as it was. The scripted server is where Anthropic is asked.
+  const keyPage = await browser.newPage({ viewport: { width: 1600, height: 1000 }, deviceScaleFactor: 1 });
+  keyPage.on("pageerror", (e) => failures.push(`page: ${e.message}`));
+  await keyPage.goto(`${site.origin}/web/dist/editor.html?painter=cpu&bundle=/docs/examples/revenue.deck.json`);
+  await keyPage.waitForFunction(() => window.scaena?.last() && window.scaena.where().name === "revenue", null, { timeout: 120000 });
+  await keyPage.evaluate((origin) => {
+    localStorage.setItem("scaena.assistant", JSON.stringify({ provider: "anthropic", models: {}, bases: { anthropic: origin } }));
+    sessionStorage.removeItem("scaena.key.anthropic");
+  }, origin);
+  await keyPage.click("#new-prompt");
+  await keyPage.waitForFunction(() => !document.querySelector("#prompting-key")?.hidden, null, { timeout: 30000 }).catch(() => {});
+  const keyless = await keyPage.evaluate(() => ({
+    asked: document.querySelector("#prompting-key")?.hidden === false,
+    go: document.querySelector("#prompting-go").disabled,
+    who: document.querySelector("#prompting-who").textContent,
+  }));
+  check(keyless.asked && keyless.go && !keyless.who.includes("Assistant tab"), `with no key kept, the dialog asks for one in place, Generate waiting: ${JSON.stringify(keyless)}`);
+  await keyPage.fill("#prompting-key-value", "sk-ant-walk-in-the-dialog");
+  await keyPage.waitForFunction(() => document.querySelector("#prompting-key-model").options.length > 0 && !document.querySelector("#prompting-go").disabled, null, { timeout: 30000 }).catch(() => {});
+  const keyed = await keyPage.evaluate(() => ({
+    models: [...document.querySelector("#prompting-key-model").options].map((o) => o.value),
+    said: document.querySelector("#prompting-key-said").textContent,
+    go: document.querySelector("#prompting-go").disabled,
+    who: document.querySelector("#prompting-who").textContent,
+    kept: sessionStorage.getItem("scaena.key.anthropic"),
+    chosen: JSON.parse(localStorage.getItem("scaena.assistant")),
+  }));
+  check(
+    keyed.models.length === 3 && keyed.said.startsWith("The key works") && !keyed.go && keyed.who.startsWith(`Written by Anthropic's ${keyed.models[0]}`),
+    `a key pasted is checked by its models, and Generate is ready: ${JSON.stringify({ ...keyed, chosen: undefined })}`,
+  );
+  check(
+    keyed.kept === "sk-ant-walk-in-the-dialog" && keyed.chosen.provider === "anthropic" && keyed.chosen.models.anthropic === keyed.models[0],
+    `kept for this tab, the model the assistant's: ${JSON.stringify({ kept: keyed.kept, chosen: keyed.chosen })}`,
+  );
+  await keyPage.click("#prompting-cancel");
+  await keyPage.close();
+
   // The assistant's settings, as its tab keeps them: Anthropic at the scripted server, a model,
   // and a key for this tab.
   await page.evaluate((origin) => {
@@ -270,8 +320,17 @@ try {
   check((await page.evaluate(() => window.scaena.where().name)) === "revenue", "the deck open stays open");
   state.slow = 0;
 
-  // Grounded in a Markdown file, a CSV, and a web page.
+  // Grounded in a Markdown file, a CSV, and a web page, each slide naming the source its facts
+  // come from (narrative FUNC-3): the notes, the page for the second.
   requests.length = 0;
+  state.slides = (() => {
+    const answer = JSON.parse(SLIDES);
+    const text = answer.content.find((c) => c.type === "text");
+    const written = JSON.parse(text.text);
+    written.slides.forEach((s, i) => (s.sourceRef = i === 1 ? `${press}/press.html` : "notes.md"));
+    text.text = JSON.stringify(written);
+    return JSON.stringify(answer);
+  })();
   await opened();
   await page.setInputFiles("#prompting-files", [
     { name: "notes.md", mimeType: "text/markdown", buffer: Buffer.from(NOTES) },
@@ -280,8 +339,45 @@ try {
   await link(`${press}/press.html`);
   const listed = await page.locator("#prompting-sources li").allTextContents();
   check(listed.length === 3, `the sources are listed: ${listed.map((l) => l.replace(/\s*Remove$/, "")).join(", ")}`);
+  check(await page.isChecked("#prompting-show-outline"), "the outline is shown first by default");
   await page.click("#prompting-go");
+  // The outline before the slides (narrative FUNC-1): the arc and why, the big idea, and each beat's
+  // claim, to change before the slides are written; the slides' call waits on it.
+  await page.waitForSelector("#prompting-outline:not([hidden])", { timeout: 120000 });
+  const arcSaid = await page.textContent("#prompting-outline-arc");
+  check(arcSaid.startsWith("Arc: Problem–Solution."), `the outline names its arc and why: ${arcSaid}`);
+  check((await page.inputValue("#prompting-big-idea")) === "Cargo can pay for its carbon.", "the big idea, to type over");
+  const claims = await page.locator("#prompting-beats .claim").evaluateAll((all) => all.map((c) => c.value));
+  check(claims.length === 6 && claims[0] === "Claim 1: what this beat's slides leave behind.", `a claim for each of the six beats: ${claims.length}`);
+  const names = await page.locator("#prompting-beats .name").evaluateAll((all) => all.map((n) => n.value));
+  check(names[0].startsWith("Problem:") && names[5].startsWith("Call to Action:"), `each beat named as the arc names it: ${names.join(" | ")}`);
+  check(requests.filter((r) => r.asked === "slides").length === 0, "no slides are written while the outline is read");
+  check(!(await page.isDisabled("#prompting-write")), "Write the slides can be pressed while the rest of the brief waits");
+  const progress1 = await lines();
+  check(progress1.some((l) => l.startsWith("Outline: 6 beats.")), `the progress says the outline is there to read: ${progress1.at(-1)}`);
+  // Changed: the second beat's claim rewritten, the third moved first, the last removed, and a beat
+  // of the person's own added.
+  await page.locator("#prompting-beats .claim").nth(1).fill("No carrier can cut it alone.");
+  await page.locator("#prompting-beats li").nth(2).locator("button[aria-label='Move the beat up']").click();
+  await page.locator("#prompting-beats li").nth(1).locator("button[aria-label='Move the beat up']").click();
+  await page.locator("#prompting-beats li").nth(5).locator("button[aria-label='Remove the beat']").click();
+  await page.click("#prompting-add-beat");
+  await page.locator("#prompting-beats li").last().locator(".name").fill("Thanks");
+  await page.locator("#prompting-beats li").last().locator(".claim").fill("Thank you for listening.");
+  await page.fill("#prompting-big-idea", "Cargo pays for its carbon.");
+  await mkdir("target/web-generate", { recursive: true });
+  await page.locator("#prompting").screenshot({ path: "target/web-generate/outline.png" });
+  await page.click("#prompting-write");
   await page.waitForFunction(() => window.scaena.where().name !== "revenue" && window.scaena.last(), null, { timeout: 180000 });
+  const outlined = requests.filter((r) => r.asked === "outline");
+  check(outlined.length === 1 && outlined[0].prompt.includes("Beat 1 \"Problem: Define core challenge and stakes\" → 1 slide"), `the outline was asked once, each beat with its slides: ${outlined[0]?.prompt.slice(0, 120)}`);
+  const toOutline = requests.find((r) => r.asked === "slides")?.prompt ?? "";
+  const block = toOutline.slice(toOutline.indexOf("**Outline (Scaena)**"));
+  check(toOutline.includes("**Slot shapes (Scaena)**") && block.length > 0, "the slides' prompt carries Narrato's text, then the outline's block");
+  check(block.includes("\"Cargo pays for its carbon.\""), "with the big idea as typed");
+  check(/Beat 1 "Existing Approaches[^\n]*\n\s+Beat 2 "Problem/.test(block), `the beats in the order settled: ${block.slice(0, 400)}`);
+  check(block.includes(": No carrier can cut it alone.\n") && block.includes("Beat 6 \"Thanks\"") && !block.includes("Claim 6:"), "the claim rewritten, the beat added, the beat removed");
+  check(await page.locator("#prompting").evaluate((d) => !d.open), "the deck made, the dialog closed");
   const made = await page.evaluate(() => window.scaena.where());
   check(made.where === undefined, `the deck made is kept nowhere until it is saved: ${JSON.stringify(made)}`);
   const status = await page.textContent("#status");
@@ -325,7 +421,7 @@ try {
   check((await page.getAttribute("#play", "title")) === "The player, on the deck kept in this browser first", "and says it keeps the deck in this browser first");
 
   // Its story.
-  await page.click("#tab-story");
+  await tab(page, "story");
   await page.waitForFunction(() => document.querySelector("#story [data-score] b"), null, { timeout: 60000 });
   const scored = (await page.textContent("#story [data-score]")).trim();
   check(/^\d+ of 100, written to the Problem–Solution arc$/.test(scored), `its score, and the arc it was written to: ${scored}`);
@@ -336,6 +432,12 @@ try {
   const marks = await page.locator("#story [data-arc] [data-slide]").count();
   check(marks === 5, `a mark on the arc for each slide: ${marks}`);
   const said = await page.locator("#story [data-findings] li").allTextContents();
+  // Each slide names what its words came from, and its row says so (narrative FUNC-3).
+  const cited = await page.evaluate(() => window.scaena.story.health().slides.map((s) => (s.sources ?? []).join()));
+  check(slides?.prompt.includes("`sourceRef`"), "the slides' prompt asks each slide for its source");
+  check(cited[0] === "notes.md" && cited[1] === `${press}/press.html` && cited.every((c) => c), `each slide cites its source: ${cited.join(" | ")}`);
+  const from = await page.evaluate(() => [...document.querySelectorAll("#story [data-findings] li")].map((li) => [li.dataset.slide, li.querySelector("[data-sources]")?.textContent]));
+  check(from.length > 0 && from.every(([n, f]) => f === `From ${cited[Number(n) - 1]}`), `each row says what its slide came from: ${JSON.stringify(from)}`);
   const rows = await page.evaluate(() => [...document.querySelectorAll("#story [data-findings] li")].map((li) => li.dataset.slide));
   const looked = await page.evaluate(() => [...new Set(window.scaena.story.health().findings.map((f) => String(f.slide)))]);
   check(rows.join() === looked.join(), `a row for each slide with something to look at, in order: ${rows}`);
@@ -379,11 +481,21 @@ try {
   await asked.click();
   check((await page.getAttribute("#tab-assistant", "aria-selected")) === "true", "a question opens the assistant's tab");
   check((await page.inputValue("#question")) === question, `the question is in its box: ${question}`);
+  // The Files tab lists what the deck was grounded in, each with the slides citing it (FUNC-3).
+  await tab(page, "files");
+  await page.waitForSelector("#files [data-grounded] li", { timeout: 30000 }).catch(() => {});
+  const grounded = await page.locator("#files [data-grounded] li").allTextContents();
+  check(
+    grounded.length === 3 && grounded.some((g) => g.startsWith("notes.md") && /cited by Slide 1, Slide 3/.test(g)) && grounded.some((g) => g.includes("press.html") && /cited by Slide 2\b/.test(g)),
+    `the Files tab lists what the deck was grounded in, each with its slides: ${grounded.join(" | ")}`,
+  );
 
   // Items that each name an icon are set under the icons the worker finds in the set that ships,
   // fetched for them (PLAN G.23): each a path on its view, named by the icon.
   state.slides = ICONED;
   await opened();
+  // Slides at once, the outline not asked for: a person who wants them now gets them.
+  await page.uncheck("#prompting-show-outline");
   await page.click("#prompting-go");
   // Made, opened, and compiled: the new deck's first compile is its `last`.
   await page
@@ -403,6 +515,7 @@ try {
   state.slides = DASHED;
   check(DASHED !== ICONED, "the dashed answer differs from the iconed one");
   await opened();
+  await page.uncheck("#prompting-show-outline");
   await page.click("#prompting-go");
   await page
     .waitForFunction((was) => window.scaena.source() !== was && window.scaena.source().includes("alt:Compass") && window.scaena.last(), iconed, { timeout: 180000 })

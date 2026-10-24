@@ -25,9 +25,12 @@
 // For a reader who asks for less motion (`prefers-reduced-motion`, or `?motion=reduce`; and
 // `?motion=full` to have it anyway), each cue is a cut, and the deck keeps its pace.
 //
+// Fullscreen, and in the presenter view, the screen stays awake (`awake.ts`, lift-up REL-1).
+//
 // On a page `scaena serve` serves (`?serve`, PLAN 2.11), each change to the bundle on disk shows
 // as it is made: the deck is read again and shown where it was. A `deck.scn` that does not
 // compile says so, at its line, and the deck stays as it was until it does.
+import { letSleep, stayAwake } from "./awake";
 import type { At, LinkTarget, Painter, Section, Slot, Source } from "./protocol";
 import { reader } from "./reading";
 import { line, listen, served } from "./served";
@@ -365,7 +368,8 @@ async function play(deck: Source, how: Play, channel: BroadcastChannel) {
     } finally {
       asking = false;
     }
-    stage.canvas.style.cursor = link ? "pointer" : "";
+    // A link's hand too hides once the pointer rests (lift-up ATTR-4).
+    stage.canvas.style.cursor = link && !document.body.classList.contains("idle") ? "pointer" : "";
   };
   /** Say where the deck is: in the controls, to the presenter view, and to the page. */
   const report = (at: At) => {
@@ -460,9 +464,11 @@ async function play(deck: Source, how: Play, channel: BroadcastChannel) {
     if (document.fullscreenElement) void document.exitFullscreen().catch(() => {});
   };
   // Out of fullscreen by the browser's own Escape, which the page does not hear, the show is left
-  // at its end too.
+  // at its end too. Fullscreen, the screen stays awake (lift-up REL-1); out of it, it may sleep.
   document.addEventListener("fullscreenchange", () => {
-    if (!document.fullscreenElement) ending(false);
+    if (document.fullscreenElement) return stayAwake();
+    letSleep();
+    ending(false);
   });
 
   /** On: finish a cue that is playing, else play the next state's; past the last, the show is
@@ -559,14 +565,30 @@ async function play(deck: Source, how: Play, channel: BroadcastChannel) {
     const r = stage.canvas.getBoundingClientRect();
     return [(e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height];
   };
+  // Fullscreen, the pointer over the slide hides once it has rested two seconds, as a presentation
+  // app's does, from the moment the show fills the screen, and shows again as it moves (lift-up
+  // ATTR-4).
+  let idling: ReturnType<typeof setTimeout> | undefined;
+  const rest = (moving: boolean) => {
+    clearTimeout(idling);
+    document.body.classList.remove("idle");
+    if (moving && document.fullscreenElement)
+      idling = setTimeout(() => {
+        document.body.classList.add("idle");
+        void hover();
+      }, 2000);
+  };
+  document.addEventListener("fullscreenchange", () => rest(true));
   stage.canvas.addEventListener("pointermove", (e) => {
     pointer = over(e);
     if (laser) pointAt(pointer);
+    rest(true);
     void hover();
   });
   stage.canvas.addEventListener("pointerleave", () => {
     pointer = undefined;
     if (laser) pointAt(undefined);
+    rest(false);
     void hover();
   });
   addEventListener("resize", drawDot);
@@ -756,6 +778,8 @@ function outline(picker: HTMLSelectElement, slots: Slot[], sections: Section[]) 
  * pauses and resets, and the time of day. It steers the player, and follows it. */
 async function presentView(deck: Source, how: Play, channel: BroadcastChannel) {
   document.body.className = "presenter";
+  // The presenter's screen stays awake for as long as the view is open (lift-up REL-1).
+  stayAwake();
   document.body.innerHTML = `
     <main><canvas id="stage"></canvas><p id="blanked" class="blanked" hidden></p></main>
     <aside>

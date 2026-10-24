@@ -27,6 +27,10 @@ struct WindowPanes {
     var newStep: (() -> Void)? = nil
     var duplicateSlide: (() -> Void)? = nil
     var deleteSlide: (() -> Void)? = nil
+    /// File › Export To (lift-up USE-5): the deck saved as a PDF, and every slide as PNGs in one
+    /// zip, as the toolbar's Share saves them; none with no slides.
+    var savePDF: (() -> Void)? = nil
+    var saveImages: (() -> Void)? = nil
 }
 
 private struct WindowPanesKey: FocusedValueKey {
@@ -45,12 +49,21 @@ extension FocusedValues {
 /// light table (⌥⌘L); the timeline, the other sizes, the grid (⌘'), the safe area (⌥⌘', PLAN 3.29),
 /// the issues, and the source, each off until asked for; the assistant (⌥⌘A) and the inspector's
 /// tabs; then Play Slideshow (⌥⌘P) and Rehearse Slideshow (⌥⌘R); Remote…, which lets a remote play
-/// the deck, and on the iPad, Control a Presentation…, the remote itself (PLAN 4.10).
+/// the deck, and on the iPad, Control a Presentation…, the remote itself (PLAN 4.10). In the File
+/// menu, Export To, as a presentation app's: PDF…, and Images…, every slide as PNGs (lift-up USE-5).
 struct WindowCommands: Commands {
     @FocusedValue(\.panes) private var panes
     @Environment(\.openWindow) private var openWindow
 
     var body: some Commands {
+        CommandGroup(replacing: .importExport) {
+            Menu("Export To") {
+                Button("PDF…") { panes?.savePDF?() }
+                    .disabled(panes?.savePDF == nil)
+                Button("Images…") { panes?.saveImages?() }
+                    .disabled(panes?.saveImages == nil)
+            }
+        }
         CommandGroup(before: .toolbar) {
             Toggle("Light Table", isOn: shows(\.slides))
                 .keyboardShortcut("l", modifiers: [.option, .command])
@@ -228,6 +241,27 @@ struct UndoButton: View {
     private func read(_ note: Notification) {
         guard let undo, (note.object as AnyObject?) === undo else { return }
         steps = UndoSteps(undo)
+    }
+}
+
+/// Select on the iPad's toolbar (lift-up FUNC-4): held, each tap on the canvas adds an object to
+/// what is selected or takes it out, as Shift and a click do, and in the light table a tap adds a
+/// slide or takes it out, as ⌘ and a click do; an iPad without a keyboard has neither key. It stays
+/// held until it is tapped again, and reads as held or not.
+struct SelectButton: View {
+    @Bindable var touch: TouchHeld
+
+    var body: some View {
+        Toggle(isOn: $touch.selecting) {
+            Label("Select", systemImage: touch.selecting ? "checkmark.circle.fill" : "checkmark.circle")
+        }
+        .toggleStyle(.button)
+        .help(
+            touch.selecting
+                ? "Each tap adds an object or a slide to the selection, or takes it out; tap again to stop"
+                : "Select several: each tap then adds an object or a slide to the selection, or takes it out")
+        .accessibilityLabel("Select Several")
+        .accessibilityIdentifier("select-several")
     }
 }
 

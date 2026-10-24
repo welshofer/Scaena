@@ -11,7 +11,7 @@
 // - A right click on it offers to unlock it; ⇧⌘L locks what is selected, and unlocks it.
 // - axe-core finds nothing against WCAG 2.1 AA in the Layers tab.
 // Exits 1 on any failure.
-import { axeInto, launch, serve } from "./serve.mjs";
+import { axeInto, launch, serve, tab } from "./serve.mjs";
 
 const failures = [];
 const check = (ok, what) => {
@@ -60,7 +60,7 @@ try {
   check((await selected()) === "storm-photo", `unlocked, a click on the photo selects it: ${await selected()}`);
 
   // The lock in the layers.
-  await page.click("#tab-layers");
+  await tab(page, "layers");
   const lockButton = page.locator('#layers [data-layer="storm-photo"] [data-lock]').first();
   await lockButton.waitFor({ timeout: 30000 });
   check((await lockButton.getAttribute("aria-pressed")) === "false", "its lock is open");

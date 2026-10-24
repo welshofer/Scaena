@@ -4,8 +4,8 @@
 // loads the generator's module while the brief is written; Cancel stops it, and the deck open is
 // untouched until the new one opens, kept nowhere until it is saved.
 import { familySections } from "./theme-families";
-import { load, settings } from "./assistant/keys";
-import type { Choices, FromWorker, Generate, Generated, GeneratingEvent, Source, ToWorker } from "./protocol";
+import { keep, load, settings, store, verdict } from "./assistant/keys";
+import type { Choices, FromWorker, Generate, Generated, GeneratingEvent, ProviderId, Source, StoryOutline, ToWorker } from "./protocol";
 import type { Engine } from "./stage";
 
 const $ = <T extends HTMLElement>(selector: string) => document.querySelector<T>(selector)!;
@@ -29,8 +29,16 @@ export function said(event: GeneratingEvent): string {
       return "Choosing the arc…";
     case "chose":
       return event.fallback ? `Arc: ${event.arc}, the heuristic's (${event.fallback})` : `Arc: ${event.arc}`;
+    case "outlining":
+      return "Outlining the story: the big idea, and what each beat says…";
+    case "outlined":
+      return `Outline: ${event.beats} beats. Read it below, change what you will, then Write the slides.`;
+    case "settled":
+      return `Outline settled: ${event.beats} beats`;
     case "writing":
       return `Writing the slides, at least ${event.slides}…`;
+    case "retrying":
+      return `The provider is busy or did not answer: asking again in ${Math.round(event.seconds)} s (try ${event.tried + 1} of 6)…`;
     case "wrote":
       return `${event.slides} slides written${event.truncated ? ", the answer cut short" : ""}`;
     case "painting":
@@ -71,6 +79,8 @@ export function made(m: Generated): string {
 type Given = { file: File } | { link: string };
 
 /** Wire the dialog: `opener` opens it, and a deck made opens by `open`, its line by `tell`.
+ * `models` lists the models a key can use, as the Assistant tab lists them (lift-up 10-24 USE-1):
+ * with no key kept, the dialog takes one in place, checks it, and keeps it as that tab does.
  * Changes not saved are asked about before a deck is made, not as it opens: what a model wrote
  * is never thrown away for them. */
 export function prompting(
@@ -79,6 +89,7 @@ export function prompting(
   dirty: () => boolean,
   open: (source: Source) => Promise<void>,
   tell: (line: string) => void,
+  models: (provider: ProviderId, key: string, base?: string) => Promise<string[]>,
 ) {
   const dialog = $<HTMLDialogElement>("#prompting");
   const form = dialog.querySelector("form")!;
@@ -103,7 +114,89 @@ export function prompting(
   const who = $<HTMLParagraphElement>("#prompting-who");
   const progress = $<HTMLOListElement>("#prompting-progress");
   const go = $<HTMLButtonElement>("#prompting-go");
+  const keying = $<HTMLFieldSetElement>("#prompting-key");
+  const keyProvider = $<HTMLSelectElement>("#prompting-key-provider");
+  const keyValue = $<HTMLInputElement>("#prompting-key-value");
+  const keyModel = $<HTMLSelectElement>("#prompting-key-model");
+  const keyKeep = $<HTMLInputElement>("#prompting-key-keep");
+  const keySaid = $<HTMLParagraphElement>("#prompting-key-said");
+  const showOutline = $<HTMLInputElement>("#prompting-show-outline");
   theme.replaceChildren(...familySections());
+  // The outline before the slides (narrative FUNC-1): the arc, the big idea, and each beat's claim,
+  // shown once the model writes it, to change before the slides are written.
+  const outlinePane = $<HTMLElement>("#prompting-outline");
+  const outlineArc = $<HTMLParagraphElement>("#prompting-outline-arc");
+  const bigIdea = $<HTMLTextAreaElement>("#prompting-big-idea");
+  const beats = $<HTMLOListElement>("#prompting-beats");
+  const outlineArcs = $<HTMLSelectElement>("#prompting-outline-arcs");
+  /** The outline pane's own fields, which stay live while the deck is made. */
+  const outlining = (field: Element) => field.closest("#prompting-outline") !== null;
+
+  /** A beat as a row: its name, its claim to type over, the slides it takes, and Up, Down, and
+   * Remove. */
+  const beatRow = (beat: { name: string; claim: string; slides: number }): HTMLLIElement => {
+    const li = document.createElement("li");
+    li.dataset.slides = String(beat.slides);
+    const name = document.createElement("input");
+    name.className = "name";
+    name.value = beat.name;
+    name.setAttribute("aria-label", "The beat's name");
+    const slides = document.createElement("span");
+    slides.className = "slides";
+    slides.textContent = beat.slides === 0 ? "no slides" : beat.slides === 1 ? "1 slide" : `${beat.slides} slides`;
+    const claim = document.createElement("textarea");
+    claim.className = "claim";
+    claim.rows = 2;
+    claim.value = beat.claim;
+    claim.placeholder = "What its slides leave the audience believing";
+    claim.setAttribute("aria-label", "The beat's claim");
+    const acts = document.createElement("div");
+    acts.className = "acts";
+    const act = (label: string, aria: string, on: () => void) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = label;
+      button.setAttribute("aria-label", aria);
+      button.onclick = on;
+      acts.append(button);
+    };
+    act("↑", "Move the beat up", () => li.previousElementSibling?.before(li));
+    act("↓", "Move the beat down", () => li.nextElementSibling?.after(li));
+    act("Remove", "Remove the beat", () => li.remove());
+    li.append(name, slides, claim, acts);
+    return li;
+  };
+
+  /** The outline as the pane holds it now, as the person settled it. */
+  const settledOutline = (): StoryOutline => ({
+    bigIdea: bigIdea.value.trim(),
+    beats: [...beats.querySelectorAll("li")].map((li) => ({
+      name: li.querySelector<HTMLInputElement>(".name")!.value,
+      claim: li.querySelector<HTMLTextAreaElement>(".claim")!.value,
+      slides: Number(li.dataset.slides ?? 0),
+    })),
+  });
+
+  /** The outline shown, to settle: the arc and why, the big idea, and the beats. */
+  const showOutlined = (outlined: { outline: StoryOutline; arc: string; reasoning: string; fallback?: string }) => {
+    outlineArc.textContent = outlined.fallback
+      ? `Arc: ${outlined.arc}, the heuristic's (${outlined.fallback}).`
+      : `Arc: ${outlined.arc}. ${outlined.reasoning}`.trim();
+    bigIdea.value = outlined.outline.bigIdea;
+    beats.replaceChildren(...outlined.outline.beats.map(beatRow));
+    outlineArcs.replaceChildren(
+      ...[...arc.options].map((o) => new Option(o.textContent ?? "", o.value, false, o.value === outlined.arc)),
+    );
+    outlinePane.hidden = false;
+    for (const field of outlinePane.querySelectorAll<HTMLInputElement | HTMLButtonElement>("input, textarea, select, button")) field.disabled = false;
+    bigIdea.focus();
+  };
+
+  $<HTMLButtonElement>("#prompting-add-beat").onclick = () => {
+    const li = beatRow({ name: "", claim: "", slides: 0 });
+    beats.append(li);
+    li.querySelector<HTMLInputElement>(".name")!.focus();
+  };
 
   let given: Given[] = [];
   /** The worker the deck is made in, from the dialog's opening until it closes. */
@@ -179,11 +272,70 @@ export function prompting(
     asking = { provider: s.provider, model: s.models[s.provider] ?? "", base: s.bases[s.provider], key: kept?.key };
     const names = { anthropic: "Anthropic", openai: "OpenAI", gemini: "Gemini" };
     if (!asking.key || !asking.model) {
-      who.textContent = `Narrato writes the deck with your own key: choose a provider, a model, and a key in the Assistant tab first.`;
+      who.textContent = `Narrato writes the deck with your own key: paste one below, and choose the model that writes it.`;
     } else {
       who.textContent = `Written by ${names[asking.provider]}'s ${asking.model}, with your key, which goes to ${names[asking.provider]} alone.`;
     }
     go.disabled = running || !asking.key || !asking.model;
+  };
+
+  // A key taken in place (lift-up 10-24 USE-1), where none is kept for the assistant's provider:
+  // checked by listing its models, as the Assistant tab checks one, then kept as that tab keeps it,
+  // for this tab or on this device, and the provider and model chosen become the assistant's.
+  const names: Record<ProviderId, string> = { anthropic: "Anthropic", openai: "OpenAI", gemini: "Gemini" };
+  let listing = 0;
+  const checked = async () => {
+    const asked = ++listing;
+    const p = keyProvider.value as ProviderId;
+    const key = keyValue.value.trim();
+    keyModel.replaceChildren();
+    if (!key) {
+      keySaid.textContent = `Paste ${names[p]}'s key: it goes from this page to ${names[p]} alone.`;
+      return whoWrites();
+    }
+    keySaid.textContent = `Checking the key with ${names[p]}…`;
+    let listed: string[] | Error;
+    try {
+      listed = await models(p, key, settings().bases[p]);
+    } catch (e) {
+      listed = e instanceof Error ? e : new Error(String(e));
+    }
+    if (asked !== listing) return;
+    keySaid.textContent = verdict(p, listed).said;
+    if (listed instanceof Error || !listed.length) return whoWrites();
+    keyModel.replaceChildren(...listed.map((m) => new Option(m, m)));
+    const picked = settings().models[p];
+    if (picked && listed.includes(picked)) keyModel.value = picked;
+    await store(p, key, keyKeep.checked);
+    chosen();
+    await whoWrites();
+  };
+  /** The provider and model chosen here, the assistant's from now on, as its tab keeps them. */
+  const chosen = () => {
+    const s = settings();
+    const p = keyProvider.value as ProviderId;
+    s.provider = p;
+    if (keyModel.value) s.models[p] = keyModel.value;
+    keep(s);
+  };
+  let typing: ReturnType<typeof setTimeout> | undefined;
+  keyValue.oninput = () => {
+    clearTimeout(typing);
+    typing = setTimeout(() => void checked(), 400);
+  };
+  keyProvider.onchange = async () => {
+    const kept = await load(keyProvider.value as ProviderId).catch(() => undefined);
+    keyValue.value = kept?.key ?? "";
+    keyKeep.checked = kept?.kept ?? false;
+    await checked();
+  };
+  keyModel.onchange = () => {
+    chosen();
+    void whoWrites();
+  };
+  keyKeep.onchange = () => {
+    const key = keyValue.value.trim();
+    if (key && keyModel.options.length) void store(keyProvider.value as ProviderId, key, keyKeep.checked);
   };
 
   const start = () => {
@@ -209,18 +361,26 @@ export function prompting(
     for (const field of form.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement | HTMLButtonElement>(
       "input, select, textarea, #prompting-sources button, #prompting-add-link",
     ))
-      field.disabled = on;
+      if (!outlining(field)) field.disabled = on;
     go.disabled = on;
     go.textContent = on ? "Generating…" : "Generate";
+    if (!on) outlinePane.hidden = true;
   };
 
   opener.onclick = () => {
     progress.replaceChildren();
+    outlinePane.hidden = true;
     dialog.returnValue = "";
     dialog.showModal();
     topic.focus();
     start();
-    void whoWrites();
+    // With no key kept for the assistant's provider, or no model chosen, the dialog asks for one.
+    void whoWrites().then(() => {
+      keying.hidden = Boolean(asking?.key && asking.model);
+      if (keying.hidden) return;
+      keyProvider.value = settings().provider;
+      void keyProvider.onchange?.(new Event("change"));
+    });
   };
   files.onchange = () => {
     given.push(...[...(files.files ?? [])].map((file) => ({ file })));
@@ -291,6 +451,7 @@ export function prompting(
       links: given.flatMap((g) => ("link" in g ? [g.link] : [])),
       github: github.value.trim() || undefined,
       research: research.checked,
+      outline: showOutline.checked,
       pictures: (() => {
         const chosen = pictures.value as "openai" | "gemini" | "";
         const kept = chosen ? painters[chosen] : undefined;
@@ -303,11 +464,23 @@ export function prompting(
     const done = new Promise<{ files: Record<string, ArrayBuffer>; name: string; made: Generated }>((resolve, reject) => {
       making.onmessage = ({ data }: MessageEvent<FromWorker>) => {
         if (data.type === "generating") step(said(data.event));
+        else if (data.type === "storyOutlined") showOutlined(data);
         else if (data.type === "generated") resolve(data);
         else if (data.type === "error") reject(new Error(data.message));
       };
       making.onerror = (e) => reject(new Error(e.message || "the generator stopped"));
     });
+    // The outline settled, the slides are written to it; another arc chosen, it is outlined again.
+    $<HTMLButtonElement>("#prompting-write").onclick = () => {
+      const settled = settledOutline();
+      if (!settled.beats.some((b) => b.claim.trim())) return step("Keep at least one beat with a claim.", true);
+      outlinePane.hidden = true;
+      making.postMessage({ type: "storySettled", outline: settled } satisfies ToWorker);
+    };
+    $<HTMLButtonElement>("#prompting-outline-again").onclick = () => {
+      outlinePane.hidden = true;
+      making.postMessage({ type: "outlineAgain", arc: outlineArcs.value || undefined } satisfies ToWorker);
+    };
     making.postMessage(
       { type: "generate", generate: job, engine: engine.module } satisfies ToWorker,
       job.files.map((f) => f.bytes),

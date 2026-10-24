@@ -1,6 +1,7 @@
 import CoreGraphics
 import Dispatch
 import Foundation
+import ImageIO
 import Observation
 import Synchronization
 
@@ -77,12 +78,32 @@ public final class DeckEditor {
     @ObservationIgnored private var compiled = 0
     /// Where every state is linted, away from the window (PLAN 4.13).
     @ObservationIgnored private let linter = Linter()
+    /// Where what reads the deck as it stands is done, away from the window: its health (lift-up
+    /// narrative PERF-1).
+    @ObservationIgnored let offMain = OffMain(label: "ScaenaKit.health")
     /// For a test: called on the caller's actor once a lint of every state has taken the deck it
     /// lints and counted itself, before it waits for the layout, so an edit made there is one
     /// made while it is under way, with no clock to catch it by (PLAN 4.13).
     @ObservationIgnored var begun: (() -> Void)?
-    /// Each state drawn small, by the digest of its drawing at rest and the width asked.
-    @ObservationIgnored private var drawings: [String: (digest: String, width: Int, image: CGImage)] = [:]
+    /// For a test: told, as a lint of every state lays the deck out, whether it does so on the
+    /// main thread and the stack it has.
+    @ObservationIgnored var laidOn: (@Sendable (_ main: Bool, _ stack: Int) -> Void)?
+    /// For a test: called on the caller's actor once a read of the deck's health has taken the
+    /// deck it reads, before it waits for the answer, as `begun` is for a lint.
+    @ObservationIgnored var reading: (() -> Void)?
+    /// Each state drawn small, by its id and the width asked, with the digest of its drawing at
+    /// rest: the strip's, the presenter's next, and a remote's stand side by side (lift-up PERF-2).
+    @ObservationIgnored private var drawings: [Drawn: (digest: String, image: CGImage)] = [:]
+    /// The drawings by when each was last asked for, the least recent first: past `drawingsKept`,
+    /// it is let go.
+    @ObservationIgnored private var asked: [Drawn] = []
+    static let drawingsKept = 256
+    /// Where states are drawn away from the window, one at a time (lift-up PERF-2).
+    @ObservationIgnored private let drawer = Drawer()
+    /// The deck as it stands, taken twice: one to draw from on the drawer's thread, and one the
+    /// session is asked about here, whether it still holds the deck, so neither is used by two
+    /// threads at once.
+    @ObservationIgnored private var drawnFrom: (held: Laying, drawing: Laying)?
     /// Each slide to start as its layout's picture shows it (PLAN 3.31), by its layout, `""` the
     /// blank slide: for the theme, the format, and the height they were drawn in, the `key`.
     @ObservationIgnored private var started: (key: String, drawn: [String: (starter: Starter, image: CGImage)]) = ("", [:])
@@ -138,14 +159,14 @@ public final class DeckEditor {
     }
 
     /// A new deck's one blank state made a title slide in the theme's `title` layout, its words to
-    /// type over and its picture's place waiting, as a presentation app's new deck opens (PLAN
-    /// 3.30): the slide's id. None where the deck is not one state with nothing on it, or the theme
+    /// type over and the theme's backdrop in its picture's place, as the theme chooser draws it and
+    /// a presentation app's new deck opens (PLAN 3.30): the slide's id. None where the deck is not one state with nothing on it, or the theme
     /// has no such layout. Made as the deck is made, before anything is undone to.
     @discardableResult
     public func startOnTitleSlide() -> String? {
         guard slots.count == 1, let blank = slots.first?.state,
             (try? session.boxes(state: blank))?.isEmpty == true,
-            let started = try? session.starting(after: blank, layout: "title"),
+            let started = try? session.titling(after: blank),
             (try? make(started.patch + [["op": "remove_state", "id": .string(blank)]])) != nil
         else { return nil }
         return started.id
@@ -246,7 +267,7 @@ public final class DeckEditor {
     }
 
     /// Lint every state, in every format: once the deck opens, and once edits stop (PLAN 4.13).
-    /// The deck as it stands is laid out on a queue of its own, one lint at a time, while the
+    /// The deck as it stands is laid out on a thread of its own, one lint at a time, while the
     /// caller's actor (the window's) goes on answering; its findings are taken on that actor
     /// when it is done. A lint of a deck an edit has changed since it began is dropped, so what
     /// an older deck had never replaces what lint found in this one.
@@ -256,20 +277,89 @@ public final class DeckEditor {
         lints += 1
         defer { lints -= 1 }
         begun?()
-        await linter.lay(laying, for: began)
+        await linter.lay(laying, for: began, told: laidOn)
         guard began == compiled, let linting = try? session.lint(laid: laying) else { return }
         findings = linting.findings
         whole = linting.whole
+    }
+
+    /// The deck's narrative health (PLAN G.9), read away from the window, as `lintEvery` lays the
+    /// deck out (lift-up narrative PERF-1): the deck as it stands taken, and read on a queue of its
+    /// own while the caller's actor (the window's) goes on answering. None where an edit changed
+    /// the deck while it was read, so an older deck's story never stands for this one's. Where no
+    /// source compiled to a deck that validates, the deck the session holds is read, as before.
+    public func health(isolation: isolated (any Actor)? = #isolation) async throws -> Health? {
+        guard valid, let laying = session.laying() else { return try session.health() }
+        let began = compiled
+        reading?()
+        let health = try await offMain.run { try laying.health() }
+        return began == compiled ? health : nil
     }
 
     /// `state` drawn at rest `width` pixels wide by the CPU painter: drawn again only when its
     /// drawing changed, as the browser's strip draws it (PLAN 2.35).
     public func drawing(_ state: String, width: Int) -> CGImage? {
         guard let digest = try? session.digest(state: state) else { return nil }
-        if let kept = drawings[state], kept.digest == digest, kept.width == width { return kept.image }
+        let key = Drawn(state: state, width: width)
+        if let image = kept(key, digest) { return image }
         guard let image = try? session.pixels(state, width: width).image else { return nil }
-        drawings[state] = (digest, width, image)
+        keep(key, digest, image)
         return image
+    }
+
+    /// `state` drawn at rest `width` pixels wide, as `drawing` draws it, but away from the window
+    /// (lift-up PERF-2): painted on a thread of its own from the deck as it stands, one drawing at
+    /// a time, by an engine kept while the deck stands, while the caller's actor (the window's, or
+    /// the stage's) goes on answering. Kept as `drawing` keeps it, where the deck still draws as
+    /// it did when asked. Where the source did not compile to a deck that validates, drawn here.
+    public func drawingAway(_ state: String, width: Int, isolation: isolated (any Actor)? = #isolation) async -> CGImage? {
+        guard let digest = try? session.digest(state: state) else { return nil }
+        let key = Drawn(state: state, width: width)
+        if let image = kept(key, digest) { return image }
+        if drawnFrom.map({ !session.holds($0.held) }) ?? true {
+            drawnFrom = session.laying().flatMap { held in session.laying().map { (held: held, drawing: $0) } }
+        }
+        guard let laying = drawnFrom?.drawing else { return drawing(state, width: width) }
+        let format = self.format
+        let painted = await drawer.draw { try laying.pixels(format: format, state: state, width: width) }
+        guard let image = painted?.image else { return nil }
+        if (try? session.digest(state: state)) == digest { keep(key, digest, image) }
+        return image
+    }
+
+    /// `state` drawn at rest `width` pixels wide away from the window, as `drawingAway` draws it,
+    /// and made a PNG there too: what a remote is sent (lift-up PERF-2).
+    public func pngAway(_ state: String, width: Int, isolation: isolated (any Actor)? = #isolation) async -> Data? {
+        guard let image = await drawingAway(state, width: width) else { return nil }
+        let held = Unsent(image)
+        return await drawer.draw { Self.png(held.value) } ?? nil
+    }
+
+    /// `image` as a PNG.
+    static func png(_ image: CGImage) -> Data? {
+        let data = NSMutableData()
+        guard let made = CGImageDestinationCreateWithData(data as CFMutableData, "public.png" as CFString, 1, nil)
+        else { return nil }
+        CGImageDestinationAddImage(made, image, nil)
+        return CGImageDestinationFinalize(made) ? data as Data : nil
+    }
+
+    /// The drawing kept for `key`, where it is of the drawing `digest` names: asked for now.
+    private func kept(_ key: Drawn, _ digest: String) -> CGImage? {
+        guard let kept = drawings[key], kept.digest == digest else { return nil }
+        if let at = asked.firstIndex(of: key) { asked.remove(at: at) }
+        asked.append(key)
+        return kept.image
+    }
+
+    /// Keep `image` for `key`, of the drawing `digest` names, the least recently asked for let
+    /// go past `drawingsKept`.
+    private func keep(_ key: Drawn, _ digest: String, _ image: CGImage) {
+        if drawings.updateValue((digest, image), forKey: key) != nil, let at = asked.firstIndex(of: key) {
+            asked.remove(at: at)
+        }
+        asked.append(key)
+        while asked.count > Self.drawingsKept { drawings[asked.removeFirst()] = nil }
     }
 
     /// The slides `layouts` start after the slide of `state`, a nil among them the blank one, each
@@ -340,9 +430,89 @@ public final class DeckEditor {
     }
 }
 
+/// A state drawn small: its id, and the width asked.
+private struct Drawn: Hashable {
+    let state: String
+    let width: Int
+}
+
+/// Where states are drawn small away from the window (lift-up PERF-2): one at a time on a queue of
+/// its own, as the linter lays a deck out, each on a thread with `OffMain.stack` bytes of stack,
+/// so a strip of a long deck drawn as it opens is drawn a state after another, not all at once.
+private final class Drawer: Sendable {
+    private let queue = DispatchQueue(label: "ScaenaKit.draw", qos: .utility)
+
+    /// What `work` answers, done on the queue, or none where it throws.
+    func draw<T: Sendable>(_ work: @escaping @Sendable () throws -> T) async -> T? {
+        await withCheckedContinuation { (done: CheckedContinuation<T?, Never>) in
+            queue.async {
+                let answer = Unsent<T?>(nil)
+                OffMain.waiting("ScaenaKit.draw") { answer.value = try? work() }
+                done.resume(returning: answer.value)
+            }
+        }
+    }
+}
+
+/// A value handed to one other thread and back, one thread at a time: a drawing to be made a
+/// PNG, or what a piece of work answers, read once it is done.
+private final class Unsent<T>: @unchecked Sendable {
+    var value: T
+
+    init(_ value: T) {
+        self.value = value
+    }
+}
+
+/// Where work on a deck taken from the session (a `Laying`) is done, away from the caller's actor
+/// (lift-up narrative PERF-1): on a thread of its own, its answer awaited. What reads the deck as it
+/// stands, its health first, runs here while the window answers; the caller drops an answer for a
+/// deck an edit has changed since it was taken. Each piece has a `Laying` of its own, so pieces may
+/// overlap.
+final class OffMain: Sendable {
+    /// The stack each piece runs on: 16 MB, twice the Mac main thread's. Reading a deck recurses
+    /// deeper than a dispatch queue's 512 KB worker stack holds with room to spare for a deck
+    /// larger than B1 (B1's health read overflows at 256 KB in a debug build).
+    static let stack = 16 << 20
+    private let label: String
+
+    init(label: String) {
+        self.label = label
+    }
+
+    /// `work`'s answer, done on a thread of its own.
+    func run<T: Sendable>(_ work: @escaping @Sendable () throws -> T) async throws -> T {
+        let label = self.label
+        return try await withCheckedThrowingContinuation { (done: CheckedContinuation<T, any Error>) in
+            Self.start(label) { done.resume(with: Result { try work() }) }
+        }
+    }
+
+    /// `work` done on a thread of its own with `stack` bytes of stack, the caller's thread waiting
+    /// for it: what a queue that keeps its work in order, as the linter's does, runs its work on.
+    static func waiting(_ label: String, _ work: @escaping @Sendable () -> Void) {
+        let done = DispatchSemaphore(value: 0)
+        start(label) {
+            work()
+            done.signal()
+        }
+        done.wait()
+    }
+
+    private static func start(_ label: String, _ work: @escaping @Sendable () -> Void) {
+        let thread = Thread(block: work)
+        thread.name = label
+        thread.stackSize = stack
+        thread.qualityOfService = .utility
+        thread.start()
+    }
+}
+
 /// Where a deck's every state is linted, away from the window (PLAN 4.13): one lint at a time on
 /// a queue of its own, so lints begun as edits stop wait for the one before rather than share the
-/// machine with it, and one of a deck an edit has changed since it was begun is not laid out.
+/// machine with it, and one of a deck an edit has changed since it was begun is not laid out. Each
+/// is laid out on a thread with `OffMain.stack` bytes of stack, which the queue waits for: laying
+/// out every state of a deck whose containers nest deep runs past a queue worker's 512 KB.
 private final class Linter: Sendable {
     private let queue = DispatchQueue(label: "ScaenaKit.lint", qos: .utility)
     /// The deck compiled last, as `DeckEditor` counts them.
@@ -350,10 +520,16 @@ private final class Linter: Sendable {
 
     /// Lay `laying` out, taken from the deck `began` counts, on the queue: once the lints before
     /// it are done, and only where no other deck has been compiled since.
-    func lay(_ laying: Laying, for began: Int) async {
+    /// `told`, for a test, hears whether the layout ran on the main thread and the stack it had.
+    func lay(_ laying: Laying, for began: Int, told: (@Sendable (_ main: Bool, _ stack: Int) -> Void)? = nil) async {
         await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
             queue.async {
-                if self.latest.load(ordering: .relaxed) == began { laying.lay() }
+                if self.latest.load(ordering: .relaxed) == began {
+                    OffMain.waiting("ScaenaKit.lint") {
+                        told?(Thread.isMainThread, Thread.current.stackSize)
+                        laying.lay()
+                    }
+                }
                 done.resume()
             }
         }

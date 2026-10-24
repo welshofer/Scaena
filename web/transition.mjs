@@ -17,7 +17,7 @@
 //   names it with its way, halfway through its cue the canvas shows neither slide alone, and Play
 //   plays it to rest. One undo takes it back.
 // Exits 1 on any failure.
-import { launch, serve } from "./serve.mjs";
+import { launch, serve, tab } from "./serve.mjs";
 
 const server = await serve();
 const url = (bundle) => `${server.origin}/web/dist/editor.html?painter=cpu&bundle=${bundle}`;
@@ -67,7 +67,8 @@ try {
   await page.evaluate(() => window.scaena.cursor(window.scaena.source().indexOf("state close") + "state ".length));
   await page.waitForFunction(() => window.scaena.canvas.boxed() === "close", null, { timeout: 30000 });
   await page.evaluate(() => window.scaena.canvas.select(undefined));
-  await page.locator("#tab-inspector").click();
+  // The transition is the Animate tab's (lift-up ATTR-4).
+  await tab(page, "animate");
   await page.waitForSelector("#look-transition-style", { timeout: 30000 });
   const original = await source();
   /** The exits the cue's Add an animation… menu offers. */

@@ -42,7 +42,7 @@ enum Prompting {
             bundle = folder.appending(path: "\(name) \(n).scaena", directoryHint: .isDirectory)
             n += 1
         }
-        let files = try document.snapshot(contentType: .scaenaDeck)
+        let files = try document.savedNow()
         try ScaenaDocument.wrapper(files).write(to: bundle, options: .atomic, originalContentsURL: nil)
         ScaenaDocument.handing(said, as: name)
         return bundle
@@ -131,6 +131,9 @@ struct PromptView: View {
     /// How they look: `illustration` or `photo`.
     @AppStorage("generate.look") private var look = "illustration"
     @AppStorage("generate.theme") private var theme = "dusk"
+    /// Whether the outline is shown first (narrative FUNC-1): the arc, the big idea, and each beat's
+    /// claim, settled before the slides are written.
+    @AppStorage("generate.outline") private var showOutline = true
     /// What SEC asks each request to carry: the user's own email, kept on this device.
     @AppStorage("generate.secContact") private var secContact = ""
 
@@ -154,6 +157,13 @@ struct PromptView: View {
     @State private var kept: Set<Provider> = []
     @State private var steps: [Line] = []
     @State private var running: Task<Void, Never>?
+    /// The outline shown to settle (narrative FUNC-1), its beats as the person edits them, and the
+    /// generation waiting on what they decide.
+    @State private var outlined: Outlined?
+    @State private var bigIdea = ""
+    @State private var beats: [EditedBeat] = []
+    @State private var outlineArc = ""
+    @State private var deciding: CheckedContinuation<OutlineDecision?, Never>?
 
     /// What a brief may ask, read once.
     private static let offered = try? Generator.choices()
@@ -194,6 +204,31 @@ struct PromptView: View {
         let id = UUID()
         let words: String
         let failed: Bool
+    }
+
+    /// A beat of the outline as the person edits it: moved, removed, or added, its claim typed over.
+    struct EditedBeat: Identifiable {
+        let id = UUID()
+        var name: String
+        var claim: String
+        var slides: Int
+
+        init(_ beat: StoryOutline.Beat) {
+            name = beat.name
+            claim = beat.claim
+            slides = beat.slides
+        }
+
+        init(name: String = "", claim: String = "", slides: Int = 0) {
+            self.name = name
+            self.claim = claim
+            self.slides = slides
+        }
+
+        var beat: StoryOutline.Beat { .init(name: name, claim: claim, slides: slides) }
+
+        /// The slides it takes, said.
+        var takes: String { slides == 0 ? "no slides" : slides == 1 ? "1 slide" : "\(slides) slides" }
     }
 
     /// The model chosen for the provider, as the assistant keeps it.
@@ -307,6 +342,12 @@ struct PromptView: View {
                         .disabled(provider == .openai)
                 }
                 Section {
+                    Toggle("Show the outline first", isOn: $showOutline)
+                        .accessibilityIdentifier("prompt-show-outline")
+                } footer: {
+                    Text("The arc, the big idea, and what each beat says, to change before the slides are written.")
+                }
+                Section {
                     DisclosureGroup("More") {
                         Picker("Delivered", selection: $modality) {
                             ForEach(choices?.modalities ?? [], id: \.id) { Text($0.label).tag($0.id) }
@@ -328,6 +369,9 @@ struct PromptView: View {
             #if os(macOS)
             Text(who).font(.caption).foregroundStyle(.secondary).padding(.horizontal)
             #endif
+            if outlined != nil {
+                outlineView
+            }
             if !steps.isEmpty {
                 ScrollViewReader { scroller in
                     ScrollView {
@@ -392,12 +436,103 @@ struct PromptView: View {
             if modality.isEmpty { modality = choices?.modalities.first?.id ?? "" }
             // A theme kept by the name it shipped under before: Gallery is Salon (PLAN T.0d).
             if theme == "gallery" { theme = "salon" }
+            // Launched with `-sampleOutline YES`, the window shows an outline as one reads, with no
+            // call made: what the screenshots CI keeps show of the step.
+            if UserDefaults.standard.bool(forKey: "sampleOutline"), outlined == nil { show(Outlined.sample) }
         }
+    }
+
+    /// The outline shown to settle (narrative FUNC-1): the arc and why, the big idea to type over,
+    /// each beat with its claim, moved, removed, or added; another arc to outline on; and Write the
+    /// Slides, which writes them to the outline as it stands.
+    private var outlineView: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("The outline").font(.headline)
+            if let outlined {
+                Text(
+                    outlined.fallback.map { "Arc: \(outlined.arc), the heuristic's (\($0))." }
+                        ?? "Arc: \(outlined.arc). \(outlined.reasoning)"
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+            TextField("Big idea", text: $bigIdea, prompt: Text("The one sentence the audience should remember"), axis: .vertical)
+                .lineLimit(1...3)
+                .accessibilityIdentifier("prompt-big-idea")
+            List {
+                ForEach($beats) { $beat in
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack {
+                            TextField("Beat", text: $beat.name, prompt: Text("The beat's name"))
+                                .font(.caption.weight(.semibold))
+                                .textFieldStyle(.plain)
+                                .accessibilityIdentifier("prompt-beat-name")
+                            Spacer()
+                            Text(beat.takes).font(.caption).foregroundStyle(.secondary)
+                            Button("Remove") { beats.removeAll { $0.id == beat.id } }
+                                .buttonStyle(.borderless)
+                                .font(.caption)
+                                .accessibilityLabel("Remove the beat")
+                        }
+                        TextField("Claim", text: $beat.claim, prompt: Text("What its slides leave the audience believing"), axis: .vertical)
+                            .lineLimit(1...3)
+                            .accessibilityIdentifier("prompt-beat-claim")
+                    }
+                }
+                .onMove { from, to in beats.move(fromOffsets: from, toOffset: to) }
+                .onDelete { at in beats.remove(atOffsets: at) }
+            }
+            .frame(minHeight: 160, idealHeight: 260)
+            .accessibilityIdentifier("prompt-beats")
+            HStack {
+                Button("Add a Beat") { beats.append(EditedBeat()) }
+                    .accessibilityIdentifier("prompt-add-beat")
+                #if !os(macOS)
+                // A beat is moved in the list's edit mode on the iPad; the Mac drags a row.
+                EditButton()
+                #endif
+                Spacer()
+                Picker("Arc", selection: $outlineArc) {
+                    ForEach(choices?.arcs ?? [], id: \.self) { Text($0).tag($0) }
+                }
+                .frame(maxWidth: 260)
+                Button("Outline Again") { decide(.anotherArc(outlineArc.isEmpty ? nil : outlineArc)) }
+                    .accessibilityIdentifier("prompt-outline-again")
+                Button("Write the Slides") {
+                    let settled = StoryOutline(bigIdea: bigIdea, beats: beats.map(\.beat))
+                    guard settled.beats.contains(where: { !$0.claim.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) else {
+                        return say("Keep at least one beat with a claim.", failed: true)
+                    }
+                    decide(.settled(settled))
+                }
+                .accessibilityIdentifier("prompt-write")
+            }
+        }
+        .padding(.horizontal)
+        // A container of its own, so its fields and buttons keep their own identifiers.
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("prompt-outline")
+    }
+
+    /// `outlined` shown, its beats to edit.
+    private func show(_ outlined: Outlined) {
+        self.outlined = outlined
+        bigIdea = outlined.outline.bigIdea
+        beats = outlined.outline.beats.map { EditedBeat($0) }
+        outlineArc = outlined.arc
+    }
+
+    /// What the person decided of the outline: the generation goes on from it, the outline put away.
+    private func decide(_ decision: OutlineDecision?) {
+        outlined = nil
+        deciding?.resume(returning: decision)
+        deciding = nil
     }
 
     /// Cancel: what is under way stopped, and the brief put away.
     private var cancelling: some View {
         Button("Cancel") {
+            decide(nil)
             running?.cancel()
             running = nil
             #if os(macOS)
@@ -537,6 +672,19 @@ struct PromptView: View {
             self.provider, self.model.wrappedValue, self.theme, self.arc, self.given
         )
         let (research, contact, token) = (self.research && self.provider != .openai, self.secContact, self.token)
+        // The outline shown to settle (narrative FUNC-1), the generation waiting on what is decided
+        // of it; none where the slides are to come at once.
+        let settle: Generator.Settle?
+        if showOutline {
+            settle = { @MainActor (outlined: Outlined) async -> OutlineDecision? in
+                await withCheckedContinuation { (continuation: CheckedContinuation<OutlineDecision?, Never>) in
+                    show(outlined)
+                    deciding = continuation
+                }
+            }
+        } else {
+            settle = nil
+        }
         running = Task { @MainActor in
             defer { running = nil }
             #if !os(macOS)
@@ -577,7 +725,7 @@ struct PromptView: View {
                 }
                 let (session, made) = try await generator.generate(
                     brief: brief, arc: arc.isEmpty ? nil : arc, provider: provider, model: model, key: key,
-                    theme: theme, painter: paint
+                    theme: theme, painter: paint, outline: settle
                 ) { say($0.words) }
                 try Task.checkCancellation()
                 #if os(macOS)

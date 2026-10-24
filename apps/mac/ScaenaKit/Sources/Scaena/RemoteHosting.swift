@@ -23,10 +23,14 @@ final class RemoteHost {
 
     /// The code a remote joins with, while the host is on.
     private(set) var code: String?
-    /// What the remote finds this device as.
+    /// What the remote finds this device as: its name alone, never the deck's (lift-up SEC-5).
     private(set) var name = ""
     /// How many remotes are joined.
     private(set) var joined = 0
+    /// How many wrong codes have been tried since the code was made.
+    private(set) var tried = 0
+    /// Whether the code was made anew after wrong ones, since the host was turned on.
+    private(set) var recoded = false
     private(set) var trouble: String?
     var on: Bool { code != nil }
 
@@ -47,11 +51,16 @@ final class RemoteHost {
     /// Offer `editor`'s deck, called `deck`, to remotes, played from the slide `from` names.
     func start(_ editor: DeckEditor, deck: String, from: @escaping () -> String?) {
         stop()
-        let name = String("\(Self.device): \(deck)".prefix(60))
+        let name = Remote.serviceName(device: Self.device)
         do {
             let server = try RemoteServer(name: name)
             server.command = { [weak self] command in self?.perform(command) }
             server.joined = { [weak self] count in self?.joined = count }
+            server.tried = { [weak self] count in self?.tried = count }
+            server.recoded = { [weak self] code in
+                self?.code = code
+                self?.recoded = true
+            }
             // What the network says of it is not a person's words (PLAN 3.18): the window says
             // what to do.
             server.failed = { [weak self] _ in self?.trouble = Self.unoffered }
@@ -79,6 +88,8 @@ final class RemoteHost {
         server = nil
         code = nil
         joined = 0
+        tried = 0
+        recoded = false
         drawn = [:]
     }
 
@@ -119,26 +130,30 @@ final class RemoteHost {
         sent = key
         let ms = show.playhead.ms.isFinite ? max(show.playhead.ms, 0) : 0
         let notes = showing.notes(slot.state)
-        server.tell(
-            RemotePlace(
-                deck: deck, showing: true, state: slot.state, index: show.index, count: show.slots.count,
-                ms: rest ? 0 : ms, rest: rest, notes: notes.text, read: notes.blocks,
-                slide: png(slot.state, showing.editor), next: show.next.flatMap { png($0.state, showing.editor) },
-                began: showing.began))
+        let (editor, state, coming, began) = (showing.editor, slot.state, show.next?.state, showing.began)
+        let (deck, index, count) = (deck, show.index, show.slots.count)
+        // The slide and the next drawn, and made PNGs, away from the stage (lift-up PERF-2); a place
+        // that has given way to another while they were drawn is not told.
+        Task {
+            let slide = await png(state, editor)
+            var next: Data?
+            if let coming { next = await png(coming, editor) }
+            guard sent == key, let server = self.server else { return }
+            server.tell(
+                RemotePlace(
+                    deck: deck, showing: true, state: state, index: index, count: count,
+                    ms: rest ? 0 : ms, rest: rest, notes: notes.text, read: notes.blocks,
+                    slide: slide, next: next, began: began))
+        }
     }
 
     /// `state` drawn at rest for a remote, as a PNG.
-    private func png(_ state: String, _ editor: DeckEditor) -> Data? {
+    private func png(_ state: String, _ editor: DeckEditor) async -> Data? {
         let key = "\(editor.revision)\u{1f}\(state)"
         if let kept = drawn[key] { return kept }
-        guard let image = editor.drawing(state, width: 960) else { return nil }
-        let data = NSMutableData()
-        guard let made = CGImageDestinationCreateWithData(data as CFMutableData, UTType.png.identifier as CFString, 1, nil)
-        else { return nil }
-        CGImageDestinationAddImage(made, image, nil)
-        guard CGImageDestinationFinalize(made) else { return nil }
-        drawn[key] = data as Data
-        return data as Data
+        guard let data = await editor.pngAway(state, width: 960) else { return nil }
+        drawn[key] = data
+        return data
     }
 
     /// What a remote asks.
@@ -191,6 +206,12 @@ struct RemoteSheet: View {
                 Text(joined)
                     .multilineTextAlignment(.center)
                     .foregroundStyle(.secondary)
+                if let guessed {
+                    Text(guessed)
+                        .multilineTextAlignment(.center)
+                        .foregroundStyle(.secondary)
+                        .accessibilityIdentifier("remote-guessed")
+                }
             } else {
                 Text(
                     "A remote on an iPhone or an iPad plays the show from wherever you stand, and shows the notes and what comes next."
@@ -213,6 +234,19 @@ struct RemoteSheet: View {
         case 0: "On an iPhone or an iPad on this network, open the remote, choose \(host.name), and enter this code."
         case 1: "A remote is joined."
         default: "\(host.joined) remotes are joined."
+        }
+    }
+
+    /// Wrong codes tried, and the code made anew after enough of them (lift-up SEC-5): what a
+    /// presenter should know, since someone on the network may be guessing.
+    private var guessed: String? {
+        switch (host.recoded, host.tried) {
+        case (false, 0): nil
+        case (false, 1): "A wrong code was tried."
+        case (false, let tried): "\(tried) wrong codes were tried."
+        case (true, 0): "The code was changed after wrong codes were tried. Enter this one; a remote joined stays joined."
+        case (true, let tried):
+            "The code was changed after wrong codes were tried, and \(tried) more since. Turn the remote off if no one you know is trying."
         }
     }
 

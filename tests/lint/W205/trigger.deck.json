@@ -1,5 +1,5 @@
 {
-  "scaena": "0.35",
+  "scaena": "0.37",
   "_comment": "W205 trigger: thirty lines of code whose own minSize lets it shrink to fit, to 13.9 cu, under 24 cu, 12 pt at presentation size.",
   "canvas": {"width": 1920, "height": 1080},
   "theme": "theme.json",

@@ -49,6 +49,19 @@ pub const TOOLS: &[&str] = &[
     "map_fetch",
 ];
 
+/// Whether the tool `name`, called with `args`, only reads the deck, and is slow enough to be
+/// worth running away from the window (narrative lift-up PERF-2): `deck_render`, `deck_health`,
+/// and `deck_lint` without `fix`, which a client runs on a session of a snapshot's
+/// ([`crate::store::Snapshot::session`]) on another thread. Every other tool runs on the session
+/// itself, as the editor's own edits do.
+pub fn reads_alone(name: &str, args: &Value) -> bool {
+    match name {
+        "deck_render" | "deck_health" => true,
+        "deck_lint" => args.get("fix").and_then(Value::as_bool) != Some(true),
+        _ => false,
+    }
+}
+
 /// `map_fetch`'s arguments, as the MCP tool takes them (`scaena_mcp::maps::MapFetch`), less the
 /// bundle: what the session reads before it says the client fetches the map.
 #[derive(Deserialize)]
@@ -331,6 +344,8 @@ struct StateStart {
     #[serde(default)]
     layout: Option<String>,
     #[serde(default)]
+    claim: Option<String>,
+    #[serde(default)]
     dry_run: bool,
 }
 
@@ -502,7 +517,10 @@ impl Session {
             // A slide started as Add Slide starts one (PLAN 3.30), linted as an edit is.
             "state_start" => {
                 let a: StateStart = args(name, a)?;
-                let added = scaena_ops::states::starting(&b.deck, &self.theme, &a.state, a.layout.as_deref())?;
+                let mut added = scaena_ops::states::starting(&b.deck, &self.theme, &a.state, a.layout.as_deref())?;
+                if let Some(claim) = a.claim.as_deref() {
+                    added = scaena_ops::states::claimed(&b.deck, added, claim)?;
+                }
                 let what = scaena_ops::states::said(&self.theme, a.layout.as_deref());
                 let validated = self.validated.clone();
                 let judge = |deck: &Deck, theme: &Theme, states: &[&str]| {
@@ -626,7 +644,8 @@ impl Session {
         let digest = dl.digest().map_err(ops)?;
         let scale = match a.size.as_deref() {
             Some(size) => scaena_ops::render::scale_for(size, dl.viewport)?,
-            None => 1.0,
+            // Half the canvas, as the MCP server's tool draws one for a model (narrative PERF-4).
+            None => scaena_ops::render::FOR_A_MODEL,
         };
         let raster = scaena_paint::cpu::CpuPainter::default().paint(&dl, &self.store, scale)?;
         let size = [raster.width, raster.height];
@@ -725,6 +744,12 @@ mod tests {
         // Something is drawn: the background is not all there is.
         let first = &frame.rgba[..4];
         assert!(frame.rgba.chunks(4).any(|p| p != first));
+        // Asked no size, half the canvas, as a model sees it (narrative PERF-4).
+        let half = call(&mut s, "deck_render", json!({ "state": "start" }));
+        let canvas = &s.deck().canvas;
+        let halved = json!([(canvas.width / 2.0) as u32, (canvas.height / 2.0) as u32]);
+        assert_eq!(half.result["size"], halved, "{}", half.result);
+        assert_eq!(half.result["digest"], rendered.result["digest"]);
         // A size past what a raster holds is an error the model reads, not an allocation that
         // would stop the page's worker (PLAN 2.26).
         let huge = s.tool("deck_render", json!({ "state": "start", "size": "32768x18432" }), AGENT).unwrap_err();

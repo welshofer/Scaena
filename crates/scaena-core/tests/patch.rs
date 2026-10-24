@@ -228,12 +228,35 @@ fn slides_move_copy_and_go_keeping_their_looks() {
         }
     };
 
-    // `close` before the slide `revenue`, and that slide, its step `mix` with it, after `close`.
-    for op in [
-        json!({ "op": "move_slide", "slide": "close", "before": "revenue" }),
-        json!({ "op": "move_slide", "slide": "revenue", "after": "close" }),
+    // Each section's beats, as the spine tells them.
+    let told = |doc: &Value| -> Vec<(String, Vec<String>)> {
+        let sections = doc["spine"]["sections"].as_array().unwrap();
+        let id = |v: &Value| v["id"].as_str().unwrap().to_string();
+        sections.iter().map(|s| (id(s), s["beats"].as_array().unwrap().iter().map(id).collect())).collect()
+    };
+    let spine = |pairs: &[(&str, &[&str])]| -> Vec<(String, Vec<String>)> {
+        pairs.iter().map(|(s, beats)| (s.to_string(), beats.iter().map(|b| b.to_string()).collect())).collect()
+    };
+    let w426 = |doc: &Value| {
+        scaena_core::lint::check(&deck(doc), None).into_iter().filter(|f| f.code == "W426" || f.code == "W429").count()
+    };
+
+    // `close` before the slide `revenue`, and that slide, its step `mix` with it, after `close`:
+    // the beat that tells only the slide moves with it, so the spine tells what the deck plays
+    // in its order (dogfood 3, T2), a section it leaves with no beat gone.
+    for (op, after) in [
+        (
+            json!({ "op": "move_slide", "slide": "close", "before": "revenue" }),
+            spine(&[("open", &["opening", "thanks"]), ("growth", &["doubled"])]),
+        ),
+        (
+            json!({ "op": "move_slide", "slide": "revenue", "after": "close" }),
+            spine(&[("open", &["opening"]), ("end", &["thanks", "doubled"])]),
+        ),
     ] {
         let c = patch(&doc, json!([op])).unwrap();
+        assert_eq!(told(&c.doc), after, "{op}");
+        assert_eq!(w426(&c.doc), 0, "{op}: the spine in the deck's order");
         assert_eq!(ids(&c.doc), ["intro", "close", "revenue", "mix"], "{op}");
         shows_as(&c.doc, &[("intro", "intro"), ("close", "close"), ("revenue", "revenue"), ("mix", "mix")]);
         assert_eq!(c.doc["states"][0], doc["states"][0], "intro's JSON as it was");
@@ -254,12 +277,20 @@ fn slides_move_copy_and_go_keeping_their_looks() {
     let again = patch(&c.doc, json!([{ "op": "duplicate_slide", "slide": "revenue" }])).unwrap();
     assert_eq!(&ids(&again.doc)[3..5], ["revenue-3", "mix-3"]);
 
-    // `revenue` gone, both its states: `close` written again to show what it showed.
+    // `revenue` gone, both its states: `close` written again to show what it showed. The beat it
+    // told goes, its claim told nowhere now, with the section it leaves with none, and the data
+    // source its chart read, which nothing reads then (dogfood 3, T1).
     let c = patch(&doc, json!([{ "op": "remove_slide", "slide": "revenue" }])).unwrap();
     assert_eq!(ids(&c.doc), ["intro", "close"]);
     shows_as(&c.doc, &[("intro", "intro"), ("close", "close")]);
-    assert_eq!(c.doc["spine"]["sections"][1]["beats"][0]["states"], json!([]));
+    assert_eq!(told(&c.doc), spine(&[("open", &["opening"]), ("end", &["thanks"])]));
+    assert!(c.doc.get("data").and_then(|d| d.get("q3")).is_none(), "{}", c.doc["data"]);
+    assert_eq!(w426(&c.doc), 0);
     assert_eq!(errors(&c.doc), Vec::<String>::new());
+    // A beat that keeps a state of its own stays, and so does a source something still reads.
+    let c = patch(&doc, json!([{ "op": "remove_slide", "slide": "close" }])).unwrap();
+    assert_eq!(told(&c.doc), spine(&[("open", &["opening"]), ("growth", &["doubled"])]));
+    assert!(c.doc["data"].get("q3").is_some());
 
     for (op, says) in [
         (json!({ "op": "move_slide", "slide": "mix", "after": "close" }), "`mix` is a step of slide `revenue`"),
@@ -272,6 +303,28 @@ fn slides_move_copy_and_go_keeping_their_looks() {
         let err = patch(&doc, json!([op])).unwrap_err();
         assert!(err.message.contains(says), "{op}: {err}");
     }
+}
+
+/// `delete_node` deletes as the editors' Delete does (dogfood 3): from the state on where an
+/// earlier state still shows the node, else from the deck; with `everywhere`, from the deck.
+#[test]
+fn delete_node_deletes_as_the_editors_delete_does() {
+    let doc = example();
+    // `note` enters in `revenue`: deleted from `mix`, it leaves there and stays in `revenue`.
+    let c = patch(&doc, json!([{ "op": "delete_node", "node": "note", "state": "mix" }])).unwrap();
+    assert!(c.doc["nodes"].get("note").is_some());
+    let snaps = scaena_core::resolve_states(&deck(&c.doc)).unwrap();
+    let shows = |state: &str| snaps.iter().find(|s| s.state_id == state).unwrap().nodes.contains_key("note");
+    assert!(shows("revenue") && !shows("mix") && !shows("close"));
+    // Deleted from `revenue`, where it enters, no state shows it: it goes from the deck.
+    let c = patch(&doc, json!([{ "op": "delete_node", "node": "note", "state": "revenue" }])).unwrap();
+    assert!(c.doc["nodes"].get("note").is_none());
+    assert_eq!(errors(&c.doc), Vec::<String>::new());
+    // Everywhere, from the deck, wherever it shows.
+    let c = patch(&doc, json!([{ "op": "delete_node", "node": "note", "state": "mix", "everywhere": true }])).unwrap();
+    assert!(c.doc["nodes"].get("note").is_none());
+    let err = patch(&doc, json!([{ "op": "delete_node", "node": "note", "state": "intro" }])).unwrap_err();
+    assert!(err.message.contains("not on screen"), "{err}");
 }
 
 #[test]
@@ -401,7 +454,7 @@ fn an_op_that_would_not_do_what_it_says_is_refused() {
 #[test]
 fn set_text_takes_runs_away_and_null_takes_a_property_away() {
     let doc = json!({
-        "scaena": "0.35", "canvas": { "width": 1920, "height": 1080 },
+        "scaena": "0.37", "canvas": { "width": 1920, "height": 1080 },
         "nodes": { "t": { "type": "text", "runs": [{ "text": "Hello" }], "fit": "shrink", "at": { "in": "canvas" } } },
         "states": [{ "id": "a", "props": { "t": {} } }, { "id": "b" }],
     });
@@ -541,7 +594,7 @@ fn place_forks_a_placement_into_its_state() {
         .unwrap_err();
     assert!(e.to_string().contains("`fork`"), "{e}");
     let doc = json!({
-        "scaena": "0.35", "canvas": { "width": 1920, "height": 1080 },
+        "scaena": "0.37", "canvas": { "width": 1920, "height": 1080 },
         "nodes": { "u": { "type": "text", "text": "Yo", "at": { "col": [1, 4] } } },
         "overrides": { "u": { "at": { "rect": [10, 10, 300, 100] } } },
         "states": [{ "id": "a", "props": { "u": {} } }],
@@ -554,7 +607,7 @@ fn place_forks_a_placement_into_its_state() {
 #[test]
 fn place_follows_a_node_out_and_back_and_into_its_overrides() {
     let doc = json!({
-        "scaena": "0.35", "canvas": { "width": 1920, "height": 1080 },
+        "scaena": "0.37", "canvas": { "width": 1920, "height": 1080 },
         "nodes": {
             "t": { "type": "text", "text": "Hi", "at": { "in": "grid", "align": "center" } },
             "u": { "type": "text", "text": "Yo", "at": { "col": [1, 4] } },
@@ -602,7 +655,7 @@ fn place_follows_a_node_out_and_back_and_into_its_overrides() {
 #[test]
 fn place_says_what_places_a_node() {
     let doc = json!({
-        "scaena": "0.35", "canvas": { "width": 1920, "height": 1080 },
+        "scaena": "0.37", "canvas": { "width": 1920, "height": 1080 },
         "nodes": {
             "row": { "type": "stack", "axis": "x", "at": { "in": "grid" } },
             "a": { "type": "text", "text": "A", "at": { "parent": "row" } },
@@ -652,7 +705,7 @@ fn place_says_what_places_a_node() {
 #[test]
 fn place_moves_a_node_into_another_container_or_onto_the_canvas() {
     let doc = json!({
-        "scaena": "0.35", "canvas": { "width": 1920, "height": 1080 },
+        "scaena": "0.37", "canvas": { "width": 1920, "height": 1080 },
         "nodes": {
             "row": { "type": "stack", "axis": "x", "at": { "col": [1, 6], "row": [1, 3] } },
             "a": { "type": "text", "text": "A", "at": { "parent": "row" } },
@@ -868,7 +921,7 @@ fn style_text_gives_characters_a_look_where_the_text_lives() {
 
     // A role, a color the theme names, and emphasis; characters, not bytes, counted.
     let doc = json!({
-        "scaena": "0.35", "canvas": { "width": 1920, "height": 1080 },
+        "scaena": "0.37", "canvas": { "width": 1920, "height": 1080 },
         "nodes": {
             "t": { "type": "text", "role": "body", "at": { "in": "title" },
                    "runs": [{ "text": "Hello " }, { "text": "wörld", "emphasis": "high" }, { "text": "!" }] },
@@ -986,7 +1039,7 @@ fn style_text_gives_characters_features_and_axes_of_their_own() {
 #[test]
 fn replace_text_keeps_runs_and_their_looks() {
     let doc = json!({
-        "scaena": "0.35", "canvas": { "width": 1920, "height": 1080 },
+        "scaena": "0.37", "canvas": { "width": 1920, "height": 1080 },
         "nodes": {
             "t": { "type": "text", "at": { "in": "title" },
                    "runs": [{ "text": "Hello " }, { "text": "wörld", "emphasis": "strong" }, { "text": "!" }] },
@@ -1046,7 +1099,7 @@ fn replace_text_keeps_runs_and_their_looks() {
 #[test]
 fn replace_text_over_a_run_keeps_its_look() {
     let doc = json!({
-        "scaena": "0.35", "canvas": { "width": 1920, "height": 1080 },
+        "scaena": "0.37", "canvas": { "width": 1920, "height": 1080 },
         "nodes": {
             "t": { "type": "text", "at": { "in": "title" },
                    "runs": [{ "text": "This quarter " }, { "text": "chnaged", "emphasis": "high" }, { "text": " the shape." }] },
@@ -1787,7 +1840,7 @@ fn annotate_writes_a_charts_annotations_where_they_live() {
 fn list_marks_a_texts_paragraphs_and_replace_text_keeps_them_in_step() {
     // ADR-0018, PLAN 2.69: `t`'s three paragraphs, its list on the node; `b` forks its text.
     let doc = json!({
-        "scaena": "0.35", "canvas": { "width": 1920, "height": 1080 },
+        "scaena": "0.37", "canvas": { "width": 1920, "height": 1080 },
         "nodes": {
             "t": { "type": "text", "role": "body", "text": "One\nTwo\nThree", "at": { "in": "body" } },
         },

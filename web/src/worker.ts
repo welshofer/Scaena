@@ -26,6 +26,7 @@ import init, {
   shaderRows,
 } from "@scaena/wasm";
 import { deleteKept, keptBundle, newBundle, readAll, remove, renameKept, write } from "./folders";
+import type { Decision, Outlined } from "./generate";
 import { finding } from "./words";
 import type {
   Added,
@@ -58,6 +59,7 @@ import type {
   Look,
   Put,
   BundleFile,
+  Grounded,
   MapRefresh,
   MapTarget,
   Mapped,
@@ -235,6 +237,15 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
       }
       case "generate":
         return await generating(data.generate, data.engine);
+      // The person's decision on the outline shown (narrative FUNC-1): the generation waits on it.
+      case "storySettled":
+        deciding?.({ settled: data.outline });
+        deciding = undefined;
+        return;
+      case "outlineAgain":
+        deciding?.({ arc: data.arc });
+        deciding = undefined;
+        return;
       case "reload": {
         if (!("url" in from)) throw new Error("only a bundle read from a URL is read again");
         latest++;
@@ -661,7 +672,12 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         return post({ type: "dataUndone", id: data.id, ...(await dataUndo(data.source, data.redo, data.index, data.format)) });
       case "bundleFiles":
         current(data.source);
-        return post({ type: "bundleFiles", id: data.id, files: JSON.parse(player.bundleFiles()) as BundleFile[] });
+        return post({
+          type: "bundleFiles",
+          id: data.id,
+          files: JSON.parse(player.bundleFiles()) as BundleFile[],
+          grounded: JSON.parse(player.grounded()) as Grounded[],
+        });
       case "health": {
         current(data.source);
         const deck = deckRead();
@@ -1106,6 +1122,9 @@ async function shipped(theme: string): Promise<{ file: string; text: string; fon
 /** The deck `job` asks for, made from a prompt (PLAN G.5) in this worker, which holds no deck: in
  * the theme that ships as `job.theme`, saying how far it has come, then its files, its name, and
  * what it came to. The page opens it as it opens any bundle's files. */
+/** What the person decides of the outline shown, once they do (narrative FUNC-1). */
+let deciding: ((decision: Decision) => void) | undefined;
+
 async function generating(job: Generate, engine?: WebAssembly.Module) {
   await init(engine && { module_or_path: engine });
   // Lint lays the deck's texts out, which can hyphenate them and color their code, counts a haiku, and lays out its forecasts.
@@ -1115,7 +1134,15 @@ async function generating(job: Generate, engine?: WebAssembly.Module) {
   setIcons(icons);
   const { generate } = await import("@scaena/generate");
   const theme = await shipped(job.theme);
-  const { files, made, title } = await generate(job, theme, (event) => post({ type: "generating", event }));
+  // The outline shown to the person (narrative FUNC-1), the generation waiting on what they decide
+  // of it: `settled` or `outlineAgain`, which the page sends.
+  const settle = (outlined: Outlined) => {
+    post({ type: "storyOutlined", ...outlined });
+    return new Promise<Decision>((resolve) => {
+      deciding = resolve;
+    });
+  };
+  const { files, made, title } = await generate(job, theme, (event) => post({ type: "generating", event }), settle);
   const out: Record<string, ArrayBuffer> = {};
   for (const [path, bytes] of files) out[path] = (bytes as Uint8Array).slice().buffer as ArrayBuffer;
   post({ type: "generated", files: out, name: nameFor(title), made }, Object.values(out));
@@ -1123,9 +1150,11 @@ async function generating(job: Generate, engine?: WebAssembly.Module) {
 
 /** A new deck titled `title` (PLAN 2.12), as `deck_create` makes one: the theme that ships as
  * `theme` and the fonts it names. Its one state, with nothing on it, is made a title slide in
- * the theme's `title` layout, its words to type over and its picture's place waiting, as a
- * presentation app's new deck opens and the Mac's does (PLAN 3.30): made before the page reads
- * the deck, so no undo goes back to the empty state. A theme with no such layout leaves it. */
+ * the theme's `title` layout, its words to type over and its picture's place waiting, as Add
+ * Slide starts it (PLAN 3.30): made before the page reads the deck, so no undo goes back to the
+ * empty state. A theme with no such layout leaves it. The Mac's new deck opens with the theme's
+ * backdrop in that place (`titling`); here it waits until the CPU painter draws one without
+ * holding up the editor's gestures. */
 async function made(theme: string, title: string): Promise<Player> {
   const { file, text, fonts } = await shipped(theme);
   const created = Player.create(file, text, title, fonts);

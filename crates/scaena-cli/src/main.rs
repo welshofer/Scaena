@@ -157,7 +157,9 @@ enum Cmd {
         state_choices: bool,
         /// The layouts the state may take, best first (PLAN 2.92): each of the theme's layouts
         /// that `--state-choices` offers, with what lint finds in the state laid out in it
-        /// (fewest errors, then fewest warnings, then the theme's order), the states the change
+        /// (fewest errors, then fewest warnings, then the layout it takes now, then those whose
+        /// places it leaves fewest empty, then those that set fewest of its texts in another
+        /// role, then the theme's order), the states the change
         /// reaches, and the `set_state` patch that makes it. Needs `--state`.
         #[arg(long, requires = "state")]
         layouts: bool,
@@ -252,6 +254,11 @@ enum Cmd {
         /// `--features gpu`). Every other export paints with the CPU painter.
         #[arg(long, value_enum, default_value_t = PainterArg::Cpu)]
         painter: PainterArg,
+        /// How a video and the spine pace the timeline: `beats` gives each state with no
+        /// `hold` its share of its beat's `duration`, as the talk is given; `holds` plays each
+        /// state's hold alone, as a player auto-advances.
+        #[arg(long, value_enum, default_value_t = PaceArg::Beats)]
+        pace: PaceArg,
     },
     /// Apply a patch: JSON Patch (RFC 6902) and semantic ops, all or none, and say what
     /// changes in what `validate` and `lint` find. A patch that would make the deck invalid
@@ -394,6 +401,10 @@ enum Cmd {
         /// blank slide without it.
         #[arg(long)]
         layout: Option<String>,
+        /// The one sentence the slide tells, in a beat of its own just after the beat of STATE.
+        /// Without it, the slide joins that beat.
+        #[arg(long)]
+        claim: Option<String>,
         /// Say what would change, and write nothing.
         #[arg(long)]
         dry_run: bool,
@@ -547,6 +558,23 @@ impl From<PainterArg> for Painter {
         match painter {
             PainterArg::Cpu => Painter::Cpu,
             PainterArg::Gpu => Painter::Gpu,
+        }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, ValueEnum)]
+enum PaceArg {
+    /// Each state with no `hold` its share of its beat's `duration`.
+    Beats,
+    /// Each state its `hold` alone.
+    Holds,
+}
+
+impl From<PaceArg> for scaena_core::spine::Pace {
+    fn from(pace: PaceArg) -> Self {
+        match pace {
+            PaceArg::Beats => scaena_core::spine::Pace::Beats,
+            PaceArg::Holds => scaena_core::spine::Pace::Holds,
         }
     }
 }
@@ -752,9 +780,9 @@ fn run(cli: Cli) -> Result<ExitCode> {
             }
             Ok(ExitCode::SUCCESS)
         }
-        Cmd::Export { bundle, format, out, states, size, fps, audio, painter } => {
-            let painter = painter.into();
-            let req = scaena_ops::export::Request { format, states, out, size, fps, audio, painter };
+        Cmd::Export { bundle, format, out, states, size, fps, audio, painter, pace } => {
+            let (painter, pace) = (painter.into(), pace.into());
+            let req = scaena_ops::export::Request { format, states, out, size, fps, audio, painter, pace };
             let exported = scaena_ops::export::export(&open(&bundle)?, &req)?;
             if cli.json {
                 println!("{}", serde_json::to_string_pretty(&exported)?);
@@ -828,7 +856,9 @@ fn run(cli: Cli) -> Result<ExitCode> {
             };
             map(&a, cli.json)
         }
-        Cmd::Start { bundle, state, layout, dry_run } => start(&bundle, &state, layout.as_deref(), dry_run, cli.json),
+        Cmd::Start { bundle, state, layout, claim, dry_run } => {
+            start(&bundle, &state, layout.as_deref(), claim.as_deref(), dry_run, cli.json)
+        }
         Cmd::Background { bundle, state, preset, none, dry_run } => {
             background(&bundle, &state, preset.as_deref(), none, dry_run, cli.json)
         }
@@ -1030,8 +1060,8 @@ fn diagnostic(
 
 /// `scaena theme --apply` (PLAN 1.6): point the deck at another theme, and report the
 /// delta in what `validate` and `lint` find: what the new theme breaks, and what it fixes.
-/// A theme change is a pure re-render (SPEC §2.5), so the deck itself is not touched beyond
-/// its `theme`. A theme that would leave the deck invalid is refused unless `force`, and
+/// A text it leaves too faint is recolored, and one it sets past its box or over another is
+/// refitted, as lint's fixes do; what no fix reaches is said, with the next step. A theme that would leave the deck invalid is refused unless `force`, and
 /// exits 1. Findings after it, if any are errors, exit 1.
 /// `scaena new` (PLAN 2.13): a bundle from a theme and its fonts, as `deck_create` makes one.
 /// Findings that are errors exit 1, and the bundle is not made.
@@ -1052,7 +1082,7 @@ fn new(dir: &Path, theme: &str, title: &str, json: bool) -> Result<ExitCode> {
 }
 
 fn theme_apply(bundle: &Path, theme: &Path, dry_run: bool, force: bool, json: bool) -> Result<ExitCode> {
-    let t = scaena_ops::theme::theme_apply(&open(bundle)?, theme, dry_run, force)?;
+    let t = scaena_ops::theme::theme_apply(&open(bundle)?, theme, None, dry_run, force)?;
     if json {
         println!("{}", serde_json::to_string_pretty(&t)?);
     } else if t.refused {
@@ -1076,7 +1106,24 @@ fn theme_apply(bundle: &Path, theme: &Path, dry_run: bool, force: bool, json: bo
                 f.code
             );
         }
+        // Each text the theme set past its box or over another, fitted as lint's fix fits it.
+        for f in &t.refitted {
+            let at = f.state.as_deref().map(|s| format!(" in `{s}`")).unwrap_or_default();
+            let what = if f.code == "E100" { "it fits its box" } else { "it no longer lies over another" };
+            println!("  refitted `{}`{at}: {what} ({})", f.node.as_deref().unwrap_or("?"), f.code);
+        }
         print_delta(&t.added, &t.removed);
+        // What the theme brought that no fix reaches, and where to put it right.
+        let left = t.added.iter().filter(|f| f.severity == Severity::Error).count();
+        if left > 0 {
+            let d = bundle.display();
+            let them = if left == 1 { "it" } else { "them" };
+            println!(
+                "still: {left} error{} the theme brought that no fix reaches; next: scaena serve {d} to move {them}, \
+                 or scaena lint {d} for each one's hint",
+                if left == 1 { "" } else { "s" }
+            );
+        }
     }
     Ok(if t.errors > 0 { ExitCode::from(1) } else { ExitCode::SUCCESS })
 }
@@ -1277,9 +1324,16 @@ fn data(bundle: &Path, source: &str, edits: Option<&Path>, dry_run: bool, json: 
 /// `scaena start` (PLAN 3.30): a slide started in a layout after a state's slide, as one patch,
 /// reported as `patch` reports one, with the new state's id. Exits 1 where it is refused or
 /// errors remain, as `patch` does.
-fn start(bundle: &Path, state: &str, layout: Option<&str>, dry_run: bool, json: bool) -> Result<ExitCode> {
+fn start(
+    bundle: &Path,
+    state: &str,
+    layout: Option<&str>,
+    claim: Option<&str>,
+    dry_run: bool,
+    json: bool,
+) -> Result<ExitCode> {
     let b = open(bundle)?;
-    let s = scaena_ops::states::start(&b, state, layout, dry_run)?;
+    let s = scaena_ops::states::start(&b, state, layout, claim, dry_run)?;
     if json {
         println!("{}", serde_json::to_string_pretty(&s)?);
     } else {
@@ -1425,7 +1479,7 @@ fn files(bundle: &Path, remove: Option<&[String]>, dry_run: bool, json: bool) ->
         }
         return Ok(code);
     }
-    let listed = scaena_ops::files::Listed { files: scaena_ops::files::files(&b)? };
+    let listed = scaena_ops::files::listed(&b)?;
     if json {
         println!("{}", serde_json::to_string_pretty(&listed)?);
         return Ok(ExitCode::SUCCESS);
@@ -1449,6 +1503,21 @@ fn files(bundle: &Path, remove: Option<&[String]>, dry_run: bool, json: bool) ->
             println!("    named by {}", names.join(", "));
             for used in &f.used {
                 println!("    {} in {}", used.node, used.states.join(", "));
+            }
+        }
+    }
+    // What a deck made from a prompt was grounded in, which is no file of the bundle (FUNC-3).
+    if !listed.sources.is_empty() {
+        println!("grounded in");
+        for s in &listed.sources {
+            let cut = if s.truncated { ", cut short to fit" } else { "" };
+            println!("  {}  {}, {}{cut}", s.name, s.kind, size(s.bytes));
+            if let Some(url) = s.url.as_deref().filter(|u| *u != s.name) {
+                println!("    at {url}");
+            }
+            match s.cited.as_slice() {
+                [] => println!("    no beat cites it"),
+                beats => println!("    cited by {}", beats.join(", ")),
             }
         }
     }
@@ -2143,8 +2212,14 @@ fn num(x: f64) -> String {
 /// the display list if asked for.
 fn render(args: RenderArgs, json: bool) -> Result<ExitCode> {
     let RenderArgs { bundle, state, t, format, size, out, display_list, painter } = args;
-    let req =
-        scaena_ops::render::Request { state: state.clone(), t, format: format.clone(), size, painter: painter.into() };
+    let req = scaena_ops::render::Request {
+        state: state.clone(),
+        t,
+        format: format.clone(),
+        size,
+        scale: None,
+        painter: painter.into(),
+    };
     let r = scaena_ops::render::render(&bundle, &req)?;
     if let Some(path) = &display_list {
         std::fs::write(path, r.display_list.to_golden_json()?)
