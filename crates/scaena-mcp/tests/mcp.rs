@@ -726,7 +726,7 @@ async fn a_long_export_keeps_going_while_the_client_asks_after_it() {
 async fn an_agent_makes_a_deck_edits_it_twice_and_restores_the_first_edit() {
     let dir = scratch("history-loop");
     let bundle = path(&dir.join("q3"));
-    let client = connect().await;
+    let client = connect_in(&dir).await;
     // Made with its history begun: every write after is a version.
     ok(&client, "deck_create", json!({ "bundle": bundle, "theme": "dusk", "title": "Q3" })).await;
     let ops = json!([
