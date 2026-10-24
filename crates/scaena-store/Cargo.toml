@@ -19,3 +19,7 @@ skera.workspace = true
 write-fonts.workspace = true
 sha2.workspace = true
 loro.workspace = true
+
+# A bundle's file is opened with O_NOFOLLOW: a link is found as it is opened, not looked up first.
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true

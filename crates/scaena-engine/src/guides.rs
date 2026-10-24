@@ -111,8 +111,13 @@ pub fn layout(
     let snap =
         snaps.iter().find(|s| s.state_id == state).ok_or_else(|| EngineError::UnknownState(state.to_string()))?;
     let Some(name) = snap.layout.clone() else { return Ok(None) };
+    Ok(Some((name.clone(), slots(deck, theme, &name, format)?)))
+}
+
+/// The slots of the theme's layout `name` in `format`, in the order the theme writes them.
+pub fn slots(deck: &Deck, theme: &Theme, name: &str, format: Option<&str>) -> Result<Vec<SlotBox>, EngineError> {
     let own: Vec<String> = match format.and_then(scaena_core::model::Format::parse) {
-        Some(f) => (theme.layouts.get(&name))
+        Some(f) => (theme.layouts.get(name))
             .and_then(|l| l.formats.as_ref())
             .and_then(|fs| fs.get(&f))
             .map(|lf| lf.slots.keys().cloned().collect())
@@ -122,11 +127,11 @@ pub fn layout(
     let (projected, laid) = project(deck, theme, format)?;
     let canvas = [projected.canvas.width as f32, projected.canvas.height as f32];
     let grid = Grid::from_theme(&laid, canvas)?.mirrored(scaena_core::direction::mirrored(&projected));
-    let slots = laid.slots(&name).ok_or_else(|| EngineError::Theme(format!("layout `{name}` is not in the theme")))?;
+    let slots = laid.slots(name).ok_or_else(|| EngineError::Theme(format!("layout `{name}` is not in the theme")))?;
     let boxes = slots
         .iter()
         .map(|(slot, def)| {
-            let rect = grid.shown(grid.cell(&laid, Some(&name), Some(&serde_json::json!({ "in": slot })))?);
+            let rect = grid.shown(grid.cell(&laid, Some(name), Some(&serde_json::json!({ "in": slot })))?);
             let value =
                 |r: &Option<scaena_core::model::values::Range>| r.as_ref().and_then(|r| serde_json::to_value(r).ok());
             Ok(SlotBox {
@@ -138,7 +143,7 @@ pub fn layout(
             })
         })
         .collect::<Result<_, EngineError>>()?;
-    Ok(Some((name, boxes)))
+    Ok(boxes)
 }
 
 /// A guide where boxes meet: `[x1, y1, x2, y2]`, canvas units, a line down or across.

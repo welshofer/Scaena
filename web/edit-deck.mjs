@@ -24,7 +24,7 @@
 // Each step is screenshotted into target/edit-deck/, with its time. Exits 1 on any failure.
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { decode, launch, retheme, serve } from "./serve.mjs";
+import { decode, launch, retheme, serve, tab } from "./serve.mjs";
 
 const out = "target/edit-deck";
 await mkdir(out, { recursive: true });
@@ -215,7 +215,7 @@ try {
     await show("miles");
     await page.waitForTimeout(500);
     const was = await painted();
-    await page.click("#tab-data");
+    await tab(page, "data");
     await until("the Data tab's sources", () => [...document.querySelectorAll("#data select[data-source] option")].some((o) => o.value === "miles"));
     await page.selectOption("#data select[data-source]", "miles");
     // The rows, not the table: the table is in the page before the worker's rows come.
@@ -228,14 +228,14 @@ try {
     const set = Math.round((Number(held) + 0.4) * 10) / 10;
     await cell.fill(String(set));
     await cell.press("Enter");
-    await until("the cell set", () => /^Row 0, .*: set/.test(document.querySelector("#status").textContent));
+    await until("the cell set", () => /^Row 1, .*: set/.test(document.querySelector("#status").textContent));
     // The chart drawn again: the canvas as painted is not what it was.
     let now = await painted();
     for (let i = 0; i < 40 && differ(was, now) <= 100; i++) {
       await page.waitForTimeout(250);
       now = await painted();
     }
-    check(differ(was, now) > 100, `a cell set (${columns[number + 1]} of row 0: ${held} → ${set}) draws the chart again: ${differ(was, now)} pixels changed · ${await status()}`);
+    check(differ(was, now) > 100, `a cell set (${columns[number + 1]} of row 1: ${held} → ${set}) draws the chart again: ${differ(was, now)} pixels changed · ${await status()}`);
   });
 
   // 5. A figure quoted from the Data tab into the title's characters.
@@ -246,7 +246,7 @@ try {
     // "June to September beat the plan": the first word, by the keys.
     await page.keyboard.press("Home");
     for (let i = 0; i < 4; i++) await page.keyboard.press("Shift+ArrowRight");
-    await page.click("#tab-data");
+    await tab(page, "data");
     const cell = page.locator('#data input[data-row="0"][data-col="1"]');
     await cell.click();
     const at = await mark();
