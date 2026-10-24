@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://scaena.dev/schema/patch-0.35.json",
+  "$id": "https://scaena.dev/schema/patch-0.36.json",
   "title": "Scaena patch",
   "description": "A patch (SPEC §7.3): RFC 6902 ops and semantic ops, applied in order, all or none.",
   "type": "array",
@@ -414,7 +414,7 @@
           }
         },
         {
-          "description": "One property of state `id`, as an inspector chooses it (PLAN 2.36): its `layout`, its `transition` or one key of it (`transition/ease`), its `hold`, its `notes`, or whether its slide shows the deck's number and footer (`furniture`, ADR-0028), which is written on the slide's first state, since a slide shows them whole. A layout tracks (SPEC §2.2), so it is written where it lives: in the latest state that sets it, from `id` back along what it tracks, and each state that takes it from there changes with it; in `id` where none sets it. The rest are `id`'s own. A transition that is a bare duration, or none, stays bare while its duration is all it sets, and becomes an object to take another key. `null` takes a value away where it lives: a layout taken away shows what is under it, and a transition left with nothing cuts.",
+          "description": "One property of state `id`, as an inspector chooses it (PLAN 2.36): its `layout`, its `transition` or one key of it (`transition/ease`), its `hold`, its `notes`, or whether its slide shows the deck's number and footer (`furniture`, ADR-0028), which is written on the slide's first state, since a slide shows them whole. A layout tracks (SPEC §2.2), so it is written where it lives: in the latest state that sets it, from `id` back along what it tracks, and each state that takes it from there changes with it; in `id` where none sets it. The rest are `id`'s own. A transition that is a bare duration, or none, stays bare while its duration is all it sets, and becomes an object to take another key. `null` takes a value away where it lives: a layout taken away shows what is under it, and a transition left with nothing cuts. A state's `notes` are what a presenter reads for it over its beat's, and its `hold` wins over its beat's `duration` where a video or the spine paces it (SPEC §2.4, §2.6).",
           "type": "object",
           "required": ["op", "id", "prop", "value"],
           "additionalProperties": false,
@@ -979,7 +979,11 @@
         "wrap": { "$ref": "#/$defs/Wrap" },
         "maxLines": { "type": "integer", "minimum": 1 },
         "minSize": { "type": "number", "exclusiveMinimum": 0 },
-        "maxSize": { "type": "number", "exclusiveMinimum": 0 },
+        "maxSize": {
+          "description": "The most its size may grow to under `fit: grow`; under `fit: shrink`, where it is under the text's size, the most it is set at (deck format 0.36).",
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
         "box": { "$ref": "#/$defs/TextBox" },
         "features": { "type": "object", "additionalProperties": { "$ref": "#/$defs/FeatureValue" } },
         "axes": {
@@ -2164,8 +2168,15 @@
         },
         "remove": { "description": "Nodes that exit in this state.", "$ref": "#/$defs/IdList" },
         "choreography": { "type": "array", "items": { "$ref": "#/$defs/ChoreoItem" } },
-        "hold": { "description": "Auto-advance dwell in ms (video and kiosk).", "type": "number", "minimum": 0 },
-        "notes": { "type": "string" },
+        "hold": {
+          "description": "Auto-advance dwell in ms (video and kiosk). It wins over its beat's `duration`.",
+          "type": "number",
+          "minimum": 0
+        },
+        "notes": {
+          "description": "Speaker notes, which a presenter reads over its beat's (SPEC §2.6).",
+          "type": "string"
+        },
         "_comment": { "type": "string" }
       }
     },
@@ -2293,7 +2304,7 @@
         "wrap": { "anyOf": [{ "$ref": "#/$defs/Wrap" }, { "type": "null" }] },
         "maxLines": { "anyOf": [{ "type": "integer", "minimum": 1 }, { "type": "null" }] },
         "minSize": { "anyOf": [{ "type": "number", "exclusiveMinimum": 0 }, { "type": "null" }] },
-        "maxSize": { "anyOf": [{ "type": "number", "exclusiveMinimum": 0 }, { "type": "null" }] },
+        "maxSize": { "anyOf": [{ "exclusiveMinimum": 0, "type": "number" }, { "type": "null" }] },
         "box": { "anyOf": [{ "$ref": "#/$defs/TextBox" }, { "type": "null" }] },
         "features": {
           "anyOf": [

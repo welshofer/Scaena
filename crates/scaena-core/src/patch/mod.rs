@@ -528,7 +528,9 @@ pub enum SemanticOp {
     /// with it; in `id` where none sets it. The rest are `id`'s own. A transition that is a
     /// bare duration, or none, stays bare while its duration is all it sets, and becomes an
     /// object to take another key. `null` takes a value away where it lives: a layout taken
-    /// away shows what is under it, and a transition left with nothing cuts.
+    /// away shows what is under it, and a transition left with nothing cuts. A state's `notes`
+    /// are what a presenter reads for it over its beat's, and its `hold` wins over its beat's
+    /// `duration` where a video or the spine paces it (SPEC §2.4, §2.6).
     SetState {
         #[schemars(with = "Id")]
         id: String,
