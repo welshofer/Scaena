@@ -7,6 +7,9 @@
 //
 // - The dialog offers Narrato's goals, lengths, and arcs, read from the generator's module as it
 //   opens, and says who writes the deck: the assistant's provider and model, with the user's key.
+// - With no key kept, the dialog takes one in place (lift-up 10-24 USE-1): Generate waits, a key
+//   pasted is checked by listing its models, and the model chosen is the assistant's from then on,
+//   the key kept for the tab as the Assistant tab keeps it.
 // - What a browser cannot read says so, and where it is read: an SEC filing, and a page whose
 //   site lets no other page read it. A provider that refuses the key says so in the dialog,
 //   which stays open to try again.
@@ -141,6 +144,45 @@ try {
   page.on("dialog", (d) => d.accept());
   await page.goto(`${site.origin}/web/dist/editor.html?painter=cpu&bundle=/docs/examples/revenue.deck.json`);
   await page.waitForFunction(() => window.scaena?.last() && window.scaena.where().name === "revenue", null, { timeout: 120000 });
+  // No key kept: the dialog takes one in place, in a page of its own, so what it chose leaves the
+  // rest of the walk as it was. The scripted server is where Anthropic is asked.
+  const keyPage = await browser.newPage({ viewport: { width: 1600, height: 1000 }, deviceScaleFactor: 1 });
+  keyPage.on("pageerror", (e) => failures.push(`page: ${e.message}`));
+  await keyPage.goto(`${site.origin}/web/dist/editor.html?painter=cpu&bundle=/docs/examples/revenue.deck.json`);
+  await keyPage.waitForFunction(() => window.scaena?.last() && window.scaena.where().name === "revenue", null, { timeout: 120000 });
+  await keyPage.evaluate((origin) => {
+    localStorage.setItem("scaena.assistant", JSON.stringify({ provider: "anthropic", models: {}, bases: { anthropic: origin } }));
+    sessionStorage.removeItem("scaena.key.anthropic");
+  }, origin);
+  await keyPage.click("#new-prompt");
+  await keyPage.waitForFunction(() => !document.querySelector("#prompting-key")?.hidden, null, { timeout: 30000 }).catch(() => {});
+  const keyless = await keyPage.evaluate(() => ({
+    asked: document.querySelector("#prompting-key")?.hidden === false,
+    go: document.querySelector("#prompting-go").disabled,
+    who: document.querySelector("#prompting-who").textContent,
+  }));
+  check(keyless.asked && keyless.go && !keyless.who.includes("Assistant tab"), `with no key kept, the dialog asks for one in place, Generate waiting: ${JSON.stringify(keyless)}`);
+  await keyPage.fill("#prompting-key-value", "sk-ant-walk-in-the-dialog");
+  await keyPage.waitForFunction(() => document.querySelector("#prompting-key-model").options.length > 0 && !document.querySelector("#prompting-go").disabled, null, { timeout: 30000 }).catch(() => {});
+  const keyed = await keyPage.evaluate(() => ({
+    models: [...document.querySelector("#prompting-key-model").options].map((o) => o.value),
+    said: document.querySelector("#prompting-key-said").textContent,
+    go: document.querySelector("#prompting-go").disabled,
+    who: document.querySelector("#prompting-who").textContent,
+    kept: sessionStorage.getItem("scaena.key.anthropic"),
+    chosen: JSON.parse(localStorage.getItem("scaena.assistant")),
+  }));
+  check(
+    keyed.models.length === 3 && keyed.said.startsWith("The key works") && !keyed.go && keyed.who.startsWith(`Written by Anthropic's ${keyed.models[0]}`),
+    `a key pasted is checked by its models, and Generate is ready: ${JSON.stringify({ ...keyed, chosen: undefined })}`,
+  );
+  check(
+    keyed.kept === "sk-ant-walk-in-the-dialog" && keyed.chosen.provider === "anthropic" && keyed.chosen.models.anthropic === keyed.models[0],
+    `kept for this tab, the model the assistant's: ${JSON.stringify({ kept: keyed.kept, chosen: keyed.chosen })}`,
+  );
+  await keyPage.click("#prompting-cancel");
+  await keyPage.close();
+
   // The assistant's settings, as its tab keeps them: Anthropic at the scripted server, a model,
   // and a key for this tab.
   await page.evaluate((origin) => {

@@ -208,7 +208,7 @@ private struct StateRow: View {
         .accessibilityLabel(step > 1 ? "Slide \(number), step \(step)" : "Slide \(number)")
         .accessibilityIdentifier("state-\(slot.state)")
         .task(id: "\(slot.state)\u{1f}\(revision)") {
-            drawing = editor.drawing(slot.state, width: Int(width * scale))
+            drawing = await editor.drawingAway(slot.state, width: Int(width * scale))
         }
     }
 }

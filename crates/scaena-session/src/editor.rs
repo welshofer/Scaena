@@ -59,6 +59,17 @@ pub struct Laying {
     validated: Option<Vec<Finding>>,
     /// What it found once laid out, or why it could not be.
     laid: Option<Result<LaidOut, String>>,
+    /// What it draws its states with, built the first time it draws one and kept for the next.
+    drawer: Option<Drawer>,
+}
+
+/// What a [`Laying`] draws a state at rest with (lift-up PERF-2): an engine of its own, the
+/// pictures and fonts it paints from, the CPU painter, and the timeline in the format last drawn.
+struct Drawer {
+    engine: Engine,
+    store: scaena_paint::Assets,
+    painter: scaena_paint::cpu::CpuPainter,
+    timeline: Option<(Option<String>, scaena_core::timeline::Timeline)>,
 }
 
 /// What a [`Laying`] found: validation's findings, and the layout rules' where they ran.
@@ -104,6 +115,35 @@ impl Laying {
     /// lint is laid out (lift-up narrative PERF-1).
     pub fn deck(&self) -> &Deck {
         &self.deck
+    }
+
+    /// `state` at rest in `format` (the deck's own canvas where none), painted by the CPU painter
+    /// `width` pixels wide, the height keeping the canvas's aspect: the pixels [`Session::pixels`]
+    /// paints for it at rest, with nothing dragged or previewed, on whatever thread calls it,
+    /// which touches no session. The engine it draws with is built once and kept, so a strip of
+    /// states is drawn by one (lift-up PERF-2).
+    pub fn pixels(&mut self, format: Option<&str>, state: &str, width: u32) -> Result<scaena_paint::Raster, Error> {
+        use scaena_paint::Painter;
+        if self.drawer.is_none() {
+            let (engine, store) = crate::engine_for(&self.deck, &self.theme, &self.files, &self.kept)?;
+            let engine = engine.with_timed(self.timed.clone());
+            self.drawer = Some(Drawer { engine, store, painter: Default::default(), timeline: None });
+        }
+        let drawer = self.drawer.as_mut().expect("built above");
+        if drawer.timeline.as_ref().is_none_or(|(drawn, _)| drawn.as_deref() != format) {
+            let (deck, theme) = scaena_engine::project(&self.deck, &self.theme, format)?;
+            let timeline = drawer.engine.timeline(deck.as_ref(), theme.as_ref(), &self.data)?;
+            drawer.timeline = Some((format.map(str::to_string), timeline));
+        }
+        let timeline = &drawer.timeline.as_ref().expect("worked out above").1;
+        let slot = timeline.slot(state).ok_or_else(|| scaena_engine::EngineError::UnknownState(state.to_string()))?;
+        // Its shaders at the time it comes to rest, as `Session::frame` draws them there.
+        let time = (slot.start + slot.span) / 1000.0;
+        let req =
+            FrameRequest { deck: &self.deck, theme: &self.theme, data: &self.data, state, t_ms: f64::INFINITY, format };
+        let dl = drawer.engine.at_rest(&req)?.draw_at(time);
+        let scale = width as f32 / dl.viewport[0];
+        Ok(drawer.painter.paint(&dl, &drawer.store, scale)?)
     }
 }
 
@@ -338,7 +378,16 @@ impl Session {
             timed: self.engine.as_ref().map_or_else(|| self.timed.clone(), Engine::timed),
             validated: self.validated.clone(),
             laid: None,
+            drawer: None,
         })
+    }
+
+    /// Whether `laying` was taken from the deck as it stands: the source compiled last, the
+    /// bundle's files, and the theme it was taken with. One that is not draws an older deck.
+    pub fn holds(&self, laying: &Laying) -> bool {
+        self.edit.as_ref().is_some_and(|edit| edit.source == laying.source)
+            && Arc::ptr_eq(&self.files, &laying.files)
+            && self.theme_json == laying.theme_json
     }
 
     /// Lint the deck compiled last on every state, as [`Session::lint`] does, with what
@@ -348,9 +397,7 @@ impl Session {
     /// edited), so what lint found in an older deck never stands for this one's, or where it
     /// has not been laid out. Dates are judged at `now`, as [`Session::lint`] judges them.
     pub fn lint_laid(&mut self, laying: &Laying, now: Option<i64>) -> Result<Option<Linting>, Error> {
-        let current = self.edit.as_ref().is_some_and(|edit| edit.source == laying.source)
-            && Arc::ptr_eq(&self.files, &laying.files)
-            && self.theme_json == laying.theme_json;
+        let current = self.holds(laying);
         match &laying.laid {
             Some(Ok(laid)) if current => self.linted(None, Some(laid.clone()), now).map(Some),
             Some(Err(why)) if current => Err(Error::Ops(why.clone())),
