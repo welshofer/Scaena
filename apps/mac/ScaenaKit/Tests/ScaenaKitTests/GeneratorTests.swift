@@ -265,3 +265,40 @@ private func anthropic(_ text: String) -> Data {
     #expect(!choices.modalities.isEmpty)
     #expect(choices.themes.map(\.name) == ["dusk", "daybreak", "ember", "salon"])
 }
+
+/// A server that answers every request with `Endless.chunks` chunks of 64 KB and no length.
+private final class Endless: URLProtocol {
+    nonisolated(unsafe) static var chunks = 64
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        let response = HTTPURLResponse(
+            url: request.url!, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: ["Content-Type": "text/html"])!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        for _ in 0..<Endless.chunks {
+            client?.urlProtocol(self, didLoad: Data(count: 1 << 16))
+        }
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
+}
+
+/// A source's answer is read no further than its plan's `most` (the 20261024 plan's SEC-2): one
+/// that runs past it is refused as it does, saying so; one within it reads whole.
+@Test func aSourcePastItsMostIsRefusedAsItIsRead() async throws {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [Endless.self]
+    let session = URLSession(configuration: configuration)
+    let asked = Data(#"{"method":"GET","url":"https://example.com/page","headers":{},"most":1048576}"#.utf8)
+    let request = try JSONDecoder().decode(GeneratorRequest.self, from: asked)
+    Endless.chunks = 64
+    let refused = await GeneratorReply.made(request, by: session)
+    #expect(refused.status == 0)
+    #expect(refused.text == "https://example.com/page answered with more than 1 MB", "\(refused.text.prefix(80))")
+    Endless.chunks = 8
+    let whole = await GeneratorReply.made(request, by: session)
+    #expect(whole.status == 200 && whole.body.count == 8 << 16)
+}
