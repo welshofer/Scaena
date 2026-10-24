@@ -1,6 +1,8 @@
 import CoreGraphics
 import Foundation
 import ScaenaKit
+import ScaenaNotes
+import ScaenaRemote
 import Testing
 
 /// Three states: one with no cue, one whose cue runs 400 ms and holds a second, and the last.
@@ -230,4 +232,45 @@ private func slots() throws -> [ScaenaSession.Slot] {
     #expect(timer.reads(at: at(200)) == "0:00")
     timer.toggle(at: at(200))
     #expect(timer.elapsed(at: at(3_725)) == 3_525 && timer.reads(at: at(3_725)) == "58:45")
+}
+
+/// The notes a presenter reads (SPEC §2.6, lift-up STAB-1): a state's own, else those of the
+/// first beat that names it, which a generated deck writes them on, so the presenter's window, the
+/// remote, and a rehearsal read what the deck has.
+@Test func aPresenterReadsAStatesOwnNotesElseItsBeats() throws {
+    let session = try ScaenaSession(files: example("revenue"))
+    // `revenue` has none of its own; the beat `doubled` names it.
+    #expect(try session.notes(state: "revenue").text.hasPrefix("Pause on the Q3 bar before the build."))
+    // `intro`'s own win over its beat's.
+    #expect(try session.notes(state: "intro").text == "Open on the title. Don't talk over the build.")
+    #expect(throws: ScaenaError.self) { try session.notes(state: "no-such-state") }
+}
+
+/// The notes as a speaker reads them (SPEC §2.6, lift-up USE-1): the markdown a generated deck's
+/// model writes is kept as written, and the session reads it as blocks, a list and a table with the
+/// words in their looks, which `NotesText` shows on the Mac, the iPad, and the remote; plain notes
+/// are their lines.
+@Test func notesAreReadAsASpeakerReadsThem() throws {
+    let session = try ScaenaSession(files: example("revenue"))
+    let plain = try session.notes(state: "intro")
+    #expect(plain.blocks == [.lines([[NoteSpan("Open on the title. Don't talk over the build.")]])])
+    let written = "Lead with the **number**.\n- Pro is a third\n- Then the ask\n\n| Tier | Share |\n|---|---|\n| Pro | 33% |"
+    let op: JSONValue = ["op": "set_state", "id": "mix", "prop": "notes", "value": .string(written)]
+    #expect(try session.tool("deck_patch", ["ops": .array([op])]).edited)
+    let read = try session.notes(state: "mix")
+    #expect(read.text == written)
+    #expect(
+        read.blocks == [
+            .lines([[NoteSpan("Lead with the "), NoteSpan("number", bold: true), NoteSpan(".")]]),
+            .list(ordered: false, items: [NoteItem(spans: [NoteSpan("Pro is a third")]), NoteItem(spans: [NoteSpan("Then the ask")])]),
+            .table(header: true, rows: [[[NoteSpan("Tier")], [NoteSpan("Share")]], [[NoteSpan("Pro")], [NoteSpan("33%")]]]),
+        ], "\(read.blocks)")
+    #expect(read.blocks.plain == "Lead with the number.\n• Pro is a third\n• Then the ask\nTier · Share\nPro · 33%")
+    // A remote is sent the blocks with the words, and one sent none reads the words as lines.
+    let place = RemotePlace(deck: "Q3", showing: true, state: "mix", notes: read.text, read: read.blocks)
+    let sent = try JSONDecoder().decode(RemotePlace.self, from: try JSONEncoder().encode(place))
+    #expect(sent == place && sent.read == read.blocks)
+    let older = try JSONDecoder().decode(
+        RemotePlace.self, from: Data(#"{"deck":"Q3","showing":true,"state":"mix","index":0,"count":1,"ms":0,"rest":true,"notes":"a\nb"}"#.utf8))
+    #expect(older.read.isEmpty && NoteBlock.of(older.notes) == [.lines([[NoteSpan("a")], [NoteSpan("b")]])])
 }
