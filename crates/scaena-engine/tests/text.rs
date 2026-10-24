@@ -720,6 +720,34 @@ fn japanese_breaks_between_its_phrases_and_a_number_keeps_its_counter() {
 }
 
 #[test]
+fn a_japanese_phrase_too_long_for_its_line_breaks_after_its_particle() {
+    // Dogfood: a journey's cell grown to its size set これは / 本当にうまくいくかもし / れない,
+    // the phrase too wide for its line broken at the last letter that fit, inside a word. It
+    // breaks after the particle that ends 本当に instead, where no other break of the phrase's
+    // fits, and at the last letter only where none does.
+    let (theme, mut fonts) = japanese();
+    let mut engine = TextEngine::new();
+    let size = theme.text_role("body").unwrap().size;
+    let mut lines = |text: &str, ems: f32, wrap: Wrap| {
+        let mut spec = TextSpec::plain(theme.text_role("body").unwrap(), text);
+        spec.lang = Some("ja".into());
+        spec.wrap = Some(wrap);
+        let layout = engine.layout(&mut fonts, &theme, &spec, ems * size).unwrap();
+        layout.lines.iter().map(|l| layout.text[l.text.clone()].trim_end().to_string()).collect::<Vec<_>>()
+    };
+    let text = "これは本当にうまくいくかもしれない";
+    for ems in [11.5, 12.5, 13.5] {
+        assert_eq!(lines(text, ems, Wrap::Greedy), ["これは", "本当に", "うまくいくかもしれない"], "at {ems} em");
+    }
+    // Whole where it fits.
+    assert_eq!(lines(text, 14.5, Wrap::Greedy), ["これは", "本当にうまくいくかもしれない"]);
+    // Narrower than what follows its particle, the rest breaks where it must, as before.
+    let narrow = lines(text, 8.5, Wrap::Greedy);
+    assert_eq!(narrow[..2], ["これは", "本当に"], "{narrow:?}");
+    assert!(narrow.iter().all(|l| l.chars().count() <= 8), "{narrow:?}");
+}
+
+#[test]
 fn a_number_in_japanese_is_set_in_the_scripts_face() {
     // Dogfood: the figures in a Japanese headline were set in Fraunces, the Latin face Dusk's
     // display family names first, among letters set in Noto Sans JP.

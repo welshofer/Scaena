@@ -1,7 +1,7 @@
 # parley 0.11.1, patched for Scaena
 
-This is parley 0.11.1 as crates.io publishes it, with three changes, carried until parley makes them
-upstream (ADR-0004 findings 21, 25, and 26). The workspace takes it through `[patch.crates-io]` and leaves it
+This is parley 0.11.1 as crates.io publishes it, with four changes, carried until parley makes them
+upstream (ADR-0004 findings 21, 25, 26, and 27). The workspace takes it through `[patch.crates-io]` and leaves it
 out of its members, so Scaena's lints, formatting, and tests do not run over it.
 
 **A change of spacing no longer splits a run of text into runs shaped apart.** parley shaped a
@@ -33,7 +33,18 @@ bracket, which UAX #14's own breaks never do. Now an emergency break is passed o
 that may not start a line (a comma or a stop, a closing bracket, ー, 々, a small kana) and after one
 that may not end one (an opening bracket), as Japanese line breaking's kinsoku shori asks.
 
-- `layout/line_break.rs`: the emergency break asks `kinsoku::starts_no_line` and `ends_no_line`.
+- `layout/line_break.rs`: the emergency break asks `kinsoku::starts_no_line` and `ends_no_line`, of
+  the cluster before it in the layout, whichever run holds it.
+
+**A layout may say where it prefers an emergency break** (finding 27). A run too wide for its
+line broke at the last cluster that fit; now, where the layout names a preference
+(`Layout::set_preferred_breaks`, a function of the characters either side, as a
+`LineBreakContext`), it breaks at the last preferred place that fits, and at the last cluster that
+fits only where none does.
+
+- `layout/layout.rs`: `Layout` holds `preferred_breaks`, `None` by default.
+- `layout/line_break.rs`: the breaker keeps `preferred_boundary` beside `emergency_boundary`, and
+  takes it first.
 
 Text set without `overflow-wrap: anywhere`, all but Japanese in Scaena, breaks exactly as before.
 
