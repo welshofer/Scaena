@@ -54,6 +54,10 @@ pub struct Health {
     pub slides: Vec<Read>,
     /// What to look at, slide by slide.
     pub findings: Vec<Finding>,
+    /// The big idea the deck's settled outline names (`meta.narrative.outline`): the one sentence
+    /// the audience should remember, which the editors show above the curve.
+    #[serde(rename = "bigIdea", skip_serializing_if = "Option::is_none")]
+    pub big_idea: Option<String>,
 }
 
 /// One measure: 0–100, and what it says.
@@ -130,6 +134,12 @@ pub enum Kind {
     Drift,
     /// A state of it has an error lint finds: it does not stand as it is to be read.
     Layout,
+    /// The beat of the settled outline it opens says nothing of the claim the person settled for
+    /// it (`meta.narrative.outline`).
+    Claim,
+    /// The closing it opens never lands the big idea the outline settled.
+    #[serde(rename = "bigIdea")]
+    BigIdea,
 }
 
 /// Something to look at on one slide: what it says, what to ask the assistant, and, where one
@@ -728,6 +738,74 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
             fix,
         );
     }
+    // The settled outline (narrative FUNC-1, lift-up 10-24b FUNC-1): each beat's slides carry
+    // its claim, and the closing beat lands the big idea, read by their words as coherence
+    // reads them. A sentence with no word to read by (another script) says nothing either way.
+    let outline = narrative.and_then(|n| n.get("outline"));
+    let big_idea = (outline.and_then(|o| o.get("bigIdea")).and_then(Value::as_str))
+        .map(str::trim)
+        .filter(|b| !b.is_empty())
+        .map(str::to_string);
+    let outlined: Vec<(String, String)> = (outline.and_then(|o| o.get("beats")).and_then(Value::as_array))
+        .into_iter()
+        .flatten()
+        .map(|b| {
+            let text = |k: &str| b.get(k).and_then(Value::as_str).unwrap_or_default().trim().to_string();
+            (text("name"), text("claim"))
+        })
+        .collect();
+    // Each outline beat's slides, by the beat each was written for.
+    let of_beat = |k: usize| -> Vec<usize> {
+        (0..read.len()).filter(|&i| read[i].narrative_meta.as_ref().and_then(|m| m.beat_index) == Some(k)).collect()
+    };
+    let shares = |sentence: &str, of: &[usize]| -> Option<bool> {
+        let said = content_words(sentence);
+        if said.is_empty() {
+            return None;
+        }
+        Some(of.iter().any(|&i| !content_words(&format!("{} {}", read[i].title, read[i].body)).is_disjoint(&said)))
+    };
+    let spanned = |of: &[usize]| match (of.first(), of.last()) {
+        (Some(a), Some(b)) if a != b => format!("slides {}\u{2013}{}", a + 1, b + 1),
+        _ => format!("slide {}", of[0] + 1),
+    };
+    for (k, (name, claim)) in outlined.iter().enumerate() {
+        let of = of_beat(k);
+        if claim.is_empty() || of.is_empty() || shares(claim, &of) != Some(false) {
+            continue;
+        }
+        let part = if name.is_empty() { format!("beat {}", k + 1) } else { name.clone() };
+        let slides = spanned(&of);
+        let (does, carry) = if of.len() > 1 { ("say", "they carry") } else { ("says", "it carries") };
+        let mut said = slides.clone();
+        said[..1].make_ascii_uppercase();
+        find(
+            &read[of[0]].id,
+            Severity::Warning,
+            Kind::Claim,
+            format!("{said} {does} nothing of the claim settled for {part}: \u{201c}{claim}\u{201d}"),
+            format!(
+                "Check the claim: the outline settled that the {part} part of the talk leaves the audience believing \u{201c}{claim}\u{201d}. Rewrite {slides} so {carry} it, or tell me what to settle instead."
+            ),
+            None,
+        );
+    }
+    if let Some(idea) = &big_idea {
+        let closing = (0..outlined.len()).rev().map(of_beat).find(|of| !of.is_empty());
+        if let Some(of) = closing.filter(|of| shares(idea, of) == Some(false)) {
+            let slides = spanned(&of);
+            find(
+                &read[of[0]].id,
+                Severity::Warning,
+                Kind::BigIdea,
+                format!("The close, {slides}, never lands the big idea: \u{201c}{idea}\u{201d}"),
+                format!(
+                    "The big idea is \u{201c}{idea}\u{201d}. Rewrite the closing {slides} so the talk ends by landing it."
+                ),
+                None,
+            );
+        }
+    }
     // A slide lint finds an error on: what the first says, and how many more there are.
     for (i, slide) in slides.iter().enumerate() {
         let k = i + 1;
@@ -768,7 +846,17 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         tone,
         slides: slides_read,
         findings,
+        big_idea,
     })
+}
+
+/// The words of `text` that coherence reads a slide by: lowercased, past three letters, Latin
+/// letters and figures alone, as `scaena_narrato::health::coherence::keyword_overlap` splits them.
+fn content_words(text: &str) -> std::collections::BTreeSet<String> {
+    (text.to_lowercase().split(|c: char| !c.is_ascii_lowercase() && !c.is_ascii_digit()))
+        .filter(|w| w.len() > 3)
+        .map(str::to_string)
+        .collect()
 }
 
 #[cfg(test)]
@@ -823,6 +911,61 @@ mod tests {
             }
         }
         panic!("no beat tells {id}")
+    }
+
+    /// The settled outline read (lift-up 10-24b FUNC-1): a deck whose beats each say their claim
+    /// and whose close says its big idea is found carrying both, and the big idea is given for the
+    /// editors to show; a claim no slide of its beat says, and a big idea the close never says,
+    /// are each found on the beat's first slide, with what to ask.
+    #[test]
+    fn health_reads_the_settled_outline() {
+        let mut deck = climate();
+        let h = of(&deck);
+        // Each slide's arc beat, as the spine declares it.
+        let written: Vec<usize> = (h.slides.iter())
+            .map(|s| {
+                let at = format!("{}/media/narrato/beatIndex", beat_of(&deck, &s.state));
+                deck.pointer(&at).and_then(Value::as_u64).unwrap() as usize
+            })
+            .collect();
+        let first_of = |k: usize| written.iter().position(|&w| w == k).unwrap();
+        let beats: Vec<Value> = (h.beats.iter().enumerate())
+            .map(|(k, name)| json!({ "name": name, "claim": h.slides[first_of(k)].title, "slides": 1 }))
+            .collect();
+        let close = first_of(h.beats.len() - 1);
+        deck["meta"]["narrative"]["outline"] = json!({ "bigIdea": h.slides[close].title, "beats": beats });
+        let carried = of(&deck);
+        let outlined = |h: &Health| -> Vec<(Kind, usize)> {
+            (h.findings.iter())
+                .filter(|f| matches!(f.kind, Kind::Claim | Kind::BigIdea))
+                .map(|f| (f.kind, f.slide))
+                .collect()
+        };
+        assert_eq!(outlined(&carried), [], "{:?}", carried.findings);
+        assert_eq!(carried.big_idea.as_deref(), Some(h.slides[close].title.as_str()));
+
+        let second = h.beats[1].clone();
+        deck["meta"]["narrative"]["outline"]["beats"][1]["claim"] = json!("Penguins juggle marmalade quietly");
+        deck["meta"]["narrative"]["outline"]["bigIdea"] = json!("Zebras orchestrate symphonies underwater");
+        let missed = of(&deck);
+        assert_eq!(
+            outlined(&missed),
+            [(Kind::Claim, first_of(1) + 1), (Kind::BigIdea, close + 1)],
+            "{:?}",
+            missed.findings
+        );
+        let claim = missed.findings.iter().find(|f| f.kind == Kind::Claim).unwrap();
+        assert!(
+            claim.says.contains(&second) && claim.says.ends_with("\u{201c}Penguins juggle marmalade quietly\u{201d}"),
+            "{}",
+            claim.says
+        );
+        assert!(claim.ask.starts_with("Check the claim:"), "{}", claim.ask);
+        let big = missed.findings.iter().find(|f| f.kind == Kind::BigIdea).unwrap();
+        assert!(big.says.starts_with("The close, slide") && big.ask.starts_with("The big idea is"), "{big:?}");
+        // A big idea in another script has no words to read by: nothing is found of it.
+        deck["meta"]["narrative"]["outline"]["bigIdea"] = json!("気候変動は止められる");
+        assert!(!of(&deck).findings.iter().any(|f| f.kind == Kind::BigIdea));
     }
 
     #[test]
