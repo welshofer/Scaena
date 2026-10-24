@@ -33,6 +33,7 @@ Every step works through either surface. An MCP tool takes the same settings its
 | find an icon | `scaena icons <words> --json`: each its `path` and `view`, for `add_node` | `icon_find` |
 | start a slide in a layout | `scaena start <bundle> <state> --layout bullets`: a new slide after that state's slide, as Add Slide starts one, with a text in each slot to write over; `--claim "…"` tells its claim in a beat of its own, else it joins that state's beat; `scaena inspect <bundle> --state <id> --layouts` lists the layouts | `state_start` |
 | set a slide's background | `scaena background <bundle> <state> backdrop`, one of the theme's shader presets; `--none` takes it away; neither lists what the slide may take | `background_set` |
+| write one slide as the generator builds them | the MCP server's alone: a slide in the JSON Narrato writes (`deck_generate`'s `slides`), after a slide (`after`) or in a slide's place (`replace`), its layout chosen for its items in the deck's theme and brief | `slide_write` |
 | make a deck from slides you wrote | `scaena generate <dir> "topic" --slides slides.json`: Narrato's slide JSON, no model called | `deck_generate`: the same, the slides given inline |
 
 Errors:
