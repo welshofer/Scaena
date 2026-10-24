@@ -51,9 +51,14 @@
             "description": "How like the slide before it its words are, 0–1; none for the first.",
             "type": ["number", "null"]
           },
-          "standing": { "$ref": "#/$defs/Standing" }
+          "standing": { "$ref": "#/$defs/Standing" },
+          "sources": {
+            "description": "The sources its beat cites of those the deck was grounded in, by name (narrative FUNC-3).",
+            "type": "array",
+            "items": { "type": "string" }
+          }
         },
-        "required": ["state", "title", "curve", "standing"]
+        "required": ["state", "title", "curve", "standing", "sources"]
       },
       "Standing": {
         "description": "How a slide stands in its arc.",

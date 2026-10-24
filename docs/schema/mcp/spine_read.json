@@ -43,7 +43,7 @@
           "id": { "$ref": "#/$defs/Id" },
           "claim": { "description": "One sentence the audience should leave with.", "type": "string" },
           "evidence": {
-            "description": "@data refs, asset refs, or URLs.",
+            "description": "@data refs, asset refs, URLs, or `source:NAME`, a source the deck was grounded in by the\nname `meta.narrative.sources` gives it.",
             "type": "array",
             "items": { "type": "string" }
           },
