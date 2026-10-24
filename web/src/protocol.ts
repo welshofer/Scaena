@@ -72,6 +72,9 @@ export interface Slot {
   /** The state as a person counts it: `Slide 3`, or `Slide 3, step 2` for a step after a slide's
    * first (PLAN 2.99). */
   said?: string;
+  /** The words that head it, where a text does: what the presenter's navigator names its slide by
+   * (lift-up 10-24b USE-1, USE-4). */
+  headline?: string;
   start: number;
   span: number;
   hold: number;

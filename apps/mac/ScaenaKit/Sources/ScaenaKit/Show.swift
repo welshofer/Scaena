@@ -207,6 +207,16 @@ public struct Show: Equatable, Sendable {
         let number = typed
         typed = ""
         guard let state = slots.state(numbered: number) else { return false }
+        return go(toSlide: state)
+    }
+
+    /// The slide `state` begins, as the presenter's navigator goes to it (lift-up 10-24b USE-1): its
+    /// cue played, the number typed let go, and the slide back where the screen was black or white,
+    /// as its number typed then Return goes there. Whether the deck has it.
+    @discardableResult
+    public mutating func go(toSlide state: String) -> Bool {
+        guard slots.contains(where: { $0.state == state }) else { return false }
+        typed = ""
         blank = nil
         held = nil
         return go(to: state)

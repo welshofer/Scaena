@@ -537,6 +537,27 @@ try {
   const zero = await presenter.evaluate(() => document.querySelector(".typed").textContent);
   at = await player.evaluate(() => window.scaena.at());
   check(zero === `No slide 0: the deck has ${count} slides` && at.index === slideAt(count), `and 0 too, the player going nowhere: ${zero}`);
+  // N opens every slide, drawn small, the one the room sees marked (lift-up 10-24b USE-1); Home and
+  // Return go to the first, through the player, and End and Return back to the last.
+  await presenter.keyboard.press("n");
+  const navigated = await presenter
+    .waitForFunction((n) => { const v = window.scaena.navigator(); return v && v.drawn === n && v; }, count, { timeout: 10000 })
+    .then((h) => h.jsonValue(), async () => presenter.evaluate(() => window.scaena.navigator()));
+  check(
+    navigated?.slides.length === count && navigated.drawn === count && navigated.marked === count - 1,
+    `N shows every slide, drawn, the one the room sees marked: ${JSON.stringify(navigated)}`,
+  );
+  await presenter.keyboard.press("Home");
+  await presenter.keyboard.press("Enter");
+  at = await until(player, (k) => window.scaena.at().index === k, "the navigator's first slide", 0, 2000);
+  const closed = (await presenter.evaluate(() => window.scaena.navigator())) === null;
+  check(at.index === 0 && closed, "Home then Return goes to the first slide in the player, and closes it");
+  await presenter.click("#navigate");
+  await presenter.waitForFunction(() => window.scaena.navigator(), null, { timeout: 5000 }).catch(() => {});
+  await presenter.keyboard.press("End");
+  await presenter.keyboard.press("Enter");
+  at = await until(player, (k) => window.scaena.at().index === k, "the navigator's last slide", slideAt(count), 2000);
+  check(at.index === slideAt(count), `its Slides button opens it too, and End then Return goes to slide ${count}`);
   // L: the laser, pointed from the slide the presenter view shows, drawn on the room's.
   await presenter.keyboard.press("l");
   await player.waitForFunction(() => window.scaena.laser().on, null, { timeout: 5000 }).catch(() => {});
