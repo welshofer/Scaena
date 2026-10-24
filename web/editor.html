@@ -311,6 +311,13 @@
       #slides .sizing .large { font-size: 20px; }
       #slides li { position: relative; display: grid; grid-template-columns: auto 1fr auto; align-items: baseline; gap: 2px 8px; padding: 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); cursor: pointer; font-size: 12px; }
       #slides canvas { grid-column: 1 / -1; display: block; width: 100%; height: auto; aspect-ratio: var(--aspect, 1.7778); background: var(--line); border-radius: 3px; }
+      /* A slide whose picture could not be painted says so over its blank tile (lift-up STAB-4). */
+      :is(#strip, #slides) .unpainted { position: absolute; display: flex; align-items: center; justify-content: center; padding: 2px 4px; box-sizing: border-box; text-align: center; color: var(--muted); line-height: 1.2; pointer-events: none; }
+      #strip .unpainted { inset: 3px 3px auto; height: 54px; font-size: 10px; }
+      #slides .unpainted { inset: 6px 6px auto; aspect-ratio: var(--aspect, 1.7778); font-size: 12px; }
+      @media (max-height: 760px) {
+        #strip .unpainted { height: 40px; }
+      }
       #slides .n { color: var(--muted); font-variant-numeric: tabular-nums; }
       #slides .id { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       #slides .steps { color: var(--muted); }
