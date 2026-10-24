@@ -13,7 +13,7 @@
 // - A state picked while a lint is under way stays shown once the lint answers.
 // - axe-core finds nothing against WCAG 2.1 AA with the Data tab shown and a row chosen.
 // Exits 1 on any failure.
-import { axeInto, launch, serve } from "./serve.mjs";
+import { axeInto, launch, serve, tab } from "./serve.mjs";
 
 const failures = [];
 const check = (ok, what) => {
@@ -70,7 +70,7 @@ try {
   };
 
   // The Data tab: q3 shown, nothing chosen, nothing outlined.
-  await page.click("#tab-data");
+  await tab(page, "data");
   await page.waitForFunction(() => window.scaena.data.shown()?.name === "q3", null, { timeout: 30000 }).catch(() => {});
   check((await outlined()).length === 0, "the Data tab opened: nothing is outlined");
 

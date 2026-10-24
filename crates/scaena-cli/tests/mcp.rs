@@ -10,10 +10,13 @@ use std::process::Stdio;
 
 type Client = RunningService<RoleClient, ClientConfig>;
 
-/// `scaena mcp` as a child process, and a client talking to it on its stdio.
+/// `scaena mcp` as a child process started in the repository, as an agent's client starts it
+/// in a project (a tool reads a theme only under it, SPEC §7.2), and a client talking to it
+/// on its stdio.
 async fn serve() -> (Client, tokio::process::Child) {
     let mut child = tokio::process::Command::new(env!("CARGO_BIN_EXE_scaena"))
         .arg("mcp")
+        .current_dir(Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .spawn()
@@ -38,7 +41,7 @@ async fn ok(client: &Client, tool: &str, args: Value) -> Value {
 async fn scaena_mcp_serves_on_stdio_until_the_client_goes() {
     let (client, mut child) = serve().await;
     assert_eq!(client.list_all_tools().await.unwrap().len(), 22);
-    let spine = ok(&client, "spine_read", json!({ "bundle": "../../docs/examples/revenue.deck.json" })).await;
+    let spine = ok(&client, "spine_read", json!({ "bundle": "docs/examples/revenue.deck.json" })).await;
     assert_eq!(spine["title"], "Q3 Review");
     client.cancel().await.unwrap();
     assert!(child.wait().await.unwrap().success(), "the server exits cleanly when the client goes");
@@ -54,7 +57,7 @@ async fn an_agent_fixes_what_lint_finds_then_renders() {
     let bundle = dir.join("deck").to_str().unwrap().to_string();
     let (client, mut child) = serve().await;
 
-    let theme = "../../docs/examples/themes/dusk.theme.json";
+    let theme = "docs/examples/themes/dusk.theme.json";
     let made = ok(&client, "deck_create", json!({ "bundle": bundle, "theme": theme, "title": "Loop" })).await;
     assert_eq!(made["created"], true, "{made:#}");
     let ops = json!([
