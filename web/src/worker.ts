@@ -543,7 +543,7 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
       case "carets": {
         // The source as it stands, where the deck shown is not yet the one it compiles to: an
         // undo, or the source changed under the text.
-        const behind = !player.compiledFrom(data.source);
+        const behind = !held(data.source);
         if (behind) saveable(data.source);
         layOut(data.format, behind);
         const carets = JSON.parse(player.carets(data.state, data.node)) as Carets | null;
@@ -562,20 +562,20 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
       case "tidied":
         return post({ type: "tidied", id: data.id, text: player.tidied(data.text, data.language) });
       case "codeWords": {
-        const behind = !player.compiledFrom(data.source);
+        const behind = !held(data.source);
         if (behind) saveable(data.source);
         layOut(data.format, behind);
         return post({ type: "codeWords", id: data.id, words: player.codeWords(data.state, data.node) });
       }
       case "bolding": {
-        const behind = !player.compiledFrom(data.source);
+        const behind = !held(data.source);
         if (behind) saveable(data.source);
         layOut(data.format, behind);
         const look = JSON.parse(player.bolding(data.state, data.node, data.from, data.to)) as Record<string, unknown>;
         return post({ type: "bolding", id: data.id, look });
       }
       case "italicizing": {
-        const behind = !player.compiledFrom(data.source);
+        const behind = !held(data.source);
         if (behind) saveable(data.source);
         layOut(data.format, behind);
         const look = JSON.parse(player.italicizing(data.state, data.node, data.from, data.to)) as Record<string, unknown>;
@@ -1196,7 +1196,7 @@ function nameOf(deck: string): string {
 function saveable(source: string) {
   const compiled = JSON.parse(player.compile(source)) as { error?: Finding; findings: Finding[]; valid: boolean };
   const why = compiled.error ?? (compiled.valid ? undefined : compiled.findings.find((f) => f.severity === "error"));
-  if (!why) return;
+  if (!why) return noted(source);
   const where = why.at ? ` (line ${why.at.line})` : "";
   const what = compiled.error ? "the source does not compile" : "the deck does not validate";
   throw new Error(`${what}: ${why.message}${where}`);
@@ -1549,9 +1549,28 @@ function redrawn(height: number, known: Record<string, string>): { drawn: Thumb[
 /** The deck the editor's `source` compiles to: compiled first where the deck shown is not yet that
  * one, after an undo or while the source is typed in. */
 function current(source: string) {
-  if (player.compiledFrom(source)) return;
+  if (held(source)) return;
   saveable(source);
   layOut(format, true);
+}
+
+/** The sources compiled as the deck, the latest first and the eight before it, as the page
+ * keeps eight for an undo. A request that carries one of the eight is older than the deck held:
+ * posted before the edit the deck came from was answered, and taken while that edit's paint
+ * yielded. It is answered from the deck held, never by compiling its source over the newer
+ * one, which set the deck a track behind the source (#469's canvas red: two arrow presses in a
+ * row, and the Theme panel's `bundleFiles` between them). */
+const compiledSources: string[] = [];
+function noted(source: string) {
+  const was = compiledSources.indexOf(source);
+  if (was >= 0) compiledSources.splice(was, 1);
+  compiledSources.unshift(source);
+  compiledSources.length = Math.min(compiledSources.length, 9);
+}
+/** Whether the deck held answers a request that carries `source`: compiled from it, or from an
+ * edit made after it. */
+function held(source: string): boolean {
+  return player.compiledFrom(source) || compiledSources.includes(source);
 }
 
 function layOut(next: string | undefined, again = false) {
@@ -1571,6 +1590,7 @@ async function edit(source: string, index: number, at: string | undefined, read?
     states: [string, number][];
     valid: boolean;
   };
+  noted(source);
   const compiledAt = performance.now();
   let where: Edited["at"];
   let shown: string | undefined;
@@ -1690,9 +1710,9 @@ async function make(source: string, ops: unknown[], index: number, at: string | 
 /** Compile `source` into the deck a data edit works on (PLAN 2.55), which need not validate: a
  * cell its column does not read (E103) leaves the deck invalid, and the edit is what fixes it. */
 function compiles(source: string) {
-  if (player.compiledFrom(source)) return;
+  if (held(source)) return;
   const compiled = JSON.parse(player.compile(source)) as { error?: Finding };
-  if (!compiled.error) return;
+  if (!compiled.error) return noted(source);
   const where = compiled.error.at ? ` (line ${compiled.error.at.line})` : "";
   throw new Error(`the source does not compile: ${compiled.error.message}${where}`);
 }
