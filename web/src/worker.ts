@@ -224,6 +224,9 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
     if (id !== undefined) post({ type: "error", id, message: `the engine stopped: ${stopped}` });
     return;
   }
+  // A request that carries the editor's source waits out an edit in flight, so nothing compiles
+  // over the deck an edit compiled while its frame paints: it lints that deck and no other.
+  while (editing && typeof (data as { source?: unknown }).source === "string") await editing;
   try {
     switch (data.type) {
       case "open":
@@ -1150,11 +1153,10 @@ async function generating(job: Generate, engine?: WebAssembly.Module) {
 
 /** A new deck titled `title` (PLAN 2.12), as `deck_create` makes one: the theme that ships as
  * `theme` and the fonts it names. Its one state, with nothing on it, is made a title slide in
- * the theme's `title` layout, its words to type over and its picture's place waiting, as Add
- * Slide starts it (PLAN 3.30): made before the page reads the deck, so no undo goes back to the
- * empty state. A theme with no such layout leaves it. The Mac's new deck opens with the theme's
- * backdrop in that place (`titling`); here it waits until the CPU painter draws one without
- * holding up the editor's gestures. */
+ * the theme's `title` layout, its words to type over and the theme's backdrop in its picture's
+ * place, as the New dialog draws the theme and the Mac's new deck opens (PLAN 3.30, `titling`):
+ * made before the page reads the deck, so no undo goes back to the empty state. A theme with no
+ * such layout leaves it. */
 async function made(theme: string, title: string): Promise<Player> {
   const { file, text, fonts } = await shipped(theme);
   const created = Player.create(file, text, title, fonts);
@@ -1162,7 +1164,7 @@ async function made(theme: string, title: string): Promise<Player> {
   if (blank === undefined || more.length) return created;
   let started: { id: string; patch: unknown[] };
   try {
-    started = JSON.parse(created.starting(blank, "title")) as { id: string; patch: unknown[] };
+    started = JSON.parse(created.titling(blank)) as { id: string; patch: unknown[] };
   } catch {
     return created;
   }
@@ -1607,8 +1609,26 @@ function layOut(next: string | undefined, again = false) {
 }
 
 /** Compile `source`. Once it validates, repaint slot `index` at rest from the new deck, then
- * lint it: the editor's round trip (PLAN 2.3), each step timed. */
+ * lint it: the editor's round trip (PLAN 2.3), each step timed. Nothing else compiles meanwhile
+ * (`editing`), so the lint is of the deck compiled from `source`. */
 async function edit(source: string, index: number, at: string | undefined, read?: () => void): Promise<Edited> {
+  // One edit at a time, each through its lint, whoever asked for it.
+  while (editing) await editing;
+  let edited!: () => void;
+  editing = new Promise<void>((settle) => (edited = settle));
+  try {
+    return await editOf(source, index, at, read);
+  } finally {
+    editing = undefined;
+    edited();
+  }
+}
+
+/** The edit in flight, while its frame paints: what a request that carries a source waits for. */
+let editing: Promise<void> | undefined;
+
+/** [`edit`], on its turn. */
+async function editOf(source: string, index: number, at: string | undefined, read?: () => void): Promise<Edited> {
   const start = performance.now();
   const compiled = JSON.parse(player.compile(source)) as {
     error?: Finding;

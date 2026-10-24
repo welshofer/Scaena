@@ -2,8 +2,10 @@
 // older than the latest edit's, posted before that edit was answered and taken while its paint
 // yields, must not compile its source over the deck the edit made (lift-up: the race #469's canvas
 // red found, where two arrow presses in a row and the Theme panel's bundleFiles between them left
-// the worker's deck a track behind the source). The worker is spoken to by its own protocol, from
-// the editor's page, which spawned it.
+// the worker's deck a track behind the source). Nor may it compile over the deck while an edit
+// lints it: a step added would be linted on a deck without it and refused (new.mjs's "+ Step" on
+// CI's slower runners, its frame's backdrop painted by the CPU painter). The worker is spoken to by
+// its own protocol, from the editor's page, which spawned it.
 import { launch, serve } from "./serve.mjs";
 
 const server = await serve();
@@ -56,8 +58,17 @@ try {
       const { inspected } = await ask({ type: "inspect", state: "containers" });
       const { boxes } = await ask({ type: "boxes", state: "containers" });
       const { source: after } = await ask({ type: "source" });
+      // A patch that adds a step, and in the same task a request with the source from before it:
+      // the edit lints the step it made, on the deck it compiled, so the patch is made.
+      const { added } = await ask({ type: "addingState", source: after, state: "containers", what: "step" });
+      const stepping = ask({ type: "make", source: after, ops: added.patch, index: index + 1 });
+      const older = ask({ type: "bundleFiles", source: after });
+      const [stepped] = await Promise.all([stepping, older]);
+      const { source: stepSource } = await ask({ type: "source" });
       worker.terminate();
       return {
+        step: added.id,
+        stepped: stepped.type === "error" ? `refused: ${stepped.message}` : stepSource.includes(`state ${added.id}`) ? "made" : "missing",
         was,
         now: inspected.nodes.tally.at,
         box: boxes.find((b) => b.node === "tally")?.rect.map(Math.round),
@@ -76,6 +87,7 @@ try {
     result.sourceHeld && JSON.stringify(result.now.col) === "[1,10]",
     `and the deck held stays the edit's, not compiled back from the older source: tally at ${JSON.stringify(result.now)}, box ${result.box}, the source ${result.sourceHeld ? "the edit's" : "the older one"}`,
   );
+  check(result.stepped === "made", `a step added, with a request of the source before it taken meanwhile, is made: ${result.step} ${result.stepped}`);
 } finally {
   await browser.close();
   server.close();
