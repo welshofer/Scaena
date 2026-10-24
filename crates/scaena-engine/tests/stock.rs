@@ -51,7 +51,7 @@ fn a_price_charts_credit_says_how_far_its_prices_run() {
             _ => None,
         })
         .expect("the credit's own layer");
-    assert_eq!(scaena_core::reading::drawn(foot), "Data provided by Twelve Data · prices to Oct 15, 2026");
+    assert_eq!(scaena_core::reading::drawn(foot), "Data provided by Twelve Data\u{a0}· prices to Oct 15, 2026");
 }
 
 #[test]

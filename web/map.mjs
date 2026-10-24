@@ -20,7 +20,7 @@
 import { execFileSync } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { axeInto, launch, serve } from "./serve.mjs";
+import { axeInto, insert, launch, serve } from "./serve.mjs";
 
 const failures = [];
 const check = (ok, what) => {
@@ -87,7 +87,7 @@ try {
       places: [...document.querySelectorAll("#mapping-places button")].map((b) => b.textContent),
     }));
   const fromInsert = async () => {
-    await page.selectOption("#insert", "insert-map");
+    await insert(page, "Map…");
     await page.waitForFunction(() => document.querySelector("#mapping").open, null, { timeout: 10000 }).catch(() => {});
     return sheet();
   };

@@ -79,7 +79,7 @@ fn a_tables_fetched_data_is_credited_at_its_foot() {
         .expect("the credit's own layer");
     assert_eq!(
         words(layer),
-        "Boston, Massachusetts · Oct 15, 2026 · Weather data by Open-Meteo.com · CC BY 4.0 · location data by GeoNames"
+        "Boston, Massachusetts\u{a0}· Oct 15, 2026\u{a0}· Weather data by Open-Meteo.com\u{a0}· CC BY 4.0\u{a0}· location data by GeoNames"
     );
     let hrefs: Vec<LinkTarget> = dl.links().into_iter().map(|l| l.target).collect();
     for href in ["https://open-meteo.com/", "https://creativecommons.org/licenses/by/4.0/"] {
@@ -100,7 +100,7 @@ fn a_tables_fetched_data_is_credited_at_its_foot() {
         })
         .map(|f| f.text.text.clone())
         .unwrap();
-    assert!(said.ends_with(" · edited"), "{said}");
+    assert!(said.ends_with("\u{a0}· edited"), "{said}");
 }
 
 #[test]
