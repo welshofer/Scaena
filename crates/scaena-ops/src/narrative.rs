@@ -17,11 +17,14 @@ use scaena_core::inserts::slug;
 use scaena_core::model::theme::{Example, Prompt, PromptItems, PromptShapeKind, Slot, Theme};
 use scaena_core::model::values::Range;
 use scaena_core::{Deck, Finding};
+pub use scaena_narrato::brief::Brief;
 use scaena_narrato::fit::Long;
 use scaena_narrato::layouts::{self, Varied};
 use scaena_narrato::look::{Change, Choice, Seen};
 use scaena_narrato::pictures::{self, Frame, Look, Palette};
-use scaena_narrato::{ChartData, Document, Generation, Icon, Narrative, Picture, Provider, Request, Slide, Step};
+use scaena_narrato::{
+    ChartData, Document, Generation, Icon, Narrative, Picture, Provider, Request, Settings, Slide, Step,
+};
 pub use scaena_sources::Given;
 use scaena_sources::{Source, Table};
 use serde::{Deserialize, Serialize};
@@ -540,6 +543,67 @@ pub fn generate(
     say(Progress::Fitted { texts: rewrites.len() });
     let write = fitted(&mut made, write, rewrites)?;
     Ok((made, Some(write)))
+}
+
+/// A deck made from slides written elsewhere, with no call (`scaena generate --slides`,
+/// `deck_generate`): `slides` is the JSON Narrato writes the slides in (`executiveSummary` and
+/// `slides`, each with its `slideTitle`, `subtitle`, `layoutSuggestion`, `keyBullets`,
+/// `speakerNotes`, `beatIndex`, `beatName`, `intensity`, `tone`, …), as an agent writes them;
+/// `brief` says what the deck is about and for whom, which health reads back (PLAN G.9); `arc`
+/// names one of Narrato's, else the heuristic chooses from the brief. The bundle is made at `dir`,
+/// a directory not there yet or empty, in `theme`, a theme that ships by name or a theme file,
+/// as [`generate`] makes one: the spine, each slide in the theme's layout its layout comes to,
+/// its builds, and the `media.narrato` fields health reads, lint's fixes applied. A deck in a
+/// script the theme's fonts do not draw is refused here: `scaena generate` fetches the
+/// script's font (PLAN G.22), which no server's tool does.
+pub fn from_slides(
+    dir: &Path,
+    theme: &Path,
+    slides: &str,
+    brief: Brief,
+    arc: Option<&str>,
+) -> Result<Generated, OpsError> {
+    use crate::create::ThemeSource;
+    crate::create::vacant(dir)?;
+    let theme = ThemeSource::of(theme)?;
+    let font = |file: &str| theme.font(file);
+    let language = brief.language.as_deref();
+    if let Some(script) = crate::scripts::needed(language, slides, &theme.text, &font)? {
+        return Err(OpsError::new(format!(
+            "a deck in {} needs {}, which the theme's fonts do not draw: `scaena generate --slides` fetches it (PLAN G.22)",
+            script.language, script.family
+        )));
+    }
+    writable(language, &theme.text, theme.shipped, &font)?;
+    if let Some(name) = arc
+        && !scaena_narrato::arcs::arcs().iter().any(|a| a.arc.eq_ignore_ascii_case(name))
+    {
+        let names: Vec<&str> = scaena_narrato::arcs::arcs().iter().map(|a| a.arc.as_str()).collect();
+        return Err(OpsError::new(format!("`{name}` is no arc of Narrato's: {}", names.join(", "))));
+    }
+    // No call is made: the provider and the model name nothing.
+    let settings = Settings { provider: Provider::Anthropic, model: String::new(), base: None, browser: false };
+    let mut generation = Generation::new(brief, settings).map_err(|e| OpsError::new(e.to_string()))?;
+    generation.choose_arc(arc);
+    generation.written(slides, false).map_err(|e| OpsError::new(format!("the slides: {e}")))?;
+    let mut never =
+        |_: &Request| Reply { status_text: "no call is made from written slides".into(), ..Reply::default() };
+    let (made, write) = generate(
+        generation,
+        None,
+        &[],
+        None,
+        Looking::No,
+        &theme.file,
+        theme.text.clone(),
+        &font,
+        &mut never,
+        &mut |_| {},
+    )?;
+    if let Some(write) = write {
+        crate::create::make(dir, write)?;
+    }
+    Ok(made)
 }
 
 /// `write` with `rewrites`, each a text node's id and the words the model rewrote it in to fit
