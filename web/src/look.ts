@@ -10,8 +10,9 @@
 // that take it from there change with it; its transition's duration, ease, spring, and match; its
 // hold; and its notes. Each is one `set_state` patch. Above them, the layouts it may take (PLAN
 // 2.92, `Player.layoutSuggestions`), each drawn small at rest and judged by lint in every format
-// the deck lists, fewest errors first, then fewest warnings: a pointer over one, or the focus on
-// it, shows the state laid out in it on the canvas, nothing made (`Player.preview`), and a click
+// the deck lists, fewest errors first, then fewest warnings, then those the state fills: a pointer
+// over one, or the focus on it, shows the state laid out in it on the canvas, nothing made
+// (`Player.preview`), and a click
 // gives the state that layout as the layout field does. Layouts that draw the state alike are one
 // drawing, which names the others; a state that places no node in a slot is offered none.
 //

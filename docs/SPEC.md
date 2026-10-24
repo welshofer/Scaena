@@ -1253,7 +1253,7 @@ A node the state does not show is an error that says so.
 - Each takes what the theme names or the schema allows: a duration, an easing, or a spring of the theme's; `id` or `none`; a number of milliseconds from 0; or words (`text`).
 
 `inspect --state S --layouts` suggests the layouts the state may take (PLAN 2.92, `scaena_ops::layouts`): each that `--state-choices` offers for its `layout`, with the state laid out in it, linted in every format the deck lists, and drawn at rest in the format inspected. Each is `{ layout, current?, errors, warnings, alike?, reach, patch }`: what lint finds in the state, the states the patch changes, and the patch, one `set_state` written where the layout lives (§7.3), or none for the layout it takes now (`current`).
-- **Best first.** Fewest errors, then fewest warnings; of those alike, the layout it takes now, then the theme's order.
+- **Best first.** Fewest errors, then fewest warnings; of those alike, the layout it takes now, then those whose places (slots whose prompt says the words, picture, or figure that goes there) the state leaves fewest empty, then those that set fewest of its texts in a role other than their own, then the theme's order. A three-figure slide is offered Three Numbers before Numbered Cards, which waits for a fourth, and before Cards, which sets its figures as titles.
 - **Each draws the state otherwise.** A layout that draws it as one before it does, with the same counts, is that one's `alike`, in the theme's order, and no suggestion of its own: layouts whose slots differ only where the state's nodes do not reach draw it alike.
 - **None** for a state that places no node in a slot: a layout is its slots, and each would draw the state alike.
 
