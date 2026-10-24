@@ -252,36 +252,6 @@ pub fn claimed(deck: &Deck, mut added: AddedState, claim: &str) -> Result<AddedS
     Ok(added)
 }
 
-/// `added`, a slide [`starting`] made, telling `claim` in a beat of its own (dogfood 3): the beat
-/// just after the one that tells the state the slide follows, in that section, else last; and
-/// not in that beat, which would then make two claims. Refused in a deck with no spine.
-pub fn claimed(deck: &Deck, mut added: AddedState, claim: &str) -> Result<AddedState, OpsError> {
-    let spine = deck.spine.as_ref().filter(|s| !s.sections.is_empty()).ok_or_else(|| {
-        OpsError::new(
-            "the deck has no spine to tell the claim in: start the slide with no claim, or give the deck a spine first",
-        )
-    })?;
-    let first =
-        added.patch.first_mut().and_then(Value::as_object_mut).ok_or_else(|| OpsError::new("no slide added"))?;
-    first.remove("beat");
-    let after = first.get("after").and_then(Value::as_str).unwrap_or_default().to_string();
-    let told = spine
-        .sections
-        .iter()
-        .enumerate()
-        .find_map(|(s, section)| section.beats.iter().position(|b| b.states.contains(&after)).map(|b| (s, b + 1)));
-    let last = spine.sections.len() - 1;
-    let (s, b) = told.unwrap_or((last, spine.sections[last].beats.len()));
-    let taken = |id: &str| spine.sections.iter().flat_map(|s| &s.beats).any(|b| b.id == id);
-    let id = (1..)
-        .map(|n| if n == 1 { added.id.clone() } else { format!("{}-{n}", added.id) })
-        .find(|id| !taken(id))
-        .expect("some number is free");
-    let beat = json!({ "id": id, "claim": claim, "states": [added.id] });
-    added.patch.push(json!({ "op": "add", "path": format!("/spine/sections/{s}/beats/{b}"), "value": beat }));
-    Ok(added)
-}
-
 /// A slide started and written into the bundle (`state_start`, `scaena start`): the new state's
 /// id, and what the patch did, as `deck_patch` reports a patch.
 #[derive(Debug, Clone, Serialize, JsonSchema)]
