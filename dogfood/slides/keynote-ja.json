@@ -1,0 +1,245 @@
+{
+  "executiveSummary": "人口1,900人のメイン州の漁師町ポート・オルダーは、2023年、11日間にわたって停電した。住民たちはただ待つのではなく、210万ドルを集め、電力会社と氷の嵐を相手に闘い、停電時間を286時間から2時間に減らす地域のマイクログリッドを築いた。教訓はこうだ。レジリエンスは隣人どうしで築くもの。そして、どの町でも12人と屋根ひとつから始められる。",
+  "slides": [
+    {
+      "slideTitle": "自分たちの明かりを、自分たちで守れるようになった町",
+      "subtitle": "メイン州ポート・オルダー · レジリエンスの物語",
+      "layoutSuggestion": "Title",
+      "keyBullets": [],
+      "visualDescription": "ブルーアワーの小さな港町。係留されたロブスター漁船と、明かりのともる数軒の窓",
+      "speakerNotes": "- おはようございます。今日は、人口1,900人のある漁師町についてお話ししたいと思います。\n- ポート・オルダーには、特別なところは何ひとつありません。そこがポイントなんです。\n- 最後には、みなさんも地元に帰って、彼らと同じことをしたいと思ってくれたらうれしいです。",
+      "beatIndex": 0,
+      "beatName": "Ordinary World",
+      "purpose": "静かでありふれた場所から、物語を始める",
+      "intent": "聴衆に腰を落ち着けて、物語に耳を傾けてもらう",
+      "expectedIntensity": 0.2,
+      "expectedValence": 0.3
+    },
+    {
+      "slideTitle": "10月、ポート・オルダーは11日間、闇に包まれた",
+      "subtitle": "",
+      "layoutSuggestion": "Big Number",
+      "keyBullets": [
+        "11日間",
+        "2023年10月、嵐「エルサ」のあと続いた停電"
+      ],
+      "visualDescription": "夜の暗い港。桟橋にランタンがひとつ、頭上には嵐の雲",
+      "speakerNotes": "- 2023年10月9日、嵐「エルサ」が、町に通じるたった1本の送電線を断ち切りました。\n- 電気が戻るまでに、11日かかりました。\n- 2日目には漁協の冷凍庫が止まりました。4万ポンドのロブスターがだめになりました。\n- 高齢の住民2人が、寒さのせいで入院しました。",
+      "beatIndex": 1,
+      "beatName": "Call to Adventure",
+      "purpose": "危機を、ひとつの厳しい数字で突きつける",
+      "intent": "停電の衝撃を聴衆に感じてもらう",
+      "expectedIntensity": 0.85,
+      "expectedValence": -0.8
+    },
+    {
+      "slideTitle": "許可を待つことこそが、本当の停電だった",
+      "subtitle": "",
+      "layoutSuggestion": "Quote",
+      "keyBullets": [
+        "私たちが待っていたのは、送電網じゃなかった。直していいと誰かに言ってもらうのを、待っていたんです。",
+        "ルース・キャロウェイ（ポート・オルダー港長）"
+      ],
+      "visualDescription": "台所にいる、潮風に焼けた港長のポートレート。朝の光とコーヒーマグ",
+      "speakerNotes": "嵐から1年後、ルースは自宅の台所で、私にこう話してくれました。町には人も、屋根も、やる気もありました。足りなかったのは、町だって自分たちで電気をつくれるんだ、と言ってくれる誰かでした。この一言が、この物語全体の要なんです。",
+      "beatIndex": 1,
+      "beatName": "Call to Adventure",
+      "purpose": "本当の障害を、住民自身の言葉で言い表す",
+      "intent": "待つことのもどかしさを聴衆に感じてもらう",
+      "expectedIntensity": 0.7,
+      "expectedValence": -0.5
+    },
+    {
+      "slideTitle": "そこで町は、自前の電力網をつくると決めた",
+      "subtitle": "300世帯、漁協ひとつ、そして経験はまったくなし",
+      "layoutSuggestion": "Statement",
+      "keyBullets": [],
+      "visualDescription": "",
+      "speakerNotes": "- 2024年1月、町の集会所に60人が詰めかけました。\n- そこにいた誰ひとり、ボート小屋より大きなものを建てたことはありませんでした。\n- 投票の結果は58対2。やってみることに決まりました。",
+      "beatIndex": 2,
+      "beatName": "Crossing the Threshold",
+      "purpose": "覚悟を決めた瞬間を示す",
+      "intent": "聴衆に町を応援してもらう",
+      "expectedIntensity": 0.6,
+      "expectedValence": 0.4
+    },
+    {
+      "slideTitle": "ひとつの町が、発電所をつくる気になるまで",
+      "subtitle": "",
+      "layoutSuggestion": "Journey",
+      "keyBullets": [
+        "2024年春: 一軒残らずドアをノックする / 参加してくれる人はいるだろうか？ / 期待しつつも半信半疑",
+        "2024年夏: 312世帯と州の補助金から210万ドルを集める / これは本当にうまくいくかもしれない / 誇らしい",
+        "2024年冬: 漁協の屋根に最初のパネルを取り付ける / 自分たちの手でやり遂げた / 大喜び"
+      ],
+      "visualDescription": "",
+      "speakerNotes": "- 最初の段階は戸別訪問でした。12人のボランティアが、一軒残らず回りました。\n- 夏までに312世帯が出資を約束し、州のレジリエンス補助金が同じ額を上乗せしました。\n- 12月、吹雪のなかで、漁協の屋根に最初のパネルが取り付けられました。",
+      "beatIndex": 2,
+      "beatName": "Crossing the Threshold",
+      "purpose": "旅の最初の道のりと、そのときの気持ちを見せる",
+      "intent": "町の勢いを聴衆に感じてもらう",
+      "expectedIntensity": 0.6,
+      "expectedValence": 0.5
+    },
+    {
+      "slideTitle": "1年で2度、プロジェクトはつぶれかけた",
+      "subtitle": "",
+      "layoutSuggestion": "Timeline",
+      "keyBullets": [
+        "2025年1月: 電力会社が系統連系の許可を拒否",
+        "2025年3月: 氷の嵐で、最初の蓄電池ケースがひび割れ",
+        "2025年6月: 裁判所が、漁協から組合員への電力販売を容認",
+        "2025年9月: マイクログリッドが初の自立運転試験に合格"
+      ],
+      "visualDescription": "",
+      "speakerNotes": "- 1月、電力会社の答えはノーでした。先方の弁護士は、漁協が電力会社になれるはずがないと言いました。\n- 3月、氷の嵐で蓄電池のケースにひびが入り、2か月を失いました。\n- 6月、州の裁判所は町に軍配を上げました。\n- 9月、私たちはあえて送電網との接続を切りました。明かりは、ついたままでした。",
+      "beatIndex": 3,
+      "beatName": "Trials and Ordeals",
+      "purpose": "挫折を包み隠さず見せる",
+      "intent": "苦闘が本物だったと聴衆に感じてもらう",
+      "expectedIntensity": 0.85,
+      "expectedValence": -0.5
+    },
+    {
+      "slideTitle": "氷の嵐が招いた、41万2,000ドルの予算超過",
+      "subtitle": "",
+      "layoutSuggestion": "Big Number",
+      "keyBullets": [
+        "41.2万ドル",
+        "予算超過分を、140人の隣人が9日間で穴埋めした"
+      ],
+      "visualDescription": "雑貨店のカウンターに置かれた、紙幣の入ったガラス瓶と手書きの貼り紙",
+      "speakerNotes": "- ケースにひびが入ったとき、プロジェクトの資金は41万2,000ドル足りなくなりました。\n- 銀行は断りました。州は待てと言いました。\n- そこで漁協は雑貨店のカウンターに瓶を置きました。すると140人の隣人が、9日間で不足分を埋めてくれたんです。\n- このとき私は、これはうまくいくと確信しました。",
+      "beatIndex": 3,
+      "beatName": "Trials and Ordeals",
+      "purpose": "どん底と、それに対する地域の答えを見せる",
+      "intent": "代償と勇気を聴衆に感じてもらう",
+      "expectedIntensity": 0.9,
+      "expectedValence": -0.3
+    },
+    {
+      "slideTitle": "桟橋ごとのディーゼルから、太陽と蓄電へ",
+      "subtitle": "",
+      "layoutSuggestion": "Before / After",
+      "keyBullets": [
+        "以前: 停電は年に31時間、桟橋ごとにディーゼル発電機",
+        "現在: 停電は年に2時間、港を動かすのは太陽と蓄電"
+      ],
+      "visualDescription": "",
+      "speakerNotes": "- マイクログリッドができる前、港を動かしていたのは希望とディーゼルでした。\n- 今では、直撃でもないかぎり、何があっても蓄電池が港を支えてくれます。\n- 発電機はまだ置いてあります。でも、この1年、誰も1台も動かしていません。",
+      "beatIndex": 4,
+      "beatName": "Transformation",
+      "purpose": "変化を、ひとつの対比で見せる",
+      "intent": "変貌ぶりを聴衆に感じてもらう",
+      "expectedIntensity": 0.75,
+      "expectedValence": 0.7
+    },
+    {
+      "slideTitle": "停電時間は3年で286時間から2時間へ",
+      "subtitle": "ポート・オルダーの年間停電時間",
+      "layoutSuggestion": "Line Chart",
+      "keyBullets": [
+        "嵐の年に286時間あった停電は、2026年に2時間まで減った"
+      ],
+      "visualDescription": "",
+      "speakerNotes": "- これは、私がどの町議会でも見せているグラフです。\n- 2023年に突き出ているのが、あの嵐です。\n- マイクログリッドが稼働してから、停電はほぼなくなりました。",
+      "beatIndex": 4,
+      "beatName": "Transformation",
+      "purpose": "変化をデータで証明する",
+      "intent": "成果が本物だと聴衆に信じてもらう",
+      "expectedIntensity": 0.7,
+      "expectedValence": 0.6,
+      "chartData": {
+        "categories": [
+          "2021",
+          "2022",
+          "2023",
+          "2024",
+          "2025",
+          "2026"
+        ],
+        "series": [
+          {
+            "name": "停電時間",
+            "values": [
+              24,
+              29,
+              286,
+              31,
+              9,
+              2
+            ]
+          }
+        ],
+        "unit": "時間",
+        "sourceId": "Port Alder Power Co-op"
+      }
+    },
+    {
+      "slideTitle": "町が取り戻したのは、電気だけではなかった",
+      "subtitle": "",
+      "layoutSuggestion": "Scorecard",
+      "keyBullets": [
+        "62%: いまや町内でつくる電気の割合",
+        "340ドル: 1世帯あたりの年間節約額",
+        "0時間: 2026年、嵐「ナディア」のさなかの停電",
+        "14: 手引きを求めてきた町の数"
+      ],
+      "visualDescription": "",
+      "speakerNotes": "- 町の電気の62%は、今では町内でつくられています。\n- 各世帯は、平均で年に340ドルを節約しています。\n- 8月に嵐「ナディア」が襲ったとき、半島で明かりがついていたのはポート・オルダーだけでした。\n- そして、ほかの14の町から、やり方を教えてほしいと電話が来ています。",
+      "beatIndex": 5,
+      "beatName": "Return",
+      "purpose": "町が得たものを見せる",
+      "intent": "報われた手応えを聴衆に感じてもらう",
+      "expectedIntensity": 0.7,
+      "expectedValence": 0.8
+    },
+    {
+      "slideTitle": "レジリエンスは届けられるものではなく、隣人どうしで築くもの",
+      "subtitle": "どの町にも人はいる。だが、始めていいと言われた町は少ない",
+      "layoutSuggestion": "Thesis",
+      "keyBullets": [],
+      "visualDescription": "",
+      "speakerNotes": "- 今日ここでお伝えしたかったのは、このことです。\n- 私たちはレジリエンスを、電線や電柱、変電所といったインフラとして語ります。\n- でもポート・オルダーでは、レジリエンスとは、困難なことを一緒にやり遂げ、またできると知っている隣人たちのことでした。",
+      "beatIndex": 5,
+      "beatName": "Return",
+      "purpose": "物語の教訓を述べる",
+      "intent": "聴衆に、この考えを自分のものにしてもらう",
+      "expectedIntensity": 0.8,
+      "expectedValence": 0.6
+    },
+    {
+      "slideTitle": "あなたの町が、来月から始めるには",
+      "subtitle": "",
+      "layoutSuggestion": "Steps",
+      "keyBullets": [
+        "洗い出す: 決して停電させてはならない建物をリストにする",
+        "集める: ドアをノックして回ってくれる12人を見つける",
+        "申し込む: 系統連系の調査を、必要になる前に依頼する",
+        "つくる: まずは屋根ひとつ、蓄電池ひとつから始める"
+      ],
+      "visualDescription": "",
+      "speakerNotes": "- ステップは4つ。どれも技術者は要りません。\n- まずはリストから。診療所、学校、冷凍庫のある店。\n- 次に、あなたの12人を見つけてください。どの町にもいます。\n- 調査は早めに申し込んでください。1年かかります。",
+      "beatIndex": 6,
+      "beatName": "New Equilibrium",
+      "purpose": "具体的な始め方を聴衆に示す",
+      "intent": "自分たちにもできると聴衆に感じてもらう",
+      "expectedIntensity": 0.6,
+      "expectedValence": 0.6
+    },
+    {
+      "slideTitle": "地元に帰って、あなたの12人を見つけよう",
+      "subtitle": "portalderpower.org/playbook",
+      "layoutSuggestion": "Closing",
+      "keyBullets": [],
+      "visualDescription": "夜明けの港。どの窓にも明かりがともり、船が沖へ出ていく",
+      "speakerNotes": "- ポート・オルダーには、お金も、専門知識も、許可もありませんでした。\n- あったのは、ドアをノックして回ろうという12人です。\n- 地元に帰って、あなたの12人を見つけてください。手引きは無料です。ありがとうございました。",
+      "beatIndex": 6,
+      "beatName": "New Equilibrium",
+      "purpose": "明快で、一人ひとりに向けた行動の呼びかけで締めくくる",
+      "intent": "行動する決意を胸に、聴衆に会場を後にしてもらう",
+      "expectedIntensity": 0.75,
+      "expectedValence": 0.8
+    }
+  ]
+}

@@ -18,6 +18,10 @@ scaena generate decks/keynote "Keynote: how a Maine fishing town built its own m
 scaena generate decks/launch "Launch event for Relay, the support inbox where AI drafts every first reply" \
   --audience Customers --goal Sell --length "11-15 slides" --arc "The Reveal" --theme ember \
   --slides dogfood/slides/launch.json --no-look
+# The keynote in Japanese (dogfood pass 6, ADR-0032 item 5, #568, #624, J1):
+scaena generate decks/keynote-ja "基調講演：11日間の停電のあと、メイン州の漁師町が自分たちのマイクログリッドを築いた話" \
+  --audience "Conference / Public" --goal Inspire --length "11-15 slides" --arc "Hero's Journey" --theme ember --language Japanese \
+  --slides dogfood/slides/keynote-ja.json --no-look
 ```
 
 `probe.json` is 12 slides of layouts the five did not reach. The pass's findings are in the coordinator's report; this branch holds inputs only and is not for merging.
