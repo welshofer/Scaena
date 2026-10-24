@@ -1,6 +1,7 @@
 //! Each theme that ships drawn small by the CPU painter, for the browser to carry beside its pages
 //! (PLAN T.0c): a deck made in it as New makes one, its one state a title slide in the theme's
-//! `title` layout with its words to type over (PLAN 3.30), at rest, 480 × 270. The web build runs
+//! `title` layout with its words to type over and its backdrop in its picture's place (PLAN 3.30,
+//! `states::titled`), at rest, 480 × 270. The web build runs
 //! it before it bundles the pages (`web/vite.config.ts`):
 //!
 //!     cargo run -q --locked -p scaena-cli --example theme_thumbnails -- target/themes
@@ -26,7 +27,7 @@ fn main() -> Result<()> {
         let bundle = Bundle::open(&dir)?;
         let blank = bundle.deck.states.first().context("a new deck has a state")?.id.clone();
         let model = serde_json::from_str(theme.text).with_context(|| format!("{}: its theme", theme.name))?;
-        let started = states::starting(&bundle.deck, &model, &blank, Some("title"))?;
+        let started = states::titled(&bundle.deck, &model, &blank)?;
         let mut ops = started.patch;
         ops.push(json!({ "op": "remove_state", "id": blank }));
         let patched = patch::patch(&bundle, &json!(ops), false)?;
