@@ -752,6 +752,7 @@ mod tests {
             slides: written.slides,
             truncated: false,
             icons: Default::default(),
+            outline: None,
             brief: Brief {
                 topic: "Climate change, where we stand, for an audience of colleagues".into(),
                 audience: "Colleagues".into(),

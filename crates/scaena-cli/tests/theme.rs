@@ -544,3 +544,53 @@ fn a_theme_takes_its_colors_from_a_photo_the_bundle_holds() {
     let said: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
     assert!(said["error"]["message"].as_str().unwrap().contains("not a photo to read"), "{said:#}");
 }
+
+/// A text the theme sets past its box, or over another node, is fitted as lint's checked fix fits
+/// it: a deck made in Ember's measures, whose headlines fit Ember's header, re-themed into Dusk and
+/// Daybreak, whose header is shorter, shrinks each headline to fit and says so (`refitted`), and
+/// the theme leaves lint no overflow or overlap to find.
+#[test]
+fn a_text_the_theme_sets_past_its_box_is_fitted_to_it() {
+    let made = Path::new(env!("CARGO_TARGET_TMPDIR")).join("theme-refit-made");
+    let _ = std::fs::remove_dir_all(&made);
+    let catalog = Path::new(env!("CARGO_MANIFEST_DIR")).join("../scaena-narrato/tests/answers/catalog.json");
+    let out = scaena(&[
+        "--json",
+        "generate",
+        made.to_str().unwrap(),
+        "Tidewater's Series A",
+        "--slides",
+        catalog.to_str().unwrap(),
+        "--theme",
+        "ember",
+        "--no-look",
+    ]);
+    assert_eq!(out.status.code(), Some(0), "{}", String::from_utf8_lossy(&out.stdout));
+    for theme in ["dusk", "daybreak"] {
+        let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("theme-refit-{theme}"));
+        let _ = std::fs::remove_dir_all(&dir);
+        copy_dir(&made, &dir);
+
+        // It says each text it fitted, and where.
+        let said = scaena(&["theme", dir.to_str().unwrap(), "--apply", theme, "--dry-run"]);
+        let said = String::from_utf8(said.stdout).unwrap();
+        assert!(said.contains("refitted `") && said.contains("it fits its box (E100)"), "{theme}: {said}");
+
+        let out = scaena(&["--json", "theme", dir.to_str().unwrap(), "--apply", theme]);
+        let stdout = String::from_utf8(out.stdout).unwrap();
+        assert_eq!(out.status.code(), Some(0), "{theme}: {stdout}{}", String::from_utf8_lossy(&out.stderr));
+        let t: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+        let refitted: Vec<&str> = t["refitted"].as_array().unwrap().iter().filter_map(|f| f["node"].as_str()).collect();
+        assert!(!refitted.is_empty(), "{theme}: nothing was refitted: {t:#}");
+        let left: Vec<&serde_json::Value> =
+            (t["added"].as_array().unwrap().iter()).filter(|f| f["code"] == "E100" || f["code"] == "E101").collect();
+        assert!(left.is_empty(), "{theme}: the theme left {left:#?}");
+        assert_eq!(t["errors"], 0, "{theme}: {t:#}");
+
+        // Each shrunk to fit its box, on the node, where its fit lives.
+        let after = deck(&dir);
+        for node in refitted {
+            assert_eq!(after["nodes"][node]["fit"], "shrink", "{theme}: {node}: {:#}", after["nodes"][node]);
+        }
+    }
+}
