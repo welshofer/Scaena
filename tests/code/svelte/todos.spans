@@ -1,0 +1,151 @@
+punctuation «<»
+tag         «script»
+punctuation «>\n  »
+keyword     «export let »
+plain       «todos »
+operator    «= »
+punctuation «[];\n  »
+keyword     «let »
+plain       «filter »
+operator    «= »
+string      «"all"»
+punctuation «;\n  »
+plain       «$»
+punctuation «: »
+plain       «done »
+operator    «= »
+plain       «todos»
+punctuation «.»
+function    «filter»
+punctuation «((»
+plain       «t»
+punctuation «) »
+operator    «=> »
+plain       «t»
+punctuation «.»
+property    «done»
+punctuation «).»
+property    «length»
+punctuation «;\n</»
+tag         «script»
+punctuation «>\n\n<»
+tag         «h1»
+punctuation «>{»
+plain       «done»
+punctuation «} »
+plain       «of »
+punctuation «{»
+plain       «todos»
+punctuation «.»
+property    «length»
+punctuation «} »
+plain       «done»
+punctuation «</»
+tag         «h1»
+punctuation «>\n{»
+keyword     «#if »
+plain       «todos»
+punctuation «.»
+property    «length »
+operator    «=== »
+number      «0»
+punctuation «}\n  <»
+tag         «p»
+punctuation «>»
+plain       «Nothing to do.»
+punctuation «</»
+tag         «p»
+punctuation «>\n{»
+keyword     «:else if »
+plain       «filter »
+operator    «=== »
+string      «"done"»
+punctuation «}\n  <»
+tag         «p»
+punctuation «>»
+plain       «Only the finished ones.»
+punctuation «</»
+tag         «p»
+punctuation «>\n{»
+keyword     «:else»
+punctuation «}\n  <»
+tag         «ul»
+punctuation «>\n    {»
+keyword     «#each »
+plain       «todos »
+keyword     «as »
+function    «todo »
+punctuation «(»
+plain       «todo»
+punctuation «.»
+property    «id»
+punctuation «)}\n      <»
+tag         «li »
+attribute   «class:done»
+operator    «=»
+punctuation «{»
+plain       «todo»
+punctuation «.»
+property    «done»
+punctuation «} »
+attribute   «title»
+operator    «=»
+string      «"Due »
+punctuation «{»
+plain       «todo»
+punctuation «.»
+property    «due»
+punctuation «}»
+string      «"»
+punctuation «>\n        <»
+tag         «input »
+attribute   «type»
+operator    «=»
+string      «"checkbox" »
+attribute   «bind:checked»
+operator    «=»
+punctuation «{»
+plain       «todo»
+punctuation «.»
+property    «done»
+punctuation «} />\n        {»
+keyword     «@html »
+plain       «todo»
+punctuation «.»
+property    «label»
+punctuation «}\n      </»
+tag         «li»
+punctuation «>\n    {»
+keyword     «/each»
+punctuation «}\n  </»
+tag         «ul»
+punctuation «>\n{»
+keyword     «/if»
+punctuation «}\n<»
+tag         «Button »
+punctuation «{...»
+plain       «props»
+punctuation «} »
+attribute   «on:click»
+operator    «=»
+punctuation «{() »
+operator    «=> »
+punctuation «(»
+plain       «filter »
+operator    «= »
+string      «"all"»
+punctuation «)}>»
+plain       «Show all»
+punctuation «</»
+tag         «Button»
+punctuation «>\n\n<»
+tag         «style»
+punctuation «>\n  »
+attribute   «.done »
+punctuation «{ »
+property    «opacity»
+punctuation «: »
+number      «0.5»
+punctuation «; }\n</»
+tag         «style»
+punctuation «>\n»

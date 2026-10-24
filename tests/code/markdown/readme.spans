@@ -1,0 +1,83 @@
+punctuation «---\n»
+property    «title»
+punctuation «: »
+string      «Field notes\n»
+property    «tags»
+punctuation «: [»
+string      «trails»
+punctuation «, »
+string      «volunteers»
+punctuation «]\n---\n\n»
+keyword     «# Ridgeline trails\n\n»
+plain       «Volunteers rebuilt »
+constant    «**fifty-two miles** »
+plain       «of trail in »
+variable    «*one* »
+plain       «season: see the »
+punctuation «[»
+plain       «report»
+punctuation «](»
+string      «https://example.org/report "2026 report"»
+punctuation «) »
+plain       «and »
+punctuation «[»
+plain       «the map»
+punctuation «][»
+property    «map»
+punctuation «]»
+plain       «.\n\n»
+keyword     «## Getting started\n\n»
+punctuation «1. »
+plain       «Install the CLI:\n   »
+punctuation «```»
+meta        «bash\n   »
+function    «cargo »
+plain       «install scaena-cli --locked\n   »
+punctuation «```\n2. »
+plain       «Make a deck: »
+string      «`scaena new deck --theme dusk`\n»
+punctuation «- [x] »
+plain       «Fixed the bridge\n»
+punctuation «- [ ] »
+plain       «Mark the switchbacks\n\n»
+punctuation «> »
+constant    «**Note:** »
+plain       «snake_case_names and 2 * 3 stay as written.\n\n»
+punctuation «| »
+plain       «Trail »
+punctuation «| »
+plain       «Miles »
+punctuation «|\n|:------|------:|\n| »
+plain       «Ridge »
+punctuation «| »
+plain       «12.5  »
+punctuation «|\n\n```»
+meta        «rust\n»
+keyword     «fn »
+function    «main»
+punctuation «() {\n    »
+function    «println!»
+punctuation «(»
+string      «"{} miles"»
+punctuation «, »
+number      «52»
+punctuation «);\n}\n```\n\n~~~\n»
+string      «plain text, no language\n»
+punctuation «~~~\n\n»
+keyword     «Setext heading\n»
+punctuation «--------------\n\n»
+comment     «<!-- a comment\nover lines -->\n»
+punctuation «![»
+plain       «Trail map»
+punctuation «](»
+string      «assets/map.png»
+punctuation «) »
+plain       «and »
+string      «<https://example.org>»
+plain       «.\n\n»
+punctuation «[»
+property    «map»
+punctuation «]: »
+string      «https://example.org/map "The map"\n»
+plain       «\\*not emphasis\\*\n»
+punctuation «***\n»

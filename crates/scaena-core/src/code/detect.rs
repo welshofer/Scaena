@@ -6,7 +6,8 @@
 //!   `text/html` element's class, and a file's name; then a fence that opens the text, and a
 //!   script's first line (`#!/usr/bin/env python3`). A hint that names plain text names nothing,
 //!   but a fence's does: a fence says its words are code, so a fence that names no language Scaena
-//!   knows gives the language its words score, or plain text.
+//!   knows gives the language its words score, or plain text. Markdown, like plain text, is named
+//!   only by a fence (PLAN 2.145): a paste from a Markdown file is a slide's words.
 //! - **One line.** A text of one line is prose unless something names it.
 //! - **What it looks like.** Each of the first [`READ_LINES`] lines, within [`READ_BYTES`], adds
 //!   points to the languages its shape belongs to: `fn ` first on a line to Rust, `def …:` to
@@ -156,7 +157,9 @@ fn named(text: &str, hints: &Hints) -> Option<Detected> {
     if let Some(info) = hints.fence {
         return Some(fenced(info, text));
     }
-    let known = |l: Option<&'static Language>| l.filter(|l| l.name != "plain").map(Detected::Named);
+    // Plain text and Markdown are named only by a fence: a paste from a Markdown file is words.
+    let known =
+        |l: Option<&'static Language>| l.filter(|l| !matches!(l.name, "plain" | "markdown")).map(Detected::Named);
     let by_mode = hints.mode.and_then(|m| {
         let m = m.trim();
         let mapped = MODES.iter().find(|(mode, _)| mode.eq_ignore_ascii_case(m)).map_or(m, |(_, name)| name);
@@ -182,9 +185,7 @@ fn named(text: &str, hints: &Hints) -> Option<Detected> {
 /// A fenced text's language: the one its info string names, else the one its words score, else
 /// plain text.
 fn fenced(info: &str, body: &str) -> Detected {
-    let word = info.trim().split([' ', '\t', ',', '}']).next().unwrap_or("");
-    let word = word.trim_start_matches(['{', '.']);
-    let word = word.strip_prefix("language-").unwrap_or(word);
+    let word = info_word(info);
     if let Some(found) = (!word.is_empty()).then(|| language(word)).flatten() {
         return Detected::Named(found);
     }
@@ -192,6 +193,14 @@ fn fenced(info: &str, body: &str) -> Detected {
         Some(found) => Detected::Likely(found),
         None => language("plain").map_or(Detected::Prose, Detected::Named),
     }
+}
+
+/// The word a fence's info string names its language by: `rust` in `rust`, `python title="app.py"`,
+/// `{.js}`, and `language-rust`. Empty where it names none.
+pub(super) fn info_word(info: &str) -> &str {
+    let word = info.trim().split([' ', '\t', ',', '}']).next().unwrap_or("");
+    let word = word.trim_start_matches(['{', '.']);
+    word.strip_prefix("language-").unwrap_or(word)
 }
 
 /// A Markdown fence that opens a code block: its character, its length, and its info string.
@@ -268,7 +277,7 @@ fn shebang(first: &str) -> Option<&'static Language> {
 
 // The languages scored, in `LANGUAGES`' order, so a tie goes to the one the table lists first,
 // and the shared scores added to several at the end.
-const SCORED: [&str; 29] = [
+const SCORED: [&str; 30] = [
     "c",
     "console",
     "cpp",
@@ -286,6 +295,7 @@ const SCORED: [&str; 29] = [
     "json",
     "kotlin",
     "makefile",
+    "php",
     "powershell",
     "python",
     "ruby",
@@ -316,28 +326,29 @@ const JAVASCRIPT: usize = 13;
 const JSON: usize = 14;
 const KOTLIN: usize = 15;
 const MAKEFILE: usize = 16;
-const POWERSHELL: usize = 17;
-const PYTHON: usize = 18;
-const RUBY: usize = 19;
-const RUST: usize = 20;
-const SCSS: usize = 21;
-const SHELL: usize = 22;
-const SQL: usize = 23;
-const SWIFT: usize = 24;
-const TOML: usize = 25;
-const TYPESCRIPT: usize = 26;
-const XML: usize = 27;
-const YAML: usize = 28;
+const PHP: usize = 17;
+const POWERSHELL: usize = 18;
+const PYTHON: usize = 19;
+const RUBY: usize = 20;
+const RUST: usize = 21;
+const SCSS: usize = 22;
+const SHELL: usize = 23;
+const SQL: usize = 24;
+const SWIFT: usize = 25;
+const TOML: usize = 26;
+const TYPESCRIPT: usize = 27;
+const XML: usize = 28;
+const YAML: usize = 29;
 /// What scores C and C++ alike.
-const C_FAMILY: usize = 29;
+const C_FAMILY: usize = 30;
 /// What scores JavaScript and TypeScript alike.
-const SCRIPT: usize = 30;
+const SCRIPT: usize = 31;
 /// What scores CSS and SCSS alike.
-const STYLES: usize = 31;
-/// A line that ends with `;`: C, C++, C#, Java, JavaScript, TypeScript, and Rust.
-const SEMI: usize = 32;
+const STYLES: usize = 32;
+/// A line that ends with `;`: C, C++, C#, Java, JavaScript, PHP, TypeScript, and Rust.
+const SEMI: usize = 33;
 /// A line that ends with `{`: those, Go, Kotlin, and Swift.
-const BRACE: usize = 33;
+const BRACE: usize = 34;
 
 /// HTML's elements most written first on a line.
 const HTML_TAGS: [&str; 52] = [
@@ -440,7 +451,7 @@ const CLAUSES: [(&str, i32); 28] = [
 
 /// The scores of a text, line by line.
 struct Scores {
-    points: [i32; 34],
+    points: [i32; 35],
     /// Whether the line being read scored.
     hit: bool,
     /// Lines that read as code: they scored, or have code's shape.
@@ -465,7 +476,7 @@ impl Scores {
 
 /// The language `text`'s signals make likely, none where none is (see the module's rule).
 fn scored(text: &str) -> Option<&'static Language> {
-    let mut s = Scores { points: [0; 34], hit: false, code: 0, prose: 0, key: None, rule: false, hunks: 0, changes: 0 };
+    let mut s = Scores { points: [0; 35], hit: false, code: 0, prose: 0, key: None, rule: false, hunks: 0, changes: 0 };
     let mut read = 0usize;
     let mut first = true;
     for raw in text.split('\n').take(READ_LINES) {
@@ -501,8 +512,8 @@ fn scored(text: &str) -> Option<&'static Language> {
         (C_FAMILY, &[C, CPP][..]),
         (SCRIPT, &[JAVASCRIPT, TYPESCRIPT]),
         (STYLES, &[CSS, SCSS]),
-        (SEMI, &[C, CPP, CSHARP, JAVA, JAVASCRIPT, TYPESCRIPT, RUST]),
-        (BRACE, &[C, CPP, CSHARP, GO, JAVA, JAVASCRIPT, KOTLIN, RUST, SWIFT, TYPESCRIPT]),
+        (SEMI, &[C, CPP, CSHARP, JAVA, JAVASCRIPT, PHP, TYPESCRIPT, RUST]),
+        (BRACE, &[C, CPP, CSHARP, GO, JAVA, JAVASCRIPT, KOTLIN, PHP, RUST, SWIFT, TYPESCRIPT]),
     ] {
         for &i in to {
             p[i] += p[shared];
@@ -564,6 +575,9 @@ fn signals(s: &mut Scores, line: &str, t: &str, indent: usize, first: bool) {
     }
     if t.starts_with("<?xml") {
         return s.add(XML, 10);
+    }
+    if starts_any_case(t, "<?php") {
+        return s.add(PHP, 10);
     }
     if t.contains("xmlns") {
         s.add(XML, 3);
