@@ -4,6 +4,10 @@
 import type { AssistantEvent } from "../protocol";
 import { unasked } from "../words";
 import type { Call, Message, Provider, Result, Tool, Turn } from "./providers";
+import { fenced } from "./prompt";
+
+/** The tools whose results are the deck's own words, which reach the model fenced as data. */
+const FENCED = ["deck_read", "deck_find"];
 
 /** What the page hears as the assistant works. */
 export type Event = AssistantEvent;
@@ -90,6 +94,9 @@ export async function converse(o: Options): Promise<void> {
       results.push(result);
       o.emit({ kind: "result", id: call.id, name: call.name, error: result.error, summary, made, json: result.json, png: result.png });
     }
-    o.conversation.push({ role: "tool", results });
+    // What deck_read and deck_find read, the deck's own words, reaches the model fenced as data
+    // (lift-up SEC-3), as scaena-chat's `results` fences it.
+    const told = results.map((r) => (!r.error && FENCED.includes(r.name) ? { ...r, json: fenced(r.name.replace(/_/g, "-"), r.json) } : r));
+    o.conversation.push({ role: "tool", results: told });
   }
 }
