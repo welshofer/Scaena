@@ -291,7 +291,7 @@ try {
   const hindi = await failed();
   const fetching = (await lines()).find((l) => l.startsWith("Fetching"));
   check(fetching === "Fetching Noto Sans Devanagari, the font a deck in Hindi is set in (0.6 MB)…", `the progress says the font is fetched, and how large: ${fetching}`);
-  check(hindi.includes("invalid x-api-key") && requests.length > 0, `then the provider is asked: ${hindi}`);
+  check(hindi.includes("Anthropic didn't accept your key") && requests.length > 0, `then the provider is asked: ${hindi}`);
   const devanagari = () => fetched.filter((u) => u.includes("NotoSansDevanagari")).length;
   check(devanagari() === 1, `the font is fetched once: ${devanagari()}`);
   // Kept by the browser: the next deck in Hindi fetches nothing.
@@ -303,11 +303,13 @@ try {
   await page.fill("#prompting-language", "");
   await page.click("#prompting details > summary");
 
-  // A provider that refuses the key says so, and Generate is there to try again.
+  // A provider that refuses the key says so in a person's words, as the pictures do (lift-up
+  // USE-3), and Generate is there to try again.
   state.fail = true;
   await page.click("#prompting-go");
   const refused = await failed();
-  check(refused.includes("invalid x-api-key"), `the provider's refusal in its words: ${refused}`);
+  check(refused.includes("Anthropic didn't accept your key. Check it, or replace it."), `the refusal in a person's words: ${refused}`);
+  check(!refused.includes("invalid x-api-key"), `and not the provider's: ${refused}`);
   await page.waitForFunction(() => !document.querySelector("#prompting-go").disabled, null, { timeout: 30000 });
   check(true, "Generate can be pressed again");
   check((await page.inputValue("#prompting-goal")) === "Persuade", "what was chosen stays chosen after a failed run");

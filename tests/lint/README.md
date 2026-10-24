@@ -22,6 +22,6 @@ Its charts set their text in the `chart` role, 24 cu: the smallest W312 lets pas
 
 `bundle/one-weight.theme.json` is the same theme with its serif family set in Instrument Serif, a family of one weight with no `wght` axis: W232's decks name it.
 
-`bundle/data/sales.csv` and `bundle/assets/photo.png` are what the decks that need data or an image name. `bundle/fonts/ScaenaRestricted.ttf` is W230's: a font of plain boxes whose license bits say restricted and not to be subset. `scripts/build_lint_fonts.py` makes it from nothing, so no one's font is bent to say that, and `just schema` checks it is what the script writes.
+`bundle/data/sales.csv` and `bundle/assets/photo.png` are what the decks that need data or an image name. `bundle/assets/undrawable.png` is E107's: `photo.png` with the bytes of its pixel stream set to `0x55` and its chunk's CRC made right again, so its header reads and its pixels do not. `bundle/fonts/ScaenaRestricted.ttf` is W230's: a font of plain boxes whose license bits say restricted and not to be subset. `scripts/build_lint_fonts.py` makes it from nothing, so no one's font is bent to say that, and `just schema` checks it is what the script writes.
 
 The torture deck's findings are its cases', pinned in `tests/golden/lint/torture.txt`.

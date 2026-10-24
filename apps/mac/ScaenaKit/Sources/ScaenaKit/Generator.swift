@@ -1,5 +1,8 @@
 import CScaena
 import Foundation
+import os
+
+private let generatingLog = Logger(subsystem: "com.welshofer.Scaena", category: "generating")
 
 /// What a brief may ask, as Narrato knows it (PLAN G.6): its goals, lengths, and ways a deck is
 /// delivered, the audiences its personas name, its arcs, and the defaults a field left empty takes.
@@ -402,6 +405,27 @@ public final class Generator {
         }
     }
 
+    /// What `read` makes of `provider`'s `reply`. Where the reply was a refusal, its error is said
+    /// in a person's words, as the pictures' are, "Anthropic didn't accept your key. Check it, or
+    /// replace it." in place of "401 Unauthorized: invalid x-api-key" (lift-up USE-3); the
+    /// provider's own words go to the log. An answer that came but did not read keeps its own.
+    func reading<T>(_ provider: Provider, _ reply: GeneratorReply, _ read: () throws -> T) throws -> T {
+        do {
+            return try read()
+        } catch {
+            guard !(200..<300).contains(reply.status) else { throw error }
+            generatingLog.notice("\(provider.name, privacy: .public): \(String(describing: error), privacy: .public)")
+            throw ScaenaError(message: Why.answered(provider, status: reply.status, body: reply.text))
+        }
+    }
+
+    /// Why a look or a fit was not taken, said in a person's words where `reply` was a refusal.
+    func unanswered(_ why: String, _ provider: Provider, _ reply: GeneratorReply) -> String {
+        guard !(200..<300).contains(reply.status) else { return why }
+        generatingLog.notice("\(provider.name, privacy: .public): \(why, privacy: .public)")
+        return Why.answered(provider, status: reply.status, body: reply.text)
+    }
+
     func step<T: Decodable>(_ method: String, _ args: [String: JSONValue] = [:], bytes: Data? = nil) throws -> T {
         let json = String(decoding: try JSONEncoder().encode(JSONValue.object(args)), as: UTF8.self)
         guard let bytes else {
@@ -532,13 +556,15 @@ public final class Generator {
         while let request = next.send {
             if let wait = next.wait { try await Task.sleep(nanoseconds: UInt64(wait) * 1_000_000) }
             let reply = await send(request)
-            next = try step(
-                "researched",
-                [
-                    "key": .string(key), "status": .number(Double(reply.status)),
-                    "statusText": .string(HTTPURLResponse.localizedString(forStatusCode: reply.status)),
-                    "body": .string(reply.text),
-                ])
+            next = try reading(provider, reply) {
+                try step(
+                    "researched",
+                    [
+                        "key": .string(key), "status": .number(Double(reply.status)),
+                        "statusText": .string(HTTPURLResponse.localizedString(forStatusCode: reply.status)),
+                        "body": .string(reply.text),
+                    ])
+            }
             if let progress = next.progress, progress != doing {
                 doing = progress
                 hear(.researchingNow(progress))
@@ -824,7 +850,7 @@ public final class Generator {
                 "body": .string(reply.status == 0 ? "" : reply.text),
             ]
             if let after = reply.after { answered["after"] = .string(after) }
-            let now: Standing = try step("answer", answered)
+            let now: Standing = try reading(provider, reply) { try step("answer", answered) }
             // An answer for now (busy, a server's failure, none): the same step asked again after
             // the wait the engine says, up to six times (narrative REL-1); a cancellation ends the
             // wait.
@@ -885,7 +911,11 @@ public final class Generator {
                 ])
             seeing = looking.look
             if seeing != nil { continue }
-            if let why = looking.unlooked { hear(.unlooked(why)) } else { hear(.looked(slides: looking.looked ?? 0)) }
+            if let why = looking.unlooked {
+                hear(.unlooked(unanswered(why, provider, reply)))
+            } else {
+                hear(.looked(slides: looking.looked ?? 0))
+            }
             fit = looking.fit
         }
         if let fit {
@@ -899,7 +929,7 @@ public final class Generator {
                     "body": .string(reply.text),
                 ])
             if let n = fitting.fitted { hear(.fitted(texts: n)) }
-            if let why = fitting.unfitted { hear(.unfitted(why)) }
+            if let why = fitting.unfitted { hear(.unfitted(unanswered(why, provider, reply))) }
         }
         let generated: Generated = try step("report")
         var error: UnsafeMutablePointer<CChar>?
