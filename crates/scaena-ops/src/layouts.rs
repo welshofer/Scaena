@@ -2,7 +2,9 @@
 //! may take, as `set_state` gives it one (`choices::state_choices`: a slot for each node placed
 //! in one, in each state the choice reaches), with the state laid out in it, linted, and drawn.
 //! They come fewest errors first, then fewest warnings, the layout the state takes now first of
-//! those lint judges alike, then in the theme's order. Nothing is written: each comes with the
+//! those lint judges alike, then those whose places the state leaves fewest empty, so a layout it
+//! fills, with as many items as it has, comes before one it fills in part, then those that set
+//! fewest of its texts in a role other than their own, then in the theme's order. Nothing is written: each comes with the
 //! patch that gives the state its layout, written where the layout lives.
 //!
 //! A suggestion shows the state otherwise, or it is no suggestion. A layout is its slots: a state
@@ -14,7 +16,7 @@ use crate::lint::{View, data_in, engine_in, layout_rules, lint_with};
 use crate::patch::changed;
 use crate::{Bundle, Context, OpsError};
 use scaena_core::choices::{Takes, state_choices};
-use scaena_core::model::theme::Theme;
+use scaena_core::model::theme::{Prompt, Slot, Theme};
 use scaena_core::validate::BundleFiles;
 use scaena_core::{Deck, Finding, Severity};
 use scaena_engine::FrameRequest;
@@ -33,6 +35,12 @@ pub struct Suggestion {
     /// What lint finds in the state laid out in it, in every format the deck lists.
     pub errors: usize,
     pub warnings: usize,
+    /// The layout's places, for words, a picture, or a figure, that the state leaves empty laid
+    /// out in it: none where it fills the layout, with as many items as the layout has.
+    pub empty: usize,
+    /// The state's texts the layout's slots set in a role other than their own: a figure in a
+    /// slot for a title.
+    pub recast: usize,
     /// The layouts that draw the state as this one does, where it is drawn, with what lint
     /// finds alike: choosing one shows nothing new, so each is left out, in the theme's order.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -67,7 +75,8 @@ pub fn candidates(
         let slot = props.get("at").and_then(|at| at.get("in")).and_then(Value::as_str);
         slot.is_some_and(|slot| !matches!(slot, "canvas" | "grid"))
     };
-    if !snapshots.iter().any(|s| s.state_id == state && s.nodes.values().any(slotted)) {
+    let Some(shown) = snapshots.iter().find(|s| s.state_id == state) else { return Ok(Vec::new()) };
+    if !shown.nodes.values().any(slotted) {
         return Ok(Vec::new());
     }
     let Some(field) = choices.fields.iter().find(|f| f.prop == "layout") else { return Ok(Vec::new()) };
@@ -93,11 +102,41 @@ pub fn candidates(
             }
         };
         let reach = if current { Vec::new() } else { changed(deck, &made, theme.furniture.as_ref())? };
+        let (empty, recast) = fit(shown, theme, layout);
         let (errors, warnings, alike) = (0, 0, Vec::new());
-        let suggestion = Suggestion { layout: layout.clone(), current, errors, warnings, alike, reach, patch };
+        let suggestion =
+            Suggestion { layout: layout.clone(), current, errors, warnings, empty, recast, alike, reach, patch };
         found.push(Candidate { suggestion, deck: made });
     }
     Ok(found)
+}
+
+/// A place in a layout: a slot whose prompt says the words, the picture, or the figure that goes
+/// there, which a new slide in the layout fills or waits on. A card, a rule, or an icon a new slide
+/// draws is no place, nor a slot with no prompt, which a slide may leave empty, as a kicker.
+fn place(slot: &Slot) -> bool {
+    matches!(slot.prompt, Some(Prompt::Words(_) | Prompt::Items(_)))
+}
+
+/// How the state `snapshot` resolves to fits `layout`: how many of its places no node of the state
+/// stands in, and how many of the state's texts its slots set in a role other than their own. A
+/// layout chosen moves no node from its slot, so the state as it resolves now serves each.
+fn fit(snapshot: &scaena_core::Snapshot, theme: &Theme, layout: &str) -> (usize, usize) {
+    let Some(slots) = theme.layouts.get(layout).map(|l| &l.slots) else { return (0, 0) };
+    let slot_of = |props: &scaena_core::document::Props| {
+        props.get("at").and_then(|at| at.get("in")).and_then(Value::as_str).map(str::to_owned)
+    };
+    let placed: Vec<_> = snapshot.nodes.values().filter_map(|props| Some((slot_of(props)?, props))).collect();
+    let empty = slots.iter().filter(|(name, slot)| place(slot) && !placed.iter().any(|(at, _)| at == *name)).count();
+    let recast = placed
+        .iter()
+        .filter(|(at, props)| {
+            let own = props.get("role").and_then(Value::as_str);
+            let set = slots.get(at.as_str()).and_then(|slot| slot.role.as_deref());
+            own.is_some() && set.is_some() && own != set
+        })
+        .count();
+    (empty, recast)
 }
 
 /// `suggestion` with what lint finds in `state` counted: `findings`' errors and warnings there.
@@ -110,9 +149,13 @@ pub fn counted(suggestion: Suggestion, state: &str, findings: &[Finding]) -> Sug
 /// `judged`, in the theme's order, each counted and with its drawing: best first, and each
 /// drawn as one before it, with the same counts, folded into that one's `alike`.
 pub fn ranked<D: PartialEq>(judged: Vec<(Suggestion, D)>) -> Vec<(Suggestion, D)> {
+    let order: Vec<String> = judged.iter().map(|(s, _)| s.layout.clone()).collect();
     let mut found: Vec<(usize, Suggestion, D)> = judged.into_iter().enumerate().map(|(i, (s, d))| (i, s, d)).collect();
-    // Of layouts lint judges alike, the one the state takes now comes first.
-    let rank = |order: &usize, s: &Suggestion| (s.errors, s.warnings, !s.current, *order);
+    // Of layouts lint judges alike, the one the state takes now comes first, then those whose
+    // places the state leaves fewest empty, then those that set fewest of its texts in another
+    // role: a three-figure slide's Three Numbers before Numbered Cards, which waits for a fourth,
+    // and before Cards, which sets its figures as titles.
+    let rank = |order: &usize, s: &Suggestion| (s.errors, s.warnings, !s.current, s.empty, s.recast, *order);
     scaena_core::sort::by(&mut found, |(a, x, _), (b, y, _)| rank(a, x).cmp(&rank(b, y)));
     let mut kept: Vec<(Suggestion, D)> = Vec::with_capacity(found.len());
     for (_, suggestion, drawn) in found {
@@ -121,6 +164,11 @@ pub fn ranked<D: PartialEq>(judged: Vec<(Suggestion, D)>) -> Vec<(Suggestion, D)
             Some((like, _)) => like.alike.push(suggestion.layout),
             None => kept.push((suggestion, drawn)),
         }
+    }
+    // Those folded into one, in the theme's order.
+    let at = |layout: &String| order.iter().position(|l| l == layout);
+    for (suggestion, _) in &mut kept {
+        scaena_core::sort::by(&mut suggestion.alike, |a, b| at(a).cmp(&at(b)));
     }
     kept
 }

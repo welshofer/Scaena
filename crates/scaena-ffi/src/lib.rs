@@ -92,6 +92,22 @@ fn said(message: impl std::fmt::Display) -> Failure {
 }
 
 /// `f`'s result, with a panic caught and said.
+/// The stack a call that lays out and lints a deck takes, at most, and the room left on the
+/// caller's stack below which [`deep`] adds a segment of [`DEEP`] for it (#533). A re-theme lints
+/// the deck before and after: some 350 KB of stack on Linux in debug, and more on Apple's arm64,
+/// where a Swift Testing thread holds 512 KB and the iPad's main thread 1 MB. The Mac's main
+/// thread, 8 MB, never needs one.
+const ROOM: usize = 2 << 20;
+const DEEP: usize = 16 << 20;
+
+/// `f` run on the caller's thread, on a stack segment of [`DEEP`] where less than [`ROOM`] of
+/// the caller's own is left: a call of the session's has the room any deck takes to lay out,
+/// whichever thread Swift calls from, and stays on that thread, so what core keeps per thread
+/// (the theme checked, `validate::CHECKED`) is kept from call to call.
+fn deep<T>(f: impl FnOnce() -> T) -> T {
+    stacker::maybe_grow(ROOM, DEEP, f)
+}
+
 fn guarded<T>(f: impl FnOnce() -> Result<T, Failure>) -> Result<T, Failure> {
     match catch_unwind(AssertUnwindSafe(f)) {
         Ok(result) => result,
@@ -525,7 +541,9 @@ pub unsafe extern "C" fn scaena_picture(bytes: *const u8, len: usize) -> *mut c_
 /// one, or those `layouts` names, a null the blank one, each `{layout, name, description, group,
 /// width, height}`, painted `height` pixels high, which
 /// [`scaena_starter_pixels`] takes; `starting {state, layout?}`, the patch that starts one after
-/// the slide of `state`, `{id, patch}`; `waiting {state}`, the slots of its layout that wait
+/// the slide of `state`, `{id, patch}`; `titling {state}`, the patch that makes a new deck's
+/// title slide after it, its places for a picture given the theme's example, `{id, patch}`;
+/// `waiting {state}`, the slots of its layout that wait
 /// for what their prompts say goes there, each `{slot, rect, words, typed, role?}`; and
 /// `filling {state, slot}`, the patch that fills one that waits for words as a new slide fills
 /// it, `{id, patch}`; and `prompted {state, node}`, whether a text still reads as its slot's
@@ -550,7 +568,7 @@ pub unsafe extern "C" fn scaena_call(
                 serde_json::from_str(a).map_err(|e| said(format!("{method}: the arguments are not JSON: {e}")))?
             }
         };
-        call(&mut session.0, method, &args)
+        deep(|| call(&mut session.0, method, &args))
     }))
 }
 
@@ -580,7 +598,7 @@ pub unsafe extern "C" fn scaena_tool(
         };
         let author = unsafe { maybe_text(author, "author") }?.unwrap_or("agent");
         let at = unsafe { maybe_text(at, "at") }?.and_then(scaena_session::store::seconds);
-        match session.0.tool(name, args, Caller { author, at }) {
+        match deep(|| session.0.tool(name, args, Caller { author, at })) {
             Ok(called) => {
                 let result: Value = serde_json::from_str(&called.result).map_err(said)?;
                 Ok(json!({ "ok": result, "edited": called.edited }))
@@ -850,6 +868,32 @@ pub unsafe extern "C" fn scaena_snapshot_save(
     });
     match saved {
         Ok(saving) => Box::into_raw(Box::new(ScaenaSaved(saving))),
+        Err(failure) => {
+            unsafe { report(error, failure) };
+            std::ptr::null_mut()
+        }
+    }
+}
+
+/// A session of its own on `snapshot`'s deck and files, to run a call that only reads on the thread
+/// that holds it (narrative lift-up PERF-2, [`scaena_chat_run_apart`]): it answers as the session
+/// it was taken from did. Null where it cannot be opened, `*error` then saying why. Free with
+/// [`scaena_session_free`].
+///
+/// # Safety
+/// `snapshot` is a live handle from [`scaena_snapshot_new`]; `error` null or writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn scaena_snapshot_open(
+    snapshot: *const ScaenaSnapshot,
+    error: *mut *mut c_char,
+) -> *mut ScaenaSession {
+    let opened = guarded(|| {
+        // SAFETY: the caller gives a live handle, or null.
+        let snapshot = unsafe { snapshot.as_ref() }.ok_or_else(|| said("snapshot is null"))?;
+        snapshot.0.session().map_err(said)
+    });
+    match opened {
+        Ok(session) => Box::into_raw(Box::new(ScaenaSession(session))),
         Err(failure) => {
             unsafe { report(error, failure) };
             std::ptr::null_mut()
@@ -1291,6 +1335,8 @@ pub unsafe extern "C" fn scaena_chat_new(args: *const c_char, error: *mut *mut c
 ///   model's name, at `at` (RFC 3339): `{id, name, error, summary, made, json, png?, edited,
 ///   rewritten}`, `made` whether it did what its words say. A `call` `{id, name, args}` may be
 ///   given in its place.
+/// - `took {index, ran}`: the last answer's call `index`, run apart on a snapshot's session by
+///   [`scaena_chat_run_apart`], taken as `run` takes what it ran: `ran` back.
 /// - `next`: the calls' results handed to the model, every call answered (those not run, as
 ///   stopped): whether it may be asked again, or the question has taken its rounds.
 /// - `use {provider, model, base?}`: another model from the next request on, the conversation
@@ -1320,6 +1366,55 @@ pub unsafe extern "C" fn scaena_chat_call(
             }
         };
         chat.0.call(session, method, &args)
+    }))
+}
+
+/// Whether the call `name` with `args` (JSON, or null) only reads the deck, and may run apart from
+/// the session on a snapshot's ([`scaena_snapshot_open`], [`scaena_chat_run_apart`], narrative
+/// lift-up PERF-2): `deck_render`, `deck_health`, and `deck_lint` without `fix`.
+///
+/// # Safety
+/// `name` is a NUL-terminated string; `args` one, or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn scaena_chat_reads_alone(name: *const c_char, args: *const c_char) -> bool {
+    guarded(|| {
+        let name = unsafe { text(name, "name") }?;
+        let args = match unsafe { maybe_text(args, "args") }? {
+            None => Value::Null,
+            Some(a) => serde_json::from_str(a).map_err(said)?,
+        };
+        Ok(scaena_session::assistant::reads_alone(name, &args))
+    })
+    .unwrap_or(false)
+}
+
+/// Run `call` (`{id, name, args}`, a call of a conversation's last answer) on `session`, a
+/// snapshot's ([`scaena_snapshot_open`]), by `agent:` and `model`, at `at` (RFC 3339, or null), on
+/// the thread that calls it (narrative lift-up PERF-2): `{"ok": ran}`, what the conversation's
+/// `run` gives, for its `took` on the conversation's thread; or `{"error"}`. Only for a call that
+/// reads alone ([`scaena_chat_reads_alone`]).
+///
+/// # Safety
+/// `session` is a live handle, used by this thread alone; `model` and `call` NUL-terminated
+/// strings; `at` one, or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn scaena_chat_run_apart(
+    session: *mut ScaenaSession,
+    model: *const c_char,
+    call: *const c_char,
+    at: *const c_char,
+) -> *mut c_char {
+    envelope(guarded(|| {
+        let session = unsafe { handle(session, "session") }?;
+        let model = unsafe { text(model, "model") }?;
+        let call = unsafe { text(call, "call") }?;
+        let call: scaena_chat::Call =
+            serde_json::from_str(call).map_err(|e| said(format!("run apart: `call` as {{id, name, args}}: {e}")))?;
+        if !scaena_session::assistant::reads_alone(&call.name, &call.args) {
+            return Err(said(format!("run apart: `{}` writes, and runs on the session itself", call.name)));
+        }
+        let at = unsafe { maybe_text(at, "at") }?.and_then(scaena_session::store::seconds);
+        Ok(chat::run_apart(&mut session.0, model, &call, at))
     }))
 }
 
@@ -1693,6 +1788,7 @@ fn call(s: &mut Session, method: &str, args: &Value) -> Result<Value, Failure> {
             json!(s.starters_painted(arg("state")?, height, only.as_deref()).map_err(said)?)
         }
         "starting" => value(serde_json::to_value(s.starting(arg("state")?, optional("layout")).map_err(said)?))?,
+        "titling" => value(serde_json::to_value(s.titling(arg("state")?).map_err(said)?))?,
         "waiting" => value(serde_json::to_value(s.waiting(arg("state")?).map_err(said)?))?,
         "filling" => value(serde_json::to_value(s.filling(arg("state")?, arg("slot")?).map_err(said)?))?,
         "prompted" => json!(s.prompted(arg("state")?, arg("node")?).map_err(said)?),

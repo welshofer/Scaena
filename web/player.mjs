@@ -38,6 +38,10 @@
 // - A link at rest shows a hand under the pointer.
 // - With `?fps`, the frame meter reads a played cue's frames: frames a second, the worst frame,
 //   late frames, and the mean paint (gate 2, criterion 1).
+// - The screen stays awake while the deck is presented (lift-up REL-1): fullscreen asks for a
+//   screen wake lock and leaving it lets it go, one the browser let go while the page was hidden
+//   is asked for again as the page shows, and the presenter view holds one while it is open. The
+//   wake lock API is stood in for, headless Chromium having no screen to keep awake.
 // - At 2560 × 1440 and twice the density (lift-up ATTR-2), the slide fills the room the bar
 //   leaves, and in fullscreen the screen, painted at the size it is shown in device pixels by
 //   WebGPU, and by the CPU painter at the canvas's own size, scaled up.
@@ -58,6 +62,32 @@ const check = (ok, what) => {
 const browser = await launch();
 try {
   const context = await browser.newContext({ viewport: { width: 1920, height: 1200 }, deviceScaleFactor: 1 });
+  // The screen wake lock API, stood in for: each lock asked for is counted, and `held` is how many
+  // are held now; `drop()` lets them go as the browser does when the page is hidden.
+  await context.addInitScript(() => {
+    const locks = new Set();
+    const stand = { asked: 0, get held() { return locks.size; }, drop() { for (const l of locks) l.release(); } };
+    Object.defineProperty(navigator, "wakeLock", {
+      value: {
+        request: async (type) => {
+          if (type !== "screen") throw new TypeError(type);
+          stand.asked += 1;
+          const lock = new EventTarget();
+          lock.type = type;
+          lock.released = false;
+          lock.release = async () => {
+            if (lock.released) return;
+            lock.released = true;
+            locks.delete(lock);
+            lock.dispatchEvent(new Event("release"));
+          };
+          locks.add(lock);
+          return lock;
+        },
+      },
+    });
+    window.wake = stand;
+  });
   const open = async (address) => {
     const page = await context.newPage();
     page.on("pageerror", (e) => failures.push(`${address}: ${e.message}`));
@@ -70,6 +100,9 @@ try {
     if (status) throw new Error(`${address}: ${status}`);
     return page;
   };
+  /** How many screen wake locks `page` asked for, and holds now (lift-up REL-1). */
+  const wake = (page) => page.evaluate(() => ({ asked: window.wake.asked, held: window.wake.held }));
+
   // A deck whose theme is written in it, as deck.schema.json allows, opens from its URL as from a
   // bundle (lift-up FUNC-5): the revenue example with its theme inline, served beside it.
   {
@@ -352,6 +385,7 @@ try {
     .waitForFunction((want) => window.scaena.follows() === want, follows(1), { timeout: 15000 })
     .then(() => true, () => false);
   check(followed, `the presenter view follows the player to ${states[1]}`);
+  check((await wake(presenter)).held === 1, `the presenter view holds a screen wake lock while it is open: ${JSON.stringify(await wake(presenter))}`);
   check((await presenter.textContent("#notes")) === notes(1), `it shows ${states[1]}'s notes, its beat's`);
   check((await presenter.textContent("#nextName")) === `Next: ${slots[2].said}`, `it shows ${states[2]} next, by its slide's number: ${await presenter.textContent("#nextName")}`);
   // Its timer (PLAN 2.121): Pause stops it where it stands, Reset puts it back to 0:00, paused as it
@@ -545,10 +579,22 @@ try {
   await popup.close();
 
   // Fullscreen: F asks for it, and the slide stands in the middle of the screen, on black.
+  check((await wake(player)).held === 0, "before fullscreen, the player holds no wake lock");
   await player.keyboard.press("f");
   const full = await player.waitForFunction(() => document.fullscreenElement !== null, null, { timeout: 5000 }).then(() => true, () => false);
   check(full, "F makes the player fullscreen");
   if (full) {
+    // The screen stays awake (lift-up REL-1): a lock held, and one the browser let go while the
+    // page was hidden asked for again as the page shows.
+    const locked = await player.waitForFunction(() => window.wake.held === 1, null, { timeout: 5000 }).then(() => true, () => false);
+    check(locked, `fullscreen, the player holds a screen wake lock: ${JSON.stringify(await wake(player))}`);
+    const before = (await wake(player)).asked;
+    await player.evaluate(() => {
+      window.wake.drop();
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    const again = await player.waitForFunction((n) => window.wake.asked === n + 1 && window.wake.held === 1, before, { timeout: 5000 }).then(() => true, () => false);
+    check(again, `let go while the page was hidden, the lock is asked for again as it shows: ${JSON.stringify(await wake(player))}`);
     await player.waitForFunction(() => document.querySelector(".bar").offsetParent === null, null, { timeout: 5000 }).catch(() => {});
     const centred = await standing(player);
     check(
@@ -571,6 +617,8 @@ try {
       "in fullscreen, → past the last ends the show, → again keeps it, and a click leaves fullscreen, on the last slide",
     );
     if (!left) await player.keyboard.press("f");
+    const slept = await player.waitForFunction(() => window.wake.held === 0, null, { timeout: 5000 }).then(() => true, () => false);
+    check(slept, `out of fullscreen, the lock is let go: ${JSON.stringify(await wake(player))}`);
   }
   await player.close();
 
