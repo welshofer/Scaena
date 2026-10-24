@@ -800,7 +800,12 @@ struct DeckView: View {
                 RemoteSheet(editor: editor) { shown }
             }
             .sheet(item: $asked) { asked in
-                OfferSheet(title: asked.title, ask: asked.ask, shown: asked.shown, take: asked.take, whence: asked.whence) { ops in
+                OfferSheet(
+                    title: asked.title, ask: asked.ask, shown: asked.shown, take: asked.take, whence: asked.whence,
+                    instruction: asked.instruction,
+                    // Asked again in the person's words: the sheet shows the new question.
+                    again: asked.again.map { remake in { how in self.asked = remake(how) } }
+                ) { ops in
                     // An answer that changes nothing makes no change, and says so, as the browser does.
                     guard let ops else {
                         said = "Nothing to change: it already reads so"

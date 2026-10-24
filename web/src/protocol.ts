@@ -1510,6 +1510,8 @@ export interface WritingAsk {
   state?: string;
   node?: string;
   finding?: { code: string; severity: string; message: string; said?: string; hint?: string; node?: string };
+  /** For a rewrite, how the person wants it rewritten, in their own words (lift-up FUNC-3). */
+  instruction?: string;
 }
 
 /** What a model is asked for a writing tool (`scaena_core::writing`): the task, with the words it

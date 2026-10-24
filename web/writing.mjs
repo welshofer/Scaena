@@ -66,7 +66,8 @@ async function provider() {
     const system = body.system?.[0]?.text ?? "";
     const asked = body.messages?.[0]?.content?.find?.((c) => c.type === "text")?.text ?? "";
     // The model answers nothing for the title's words, as one that refuses or runs out of room does.
-    const answer = system.startsWith("You rewrite") && asked === SILENT ? "" : (ANSWERS.find(([starts]) => system.startsWith(starts))?.[1] ?? "I do not know that task.");
+    const silent = asked === SILENT || asked.startsWith(`The text:\n${SILENT}\n`);
+    const answer = system.startsWith("You rewrite") && silent ? "" : (ANSWERS.find(([starts]) => system.startsWith(starts))?.[1] ?? "I do not know that task.");
     reply(200, { content: [{ type: "text", text: answer }], stop_reason: "end_turn", usage: { input_tokens: 120, output_tokens: 20 } });
   }).listen(0, "127.0.0.1");
   await new Promise((ok) => server.once("listening", ok));
@@ -172,6 +173,29 @@ try {
   await page.click("#writing-leave");
   await page.evaluate(() => window.scaena.writing.settled());
   check((await source()) === original && !(await dialog()).open, "Leave it changes nothing");
+
+  // 4a. A rewrite in the person's own words (lift-up FUNC-3): the field asks again, Return as the
+  // button, with the claim of the slide's beat beside it. Tighten offers no such field.
+  await tool("tighten", "subtitle");
+  check(await page.locator("#writing-how-row").isHidden(), "Tighten asks no words for how");
+  await page.click("#writing-leave");
+  await page.evaluate(() => window.scaena.writing.settled());
+  await tool("rewrite", "subtitle");
+  check(await answered("#writing-answer"), "Rewrite offers an answer first");
+  check(await page.locator("#writing-how-row").isVisible(), "and a field for how to rewrite it");
+  const before = scripted.requests.length;
+  await page.fill("#writing-how", "More formal, for the board");
+  await page.press("#writing-how", "Enter");
+  await page.evaluate(() => window.scaena.writing.settled());
+  const rewritten = scripted.requests.at(-1)?.body.messages?.[0]?.content?.[0]?.text ?? "";
+  check(
+    scripted.requests.length > before && rewritten.startsWith("The text:\nThis quarter changed the shape of the business.\nHow to rewrite it: More formal, for the board\nThe point its slide makes: "),
+    `asked again in the person's words, with the slide's claim: ${JSON.stringify(rewritten)}`,
+  );
+  check((await dialog()).open && (await page.inputValue("#writing-how")) === "More formal, for the board", "the dialog stays, the words kept in the field");
+  await page.click("#writing-leave");
+  await page.evaluate(() => window.scaena.writing.settled());
+  check((await source()) === original, "and Leave it changes nothing");
 
   // 5. Draft Notes, with nothing selected: the slide's words and its beat's claim; its notes written.
   await tool("notes", undefined);
