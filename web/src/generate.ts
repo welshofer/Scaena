@@ -10,7 +10,7 @@
 // and kept in the browser's cache for the next deck (PLAN G.22, ADR-0027).
 import { Making, scriptChecked, scriptFor, scriptTaken, writable } from "@scaena/wasm";
 import { findIcons, iconSet } from "./icon-set";
-import type { Choices, FetchedMap, Generate, Generated, GeneratingEvent, Health, MapAsk, MapPlace, PictureJob } from "./protocol";
+import type { Choices, FetchedMap, Generate, Generated, GeneratingEvent, Health, MapAsk, MapPlace, PictureJob, StoryOutline } from "./protocol";
 import { answered } from "./words";
 
 type Generator = typeof import("@scaena/generator");
@@ -142,12 +142,28 @@ async function scriptFont(script: Script, hear: (event: GeneratingEvent) => void
   return bytes;
 }
 
+/** The outline as the model wrote it (narrative FUNC-1), shown for the person to settle: on `arc`,
+ * chosen for `reasoning`, or the heuristic's where `fallback` says why. */
+export interface Outlined {
+  outline: StoryOutline;
+  arc: string;
+  reasoning: string;
+  fallback?: string;
+}
+
+/** What the person decided of an outline: settled, so the slides are written to it; or another
+ * arc, by name or the heuristic's where none, to outline again. */
+export type Decision = { settled: StoryOutline } | { arc?: string };
+
 /** The deck `job` asks for, made in `given`: the bundle's files by their paths, what it came
- * to, and its title. `hear` hears how far it has come. */
+ * to, and its title. `hear` hears how far it has come. With `job.outline`, the outline is
+ * written first and `settle` shows it to the person, whose decision the slides follow (narrative
+ * FUNC-1); without, the slides are written at once. */
 export async function generate(
   job: Generate,
   given: Theme,
   hear: (event: GeneratingEvent) => void,
+  settle?: (outlined: Outlined) => Promise<Decision>,
 ): Promise<{ files: Map<string, Uint8Array>; made: Generated; title: string }> {
   // Before a file is read or a call is paid for: the script's font where the theme's fonts do
   // not draw the language (PLAN G.22), and a deck in letters they still cannot draw refused, as
@@ -178,19 +194,49 @@ export async function generate(
     if (job.research) await research(g, brief, asking, job, sources, hear);
     const generation = new g.Generation(brief, asking, sources);
     try {
+      const outlining = Boolean(job.outline && settle);
       if (job.arc) generation.chooseArc(job.arc);
+      if (job.arc && outlining) generation.outlineFirst();
       for (let asked = generation.request(job.key); asked; asked = generation.request(job.key)) {
         const step = generation.step();
-        hear(step === "arc" ? { kind: "choosing" } : { kind: "writing", slides: generation.target() });
+        hear(step === "arc" ? { kind: "choosing" } : step === "outline" ? { kind: "outlining" } : { kind: "writing", slides: generation.target() });
         const reply = await send(JSON.parse(asked));
-        const at = JSON.parse(generation.answer(reply.status, reply.statusText, reply.body)) as {
+        const at = JSON.parse(generation.answer(reply.status, reply.statusText, reply.body, reply.after)) as {
           arc?: string;
+          reasoning?: string | null;
           fallback?: string | null;
           written?: number | null;
           truncated?: boolean | null;
+          outline?: StoryOutline | null;
+          wait?: number | null;
+          tried?: number | null;
         };
-        if (step === "arc") hear({ kind: "chose", arc: at.arc ?? "", fallback: at.fallback ?? undefined });
-        else hear({ kind: "wrote", slides: at.written ?? 0, truncated: at.truncated ?? false });
+        // An answer for now (busy, a server's failure, none): the same step asked again after
+        // the wait the generator says, up to six times (narrative REL-1).
+        if (at.wait != null) {
+          hear({ kind: "retrying", seconds: at.wait, tried: at.tried ?? 0 });
+          await new Promise((r) => setTimeout(r, at.wait! * 1000));
+          continue;
+        }
+        if (step === "arc") {
+          hear({ kind: "chose", arc: at.arc ?? "", fallback: at.fallback ?? undefined });
+          // The outline before the slides (narrative FUNC-1): the next request is the outline's.
+          if (outlining) generation.outlineFirst();
+        } else if (step === "outline") {
+          const outline = at.outline ?? { bigIdea: "", beats: [] };
+          hear({ kind: "outlined", beats: outline.beats.length });
+          const decided = await settle!({ outline, arc: at.arc ?? "", reasoning: at.reasoning ?? "", fallback: at.fallback ?? undefined });
+          if ("settled" in decided) {
+            const now = JSON.parse(generation.settle(JSON.stringify(decided.settled))) as { outline?: StoryOutline | null };
+            hear({ kind: "settled", beats: now.outline?.beats.length ?? 0 });
+          } else {
+            // Another arc, chosen with no call, and outlined again.
+            generation.chooseArc(decided.arc || undefined);
+            generation.outlineFirst();
+            const chosen = JSON.parse(generation.standing()) as { arc?: string };
+            hear({ kind: "chose", arc: chosen.arc ?? decided.arc ?? "" });
+          }
+        } else hear({ kind: "wrote", slides: at.written ?? 0, truncated: at.truncated ?? false });
       }
       await giveIcons(generation);
       const painted = job.pictures ? await paint(g, generation, job.pictures, theme, hear) : undefined;

@@ -39,6 +39,9 @@ scaena-resources.workspace = true
 base64.workspace = true
 # The PDF drawn from the pages the session lays out, as the browser's PDF module draws it (PLAN 3.8).
 scaena-export.workspace = true
+# Room on the caller's own stack for a call that lays out and lints a deck (#533): a segment
+# added only where the stack runs low, so the thread, and what core keeps per thread, stays.
+stacker.workspace = true
 
 # vello on Metal, painting onto a CAMetalLayer (PLAN 3.2): the Mac's alone.
 [target.'cfg(target_vendor = "apple")'.dependencies]
