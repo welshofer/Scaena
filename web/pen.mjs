@@ -11,7 +11,7 @@
 // - Escape puts the pen down.
 // - A drawing is no icon: with one selected, Insert › Icon… adds an icon and leaves its strokes.
 // Exits 1 on any failure.
-import { launch, serve } from "./serve.mjs";
+import { insert, launch, serve } from "./serve.mjs";
 
 const server = await serve();
 const failures = [];
@@ -153,7 +153,7 @@ try {
   // The canvas selects the drawing once it has drawn the slide with it, after the source shows it.
   check(await settled(() => window.scaena.canvas.selected() === "drawing"), `put down, the pen leaves the drawing selected: ${await selected()}`);
   const strokesDrawn = (await declared("drawing")).match(/path:"([^"]*)"/)?.[1];
-  await page.selectOption("#insert", "icon");
+  await insert(page, "Icon…");
   await page.waitForSelector("#iconing[open] .icons button.icon", { timeout: 30000 });
   const title = await page.evaluate(() => document.querySelector("#iconing-title").textContent);
   check(title === "Insert an icon", `with a drawing selected, the picker inserts an icon: ${title}`);

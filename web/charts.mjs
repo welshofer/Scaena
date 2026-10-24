@@ -17,7 +17,7 @@
 // - Each is a step to undo, and the source is as it was.
 // Exits 1 on any failure.
 import { createHash } from "node:crypto";
-import { launch, serve } from "./serve.mjs";
+import { insert, inserts, launch, serve } from "./serve.mjs";
 
 const server = await serve();
 const failures = [];
@@ -75,9 +75,7 @@ try {
   };
   /** What the Insert menu offers: each group's label, and its items. */
   const menu = () =>
-    page.evaluate(() =>
-      Object.fromEntries([...document.querySelectorAll("#insert optgroup")].map((g) => [g.label, [...g.children].map((o) => o.textContent)])),
-    );
+    inserts(page);
   /** Press the canvas at `at`, canvas units. */
   const press = async ([x, y]) => {
     const [cx, cy] = await page.evaluate(
@@ -95,7 +93,7 @@ try {
   const original = await source();
 
   // A chart and a table of `q3`, named by its file (PLAN 3.18).
-  await page.waitForFunction(() => document.querySelectorAll("#insert optgroup").length > 0, null, { timeout: 30000 });
+  await page.waitForFunction(() => window.scaena.inserts().length > 0, null, { timeout: 30000 });
   const offered = await menu();
   check(
     offered.Chart?.includes("Q3 Revenue") && offered.Table?.includes("Q3 Revenue"),
@@ -104,8 +102,7 @@ try {
 
   // The chart, about where the canvas was pressed: the quarters, grouped by product.
   await press([480, 300]);
-  const chart = await page.evaluate(() => [...document.querySelectorAll('#insert optgroup[label="Chart"] option')].find((o) => o.textContent === "Q3 Revenue")?.value);
-  await page.selectOption("#insert", chart);
+  await insert(page, "Q3 Revenue", "Chart");
   check(await reads("q3-chart chart:bar data:@q3 x:{field: quarter} y:{field: revenue}"), "the chart of q3 is inserted");
   check((await source()).includes("series:{field: product}"), "its quarters grouped by product");
   check(await selects("q3-chart"), `and selected: ${await selected()}`);
