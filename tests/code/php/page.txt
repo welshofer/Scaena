@@ -1,0 +1,36 @@
+<?php
+declare(strict_types=1);
+
+namespace App\Http;
+
+use App\Models\Trail;
+
+#[Route('/trails')]
+final class TrailController extends Controller
+{
+    private const PER_PAGE = 20;
+
+    public function index(Request $request): array
+    {
+        $trails = Trail::where('open', true)->get();
+        $name = $request?->user()->name ?? 'guest';
+        # Count them once.
+        echo "Hello $name, {$trails->count()} trails\n";
+        return [
+            'items' => $trails,
+            'html' => <<<HTML
+                <p>Welcome, $name</p>
+                HTML,
+            'raw' => <<<'TXT'
+                No $interpolation here
+                TXT,
+        ];
+    }
+}
+?>
+<!DOCTYPE html>
+<ul class="<?= $class ?>">
+  <?php foreach ($trails as $trail): ?>
+    <li><?= htmlspecialchars($trail->name) ?></li>
+  <?php endforeach; ?>
+</ul>

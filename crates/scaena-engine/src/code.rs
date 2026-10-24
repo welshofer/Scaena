@@ -110,7 +110,7 @@ impl CodeSpec {
 /// The SHA-256 of each file of the tables the scanners read (`scaena_core::code::tables`, in
 /// `crates/scaena-core/code/`), in hex: what one handed over is held to.
 pub const TABLES: [(&str, &str); 11] = [
-    ("clike", "8e61a3d34f8c08a4fb8bc12ebbaeaf5070d209624def3d49a67dee2b74f78112"),
+    ("clike", "8c87ffd411a530756888b9512a8ab397f81afbf22fd2fb1655ec92ddaa652463"),
     ("css", "085c66feb5ee53507e0875db5d35e71bc9d6785ad36bc377e3f696141ff096ca"),
     ("dockerfile", "1a3268dea51c84dfe3f27782000e86b8e74d6bee771226f9cfc2e02b47837dce"),
     ("graphql", "97ce256e18c0e12d03e1a63c372a3c675c7952c9ee27a1b7afbf28883d1a17d2"),
