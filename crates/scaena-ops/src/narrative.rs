@@ -2369,7 +2369,12 @@ impl Slots<'_> {
             "note" => {
                 let source =
                     self.slide.chart_data.as_ref().and_then(|c| c.source_id.clone()).map(|s| format!("Source: {s}"));
-                let fallback = if layout == "full" { self.subtitle() } else { None };
+                // What the headline leaves to say, where the layout has no place of its own for it
+                // and the slide is no chart's, whose value axis says it: a source or a fact stays
+                // first, never stacked with it.
+                let placed = ["subtitle", "support", "dek", "follow", "talk", "lede"].iter().any(|n| self.has(n));
+                let chart = self.slide.chart_data.is_some();
+                let fallback = if layout == "full" || (!placed && !chart) { self.subtitle() } else { None };
                 source.or_else(|| self.fact()).or(fallback)
             }
             "story" | "details" => (!self.items.is_empty()).then(|| self.wholes().join("\n")),
@@ -3856,6 +3861,36 @@ mod tests {
         assert_eq!(node(22, "kicker")["align"], json!({ "y": "end" }));
         assert!(!made.created.findings.iter().any(|f| f.code == "W210"), "{:#?}", made.created.findings);
         assert!(node(7, "kicker").is_null() && node(0, "kicker").is_null() && node(24, "kicker").is_null());
+    }
+
+    /// A slide's subtitle, where its layout has no place for one, goes in the note at its foot when
+    /// the slide has no source or fact for it there; a fact stays, never stacked with it; and a
+    /// chart's stays on its value axis, out of the note (lift-up dogfood).
+    #[test]
+    fn a_note_takes_the_subtitle_where_the_layout_has_no_place_for_it() {
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let mut n = climate();
+        let i = n.slides.iter().position(|s| s.chart_data.is_none() && s.layout_suggestion != "title").unwrap();
+        n.slides[i].supporting_facts = None;
+        n.slides[i].subtitle = "Ten years of readings, by station".into();
+        let forced = BTreeMap::from([(i, "table".to_string())]);
+        let note = |n: &Narrative, forced: &BTreeMap<usize, String>, at: usize| {
+            let made = deck_as(n, &theme, &Pictures::new(), forced).unwrap();
+            let deck = &made.deck;
+            let props = deck["states"][at]["props"].as_object().unwrap();
+            let id = props.keys().find(|id| deck["nodes"][id.as_str()]["at"]["in"] == "note")?;
+            deck["nodes"][id.as_str()].get("text").cloned()
+        };
+        assert_eq!(note(&n, &forced, i), Some(json!("Ten years of readings, by station")));
+        n.slides[i].supporting_facts = Some("NOAA, 2015\u{2013}2024".into());
+        assert_eq!(note(&n, &forced, i), Some(json!("NOAA, 2015\u{2013}2024")), "the fact stays");
+        // A chart's subtitle is its value axis's, and its note keeps to its source or its fact.
+        let c = n.slides.iter().position(|s| s.chart_data.is_some()).unwrap();
+        n.slides[c].supporting_facts = None;
+        n.slides[c].chart_data.as_mut().unwrap().source_id = None;
+        n.slides[c].subtitle = "Gigatonnes a year".into();
+        let figure = BTreeMap::from([(c, "figure".to_string())]);
+        assert_eq!(note(&n, &figure, c), None, "a chart's note takes no subtitle");
     }
 
     #[test]
