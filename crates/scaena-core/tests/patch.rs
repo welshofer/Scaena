@@ -2315,3 +2315,21 @@ fn typing_in_a_list_built_by_bullet_keeps_its_steps_in_step() {
     assert_eq!(more["nodes"]["list"]["text"], json!("Plants\nLeaves\n\nChlorophyll\nWater is split"));
     assert_eq!(drawn(&more), drawn(&typed));
 }
+
+/// A node or a state the deck does not have is refused with the id meant, where one is near it:
+/// within a few edits, or one holding the name asked; else with the first few the deck has
+/// (lift-up 10-24b USE-5).
+#[test]
+fn an_id_the_deck_has_not_is_refused_with_the_one_meant() {
+    let refused = |ops: Value| patch(&example(), ops).unwrap_err().message;
+    let typo = refused(json!([{ "op": "set_text", "node": "titel", "text": "Q3" }]));
+    assert!(typo.ends_with("no node `titel`; did you mean `title`?"), "{typo}");
+    let held = refused(json!([{ "op": "set_text", "node": "sub", "text": "Q3" }]));
+    assert!(held.ends_with("no node `sub`; did you mean `subtitle`?"), "{held}");
+    let state = refused(json!([{ "op": "set_state", "id": "revnue", "prop": "hold", "value": 1 }]));
+    assert!(state.ends_with("no state `revnue`; did you mean `revenue`?"), "{state}");
+    let far = refused(json!([{ "op": "set_text", "node": "zzzzzz", "text": "Q3" }]));
+    assert!(far.ends_with("no node `zzzzzz`; the deck's nodes include `bg`, `title`, `subtitle`, `rev`, `note`"), "{far}");
+    let moved = refused(json!([{ "op": "move_state", "id": "mix", "after": "clsoe" }]));
+    assert!(moved.ends_with("no state `clsoe`; did you mean `close`?"), "{moved}");
+}
