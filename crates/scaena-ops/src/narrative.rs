@@ -3591,7 +3591,7 @@ mod tests {
             "ranking",
             "statement",
             "manifesto",
-            "team-four",
+            "team-names",
             "bio",
             "testimonials",
             "how-it-works",
