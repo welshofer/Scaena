@@ -1099,6 +1099,19 @@ impl Transition {
         }
     }
 
+    /// Whether `node`, leaving at track `k` and seen so, lies under a node that enters over it,
+    /// fading in at rest, and hides it whole (lift-up ATTR-3).
+    fn hidden(&self, k: usize, node: &SceneNode, seen: Seen, t_ms: f64) -> bool {
+        self.tracks[k + 1..].iter().any(|track| {
+            let Track::Enter(j) = track else { return false };
+            let over = &self.to.nodes[*j];
+            if !matches!(&over.content, Content::Image(image) if image.hides().is_some()) {
+                return false;
+            }
+            matches!(self.seen(&over.id, false, false, t_ms), (Some(on), false) if hides(over, on, node, seen))
+        })
+    }
+
     /// Draws `node` at rest, through its cues, `t` ms into the state's cue.
     fn put(&self, dl: &mut DisplayList, node: &SceneNode, seen: Seen, opacity: f32, source: bool, t: f64) {
         let op = match &node.content {
@@ -1139,7 +1152,7 @@ impl Transition {
         let mut dl = self.to.ground();
         // Where each track's ops start, to tell which were drawn from the state being left.
         let mut starts = Vec::with_capacity(self.tracks.len());
-        for track in &self.tracks {
+        for (k, track) in self.tracks.iter().enumerate() {
             starts.push(dl.ops.len());
             match track {
                 Track::Exit(_) if whole => {}
@@ -1149,7 +1162,9 @@ impl Transition {
                     if governed {
                         self.put(&mut dl, node, seen, node.opacity, true, t_ms);
                     } else if moving {
-                        self.put(&mut dl, node, seen, node.opacity * (1.0 - p), true, t_ms);
+                        // Under a photo fading in over it, it stays whole until the photo hides it.
+                        let fade = if self.hidden(k, node, seen, t_ms) { 1.0 } else { 1.0 - p };
+                        self.put(&mut dl, node, seen, node.opacity * fade, true, t_ms);
                     }
                 }
                 Track::Enter(j) => {
@@ -1167,7 +1182,10 @@ impl Transition {
                     let (Some(seen), _) = self.seen(&to[*j].id, false, false, t_ms) else { continue };
                     if moving {
                         let rest = self.from.as_ref().map_or(Seen::REST, |s| s.rest(&from[*i].id));
-                        push(&mut dl, &from[*i], from[*i].opacity * (1.0 - p), time, rest);
+                        // One photo dissolves into another as a presentation app's does: the one
+                        // left stays whole under the one taken, so nothing behind shows midway.
+                        let fade = if hides(&to[*j], seen, &from[*i], rest) { 1.0 } else { 1.0 - p };
+                        push(&mut dl, &from[*i], from[*i].opacity * fade, time, rest);
                         self.put(&mut dl, &to[*j], seen, to[*j].opacity * p, false, t_ms);
                     } else {
                         self.put(&mut dl, &to[*j], seen, to[*j].opacity, false, t_ms);
@@ -1895,6 +1913,23 @@ fn feet_between(
             ops
         }
     }
+}
+
+/// Whether `over`, whole and at rest, hides `under`, at rest: a photo over all that `under`
+/// draws (lift-up ATTR-3). Fading `over` in then leaves `under` whole beneath it, as a photo's
+/// adjustments do (`images::ImageNode::lerp`); fading both would show what lies behind them.
+fn hides(over: &SceneNode, on: Seen, under: &SceneNode, seen: Seen) -> bool {
+    let Content::Image(image) = &over.content else { return false };
+    let drawn = match &under.content {
+        Content::Shader(shader) => Some(shader.rect),
+        _ => under.ink(),
+    };
+    let (Some(cover), Some(drawn)) = (image.hides(), drawn) else { return false };
+    let inside = cover[0] <= drawn[0] + 0.5
+        && cover[1] <= drawn[1] + 0.5
+        && cover[0] + cover[2] >= drawn[0] + drawn[2] - 0.5
+        && cover[1] + cover[3] >= drawn[1] + drawn[3] - 0.5;
+    inside && over.opacity >= 1.0 && on.leaves_layer() && seen.leaves_layer()
 }
 
 fn push(dl: &mut DisplayList, node: &SceneNode, opacity: f32, time: f64, rest: Seen) {

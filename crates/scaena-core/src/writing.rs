@@ -1,6 +1,8 @@
 //! What a model is asked to write for the person editing a deck (PLAN 2.101): a text's words
 //! proofread, tightened, or rewritten; a slide's notes drafted from how it reads; a finding
-//! explained; a picture described for someone who cannot see it (PLAN 2.119). Each task is the
+//! explained; a picture described for someone who cannot see it (PLAN 2.119); a slide's words
+//! checked against the claim its beat makes, and its headline rewritten to carry it (narrative
+//! FUNC-4, the check SPEC §7.5 leaves to the user's own model). Each task is the
 //! instructions a model takes and the prompt it answers, on the device (Apple's Foundation
 //! Models) or with the person's own key (SPEC §11); the answer is offered, and taken as one patch
 //! or left. The browser, the Mac, and the iPad ask in these words, and take an answer by
@@ -35,6 +37,70 @@ pub enum Task {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         text: Option<String>,
     },
+    /// Whether a slide's words carry the claim its beat makes (narrative FUNC-4): the claim, the
+    /// slide's parts as it reads, and its headline, the words of its claim node where it has one,
+    /// which the answer rewrites to carry the claim where the words drift from it or contradict
+    /// it. SPEC §7.5 leaves this to the user's own model: no rule judges it.
+    Claim {
+        claim: String,
+        slide: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        headline: Option<String>,
+    },
+}
+
+/// What a claim check found (narrative FUNC-4): whether the slide's words carry the claim.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Verdict {
+    /// The words carry the claim.
+    Carries,
+    /// The words say something beside the claim.
+    Drifts,
+    /// The words say the opposite.
+    Contradicts,
+}
+
+/// A claim check's answer read: the verdict, how the words drift or contradict where they do,
+/// and the headline rewritten to carry the claim where the model offers one.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Checked {
+    pub verdict: Verdict,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub how: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub headline: Option<String>,
+}
+
+/// A claim check's `answer` read as [`Task::Claim`] asks for it: its first line a verdict,
+/// `Carries.`, `Drifts: how`, or `Contradicts: how`, and a line `Headline: …` where the model
+/// rewrites the headline. None where no line reads as a verdict.
+pub fn checked(answer: &str) -> Option<Checked> {
+    let mut lines = answer.lines().map(str::trim).filter(|l| !l.is_empty());
+    let first = lines.next()?;
+    let (word, rest) = first.split_once(|c: char| c == ':' || c == '.' || c.is_whitespace()).unwrap_or((first, ""));
+    let verdict = match word.trim_matches(|c: char| !c.is_alphabetic()).to_ascii_lowercase().as_str() {
+        "carries" => Verdict::Carries,
+        "drifts" => Verdict::Drifts,
+        "contradicts" => Verdict::Contradicts,
+        _ => return None,
+    };
+    let how = Some(rest.trim_start_matches([':', '.', ' ']).trim()).filter(|h| !h.is_empty()).map(str::to_string);
+    let headline = std::iter::once(first).chain(lines).find_map(|l| {
+        let (label, text) = l.split_once(':')?;
+        label.trim().eq_ignore_ascii_case("headline").then(|| unquoted(text.trim()).to_string())
+    });
+    Some(Checked { verdict, how, headline: headline.filter(|h| !h.is_empty()) })
+}
+
+/// `text` without the quotes a model may wrap it in.
+fn unquoted(text: &str) -> &str {
+    for (open, close) in [('"', '"'), ('\u{201c}', '\u{201d}'), ('\'', '\''), ('\u{2018}', '\u{2019}')] {
+        if text.chars().count() >= 2 && text.starts_with(open) && text.ends_with(close) {
+            return text[open.len_utf8()..text.len() - close.len_utf8()].trim();
+        }
+    }
+    text
 }
 
 /// A finding to explain: as the window says it, its code and severity, lint's hint, and the
@@ -60,23 +126,28 @@ impl Task {
             Task::Notes { .. } => "Presenter Notes",
             Task::Explain(_) => "About This Issue",
             Task::Describe { .. } => "Description",
+            Task::Claim { .. } => "The Claim",
         }
     }
 
-    /// The text it works on, for a task on a text's words; for a picture, the description it has.
+    /// The text it works on, for a task on a text's words; for a picture, the description it
+    /// has; for a claim check, the headline it may rewrite.
     pub fn text(&self) -> Option<&str> {
         match self {
             Task::Proofread { text } | Task::Tighten { text } | Task::Rewrite { text } => Some(text),
             Task::Describe { text, .. } => text.as_deref(),
+            Task::Claim { headline, .. } => headline.as_deref(),
             _ => None,
         }
     }
 
     /// What its answer takes the place of: a text's words, or a picture's description, none
-    /// where it has none.
+    /// where it has none. A claim check's answer is read line by line ([`checked`]), not taken
+    /// whole.
     fn replaces(&self) -> Option<&str> {
         match self {
             Task::Describe { text, .. } => Some(text.as_deref().unwrap_or_default()),
+            Task::Claim { .. } => None,
             _ => self.text(),
         }
     }
@@ -122,6 +193,16 @@ impl Task {
                  picture of\", and say nothing you cannot see in the picture. Write only the \
                  description, with no quotes and no comment."
             }
+            Task::Claim { .. } => {
+                "You check one slide of a talk against the claim its beat makes: whether the slide's \
+                 words, as an audience reads them, carry that claim. Answer on the first line with one \
+                 word, then a colon: \"Carries:\" where they carry it, \"Drifts:\" where they say \
+                 something beside it, or \"Contradicts:\" where they say the opposite; after the colon, \
+                 in one sentence, how, or nothing where they carry it. Where they drift or contradict, \
+                 write on a second line \"Headline:\" and the slide's headline rewritten to carry the \
+                 claim: in the slide's language, about the length of the headline given, keeping every \
+                 number and name exactly as written, with no quotes. Write nothing else."
+            }
         }
     }
 
@@ -150,6 +231,13 @@ impl Task {
                 "Describe this picture. The slide it is on has no words of its own.".to_string()
             }
             Task::Describe { slide, .. } => format!("Describe this picture. The slide it is on reads:\n{slide}"),
+            Task::Claim { claim, slide, headline } => {
+                let mut out = format!("The claim its beat makes: {claim}\nThe slide reads:\n{slide}");
+                if let Some(headline) = headline.as_deref().filter(|h| !h.trim().is_empty()) {
+                    out.push_str(&format!("\nIts headline: {headline}"));
+                }
+                out
+            }
         }
     }
 
@@ -410,6 +498,58 @@ mod tests {
         let json = serde_json::to_value(&describe).unwrap();
         assert_eq!(json, serde_json::json!({ "kind": "describe", "slide": "Title: Trails we rebuilt" }));
         assert_eq!(serde_json::from_value::<Task>(json).unwrap(), describe);
+    }
+
+    /// A slide's words are checked against its beat's claim (narrative FUNC-4): the prompt holds
+    /// the claim, the slide as it reads, and its headline; the answer's first line is the
+    /// verdict, and its `Headline:` line the rewrite, read without the quotes a model may add.
+    #[test]
+    fn a_claim_is_checked_against_the_slide_and_its_answer_read_line_by_line() {
+        let claim = Task::Claim {
+            claim: "Revenue doubled year over year, and Pro drove it.".into(),
+            slide: "Heading: Revenue doubled\nText: Revenue in $M.".into(),
+            headline: Some("Revenue doubled".into()),
+        };
+        assert_eq!(claim.title(), "The Claim");
+        assert_eq!(claim.text(), Some("Revenue doubled"));
+        assert_eq!(
+            claim.prompt(),
+            "The claim its beat makes: Revenue doubled year over year, and Pro drove it.\nThe slide reads:\nHeading: Revenue doubled\nText: Revenue in $M.\nIts headline: Revenue doubled"
+        );
+        assert!(claim.instructions().starts_with("You check one slide of a talk against the claim its beat makes"));
+        let json = serde_json::to_value(&claim).unwrap();
+        assert_eq!(json["kind"], "claim");
+        assert_eq!(serde_json::from_value::<Task>(json).unwrap(), claim);
+        let bare = Task::Claim { claim: "Thank you.".into(), slide: "Title: Thanks".into(), headline: None };
+        assert_eq!(bare.prompt(), "The claim its beat makes: Thank you.\nThe slide reads:\nTitle: Thanks");
+        assert_eq!(bare.text(), None);
+
+        // The answer read: a verdict, how, and the headline offered.
+        let drifts = checked(
+            "Drifts: the slide says revenue doubled but not that Pro drove it.\nHeadline: \u{201c}Revenue doubled, and Pro drove it\u{201d}\n",
+        );
+        assert_eq!(
+            drifts,
+            Some(Checked {
+                verdict: Verdict::Drifts,
+                how: Some("the slide says revenue doubled but not that Pro drove it.".into()),
+                headline: Some("Revenue doubled, and Pro drove it".into()),
+            })
+        );
+        assert_eq!(checked("Carries."), Some(Checked { verdict: Verdict::Carries, how: None, headline: None }));
+        assert_eq!(
+            checked("  carries: it does.\n"),
+            Some(Checked { verdict: Verdict::Carries, how: Some("it does.".into()), headline: None })
+        );
+        let contradicts = checked("Contradicts: it says revenue fell.\nHeadline: Revenue doubled").unwrap();
+        assert_eq!(
+            (contradicts.verdict, contradicts.headline.as_deref()),
+            (Verdict::Contradicts, Some("Revenue doubled"))
+        );
+        assert_eq!(checked("I cannot say."), None, "no verdict reads as none");
+        assert_eq!(checked(""), None);
+        // The answer as offered keeps its lines; a quoted headline inside is read, not stripped whole.
+        assert_eq!(claim.taken("\"Drifts: x\"\r\nHeadline: Y"), "\"Drifts: x\"\nHeadline: Y");
     }
 
     #[test]

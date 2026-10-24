@@ -137,6 +137,49 @@ private func anthropic(_ text: String) -> Data {
     #expect(refused?.message.contains("invalid x-api-key") == true, "\(String(describing: refused))")
 }
 
+/// A pictures key whose image models cannot be listed loses the pictures, not the deck
+/// (narrative REL-4): the slides written are made without them, as the browser makes them, and
+/// why is heard in a person's words, never the provider's.
+@MainActor
+@Test func aPicturesKeyThatListsNoModelLosesThePicturesNotTheDeck() async throws {
+    let arc = try Data(contentsOf: answers.appending(path: "anthropic-arc.json"))
+    let slides = try Data(contentsOf: answers.appending(path: "anthropic-slides.json"))
+    let asked = Asked()
+    let generator = Generator { request in
+        await asked.add(request)
+        switch request.url {
+        case "https://api.openai.com/v1/models":
+            let refused = #"{"error":{"message":"Incorrect API key provided","type":"invalid_request_error","code":"invalid_api_key"}}"#
+            return GeneratorReply(status: 401, body: Data(refused.utf8))
+        default:
+            let body = request.body ?? ""
+            if body.contains("=== CATALOG ===") { return GeneratorReply(status: 200, body: arc) }
+            if body.contains("runs past its place") {
+                return GeneratorReply(status: 200, body: anthropic(#"{"texts": []}"#))
+            }
+            if body.contains("art director") { return GeneratorReply(status: 200, body: anthropic(#"{"slides": []}"#)) }
+            return GeneratorReply(status: 200, body: slides)
+        }
+    }
+    var heard: [GeneratingStep] = []
+    let (session, made) = try await generator.generate(
+        brief: Brief(topic: "Carbon-negative cargo is ready to scale", audience: "Investors"),
+        provider: .anthropic, model: "a-model", key: "sk-writer", theme: "dusk",
+        painter: Generator.Painter(provider: .openai, key: "sk-wrong")
+    ) { heard.append($0) }
+    #expect(made.created.created && made.created.errors == 0)
+    #expect(try session.states().count == made.layouts.count)
+    #expect((made.pictures ?? 0) == 0)
+    let unmade = heard.compactMap { step -> [String]? in
+        if case .painted(let pictures, let unmade) = step, pictures == 0 { return unmade }
+        return nil
+    }
+    #expect(unmade == [["OpenAI didn't accept your key. Check it, or replace it."]], "\(heard)")
+    let requests = await asked.requests
+    #expect(requests.filter { $0.url == "https://api.openai.com/v1/images/generations" }.isEmpty)
+    #expect(!requests.contains { ($0.body ?? "").contains("Incorrect API key") })
+}
+
 /// A deck in a script the theme's fonts do not draw takes the script's font, fetched, held to its
 /// digest, and kept before any provider is asked anything (PLAN G.22). Kept, it is not fetched for
 /// the next deck. A font that cannot be fetched stops the deck there, in a person's words, and a
@@ -174,6 +217,21 @@ private func anthropic(_ text: String) -> Data {
 }
 
 /// What a brief may ask is Narrato's: its goals, lengths, arcs, and defaults.
+/// A redirect is followed only to a public https address by name: a page a source names cannot
+/// send the app on to this machine or its network (lift-up SEC-2).
+@Test func aRedirectIsFollowedOnlyToAPublicAddress() throws {
+    for followed in ["https://example.com/a", "https://www.example.org./b?c", "https://cdn.example.net:8443/x"] {
+        #expect(GeneratorReply.follows(URL(string: followed)!), "\(followed)")
+    }
+    for refused in [
+        "http://example.com/a", "https://localhost/a", "https://api.localhost/a", "https://intranet/a",
+        "https://127.0.0.1/a", "https://169.254.169.254/latest", "https://0x7f.0.0.1/a", "https://[::1]/a",
+        "https://[fd00::1]/a", "file:///etc/hosts",
+    ] {
+        #expect(!GeneratorReply.follows(URL(string: refused)!), "\(refused)")
+    }
+}
+
 @Test func whatABriefMayAskIsNarratos() throws {
     let choices = try Generator.choices()
     #expect(choices.goals.contains("Inform"))
