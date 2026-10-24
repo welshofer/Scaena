@@ -249,6 +249,20 @@
       #rehearsing { display: flex; gap: 8px; align-items: center; padding: 6px 12px; background: var(--panel); border-bottom: 1px solid var(--info); font-variant-numeric: tabular-nums; }
       #rehearsing[hidden] { display: none; }
       #rehearsing [data-where] { flex: 1; }
+      /* The notes of the slide rehearsed, as a speaker reads them, and the next slide's name, under
+       * the bar (SPEC §2.6). */
+      #rehearsal-notes { padding: 6px 12px 8px; background: var(--panel); border-bottom: 1px solid var(--info); max-height: 30vh; overflow: auto; font-size: 15px; line-height: 1.4; }
+      #rehearsal-notes[hidden] { display: none; }
+      #rehearsal-notes [data-next] { color: var(--muted); margin: 0 0 4px; }
+      .notes p { white-space: pre-wrap; margin: 0 0 8px; }
+      .notes ul, .notes ol { margin: 0 0 8px; padding-left: 1.4em; }
+      .notes li { margin: 2px 0; }
+      .notes li > ul, .notes li > ol { margin-bottom: 0; }
+      .notes table { border-collapse: collapse; margin: 0 0 8px; }
+      .notes th, .notes td { text-align: left; vertical-align: top; padding: 2px 12px 2px 0; border-bottom: 1px solid var(--line); }
+      .notes th { font-weight: 600; }
+      .notes code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.9em; }
+      .notes > :last-child { margin-bottom: 0; }
       #rehearsed { width: min(34em, 92vw); }
       #writing { width: min(34em, 92vw); }
       #writing textarea { box-sizing: border-box; width: 100%; font: inherit; line-height: 1.4; }
@@ -737,6 +751,10 @@
           <button type="button" data-back title="The slide before (←)">Back</button>
           <button type="button" data-on title="The next slide (→, Space, or a click on the canvas)">On</button>
           <button type="button" data-end title="Stop, and see what each slide took (Escape)">End</button>
+        </div>
+        <div id="rehearsal-notes" role="region" aria-label="The notes of the slide rehearsed" hidden>
+          <p data-next></p>
+          <div data-notes class="notes"></div>
         </div>
         <div id="desk">
         <div id="preview">
