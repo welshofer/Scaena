@@ -628,6 +628,41 @@ fn a_slide_transition_moves_each_slide_whole() {
     let [_, entered] = quarter(&mut deck_with(linear("wipe", Some("up"))));
     let clip = entered.2.expect("a wipe clips the slide entered");
     assert_eq!(clip, scaena_core::displaylist::Path::rect([0.0, 0.75 * h, w, 0.25 * h]));
+
+    // Shapes that grow (PLAN 2.149): the slide left still and whole, the slide entered still and
+    // whole inside the shapes, which the engine's own mask makes from the progress alone.
+    let size = [w, h];
+    let ways = |d: Option<&str>| match d {
+        Some("right") => [1.0, 0.0],
+        Some("up") => [0.0, -1.0],
+        Some("down") => [0.0, 1.0],
+        _ => [-1.0, 0.0],
+    };
+    use scaena_engine::reveals::{Cell, cells, radial};
+    for (style, direction) in [
+        ("circle", None),
+        ("circleWave", Some("up")),
+        ("diamond", None),
+        ("diamondWave", None),
+        ("radial", Some("right")),
+    ] {
+        let mut fx = deck_with(linear(style, direction));
+        let [left, entered] = quarter(&mut fx);
+        let way = ways(direction);
+        let mask = match style {
+            "circle" => cells(Cell::Circle, None, 0.25, size),
+            "circleWave" => cells(Cell::Circle, Some(way), 0.25, size),
+            "diamond" => cells(Cell::Diamond, None, 0.25, size),
+            "diamondWave" => cells(Cell::Diamond, Some(way), 0.25, size),
+            _ => radial(way, 0.25, size),
+        };
+        assert!(left.2.is_none() && left.0 == entered.0 && (left.1, entered.1) == (1.0, 1.0), "{style}");
+        assert_eq!(entered.2.as_ref(), Some(&mask), "{style}: the slide entered inside its shapes");
+        assert!(holds(&left.3, "a") && !holds(&entered.3, "a") && holds(&entered.3, "b"), "{style}");
+        // At its start, the slide left alone; at its end, the slide entered alone.
+        assert_eq!(fx.dl("two", 0.0), fx.dl("one", f64::INFINITY), "{style}");
+        assert_eq!(fx.dl("two", 400.0), fx.dl("two", f64::INFINITY), "{style}");
+    }
 }
 
 #[test]
@@ -941,4 +976,80 @@ fn a_list_builds_by_bullet_a_paragraph_a_click() {
     let mut fx = Fx::new(deck(nodes, states), theme(|_| {}));
     let counts: Vec<usize> = [50.0, 150.0, 250.0].map(|t| units(&fx.dl("s", t), "t")).to_vec();
     assert_eq!(counts, [1, 2, 3], "each paragraph starts 100 ms after the one before");
+}
+
+/// The torture deck's fonts with these nodes and states, and its photos and test card.
+fn pictured(nodes: Value, states: Value) -> Fx {
+    let mut fx = Fx::new(deck(nodes, states), theme(|_| {}));
+    let mut images = scaena_engine::images::BundleImages::new();
+    for path in ["assets/baseline-420.jpg", "assets/progressive-444.jpg", "assets/test-card.png"] {
+        images.register(path, &read(path)).unwrap();
+    }
+    fx.engine = std::mem::replace(&mut fx.engine, Engine::new(BundleFonts::new())).with_images(images);
+    fx
+}
+
+#[test]
+fn a_photo_dissolves_into_another_without_dipping_toward_the_ground() {
+    // Lift-up ATTR-3: with both faded, one over the other, halfway shows a quarter of the ground
+    // behind them. A photo hides what is under it, so the one left stays whole under the one taken,
+    // as a presentation app's Dissolve and a photo's own adjustments do; a PNG may let it show.
+    let picture = |src: &str| json!({ "type": "image", "src": src, "at": { "in": "main" } });
+    let fade = json!({ "duration": 400, "ease": [0, 0, 1, 1] });
+    let halfway = |fx: &mut Fx, left: &str, taken: &str| {
+        let dl = fx.dl("two", 200.0);
+        (seen(&dl, left).unwrap().1, seen(&dl, taken).unwrap().1)
+    };
+
+    // One node whose picture changes cross-fades.
+    let swapped = |src: &str| {
+        let states = json!([
+            { "id": "one", "layout": "specimen", "props": { "p": {} } },
+            { "id": "two", "transition": fade, "props": { "p": { "src": src } } }
+        ]);
+        pictured(json!({ "p": picture("assets/baseline-420.jpg") }), states)
+    };
+    let dl = swapped("assets/progressive-444.jpg").dl("two", 200.0);
+    let layers: Vec<f32> = dl
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            Op::Layer { node: Some(n), opacity, .. } if n == "p" => Some(*opacity),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(layers, [1.0, 0.5], "the photo left whole, the photo taken half in");
+    let dl = swapped("assets/test-card.png").dl("two", 200.0);
+    let layers: Vec<f32> = dl
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            Op::Layer { node: Some(n), opacity, .. } if n == "p" => Some(*opacity),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(layers, [0.5, 0.5], "a PNG over it may let it show, so both fade");
+
+    // One node leaving as another enters over its box.
+    let replaced = |taken: &str| {
+        let states = json!([
+            { "id": "one", "layout": "specimen", "props": { "a": {} } },
+            { "id": "two", "transition": fade, "props": { "b": {} }, "remove": ["a"] }
+        ]);
+        let nodes = json!({ "a": picture("assets/baseline-420.jpg"), "b": picture(taken) });
+        pictured(nodes, states)
+    };
+    assert_eq!(halfway(&mut replaced("assets/progressive-444.jpg"), "a", "b"), (1.0, 0.5));
+    assert_eq!(halfway(&mut replaced("assets/test-card.png"), "a", "b"), (0.5, 0.5));
+    // At rest, only the photo taken is drawn.
+    let dl = replaced("assets/progressive-444.jpg").dl("two", f64::INFINITY);
+    assert!(layer(&dl, "a").is_none() && seen(&dl, "b").unwrap().1 == 1.0);
+
+    // A text under a photo that does not cover it fades as before.
+    let states = json!([
+        { "id": "one", "layout": "specimen", "props": { "t": {} } },
+        { "id": "two", "transition": fade, "props": { "b": {} }, "remove": ["t"] }
+    ]);
+    let nodes = json!({ "t": text("Alpha", "case"), "b": picture("assets/progressive-444.jpg") });
+    assert_eq!(halfway(&mut pictured(nodes, states), "t", "b").0, 0.5);
 }

@@ -46,7 +46,8 @@
 //   leaves, and in fullscreen the screen, painted at the size it is shown in device pixels by
 //   WebGPU, and by the CPU painter at the canvas's own size, scaled up.
 // Exits 1 on any failure.
-import { mkdir, readFile } from "node:fs/promises";
+import { mkdir, readFile, symlink, writeFile } from "node:fs/promises";
+import { join, resolve } from "node:path";
 import { launch, serve } from "./serve.mjs";
 
 const server = await serve();
@@ -101,6 +102,22 @@ try {
   };
   /** How many screen wake locks `page` asked for, and holds now (lift-up REL-1). */
   const wake = (page) => page.evaluate(() => ({ asked: window.wake.asked, held: window.wake.held }));
+
+  // A deck whose theme is written in it, as deck.schema.json allows, opens from its URL as from a
+  // bundle (lift-up FUNC-5): the revenue example with its theme inline, served beside it.
+  {
+    const deck = JSON.parse(await readFile("docs/examples/revenue.deck.json", "utf8"));
+    deck.theme = JSON.parse(await readFile(new URL(deck.theme, new URL("../docs/examples/", import.meta.url)), "utf8"));
+    const served = (u) => u.pathname === "/docs/examples/inline-theme.deck.json";
+    await context.route(served, (r) => r.fulfill({ contentType: "application/json", body: JSON.stringify(deck) }));
+    const inline = await open(url("/docs/examples/inline-theme.deck.json")).then(
+      (page) => page,
+      (e) => String(e),
+    );
+    const at = typeof inline === "string" ? inline : await inline.evaluate(() => window.scaena.at());
+    check(typeof inline !== "string" && at.index === 0, `a deck with its theme inline opens from its URL: ${JSON.stringify(at)}`);
+    if (typeof inline !== "string") await inline.close();
+  }
   /** Where the player's deck is, once `test(arg)` holds of it in the page. */
   const until = (page, test, what, arg = null, timeout = 15000) =>
     page
@@ -736,6 +753,34 @@ try {
   check(quickly.startsWith("The player has closed."), `a player closed as its view opens is said to have closed, and stays so: ${quickly}`);
   await quick.close();
   await longView.close();
+
+  // The notes as a speaker reads them (SPEC §2.6, lift-up USE-1): the markdown a generated deck's
+  // model writes, kept as written in the deck, shows in the presenter view as a list and a table,
+  // each word in its look, never a `- ` or a `|`. On a copy of the revenue example with such notes
+  // on its third state, served beside the examples' fonts and themes.
+  const walk = "target/notes-walk";
+  await mkdir(walk, { recursive: true });
+  const marked = structuredClone(deck);
+  const written = "Lead with the **number**.\n- Pro is a third\n- Then the ask\n\n| Tier | Share |\n|---|---|\n| Pro | 33% |";
+  marked.states[2].notes = written;
+  await writeFile(join(walk, "revenue.deck.json"), JSON.stringify(marked));
+  for (const dir of ["fonts", "themes", "data", "assets"]) await symlink(resolve("docs/examples", dir), join(walk, dir)).catch(() => {});
+  const markedPlayer = await open(url(`/${walk}/revenue.deck.json`));
+  await markedPlayer.evaluate(() => window.scaena.seek(2));
+  const reader = await open(url(`/${walk}/revenue.deck.json`, "presenter"));
+  await reader.waitForFunction(() => window.scaena.follows() && document.querySelector("#notes ul"), null, { timeout: 15000 }).catch(() => {});
+  const read = await reader.evaluate(() => {
+    const pane = document.querySelector("#notes");
+    const texts = (selector) => [...pane.querySelectorAll(selector)].map((e) => e.textContent);
+    return { items: texts("ul li"), bold: texts("p strong"), heads: texts("thead th"), cells: texts("tbody td"), text: pane.textContent };
+  });
+  check(
+    read.items.join("|") === "Pro is a third|Then the ask" && read.bold.join() === "number" && read.heads.join("|") === "Tier|Share" && read.cells.join("|") === "Pro|33%" && !/^- |\|/m.test(read.text),
+    `the presenter view shows notes as a speaker reads them, a list and a table, the words in their looks: ${JSON.stringify(read)}`,
+  );
+  await reader.screenshot({ path: join(walk, "presenter-notes.png") }).catch(() => {});
+  await reader.close();
+  await markedPlayer.close();
 
   // The frame meter (gate 2, criterion 1): with ?fps, a cue played says how its frames went.
   const metered = await open(`${url("/tests/fixtures/torture.scaena")}&fps`);

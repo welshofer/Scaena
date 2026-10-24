@@ -88,12 +88,14 @@ async fn the_tools_and_resources_are_listed() {
     assert_eq!(
         tools,
         [
+            "background_set",
             "data_attach",
             "data_edit",
             "deck_create",
             "deck_diff",
             "deck_export",
             "deck_find",
+            "deck_generate",
             "deck_health",
             "deck_history",
             "deck_inspect",
@@ -105,6 +107,7 @@ async fn the_tools_and_resources_are_listed() {
             "map_fetch",
             "spine_read",
             "spine_update",
+            "state_start",
             "theme_apply",
             "theme_edit"
         ]
@@ -163,9 +166,13 @@ async fn the_resources_say_how_long_to_keep_them() {
 #[tokio::test(flavor = "multi_thread")]
 async fn an_agent_builds_a_deck_with_the_tools_alone() {
     let client = connect().await;
-    let dir = scratch("build").join("q3");
+    let root = scratch("build");
+    let dir = root.join("q3");
     let bundle = path(&dir);
-    let csv = path(&Path::new(EXAMPLES).join("data/q3-revenue.csv"));
+    // The data file beside the bundle: a tool reads only there or under its own folder.
+    let csv = root.join("q3-revenue.csv");
+    std::fs::copy(Path::new(EXAMPLES).join("data/q3-revenue.csv"), &csv).unwrap();
+    let csv = path(&csv);
 
     // A theme that ships, by name, with its fonts: the agent needs no theme file (PLAN 2.13).
     let made = ok(&client, "deck_create", json!({ "bundle": bundle, "theme": "dusk", "title": "Q3" })).await;
@@ -285,6 +292,106 @@ async fn an_agent_builds_a_deck_with_the_tools_alone() {
     client.cancel().await.unwrap();
 }
 
+/// The operations the editors have, as tools (narrative FUNC-5): a slide started in a theme
+/// layout as Add Slide starts one, a slide's background set and taken away as the Format tab
+/// does, and a deck made from slides written in Narrato's JSON, as `scaena generate --slides`
+/// makes one, with no model called.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_agent_starts_a_slide_sets_a_background_and_builds_from_written_slides() {
+    let client = connect().await;
+    let dir = scratch("editors-ops").join("q3");
+    let bundle = path(&dir);
+    ok(&client, "deck_create", json!({ "bundle": bundle, "theme": "dusk", "title": "Q3" })).await;
+
+    // A slide started in Bullets after the first slide: a new absolute state in the layout, a
+    // text in each slot that holds words, its words the slot's prompt; a dry run writes nothing.
+    let dry =
+        ok(&client, "state_start", json!({ "bundle": bundle, "state": "start", "layout": "bullets", "dry_run": true }))
+            .await;
+    assert_eq!((dry["applied"].clone(), dry["id"].clone()), (json!(false), json!("bullets")), "{dry:#}");
+    let deck = || -> Value { serde_json::from_str(&std::fs::read_to_string(dir.join("deck.json")).unwrap()).unwrap() };
+    assert_eq!(deck()["states"].as_array().unwrap().len(), 1, "a dry run writes nothing");
+    let started = ok(&client, "state_start", json!({ "bundle": bundle, "state": "start", "layout": "bullets" })).await;
+    assert_eq!((started["applied"].clone(), started["id"].clone()), (json!(true), json!("bullets")), "{started:#}");
+    assert_eq!(started["errors"], 0, "{started:#}");
+    let d = deck();
+    assert_eq!(d["states"][1]["id"], "bullets");
+    assert_eq!(
+        (d["states"][1]["layout"].clone(), d["states"][1]["mode"].clone()),
+        (json!("bullets"), json!("absolute"))
+    );
+    let texts = d["nodes"].as_object().unwrap().values().filter(|n| n["type"] == "text").count();
+    assert!(texts >= 2, "a text in each slot that holds words: {d:#}");
+    // A layout the theme lacks stops it, saying so.
+    let lacks = call(&client, "state_start", json!({ "bundle": bundle, "state": "start", "layout": "nowhere" })).await;
+    assert_eq!(lacks.is_error, Some(true));
+    assert!(text(&lacks).contains("no layout `nowhere`"), "{}", text(&lacks));
+
+    // The new slide's background: Texture, kept to its slide; then taken away.
+    let set = ok(&client, "background_set", json!({ "bundle": bundle, "state": "bullets", "preset": "texture" })).await;
+    assert_eq!((set["applied"].clone(), set["errors"].clone()), (json!(true), json!(0)), "{set:#}");
+    let shaders = |d: &Value, state: usize| -> Vec<String> {
+        let ids: Vec<String> = d["nodes"]
+            .as_object()
+            .unwrap()
+            .iter()
+            .filter(|(_, n)| n["type"] == "shader")
+            .map(|(id, _)| id.clone())
+            .collect();
+        let snaps = scaena_core::resolve_states(&scaena_core::Deck::from_value(d).unwrap()).unwrap();
+        ids.into_iter().filter(|id| snaps[state].nodes.contains_key(id)).collect()
+    };
+    let d = deck();
+    assert_eq!(shaders(&d, 1), ["bullets-background"], "{d:#}");
+    assert!(shaders(&d, 0).is_empty(), "it stays on its slide");
+    assert_eq!(d["nodes"]["bullets-background"]["preset"], "texture");
+    let gone = ok(&client, "background_set", json!({ "bundle": bundle, "state": "bullets" })).await;
+    assert_eq!(gone["applied"], true, "{gone:#}");
+    assert!(shaders(&deck(), 1).is_empty());
+    let lacks =
+        call(&client, "background_set", json!({ "bundle": bundle, "state": "bullets", "preset": "nowhere" })).await;
+    assert_eq!(lacks.is_error, Some(true));
+    assert!(text(&lacks).contains("no shader preset `nowhere`"), "{}", text(&lacks));
+
+    // A deck from slides written elsewhere, with no model called and no key: the arc chosen for
+    // the brief, each slide in a theme layout, and the fields health reads.
+    let slides: Value =
+        serde_json::from_str(&std::fs::read_to_string("../scaena-narrato/tests/answers/catalog.json").unwrap())
+            .unwrap();
+    let made_dir = scratch("editors-ops").join("tidewater");
+    let made = ok(
+        &client,
+        "deck_generate",
+        json!({ "bundle": path(&made_dir), "slides": slides, "theme": "ember", "topic": "Tidewater's Series A",
+                "audience": "Investors", "goal": "Persuade", "arc": "Problem–Solution" }),
+    )
+    .await;
+    assert_eq!(
+        (made["created"]["created"].clone(), made["created"]["errors"].clone()),
+        (json!(true), json!(0)),
+        "{made:#}"
+    );
+    assert_eq!(made["arc"], "Problem–Solution", "{made:#}");
+    assert_eq!(made["layouts"].as_array().unwrap().len(), 56, "{made:#}");
+    let d: Value = serde_json::from_str(&std::fs::read_to_string(made_dir.join("deck.json")).unwrap()).unwrap();
+    assert_eq!(d["theme"], "themes/ember.theme.json");
+    assert_eq!(d["meta"]["narrative"]["generator"], "narrato");
+    let health = ok(&client, "deck_health", json!({ "bundle": path(&made_dir) })).await;
+    assert_eq!(health["arc"], "Problem–Solution", "{health:#}");
+    assert_eq!(health["slides"].as_array().unwrap().len(), 56, "{health:#}");
+    // A place taken, and an arc Narrato lacks, are refused before anything is made.
+    let taken = call(&client, "deck_generate", json!({ "bundle": path(&made_dir), "slides": slides })).await;
+    assert!(text(&taken).contains("not an empty directory"), "{}", text(&taken));
+    let no_arc = call(
+        &client,
+        "deck_generate",
+        json!({ "bundle": path(&scratch("editors-ops").join("none")), "slides": slides, "arc": "Spiral" }),
+    )
+    .await;
+    assert!(text(&no_arc).contains("no arc of Narrato's"), "{}", text(&no_arc));
+    client.cancel().await.unwrap();
+}
+
 /// A theme that ships, by its name, as deck_create takes one (PLAN T.0d): copied into the bundle
 /// with its fonts, and Salon by `gallery`, the name it shipped under, too.
 #[tokio::test(flavor = "multi_thread")]
@@ -380,15 +487,144 @@ async fn a_tool_that_stops_says_why() {
     client.cancel().await.unwrap();
 }
 
+/// A tool writes `out` only under the server's folder or the bundle's (lift-up SEC-1).
+#[tokio::test(flavor = "multi_thread")]
+async fn a_tool_writes_only_under_its_folder_or_beside_the_bundle() {
+    // What an agent read may tell it where to write: the server writes `out` under its own
+    // folder or the bundle's, read through every link, and nowhere else.
+    let here = scratch("confined");
+    let elsewhere = scratch("confined-elsewhere");
+    let server = scaena_mcp::Scaena::default().with_dir(here.clone());
+    let client = serve(server, ClientConfig::default(), ClientLifecycleMode::Initialize).await;
+    let deck = path(&Path::new(EXAMPLES).join("revenue.deck.json"));
+    let outside = path(&elsewhere.join("keys"));
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(&elsewhere, here.join("link")).unwrap();
+    let mut refused = vec![outside.clone(), path(&here.join("../confined-elsewhere/keys")), "/".into()];
+    if cfg!(unix) {
+        refused.push(path(&here.join("link/keys")));
+    }
+    for out in &refused {
+        let render = call(&client, "deck_render", json!({ "bundle": deck, "state": "revenue", "out": out })).await;
+        assert_eq!(render.is_error, Some(true), "{out}");
+        assert!(text(&render).contains("is outside where this server writes"), "{}", text(&render));
+        let export = call(&client, "deck_export", json!({ "bundle": deck, "format": "pdf", "out": out })).await;
+        assert_eq!(export.is_error, Some(true), "{out}");
+        assert!(text(&export).contains("is outside where this server writes"), "{}", text(&export));
+    }
+    assert_eq!(elsewhere.read_dir().unwrap().count(), 0, "nothing was written outside");
+    // Nor is a file outside them read into a bundle, whatever it is.
+    let bundle = path(&here.join("q3"));
+    ok(&client, "deck_create", json!({ "bundle": bundle, "theme": "dusk", "title": "Q3" })).await;
+    std::fs::write(elsewhere.join("credentials"), "aws_secret_access_key\nAKIA0000\n").unwrap();
+    let read = call(
+        &client,
+        "data_attach",
+        json!({ "bundle": bundle, "id": "keys", "file": path(&elsewhere.join("credentials")) }),
+    )
+    .await;
+    assert_eq!(read.is_error, Some(true));
+    assert!(text(&read).contains("is outside where this server reads"), "{}", text(&read));
+    assert!(!here.join("q3/data/credentials").exists());
+    // Under its folder, nothing hidden: no key, no cloud credentials, no git hook.
+    std::fs::create_dir_all(here.join(".ssh")).unwrap();
+    std::fs::create_dir_all(here.join(".aws")).unwrap();
+    for out in [".ssh/authorized_keys", ".ssh/frame.png", ".git/hooks/pre-commit.png"] {
+        let render = call(&client, "deck_render", json!({ "bundle": deck, "state": "revenue", "out": out })).await;
+        assert_eq!(render.is_error, Some(true), "{out}");
+        assert!(text(&render).contains("in no hidden folder"), "{out}: {}", text(&render));
+    }
+    std::fs::write(here.join(".aws/credentials.csv"), "key,secret\nAKIA0000,abc\n").unwrap();
+    let hidden = json!({ "bundle": bundle, "id": "aws", "file": path(&here.join(".aws/credentials.csv")) });
+    let read = call(&client, "data_attach", hidden).await;
+    assert_eq!(read.is_error, Some(true));
+    assert!(text(&read).contains("is outside where this server reads"), "{}", text(&read));
+    // And only what the tool writes, by its name: no notes, no shell's start-up file.
+    let notes = call(&client, "deck_render", json!({ "bundle": deck, "state": "revenue", "out": "notes.txt" })).await;
+    assert_eq!(notes.is_error, Some(true));
+    assert!(text(&notes).contains("is no .png file"), "{}", text(&notes));
+    let pdf = call(&client, "deck_export", json!({ "bundle": deck, "format": "pdf", "out": "profile" })).await;
+    assert_eq!(pdf.is_error, Some(true));
+    assert!(text(&pdf).contains("is no .pdf file"), "{}", text(&pdf));
+    let images =
+        call(&client, "deck_export", json!({ "bundle": deck, "format": "png", "out": "LaunchAgent.plist" })).await;
+    assert_eq!(images.is_error, Some(true));
+    assert!(text(&images).contains("this writes a folder of images there"), "{}", text(&images));
+    assert!(
+        !here.join("notes.txt").exists()
+            && !here.join("profile").exists()
+            && !here.join(".ssh/authorized_keys").exists()
+    );
+    // Under its folder, by a path relative to it, it writes.
+    let rendered =
+        call(&client, "deck_render", json!({ "bundle": deck, "state": "revenue", "out": "revenue.png" })).await;
+    assert_ne!(rendered.is_error, Some(true), "{}", text(&rendered));
+    assert!(here.join("revenue.png").is_file());
+    client.cancel().await.unwrap();
+}
+
+/// A theme a tool reads (deck_create, theme_apply, deck_generate) is held as a data file is: a
+/// theme that ships by its name, or one under the server's folder, and nothing else the user
+/// can read (lift-up Security 2).
+#[tokio::test(flavor = "multi_thread")]
+async fn a_theme_is_read_only_from_the_servers_folder_or_by_its_name() {
+    let here = scratch("theme-confined");
+    let elsewhere = scratch("theme-confined-elsewhere");
+    let server = scaena_mcp::Scaena::default().with_dir(here.clone());
+    let client = serve(server, ClientConfig::default(), ClientLifecycleMode::Initialize).await;
+    // A theme that ships, by its name: nothing is read from the disk.
+    let made =
+        ok(&client, "deck_create", json!({ "bundle": path(&here.join("a")), "theme": "dusk", "title": "Q3" })).await;
+    assert_eq!(made["created"], true, "{made:#}");
+    // A theme file under the server's folder, its fonts above it in the bundle it belongs to.
+    let inside = here.join("a/themes/dusk.theme.json");
+    let made = ok(&client, "deck_create", json!({ "bundle": path(&here.join("b")), "theme": path(&inside) })).await;
+    assert_eq!(made["created"], true, "{made:#}");
+    // The same theme anywhere else is refused, by deck_create and by theme_apply, and no bundle is made.
+    copy_dir(&here.join("a"), &elsewhere.join("a"));
+    let outside = path(&elsewhere.join("a/themes/dusk.theme.json"));
+    let refused = call(&client, "deck_create", json!({ "bundle": path(&here.join("c")), "theme": outside })).await;
+    assert_eq!(refused.is_error, Some(true));
+    assert!(text(&refused).contains("is outside where this server reads"), "{}", text(&refused));
+    assert!(!here.join("c").exists());
+    let applied = call(&client, "theme_apply", json!({ "bundle": path(&here.join("a")), "theme": outside })).await;
+    assert_eq!(applied.is_error, Some(true));
+    assert!(text(&applied).contains("is outside where this server reads"), "{}", text(&applied));
+    let slides: Value =
+        serde_json::from_str(&std::fs::read_to_string("../scaena-narrato/tests/answers/catalog.json").unwrap())
+            .unwrap();
+    let generated =
+        call(&client, "deck_generate", json!({ "bundle": path(&here.join("d")), "slides": slides, "theme": outside }))
+            .await;
+    assert_eq!(generated.is_error, Some(true));
+    assert!(text(&generated).contains("is outside where this server reads"), "{}", text(&generated));
+    assert!(!here.join("d").exists());
+    client.cancel().await.unwrap();
+}
+
+fn copy_dir(from: &Path, to: &Path) {
+    std::fs::create_dir_all(to).unwrap();
+    for entry in std::fs::read_dir(from).unwrap() {
+        let entry = entry.unwrap();
+        let target = to.join(entry.file_name());
+        if entry.file_type().unwrap().is_dir() {
+            copy_dir(&entry.path(), &target);
+        } else {
+            std::fs::copy(entry.path(), target).unwrap();
+        }
+    }
+}
+
 /// An export that outlives the client's wait keeps going (SPEC §7.2): the call answers
 /// that it is running and how far it has got, the same call again waits for the rest, and
 /// a different export of the same file is refused until it is done.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_long_export_keeps_going_while_the_client_asks_after_it() {
     // A server that waits for nothing, so every export outlives its first call.
-    let server = scaena_mcp::Scaena::default().with_export_wait(Duration::ZERO);
+    let scratched = scratch("long-export");
+    let server = scaena_mcp::Scaena::default().with_export_wait(Duration::ZERO).with_dir(scratched.clone());
     let client = serve(server, ClientConfig::default(), ClientLifecycleMode::Initialize).await;
-    let dir = scratch("long-export").join("images");
+    let dir = scratched.join("images");
     let (images, deck) = (path(&dir), path(&Path::new(EXAMPLES).join("revenue.deck.json")));
     let png = json!({ "bundle": deck, "format": "png", "out": images });
     let first = ok(&client, "deck_export", png.clone()).await;

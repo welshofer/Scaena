@@ -1,6 +1,7 @@
 // Writing tools (PLAN 2.101): a text's words proofread, tightened, or rewritten, a slide's notes
-// drafted, an issue explained, and a picture described from itself (PLAN 2.119), by the model the
-// assistant uses, with the user's own key. The
+// drafted, an issue explained, a picture described from itself (PLAN 2.119), and a slide's words
+// checked against its beat's claim, its headline rewritten to carry it (narrative FUNC-4), by the
+// model the assistant uses, with the user's own key. The
 // engine says what to ask, from the deck as it stands (`Player.writing`, `scaena_core::writing`),
 // in the words the Mac and the iPad ask in; the worker asks it once, with nothing to call
 // (`write`); and the answer is offered in a dialog, its words to edit before they are taken. Use
@@ -31,7 +32,7 @@ export interface WritingHost {
   format(): string | undefined;
   source(): string;
   /** Take `source`, the patch made: one step to undo. */
-  apply(source: string, edited: Edited): void;
+  apply(source: string, edited: Edited, said?: string): void;
   say(text: string): void;
   /** Show the assistant, its key in focus: where a key goes. */
   keys(): void;
@@ -47,6 +48,7 @@ const TOOK: Record<WritingKind, (what: string) => string> = {
   notes: (what) => `Drafted the notes of ${what}`,
   explain: (what) => `Explained ${what}`,
   describe: (what) => `Described ${what}`,
+  claim: (what) => `Rewrote the headline of ${what} to carry its claim`,
 };
 
 /** What each tool is called before the engine names it, and where nothing is asked. */
@@ -57,6 +59,7 @@ export const TOOLS: Record<WritingKind, string> = {
   notes: "Draft Notes",
   explain: "Explain",
   describe: "Describe",
+  claim: "Check the Claim",
 };
 
 const said = (e: unknown) => (e instanceof Error ? e.message : String(e));
@@ -118,8 +121,11 @@ export function writer(stage: Stage, host: WritingHost) {
     }
     if (mine !== turn) return;
     title.textContent = writing.title;
-    if (writing.task.text !== undefined) {
-      was.textContent = writing.task.text;
+    // The words it works on, as they were: a text's, a picture's description, or the headline a
+    // claim check may rewrite.
+    const before = writing.task.text ?? writing.task.headline;
+    if (before !== undefined) {
+      was.textContent = before;
       was.hidden = false;
     }
     thinking.textContent = `Asking ${who.model}…`;
@@ -192,7 +198,7 @@ export function writer(stage: Stage, host: WritingHost) {
       const what = ask.kind === "describe" ? "the picture" : ask.node !== undefined ? quote(taking.text) : host.slide(ask.state ?? now.state);
       if (!taking.patch?.length) return void host.say(`Nothing to change: ${what} already reads so`);
       const { source, edited } = await stage.make(host.source, taking.patch, now.index, host.format());
-      host.apply(source, edited);
+      host.apply(source, edited, TOOK[ask.kind](what));
       host.say(`${TOOK[ask.kind](what)} · ⌘Z undoes it`);
     } catch (e) {
       host.say(`Not changed: ${said(e)}`);

@@ -35,7 +35,7 @@ export interface FindEditor {
   format(): string | undefined;
   source(): string;
   /** Take `source`, a patch's, as one change: one step to undo. */
-  apply(source: string, edited: Edited): void;
+  apply(source: string, edited: Edited, said?: string): void;
   say(text: string): void;
   /** Show `state`, then mark characters `from`..`to` (UTF-16) of `node`'s text there, and select
    * it; with no characters, select `node` alone; with no node, show the state alone. */
@@ -131,7 +131,7 @@ export function finder(stage: Stage, bar: HTMLElement, editor: FindEditor) {
     const next = then === undefined ? -1 : editor.states().indexOf(then);
     try {
       const { source, edited } = await stage.make(editor.source, ops, next >= 0 ? next : shown.index, editor.format());
-      editor.apply(source, edited);
+      editor.apply(source, edited, done);
       editor.say(done);
       return true;
     } catch (e) {

@@ -116,12 +116,20 @@ export function filesPanel(stage: Stage, into: HTMLElement, editor: FilesEditor)
     ]
       .filter(Boolean)
       .join(" · ");
+    // A button focused in the list is focused again as the list is drawn anew, its row's by its
+    // place there, so a key pressed as the worker answers goes where it was aimed.
+    const focused = document.activeElement;
+    const kept = focused instanceof HTMLButtonElement && list.contains(focused) ? focused.closest<HTMLElement>("[data-path]") : null;
+    const at = kept && ([kept.dataset.path, [...kept.querySelectorAll("button")].indexOf(focused as HTMLButtonElement)] as const);
     list.innerHTML = HEADINGS.filter(([type]) => of(type) > 0)
       .map(([type, heading]) => {
         const rows = listed.filter((f) => f.type === type).map(row);
         return `<h3>${heading}</h3><ul aria-label="${heading}">${rows.join("")}</ul>`;
       })
       .join("");
+    if (!at) return;
+    const again = [...list.querySelectorAll<HTMLElement>("[data-path]")].find((r) => r.dataset.path === at[0]);
+    again?.querySelectorAll("button")[at[1]]?.focus();
   }
 
   /** One file: its path and size, what names it, and the nodes drawn from it. */
