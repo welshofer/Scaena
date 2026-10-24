@@ -491,19 +491,26 @@ public final class Generator {
         let unmade: [String]
     }
 
+    /// What `painter`'s key lists: its best image model, as the engine orders them, or none,
+    /// saying why.
+    private enum Listed {
+        case model(String)
+        case none(why: String)
+    }
+
     /// The best image model `painter`'s key lists, as the engine orders them; none where it
-    /// lists none.
-    private func bestModel(_ painter: Painter) async throws -> String? {
+    /// lists none, or where the listing fails, said in a person's words (PLAN 3.18): the deck is
+    /// made without pictures, as the browser's and the CLI's are (narrative REL-4), never lost
+    /// to its pictures' key.
+    private func bestModel(_ painter: Painter) async throws -> Listed {
         var listing: [String: JSONValue] = ["provider": .string(painter.provider.rawValue), "key": .string(painter.key)]
         if let base = painter.base { listing["base"] = .string(base) }
         let list: Listing = try step("imageModels", listing)
         let listed = await send(list.request)
         // A key the provider does not take, no way to it, or an answer that does not read, said in
         // a person's words (PLAN 3.18), not in the provider's own nor in what the answer holds.
-        let unlisted = {
-            ScaenaError(message: Why.answered(painter.provider, status: listed.status, body: listed.text))
-        }
-        guard (200..<300).contains(listed.status) else { throw unlisted() }
+        let unlisted = Listed.none(why: Why.answered(painter.provider, status: listed.status, body: listed.text))
+        guard (200..<300).contains(listed.status) else { return unlisted }
         let models: Models
         do {
             models = try step(
@@ -514,9 +521,12 @@ public final class Generator {
                     "body": .string(listed.text),
                 ])
         } catch {
-            throw unlisted()
+            return unlisted
         }
-        return models.models.first
+        guard let model = models.models.first else {
+            return .none(why: "your \(painter.provider.name) key lists no image model")
+        }
+        return .model(model)
     }
 
     /// The pictures asked for made by `painter`, every one at once, a busy provider asked again
@@ -558,8 +568,11 @@ public final class Generator {
     /// The pictures the narrative's slides ask for, made by `painter`'s best image model, every
     /// one at once, a busy provider asked again after the wait the engine says; kept for `make`.
     private func paint(_ painter: Painter, theme: String, hear: (GeneratingStep) -> Void) async throws {
-        guard let model = try await bestModel(painter) else {
-            hear(.painted(pictures: 0, unmade: ["your \(painter.provider.name) key lists no image model"]))
+        let model: String
+        switch try await bestModel(painter) {
+        case .model(let best): model = best
+        case .none(let why):
+            hear(.painted(pictures: 0, unmade: [why]))
             return
         }
         var asking: [String: JSONValue] = [
@@ -587,8 +600,11 @@ public final class Generator {
     /// lists, as a made deck's pictures are. Why none was made, where none was, in a person's words
     /// (PLAN 3.18): the key not accepted, the provider's safety system refusing, the provider busy.
     public func picture(subject: String, theme: String, size: CGSize, painter: Painter) async throws -> MadePicture {
-        guard let model = try await bestModel(painter) else {
-            throw ScaenaError(message: "your \(painter.provider.name) key lists no image model")
+        // One picture is the whole ask here, so a key that lists no image model is the error.
+        let model: String
+        switch try await bestModel(painter) {
+        case .model(let best): model = best
+        case .none(let why): throw ScaenaError(message: why)
         }
         var asking: [String: JSONValue] = [
             "theme": .string(theme), "subject": .string(subject), "look": .string(painter.look),
