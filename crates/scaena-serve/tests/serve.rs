@@ -216,6 +216,41 @@ fn the_bundle_is_the_folders_and_nothing_outside_it() {
     }
 }
 
+/// A file the bundle holds is never a live page on the server's origin (lift-up 10-24b SEC-2): its
+/// script would run there, and a write it made would carry the pages' own origin. Each is sandboxed
+/// with nothing it may load, and one a browser would run is a download.
+#[test]
+fn a_bundles_files_are_never_live_pages() {
+    let dir = bundle("sandboxed");
+    let script = b"<script>fetch('/bundle/deck.json', { method: 'DELETE' })</script>";
+    for name in ["x.html", "x.htm", "x.xhtml", "x.svg", "x.xml", "x.js", "x.mjs"] {
+        std::fs::write(dir.join(name), script).unwrap();
+    }
+    let (addr, _) = serve(&dir);
+    for name in ["x.html", "x.htm", "x.xhtml", "x.svg", "x.xml", "x.js", "x.mjs"] {
+        for method in ["GET", "HEAD"] {
+            let answer =
+                request(addr, &format!("{method} /bundle/{name} HTTP/1.1\r\nHost: 127.0.0.1:{}", addr.port()), b"");
+            assert_eq!(answer.status, 200, "{method} {name}");
+            assert_eq!(
+                answer.header("content-security-policy"),
+                Some("sandbox; default-src 'none'"),
+                "{method} {name}"
+            );
+            assert_eq!(answer.header("content-disposition"), Some("attachment"), "{method} {name}");
+        }
+    }
+    // What the pages read as bytes keeps its type, sandboxed too, and is no download.
+    for path in ["/bundle/deck.json", "/bundle/fonts/Inter-VF.ttf", "/bundle/data/q3-revenue.csv"] {
+        let answer = get(addr, path);
+        assert_eq!(answer.status, 200, "{path}");
+        assert_eq!(answer.header("content-security-policy"), Some("sandbox; default-src 'none'"), "{path}");
+        assert_eq!(answer.header("content-disposition"), None, "{path}");
+    }
+    // The server's own pages are not sandboxed.
+    assert_eq!(get(addr, "/index.html").header("content-security-policy"), None);
+}
+
 #[test]
 fn a_page_writes_inside_the_folder_and_is_heard_once() {
     let dir = bundle("writes");

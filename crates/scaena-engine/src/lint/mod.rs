@@ -10,6 +10,7 @@
 mod contrast;
 mod fonts;
 mod motion;
+mod pictures;
 mod space;
 mod text;
 
@@ -204,6 +205,10 @@ fn lint_in(
                 out.extend(rule.check(&cx));
             }
             if let Some(b) = backdrop.as_deref_mut() {
+                // A picture is the same file in every format: drawn once, in the deck's own (E107).
+                if format.is_none() {
+                    out.extend(pictures::e107(&cx, &pictures::undrawable(&states, b)));
+                }
                 out.extend(contrast::check(&cx, b, &mut faint)?);
             }
         }

@@ -219,6 +219,31 @@ public struct Starter: Decodable, Sendable, Identifiable, Equatable {
     }
 }
 
+/// How VoiceOver reads a slide down the side or on the light table (lift-up 10-24b USE-4): by its
+/// number and the words that head it, as a presentation app's navigator reads a slide's title.
+public enum SlideReading {
+    /// A row of the slides down the side: `Slide 3: What we refuse`, a step `Slide 3, step 2: …`,
+    /// and one no text heads by its number alone.
+    public static func row(number: Int, step: Int, headline: String?) -> String {
+        headed(step > 1 ? "Slide \(number), step \(step)" : "Slide \(number)", headline)
+    }
+
+    /// A slide on the light table: `Slide 3: What we refuse`, by the state it is drawn at.
+    public static func cell(number: Int, headline: String?) -> String {
+        headed("Slide \(number)", headline)
+    }
+
+    /// What a slide of several steps says after its name: `3 steps`; one of one, nothing.
+    public static func steps(_ count: Int) -> String {
+        count > 1 ? "\(count) steps" : ""
+    }
+
+    private static func headed(_ name: String, _ headline: String?) -> String {
+        guard let headline, !headline.isEmpty else { return name }
+        return "\(name): \(headline)"
+    }
+}
+
 /// A slide as the light table shows it (PLAN 2.97): its id, and its states as the timeline plays
 /// them, the last of which it is drawn at, as the PDF draws it.
 public struct Slide: Identifiable, Equatable, Sendable {

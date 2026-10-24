@@ -68,30 +68,47 @@ public struct Keychain: Sendable {
             about: "The key Scaena's assistant asks \(provider.name)'s models with")
     }
 
+    /// The key kept under `account` replaced in place, never taken away first, so a write the
+    /// Keychain refuses (a locked device, a keychain not reached) leaves the key kept before as it
+    /// was (lift-up 10-24b REL-5); none, or an empty one, takes it away.
     private func write(_ key: String?, account: String, label: String, about: String) throws {
-        for query in [item(account), legacy(account)] {
-            let gone = SecItemDelete(query as CFDictionary)
-            guard gone == errSecSuccess || gone == errSecItemNotFound || gone == errSecMissingEntitlement else {
-                throw refusal(gone)
+        guard let key, !key.isEmpty else {
+            for query in [item(account), legacy(account)] {
+                let gone = SecItemDelete(query as CFDictionary)
+                guard gone == errSecSuccess || gone == errSecItemNotFound || gone == errSecMissingEntitlement else {
+                    throw refusal(gone)
+                }
             }
+            return
         }
-        guard let key, !key.isEmpty else { return }
-        var added = item(account)
-        added[kSecValueData as String] = Data(key.utf8)
-        added[kSecAttrLabel as String] = label
-        added[kSecAttrDescription as String] = about
-        added[kSecAttrAccessible as String] = Self.accessible
-        var status = SecItemAdd(added as CFDictionary, nil)
+        let given: [String: Any] = [
+            kSecValueData as String: Data(key.utf8),
+            kSecAttrLabel as String: label,
+            kSecAttrDescription as String: about,
+        ]
+        var protected = given
+        protected[kSecAttrAccessible as String] = Self.accessible
+        var status = replaced(item(account), with: protected)
         if status == errSecMissingEntitlement {
             // A Mac build signed without a keychain group (ad hoc, or `swift test`) has no
             // data-protection keychain: the key is kept in the file-based one, as before.
-            var kept = legacy(account)
-            kept[kSecValueData as String] = Data(key.utf8)
-            kept[kSecAttrLabel as String] = label
-            kept[kSecAttrDescription as String] = about
-            status = SecItemAdd(kept as CFDictionary, nil)
+            status = replaced(legacy(account), with: given)
+            guard status == errSecSuccess else { throw refusal(status) }
+            return
         }
         guard status == errSecSuccess else { throw refusal(status) }
+        #if os(macOS)
+        // Kept in the data-protection keychain: one left in a Mac's file-based keychain from before
+        // goes, now that it stands in for it. On the iPad the two are one item, which stays.
+        SecItemDelete(legacy(account) as CFDictionary)
+        #endif
+    }
+
+    /// The item `query` finds given `values` in place, or added where there is none.
+    private func replaced(_ query: [String: Any], with values: [String: Any]) -> OSStatus {
+        let status = SecItemUpdate(query as CFDictionary, values as CFDictionary)
+        guard status == errSecItemNotFound else { return status }
+        return SecItemAdd(query.merging(values) { _, given in given } as CFDictionary, nil)
     }
 
     /// The providers a key is kept for.
