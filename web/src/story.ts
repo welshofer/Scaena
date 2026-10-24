@@ -169,6 +169,14 @@ export function storyPanel(stage: Stage, into: HTMLElement, editor: StoryEditor)
     title.textContent = h.slides[slide - 1]?.title ?? "";
     head.append(show, title);
     li.append(head);
+    // What its words came from, of the sources the deck was grounded in (narrative FUNC-3).
+    const sources = h.slides[slide - 1]?.sources ?? [];
+    if (sources.length) {
+      const from = document.createElement("p");
+      from.dataset.sources = "";
+      from.textContent = `From ${sources.join(", ")}`;
+      li.append(from);
+    }
     for (const f of run) {
       const p = document.createElement("p");
       p.dataset.kind = f.kind;
