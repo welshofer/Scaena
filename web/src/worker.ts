@@ -2034,11 +2034,27 @@ function run(index: number, t: number, run: number, still = false, alone = false
       post({ type: "at", index, t: shown, global: slot.start + shown, playing, frame: timing });
       if (still) rested = index;
     }
-    if (!playing) return;
+    if (!playing) return ahead(index + 1, run);
     if (still) setTimeout(() => frame(performance.now()), slot.span + slot.hold - t);
     else next(frame);
   };
   next(frame);
+}
+
+/** Lay out the cue into slot `index` while the one before it rests, so going on draws its first
+ * frame at once (lift-up PERF-1): once the worker has answered what waits, and only while run
+ * `run` is the one shown. */
+function ahead(index: number, run: number) {
+  const slot = slots[index];
+  if (!slot || slot.span <= 0) return;
+  setTimeout(() => {
+    if (run !== latest) return;
+    try {
+      player.prepare(slot.state);
+    } catch (e) {
+      console.warn(`the next cue could not be laid out ahead: ${said(e)}`);
+    }
+  }, 0);
 }
 
 const next = (frame: (now: number) => void) => {

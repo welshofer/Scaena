@@ -1015,7 +1015,7 @@ Stages are pure and cached:
 
 Design notes:
 - Interpolating resolved geometry (post-layout) is what makes morphs cheap and deterministic; text morph interpolates word boxes and cross-fades glyph runs, chart morph interpolates mark geometry.
-- Layout is per-snapshot, not per-frame. Frames only sample. In code (PLAN 0.10), `Engine::transition` lays out a state and the one before it once, and `Transition::frame(t)` samples them. It holds no fonts or layout engine, so it cannot lay out.
+- Layout is per-snapshot, not per-frame. Frames only sample. In code (PLAN 0.10), `Engine::transition` lays out a state and the one before it once, and `Transition::frame(t)` samples them. It holds no fonts or layout engine, so it cannot lay out. A show lays out the next state's cue while the state shown rests (`Session::prepare`, the player's worker and the Mac's and the iPad's show calling it), so going on draws its first frame without laying out (lift-up PERF-1).
 - Multiple `formats` re-run layout with a different template set; the spine and nodes are shared. `scaena_engine::project` puts the deck on the format's canvas and the theme on its template set before anything is laid out (PLAN 1.13), so layout itself knows nothing of formats.
 - The engine exposes a **C ABI** (`scaena-ffi`, via `cbindgen`) and a **WASM API** (`scaena-wasm`, via `wasm-bindgen`) with the same surface: load bundle, list states, resolve timeline, `frame(state, t, format) -> DisplayList`, `lint`, `patch`.
 

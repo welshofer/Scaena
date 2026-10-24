@@ -111,6 +111,10 @@ fn a_bundle_opened_from_its_files_draws_its_goldens() {
     let timeline = call(s, "timeline", Value::Null);
     let first = &timeline[0];
     assert!(first["state"].is_string() && first["slide"].is_string() && first["start"].is_number(), "{first}");
+    // Each state's cue laid out ahead, as a show does while the state before it rests (PERF-1).
+    for slot in timeline.as_array().unwrap() {
+        assert_eq!(call(s, "prepare", json!({ "state": slot["state"] })), Value::Null);
+    }
     unsafe { scaena_session_free(s) };
 }
 
@@ -479,6 +483,10 @@ fn every_misuse_is_an_error_never_a_crash() {
     assert!(error(&answer(c("duration").as_ptr(), null())).contains("`state`"));
     assert!(
         error(&answer(c("duration").as_ptr(), c(r#"{"state":"no-such-state"}"#).as_ptr())).contains("no-such-state")
+    );
+    // A show lays the next cue out ahead (lift-up PERF-1): a state the deck lacks is said.
+    assert!(
+        error(&answer(c("prepare").as_ptr(), c(r#"{"state":"no-such-state"}"#).as_ptr())).contains("no-such-state")
     );
     let nul: Value =
         serde_json::from_str(&took(unsafe { scaena_call(null_mut(), c("states").as_ptr(), null()) })).unwrap();
