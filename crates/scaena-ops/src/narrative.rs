@@ -18,13 +18,14 @@ use scaena_core::model::nodes::TextFit;
 use scaena_core::model::theme::{Example, Prompt, PromptItems, PromptShapeKind, Slot, Theme};
 use scaena_core::model::values::Range;
 use scaena_core::{Deck, Finding};
+pub use scaena_narrato::Slide;
 pub use scaena_narrato::brief::Brief;
 use scaena_narrato::fit::Long;
 use scaena_narrato::layouts::{self, Varied};
 use scaena_narrato::look::{Change, Choice, Seen};
 use scaena_narrato::pictures::{self, Frame, Look, Palette};
 use scaena_narrato::{
-    ChartData, Document, Generation, Icon, Narrative, Picture, Provenance, Provider, Request, Settings, Slide, Step,
+    ChartData, Document, Generation, Icon, Narrative, Picture, Provenance, Provider, Request, Settings, Step,
 };
 pub use scaena_sources::Given;
 use scaena_sources::{Source, Table};
@@ -32,6 +33,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
+
+mod one;
+pub use one::{Place, SlideWritten, Written, one_asked, slide_into, slide_write, slide_writing};
 
 /// The canvas a made deck draws on.
 const CANVAS: [u32; 2] = [1920, 1080];
@@ -1648,6 +1652,23 @@ pub fn deck_as(
     pictures: &Pictures,
     layouts: &BTreeMap<usize, String>,
 ) -> Result<Made, OpsError> {
+    let count = narrative.slides.len();
+    assemble(narrative, theme, pictures, layouts, Builder::default(), 0, count).map(|(made, _)| made)
+}
+
+/// [`deck_as`], the slides built into `deck`, which may hold a deck's nodes, states, data, and
+/// spine ids already, so what is built takes ids none of them has (lift-up FUNC-1): the narrative's
+/// first slide stands at index `first` of a deck of `total` slides, which its layout and its
+/// entrance read. The deck made, and the builder as it ends.
+fn assemble(
+    narrative: &Narrative,
+    theme: &Theme,
+    pictures: &Pictures,
+    layouts: &BTreeMap<usize, String>,
+    mut deck: Builder,
+    first: usize,
+    total: usize,
+) -> Result<(Made, Builder), OpsError> {
     if narrative.slides.is_empty() {
         return Err(OpsError::new("a narrative with no slides makes no deck"));
     }
@@ -1664,8 +1685,7 @@ pub fn deck_as(
     let varied = varied(narrative);
 
     let lang = deck_lang(&narrative.brief);
-    let rtl = lang.is_some_and(scaena_core::direction::right_to_left);
-    let mut deck = Builder { mirrored: rtl, ..Builder::default() };
+    deck.mirrored = lang.is_some_and(scaena_core::direction::right_to_left);
     let mut sections: Vec<Value> = Vec::new();
     let mut last_beat = None;
     let mut chosen = Vec::with_capacity(count);
@@ -1683,9 +1703,15 @@ pub fn deck_as(
             });
             let layout = match given {
                 Some(layout) => layout.clone(),
-                None => {
-                    layout_for(v.layout.identity(), slide, &items, i, theme, pictures.contains_key(&i), icons.is_some())
-                }
+                None => layout_for(
+                    v.layout.identity(),
+                    slide,
+                    &items,
+                    first + i,
+                    theme,
+                    pictures.contains_key(&i),
+                    icons.is_some(),
+                ),
             };
             Planned { beat, items, icons, layout }
         })
@@ -1721,7 +1747,8 @@ pub fn deck_as(
             icons,
             lang: lang.unwrap_or("en"),
         };
-        let entrance = entrance(&layout, slide, previous.as_ref().map(|(l, s)| (l.as_str(), *s)), i + 1 == count);
+        let entrance =
+            entrance(&layout, slide, previous.as_ref().map(|(l, s)| (l.as_str(), *s)), first + i + 1 == total);
         let made = deck.slide(slots, entrance)?;
         let divider = layout.starts_with("section") && !slide.slide_title.is_empty();
         if divider {
@@ -1758,7 +1785,8 @@ pub fn deck_as(
             sections.last_mut().expect("opened above")["title"] = json!(slide.slide_title);
             divided = true;
         }
-        let claim = if slide.slide_title.is_empty() { format!("Slide {}", i + 1) } else { slide.slide_title.clone() };
+        let claim =
+            if slide.slide_title.is_empty() { format!("Slide {}", first + i + 1) } else { slide.slide_title.clone() };
         let beat_id = deck.unique(&slug(&claim, "beat"), Taken::Beat);
         let seconds = scaena_narrato::duration::seconds(
             &slide.speaker_notes,
@@ -1830,13 +1858,13 @@ pub fn deck_as(
         "meta": meta,
         "canvas": { "width": CANVAS[0], "height": CANVAS[1] },
         "spine": { "sections": sections },
-        "nodes": Value::Object(deck.nodes),
-        "states": deck.states,
+        "nodes": Value::Object(deck.nodes.clone()),
+        "states": deck.states.clone(),
     });
     if !deck.data.is_empty() {
-        out["data"] = Value::Object(deck.data);
+        out["data"] = Value::Object(deck.data.clone());
     }
-    Ok(Made { deck: out, layouts: chosen, assets: BTreeMap::new() })
+    Ok((Made { deck: out, layouts: chosen, assets: BTreeMap::new() }, deck))
 }
 
 /// `planned` with no three slides in a row on one of the theme's layouts (lift-up ATTR-2):
@@ -7122,5 +7150,141 @@ mod tests {
             .map(|(_, s)| s.key_bullets.len() - 1)
             .sum::<usize>();
         assert!(steps > 0 && steps == bulleted, "{steps} steps, {bulleted} points past the first");
+    }
+
+    /// A deck made of `picks` of the catalog's slides in Dusk, as JSON, with its theme.
+    fn made_of(picks: &[usize]) -> (Value, Theme, Vec<Slide>) {
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let (summary, slides) = catalog();
+        let chosen: Vec<Slide> = picks.iter().map(|i| slides[*i].clone()).collect();
+        let made = deck(&narrative(&summary, chosen), &theme, &Pictures::new()).unwrap();
+        (made.deck, theme, slides)
+    }
+
+    /// `doc` with `patch` compiled and applied, as `deck_patch` applies one.
+    fn patched(doc: &Value, patch: &[Value]) -> Value {
+        let nothing = scaena_store::Files::Zip(Default::default());
+        let view = View { base: &nothing, pending: BTreeMap::new() };
+        scaena_core::patch::compile(doc, patch, &view).unwrap().doc
+    }
+
+    /// Each slide's first state, in order.
+    fn firsts(doc: &Value) -> Vec<String> {
+        let deck = Deck::from_json(&doc.to_string()).unwrap();
+        deck.slides().iter().map(|s| deck.states[s[0]].id.clone()).collect()
+    }
+
+    /// The section and the beat that list `state`.
+    fn beat_of(doc: &Value, state: &str) -> (usize, usize, String) {
+        for (s, section) in doc["spine"]["sections"].as_array().unwrap().iter().enumerate() {
+            for (b, beat) in section["beats"].as_array().unwrap().iter().enumerate() {
+                if beat["states"].as_array().unwrap().iter().any(|x| x == state) {
+                    return (s, b, beat["id"].as_str().unwrap().to_string());
+                }
+            }
+        }
+        panic!("no beat lists `{state}`")
+    }
+
+    #[test]
+    fn a_slide_written_after_another_stands_after_it_and_in_its_beats_section() {
+        let (doc, theme, slides) = made_of(&[0, 8, 12, 55]);
+        let before = firsts(&doc);
+        let written =
+            slide_into(&doc, &theme, slides[20].clone(), &Place::After(before[1].clone()), BTreeMap::new()).unwrap();
+        let after = patched(&doc, &written.patch);
+        let now = firsts(&after);
+        assert_eq!(now.len(), before.len() + 1);
+        assert_eq!(now[2], written.states[0], "it stands after the slide it follows");
+        assert_eq!((&now[..2], &now[3..]), (&before[..2], &before[2..]), "every other slide stays where it was");
+        // Its beat follows the beat of the slide before it, in that beat's section, its claim
+        // the slide's title.
+        let (s, b, _) = beat_of(&doc, &before[1]);
+        let (s2, b2, id) = beat_of(&after, &written.states[0]);
+        assert_eq!((s2, b2), (s, b + 1));
+        assert_eq!(id, written.beat);
+        let beat = &after["spine"]["sections"][s2]["beats"][b2];
+        assert_eq!(beat["claim"], json!(slides[20].slide_title.replace('\'', "\u{2019}")));
+        // Every id it takes is new, and the deck reads as a deck, its story in order and told.
+        for id in after["nodes"].as_object().unwrap().keys() {
+            assert!(doc["nodes"].get(id).is_none() || doc["nodes"][id] == after["nodes"][id], "{id} kept as it was");
+        }
+        let deck = Deck::from_json(&after.to_string()).unwrap();
+        let nothing = scaena_store::Files::Zip(Default::default());
+        let view = View { base: &nothing, pending: BTreeMap::new() };
+        let found = lint_in(&deck, &view).unwrap().findings;
+        let story: Vec<_> = found.iter().filter(|f| matches!(f.code.as_str(), "W426" | "W429")).collect();
+        assert!(story.is_empty(), "{story:#?}");
+        // At the end, it goes after every slide, in the last section.
+        let end = slide_into(&doc, &theme, slides[20].clone(), &Place::End, BTreeMap::new()).unwrap();
+        let after = patched(&doc, &end.patch);
+        assert_eq!(firsts(&after).last(), Some(&end.states[0]));
+    }
+
+    #[test]
+    fn a_slide_written_again_takes_its_place_and_beat_and_leaves_what_another_slide_shows() {
+        let (mut doc, theme, slides) = made_of(&[0, 8, 12, 55]);
+        let before = firsts(&doc);
+        // The third slide shows the second's headline too: it is the third's still once the
+        // second is written again.
+        let second = doc["states"].as_array().unwrap().iter().find(|s| s["id"] == before[1]).unwrap().clone();
+        let header = second["props"].as_object().unwrap().keys().find(|k| k.ends_with("-header")).unwrap().clone();
+        let third = doc["states"].as_array_mut().unwrap().iter_mut().find(|s| s["id"] == before[2]).unwrap();
+        third["props"][&header] = second["props"][&header].clone();
+        let gone: Vec<String> =
+            second["props"].as_object().unwrap().keys().filter(|k| **k != header).cloned().collect();
+        let (_, _, old_beat) = beat_of(&doc, &before[1]);
+
+        let written =
+            slide_into(&doc, &theme, slides[8].clone(), &Place::Replace(before[1].clone()), BTreeMap::new()).unwrap();
+        let after = patched(&doc, &written.patch);
+        let now = firsts(&after);
+        assert_eq!(now.len(), before.len());
+        assert_eq!(now[1], written.states[0], "it stands in the old slide's place");
+        assert!(!now.contains(&before[1]));
+        let (_, _, beat) = beat_of(&after, &written.states[0]);
+        assert_eq!(
+            (beat.as_str(), written.beat.as_str()),
+            (old_beat.as_str(), old_beat.as_str()),
+            "the beat keeps its id"
+        );
+        assert!(after["nodes"].get(&header).is_some(), "what another slide shows stays");
+        for id in &gone {
+            assert!(after["nodes"].get(id).is_none(), "{id} went with its slide");
+        }
+        // Written again from the same slide, it says what it said, in the same layout.
+        let original = made_of(&[0, 8, 12, 55]).0;
+        let texts = |d: &Value, state: &str| -> Vec<String> {
+            let mut t: Vec<String> =
+                shown(d, state).into_iter().filter(|(slot, _)| !slot.ends_with("card")).map(|(_, said)| said).collect();
+            t.sort();
+            t
+        };
+        assert_eq!(texts(&after, &written.states[0]), texts(&original, &before[1]));
+        let layout = |d: &Value, state: &str| {
+            d["states"].as_array().unwrap().iter().find(|s| s["id"] == state).unwrap()["layout"].clone()
+        };
+        assert_eq!(layout(&after, &written.states[0]), layout(&original, &before[1]));
+    }
+
+    #[test]
+    fn what_a_model_is_asked_for_one_slide_is_its_place_in_the_deck() {
+        let (doc, _, slides) = made_of(&[0, 8, 12, 55]);
+        let firsts = firsts(&doc);
+        let claim = |state: &str| {
+            let (s, b, _) = beat_of(&doc, state);
+            doc["spine"]["sections"][s]["beats"][b]["claim"].as_str().unwrap().to_string()
+        };
+        let again = one_asked(&doc, &Place::Replace(firsts[1].clone()), "Shorter").unwrap();
+        assert_eq!(again.brief.audience, "Investors");
+        assert_eq!(again.arc, "Problem\u{2013}Solution");
+        assert_eq!(again.before.as_deref(), Some(claim(&firsts[0]).as_str()));
+        assert_eq!(again.after.as_deref(), Some(claim(&firsts[2]).as_str()));
+        assert_eq!(again.claim.as_deref(), Some(claim(&firsts[1]).as_str()));
+        let now = again.now.unwrap();
+        assert!(now.contains(&slides[8].key_bullets[0].split(':').next().unwrap().trim().to_string()), "{now}");
+        let added = one_asked(&doc, &Place::After(firsts[3].clone()), "What comes next").unwrap();
+        assert_eq!((added.after, added.now, added.claim), (None, None, None));
+        assert_eq!(added.before.as_deref(), Some(claim(&firsts[3]).as_str()));
     }
 }

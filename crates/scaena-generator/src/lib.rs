@@ -778,3 +778,57 @@ pub fn keyed_url(get: &str, key: &str) -> Result<String, JsError> {
     let get: scaena_objects::Get = serde_json::from_str(get).map_err(error)?;
     Ok(get.keyed_url(key))
 }
+
+/// Where a slide goes, as the page names it: `{ "after": STATE }`, `{ "replace": STATE }`, or
+/// `{}` for the end (lift-up FUNC-1).
+fn place(place: &str) -> Result<scaena_ops::narrative::Place, JsError> {
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Named {
+        #[serde(default)]
+        after: Option<String>,
+        #[serde(default)]
+        replace: Option<String>,
+    }
+    let named: Named = serde_json::from_str(place).map_err(|e| error(format!("where the slide goes: {e}")))?;
+    match (named.after, named.replace) {
+        (Some(_), Some(_)) => Err(error("give `after` or `replace`, not both")),
+        (Some(state), None) => Ok(scaena_ops::narrative::Place::After(state)),
+        (None, Some(state)) => Ok(scaena_ops::narrative::Place::Replace(state)),
+        (None, None) => Ok(scaena_ops::narrative::Place::End),
+    }
+}
+
+/// What to ask a model for one slide of `deck` (`deck.json`) at `place`, with the person's `ask`
+/// (lift-up FUNC-1): `{ system, prompt }`, the request's two halves, as Redo This Slide… and Add
+/// a Slide About… send them.
+#[wasm_bindgen(js_name = oneAsked)]
+pub fn one_asked(deck: &str, place_json: &str, ask: &str) -> Result<String, JsError> {
+    let doc: Value = serde_json::from_str(deck).map_err(error)?;
+    let one = scaena_ops::narrative::one_asked(&doc, &place(place_json)?, ask).map_err(error)?;
+    let asked = json!({ "system": scaena_narrato::one::ONE_SLIDE_SYSTEM, "prompt": scaena_narrato::one::prompt(&one) });
+    Ok(asked.to_string())
+}
+
+/// The one slide a model's `answer` holds, as Narrato writes a slide: what `slideInto` takes.
+#[wasm_bindgen(js_name = oneAnswered)]
+pub fn one_answered(answer: &str) -> Result<String, JsError> {
+    let slide = scaena_narrato::one::answer(answer).map_err(error)?;
+    serde_json::to_string(&slide).map_err(error)
+}
+
+/// `slide` (a slide as Narrato writes one) built for `deck` in `theme` (its JSON) at `place`, as
+/// the deck's generator builds a slide (lift-up FUNC-1), each icon its words name from `icons`
+/// (`{ word: { name, path, view } }`, as `giveIcons` takes them): `{ patch, states, layout, beat }`,
+/// the patch the session takes as one `deck_patch`.
+#[wasm_bindgen(js_name = slideInto)]
+pub fn slide_into(deck: &str, theme: &str, slide: &str, place_json: &str, icons: &str) -> Result<String, JsError> {
+    let doc: Value = serde_json::from_str(deck).map_err(error)?;
+    let theme: scaena_core::model::theme::Theme =
+        serde_json::from_str(theme).map_err(|e| error(format!("the theme: {e}")))?;
+    let slide: scaena_ops::narrative::Slide =
+        serde_json::from_str(slide).map_err(|e| error(format!("the slide: {e}")))?;
+    let icons = serde_json::from_str(icons).map_err(|e| error(format!("the icons: {e}")))?;
+    let written = scaena_ops::narrative::slide_into(&doc, &theme, slide, &place(place_json)?, icons).map_err(error)?;
+    serde_json::to_string(&written).map_err(error)
+}

@@ -21,6 +21,7 @@ pub mod heuristic;
 mod js;
 pub mod layouts;
 pub mod look;
+pub mod one;
 pub mod outline;
 pub mod pictures;
 pub mod prompt;

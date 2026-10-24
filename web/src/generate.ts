@@ -36,6 +36,51 @@ export async function health(deck: string): Promise<Health> {
   return JSON.parse((await generator()).health(deck)) as Health;
 }
 
+/** Where a slide goes in an open deck (lift-up FUNC-1): after the slide that holds a state, in
+ * place of it, or, with neither, at the end. */
+export interface SlidePlace {
+  after?: string;
+  replace?: string;
+}
+
+/** What to ask a model for one slide of `deck` at `place`, with the person's `ask` (lift-up
+ * FUNC-1): the request's instructions and prompt. */
+export async function oneAsked(deck: string, place: SlidePlace, ask: string): Promise<{ system: string; prompt: string }> {
+  return JSON.parse((await generator()).oneAsked(deck, JSON.stringify(place), ask)) as { system: string; prompt: string };
+}
+
+/** The one slide a model's `answer` holds, as Narrato writes a slide. */
+export async function oneAnswered(answer: string): Promise<Record<string, unknown>> {
+  return JSON.parse((await generator()).oneAnswered(answer)) as Record<string, unknown>;
+}
+
+/** `slide` built for `deck` in `theme` at `place`, as the deck's generator builds a slide, its
+ * icons found in the set the page carries: the patch that puts it there, its states, its layout,
+ * and its beat. */
+export async function slideInto(
+  deck: string,
+  theme: string,
+  slide: Record<string, unknown>,
+  place: SlidePlace,
+): Promise<{ patch: unknown[]; states: string[]; layout: string; beat: string }> {
+  const words = Array.isArray(slide.icons) ? (slide.icons as unknown[]).filter((w): w is string => typeof w === "string") : [];
+  const found: Record<string, { name: string; path: string; view: number[] }> = {};
+  if (words.length) {
+    const set = await iconSet();
+    for (const word of words) {
+      const [first] = findIcons(set, word);
+      if (first) found[word] = { name: first.name, path: first.regular, view: set.view };
+    }
+  }
+  const g = await generator();
+  return JSON.parse(g.slideInto(deck, theme, JSON.stringify(slide), JSON.stringify(place), JSON.stringify(found))) as {
+    patch: unknown[];
+    states: string[];
+    layout: string;
+    beat: string;
+  };
+}
+
 /** What a brief may ask, as Narrato knows it. */
 export async function choices(): Promise<Choices> {
   return JSON.parse((await generator()).choices()) as Choices;

@@ -116,6 +116,7 @@ async fn the_tools_and_resources_are_listed() {
             "deck_render",
             "icon_find",
             "map_fetch",
+            "slide_write",
             "spine_read",
             "spine_update",
             "state_start",
@@ -396,6 +397,31 @@ async fn an_agent_starts_a_slide_sets_a_background_and_builds_from_written_slide
     let health = ok(&client, "deck_health", json!({ "bundle": path(&made_dir) })).await;
     assert_eq!(health["arc"], "Problem–Solution", "{health:#}");
     assert_eq!(health["slides"].as_array().unwrap().len(), 56, "{health:#}");
+    // One slide written into it as its generator builds them (lift-up FUNC-1): after the cover,
+    // in its theme, its beat after the cover's, and the deck still free of errors.
+    let first = d["states"][0]["id"].as_str().unwrap().to_string();
+    let one = slides["slides"][12].clone();
+    let written = ok(&client, "slide_write", json!({ "bundle": path(&made_dir), "slide": one, "after": first })).await;
+    assert_eq!((written["applied"].clone(), written["errors"].clone()), (json!(true), json!(0)), "{written:#}");
+    let state = written["slide"][0].as_str().unwrap().to_string();
+    let d: Value = serde_json::from_str(&std::fs::read_to_string(made_dir.join("deck.json")).unwrap()).unwrap();
+    let slide_two = d["states"].as_array().unwrap().iter().filter(|s| s["mode"] == "absolute").nth(1).unwrap();
+    assert_eq!(slide_two["id"], json!(state), "it stands after the cover");
+    // Written again in its place, with nothing written under a dry run.
+    let again = ok(
+        &client,
+        "slide_write",
+        json!({ "bundle": path(&made_dir), "slide": slides["slides"][20], "replace": state, "dry_run": true }),
+    )
+    .await;
+    assert_eq!(again["applied"], json!(false), "{again:#}");
+    let both = call(
+        &client,
+        "slide_write",
+        json!({ "bundle": path(&made_dir), "slide": one, "after": first, "replace": first }),
+    )
+    .await;
+    assert!(text(&both).contains("not both"), "{}", text(&both));
     // A place taken, and an arc Narrato lacks, are refused before anything is made.
     let taken = call(&client, "deck_generate", json!({ "bundle": path(&made_dir), "slides": slides })).await;
     assert!(text(&taken).contains("not an empty directory"), "{}", text(&taken));
