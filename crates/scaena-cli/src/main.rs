@@ -380,6 +380,45 @@ enum Cmd {
         #[arg(long, default_value_t = 20)]
         limit: usize,
     },
+    /// Start a slide after a state's slide, as Add Slide starts one (PLAN 3.30), in one of the
+    /// theme's layouts: a new state in the layout, a text in each of its slots that says what goes
+    /// there, its words to type over, and the slots that wait for a picture or a figure left
+    /// empty; it stays on its slide. One patch, all or none, refused as `patch` refuses one, and
+    /// reported as `patch` reports one, with the new state's id. `inspect --layouts` lists the
+    /// layouts a state may take.
+    Start {
+        bundle: PathBuf,
+        /// The state the slide goes after: after the last step of its slide, in its beat.
+        state: String,
+        /// One of the theme's layouts, by its name in the theme (`bullets`, `big-number`, …). A
+        /// blank slide without it.
+        #[arg(long)]
+        layout: Option<String>,
+        /// Say what would change, and write nothing.
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// A slide's background (PLAN 2.148): with PRESET, one of the theme's shader presets filling
+    /// the canvas behind everything on the state's slide, entering in its first state and kept to
+    /// the slide, each text too faint to read over it set in the theme's color that reads there;
+    /// with `--none`, taken away. One patch, refused as `patch` refuses one. With neither, what
+    /// the slide may take: each preset the theme offers, the one it has, and why backgrounds stay
+    /// off a slide that shows a chart or a table.
+    Background {
+        bundle: PathBuf,
+        /// A state of the slide.
+        state: String,
+        /// The theme's shader preset (`backdrop`, `aurora`, `texture`, `haze`, `lagoon`, `sweep`,
+        /// `dust` in the themes that ship).
+        #[arg(conflicts_with = "none")]
+        preset: Option<String>,
+        /// Take the slide's background away.
+        #[arg(long)]
+        none: bool,
+        /// Say what would change, and write nothing.
+        #[arg(long)]
+        dry_run: bool,
+    },
     /// The deck's narrative health (PLAN G.9): Vzestup's measures of a talk, over its slides as
     /// its spine tells them: pacing against the length its brief asked, the points each slide
     /// makes and its notes, how each follows from the one before, how the intensity each
@@ -788,6 +827,10 @@ fn run(cli: Cli) -> Result<ExitCode> {
                 center: center.map(|v| [v[0], v[1]]),
             };
             map(&a, cli.json)
+        }
+        Cmd::Start { bundle, state, layout, dry_run } => start(&bundle, &state, layout.as_deref(), dry_run, cli.json),
+        Cmd::Background { bundle, state, preset, none, dry_run } => {
+            background(&bundle, &state, preset.as_deref(), none, dry_run, cli.json)
         }
         Cmd::Health { bundle } => health(&bundle, cli.json),
         Cmd::Icons { query, fill, limit } => icons(&query.join(" "), fill, limit, cli.json),
@@ -1231,6 +1274,82 @@ fn data(bundle: &Path, source: &str, edits: Option<&Path>, dry_run: bool, json: 
 
 /// `scaena files` (PLAN 2.59): the bundle's images, fonts, and data, and what uses each; or,
 /// with `remove`, those taken out, all or none, which exits 1 where one cannot be.
+/// `scaena start` (PLAN 3.30): a slide started in a layout after a state's slide, as one patch,
+/// reported as `patch` reports one, with the new state's id. Exits 1 where it is refused or
+/// errors remain, as `patch` does.
+fn start(bundle: &Path, state: &str, layout: Option<&str>, dry_run: bool, json: bool) -> Result<ExitCode> {
+    let b = open(bundle)?;
+    let s = scaena_ops::states::start(&b, state, layout, dry_run)?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&s)?);
+    } else {
+        let p = &s.patched;
+        match (p.refused, dry_run) {
+            (true, _) => println!("refused: the slide would make the deck invalid; nothing was written"),
+            (false, true) => println!("would add {} after {state}'s slide, {} ops as JSON Patch", s.id, p.patch.len()),
+            (false, false) => println!("added {} after {state}'s slide, {} ops as JSON Patch", s.id, p.patch.len()),
+        }
+        print_delta(&p.added, &p.removed);
+    }
+    Ok(if s.patched.refused || s.patched.errors > 0 { ExitCode::from(1) } else { ExitCode::SUCCESS })
+}
+
+/// `scaena background` (PLAN 2.148): a slide's background set to one of the theme's presets, or
+/// taken away, as one patch, reported as `patch` reports one; with neither asked, what the slide
+/// may take. Exits 1 where it is refused or errors remain, as `patch` does.
+fn background(
+    bundle: &Path,
+    state: &str,
+    preset: Option<&str>,
+    none: bool,
+    dry_run: bool,
+    json: bool,
+) -> Result<ExitCode> {
+    let b = open(bundle)?;
+    if preset.is_none() && !none {
+        let theme = scaena_ops::theme(&b)?;
+        let files = scaena_ops::lint::View::of(&b);
+        let offered = scaena_ops::backgrounds::offered(&b.deck, &theme, &files, state)?;
+        if json {
+            println!("{}", serde_json::to_string_pretty(&offered)?);
+            return Ok(ExitCode::SUCCESS);
+        }
+        println!("the slide begins at {}", offered.first);
+        if let Some(held) = &offered.held {
+            println!("  {held}");
+        }
+        for o in &offered.options {
+            let now = if o.current { "  (now)" } else { "" };
+            match (&o.preset, &o.said) {
+                (Some(preset), Some(kind)) => println!("  {preset:<12} {}, {kind}{now}", o.label),
+                _ => println!("  {:<12} {}{now}", "--none", o.label),
+            }
+        }
+        return Ok(ExitCode::SUCCESS);
+    }
+    let p = match dry_run {
+        true => {
+            let (mut p, _) = scaena_ops::backgrounds::backgrounding(&b, state, preset)?;
+            p.applied = false;
+            p
+        }
+        false => scaena_ops::backgrounds::background(&b, state, preset)?,
+    };
+    if json {
+        println!("{}", serde_json::to_string_pretty(&p)?);
+    } else {
+        let what =
+            preset.map_or("the background taken away".to_string(), |name| format!("the background set to {name}"));
+        match (p.refused, dry_run) {
+            (true, _) => println!("refused: {what} would make the deck invalid; nothing was written"),
+            (false, true) => println!("would apply {what}, {} ops as JSON Patch", p.patch.len()),
+            (false, false) => println!("applied {what}, {} ops as JSON Patch", p.patch.len()),
+        }
+        print_delta(&p.added, &p.removed);
+    }
+    Ok(if p.refused || p.errors > 0 { ExitCode::from(1) } else { ExitCode::SUCCESS })
+}
+
 fn health(bundle: &Path, json: bool) -> Result<ExitCode> {
     let h = scaena_ops::health::health(&open(bundle)?.deck)?;
     if json {
