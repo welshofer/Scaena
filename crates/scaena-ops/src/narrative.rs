@@ -1839,6 +1839,8 @@ fn media(slide: &Slide) -> Value {
     put("valence", slide.expected_valence.map(|v| json!(v)));
     put("visual", Some(&slide.visual_description).filter(|v| !v.is_empty()).map(|v| json!(v)));
     put("fact", slide.supporting_facts.as_ref().filter(|v| !v.is_empty()).map(|v| json!(v)));
+    // The subtitle, kept where no place of the slide's layout sets it (dogfood: 15 of 32 did not).
+    put("subtitle", Some(&slide.subtitle).filter(|v| !v.is_empty()).map(|v| json!(v)));
     Value::Object(m)
 }
 
@@ -2150,6 +2152,8 @@ fn layout_for(
         "metric" => "big-number",
         "scorecard" | "kpi-grid" => match n {
             0..=2 => "two-numbers",
+            // Three prices, each with its tier: a pricing slide.
+            3 if priced(items) && theme.layouts.contains_key("pricing") => "pricing",
             3 => "numbers",
             // Four figures too wide for a quarter of the slide, or named at length: a square of
             // them, each as large as its quarter takes (G.16).
@@ -2617,6 +2621,13 @@ impl Slots<'_> {
             .or_else(|| Some(self.body.to_string()).filter(|b| !b.is_empty() && !b.starts_with('\u{2022}')))
     }
 
+    /// A chart's caption: its source, else the slide's supporting fact. What it shows is its
+    /// value axis's title, which a caption never says again.
+    fn caption(&self) -> Option<String> {
+        let chart = self.slide.chart_data.as_ref()?;
+        (chart.source_id.as_deref().filter(|s| !s.trim().is_empty())).map(|s| self.sourced(s)).or_else(|| self.fact())
+    }
+
     fn fact(&self) -> Option<String> {
         self.slide.supporting_facts.clone().filter(|t| !t.is_empty())
     }
@@ -2795,7 +2806,15 @@ impl Slots<'_> {
             if part.is_empty()
                 && let Some(kind) = list_kind
             {
-                return Some(Fill::List(listed(&item.detail).iter().map(|p| sentence(p)).collect(), kind));
+                // What the item's figure and name places leave of it, as a text place takes it.
+                let role = slot.role.as_deref().unwrap_or_default();
+                let rest = self.part(k, item, "", role).unwrap_or_else(|| item.detail.clone());
+                let points: Vec<String> = listed(&rest).iter().map(|p| sentence(p)).collect();
+                // One point is words, not a list of one.
+                return Some(match <[String; 1]>::try_from(points) {
+                    Ok([one]) => Fill::Text(one),
+                    Err(points) => Fill::List(points, kind),
+                });
             }
             let role = slot.role.as_deref().unwrap_or_default();
             return text(self.part(k, item, part, role));
@@ -2825,6 +2844,7 @@ impl Slots<'_> {
                 self.fact().as_deref().and_then(figure).or_else(|| self.item(0).and_then(|i| figure(&i.whole)))
             }
             "under" | "detail" => self.fact().or_else(|| self.item(1).map(|i| i.whole.clone())),
+            "note" if layout.ends_with("chart") && self.slide.chart_data.is_some() => self.caption(),
             "note" => {
                 let source = self.slide.chart_data.as_ref().and_then(|c| c.source_id.clone()).map(|s| self.sourced(&s));
                 let fallback = if layout == "full" { self.subtitle() } else { None };
@@ -2852,6 +2872,7 @@ impl Slots<'_> {
         // Where the layout shows the item's figure apart, and where its name.
         let figure_apart = sibling("figure")
             || sibling("target")
+            || sibling("price")
             || (sibling("title") && figure_role(title_role))
             || (sibling("number") && self.numbered_by_figure());
         let name_apart = (sibling("title") && !figure_role(title_role)) || sibling("date") || sibling("item");
@@ -2932,16 +2953,13 @@ impl Slots<'_> {
                 (self.item(0).filter(|i| i.figure_first()).and_then(|i| i.label.clone()))
                     .or_else(|| self.slide.chart_data.as_ref().and_then(latest)),
             ),
+            // The takeaway, then the chart's caption a line of its own: what it shows, and its source.
             ("line-chart", "note", _) => {
                 let takeaway =
                     self.item(0).map(|i| if i.figure_first() { sentence(&i.detail) } else { i.whole.clone() });
-                let source = (self.slide.chart_data.as_ref())
-                    .and_then(|c| c.source_id.clone())
-                    .map(|s| self.sourced(&s))
-                    .or_else(|| self.fact());
-                text(match (takeaway.filter(|t| !t.is_empty()), source) {
-                    (Some(t), Some(s)) => Some(format!("{t} \u{b7} {s}")),
-                    (t, s) => t.or(s),
+                text(match (takeaway.filter(|t| !t.is_empty()), self.caption()) {
+                    (Some(t), Some(c)) => Some(format!("{t}\n{c}")),
+                    (t, c) => t.or(c),
                 })
             }
             // The objective is the header; the slide's title stands over it.
@@ -3350,12 +3368,32 @@ impl Builder {
                     let mut node =
                         json!({ "type": "text", "role": role, "text": entries.join("\n"), "list": list, "at": at });
                     // A slide's one list, where it is short, set larger to fill its place: up to the
-                    // size of the theme's lede, under its titles still.
-                    // An agenda's short lines up to the size of its titles.
-                    let most = if s.layout.starts_with("agenda") { "title" } else { "lede" };
+                    // size of the theme's lede, under its titles still, and where each of its
+                    // lines is short, up to three-quarters of the headline, as a card's statement
+                    // grows (dogfood pass 4). An agenda's short lines up to the size of its titles.
+                    let size = |r: &str| s.theme.typography.roles.get(r).map(|r| r.size);
+                    let short = entries.len() <= 5 && entries.iter().all(|e| e.chars().count() <= 60);
+                    let most = match () {
+                        _ if s.layout.starts_with("agenda") => size("title"),
+                        _ if short => size("headline").map(|h| (h * 0.75).max(size("lede").unwrap_or(0.0))),
+                        _ => size("lede"),
+                    };
                     if name == "body"
-                        && let Some(most) = s.theme.typography.roles.get(most).map(|r| r.size)
+                        && let Some(most) = most
                     {
+                        node["fit"] = json!("grow");
+                        node["maxSize"] = json!(most);
+                    }
+                    // A list in a place of a set, each side's or each phase's, grows as the set's
+                    // words do, held to one size with the rest of its set (G.12).
+                    // A short one in a body's place grows as the slide's one short list does.
+                    if ordinal(name).is_some()
+                        && let Some(most) = s.grown(name, role)
+                    {
+                        let most = match short && role == "body" {
+                            true => size("headline").map_or(most, |h| (h * 0.75).max(most)),
+                            false => most,
+                        };
                         node["fit"] = json!("grow");
                         node["maxSize"] = json!(most);
                     }
@@ -3417,7 +3455,16 @@ impl Builder {
                     self.data.insert(data.clone(), source(chart, s.layout == "line-chart" && years(chart)));
                     made.data = Some(data.clone());
                     let takeaway = s.item(0).map(|i| i.whole.as_str());
-                    chart_node(chart, &data, s.layout, &s.slide.slide_title, takeaway, s.lang, at)
+                    let subtitle = Some(s.slide.subtitle.trim()).filter(|t| !t.is_empty());
+                    chart_node(
+                        chart,
+                        &data,
+                        s.layout,
+                        [&s.slide.slide_title, takeaway.unwrap_or_default()],
+                        subtitle,
+                        s.lang,
+                        at,
+                    )
                 }
             };
             // An email or a web address the words name links to it (PLAN 2.70, dogfood 2); a bare
@@ -3426,6 +3473,18 @@ impl Builder {
             if let Some(runs) = node["text"].as_str().and_then(|t| linked(t, !heading)) {
                 node.as_object_mut().map(|n| n.remove("text"));
                 node["runs"] = json!(runs);
+            }
+            // A line's source stands under its takeaway in the theme's caption role, smaller, so it
+            // never shrinks the takeaway with it to fit (dogfood: charts).
+            if s.layout == "line-chart"
+                && name == "note"
+                && s.caption().is_some()
+                && s.theme.typography.roles.contains_key("caption")
+                && let Some((takeaway, source)) = node["text"].as_str().and_then(|t| t.rsplit_once('\n'))
+            {
+                let runs = json!([{ "text": takeaway }, { "text": format!("\n{source}"), "role": "caption" }]);
+                node.as_object_mut().map(|n| n.remove("text"));
+                node["runs"] = runs;
             }
             if node.get("semantic").is_none() && node["type"] == "text" && !claimed && s.title().is_none() {
                 // A slide with no title says what it is in its first words.
@@ -3771,6 +3830,17 @@ fn ordered(categories: &[String]) -> bool {
 
 /// Whether four items' figures want a square of them, not a row (G.16): the widest longer than
 /// a quarter of the slide sets at a figure's size grown, "4.5 mm/yr", or one named at length.
+/// Whether each of `items` is a price and the tier it buys, named first in its words: "$29:
+/// Team, per agent per month".
+fn priced(items: &[Item]) -> bool {
+    items.iter().all(|i| {
+        let tier = i.name().unwrap_or_default();
+        i.figure_first()
+            && i.label.as_deref().is_some_and(|l| l.starts_with(['$', '\u{20ac}', '\u{a3}', '\u{a5}']))
+            && (1..=3).contains(&tier.split_whitespace().count())
+    })
+}
+
 fn square(items: &[Item]) -> bool {
     let widest = items.iter().filter_map(Item::figure).map(|f| f.chars().count()).max().unwrap_or(0);
     let longest = items.iter().filter_map(Item::name).map(|n| n.chars().count()).max().unwrap_or(0);
@@ -3925,20 +3995,25 @@ fn chart_node(
     chart: &ChartData,
     data: &str,
     layout: &str,
-    title: &str,
-    takeaway: Option<&str>,
+    said: [&str; 2],
+    subtitle: Option<&str>,
     lang: &str,
     at: Value,
 ) -> Value {
+    let [title, takeaway] = said;
+    let takeaway = Some(takeaway).filter(|t| !t.is_empty());
     let kind = if layout == "line-chart" { "line" } else { "bar" };
     let several = chart.series.len() > 1;
     // Every value with the decimals of the most precise of them, two at most: 2.0 beside 1.1.
     let decimals = decimals(chart);
-    let y_title = match (chart.series.first().and_then(|s| s.name.as_deref()), chart.unit.as_deref()) {
-        (Some(name), Some(unit)) if !several && !name.contains(unit) => Some(format!("{name} ({unit})")),
-        (Some(name), _) if !several => Some(name.to_string()),
-        (_, Some(unit)) => Some(unit.to_string()),
-        _ => None,
+    let titled = |name: &str| match chart.unit.as_deref() {
+        Some(unit) if !name.contains(unit) => format!("{name} ({unit})"),
+        _ => name.to_string(),
+    };
+    let y_title = match (on_axis(subtitle), chart.series.first().and_then(|s| s.name.as_deref())) {
+        (Some(subtitle), _) => Some(titled(subtitle)),
+        (None, Some(name)) if !several => Some(titled(name)),
+        _ => chart.unit.clone(),
     };
     let mut y = json!({ "field": "value", "type": "quantitative", "format": format!(",.{decimals}f") });
     let alt = described(chart, kind, y_title.as_deref(), lang);
@@ -3989,7 +4064,49 @@ fn chart_node(
         notes.extend(period(chart, [Some(title), takeaway]));
         node["annotations"] = json!(notes);
     }
+    // Lines of several series light the one the headline, else the takeaway, names: "SMB churn
+    // climbed to 4.9% while mid-market churn fell" is about SMB's.
+    if kind == "line"
+        && several
+        && let Some(named) = named_series(chart, [Some(title), takeaway])
+    {
+        let mut notes = vec![json!({ "kind": "highlight", "at": { "series": named } })];
+        notes.extend(period(chart, [Some(title), takeaway]));
+        node["annotations"] = json!(notes);
+    }
     node
+}
+
+/// The subtitle that titles a chart's value axis, as a designer titles a chart over its plot:
+/// "Quarterly logo churn by segment, %" over SMB's and mid-market's lines, not a lone "%". One
+/// too long for an axis leaves it as the series and the unit title it; it stays in the narrative.
+fn on_axis(subtitle: Option<&str>) -> Option<&str> {
+    subtitle.map(str::trim).filter(|s| !s.is_empty() && s.chars().count() <= AXIS)
+}
+
+/// The most characters a subtitle titles a value axis in.
+const AXIS: usize = 60;
+
+/// The series of several the first of `said` names, first in its words where it names more than
+/// one, by name as a whole word, with case set aside: "US" in "US churn", never in "business".
+fn named_series(chart: &ChartData, said: [Option<&str>; 2]) -> Option<String> {
+    said.into_iter().flatten().find_map(|text| {
+        let text = text.to_lowercase();
+        (chart.series.iter())
+            .filter_map(|s| s.name.as_deref().filter(|n| !n.trim().is_empty()))
+            .filter_map(|n| word_at(&text, &n.to_lowercase()).map(|at| (at, n)))
+            .min_by_key(|(at, _)| *at)
+            .map(|(_, n)| n.to_string())
+    })
+}
+
+/// Where `word` first stands in `text` as a whole word: no letter or digit just before or after it.
+fn word_at(text: &str, word: &str) -> Option<usize> {
+    text.match_indices(word).map(|(at, _)| at).find(|&at| {
+        let before = text[..at].chars().next_back();
+        let after = text[at + word.len()..].chars().next();
+        !before.is_some_and(char::is_alphanumeric) && !after.is_some_and(char::is_alphanumeric)
+    })
 }
 
 /// What a chart shows, said to a reader who does not see it (dogfood 2), in the deck's language:
@@ -4108,10 +4225,22 @@ mod tests {
         for id in state["props"].as_object().unwrap().keys() {
             let node = &deck["nodes"][id];
             let slot = node["at"]["in"].as_str().unwrap().to_string();
-            let said = node["text"].as_str().map_or_else(|| node["type"].as_str().unwrap().to_string(), str::to_string);
+            let said = if node["text"].is_string() || node["runs"].is_array() {
+                words(node)
+            } else {
+                node["type"].as_str().unwrap().to_string()
+            };
             out.push((slot, said));
         }
         out
+    }
+
+    /// A text node's words, its runs' joined where it has them.
+    fn words(node: &Value) -> String {
+        match node["runs"].as_array() {
+            Some(runs) => runs.iter().filter_map(|r| r["text"].as_str()).collect(),
+            None => node["text"].as_str().unwrap_or_default().to_string(),
+        }
     }
 
     /// A theme is asked whether its fonts draw a language before any call is paid for (PLAN
@@ -4537,6 +4666,97 @@ mod tests {
             ],
         );
         assert_eq!(layout, "milestones");
+    }
+
+    /// Short words in a large place grow to fill it (dogfood pass 4): each side's list of a
+    /// pros and cons, each month's of a roadmap, as one set; a slide's one short list past the
+    /// lede, under its headline still. Prices each with a tier go on a pricing slide, the tier
+    /// titling its card and the price its figure.
+    #[test]
+    fn short_lists_grow_to_fill_their_places_and_prices_name_their_tiers() {
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let (summary, slides) = catalog();
+        let made = |name: &str, bullets: &[&str]| {
+            let mut slide = slides.iter().find(|s| s.layout_suggestion == name).unwrap().clone();
+            slide.key_bullets = bullets.iter().map(|b| b.to_string()).collect();
+            let made = deck(
+                &narrative(&summary, vec![slides[0].clone(), slide, slides[55].clone()]),
+                &theme,
+                &Pictures::new(),
+            )
+            .unwrap();
+            let state = made.deck["states"][1]["id"].as_str().unwrap().to_string();
+            (made.layouts[1].clone(), made.deck.clone(), state)
+        };
+        let node = |deck: &Value, state: &str, slot: &str| deck["nodes"][format!("{state}-{slot}")].clone();
+        let size = |r: &str| theme.typography.roles[r].size;
+        // Each side's list of short points grows as the words of a set do, to three-quarters of
+        // the headline.
+        let (layout, deck, state) = made(
+            "Pros / Cons",
+            &[
+                "Pros: cuts SMB churn by an estimated 40%; simpler packaging; wins back price-sensitive prospects",
+                "Cons: $1.2M of ARR at risk from downgrades; sales retraining in Q4; margin dilution of 0.4 points",
+            ],
+        );
+        assert_eq!(layout, "pros-cons");
+        for side in ["first", "second"] {
+            let n = node(&deck, &state, side);
+            assert!(n["list"].is_array(), "{n:#}");
+            assert_eq!(
+                (n["fit"].as_str(), n["maxSize"].as_f64()),
+                (Some("grow"), Some(size("headline") * 0.75)),
+                "{n:#}"
+            );
+        }
+        let (layout, deck, state) = made(
+            "Roadmap",
+            &[
+                "October: launch the Starter tier; call 400 at-risk SMB accounts; fix the renewal email flow",
+                "November: close the two Fortune 500 pilots; hire four enterprise AEs; restart paid search",
+                "December: run the partner webinar series; review churn weekly; set FY27 targets",
+            ],
+        );
+        assert_eq!(layout, "roadmap");
+        assert_eq!(node(&deck, &state, "first")["fit"], "grow");
+        // A slide's one list of short lines may grow past the lede, to three-quarters of its
+        // headline; a long one keeps the lede.
+        let (layout, deck, state) = made(
+            "Numbered",
+            &[
+                "How common is the condition in people like me?",
+                "How often does the test catch it?",
+                "How often does it raise a false alarm?",
+                "Of all the positives, what share are real?",
+            ],
+        );
+        assert_eq!(layout, "numbered");
+        assert_eq!(node(&deck, &state, "body")["maxSize"].as_f64(), Some(size("headline") * 0.75));
+        let (_, deck, state) = made(
+            "Numbered",
+            &[
+                "How common is the condition in people like me, counted over the last ten years of screening?",
+                "How often does the test catch it?",
+                "How often does it raise a false alarm?",
+            ],
+        );
+        assert_eq!(node(&deck, &state, "body")["maxSize"].as_f64(), Some(size("lede")));
+        // Prices each with its tier: the tier titles the card, the price is its figure.
+        let (layout, deck, state) = made(
+            "Scorecard",
+            &[
+                "$0: Starter, up to 3 agents and 500 drafts a month",
+                "$29: Team, per agent per month, unlimited drafts",
+                "$59: Business, adds SSO, audit log, and a 99.9% SLA",
+            ],
+        );
+        assert_eq!(layout, "pricing");
+        assert_eq!(node(&deck, &state, "first-title")["text"], "Starter");
+        assert_eq!(node(&deck, &state, "first-price")["text"], "$0");
+        assert_eq!(node(&deck, &state, "first")["text"], "Up to 3 agents and 500 drafts a month");
+        assert!(node(&deck, &state, "first")["list"].is_null(), "one point is no list");
+        assert_eq!(node(&deck, &state, "third-title")["text"], "Business");
+        assert_eq!(node(&deck, &state, "third")["text"], "Adds SSO, audit log, and a 99.9% SLA");
     }
 
     /// A figure keeps the magnitude a language writes after it: "41.2万ドル" is $412K.
@@ -5016,6 +5236,100 @@ mod tests {
         assert!(node(7, "kicker").is_null() && node(0, "kicker").is_null() && node(24, "kicker").is_null());
     }
 
+    /// A chart makes its claim (dogfood pass, charts): a line of several series lights the one its
+    /// headline names, as a whole word; its value axis says what it plots from the subtitle, with
+    /// the unit, where the subtitle is short enough to; its caption says where it comes from, a
+    /// line of its own under a line's takeaway, and never what the axis says; and every slide keeps
+    /// its subtitle with the narrative.
+    #[test]
+    fn a_chart_makes_its_claim_and_says_what_it_shows() {
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let chart = |series: Value, unit: &str| json!({ "categories": ["Q4", "Q1", "Q2", "Q3"], "series": series, "unit": unit, "sourceId": "Churn dashboard" });
+        let slides = vec![
+            answer::normalize(&json!({ "slideTitle": "Q3 review", "layoutSuggestion": "Title" })),
+            answer::normalize(&json!({
+                "slideTitle": "SMB churn climbed to 4.9% while mid-market churn fell",
+                "subtitle": "Quarterly logo churn by segment, %",
+                "layoutSuggestion": "Line Chart",
+                "keyBullets": ["SMB churn has risen four quarters in a row"],
+                "chartData": chart(json!([
+                    { "name": "Mid-market", "values": [3.1, 2.9, 2.6, 2.4] },
+                    { "name": "SMB", "values": [3.8, 4.1, 4.5, 4.9] },
+                ]), "%"),
+            })),
+            answer::normalize(&json!({
+                "slideTitle": "ARR grew fivefold this year to $910K",
+                "subtitle": "Annual recurring revenue by month, $K",
+                "layoutSuggestion": "Line Chart",
+                "keyBullets": ["ARR reached $910K in September, up 5\u{d7} since January"],
+                "chartData": chart(json!([{ "name": "ARR", "values": [180, 420, 700, 910] }]), "$K"),
+            })),
+            answer::normalize(&json!({
+                "slideTitle": "Three questions make up most of every queue",
+                "subtitle": "Share of tickets by topic, 1,140 teams",
+                "layoutSuggestion": "Bar Chart",
+                "keyBullets": ["Order status, login, and billing are 62% of all tickets"],
+                "chartData": {
+                    "categories": ["Order status", "Login", "Billing", "Other"],
+                    "series": [{ "name": "Share of tickets", "values": [28, 19, 15, 38] }],
+                    "unit": "%", "sourceId": "Relay ticket benchmark",
+                },
+            })),
+            answer::normalize(&json!({ "slideTitle": "Thank you", "layoutSuggestion": "Closing" })),
+        ];
+        let made = deck(&narrative("A review.", slides), &theme, &Pictures::new()).unwrap();
+        let firsts: Vec<&str> = (made.deck["states"].as_array().unwrap().iter())
+            .filter(|s| s.get("slide").is_none())
+            .map(|s| s["id"].as_str().unwrap())
+            .collect();
+        let node = |i: usize, slot: &str| made.deck["nodes"][format!("{}-{slot}", firsts[i])].clone();
+        assert_eq!(made.layouts[1..4], ["line-chart", "line-chart", "bar-chart"]);
+        // Two series: SMB's is lit, the one the headline is about, and the axis says what both plot.
+        let churn = node(1, "main");
+        assert_eq!(churn["annotations"], json!([{ "kind": "highlight", "at": { "series": "SMB" } }]));
+        assert_eq!(churn["y"]["title"], "Quarterly logo churn by segment, %");
+        // The takeaway in the note's role, then the source on a line of its own in the caption's,
+        // so the source never shrinks the takeaway.
+        assert_eq!(
+            node(1, "note")["runs"],
+            json!([
+                { "text": "SMB churn has risen four quarters in a row" },
+                { "text": "\nSource: Churn dashboard", "role": "caption" },
+            ])
+        );
+        // One series: the subtitle titles it too, and the takeaway stands over the source alone.
+        assert_eq!(node(2, "main")["y"]["title"], "Annual recurring revenue by month, $K");
+        assert_eq!(
+            words(&node(2, "note")),
+            "ARR reached $910K in September, up 5\u{d7} since January\nSource: Churn dashboard"
+        );
+        // A bar chart's axis takes the unit its subtitle lacks, and its caption is its source.
+        assert_eq!(node(3, "main")["y"]["title"], "Share of tickets by topic, 1,140 teams (%)");
+        assert_eq!(node(3, "note")["text"], "Source: Relay ticket benchmark");
+        // Every subtitle is kept with the narrative, whether or not a place of its layout sets it.
+        let beats: Vec<&Value> = (made.deck["spine"]["sections"].as_array().unwrap().iter())
+            .flat_map(|s| s["beats"].as_array().unwrap())
+            .collect();
+        assert_eq!(beats[3]["media"]["narrato"]["subtitle"], "Share of tickets by topic, 1,140 teams");
+        assert!(beats[0]["media"]["narrato"].get("subtitle").is_none(), "the cover has none");
+    }
+
+    /// A series is named as a whole word: "US" is not in "business", nor "EU" in "neutral".
+    #[test]
+    fn a_series_is_named_as_a_whole_word() {
+        let chart: ChartData = serde_json::from_value(json!({
+            "categories": ["2023", "2024"],
+            "series": [{ "name": "US", "values": [1, 2] }, { "name": "EU", "values": [2, 3] }],
+        }))
+        .unwrap();
+        assert_eq!(named_series(&chart, [Some("Business users grew"), Some("neutral, maintained")]), None);
+        assert_eq!(named_series(&chart, [Some("Business users grew in the EU"), None]).as_deref(), Some("EU"));
+        assert_eq!(named_series(&chart, [Some("The US, then the EU"), None]).as_deref(), Some("US"));
+        // A subtitle too long for an axis titles none.
+        let long = "Share of overbilled dollars by error type, across 38 pilot shippers and four quarters";
+        assert_eq!((on_axis(Some(long)), on_axis(Some(" Churn, % "))), (None, Some("Churn, %")));
+    }
+
     /// A slide's foot names its part of the talk only while the talk is in the beat its divider
     /// opened, and a divider stands by the number of the agenda item it opens; a deck with one
     /// divider, or no agenda, numbers none (narrative wayfinding).
@@ -5217,7 +5531,11 @@ mod tests {
             "every value said where they are few: {energy}"
         );
         let warming = placed(&made.deck, 4, "main")["alt"].as_str().unwrap().to_string();
-        assert!(warming.starts_with("Line chart: Anomaly (\u{b0}C). 1880 "), "{warming}");
+        // What it counts is what its axis says: its subtitle (dogfood: charts).
+        assert!(
+            warming.starts_with("Line chart: Global temperature anomaly, \u{b0}C vs 1850\u{2013}1900. 1880 "),
+            "{warming}"
+        );
         // More than a dozen values: each series' highest and lowest.
         let months = ChartData {
             categories: (1..=13).map(|m| format!("M{m}")).collect(),
@@ -5320,7 +5638,7 @@ mod tests {
         for spanish in ["Hace", "Piensa", "Siente"] {
             assert!(said.iter().any(|w| w == spanish), "{spanish} in {said:?}");
         }
-        let note = placed(&made.deck, 4, "note")["text"].as_str().unwrap().to_string();
+        let note = words(placed(&made.deck, 4, "note"));
         assert!(note.ends_with("Fuente: NASA GISS"), "{note}");
         assert!(placed(&made.deck, 4, "main")["alt"].as_str().unwrap().starts_with("Gráfico de líneas"));
         // A year's months and a 2×2's axes, in Spanish, never left empty.
@@ -5348,7 +5666,7 @@ mod tests {
             .map(|(_, w)| w)
             .collect();
         assert!(said.iter().any(|w| w == "Does"), "{said:?}");
-        assert!(placed(&made.deck, 4, "note")["text"].as_str().unwrap().ends_with("Source: NASA GISS"));
+        assert!(words(placed(&made.deck, 4, "note")).ends_with("Source: NASA GISS"));
     }
 
     #[test]

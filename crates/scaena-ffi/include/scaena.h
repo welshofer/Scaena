@@ -259,7 +259,9 @@ char *scaena_picture(const uint8_t *bytes, size_t len);
 // one, or those `layouts` names, a null the blank one, each `{layout, name, description, group,
 // width, height}`, painted `height` pixels high, which
 // [`scaena_starter_pixels`] takes; `starting {state, layout?}`, the patch that starts one after
-// the slide of `state`, `{id, patch}`; `waiting {state}`, the slots of its layout that wait
+// the slide of `state`, `{id, patch}`; `titling {state}`, the patch that makes a new deck's
+// title slide after it, its places for a picture given the theme's example, `{id, patch}`;
+// `waiting {state}`, the slots of its layout that wait
 // for what their prompts say goes there, each `{slot, rect, words, typed, role?}`; and
 // `filling {state, slot}`, the patch that fills one that waits for words as a new slide fills
 // it, `{id, patch}`; and `prompted {state, node}`, whether a text still reads as its slot's
