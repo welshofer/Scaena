@@ -1,5 +1,8 @@
 //! Find and replace across the deck's words, in every state (PLAN 2.47, 2.83, ADR-0013): its
-//! texts, each node's description (`alt`), each state's notes, and each beat's claim and notes.
+//! texts, each node's description (`alt`), each state's notes, each beat's claim and notes, the
+//! words a chart or a table draws that the deck writes (an axis's or a channel's title, a legend's
+//! title, an annotation's text, a column's title, and the values a highlight picks out), and the
+//! words in the cells of a data source written inline (dogfood pass 3).
 //!
 //! A text node's text is written in one place for each state that shows it: the deck's
 //! `overrides`, which hold it in every state; else the latest delta that sets it, from the
@@ -45,6 +48,12 @@ pub enum Kind {
     Notes,
     /// A beat's claim.
     Claim,
+    /// Words a chart or a table draws that the deck writes: an axis's or a channel's `title`, a
+    /// legend's `title`, an annotation's `text`, a column's `title`, or a value an annotation's
+    /// `at` picks out (`x`, `series`), which names a value of the data it is drawn from.
+    Chart,
+    /// A cell of a data source written inline in the deck (`data.<name>.source.inline`).
+    Data,
 }
 
 /// Words the deck holds, as written in one place, and where a query matches them.
@@ -53,9 +62,17 @@ pub struct Found {
     /// What the words are: a text, a description, notes, or a claim.
     #[serde(default)]
     pub kind: Kind,
-    /// The node: the text's, or the one the description describes. None for notes or a claim.
+    /// The node: the text's, the one the description describes, or the chart or table that draws
+    /// the words. None for notes, a claim, or a data source's cell.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub node: Option<String>,
+    /// The data source a cell is of, by its name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+    /// The file a cell is in, for a data source read from one: found, and left as it is by a
+    /// replacement, which writes the deck alone.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file: Option<String>,
     /// The beat, for its claim or its notes.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub beat: Option<String>,
@@ -114,6 +131,8 @@ pub fn find(doc: &Value, query: &Query) -> Result<Vec<Found>, String> {
         places.entry(lives.clone()).and_modify(|f| f.states.push(state.to_string())).or_insert_with(|| Found {
             kind,
             node: node.map(str::to_string),
+            source: None,
+            file: None,
             beat,
             state: state.to_string(),
             states: vec![state.to_string()],
@@ -162,11 +181,47 @@ pub fn find(doc: &Value, query: &Query) -> Result<Vec<Found>, String> {
             if let Some(alt) = props.get("alt").and_then(Value::as_str) {
                 add(&mut places, Kind::Alt, Some(node), None, state, written(i, node, "alt", over), alt);
             }
+            if matches!(kind(node), Some("chart" | "table")) {
+                for (prop, path, words) in drawn(&props) {
+                    let lives = format!("{}{path}", written(i, node, prop, over));
+                    add(&mut places, Kind::Chart, Some(node), None, state, lives, &words);
+                }
+            }
+        }
+    }
+    // Each cell of a data source written inline, in the states that draw a chart or a table of it.
+    for (name, source) in doc.get("data").and_then(Value::as_object).into_iter().flatten() {
+        let Some(rows) = source.pointer("/source/inline").and_then(Value::as_array) else { continue };
+        let reading = format!("@{name}");
+        let states: Vec<String> = (snapshots.iter())
+            .filter(|s| s.nodes.values().any(|p| p.get("data").and_then(Value::as_str) == Some(reading.as_str())))
+            .map(|s| s.state_id.clone())
+            .collect();
+        for (r, row) in rows.iter().enumerate() {
+            for (column, cell) in row.as_object().into_iter().flatten() {
+                let Some(text) = cell.as_str() else { continue };
+                let lives = format!("/data/{}/source/inline/{r}/{}", esc(name), esc(column));
+                places.insert(
+                    lives.clone(),
+                    Found {
+                        kind: Kind::Data,
+                        node: None,
+                        source: Some(name.clone()),
+                        file: None,
+                        beat: None,
+                        state: states.first().cloned().unwrap_or_else(|| first_state(&snapshots)),
+                        states: states.clone(),
+                        lives,
+                        matches: matches(text, query),
+                        text: text.to_string(),
+                    },
+                );
+            }
         }
     }
     // A beat no state shows holds the deck's words all the same: made at its first state, or
     // the deck's, and shown in none.
-    let first = snapshots.first().map(|s| s.state_id.clone()).unwrap_or_default();
+    let first = first_state(&snapshots);
     for (at, beat) in &beats {
         for (field, kind) in [("claim", Kind::Claim), ("notes", Kind::Notes)] {
             let (lives, text) = (format!("{at}/{field}"), beat.get(field).and_then(Value::as_str));
@@ -174,6 +229,8 @@ pub fn find(doc: &Value, query: &Query) -> Result<Vec<Found>, String> {
             let found = Found {
                 kind,
                 node: None,
+                source: None,
+                file: None,
                 beat: beat.get("id").and_then(Value::as_str).map(str::to_string),
                 state: states_of(beat).into_iter().next().unwrap_or_else(|| first.clone()),
                 states: Vec::new(),
@@ -187,14 +244,58 @@ pub fn find(doc: &Value, query: &Query) -> Result<Vec<Found>, String> {
     Ok(places.into_values().filter(|f| !f.matches.is_empty()).collect())
 }
 
+/// The id of the deck's first state, which words no state shows are made at.
+fn first_state(snapshots: &[crate::tracking::Snapshot]) -> String {
+    snapshots.first().map(|s| s.state_id.clone()).unwrap_or_default()
+}
+
+/// The words a chart or a table draws that the deck writes, as `props` show them: each with the
+/// property it is in and the path in it, `("y", "/title", "Revenue ($M)")`. An annotation's `at`
+/// values are among them: one names a value of the data, and a replacement that changes the data
+/// changes it too, so a highlight still picks out what it did.
+fn drawn(props: &Props) -> Vec<(&'static str, String, String)> {
+    let mut out = Vec::new();
+    for prop in ["x", "y", "series", "color", "sizeEncoding", "facet", "legend"] {
+        if let Some(title) = props.get(prop).and_then(|p| p.get("title")).and_then(Value::as_str) {
+            out.push((prop, "/title".to_string(), title.to_string()));
+        }
+    }
+    for (k, note) in props.get("annotations").and_then(Value::as_array).into_iter().flatten().enumerate() {
+        if let Some(text) = note.get("text").and_then(Value::as_str) {
+            out.push(("annotations", format!("/{k}/text"), text.to_string()));
+        }
+        for axis in ["x", "series"] {
+            match note.pointer(&format!("/at/{axis}")) {
+                Some(Value::String(v)) => out.push(("annotations", format!("/{k}/at/{axis}"), v.clone())),
+                Some(Value::Array(vs)) => {
+                    for (j, v) in vs.iter().enumerate() {
+                        if let Some(v) = v.as_str() {
+                            out.push(("annotations", format!("/{k}/at/{axis}/{j}"), v.to_string()));
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    for (k, column) in props.get("columns").and_then(Value::as_array).into_iter().flatten().enumerate() {
+        if let Some(title) = column.get("title").and_then(Value::as_str) {
+            out.push(("columns", format!("/{k}/title"), title.to_string()));
+        }
+    }
+    out
+}
+
 /// The patch that replaces every match of `found` with `with`. In a text, a `replace_text` for
 /// each, in the first state that shows it, so it is written where the text lives; within a text,
 /// the last match goes first, so that the offsets of those before it still stand. Other words, a
-/// JSON Patch `replace` of them where they are written, every match in them replaced.
+/// JSON Patch `replace` of them where they are written, every match in them replaced. A cell of a
+/// data source read from a file is left as it is: the file is the bundle's, not the deck's.
 pub fn replacing(found: &[Found], with: &str) -> Vec<Value> {
     let each = |f: &Found, &[from, to]: &[u32; 2]| json!({ "op": "replace_text", "node": f.node, "from": from, "to": to, "text": with, "state": f.state });
     found
         .iter()
+        .filter(|f| f.file.is_none())
         .flat_map(|f| match f.kind {
             Kind::Text => f.matches.iter().rev().map(|m| each(f, m)).collect(),
             _ => vec![json!({ "op": "replace", "path": f.lives, "value": replaced(&f.text, &f.matches, with) })],
@@ -226,7 +327,7 @@ fn shown(props: &Props) -> (&'static str, String) {
 }
 
 /// Where `query` matches `text`, in characters, from the start, none overlapping.
-fn matches(text: &str, query: &Query) -> Vec<[u32; 2]> {
+pub fn matches(text: &str, query: &Query) -> Vec<[u32; 2]> {
     let hay: Vec<char> = text.chars().collect();
     let needle: Vec<char> = query.find.chars().collect();
     let n = needle.len();
@@ -428,5 +529,47 @@ mod tests {
         assert!(find(&doc, &query("q3")).unwrap().is_empty(), "nothing is left to find");
         // Every match in the words, characters counted as `replace_text` counts them.
         assert_eq!(replaced("Ünï Q3 q3", &[[4, 6], [7, 9]], "x"), "Ünï x x");
+    }
+    #[test]
+    fn a_charts_words_and_its_inline_cells_are_found_and_replaced_where_written() {
+        let mut doc = json!({
+            "scaena": crate::FORMAT_VERSION,
+            "canvas": { "width": 1920, "height": 1080 },
+            "data": { "mix": { "source": { "inline": [
+                { "region": "North", "sales": 4 },
+                { "region": "Northwest", "sales": 2 }
+            ] } } },
+            "nodes": {
+                "c": { "type": "chart", "kind": "bar", "data": "@mix",
+                    "x": { "field": "region", "type": "nominal", "title": "North and south" },
+                    "y": { "field": "sales", "type": "quantitative" },
+                    "annotations": [{ "at": { "x": "North" }, "text": "North leads" }] },
+                "t": { "type": "table", "data": "@mix", "columns": [{ "field": "region", "title": "North?" }] }
+            },
+            "states": [{ "id": "a", "props": { "c": {}, "t": {} } }]
+        });
+        let found = find(&doc, &Query { words: true, ..query("North") }).unwrap();
+        let lives: Vec<(&str, Kind)> = found.iter().map(|f| (f.lives.as_str(), f.kind)).collect();
+        for want in [
+            ("/nodes/c/x/title", Kind::Chart),
+            ("/nodes/c/annotations/0/text", Kind::Chart),
+            ("/nodes/c/annotations/0/at/x", Kind::Chart),
+            ("/nodes/t/columns/0/title", Kind::Chart),
+            ("/data/mix/source/inline/0/region", Kind::Data),
+        ] {
+            assert!(lives.contains(&want), "{want:?} in {lives:?}");
+        }
+        assert!(!lives.iter().any(|(l, _)| l.ends_with("/1/region")), "whole words only: {lives:?}");
+        let cell = found.iter().find(|f| f.kind == Kind::Data).unwrap();
+        assert_eq!((cell.source.as_deref(), cell.states.as_slice()), (Some("mix"), &["a".to_string()][..]));
+
+        // Replaced in one patch, each where it is written: the highlight still picks out its row.
+        apply(&mut doc, &replacing(&found, "Nord"));
+        assert_eq!(doc["nodes"]["c"]["x"]["title"], "Nord and south");
+        assert_eq!(doc["nodes"]["c"]["annotations"][0], json!({ "at": { "x": "Nord" }, "text": "Nord leads" }));
+        assert_eq!(doc["nodes"]["t"]["columns"][0]["title"], "Nord?");
+        assert_eq!(doc["data"]["mix"]["source"]["inline"][0]["region"], "Nord");
+        assert_eq!(doc["data"]["mix"]["source"]["inline"][1]["region"], "Northwest");
+        assert_eq!(doc["nodes"]["c"]["x"]["field"], "region", "a field names a column, never words");
     }
 }

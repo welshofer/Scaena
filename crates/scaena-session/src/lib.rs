@@ -1387,11 +1387,10 @@ impl Session {
     }
 
     /// Each text of the deck that `query` matches, once for each place it is written, with
-    /// the states that show it from there (PLAN 2.47).
+    /// the states that show it from there (PLAN 2.47), and each cell of its data files.
     #[cfg(feature = "editor")]
     pub fn find(&self, query: &scaena_core::patch::Query) -> Result<Vec<scaena_core::patch::Found>, Error> {
-        let doc = self.deck.to_value().map_err(|e| Error::Deck(e.to_string()))?;
-        scaena_core::patch::find(&doc, query).map_err(Error::Ops)
+        scaena_ops::find::find(&self.bundle(), query).map_err(|e| Error::Ops(e.to_string()))
     }
 
     /// The patch that replaces what `query` matches with `with` (PLAN 2.47): every match, a
