@@ -26,15 +26,18 @@ export interface Options {
   rounds?: number;
   /** The most frames the model is sent again: older ones are named, not shown. */
   frames?: number;
-  /** How long one turn may go without a word from the provider before it is given up and
-   * asked again (narrative REL-3); two minutes without it. */
+  /** How long an answer, once it has begun, may go without a word from the provider before it is
+   * given up and asked again (narrative REL-3); two minutes without it. */
   timeoutMs?: number;
   /** How many times a turn a busy, down, or silent provider is asked again; three without it. */
   retries?: number;
 }
 
-/** How long a turn may go with nothing from the provider. */
+/** How long an answer that has begun may go with nothing more from the provider. */
 const SILENCE_MS = 120_000;
+/** How long a turn may wait for the first piece of its answer: ten minutes, since a model that
+ * reasons first may say nothing for longer than two. */
+const FIRST_MS = 600_000;
 /** The waits before asking again, in seconds, where the provider names none. */
 const WAITS = [2, 4, 8];
 
@@ -67,14 +70,16 @@ function pause(ms: number, signal: AbortSignal): Promise<void> {
 async function turn(o: Options, messages: Message[]): Promise<Turn> {
   const retries = o.retries ?? WAITS.length;
   for (let attempt = 0; ; attempt++) {
-    // A deadline on silence: each piece of the answer that arrives puts it off again.
+    // A deadline on silence, counted once the answer has begun: each piece that arrives puts it
+    // off again. Until the first, the turn waits as long as a model that reasons first may take.
     const silence = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const alive = () => {
+    let begun = false;
+    const alive = (ms: number) => {
       clearTimeout(timer);
-      timer = setTimeout(() => silence.abort(), o.timeoutMs ?? SILENCE_MS);
+      timer = setTimeout(() => silence.abort(), ms);
     };
-    alive();
+    alive(FIRST_MS);
     const signal = AbortSignal.any([o.signal, silence.signal]);
     try {
       return await o.provider.turn({
@@ -87,11 +92,14 @@ async function turn(o: Options, messages: Message[]): Promise<Turn> {
         signal,
         // The words as they are written, which the panel shows before the answer is whole.
         onText: (text) => o.emit({ kind: "saying", text }),
-        onChunk: alive,
+        onChunk: () => {
+          begun = true;
+          alive(o.timeoutMs ?? SILENCE_MS);
+        },
       });
     } catch (e) {
       const silent = silence.signal.aborted && !o.signal.aborted;
-      if (o.signal.aborted || attempt >= retries || !again(e, silent)) throw silent ? new Error("504 Silent: the provider sent nothing for two minutes") : e;
+      if (o.signal.aborted || attempt >= retries || !again(e, silent)) throw silent ? new Error(`504 Silent: the provider ${begun ? "stopped in the middle of its answer" : "sent nothing for ten minutes"}`) : e;
       const asked = (e as { retryAfter?: number }).retryAfter;
       const seconds = Math.min(60, Math.max(1, Math.ceil(asked ?? WAITS[Math.min(attempt, WAITS.length - 1)])));
       const message = silent ? `${o.provider.name} went quiet.` : unasked(o.provider.name, e).replace(/ Try again in a moment\.$/, "");

@@ -234,7 +234,8 @@ function words(text) {
 async function provider(wire) {
   const requests = [];
   /** `busy`: that many requests answered 429 with Retry-After: 1 before the answer; `hang`: that
-   * many answered with nothing at all, the socket left open, before the answer (narrative REL-3). */
+   * many whose answer stops after its first word, the socket left open, before the answer
+   * (narrative REL-3). */
   const state = { slow: 0, trickle: 0, busy: 0, hang: 0 };
   const hung = [];
   const server = createServer(async (req, res) => {
@@ -260,11 +261,6 @@ async function provider(wire) {
       state.busy--;
       return res.writeHead(429, { ...cors, "content-type": "application/json", "retry-after": "1" }).end(JSON.stringify({ error: { type: "rate_limit_error", message: "Rate limited" } }));
     }
-    if (state.hang > 0) {
-      state.hang--;
-      res.writeHead(200, { ...cors, "content-type": "text/event-stream" });
-      return void hung.push(res);
-    }
     if (state.slow) await new Promise((ok) => setTimeout(ok, state.slow));
     const i = wire.answered(body);
     const answer = i < SCRIPT.length ? wire.call(SCRIPT[i], i) : wire.answer();
@@ -277,6 +273,10 @@ async function provider(wire) {
     // The first event with a word in it: Anthropic's block start carries an empty text.
     const first = events.findIndex((e) => /text_delta|"content":"[^"]|"text":"(?!Looking)[^"]/.test(e)) + 1;
     res.write(events.slice(0, Math.max(first, 1)).join(""));
+    if (state.hang > 0) {
+      state.hang--;
+      return void hung.push(res);
+    }
     if (state.trickle) await new Promise((ok) => setTimeout(ok, state.trickle));
     res.end(events.slice(Math.max(first, 1)).join(""));
   }).listen(0, "127.0.0.1");
@@ -546,7 +546,14 @@ try {
       const quiet = scripted.requests.length;
       scripted.state.hang = 1;
       const silent = await page.evaluate(() => window.scaena.assistant.ask("And again."));
-      check(silent.kind === "done" && silent.stop === "end" && scripted.requests.length === quiet + 2, `${id}: a silent provider is asked again at the deadline, and answers (${JSON.stringify(silent)}, ${scripted.requests.length - quiet} requests)`);
+      check(silent.kind === "done" && silent.stop === "end" && scripted.requests.length === quiet + 2, `${id}: an answer that stops in the middle is asked again at the deadline, and answers (${JSON.stringify(silent)}, ${scripted.requests.length - quiet} requests)`);
+      // A provider that thinks for longer than the deadline before its answer begins is waited
+      // for, not asked again: the deadline counts once the answer has begun.
+      const thinking = scripted.requests.length;
+      scripted.state.slow = 4500;
+      const thought = await page.evaluate(() => window.scaena.assistant.ask("Think first."));
+      scripted.state.slow = 0;
+      check(thought.kind === "done" && thought.stop === "end" && scripted.requests.length === thinking + 1, `${id}: a provider that thinks before it answers is waited for (${JSON.stringify(thought)}, ${scripted.requests.length - thinking} requests)`);
       // Stop during the wait stops at once.
       scripted.state.busy = 3;
       await page.evaluate(() => {

@@ -72,8 +72,10 @@ public final class Assistant {
     /// Why the provider is being asked again, and when, while it is (narrative REL-3): "Anthropic
     /// is busy. Trying again in 4 s (2 of 3)…"; none while nothing waits.
     public private(set) var waiting: String?
-    /// How long a turn may go with nothing from the provider before it is asked again: two
-    /// minutes; a test shortens it.
+    /// How long an answer, once it has begun, may go with nothing more from the provider before it
+    /// is asked again: two minutes; a test shortens it. The wait for its first line is the
+    /// request's own timeout, ten minutes, since a model that reasons first may say nothing for
+    /// longer than two.
     public var silence: TimeInterval = 120
     /// The waits before asking again, in seconds; a test shortens them.
     public var waits: [TimeInterval] = [2, 4, 8]
@@ -166,7 +168,7 @@ public final class Assistant {
         do {
             while true {
                 try Task.checkCancellation()
-                let request = try chat.request(key: key).urlRequest(timeoutInterval: silence)
+                let request = try chat.request(key: key).urlRequest()
                 let next: Next
                 do {
                     next = try await turn(request, chat: chat)
@@ -292,6 +294,21 @@ public final class Assistant {
         let said: String
     }
 
+    /// When the answer being read last said something: never, until its first line.
+    private actor Lines {
+        private var last: ContinuousClock.Instant?
+
+        func heard() {
+            last = .now
+        }
+
+        /// Whether the answer has begun and said nothing for `silence` since.
+        func quiet(for silence: TimeInterval) -> Bool {
+            guard let last else { return false }
+            return ContinuousClock.now - last > .seconds(silence)
+        }
+    }
+
     /// One turn of the model: `request` made and its answer read, and, where the provider is busy
     /// (408, 429), down (5xx), or silent past its deadline, asked again after a wait, up to
     /// `waits.count` times, the window told of each wait (narrative REL-3). A refusal that is
@@ -332,12 +349,32 @@ public final class Assistant {
 
     /// `request` made and its answer read: as it is written where the assistant streams, each
     /// piece's words shown as they come (narrative ATTR-3); else whole.
+    /// Once the answer has begun, `silence` with no new line gives it up as timed out (narrative
+    /// REL-3); the wait for its first line is the request's own timeout.
     private func answered(_ request: URLRequest, chat: ScaenaChat) async throws -> (Data, Int) {
         guard let stream else { return try await send(request) }
-        // The closure crosses to the session's task, so it carries nothing of the conversation:
-        // each piece is read by the conversation the assistant holds, on the main actor.
-        return try await stream(request) { chunk in
-            await self.heard(chunk)
+        let lines = Lines()
+        let silence = silence
+        return try await withThrowingTaskGroup(of: (Data, Int)?.self) { group in
+            group.addTask {
+                // The closure crosses to the session's task, so it carries nothing of the
+                // conversation: each piece is read by the conversation the assistant holds, on the
+                // main actor.
+                try await stream(request) { chunk in
+                    await lines.heard()
+                    await self.heard(chunk)
+                }
+            }
+            group.addTask {
+                repeat {
+                    try await Task.sleep(for: .seconds(silence / 4))
+                    if await lines.quiet(for: silence) { throw URLError(.timedOut) }
+                } while !Task.isCancelled
+                return nil
+            }
+            defer { group.cancelAll() }
+            guard let answer = try await group.next() ?? nil else { throw URLError(.timedOut) }
+            return answer
         }
     }
 

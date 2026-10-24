@@ -215,6 +215,64 @@ private func streaming(_ text: String) -> [String] {
     #expect(await quiet.asked.count == 1 && said(assistant) == ["Clean."])
 }
 
+/// A provider that thinks for longer than the silence deadline before its answer begins is
+/// waited for, not asked again (narrative REL-3): the deadline counts only once the answer has begun.
+@MainActor
+@Test func aProviderThatThinksBeforeItAnswersIsWaitedFor() async throws {
+    let editor = DeckEditor(session: try ScaenaSession(directory: b1))
+    let events = streaming("The cover is clean.")
+    let asked = Seen()
+    let assistant = Assistant(editor: editor, send: { _ in (Data(), 0) }) { _, heard in
+        await asked.keep(await asked.kept + ["asked"])
+        try await Task.sleep(for: .milliseconds(600))
+        var whole = ""
+        for event in events {
+            whole += event
+            await heard(event)
+        }
+        return (Data(whole.utf8), 200)
+    }
+    assistant.silence = 0.2
+    assistant.waits = [0.05]
+    assistant.ask("Is the cover clean?", provider: .anthropic, model: "a-model", key: "sk-test")
+    for _ in 0..<500 where assistant.working {
+        try await Task.sleep(for: .milliseconds(10))
+    }
+    #expect(!assistant.working)
+    #expect(await asked.kept.count == 1, "asked once")
+    #expect(said(assistant) == ["The cover is clean."])
+}
+
+/// An answer that stops in the middle for longer than the silence deadline is given up on and
+/// asked again (narrative REL-3), the words it had said taken back.
+@MainActor
+@Test func anAnswerThatStopsInTheMiddleIsAskedAgain() async throws {
+    let editor = DeckEditor(session: try ScaenaSession(directory: b1))
+    let events = streaming("The cover is clean.")
+    let asked = Seen()
+    let assistant = Assistant(editor: editor, send: { _ in (Data(), 0) }) { _, heard in
+        let first = await asked.kept.isEmpty
+        await asked.keep(await asked.kept + ["asked"])
+        var whole = ""
+        for (i, event) in events.enumerated() {
+            whole += event
+            await heard(event)
+            // The first ask stops after its first word, as a stalled connection does.
+            if first && i == 2 { try await Task.sleep(for: .seconds(30)) }
+        }
+        return (Data(whole.utf8), 200)
+    }
+    assistant.silence = 0.2
+    assistant.waits = [0.05]
+    assistant.ask("Is the cover clean?", provider: .anthropic, model: "a-model", key: "sk-test")
+    for _ in 0..<500 where assistant.working {
+        try await Task.sleep(for: .milliseconds(10))
+    }
+    #expect(!assistant.working)
+    #expect(await asked.kept.count == 2, "asked again once the answer stopped")
+    #expect(said(assistant) == ["The cover is clean."], "the words of the stalled answer taken back")
+}
+
 /// What the conversation shows the model as having said.
 @MainActor
 private func said(_ assistant: Assistant) -> [String] {

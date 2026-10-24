@@ -296,14 +296,16 @@ private struct EntryRow: View {
                 .textSelection(.enabled)
         case .said(let text):
             // The answer as it reads (narrative ATTR-4): its paragraphs, headings, lists, and
-            // code as blocks, each line's inline markdown read; a link to a slide shows it.
+            // code as blocks, each line's inline markdown read; a link to a slide shows it. The
+            // deck's states are read once for the entry, not for each run.
+            let known = Set(states)
             VStack(alignment: .leading, spacing: 6) {
                 ForEach(Array(MarkdownBlocks.blocks(of: text).enumerated()), id: \.offset) { _, block in
                     switch block {
                     case .paragraph(let words):
-                        Text(markdown(words))
+                        Text(markdown(words, known))
                     case .heading(_, let words):
-                        Text(markdown(words)).font(.headline)
+                        Text(markdown(words, known)).font(.headline)
                     case .list(let ordered, let items):
                         VStack(alignment: .leading, spacing: 3) {
                             ForEach(Array(items.enumerated()), id: \.offset) { index, item in
@@ -311,7 +313,7 @@ private struct EntryRow: View {
                                     Text(ordered ? "\(numbered(items, at: index))." : "•")
                                         .foregroundStyle(.secondary)
                                         .frame(minWidth: 14, alignment: .trailing)
-                                    Text(markdown(item.text))
+                                    Text(markdown(item.text, known))
                                 }
                                 .padding(.leading, CGFloat(item.level) * 14)
                             }
@@ -361,14 +363,15 @@ private struct EntryRow: View {
     }
 
     /// The model's words, their inline Markdown shown. A state's id in a code span, and a link
-    /// to `state:ID`, link to that slide, which the window shows (narrative ATTR-4).
-    private func markdown(_ text: String) -> AttributedString {
+    /// to `state:ID`, link to that slide, which the window shows (narrative ATTR-4): one of
+    /// `known`, the states the deck has.
+    private func markdown(_ text: String, _ known: Set<String>) -> AttributedString {
         let inline = AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)
         var read = (try? AttributedString(markdown: text, options: inline)) ?? AttributedString(text)
         for run in read.runs {
-            if let link = run.link, let state = stateOf(link) {
+            if let link = run.link, let state = stateOf(link, known) {
                 read[run.range].link = URL(string: "scaena-state:\(state)")
-            } else if run.inlinePresentationIntent == .code, states.contains(String(read[run.range].characters)) {
+            } else if run.inlinePresentationIntent == .code, known.contains(String(read[run.range].characters)) {
                 read[run.range].link = URL(string: "scaena-state:\(String(read[run.range].characters))")
             }
         }
@@ -378,11 +381,11 @@ private struct EntryRow: View {
     /// The states the deck has, which an answer may link to.
     private var states: [String] { (try? assistant.editor.session.states()) ?? [] }
 
-    /// The state a link names, where it names one the deck has: `state:ID`, or `#ID`.
-    private func stateOf(_ url: URL) -> String? {
+    /// The state a link names, where it names one of `known`: `state:ID`, or `#ID`.
+    private func stateOf(_ url: URL, _ known: Set<String>) -> String? {
         let text = url.absoluteString
         let named = text.hasPrefix("state:") ? String(text.dropFirst("state:".count)) : text.hasPrefix("#") ? String(text.dropFirst()) : nil
-        guard let named, states.contains(named) else { return nil }
+        guard let named, known.contains(named) else { return nil }
         return named
     }
 
