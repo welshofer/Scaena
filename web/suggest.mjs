@@ -98,7 +98,7 @@ try {
   await showState("budget");
   await suggestedFor("budget", "figure");
   const shown = await buttons();
-  const best = "figure,map,bar-chart,line-chart,positioning-map,venn,panorama,metric-trend,narrow-figure";
+  const best = "figure,map,bar-chart,venn,line-chart,positioning-map,panorama,metric-trend,narrow-figure";
   check(shown.map((b) => b.layout).join() === best, `best first: ${shown.map((b) => b.layout).join(", ")}`);
   check(shown[0]?.pressed === "true" && shown.slice(1).every((b) => b.pressed === "false"), "the layout it takes now is pressed");
   check(
@@ -132,8 +132,8 @@ try {
   const storm = await buttons();
   check(
     storm.map((b) => b.says).join(" | ") ===
-      "Full Bleed · No issues · also Poster, Chart, Table, Photo and Caption | Narrow Chart · No issues | Panorama · No issues | Map · No issues · also Two Figures, Pictograph | Number and Trend · No issues | Venn Diagram · 1 issue | Bar Chart · 1 issue | Line Chart · 1 issue | Positioning Map · 2 issues · also Risk Matrix" &&
-      storm.map((b) => b.found).join() === ",,,,,warning,error,error,error",
+      "Full Bleed · No issues · also Poster, Chart, Table, Photo and Caption | Narrow Chart · No issues | Panorama · No issues | Map · No issues · also Two Figures, Pictograph | Venn Diagram · No issues | Number and Trend · No issues | Bar Chart · 1 issue | Line Chart · 1 issue | Positioning Map · 2 issues · also Risk Matrix" &&
+      storm.map((b) => b.found).join() === ",,,,,,error,error,error",
     `storm: ${storm.map((b) => `${b.says}${b.found ? ` (${b.found})` : ""}`).join(" | ")}`,
   );
   const before = await shot();

@@ -401,6 +401,10 @@ enum Cmd {
         /// blank slide without it.
         #[arg(long)]
         layout: Option<String>,
+        /// The one sentence the slide tells, in a beat of its own just after the beat of STATE.
+        /// Without it, the slide joins that beat.
+        #[arg(long)]
+        claim: Option<String>,
         /// Say what would change, and write nothing.
         #[arg(long)]
         dry_run: bool,
@@ -852,14 +856,17 @@ fn run(cli: Cli) -> Result<ExitCode> {
             };
             map(&a, cli.json)
         }
-        Cmd::Start { bundle, state, layout, dry_run } => start(&bundle, &state, layout.as_deref(), dry_run, cli.json),
+        Cmd::Start { bundle, state, layout, claim, dry_run } => {
+            start(&bundle, &state, layout.as_deref(), claim.as_deref(), dry_run, cli.json)
+        }
         Cmd::Background { bundle, state, preset, none, dry_run } => {
             background(&bundle, &state, preset.as_deref(), none, dry_run, cli.json)
         }
         Cmd::Health { bundle } => health(&bundle, cli.json),
         Cmd::Icons { query, fill, limit } => icons(&query.join(" "), fill, limit, cli.json),
         Cmd::History { bundle, at, scn, diff, restore, dry_run } => {
-            let ask = scaena_ops::history::Ask { at, scn, compare: diff.unwrap_or_default(), restore, dry_run };
+            let ask =
+                scaena_ops::history::Ask { at, scn, compare: diff.unwrap_or_default(), restore, dry_run, begin: false };
             history(&bundle, &ask, cli.json)
         }
         Cmd::Find { bundle, text, case, words, replace, dry_run } => {
@@ -1076,7 +1083,7 @@ fn new(dir: &Path, theme: &str, title: &str, json: bool) -> Result<ExitCode> {
 }
 
 fn theme_apply(bundle: &Path, theme: &Path, dry_run: bool, force: bool, json: bool) -> Result<ExitCode> {
-    let t = scaena_ops::theme::theme_apply(&open(bundle)?, theme, dry_run, force)?;
+    let t = scaena_ops::theme::theme_apply(&open(bundle)?, theme, None, dry_run, force)?;
     if json {
         println!("{}", serde_json::to_string_pretty(&t)?);
     } else if t.refused {
@@ -1318,9 +1325,16 @@ fn data(bundle: &Path, source: &str, edits: Option<&Path>, dry_run: bool, json: 
 /// `scaena start` (PLAN 3.30): a slide started in a layout after a state's slide, as one patch,
 /// reported as `patch` reports one, with the new state's id. Exits 1 where it is refused or
 /// errors remain, as `patch` does.
-fn start(bundle: &Path, state: &str, layout: Option<&str>, dry_run: bool, json: bool) -> Result<ExitCode> {
+fn start(
+    bundle: &Path,
+    state: &str,
+    layout: Option<&str>,
+    claim: Option<&str>,
+    dry_run: bool,
+    json: bool,
+) -> Result<ExitCode> {
     let b = open(bundle)?;
-    let s = scaena_ops::states::start(&b, state, layout, dry_run)?;
+    let s = scaena_ops::states::start(&b, state, layout, claim, dry_run)?;
     if json {
         println!("{}", serde_json::to_string_pretty(&s)?);
     } else {
@@ -1392,7 +1406,9 @@ fn background(
 }
 
 fn health(bundle: &Path, json: bool) -> Result<ExitCode> {
-    let h = scaena_ops::health::health(&open(bundle)?.deck)?;
+    // With what lint finds: a slide that does not stand as it is to be read is found first.
+    let b = open(bundle)?;
+    let h = scaena_ops::health::health_in(&b.deck, &scaena_ops::lint::lint(&b)?.findings)?;
     if json {
         println!("{}", serde_json::to_string_pretty(&h)?);
         return Ok(ExitCode::SUCCESS);
@@ -1420,6 +1436,7 @@ fn health(bundle: &Path, json: bool) -> Result<ExitCode> {
             Severity::Info => "info ",
         };
         println!("{sev} {}: {}", f.state, f.says);
+        println!("  ask: {}", f.ask);
         if let Some(fix) = &f.fix {
             println!("  fix: {}: {}", fix.says, serde_json::to_string(&fix.patch)?);
         }
@@ -1566,9 +1583,13 @@ fn history(bundle: &Path, ask: &scaena_ops::history::Ask, json: bool) -> Result<
         let text = v.to_string();
         if text.chars().count() > 60 { format!("{}…", text.chars().take(59).collect::<String>()) } else { text }
     };
-    for v in h.versions.iter().flatten() {
+    for told in h.versions.iter().flatten() {
+        let v = &told.version;
         let (at, by) = (v.at.as_deref().unwrap_or("-"), v.author.as_deref().unwrap_or("-"));
         println!("{:>4}  {at}  {by:<14}  {}  ({})", v.n, v.message.as_deref().unwrap_or(""), v.id);
+        if !told.changed.is_empty() {
+            println!("        {}", told.changed.join("; "));
+        }
     }
     if let Some(seen) = &h.seen {
         match (&seen.scn, &seen.deck) {
@@ -1666,7 +1687,8 @@ fn print_sheet(sheet: &scaena_ops::data::Sheet) {
 }
 
 /// `scaena find` (PLAN 2.47, 2.83): each of the deck's words the query matches (its texts, each
-/// node's description, each state's notes, and each beat's claim and notes), once for each place
+/// node's description, each state's notes, each beat's claim and notes, the words its charts and
+/// tables draw, and its data's cells), once for each place
 /// they are written, with the states that show them and their matches; with `--replace`, every match replaced in
 /// one patch, reported and written as `patch` reports and writes one, and exiting as it does.
 fn find(
@@ -1698,6 +1720,11 @@ fn find(
                 (Kind::Notes, Some(_)) => format!("beat {beat}'s notes"),
                 (Kind::Notes, None) => format!("{}'s notes", f.state),
                 (Kind::Claim, _) => format!("beat {beat}'s claim"),
+                (Kind::Chart, _) => format!("{node}'s words"),
+                (Kind::Data, _) => match &f.file {
+                    Some(file) => format!("data {} in {file}", f.source.as_deref().unwrap_or_default()),
+                    None => format!("data {}", f.source.as_deref().unwrap_or_default()),
+                },
             };
             let shown = if f.states.is_empty() { "no state".to_string() } else { f.states.join(", ") };
             println!("  {what} in {shown} ({}): {:?} at {}", f.lives, f.text, quoted.join(", "));
@@ -1709,6 +1736,10 @@ fn find(
                 (false, false) => println!("replaced them, {} ops as JSON Patch", p.patch.len()),
             }
             print_delta(&p.added, &p.removed);
+        }
+        for lives in &searched.kept {
+            let why = searched.found.iter().find(|f| &f.lives == lives).and_then(|f| f.kept.as_deref());
+            println!("kept: {lives}, {}", why.unwrap_or_default());
         }
     }
     Ok(match &searched.replaced {

@@ -64,11 +64,20 @@ const HIGH = 54;
 /** How many pixels high a thumbnail is painted: `HIGH` at the display's density, at most twice. */
 const high = () => Math.round(HIGH * Math.min(2, window.devicePixelRatio || 1));
 
+/** Mark `canvas`'s tile as a slide that could not be painted, in words over it, or take the mark
+ * away (lift-up STAB-4): its thumbnail is left blank. */
+export function unpainted(canvas: HTMLCanvasElement, failed: boolean) {
+  const mark = canvas.parentElement?.querySelector(":scope > .unpainted");
+  if (!failed) return mark?.remove();
+  canvas.getContext("2d")?.clearRect(0, 0, canvas.width, canvas.height);
+  if (!mark) canvas.insertAdjacentHTML("afterend", `<span class="unpainted">This slide couldn’t be drawn</span>`);
+}
+
 /** The strip in `into` (its `ol` the states, its buttons the strip's own), over `stage`. */
 export function strip(stage: Stage, into: HTMLElement, editor: StripEditor) {
   const list = into.querySelector<HTMLOListElement>("ol")!;
   /** Each state's thumbnail, by id: what identifies its drawing, and its pixels. */
-  const thumbs = new Map<string, { digest: string; image: ImageData }>();
+  const thumbs = new Map<string, { digest: string; image?: ImageData }>();
   let slots: Slot[] = [];
   /** The state a drag carries, and where it would drop: before or after which. */
   let dragging: string | undefined;
@@ -137,6 +146,8 @@ export function strip(stage: Stage, into: HTMLElement, editor: StripEditor) {
     const canvas = list.querySelector<HTMLCanvasElement>(`li[data-state="${CSS.escape(state)}"] canvas`);
     const thumb = thumbs.get(state);
     if (!canvas || !thumb) return;
+    unpainted(canvas, !thumb.image);
+    if (!thumb.image) return;
     [canvas.width, canvas.height] = [thumb.image.width, thumb.image.height];
     canvas.getContext("2d")?.putImageData(thumb.image, 0, 0);
   }
@@ -147,8 +158,11 @@ export function strip(stage: Stage, into: HTMLElement, editor: StripEditor) {
     const asked = ++painting;
     const known = Object.fromEntries([...thumbs].map(([id, t]) => [id, t.digest]));
     const take = (t: Thumb) => {
-      if (!t.pixels || !t.width || !t.height) return;
-      thumbs.set(t.state, { digest: t.digest, image: new ImageData(new Uint8ClampedArray(t.pixels), t.width, t.height) });
+      // One that could not be painted keeps its drawing's digest, so it is asked for again only
+      // once its drawing changes, and its tile says so (lift-up STAB-4).
+      if (t.failed !== undefined) thumbs.set(t.state, { digest: t.digest });
+      else if (!t.pixels || !t.width || !t.height) return;
+      else thumbs.set(t.state, { digest: t.digest, image: new ImageData(new Uint8ClampedArray(t.pixels), t.width, t.height) });
       draw(t.state);
     };
     let got: Thumb[];

@@ -8,23 +8,23 @@
   ],
   "ops":[
     {"fill":{"path":"M0 0L1920 0L1920 1080L0 1080Z","rule":"nonzero","paint":{"solid":"#101014FF"}}},
-    {"layer":{"node":"sides-header","cell":null,"label":null,"transform":[1.0,0.0,0.0,1.0,404.0,87.6875],"opacity":1.0,"blend":"normal","clip":null,"ops":[
-      {"glyphs":{"font":0,"size":80.0,"coords":[4587,0],"paint":{"solid":"#F2F0E9FF"},"text":"وبعد","glyphs":[
-        [20,1114.9531,65.4375],
-        [37,1157.7656,65.4375],
-        [101,1201.6875,65.6875],
-        [13,1199.3594,65.4375],
-        [69,1221.4375,65.4375]
+    {"layer":{"node":"sides-header","cell":null,"label":null,"transform":[1.0,0.0,0.0,1.0,404.0,89.34375],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+      {"glyphs":{"font":0,"size":64.0,"coords":[4587,0],"paint":{"solid":"#F2F0E9FF"},"text":"وبعد","glyphs":[
+        [20,1171.1719,52.359375],
+        [37,1205.4062,52.359375],
+        [101,1240.5469,52.546875],
+        [13,1238.6875,52.359375],
+        [69,1256.3594,52.359375]
       ],"clusters":[6,4,2,2,0]}},
-      {"glyphs":{"font":1,"size":80.0,"coords":[7646,-7373,0,0],"paint":{"solid":"#F2F0E9FF"},"text":" ","glyphs":[
-        [1,1257.8438,65.4375]
+      {"glyphs":{"font":1,"size":64.0,"coords":[7646,-7373,0,0],"paint":{"solid":"#F2F0E9FF"},"text":" ","glyphs":[
+        [1,1285.4688,52.359375]
       ],"clusters":[0]}},
-      {"glyphs":{"font":0,"size":80.0,"coords":[4587,0],"paint":{"solid":"#F2F0E9FF"},"text":"قبل","glyphs":[
-        [50,1272.0781,65.4375],
-        [101,1338.5625,65.6875],
-        [11,1331.5156,65.4375],
-        [97,1365.6875,59.046875],
-        [42,1359.2812,65.4375]
+      {"glyphs":{"font":0,"size":64.0,"coords":[4587,0],"paint":{"solid":"#F2F0E9FF"},"text":"قبل","glyphs":[
+        [50,1296.8594,52.359375],
+        [101,1350.0469,52.546875],
+        [11,1344.4219,52.359375],
+        [97,1371.75,47.234375],
+        [42,1366.625,52.359375]
       ],"clusters":[4,2,2,0,0]}}
     ]}},
     {"layer":{"node":"sides-before","cell":null,"label":null,"transform":[1.0,0.0,0.0,1.0,972.0,249.82812],"opacity":1.0,"blend":"normal","clip":null,"ops":[

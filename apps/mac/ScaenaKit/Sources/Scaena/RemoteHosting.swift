@@ -130,26 +130,30 @@ final class RemoteHost {
         sent = key
         let ms = show.playhead.ms.isFinite ? max(show.playhead.ms, 0) : 0
         let notes = showing.notes(slot.state)
-        server.tell(
-            RemotePlace(
-                deck: deck, showing: true, state: slot.state, index: show.index, count: show.slots.count,
-                ms: rest ? 0 : ms, rest: rest, notes: notes.text, read: notes.blocks,
-                slide: png(slot.state, showing.editor), next: show.next.flatMap { png($0.state, showing.editor) },
-                began: showing.began))
+        let (editor, state, coming, began) = (showing.editor, slot.state, show.next?.state, showing.began)
+        let (deck, index, count) = (deck, show.index, show.slots.count)
+        // The slide and the next drawn, and made PNGs, away from the stage (lift-up PERF-2); a place
+        // that has given way to another while they were drawn is not told.
+        Task {
+            let slide = await png(state, editor)
+            var next: Data?
+            if let coming { next = await png(coming, editor) }
+            guard sent == key, let server = self.server else { return }
+            server.tell(
+                RemotePlace(
+                    deck: deck, showing: true, state: state, index: index, count: count,
+                    ms: rest ? 0 : ms, rest: rest, notes: notes.text, read: notes.blocks,
+                    slide: slide, next: next, began: began))
+        }
     }
 
     /// `state` drawn at rest for a remote, as a PNG.
-    private func png(_ state: String, _ editor: DeckEditor) -> Data? {
+    private func png(_ state: String, _ editor: DeckEditor) async -> Data? {
         let key = "\(editor.revision)\u{1f}\(state)"
         if let kept = drawn[key] { return kept }
-        guard let image = editor.drawing(state, width: 960) else { return nil }
-        let data = NSMutableData()
-        guard let made = CGImageDestinationCreateWithData(data as CFMutableData, UTType.png.identifier as CFString, 1, nil)
-        else { return nil }
-        CGImageDestinationAddImage(made, image, nil)
-        guard CGImageDestinationFinalize(made) else { return nil }
-        drawn[key] = data as Data
-        return data as Data
+        guard let data = await editor.pngAway(state, width: 960) else { return nil }
+        drawn[key] = data
+        return data
     }
 
     /// What a remote asks.

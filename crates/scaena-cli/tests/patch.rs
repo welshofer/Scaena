@@ -123,10 +123,9 @@ fn a_patch_that_would_make_the_deck_invalid_is_refused() {
 #[test]
 fn the_delta_shows_what_a_patch_breaks_and_what_fixes_it() {
     let deck = example("delta");
-    // A headline too long for its slot, in both formats, runs into the chart: in 9:16 by its
-    // lines, and in 16:9 by its second line's descenders.
+    // A headline too long for its slot, in both formats, where it runs into the chart.
     let long = json!({ "op": "set_text", "node": "title", "state": "mix",
-                       "text": "…and the mix shifted toward Pro, quarter after quarter" });
+                       "text": "…and the mix shifted toward Pro, quarter after quarter, as Core held steady through the year" });
     let (code, v) = patch(&deck, &json!([long]), &["--dry-run"]);
     assert_eq!(code, 1, "an error in the deck it makes exits 1: {v:#}");
     assert_eq!(
@@ -142,12 +141,14 @@ fn the_delta_shows_what_a_patch_breaks_and_what_fixes_it() {
     );
     let fix = v["added"][0]["fix"].as_array().unwrap().clone();
     assert_eq!(fix, [json!({ "op": "add", "path": "/nodes/title/fit", "value": "shrink" })]);
-    // With the fix lint offers in the same patch, nothing is added: the title shrinks to
-    // fit, in both formats, and clears the chart.
+    // With the fix lint offers in the same patch, no error is added: the title shrinks to fit, in
+    // both formats, and clears the chart. 9:16's header is narrow enough that what takes three
+    // lines on the deck's canvas takes five there, still more than its role's three, which only
+    // shorter words mend.
     let mut ops = vec![long];
     ops.extend(fix);
     let (code, v) = patch(&deck, &Value::Array(ops), &["--dry-run"]);
-    assert_eq!((code, &v["added"]), (0, &json!([])), "{v:#}");
+    assert_eq!((code, codes(&v["added"])), (0, vec!["W202 [9:16] /nodes/title".to_string()]), "{v:#}");
     // A rename keeps a finding the same finding: what lint finds of `note` before is what
     // it finds of `source-note` after.
     let (code, v) =
