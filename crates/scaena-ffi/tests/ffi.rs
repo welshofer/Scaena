@@ -707,7 +707,8 @@ fn the_assistant_asks_with_the_users_key_and_runs_each_call_on_the_bundle() {
     let body = body_of(&request);
     let system = body["system"][0]["text"].as_str().unwrap();
     assert!(system.starts_with("You are the assistant in Scaena's Mac app"), "{system}");
-    assert!(system.contains("The deck: \"B1: the manifesto as a talk\", 40 states (cover, goal, goal-why"), "{system}");
+    assert!(system.contains("The deck: 40 states (cover, goal, goal-why"), "{system}");
+    assert!(system.contains("Its title:\n<data label=\"title\">\nB1: the manifesto as a talk\n</data>"), "{system}");
     assert!(system.contains("--- scaena://skills/author-deck ---"));
     let question = body["messages"][0]["content"][0]["text"].as_str().unwrap();
     assert_eq!(question, "[In the window: state cover shown; selected: title (text).]\n\nIs the cover clean?");
