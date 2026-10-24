@@ -440,7 +440,8 @@ impl Generation {
     /// The request that shows the model the deck as it is drawn, `slides` each with what it may
     /// take ([`look::Seen`]) and `drawn` its picture, in their order, and asks what it would
     /// change ([`look`]): Scaena's own call, made once the narrative is written; none before, or
-    /// for no slide.
+    /// for no slide. `slides` may be a part of the deck, a dozen at a time (narrative PERF-5):
+    /// each slide is numbered as it stands in the deck, and the prompt says which are shown.
     pub fn look_request(&self, key: &str, slides: &[look::Seen], drawn: &[Picture]) -> Option<Request> {
         let narrative = self.narrative.as_ref()?;
         if slides.is_empty() || slides.len() != drawn.len() {
@@ -452,7 +453,8 @@ impl Generation {
             .map(|(seen, d)| Picture { caption: look::caption(seen, count), ..d.clone() })
             .collect();
         let brief = &narrative.brief;
-        let prompt = look::prompt(&brief.topic, &brief.audience, count, brief.language.as_deref());
+        let shown = (slides[0].slide, slides[slides.len() - 1].slide);
+        let prompt = look::prompt(&brief.topic, &brief.audience, count, brief.language.as_deref(), shown);
         let max_tokens = if s.provider == Provider::Gemini { GEMINI_MAX_TOKENS } else { LOOK_MAX_TOKENS };
         Some(s.provider.structured(&providers::Call {
             model: &s.model,

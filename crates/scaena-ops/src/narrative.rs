@@ -317,6 +317,18 @@ pub enum Looking<'a> {
 /// pictures few enough tokens.
 pub const LOOK_WIDTH: u32 = 1024;
 
+/// The most slides shown to the model in one look request (narrative PERF-5): a dozen, so a
+/// long deck is shown in rounds, each small enough to upload from an iPad and under what a
+/// provider takes as images in one request, and a round refused loses the others' changes no
+/// more than its own.
+pub const LOOK_BATCH: usize = 12;
+
+/// The rounds a look at `slides` slides goes in: each the indices of [`LOOK_BATCH`] slides at
+/// most, in order.
+pub fn look_rounds(slides: usize) -> impl Iterator<Item = std::ops::Range<usize>> {
+    (0..slides).step_by(LOOK_BATCH).map(move |start| start..(start + LOOK_BATCH).min(slides))
+}
+
 /// What the sources a deck is grounded in give a generation (PLAN G.3, G.4): their texts packed
 /// for Narrato's prompt as Vzestup packs them, each PDF said by its name there and handed to the
 /// model as a document, and what each gave.
@@ -525,15 +537,45 @@ pub fn generate_drawn(
     // The deck seen as it is drawn (PLAN G.13): what the model would change, each slide's change
     // kept where lint finds the slide no worse for it.
     let seen = seeing(&narrative, &model, &pictures, &made.layouts);
+    // A round that is not answered loses its own slides' changes alone, said beside the rest.
+    let mut unanswered: Option<String> = None;
     let changes = match (looking, key) {
         (Looking::Answered(text), _) => Some(scaena_narrato::look::read(text, &seen).map_err(OpsError::new)),
         (Looking::Asked, Some(key)) => match draw(&write) {
-            Ok(drawn) => generation.look_request(key, &seen, &drawn).map(|request| {
-                say(Progress::Looking { slides: seen.len() });
-                let reply = transport.send(&request);
-                (generation.look_answer(reply.status, &reply.status_text, &reply.body, &seen))
-                    .map_err(|e| OpsError::new(e.to_string()))
-            }),
+            Ok(drawn) => {
+                let mut changes = Vec::new();
+                let mut asked = false;
+                for round in look_rounds(seen.len()) {
+                    let Some(request) = generation.look_request(key, &seen[round.clone()], &drawn[round.clone()])
+                    else {
+                        continue;
+                    };
+                    if !asked {
+                        say(Progress::Looking { slides: seen.len() });
+                        asked = true;
+                    }
+                    let reply = transport.send(&request);
+                    match generation.look_answer(reply.status, &reply.status_text, &reply.body, &seen[round.clone()]) {
+                        Ok(answered) => changes.extend(answered),
+                        Err(why) => {
+                            let (first, last) = (seen[round.start].slide, seen[round.end - 1].slide);
+                            let why = match round.len() {
+                                1 => format!("slide {first} not looked at: {why}"),
+                                _ => format!("slides {first}\u{2013}{last} not looked at: {why}"),
+                            };
+                            unanswered = Some(unanswered.map_or(why.clone(), |was| format!("{was}; {why}")));
+                        }
+                    }
+                }
+                match (asked, changes.is_empty(), unanswered.take()) {
+                    (false, _, _) => None,
+                    (true, true, Some(why)) => Some(Err(OpsError::new(why))),
+                    (true, _, why) => {
+                        unanswered = why;
+                        Some(Ok(changes))
+                    }
+                }
+            }
             // A slide that would not draw for the model to see: the deck stands as made.
             Err(why) => Some(Err(OpsError::new(format!("the slides could not be drawn for the model: {why}")))),
         },
@@ -551,6 +593,9 @@ pub fn generate_drawn(
         }
         Some(Err(why)) => made.unlooked = Some(why.to_string()),
         None => {}
+    }
+    if let Some(why) = unanswered {
+        made.unlooked = Some(made.unlooked.map_or(why.clone(), |was| format!("{was}; {why}")));
     }
     let longs = overflowing(&write.deck, &made.created.findings)?;
     let (Some(key), false) = (key, longs.is_empty()) else { return Ok((made, Some(write))) };
@@ -1100,6 +1145,8 @@ fn growing(doc: &Value, theme: &scaena_engine::theme::Theme) -> Vec<(String, Str
             let set = match ordinal(slot) {
                 Some((_, part)) => format!("{id}\u{1f}{part}\u{1f}{role}"),
                 None if slot == "title" && layout.starts_with("section") => format!("\u{1f}{layout}\u{1f}{role}"),
+                // A journey's cells, every lane's, one set: the map reads at one size.
+                None if layout == "journey" && journey_cell(slot) => format!("{id}\u{1f}cell\u{1f}{role}"),
                 None => continue,
             };
             members.push((set, id.to_string(), node.clone(), size));
@@ -2545,6 +2592,11 @@ fn ordinal(slot: &str) -> Option<(usize, &str)> {
     })
 }
 
+/// Whether `slot` is one of a journey's cells: what a person does, thinks, or feels in a phase.
+fn journey_cell(slot: &str) -> bool {
+    ["does-", "thinks-", "feels-"].iter().any(|lane| slot.strip_prefix(lane).is_some_and(|o| ORDINALS.contains(&o)))
+}
+
 /// Slots whose prompt names a structure the slide keeps: a column's or a lane's label, a rank, a
 /// step's numeral, an axis.
 fn keeps_prompt(slot: &str) -> bool {
@@ -2788,6 +2840,8 @@ impl Slots<'_> {
             (Some(_), "caption") => at_least("body"),
             // What a figure or a row is, named in a label, as large as words read from the room.
             (Some((_, "title" | "criterion")), "label") => at_least("body"),
+            // A journey's phases and lanes, over and beside its cells, likewise.
+            (Some((_, "phase" | "lane")), "label") if self.layout == "journey" => at_least("body"),
             (Some((_, "figure")), "figure") => at_least("numeral"),
             // Two figures, as large as the slide takes: up to the hero's size.
             (Some((_, "figure")), "hero") if self.layout == "two-figures" => size("hero"),
@@ -2800,6 +2854,9 @@ impl Slots<'_> {
             // under it, as words read from the room (G.19).
             (None, "figure") if name == "callout" && self.layout == "line-chart" => at_least("numeral"),
             (None, "caption") if name == "note" && self.layout == "line-chart" => at_least("body"),
+            // A journey's cells, a few words each, as large as their places take, up to the lede,
+            // all of a slide's at one size (dogfood pass 5).
+            (None, "caption") if self.layout == "journey" && journey_cell(name) => at_least("lede"),
             _ => None,
         }
     }
@@ -3504,16 +3561,22 @@ impl Builder {
                     }
                     node
                 }
-                Fill::Prompt => {
-                    let (Some(role), Some((words, _))) = (&slot.role, slot.prompt.as_ref().and_then(Prompt::text))
-                    else {
-                        continue;
+                Fill::Prompt | Fill::Label(_) => {
+                    let said = match &fill {
+                        Fill::Label(words) => Some(words.clone()),
+                        _ => slot.prompt.as_ref().and_then(Prompt::text).map(|(words, _)| words),
                     };
-                    json!({ "type": "text", "role": role, "text": words, "at": at, "semantic": "navigation" })
-                }
-                Fill::Label(words) => {
-                    let Some(role) = &slot.role else { continue };
-                    json!({ "type": "text", "role": role, "text": words, "at": at, "semantic": "navigation" })
+                    let (Some(role), Some(words)) = (&slot.role, said) else { continue };
+                    let mut node =
+                        json!({ "type": "text", "role": role, "text": words, "at": at, "semantic": "navigation" });
+                    // A journey's lanes grow with its phases and cells; other labels kept keep their size.
+                    if s.layout == "journey"
+                        && let Some(most) = s.grown(name, role)
+                    {
+                        node["fit"] = json!("grow");
+                        node["maxSize"] = json!(most);
+                    }
+                    node
                 }
                 Fill::Shape => {
                     let Some(Prompt::Shape(shape)) = &slot.prompt else { continue };
@@ -4876,6 +4939,27 @@ mod tests {
         );
         assert_eq!(layout, "roadmap");
         assert_eq!(node(&deck, &state, "first")["fit"], "grow");
+        // A journey's cells, a few words each, grow to the lede, every lane's; its phases and
+        // lanes to the body (dogfood pass 5).
+        let (layout, deck, state) = made(
+            "Journey",
+            &[
+                "Spring 2024: knock on every door / will anyone sign up? / hopeful but unsure",
+                "Summer 2024: raise $2.1M from 312 households / this might actually work / proud",
+                "Winter 2024: bolt the first panels to the co-op roof / we did this ourselves / elated",
+            ],
+        );
+        assert_eq!(layout, "journey");
+        for lane in ["does", "thinks", "feels"] {
+            for part in ["first", "second", "third"] {
+                let n = node(&deck, &state, &format!("{lane}-{part}"));
+                assert_eq!((n["fit"].as_str(), n["maxSize"].as_f64()), (Some("grow"), Some(size("lede"))), "{n:#}");
+            }
+        }
+        for label in ["first-phase", "third-lane"] {
+            let n = node(&deck, &state, label);
+            assert_eq!((n["fit"].as_str(), n["maxSize"].as_f64()), (Some("grow"), Some(size("body"))), "{n:#}");
+        }
         // A slide's one list of short lines may grow past the lede, to three-quarters of its
         // headline; a long one keeps the lede.
         let (layout, deck, state) = made(
@@ -6315,6 +6399,98 @@ mod tests {
         assert_eq!(kept(made.looked.clone(), &[13]).len(), 1);
     }
 
+    /// A long deck is shown to the model a dozen slides at a time (narrative PERF-5): each round
+    /// says which slides it shows, numbered as they stand in the deck; the changes answered are
+    /// folded into one; and a round the provider refuses loses its own slides' changes alone,
+    /// said beside the rest.
+    #[test]
+    fn a_long_deck_is_looked_at_a_dozen_slides_at_a_time() {
+        use scaena_narrato::{Provider, Settings};
+        let (summary, slides) = catalog();
+        // Fourteen slides: the cover, twelve of the catalog's content slides, and the ending.
+        let mut picked = vec![slides[0].clone()];
+        picked.extend(slides[2..14].iter().cloned());
+        picked.push(slides[55].clone());
+        assert_eq!(picked.len(), 14);
+        let written = json!({ "executiveSummary": summary, "slides": picked }).to_string();
+        let arc =
+            std::fs::read_to_string(root().join("crates/scaena-narrato/tests/answers/anthropic-arc.json")).unwrap();
+        let mut looks: Vec<(String, usize)> = Vec::new();
+        let mut send = |r: &Request| {
+            let body = r.body.as_ref().unwrap();
+            let content = body["messages"][0]["content"].as_array().unwrap();
+            let prompt = content.last().unwrap()["text"].as_str().unwrap().to_string();
+            let (status, reply) = if prompt.contains("=== CATALOG ===") {
+                (200, arc.clone())
+            } else if prompt.contains("runs past its place") {
+                (200, anthropic(r#"{"texts": []}"#))
+            } else if prompt.starts_with("You have seen") {
+                let drawn = content.iter().filter(|c| c["type"] == "image").count();
+                let captions: Vec<&str> = content
+                    .iter()
+                    .filter(|c| c["type"] == "text")
+                    .filter_map(|c| c["text"].as_str())
+                    .filter(|t| t.starts_with("Slide "))
+                    .collect();
+                looks.push((prompt.clone(), drawn));
+                if prompt.starts_with("You have seen the") {
+                    panic!("fourteen slides go in two rounds: {prompt}");
+                }
+                if prompt.starts_with("You have seen slides 1\u{2013}12") {
+                    assert_eq!(captions.first().map(|c| &c[..17]), Some("Slide 1 of 14, dr"), "{captions:?}");
+                    // The second slide's title tightened; the rest kept.
+                    let change = json!({ "slides": [{ "slide": 2, "layout": "", "title": "Agenda", "subtitle": "", "bullets": [], "why": "One word." }] });
+                    (200, anthropic(&change.to_string()))
+                } else {
+                    assert_eq!(captions.first().map(|c| &c[..18]), Some("Slide 13 of 14, dr"), "{captions:?}");
+                    (529, r#"{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}"#.to_string())
+                }
+            } else {
+                (200, anthropic(&written))
+            };
+            Reply {
+                status,
+                status_text: if status == 200 { "OK".into() } else { "Overloaded".into() },
+                body: reply,
+                after: None,
+            }
+        };
+        let mut heard = Vec::new();
+        let mut say = |p: Progress| heard.push(p);
+        let settings = Settings { provider: Provider::Anthropic, model: "a-model".into(), base: None, browser: false };
+        let g = Generation::new(narrative("", Vec::new()).brief, settings).unwrap();
+        let (made, write) = generate(
+            g,
+            Some("sk-test"),
+            &[],
+            None,
+            Looking::Asked,
+            Path::new("dusk.theme.json"),
+            dusk(),
+            &font,
+            &mut send,
+            &mut say,
+        )
+        .unwrap();
+        assert_eq!(looks.len(), 2, "two rounds: {looks:?}");
+        assert_eq!((looks[0].1, looks[1].1), (12, 2), "a dozen slides, then the two left");
+        assert!(looks[1].0.starts_with("You have seen slides 13\u{2013}14 of the 14 slides"), "{}", looks[1].0);
+        assert_eq!(heard.iter().filter(|p| matches!(p, Progress::Looking { slides: 14 })).count(), 1, "{heard:?}");
+        assert!(made.created.created, "{:#?}", made.created.findings);
+        // The first round's change is kept, and the second round's refusal is said beside it.
+        let titles: Vec<Option<&str>> = made.looked.iter().map(|c| c.title.as_deref()).collect();
+        assert!(
+            titles.contains(&Some("Agenda")) || made.unlooked.as_deref().is_some_and(|w| w.contains("kept as made")),
+            "{made:#?}"
+        );
+        let unlooked = made.unlooked.as_deref().unwrap_or_default();
+        assert!(unlooked.contains("slides 13\u{2013}14 not looked at: 529 Overloaded"), "{unlooked}");
+        assert!(write.is_some());
+    }
+
+    /// A section is titled by what its slides say (narrative ATTR-5): its divider's title, where
+    /// the run has one, first or after a slide; else the beat's name as the model wrote it; else
+    /// the arc's name for the beat.
     /// The look is a polish on a deck the model has written and validated (narrative STAB-3): a
     /// slide that will not draw for the model to see leaves the deck as made, saying why, with
     /// no look asked for, and the fit still asked; and a change on a slide numbered 0 is kept

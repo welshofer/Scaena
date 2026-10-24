@@ -19,6 +19,7 @@ use scaena_core::tracking::resolve_states;
 use scaena_core::{Deck, Severity};
 use scaena_narrato::health::constants::{
     COMPOSITE_FALLBACK_WEIGHT_ARC, COMPOSITE_FALLBACK_WEIGHT_BALANCE, COMPOSITE_FALLBACK_WEIGHT_PACING,
+    INTENSITY_GAP_THRESHOLD,
 };
 use scaena_narrato::health::{self, LocalHealthMetrics, NarrativeMeta, PacingStatus, SlideForHealth, arc};
 use schemars::JsonSchema;
@@ -608,21 +609,40 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
             None,
         );
     }
+    // A bend judges the intensity a slide was planned at against the arc's curve where it stands,
+    // so its plan, or its place, is what moves it, never its words, which the gap below judges
+    // (ADR-0032, item 4). How far each slide's plan is from what its place calls for.
+    let bent: HashMap<&str, f64> = bends.iter().map(|d| (d.slide_id.as_str(), d.delta)).collect();
     for d in &bends {
         let Some(&i) = place.get(d.slide_id.as_str()) else { continue };
         let k = i + 1;
-        let (says, ask) = match d.delta > 0.0 {
-            true => (
-                format!("Slide {k} runs hotter than its place in the talk."),
+        let planned = read[i].narrative_meta.as_ref().and_then(|n| n.expected_intensity).filter(|v| v.is_finite());
+        let (hotter, way, moved) = match d.delta > 0.0 {
+            true => ("hotter", "calmer", "nearer the climax"),
+            false => ("cooler", "more intense", "away from the climax"),
+        };
+        let (says, ask) = match planned {
+            // What fidelity read is the plan, held to the scale: its place calls for that less the bend.
+            Some(planned) => {
+                let planned = planned.clamp(0.0, 1.0);
+                let (at, calls) = (level(planned), level(planned - d.delta));
+                let than = match d.delta > 0.0 {
+                    true => "more intense than",
+                    false => "calmer than",
+                };
+                (
+                    format!("Slide {k} was planned {hotter} than its place in the talk."),
+                    format!(
+                        "Slide {k} is planned at {at}, {than} its place in the story calls for ({calls}): plan it {way}, or move it {moved}."
+                    ),
+                )
+            }
+            // A slide that declares none is read as a talk usually runs where it stands.
+            None => (
                 format!(
-                    "Slide {k} is more intense than its place in the story calls for: calm its words, or move it nearer the climax."
+                    "Slide {k} declares no intensity, where its place in the talk calls for a {way} slide than most."
                 ),
-            ),
-            false => (
-                format!("Slide {k} runs cooler than its place in the talk."),
-                format!(
-                    "Slide {k} is calmer than its place in the story calls for: sharpen its words, or move it away from the climax."
-                ),
+                format!("Plan slide {k}'s intensity for its place in the story."),
             ),
         };
         find(&d.slide_id, Severity::Info, Kind::Arc, says, ask, None);
@@ -631,18 +651,30 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         let Some(&i) = place.get(g.slide_id.as_str()) else { continue };
         let k = i + 1;
         let (declared, detected) = (level(g.declared), level(g.detected));
-        // In a person's words; the figures are for the assistant, which reads the deck's.
-        let (says, ask) = match g.gap > 0.0 {
-            true => (
-                format!("Slide {k} reads flatter than it was written to be."),
-                format!(
-                    "Make slide {k}'s words carry the intensity its place in the story needs ({declared}): sharper verbs, a figure that lands."
-                ),
+        let says = match g.gap > 0.0 {
+            true => format!("Slide {k} reads flatter than it was written to be."),
+            false => format!("Slide {k} reads hotter than it was written to be."),
+        };
+        // In a person's words; the figures are for the assistant, which reads the deck's. Where
+        // the plan bends from the arc, the words are to carry what the place calls for, not the
+        // plan, and words that already do leave the plan to change (ADR-0032, item 4).
+        let ask = match bent.get(g.slide_id.as_str()).map(|delta| g.declared - delta) {
+            Some(calls) if (g.detected - calls).abs() <= INTENSITY_GAP_THRESHOLD => format!(
+                "Slide {k}'s words read {detected}, as its place in the story calls for ({}): it is its plan ({declared}) that strays, so plan it for its place, not the words.",
+                level(calls)
             ),
-            false => (
-                format!("Slide {k} reads hotter than it was written to be."),
-                format!("Calm slide {k}'s words to the intensity it declares ({declared}); they read {detected}."),
+            Some(calls) if g.detected < calls => format!(
+                "Make slide {k}'s words carry the intensity its place in the story calls for ({}): sharper verbs, a figure that lands.",
+                level(calls)
             ),
+            Some(calls) => format!(
+                "Calm slide {k}'s words to the intensity its place in the story calls for ({}); they read {detected}.",
+                level(calls)
+            ),
+            None if g.gap > 0.0 => format!(
+                "Make slide {k}'s words carry the intensity it declares ({declared}): sharper verbs, a figure that lands."
+            ),
+            None => format!("Calm slide {k}'s words to the intensity it declares ({declared}); they read {detected}."),
         };
         // No fix: the plan's intensity is the arc's, which the words are to carry, not follow.
         find(&g.slide_id, Severity::Warning, Kind::Intensity, says, ask, None);
@@ -859,6 +891,40 @@ mod tests {
         // The plan is the arc's: the words are to carry it, so no fix declares what they read
         // in its place.
         assert_eq!(finding.fix, None);
+    }
+
+    /// A slide planned hotter than its place in the story is asked to change its plan, or its
+    /// place, never its words, and its words are held to what its place calls for, not to the
+    /// plan that strays from it: the two findings on it point one way (ADR-0032, item 4). No
+    /// figure moves.
+    #[test]
+    fn a_plan_that_bends_from_the_arc_is_asked_of_the_plan_not_the_words() {
+        let mut deck = climate();
+        let before = of(&deck);
+        let agenda = deck["states"][1]["id"].as_str().unwrap().to_string();
+        let beat = beat_of(&deck, &agenda);
+        *deck.pointer_mut(&format!("{beat}/media/narrato/intensity")).unwrap() = json!(1.0);
+        let h = of(&deck);
+        let on = |kind: Kind| h.findings.iter().find(|f| f.state == agenda && f.kind == kind);
+        let bend = on(Kind::Arc).expect("the plan bends from the arc");
+        assert_eq!(bend.says, "Slide 2 was planned hotter than its place in the talk.");
+        assert!(bend.ask.contains("is planned at 1.00") && bend.ask.contains("plan it calmer"), "{}", bend.ask);
+        assert!(!bend.ask.contains("words"), "{}", bend.ask);
+        let gap = on(Kind::Intensity).expect("its words read flatter than its plan");
+        assert!(!gap.ask.contains("intensity it declares"), "{}", gap.ask);
+        // What the place calls for, as each says it: the same figure.
+        let calls = |ask: &str| {
+            let at = ask.find("calls for (").map(|i| i + "calls for (".len()).expect(ask);
+            ask[at..at + 4].to_string()
+        };
+        assert_eq!(calls(&gap.ask), calls(&bend.ask), "{}\n{}", bend.ask, gap.ask);
+        // A slide whose plan keeps to the arc is held to its plan, as before.
+        for f in before.findings.iter().filter(|f| f.kind == Kind::Intensity) {
+            let bends = before.findings.iter().any(|b| b.kind == Kind::Arc && b.state == f.state);
+            assert!(bends || f.ask.contains("intensity it declares"), "{}", f.ask);
+        }
+        // Only what the findings say changed: every figure is as before but the plan's.
+        assert_eq!((h.pacing.clone(), h.balance.clone()), (before.pacing, before.balance));
     }
 
     /// A slide lint finds an error on stands ahead of every other finding, said as lint says it,
