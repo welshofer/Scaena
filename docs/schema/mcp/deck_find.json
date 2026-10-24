@@ -1,6 +1,6 @@
 {
   "name": "deck_find",
-  "description": "Find text across the deck's words, in every state (PLAN 2.47, 2.83): its texts, each node's description (`alt`), each state's notes, each beat's claim and notes, the titles and notes a chart or a table draws, and the string cells of its data (`kind`), once for each place they are written (the node's own, a state's delta, the deck's overrides, a state, a beat, or a data source), with the states that show them from there and each match, in characters. With `replace`, every match is replaced in one patch, a `replace_text` where each text lives and a JSON Patch `replace` of the rest where they are written, reported as `deck_patch` reports a patch (`replaced`); a cell of a data file is left as it is, its file named in `kept`, for `data_edit`.",
+  "description": "Find text across the deck's words, in every state (PLAN 2.47, 2.83): its texts, each node's description (`alt`), each state's notes, each beat's claim and notes, the titles and notes a chart or a table draws, and the string values of its data (`kind`), once for each place they are written (the node's own, a state's delta, the deck's overrides, a state, a beat, or a data source), with the states that show them from there and each match, in characters. With `replace`, every match is replaced in one patch, a `replace_text` where each text lives and a JSON Patch `replace` of the rest where they are written, reported as `deck_patch` reports a patch (`replaced`); a value of the data (a cell, or a value a highlight picks out) is found and left as it is, where it stands listed in `kept`, for `data_edit`.",
   "inputSchema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "required": ["bundle", "find"],
@@ -45,7 +45,11 @@
           },
           "source": { "description": "The data source a cell is of, by its name.", "type": ["string", "null"] },
           "file": {
-            "description": "The file a cell is in, for a data source read from one: found, and left as it is by a\nreplacement, which writes the deck alone.",
+            "description": "The file a cell is in, for a data source read from one.",
+            "type": ["string", "null"]
+          },
+          "kept": {
+            "description": "Why a replacement leaves these words as they are: they are a value of the data (a cell, or\na value a highlight picks out), which a filter, a quote, or a highlight may name.",
             "type": ["string", "null"]
           },
           "beat": { "description": "The beat, for its claim or its notes.", "type": ["string", "null"] },
@@ -79,7 +83,7 @@
           { "description": "A state's speaker notes, or a beat's.", "type": "string", "const": "notes" },
           { "description": "A beat's claim.", "type": "string", "const": "claim" },
           {
-            "description": "Words a chart or a table draws that the deck writes: an axis's or a channel's `title`, a\nlegend's `title`, an annotation's `text`, a column's `title`, or a value an annotation's\n`at` picks out (`x`, `series`), which names a value of the data it is drawn from.",
+            "description": "Words a chart or a table draws that the deck writes: an axis's or a channel's `title`, a\nlegend's `title`, an annotation's `text`, a column's `title`, or a value an annotation's\n`at` picks out (`x`, `series`), which names a value of the data it is drawn from and is kept.",
             "type": "string",
             "const": "chart"
           },
@@ -236,7 +240,7 @@
         "anyOf": [{ "$ref": "#/$defs/Patched" }, { "type": "null" }]
       },
       "kept": {
-        "description": "With a replacement: the data files holding matches it left as they are, the deck's\nreplacement writing the deck alone. Each wants its own edit (`scaena data --edits`).",
+        "description": "With a replacement: where each match it left as it is stands (`lives`, a file's cell as\n`FILE#ROW/COLUMN`), each a value of the data, whose `kept` says why.",
         "type": "array",
         "items": { "type": "string" }
       }

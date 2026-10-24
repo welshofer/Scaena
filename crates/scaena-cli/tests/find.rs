@@ -137,7 +137,8 @@ fn a_files_values_and_the_highlight_that_names_one_are_found_and_kept() {
     let note = serde_json::json!([{ "op": "set_prop", "node": "rev", "prop": "annotations",
         "value": [{ "at": { "series": "Enterprise" }, "text": "Enterprise grew fastest" }] }]);
     std::fs::write(path.with_file_name("note.json"), note.to_string()).unwrap();
-    let patched = scaena(&["patch", path.to_str().unwrap(), "--ops", path.with_file_name("note.json").to_str().unwrap()]);
+    let patched =
+        scaena(&["patch", path.to_str().unwrap(), "--ops", path.with_file_name("note.json").to_str().unwrap()]);
     assert!(patched.status.success(), "{}", String::from_utf8_lossy(&patched.stderr));
 
     // The note's text and the annotation's, which are words, and each of the file's cells that
