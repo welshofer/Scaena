@@ -19,6 +19,9 @@ export function said(event: GeneratingEvent): string {
       return `Reading ${event.name}…`;
     case "read":
       return `Read ${event.name} (${event.what})`;
+    case "grounded":
+      if (event.kilobytes === 0) return `No room for ${event.name} (${event.what}): the sources before it took the million bytes they share`;
+      return `Grounded in ${event.name} (${event.what}, ${event.kilobytes} KB${event.cut ? ", cut short to fit" : ""})`;
     case "researching":
       return `Researching ${event.topic}… (minutes)`;
     case "researchingNow":
