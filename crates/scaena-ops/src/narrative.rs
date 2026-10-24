@@ -29,7 +29,7 @@ pub use scaena_sources::Given;
 use scaena_sources::{Source, Table};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 /// The canvas a made deck draws on.
@@ -949,25 +949,43 @@ pub fn overflowing(deck: &Deck, findings: &[Finding]) -> Result<Vec<Long>, OpsEr
     Ok(out)
 }
 
-/// The texts of `doc` that grow (`fit: grow`, as [`Slots::grown`] marks them) held to one size
-/// in each set, so that each set reads as one: a set is the parts a slide's layout sets side by
-/// side (the words under each step, the figures of a scorecard), or the deck's section titles.
-/// Each grows as far as its place allows, laid out by the engine, then all of its set are held to
-/// the size the one with the least room reached. Whether any size changed.
-fn alike(doc: &mut Value, view: &View) -> Result<bool, OpsError> {
-    let deck = Deck::from_json(&doc.to_string()).context("the deck")?;
+/// The texts of `doc` that grow (`fit: grow`, as [`Slots::grown`] marks them) or shrink held to
+/// one size in each set, so that each set reads as one: a set is the parts a slide's layout sets
+/// side by side (the words under each step, the figures of a scorecard), or the deck's section
+/// titles. Each grows or shrinks as its place allows, laid out by the engine, then all of its set
+/// are held to the size the one with the least room reached, by its `maxSize`, which caps a text
+/// that shrinks too (deck format 0.36). Each is measured as it was before `alike` held it, by
+/// what `held` keeps of it, so that a second run after lint's fixes changes only a set a fix
+/// changed. Whether any size changed.
+fn alike(doc: &mut Value, view: &View, held: &mut Held) -> Result<bool, OpsError> {
+    // What `alike` wrote taken back, for measuring alone: each one's room, not its cap.
+    let mut measured = doc.clone();
+    for (id, most) in &held.most {
+        let node = &mut measured["nodes"][id];
+        match (most, node.as_object_mut()) {
+            (Some(most), _) => node["maxSize"] = most.clone(),
+            (None, Some(node)) => {
+                node.remove("maxSize");
+            }
+            (None, None) => {}
+        }
+    }
+    for id in &held.grew {
+        measured["nodes"][id]["fit"] = json!("grow");
+    }
+    let deck = Deck::from_json(&measured.to_string()).context("the deck")?;
     let Some(theme) = view.theme(&deck)? else { return Ok(false) };
     let theme = scaena_engine::theme::Theme::from_json(&theme)?;
     let mut engine = crate::lint::engine_in(&deck, view, &theme, None)?;
     let data = crate::lint::data_in(&deck, view)?;
-    // Each growing text: its set, its state, its id, and its role's size.
+    // Each growing or shrinking text: its set, its state, its id, and its role's size.
     let mut members: Vec<(String, String, String, f64)> = Vec::new();
-    for state in doc["states"].as_array().into_iter().flatten() {
+    for state in measured["states"].as_array().into_iter().flatten() {
         let (Some(id), Some(shown)) = (state["id"].as_str(), state["props"].as_object()) else { continue };
         let layout = state["layout"].as_str().unwrap_or_default();
         for node in shown.keys() {
-            let n = &doc["nodes"][node];
-            let (Some("grow"), Some(slot), Some(role)) =
+            let n = &measured["nodes"][node];
+            let (Some("grow" | "shrink"), Some(slot), Some(role)) =
                 (n["fit"].as_str(), n["at"]["in"].as_str(), n["role"].as_str())
             else {
                 continue;
@@ -1011,7 +1029,7 @@ fn alike(doc: &mut Value, view: &View) -> Result<bool, OpsError> {
         *counts.entry(set.as_str()).or_default() += 1;
     }
     let mut changed = false;
-    for (set, _, id, _) in &members {
+    for (set, _, id, own) in &members {
         let (Some(size), Some(2..)) = (least.get(set.as_str()), counts.get(set.as_str())) else { continue };
         // Figures side by side keep the air between them: a tenth under the size the widest
         // reached its place at.
@@ -1019,13 +1037,35 @@ fn alike(doc: &mut Value, view: &View) -> Result<bool, OpsError> {
         let size = if figures { size * 0.9 } else { *size };
         // A quarter of a unit under, so that every one of them fits at it.
         let size = (size * 4.0).floor() / 4.0;
-        let node = &mut doc["nodes"][id];
-        if node["maxSize"].as_f64().is_none_or(|most| size < most) {
-            node["maxSize"] = json!(size);
-            changed = true;
+        // A text that shrinks and took no more than that keeps no cap it does not need.
+        if doc["nodes"][id]["fit"] == "shrink" && reached.get(id).is_some_and(|r| *r <= size + 0.25) {
+            continue;
         }
+        let node = &mut doc["nodes"][id];
+        let before = node.get("maxSize").cloned();
+        // One of a set that a fit made shrink: one that grows never goes under its role's size,
+        // so it shrinks too, under the same cap.
+        if node["fit"] == "grow" && size < *own {
+            node["fit"] = json!("shrink");
+            node["maxSize"] = json!(size);
+            held.grew.insert(id.clone());
+        } else if node["maxSize"].as_f64().is_none_or(|most| size < most) {
+            node["maxSize"] = json!(size);
+        } else {
+            continue;
+        }
+        held.most.entry(id.clone()).or_insert(before);
+        changed = true;
     }
     Ok(changed)
+}
+
+/// What [`alike`] wrote over, so a run after it measures each text as it was: each one's
+/// `maxSize` before `alike` first set it, and those it made shrink where they grew.
+#[derive(Default)]
+struct Held {
+    most: BTreeMap<String, Option<Value>>,
+    grew: BTreeSet<String>,
 }
 
 /// How many of `findings` are errors.
@@ -1115,12 +1155,19 @@ pub fn making(
         created.findings = lint_in(&deck, &view)?.findings;
     }
     // Each set of texts a slide sets side by side, and every section's title, held to one size.
-    if alike(&mut doc, &view)? {
+    let mut held = Held::default();
+    if alike(&mut doc, &view, &mut held)? {
         let deck = Deck::from_json(&doc.to_string()).context("the deck set alike")?;
         created.findings = lint_in(&deck, &view)?.findings;
     }
-    // Then each fix lint offers, each checked by laying its state out again with it.
-    let settled = settle(doc, created.findings, &view)?;
+    // Then each fix lint offers, each checked by laying its state out again with it; a fix that
+    // makes a text of a set shrink, the set held to one size again.
+    let mut settled = settle(doc, created.findings, &view)?;
+    let mut doc = settled.deck.to_value()?;
+    if alike(&mut doc, &view, &mut held)? {
+        settled.deck = Deck::from_json(&doc.to_string()).context("the deck set alike again")?;
+        settled.findings = lint_in(&settled.deck, &view)?.findings;
+    }
     made.fixed.extend(settled.fixed);
     made.created.errors = errors(&settled.findings);
     made.created.findings = settled.findings;
@@ -2119,6 +2166,16 @@ fn figure_role(role: &str) -> bool {
     matches!(role, "figure" | "hero" | "value" | "numeral")
 }
 
+/// Someone else's words in quotation marks, the marks a model may have set taken off first.
+fn quoted(text: &str) -> String {
+    format!("\u{201c}{}\u{201d}", unquoted(text))
+}
+
+/// Who said a quote, led by a dash: "\u{2014} Head of Logistics".
+fn attributed(who: &str) -> String {
+    format!("\u{2014} {}", who.trim().trim_start_matches(['\u{2014}', '\u{2013}', '-']).trim())
+}
+
 fn unquoted(text: &str) -> String {
     text.trim().trim_matches(['"', '\u{201c}', '\u{201d}', '\u{2018}', '\u{2019}', '\'']).trim().to_string()
 }
@@ -2417,8 +2474,9 @@ impl Slots<'_> {
             "hub" => self.subtitle().or_else(|| self.title()),
             "number" if matches!(layout, "section" | "section-photo") => self.section.map(|n| format!("{n:02}")),
             "number" => self.item(0).map(|i| i.figure().unwrap_or_else(|| i.whole.clone())),
-            "quote" => self.item(0).map(|i| unquoted(&i.whole)).or_else(|| self.title()),
-            "who" => self.item(1).map(|i| i.whole.clone()).or_else(|| self.subtitle()),
+            // A quote in its marks, so that it never reads as the presenter's own words.
+            "quote" => self.item(0).map(|i| quoted(&i.whole)).or_else(|| self.title()),
+            "who" => self.item(1).map(|i| attributed(&i.whole)).or_else(|| self.subtitle()),
             "meaning" => self.item(0).map(|i| i.whole.clone()).or_else(|| self.subtitle()),
             "example" => self.item(1).map(|i| i.whole.clone()),
             "takeaway" => self.item(0).map(|i| i.whole.clone()).or_else(|| self.subtitle()),
@@ -2593,8 +2651,8 @@ impl Slots<'_> {
                 let item = self.item(k)?;
                 let (words, who) = said(item);
                 text(match part {
-                    "" => Some(words),
-                    "note" => who,
+                    "" => Some(quoted(&words)),
+                    "note" => who.map(|w| attributed(&w)),
                     _ => None,
                 })
             }
@@ -3681,6 +3739,105 @@ mod tests {
         assert!(wrong.is_empty(), "{wrong:#?}");
     }
 
+    /// Someone else's words are set in quotation marks, the one who said them led by a dash, so
+    /// that they never read as the presenter's own.
+    #[test]
+    fn a_quote_is_set_in_quotation_marks_and_its_source_after_a_dash() {
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let (summary, slides) = catalog();
+        let made = |name: &str| {
+            let slide = slides.iter().find(|s| s.layout_suggestion == name).unwrap().clone();
+            let made = deck(
+                &narrative(&summary, vec![slides[0].clone(), slide, slides[55].clone()]),
+                &theme,
+                &Pictures::new(),
+            )
+            .unwrap();
+            let state = made.deck["states"][1]["id"].as_str().unwrap().to_string();
+            shown(&made.deck, &state)
+        };
+        let has = |said: &[(String, String)], slot: &str, words: &str| {
+            assert!(said.iter().any(|(s, w)| s == slot && w == words), "{slot} = {words:?} in {said:#?}");
+        };
+        let quote = made("Quote");
+        has(
+            &quote,
+            "quote",
+            "\u{201c}We have net-zero targets and no way to ship a single box without emitting\u{201d}",
+        );
+        has(&quote, "who", "\u{2014} Head of Logistics, a Fortune 500 retailer");
+        let testimonials = made("Testimonials");
+        has(&testimonials, "first", "\u{201c}We cut our freight emissions below zero in one quarter\u{201d}");
+        has(&testimonials, "first-note", "\u{2014} VP Supply Chain, national grocer");
+    }
+
+    /// Texts a slide sets side by side are one size where they shrink to fit, as where they grow:
+    /// a team's credits, a FAQ's answers, each set at the size the one with the least room took.
+    #[test]
+    fn a_set_of_texts_that_shrink_is_set_alike() {
+        let (summary, slides) = catalog();
+        let at = |layout: &str| slides.iter().find(|s| s.layout_suggestion == layout).unwrap().clone();
+        let mut team = at("Team");
+        team.key_bullets = [
+            "Maya Chen, CEO: ran Gulf operations at a top-three carrier",
+            "Ade Okafor, CTO: built direct air capture at scale",
+            "Luis Ortega, COO: scaled ports across three continents, opened eleven terminals from Rotterdam to Singapore, and ran the largest retrofit program the industry has seen",
+        ]
+        .map(String::from)
+        .to_vec();
+        let mut faq = at("FAQ");
+        faq.key_bullets = [
+            "Is the removal permanent?: Yes",
+            "What if fuel prices spike?: Lanes are priced on a fuel index",
+            "Who verifies it?: An accredited auditor checks every voyage against the registry, publishes each certificate, and samples the mineralized carbon at the store ashore each quarter of the year",
+            "Can others copy it?: Our capture design holds four patents",
+        ]
+        .map(String::from)
+        .to_vec();
+        let built = deck(
+            &narrative(&summary, vec![slides[0].clone(), team, faq, slides[55].clone()]),
+            &serde_json::from_str::<Theme>(&dusk()).unwrap(),
+            &Pictures::new(),
+        )
+        .unwrap();
+        let (made, write) =
+            making(built, "Problem\u{2013}Solution", Path::new("dusk.theme.json"), dusk(), &font).unwrap();
+        assert!(made.created.created, "{:#?}", made.created.findings);
+        let write = write.unwrap();
+        let nothing = scaena_store::Files::Zip(Default::default());
+        let view = View { base: &nothing, pending: write.files.clone() };
+        let theme = scaena_engine::theme::Theme::from_json(&dusk()).unwrap();
+        let mut engine = crate::lint::engine_in(&write.deck, &view, &theme, None).unwrap();
+        let data = crate::lint::data_in(&write.deck, &view).unwrap();
+        let deck = write.deck.to_value().unwrap();
+        // The size each text of `slots` in the `n`th state is set at.
+        let mut sizes = |n: usize, slots: &[&str]| -> Vec<f64> {
+            let state = deck["states"][n]["id"].as_str().unwrap().to_string();
+            let ids: Vec<String> = slots.iter().map(|s| format!("{state}-{s}")).collect();
+            let ids: Vec<&str> = ids.iter().map(String::as_str).collect();
+            let req = scaena_engine::FrameRequest {
+                deck: &write.deck,
+                theme: &theme,
+                data: &data,
+                state: &state,
+                t_ms: f64::INFINITY,
+                format: None,
+            };
+            let placed = engine.text_layouts(&req, &ids).unwrap();
+            ids.iter()
+                .zip(&placed)
+                .map(|(id, p)| {
+                    let role = deck["nodes"][*id]["role"].as_str().unwrap();
+                    (f64::from(p.scale) * theme.typography.roles[role].size * 4.0).round() / 4.0
+                })
+                .collect()
+        };
+        let alike = |sizes: Vec<f64>| assert!(sizes.windows(2).all(|w| (w[0] - w[1]).abs() < 0.3), "{sizes:?}");
+        alike(sizes(1, &["first", "second", "third"]));
+        alike(sizes(2, &["first", "second", "third", "fourth"]));
+        alike(sizes(2, &["first-title", "second-title", "third-title", "fourth-title"]));
+    }
+
     #[test]
     fn each_place_of_a_layout_takes_its_part_of_an_item() {
         let theme: Theme = serde_json::from_str(&dusk()).unwrap();
@@ -3781,6 +3938,37 @@ mod tests {
         let props = deck["states"][n]["props"].as_object().unwrap();
         let id = props.keys().find(|id| deck["nodes"][id.as_str()]["at"]["in"] == slot).unwrap();
         &deck["nodes"][id.as_str()]
+    }
+
+    /// Setting a deck's sets alike twice, as making does after lint's fixes, changes nothing the
+    /// second time: each text is measured with its room, not the cap the first run gave it, so
+    /// no figure shrinks another tenth and no title loses a quarter unit.
+    #[test]
+    fn a_deck_set_alike_twice_is_set_as_once() {
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        for narrative in [climate(), {
+            let (summary, slides) = catalog();
+            narrative(&summary, slides)
+        }] {
+            let built = deck(&narrative, &theme, &Pictures::new()).unwrap();
+            let req = Create {
+                theme: PathBuf::from("dusk.theme.json"),
+                deck: Some(built.deck),
+                assets: built.assets,
+                ..Create::default()
+            };
+            let none = |path: &Path| -> Result<Vec<u8>, OpsError> { Err(OpsError::new(path.display().to_string())) };
+            let (_, write) = creating(&req, dusk(), &font, &none).unwrap();
+            let write = write.unwrap();
+            let nothing = scaena_store::Files::Zip(Default::default());
+            let view = View { base: &nothing, pending: write.files.clone() };
+            let mut doc = write.deck.to_value().unwrap();
+            let mut held = Held::default();
+            assert!(alike(&mut doc, &view, &mut held).unwrap(), "the first run sets some set alike");
+            let once = doc.clone();
+            assert!(!alike(&mut doc, &view, &mut held).unwrap(), "the second run changes nothing");
+            assert_eq!(doc, once);
+        }
     }
 
     #[test]
