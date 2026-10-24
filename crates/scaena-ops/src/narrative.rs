@@ -1319,7 +1319,7 @@ pub fn deck_as(
     let mut chosen = Vec::with_capacity(count);
     // Each slide's beat, items, icons, and layout, chosen first, so a divider is numbered by the
     // agenda item it opens, which a later slide may be.
-    let planned: Vec<(usize, Vec<Item>, Option<Vec<&Icon>>, String)> = (narrative.slides.iter().zip(&varied))
+    let planned: Vec<Planned> = (narrative.slides.iter().zip(&varied))
         .enumerate()
         .map(|(i, (slide, v))| {
             let beat = (slide.beat_index.filter(|b| *b < names.len()))
@@ -1335,7 +1335,7 @@ pub fn deck_as(
                     layout_for(v.layout.identity(), slide, &items, i, theme, pictures.contains_key(&i), icons.is_some())
                 }
             };
-            (beat, items, icons, layout)
+            Planned { beat, items, icons, layout }
         })
         .collect();
     let numbers = divider_numbers(narrative, &planned);
@@ -1345,7 +1345,8 @@ pub fn deck_as(
     // Whether the section open is titled by a divider of its own.
     let mut divided = false;
     let mut previous: Option<(String, &Slide)> = None;
-    for (i, ((slide, v), (beat, items, icons, layout))) in narrative.slides.iter().zip(&varied).zip(planned).enumerate()
+    for (i, ((slide, v), Planned { beat, items, icons, layout })) in
+        narrative.slides.iter().zip(&varied).zip(planned).enumerate()
     {
         let picture = pictures.get(&i);
         let opens = matches!(layout.as_str(), "section" | "section-photo");
@@ -1964,19 +1965,25 @@ fn sentence(text: &str) -> String {
     }
 }
 
+/// A slide as the deck plans it before any is built: its beat, its items, the icons they stand
+/// under, and its layout.
+struct Planned<'n> {
+    beat: usize,
+    items: Vec<Item>,
+    icons: Option<Vec<&'n Icon>>,
+    layout: String,
+}
+
 /// The number each section divider stands by, by the slide's index (narrative wayfinding): the
 /// place of the agenda item its title names, from 1, so "03" opens the agenda's third part; a
 /// divider whose title names none counts on from the one before it. None on a deck with one
 /// divider, or with no agenda to count by.
-fn divider_numbers(
-    narrative: &Narrative,
-    planned: &[(usize, Vec<Item>, Option<Vec<&Icon>>, String)],
-) -> BTreeMap<usize, usize> {
+fn divider_numbers(narrative: &Narrative, planned: &[Planned]) -> BTreeMap<usize, usize> {
     let dividers: Vec<usize> = (planned.iter().enumerate())
-        .filter(|(_, (.., layout))| matches!(layout.as_str(), "section" | "section-photo"))
+        .filter(|(_, p)| matches!(p.layout.as_str(), "section" | "section-photo"))
         .map(|(i, _)| i)
         .collect();
-    let Some((_, agenda, ..)) = planned.iter().find(|(.., layout)| layout.starts_with("agenda")) else {
+    let Some(Planned { items: agenda, .. }) = planned.iter().find(|p| p.layout.starts_with("agenda")) else {
         return BTreeMap::new();
     };
     if dividers.len() < 2 {
