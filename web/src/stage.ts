@@ -234,6 +234,8 @@ export class Stage {
   /** What takes each thumbnail as it is painted, by the request's id. */
   private thumbing = new Map<number, (thumb: Thumb) => void>();
   private asked = 0;
+  /** The name each file dropped had, by its path in the bundle, which names it by its content. */
+  private dropped = new Map<string, string>();
   /** The patch being made, which the next waits for (`make`). */
   private making: Promise<void> = Promise.resolve();
 
@@ -1144,9 +1146,15 @@ export class Stage {
    * could not show, one too large among them, is refused and kept out of the bundle. */
   drop(name: string, bytes: ArrayBuffer): Promise<string> {
     return this.request<"dropped">({ type: "drop", id: ++this.asked, name, bytes }).then(({ path }) => {
+      this.dropped.set(path, name);
       this.wrote([path]);
       return path;
     });
+  }
+
+  /** The name the file at `path` had when it was dropped on this page, where it was. */
+  droppedAs(path: string): string | undefined {
+    return this.dropped.get(path);
   }
 
   /** What the PNG or JPEG `bytes` are as a picture, read as the engine reads it before it is
@@ -1403,6 +1411,7 @@ export class Stage {
       // What a worker that makes a deck from a prompt says (PLAN G.5): a stage's never does.
       case "briefing":
       case "generating":
+      case "storyOutlined":
       case "generated":
         return;
       default: {

@@ -240,6 +240,20 @@ pub trait BundleFiles {
     fn exists(&self, path: &str) -> bool;
     /// The file at `path` as text, if the bundle holds it.
     fn read_text(&self, path: &str) -> Option<String>;
+    /// Whether `path` is a link that leads out of a folder bundle, which the bundle does not
+    /// hold for it (SPEC §3.1): what E102 says in place of "is not in the bundle".
+    fn linked_out(&self, _path: &str) -> bool {
+        false
+    }
+}
+
+/// Why `files` does not hold `path`, for E102: it is not there, or it is a link out.
+fn not_held(files: &dyn BundleFiles, path: &str) -> &'static str {
+    if files.linked_out(path) {
+        "is a link that leads out of the bundle; copy the file into the bundle in its place"
+    } else {
+        "is not in the bundle"
+    }
 }
 
 /// Everything `scaena validate` checks (SPEC §7.1), as findings:
@@ -650,7 +664,7 @@ fn load_theme(doc: &Value, files: &dyn BundleFiles, out: &mut Vec<Finding>) -> O
     match doc.get("theme")? {
         Value::String(path) => {
             let Some(text) = files.read_text(path) else {
-                let message = format!("theme file `{path}` is not in the bundle");
+                let message = format!("theme file `{path}` {}", not_held(files, path));
                 out.push(Finding::new("E102", Severity::Error, message).at("/theme"));
                 return None;
             };
@@ -811,7 +825,8 @@ fn missing_files(deck: &Deck, theme: Option<&LoadedTheme>, files: &dyn BundleFil
     let mut out = Vec::new();
     let mut need = |what: &str, file: &str, at: String| {
         if !files.exists(file) {
-            out.push(Finding::new("E102", Severity::Error, format!("{what} `{file}` is not in the bundle")).at(at));
+            let why = not_held(files, file);
+            out.push(Finding::new("E102", Severity::Error, format!("{what} `{file}` {why}")).at(at));
         }
     };
     for (i, font) in deck.fonts.iter().enumerate() {
@@ -838,7 +853,7 @@ fn missing_files(deck: &Deck, theme: Option<&LoadedTheme>, files: &dyn BundleFil
             let italic = family.italic.as_ref().map(|face| (face.file.as_str(), "/italic/file", Some("italic")));
             for (file, at, style) in std::iter::once((family.file.as_str(), "/file", None)).chain(italic) {
                 if !files.exists(file) {
-                    let message = format!("font file `{file}` is not in the bundle");
+                    let message = format!("font file `{file}` {}", not_held(files, file));
                     out.push(theme.finding("E102", message, &format!("/type/families/{}{at}", esc(key))));
                 }
                 // Rendering registers the fonts the deck lists, and needs every family's.
