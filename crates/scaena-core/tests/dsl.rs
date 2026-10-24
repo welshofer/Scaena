@@ -859,7 +859,29 @@ fn a_value_nested_too_deep_is_refused() {
     };
     for (open, close) in [("[", "]"), ("{a: ", "}")] {
         let e = scaena_core::dsl::compile_json(&nested(open, close, 100_000)).unwrap_err();
-        assert!(e.message.contains("nests more than 128 deep"), "{e:?}");
+        assert!(e.message.contains("nests more than 127 deep in the deck"), "{e:?}");
     }
     assert!(scaena_core::dsl::compile_json(&nested("[", "]", 100)).is_ok());
+    // Counted from the deck, not from the value: at every depth a value either compiles to a deck
+    // that reads back as JSON or is refused at its line, never compiled into one serde_json cannot
+    // read (the 20261024 plan's STAB-1: 125 to 127 deep compiled, then panicked the compile).
+    for (open, close) in [("[", "]"), ("{a: ", "}")] {
+        let mut refused_from = None;
+        for n in 90..=130 {
+            match scaena_core::dsl::compile_json(&nested(open, close, n)) {
+                Ok((json, _)) => {
+                    let text = serde_json::to_string(&json).unwrap();
+                    let read = serde_json::from_str::<serde_json::Value>(&text);
+                    assert!(read.is_ok(), "{open}×{n} compiled into a deck that does not read back: {read:?}");
+                    assert!(refused_from.is_none(), "{open}×{n} compiled after a shallower one was refused");
+                }
+                Err(e) => {
+                    assert!(e.message.contains("nests more than 127 deep in the deck"), "{open}×{n}: {e:?}");
+                    assert!(e.line > 1, "refused at its source line: {e:?}");
+                    refused_from.get_or_insert(n);
+                }
+            }
+        }
+        assert!(refused_from.is_some(), "{open}: refused somewhere below 130");
+    }
 }
