@@ -110,16 +110,18 @@ fn the_layouts_that_draw_a_state_alike_fold_into_the_one_it_takes() {
     // `photo-grid-text` does `photo-left`'s, over a map across the slide, and beside an agenda's
     // topics, with a picture or without (PLAN 3.30, 3.31, O.1e). Six more draw it as `full` does
     // but leave places for pictures empty, which lint counts (W304), so each stands apart, after
-    // the layouts lint finds nothing in.
+    // the layouts lint finds nothing in. Of those that draw it alike, the one that leaves fewest
+    // places empty stands for the rest: `four-up` for `timeline-photos`.
     let suggested = suggest(&b, "agenda", None).unwrap();
     let names: Vec<&str> = suggested.iter().map(|s| s.layout.as_str()).collect();
-    let empty = ["bullets-photo", "kpi-dashboard", "timeline-photos", "six-up", "acknowledgments", "logo-wall"];
+    let empty = ["bullets-photo", "kpi-dashboard", "four-up", "six-up", "acknowledgments", "logo-wall"];
     assert_eq!(
         names,
         [&["full", "agenda-photo", "photo-left"][..], &empty, &["map-full", "photo-right", "agenda"]].concat(),
         "{suggested:#?}"
     );
     assert!(suggested[3..9].iter().all(|s| s.errors == 0 && s.warnings > 0));
+    assert!(suggested[5].alike.iter().any(|a| a == "timeline-photos"), "{:?}", suggested[5]);
     assert!(suggested[0].current && suggested[1..].iter().all(|s| !s.current));
     assert_eq!(suggested[2].alike, ["photo-grid-text"]);
     assert!(
