@@ -60,8 +60,7 @@ async function send(request: Request): Promise<{ status: number; statusText: str
   } catch (e) {
     // A provider that takes the request and never answers is asked again, as a busy one is
     // (narrative REL-1), and the progress says why (lift-up REL-4).
-    const late = e instanceof DOMException && e.name === "TimeoutError";
-    return { status: 0, statusText: late ? "The provider didn't answer in 15 minutes" : said(e), body: "" };
+    return { status: 0, statusText: late(e) ? "The provider didn't answer in 15 minutes" : said(e), body: "" };
   }
 }
 
@@ -80,15 +79,26 @@ async function get(asked: { url: string; headers: Record<string, string>; most: 
     response = await fetch(asked.url, { headers: asked.headers, signal: AbortSignal.timeout(FETCHED_WITHIN) });
   } catch (e) {
     const host = new URL(asked.url).host;
-    if (e instanceof DOMException && e.name === "TimeoutError") throw new Error(`${host} didn't answer in a minute`);
+    if (late(e)) throw new Error(`${host} didn't answer in a minute`);
     throw new Error(
       `${host} could not be read from this page: it is out of reach, or it lets no other page read it. Download what it serves and add the file, or give it to \`scaena generate\` or the Mac app`,
     );
   }
-  const body = new Uint8Array(await response.arrayBuffer());
+  // The minute holds the body too: a host that answers at once and sends slowly runs out of it here.
+  let body: Uint8Array;
+  try {
+    body = new Uint8Array(await response.arrayBuffer());
+  } catch (e) {
+    if (!late(e)) throw e;
+    const host = new URL(asked.url).host;
+    throw new Error(`${host} took more than a minute to send ${asked.url}: download it and add the file`);
+  }
   if (body.length > asked.most) throw new Error(`${asked.url} answered with more than ${asked.most >> 20} MB`);
   return { status: response.status, kind: response.headers.get("content-type") ?? "", body };
 }
+
+/** Whether `e` is a deadline's abort (`AbortSignal.timeout`). */
+const late = (e: unknown) => e instanceof DOMException && e.name === "TimeoutError";
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
