@@ -454,6 +454,11 @@ try {
   await asked.click();
   check((await page.getAttribute("#tab-assistant", "aria-selected")) === "true", "a question opens the assistant's tab");
   check((await page.inputValue("#question")) === question, `the question is in its box: ${question}`);
+  // The slide moved goes back, so what follows reads the deck as made.
+  await page.locator("#overlay").focus();
+  await page.keyboard.press("Control+z");
+  await page.waitForFunction((was) => window.scaena.source() === was, unmoved, { timeout: 30000 }).catch(() => {});
+  check((await page.evaluate(() => window.scaena.source())) === unmoved, "⌘Z takes the move back");
   // The Files tab lists what the deck was grounded in, each with the slides citing it (FUNC-3).
   await tab(page, "files");
   await page.waitForSelector("#files [data-grounded] li", { timeout: 30000 }).catch(() => {});
