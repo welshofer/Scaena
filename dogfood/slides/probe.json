@@ -1,0 +1,219 @@
+{
+ "executiveSummary": "A probe deck of catalog layouts.",
+ "slides": [
+  {
+   "slideTitle": "Our 2027 plan for the analytics platform",
+   "subtitle": "Strategy offsite · November 2026",
+   "layoutSuggestion": "Title",
+   "keyBullets": [],
+   "visualDescription": "",
+   "speakerNotes": "- We cover this quickly.\n- The detail is in the appendix.",
+   "beatIndex": 0,
+   "beatName": "Now",
+   "purpose": "Open",
+   "intent": "Orient",
+   "expectedIntensity": 0.3,
+   "expectedValence": 0.2
+  },
+  {
+   "slideTitle": "Where the platform stands going into 2027",
+   "subtitle": "",
+   "layoutSuggestion": "SWOT",
+   "keyBullets": [
+    "Strengths: 114% net retention; fastest dashboards in the category; loyal enterprise base",
+    "Weaknesses: SMB churn at 4.9%; thin partner channel; slow onboarding",
+    "Opportunities: AI-written reports; EU data residency; mid-market upsell",
+    "Threats: bundled BI from cloud vendors; price pressure; two new AI-native rivals"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "- We cover this quickly.\n- The detail is in the appendix.",
+   "beatIndex": 0,
+   "beatName": "Now",
+   "purpose": "Frames the starting point",
+   "intent": "Make them see strengths and gaps",
+   "expectedIntensity": 0.4,
+   "expectedValence": 0.0
+  },
+  {
+   "slideTitle": "Five bets ranked by impact and effort",
+   "subtitle": "",
+   "layoutSuggestion": "2×2 Matrix",
+   "keyBullets": [
+    "AI-written reports: high impact, medium effort",
+    "EU data residency: high impact, high effort",
+    "Self-serve onboarding: medium impact, low effort",
+    "Partner marketplace: low impact, high effort"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "- We cover this quickly.\n- The detail is in the appendix.",
+   "beatIndex": 1,
+   "beatName": "North Star",
+   "purpose": "Places the bets",
+   "intent": "Make them agree on priorities",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.3
+  },
+  {
+   "slideTitle": "One objective with three measurable results",
+   "subtitle": "Win the mid-market by the end of 2027",
+   "layoutSuggestion": "OKRs",
+   "keyBullets": [
+    "Mid-market ARR: $30M, from $18M",
+    "Net retention: 120%, from 114%",
+    "Time to first dashboard: under 1 day, from 9"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "- We cover this quickly.\n- The detail is in the appendix.",
+   "beatIndex": 1,
+   "beatName": "North Star",
+   "purpose": "Sets the measurable goal",
+   "intent": "Make them commit to targets",
+   "expectedIntensity": 0.6,
+   "expectedValence": 0.5
+  },
+  {
+   "slideTitle": "How a report flows from data to the reader",
+   "subtitle": "",
+   "layoutSuggestion": "Pipeline",
+   "keyBullets": [
+    "Connected sources: 2,400 a month",
+    "Models built: 610",
+    "Reports scheduled: 3,900",
+    "Reports opened: 71%"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "- We cover this quickly.\n- The detail is in the appendix.",
+   "beatIndex": 2,
+   "beatName": "Phases",
+   "purpose": "Shows throughput",
+   "intent": "Make them see the funnel of value",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.2
+  },
+  {
+   "slideTitle": "The platform is four layers, each owned by one team",
+   "subtitle": "",
+   "layoutSuggestion": "Stack",
+   "keyBullets": [
+    "Experience: dashboards, reports, and alerts",
+    "Semantic layer: metrics defined once",
+    "Compute: the query engine and its cache",
+    "Storage: customer warehouses and our lake"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "- We cover this quickly.\n- The detail is in the appendix.",
+   "beatIndex": 2,
+   "beatName": "Phases",
+   "purpose": "Explains the architecture",
+   "intent": "Make them see who owns what",
+   "expectedIntensity": 0.4,
+   "expectedValence": 0.1
+  },
+  {
+   "slideTitle": "The analytics tools our customers leave us for",
+   "subtitle": "",
+   "layoutSuggestion": "Ranking",
+   "keyBullets": [
+    "1: Cloud vendor BI, 38% of losses",
+    "2: Spreadsheets, 24%",
+    "3: AI-native startups, 21%",
+    "4: In-house tools, 17%"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "- We cover this quickly.\n- The detail is in the appendix.",
+   "beatIndex": 3,
+   "beatName": "Risks",
+   "purpose": "Names the competitive threats",
+   "intent": "Make them feel the pressure",
+   "expectedIntensity": 0.7,
+   "expectedValence": -0.4
+  },
+  {
+   "slideTitle": "Launch readiness for AI-written reports",
+   "subtitle": "",
+   "layoutSuggestion": "Checklist",
+   "keyBullets": [
+    "Done: model evaluation on 400 real reports",
+    "Done: privacy review",
+    "In progress: pricing",
+    "Next: beta with 20 customers"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "- We cover this quickly.\n- The detail is in the appendix.",
+   "beatIndex": 3,
+   "beatName": "Risks",
+   "purpose": "Shows readiness",
+   "intent": "Make them trust the timeline",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.2
+  },
+  {
+   "slideTitle": "What changes for customers when reports write themselves",
+   "subtitle": "",
+   "layoutSuggestion": "Bullet List",
+   "keyBullets": [
+    "Analysts spend their time on questions, not formatting",
+    "Executives get a written summary every Monday",
+    "Every number links back to its query",
+    "Reports arrive in the reader's language"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "- We cover this quickly.\n- The detail is in the appendix.",
+   "beatIndex": 4,
+   "beatName": "Measures",
+   "purpose": "Describes the customer benefit",
+   "intent": "Make them picture the outcome",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.5
+  },
+  {
+   "slideTitle": "A written report beside the dashboard it explains",
+   "subtitle": "",
+   "layoutSuggestion": "Image + Text",
+   "keyBullets": [
+    "The summary is generated from the same queries as the charts",
+    "Readers can ask a follow-up in plain words"
+   ],
+   "visualDescription": "A dashboard on the left with a written report on the right, each sentence linked to a chart",
+   "speakerNotes": "- We cover this quickly.\n- The detail is in the appendix.",
+   "beatIndex": 4,
+   "beatName": "Measures",
+   "purpose": "Shows the product",
+   "intent": "Make them see it",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.5
+  },
+  {
+   "slideTitle": "Questions for the leadership team",
+   "subtitle": "",
+   "layoutSuggestion": "Q&A",
+   "keyBullets": [
+    "Which bet do we fund first?",
+    "What would make us stop the EU build?",
+    "Who owns the semantic layer?"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "- We cover this quickly.\n- The detail is in the appendix.",
+   "beatIndex": 4,
+   "beatName": "Measures",
+   "purpose": "Opens discussion",
+   "intent": "Make them engage",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.3
+  },
+  {
+   "slideTitle": "Fund the AI reports bet and decide on the EU build by January",
+   "subtitle": "",
+   "layoutSuggestion": "Closing",
+   "keyBullets": [],
+   "visualDescription": "",
+   "speakerNotes": "- We cover this quickly.\n- The detail is in the appendix.",
+   "beatIndex": 4,
+   "beatName": "Measures",
+   "purpose": "Lands the ask",
+   "intent": "Make them decide",
+   "expectedIntensity": 0.6,
+   "expectedValence": 0.5
+  }
+ ]
+}
