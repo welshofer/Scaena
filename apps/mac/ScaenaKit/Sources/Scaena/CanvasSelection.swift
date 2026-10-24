@@ -63,6 +63,9 @@ struct CanvasSelection: View {
     let clip: (Clipping) -> Void
     /// The Edit menu's Find, and ⌘F on the canvas: the deck's find bar (PLAN 3.16).
     let finding: () -> Void
+    /// Edit › Find Next (`1`) and Find Previous (`-1`), by their keys on the canvas (lift-up
+    /// USE-5); none while the find bar is closed.
+    let stepping: ((Int) -> Void)?
     /// What the Node menu does to the node selected, which a long press offers on the iPad (PLAN 4.3).
     let actions: DeckActions?
     /// Apply what lint found's fix, from the mark on its object (PLAN 3.20): one step to undo.
@@ -1146,25 +1149,41 @@ struct CanvasSelection: View {
     }
 
     /// A menu bar key that reached the canvas (PLAN 4.6), as the browser's canvas takes ⌘D itself:
-    /// what its item in the Node menu or the View menu's Find in Deck does. On the iPad a press
-    /// comes to the canvas before the menu bar's keys are matched, and the menu's own keys went
-    /// unheard there. Whether it did anything; what the menu would not do now goes on.
+    /// what its item in the Node, Arrange, or Edit menu does, each key `MenuKey`'s, the Mac's menus'
+    /// (lift-up USE-5). On the iPad a press comes to the canvas before the menu bar's keys are
+    /// matched, and the menu's own keys went unheard there. Whether it did anything; what the menu
+    /// would not do now goes on.
     private func menuKey(_ code: UIKeyboardHIDUsage, shift: Bool, option: Bool) -> Bool {
+        let character: Character
+        switch code {
+        case .keyboardD: character = "d"
+        case .keyboardG: character = "g"
+        case .keyboardL: character = "l"
+        case .keyboardC: character = "c"
+        case .keyboardV: character = "v"
+        case .keyboardF: character = "f"
+        case .keyboardCloseBracket: character = "]"
+        case .keyboardOpenBracket: character = "["
+        default: return false
+        }
+        guard let key = MenuKey.of(character, shift: shift, option: option) else { return false }
         let run: (() -> Void)?
-        switch (code, shift, option) {
-        case (.keyboardD, false, false): run = actions?.duplicate
-        case (.keyboardG, false, false): run = actions?.group
-        case (.keyboardG, true, false): run = actions?.ungroup
-        case (.keyboardL, true, false): run = actions?.lock
-        case (.keyboardC, false, true): run = actions?.copyLook
-        case (.keyboardV, false, true): run = actions?.pasteLook
-        case (.keyboardF, _, false): run = finding
-        case (.keyboardCloseBracket, false, _), (.keyboardOpenBracket, false, _):
-            guard let order = actions?.order else { return false }
-            let up = code == .keyboardCloseBracket
-            order(up ? (option ? "front" : "forward") : (option ? "back" : "backward"))
-            return true
-        default: run = nil
+        switch key {
+        case .duplicate: run = actions?.duplicate
+        case .group: run = actions?.group
+        case .ungroup: run = actions?.ungroup
+        case .lock: run = actions?.lock
+        case .copyLook: run = actions?.copyLook
+        case .pasteLook: run = actions?.pasteLook
+        case .find: run = finding
+        case .findNext: run = stepping.map { step in { step(1) } }
+        case .findPrevious: run = stepping.map { step in { step(-1) } }
+        case .bringForward: run = actions?.order.map { order in { order("forward") } }
+        case .sendBackward: run = actions?.order.map { order in { order("backward") } }
+        case .bringToFront: run = actions?.order.map { order in { order("front") } }
+        case .sendToBack: run = actions?.order.map { order in { order("back") } }
+        // The Format menu's keys are the text typed in's own (`CanvasKeys`).
+        case .bold, .italic, .link: run = nil
         }
         guard let run else { return false }
         run()
