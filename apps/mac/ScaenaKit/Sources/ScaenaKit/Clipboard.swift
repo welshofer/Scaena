@@ -150,15 +150,17 @@ extension ScaenaSession {
     }
 
     /// A key a code editor answers (PLAN 2.139), in `text` with `from`...`to` selected, UTF-16
-    /// offsets: Tab, Shift+Tab, or Return, with stops every `tab` columns. The text and the
-    /// selection after it; none where code does not answer the key there.
-    public func keyed(text: String, from: Int, to: Int, key: String, tab: Int) throws -> Keyed? {
-        try call(
-            "keyed",
-            [
-                "text": .string(text), "from": .number(Double(from)), "to": .number(Double(to)),
-                "key": .string(key), "tab": .number(Double(tab)),
-            ])
+    /// offsets: Tab, Shift+Tab, or Return, with stops every `tab` columns, in `language` as the
+    /// deck names it: a stop the keys add is a tab where the text indents with tabs, and always in a
+    /// Makefile, else spaces. The text and the selection after it; none where code does not answer
+    /// the key there.
+    public func keyed(text: String, from: Int, to: Int, key: String, tab: Int, language: String? = nil) throws -> Keyed? {
+        var arguments: [String: JSONValue] = [
+            "text": .string(text), "from": .number(Double(from)), "to": .number(Double(to)),
+            "key": .string(key), "tab": .number(Double(tab)),
+        ]
+        if let language { arguments["language"] = .string(language) }
+        return try call("keyed", .object(arguments))
     }
 
     /// What a code key makes of the text and the selection.

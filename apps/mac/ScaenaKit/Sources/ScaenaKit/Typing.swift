@@ -312,7 +312,9 @@ public final class Typing {
     public func codeKey(_ key: String) -> Bool {
         guard inCode, marked == nil, let carets else { return false }
         let tab = carets.code?.tab ?? 4
-        guard let keyed = try? editor.session.keyed(text: carets.text, from: from, to: to, key: key, tab: tab)
+        guard
+            let keyed = try? editor.session.keyed(
+                text: carets.text, from: from, to: to, key: key, tab: tab, language: carets.code?.language)
         else { return false }
         let (range, text) = Self.change(from: carets.text, to: keyed.text)
         if range.length > 0 || !text.isEmpty {

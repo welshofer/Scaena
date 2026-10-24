@@ -620,6 +620,12 @@ private func carets(_ json: String) throws -> Carets {
     #expect(typing.enter("code-block", in: "code", at: nil))
     let tab = try #require(typing.carets?.code?.tab, "code says its stops")
     #expect(typing.carets?.code?.from == 1)
+    #expect(typing.carets?.code?.language != nil, "code says its language")
+    // A Makefile's stop is a tab, named by its language; another's, spaces.
+    let make = try editor.session.keyed(text: "all:\n", from: 5, to: 5, key: "Tab", tab: 4, language: "makefile")
+    #expect(make?.text == "all:\n\t")
+    let spaced = try editor.session.keyed(text: "x\n", from: 2, to: 2, key: "Tab", tab: 4, language: "python")
+    #expect(spaced?.text == "x\n    ")
     let written = try #require(typing.carets?.text)
 
     typing.move(.text(start: true))
