@@ -87,7 +87,9 @@ try {
   last = await settled(page, before);
   const fixed = await page.evaluate(() => window.scaena.source());
   check(fixed.includes(long), "the fix keeps the headline's words");
-  const changed = fixed.split("\n").filter((l, i) => l !== edited.split("\n")[i]).length;
+  // The lines the fix writes, wherever they fall: setting it in canonical form may wrap a long line.
+  const was = new Set(edited.split("\n"));
+  const changed = fixed.split("\n").filter((l) => !was.has(l)).length;
   check(changed > 0 && changed <= 3, `the fix changes only the lines it is about: ${changed}`);
   // 9:16's header is too narrow for words that run past the deck's canvas's: they overflow there
   // at any size the role allows, which only shorter words mend.
