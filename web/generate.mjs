@@ -25,8 +25,9 @@
 //   of it, and the cover's title as the model tightened it.
 // - Its story (PLAN G.9): the Story tab reads it as Vzestup measures a talk, by the generator's
 //   module: its score and the arc it was written to, the six measures, coherence by words
-//   unscored, a mark on the arc for each slide. A finding's slide is shown at a press; its fix is
-//   one change, which ⌘Z takes back; and its question goes into the assistant's box.
+//   unscored, a mark on the arc for each slide. No fix rewrites the plan's intensity or tone. A
+//   slide moved out of its beat's order has drifted: a finding's slide is shown at a press; its
+//   fix is one change, which ⌘Z takes back; and its question goes into the assistant's box.
 // Exits 1 on any failure.
 import { readFile } from "node:fs/promises";
 import { createServer } from "node:http";
@@ -340,6 +341,20 @@ try {
   const looked = await page.evaluate(() => [...new Set(window.scaena.story.health().findings.map((f) => String(f.slide)))]);
   check(rows.join() === looked.join(), `a row for each slide with something to look at, in order: ${rows}`);
   check(!said.some((s) => /\d\.\d\d/.test(s)), `in a person's words, no figure: ${said.join(" | ")}`);
+  // The words are to carry the plan's intensity and tone: a gap is asked of the assistant, and
+  // no fix declares what the words read in the plan's place.
+  const planned = await page.evaluate(() => window.scaena.story.health().findings.filter((f) => (f.kind === "intensity" || f.kind === "tone") && f.fix).length);
+  check(planned === 0, `no fix rewrites the plan's intensity or tone: ${planned}`);
+  // A slide moved out of its beat's order has drifted, and its fix makes it part of the beat it
+  // now stands in.
+  const second = await page.evaluate(() => window.scaena.last().states[1][0]);
+  await page.locator(`#strip li[data-state="${second}"]`).click();
+  const unmoved = await page.evaluate(() => window.scaena.source());
+  await page.keyboard.press("Alt+ArrowRight");
+  await page.waitForFunction((was) => window.scaena.source() !== was, unmoved, { timeout: 30000 }).catch(() => {});
+  await page
+    .waitForFunction(() => window.scaena.story.health()?.findings.some((f) => f.kind === "drift"), null, { timeout: 30000 })
+    .catch(() => {});
   const fixable = page.locator("#story [data-findings] li:has([data-fix])").first();
   check((await fixable.count()) === 1, `a finding offers its fix: ${said.join(" | ")}`);
   const slide = Number((await fixable.locator("[data-show]").textContent()).replace("Slide ", ""));

@@ -1232,7 +1232,9 @@ fn data(bundle: &Path, source: &str, edits: Option<&Path>, dry_run: bool, json: 
 /// `scaena files` (PLAN 2.59): the bundle's images, fonts, and data, and what uses each; or,
 /// with `remove`, those taken out, all or none, which exits 1 where one cannot be.
 fn health(bundle: &Path, json: bool) -> Result<ExitCode> {
-    let h = scaena_ops::health::health(&open(bundle)?.deck)?;
+    // With what lint finds: a slide that does not stand as it is to be read is found first.
+    let b = open(bundle)?;
+    let h = scaena_ops::health::health_in(&b.deck, &scaena_ops::lint::lint(&b)?.findings)?;
     if json {
         println!("{}", serde_json::to_string_pretty(&h)?);
         return Ok(ExitCode::SUCCESS);
@@ -1260,6 +1262,7 @@ fn health(bundle: &Path, json: bool) -> Result<ExitCode> {
             Severity::Info => "info ",
         };
         println!("{sev} {}: {}", f.state, f.says);
+        println!("  ask: {}", f.ask);
         if let Some(fix) = &f.fix {
             println!("  fix: {}: {}", fix.says, serde_json::to_string(&fix.patch)?);
         }
