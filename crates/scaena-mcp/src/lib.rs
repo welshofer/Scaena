@@ -130,16 +130,33 @@ impl Scaena {
         self.within(&file.to_string_lossy(), bundle, "reads")
     }
 
+    /// The theme file a tool reads, held as [`Self::readable`] holds a data file. A theme that
+    /// ships, by its name, where no file of that name is, passes as it is: nothing is read from
+    /// the disk for it.
+    fn theme_readable(&self, theme: &str, bundle: &str) -> Result<PathBuf, OpsError> {
+        let asked = Path::new(theme);
+        let there = |p: &Path| std::fs::symlink_metadata(p).is_ok();
+        if !there(asked) && !there(&self.here()?.join(asked)) {
+            return Ok(asked.to_path_buf());
+        }
+        self.readable(asked, bundle)
+    }
+
+    /// This server's working directory, or the folder it was given in its place.
+    fn here(&self) -> Result<PathBuf, OpsError> {
+        match &self.dir {
+            Some(dir) => Ok(dir.clone()),
+            None => std::env::current_dir().map_err(|e| OpsError::new(format!("this server has no folder: {e}"))),
+        }
+    }
+
     /// `out` read through every link, where it is under this server's working directory or the
     /// folder that holds `bundle`, and nothing under that folder it passes through is hidden
     /// (`.ssh`, `.aws`, `.config`, `.git`, a shell's start-up files); else why not, saying where
     /// this server `does` its work. The root of the disk and the home folder are no such folder:
     /// a server started there, or a bundle kept straight in either, would reach all of it.
     fn within(&self, out: &str, bundle: &str, does: &str) -> Result<PathBuf, OpsError> {
-        let here = match &self.dir {
-            Some(dir) => dir.clone(),
-            None => std::env::current_dir().map_err(|e| OpsError::new(format!("this server has no folder: {e}")))?,
-        };
+        let here = self.here()?;
         let home = (self.home.clone()).or_else(|| std::env::var_os("HOME").map(PathBuf::from));
         let home = home.and_then(|h| std::fs::canonicalize(h).ok());
         let beside = std::fs::canonicalize(bundle).ok().and_then(|b| b.parent().map(Path::to_path_buf));
@@ -601,6 +618,11 @@ pub struct DeckExport {
     /// `gpu` feature. Every other export paints with the CPU painter.
     #[serde(default)]
     pub painter: scaena_ops::render::Painter,
+    /// How a video and the spine pace the timeline: `beats` (the default) gives each state
+    /// with no `hold` its share of its beat's `duration`, as the talk is given; `holds` plays
+    /// each state's hold alone, as a player auto-advances.
+    #[serde(default)]
+    pub pace: scaena_core::spine::Pace,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -823,8 +845,10 @@ impl Scaena {
         &self,
         Parameters(a): Parameters<DeckCreate>,
     ) -> Result<Json<scaena_ops::create::Created>, String> {
+        // A new bundle has no folder yet: the theme is read under this server's own.
+        let theme = self.theme_readable(&a.theme, &a.bundle).map_err(failure)?;
         let req = scaena_ops::create::Create {
-            theme: PathBuf::from(a.theme),
+            theme,
             deck: a.deck.map(Value::Object),
             scn: a.scn,
             title: a.title,
@@ -978,7 +1002,8 @@ impl Scaena {
 
     #[tool(description = "Export a projection to `out`: `pdf` (each slide at its last state, or `states`, a page \
         each), `png` or `svg` (an image per state, into a directory), `mp4`, `webm`, or `prores` (the timeline, \
-        each state's cue then its hold, at `fps`; needs ffmpeg), `html` (one file that plays the deck in a \
+        each state's cue then its hold, or where it has none its share of its beat's `duration` (`pace`), at \
+        `fps`; needs ffmpeg), `html` (one file that plays the deck in a \
         browser, offline: the player, the engine, and the bundle), or `spine`, which is also returned. An export \
         that takes longer than 40 s keeps going: the call returns \
         `running`, how far it has got, and the same call again waits for the rest, then returns what it wrote.")]
@@ -996,6 +1021,7 @@ impl Scaena {
             fps: a.fps,
             audio: a.audio.clone().map(Into::into),
             painter: a.painter,
+            pace: a.pace,
         };
         let bundle = a.bundle.clone();
         let b = blocking(move || open(&bundle)).await?;
@@ -1075,11 +1101,10 @@ impl Scaena {
         context: RequestContext<RoleServer>,
     ) -> Result<Json<scaena_ops::theme::Themed>, String> {
         let author = author(&context);
-        blocking(move || {
-            scaena_ops::theme::theme_apply(&open_by(&a.bundle, author)?, Path::new(&a.theme), a.dry_run, a.force)
-        })
-        .await
-        .map(Json)
+        let theme = self.theme_readable(&a.theme, &a.bundle).map_err(failure)?;
+        blocking(move || scaena_ops::theme::theme_apply(&open_by(&a.bundle, author)?, &theme, a.dry_run, a.force))
+            .await
+            .map(Json)
     }
 
     #[tool(description = "Edit the theme the deck names (ADR-0016): its colors, type roles, spacing, and the rest, \
@@ -1209,7 +1234,9 @@ impl Scaena {
     }
 
     #[tool(description = "Replace the deck's spine, as a patch: checked, refused if it makes the deck invalid, \
-        with what lint finds differently.")]
+        with what lint finds differently. A beat's `notes` are what a presenter reads for each state it names \
+        that has none of its own; its `duration`, in seconds, paces a video and the spine where its states have \
+        no `hold`.")]
     async fn spine_update(
         &self,
         Parameters(a): Parameters<SpineUpdate>,
@@ -1285,11 +1312,13 @@ impl Scaena {
             language: a.language,
             ..scaena_ops::narrative::Brief::default()
         };
-        let theme = a.theme.unwrap_or_else(|| "dusk".into());
+        // A new bundle has no folder yet: the theme is read under this server's own, as
+        // deck_create reads one.
+        let theme = self.theme_readable(a.theme.as_deref().unwrap_or("dusk"), &a.bundle).map_err(failure)?;
         blocking(move || {
             let made = scaena_ops::narrative::from_slides(
                 Path::new(&a.bundle),
-                Path::new(&theme),
+                &theme,
                 &slides.to_string(),
                 brief,
                 a.arc.as_deref(),

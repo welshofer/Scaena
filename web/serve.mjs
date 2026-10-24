@@ -54,6 +54,20 @@ export function launch() {
   });
 }
 
+/** The inspector's tab `id` shown in the editor on `page`, as a person reaches it (lift-up ATTR-4,
+ * PLAN 3.18): Format, Animate, and Document on the row; Theme, Data, Files, Versions, and Story on
+ * Document's own row; and the layers and the assistant from More's menu. */
+export async function tab(page, id) {
+  if (["layers", "assistant"].includes(id)) {
+    await page.click("#tab-more");
+    const label = await page.evaluate((i) => document.getElementById(`tab-${i}`)?.textContent, id);
+    await page.click(`.context-menu [role="menuitem"]:has-text("${label}")`);
+  } else if (["theming", "data", "files", "versions", "story"].includes(id)) {
+    await page.click("#tab-document");
+    await page.click(`#tab-${id}`);
+  } else await page.click(`#tab-${id}`);
+}
+
 /** A PNG's pixels as RGBA: 8-bit RGB or RGBA, not interlaced, as Chromium writes them. */
 export function decode(png) {
   let at = 8;

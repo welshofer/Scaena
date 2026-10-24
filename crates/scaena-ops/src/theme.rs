@@ -128,6 +128,9 @@ fn beside(theme: &Path, text: &str) -> BTreeMap<String, Vec<u8>> {
     for family in families.into_iter().flat_map(|f| f.values()) {
         for face in [Some(family), family.get("italic")].into_iter().flatten() {
             let Some(file) = face.get("file").and_then(|f| f.as_str()) else { continue };
+            if crate::create::fonts_named(file).is_err() {
+                continue;
+            }
             let found = [folder.join(file), folder.join("..").join(file)].iter().find_map(|p| std::fs::read(p).ok());
             if let Some(bytes) = found {
                 fonts.insert(file.to_string(), bytes);

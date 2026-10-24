@@ -565,6 +565,58 @@ async fn a_tool_writes_only_under_its_folder_or_beside_the_bundle() {
     client.cancel().await.unwrap();
 }
 
+/// A theme a tool reads (deck_create, theme_apply, deck_generate) is held as a data file is: a
+/// theme that ships by its name, or one under the server's folder, and nothing else the user
+/// can read (lift-up Security 2).
+#[tokio::test(flavor = "multi_thread")]
+async fn a_theme_is_read_only_from_the_servers_folder_or_by_its_name() {
+    let here = scratch("theme-confined");
+    let elsewhere = scratch("theme-confined-elsewhere");
+    let server = scaena_mcp::Scaena::default().with_dir(here.clone());
+    let client = serve(server, ClientConfig::default(), ClientLifecycleMode::Initialize).await;
+    // A theme that ships, by its name: nothing is read from the disk.
+    let made =
+        ok(&client, "deck_create", json!({ "bundle": path(&here.join("a")), "theme": "dusk", "title": "Q3" })).await;
+    assert_eq!(made["created"], true, "{made:#}");
+    // A theme file under the server's folder, its fonts above it in the bundle it belongs to.
+    let inside = here.join("a/themes/dusk.theme.json");
+    let made = ok(&client, "deck_create", json!({ "bundle": path(&here.join("b")), "theme": path(&inside) })).await;
+    assert_eq!(made["created"], true, "{made:#}");
+    // The same theme anywhere else is refused, by deck_create and by theme_apply, and no bundle is made.
+    copy_dir(&here.join("a"), &elsewhere.join("a"));
+    let outside = path(&elsewhere.join("a/themes/dusk.theme.json"));
+    let refused = call(&client, "deck_create", json!({ "bundle": path(&here.join("c")), "theme": outside })).await;
+    assert_eq!(refused.is_error, Some(true));
+    assert!(text(&refused).contains("is outside where this server reads"), "{}", text(&refused));
+    assert!(!here.join("c").exists());
+    let applied = call(&client, "theme_apply", json!({ "bundle": path(&here.join("a")), "theme": outside })).await;
+    assert_eq!(applied.is_error, Some(true));
+    assert!(text(&applied).contains("is outside where this server reads"), "{}", text(&applied));
+    let slides: Value =
+        serde_json::from_str(&std::fs::read_to_string("../scaena-narrato/tests/answers/catalog.json").unwrap())
+            .unwrap();
+    let generated =
+        call(&client, "deck_generate", json!({ "bundle": path(&here.join("d")), "slides": slides, "theme": outside }))
+            .await;
+    assert_eq!(generated.is_error, Some(true));
+    assert!(text(&generated).contains("is outside where this server reads"), "{}", text(&generated));
+    assert!(!here.join("d").exists());
+    client.cancel().await.unwrap();
+}
+
+fn copy_dir(from: &Path, to: &Path) {
+    std::fs::create_dir_all(to).unwrap();
+    for entry in std::fs::read_dir(from).unwrap() {
+        let entry = entry.unwrap();
+        let target = to.join(entry.file_name());
+        if entry.file_type().unwrap().is_dir() {
+            copy_dir(&entry.path(), &target);
+        } else {
+            std::fs::copy(entry.path(), target).unwrap();
+        }
+    }
+}
+
 /// An export that outlives the client's wait keeps going (SPEC §7.2): the call answers
 /// that it is running and how far it has got, the same call again waits for the rest, and
 /// a different export of the same file is refused until it is done.
