@@ -525,7 +525,9 @@ pub unsafe extern "C" fn scaena_picture(bytes: *const u8, len: usize) -> *mut c_
 /// one, or those `layouts` names, a null the blank one, each `{layout, name, description, group,
 /// width, height}`, painted `height` pixels high, which
 /// [`scaena_starter_pixels`] takes; `starting {state, layout?}`, the patch that starts one after
-/// the slide of `state`, `{id, patch}`; `waiting {state}`, the slots of its layout that wait
+/// the slide of `state`, `{id, patch}`; `titling {state}`, the patch that makes a new deck's
+/// title slide after it, its places for a picture given the theme's example, `{id, patch}`;
+/// `waiting {state}`, the slots of its layout that wait
 /// for what their prompts say goes there, each `{slot, rect, words, typed, role?}`; and
 /// `filling {state, slot}`, the patch that fills one that waits for words as a new slide fills
 /// it, `{id, patch}`; and `prompted {state, node}`, whether a text still reads as its slot's
@@ -1770,6 +1772,7 @@ fn call(s: &mut Session, method: &str, args: &Value) -> Result<Value, Failure> {
             json!(s.starters_painted(arg("state")?, height, only.as_deref()).map_err(said)?)
         }
         "starting" => value(serde_json::to_value(s.starting(arg("state")?, optional("layout")).map_err(said)?))?,
+        "titling" => value(serde_json::to_value(s.titling(arg("state")?).map_err(said)?))?,
         "waiting" => value(serde_json::to_value(s.waiting(arg("state")?).map_err(said)?))?,
         "filling" => value(serde_json::to_value(s.filling(arg("state")?, arg("slot")?).map_err(said)?))?,
         "prompted" => json!(s.prompted(arg("state")?, arg("node")?).map_err(said)?),
