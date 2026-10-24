@@ -48,6 +48,13 @@ impl Session {
         scaena_core::files::files(&self.deck, &self.theme, &held).map_err(Error::Ops)
     }
 
+    /// The sources a deck made from a prompt was grounded in (narrative FUNC-3), as `scaena files`
+    /// lists them after its files: each with the beats that cite it; none for a deck that keeps
+    /// none.
+    pub fn grounded(&self) -> Vec<scaena_core::files::Grounded> {
+        scaena_core::files::grounded(&self.deck)
+    }
+
     /// `path` taken out of the bundle (PLAN 2.59): one of its images, fonts, or data that nothing
     /// names, so the deck draws and reads the same. It is kept for the panel's undo as an edit of
     /// a data file is, and the next save takes it out where the bundle is kept. Refused, with
