@@ -202,6 +202,8 @@ node! {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[schemars(extend("exclusiveMinimum" = 0))]
         pub min_size: Option<f64>,
+        /// The most its size may grow to under `fit: grow`; under `fit: shrink`, where it is
+        /// under the text's size, the most it is set at (deck format 0.36).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[schemars(extend("exclusiveMinimum" = 0))]
         pub max_size: Option<f64>,

@@ -216,17 +216,17 @@ export function sheets(stage: Stage, into: HTMLElement, editor: DataEditor) {
         // A field holds one line: a value with a line break in it is edited in its file.
         const lines = /[\r\n]/.test(value);
         const title = why ?? (lines ? "It holds a line break: edit it in its file" : "");
-        return `<td class="${column.type}"><input data-row="${r}" data-col="${c}" value="${html(value)}" style="width:calc(${width[c]}ch + 14px)" spellcheck="false" aria-label="${html(`${column.name}, row ${r}`)}"${
+        return `<td class="${column.type}"><input data-row="${r}" data-col="${c}" value="${html(value)}" style="width:calc(${width[c]}ch + 14px)" spellcheck="false" aria-label="${html(`${column.name}, row ${r + 1}`)}"${
           why ? ' aria-invalid="true"' : ""
         }${lines ? " readonly" : ""}${title ? ` title="${html(title)}"` : ""} /></td>`;
       });
-      return `<tr${chosen.includes(r) ? ' class="current"' : ""}><th scope="row" class="index">${r}</th>${fields.join("")}</tr>`;
+      return `<tr${chosen.includes(r) ? ' class="current"' : ""}><th scope="row" class="index">${r + 1}</th>${fields.join("")}</tr>`;
     });
     table.innerHTML = `<thead><tr><th scope="col" class="index">Row</th>${head}</tr></thead><tbody>${body.join("")}</tbody>`;
     problems.innerHTML = (sheet.problems ?? [])
       .map((p) => {
         const c = sheet.columns.findIndex((col) => col.name === p.column);
-        return `<li><button type="button" data-row="${p.row}" data-col="${c}">${html(`${p.column}, row ${p.row}`)}</button> ${html(p.why)}</li>`;
+        return `<li><button type="button" data-row="${p.row}" data-col="${c}">${html(`${p.column}, row ${p.row + 1}`)}</button> ${html(p.why)}</li>`;
       })
       .join("");
     told();
@@ -282,7 +282,7 @@ export function sheets(stage: Stage, into: HTMLElement, editor: DataEditor) {
     field.defaultValue = field.value;
     const r = +field.dataset.row!;
     const column = shown.sheet.columns[+field.dataset.col!].name;
-    return make([{ op: "set", row: r, column, value: field.value }], `Row ${r}, ${column}: set`, () => {
+    return make([{ op: "set", row: r, column, value: field.value }], `Row ${r + 1}, ${column}: set`, () => {
       field.value = before;
       field.defaultValue = before;
     });
@@ -357,7 +357,7 @@ export function sheets(stage: Stage, into: HTMLElement, editor: DataEditor) {
     if (!shown) return;
     const at = row === undefined ? undefined : row + 1;
     const where = at === undefined ? shown.sheet.rows.length : at;
-    void make([at === undefined ? { op: "add" } : { op: "add", row: at }], `Row ${where} added`).then(() => {
+    void make([at === undefined ? { op: "add" } : { op: "add", row: at }], `Row ${where + 1} added`).then(() => {
       row = where;
       cell(where, 0)?.focus();
     });
@@ -366,7 +366,7 @@ export function sheets(stage: Stage, into: HTMLElement, editor: DataEditor) {
     if (!shown) return;
     if (row === undefined || row >= shown.sheet.rows.length) return editor.say("Click a cell of the row to take away first");
     const at = row;
-    void make([{ op: "remove", row: at }], `Row ${at} taken away`).then(() => {
+    void make([{ op: "remove", row: at }], `Row ${at + 1} taken away`).then(() => {
       if (shown && at >= shown.sheet.rows.length) row = shown.sheet.rows.length ? shown.sheet.rows.length - 1 : undefined;
     });
   };
@@ -375,7 +375,7 @@ export function sheets(stage: Stage, into: HTMLElement, editor: DataEditor) {
       return editor.say("Click the cell to quote first, with characters selected in a text you're typing in");
     }
     const quote = quoting(shown.name, shown.sheet, row, col);
-    void editor.quote?.(quote, `quotes ${quote.column} of row ${row} of the data “${source(shown.name, shown.file)}”`);
+    void editor.quote?.(quote, `quotes ${quote.column} of row ${row + 1} of the data “${source(shown.name, shown.file)}”`);
   };
   into.querySelector<HTMLButtonElement>("[data-undo]")!.onclick = () => undo();
   into.querySelector<HTMLButtonElement>("[data-redo]")!.onclick = () => undo(true);

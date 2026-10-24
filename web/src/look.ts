@@ -10,8 +10,9 @@
 // that take it from there change with it; its transition's duration, ease, spring, and match; its
 // hold; and its notes. Each is one `set_state` patch. Above them, the layouts it may take (PLAN
 // 2.92, `Player.layoutSuggestions`), each drawn small at rest and judged by lint in every format
-// the deck lists, fewest errors first, then fewest warnings: a pointer over one, or the focus on
-// it, shows the state laid out in it on the canvas, nothing made (`Player.preview`), and a click
+// the deck lists, fewest errors first, then fewest warnings, then those the state fills: a pointer
+// over one, or the focus on it, shows the state laid out in it on the canvas, nothing made
+// (`Player.preview`), and a click
 // gives the state that layout as the layout field does. Layouts that draw the state alike are one
 // drawing, which names the others; a state that places no node in a slot is offered none.
 //
@@ -35,6 +36,11 @@
 //
 // Writing (PLAN 2.101): a text offers its words proofread, tightened, or rewritten, and the state
 // its notes drafted, by the model the assistant uses, each answer offered to take or leave.
+//
+// The Animate panel (lift-up ATTR-4, PLAN 3.18) shows what the Mac's Animate tab shows, from the same
+// choices: for the slide, its transition and its hold (Advance); for an object, its builds, as it
+// enters, for emphasis, and as it leaves; and nothing for the characters selected. Each choice is
+// made as Format's are. A button there shows the slide's animations on the timeline under the canvas.
 //
 // With characters selected in a text typed in (PLAN 2.38, `Player.characterChoices`), their look:
 // a run's role, emphasis, family, weight, italic (PLAN 2.40), and color, each the first
@@ -78,7 +84,17 @@ export interface Around {
   /** Fetch the map image `node` shows again (ADR-0030, PLAN O.1c): `in` or `out` a step, centered
    * on its pin, or as it was asked. */
   remap?(node: string, how: "in" | "out" | "pin" | "again"): void;
+  /** Show the tab a field stands in, Format or Animate (lift-up ATTR-4). */
+  reveal?(tab: "format" | "animate"): void;
+  /** The slide's animations on the timeline under the canvas: shown or hidden with `show`; whether
+   * they are shown. */
+  timeline?(show?: boolean): boolean;
 }
+
+/** The fields the Animate tab takes from a slide's choices and from an object's (lift-up ATTR-4), as
+ * the Mac's does: the slide's transition and hold, and an object's builds. */
+export const animated = (prop: string, node: boolean) =>
+  node ? ["enter", "emphasis", "exit"].includes(prop) : prop === "hold" || prop.startsWith("transition/");
 
 /** What fetches a map again (PLAN O.1c), and what each does: each one fetch, one step to undo. */
 const MAPPING: ["in" | "out" | "pin" | "again", string, string][] = [
@@ -257,7 +273,10 @@ const told = (f: Field, v: unknown) =>
 
 /** The inspector's edits, in `into`, for the node the canvas selects in `stage`'s state shown, or
  * the state itself when it selects none. */
-export function looks(stage: Stage, into: HTMLElement, around: Around) {
+export function looks(stage: Stage, into: HTMLElement, around: Around, animating: HTMLElement = document.createElement("div")) {
+  /** Both panels, Format's and Animate's. */
+  const panels = [into, animating];
+  const find = <T extends Element>(selector: string) => into.querySelector<T>(selector) ?? animating.querySelector<T>(selector);
   /** What the deck offers for the node shown in the state shown, or, with none, for the state;
    * or for the characters selected in a text typed in (`chars`). */
   let offered: Choices | StateChoices | undefined;
@@ -479,7 +498,7 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
     const showing = JSON.stringify([now.state, keep, offered, chars]);
     if (showing === drawn && !again) return false;
     drawn = showing;
-    const focused = into.contains(document.activeElement) ? document.activeElement?.id : undefined;
+    const focused = panels.some((p) => p.contains(document.activeElement)) ? document.activeElement?.id : undefined;
     // Words typed in a field and not yet taken (its change comes when it is left) outlast a
     // render, which the deck changing under it brings: the field drawn again keeps them. So does
     // what is selected in it, so what is typed next replaces the selection. A render that puts the
@@ -487,13 +506,17 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
     // leaving it sends nothing again.
     const active = document.activeElement;
     const typing =
-      !again && (active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) && active.id && into.contains(active)
+      !again && (active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) && active.id && panels.some((p) => p.contains(active))
         ? { id: active.id, value: active.value, typed: active.value !== active.defaultValue, from: active.selectionStart, to: active.selectionEnd }
         : undefined;
-    const rows = offered.fields.map((f) => {
+    const row = (f: Field) => {
       const id = `look-${f.prop.replace(/\//g, "-")}`;
       return `<label for="${id}">${html(labeled(f))}</label><span class="control">${control(f, id)}</span><span>${note(f)}</span>`;
-    });
+    };
+    // The Animate tab takes the slide's transition and hold, and an object's builds (ATTR-4).
+    const isNode = "node" in offered;
+    const builds = chars ? [] : offered.fields.filter((f) => animated(f.prop, isNode));
+    const rows = offered.fields.filter((f) => !builds.includes(f)).map(row);
     const nodes = "nodes" in offered ? (offered as Shared).nodes : "node" in offered ? [offered.node] : [];
     // What is shown, as a person names it (PLAN 2.99): the object by its kind and what it shows,
     // the characters selected in it, several by how many, or the slide by its number.
@@ -591,6 +614,34 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
       ${reading}`;
     const swatches = into.querySelector<HTMLElement>(".backgrounds");
     if (swatches) backdrops.attach(swatches);
+    // Animate (ATTR-4): the slide's Transition and Advance, or the object's Builds, as the Mac's
+    // Animate tab heads them; the characters selected have none. Then the timeline under the canvas.
+    const sections: [string, Field[]][] = isNode
+      ? [["Builds", builds]]
+      : [
+          ["Transition", builds.filter((f) => f.prop.startsWith("transition/"))],
+          ["Advance", builds.filter((f) => f.prop === "hold")],
+        ];
+    const none = chars
+      ? "The characters selected have no builds: select the text itself"
+      : builds.length
+        ? ""
+        : isNode
+          ? "No builds are offered for what is selected"
+          : "This slide's transition is not offered";
+    const timeline = around.timeline
+      ? `<p class="arrange"><span class="arrange-kind">Timeline</span><span class="arrange-buttons"><button type="button" data-timeline aria-pressed="${around.timeline()}" title="The slide's animations on a timeline under the canvas: each on the slide's clock, to time and to add to">${around.timeline() ? "Hide the Timeline" : "Show the Timeline"}</button></span></p>`
+      : "";
+    animating.innerHTML = `
+      <h2>${html(title)}</h2>
+      ${named ? `<p class="named">${html(named)}</p>` : ""}
+      ${isNode && builds.length ? keeping : ""}
+      ${sections
+        .filter(([, fields]) => fields.length)
+        .map(([name, fields]) => `<h3>${name}</h3><div class="fields">${fields.map(row).join("")}</div>`)
+        .join("")}
+      ${none ? `<p class="named">${html(none)}</p>` : ""}
+      ${timeline}`;
     // A layout previewed is let go: the canvas shows the state at rest as it is.
     if (previewing !== undefined || previewed !== undefined) preview(undefined);
     // The last suggested for the state shown stand: an edit has them judged again once every
@@ -602,9 +653,14 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
     const wanted = pending && nodes.length === 1 && nodes[0] === pending.node ? `look-${pending.prop.replace(/\//g, "-")}` : undefined;
     if (wanted) pending = undefined;
     const focus = wanted ?? focused;
-    if (focus) into.querySelector<HTMLElement>(`#${CSS.escape(focus)}`)?.focus();
+    if (focus) {
+      const field = find<HTMLElement>(`#${CSS.escape(focus)}`);
+      // A field a finding asks for is shown on its tab (ATTR-4).
+      if (field && wanted) around.reveal?.(animating.contains(field) ? "animate" : "format");
+      field?.focus();
+    }
     if (typing) {
-      const field = into.querySelector<HTMLInputElement | HTMLTextAreaElement>(`#${CSS.escape(typing.id)}`);
+      const field = find<HTMLInputElement | HTMLTextAreaElement>(`#${CSS.escape(typing.id)}`);
       if (field && typing.typed) {
         field.value = typing.value;
         // A value set by a script is no change of the person's, which the field would say when
@@ -736,9 +792,10 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
   function focus(node: string, prop: string) {
     pending = { node, prop };
     const shows = offered && "node" in offered && offered.node === node && !("nodes" in offered);
-    const field = shows ? into.querySelector<HTMLElement>(`#look-${CSS.escape(prop.replace(/\//g, "-"))}`) : null;
+    const field = shows ? find<HTMLElement>(`#look-${CSS.escape(prop.replace(/\//g, "-"))}`) : null;
     if (field) {
       pending = undefined;
+      around.reveal?.(animating.contains(field) ? "animate" : "format");
       field.focus();
     }
   }
@@ -814,7 +871,7 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
     });
   }
 
-  listen(into, "change", (e) => {
+  for (const panel of panels) listen(panel, "change", (e) => {
     const target = e.target as HTMLInputElement | HTMLSelectElement;
     const furnishing = target.dataset.furnish;
     if (furnishing && offered && "furniture" in offered) {
@@ -840,6 +897,8 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
     }
     if (target.matches("[data-keep]")) {
       keep = (target as HTMLInputElement).checked;
+      // Format's and Animate's say the same.
+      for (const box of panels.flatMap((p) => [...p.querySelectorAll<HTMLInputElement>("[data-keep]")])) box.checked = keep;
       // What each layout suggested changes, kept to the state or not.
       if (suggested && suggested.state === around.shown()?.state) fill(suggested);
       return;
@@ -874,7 +933,7 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
     void choose(prop, value);
   });
   // A slider's readout follows it as it is dragged, before it is let go.
-  listen(into, "input", (e) => {
+  for (const panel of panels) listen(panel, "input", (e) => {
     const target = e.target;
     if (!(target instanceof HTMLInputElement) || target.type !== "range") return;
     const said = adjustment(Number(target.value));
@@ -882,7 +941,14 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
     const readout = target.nextElementSibling;
     if (readout?.classList.contains("lives")) readout.textContent = said;
   });
-  listen(into, "click", (e) => {
+  for (const panel of panels) listen(panel, "click", (e) => {
+    const timeline = (e.target as Element).closest<HTMLElement>("[data-timeline]");
+    if (timeline && around.timeline) {
+      const shown = around.timeline(timeline.getAttribute("aria-pressed") !== "true");
+      timeline.setAttribute("aria-pressed", String(shown));
+      timeline.textContent = shown ? "Hide the Timeline" : "Show the Timeline";
+      return;
+    }
     const away = (e.target as Element).closest<HTMLElement>("[data-away]");
     if (away?.dataset.away) void choose(away.dataset.away, null);
     const arranging = (e.target as Element).closest<HTMLElement>("[data-arrange]");

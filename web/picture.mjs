@@ -20,7 +20,7 @@
 // Exits 1 on any failure.
 import { readFile } from "node:fs/promises";
 import { createServer } from "node:http";
-import { launch, serve } from "./serve.mjs";
+import { insert, launch, serve } from "./serve.mjs";
 
 const failures = [];
 const check = (ok, what) => {
@@ -96,7 +96,7 @@ try {
     }));
   /** The Insert menu's Make a picture…, and the dialog open. */
   const fromInsert = async () => {
-    await page.selectOption("#insert", "make-picture");
+    await insert(page, "Make a picture…");
     await page.waitForFunction(() => document.querySelector("#picturing").open, null, { timeout: 10000 }).catch(() => {});
     return dialog();
   };

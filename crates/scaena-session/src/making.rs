@@ -112,11 +112,21 @@ impl Making {
     pub fn look(&mut self, shown: Shown, changes: Vec<Change>) -> Result<(), Error> {
         let Some(write) = self.write.take() else { return Ok(()) };
         let fonts = font(&self.fonts);
-        let before = (self.made.clone(), write);
-        let (made, write) = looked(shown, changes, before, Path::new(&self.file), &self.theme, &fonts).map_err(ops)?;
-        self.made = made;
-        self.write = Some(write);
-        Ok(())
+        let before = (self.made.clone(), write.clone());
+        match looked(shown, changes, before, Path::new(&self.file), &self.theme, &fonts) {
+            Ok((made, write)) => {
+                self.made = made;
+                self.write = Some(write);
+                Ok(())
+            }
+            // The deck the model asked for could not be made again: the one made stands, saying
+            // why (narrative STAB-3), never lost to its polish.
+            Err(why) => {
+                self.write = Some(write);
+                self.made.unlooked = Some(format!("the deck the model asked for could not be made: {why}"));
+                Ok(())
+            }
+        }
     }
 
     /// `built`, the deck the generator built again with the model's `changes` (PLAN G.13),

@@ -42,7 +42,7 @@ enum Prompting {
             bundle = folder.appending(path: "\(name) \(n).scaena", directoryHint: .isDirectory)
             n += 1
         }
-        let files = try document.snapshot(contentType: .scaenaDeck)
+        let files = try document.savedNow()
         try ScaenaDocument.wrapper(files).write(to: bundle, options: .atomic, originalContentsURL: nil)
         ScaenaDocument.handing(said, as: name)
         return bundle
@@ -539,6 +539,15 @@ struct PromptView: View {
         let (research, contact, token) = (self.research && self.provider != .openai, self.secContact, self.token)
         running = Task { @MainActor in
             defer { running = nil }
+            #if !os(macOS)
+            // Run on if the person goes to another app meanwhile, as long as iPadOS allows, and say
+            // why the deck was not made where it allows no longer (lift-up REL-5).
+            let kept = KeptRunning("Making a deck") {
+                running?.cancel()
+                say(KeptRunning.stopped, failed: true)
+            }
+            defer { kept.end() }
+            #endif
             let generator = Generator()
             do {
                 // Before a file is read or a call is paid for: the font for the script the deck
@@ -580,6 +589,8 @@ struct PromptView: View {
                 finish(try Prompting.written(document, about: brief.topic, said: made.words))
                 #endif
             } catch is CancellationError {
+            } catch where Task.isCancelled {
+                // Stopped (by Cancel, or by iPadOS, which said so): a request cut off says nothing more.
             } catch {
                 // In a sentence, without the error's wrapping (PLAN 3.18). What the provider said
                 // of the brief stays its own (the generator's tests hold it so).
