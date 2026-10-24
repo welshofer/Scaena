@@ -283,9 +283,9 @@ export interface Carets {
   /** Its words still as its slot's prompt put them (PLAN 3.30): typing begins with them all
    * selected, so it replaces them. Asked as typing begins, not after each change. */
   prompt?: boolean;
-  /** Where it is code (PLAN 2.139): the columns between its tab stops, and the number its first
-   * line goes by; none for prose. */
-  code?: { tab: number; from: number } | null;
+  /** Where it is code (PLAN 2.139): the columns between its tab stops, the number its first line
+   * goes by, and its language, which its keys are given; none for prose. */
+  code?: { tab: number; from: number; language: string } | null;
 }
 
 /** A key a code text answers as a code editor does (PLAN 2.139, `code::keyed`). */
@@ -1155,7 +1155,7 @@ export type ToWorker =
   | { type: "tidied"; id: number; text: string; language: string }
   /** `text` with `from` to `to` selected after `key` in code whose tab stops are `tab` apart
    * (PLAN 2.139). */
-  | { type: "keyed"; id: number; text: string; from: number; to: number; key: CodeKey; tab: number }
+  | { type: "keyed"; id: number; text: string; from: number; to: number; key: CodeKey; tab: number; language?: string }
   /** Make Code's patch of `node`, in `language` or the one its words read as (PLAN 2.139). */
   | { type: "coding"; id: number; source: string; node: string; language?: string }
   /** Not Code's patch of `node` (PLAN 2.139). */

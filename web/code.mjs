@@ -12,6 +12,7 @@
 //   and Make Code, each from the palette.
 // - Prose pastes as words, and Paste as Text pastes code as words.
 // - VS Code's mode names the language of what it copies.
+// - A Makefile's keys keep its recipes' tabs.
 // Exits 1 on any failure.
 import { launch, serve } from "./serve.mjs";
 
@@ -209,6 +210,31 @@ try {
   check(await changed(original), "it comes in");
   check((await coded())?.code?.language === "sql", `as SQL, by VS Code's mode: ${JSON.stringify((await coded())?.code)}`);
   check(await undo(original), "⌘Z takes it away");
+
+  // A Makefile's recipe is a tab, and its keys keep it so: Return, Shift+Tab to the line's start,
+  // then Tab, which is a tab in a Makefile where elsewhere it is spaces (PLAN 2.139).
+  await press([960, 760]);
+  const make = "all: build\n\techo built";
+  check(await paste({ "text/plain": make, "vscode-editor-data": JSON.stringify({ version: 1, isFromEmptySelection: false, mode: "makefile" }) }), "the canvas takes a Makefile");
+  check(await changed(original), "the Makefile comes in");
+  const made = await source();
+  await page.locator("#overlay").focus();
+  await page.keyboard.press("Enter");
+  await page.waitForFunction(() => window.scaena.canvas.typing?.() !== undefined, null, { timeout: 30000 }).catch(() => {});
+  await page.waitForTimeout(300);
+  await page.keyboard.press("Control+End");
+  await page.keyboard.press("Enter");
+  await page.keyboard.press("Shift+Tab");
+  await page.keyboard.press("Tab");
+  await page.keyboard.type("echo done");
+  await page.keyboard.press("Escape");
+  check(await changed(made), "the keys change the Makefile");
+  await run("Copy Code");
+  await says("The code copied as text");
+  const recipe = await page.evaluate(() => navigator.clipboard.readText());
+  check(recipe === "all: build\n\techo built\n\techo done", `its recipes keep their tabs: ${JSON.stringify(recipe)}`);
+  check(await undo(made), "⌘Z takes the keys back");
+  check(await undo(original), "⌘Z takes the Makefile away");
 } finally {
   await browser.close();
   await server.close();

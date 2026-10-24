@@ -886,10 +886,10 @@ export function typing(stage: Stage, overlay: HTMLElement, around: Around) {
 
   /** A key in code (PLAN 2.139), as the engine answers it (`code::keyed`): the text and selection
    * it gives, typed as any change is. */
-  async function codeKey(key: CodeKey, tab: number) {
+  async function codeKey(key: CodeKey, code: { tab: number; language?: string }) {
     const before = area.value;
     const [start, end] = [area.selectionStart, area.selectionEnd];
-    const keyed = await stage.keyed(before, start, end, key, tab);
+    const keyed = await stage.keyed(before, start, end, key, code.tab, code.language);
     if (!keyed || area.value !== before) return;
     let head = 0;
     while (head < before.length && head < keyed.text.length && before[head] === keyed.text[head]) head++;
@@ -912,7 +912,7 @@ export function typing(stage: Stage, overlay: HTMLElement, around: Around) {
     keying = true;
     try {
       for (let next = queued.shift(); next; next = queued.shift()) {
-        if ("key" in next) await codeKey(next.key, carets?.code?.tab ?? 4);
+        if ("key" in next) await codeKey(next.key, carets?.code ?? { tab: 4, language: (open && around.code?.(open.node)) || undefined });
         else if ("text" in next) insert(next.text);
         else if ("back" in next) erase(next.back);
         else {
@@ -989,7 +989,8 @@ export function typing(stage: Stage, overlay: HTMLElement, around: Around) {
     }
     // Code (PLAN 2.139): set as written, so no characters of it take a look, a link, or a list's
     // marks; Tab, Shift+Tab, and Enter are a code editor's, as the engine answers them.
-    const code = carets?.code ?? (open && around.code?.(open.node) ? { tab: 4, from: 1 } : undefined);
+    const named = open && around.code?.(open.node);
+    const code = carets?.code ?? (named ? { tab: 4, from: 1, language: named } : undefined);
     if (code && mod && !e.altKey && (["b", "i", "k"].includes(key) || (e.shiftKey && ["Digit8", "Digit7"].includes(e.code)))) {
       e.preventDefault();
       return around.say("Code is set as written: none of it takes a look, a link, or a list of its own");

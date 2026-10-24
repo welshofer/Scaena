@@ -577,7 +577,7 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
       case "tidied":
         return post({ type: "tidied", id: data.id, text: player.tidied(data.text, data.language) });
       case "keyed": {
-        const keyed = JSON.parse(Player.keyed(data.text, data.from, data.to, data.key, data.tab)) as Keyed | null;
+        const keyed = JSON.parse(Player.keyed(data.text, data.from, data.to, data.key, data.tab, data.language)) as Keyed | null;
         return post({ type: "keyed", id: data.id, keyed });
       }
       // Make Code, Not Code, and Tidy Code (PLAN 2.139): each the patch the page then makes.

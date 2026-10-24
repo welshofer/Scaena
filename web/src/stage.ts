@@ -819,13 +819,12 @@ export class Stage {
     return this.request<"characterChoices">(asked).then(({ choices }) => choices);
   }
 
-  /** What ⌘B gives the characters `from` to `to` (Unicode scalar values) of `node`'s text in
-   * `state`, on the deck the editor's `source` compiles to (PLAN 2.38): `style_text`'s `look`. */
   /** `text` with `from` to `to` (UTF-16) selected after `key` in code whose tab stops are `tab`
-   * columns apart, as a code editor answers it (PLAN 2.139, `code::keyed`): none for a key code
-   * does not answer. */
-  keyed(text: string, from: number, to: number, key: CodeKey, tab: number): Promise<Keyed | null> {
-    return this.request<"keyed">({ type: "keyed", id: ++this.asked, text, from, to, key, tab }).then(({ keyed }) => keyed);
+   * columns apart, in `language`, as a code editor answers it (PLAN 2.139, `code::keyed`): a
+   * Makefile's stop a tab; none for a key code does not answer. */
+  keyed(text: string, from: number, to: number, key: CodeKey, tab: number, language?: string): Promise<Keyed | null> {
+    const asked = { type: "keyed" as const, id: ++this.asked, text, from, to, key, tab, language };
+    return this.request<"keyed">(asked).then(({ keyed }) => keyed);
   }
 
   /** Make Code's patch of `node` (PLAN 2.139): `code` in `language`, else in the language its words
@@ -856,6 +855,8 @@ export class Stage {
     return this.request<"codeWords">(asked).then(({ words }) => words);
   }
 
+  /** What ⌘B gives the characters `from` to `to` (Unicode scalar values) of `node`'s text in
+   * `state`, on the deck the editor's `source` compiles to (PLAN 2.38): `style_text`'s `look`. */
   bolding(source: string, state: string, node: string, from: number, to: number, format?: string): Promise<Record<string, unknown>> {
     const asked = { type: "bolding" as const, id: ++this.asked, source, state, node, from, to, format };
     return this.request<"bolding">(asked).then(({ look }) => look);
