@@ -408,7 +408,11 @@ impl Cx<'_> {
         let id = match self.images.get(&key) {
             Some(id) => id.clone(),
             None => {
-                let picture = self.assets.image(asset).map_err(|e| ExportError::Svg(e.to_string()))?;
+                // A picture whose pixels do not decode leaves its box empty (E107).
+                let picture = match self.assets.image(asset) {
+                    Err(e) if e.undecodable() => return Ok(()),
+                    picture => picture.map_err(|e| ExportError::Svg(e.to_string()))?,
+                };
                 let png = png(picture.width, picture.height, picture.rgba.data())?;
                 let id = self.id();
                 // Painters sample `high` bilinearly, CSS's `smooth`, which only a style may
