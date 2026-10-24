@@ -1010,6 +1010,7 @@ impl Engine {
         let code = spec.code.as_ref().map(|c| crate::carets::CaretCode {
             tab: c.tab,
             from: (props.get("code").and_then(|c| c.get("start")).and_then(Value::as_u64)).map_or(1, |n| n as usize),
+            language: c.language.clone(),
         });
         Ok(PlacedText { cell, origin, text, scale, overflow, clip, fit, natural, code })
     }

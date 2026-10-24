@@ -2,7 +2,7 @@
 //! Return, each given the text and its selection and giving them back changed, which an editor
 //! then makes a `replace_text` of, as it makes one of what is typed.
 //!
-//! - **Tab** with the caret on one line, or the selection within it, puts spaces in its place to
+//! - **Tab** with the caret on one line, or the selection within it, puts a stop in its place, to
 //!   the next tab stop, counted from the line's start; with a selection that holds a line break,
 //!   it indents each line it touches one stop, but a line of white space alone, which it leaves.
 //! - **Shift+Tab** takes one stop's indentation, or as much as there is, off each line the
@@ -11,6 +11,12 @@
 //!   it breaks, one stop more after an opening bracket, and between an opening bracket and its
 //!   closing one, the closing one on a line of its own at the first's indentation. The white space
 //!   before the caret on the line it leaves is taken off, so no line of indentation alone stays.
+//!
+//! A stop that is added is one tab where the text indents with tabs (the line's own indentation
+//! starts with one, else the first indented line's does), and always in a Makefile, whose recipes
+//! a tab starts; else spaces to the stop. So code indented with tabs stays so, and copies out as
+//! its language takes it (a recipe indented with spaces is an error to `make`; gofmt indents with
+//! tabs). Return's line keeps the indentation it breaks as written.
 //!
 //! Offsets are bytes of the text, on its characters' boundaries; a tab stop is `tab` columns, and
 //! a tab in the text stands to the next stop, as the engine lays code out.
@@ -44,25 +50,45 @@ impl Key {
     }
 }
 
-/// `text` with `from` to `to` selected after `key`, tab stops every `tab` columns. None where
-/// the selection is not on the text's characters.
-pub fn keyed(text: &str, from: usize, to: usize, key: Key, tab: usize) -> Option<Keyed> {
+/// `text` with `from` to `to` selected after `key`, tab stops every `tab` columns, in the
+/// language named, by any of its names (`scaena_core::code::language`), or none. None where the
+/// selection is not on the text's characters.
+pub fn keyed(text: &str, from: usize, to: usize, key: Key, tab: usize, language: Option<&str>) -> Option<Keyed> {
     let (from, to) = (from.min(to), from.max(to));
     if to > text.len() || !text.is_char_boundary(from) || !text.is_char_boundary(to) {
         return None;
     }
     let tab = tab.max(1);
+    let make = language.and_then(super::language).is_some_and(|l| l.name == "makefile");
+    let tabs = make || tabbed(text, from);
     Some(match key {
-        Key::Tab if text[from..to].contains('\n') => indent(text, from, to, tab),
+        Key::Tab if text[from..to].contains('\n') => indent(text, from, to, &stop(tabs, tab, 0)),
         Key::Tab => {
             let column = column(text, line_start(text, from), from, tab);
-            let spaces = " ".repeat(tab - column % tab);
-            let at = from + spaces.len();
-            Keyed { text: format!("{}{spaces}{}", &text[..from], &text[to..]), from: at, to: at }
+            let put = stop(tabs, tab, column);
+            let at = from + put.len();
+            Keyed { text: format!("{}{put}{}", &text[..from], &text[to..]), from: at, to: at }
         }
         Key::ShiftTab => dedent(text, from, to, tab),
-        Key::Return => broken(text, from, to, tab),
+        Key::Return => broken(text, from, to, &stop(tabs, tab, 0)),
     })
+}
+
+/// What one stop from `column` puts: a tab, or spaces to the next stop.
+fn stop(tabs: bool, tab: usize, column: usize) -> String {
+    if tabs { "\t".to_string() } else { " ".repeat(tab - column % tab) }
+}
+
+/// Whether `text` indents with tabs where `at` stands: as the line's own indentation does, else
+/// as the first line indented before something does.
+fn tabbed(text: &str, at: usize) -> bool {
+    let own = indentation(text, line_start(text, at));
+    if let Some(first) = own.chars().next() {
+        return first == '\t';
+    }
+    text.split('\n')
+        .find(|line| line.starts_with([' ', '\t']) && !line.trim().is_empty())
+        .is_some_and(|line| line.starts_with('\t'))
 }
 
 /// Where the line `at` stands on starts.
@@ -99,11 +125,10 @@ fn indentation(text: &str, start: usize) -> &str {
     &rest[..rest.len() - rest.trim_start_matches([' ', '\t']).len()]
 }
 
-/// Each line the selection touches indented one stop, but a line of white space alone; the
+/// Each line the selection touches indented one `stop`, but a line of white space alone; the
 /// selection grown with them.
-fn indent(text: &str, from: usize, to: usize, tab: usize) -> Keyed {
-    let stop = " ".repeat(tab);
-    edit_lines(text, from, to, |line| if line.trim().is_empty() { (0, String::new()) } else { (0, stop.clone()) })
+fn indent(text: &str, from: usize, to: usize, stop: &str) -> Keyed {
+    edit_lines(text, from, to, |line| if line.trim().is_empty() { (0, String::new()) } else { (0, stop.to_string()) })
 }
 
 /// One stop's indentation taken off each line the selection touches, or as much as it has: spaces
@@ -154,7 +179,7 @@ fn edit_lines(text: &str, from: usize, to: usize, edit: impl Fn(&str) -> (usize,
 /// A line break in the selection's place, the new line indented as the line it breaks and one stop
 /// more after an opening bracket; between brackets, the closing one on a line of its own. The
 /// white space before the caret on the line it leaves is taken off.
-fn broken(text: &str, from: usize, to: usize, tab: usize) -> Keyed {
+fn broken(text: &str, from: usize, to: usize, stop: &str) -> Keyed {
     let start = line_start(text, from);
     let indent = indentation(text, start);
     // What stays on the line it leaves: up to the caret, its trailing white space taken off.
@@ -163,7 +188,7 @@ fn broken(text: &str, from: usize, to: usize, tab: usize) -> Keyed {
     let after = text[to..].chars().next();
     let opens = matches!(before, Some('{' | '[' | '('));
     let closes = matches!((before, after), (Some('{'), Some('}')) | (Some('['), Some(']')) | (Some('('), Some(')')));
-    let inner = if opens { format!("{indent}{}", " ".repeat(tab)) } else { indent.to_string() };
+    let inner = if opens { format!("{indent}{stop}") } else { indent.to_string() };
     // The rest of the line after the caret, its leading white space taken off, so it stands at
     // the new line's indentation.
     let rest_at = text.len() - text[to..].trim_start_matches([' ', '\t']).len();

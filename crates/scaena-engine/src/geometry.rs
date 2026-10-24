@@ -254,7 +254,7 @@ impl Scene {
     /// them there, and [`Scene::laid_out`] reads a point back.
     pub fn carets(&self, node: &str) -> Option<Carets> {
         self.nodes.iter().find(|n| n.id == node).and_then(|n| match &n.content {
-            Content::Text(placed) => Some(Carets { code: placed.code, ..placed.text.carets(placed.origin) }),
+            Content::Text(placed) => Some(Carets { code: placed.code.clone(), ..placed.text.carets(placed.origin) }),
             _ => None,
         })
     }

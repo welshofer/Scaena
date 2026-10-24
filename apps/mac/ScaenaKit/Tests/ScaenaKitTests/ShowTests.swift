@@ -274,3 +274,16 @@ private func slots() throws -> [ScaenaSession.Slot] {
         RemotePlace.self, from: Data(#"{"deck":"Q3","showing":true,"state":"mix","index":0,"count":1,"ms":0,"rest":true,"notes":"a\nb"}"#.utf8))
     #expect(older.read.isEmpty && NoteBlock.of(older.notes) == [.lines([[NoteSpan("a")], [NoteSpan("b")]])])
 }
+
+/// The presenter's notes step up and down the sizes a speaker reads at (lift-up USE-4), as the
+/// browser's presenter view steps them: held at either end, and a size out of the list stepping
+/// from the next in it.
+@Test func thePresentersNotesStepThroughTheBrowsersSizes() {
+    #expect(NotesSize.stepped(20, by: 1) == 24)
+    #expect(NotesSize.stepped(24, by: -1) == 20)
+    #expect(NotesSize.stepped(48, by: 1) == 48, "held at the largest")
+    #expect(NotesSize.stepped(12, by: -1) == 12, "held at the smallest")
+    #expect(NotesSize.stepped(15, by: 1) == 18, "15 steps from 16, the next in the list")
+    #expect(NotesSize.stepped(200, by: -1) == 40)
+    #expect(NotesSize.sizes.contains(NotesSize.standard))
+}

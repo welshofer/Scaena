@@ -37,13 +37,16 @@ pub struct Carets {
 
 /// A code text as its keys read it (PLAN 2.139): Tab, Shift+Tab, and Return, which
 /// `scaena_core::code::keyed` answers, stand to its tab stops.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct CaretCode {
     /// The columns between its tab stops: the theme's `code.tab`, else 4.
     pub tab: usize,
     /// The number its first line goes by: its `code.start` where it has one (the gutter's, PLAN
     /// 2.136), else 1.
     pub from: usize,
+    /// The language it is written in, as the deck names it, which its keys are given: a
+    /// Makefile's stop is a tab.
+    pub language: String,
 }
 
 /// The weight from which a text reads as bold: CSS's `bold` is 700, and 600 is the first

@@ -1026,7 +1026,7 @@ fn code_keys_and_commands_make_the_browsers_edit() {
     let made = call(s, "coding", json!({ "node": "title", "language": "rust" }));
     assert_eq!(tool(s, "deck_patch", json!({ "ops": made }))["edited"], true, "{made}");
     let carets = call(s, "carets", json!({ "state": "cover", "node": "title" }));
-    assert_eq!(carets["code"], json!({ "tab": 4, "from": 1 }), "{carets}");
+    assert_eq!(carets["code"], json!({ "tab": 4, "from": 1, "language": "rust" }), "{carets}");
     // Return after the text: a line indented as it, and the change typed as any is.
     let text = carets["text"].as_str().unwrap().to_string();
     let end = text.encode_utf16().count();
@@ -1047,6 +1047,9 @@ fn code_keys_and_commands_make_the_browsers_edit() {
         "off the text"
     );
     assert_eq!(call(s, "keyed", json!({ "text": "x", "from": 0, "to": 0, "key": "Escape" })), Value::Null);
+    // A Makefile's stop is a tab, named by the text's language.
+    let make = json!({ "text": "all:\n", "from": 5, "to": 5, "key": "Tab", "language": "makefile" });
+    assert_eq!(call(s, "keyed", make)["text"], "all:\n\t");
     // Tidy Code where the code is tidy: nothing; Not Code: `code` gone.
     let tidy = call(s, "tidying", json!({ "state": "cover", "node": "title" }));
     assert!(tidy.as_array().is_some_and(|ops| ops.iter().all(|op| op["op"] == "replace_text")), "{tidy}");

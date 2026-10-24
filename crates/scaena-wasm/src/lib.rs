@@ -775,9 +775,10 @@ impl Player {
 
     /// `text` with `from` to `to` (UTF-16 code units) selected after `key` in a code text whose
     /// tab stops are `tab` columns apart, as JSON (PLAN 2.139): `{ text, from, to }`, or `null` for
-    /// a key code does not answer.
-    pub fn keyed(text: &str, from: usize, to: usize, key: &str, tab: usize) -> String {
-        Session::keyed(text, from, to, key, tab).unwrap_or(serde_json::Value::Null).to_string()
+    /// a key code does not answer. `language` is the text's `code.language`, so a Makefile's stop
+    /// is a tab.
+    pub fn keyed(text: &str, from: usize, to: usize, key: &str, tab: usize, language: Option<String>) -> String {
+        Session::keyed(text, from, to, key, tab, language.as_deref()).unwrap_or(serde_json::Value::Null).to_string()
     }
 
     /// What ⌘B gives the characters `from` to `to` (Unicode scalar values) of `node`'s text

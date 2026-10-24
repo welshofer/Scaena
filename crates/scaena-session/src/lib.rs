@@ -1036,9 +1036,17 @@ impl Session {
     /// (PLAN 2.139, `scaena_core::code::keyed`): `{ "text", "from", "to" }`, which an editor makes a
     /// `replace_text` of as of what is typed. `key` is `Tab`, `Shift+Tab`, or `Return`; `tab` the
     /// columns between the text's tab stops, its carets' `code.tab`; and the offsets UTF-16 code
-    /// units, as a page and Swift count a string. None for a key code does not answer, or a
-    /// selection off the text's characters.
-    pub fn keyed(text: &str, from: usize, to: usize, key: &str, tab: usize) -> Option<serde_json::Value> {
+    /// units, as a page and Swift count a string; `language` the text's `code.language`, so a
+    /// Makefile's stop is a tab. None for a key code does not answer, or a selection off the
+    /// text's characters.
+    pub fn keyed(
+        text: &str,
+        from: usize,
+        to: usize,
+        key: &str,
+        tab: usize,
+        language: Option<&str>,
+    ) -> Option<serde_json::Value> {
         let key = scaena_core::code::Key::named(key)?;
         let byte = |units: usize| {
             let mut counted = 0;
@@ -1050,7 +1058,7 @@ impl Session {
             }
             (counted == units).then_some(text.len())
         };
-        let keyed = scaena_core::code::keyed(text, byte(from)?, byte(to)?, key, tab)?;
+        let keyed = scaena_core::code::keyed(text, byte(from)?, byte(to)?, key, tab, language)?;
         let units = utf16(&keyed.text);
         Some(serde_json::json!({ "text": keyed.text, "from": units(keyed.from), "to": units(keyed.to) }))
     }
@@ -4470,10 +4478,13 @@ mod tests {
         }
         assert!(!s.deck.states[1].props["note"].contains_key("hyphenate"));
         assert!(s.coding("note", None).is_err(), "code already");
-        // Its carets say its tab stops and its first line's number.
+        // Its carets say its tab stops, its first line's number, and its language.
         let carets = s.carets("revenue", "note").unwrap().unwrap();
-        assert_eq!(carets.code, Some(scaena_engine::carets::CaretCode { tab: 4, from: 1 }));
-        assert_eq!(s.carets_json("revenue", "note").unwrap()["code"], json!({ "tab": 4, "from": 1 }));
+        assert_eq!(carets.code, Some(scaena_engine::carets::CaretCode { tab: 4, from: 1, language: "plain".into() }));
+        assert_eq!(
+            s.carets_json("revenue", "note").unwrap()["code"],
+            json!({ "tab": 4, "from": 1, "language": "plain" })
+        );
         assert_eq!(s.carets_json("revenue", "title").unwrap()["code"], json!(null), "prose");
         // What code does not take: a look of its own for some characters, a list, the writing tools.
         for refused in [
@@ -4517,11 +4528,23 @@ mod tests {
     #[test]
     fn a_code_key_counts_utf16_as_a_page_does() {
         use serde_json::json;
-        assert_eq!(Session::keyed("é", 1, 1, "Tab", 4), Some(json!({ "text": "é   ", "from": 4, "to": 4 })));
+        assert_eq!(Session::keyed("é", 1, 1, "Tab", 4, None), Some(json!({ "text": "é   ", "from": 4, "to": 4 })));
         // 𝑥 is two code units: the caret after it is at 2, and Return keeps the line's indentation.
-        assert_eq!(Session::keyed("  𝑥", 4, 4, "Return", 4), Some(json!({ "text": "  𝑥\n  ", "from": 7, "to": 7 })));
-        assert_eq!(Session::keyed("𝑥", 1, 1, "Tab", 4), None, "inside a character");
-        assert_eq!(Session::keyed("x", 0, 0, "Escape", 4), None, "no key code answers");
+        assert_eq!(
+            Session::keyed("  𝑥", 4, 4, "Return", 4, None),
+            Some(json!({ "text": "  𝑥\n  ", "from": 7, "to": 7 }))
+        );
+        assert_eq!(Session::keyed("𝑥", 1, 1, "Tab", 4, None), None, "inside a character");
+        assert_eq!(Session::keyed("x", 0, 0, "Escape", 4, None), None, "no key code answers");
+        // The text's language: a Makefile's stop is a tab, a Go text indented with tabs keeps them.
+        assert_eq!(
+            Session::keyed("all:\n", 5, 5, "Tab", 4, Some("makefile")),
+            Some(json!({ "text": "all:\n\t", "from": 6, "to": 6 }))
+        );
+        assert_eq!(
+            Session::keyed("{\n\tx", 4, 4, "Tab", 4, Some("go")),
+            Some(json!({ "text": "{\n\tx\t", "from": 5, "to": 5 }))
+        );
     }
 
     /// Find and replace across the deck's words (PLAN 2.47, 2.83): each text, and the beat's

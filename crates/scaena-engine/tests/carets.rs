@@ -360,7 +360,7 @@ fn bold_toggles_by_the_weight_each_character_is_set_in() {
 #[test]
 fn a_code_texts_carets_say_its_tab_stops_and_first_line() {
     use scaena_engine::carets::CaretCode;
-    assert_eq!(carets("code", "code-block").code, Some(CaretCode { tab: 4, from: 1 }));
+    assert_eq!(carets("code", "code-block").code, Some(CaretCode { tab: 4, from: 1, language: "typescript".into() }));
     assert_eq!(carets("liga", "liga-on").code, None);
     let (mut deck, _, mut engine) = torture();
     // A first line numbered as the gutter numbers it (`code.start`, which the format takes with the
@@ -371,5 +371,8 @@ fn a_code_texts_carets_say_its_tab_stops_and_first_line() {
     written["code"]["tab"] = serde_json::json!(2);
     let theme = Theme::from_json(&written.to_string()).unwrap();
     let scene = at_rest(&mut engine, &deck, &theme, "code");
-    assert_eq!(scene.carets("code-block").unwrap().code, Some(CaretCode { tab: 2, from: 12 }));
+    assert_eq!(
+        scene.carets("code-block").unwrap().code,
+        Some(CaretCode { tab: 2, from: 12, language: "typescript".into() })
+    );
 }

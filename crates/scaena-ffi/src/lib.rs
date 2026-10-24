@@ -1743,11 +1743,12 @@ fn call(s: &mut Session, method: &str, args: &Value) -> Result<Value, Failure> {
         "uncoding" => json!(s.uncoding(arg("node")?).map_err(said)?),
         "tidying" => json!(s.tidying(arg("state")?, arg("node")?).map_err(said)?),
         // A key in a code text, as a code editor answers it (PLAN 2.139): `{ text, from, to }`,
-        // offsets in UTF-16 code units, or null for a key code does not answer.
+        // offsets in UTF-16 code units, or null for a key code does not answer; `language`, if
+        // given, the text's, so a Makefile's stop is a tab.
         "keyed" => {
             let (from, to) = (number("from")? as usize, number("to")? as usize);
             let tab = args.get("tab").and_then(Value::as_u64).unwrap_or(4) as usize;
-            Session::keyed(arg("text")?, from, to, arg("key")?, tab).unwrap_or(Value::Null)
+            Session::keyed(arg("text")?, from, to, arg("key")?, tab, optional("language")).unwrap_or(Value::Null)
         }
         // What ⌘B and ⌘I give the characters `from` to `to` (Unicode scalar values): `style_text`'s
         // `look` (PLAN 2.38, 2.40).
