@@ -48,8 +48,15 @@
             "items": { "type": "string" }
           },
           "states": { "$ref": "#/$defs/IdList" },
-          "notes": { "description": "Speaker notes.", "type": ["string", "null"] },
-          "duration": { "description": "Estimated seconds.", "type": ["number", "null"], "minimum": 0 },
+          "notes": {
+            "description": "Speaker notes: what a presenter reads for each state it names that has none of its own\n(SPEC §2.6).",
+            "type": ["string", "null"]
+          },
+          "duration": {
+            "description": "Estimated seconds: what a video and the spine give its states with no `hold`, less\ntheir cues (SPEC §2.4).",
+            "type": ["number", "null"],
+            "minimum": 0
+          },
           "media": {
             "description": "Projection hints (infographic priority, podcast script, …).",
             "type": ["object", "null"],
@@ -65,14 +72,36 @@
         "items": { "$ref": "#/$defs/Id" },
         "uniqueItems": true
       },
+      "Pace": {
+        "description": "How a projection paces the deck's global timeline (SPEC §2.4, §10).",
+        "oneOf": [
+          {
+            "description": "Each state its `hold`; where it has none, its share of its beat's `duration`, less the\ncues of the beat's states ([`paced`]): a talk timed as it is given, though a player\nwaits on the presenter.",
+            "type": "string",
+            "const": "beats"
+          },
+          {
+            "description": "Each state its `hold` alone, as a player auto-advances: a state with none comes to\nrest and goes on at once.",
+            "type": "string",
+            "const": "holds"
+          }
+        ]
+      },
       "SpineState": {
         "description": "A state: its slide, its notes, and where it plays.",
         "type": "object",
         "properties": {
           "id": { "type": "string" },
           "slide": { "description": "The slide it builds (SPEC §2.2).", "type": "string" },
-          "notes": { "type": ["string", "null"] },
+          "notes": {
+            "description": "What a presenter reads for it (SPEC §2.6, [`notes`]): its own notes, else its beat's.\nNone where nothing is written on it.",
+            "type": ["string", "null"]
+          },
           "hold": { "description": "Its dwell at rest, ms, as the deck gives it.", "type": ["number", "null"] },
+          "rest": {
+            "description": "Its time at rest on the timeline, ms: its `hold`, or under `pace: beats`, where it has\nnone, its share of its beat's `duration` ([`paced`]). Given the timeline.",
+            "type": ["number", "null"]
+          },
           "start": {
             "description": "When its transition starts on the global timeline, ms. Given the timeline.",
             "type": ["number", "null"]
@@ -138,6 +167,10 @@
       "spine": {
         "description": "The spine as the deck holds it; absent if it has none.",
         "anyOf": [{ "$ref": "#/$defs/Spine" }, { "type": "null" }]
+      },
+      "pace": {
+        "description": "How the timeline its states and beats are placed on was paced ([`Pace`]). Given the\ntimeline.",
+        "anyOf": [{ "$ref": "#/$defs/Pace" }, { "type": "null" }]
       },
       "states": {
         "description": "Every state, in cue-list order.",
