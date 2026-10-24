@@ -10,10 +10,11 @@ extension XCTestCase {
     /// The app launched, the iPad held landscape, as a deck is edited, with `environment` among
     /// its environment's variables.
     @MainActor
-    func launched(environment: [String: String] = [:]) -> XCUIApplication {
+    func launched(environment: [String: String] = [:], arguments: [String] = []) -> XCUIApplication {
         XCUIDevice.shared.orientation = .landscapeLeft
         let app = XCUIApplication()
         app.launchEnvironment.merge(environment) { _, given in given }
+        app.launchArguments += arguments
         app.launch()
         return app
     }

@@ -1103,8 +1103,9 @@ impl Scaena {
 
     #[tool(description = "Re-theme: point the deck at another theme, a file or one that ships by name (dusk, \
         daybreak, ember, salon), copied into the bundle with its fonts, and say what that changes in what lint finds. A text the theme leaves too faint to read where it stands is set in the \
-        theme's color that reads there, as its contrast error's fix offers (`recolored`); the deck is not otherwise \
-        touched. A theme that \
+        theme's color that reads there, as its contrast error's fix offers (`recolored`), and one it sets past its \
+        box or over another node (E100, E101) is fitted as lint's checked fix fits it, shrunk to fit (`refitted`); \
+        the deck is not otherwise touched. A theme that \
         would leave the deck invalid, as one that lacks a name it uses does, is refused (`refused`, and its \
         errors in `added`) unless `force`: the deck keeps its theme, and the new one is copied in, so one \
         `deck_patch` with the `retheme` op and the fixes swaps it with the deck valid throughout.")]
