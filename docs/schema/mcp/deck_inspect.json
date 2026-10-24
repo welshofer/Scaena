@@ -167,7 +167,7 @@
         "default": false
       },
       "layouts": {
-        "description": "The layouts the state inspected may take, best first (PLAN 2.92): each of the theme's\nlayouts that `state_choices` offers, with what lint finds in the state laid out in it,\nfewest errors, then fewest warnings, then the theme's order; the states its patch\nchanges; and that patch, one `set_state`. Those that draw the state alike, in `format`\nor on the deck's canvas, are one, which names the rest (`alike`).",
+        "description": "The layouts the state inspected may take, best first (PLAN 2.92): each of the theme's\nlayouts that `state_choices` offers, with what lint finds in the state laid out in it,\nfewest errors, then fewest warnings, then the layout it takes now, then those whose places\nit leaves fewest empty (`empty`), then those that set fewest of its texts in another role\n(`recast`), then the theme's order, so a layout it fills, with as many items as the layout\nhas, comes before one it fills in part; the states its patch changes; and that patch, one\n`set_state`. Those that draw the state alike, in `format` or on the deck's canvas, are\none, which names the rest (`alike`).",
         "type": "boolean",
         "default": false
       },
@@ -853,6 +853,16 @@
             "minimum": 0
           },
           "warnings": { "type": "integer", "minimum": 0 },
+          "empty": {
+            "description": "The layout's places, for words, a picture, or a figure, that the state leaves empty laid\nout in it: none where it fills the layout, with as many items as the layout has.",
+            "type": "integer",
+            "minimum": 0
+          },
+          "recast": {
+            "description": "The state's texts the layout's slots set in a role other than their own: a figure in a\nslot for a title.",
+            "type": "integer",
+            "minimum": 0
+          },
           "alike": {
             "description": "The layouts that draw the state as this one does, where it is drawn, with what lint\nfinds alike: choosing one shows nothing new, so each is left out, in the theme's order.",
             "type": "array",
@@ -869,7 +879,7 @@
             "items": true
           }
         },
-        "required": ["layout", "errors", "warnings", "reach", "patch"]
+        "required": ["layout", "errors", "warnings", "empty", "recast", "reach", "patch"]
       },
       "Insert": {
         "description": "One thing an editor may insert.",

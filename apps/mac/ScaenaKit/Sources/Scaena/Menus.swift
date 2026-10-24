@@ -231,6 +231,27 @@ struct UndoButton: View {
     }
 }
 
+/// Select on the iPad's toolbar (lift-up FUNC-4): held, each tap on the canvas adds an object to
+/// what is selected or takes it out, as Shift and a click do, and in the light table a tap adds a
+/// slide or takes it out, as ⌘ and a click do; an iPad without a keyboard has neither key. It stays
+/// held until it is tapped again, and reads as held or not.
+struct SelectButton: View {
+    @Bindable var touch: TouchHeld
+
+    var body: some View {
+        Toggle(isOn: $touch.selecting) {
+            Label("Select", systemImage: touch.selecting ? "checkmark.circle.fill" : "checkmark.circle")
+        }
+        .toggleStyle(.button)
+        .help(
+            touch.selecting
+                ? "Each tap adds an object or a slide to the selection, or takes it out; tap again to stop"
+                : "Select several: each tap then adds an object or a slide to the selection, or takes it out")
+        .accessibilityLabel("Select Several")
+        .accessibilityIdentifier("select-several")
+    }
+}
+
 /// What an undo manager would take back and make again, by the titles its menu items would have:
 /// none where there is nothing to.
 struct UndoSteps: Equatable {

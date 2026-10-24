@@ -415,6 +415,28 @@ fn unwritten(write: &Write) -> crate::Bundle {
 /// `say` hears how far it has come. Nothing is written.
 #[allow(clippy::too_many_arguments)]
 pub fn generate(
+    generation: Generation,
+    key: Option<&str>,
+    documents: &[Document],
+    painter: Option<&Painter>,
+    looking: Looking,
+    theme_file: &Path,
+    theme: String,
+    font: &dyn Fn(&str) -> Result<Vec<u8>, OpsError>,
+    transport: &mut dyn Transport,
+    say: &mut dyn FnMut(Progress),
+) -> Result<(Generated, Option<Write>), OpsError> {
+    let draw = |write: &Write| drawn(write, LOOK_WIDTH);
+    generate_drawn(generation, key, documents, painter, looking, theme_file, theme, font, transport, say, &draw)
+}
+
+/// [`generate`], each slide drawn for the model to see by `draw` (the CPU painter's JPEGs, as
+/// [`generate`] draws them; a browser draws by its own module). The look is a polish on a deck
+/// the model has written and validated (narrative STAB-3): a `draw` that fails, as a deck the
+/// model asked for that cannot be made again, leaves the deck as it was, saying why in
+/// `unlooked`, and is never an error.
+#[allow(clippy::too_many_arguments)]
+pub fn generate_drawn(
     mut generation: Generation,
     key: Option<&str>,
     documents: &[Document],
@@ -425,6 +447,7 @@ pub fn generate(
     font: &dyn Fn(&str) -> Result<Vec<u8>, OpsError>,
     transport: &mut dyn Transport,
     say: &mut dyn FnMut(Progress),
+    draw: &dyn Fn(&Write) -> Result<Vec<Picture>, OpsError>,
 ) -> Result<(Generated, Option<Write>), OpsError> {
     while let Some(request) = key.and_then(|key| generation.request(key, documents)) {
         let step = generation.step();
@@ -466,21 +489,26 @@ pub fn generate(
     let seen = seeing(&narrative, &model, &pictures, &made.layouts);
     let changes = match (looking, key) {
         (Looking::Answered(text), _) => Some(scaena_narrato::look::read(text, &seen).map_err(OpsError::new)),
-        (Looking::Asked, Some(key)) => {
-            let drawn = drawn(&write, LOOK_WIDTH)?;
-            generation.look_request(key, &seen, &drawn).map(|request| {
+        (Looking::Asked, Some(key)) => match draw(&write) {
+            Ok(drawn) => generation.look_request(key, &seen, &drawn).map(|request| {
                 say(Progress::Looking { slides: seen.len() });
                 let reply = transport.send(&request);
                 (generation.look_answer(reply.status, &reply.status_text, &reply.body, &seen))
                     .map_err(|e| OpsError::new(e.to_string()))
-            })
-        }
+            }),
+            // A slide that would not draw for the model to see: the deck stands as made.
+            Err(why) => Some(Err(OpsError::new(format!("the slides could not be drawn for the model: {why}")))),
+        },
         _ => None,
     };
     match changes {
         Some(Ok(changes)) => {
             let shown = Shown { narrative: &narrative, theme: &model, pictures: &pictures, assets: &assets };
-            (made, write) = looked(shown, changes, (made, write), theme_file, &theme, font)?;
+            match looked(shown, changes, (made.clone(), write.clone()), theme_file, &theme, font) {
+                Ok(after) => (made, write) = after,
+                // The deck the model asked for could not be made again: the one made stands.
+                Err(why) => made.unlooked = Some(format!("the deck the model asked for could not be made: {why}")),
+            }
             say(Progress::Looked { slides: made.looked.len() });
         }
         Some(Err(why)) => made.unlooked = Some(why.to_string()),
@@ -804,7 +832,7 @@ pub fn worse(before: (&Generated, &Write), after: (&Generated, &Write)) -> Vec<u
 
 /// `changes` less those on the slides `refused` names by index.
 pub fn kept(mut changes: Vec<Change>, refused: &[usize]) -> Vec<Change> {
-    changes.retain(|c| !refused.contains(&(c.slide - 1)));
+    changes.retain(|c| !c.slide.checked_sub(1).is_some_and(|index| refused.contains(&index)));
     changes
 }
 
@@ -976,50 +1004,8 @@ fn alike(doc: &mut Value, view: &View, held: &mut Held) -> Result<bool, OpsError
     let deck = Deck::from_json(&measured.to_string()).context("the deck")?;
     let Some(theme) = view.theme(&deck)? else { return Ok(false) };
     let theme = scaena_engine::theme::Theme::from_json(&theme)?;
-    let mut engine = crate::lint::engine_in(&deck, view, &theme, None)?;
-    let data = crate::lint::data_in(&deck, view)?;
-    // Each growing or shrinking text: its set, its state, its id, and its role's size.
-    let mut members: Vec<(String, String, String, f64)> = Vec::new();
-    for state in measured["states"].as_array().into_iter().flatten() {
-        let (Some(id), Some(shown)) = (state["id"].as_str(), state["props"].as_object()) else { continue };
-        let layout = state["layout"].as_str().unwrap_or_default();
-        for node in shown.keys() {
-            let n = &measured["nodes"][node];
-            let (Some("grow" | "shrink"), Some(slot), Some(role)) =
-                (n["fit"].as_str(), n["at"]["in"].as_str(), n["role"].as_str())
-            else {
-                continue;
-            };
-            let Some(size) = theme.typography.roles.get(role).map(|r| r.size) else { continue };
-            let set = match ordinal(slot) {
-                Some((_, part)) => format!("{id}\u{1f}{part}\u{1f}{role}"),
-                None if slot == "title" && layout.starts_with("section") => format!("\u{1f}{layout}\u{1f}{role}"),
-                None => continue,
-            };
-            members.push((set, id.to_string(), node.clone(), size));
-        }
-    }
-    // The size each reaches, its state laid out once.
-    let mut reached: BTreeMap<String, f64> = BTreeMap::new();
-    let mut states: Vec<&str> = members.iter().map(|m| m.1.as_str()).collect();
-    states.dedup();
-    for state in states {
-        let ids: Vec<&str> = members.iter().filter(|m| m.1 == state).map(|m| m.2.as_str()).collect();
-        let req = scaena_engine::FrameRequest {
-            deck: &deck,
-            theme: &theme,
-            data: &data,
-            state,
-            t_ms: f64::INFINITY,
-            format: None,
-        };
-        // A slide the engine cannot lay out keeps its sizes; lint says why.
-        let Ok(placed) = engine.text_layouts(&req, &ids) else { continue };
-        for (id, p) in ids.iter().zip(&placed) {
-            let size = members.iter().find(|m| m.2 == *id).map_or(0.0, |m| m.3);
-            reached.insert(id.to_string(), f64::from(p.scale) * size);
-        }
-    }
+    let members = growing(&measured, &theme);
+    let reached = reached(&deck, view, &theme, &members)?;
     let mut least: BTreeMap<&str, f64> = BTreeMap::new();
     let mut counts: BTreeMap<&str, usize> = BTreeMap::new();
     for (set, _, id, _) in &members {
@@ -1058,6 +1044,196 @@ fn alike(doc: &mut Value, view: &View, held: &mut Held) -> Result<bool, OpsError
         changed = true;
     }
     Ok(changed)
+}
+
+/// Each text of `doc` that grows or shrinks and is one of a set [`alike`] holds to one size:
+/// its set, its state, its id, and its role's size.
+fn growing(doc: &Value, theme: &scaena_engine::theme::Theme) -> Vec<(String, String, String, f64)> {
+    let mut members = Vec::new();
+    for state in doc["states"].as_array().into_iter().flatten() {
+        let (Some(id), Some(shown)) = (state["id"].as_str(), state["props"].as_object()) else { continue };
+        let layout = state["layout"].as_str().unwrap_or_default();
+        for node in shown.keys() {
+            let n = &doc["nodes"][node];
+            let (Some("grow" | "shrink"), Some(slot), Some(role)) =
+                (n["fit"].as_str(), n["at"]["in"].as_str(), n["role"].as_str())
+            else {
+                continue;
+            };
+            let Some(size) = theme.typography.roles.get(role).map(|r| r.size) else { continue };
+            let set = match ordinal(slot) {
+                Some((_, part)) => format!("{id}\u{1f}{part}\u{1f}{role}"),
+                None if slot == "title" && layout.starts_with("section") => format!("\u{1f}{layout}\u{1f}{role}"),
+                None => continue,
+            };
+            members.push((set, id.to_string(), node.clone(), size));
+        }
+    }
+    members
+}
+
+/// The size each of `members` (a state, a text in it, and its role's size, as [`growing`] gives
+/// them) reaches in `deck`, each state laid out once. A slide the engine cannot lay out is left
+/// out; lint says why.
+fn reached(
+    deck: &Deck,
+    view: &View,
+    theme: &scaena_engine::theme::Theme,
+    members: &[(String, String, String, f64)],
+) -> Result<BTreeMap<String, f64>, OpsError> {
+    let mut engine = crate::lint::engine_in(deck, view, theme, None)?;
+    let data = crate::lint::data_in(deck, view)?;
+    let mut reached = BTreeMap::new();
+    let mut states: Vec<&str> = members.iter().map(|m| m.1.as_str()).collect();
+    states.dedup();
+    for state in states {
+        let ids: Vec<&str> = members.iter().filter(|m| m.1 == state).map(|m| m.2.as_str()).collect();
+        let req = scaena_engine::FrameRequest { deck, theme, data: &data, state, t_ms: f64::INFINITY, format: None };
+        let Ok(placed) = engine.text_layouts(&req, &ids) else { continue };
+        for (id, p) in ids.iter().zip(&placed) {
+            let size = members.iter().find(|m| m.2 == *id).map_or(0.0, |m| m.3);
+            reached.insert(id.to_string(), f64::from(p.scale) * size);
+        }
+    }
+    Ok(reached)
+}
+
+/// `doc` with each text that grows or shrinks and collides with another (lint E101, by its
+/// glyphs' ink: a descender over the text under it) set a step smaller, a twentieth of the size
+/// it reached, round by round until E101 finds it clear. `found` is what lint finds in `doc`
+/// as it is, so the first round lints nothing again. A text that grows and must go under its
+/// role's size shrinks under its new `maxSize`, as [`alike`] makes one, and `held` keeps what
+/// was there before, so [`alike`] measures it as it was. A step that leaves the collision as
+/// large for the text's size (a caption across the whole of it) is taken back, and the text
+/// left as it was; none goes under half its role's size. Each set a text stepped in is then
+/// held to its least, so a row keeps one size and one baseline. Whether any size changed.
+fn clear(doc: &mut Value, view: &View, found: Vec<Finding>, held: &mut Held) -> Result<bool, OpsError> {
+    // A step taken: the text's collision for its size before it, and what it changed.
+    struct Step {
+        was: f64,
+        most: Option<Value>,
+        fit: Value,
+    }
+    let mut findings = found;
+    let mut steps: BTreeMap<String, Step> = BTreeMap::new();
+    let mut stuck: BTreeSet<String> = BTreeSet::new();
+    // Each text stepped, as it was before its first step: its `maxSize` and its fit.
+    let mut first: BTreeMap<String, (Option<Value>, Value)> = BTreeMap::new();
+    let mut theme = None;
+    for round in 0..16 {
+        let deck = Deck::from_json(&doc.to_string()).context("the deck")?;
+        if theme.is_none() {
+            let Some(json) = view.theme(&deck)? else { return Ok(false) };
+            theme = Some(scaena_engine::theme::Theme::from_json(&json)?);
+        }
+        let theme = theme.as_ref().expect("read above");
+        if round > 0 {
+            findings = lint_in(&deck, view)?.findings;
+        }
+        // Each text that grows or shrinks in a collision: the largest overlap it is in, and where.
+        let mut colliding: BTreeMap<String, (f64, String, f64)> = BTreeMap::new();
+        for f in findings.iter().filter(|f| f.code == "E101") {
+            let Some(m) = f.measure.as_ref() else { continue };
+            let (Some(state), Some(w), Some(h)) =
+                (m["states"][0].as_str(), m["overlap"][0].as_f64(), m["overlap"][1].as_f64())
+            else {
+                continue;
+            };
+            for id in m["nodes"].as_array().into_iter().flatten().filter_map(Value::as_str) {
+                let n = &doc["nodes"][id];
+                let (Some("grow" | "shrink"), Some(role)) = (n["fit"].as_str(), n["role"].as_str()) else { continue };
+                let Some(size) = theme.typography.roles.get(role).map(|r| r.size) else { continue };
+                let at = colliding.entry(id.to_string()).or_insert((0.0, state.to_string(), size));
+                at.0 = at.0.max(w * h);
+            }
+        }
+        let members: Vec<(String, String, String, f64)> = (colliding.iter())
+            .filter(|(id, _)| !stuck.contains(*id))
+            .map(|(id, (_, state, size))| (String::new(), state.clone(), id.clone(), *size))
+            .collect();
+        let reached = reached(&deck, view, theme, &members)?;
+        // A step that left the collision as large for the text's size is taken back.
+        for (id, step) in std::mem::take(&mut steps) {
+            let now = match (colliding.get(&id), reached.get(&id)) {
+                (Some((area, ..)), Some(at)) => area / (at * at),
+                _ => continue,
+            };
+            if now >= step.was * 0.999 {
+                let node = &mut doc["nodes"][&id];
+                match step.most {
+                    Some(most) => node["maxSize"] = most,
+                    None => {
+                        node.as_object_mut().map(|n| n.remove("maxSize"));
+                    }
+                }
+                node["fit"] = step.fit;
+                stuck.insert(id);
+            }
+        }
+        let mut changed = false;
+        for (_, _, id, size) in &members {
+            let (Some(at), Some((area, ..))) = (reached.get(id), colliding.get(id)) else { continue };
+            if stuck.contains(id) {
+                continue;
+            }
+            // A twentieth smaller, on a quarter of a unit, never under half its role's size.
+            let next = (at * 0.95 * 4.0).floor() / 4.0;
+            let node = &mut doc["nodes"][id];
+            let most = node.get("maxSize").cloned();
+            if next < size * 0.5 || most.as_ref().and_then(Value::as_f64).is_some_and(|m| next >= m) {
+                stuck.insert(id.clone());
+                continue;
+            }
+            let fit = node["fit"].clone();
+            if fit == "grow" && next < *size {
+                node["fit"] = json!("shrink");
+                held.grew.insert(id.clone());
+            }
+            node["maxSize"] = json!(next);
+            held.most.entry(id.clone()).or_insert(most.clone());
+            first.entry(id.clone()).or_insert((most.clone(), fit.clone()));
+            steps.insert(id.clone(), Step { was: area / (at * at), most, fit });
+            changed = true;
+        }
+        if !changed {
+            break;
+        }
+    }
+    // The texts left smaller than they were.
+    let stepped = scaena_core::sort::set(
+        first
+            .iter()
+            .filter(|(id, (most, _))| doc["nodes"][id.as_str()].get("maxSize") != most.as_ref())
+            .map(|(id, _)| id),
+    );
+    if stepped.is_empty() {
+        return Ok(false);
+    }
+    // Each set a text stepped in, held to its least.
+    let Some(theme) = theme else { return Ok(true) };
+    let members = growing(doc, &theme);
+    let sets = scaena_core::sort::set(members.iter().filter(|m| stepped.contains(&&m.2)).map(|m| m.0.clone()));
+    for set in sets {
+        let ids: Vec<(&str, f64)> = members.iter().filter(|m| m.0 == set).map(|m| (m.2.as_str(), m.3)).collect();
+        let least =
+            ids.iter().filter_map(|(id, _)| doc["nodes"][*id]["maxSize"].as_f64()).fold(f64::INFINITY, f64::min);
+        if !least.is_finite() {
+            continue;
+        }
+        for (id, size) in ids {
+            let node = &mut doc["nodes"][id];
+            if node["maxSize"].as_f64().is_some_and(|m| m <= least) {
+                continue;
+            }
+            held.most.entry(id.to_string()).or_insert(node.get("maxSize").cloned());
+            if node["fit"] == "grow" && least < size {
+                node["fit"] = json!("shrink");
+                held.grew.insert(id.to_string());
+            }
+            node["maxSize"] = json!(least);
+        }
+    }
+    Ok(true)
 }
 
 /// What [`alike`] wrote over, so a run after it measures each text as it was: each one's
@@ -1158,6 +1334,11 @@ pub fn making(
     let mut held = Held::default();
     if alike(&mut doc, &view, &mut held)? {
         let deck = Deck::from_json(&doc.to_string()).context("the deck set alike")?;
+        created.findings = lint_in(&deck, &view)?.findings;
+    }
+    // Each text that grows into the one under it, a descender over its words, set smaller.
+    if clear(&mut doc, &view, created.findings.clone(), &mut held)? {
+        let deck = Deck::from_json(&doc.to_string()).context("the deck set clear")?;
         created.findings = lint_in(&deck, &view)?.findings;
     }
     // Then each fix lint offers, each checked by laying its state out again with it; a fix that
@@ -4592,6 +4773,103 @@ mod tests {
     }
 
     #[test]
+    fn a_dividers_title_grown_into_its_subtitle_is_set_smaller_and_its_set_kept_one_size() {
+        // Two dividers whose titles may grow to 400: each grows to fill its place, set by its cap
+        // box on its foot, and its "p"s, "y"s, and "g"s hang past it into the words under it,
+        // which lint E101 finds by their ink. The deck made sets them smaller until it does not,
+        // and holds both titles to one size.
+        let text = serde_json::json!({
+            "executiveSummary": "Typography gets judged.",
+            "slides": [
+                { "slideTitle": "Typography gets judged", "subtitle": "A talk", "layoutSuggestion": "Title",
+                  "keyBullets": [], "beatIndex": 0, "beatName": "Hook" },
+                { "slideTitle": "Pay up, quietly", "subtitle": "Spying on typography, yearly",
+                  "layoutSuggestion": "Section Header", "keyBullets": [], "beatIndex": 1, "beatName": "Setup" },
+                { "slideTitle": "Gripping, playful", "subtitle": "Judging quietly, yearly",
+                  "layoutSuggestion": "Section Header", "keyBullets": [], "beatIndex": 2, "beatName": "Turn" },
+                { "slideTitle": "Thank you", "subtitle": "", "layoutSuggestion": "Closing", "keyBullets": [],
+                  "beatIndex": 3, "beatName": "Close" },
+            ]
+        })
+        .to_string();
+        let written = answer::slides(&text).unwrap();
+        let n = narrative(&written.executive_summary, written.slides);
+        for name in ["dusk", "ember", "salon"] {
+            let file = format!("{name}.theme.json");
+            let json = std::fs::read_to_string(root().join("docs/examples/themes").join(&file)).unwrap();
+            let theme: Theme = serde_json::from_str(&json).unwrap();
+            let mut built = deck(&n, &theme, &Pictures::new()).unwrap();
+            let titles: Vec<String> = built.deck["states"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|s| s["layout"].as_str().is_some_and(|l| l.starts_with("section")))
+                .map(|s| format!("{}-title", s["id"].as_str().unwrap()))
+                .collect();
+            assert_eq!(titles.len(), 2, "{name}");
+            for id in &titles {
+                built.deck["nodes"][id]["fit"] = json!("grow");
+                built.deck["nodes"][id]["maxSize"] = json!(400);
+            }
+            let (made, write) = making(built, "Problem\u{2013}Solution", Path::new(&file), json, &font).unwrap();
+            let e101: Vec<_> = made.created.findings.iter().filter(|f| f.code == "E101").collect();
+            assert!(e101.is_empty(), "{name}: {e101:#?}");
+            let write = write.unwrap();
+            let mut deck = write.deck.to_value().unwrap();
+            let sizes: Vec<f64> = titles.iter().map(|id| deck["nodes"][id]["maxSize"].as_f64().unwrap()).collect();
+            assert!(sizes[0] == sizes[1] && sizes[0] < 400.0, "{name}: {sizes:?} {:#}", deck["nodes"][&titles[0]]);
+            // The deck made is settled: setting it clear and alike again changes nothing.
+            let nothing = scaena_store::Files::Zip(Default::default());
+            let view = View { base: &nothing, pending: write.files.clone() };
+            let found = lint_in(&write.deck, &view).unwrap().findings;
+            let before = deck.clone();
+            assert!(!clear(&mut deck, &view, found, &mut Held::default()).unwrap(), "{name}");
+            assert_eq!(deck, before, "{name}");
+        }
+    }
+
+    #[test]
+    fn a_text_that_cannot_come_clear_of_what_lies_across_it_is_left_as_it_was() {
+        // A picture over the whole of a divider: its title, grown to its place, collides with it
+        // however small it is set, the collision as large for its size. One step shows it, and
+        // the title keeps its size.
+        let text = serde_json::json!({
+            "executiveSummary": "Typography gets judged.",
+            "slides": [
+                { "slideTitle": "Typography gets judged", "subtitle": "A talk", "layoutSuggestion": "Title",
+                  "keyBullets": [], "beatIndex": 0, "beatName": "Hook" },
+                { "slideTitle": "Pay up, quietly", "subtitle": "Spying on typography",
+                  "layoutSuggestion": "Section Header", "keyBullets": [], "beatIndex": 1, "beatName": "Setup" },
+            ]
+        })
+        .to_string();
+        let written = answer::slides(&text).unwrap();
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let built = deck(&narrative(&written.executive_summary, written.slides), &theme, &Pictures::new()).unwrap();
+        let (_, write) = making(built, "Problem\u{2013}Solution", Path::new("dusk.theme.json"), dusk(), &font).unwrap();
+        let mut write = write.unwrap();
+        let mut deck = write.deck.to_value().unwrap();
+        let state = deck["states"][1]["id"].as_str().unwrap().to_string();
+        let title = format!("{state}-title");
+        deck["nodes"][&title]["fit"] = json!("grow");
+        deck["nodes"][&title]["maxSize"] = json!(200);
+        deck["nodes"]["over"] =
+            json!({ "type": "image", "src": "assets/over.jpg", "at": { "rect": [0, 0, 1920, 1080] } });
+        deck["states"][1]["props"]["over"] = json!({});
+        let jpeg = std::fs::read(root().join("tests/fixtures/jpeg/baseline-422.jpg")).unwrap();
+        write.files.insert("assets/over.jpg".into(), jpeg);
+        let nothing = scaena_store::Files::Zip(Default::default());
+        let view = View { base: &nothing, pending: write.files.clone() };
+        let found = lint_in(&Deck::from_json(&deck.to_string()).unwrap(), &view).unwrap().findings;
+        assert!(found.iter().any(|f| f.code == "E101" && f.message.contains(&title)), "{found:#?}");
+        let before = deck.clone();
+        let mut held = Held::default();
+        assert!(!clear(&mut deck, &view, found, &mut held).unwrap());
+        assert_eq!(deck["nodes"][&title], before["nodes"][&title]);
+        assert_eq!(deck, before);
+    }
+
+    #[test]
     fn a_set_of_texts_side_by_side_is_set_alike_and_as_large_as_its_places_allow() {
         let theme: Theme = serde_json::from_str(&dusk()).unwrap();
         // The climate talk with a picture on its cover and on each of its dividers.
@@ -5340,6 +5618,68 @@ mod tests {
         after.created.findings.push(long);
         assert_eq!(worse((&made, &write), (&after, &write)), vec![3]);
         assert_eq!(kept(made.looked.clone(), &[13]).len(), 1);
+    }
+
+    /// The look is a polish on a deck the model has written and validated (narrative STAB-3): a
+    /// slide that will not draw for the model to see leaves the deck as made, saying why, with
+    /// no look asked for, and the fit still asked; and a change on a slide numbered 0 is kept
+    /// as any other, never a subtraction past zero.
+    #[test]
+    fn a_look_that_cannot_draw_the_slides_leaves_the_deck_as_made() {
+        use scaena_narrato::{Provider, Settings};
+        let (summary, slides) = catalog();
+        let picked = [slides[0].clone(), slides[1].clone(), slides[4].clone(), slides[54].clone(), slides[55].clone()];
+        let written = json!({ "executiveSummary": summary, "slides": picked }).to_string();
+        let arc =
+            std::fs::read_to_string(root().join("crates/scaena-narrato/tests/answers/anthropic-arc.json")).unwrap();
+        let mut asked: Vec<String> = Vec::new();
+        let mut send = |r: &Request| {
+            let body = r.body.as_ref().unwrap();
+            let content = body["messages"][0]["content"].as_array().unwrap();
+            let prompt = content.last().unwrap()["text"].as_str().unwrap().to_string();
+            let reply = if prompt.contains("=== CATALOG ===") {
+                arc.clone()
+            } else if prompt.contains("runs past its place") {
+                anthropic(r#"{"texts": []}"#)
+            } else if prompt.starts_with("You have seen the") {
+                panic!("the slides were not drawn, so the model is not shown them");
+            } else {
+                anthropic(&written)
+            };
+            asked.push(prompt);
+            Reply { status: 200, status_text: "OK".into(), body: reply, after: None }
+        };
+        let mut heard = Vec::new();
+        let mut say = |p: Progress| heard.push(p);
+        let settings = Settings { provider: Provider::Anthropic, model: "a-model".into(), base: None, browser: false };
+        let g = Generation::new(narrative("", Vec::new()).brief, settings).unwrap();
+        let painter_down = |_: &Write| Err(OpsError::new("state `cover` is past the painter's largest raster"));
+        let (made, write) = generate_drawn(
+            g,
+            Some("sk-test"),
+            &[],
+            None,
+            Looking::Asked,
+            Path::new("dusk.theme.json"),
+            dusk(),
+            &font,
+            &mut send,
+            &mut say,
+            &painter_down,
+        )
+        .unwrap();
+        assert!(made.created.created && made.created.errors == 0, "{:#?}", made.created.findings);
+        assert_eq!(write.map(|w| w.deck.slides().len()), Some(5), "the deck stands as made");
+        assert_eq!(
+            made.unlooked.as_deref(),
+            Some("the slides could not be drawn for the model: state `cover` is past the painter's largest raster")
+        );
+        assert!(made.looked.is_empty());
+        assert!(!heard.iter().any(|p| matches!(p, Progress::Looking { .. })), "{heard:?}");
+        assert_eq!(asked.len(), 2, "the arc and the slides; nothing to fit on these");
+        let zero = Change { slide: 0, title: Some("x".into()), ..Change::default() };
+        assert_eq!(kept(vec![zero.clone()], &[0]).len(), 1, "slide 0 names no index");
+        assert_eq!(kept(vec![zero, Change { slide: 1, ..Change::default() }], &[0]).len(), 1);
     }
 
     /// A section is titled by what its slides say (narrative ATTR-5): its divider's title, where

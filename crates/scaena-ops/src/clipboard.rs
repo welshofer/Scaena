@@ -798,6 +798,10 @@ impl BundleFiles for With<'_> {
             None => self.files.read_text(path),
         }
     }
+
+    fn linked_out(&self, path: &str) -> bool {
+        !self.paths.iter().any(|p| p == path) && self.files.linked_out(path)
+    }
 }
 
 #[cfg(test)]
