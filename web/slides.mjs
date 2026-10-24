@@ -21,6 +21,7 @@
 // - On the trails deck, whose texts have layouts of their own in its other sizes, ⌘D copies its
 //   photo slide too, and the status says so with no id.
 // Exits 1 on any failure.
+import { readFile } from "node:fs/promises";
 import { axeInto, launch, serve } from "./serve.mjs";
 
 const failures = [];
@@ -211,7 +212,27 @@ try {
   await run("Hide the animations");
   const roomy = await area();
   check(await page.locator("#panel").isHidden(), "Hide the inspector hides it");
-  check(roomy.width > small.width * 1.4, `and the slide takes their room: ${small.width} → ${roomy.width}`);
+  // The slide grows into the room they leave: it fills the stage, its width the stage's or its
+  // height the stage's within 2 px, at the deck's proportions. A fixed ratio of widths sat at
+  // the edge of what this window gives (1.385–1.396), whatever the chrome around the stage.
+  const fill = await page.evaluate(() => {
+    const desk = document.querySelector("#desk");
+    const pad = getComputedStyle(desk);
+    const room = [
+      desk.clientWidth - parseFloat(pad.paddingLeft) - parseFloat(pad.paddingRight),
+      desk.clientHeight - parseFloat(pad.paddingTop) - parseFloat(pad.paddingBottom),
+    ];
+    const r = document.querySelector("#preview").getBoundingClientRect();
+    return { room: room.map(Math.round), slide: [Math.round(r.width), Math.round(r.height)], aspect: r.width / r.height };
+  });
+  const { canvas } = JSON.parse(await readFile(new URL("../docs/examples/revenue.deck.json", import.meta.url), "utf8"));
+  const [width, height] = [canvas.width, canvas.height];
+  const fills = Math.abs(fill.slide[0] - fill.room[0]) <= 2 || Math.abs(fill.slide[1] - fill.room[1]) <= 2;
+  const proportioned = Math.abs(fill.aspect - width / height) < 0.01;
+  check(
+    roomy.width > small.width && fills && proportioned,
+    `and the slide takes their room: ${small.width} → ${roomy.width}, filling the stage: ${JSON.stringify(fill)}`,
+  );
   await run("Show Format");
   check(!(await page.locator("#panel").isHidden()), "Show the inspector shows it again");
   await run("Show the animations");

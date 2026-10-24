@@ -216,3 +216,42 @@ export function compare(a, b) {
     said: `${over} of ${compared} compared px over ΔE 1 (max ΔE ${maxDeltaE.toFixed(2)}); ${differing} px differ anywhere (max channel step ${maxChannel})`,
   };
 }
+
+/** A toolbar's menu button `opener` pressed, and `label` chosen in the menu it opens, under the
+ * section `section` where one is given: what a person does with Insert or Add an animation
+ * (lift-up USE-3). */
+export async function pick(page, opener, label, section) {
+  await page.click(opener);
+  const menu = page.locator(".context-menu");
+  await menu.waitFor({ timeout: 10000 });
+  const scope = section ? menu.locator(`[role="group"][aria-label="${section}"]`) : menu;
+  await scope.getByRole("menuitem", { name: label, exact: true }).click();
+}
+
+/** Insert › `label`, under `section` where the name is shared: a source's chart and its table. */
+export const insert = (page, label, section) => pick(page, "#insert", label, section);
+
+/** What the Insert menu offers: each section's items, by label. */
+export const inserts = (page) =>
+  page.evaluate(() => {
+    const by = {};
+    for (const { section, label } of window.scaena.inserts()) (by[section ?? ""] ??= []).push(label);
+    return by;
+  });
+
+/** Add an animation › the one that adds `value`, `[motion, node, preset]` (or its JSON). */
+export async function addAnimation(page, value) {
+  const want = typeof value === "string" ? value : JSON.stringify(value);
+  const found = await page.evaluate((v) => window.scaena.cue.offers().find((o) => JSON.stringify(o.value) === v), want);
+  if (!found) throw new Error(`Add an animation offers nothing for ${want}`);
+  await pick(page, "#cue [data-add]", found.label, found.section);
+}
+
+/** Theme…: `value` (`ships:Daybreak`, or `path:` and a theme file the deck holds) chosen in the
+ * dialog, and Re-theme pressed. */
+export async function retheme(page, value) {
+  await page.click("#theme");
+  await page.waitForSelector("#retheming[open]", { timeout: 10000 });
+  await page.check(`#retheming input[value="${value}"]`);
+  await page.click("#retheming-apply");
+}

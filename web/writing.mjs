@@ -9,6 +9,9 @@
 // - An answer edited in the dialog is taken as edited; Leave it changes nothing.
 // - Draft Notes, with nothing selected, asks from the slide's words and its beat's claim, and
 //   writes the slide's notes.
+// - Check the Claim, with nothing selected, asks whether the slide's words carry its beat's claim
+//   (narrative FUNC-4), with the claim, the slide, and its headline; the headline the model
+//   rewrites is written where the claim node's words live; ⌘Z puts it back.
 // - No answer from the model offers nothing to take, and says so.
 // - Explain, on a finding, says what it means for the slide, and only reads; the source's own
 //   issue, while it does not compile, too.
@@ -36,6 +39,7 @@ const ANSWERS = [
   ["You draft speaker notes", "Open on the quarter: the business changed shape, and the rest of the talk says how."],
   ["You explain", "The title's words run past the box its slot gives them. Shorten it, or let it shrink to fit."],
   ["You describe a picture", "“A gray gradient, a dark block, and a lighter disc.”"],
+  ["You check one slide", "Drifts: the words name the change, not what changed.\nHeadline: “This quarter changed the shape of the business for good.”"],
 ];
 
 /** Words the scripted model, asked to rewrite them, answers nothing for. */
@@ -182,6 +186,26 @@ try {
   await page.keyboard.press("Control+z");
   await page.waitForFunction((o) => window.scaena.source() === o, original, { timeout: 10000 }).catch(() => {});
 
+  // 5a. Check the Claim, with nothing selected (narrative FUNC-4): the claim, the slide as it
+  // reads, and its headline; the headline rewritten is written where the claim node's words live.
+  await tool("claim", undefined);
+  check(await answered("#writing-answer"), "Check the Claim offers a verdict");
+  const claimed = scripted.requests.at(-1)?.body.messages?.[0]?.content?.[0]?.text ?? "";
+  check(
+    claimed.startsWith("The claim its beat makes: This quarter changed the shape of the business.\nThe slide reads:\n") && claimed.endsWith("\nIts headline: This quarter changed the shape of the business."),
+    `asked with the claim, the slide, and its headline: ${JSON.stringify(claimed)}`,
+  );
+  const verdict = await dialog();
+  check(verdict.title === "The Claim" && verdict.was === "This quarter changed the shape of the business." && (verdict.answer ?? "").startsWith("Drifts:"), `the headline shown as it was, the verdict offered: ${JSON.stringify(verdict)}`);
+  await page.click("#writing-use");
+  await page.evaluate(() => window.scaena.writing.settled());
+  check((await source()).includes("This quarter changed the shape of the business for good."), "Use it writes the headline rewritten to carry the claim");
+  check((await status()).startsWith("Rewrote the headline of Slide 1 to carry its claim"), `and says so: ${await status()}`);
+  await page.focus("#tab-inspector");
+  await page.keyboard.press("Control+z");
+  await page.waitForFunction((o) => window.scaena.source() === o, original, { timeout: 10000 }).catch(() => {});
+  check((await source()) === original, "⌘Z puts the headline back");
+
   // 5b. No answer from the model: nothing is offered to take, and it says so.
   await tool("rewrite", "title");
   await page.waitForFunction(() => /No answer/.test(document.querySelector("#writing-thinking").textContent), null, { timeout: 30000 }).catch(() => {});
@@ -202,7 +226,7 @@ try {
   const why = scripted.requests.at(-1)?.body.messages?.[0]?.content?.[0]?.text ?? "";
   check(/^Finding [EW]\d+ \((error|warning)\): /.test(why), `asked as the finding says it: ${JSON.stringify(why.split("\n")[0])}`);
   await page.click("#writing-leave");
-  check(scripted.requests.length === 6, `one request for each tool asked: ${scripted.requests.length}`);
+  check(scripted.requests.length === 7, `one request for each tool asked: ${scripted.requests.length}`);
 
   // 6b. The source's own issue, while it does not compile, is explained all the same.
   await page.evaluate((s) => window.scaena.type(`${s}\nthis is not scn {`), await source());
@@ -210,7 +234,7 @@ try {
   await page.click("#problems li button.explain");
   check(await answered("#writing-said"), "Explain says what the source's own issue means");
   const compiling = await dialog();
-  check(compiling.title === "About This Issue" && scripted.requests.length === 7, `asked once, though the deck does not compile: ${compiling.title} · ${await status()}`);
+  check(compiling.title === "About This Issue" && scripted.requests.length === 8, `asked once, though the deck does not compile: ${compiling.title} · ${await status()}`);
   await page.click("#writing-leave");
 
   // 7. Describe (PLAN 2.119): the picture as the slide shows it goes before the words.

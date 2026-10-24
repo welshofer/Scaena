@@ -33,6 +33,8 @@ From the loosest binding to the tightest:
 
 Parentheses group. `&&` and `||` stop early: `revenue > 0 || x / 0 > 1` never divides when the left side holds. `=` alone, `&`, and `|` are errors that say what to write instead.
 
+An expression nests at most 64 deep: each pair of parentheses, `!`, `-`, call, and list goes one deeper. Deeper is an error that says so. A chain of operators, as `a + b + c`, nests no deeper however long it runs.
+
 ## Functions
 
 | Function | Takes | Gives |
