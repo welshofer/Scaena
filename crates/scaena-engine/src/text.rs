@@ -53,8 +53,8 @@ use parley::layout::BreakReason;
 use parley::setting::Tag;
 use parley::{
     Alignment, AlignmentOptions, Cluster, FontFamily, FontFamilyName, FontFeature, FontFeatures, FontStyle,
-    FontVariation, FontVariations, FontWeight, Language, Layout, LayoutContext, LineHeight, OverflowWrap,
-    PositionedLayoutItem, StyleProperty, WordBreak,
+    FontVariation, FontVariations, FontWeight, Language, Layout, LayoutContext, LineBreakContext, LineBreakOverrideFn,
+    LineHeight, OverflowWrap, PositionedLayoutItem, StyleProperty, WordBreak,
 };
 use scaena_core::displaylist::{Color, FontRef, Glyph, LinkTarget};
 use scaena_core::model::theme::Case;
@@ -654,6 +654,7 @@ impl TextEngine {
         };
         let mut layout = {
             let mut builder = self.lcx.ranged_builder(&mut fonts.cx, &text, 1.0, false);
+            builder.set_line_break_override(phrases(spec.lang.as_deref()));
             for prop in style_props(theme, base, spec, None)? {
                 builder.push_default(prop);
             }
@@ -690,6 +691,29 @@ impl TextEngine {
                                 StyleProperty::FontFeatures(FontFeatures::List(Cow::Owned(features.clone()))),
                                 start..end,
                             );
+                        }
+                    }
+                }
+            }
+            // In Chinese, Japanese, or Korean, a run of figures beside its letters is set in the
+            // script's own face, which a text family names last among its fallbacks
+            // (`scaena_ops::scripts`), not in a Latin face the family puts first.
+            if cjk(spec.lang.as_deref()) {
+                let mut at = 0;
+                for (span, t) in spec.spans.iter().zip(&cased) {
+                    let range = at..at + t.len();
+                    at = range.end;
+                    let stack = theme.family_stack(&span.style.family)?;
+                    let Some(script) = stack.last().filter(|_| stack.len() > 1) else { continue };
+                    let mut names = vec![script.clone()];
+                    names.extend(stack.iter().take(stack.len() - 1).cloned());
+                    for f in figure_runs(&text) {
+                        let (start, end) = (f.start.max(range.start), f.end.min(range.end));
+                        let beside = text[..f.start].chars().next_back().is_some_and(cjk_letter)
+                            || text[f.end..].chars().next().is_some_and(cjk_letter);
+                        if start < end && beside {
+                            let named = names.iter().map(|n| FontFamilyName::Named(Cow::Owned(n.clone())));
+                            builder.push(StyleProperty::FontFamily(FontFamily::List(named.collect())), start..end);
                         }
                     }
                 }
@@ -1118,8 +1142,8 @@ fn font_features(
     features.iter().map(|(k, v)| Ok(FontFeature::new(tag(k)?, *v))).collect()
 }
 
-/// The runs of figures in `text`, as byte ranges: digits, a sign right before one, and a
-/// decimal point, a thousands separator, or a colon between two. A numeral style's spacing
+/// The runs of figures in `text`, as byte ranges: digits, a sign right before one where it
+/// starts the figure, and a decimal point, a thousands separator, or a colon between two. A numeral style's spacing
 /// applies there ([`font_features`]).
 pub(crate) fn figure_runs(text: &str) -> Vec<Range<usize>> {
     let chars: Vec<(usize, char)> = text.char_indices().collect();
@@ -1127,7 +1151,11 @@ pub(crate) fn figure_runs(text: &str) -> Vec<Range<usize>> {
     let mut runs: Vec<Range<usize>> = Vec::new();
     let mut k = 0;
     while k < chars.len() {
-        let signed = matches!(chars[k].1, '-' | '\u{2212}' | '+') && digit(k + 1);
+        // A sign stands before a figure where no letter or figure does: at the start, after a
+        // space, or after an opening bracket. Between them it is a word's hyphen ("COVID-19")
+        // or a range's ("2024-2025"), which the font spaces as it does.
+        let opens = k == 0 || chars[k - 1].1.is_whitespace() || matches!(chars[k - 1].1, '(' | '[' | '{');
+        let signed = opens && matches!(chars[k].1, '-' | '\u{2212}' | '+') && digit(k + 1);
         if !(digit(k) || signed) {
             k += 1;
             continue;
@@ -1224,8 +1252,12 @@ fn style_props(
         StyleProperty::LineHeight(LineHeight::FontSizeRelative(role.leading)),
         StyleProperty::Brush(ink),
         StyleProperty::Locale(locale),
-        // Break only at UAX #14 opportunities: no emergency breaks inside words.
-        StyleProperty::OverflowWrap(OverflowWrap::Normal),
+        // Break only at UAX #14 opportunities: no emergency breaks inside words. Japanese keeps
+        // its phrases whole ([`phrases`]), and one too wide for its line breaks where it must.
+        StyleProperty::OverflowWrap(match locale.as_ref().map(Language::language) {
+            Some("ja") => OverflowWrap::Anywhere,
+            _ => OverflowWrap::Normal,
+        }),
         StyleProperty::WordBreak(word_break),
     ])
 }
@@ -1434,18 +1466,70 @@ fn breaks_word(text: &str, segment: &Segment) -> bool {
 /// on either side: UAX #14 breaks between any two, and nothing here knows their words, so a
 /// break there may cut one (我 over 们). A headline breaks after its punctuation instead, or
 /// where kana gives way to Han or katakana, as a phrase ends at its particle (の over 現在地):
-/// neither is a cut (PLAN G.22).
+/// neither is a cut (PLAN G.22). Japanese text breaks so everywhere ([`phrases`]).
 fn cuts(text: &str, segment: &Segment) -> bool {
-    let han = |c: char| matches!(u32::from(c), 0x3400..=0x4DBF | 0x4E00..=0x9FFF | 0xF900..=0xFAFF | 0x20000..=0x3FFFF);
-    let hiragana = |c: char| matches!(u32::from(c), 0x3041..=0x309F);
-    let katakana = |c: char| matches!(u32::from(c), 0x30A0..=0x30FF | 0x31F0..=0x31FF);
-    let letter = |c: char| han(c) || hiragana(c) || katakana(c);
     let (Some(before), Some(after)) =
         (text[..segment.text.end].chars().next_back(), text[segment.text.end..].chars().next())
     else {
         return false;
     };
-    letter(before) && letter(after) && !(hiragana(before) && (han(after) || katakana(after)))
+    in_phrase(before, after)
+}
+
+/// Han, the ideographs of Chinese and Japanese.
+fn han(c: char) -> bool {
+    matches!(u32::from(c), 0x3400..=0x4DBF | 0x4E00..=0x9FFF | 0xF900..=0xFAFF | 0x20000..=0x3FFFF)
+}
+
+fn hiragana(c: char) -> bool {
+    matches!(u32::from(c), 0x3041..=0x309F)
+}
+
+/// Katakana, its prolonged sound mark ー among it.
+fn katakana(c: char) -> bool {
+    matches!(u32::from(c), 0x30A0..=0x30FF | 0x31F0..=0x31FF)
+}
+
+/// A letter of Chinese or Japanese: Han or kana.
+fn cjk_letter(c: char) -> bool {
+    han(c) || hiragana(c) || katakana(c)
+}
+
+/// Whether a break between `before` and `after` would fall inside a Japanese phrase: between
+/// two of its letters, except where kana gives way to Han or katakana, as a phrase ends at its
+/// particle. With no dictionary, a compound whose second part starts in Han after kana breaks
+/// there too (取り|付ける).
+fn in_phrase(before: char, after: char) -> bool {
+    cjk_letter(before) && cjk_letter(after) && !(hiragana(before) && (han(after) || katakana(after)))
+}
+
+/// Whether `lang` is Chinese, Japanese, or Korean.
+fn cjk(lang: Option<&str>) -> bool {
+    lang.and_then(|l| Language::parse(l).ok()).is_some_and(|l| matches!(l.language(), "ja" | "zh" | "ko"))
+}
+
+/// Where a line may break in Chinese or Japanese beyond what UAX #14 allows, which breaks
+/// between any two of their letters and between a figure and the letter after it. A number
+/// keeps its counter (286時間, 12人) in both, and Japanese breaks only between its phrases
+/// ([`in_phrase`]): no word or inflection is cut (ひとつ, 取り付ける, ポートオルダー). Chinese,
+/// whose characters each stand as a word, breaks between them as before.
+fn phrases(lang: Option<&str>) -> Option<&'static LineBreakOverrideFn> {
+    fn figure(c: char) -> bool {
+        c.is_ascii_digit() || ('\u{FF10}'..='\u{FF19}').contains(&c)
+    }
+    fn japanese(cx: LineBreakContext) -> Option<bool> {
+        (figure(cx.before) && cjk_letter(cx.after) || in_phrase(cx.before, cx.after)).then_some(false)
+    }
+    fn chinese(cx: LineBreakContext) -> Option<bool> {
+        (figure(cx.before) && cjk_letter(cx.after)).then_some(false)
+    }
+    static JAPANESE: &LineBreakOverrideFn = &(japanese as fn(LineBreakContext) -> Option<bool>);
+    static CHINESE: &LineBreakOverrideFn = &(chinese as fn(LineBreakContext) -> Option<bool>);
+    match lang.and_then(|l| Language::parse(l).ok()).as_ref().map(Language::language) {
+        Some("ja") => Some(JAPANESE),
+        Some("zh") => Some(CHINESE),
+        _ => None,
+    }
 }
 
 /// Whether `segment` ends at the hyphen inside a word, the word going on in the next: a
@@ -2217,7 +2301,9 @@ mod tests {
         assert_eq!(runs("Mid-market"), Vec::<String>::new());
         assert_eq!(runs("$4,120.50 in Q3"), ["4,120.50", "3"]);
         assert_eq!(runs("−12% at 9:30, -3 and +2."), ["\u{2212}12", "9:30", "-3", "+2"]);
-        assert_eq!(runs("2024-2025"), ["2024", "-2025"]);
+        assert_eq!(runs("2024-2025"), ["2024", "2025"]);
+        assert_eq!(runs("COVID-19, GPT-4, mid-2025, FY-2025"), ["19", "4", "2025", "2025"]);
+        assert_eq!(runs("(-3) and [+4]"), ["-3", "+4"]);
         assert_eq!(runs("1. Plan"), ["1"]);
         assert_eq!(runs("٣٤٥ units"), ["٣٤٥"]);
     }
