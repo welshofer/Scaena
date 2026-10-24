@@ -60,6 +60,8 @@ impl Package {
     /// The part at `path`, as text; none where the package has no such part, or where it unpacks
     /// past what it may (the part's bound, or what the parts read before it leave).
     pub fn text(&mut self, path: &str) -> Option<String> {
+        // What an earlier part was refused for is not this one's.
+        self.refused = None;
         let file = self.zip.by_name(path).ok()?;
         let room = self.most.part.min(self.most.total - self.read);
         let mut bytes = Vec::new();
@@ -191,6 +193,10 @@ mod tests {
         assert_eq!(pkg.text("b.xml"), None, "past the bytes in all");
         let refused = pkg.part("b.xml", "missing").unwrap_err().to_string();
         assert!(refused.contains("its parts unpack past 1500 bytes"), "{refused}");
+        // A part refused while read as an optional one says nothing of a missing one after it.
+        assert_eq!(pkg.text("b.xml"), None);
+        let missing = pkg.part("word/none.xml", "it has no word/none.xml").unwrap_err().to_string();
+        assert!(missing.contains("it has no word/none.xml"), "{missing}");
     }
 
     #[test]
