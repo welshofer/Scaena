@@ -3,6 +3,7 @@
 //! skipped without it, unless SCAENA_REQUIRE_FFMPEG is set, as CI sets it where it
 //! installs ffmpeg.
 
+use scaena_core::spine::Pace;
 use scaena_ops::export::{Exported, Request, export};
 use scaena_ops::render::{Request as Render, render};
 use scaena_paint::Raster;
@@ -118,6 +119,48 @@ fn a_video_plays_each_state_then_its_hold() {
             assert!(there > here, "frame {k} is nearer `{state}` at {near} ms ({there:.2}) than at {t} ({here:.2})");
         }
     }
+}
+
+#[test]
+fn a_talk_with_no_holds_plays_at_its_beats_pace_or_at_its_holds_when_asked() {
+    if !ffmpeg() {
+        return;
+    }
+    // The revenue deck as a generated one is: no state holds, and each beat says how long it
+    // runs, here 2 s, 3 s, and 1 s.
+    let mut talk = scaena_ops::open(Path::new(REVENUE)).unwrap();
+    for state in &mut talk.deck.states {
+        state.hold = None;
+    }
+    let beats = talk.deck.spine.as_mut().unwrap().sections.iter_mut().flat_map(|s| &mut s.beats);
+    for (beat, seconds) in beats.zip([2.0, 3.0, 1.0]) {
+        beat.duration = Some(seconds);
+    }
+    let video = |pace: Pace, name: &str| {
+        let out = scratch(name);
+        let req = Request {
+            format: "mp4".into(),
+            out: Some(out),
+            size: Some("320x180".into()),
+            fps: Some(10),
+            pace,
+            ..Request::default()
+        };
+        export(&talk, &req).unwrap()
+    };
+    // Each beat's seconds, less its cues (intro's 660 ms, revenue's 1440 and mix's 800, close's
+    // none), shared among its states: intro rests 1340 ms, revenue and mix 380 each, close 1000.
+    let paced = video(Pace::Beats, "talk.mp4");
+    let played: Vec<(f64, f64)> = paced.timeline.as_ref().unwrap().iter().map(|p| (p.start, p.hold)).collect();
+    assert_eq!(played, [(0.0, 1340.0), (2000.0, 380.0), (3820.0, 380.0), (5000.0, 1000.0)]);
+    assert_eq!((paced.frames, paced.duration_ms, paced.pace.as_deref()), (Some(60), Some(6000.0), Some("beats")));
+    let ends: Vec<f64> = paced.chapters.as_ref().unwrap().iter().map(|c| c.end).collect();
+    assert_eq!(ends, [2000.0, 5000.0, 6000.0], "a chapter ends where its beat's seconds do");
+    // As a player plays it: each cue, then on at once.
+    let held = video(Pace::Holds, "talk-held.mp4");
+    let starts: Vec<f64> = held.timeline.as_ref().unwrap().iter().map(|p| p.start).collect();
+    assert_eq!(starts, [0.0, 660.0, 2100.0, 2900.0]);
+    assert_eq!((held.frames, held.pace.as_deref()), (Some(29), Some("holds")));
 }
 
 #[test]

@@ -108,18 +108,26 @@ fn the_layouts_that_draw_a_state_alike_fold_into_the_one_it_takes() {
     // The agenda's header is the one node in a slot. Most layouts put it in the same place, folded
     // into the one the agenda takes; five put it elsewhere: beside a picture off either edge, as
     // `photo-grid-text` does `photo-left`'s, over a map across the slide, and beside an agenda's
-    // topics, with a picture or without (PLAN 3.30, 3.31, O.1e).
+    // topics, with a picture or without (PLAN 3.30, 3.31, O.1e). Six more draw it as `full` does
+    // but leave places for pictures empty, which lint counts (W304), so each stands apart, after
+    // the layouts lint finds nothing in.
     let suggested = suggest(&b, "agenda", None).unwrap();
     let names: Vec<&str> = suggested.iter().map(|s| s.layout.as_str()).collect();
-    assert_eq!(names, ["full", "agenda-photo", "photo-left", "map-full", "photo-right", "agenda"], "{suggested:#?}");
+    let empty = ["bullets-photo", "kpi-dashboard", "timeline-photos", "six-up", "acknowledgments", "logo-wall"];
+    assert_eq!(
+        names,
+        [&["full", "agenda-photo", "photo-left"][..], &empty, &["map-full", "photo-right", "agenda"]].concat(),
+        "{suggested:#?}"
+    );
+    assert!(suggested[3..9].iter().all(|s| s.errors == 0 && s.warnings > 0));
     assert!(suggested[0].current && suggested[1..].iter().all(|s| !s.current));
     assert_eq!(suggested[2].alike, ["photo-grid-text"]);
-    assert_eq!(suggested[0].alike[..4], ["title-only", "manifesto", "bullets", "numbered"]);
     assert!(
-        ["cards", "three-up", "number-grid", "swot", "org-chart"]
-            .iter()
-            .all(|l| suggested[0].alike.iter().any(|a| a == l))
+        suggested[3].alike.iter().any(|a| a == "three-up"),
+        "three-up leaves its pictures empty as bullets-photo does"
     );
+    assert_eq!(suggested[0].alike[..4], ["title-only", "manifesto", "bullets", "numbered"]);
+    assert!(["cards", "number-grid", "swot", "org-chart"].iter().all(|l| suggested[0].alike.iter().any(|a| a == l)));
     // The cover's title and subtitle: in `title`, over a picture in `photo-title`, centered in
     // `title-center`, and beside a picture in `title-split`.
     let cover = suggest(&b, "cover", None).unwrap();

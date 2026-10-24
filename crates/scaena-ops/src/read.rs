@@ -36,7 +36,7 @@ pub fn read(b: &Bundle, scn: bool, files: bool) -> Result<Read, OpsError> {
 /// states and the one that shows it (SPEC §3.11), as `export --format spine` writes it
 /// without placing it on the timeline or drawing its renders.
 pub fn spine(b: &Bundle) -> scaena_core::spine::SpineProjection {
-    scaena_core::spine::projection(&b.deck, None)
+    scaena_core::spine::projection(&b.deck, None, scaena_core::spine::Pace::default())
 }
 
 /// The deck's spine replaced by `spine`, as a patch: checked, refused if it makes the deck
