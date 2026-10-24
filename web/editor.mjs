@@ -196,6 +196,13 @@ try {
     `the toolbar's ${bar.buttons} buttons stand in groups (${bar.groups.join(", ")}), each with an icon and a label, every control by its id${bar.missing.length ? `; missing ${bar.missing.join(", ")}` : ""}`,
   );
   check(bar.rows === 1, `on one row at ${bar.width} px wide: ${bar.rows}`);
+  // From a prompt…, the AI-first way in, stands on the bar right after File, not in its menu.
+  const prompt = await tb.evaluate(() => {
+    const along = [...document.querySelectorAll("#toolbar button, #toolbar a.button")].filter((b) => !b.hidden && !b.closest('[role="menu"]'));
+    const at = along.findIndex((b) => b.id === "new-prompt");
+    return { after: along[at - 1]?.id, menu: !!document.querySelector("#new-prompt").closest('[role="menu"]'), popup: document.querySelector("#new-prompt").getAttribute("aria-haspopup") };
+  });
+  check(prompt.after === "file-open" && !prompt.menu && prompt.popup === "dialog", `From a prompt… is a button on the bar right after File: ${JSON.stringify(prompt)}`);
   const menuShut = await tb.evaluate(() => document.querySelector("#file-menu").hidden && document.querySelector("#file-open").getAttribute("aria-expanded") === "false");
   await tb.click("#file-open");
   const menuOpen = await tb.evaluate(() => {
@@ -207,7 +214,7 @@ try {
     return { hidden: menu.hidden, expanded: document.querySelector("#file-open").getAttribute("aria-expanded"), items, focused: document.activeElement?.id, under, folder };
   });
   check(
-    menuShut && !menuOpen.hidden && menuOpen.expanded === "true" && menuOpen.under && menuOpen.folder && menuOpen.focused === "new-deck" && menuOpen.items.join(",") === "new-deck,new-prompt,open-scaena,kept,save-as,download",
+    menuShut && !menuOpen.hidden && menuOpen.expanded === "true" && menuOpen.under && menuOpen.folder && menuOpen.focused === "new-deck" && menuOpen.items.join(",") === "new-deck,open-scaena,kept,save-as,download",
     `File opens its menu under the button, its first item focused: ${JSON.stringify(menuOpen)}`,
   );
   await tb.keyboard.press("ArrowDown");

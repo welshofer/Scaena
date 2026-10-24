@@ -146,7 +146,7 @@ try {
 
   /** The dialog, open, with Narrato's choices in it. */
   const opened = async () => {
-    await page.click("#file-open").then(() => page.click("#new-prompt"));
+    await page.click("#new-prompt");
     await page.waitForFunction(() => document.querySelector("#prompting-goal").options.length > 0, null, { timeout: 60000 });
   };
   /** The progress lines the dialog shows. */

@@ -756,21 +756,21 @@
       <div id="work">
         <div id="column">
         <!-- One toolbar of icon-and-label buttons, grouped as the Mac's is (PLAN 3.18; lift-up
-             ATTR-5): File's actions in a menu, the deck saved, exported, and played, what the
-             window shows, the slide and its size, how close, what is inserted and the theme,
+             ATTR-5): File's actions in a menu, a deck from a prompt a click away beside it,
+             the deck saved, exported, and played, what the window shows, the slide and its size, how close, what is inserted and the theme,
              a rehearsal, and find, the commands, and the keys. Every control keeps its id. -->
         <div id="toolbar" role="toolbar" aria-label="Toolbar">
           <div class="group" role="group" aria-label="File">
             <button type="button" id="file-open" aria-haspopup="menu" aria-expanded="false" aria-controls="file-menu" title="New, open, kept in this browser, save as, and download">File</button>
             <div id="file-menu" role="menu" aria-label="File" hidden>
               <button id="new-deck" role="menuitem" title="A new deck in a built-in theme">New…</button>
-              <button id="new-prompt" role="menuitem" title="A new deck written from a prompt by Narrato, grounded in what you give it, with your own key" aria-haspopup="dialog">From a prompt…</button>
               <button id="open-folder" role="menuitem" hidden>Open folder…</button>
               <button type="button" id="open-scaena" role="menuitem">Open .scaena…</button><input id="open-file" type="file" accept=".scaena" hidden />
               <button type="button" id="kept" role="menuitem" aria-haspopup="dialog" title="The decks this browser keeps: open, rename, or delete one">Kept in this browser…</button>
               <button id="save-as" role="menuitem" title="Save the deck somewhere new, and keep it there">Save as…</button>
               <button id="download" role="menuitem" title="The deck as a .scaena file, its fonts cut to what it draws">Download .scaena</button>
             </div>
+            <button type="button" id="new-prompt" title="A new deck written from a prompt by Narrato, grounded in what you give it, with your own key" aria-haspopup="dialog">From a prompt…</button>
             <button id="save" title="Save where the deck is kept (⌘S, Ctrl+S)">Save</button>
             <button id="export" title="This slide as a PNG, every slide as PNGs, or the deck as a PDF or one HTML file that plays offline">Export…</button>
             <a id="play" class="button" target="_blank" title="The player, from the slide shown" hidden>Play</a>
