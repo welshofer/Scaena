@@ -88,10 +88,19 @@ pub fn caption(seen: &Seen, count: usize) -> String {
 }
 
 /// The prompt after the slides: what to look for, what may change, and what may not, for a
-/// deck on `topic` for `audience`, in `language` where it is written in one.
-pub fn prompt(topic: &str, audience: &str, count: usize, language: Option<&str>) -> String {
-    let mut out =
-        format!("You have seen the {count} slides of a deck on \u{201c}{topic}\u{201d}", topic = topic.trim());
+/// deck on `topic` for `audience`, in `language` where it is written in one. `shown` is the
+/// first and last slide shown, of the deck's `count`: a long deck is shown a dozen slides at a
+/// time (`scaena_ops::narrative::LOOK_BATCH`), and the prompt says which (narrative PERF-5).
+pub fn prompt(topic: &str, audience: &str, count: usize, language: Option<&str>, shown: (usize, usize)) -> String {
+    let topic = topic.trim();
+    let mut out = if shown == (1, count) {
+        format!("You have seen the {count} slides of a deck on \u{201c}{topic}\u{201d}")
+    } else {
+        format!(
+            "You have seen slides {}\u{2013}{} of the {count} slides of a deck on \u{201c}{topic}\u{201d}",
+            shown.0, shown.1
+        )
+    };
     if !audience.trim().is_empty() {
         out.push_str(&format!(", for {}", audience.trim()));
     }
@@ -240,11 +249,14 @@ mod tests {
         assert!(c.starts_with("Slide 2 of 25, drawn as Bullets (a list). It may instead take: `numbered-cards`, Numbered Cards (each item on a card under its number); `quadrants`"), "{c}");
         assert!(c.contains("\nTitle: The Path to Net Zero") && c.contains("\nBullet 4: Remove the rest"));
         assert!(caption(&s[0], 25).contains("It keeps its layout.\nTitle: Climate Change"));
-        let p = prompt("Climate change", "colleagues", 25, Some("Czech"));
+        let p = prompt("Climate change", "colleagues", 25, Some("Czech"), (1, 25));
         assert!(
             p.starts_with("You have seen the 25 slides of a deck on \u{201c}Climate change\u{201d}, for colleagues")
         );
         assert!(p.contains("Keep every figure") && p.ends_with("Write in Czech, as the deck is written."));
+        // A long deck shown a dozen at a time says which slides these are (narrative PERF-5).
+        let part = prompt("Climate change", "", 25, None, (13, 24));
+        assert!(part.starts_with("You have seen slides 13\u{2013}24 of the 25 slides of a deck on \u{201c}Climate change\u{201d}, each drawn"), "{part}");
     }
 
     #[test]
