@@ -15,7 +15,7 @@
 mod find;
 mod ops;
 
-pub use find::{Found, Kind, Query, find, replacing};
+pub use find::{A_VALUE, Found, Kind, Query, find, matches, replacing};
 pub use ops::{Written, written};
 pub use ops::{deleting, depths, held};
 
