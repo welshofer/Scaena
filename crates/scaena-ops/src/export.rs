@@ -38,7 +38,7 @@ pub struct Request {
     /// at its last state, and a video plays the whole timeline.
     pub states: Option<Vec<String>>,
     /// Where it is written: a file for pdf, video, html, and the spine; a directory for
-    /// png and svg, an image per state named for it.
+    /// png and svg, an image per state named by where it stands, `Slide 03.png`.
     pub out: Option<PathBuf>,
     /// `WxH` pixels for png, svg, and video, in the canvas's aspect ratio; the canvas's
     /// size without it.
@@ -51,6 +51,9 @@ pub struct Request {
     /// What paints a video's frames: the CPU painter, or vello on the GPU in a build with
     /// the `gpu` feature (PLAN 2.22). Every other export paints with the CPU painter.
     pub painter: crate::render::Painter,
+    /// How a video and the spine pace the timeline (SPEC §2.4, §10): by the beats' durations
+    /// where a state has no hold (the default), or by the holds alone.
+    pub pace: scaena_core::spine::Pace,
 }
 
 /// What an export wrote (SPEC §7.1).
@@ -85,6 +88,9 @@ pub struct Exported {
     /// How long a video runs, ms: its frames at its rate.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub duration_ms: Option<f64>,
+    /// How a video or the spine paced the timeline: `beats` or `holds`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pace: Option<String>,
     /// When each state plays in a video, in order.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub timeline: Option<Vec<Played>>,
@@ -127,6 +133,8 @@ pub struct Played {
     /// When it starts, ms into the video.
     pub start: f64,
     pub span: f64,
+    /// Its time at rest in the video, ms: its `hold`, or its share of its beat's `duration`
+    /// (`pace`).
     pub hold: f64,
 }
 
@@ -214,7 +222,7 @@ pub fn export_watched(b: &Bundle, req: &Request, progress: &Progress) -> Result<
             Err(OpsError::new("--states picks the frames of png, svg, pdf, and video; spine is the whole spine"))
         }
         Format::Spine => {
-            let mut exported = spine(b, out, req.size.as_deref(), progress)?;
+            let mut exported = spine(b, out, req.size.as_deref(), req.pace, progress)?;
             exported.out = shown;
             Ok(exported)
         }
@@ -365,19 +373,30 @@ pub const THUMBNAIL_WIDTH: f32 = 480.0;
 /// takes each beat's renders, in `renders/` beside it: the state that shows the beat at
 /// rest as a thumbnail (`<beat>.png`, `size` or [`THUMBNAIL_WIDTH`] wide), and in each of
 /// the deck's other formats at that format's canvas size (`<beat>@9x16.png`).
-fn spine(b: &Bundle, out: Option<&Path>, size: Option<&str>, progress: &Progress) -> Result<Exported, OpsError> {
+fn spine(
+    b: &Bundle,
+    out: Option<&Path>,
+    size: Option<&str>,
+    pace: scaena_core::spine::Pace,
+    progress: &Progress,
+) -> Result<Exported, OpsError> {
     let theme = crate::theme(b)?;
     let data = data_files(b)?;
     let (mut engine, assets) = engine(b, &theme)?;
     let timeline = engine.timeline(&b.deck, &theme, &data)?;
-    let mut projection = scaena_core::spine::projection(&b.deck, Some(&timeline));
+    let mut projection = scaena_core::spine::projection(&b.deck, Some(&timeline), pace);
     let canvas = [b.deck.canvas.width as f32, b.deck.canvas.height as f32];
     let scale = match size {
         Some(size) => scale_for(size, canvas)?,
         None => THUMBNAIL_WIDTH / canvas[0],
     };
     let Some(out) = out else {
-        return Ok(Exported { format: "spine".into(), spine: Some(projection), ..Exported::default() });
+        return Ok(Exported {
+            format: "spine".into(),
+            spine: Some(projection),
+            pace: Some(pace.name().into()),
+            ..Exported::default()
+        });
     };
     let dir = out.parent().filter(|d| !d.as_os_str().is_empty()).unwrap_or(Path::new("."));
     // The formats that lay the deck out on another canvas than its own.
@@ -429,7 +448,14 @@ fn spine(b: &Bundle, out: Option<&Path>, size: Option<&str>, progress: &Progress
     let text = serde_json::to_string_pretty(&projection)? + "\n";
     write(out, text.as_bytes())?;
     total += text.len() as u64;
-    Ok(Exported { format: "spine".into(), files: Some(files), size: pixels, bytes: Some(total), ..Exported::default() })
+    Ok(Exported {
+        format: "spine".into(),
+        files: Some(files),
+        size: pixels,
+        pace: Some(pace.name().into()),
+        bytes: Some(total),
+        ..Exported::default()
+    })
 }
 
 /// The states a PDF draws: those asked for, in that order; else each slide at its last
@@ -554,8 +580,55 @@ pub fn pdf_laid_out(
     Ok((laid, pages))
 }
 
-/// An image of each state at rest, in `dir`: `<state>.png` by the CPU painter, or
-/// `<state>.svg`.
+/// Each of `deck`'s states by where it stands among the slides, as an image of it is named and
+/// titled (SPEC §10): its file's name, `Slide 03` for a slide of one state, or `Slide 03, step 1`
+/// and `Slide 03, step 2` for one with steps, each number given as many digits as the deck's last
+/// slide, or the slide's last step, takes, so the files sort in the deck's order; and its title,
+/// the slide's headline as it shows there (a text in the `display`, `headline`, or `title` role,
+/// or the claim), else `Slide 3`.
+fn slide_names(deck: &scaena_core::Deck) -> Result<HashMap<String, (String, String)>, OpsError> {
+    let snaps = scaena_core::tracking::resolve_states(deck).map_err(|e| OpsError::new(e.to_string()))?;
+    // Each state's slide and step, and how many steps each slide has.
+    let (mut at, mut steps): (Vec<(usize, usize)>, Vec<usize>) = (Vec::new(), Vec::new());
+    let mut slide = None;
+    for state in &deck.states {
+        let of = deck.slide_of(state);
+        if slide != Some(of) {
+            steps.push(0);
+            slide = Some(of);
+        }
+        let last = steps.len() - 1;
+        steps[last] += 1;
+        at.push((steps.len(), steps[last]));
+    }
+    let digits = steps.len().max(1).to_string().len();
+    let mut out = HashMap::with_capacity(deck.states.len());
+    for ((state, snap), (number, step)) in deck.states.iter().zip(&snaps).zip(at) {
+        let name = match steps[number - 1] {
+            1 => format!("Slide {number:0digits$}"),
+            n => format!("Slide {number:0digits$}, step {step:0w$}", w = n.to_string().len()),
+        };
+        let headline = (snap.nodes.iter())
+            .filter(|(id, _)| {
+                deck.nodes.get(id.as_str()).is_some_and(|n| n.node_type == scaena_core::document::NodeType::Text)
+            })
+            .find(|(_, p)| {
+                p.get("semantic").and_then(serde_json::Value::as_str) == Some("claim")
+                    || matches!(
+                        p.get("role").and_then(serde_json::Value::as_str),
+                        Some("display" | "headline" | "title")
+                    )
+            })
+            .map(|(_, p)| scaena_core::reading::words(p).split_whitespace().collect::<Vec<_>>().join(" "))
+            .filter(|h| !h.is_empty());
+        out.insert(state.id.clone(), (name, headline.unwrap_or_else(|| format!("Slide {number}"))));
+    }
+    Ok(out)
+}
+
+/// An image of each state at rest, in `dir`, named by where it stands among the slides
+/// (`Slide 03.png`, `Slide 03, step 2.png`, [`slide_names`]): a PNG by the CPU painter, or an SVG
+/// titled by its slide's headline.
 fn images(
     b: &Bundle,
     format: Format,
@@ -565,9 +638,11 @@ fn images(
     progress: &Progress,
 ) -> Result<Exported, OpsError> {
     let pages = named(&b.deck, states)?;
+    // A deck nobody validated may hold any id: one that is no id is refused, as before (SEC-3).
     for state in &pages {
         file_named(state, "the state")?;
     }
+    let names = slide_names(&b.deck)?;
     progress.start(pages.len());
     let theme = crate::theme(b)?;
     let data = data_files(b)?;
@@ -579,19 +654,19 @@ fn images(
         )));
     }
     std::fs::create_dir_all(dir).map_err(|e| OpsError::new(format!("making {}: {e}", dir.display())))?;
-    let meta = b.deck.meta.as_ref();
-    let (title, lang) = (meta.and_then(|m| m.title.clone()), meta.and_then(|m| m.lang.clone()));
+    let lang = b.deck.meta.as_ref().and_then(|m| m.lang.clone());
     let (ext, svg_format) = if format == Format::Svg { ("svg", true) } else { ("png", false) };
     let (mut files, mut total, mut pixels) = (Vec::new(), 0_u64, [0, 0]);
     let mut painter = CpuPainter::default();
     for state in &pages {
+        let (name, title) = names.get(state).cloned().unwrap_or_else(|| (state.clone(), state.clone()));
         let list = at_rest(&mut engine, b, &theme, &data, state)?;
         let scale = match size {
             Some(size) => scale_for(size, list.viewport)?,
             None => 1.0,
         };
         let bytes = if svg_format {
-            let settings = SvgSettings { scale, title: title.clone(), lang: lang.clone() };
+            let settings = SvgSettings { scale, title: Some(title), lang: lang.clone() };
             pixels = list.viewport.map(|v| (v * scale).round() as u32);
             svg(&list, &assets, &settings).map_err(|e| OpsError::new(format!("{state}: {e}")))?.into_bytes()
         } else {
@@ -599,7 +674,7 @@ fn images(
             pixels = [raster.width, raster.height];
             raster.to_png()?
         };
-        let file = dir.join(format!("{state}.{ext}"));
+        let file = dir.join(format!("{name}.{ext}"));
         write(&file, &bytes)?;
         total += bytes.len() as u64;
         files.push(file.display().to_string());
@@ -659,8 +734,8 @@ impl Reel {
         }
         if length <= 0.0 {
             return Err(OpsError::new(
-                "the timeline is 0 ms long: a video plays each state's transition and motions, then its `hold` \
-                 (SPEC §2.4); give the states a hold",
+                "the timeline is 0 ms long: a video plays each state's transition and motions, then its `hold`, \
+                 or its share of its beat's `duration` (SPEC §2.4); give the states a hold or the beats a duration",
             ));
         }
         let frames = (length * f64::from(fps) / 1000.0).ceil() as u64;
@@ -733,7 +808,8 @@ fn export_video(
     let theme = crate::theme(b)?;
     let data = data_files(b)?;
     let (mut engine, assets) = engine(b, &theme)?;
-    let reel = Reel::new(&engine.timeline(&b.deck, &theme, &data)?, states, fps)?;
+    let timeline = engine.timeline(&b.deck, &theme, &data)?;
+    let reel = Reel::new(&scaena_core::spine::paced(&b.deck, &timeline, req.pace), states, fps)?;
     let canvas = [b.deck.canvas.width as f32, b.deck.canvas.height as f32];
     let scale = match size {
         Some(size) => scale_for(size, canvas)?,
@@ -784,6 +860,7 @@ fn export_video(
         frames: Some(encoded.frames),
         fps: Some(fps),
         duration_ms: Some(reel.duration_ms()),
+        pace: Some(req.pace.name().into()),
         timeline: Some(played),
         chapters: (!chapters.is_empty()).then_some(chapters),
         painter: Some(if painter == scaena_export::video::Painter::Gpu { "gpu" } else { "cpu" }.into()),

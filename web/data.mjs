@@ -21,7 +21,7 @@
 import { execFileSync } from "node:child_process";
 import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { axeInto, launch, serve } from "./serve.mjs";
+import { axeInto, launch, serve, tab } from "./serve.mjs";
 
 const out = "target/web-data";
 rmSync(out, { recursive: true, force: true });
@@ -71,7 +71,7 @@ try {
   check((await page.evaluate(() => window.scaena.last().valid)) === false, "a cell its column does not read leaves the deck invalid");
 
   // The Data tab: the source as a table.
-  await page.click("#tab-data");
+  await tab(page, "data");
   await page.waitForFunction(() => window.scaena.data.shown()?.sheet.rows.length === 12, null, { timeout: 60000 });
   const shown = await page.evaluate(() => ({
     sources: [...document.querySelectorAll("#data [data-source] option")].map((o) => o.value),

@@ -14,7 +14,7 @@
 //   which stays shown.
 // Exits 1 on any failure.
 import { createServer } from "node:http";
-import { launch, serve } from "./serve.mjs";
+import { launch, serve, tab } from "./serve.mjs";
 
 const failures = [];
 const check = (ok, what) => {
@@ -107,7 +107,7 @@ try {
   const shown = await page.evaluate(() => window.scaena.opened.states.indexOf("revenue"));
   await page.evaluate(() => window.scaena.cursor(window.scaena.source().indexOf("state revenue") + "state ".length));
   await page.waitForFunction((i) => window.scaena.shown() === i && window.scaena.canvas.boxed() === "revenue", shown, { timeout: 30000 });
-  await page.click("#tab-assistant");
+  await tab(page, "assistant");
   await page.selectOption("#provider", "anthropic");
   await page.fill("#base", scripted.origin);
   await page.fill("#key", "seeing-test-key");

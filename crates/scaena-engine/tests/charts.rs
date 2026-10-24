@@ -1433,16 +1433,24 @@ fn a_highlight_dims_everything_it_does_not_pick_out() {
     // Cloud's name is set in the signal color with its line.
     let cloud = lit.legend.iter().find(|e| e.key == "Cloud").unwrap();
     assert!(cloud.color == signal && cloud.label.text.runs.iter().all(|r| r.color == signal));
-    // A category: its marks take the signal, the rest dim; every series has a mark in
-    // it and others out of it, so no legend entry changes.
+    // A category: its marks take the signal, the rest dim. Every series has one mark in it and
+    // the others out of it, so each legend entry's swatch takes the dimmed color most of its bars
+    // draw, as they do (dogfood pass 3); its name, a series some of whose marks are lit, keeps
+    // full strength.
     let q3 = by_series("bar", json!({ "annotations": [{ "kind": "highlight", "at": { "x": ["Q3"] } }] }));
     for m in &q3.marks {
         assert_eq!(m.color == signal, m.key.starts_with("Q3"), "{}", m.key);
     }
     let bars = by_series("bar", json!({}));
-    let entries =
-        |c: &ChartLayout| c.legend.iter().map(|e| (e.key.clone(), e.color, e.label.opacity)).collect::<Vec<_>>();
-    assert_eq!(entries(&q3), entries(&bars));
+    assert_eq!(q3.legend.len(), bars.legend.len());
+    for (was, now) in bars.legend.iter().zip(&q3.legend) {
+        assert_eq!(now.color.0[..3], was.color.0[..3], "{}: its own hue", now.key);
+        assert_eq!(alpha(now.color), (f32::from(alpha(was.color)) * 0.5).round() as u8, "{}: dimmed", now.key);
+        assert_eq!(now.label.opacity, was.label.opacity, "{}: its name stays legible", now.key);
+        // The swatch is the color its bars out of Q3 are drawn in.
+        let out_of = q3.marks.iter().find(|m| !m.key.starts_with("Q3") && m.key.ends_with(&now.key)).unwrap();
+        assert_eq!(now.color, out_of.color, "{}", now.key);
+    }
     let err = by_series_err("bar", json!({ "annotations": [{ "kind": "highlight", "at": { "series": "Mobile" } }] }));
     assert!(err.contains("Mobile"), "{err}");
 }

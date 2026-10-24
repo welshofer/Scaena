@@ -24,7 +24,7 @@
 // Exits 1 on any failure.
 import { execFileSync } from "node:child_process";
 import { inflateRawSync } from "node:zlib";
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { axeInto, compare, decode, launch, serve } from "./serve.mjs";
@@ -105,7 +105,7 @@ try {
   const cliPng = (size) => {
     const dir = join(out, `png-${size}`);
     scaena("export", bundle, "--format", "png", "--states", state, "--size", size, "--out", dir);
-    return decode(readFileSync(join(dir, `${state}.png`)));
+    return decode(readFileSync(join(dir, readdirSync(dir).find((f) => f.endsWith(".png")))));
   };
   const big = await downloaded(() => page.click("#exporting-go"));
   const ours = decode(big.bytes);
@@ -137,7 +137,9 @@ try {
   for (const [file, shows] of slides) {
     const dir = join(out, `slides-${shows}`);
     scaena("export", bundle, "--format", "png", "--states", shows, "--size", "960x540", "--out", dir);
-    const [ours, theirs] = [decode(files.get(file) ?? Buffer.alloc(0)), decode(readFileSync(join(dir, `${shows}.png`)))];
+    // The CLI names the state's image by its slide and step, as the zip names the slide's.
+    const named = readdirSync(dir).find((f) => f.endsWith(".png"));
+    const [ours, theirs] = [decode(files.get(file) ?? Buffer.alloc(0)), decode(readFileSync(join(dir, named)))];
     const alike = compare(theirs, ours);
     check(ours.width === 960 && ours.height === 540 && alike.passes, `${file} is ${shows} at rest, 960 × 540, within §13.5 of the CLI's: ${alike.said}`);
   }

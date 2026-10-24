@@ -10,6 +10,8 @@
 //!
 //! W303: a node drawn where the slide's number or footer stands (ADR-0028).
 //!
+//! W304: a place a slide's layout keeps for a picture or a figure, left empty at rest.
+//!
 //! W311: a shader painted behind a chart or a table, where they overlap.
 //!
 //! W313: a chart squashed below a legible plot.
@@ -233,6 +235,107 @@ impl Rule for W303UnderFurniture {
                 .hint("Move it clear of the margin the slide's number and footer stand in, or leave them off this slide (`furniture: false` on its first state).")
             })
             .collect()
+    }
+}
+
+/// W304: a place a slide's layout keeps for a picture or a figure, left empty where the slide
+/// comes to rest (its last state): its slot's prompt waits for one (PLAN 3.30), no node is placed
+/// in it, no ink in front, decoration aside, is drawn in it, and no picture or backdrop is drawn
+/// there: what an editor outlines as a place still waiting, with nothing else standing in it. One
+/// finding per slide and place.
+pub struct W304EmptyPlace;
+
+impl Rule for W304EmptyPlace {
+    fn code(&self) -> &'static str {
+        "W304"
+    }
+    fn severity(&self) -> Severity {
+        Severity::Warning
+    }
+    fn check(&self, cx: &Cx) -> Vec<Finding> {
+        use scaena_core::model::theme::{Example, Prompt};
+        let mut boxes: BTreeMap<String, Vec<crate::guides::SlotBox>> = BTreeMap::new();
+        let mut out = Vec::new();
+        for state in cx.states {
+            let at = &cx.deck.states[state.index];
+            // At rest: the slide's last state, as the light table and the PDF show it.
+            let next = cx.deck.states.get(state.index + 1);
+            if next.is_some_and(|n| cx.deck.slide_of(n) == cx.deck.slide_of(at)) {
+                continue;
+            }
+            let Some(name) = state.snapshot.layout.as_deref() else { continue };
+            let Some(slots) = cx.theme.slots(name) else { continue };
+            if !boxes.contains_key(name) {
+                let Ok(laid) = crate::guides::slots(cx.deck, cx.theme, name, cx.format) else { continue };
+                boxes.insert(name.to_string(), laid);
+            }
+            let placed: Vec<&str> = (state.snapshot.nodes.values())
+                .filter_map(|p| p.get("at").filter(|a| a.get("parent").is_none())?.get("in")?.as_str())
+                .collect();
+            // What fills a place: ink in front drawn in it, decoration aside, or a picture or a
+            // backdrop drawn there at all, as "a picture, or a backdrop" asks.
+            let stands = |id: &str| {
+                let pictured = (cx.deck.nodes.get(id)).is_some_and(|n| {
+                    matches!(
+                        n.node_type,
+                        scaena_core::document::NodeType::Image | scaena_core::document::NodeType::Shader
+                    )
+                });
+                pictured
+                    || state.snapshot.nodes.get(id).is_some_and(|p| {
+                        p.get("z").and_then(Value::as_f64).unwrap_or(0.0) >= 0.0
+                            && p.get("semantic").and_then(Value::as_str) != Some("decoration")
+                    })
+            };
+            // A slide that still says its slots' prompts, or shows nothing of its own but the cards
+            // and rules it came with, is being written: its places wait with its words, as Add
+            // Slide leaves them.
+            let prompted = |p: &scaena_core::document::Props| {
+                let slot = p.get("at").filter(|a| a.get("parent").is_none()).and_then(|a| a.get("in")?.as_str());
+                let said = slot.and_then(|s| slots.get(s)?.prompt.as_ref()?.text()).map(|(text, _)| text);
+                said.is_some_and(|said| p.get("text").and_then(Value::as_str) == Some(said.as_str()))
+            };
+            let decoration =
+                |p: &scaena_core::document::Props| p.get("semantic").and_then(Value::as_str) == Some("decoration");
+            let nodes = || state.snapshot.nodes.values();
+            if nodes().any(prompted) || nodes().all(decoration) {
+                continue;
+            }
+            for b in &boxes[name] {
+                let Some(slot) = slots.get(&b.name) else { continue };
+                // Words go where a role is; a card or a rule comes with the slide.
+                if slot.role.is_some() || slot.prompt.as_ref().and_then(Prompt::text).is_none() {
+                    continue;
+                }
+                let covered = (state.scene.nodes.iter()).any(|n| {
+                    // Where it draws: a text's lines, else its box, a backdrop's and a card's too.
+                    let area = n.ink().or(match &n.content {
+                        Content::Shader(shader) => Some(shader.rect),
+                        Content::Shape(shape) => Some(shape.rect),
+                        _ => None,
+                    });
+                    stands(&n.id)
+                        && area.is_some_and(|r| meets((b.rect, None), drawn(&state.scene, &n.id, r)).is_some())
+                });
+                if placed.contains(&b.name.as_str()) || covered {
+                    continue;
+                }
+                let figure = matches!(slot.example, Some(Example::Chart(_) | Example::Table(_)));
+                let what = if figure { "a figure" } else { "a picture" };
+                out.push(
+                    cx.finding(
+                        self.code(),
+                        self.severity(),
+                        state,
+                        format!("slot `{}` of layout `{name}` waits for {what}, and nothing fills it", b.name),
+                    )
+                    .at(format!("/states/{}", state.index))
+                    .measure(json!({ "slot": b.name, "layout": name, "rect": b.rect, "figure": figure }))
+                    .hint("Choose a layout that waits for none, or put a picture or a figure in its place."),
+                );
+            }
+        }
+        out
     }
 }
 
