@@ -447,6 +447,10 @@ export interface LayoutSuggestion {
   current?: boolean;
   errors: number;
   warnings: number;
+  /** The layout's places, for words, a picture, or a figure, the state leaves empty in it. */
+  empty: number;
+  /** The state's texts its slots set in a role other than their own. */
+  recast: number;
   /** The layouts that draw the state as this one does, lint judging them alike: left out. */
   alike?: string[];
   reach: string[];
