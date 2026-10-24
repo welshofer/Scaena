@@ -36,9 +36,11 @@
 //   focused undo and redo (PLAN 2.77). An undo says what it took back, and a redo what it made
 //   again, in the words the change was made in (lift-up USE-4).
 // On the trails example, the strip draws each thumbnail as it is painted, the first before every
-// state is linted.
+// state is linted. A slide whose thumbnail cannot be painted is marked so on its tile, said once in
+// the console, and not painted again until its drawing changes (lift-up STAB-4).
 // Exits 1 on any failure.
 import { readFile } from "node:fs/promises";
+import { crc32 } from "node:zlib";
 import { launch, serve } from "./serve.mjs";
 
 const server = await serve();
@@ -562,6 +564,54 @@ try {
       }),
   );
   check(first.painted > 0 && first.linted === 0, `the first thumbnails are drawn before every state is linted: ${JSON.stringify(first)}`);
+
+  // A slide whose thumbnail cannot be painted (lift-up STAB-4): the storm slide's photo, its
+  // header whole and its pixels' stream damaged, lays out and draws no pixels. Its tile says so,
+  // the cause goes to the console once, and it is not painted again until its drawing changes,
+  // however often the strip paints.
+  const photo = await readFile("docs/examples/assets/trails-ridge.png");
+  const damaged = Buffer.from(photo);
+  const idat = damaged.indexOf("IDAT");
+  const length = damaged.readUInt32BE(idat - 4);
+  damaged.fill(0x55, idat + 6, idat + 4 + length);
+  damaged.writeUInt32BE(crc32(damaged.subarray(idat, idat + 4 + length)), idat + 4 + length);
+  const broken = await browser.newContext({ viewport: { width: 1920, height: 1200 }, deviceScaleFactor: 1 });
+  await broken.route("**/assets/trails-ridge.png", (r) => r.fulfill({ contentType: "image/png", body: damaged }));
+  const unpaintable = await broken.newPage();
+  unpaintable.on("pageerror", (e) => failures.push(`unpaintable: ${e.message}`));
+  const warned = [];
+  unpaintable.on("console", (m) => m.type() === "warning" && m.text().includes("could not be painted") && warned.push(m.text()));
+  await unpaintable.goto(url("/docs/examples/trails.deck.json"));
+  const states = await unpaintable.evaluate(() => window.scaena.slots().length).catch(() => 15);
+  const settled = () =>
+    unpaintable.waitForFunction((n) => Object.keys(window.scaena?.strip?.digests() ?? {}).length >= n, states, { timeout: 120000 }).then(
+      () => true,
+      () => false,
+    );
+  check(await settled(), "every slide's thumbnail is painted or marked");
+  const tile = () =>
+    unpaintable.evaluate(() => {
+      const li = document.querySelector('#strip li[data-state="storm"]');
+      const canvas = document.querySelector('#strip li[data-state="cover"] canvas');
+      return { said: li?.querySelector(".unpainted")?.textContent ?? null, others: canvas ? canvas.width > 0 : false };
+    });
+  const marked = await tile();
+  check(marked.said === "This slide couldn’t be drawn", `the storm slide's tile says it couldn't be drawn: ${JSON.stringify(marked)}`);
+  check(marked.others, "and the slides around it are painted");
+  check(warned.length === 1 && warned[0].includes("storm"), `the cause is in the console once: ${JSON.stringify(warned)}`);
+  // An edit to another slide paints the strip again: the storm slide is not tried again.
+  const source = await unpaintable.evaluate(() => window.scaena.source());
+  const before = (await unpaintable.evaluate(() => window.scaena.strip.digests())).cover;
+  await unpaintable.evaluate((s) => window.scaena.type(s), source.replaceAll("High Country Trails", "High Country Paths"));
+  check(
+    await unpaintable
+      .waitForFunction((was) => window.scaena.strip.digests().cover !== was, before, { timeout: 60000 })
+      .then(() => true, () => false),
+    "an edit paints the slide it changed again",
+  );
+  check(warned.length === 1, `and the storm slide is not painted again: ${warned.length} warnings`);
+  check((await tile()).said === "This slide couldn’t be drawn", "its tile still says so");
+  await broken.close();
 } finally {
   await browser.close();
   await server.close();
