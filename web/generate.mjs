@@ -13,7 +13,7 @@
 // - What a browser cannot read says so, and where it is read: an SEC filing, and a page whose
 //   site lets no other page read it. A provider that refuses the key says so in the dialog,
 //   which stays open to try again.
-// - Cancel stops the worker making the deck, and the deck open stays open.
+// - Cancel stops the worker making the deck once asked, Escape too, and the deck open stays open.
 // - A deck in a script the theme's fonts do not draw takes the script's font (PLAN G.22), before
 //   the provider is asked anything: Japanese's, which cannot be fetched here, says so; Hindi's is
 //   fetched from where google/fonts serves it, once, and kept by the browser for the next deck.
@@ -142,7 +142,8 @@ try {
   const page = await browser.newPage({ viewport: { width: 1600, height: 1000 }, deviceScaleFactor: 1 });
   page.on("pageerror", (e) => failures.push(`page: ${e.message}`));
   page.on("console", (m) => m.type() === "error" && !/Failed to (load resource|fetch)|CORS/.test(m.text()) && failures.push(`console: ${m.text()}`));
-  page.on("dialog", (d) => d.accept());
+  const accepting = (d) => d.accept();
+  page.on("dialog", accepting);
   await page.goto(`${site.origin}/web/dist/editor.html?painter=cpu&bundle=/docs/examples/revenue.deck.json`);
   await page.waitForFunction(() => window.scaena?.last() && window.scaena.where().name === "revenue", null, { timeout: 120000 });
   // No key kept: the dialog takes one in place, in a page of its own, so what it chose leaves the
@@ -312,10 +313,24 @@ try {
   check((await page.inputValue("#prompting-goal")) === "Persuade", "what was chosen stays chosen after a failed run");
   state.fail = false;
 
-  // Cancel stops it; the deck open stays open.
+  // Cancel stops it, once asked (lift-up 10-24 USE-2): kept making, Cancel and Escape leave it
+  // running; stopped, the deck open stays open.
   state.slow = 4000;
   await page.click("#prompting-go");
   await page.waitForFunction(() => [...document.querySelectorAll("#prompting-progress li")].some((l) => l.textContent.startsWith("Choosing the arc")), null, { timeout: 60000 });
+  page.off("dialog", accepting);
+  const askedFirst = [];
+  const declining = (d) => (askedFirst.push(d.message()), d.dismiss());
+  page.on("dialog", declining);
+  await page.click("#prompting-cancel");
+  await page.locator("#prompting").press("Escape");
+  await page.waitForTimeout(300);
+  check(
+    askedFirst.length === 2 && askedFirst.every((m) => m.startsWith("Stop making the deck?")) && (await page.locator("#prompting").evaluate((d) => d.open)),
+    `Cancel and Escape ask first while it runs, and kept making, it stays open: ${askedFirst.join(" | ")}`,
+  );
+  page.off("dialog", declining);
+  page.on("dialog", accepting);
   await page.click("#prompting-cancel");
   check(!(await page.locator("#prompting").evaluate((d) => d.open)), "Cancel closes the dialog");
   await page.waitForTimeout(5000);
@@ -407,6 +422,11 @@ try {
   );
   check(slides?.prompt.includes(`=== SOURCE: ${press}/press.html ===`) && slides.prompt.includes("third route"), "the web page is in the slides' prompt");
   check(slides?.prompt.includes("=== SOURCE: q3.csv ==="), "the CSV is in the slides' prompt");
+  const gave = (await lines()).filter((l) => l.startsWith("Grounded in "));
+  check(
+    gave.length === 3 && gave.some((l) => /^Grounded in notes\.md \(markdown, 1 KB\)$/.test(l)),
+    `what each source gave is said before the arc is asked for: ${gave.join(" · ")}`,
+  );
   const look = requests.find((r) => r.asked === "look");
   const drawn = look?.body.messages[0].content.filter((c) => c.type === "image") ?? [];
   check(

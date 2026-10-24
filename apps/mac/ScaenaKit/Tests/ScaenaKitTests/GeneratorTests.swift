@@ -99,7 +99,9 @@ private func anthropic(_ text: String) -> Data {
     let kept = try session.bundleFiles().map(\.path).filter { $0.hasPrefix("assets/picture-") }
     #expect(kept.count == pictures)
     #expect(kept.allSatisfy { $0.hasSuffix(".jpg") })
-    #expect(heard.first == .choosing)
+    // What the file gave is said before the arc is asked for (narrative USE-5).
+    #expect(heard.first == .grounded(name: "notes.md", kind: "markdown", kilobytes: 1, cut: false))
+    #expect(heard.dropFirst().first == .choosing)
     #expect(heard.contains(.painting(pictures: pictures, model: "gpt-image-1")))
     #expect(heard.contains(.painted(pictures: pictures, unmade: [])))
     #expect(heard.contains(.making))

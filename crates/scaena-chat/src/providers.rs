@@ -139,14 +139,34 @@ impl Provider {
         }
     }
 
-    /// The turn an answer to [`Provider::turn`] gives.
+    /// The turn an answer to [`Provider::turn`] gives: streamed, as the request asks, or whole.
     pub fn read_turn(self, status: u16, status_text: &str, body: &str) -> Result<Turn, ChatError> {
-        let body = read(status, status_text, body)?;
+        let body = self.read(status, status_text, body)?;
         Ok(match self {
             Provider::Anthropic => anthropic_turn(&body),
             Provider::Openai => openai_turn(&body),
             Provider::Gemini => gemini_turn(&body),
         })
+    }
+}
+
+impl Provider {
+    /// [`read`] as this provider's answer. A streamed answer (narrative ATTR-3) is assembled into
+    /// the one the provider would have sent whole; an error it carried mid-stream, as Anthropic's
+    /// `event: error` does when it is overloaded, is a refusal with that error's status (529 for
+    /// overloaded, 500 otherwise), so the client says it as it says one that came as a status.
+    fn read(self, status: u16, status_text: &str, text: &str) -> Result<Value, ChatError> {
+        if (200..300).contains(&status) && crate::stream::is_sse(text) {
+            let answer = crate::stream::assembled(self, text);
+            if let Some(error) = answer.get("error") {
+                let overloaded = error.get("type").and_then(Value::as_str) == Some("overloaded_error");
+                let (status, status_text) = if overloaded { (529, "Overloaded") } else { (500, "Error") };
+                let said = error.get("message").and_then(Value::as_str).unwrap_or_default();
+                return Err(ChatError::Provider(format!("{status} {status_text}: {said}").trim().to_string()));
+            }
+            return Ok(answer);
+        }
+        read(status, status_text, text)
     }
 }
 
@@ -297,6 +317,8 @@ fn anthropic(ask: &Ask) -> Request {
         // The system prompt is the same each turn: cached, it costs a tenth on every turn after the first.
         "system": [{ "type": "text", "text": ask.system, "cache_control": { "type": "ephemeral" } }],
         "messages": messages,
+        // The answer as it is written, as server-sent events (narrative ATTR-3).
+        "stream": true,
     });
     // A question asked once, with nothing to call, sends no tools (PLAN 2.101).
     if !tools.is_empty() {
@@ -399,7 +421,13 @@ fn openai(ask: &Ask) -> Request {
     let tools: Vec<Value> = (ask.tools.iter())
         .map(|t| json!({ "type": "function", "function": { "name": t.name, "description": t.description, "parameters": inlined(&t.schema) } }))
         .collect();
-    let mut body = json!({ "model": ask.model, "messages": messages });
+    // The answer as it is written, as server-sent events, the usage in its last chunk (narrative ATTR-3).
+    let mut body = json!({
+        "model": ask.model,
+        "messages": messages,
+        "stream": true,
+        "stream_options": { "include_usage": true },
+    });
     // OpenAI refuses an empty list of tools: a question asked once sends none (PLAN 2.101).
     if !tools.is_empty() {
         body["tools"] = Value::Array(tools);
@@ -498,7 +526,8 @@ fn gemini(ask: &Ask) -> Request {
         body["tools"] = json!([{ "functionDeclarations": declarations }]);
     }
     let model = ask.model.strip_prefix("models/").unwrap_or(ask.model);
-    let path = format!("/v1beta/models/{}:generateContent", component(model));
+    // The answer as it is written, as server-sent events (narrative ATTR-3).
+    let path = format!("/v1beta/models/{}:streamGenerateContent?alt=sse", component(model));
     let headers = headers([("x-goog-api-key", ask.key.to_string()), ("content-type", "application/json".to_string())]);
     Request { method: "POST".into(), url: at(ask.base, Provider::Gemini.base(), &path), headers, body: Some(body) }
 }
