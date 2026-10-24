@@ -221,7 +221,7 @@ public final class Generator {
     }
 
     /// The engine's generation, freed with it. Sendable: its steps are made one at a time, each
-    /// awaited before the next, on the main actor or, for the slow ones, on `queue`.
+    /// awaited before the next, on the main actor or, for the slow ones, on a thread of their own.
     private final class Made: @unchecked Sendable {
         let pointer = scaena_generator_new()!
 
@@ -235,26 +235,38 @@ public final class Generator {
         try ScaenaSession.decode(scaena_generator_choices(), as: BriefChoices.self)
     }
 
-    /// Where the steps that build the deck and draw its slides are made (lift-up narrative PERF-3).
-    nonisolated private static let queue = DispatchQueue(label: "ScaenaKit.generate", qos: .userInitiated)
+    /// The stack a slow step is made on: 16 MB, twice the Mac main thread's. Building a deck and drawing
+    /// its slides recurses deeper than a dispatch queue's 512 KB worker stack allows in a debug
+    /// build (the generator's FFI test overflows at 512 KB and passes from 1 MB).
+    nonisolated static let stack = 16 << 20
 
     /// For a test: told each step `stepAway` makes, on the thread it makes it on.
     var away: (@Sendable (String) -> Void)?
 
-    /// `step`, made on a queue of its own, away from the main actor: the steps that build the deck
+    /// `step`, made on a thread of its own, away from the main actor: the steps that build the deck
     /// and draw every slide (`make`, `looked`, `fitted`), which take seconds for a deck of 20 to 45
     /// slides, while the brief's window goes on answering and its steps go on showing (lift-up
     /// narrative PERF-3). One step at a time: each is awaited before the next is made.
     func stepAway<T: Decodable & Sendable>(_ method: String, _ args: [String: JSONValue] = [:]) async throws -> T {
         let json = String(decoding: try JSONEncoder().encode(JSONValue.object(args)), as: UTF8.self)
-        let (made, heard) = (self.made, away)
-        return try await withCheckedThrowingContinuation { (done: CheckedContinuation<T, any Error>) in
-            Self.queue.async {
+        return try await Self.stepped(on: made, method, json, heard: away)
+    }
+
+    /// `method` made on `made` on a thread of its own with `stack` bytes of stack, its answer awaited.
+    nonisolated private static func stepped<T: Decodable & Sendable>(
+        on made: Made, _ method: String, _ json: String, heard: (@Sendable (String) -> Void)?
+    ) async throws -> T {
+        try await withCheckedThrowingContinuation { (done: CheckedContinuation<T, any Error>) in
+            let thread = Thread {
                 heard?(method)
                 done.resume(with: Result {
                     try ScaenaSession.decode(scaena_generator_call(made.pointer, method, json, nil, 0), as: T.self)
                 })
             }
+            thread.name = "ScaenaKit.generate"
+            thread.stackSize = stack
+            thread.qualityOfService = .userInitiated
+            thread.start()
         }
     }
 

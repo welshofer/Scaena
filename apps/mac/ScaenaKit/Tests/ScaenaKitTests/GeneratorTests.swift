@@ -16,16 +16,16 @@ private actor Asked {
 }
 
 /// The steps a generator made away from the main actor, each with whether it was made on the
-/// main thread, as its queue tells them.
+/// main thread and the stack of the thread it was made on, as that thread tells them.
 private final class Away: @unchecked Sendable {
     private let lock = NSLock()
-    private var taken: [(step: String, main: Bool)] = []
+    private var taken: [(step: String, main: Bool, stack: Int)] = []
 
-    func add(_ step: String, main: Bool) {
-        lock.withLock { taken.append((step, main)) }
+    func add(_ step: String, main: Bool, stack: Int) {
+        lock.withLock { taken.append((step, main, stack)) }
     }
 
-    var steps: [(step: String, main: Bool)] { lock.withLock { taken } }
+    var steps: [(step: String, main: Bool, stack: Int)] { lock.withLock { taken } }
 }
 
 /// An Anthropic answer whose text is `text`.
@@ -82,7 +82,7 @@ private func anthropic(_ text: String) -> Data {
 
     // The deck built and every slide drawn away from the main actor (lift-up narrative PERF-3).
     let away = Away()
-    generator.away = { away.add($0, main: Thread.isMainThread) }
+    generator.away = { away.add($0, main: Thread.isMainThread, stack: Thread.current.stackSize) }
 
     var heard: [GeneratingStep] = []
     let (session, made) = try await generator.generate(
@@ -115,6 +115,8 @@ private func anthropic(_ text: String) -> Data {
     #expect(Array(slow.prefix(2)) == ["make", "looked"], "the slow steps: \(slow)")
     #expect(Set(slow).isSubset(of: ["make", "looked", "fitted"]), "the slow steps: \(slow)")
     #expect(away.steps.allSatisfy { !$0.main }, "a slow step was made on the main thread: \(away.steps)")
+    // On a stack that holds a deck being built: a dispatch queue's 512 KB worker overflows it.
+    #expect(away.steps.allSatisfy { $0.stack >= Generator.stack }, "a slow step's stack: \(away.steps)")
 
     // Its story (PLAN G.9), as the Story panel reads it: the arc it was written to, each slide what it
     // declares, coherence by words unscored; a fix made, and the finding gone.
