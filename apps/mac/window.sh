@@ -569,6 +569,35 @@ else
   echo "no canvas to paste on: $px $py $pw $ph"
 fi
 
+# A picture copied in the Finder (the 20261024 plan's SEC-4): a file outside the app's sandbox
+# container, on the clipboard as its file's URL, as the Finder puts it there. The sandboxed app
+# reads it through the extension the paste carries, and it lands on the slide: one more object
+# where the canvas reads them, one to a line.
+python3 - "$out/finder.png" <<'PY'
+import struct, sys, zlib
+w = h = 64
+row = b"\0" + bytes([40, 120, 200, 255]) * w
+chunk = lambda kind, data: struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
+open(sys.argv[1], "wb").write(
+    b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 6, 0, 0, 0))
+    + chunk(b"IDAT", zlib.compress(row * h, 9)) + chunk(b"IEND", b""))
+PY
+osascript -e "set the clipboard to (POSIX file \"$out/finder.png\")" 2>&1 || true
+read -r px py pw ph <<<"$(frames find canvas)" || true
+if [[ "${ph:-}" =~ ^[0-9]+$ ]]; then
+  pointer click $((px + pw / 10)) $((py + ph * 17 / 20))
+  sleep 1
+  objects=$(holds canvas | grep -c . || true)
+  menu Edit "Paste"
+  sleep 3
+  shot finder-pasted
+  now=$(holds canvas | grep -c . || true)
+  echo "a picture copied in the Finder, pasted: objects on the slide $objects, then $now"
+  ((now > objects)) || failing "a picture copied in the Finder, from outside the sandbox, did not land on the slide"
+else
+  failing "no canvas to paste a picture copied in the Finder on: $px $py $pw $ph"
+fi
+
 # The pen (PLAN 2.114): taken up from the Insert menu while the slides down the side have the
 # keyboard, a stroke drawn on the slide gives the canvas the keyboard, as a press does, so Escape
 # puts the pen down, and the Insert menu offers Drawing again, not Stop Drawing. ⌘Z takes the stroke
