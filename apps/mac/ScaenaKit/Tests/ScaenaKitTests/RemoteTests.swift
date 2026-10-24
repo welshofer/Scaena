@@ -139,7 +139,11 @@ private func tried(_ endpoint: NWEndpoint, _ parameters: NWParameters, _ seconds
         server.stop()
         return
     }
-    #expect(await waited { remote.place == blanked }, "it hears the screen black and the timer paused")
+    // Its timer is stamped as it arrives, by the remote's clock; the rest is as the presenter told it.
+    #expect(await waited { remote.place?.timer != nil }, "it hears the place")
+    let heardTimer = try #require(remote.place?.timer)
+    #expect(remote.place == blanked.received(at: heardTimer.at), "it hears the screen black")
+    #expect(heardTimer.elapsed == 75 && heardTimer.paused, "and the timer paused where it stood")
     let ended = RemotePlace(deck: "B1", showing: true, state: "close", index: 39, count: 40, over: true)
     server.tell(ended)
     #expect(await waited { remote.place?.over == true && remote.place?.blank == nil }, "and the end of the show")
@@ -166,6 +170,20 @@ private func tried(_ endpoint: NWEndpoint, _ parameters: NWParameters, _ seconds
         deck: "B1", showing: true, blank: .white, over: false, timer: RemoteTimer(elapsed: 3, paused: false, at: .now))
     let back = try JSONDecoder().decode(RemotePlace.self, from: JSONEncoder().encode(told))
     #expect(back.blank == .white && back.timer?.elapsed == 3, "what a presenter tells reads back as told")
+}
+
+/// A remote whose clock is off from the presenter's reads the presenter's time all the same: the
+/// timer is stamped as the place arrives, by the remote's own clock.
+@Test func aRemoteWithAClockOffReadsThePresentersTime() {
+    let here = Date(timeIntervalSince1970: 1_790_000_000)
+    // The presenter's clock 30 s ahead of the remote's.
+    let told = RemotePlace(
+        deck: "B1", showing: true, timer: RemoteTimer(elapsed: 75, paused: false, at: here.addingTimeInterval(30)))
+    #expect(told.timer?.reads(at: here.addingTimeInterval(10)) == "1:15", "read by the presenter's stamp, it is 10 s short")
+    let heard = told.received(at: here)
+    #expect(heard.timer?.reads(at: here) == "1:15", "taken as it arrives, it reads what the presenter's view reads")
+    #expect(heard.timer?.reads(at: here.addingTimeInterval(10)) == "1:25", "and runs on from there")
+    #expect(RemotePlace(deck: "B1", showing: true).received(at: here).timer == nil, "a place with no timer takes none")
 }
 
 /// The presenter's timer reads on the remote as on the presenter's view: paused where it stands,

@@ -318,6 +318,15 @@ public struct RemotePlace: Codable, Sendable, Equatable {
 
     /// No show plays.
     public static func waiting(_ deck: String) -> RemotePlace { RemotePlace(deck: deck, showing: false) }
+
+    /// The place as a remote takes it at `now`: its timer stamped with the remote's own clock as it
+    /// arrives, so a remote whose clock is off from the presenter's still reads the presenter's
+    /// time, off by no more than the moment the place took to arrive.
+    public func received(at now: Date = Date()) -> RemotePlace {
+        var place = self
+        place.timer?.at = now
+        return place
+    }
 }
 
 /// The screen as the presenter turned it (PLAN 2.105): black or white, the slide out of sight.

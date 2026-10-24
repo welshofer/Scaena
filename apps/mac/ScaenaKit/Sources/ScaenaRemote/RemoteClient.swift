@@ -200,7 +200,7 @@ public final class RemoteClient {
                     self.lose("The presenter went.")
                     return
                 }
-                if let place = message.place { self.place = place }
+                if let place = message.place { self.place = place.received() }
                 self.hearPlaces()
             }
         }
