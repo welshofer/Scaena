@@ -630,6 +630,18 @@
       #transcript .call pre { white-space: pre-wrap; max-height: 12em; overflow: auto; background: var(--panel); padding: 4px 6px; margin: 4px 0; }
       #transcript img { display: block; max-width: 100%; margin-top: 4px; border: 1px solid var(--line); }
       #transcript .failed { color: var(--error); }
+      /* An answer as it reads (narrative ATTR-4): its blocks laid out, the words wrapping as prose. */
+      #transcript .said { white-space: normal; }
+      #transcript .said p, #transcript .said ul, #transcript .said ol, #transcript .said h4, #transcript .said h5, #transcript .said h6 { margin: 0 0 6px; }
+      #transcript .said > :last-child { margin-bottom: 0; }
+      #transcript .said p { white-space: pre-wrap; }
+      #transcript .said ul, #transcript .said ol { padding-left: 1.4em; }
+      #transcript .said ul ul, #transcript .said ol ol, #transcript .said ul ol, #transcript .said ol ul { margin: 2px 0 0; }
+      #transcript .said h4, #transcript .said h5, #transcript .said h6 { font-size: 13px; font-weight: 600; margin-top: 4px; }
+      #transcript .said code { font-family: ui-monospace, Menlo, monospace; font-size: 12px; background: var(--panel); padding: 0 3px; border-radius: 3px; }
+      #transcript .said pre { white-space: pre-wrap; overflow: auto; background: var(--panel); padding: 4px 6px; margin: 0 0 6px; }
+      #transcript .said pre code { background: none; padding: 0; }
+      #transcript .said a.state { color: var(--ink); text-decoration: underline dotted; }
       /* Under a call that changed what states draw, each before and after (PLAN 2.93). */
       #transcript .changed { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin-top: 4px; white-space: normal; }
       #transcript .change { display: inline-flex; align-items: center; gap: 4px; padding: 3px; font-size: 11px; color: var(--muted); }
