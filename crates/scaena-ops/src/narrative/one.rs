@@ -88,10 +88,12 @@ pub fn slide_into(
     }
 
     // The deck as built so far: every id it takes, so what is built takes none of them.
-    let mut seed = Builder::default();
-    seed.nodes = doc["nodes"].as_object().cloned().unwrap_or_default();
-    seed.states = doc["states"].as_array().cloned().unwrap_or_default();
-    seed.data = doc["data"].as_object().cloned().unwrap_or_default();
+    let mut seed = Builder {
+        nodes: doc["nodes"].as_object().cloned().unwrap_or_default(),
+        states: doc["states"].as_array().cloned().unwrap_or_default(),
+        data: doc["data"].as_object().cloned().unwrap_or_default(),
+        ..Builder::default()
+    };
     for section in doc.pointer("/spine/sections").and_then(Value::as_array).into_iter().flatten() {
         if let Some(id) = section["id"].as_str() {
             seed.unique(id, Taken::Section);

@@ -315,13 +315,15 @@ try {
   check(written.includes("Three things changed this quarter") && (await slides()) > counted, `the slide written into the deck: ${await status()}`);
   check(/by agent:scripted|Wrote a new slide/.test(await status()), `and said: ${await status()}`);
   const grown = await slides();
+  const times = (text) => text.split("Three things changed this quarter").length - 1;
+  const once = times(await source());
   await page.evaluate(() => window.scaena.slideAsk.open("redo"));
   check(await page.evaluate(() => document.querySelector("#slide-ask-title").textContent.startsWith("Redo ")), "Redo this slide… on the slide shown");
   await page.click("#slide-ask-go");
   await page.evaluate(() => window.scaena.slideAsk.settled());
   const redone = scripted.requests.at(-1)?.body.messages?.[0]?.content?.find?.((c) => c.type === "text")?.text ?? "";
   check(redone.includes("=== THE SLIDE NOW ===") && redone.includes("Three things changed"), "written again from the slide as it reads now");
-  check((await slides()) === grown && (await source()).split("Three things changed this quarter").length === 2, "in its place, not beside it");
+  check((await slides()) === grown && times(await source()) === once, `in its place, not beside it: ${await slides()} states, ${times(await source())} times`);
   await page.focus("#tab-inspector");
   await page.keyboard.press("Control+z");
   await page.keyboard.press("Control+z");
