@@ -2731,8 +2731,9 @@ impl Slots<'_> {
     /// review, 2026-10-12): a part of a set (`first`, `second-title`, …) to the theme's lede for
     /// words, its body for a caption or a name set as a label, its numeral for a scorecard's
     /// figure and for another figure but a date; a section's or a cover's title to
-    /// the theme's display size, and what supports a section's to the lede; a quote, alone or one of a set, to
-    /// nine-tenths of the headline. None where it keeps its role's size.
+    /// the theme's display size, and what supports a section's to the lede; a quote to
+    /// nine-tenths of the headline, or the display's size where no headline heads it. None where
+    /// it keeps its role's size.
     fn grown(&self, name: &str, role: &str) -> Option<f64> {
         let size = |r: &str| self.theme.typography.roles.get(r).map(|r| r.size);
         let at_least = |r: &str| size(r).filter(|most| size(role).is_some_and(|own| *most > own));
@@ -2774,10 +2775,12 @@ impl Slots<'_> {
                 size("hero").filter(|most| size(role).is_some_and(|own| *most > own))
             }
             (None, "body") if name == "support" && section => at_least("lede"),
-            // A quote is the slide's words, not its title: as large as its place takes, under
-            // the headline's size (dogfood pass 4).
+            // A quote under a headline is the slide's words, not its title: as large as its place
+            // takes, under the headline's size; on a slide no headline heads, it is the slide,
+            // and grows toward the display size, as a lone statement does (dogfood pass 4).
             (None, "quote") if name == "quote" => {
-                size("headline").map(|h| h * 0.9).filter(|most| size(role).is_some_and(|own| *most > own))
+                let most = if self.headed() { size("headline").map(|h| h * 0.9) } else { size("display") };
+                most.filter(|most| size(role).is_some_and(|own| *most > own))
             }
             // A line's figure, as large as its column takes, up to a scorecard's; what it says
             // under it, as words read from the room (G.19).
@@ -2805,6 +2808,11 @@ impl Slots<'_> {
     /// or its `-title` set in a figure's role. Its words keep to a caption's size under it.
     fn figured(&self, name: &str) -> bool {
         self.has(&format!("{name}-figure")) || self.role_of(&format!("{name}-title")).is_some_and(figure_role)
+    }
+
+    /// Whether a place in the layout sets a headline.
+    fn headed(&self) -> bool {
+        self.template().is_some_and(|l| l.slots.values().any(|s| s.role.as_deref() == Some("headline")))
     }
 
     /// The role of the layout's slot of this name.
@@ -5470,9 +5478,10 @@ mod tests {
         assert!(dividers.iter().all(|i| made.layouts[*i] == "section-photo"), "{:?}", made.layouts);
         assert!(titles.iter().all(|t| *t == titles[0]), "{titles:?}");
         assert!(titles[0] > size("headline") && titles[0] <= size("display"), "{titles:?}");
-        // A quote grows past its size, under the headline's.
+        // A quote that no headline heads is the slide: it grows past the headline's size,
+        // toward the display's.
         let quote = most(&node(10, "quote"));
-        assert!(quote > size("quote") && quote < size("headline"), "{quote}");
+        assert!(quote > size("headline") && quote <= size("display"), "{quote}");
         // The cover's title grows past the headline's size beside its picture, on two lines at
         // most; a divider's of a few words on one.
         assert_eq!(node(0, "title")["maxLines"], 2);
