@@ -198,8 +198,8 @@ fn role(cx: &Context, snap: &Snapshot, props: &Props) -> Option<String> {
 /// W423: a beat whose `evidence` names a data source or an asset that none of its states
 /// shows (a chart or table reading the source, an image of the asset). A figure from the
 /// data set as text is a literal that lint cannot trace to its source (finding 6), so a
-/// node marked `semantic: evidence` shows a data source too. URLs are cited, not shown,
-/// and are not checked.
+/// node marked `semantic: evidence` shows a data source too. URLs and the sources a deck was
+/// grounded in (`source:NAME`, narrative FUNC-3) are cited, not shown, and are not checked.
 struct W423EvidenceNotShown;
 impl Rule for W423EvidenceNotShown {
     fn code(&self) -> &'static str {
@@ -218,7 +218,7 @@ impl Rule for W423EvidenceNotShown {
             for (k, cited) in beat.evidence.iter().enumerate() {
                 let key = if cited.starts_with('@') {
                     "data"
-                } else if cited.contains("://") {
+                } else if cited.contains("://") || cited.starts_with(crate::document::SOURCE_CITED) {
                     continue;
                 } else {
                     "src"

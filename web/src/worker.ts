@@ -59,6 +59,7 @@ import type {
   Look,
   Put,
   BundleFile,
+  Grounded,
   MapRefresh,
   MapTarget,
   Mapped,
@@ -671,7 +672,12 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         return post({ type: "dataUndone", id: data.id, ...(await dataUndo(data.source, data.redo, data.index, data.format)) });
       case "bundleFiles":
         current(data.source);
-        return post({ type: "bundleFiles", id: data.id, files: JSON.parse(player.bundleFiles()) as BundleFile[] });
+        return post({
+          type: "bundleFiles",
+          id: data.id,
+          files: JSON.parse(player.bundleFiles()) as BundleFile[],
+          grounded: JSON.parse(player.grounded()) as Grounded[],
+        });
       case "health": {
         current(data.source);
         const deck = deckRead();
