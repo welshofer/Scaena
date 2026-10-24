@@ -347,3 +347,56 @@ fn set_in(theme: &Theme, node_type: NodeType, props: &Props, layout: Option<&str
     }
     set
 }
+
+/// A source the deck was grounded in, as `meta.narrative.sources` keeps it when a deck is made
+/// from a prompt (narrative FUNC-3): no file of the bundle, but what its words came from, with
+/// the beats that cite it.
+#[derive(Debug, Clone, PartialEq, Serialize, JsonSchema)]
+pub struct Grounded {
+    /// Its name, as the prompt named it: a file's, or a page's address.
+    pub name: String,
+    /// What it is, in a word or two: `markdown`, `pdf`, `web page`.
+    pub kind: String,
+    /// Where it came from, where it has an address.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    /// What of it the prompt was given, in bytes.
+    pub bytes: u64,
+    /// Whether it was cut short to fit the prompt.
+    pub truncated: bool,
+    /// The beats whose evidence cites it, by its address or as `source:NAME`, in spine order.
+    pub cited: Vec<String>,
+    /// The first state of each beat that cites it, where it has one: what an editor names as a
+    /// slide.
+    pub states: Vec<String>,
+}
+
+/// The sources the deck was grounded in, in the order they were given, each with the beats that
+/// cite it; none for a deck that keeps none. What does not read as a source is passed over.
+pub fn grounded(deck: &Deck) -> Vec<Grounded> {
+    let kept = (deck.meta.as_ref())
+        .and_then(|m| m.extra.get("narrative"))
+        .and_then(|n| n.get("sources"))
+        .and_then(Value::as_array);
+    let beats: Vec<_> = deck.spine.iter().flat_map(|s| &s.sections).flat_map(|s| &s.beats).collect();
+    let mut out = Vec::new();
+    for source in kept.into_iter().flatten() {
+        let text = |key: &str| source.get(key).and_then(Value::as_str).map(str::to_string);
+        let Some(name) = text("name") else { continue };
+        let url = text("url");
+        let cites = |e: &String| {
+            Some(e) == url.as_ref() || e.strip_prefix(crate::document::SOURCE_CITED) == Some(name.as_str())
+        };
+        let citing: Vec<_> = beats.iter().filter(|b| b.evidence.iter().any(cites)).collect();
+        out.push(Grounded {
+            cited: citing.iter().map(|b| b.id.clone()).collect(),
+            states: citing.iter().filter_map(|b| b.states.first().cloned()).collect(),
+            kind: text("kind").unwrap_or_default(),
+            bytes: source.get("bytes").and_then(Value::as_u64).unwrap_or(0),
+            truncated: source.get("truncated").and_then(Value::as_bool).unwrap_or(false),
+            name,
+            url,
+        });
+    }
+    out
+}

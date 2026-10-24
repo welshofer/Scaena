@@ -1055,8 +1055,8 @@ fn diagnostic(
 
 /// `scaena theme --apply` (PLAN 1.6): point the deck at another theme, and report the
 /// delta in what `validate` and `lint` find: what the new theme breaks, and what it fixes.
-/// A theme change is a pure re-render (SPEC §2.5), so the deck itself is not touched beyond
-/// its `theme`. A theme that would leave the deck invalid is refused unless `force`, and
+/// A text it leaves too faint is recolored, and one it sets past its box or over another is
+/// refitted, as lint's fixes do; what no fix reaches is said, with the next step. A theme that would leave the deck invalid is refused unless `force`, and
 /// exits 1. Findings after it, if any are errors, exit 1.
 /// `scaena new` (PLAN 2.13): a bundle from a theme and its fonts, as `deck_create` makes one.
 /// Findings that are errors exit 1, and the bundle is not made.
@@ -1101,7 +1101,24 @@ fn theme_apply(bundle: &Path, theme: &Path, dry_run: bool, force: bool, json: bo
                 f.code
             );
         }
+        // Each text the theme set past its box or over another, fitted as lint's fix fits it.
+        for f in &t.refitted {
+            let at = f.state.as_deref().map(|s| format!(" in `{s}`")).unwrap_or_default();
+            let what = if f.code == "E100" { "it fits its box" } else { "it no longer lies over another" };
+            println!("  refitted `{}`{at}: {what} ({})", f.node.as_deref().unwrap_or("?"), f.code);
+        }
         print_delta(&t.added, &t.removed);
+        // What the theme brought that no fix reaches, and where to put it right.
+        let left = t.added.iter().filter(|f| f.severity == Severity::Error).count();
+        if left > 0 {
+            let d = bundle.display();
+            let them = if left == 1 { "it" } else { "them" };
+            println!(
+                "still: {left} error{} the theme brought that no fix reaches; next: scaena serve {d} to move {them}, \
+                 or scaena lint {d} for each one's hint",
+                if left == 1 { "" } else { "s" }
+            );
+        }
     }
     Ok(if t.errors > 0 { ExitCode::from(1) } else { ExitCode::SUCCESS })
 }
@@ -1450,7 +1467,7 @@ fn files(bundle: &Path, remove: Option<&[String]>, dry_run: bool, json: bool) ->
         }
         return Ok(code);
     }
-    let listed = scaena_ops::files::Listed { files: scaena_ops::files::files(&b)? };
+    let listed = scaena_ops::files::listed(&b)?;
     if json {
         println!("{}", serde_json::to_string_pretty(&listed)?);
         return Ok(ExitCode::SUCCESS);
@@ -1474,6 +1491,21 @@ fn files(bundle: &Path, remove: Option<&[String]>, dry_run: bool, json: bool) ->
             println!("    named by {}", names.join(", "));
             for used in &f.used {
                 println!("    {} in {}", used.node, used.states.join(", "));
+            }
+        }
+    }
+    // What a deck made from a prompt was grounded in, which is no file of the bundle (FUNC-3).
+    if !listed.sources.is_empty() {
+        println!("grounded in");
+        for s in &listed.sources {
+            let cut = if s.truncated { ", cut short to fit" } else { "" };
+            println!("  {}  {}, {}{cut}", s.name, s.kind, size(s.bytes));
+            if let Some(url) = s.url.as_deref().filter(|u| *u != s.name) {
+                println!("    at {url}");
+            }
+            match s.cited.as_slice() {
+                [] => println!("    no beat cites it"),
+                beats => println!("    cited by {}", beats.join(", ")),
             }
         }
     }
