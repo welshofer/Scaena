@@ -238,7 +238,7 @@ pub enum StateChange {
     /// The earlier version had it, and the later does not.
     Removed(bool),
     /// Both have it, and it shows otherwise.
-    Changed(Changed),
+    Changed(Box<Changed>),
 }
 
 /// What changed in a state both versions have.
@@ -322,7 +322,7 @@ pub fn compare(from: &Deck, to: &Deck) -> Result<(StateChanges, Fields), OpsErro
         let before = Before { fields: had(&own_was, fields.keys()), nodes: had_nodes(&shown_was, &nodes) };
         let changed = Changed { fields, nodes, before };
         if changed != Changed::default() {
-            states.insert(snap.state_id.clone(), StateChange::Changed(changed));
+            states.insert(snap.state_id.clone(), StateChange::Changed(Box::new(changed)));
         }
     }
     for gone in was.iter().filter(|w| !is.iter().any(|s| s.state_id == w.state_id)) {
