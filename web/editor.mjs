@@ -175,6 +175,68 @@ try {
   const wholes = await b1.evaluate(() => window.scaena.wholes());
   check(wholes.length > 0, "once typing stops, B1's every state is linted");
   if (wholes.length) console.log(`B1 lint of every state, once typing stops: ${wholes.at(-1).ms.toFixed(0)} ms`);
+
+  // The toolbar (lift-up ATTR-5): one row of grouped icon-and-label buttons, every control of the
+  // two rows it replaces still there by its id; the File menu under its button, its items the
+  // File controls; Escape and a press elsewhere close it; and the arrows move along the bar. On
+  // the editor as it opens, the source folded: with the source open beside it, the column is
+  // narrower than the labels, which fold away, and the bar takes two rows.
+  const tb = await context.newPage();
+  tb.on("pageerror", (e) => failures.push(`toolbar: ${e.message}`));
+  await tb.goto(`${server.origin}/web/dist/editor.html?painter=cpu&bundle=/tests/bench/b1.scaena`);
+  await tb.waitForFunction(() => window.scaena?.last(), null, { timeout: 120000 });
+  const bar = await tb.evaluate(() => {
+    const bar = document.querySelector("#toolbar");
+    const groups = [...bar.querySelectorAll('[role="group"]')].map((g) => g.getAttribute("aria-label"));
+    const buttons = [...bar.querySelectorAll("button, a.button")].filter((b) => !b.hidden && !b.closest('[role="menu"]'));
+    const dressed = buttons.filter((b) => b.querySelector("svg path") && b.querySelector(".label")?.textContent.trim());
+    const ids = ["source-toggle", "new-deck", "new-prompt", "open-scaena", "kept", "save", "save-as", "download", "export", "play", "state", "format", "slides-open", "formats-open", "rehearse-open", "theme", "insert", "find-open", "commands-open", "keys-open", "grid", "safe", "layout-edit", "status"];
+    const missing = ids.filter((id) => !document.getElementById(id));
+    const rows = new Set(buttons.map((b) => Math.round(b.getBoundingClientRect().top)));
+    return { role: bar.getAttribute("role"), groups, buttons: buttons.length, dressed: dressed.length, missing, rows: rows.size, width: innerWidth };
+  });
+  check(
+    bar.role === "toolbar" && bar.groups.join(",") === "File,View,Slide,Zoom,Insert,Play,Find" && bar.missing.length === 0 && bar.buttons === bar.dressed && bar.buttons >= 16,
+    `the toolbar's ${bar.buttons} buttons stand in groups (${bar.groups.join(", ")}), each with an icon and a label, every control by its id${bar.missing.length ? `; missing ${bar.missing.join(", ")}` : ""}`,
+  );
+  check(bar.rows === 1, `on one row at ${bar.width} px wide: ${bar.rows}`);
+  // From a prompt…, the AI-first way in, stands on the bar right after File, not in its menu.
+  const prompt = await tb.evaluate(() => {
+    const along = [...document.querySelectorAll("#toolbar button, #toolbar a.button")].filter((b) => !b.hidden && !b.closest('[role="menu"]'));
+    const at = along.findIndex((b) => b.id === "new-prompt");
+    return { after: along[at - 1]?.id, menu: !!document.querySelector("#new-prompt").closest('[role="menu"]'), popup: document.querySelector("#new-prompt").getAttribute("aria-haspopup") };
+  });
+  check(prompt.after === "file-open" && !prompt.menu && prompt.popup === "dialog", `From a prompt… is a button on the bar right after File: ${JSON.stringify(prompt)}`);
+  const menuShut = await tb.evaluate(() => document.querySelector("#file-menu").hidden && document.querySelector("#file-open").getAttribute("aria-expanded") === "false");
+  await tb.click("#file-open");
+  const menuOpen = await tb.evaluate(() => {
+    const menu = document.querySelector("#file-menu");
+    // Open folder… shows where the browser lets a page open a folder (File System Access).
+    const items = [...menu.querySelectorAll("button")].filter((b) => !b.hidden && b.id !== "open-folder").map((b) => b.id);
+    const under = menu.getBoundingClientRect().top >= document.querySelector("#file-open").getBoundingClientRect().bottom - 1;
+    const folder = !document.querySelector("#open-folder").hidden === "showDirectoryPicker" in window;
+    return { hidden: menu.hidden, expanded: document.querySelector("#file-open").getAttribute("aria-expanded"), items, focused: document.activeElement?.id, under, folder };
+  });
+  check(
+    menuShut && !menuOpen.hidden && menuOpen.expanded === "true" && menuOpen.under && menuOpen.folder && menuOpen.focused === "new-deck" && menuOpen.items.join(",") === "new-deck,open-scaena,kept,save-as,download",
+    `File opens its menu under the button, its first item focused: ${JSON.stringify(menuOpen)}`,
+  );
+  await tb.keyboard.press("ArrowDown");
+  await tb.keyboard.press("End");
+  const ended = await tb.evaluate(() => document.activeElement?.id);
+  await tb.keyboard.press("Escape");
+  const escaped = await tb.evaluate(() => ({ hidden: document.querySelector("#file-menu").hidden, focused: document.activeElement?.id }));
+  check(ended === "download" && escaped.hidden && escaped.focused === "file-open", `the arrows and End move in it, and Escape closes it, the focus back on File: ${ended}, ${JSON.stringify(escaped)}`);
+  await tb.click("#file-open");
+  await tb.mouse.click(10, 10);
+  check(await tb.evaluate(() => document.querySelector("#file-menu").hidden), "a press elsewhere closes it");
+  await tb.focus("#save");
+  await tb.keyboard.press("ArrowRight");
+  const right = await tb.evaluate(() => document.activeElement?.id);
+  await tb.keyboard.press("Home");
+  const home = await tb.evaluate(() => document.activeElement?.id);
+  check(right === "export" && home === "file-open", `→ moves along the toolbar and Home to its start: ${right}, ${home}`);
+  await tb.close();
 } catch (e) {
   failures.push(String(e));
 } finally {
