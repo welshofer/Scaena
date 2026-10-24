@@ -28,6 +28,8 @@ const ICONS: [string, string][] = [
   ['[data-zoom="out"]', "magnifying-glass-minus"],
   ['[data-zoom="in"]', "magnifying-glass-plus"],
   ['[data-zoom="fit"]', "corners-in"],
+  ["#insert", "plus-circle"],
+  ["#theme", "palette"],
   ["#rehearse-open", "timer"],
   ["#find-open", "magnifying-glass"],
   ["#commands-open", "command"],

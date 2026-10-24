@@ -177,7 +177,9 @@ fn the_credit_is_drawn_and_links() {
             _ => None,
         })
         .expect("the credit's layer");
-    assert!(scaena_core::reading::drawn(foot).starts_with("Boston, Massachusetts · Oct 15, 2026 · Weather data"));
+    assert!(
+        scaena_core::reading::drawn(foot).starts_with("Boston, Massachusetts\u{a0}· Oct 15, 2026\u{a0}· Weather data")
+    );
     let hrefs: Vec<LinkTarget> = dl.links().into_iter().map(|l| l.target).collect();
     assert!(hrefs.contains(&LinkTarget::Href("https://open-meteo.com/".into())), "{hrefs:?}");
     // The sky's cells say the sky in words.
@@ -248,4 +250,18 @@ fn a_squashed_forecast_is_found() {
     let (deck, theme, mut engine) = setup();
     let found = scaena_engine::lint::lint(&mut engine, &deck, &theme, &data, None).unwrap();
     assert!(found.iter().all(|f| !matches!(f.code.as_str(), "W312" | "W313")), "{found:#?}");
+}
+
+/// A credit too long for one line breaks after a separator, never before it: no line of it
+/// starts with ` · `, whose space before the dot is laid out as one that does not break.
+#[test]
+fn no_line_of_a_credit_starts_with_its_separator() {
+    let (scene, ..) = scene("week", "week", json!({}));
+    let foot = chart(&scene, "week").credit.as_ref().expect("the credit");
+    let text = &foot.text;
+    assert!(text.lines.len() > 1, "the week's credit runs to two lines: {:?}", text.text);
+    for line in &text.lines {
+        let words = text.text[line.text.clone()].trim_start();
+        assert!(!words.starts_with('\u{b7}'), "a line starts with the separator: {words:?}");
+    }
 }

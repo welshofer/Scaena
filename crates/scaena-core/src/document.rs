@@ -211,10 +211,12 @@ pub struct Beat {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[schemars(with = "model::IdList")]
     pub states: Vec<String>,
-    /// Speaker notes.
+    /// Speaker notes: what a presenter reads for each state it names that has none of its own
+    /// (SPEC §2.6).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub notes: Option<String>,
-    /// Estimated seconds.
+    /// Estimated seconds: what a video and the spine give its states with no `hold`, less
+    /// their cues (SPEC §2.4).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(range(min = 0))]
     pub duration: Option<f64>,
@@ -356,10 +358,11 @@ pub struct State {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[schemars(with = "Vec<model::ChoreoItem>")]
     pub choreography: Vec<Value>,
-    /// Auto-advance dwell in ms (video and kiosk).
+    /// Auto-advance dwell in ms (video and kiosk). It wins over its beat's `duration`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(range(min = 0))]
     pub hold: Option<f64>,
+    /// Speaker notes, which a presenter reads over its beat's (SPEC §2.6).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub notes: Option<String>,
     #[serde(default, rename = "_comment", skip_serializing_if = "Option::is_none")]
@@ -417,25 +420,53 @@ impl Deck {
     }
 
     /// Parse a `deck.json` string. A deck saved before a shadow drew reads without its
-    /// `shadow`s, as it drew (`crate::version`).
+    /// `shadow`s, and one saved before a shrinking text was held under its `maxSize` without the
+    /// `maxSize` of each text whose own `fit` is `shrink`, as it drew (`crate::version`).
     pub fn from_json(s: &str) -> Result<Deck, serde_json::Error> {
         let mut deck: Deck = serde_json::from_str(s)?;
+        // The format as saved, which reading it as the current one wrote over.
+        #[derive(Deserialize)]
+        struct Saved {
+            scaena: String,
+        }
+        let mut saved: Option<String> = None;
+        let mut saved = |s: &str| -> Result<String, serde_json::Error> {
+            if saved.is_none() {
+                saved = Some(serde_json::from_str::<Saved>(s)?.scaena);
+            }
+            Ok(saved.clone().unwrap_or_default())
+        };
         let mut cast = (deck.nodes.values_mut().map(|n| &mut n.props))
             .chain(deck.states.iter_mut().flat_map(|s| s.props.values_mut()))
             .chain(deck.overrides.values_mut())
             .filter(|p| p.contains_key("shadow"))
             .peekable();
-        if cast.peek().is_some() {
-            // The format as saved, which reading it as the current one wrote over.
-            #[derive(Deserialize)]
-            struct Saved {
-                scaena: String,
-            }
-            if crate::version::unshadows(&serde_json::from_str::<Saved>(s)?.scaena) {
-                cast.for_each(|p| {
-                    p.shift_remove("shadow");
+        if cast.peek().is_some() && crate::version::unshadows(&saved(s)?) {
+            cast.for_each(|p| {
+                p.shift_remove("shadow");
+            });
+        }
+        let capped = |p: &Props| p.contains_key("maxSize");
+        let any = deck.nodes.values().any(|n| capped(&n.props))
+            || deck.states.iter().flat_map(|s| s.props.values()).any(capped)
+            || deck.overrides.values().any(capped);
+        if any && crate::version::uncaps(&saved(s)?) {
+            // Each text whose own fit shrinks, and never grows.
+            let fits = (deck.nodes.iter().map(|(id, n)| (id, &n.props)))
+                .chain(deck.states.iter().flat_map(|s| s.props.iter()))
+                .filter_map(|(id, p)| Some((id.clone(), p.get("fit")?.as_str()?.to_string())));
+            let fits: Vec<(String, String)> = fits.collect();
+            let shrinks = |id: &str| {
+                let fit: Vec<&str> = fits.iter().filter(|(of, _)| of == id).map(|(_, f)| f.as_str()).collect();
+                fit.contains(&"shrink") && !fit.contains(&"grow")
+            };
+            (deck.nodes.iter_mut().map(|(id, n)| (id, &mut n.props)))
+                .chain(deck.states.iter_mut().flat_map(|s| s.props.iter_mut()))
+                .chain(deck.overrides.iter_mut())
+                .filter(|(id, _)| shrinks(id))
+                .for_each(|(_, p)| {
+                    p.shift_remove("maxSize");
                 });
-            }
         }
         Ok(deck)
     }
@@ -468,6 +499,21 @@ impl Deck {
     pub fn slide_of<'a>(&self, state: &'a State) -> &'a str {
         state.slide.as_deref().unwrap_or(&state.id)
     }
+
+    /// The deck's slides, in order, each the indices of its states: a slide's first state, then
+    /// each step that names it as its slide. A state naming a slide that no earlier state starts
+    /// is a slide of its own.
+    pub fn slides(&self) -> Vec<Vec<usize>> {
+        let mut out: Vec<(&str, Vec<usize>)> = Vec::new();
+        for (k, state) in self.states.iter().enumerate() {
+            let id = self.slide_of(state);
+            match out.last_mut() {
+                Some((last, states)) if *last == id => states.push(k),
+                _ => out.push((id, vec![k])),
+            }
+        }
+        out.into_iter().map(|(_, states)| states).collect()
+    }
 }
 
 #[cfg(test)]
@@ -475,6 +521,27 @@ mod tests {
     use super::*;
 
     const EXAMPLE: &str = include_str!("../../../docs/examples/revenue.deck.json");
+
+    /// A deck's slides are its states grouped by the slide each names: a step follows the slide
+    /// it builds on, and a state naming a slide no earlier state starts is a slide of its own.
+    #[test]
+    fn a_decks_slides_are_its_states_by_the_slide_each_names() {
+        let deck: Deck = serde_json::from_value(serde_json::json!({
+            "scaena": crate::FORMAT_VERSION,
+            "canvas": { "width": 1920, "height": 1080 },
+            "nodes": {},
+            "states": [
+                { "id": "cover" },
+                { "id": "points" },
+                { "id": "points-2", "slide": "points" },
+                { "id": "points-3", "slide": "points" },
+                { "id": "close" },
+                { "id": "stray", "slide": "points" }
+            ]
+        }))
+        .unwrap();
+        assert_eq!(deck.slides(), [vec![0], vec![1, 2, 3], vec![4], vec![5]]);
+    }
 
     #[test]
     fn example_deck_round_trips() {

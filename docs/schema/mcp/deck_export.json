@@ -1,6 +1,6 @@
 {
   "name": "deck_export",
-  "description": "Export a projection to `out`: `pdf` (each slide at its last state, or `states`, a page each), `png` or `svg` (an image per state, into a directory), `mp4`, `webm`, or `prores` (the timeline, each state's cue then its hold, at `fps`; needs ffmpeg), `html` (one file that plays the deck in a browser, offline: the player, the engine, and the bundle), or `spine`, which is also returned. An export that takes longer than 40 s keeps going: the call returns `running`, how far it has got, and the same call again waits for the rest, then returns what it wrote.",
+  "description": "Export a projection to `out`: `pdf` (each slide at its last state, or `states`, a page each), `png` or `svg` (an image per state, into a directory), `mp4`, `webm`, or `prores` (the timeline, each state's cue then its hold, or where it has none its share of its beat's `duration` (`pace`), at `fps`; needs ffmpeg), `html` (one file that plays the deck in a browser, offline: the player, the engine, and the bundle), or `spine`, which is also returned. An export that takes longer than 40 s keeps going: the call returns `running`, how far it has got, and the same call again waits for the rest, then returns what it wrote.",
   "inputSchema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "$defs": {
@@ -12,6 +12,21 @@
             "description": "vello on the GPU, in a build with the `gpu` feature (PLAN 0.7).",
             "type": "string",
             "const": "gpu"
+          }
+        ]
+      },
+      "Pace": {
+        "description": "How a projection paces the deck's global timeline (SPEC §2.4, §10).",
+        "oneOf": [
+          {
+            "description": "Each state its `hold`; where it has none, its share of its beat's `duration`, less the\ncues of the beat's states ([`paced`]): a talk timed as it is given, though a player\nwaits on the presenter.",
+            "type": "string",
+            "const": "beats"
+          },
+          {
+            "description": "Each state its `hold` alone, as a player auto-advances: a state with none comes to\nrest and goes on at once.",
+            "type": "string",
+            "const": "holds"
           }
         ]
       }
@@ -30,7 +45,7 @@
         "default": null
       },
       "out": {
-        "description": "Where to write it: a file (pdf, video, html, spine), or a directory that gets an\nimage per state (png, svg). Only the spine needs none.",
+        "description": "Where to write it: a file (pdf, video, html, spine), or a directory that gets an\nimage per state (png, svg), under the server's working directory or the bundle's\nfolder. Only the spine needs none.",
         "type": ["string", "null"],
         "default": null
       },
@@ -54,6 +69,11 @@
         "description": "What paints a video's frames: `gpu` is vello on the GPU, in a server built with the\n`gpu` feature. Every other export paints with the CPU painter.",
         "$ref": "#/$defs/Painter",
         "default": "cpu"
+      },
+      "pace": {
+        "description": "How a video and the spine pace the timeline: `beats` (the default) gives each state\nwith no `hold` its share of its beat's `duration`, as the talk is given; `holds` plays\neach state's hold alone, as a player auto-advances.",
+        "$ref": "#/$defs/Pace",
+        "default": "beats"
       }
     },
     "additionalProperties": false,
@@ -89,6 +109,10 @@
           "spine": {
             "description": "The spine as the deck holds it; absent if it has none.",
             "anyOf": [{ "$ref": "#/$defs/Spine" }, { "type": "null" }]
+          },
+          "pace": {
+            "description": "How the timeline its states and beats are placed on was paced ([`Pace`]). Given the\ntimeline.",
+            "anyOf": [{ "$ref": "#/$defs/Pace" }, { "type": "null" }]
           },
           "states": {
             "description": "Every state, in cue-list order.",
@@ -137,8 +161,15 @@
             "items": { "type": "string" }
           },
           "states": { "$ref": "#/$defs/IdList" },
-          "notes": { "description": "Speaker notes.", "type": ["string", "null"] },
-          "duration": { "description": "Estimated seconds.", "type": ["number", "null"], "minimum": 0 },
+          "notes": {
+            "description": "Speaker notes: what a presenter reads for each state it names that has none of its own\n(SPEC §2.6).",
+            "type": ["string", "null"]
+          },
+          "duration": {
+            "description": "Estimated seconds: what a video and the spine give its states with no `hold`, less\ntheir cues (SPEC §2.4).",
+            "type": ["number", "null"],
+            "minimum": 0
+          },
           "media": {
             "description": "Projection hints (infographic priority, podcast script, …).",
             "type": ["object", "null"],
@@ -154,14 +185,36 @@
         "items": { "$ref": "#/$defs/Id" },
         "uniqueItems": true
       },
+      "Pace": {
+        "description": "How a projection paces the deck's global timeline (SPEC §2.4, §10).",
+        "oneOf": [
+          {
+            "description": "Each state its `hold`; where it has none, its share of its beat's `duration`, less the\ncues of the beat's states ([`paced`]): a talk timed as it is given, though a player\nwaits on the presenter.",
+            "type": "string",
+            "const": "beats"
+          },
+          {
+            "description": "Each state its `hold` alone, as a player auto-advances: a state with none comes to\nrest and goes on at once.",
+            "type": "string",
+            "const": "holds"
+          }
+        ]
+      },
       "SpineState": {
         "description": "A state: its slide, its notes, and where it plays.",
         "type": "object",
         "properties": {
           "id": { "type": "string" },
           "slide": { "description": "The slide it builds (SPEC §2.2).", "type": "string" },
-          "notes": { "type": ["string", "null"] },
+          "notes": {
+            "description": "What a presenter reads for it (SPEC §2.6, [`notes`]): its own notes, else its beat's.\nNone where nothing is written on it.",
+            "type": ["string", "null"]
+          },
           "hold": { "description": "Its dwell at rest, ms, as the deck gives it.", "type": ["number", "null"] },
+          "rest": {
+            "description": "Its time at rest on the timeline, ms: its `hold`, or under `pace: beats`, where it has\nnone, its share of its beat's `duration` ([`paced`]). Given the timeline.",
+            "type": ["number", "null"]
+          },
           "start": {
             "description": "When its transition starts on the global timeline, ms. Given the timeline.",
             "type": ["number", "null"]
@@ -211,7 +264,10 @@
           "state": { "type": "string" },
           "start": { "description": "When it starts, ms into the video.", "type": "number" },
           "span": { "type": "number" },
-          "hold": { "type": "number" }
+          "hold": {
+            "description": "Its time at rest in the video, ms: its `hold`, or its share of its beat's `duration`\n(`pace`).",
+            "type": "number"
+          }
         },
         "required": ["state", "start", "span", "hold"]
       },
@@ -274,6 +330,10 @@
       "duration_ms": {
         "description": "How long a video runs, ms: its frames at its rate.",
         "type": ["number", "null"]
+      },
+      "pace": {
+        "description": "How a video or the spine paced the timeline: `beats` or `holds`.",
+        "type": ["string", "null"]
       },
       "timeline": {
         "description": "When each state plays in a video, in order.",

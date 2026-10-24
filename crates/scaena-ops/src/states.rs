@@ -4,10 +4,14 @@
 //! (PLAN 3.30). Moving, renaming, and removing a state are the ops themselves (`move_state`,
 //! `rename_state`, `remove_state`, SPEC §7.3).
 
-use crate::{Context, OpsError};
+use crate::lint::Write;
+use crate::patch::Patched;
+use crate::{Bundle, Context, OpsError};
 use scaena_core::Deck;
 use scaena_core::inserts::slug;
+use scaena_core::model::theme::Vocabulary;
 use scaena_core::model::theme::{Example, Prompt, PromptShapeKind, Slot, Theme};
+use scaena_core::words;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -144,6 +148,59 @@ pub fn starting(deck: &Deck, theme: &Theme, shown: &str, layout: Option<&str>) -
         patch.push(serde_json::to_value(op).context("a patch")?);
     }
     Ok(AddedState { id, patch })
+}
+
+/// A slide started and written into the bundle (`state_start`, `scaena start`): the new state's
+/// id, and what the patch did, as `deck_patch` reports a patch.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct Started {
+    /// The id of the state added: named after its layout (`bullets`, `bullets-2`, …), or
+    /// `slide` with none.
+    pub id: String,
+    #[serde(flatten)]
+    pub patched: Patched,
+}
+
+/// What the history says [`start`]'s patch did: `Slide added as Bullets`, or `Slide added`.
+pub fn said(theme: &Theme, layout: Option<&str>) -> String {
+    match layout {
+        Some(name) => format!("Slide added as {}", words::named(Vocabulary::Layout, name, theme)),
+        None => "Slide added".to_string(),
+    }
+}
+
+/// [`start`] with nothing written: [`starting`]'s patch checked as a patch is (refused where it
+/// would leave the deck invalid), and the bundle it writes, for a client that keeps its bundle in
+/// memory.
+pub fn started(b: &Bundle, shown: &str, layout: Option<&str>) -> Result<(Started, Option<Write>), OpsError> {
+    let theme = crate::theme(b)?;
+    let added = starting(&b.deck, &theme, shown, layout)?;
+    let (patched, write) = crate::patch::patching(b, &Value::Array(added.patch), Some(&said(&theme, layout)))?;
+    Ok((Started { id: added.id, patched }, write))
+}
+
+/// A slide started in `layout`, one of the theme's, after `shown`'s slide, as Add Slide starts one
+/// (PLAN 3.30), written into the bundle as one change: [`starting`]'s patch, applied as
+/// `deck_patch` applies one, all or none, refused where it would leave the deck invalid. A dry
+/// run says what it would do and writes nothing. The theme's layouts are its `layouts`, which
+/// `inspect --layouts` lists for a state, each by the name a person calls it.
+pub fn start(b: &Bundle, shown: &str, layout: Option<&str>, dry_run: bool) -> Result<Started, OpsError> {
+    let (mut started, write) = started(b, shown, layout)?;
+    match write {
+        Some(write) if !dry_run => crate::lint::write(b, write)?,
+        _ => started.patched.applied &= !dry_run,
+    }
+    Ok(started)
+}
+
+/// The patch that makes a new deck's title slide after `shown`'s slide (PLAN 3.30): in the theme's
+/// `title` layout, its words to type over and each place that waits with an `example` given it,
+/// the theme's backdrop where a picture goes, as the New dialog draws the theme. So a new deck
+/// opens as its theme was shown, with no place left empty for lint to find (W304); Add Slide's
+/// [`starting`] leaves such a place waiting. Where the theme's example cannot be drawn, the slide
+/// [`starting`] makes.
+pub fn titled(deck: &Deck, theme: &Theme, shown: &str) -> Result<AddedState, OpsError> {
+    example(deck, theme, shown, "title").or_else(|_| starting(deck, theme, shown, Some("title")))
 }
 
 /// The patch that draws `layout`'s picture after `shown`'s slide (PLAN 3.31): the slide

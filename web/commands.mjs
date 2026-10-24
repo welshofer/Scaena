@@ -5,7 +5,9 @@
 //
 // - Ctrl+K opens the palette, focus in its search box, and lists only what applies: with nothing
 //   selected, no Duplicate. Escape closes it, and focus goes back to the canvas.
-// - The title selected, "dup" then Enter duplicates it, as Ctrl+D does: one patch, one undo.
+// - The title selected, "dup" then Enter duplicates it, as Ctrl+D does: one patch, one undo. The
+//   palette's Undo and Redo say what each takes back or makes again, and so does the status when
+//   it is undone (lift-up USE-4).
 // - "zoom in" zooms the preview in, and "fit" shows the whole canvas again.
 // - "theme daybreak" re-themes the deck in Daybreak, as the theme picker does; one undo.
 // - "copy" puts the title on the clipboard, as Ctrl+C does.
@@ -21,7 +23,7 @@
 //   Hide it in this state, one undo; on a layer not shown, Show it, and nothing done to a node.
 // - axe-core finds nothing against WCAG 2.1 AA in the palette open, nor in a menu open.
 // Exits 1 on any failure.
-import { axeInto, launch, serve } from "./serve.mjs";
+import { axeInto, launch, serve, tab } from "./serve.mjs";
 
 const server = await serve();
 const failures = [];
@@ -112,8 +114,18 @@ try {
   check(await says(" duplicated"), `Enter duplicates the title: ${await status()}`);
   const copy = await page.evaluate(() => window.scaena.canvas.selected());
   check(copy !== "title" && (await source()).includes(`\n  ${copy} `), `the copy is in the source, selected: ${copy}`);
+  // Undo and Redo are named by the change each takes back or makes again (lift-up USE-4).
+  // Without lint's count, which follows the words once the state's lint answers.
+  const did = (await status()).replace(/\s+—\s[^—]*$/, "").replace(/\s*·\s*⌘Z undoes it$/, "");
+  const undoing = await palette("undo");
+  check(undoing[0] === `Undo ${did}`, `the palette's Undo says what it takes back: ${undoing[0]}`);
+  await page.keyboard.press("Escape");
   await undo();
+  check(await says(`Undone: ${did}`), `the status says what the undo took back: ${await status()}`);
   check(await back(original), "one undo takes it back");
+  const redoing = await palette("redo");
+  check(redoing[0] === `Redo ${did}`, `and Redo says what it makes again: ${redoing[0]}`);
+  await page.keyboard.press("Escape");
 
   // Zoom.
   await palette("zoom in");
@@ -289,7 +301,7 @@ try {
   // A layer.
   await page.evaluate(() => window.scaena.cursor(window.scaena.source().indexOf("state revenue") + "state ".length));
   await page.waitForFunction(() => window.scaena.shown() === 1 && window.scaena.canvas.boxed() === "revenue", null, { timeout: 30000 });
-  await page.locator("#tab-layers").click();
+  await tab(page, "layers");
   await page.waitForFunction(() => window.scaena.layers.listed().includes("note"), null, { timeout: 30000 });
   await page.locator('#layers li[data-layer="note"] > .row').click({ button: "right" });
   check(await menuOpen(), "a right click on a layer opens a menu");

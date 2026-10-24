@@ -1,5 +1,6 @@
 import CoreGraphics
 import Foundation
+import ScaenaNotes
 
 // The canvas by keys alone and for VoiceOver (PLAN 3.17), as the browser's canvas answers keys
 // (PLAN 2.75, 2.89) and its reader hears a state (PLAN 2.8, 2.56): the order Tab selects in, where
@@ -24,6 +25,11 @@ extension ScaenaSession {
     /// How `state` at rest reads, a part for each node read, in turn, in the format shown (PLAN
     /// 3.17): what VoiceOver speaks of the canvas.
     public func reads(state: String) throws -> [ReadPart] { try call("reads", ["state": .string(state)]) }
+
+    /// The notes a presenter reads for `state` (SPEC §2.6): its own, else those of the first beat
+    /// that names it, else empty; as written, and as the blocks they read as (lift-up USE-1). What
+    /// the presenter's window, the remote, and a rehearsal show.
+    public func notes(state: String) throws -> Notes { try call("notes", ["state": .string(state)]) }
 
     /// What the browser's editor calls each node `state` shows (PLAN 2.99): by its kind as a person
     /// names it, a shape by its kind (a Rectangle, the library's by its shape, a Star, PLAN 2.106), a
@@ -174,4 +180,20 @@ public enum KeyedHandle: Equatable, Sendable {
             return Handling.focusing(f.node, on: at, in: state, fork: fork)
         }
     }
+}
+
+/// A state's notes as a presenter reads them (SPEC §2.6): the words as the deck holds them, and
+/// the blocks they read as, lines, a list, or a table (`scaena_core::notes`), which `NotesText`
+/// shows.
+public struct Notes: Decodable, Sendable, Equatable {
+    public var text: String
+    public var blocks: [NoteBlock]
+
+    public init(text: String = "", blocks: [NoteBlock] = []) {
+        self.text = text
+        self.blocks = blocks
+    }
+
+    /// No notes.
+    public static let none = Notes()
 }

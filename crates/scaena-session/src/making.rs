@@ -84,9 +84,9 @@ impl Making {
         &self.made.layouts
     }
 
-    /// How many states the deck has; none where it would not validate.
+    /// How many slides the deck has; none where it would not validate.
     pub fn count(&self) -> usize {
-        self.write.as_ref().map_or(0, |w| w.deck.states.len())
+        self.write.as_ref().map_or(0, |w| w.deck.slides().len())
     }
 
     /// Each slide drawn `width` pixels wide, at rest, as a JPEG, for the model to see (PLAN
@@ -96,13 +96,14 @@ impl Making {
         scaena_ops::narrative::drawn(write, width).map_err(ops)
     }
 
-    /// The `index`th state drawn `width` pixels wide, at rest, by the CPU painter: what a page
-    /// makes a JPEG of for the model to see (PLAN G.13).
+    /// The `index`th slide, whole at its last state, drawn `width` pixels wide, at rest, by the
+    /// CPU painter: what a page makes a JPEG of for the model to see (PLAN G.13).
     #[cfg(feature = "cpu")]
     pub fn pixels(&self, index: usize, width: u32) -> Result<scaena_paint::Raster, Error> {
         let write = self.write.as_ref().ok_or_else(|| Error::Ops("the deck made would not validate".into()))?;
-        let state = write.deck.states.get(index).ok_or_else(|| Error::Ops(format!("the deck has no state {index}")))?;
-        scaena_ops::narrative::pixels(write, &state.id, width).map_err(ops)
+        let last = (write.deck.slides().get(index).and_then(|states| states.last().copied()))
+            .ok_or_else(|| Error::Ops(format!("the deck has no slide {index}")))?;
+        scaena_ops::narrative::pixels(write, &write.deck.states[last].id, width).map_err(ops)
     }
 
     /// The deck made again with the model's `changes`, as `shown` makes it (PLAN G.13): each
@@ -111,11 +112,21 @@ impl Making {
     pub fn look(&mut self, shown: Shown, changes: Vec<Change>) -> Result<(), Error> {
         let Some(write) = self.write.take() else { return Ok(()) };
         let fonts = font(&self.fonts);
-        let before = (self.made.clone(), write);
-        let (made, write) = looked(shown, changes, before, Path::new(&self.file), &self.theme, &fonts).map_err(ops)?;
-        self.made = made;
-        self.write = Some(write);
-        Ok(())
+        let before = (self.made.clone(), write.clone());
+        match looked(shown, changes, before, Path::new(&self.file), &self.theme, &fonts) {
+            Ok((made, write)) => {
+                self.made = made;
+                self.write = Some(write);
+                Ok(())
+            }
+            // The deck the model asked for could not be made again: the one made stands, saying
+            // why (narrative STAB-3), never lost to its polish.
+            Err(why) => {
+                self.write = Some(write);
+                self.made.unlooked = Some(format!("the deck the model asked for could not be made: {why}"));
+                Ok(())
+            }
+        }
     }
 
     /// `built`, the deck the generator built again with the model's `changes` (PLAN G.13),

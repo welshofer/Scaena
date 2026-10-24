@@ -846,3 +846,20 @@ fn a_long_source_compiles_in_time_that_grows_with_it() {
     assert_eq!(json["states"][0]["props"]["n0"]["at"], serde_json::json!({ "col": [1, 7], "row": 1, "in": "body" }));
     assert!(took < std::time::Duration::from_secs(3), "{n} nodes compiled in {took:?}");
 }
+
+/// A value nested past what `deck.json` may hold is refused with why, however deep, never a
+/// stack overflow (lift-up STAB-1); one as deep as it may compiles.
+#[test]
+fn a_value_nested_too_deep_is_refused() {
+    let source = include_str!("../../../docs/examples/revenue.deck.scn");
+    let was = "axes:{wght: [100, 800]}";
+    assert!(source.contains(was));
+    let nested = |open: &str, close: &str, n: usize| {
+        source.replacen(was, &format!("axes:{{wght: [100, 800], deep: {}1{}}}", open.repeat(n), close.repeat(n)), 1)
+    };
+    for (open, close) in [("[", "]"), ("{a: ", "}")] {
+        let e = scaena_core::dsl::compile_json(&nested(open, close, 100_000)).unwrap_err();
+        assert!(e.message.contains("nests more than 128 deep"), "{e:?}");
+    }
+    assert!(scaena_core::dsl::compile_json(&nested("[", "]", 100)).is_ok());
+}

@@ -40,7 +40,7 @@ export interface SlidesEditor {
   /** Show the state at slot `index`, as the state picker does. */
   show(index: number): void;
   /** Take `source`, a patch's, as one change: one step to undo. */
-  apply(source: string, edited: Edited): void;
+  apply(source: string, edited: Edited, said?: string): void;
   /** The light table opened or closed: the preview, hidden or shown again. */
   opened(open: boolean): void;
   say(text: string): void;
@@ -279,10 +279,10 @@ export function slides(stage: Stage, into: HTMLElement, button: HTMLButtonElemen
         const ids = order(ops);
         const at = ids.indexOf(shown.state);
         const index = at >= 0 ? at : Math.max(0, ids.indexOf(keep()[0] ?? ""));
-        const { source, edited } = await stage.make(editor.source(), ops, index, editor.format());
+        const { source, edited } = await stage.make(editor.source, ops, index, editor.format());
         // Selected once the deck the change made reaches the table.
         pending = { from: order_(), keep };
-        editor.apply(source, edited);
+        editor.apply(source, edited, done);
         editor.say(done);
       } catch (e) {
         pending = undefined;

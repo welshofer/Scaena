@@ -123,14 +123,21 @@ fn a_patch_that_would_make_the_deck_invalid_is_refused() {
 #[test]
 fn the_delta_shows_what_a_patch_breaks_and_what_fixes_it() {
     let deck = example("delta");
-    // A headline too long for its slot, in both formats; in 9:16 it runs into the chart.
+    // A headline too long for its slot, in both formats, runs into the chart: in 9:16 by its
+    // lines, and in 16:9 by its second line's descenders.
     let long = json!({ "op": "set_text", "node": "title", "state": "mix",
                        "text": "…and the mix shifted toward Pro, quarter after quarter" });
     let (code, v) = patch(&deck, &json!([long]), &["--dry-run"]);
     assert_eq!(code, 1, "an error in the deck it makes exits 1: {v:#}");
     assert_eq!(
         codes(&v["added"]),
-        ["E100 /nodes/title", "E100 [9:16] /nodes/title", "E101 [9:16] /nodes/title", "W202 [9:16] /nodes/title"],
+        [
+            "E100 /nodes/title",
+            "E100 [9:16] /nodes/title",
+            "E101 /nodes/title",
+            "E101 [9:16] /nodes/title",
+            "W202 [9:16] /nodes/title"
+        ],
         "{v:#}"
     );
     let fix = v["added"][0]["fix"].as_array().unwrap().clone();
@@ -174,4 +181,65 @@ fn ops_come_from_stdin_and_a_patch_is_an_array() {
     assert_eq!(code, 2, "{v:#}");
     assert!(v["error"]["message"].as_str().unwrap().contains("a JSON array of ops"), "{v:#}");
     assert_eq!(std::fs::read(&deck).unwrap(), before);
+}
+
+/// `scaena start` (narrative FUNC-5): a slide started in a theme layout after a state's slide, as
+/// Add Slide starts one, reported as a patch is with the new state's id; a dry run writes nothing.
+#[test]
+fn start_adds_a_slide_in_a_layout_after_a_states_slide() {
+    let deck = example("start");
+    let bundle = deck.to_str().unwrap();
+    let states = || -> Vec<String> {
+        let d: Value = serde_json::from_str(&std::fs::read_to_string(&deck).unwrap()).unwrap();
+        d["states"].as_array().unwrap().iter().map(|s| s["id"].as_str().unwrap().to_string()).collect()
+    };
+    let before = states();
+    let (code, dry) = parse(scaena(&["--json", "start", bundle, "intro", "--layout", "bullets", "--dry-run"]));
+    assert_eq!((code, dry["applied"].clone(), dry["id"].clone()), (0, json!(false), json!("bullets")), "{dry:#}");
+    assert_eq!(states(), before, "a dry run writes nothing");
+    let (code, made) = parse(scaena(&["--json", "start", bundle, "intro", "--layout", "bullets"]));
+    assert_eq!((code, made["applied"].clone()), (0, json!(true)), "{made:#}");
+    let after = states();
+    assert_eq!(after.len(), before.len() + 1);
+    // After intro's slide, which is intro alone.
+    assert_eq!(after[1], "bullets", "{after:?}");
+    let (code, lacks) = parse(scaena(&["--json", "start", bundle, "intro", "--layout", "nowhere"]));
+    assert_eq!(code, 2);
+    assert!(lacks["error"]["message"].as_str().unwrap().contains("no layout `nowhere`"), "{lacks:#}");
+    // Without `--json`, the slide and the delta in words.
+    let out = scaena(&["start", bundle, "intro"]);
+    let said = String::from_utf8(out.stdout).unwrap();
+    assert!(out.status.success() && said.starts_with("added slide after intro's slide"), "{said}");
+}
+
+/// `scaena background` (narrative FUNC-5): what a slide may take listed, one preset set as one
+/// patch kept to the slide, and `--none` taking it away.
+#[test]
+fn background_sets_a_slides_background_and_takes_it_away() {
+    let deck = example("background");
+    let bundle = deck.to_str().unwrap();
+    let (code, offered) = parse(scaena(&["--json", "background", bundle, "intro"]));
+    assert_eq!((code, offered["first"].clone()), (0, json!("intro")), "{offered:#}");
+    let labels: Vec<&str> =
+        offered["options"].as_array().unwrap().iter().map(|o| o["label"].as_str().unwrap()).collect();
+    assert_eq!(labels[..2], ["None", "Backdrop"], "{labels:?}");
+    let (code, set) = parse(scaena(&["--json", "background", bundle, "intro", "texture"]));
+    assert_eq!((code, set["applied"].clone(), set["errors"].clone()), (0, json!(true), json!(0)), "{set:#}");
+    let read = || -> Value { serde_json::from_str(&std::fs::read_to_string(&deck).unwrap()).unwrap() };
+    assert_eq!(read()["nodes"]["intro-background"]["preset"], "texture");
+    let (_, offered) = parse(scaena(&["--json", "background", bundle, "intro"]));
+    let now: Vec<&str> = offered["options"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|o| o["current"] == true)
+        .map(|o| o["label"].as_str().unwrap())
+        .collect();
+    assert_eq!(now, ["Texture"]);
+    let (code, gone) = parse(scaena(&["--json", "background", bundle, "intro", "--none"]));
+    assert_eq!((code, gone["applied"].clone()), (0, json!(true)), "{gone:#}");
+    assert!(read()["nodes"].get("intro-background").is_none(), "taken away where no other slide shows it");
+    let (code, lacks) = parse(scaena(&["--json", "background", bundle, "intro", "nowhere"]));
+    assert_eq!(code, 2);
+    assert!(lacks["error"]["message"].as_str().unwrap().contains("no shader preset `nowhere`"), "{lacks:#}");
 }

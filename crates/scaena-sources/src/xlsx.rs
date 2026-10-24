@@ -52,6 +52,13 @@ impl Sheet {
 /// The most rows of a sheet read: a sheet past it is cut there.
 const MOST_ROWS: usize = 20_000;
 
+/// The most cells of a sheet read, each row as wide as its last cell: a sheet past it is cut
+/// there, at the row that reaches it.
+const MOST_CELLS: usize = 1 << 21;
+
+/// The most columns a sheet has, as Excel's own: A to XFD.
+const MOST_COLUMNS: usize = 16_384;
+
 /// `bytes`, an `.xlsx`, as its sheets.
 pub fn sheets(bytes: &[u8]) -> Result<Vec<Sheet>, SourceError> {
     let mut pkg = Package::open(bytes)?;
@@ -69,7 +76,7 @@ pub fn sheets(bytes: &[u8]) -> Result<Vec<Sheet>, SourceError> {
             continue;
         };
         let Some(doc) = pkg.xml(&target) else { continue };
-        out.push(Sheet { name, rows: rows(&doc, &strings) });
+        out.push(Sheet { name, rows: rows(&doc, &strings)? });
     }
     Ok(out)
 }
@@ -98,22 +105,33 @@ fn rich(si: &Element) -> String {
     }
 }
 
-/// A cell reference's column, from 0: `C7` → 2.
-fn column(reference: &str) -> Option<usize> {
-    let letters: String = reference.chars().take_while(char::is_ascii_alphabetic).collect();
-    if letters.is_empty() {
-        return None;
+/// A cell reference's column, from 0: `C7` → 2. None where it names no column, and an error
+/// where it names one past `XFD`, which no workbook has.
+fn column(reference: &str) -> Result<Option<usize>, SourceError> {
+    let letters = reference.bytes().take_while(u8::is_ascii_alphabetic);
+    let mut n = 0usize;
+    for b in letters {
+        n = n * 26 + (b.to_ascii_uppercase() - b'A' + 1) as usize;
+        if n > MOST_COLUMNS {
+            return Err(SourceError::Unreadable(format!(
+                "its cell {reference} is past column XFD, the last a sheet has"
+            )));
+        }
     }
-    Some(letters.to_ascii_uppercase().bytes().fold(0usize, |n, b| n * 26 + (b - b'A' + 1) as usize) - 1)
+    Ok(n.checked_sub(1))
 }
 
 /// A sheet's rows, each cell where its reference puts it, the empty cells at a row's end left out.
-fn rows(doc: &Element, strings: &[String]) -> Vec<Vec<String>> {
+fn rows(doc: &Element, strings: &[String]) -> Result<Vec<Vec<String>>, SourceError> {
     let mut out = Vec::new();
+    let mut held = 0usize;
     for row in doc.child("sheetData").into_iter().flat_map(|d| d.all("row")).take(MOST_ROWS) {
         let mut cells: Vec<String> = Vec::new();
         for c in row.all("c") {
-            let at = c.attr("r").and_then(column).unwrap_or(cells.len());
+            let at = match c.attr("r") {
+                Some(r) => column(r)?.unwrap_or(cells.len()),
+                None => cells.len(),
+            };
             let v = c.child("v").map(|v| v.text()).unwrap_or_default();
             let text = match c.attr("t") {
                 Some("s") => v.trim().parse::<usize>().ok().and_then(|i| strings.get(i)).cloned().unwrap_or_default(),
@@ -129,12 +147,16 @@ fn rows(doc: &Element, strings: &[String]) -> Vec<Vec<String>> {
         while cells.last().is_some_and(String::is_empty) {
             cells.pop();
         }
+        held += cells.len();
+        if held > MOST_CELLS {
+            break;
+        }
         out.push(cells);
     }
     while out.last().is_some_and(Vec::is_empty) {
         out.pop();
     }
-    out
+    Ok(out)
 }
 
 #[cfg(test)]
@@ -143,10 +165,14 @@ mod tests {
 
     #[test]
     fn a_reference_names_its_column() {
-        assert_eq!(column("A1"), Some(0));
-        assert_eq!(column("C7"), Some(2));
-        assert_eq!(column("AA10"), Some(26));
-        assert_eq!(column("7"), None);
+        assert_eq!(column("A1").unwrap(), Some(0));
+        assert_eq!(column("C7").unwrap(), Some(2));
+        assert_eq!(column("AA10").unwrap(), Some(26));
+        assert_eq!(column("xfd3").unwrap(), Some(16_383));
+        assert_eq!(column("7").unwrap(), None);
+        // Past the last column a sheet has, however many letters: an error, never an overflow.
+        assert!(column("XFE1").is_err());
+        assert!(column(&"Z".repeat(40)).is_err());
     }
 
     #[test]

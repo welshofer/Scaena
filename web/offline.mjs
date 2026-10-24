@@ -55,7 +55,11 @@ try {
   const outside = [];
   const refused = [];
   context.on("request", (r) => !r.url().startsWith(home) && !/^(blob|data):/.test(r.url()) && outside.push(r.url()));
-  context.on("requestfailed", (r) => refused.push(`${r.url()}: ${r.failure()?.errorText}`));
+  // An abort is the page cancelling its own load (a dialog's thumbnails as it closes), not a refusal.
+  context.on("requestfailed", (r) => {
+    const why = r.failure()?.errorText;
+    if (why !== "net::ERR_ABORTED") refused.push(`${r.url()}: ${why}`);
+  });
   const watch = (page) => {
     page.on("pageerror", (e) => failures.push(`${page.url()}: ${e.message}`));
     page.on("console", (m) => m.type() === "error" && failures.push(`${page.url()}: console: ${m.text()}`));

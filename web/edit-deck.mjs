@@ -24,7 +24,7 @@
 // Each step is screenshotted into target/edit-deck/, with its time. Exits 1 on any failure.
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { decode, launch, serve } from "./serve.mjs";
+import { decode, launch, retheme, serve, tab } from "./serve.mjs";
 
 const out = "target/edit-deck";
 await mkdir(out, { recursive: true });
@@ -138,10 +138,10 @@ try {
 
   // 1. The theme picker: Daybreak, then the theme the deck had.
   await step("theme-daybreak", async () => {
-    await until("Daybreak in the theme picker", () => [...document.querySelectorAll("#theme option")].some((o) => o.value === "ships:Daybreak"));
-    const was = await page.$eval("#theme", (s) => s.value);
+    await until("Daybreak in the theme picker", () => window.scaena.themeChoices().some((c) => c.value === "ships:Daybreak"));
+    const was = await page.evaluate(() => window.scaena.themeChoices().find((c) => c.current)?.value);
     const before = await mark();
-    await page.selectOption("#theme", "ships:Daybreak");
+    await retheme(page, "ships:Daybreak");
     await changed(before);
     check(/daybreak/i.test((await source()).split("\n").find((l) => l.startsWith("deck ")) ?? ""), `the deck is in Daybreak: ${await status()}`);
     // In Daybreak the storm slide would set its title and note dark on its dark photo: the
@@ -156,9 +156,9 @@ try {
       const faint = await page.evaluate((n) => window.scaena.last().findings.some((f) => f.node === n && (f.code === "E110" || f.code === "E111")), node);
       check(!faint, `${node} reads in Daybreak: no contrast error on it`);
     }
-    await until(`${was} in the theme picker`, (w) => [...document.querySelectorAll("#theme option")].some((o) => o.value === w), was);
+    await until(`${was} in the theme picker`, (w) => window.scaena.themeChoices().some((c) => c.value === w), was);
     const again = await mark();
-    await page.selectOption("#theme", was);
+    await retheme(page, was);
     await changed(again);
     const deckLine = (await source()).split("\n").find((l) => l.startsWith("deck ")) ?? "";
     check(/dusk/i.test(deckLine), `and back in the theme it had: ${deckLine}`);
@@ -215,7 +215,7 @@ try {
     await show("miles");
     await page.waitForTimeout(500);
     const was = await painted();
-    await page.click("#tab-data");
+    await tab(page, "data");
     await until("the Data tab's sources", () => [...document.querySelectorAll("#data select[data-source] option")].some((o) => o.value === "miles"));
     await page.selectOption("#data select[data-source]", "miles");
     // The rows, not the table: the table is in the page before the worker's rows come.
@@ -228,14 +228,14 @@ try {
     const set = Math.round((Number(held) + 0.4) * 10) / 10;
     await cell.fill(String(set));
     await cell.press("Enter");
-    await until("the cell set", () => /^Row 0, .*: set/.test(document.querySelector("#status").textContent));
+    await until("the cell set", () => /^Row 1, .*: set/.test(document.querySelector("#status").textContent));
     // The chart drawn again: the canvas as painted is not what it was.
     let now = await painted();
     for (let i = 0; i < 40 && differ(was, now) <= 100; i++) {
       await page.waitForTimeout(250);
       now = await painted();
     }
-    check(differ(was, now) > 100, `a cell set (${columns[number + 1]} of row 0: ${held} → ${set}) draws the chart again: ${differ(was, now)} pixels changed · ${await status()}`);
+    check(differ(was, now) > 100, `a cell set (${columns[number + 1]} of row 1: ${held} → ${set}) draws the chart again: ${differ(was, now)} pixels changed · ${await status()}`);
   });
 
   // 5. A figure quoted from the Data tab into the title's characters.
@@ -246,7 +246,7 @@ try {
     // "June to September beat the plan": the first word, by the keys.
     await page.keyboard.press("Home");
     for (let i = 0; i < 4; i++) await page.keyboard.press("Shift+ArrowRight");
-    await page.click("#tab-data");
+    await tab(page, "data");
     const cell = page.locator('#data input[data-row="0"][data-col="1"]');
     await cell.click();
     const at = await mark();
@@ -394,13 +394,15 @@ try {
     await presenter.waitForSelector("#on", { timeout: 120000 });
     await presenter.waitForTimeout(1500);
     const was = await player.evaluate(() => window.scaena.at().index);
+    // Where the presenter view says it is, read before the click: once the player has gone on,
+    // the view may already say where it went.
+    const before = await presenter.textContent("#where");
     await presenter.click("#on");
     const went = await player
       .waitForFunction((w) => window.scaena.at().index === w + 1, was, { timeout: 30000 })
       .then(() => true)
       .catch(() => false);
     // The presenter view follows the player to where it went.
-    const before = await presenter.textContent("#where");
     const follows = await presenter
       .waitForFunction((b) => /^Slide \d+ of \d+/.test(document.querySelector("#where").textContent) && document.querySelector("#where").textContent !== b, before, { timeout: 30000 })
       .then(() => true)

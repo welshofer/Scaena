@@ -1,5 +1,5 @@
 {
-  "scaena": "0.34",
+  "scaena": "0.36",
   "_comment": "W205 clean: twelve lines of the same code, which fit at the role's own size.",
   "canvas": {"width": 1920, "height": 1080},
   "theme": "theme.json",

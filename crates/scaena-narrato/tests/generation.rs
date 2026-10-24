@@ -86,6 +86,29 @@ fn an_arc_that_does_not_come_back_is_the_heuristics() {
     assert_eq!(g.fallback(), Some("529 Overloaded: overloaded"));
 }
 
+/// An arc the model names as nobody in the catalog spells it is the heuristic's, and the
+/// generation says so, as it does when the call fails (narrative STAB-5); one it spells loosely
+/// is the catalog's, with nothing said.
+#[test]
+fn an_arc_the_model_misnames_is_the_heuristics_and_says_so() {
+    let answered = |selection: &str| {
+        let text = format!(r#"{{"selection":"{selection}","reasoning":"Because.","candidates":[]}}"#);
+        serde_json::json!({ "content": [{ "type": "text", "text": text }], "stop_reason": "end_turn" }).to_string()
+    };
+    let mut g = Generation::new(brief(), settings(Provider::Anthropic)).unwrap();
+    assert_eq!(g.answer(200, "OK", &answered("Kishōtenketsu")).unwrap(), Step::Slides);
+    assert_eq!(g.arc().unwrap().selection, "Problem\u{2013}Solution", "the heuristic's choice for a pitch");
+    assert_eq!(g.fallback(), Some("the model named `Kishōtenketsu`, not an arc of the catalog"));
+    let mut g = Generation::new(brief(), settings(Provider::Anthropic)).unwrap();
+    g.answer(200, "OK", &answered("Hero's Journey for Change")).unwrap();
+    assert_eq!(g.arc().unwrap().selection, "Hero\u{2019}s Journey for Change");
+    assert_eq!(g.fallback(), None);
+    // Chosen by name, too: `--arc problem-solution` is the catalog's arc.
+    let mut g = Generation::new(brief(), settings(Provider::Anthropic)).unwrap();
+    g.choose_arc(Some("problem-solution"));
+    assert_eq!(g.arc().unwrap().selection, "Problem\u{2013}Solution");
+}
+
 #[test]
 fn too_few_slides_are_a_fragment_refused() {
     let mut g = Generation::new(brief(), settings(Provider::Anthropic)).unwrap();

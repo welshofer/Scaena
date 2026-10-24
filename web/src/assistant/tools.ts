@@ -62,6 +62,8 @@ export function made(name: string, json: string, error: boolean): boolean {
   switch (name) {
     case "deck_patch":
     case "spine_update":
+    case "state_start":
+    case "background_set":
     case "theme_apply":
       return Boolean(r?.applied);
     case "theme_edit":
@@ -99,6 +101,8 @@ export function summary(name: string, json: string, error: boolean): string {
   switch (name) {
     case "deck_patch":
     case "spine_update":
+    case "state_start":
+    case "background_set":
       return (r.applied ? "Done" : r.added?.length ? "Refused" : "Tried, not made") + delta();
     case "deck_find": {
       const texts = r.found?.length ?? 0;
@@ -107,6 +111,9 @@ export function summary(name: string, json: string, error: boolean): string {
       if (!p) return found;
       return `${found}; ${p.applied ? "replaced" : p.added?.length ? "refused" : "tried, not replaced"}${delta(p)}`;
     }
+    // The deck's story: its score, and how much there is to look at (narrative FUNC-2).
+    case "deck_health":
+      return `Story ${r.score} of 100, ${many(r.findings?.length ?? 0, "finding")}`;
     case "data_attach":
       return (r.attached ? `Added ${r.source}: ${r.rows} rows` : "Refused") + delta();
     case "data_edit": {

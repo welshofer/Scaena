@@ -141,7 +141,7 @@ impl Player {
     /// digest (FNV-1a over its postcard bytes, as the goldens keep it). One digest, one
     /// drawing, so a thumbnail painted from it stands until it changes (PLAN 2.35).
     pub fn digest(&mut self, state: &str) -> Result<String, JsError> {
-        self.0.frame(state, f64::INFINITY).map_err(js)?.digest().map_err(js)
+        self.0.digest(state).map_err(js)
     }
 
     /// The link drawn at `x`, `y` (canvas units) in `state` at rest, in the format shown, as JSON
@@ -149,6 +149,13 @@ impl Player {
     #[wasm_bindgen(js_name = linkAt)]
     pub fn link_at(&mut self, state: &str, x: f32, y: f32) -> Result<String, JsError> {
         serde_json::to_string(&self.0.link_at(state, [x, y]).map_err(js)?).map_err(js)
+    }
+
+    /// The notes a presenter reads for `state` (SPEC §2.6), as JSON: `{ text, blocks }`, its
+    /// own, else those of the first beat that names it, as written and as the blocks they read
+    /// as, lines, a list, or a table, each span `{ text, bold?, italic?, code? }`.
+    pub fn notes(&self, state: &str) -> Result<String, JsError> {
+        serde_json::to_string(&self.0.notes(state).map_err(js)?).map_err(js)
     }
 
     /// How `state` reads at rest, in the format shown, as HTML (SPEC §3.12): each node it
@@ -1026,6 +1033,12 @@ impl Player {
         serde_json::to_string(&self.0.starting(state, layout.as_deref()).map_err(js)?).map_err(js)
     }
 
+    /// The patch that makes a new deck's title slide after the slide of `state`, as JSON:
+    /// `{ id, patch }`, its places for a picture given the theme's example (PLAN 3.30).
+    pub fn titling(&self, state: &str) -> Result<String, JsError> {
+        serde_json::to_string(&self.0.titling(state).map_err(js)?).map_err(js)
+    }
+
     /// Whether `node`, as `state` shows it, still reads as its slot's prompt (PLAN 3.30): what the
     /// canvas selects whole as typing begins in it.
     pub fn prompted(&self, state: &str, node: &str) -> Result<bool, JsError> {
@@ -1721,14 +1734,15 @@ impl Making {
         self.0.report().to_string()
     }
 
-    /// How many states the deck made has; none where it would not validate.
+    /// How many slides the deck made has; none where it would not validate.
     #[wasm_bindgen(getter)]
     pub fn count(&self) -> usize {
         self.0.count()
     }
 
-    /// The `index`th state at rest, drawn `width` pixels wide by the CPU painter, opaque: an
-    /// `ImageData`, which the page makes a JPEG of for the model to see (PLAN G.13).
+    /// The `index`th slide, whole at its last state and at rest, drawn `width` pixels wide by
+    /// the CPU painter, opaque: an `ImageData`, which the page makes a JPEG of for the model to
+    /// see (PLAN G.13).
     pub fn pixels(&self, index: usize, width: u32) -> Result<web_sys::ImageData, JsError> {
         let raster = self.0.pixels(index, width).map_err(js)?;
         let clamped = wasm_bindgen::Clamped(raster.rgba.as_slice());

@@ -51,6 +51,7 @@ import type {
   BackgroundOption,
   Thumb,
   Opened,
+  SpeakerNotes,
   Painter,
   Pasted,
   Picture,
@@ -390,6 +391,8 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
       case "words":
         if (worded?.state !== data.state) worded = { state: data.state, words: JSON.parse(player.words(data.state)) as Lexicon };
         return post({ type: "words", id: data.id, words: worded.words });
+      case "notes":
+        return post({ type: "notes", id: data.id, notes: JSON.parse(player.notes(data.state)) as SpeakerNotes });
       case "layoutSuggestions": {
         layOut(data.format);
         // A layout at a time, each a lint of the state in every format and a frame: what else the
@@ -887,11 +890,12 @@ function syllables(): string | undefined {
 
 interface DeckFiles {
   meta?: { title?: string };
-  theme: string;
+  /** A theme file's path, or the theme itself, written inline (SPEC §3.1). */
+  theme: string | object;
   fonts?: { file: string }[];
   data?: Record<string, { source?: unknown }>;
-  states: { id: string; notes?: string }[];
-  spine?: { sections?: { title?: string; beats?: { claim?: string; states?: string[]; notes?: string }[] }[] };
+  states: { id: string }[];
+  spine?: { sections?: { title?: string; beats?: { claim?: string; states?: string[] }[] }[] };
 }
 
 async function open(source: Source, painter: Painter, target: OffscreenCanvas, engine?: WebAssembly.Module) {
@@ -952,7 +956,6 @@ async function library() {
 /** The open bundle, as the page hears of it. */
 function opened(): Opened {
   const deck = JSON.parse(new TextDecoder().decode(player.file("deck.json"))) as DeckFiles;
-  const noted = notes(deck);
   return {
     name,
     title: deck.meta?.title || undefined,
@@ -960,7 +963,9 @@ function opened(): Opened {
     states: slots.map((slot) => slot.state),
     formats: player.formats(),
     own: (JSON.parse(player.sizes()) as { own: string | null }).own ?? undefined,
-    notes: slots.map((slot) => noted.get(slot.state) ?? ""),
+    // The engine's, the same the Mac's presenter and the remote read (SPEC §2.6), as written
+    // and as the blocks a speaker reads.
+    notes: slots.map((slot) => JSON.parse(player.notes(slot.state)) as SpeakerNotes),
     outline: outline(deck),
     painter: gpu ? "webgpu" : "cpu",
     adapter: gpu?.adapter ?? "vello_cpu",
@@ -1053,7 +1058,8 @@ async function fetched(deck: string): Promise<Player> {
   };
   const json = await (await get(deck)).text();
   const files = JSON.parse(json) as DeckFiles;
-  const fetchedPlayer = new Player(json, await (await get(files.theme)).text());
+  const theme = typeof files.theme === "string" ? await (await get(files.theme)).text() : JSON.stringify(files.theme);
+  const fetchedPlayer = new Player(json, theme);
   const data = Object.values(files.data ?? {}).flatMap(({ source }) => (typeof source === "string" ? [source] : []));
   const paths = new Set([...(files.fonts ?? []).map((f) => f.file), ...data, ...fetchedPlayer.imageFiles()]);
   if (new URL(deck).pathname.endsWith("/deck.json")) {
@@ -1065,7 +1071,7 @@ async function fetched(deck: string): Promise<Player> {
       for (const path of Object.keys(listed ?? {})) paths.add(path);
     }
   }
-  paths.delete(files.theme);
+  if (typeof files.theme === "string") paths.delete(files.theme);
   const bytes = await Promise.all(
     [...paths].map(async (path) => [path, new Uint8Array(await (await get(path)).arrayBuffer())] as const),
   );
@@ -1117,9 +1123,10 @@ async function generating(job: Generate, engine?: WebAssembly.Module) {
 
 /** A new deck titled `title` (PLAN 2.12), as `deck_create` makes one: the theme that ships as
  * `theme` and the fonts it names. Its one state, with nothing on it, is made a title slide in
- * the theme's `title` layout, its words to type over and its picture's place waiting, as a
- * presentation app's new deck opens and the Mac's does (PLAN 3.30): made before the page reads
- * the deck, so no undo goes back to the empty state. A theme with no such layout leaves it. */
+ * the theme's `title` layout, its words to type over and the theme's backdrop in its picture's
+ * place, as the New dialog draws the theme and the Mac's new deck opens (PLAN 3.30, `titling`):
+ * made before the page reads the deck, so no undo goes back to the empty state. A theme with no
+ * such layout leaves it. */
 async function made(theme: string, title: string): Promise<Player> {
   const { file, text, fonts } = await shipped(theme);
   const created = Player.create(file, text, title, fonts);
@@ -1127,7 +1134,7 @@ async function made(theme: string, title: string): Promise<Player> {
   if (blank === undefined || more.length) return created;
   let started: { id: string; patch: unknown[] };
   try {
-    started = JSON.parse(created.starting(blank, "title")) as { id: string; patch: unknown[] };
+    started = JSON.parse(created.titling(blank)) as { id: string; patch: unknown[] };
   } catch {
     return created;
   }
@@ -1407,15 +1414,6 @@ function outline(files: DeckFiles): Section[] {
   const rest = files.states.filter((s) => !placed.has(s.id)).map((s) => ({ state: s.id }));
   if (sections.length && rest.length) sections.push({ states: rest });
   return sections;
-}
-
-/** Each state's notes, by its id: its own, else those of the first beat that names it. */
-function notes(files: DeckFiles): Map<string, string> {
-  const beats = new Map<string, string>();
-  for (const section of files.spine?.sections ?? [])
-    for (const beat of section.beats ?? [])
-      for (const state of beat.states ?? []) if (!beats.has(state)) beats.set(state, beat.notes ?? "");
-  return new Map(files.states.map((s) => [s.id, s.notes ?? beats.get(s.id) ?? ""]));
 }
 
 /** The deck's timeline in the format frames are laid out in: the slots of the states it

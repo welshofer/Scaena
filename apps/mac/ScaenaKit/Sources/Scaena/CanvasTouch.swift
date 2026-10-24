@@ -170,23 +170,65 @@ struct CanvasMenu: UIViewRepresentable {
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
-    func makeUIView(context: Context) -> UIView {
-        let view = UIView()
+    func makeUIView(context: Context) -> Host {
+        let view = Host()
         view.backgroundColor = .clear
+        view.held = context.coordinator
         let menus = UIEditMenuInteraction(delegate: context.coordinator)
         view.addInteraction(menus)
         context.coordinator.menus = menus
         return view
     }
 
-    func updateUIView(_ view: UIView, context: Context) {
+    func updateUIView(_ view: Host, context: Context) {
         let held = context.coordinator
         held.deck = deck
         held.clip = clip
         held.around = around
         guard let asked, asked.count != held.shown else { return }
         held.shown = asked.count
+        view.take()
         held.menus?.presentEditMenu(with: UIEditMenuConfiguration(identifier: nil, sourcePoint: asked.at))
+    }
+
+    /// The view the menu stands on. While the menu shows, it has the keyboard and answers the
+    /// system's own Paste, which iPadOS shows only where what has the keyboard can paste; when the
+    /// menu goes, the keyboard goes back to what had it.
+    final class Host: UIView {
+        weak var held: Coordinator?
+        /// What had the keyboard before the menu showed.
+        private weak var had: UIResponder?
+
+        override var canBecomeFirstResponder: Bool { true }
+
+        override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
+            action == #selector(UIResponderStandardEditActions.paste(_:))
+        }
+
+        override func paste(_ sender: Any?) { held?.clip(.paste) }
+
+        /// Takes the keyboard for the menu.
+        func take() {
+            guard !isFirstResponder, let window else { return }
+            had = Self.responder(in: window)
+            becomeFirstResponder()
+        }
+
+        /// Gives the keyboard back to what had it.
+        func giveBack() {
+            guard isFirstResponder else { return }
+            resignFirstResponder()
+            if let had, (had as? UIView)?.window != nil { had.becomeFirstResponder() }
+            had = nil
+        }
+
+        private static func responder(in view: UIView) -> UIView? {
+            if view.isFirstResponder { return view }
+            for inside in view.subviews {
+                if let found = responder(in: inside) { return found }
+            }
+            return nil
+        }
     }
 
     final class Coordinator: NSObject, UIEditMenuInteractionDelegate {
@@ -202,7 +244,14 @@ struct CanvasMenu: UIViewRepresentable {
             _ interaction: UIEditMenuInteraction, menuFor configuration: UIEditMenuConfiguration,
             suggestedActions: [UIMenuElement]
         ) -> UIMenu? {
-            UIMenu(children: CanvasMenu.items(deck, clip: clip))
+            UIMenu(children: CanvasMenu.items(deck, clip: clip, paste: CanvasMenu.paste(in: suggestedActions)))
+        }
+
+        func editMenuInteraction(
+            _ interaction: UIEditMenuInteraction, willDismissMenuFor configuration: UIEditMenuConfiguration,
+            animator: any UIEditMenuInteractionAnimating
+        ) {
+            animator.addCompletion { (interaction.view as? Host)?.giveBack() }
         }
 
         /// The menu stands clear of what it is for, as much of it as the canvas shows; at the press
@@ -218,16 +267,40 @@ struct CanvasMenu: UIViewRepresentable {
     }
 
     /// What the menu offers (`CanvasOffer`, as the Mac's right click offers it, PLAN 3.23), as
-    /// iPadOS's edit menu shows it: no lines between kinds.
-    static func items(_ deck: DeckActions?, clip: @escaping (Clipping) -> Void) -> [UIMenuElement] {
-        CanvasOffer.offers(deck, clip: clip).compactMap(element)
+    /// iPadOS's edit menu shows it: no lines between kinds. `paste`, where the system suggests it,
+    /// stands in for the menu's own Paste: iPadOS asks to allow a paste an app's own action reads,
+    /// and the app's main thread waits on the answer, but asks nothing of its own Paste command,
+    /// which the menu's view answers while it shows (`Host.paste`).
+    static func items(
+        _ deck: DeckActions?, clip: @escaping (Clipping) -> Void, paste: UIMenuElement? = nil
+    ) -> [UIMenuElement] {
+        CanvasOffer.offers(deck, clip: clip).compactMap { offer in
+            if let paste, case .action(CanvasOffer.paste, _, _, _, _) = offer { return paste }
+            return element(offer)
+        }
+    }
+
+    /// The system's own Paste among what it suggests for the menu: there while what has the
+    /// keyboard can paste, the canvas's keys among them.
+    static func paste(in suggested: [UIMenuElement]) -> UIMenuElement? {
+        for element in suggested {
+            if let command = element as? UICommand,
+                command.action == #selector(UIResponderStandardEditActions.paste(_:))
+            {
+                return command
+            }
+            if let menu = element as? UIMenu, let found = paste(in: menu.children) { return found }
+        }
+        return nil
     }
 
     private static func element(_ offer: CanvasOffer) -> UIMenuElement? {
         switch offer {
-        case .action(let title, let symbol, let destructive, let run):
+        case .action(let title, let symbol, let destructive, let on, let run):
             let attributes: UIMenuElement.Attributes = destructive ? .destructive : []
-            return UIAction(title: title, image: symbol.flatMap { UIImage(systemName: $0) }, attributes: attributes) { _ in
+            return UIAction(
+                title: title, image: symbol.flatMap { UIImage(systemName: $0) }, attributes: attributes, state: on ? .on : .off
+            ) { _ in
                 run()
             }
         case .menu(let title, let symbol, let children):

@@ -152,12 +152,9 @@ final class OpeningTests: XCTestCase {
             throw Unseen(description: "the long press offers no Paste: \(app.debugDescription)")
         }
         paste.tap()
-        // The menu's Paste reads what the test put on the pasteboard, which iPadOS guards with its
-        // Allow Paste prompt: the system's, not the app's, whose main thread waits on the answer, so
-        // the app is asked nothing until it is answered.
-        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
-        let allow = springboard.buttons["Allow Paste"]
-        if allow.waitForExistence(timeout: 10) { allow.tap() }
+        // The menu's Paste is the system's own, which reads the pasteboard with no Allow Paste
+        // prompt. A prompt would hold the app's main thread on its answer, and no query of the app
+        // would come back, so the test waits on the chip alone.
         let chip = app.descendants(matching: .any).matching(identifier: "code-chip").firstMatch
         XCTAssertTrue(chip.waitForExistence(timeout: 10), "the code pasted shows no chip: \(app.debugDescription)")
         XCTAssertEqual(chip.value as? String, "Rust", "the chip does not say Rust: \(chip.debugDescription)")

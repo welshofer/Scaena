@@ -27,7 +27,7 @@
 //   proportions, which a drag of its corner keeps, let go beside another's edge too.
 // Exits 1 on any failure.
 import { readFile } from "node:fs/promises";
-import { launch, serve } from "./serve.mjs";
+import { insert, inserts, launch, serve } from "./serve.mjs";
 
 const server = await serve();
 const url = (bundle) => `${server.origin}/web/dist/editor.html?painter=cpu&bundle=${bundle}`;
@@ -103,11 +103,8 @@ try {
     await page.evaluate((n) => window.scaena.canvas.select(n), node);
     await page.locator("#overlay").focus();
   };
-  /** What the Insert menu offers: each group's label, and its items. */
-  const menu = () =>
-    page.evaluate(() =>
-      Object.fromEntries([...document.querySelectorAll("#insert optgroup")].map((g) => [g.label, [...g.children].map((o) => o.textContent)])),
-    );
+  /** What the Insert menu offers: each section, and its items. */
+  const menu = () => inserts(page);
   /** A point in canvas units, on the page. */
   const clientOf = ([x, y]) =>
     page.evaluate(
@@ -135,7 +132,7 @@ try {
   const original = await source();
 
   // What the menu offers: Dusk's roles, the shapes, the shader presets, and no image yet.
-  await page.waitForFunction(() => document.querySelectorAll("#insert optgroup").length > 0, null, { timeout: 30000 });
+  await page.waitForFunction(() => window.scaena.inserts().length > 0, null, { timeout: 30000 });
   const offered = await menu();
   check(["Display", "Headline", "Title", "Caption"].every((r) => offered.Text?.includes(r)), `a text in each of Dusk's roles, by its name: ${offered.Text}`);
   check(!offered.Text?.includes("Axis"), "but for Axis, which Dusk sets only a chart's text in");
@@ -147,23 +144,39 @@ try {
   check(JSON.stringify(offered.Shape) === JSON.stringify(shapes), `the shapes, by their names: ${offered.Shape}`);
   check(offered["Background Effect"]?.length === 7, `the theme's shader presets: ${offered["Background Effect"]}`);
   check(!offered.Image, "no image: the bundle holds no PNG");
+  // Insert is a button whose menu the arrow keys browse: ↓ opens it, ↓ again moves in it, and
+  // nothing is inserted until an item is chosen (lift-up USE-3, WCAG 3.2.2). A select inserted at
+  // each press.
+  await page.locator("#insert").focus();
+  await page.keyboard.press("ArrowDown");
+  const opened = await page.evaluate(() => Boolean(document.querySelector('.context-menu [role="menuitem"]')));
+  check(opened, "↓ on Insert opens its menu");
+  check(await page.evaluate(() => document.activeElement?.getAttribute("role") === "menuitem"), "with the focus on its first item");
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("ArrowDown");
+  await page.waitForTimeout(300);
+  check((await source()) === original, "browsing it inserts nothing");
+  const sections = await page.evaluate(() => [...document.querySelectorAll('.context-menu [role="group"]')].map((g) => g.getAttribute("aria-label")));
+  check(sections.includes("Text") && sections.includes("Shape") && sections.includes("Draw"), `its items stand under their kinds: ${sections.join(", ")}`);
+  await page.keyboard.press("Escape");
+  check(await page.evaluate(() => !document.querySelector(".context-menu") && document.activeElement?.id === "insert"), "Escape closes it, the focus back on Insert");
 
   // The draw tools, each with its key, each its key's gesture (PLAN 2.123).
   const tools = ["Text (T)", "Rectangle (R)", "Oval (O)", "Line (L)", "Arrow (A)", "Pen (P)"];
   check(JSON.stringify(offered.Draw) === JSON.stringify(tools), `Draw lists the draw tools with their keys: ${offered.Draw}`);
-  await page.selectOption("#insert", { label: "Rectangle (R)" });
+  await insert(page, "Rectangle (R)");
   await page.waitForFunction(() => window.scaena.canvas.armed()?.key === "r", null, { timeout: 10000 }).catch(() => {});
   check((await page.evaluate(() => window.scaena.canvas.armed()?.key)) === "r" && (await says("Drawing a rectangle")), `Rectangle arms the canvas as R does: ${await status()}`);
   check(await page.evaluate(() => document.activeElement?.id === "overlay"), "and the slide has the keys, for the drag and for Escape");
-  await page.selectOption("#insert", { label: "Oval (O)" });
+  await insert(page, "Oval (O)");
   await page.waitForFunction(() => window.scaena.canvas.armed()?.key === "o", null, { timeout: 10000 }).catch(() => {});
   check(await says("Drawing an oval"), `Oval arms it for an oval instead: ${await status()}`);
   await page.keyboard.press("Escape");
   check((await page.evaluate(() => window.scaena.canvas.armed())) === undefined, "Escape stops, as after O");
-  await page.selectOption("#insert", { label: "Pen (P)" });
+  await insert(page, "Pen (P)");
   await page.waitForFunction(() => window.scaena.canvas.pen() !== undefined, null, { timeout: 10000 }).catch(() => {});
   check((await page.evaluate(() => window.scaena.canvas.pen())) !== undefined && (await says("Drawing with the pen")), `Pen takes up the pen as P does: ${await status()}`);
-  await page.selectOption("#insert", { label: "Pen (P)" });
+  await insert(page, "Pen (P)");
   check((await page.evaluate(() => window.scaena.canvas.pen())) !== undefined, "chosen again, it stays taken up");
   await page.keyboard.press("Escape");
   check((await page.evaluate(() => window.scaena.canvas.pen())) === undefined && (await source()) === original, "Escape puts it down, and nothing is drawn");
@@ -173,7 +186,7 @@ try {
   const kicker = slots.kicker;
   check(Boolean(kicker), `the figure layout has a kicker slot: ${Object.keys(slots)}`);
   await press([kicker[0] + kicker[2] / 2, kicker[1] + kicker[3] / 2]);
-  await page.selectOption("#insert", { label: "Kicker" });
+  await insert(page, "Kicker");
   check(await reads('kicker text role:kicker "Kicker" at:in(kicker)'), "a kicker inserted in the empty kicker slot fills it");
   check(await selects("kicker"), "and the canvas selects it");
   check(JSON.stringify(await box("kicker")) === JSON.stringify(kicker), `it stands in the slot: ${await box("kicker")}`);
@@ -195,7 +208,7 @@ try {
   // grid's cells in the room nearest the point, clear of what lint judges it against (PLAN 2.79).
   const at = [1400, 300];
   await press(at);
-  await page.selectOption("#insert", { label: "Headline" });
+  await insert(page, "Headline");
   check(await reads("headline text role:headline"), "the headline is inserted into the source");
   check((await source()).includes('headline text role:headline "Headline" at:col('), "on the grid's cells");
   const cell = await drawn("headline");
@@ -222,7 +235,7 @@ try {
   const main = slots.main;
   await press([main[0] + main[2] / 2, main[1] + main[3] / 2]);
   // The source named as a person names it (PLAN 3.18): by its file, `data/q3-revenue.csv`.
-  await page.selectOption("#insert", { label: "Q3 Revenue" });
+  await insert(page, "Q3 Revenue", "Chart");
   check(await reads("q3-chart chart:bar data:@q3"), "a chart of q3 is inserted");
   // Its declaration, with the lines its properties run on to.
   const q3 = /q3-chart chart:bar data:@q3[^\n]*(?:\n {4}[^\n]*)*/.exec(await source())?.[0] ?? "";
@@ -261,7 +274,7 @@ try {
   // The shape library (PLAN 2.106): a star, a polygon of ten points filling its box, in the
   // accent, named in a person's words.
   await press([700, 760]);
-  await page.selectOption("#insert", { label: "Star" });
+  await insert(page, "Star");
   check(await reads("star shape kind:polygon"), "a star is inserted as a polygon");
   // Its declaration, the lines its properties run on to, indented under it, read as one.
   const lines = (await source()).split("\n");
@@ -295,7 +308,7 @@ try {
   // Offered by its name, Backdrop; the node is named after the preset, `backdrop`.
   const preset = offered["Background Effect"]?.[0] ?? "Backdrop";
   const named = preset.toLowerCase();
-  await page.selectOption("#insert", { label: preset });
+  await insert(page, preset);
   check(await reads(`${named} shader:`), `the ${preset} preset is inserted`);
   const filled = await drawn(named);
   const [w, h] = await page.evaluate(() => window.scaena.canvas.size());
@@ -311,12 +324,12 @@ try {
   const hash = path.slice("assets/".length, "assets/".length + 8);
   // The drop wrote the image's path into the source: the source as it was.
   await page.evaluate((s) => window.scaena.type(s), original);
-  await page.waitForFunction(() => document.querySelector("#insert optgroup[label=Image]"), null, { timeout: 30000 }).catch(() => {});
+  await page.waitForFunction(() => window.scaena.inserts().some((i) => i.section === "Image"), null, { timeout: 30000 }).catch(() => {});
   const images = (await menu()).Image ?? [];
   check(images.length === 1 && images[0] === `${hash}…`, `the image dropped is offered by its hash: ${images}`);
   if (images.length === 1) {
     await press([960, 540]);
-    await page.selectOption("#insert", { label: images[0] });
+    await insert(page, images[0], "Image");
     check(await reads(JSON.stringify(path)), "and inserted, its path its `src`");
     const id = (await selects(`image-${hash}`)) ? `image-${hash}` : await selected();
     check(id === `image-${hash}` && Boolean(await box(id)), `it stands on the canvas, selected: ${id}`);
@@ -394,6 +407,31 @@ try {
     await page.keyboard.press("Delete");
     check(await back(original), "Delete takes it out again");
   }
+
+  // Insert › Image… (the QA pass's J3): a picture picked from the disk lands as one dropped does,
+  // its path its `src`, one patch, one undo; the palette offers it too.
+  const offeredImage = (await inserts(page))[""] ?? [];
+  check(offeredImage.includes("Image…"), `Insert offers Image…: ${offeredImage.join(", ")}`);
+  const fromDisk = await source();
+  await press([400, 300]);
+  const [chooser] = await Promise.all([page.waitForEvent("filechooser", { timeout: 10000 }).catch(() => undefined), insert(page, "Image…")]);
+  check(chooser !== undefined, "Image… opens a file picker");
+  if (chooser) {
+    await chooser.setFiles({ name: "board.png", mimeType: "image/png", buffer: png });
+    await page.waitForFunction((s) => window.scaena.source() !== s && !window.scaena.canvas.busy(), fromDisk, { timeout: 30000 }).catch(() => {});
+    check(await reads(JSON.stringify(path)), `the picture picked is inserted, its path its \`src\`: ${await status()}`);
+    check((await status()).includes("board.png"), `the status names it by the file picked: ${await status()}`);
+    await page.locator("#overlay").focus();
+    await page.keyboard.press("Control+z");
+    check(await back(fromDisk), "one undo takes it out");
+  }
+  await page.locator("#overlay").focus();
+  await page.keyboard.press("Control+k");
+  await page.waitForFunction(() => document.querySelector("#palette").open, null, { timeout: 10000 }).catch(() => {});
+  await page.keyboard.type("insert an image");
+  const listed = await page.evaluate(() => window.scaena.commands.shown());
+  check(JSON.stringify(listed).includes("Insert an image…"), `the palette offers Insert an image…: ${JSON.stringify(listed).slice(0, 200)}`);
+  await page.keyboard.press("Escape");
   check(await page.evaluate(() => window.scaena.last().valid), "the source still compiles and validates");
 } finally {
   await browser.close();

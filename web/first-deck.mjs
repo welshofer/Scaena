@@ -8,7 +8,7 @@
 // - The editor opens with the canvas first, the source folded away; Source opens it beside the
 //   canvas, and ⌘\\ folds it again (PLAN 2.80).
 // - New, from its dialog: a deck in Dusk that opens on a title slide in the theme's title layout,
-//   its words to type over and its picture's place outlined (PLAN 3.30).
+//   its words to type over and the theme's backdrop in its picture's place (PLAN 3.30).
 // - Its title and the line under it typed over where they stand.
 // - + Slide, and Blank from its gallery of the theme's layouts (PLAN 3.30). With no data in the deck,
 //   Insert's chart is of sample rows, which come with it and go with one undo. Then a body text
@@ -25,7 +25,7 @@
 // Each step is screenshotted into target/first-deck/, with its time. Exits 1 on any failure.
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { launch, serve } from "./serve.mjs";
+import { addAnimation, insert, inserts, launch, serve, tab } from "./serve.mjs";
 
 const out = "target/first-deck";
 await mkdir(out, { recursive: true });
@@ -187,10 +187,8 @@ try {
       /^state \S+ .*layout:title/m.test(text) && Boolean(title) && Boolean(subtitle),
       `New opens on a title slide, its words to type over: ${title}, ${subtitle}`,
     );
-    const art = await page
-      .waitForFunction(() => window.scaena.canvas.waiting().find((w) => w.slot === "art"), null, { timeout: 30000 })
-      .then((h) => h.jsonValue(), () => undefined);
-    check(art?.typed === false, `and its picture's place outlined: ${art?.words}`);
+    const backdrop = /^\s*\S+ shader:\S+ [^\n]*\bpreset:backdrop\b[^\n]*at:in\(art\)/m.test(text);
+    check(backdrop, `and the theme's backdrop in its picture's place: ${text.match(/^.*at:in\(art\).*$/m)?.[0]}`);
   });
 
   await step("type-title", async () => {
@@ -218,13 +216,11 @@ try {
     // The deck has no data, and Insert offers a chart and a table all the same, of a few sample
     // rows, as a presentation app does: the chart comes with them, and one undo takes both out.
     // Each is named by its rows' source in words, as a person names it (PLAN 3.18): Sample.
-    await until("a chart offered", () => document.querySelectorAll("#insert optgroup[label=Chart] option").length > 0);
-    const groups = await page.evaluate(() =>
-      Object.fromEntries([...document.querySelectorAll("#insert optgroup")].map((g) => [g.label, [...g.children].map((o) => o.textContent)])),
-    );
+    await until("a chart offered", () => window.scaena.inserts().some((i) => i.section === "Chart"));
+    const groups = await inserts(page);
     check(groups.Chart?.includes("Sample") && groups.Table?.includes("Sample"), `a deck with no data offers a chart and a table of sample rows: ${groups.Chart} · ${groups.Table}`);
     const before = await mark();
-    await page.selectOption("#insert", { label: "Sample" });
+    await insert(page, "Sample", "Chart");
     await changed(before);
     const text = await source();
     check(/^data sample\s+inline:\[/m.test(text) && /sample-chart chart:bar data:@sample/.test(text), `the chart comes with its rows: ${await status()}`);
@@ -245,7 +241,7 @@ try {
     await page.click('#starting button[data-start="full"]');
     await changed(before);
     const nodes = await shownNodes();
-    await page.selectOption("#insert", { label: "Body" });
+    await insert(page, "Body");
     await page.waitForFunction((n) => window.scaena.canvas.boxes().length > n, nodes.length, { timeout: 60000 });
     const body = (await shownNodes()).find((n) => !nodes.includes(n));
     await typeInto(body, ["Three trails surveyed", "Two need new bridges", "One closes for winter"]);
@@ -289,7 +285,7 @@ try {
   });
 
   await step("data-tab", async () => {
-    await page.click("#tab-data");
+    await tab(page, "data");
     // The table is in the page from the start; its rows come when the worker answers.
     await page.waitForFunction(() => document.querySelectorAll("#data table tbody tr").length > 0, null, { timeout: 30000 }).catch(() => {});
     const rows = await page.evaluate(() => document.querySelectorAll("#data table tbody tr").length);
@@ -315,13 +311,13 @@ try {
     await showState(0);
     const [x, y] = await middleOf(title);
     await page.mouse.click(x, y);
-    await until("a motion offered for the title", () => document.querySelectorAll("#cue [data-add] option").length > 1);
-    const options = await page.evaluate(() => [...document.querySelectorAll("#cue [data-add] option")].map((o) => [o.value, o.textContent]));
+    await until("a motion offered for the title", () => window.scaena.cue.offers().length > 0);
+    const options = await page.evaluate(() => window.scaena.cue.offers().map((o) => [JSON.stringify(o.value), o.label]));
     // Fade, as it enters, from the theme's builds, which start with Appear.
     const enter = options.find(([v]) => /^\["enter",.*,"fade"\]$/.test(v));
     if (!check(Boolean(enter), `the cue offers a motion for the title: ${options.map((o) => o[1]).join(", ")}`)) return;
     const before = await mark();
-    await page.locator("#cue [data-add]").selectOption(enter[0]);
+    await addAnimation(page, enter[0]);
     await changed(before);
     check(/enter:fade/.test(await source()), `the title fades in: ${await status()}`);
   });

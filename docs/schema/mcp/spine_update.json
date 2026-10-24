@@ -1,6 +1,6 @@
 {
   "name": "spine_update",
-  "description": "Replace the deck's spine, as a patch: checked, refused if it makes the deck invalid, with what lint finds differently.",
+  "description": "Replace the deck's spine, as a patch: checked, refused if it makes the deck invalid, with what lint finds differently. A beat's `notes` are what a presenter reads for each state it names that has none of its own; its `duration`, in seconds, paces a video and the spine where its states have no `hold`.",
   "inputSchema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "required": ["bundle", "spine"],

@@ -73,9 +73,11 @@ try {
   page.on("console", (m) => m.type() === "error" && failures.push(`console: ${m.text()}`));
   /** What the page asked first, as `confirm` asks it. */
   const asked = [];
+  /** Whether the next question is declined. */
+  let declining = false;
   page.on("dialog", (d) => {
     asked.push(d.message());
-    void d.accept();
+    void (declining ? d.dismiss() : d.accept());
   });
   /** The editor once it has compiled and linted the bundle named `name`, if any. */
   const ready = async (name) => {
@@ -140,6 +142,48 @@ try {
   check(Array.isArray(played) && played.length === 4, `the player plays it from there: ${played}`);
   await player.close();
 
+  // Play opens the player on the slide shown (lift-up FUNC-2), and on the deck as the editor has
+  // it: with changes not saved, it asks to save first, and saves; declined, it plays the deck as
+  // last saved.
+  const playing = async () => {
+    // The state shown as Play is pressed: the preview follows the cursor, so an edit typed shows the
+    // state it is in.
+    const shown = await page.evaluate(() => window.scaena.last().states[window.scaena.shown()][0]);
+    const [opened] = await Promise.all([context.waitForEvent("page"), page.click("#play")]);
+    await opened.waitForFunction(() => window.scaena?.at || document.querySelector("#status")?.textContent.startsWith("Error"), null, { timeout: 120000 });
+    const at = {
+      shown,
+      state: new URL(opened.url()).searchParams.get("state"),
+      index: await opened.evaluate(() => window.scaena?.at?.().index),
+      states: await opened.evaluate(() => window.scaena?.states),
+    };
+    await opened.close();
+    return { ...at, on: at.state === shown && at.states?.[at.index] === shown };
+  };
+  await page.locator('#strip li[data-state="mix"]').click();
+  await page.waitForFunction(() => window.scaena.shown() === 2 && window.scaena.at().index === 2, null, { timeout: 30000 });
+  const onMix = await playing();
+  check(onMix.on && onMix.state === "mix", `Play opens the player on the slide shown: ${JSON.stringify(onMix)}`);
+  check(asked.length === 0, "with nothing to save, nothing is asked");
+  const tripled = reopened.replace("Revenue more than doubled", "Revenue tripled");
+  await type(tripled);
+  check((await where()).dirty, "an edit not saved");
+  const onEdited = await playing();
+  check(asked.length === 1 && asked[0].includes("Save it first?"), `Play on a deck with changes not saved asks to save it first: ${asked}`);
+  check(!(await where()).dirty && (await listing(page, "bundles/revenue", "deck.json")).includes("Revenue tripled"), "saved, so the player plays the deck as the editor has it");
+  check(onEdited.on, `on the slide shown: ${JSON.stringify(onEdited)}`);
+  await type(reopened);
+  check((await where()).dirty, "an edit not saved again");
+  declining = true;
+  const declined = await playing();
+  declining = false;
+  check(asked.length === 2 && (await where()).dirty && (await listing(page, "bundles/revenue", "deck.json")).includes("Revenue tripled"), "declined, nothing is saved, and the player plays the deck as last saved");
+  check(declined.on, `on the slide shown: ${JSON.stringify(declined)}`);
+  await page.evaluate(() => window.scaena.save());
+  check(!(await where()).dirty && (await listing(page, "bundles/revenue", "deck.json")).includes("Revenue more than doubled"), "saved again as it was");
+  await page.locator('#strip li[data-state="intro"]').click();
+  await page.waitForFunction(() => window.scaena.shown() === 0 && window.scaena.at().index === 0, null, { timeout: 30000 });
+
   // A PNG dropped where an image node's source goes.
   const png = await readFile("tests/fixtures/torture.scaena/assets/test-card.png");
   const asset = `assets/${createHash("sha256").update(png).digest("hex")}.png`;
@@ -170,6 +214,13 @@ try {
   check(download.suggestedFilename() === "revenue.scaena" && zip[0] === 0x50 && zip[1] === 0x4b, `a download is a .scaena zip: ${download.suggestedFilename()}, ${zip.length} bytes`);
   const status = await page.locator("#status").textContent();
   check(/its fonts cut to what it draws, \d+ KB to \d+ KB/.test(status), `the page says how far its fonts were subset: ${status}`);
+  // Lint said again, here of the slide in another size, keeps the download's words, as it keeps
+  // a save's.
+  await page.selectOption("#format", "9:16");
+  await page.waitForFunction(() => document.querySelector("#status").textContent.includes(" — "), null, { timeout: 30000 }).catch(() => {});
+  const relinted = await page.locator("#status").textContent();
+  check(relinted.startsWith("Downloaded revenue.scaena"), `and lint, said again, keeps them: ${relinted}`);
+  await page.selectOption("#format", "");
 
   // The download, opened: copied into the browser's storage.
   await page.evaluate(
@@ -248,9 +299,16 @@ try {
   await page.keyboard.press("End");
   await page.keyboard.type(" Smile at the board.");
   await page.keyboard.press("Control+s");
+  // The save writes deck.json as it is polled: a file read just as the write lands is no longer
+  // readable (NotReadableError), which is the deck not saved yet, and read again.
+  const deckNow = () =>
+    listing(page, "plain", "deck.json").catch((e) => {
+      if (String(e).includes("NotReadableError")) return "";
+      throw e;
+    });
   let noted = false;
   for (const end = Date.now() + 30000; !noted && Date.now() < end; await page.waitForTimeout(200))
-    noted = (await listing(page, "plain", "deck.json")).includes("Smile at the board.");
+    noted = (await deckNow()).includes("Smile at the board.");
   check(noted, "notes typed, then ⌘S from the field: the save holds them");
   await page.waitForFunction(() => !window.scaena.where().dirty, null, { timeout: 30000 }).catch(() => {});
   const focused = await page.evaluate(() => document.activeElement?.id);
@@ -320,7 +378,7 @@ try {
     const li = document.querySelector('#keeping li[data-name="Q3 board"]');
     return { marked: li?.querySelector(".here")?.textContent, deletable: !li?.querySelector("[data-delete]").disabled };
   });
-  check(here.marked === "open here" && !here.deletable, `the deck open here is marked, and not deleted: ${JSON.stringify(here)}`);
+  check(here.marked === "Open here" && !here.deletable, `the deck open here is marked, and not deleted: ${JSON.stringify(here)}`);
   await renamed("Q3 board", "Board");
   check(JSON.stringify(await keeps()) === JSON.stringify(["Board"]) && (await where()).where?.name === "Board" && new URL(page.url()).searchParams.get("bundle") === "opfs:Board", `renamed, the deck open goes on where it is kept now: ${JSON.stringify((await where()).where)}, ${page.url()}`);
   await page.keyboard.press("Escape");
