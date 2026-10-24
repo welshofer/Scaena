@@ -1626,7 +1626,22 @@ fn items(slide: &Slide, v: &Varied) -> Vec<Item> {
     if matches!(v.layout.identity(), "title" | "section") {
         return Vec::new();
     }
-    slide.key_bullets.iter().map(|b| item(b)).filter(|i| !i.whole.is_empty()).collect()
+    let mut items: Vec<Item> = slide.key_bullets.iter().map(|b| item(b)).filter(|i| !i.whole.is_empty()).collect();
+    // Questions and their answers are one structure: where one question runs too long to title
+    // its answer, none does, and each reads "question? answer", never "question?: answer".
+    let asked = |i: &Item| i.label.is_none() && (i.whole.contains("?: ") || i.whole.contains("!: "));
+    if items.iter().any(asked) {
+        for i in &mut items {
+            if let Some(label) = i.label.take_if(|l| l.ends_with(['?', '!'])) {
+                i.whole = format!("{label} {}", i.detail);
+            }
+            if i.label.is_none() {
+                i.whole = i.whole.replacen("?: ", "? ", 1).replacen("!: ", "! ", 1);
+                i.detail = i.whole.clone();
+            }
+        }
+    }
+    items
 }
 
 /// The icon each of `slide`'s `items` is set under (PLAN G.23): the one its word names, as the
@@ -1670,12 +1685,12 @@ fn item(bullet: &str) -> Item {
     }
     .trim()
     .to_string();
-    // A label is short, and ends at the first ": ", " — ", or " – "; a question may run long.
+    // A label is short, and ends at the first ": ", " — ", or " – ".
     let split = [": ", " \u{2014} ", " \u{2013} "]
         .iter()
         .filter_map(|sep| whole.find(sep).map(|at| (at, sep.len())))
         .min_by_key(|(at, _)| *at)
-        .filter(|(at, _)| (1..=60).contains(&whole[..*at].chars().count()) || whole[..*at].ends_with('?'));
+        .filter(|(at, _)| (1..=60).contains(&whole[..*at].chars().count()));
     match split {
         Some((at, len)) => {
             Item { label: Some(whole[..at].trim().to_string()), detail: whole[at + len..].trim().to_string(), whole }
@@ -3839,7 +3854,20 @@ mod tests {
         lacks(&grid, "first");
         has(&grid, "second-title", "Median outage restored");
         has(&grid, "second", "Down from 11");
-        // A question runs long, and three of them go on three cards.
+        // Three questions go on three cards, each titled by its question where all are short.
+        let (layout, faq) = made(
+            "FAQ",
+            &[
+                "Is the removal permanent?: Yes, mineralized carbon stays put for centuries",
+                "What if fuel prices spike?: Lanes are priced on a fuel index",
+                "Who verifies it?: An accredited auditor checks every voyage",
+            ],
+        );
+        assert_eq!(layout, "cards");
+        has(&faq, "first-title", "Is the removal permanent?");
+        has(&faq, "first", "Yes, mineralized carbon stays put for centuries");
+        // Where one runs too long to title its card, none is titled, and each reads as asked and
+        // answered, with no colon after its question mark.
         let (layout, faq) = made(
             "FAQ",
             &[
@@ -3851,10 +3879,16 @@ mod tests {
         assert_eq!(layout, "cards");
         has(
             &faq,
-            "first-title",
-            "If a test is 90% accurate and you test positive, what are the odds you\u{2019}re sick?",
+            "first",
+            "If a test is 90% accurate and you test positive, what are the odds you\u{2019}re sick? About 9%, because the disease is rare",
         );
-        has(&faq, "first", "About 9%, because the disease is rare");
+        has(
+            &faq,
+            "second",
+            "Why is it so low when the test is so good? Most positives come from the many healthy people tested",
+        );
+        lacks(&faq, "first-title");
+        lacks(&faq, "second-title");
         // A side's points, written on one line, are a list of them.
         let (_, sides) = made(
             "Pros / Cons",
