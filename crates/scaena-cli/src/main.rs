@@ -865,7 +865,8 @@ fn run(cli: Cli) -> Result<ExitCode> {
         Cmd::Health { bundle } => health(&bundle, cli.json),
         Cmd::Icons { query, fill, limit } => icons(&query.join(" "), fill, limit, cli.json),
         Cmd::History { bundle, at, scn, diff, restore, dry_run } => {
-            let ask = scaena_ops::history::Ask { at, scn, compare: diff.unwrap_or_default(), restore, dry_run };
+            let ask =
+                scaena_ops::history::Ask { at, scn, compare: diff.unwrap_or_default(), restore, dry_run, begin: false };
             history(&bundle, &ask, cli.json)
         }
         Cmd::Find { bundle, text, case, words, replace, dry_run } => {
@@ -1582,9 +1583,13 @@ fn history(bundle: &Path, ask: &scaena_ops::history::Ask, json: bool) -> Result<
         let text = v.to_string();
         if text.chars().count() > 60 { format!("{}…", text.chars().take(59).collect::<String>()) } else { text }
     };
-    for v in h.versions.iter().flatten() {
+    for told in h.versions.iter().flatten() {
+        let v = &told.version;
         let (at, by) = (v.at.as_deref().unwrap_or("-"), v.author.as_deref().unwrap_or("-"));
         println!("{:>4}  {at}  {by:<14}  {}  ({})", v.n, v.message.as_deref().unwrap_or(""), v.id);
+        if !told.changed.is_empty() {
+            println!("        {}", told.changed.join("; "));
+        }
     }
     if let Some(seen) = &h.seen {
         match (&seen.scn, &seen.deck) {
