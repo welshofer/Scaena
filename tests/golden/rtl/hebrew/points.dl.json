@@ -8,20 +8,20 @@
   ],
   "ops":[
     {"fill":{"path":"M0 0L1920 0L1920 1080L0 1080Z","rule":"nonzero","paint":{"solid":"#101014FF"}}},
-    {"layer":{"node":"points-header","cell":null,"label":null,"transform":[1.0,0.0,0.0,1.0,404.0,82.078125],"opacity":1.0,"blend":"normal","clip":null,"ops":[
-      {"glyphs":{"font":0,"size":80.0,"coords":[9216,0],"paint":{"solid":"#F2F0E9FF"},"text":"השתנה","glyphs":[
-        [11,1033.2031,71.046875],
-        [20,1083.4375,71.046875],
-        [27,1113.5156,71.046875],
-        [25,1168.5625,71.046875],
-        [11,1228.0,71.046875]
+    {"layer":{"node":"points-header","cell":null,"label":null,"transform":[1.0,0.0,0.0,1.0,404.0,84.859375],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+      {"glyphs":{"font":0,"size":64.0,"coords":[9216,0],"paint":{"solid":"#F2F0E9FF"},"text":"השתנה","glyphs":[
+        [11,1105.7656,56.828125],
+        [20,1145.9531,56.828125],
+        [27,1170.0156,56.828125],
+        [25,1214.0469,56.828125],
+        [11,1261.5938,56.828125]
       ],"clusters":[8,6,4,2,0]}},
-      {"glyphs":{"font":1,"size":80.0,"coords":[7646,-7373,0,0],"paint":{"solid":"#F2F0E9FF"},"text":" ","glyphs":[
-        [1,1278.2344,71.046875]
+      {"glyphs":{"font":1,"size":64.0,"coords":[7646,-7373,0,0],"paint":{"solid":"#F2F0E9FF"},"text":" ","glyphs":[
+        [1,1301.7969,56.828125]
       ],"clusters":[0]}},
-      {"glyphs":{"font":0,"size":80.0,"coords":[9216,0],"paint":{"solid":"#F2F0E9FF"},"text":"מה","glyphs":[
-        [11,1292.4844,71.046875],
-        [18,1342.7188,71.046875]
+      {"glyphs":{"font":0,"size":64.0,"coords":[9216,0],"paint":{"solid":"#F2F0E9FF"},"text":"מה","glyphs":[
+        [11,1313.1875,56.828125],
+        [18,1353.375,56.828125]
       ],"clusters":[2,0]}}
     ]}},
     {"layer":{"node":"points-body","cell":null,"label":null,"transform":[1.0,0.0,0.0,1.0,546.0,248.48438],"opacity":1.0,"blend":"normal","clip":null,"ops":[

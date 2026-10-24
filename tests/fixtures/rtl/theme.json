@@ -196,7 +196,7 @@
       },
       "headline": {
         "family": "display",
-        "size": 80,
+        "size": 64,
         "weight": 550,
         "leading": 1.0,
         "tracking": -0.015,
@@ -204,7 +204,7 @@
         "wrap": "balance",
         "box": "cap",
         "snap": "cap",
-        "measure": 24,
+        "measure": 32,
         "maxLines": 3,
         "minSize": 56,
         "opticalMargins": true,

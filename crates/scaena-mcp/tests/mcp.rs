@@ -76,6 +76,17 @@ fn scratch(test: &str) -> PathBuf {
     dir
 }
 
+/// A client of a server working in `dir`, as an agent's is started in its project's folder: a
+/// new bundle goes only where the server writes.
+async fn connect_in(dir: &Path) -> Client {
+    serve(
+        scaena_mcp::Scaena::default().with_dir(dir.to_path_buf()),
+        ClientConfig::default(),
+        ClientLifecycleMode::Initialize,
+    )
+    .await
+}
+
 fn path(p: &Path) -> String {
     p.to_str().unwrap().to_string()
 }
@@ -165,8 +176,8 @@ async fn the_resources_say_how_long_to_keep_them() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn an_agent_builds_a_deck_with_the_tools_alone() {
-    let client = connect().await;
     let root = scratch("build");
+    let client = connect_in(&root).await;
     let dir = root.join("q3");
     let bundle = path(&dir);
     // The data file beside the bundle: a tool reads only there or under its own folder.
@@ -303,8 +314,9 @@ async fn an_agent_builds_a_deck_with_the_tools_alone() {
 /// makes one, with no model called.
 #[tokio::test(flavor = "multi_thread")]
 async fn an_agent_starts_a_slide_sets_a_background_and_builds_from_written_slides() {
-    let client = connect().await;
-    let dir = scratch("editors-ops").join("q3");
+    let root = scratch("editors-ops");
+    let client = connect_in(&root).await;
+    let dir = root.join("q3");
     let bundle = path(&dir);
     ok(&client, "deck_create", json!({ "bundle": bundle, "theme": "dusk", "title": "Q3" })).await;
 
@@ -401,8 +413,9 @@ async fn an_agent_starts_a_slide_sets_a_background_and_builds_from_written_slide
 /// with its fonts, and Salon by `gallery`, the name it shipped under, too.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_theme_that_ships_applies_by_its_name() {
-    let client = connect().await;
-    let dir = scratch("theme-by-name").join("deck");
+    let root = scratch("theme-by-name");
+    let client = connect_in(&root).await;
+    let dir = root.join("deck");
     let bundle = path(&dir);
     ok(&client, "deck_create", json!({ "bundle": bundle, "theme": "dusk", "title": "Q3" })).await;
     let named = |dir: &Path| -> Value {
@@ -483,7 +496,8 @@ async fn a_tool_that_stops_says_why() {
         assert!(failure["message"].as_str().is_some_and(|m| !m.is_empty()), "{failure:#}");
         if tool == "deck_history" {
             let message = failure["message"].as_str().unwrap();
-            assert!(message.contains("`scaena save --history` begins one") || message.contains("one of"), "{message}");
+            // It names what an agent can call to begin one (dogfood pass 3, item 4).
+            assert!(message.contains("`deck_history` with `begin`") || message.contains("one of"), "{message}");
         }
         for (k, v) in says.as_object().unwrap() {
             assert_eq!(&failure[k], v, "{tool}: {failure:#}");
@@ -607,6 +621,53 @@ async fn a_theme_is_read_only_from_the_servers_folder_or_by_its_name() {
     client.cancel().await.unwrap();
 }
 
+/// Over MCP a theme's fonts are looked for no higher than the folder it was read under, and a
+/// new bundle goes only where the server writes: a font one folder above the server's is not
+/// read, and no bundle is made outside its folder or in a hidden one (SPEC §7.2).
+#[tokio::test(flavor = "multi_thread")]
+async fn a_themes_fonts_and_a_new_bundle_stay_in_the_servers_folder() {
+    let root = scratch("font-walk");
+    let here = root.join("server");
+    std::fs::create_dir_all(&here).unwrap();
+    let server = scaena_mcp::Scaena::default().with_dir(here.clone());
+    let client = serve(server, ClientConfig::default(), ClientLifecycleMode::Initialize).await;
+    let made = ok(&client, "deck_create", json!({ "bundle": path(&here.join("a")), "theme": "dusk" })).await;
+    assert_eq!(made["created"], true, "{made:#}");
+    // The theme in the server's folder, its fonts one folder above it.
+    std::fs::copy(here.join("a/themes/dusk.theme.json"), here.join("loose.theme.json")).unwrap();
+    copy_dir(&here.join("a/fonts"), &root.join("fonts"));
+    let loose = path(&here.join("loose.theme.json"));
+    let refused = call(&client, "deck_create", json!({ "bundle": path(&here.join("b")), "theme": loose })).await;
+    assert_eq!(refused.is_error, Some(true));
+    assert!(text(&refused).contains("is not beside"), "{}", text(&refused));
+    assert!(!here.join("b").exists());
+    let slides: Value =
+        serde_json::from_str(&std::fs::read_to_string("../scaena-narrato/tests/answers/catalog.json").unwrap())
+            .unwrap();
+    let generated =
+        call(&client, "deck_generate", json!({ "bundle": path(&here.join("c")), "slides": slides, "theme": loose }))
+            .await;
+    assert_eq!(generated.is_error, Some(true));
+    assert!(text(&generated).contains("is not beside"), "{}", text(&generated));
+    // With its fonts beside it, the same theme makes a bundle.
+    copy_dir(&root.join("fonts"), &here.join("fonts"));
+    let made = ok(&client, "deck_create", json!({ "bundle": path(&here.join("b")), "theme": loose })).await;
+    assert_eq!(made["created"], true, "{made:#}");
+    // A new bundle outside the server's folder, or in a hidden one, is not made.
+    for (bundle, tool) in [(root.join("outside"), "deck_create"), (here.join(".hidden/x"), "deck_create")]
+        .into_iter()
+        .chain([(root.join("outside"), "deck_generate"), (here.join(".hidden/x"), "deck_generate")])
+    {
+        let args = json!({ "bundle": path(&bundle), "theme": "dusk", "slides": slides });
+        let args = if tool == "deck_create" { json!({ "bundle": path(&bundle), "theme": "dusk" }) } else { args };
+        let refused = call(&client, tool, args).await;
+        assert_eq!(refused.is_error, Some(true), "{tool} {}", bundle.display());
+        assert!(text(&refused).contains("is outside where this server writes"), "{}", text(&refused));
+        assert!(!bundle.exists(), "{}", bundle.display());
+    }
+    client.cancel().await.unwrap();
+}
+
 fn copy_dir(from: &Path, to: &Path) {
     std::fs::create_dir_all(to).unwrap();
     for entry in std::fs::read_dir(from).unwrap() {
@@ -658,6 +719,87 @@ async fn a_long_export_keeps_going_while_the_client_asks_after_it() {
     // Handed back, it is done with: the next export of the file starts afresh.
     let svg = ok(&client, "deck_export", json!({ "bundle": deck, "format": "svg", "out": images })).await;
     assert!(svg["running"]["of"].as_u64().is_some_and(|of| of as usize == files.len()), "{svg:#}");
+    client.cancel().await.unwrap();
+}
+
+/// Writes to one bundle at once each land (the 20261024 plan's REL-2): an agent calls tools in
+/// parallel, and two patches that read the same deck must not write one over the other while
+/// both say they were made. A deck file names its bundle as its folder does.
+#[tokio::test(flavor = "multi_thread")]
+async fn writes_to_one_bundle_at_once_each_land() {
+    let root = scratch("at-once");
+    let bundle = root.join("q3");
+    let opts = scaena_store::SaveOptions { subset_fonts: false, now: "2026-10-24T00:00:00Z".into(), history: false };
+    scaena_ops::open(&Path::new(EXAMPLES).join("revenue.deck.json")).unwrap().save(&bundle, &opts).unwrap();
+    let server = scaena_mcp::Scaena::default().with_dir(root.clone());
+    let client = serve(server, ClientConfig::default(), ClientLifecycleMode::Initialize).await;
+    let names = [path(&bundle), path(&bundle.join("deck.json"))];
+    let patches: Vec<_> = (0..16)
+        .map(|i| {
+            let ops = json!([{ "op": "add_node", "id": format!("note{i}"), "state": "intro",
+                "node": { "type": "text", "role": "body", "text": format!("Note {i}"), "at": { "in": "canvas" } } }]);
+            let args = json!({ "bundle": names[i % 2], "ops": ops }).as_object().unwrap().clone();
+            let peer = client.peer().clone();
+            tokio::spawn(async move {
+                peer.call_tool(CallToolRequestParams::new("deck_patch".to_string()).with_arguments(args)).await.unwrap()
+            })
+        })
+        .collect();
+    for patch in patches {
+        let done = patch.await.unwrap();
+        assert_ne!(done.is_error, Some(true), "{}", text(&done));
+    }
+    let deck = scaena_ops::open(&bundle).unwrap().deck;
+    let lost: Vec<String> = (0..16).map(|i| format!("note{i}")).filter(|id| !deck.nodes.contains_key(id)).collect();
+    assert!(lost.is_empty(), "patches said they were made, and the deck lacks {lost:?}");
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_agent_makes_a_deck_edits_it_twice_and_restores_the_first_edit() {
+    let dir = scratch("history-loop");
+    let bundle = path(&dir.join("q3"));
+    let client = connect_in(&dir).await;
+    // Made with its history begun: every write after is a version.
+    ok(&client, "deck_create", json!({ "bundle": bundle, "theme": "dusk", "title": "Q3" })).await;
+    let ops = json!([
+        { "op": "add_node", "id": "title", "state": "start",
+          "node": { "type": "text", "role": "display", "text": "Q3 Review", "at": { "in": "title" } } },
+        { "op": "add", "path": "/states/0/layout", "value": "title" }
+    ]);
+    ok(&client, "deck_patch", json!({ "bundle": bundle, "ops": ops })).await;
+    let ops = json!([{ "op": "set_text", "node": "title", "text": "Q3, in full" }]);
+    ok(&client, "deck_patch", json!({ "bundle": bundle, "ops": ops })).await;
+
+    let listed = ok(&client, "deck_history", json!({ "bundle": bundle })).await;
+    let versions = listed["versions"].as_array().expect("the versions");
+    assert_eq!(versions.len(), 3, "{listed:#}");
+    for told in versions {
+        assert!(told["author"].as_str().is_some_and(|by| by.starts_with("agent:")), "{told:#}");
+        assert!(told["by"].as_str().is_some_and(|by| by.starts_with("the assistant")), "{told:#}");
+        assert!(told["said"].as_str().is_some_and(|said| !said.is_empty()), "{told:#}");
+    }
+    assert!(versions[2]["changed"].to_string().contains("Slide 1"), "{listed:#}");
+
+    // What the second edit changed, and what it was before.
+    let compared = ok(&client, "deck_history", json!({ "bundle": bundle, "compare": ["2", "3"] })).await;
+    let start = &compared["compared"]["states"]["start"]["changed"];
+    assert_eq!(start["before"]["nodes"]["title"]["text"], "Q3 Review", "{compared:#}");
+
+    let restored = ok(&client, "deck_history", json!({ "bundle": bundle, "restore": "2" })).await;
+    assert_eq!(restored["restored"]["applied"], true, "{restored:#}");
+    let deck = scaena_ops::open(&dir.join("q3")).unwrap().deck;
+    assert_eq!(deck.nodes["title"].props.get("text"), Some(&json!("Q3 Review")));
+    let listed = ok(&client, "deck_history", json!({ "bundle": bundle })).await;
+    assert_eq!(listed["versions"].as_array().map(Vec::len), Some(4), "the restore is a change of its own");
+
+    // A deck made without one begins it once.
+    let plain = path(&dir.join("plain"));
+    ok(&client, "deck_create", json!({ "bundle": plain, "theme": "dusk", "history": false })).await;
+    let begun = ok(&client, "deck_history", json!({ "bundle": plain, "begin": true })).await;
+    assert_eq!(begun["begun"], true, "{begun:#}");
+    let again = ok(&client, "deck_history", json!({ "bundle": plain, "begin": true })).await;
+    assert_eq!(again["begun"], false, "{again:#}");
     client.cancel().await.unwrap();
 }
 
