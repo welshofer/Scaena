@@ -1104,8 +1104,10 @@ fn alike(doc: &mut Value, view: &View, held: &mut Held) -> Result<bool, OpsError
         let size = if figures { size * 0.9 } else { *size };
         // A quarter of a unit under, so that every one of them fits at it.
         let size = (size * 4.0).floor() / 4.0;
-        // A text that shrinks and took no more than that keeps no cap it does not need.
-        if doc["nodes"][id]["fit"] == "shrink" && reached.get(id).is_some_and(|(r, _)| *r <= size + 0.25) {
+        // A text that shrinks, by its own fit or its slot's, and took no more than that keeps no
+        // cap it does not need.
+        let shrinks = |fit: &TextFit| doc["nodes"][id]["fit"] == "shrink" || *fit == TextFit::Shrink;
+        if reached.get(id).is_some_and(|(r, fit)| shrinks(fit) && *r <= size + 0.25) {
             continue;
         }
         let node = &mut doc["nodes"][id];
@@ -1128,7 +1130,8 @@ fn alike(doc: &mut Value, view: &View, held: &mut Held) -> Result<bool, OpsError
 }
 
 /// Each text of `doc` that grows or shrinks and is one of a set [`alike`] holds to one size:
-/// its set, its state, its id, and its role's size.
+/// its set, its state, its id, and its role's size. A text that says no fit of its own fits as its
+/// slot says, so a set of titles the slot shrinks shrinks together (lift-up dogfood).
 fn growing(doc: &Value, theme: &scaena_engine::theme::Theme) -> Vec<(String, String, String, f64)> {
     let mut members = Vec::new();
     for state in doc["states"].as_array().into_iter().flatten() {
@@ -1136,11 +1139,15 @@ fn growing(doc: &Value, theme: &scaena_engine::theme::Theme) -> Vec<(String, Str
         let layout = state["layout"].as_str().unwrap_or_default();
         for node in shown.keys() {
             let n = &doc["nodes"][node];
-            let (Some("grow" | "shrink"), Some(slot), Some(role)) =
-                (n["fit"].as_str(), n["at"]["in"].as_str(), n["role"].as_str())
-            else {
-                continue;
+            let (Some(slot), Some(role)) = (n["at"]["in"].as_str(), n["role"].as_str()) else { continue };
+            let slotted = || theme.layouts.get(layout).and_then(|l| l.slots.get(slot)).and_then(|s| s.fit);
+            let fits = match n["fit"].as_str() {
+                Some(fit) => matches!(fit, "grow" | "shrink"),
+                None => matches!(slotted(), Some(TextFit::Grow | TextFit::Shrink)),
             };
+            if !fits {
+                continue;
+            }
             let Some(size) = theme.typography.roles.get(role).map(|r| r.size) else { continue };
             let set = match ordinal(slot) {
                 Some((_, part)) => format!("{id}\u{1f}{part}\u{1f}{role}"),
@@ -4889,6 +4896,46 @@ mod tests {
         assert_eq!(layout, "milestones");
     }
 
+    /// A set's titles stay one size (G.12, lift-up dogfood): How It Works' step titles take the
+    /// lines they need at the set's size, every step's words on one row, and one too long for its
+    /// place shrinks its set with it, the slot's own fit held as a text's is.
+    #[test]
+    fn a_steps_titles_wrap_at_one_size_and_shrink_together() {
+        let (summary, slides) = catalog();
+        let made = |bullets: &[&str]| {
+            let mut slide = slides.iter().find(|s| s.layout_suggestion == "How It Works").unwrap().clone();
+            slide.key_bullets = bullets.iter().map(|b| b.to_string()).collect();
+            let n = narrative(&summary, vec![slides[0].clone(), slide, slides[55].clone()]);
+            let (made, write) = generating(&n, Path::new("dusk.theme.json"), dusk(), &font).unwrap();
+            assert!(made.created.created, "{:#?}", made.created.findings);
+            assert_eq!(made.layouts[1], "how-it-works");
+            let deck = write.unwrap().deck.to_value().unwrap();
+            let state = deck["states"][1]["id"].as_str().unwrap().to_string();
+            let caps: Vec<Option<f64>> = ["first", "second", "third"]
+                .iter()
+                .map(|o| deck["nodes"][format!("{state}-{o}-title")]["maxSize"].as_f64())
+                .collect();
+            caps
+        };
+        // Each fits its two lines: none shrinks, each at the role's size.
+        let held = made(&[
+            "Start with how common it is: the base rate",
+            "Multiply by how often the test catches it: sensitivity",
+            "Divide by all the ways to test positive: the true and the false alike",
+        ]);
+        assert!(held.iter().all(Option::is_none), "none shrinks: {held:?}");
+        // One too long for its two lines shrinks, and the others with it, to one size: theirs
+        // capped at the size it reached, which, shrinking to fit, needs no cap of its own.
+        let held = made(&[
+            "Base rate: how common it is",
+            "Sensitivity: how often it catches it",
+            "Divide by every way that anyone at all could test positive: the true and the false alike",
+        ]);
+        let caps: Vec<f64> = held.iter().flatten().copied().collect();
+        assert_eq!(caps.len(), 2, "the two that fit are capped: {held:?}");
+        assert!(caps[0] == caps[1] && caps[0] < 48.0 && held[2].is_none(), "shrunk together: {held:?}");
+    }
+
     /// Short words in a large place grow to fill it (dogfood pass 4): each side's list of a
     /// pros and cons, each month's of a roadmap, as one set; a slide's one short list past the
     /// lede, under its headline still. Prices each with a tier go on a pricing slide, the tier
@@ -6177,7 +6224,7 @@ mod tests {
         assert!(holds(&theme, "head-to-head", 4) && !holds(&theme, "head-to-head", 5));
         assert!(holds(&theme, "receipt", 5) && !holds(&theme, "receipt", 6));
         let (summary, slides) = catalog();
-        let mut steps = slides.iter().find(|s| s.layout_suggestion == "Steps").unwrap().clone();
+        let mut steps = slides.iter().find(|s| s.layout_suggestion == "How It Works").unwrap().clone();
         steps.key_bullets.extend(["Report: certificates reach the buyer".into(), "Renew: the lane books again".into()]);
         let made =
             deck(&narrative(&summary, vec![slides[0].clone(), steps, slides[55].clone()]), &theme, &Pictures::new())

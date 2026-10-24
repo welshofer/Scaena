@@ -484,13 +484,14 @@ layout("Process", "how-it-works", "Three steps, each under its large number: how
     "kicker": KICKER,
     "header": header(),
     # A step reads as one piece: its number stands on its title, a row clear of the headline, and
-    # its title, on one row, on what happens. A title too wide for its row shrinks to fit it.
+    # its title on what happens. A title takes the two lines it needs at the set's size, every
+    # step's words starting on one row; one too long for two shrinks, its set with it.
     **{f"{o}-number": slot(c, (4, 5), "numeral", str(i + 1), align={"y": "end"}) for i, (o, c) in enumerate(zip(ORDINALS, THIRDS))},
-    **{f"{o}-title": slot(c, (6, 6), "title", w, fit="shrink") for o, c, w in zip(ORDINALS, THIRDS, ["Sign up", "Set it up", "Go"])},
-    **{o: slot(c, (7, 10), "body", "What happens, in a line") for o, c in zip(ORDINALS, THIRDS)},
+    **{f"{o}-title": slot(c, (6, 7), "title", w, fit="shrink") for o, c, w in zip(ORDINALS, THIRDS, ["Sign up", "Set it up", "Go"])},
+    **{o: slot(c, (8, 10), "body", "What happens, in a line") for o, c in zip(ORDINALS, THIRDS)},
     # Ember's numeral is large enough that its descent, under a number set on its slot's foot,
     # reaches a row's gutter: its number ends a row above its title.
-}, ember={**{f"{o}-number": (c, (4, 7)) for o, c in zip(ORDINALS, THIRDS)}, **{f"{o}-title": (c, (9, 9)) for o, c in zip(ORDINALS, THIRDS)}, **{o: (c, (10, 12)) for o, c in zip(ORDINALS, THIRDS)}})
+}, ember={**{f"{o}-number": (c, (4, 7)) for o, c in zip(ORDINALS, THIRDS)}, **{f"{o}-title": (c, (9, 10)) for o, c in zip(ORDINALS, THIRDS)}, **{o: (c, (11, 12)) for o, c in zip(ORDINALS, THIRDS)}})
 
 layout("Process", "pipeline", "Stages in order, each with how many reach it and how many go on.", {
     "kicker": KICKER,
