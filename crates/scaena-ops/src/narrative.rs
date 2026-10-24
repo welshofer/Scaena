@@ -14,6 +14,7 @@ use crate::lint::{View, Write, lint_in};
 use crate::{Context, OpsError};
 use base64::Engine;
 use scaena_core::inserts::slug;
+use scaena_core::model::nodes::TextFit;
 use scaena_core::model::theme::{Example, Prompt, PromptItems, PromptShapeKind, Slot, Theme};
 use scaena_core::model::values::Range;
 use scaena_core::{Deck, Finding};
@@ -1020,7 +1021,7 @@ fn alike(doc: &mut Value, view: &View, held: &mut Held) -> Result<bool, OpsError
     let mut least: BTreeMap<&str, f64> = BTreeMap::new();
     let mut counts: BTreeMap<&str, usize> = BTreeMap::new();
     for (set, _, id, _) in &members {
-        let Some(size) = reached.get(id) else { continue };
+        let Some((size, _)) = reached.get(id) else { continue };
         let at = least.entry(set.as_str()).or_insert(f64::INFINITY);
         *at = at.min(*size);
         *counts.entry(set.as_str()).or_default() += 1;
@@ -1035,7 +1036,7 @@ fn alike(doc: &mut Value, view: &View, held: &mut Held) -> Result<bool, OpsError
         // A quarter of a unit under, so that every one of them fits at it.
         let size = (size * 4.0).floor() / 4.0;
         // A text that shrinks and took no more than that keeps no cap it does not need.
-        if doc["nodes"][id]["fit"] == "shrink" && reached.get(id).is_some_and(|r| *r <= size + 0.25) {
+        if doc["nodes"][id]["fit"] == "shrink" && reached.get(id).is_some_and(|(r, _)| *r <= size + 0.25) {
             continue;
         }
         let node = &mut doc["nodes"][id];
@@ -1091,7 +1092,7 @@ fn reached(
     view: &View,
     theme: &scaena_engine::theme::Theme,
     members: &[(String, String, String, f64)],
-) -> Result<BTreeMap<String, f64>, OpsError> {
+) -> Result<BTreeMap<String, (f64, TextFit)>, OpsError> {
     let mut engine = crate::lint::engine_in(deck, view, theme, None)?;
     let data = crate::lint::data_in(deck, view)?;
     let mut reached = BTreeMap::new();
@@ -1103,7 +1104,7 @@ fn reached(
         let Ok(placed) = engine.text_layouts(&req, &ids) else { continue };
         for (id, p) in ids.iter().zip(&placed) {
             let size = members.iter().find(|m| m.2 == *id).map_or(0.0, |m| m.3);
-            reached.insert(id.to_string(), f64::from(p.scale) * size);
+            reached.insert(id.to_string(), (f64::from(p.scale) * size, p.fit));
         }
     }
     Ok(reached)
@@ -1124,13 +1125,13 @@ fn clear(doc: &mut Value, view: &View, found: Vec<Finding>, held: &mut Held) -> 
     struct Step {
         was: f64,
         most: Option<Value>,
-        fit: Value,
+        fit: Option<Value>,
     }
     let mut findings = found;
     let mut steps: BTreeMap<String, Step> = BTreeMap::new();
     let mut stuck: BTreeSet<String> = BTreeSet::new();
-    // Each text stepped, as it was before its first step: its `maxSize` and its fit.
-    let mut first: BTreeMap<String, (Option<Value>, Value)> = BTreeMap::new();
+    // Each text stepped, as it was before its first step: its `maxSize` and its own fit.
+    let mut first: BTreeMap<String, (Option<Value>, Option<Value>)> = BTreeMap::new();
     let mut theme = None;
     for round in 0..16 {
         let deck = Deck::from_json(&doc.to_string()).context("the deck")?;
@@ -1142,8 +1143,9 @@ fn clear(doc: &mut Value, view: &View, found: Vec<Finding>, held: &mut Held) -> 
         if round > 0 {
             findings = lint_in(&deck, view)?.findings;
         }
-        // Each text that grows or shrinks in a collision, or whose descenders crowd the text under
-        // it (I405, by no overlap): the largest overlap it is in, and where.
+        // Each text in a collision, or whose descenders crowd the text under it (I405, by no
+        // overlap): the largest overlap it is in, and where. Whether it grows or shrinks is read
+        // as it is laid out, by its own fit or its slot's.
         let mut colliding: BTreeMap<String, (f64, String, f64, f64)> = BTreeMap::new();
         for f in findings.iter().filter(|f| f.code == "E101" || f.code == "I405") {
             let Some(m) = f.measure.as_ref() else { continue };
@@ -1160,7 +1162,7 @@ fn clear(doc: &mut Value, view: &View, found: Vec<Finding>, held: &mut Held) -> 
             };
             for id in ids.iter().filter_map(Value::as_str) {
                 let n = &doc["nodes"][id];
-                let (Some("grow" | "shrink"), Some(role)) = (n["fit"].as_str(), n["role"].as_str()) else { continue };
+                let Some(role) = n["role"].as_str() else { continue };
                 let Some(size) = theme.typography.roles.get(role).map(|r| r.size) else { continue };
                 let at = colliding.entry(id.to_string()).or_insert((0.0, state.to_string(), size, 1.0));
                 at.0 = at.0.max(area);
@@ -1175,7 +1177,7 @@ fn clear(doc: &mut Value, view: &View, found: Vec<Finding>, held: &mut Held) -> 
         // A step that left the collision as large for the text's size is taken back.
         for (id, step) in std::mem::take(&mut steps) {
             let now = match (colliding.get(&id), reached.get(&id)) {
-                (Some((area, ..)), Some(at)) => badness(*area, *at),
+                (Some((area, ..)), Some((at, _))) => badness(*area, *at),
                 _ => continue,
             };
             if !less(now, step.was) {
@@ -1186,14 +1188,19 @@ fn clear(doc: &mut Value, view: &View, found: Vec<Finding>, held: &mut Held) -> 
                         node.as_object_mut().map(|n| n.remove("maxSize"));
                     }
                 }
-                node["fit"] = step.fit;
+                match step.fit {
+                    Some(fit) => node["fit"] = fit,
+                    None => {
+                        node.as_object_mut().map(|n| n.remove("fit"));
+                    }
+                }
                 stuck.insert(id);
             }
         }
         let mut changed = false;
         for (_, _, id, size) in &members {
-            let (Some(at), Some((area, _, _, aim))) = (reached.get(id), colliding.get(id)) else { continue };
-            if stuck.contains(id) {
+            let (Some((at, laid)), Some((area, _, _, aim))) = (reached.get(id), colliding.get(id)) else { continue };
+            if stuck.contains(id) || !matches!(laid, TextFit::Grow | TextFit::Shrink) {
                 continue;
             }
             // A twentieth smaller, or to the size that leaves the gutter under it, on a quarter of a
@@ -1205,8 +1212,8 @@ fn clear(doc: &mut Value, view: &View, found: Vec<Finding>, held: &mut Held) -> 
                 stuck.insert(id.clone());
                 continue;
             }
-            let fit = node["fit"].clone();
-            if fit == "grow" && next < *size {
+            let fit = node.get("fit").cloned();
+            if *laid == TextFit::Grow && next < *size {
                 node["fit"] = json!("shrink");
                 held.grew.insert(id.clone());
             }
@@ -5088,40 +5095,67 @@ mod tests {
 
     #[test]
     fn a_big_numbers_tail_is_set_clear_of_the_words_under_it_by_the_themes_gutter() {
-        // A figure grows to fill its place, its baseline on the place's foot, and a comma's tail
-        // hangs below it toward the words under it. Let grow past the theme's cap, "40,000"'s comma
-        // comes within the theme's gutter of its claim (I405): the deck made sets it smaller until
-        // lint finds the gutter between them.
-        let text = serde_json::json!({
-            "executiveSummary": "Delivery is slow.",
-            "slides": [
-                { "slideTitle": "Delivery is slow", "subtitle": "A talk", "layoutSuggestion": "Title",
-                  "keyBullets": [], "beatIndex": 0, "beatName": "Hook" },
-                { "slideTitle": "Orders wait too long", "subtitle": "", "layoutSuggestion": "Big Number",
-                  "keyBullets": ["40,000", "orders a week wait more than ten days"], "beatIndex": 1,
-                  "beatName": "Problem" },
-                { "slideTitle": "Thank you", "subtitle": "", "layoutSuggestion": "Closing", "keyBullets": [],
-                  "beatIndex": 2, "beatName": "Close" },
-            ]
-        })
-        .to_string();
-        let written = answer::slides(&text).unwrap();
-        let n = narrative(&written.executive_summary, written.slides);
-        for name in ["dusk", "ember", "salon"] {
+        // A figure fills its place, its baseline on the place's foot, set by the place's own fit,
+        // and a "y" or a comma's tail hangs below it toward the words under it (I405). The deck made
+        // sets it smaller until lint finds the theme's gutter between them: "11 days" over its
+        // claim, as a keynote wrote it, in Ember, and "40,000" let grow past the theme's cap.
+        let slides = |figure: &str, claim: &str| {
+            serde_json::json!({
+                "executiveSummary": "A town kept its lights on.",
+                "slides": [
+                    { "slideTitle": "Port Alder", "subtitle": "A talk", "layoutSuggestion": "Title",
+                      "keyBullets": [], "beatIndex": 0, "beatName": "Hook" },
+                    { "slideTitle": "For eleven days in October, Port Alder went dark", "subtitle": "",
+                      "layoutSuggestion": "Big Number", "keyBullets": [figure, claim], "beatIndex": 1,
+                      "beatName": "Call to Adventure" },
+                    { "slideTitle": "Thank you", "subtitle": "", "layoutSuggestion": "Closing", "keyBullets": [],
+                      "beatIndex": 2, "beatName": "Close" },
+                ]
+            })
+            .to_string()
+        };
+        let cases = [
+            ("ember", "11 days", "without power after Storm Elsa, October 2023", None),
+            ("dusk", "40,000", "orders a week wait more than ten days", Some(640)),
+            ("ember", "40,000", "orders a week wait more than ten days", Some(640)),
+            ("salon", "40,000", "orders a week wait more than ten days", Some(640)),
+        ];
+        for (name, figure, claim, grown) in cases {
+            let written = answer::slides(&slides(figure, claim)).unwrap();
+            let n = narrative(&written.executive_summary, written.slides);
             let file = format!("{name}.theme.json");
             let json = std::fs::read_to_string(root().join("docs/examples/themes").join(&file)).unwrap();
             let theme: Theme = serde_json::from_str(&json).unwrap();
             let mut built = deck(&n, &theme, &Pictures::new()).unwrap();
-            let number = "orders-wait-too-long-number";
-            assert_eq!(built.deck["nodes"][number]["text"], "40,000", "{name}");
-            built.deck["nodes"][number]["fit"] = json!("grow");
-            built.deck["nodes"][number]["maxSize"] = json!(640);
+            let state = built.deck["states"][1]["id"].as_str().unwrap().to_string();
+            let number = format!("{state}-number");
+            assert_eq!(built.deck["nodes"][&number]["text"], figure, "{name}");
+            match grown {
+                Some(most) => {
+                    built.deck["nodes"][&number]["fit"] = json!("grow");
+                    built.deck["nodes"][&number]["maxSize"] = json!(most);
+                }
+                // As made: no fit of its own, its place's.
+                None => assert!(built.deck["nodes"][&number].get("fit").is_none(), "{name}"),
+            }
             let (made, write) = making(built, "Problem\u{2013}Solution", Path::new(&file), json, &font).unwrap();
             let crowded: Vec<_> =
                 made.created.findings.iter().filter(|f| f.code == "I405" || f.code == "E101").collect();
-            assert!(crowded.is_empty(), "{name}: {crowded:#?}");
+            assert!(crowded.is_empty(), "{name} {figure}: {crowded:#?}");
             let deck = write.unwrap().deck.to_value().unwrap();
-            assert!(deck["nodes"][number]["maxSize"].as_f64().unwrap() < 640.0, "{name}: {:#}", deck["nodes"][number]);
+            let most = deck["nodes"][&number]["maxSize"].as_f64();
+            assert!(
+                most.is_some_and(|m| m < f64::from(grown.unwrap_or(400))),
+                "{name} {figure}: {:#}",
+                deck["nodes"][&number]
+            );
+            if grown.is_none() {
+                assert!(
+                    deck["nodes"][&number].get("fit").is_none(),
+                    "its place's fit stands: {:#}",
+                    deck["nodes"][&number]
+                );
+            }
         }
     }
 
