@@ -88,12 +88,14 @@ async fn the_tools_and_resources_are_listed() {
     assert_eq!(
         tools,
         [
+            "background_set",
             "data_attach",
             "data_edit",
             "deck_create",
             "deck_diff",
             "deck_export",
             "deck_find",
+            "deck_generate",
             "deck_health",
             "deck_history",
             "deck_inspect",
@@ -105,6 +107,7 @@ async fn the_tools_and_resources_are_listed() {
             "map_fetch",
             "spine_read",
             "spine_update",
+            "state_start",
             "theme_apply",
             "theme_edit"
         ]
@@ -286,6 +289,106 @@ async fn an_agent_builds_a_deck_with_the_tools_alone() {
     assert_eq!((refused["refused"].clone(), refused["applied"].clone()), (json!(true), json!(false)), "{refused:#}");
     assert!(refused["added"].as_array().unwrap().iter().any(|f| f["code"] == "E102"), "{refused:#}");
     assert_eq!(held(), kept, "a refused edit writes nothing");
+    client.cancel().await.unwrap();
+}
+
+/// The operations the editors have, as tools (narrative FUNC-5): a slide started in a theme
+/// layout as Add Slide starts one, a slide's background set and taken away as the Format tab
+/// does, and a deck made from slides written in Narrato's JSON, as `scaena generate --slides`
+/// makes one, with no model called.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_agent_starts_a_slide_sets_a_background_and_builds_from_written_slides() {
+    let client = connect().await;
+    let dir = scratch("editors-ops").join("q3");
+    let bundle = path(&dir);
+    ok(&client, "deck_create", json!({ "bundle": bundle, "theme": "dusk", "title": "Q3" })).await;
+
+    // A slide started in Bullets after the first slide: a new absolute state in the layout, a
+    // text in each slot that holds words, its words the slot's prompt; a dry run writes nothing.
+    let dry =
+        ok(&client, "state_start", json!({ "bundle": bundle, "state": "start", "layout": "bullets", "dry_run": true }))
+            .await;
+    assert_eq!((dry["applied"].clone(), dry["id"].clone()), (json!(false), json!("bullets")), "{dry:#}");
+    let deck = || -> Value { serde_json::from_str(&std::fs::read_to_string(dir.join("deck.json")).unwrap()).unwrap() };
+    assert_eq!(deck()["states"].as_array().unwrap().len(), 1, "a dry run writes nothing");
+    let started = ok(&client, "state_start", json!({ "bundle": bundle, "state": "start", "layout": "bullets" })).await;
+    assert_eq!((started["applied"].clone(), started["id"].clone()), (json!(true), json!("bullets")), "{started:#}");
+    assert_eq!(started["errors"], 0, "{started:#}");
+    let d = deck();
+    assert_eq!(d["states"][1]["id"], "bullets");
+    assert_eq!(
+        (d["states"][1]["layout"].clone(), d["states"][1]["mode"].clone()),
+        (json!("bullets"), json!("absolute"))
+    );
+    let texts = d["nodes"].as_object().unwrap().values().filter(|n| n["type"] == "text").count();
+    assert!(texts >= 2, "a text in each slot that holds words: {d:#}");
+    // A layout the theme lacks stops it, saying so.
+    let lacks = call(&client, "state_start", json!({ "bundle": bundle, "state": "start", "layout": "nowhere" })).await;
+    assert_eq!(lacks.is_error, Some(true));
+    assert!(text(&lacks).contains("no layout `nowhere`"), "{}", text(&lacks));
+
+    // The new slide's background: Texture, kept to its slide; then taken away.
+    let set = ok(&client, "background_set", json!({ "bundle": bundle, "state": "bullets", "preset": "texture" })).await;
+    assert_eq!((set["applied"].clone(), set["errors"].clone()), (json!(true), json!(0)), "{set:#}");
+    let shaders = |d: &Value, state: usize| -> Vec<String> {
+        let ids: Vec<String> = d["nodes"]
+            .as_object()
+            .unwrap()
+            .iter()
+            .filter(|(_, n)| n["type"] == "shader")
+            .map(|(id, _)| id.clone())
+            .collect();
+        let snaps = scaena_core::resolve_states(&scaena_core::Deck::from_value(d).unwrap()).unwrap();
+        ids.into_iter().filter(|id| snaps[state].nodes.contains_key(id)).collect()
+    };
+    let d = deck();
+    assert_eq!(shaders(&d, 1), ["bullets-background"], "{d:#}");
+    assert!(shaders(&d, 0).is_empty(), "it stays on its slide");
+    assert_eq!(d["nodes"]["bullets-background"]["preset"], "texture");
+    let gone = ok(&client, "background_set", json!({ "bundle": bundle, "state": "bullets" })).await;
+    assert_eq!(gone["applied"], true, "{gone:#}");
+    assert!(shaders(&deck(), 1).is_empty());
+    let lacks =
+        call(&client, "background_set", json!({ "bundle": bundle, "state": "bullets", "preset": "nowhere" })).await;
+    assert_eq!(lacks.is_error, Some(true));
+    assert!(text(&lacks).contains("no shader preset `nowhere`"), "{}", text(&lacks));
+
+    // A deck from slides written elsewhere, with no model called and no key: the arc chosen for
+    // the brief, each slide in a theme layout, and the fields health reads.
+    let slides: Value =
+        serde_json::from_str(&std::fs::read_to_string("../scaena-narrato/tests/answers/catalog.json").unwrap())
+            .unwrap();
+    let made_dir = scratch("editors-ops").join("tidewater");
+    let made = ok(
+        &client,
+        "deck_generate",
+        json!({ "bundle": path(&made_dir), "slides": slides, "theme": "ember", "topic": "Tidewater's Series A",
+                "audience": "Investors", "goal": "Persuade", "arc": "Problem–Solution" }),
+    )
+    .await;
+    assert_eq!(
+        (made["created"]["created"].clone(), made["created"]["errors"].clone()),
+        (json!(true), json!(0)),
+        "{made:#}"
+    );
+    assert_eq!(made["arc"], "Problem–Solution", "{made:#}");
+    assert_eq!(made["layouts"].as_array().unwrap().len(), 56, "{made:#}");
+    let d: Value = serde_json::from_str(&std::fs::read_to_string(made_dir.join("deck.json")).unwrap()).unwrap();
+    assert_eq!(d["theme"], "themes/ember.theme.json");
+    assert_eq!(d["meta"]["narrative"]["generator"], "narrato");
+    let health = ok(&client, "deck_health", json!({ "bundle": path(&made_dir) })).await;
+    assert_eq!(health["arc"], "Problem–Solution", "{health:#}");
+    assert_eq!(health["slides"].as_array().unwrap().len(), 56, "{health:#}");
+    // A place taken, and an arc Narrato lacks, are refused before anything is made.
+    let taken = call(&client, "deck_generate", json!({ "bundle": path(&made_dir), "slides": slides })).await;
+    assert!(text(&taken).contains("not an empty directory"), "{}", text(&taken));
+    let no_arc = call(
+        &client,
+        "deck_generate",
+        json!({ "bundle": path(&scratch("editors-ops").join("none")), "slides": slides, "arc": "Spiral" }),
+    )
+    .await;
+    assert!(text(&no_arc).contains("no arc of Narrato's"), "{}", text(&no_arc));
     client.cancel().await.unwrap();
 }
 
