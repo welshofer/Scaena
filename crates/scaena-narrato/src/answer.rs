@@ -45,6 +45,10 @@ pub struct Slide {
     /// under the icon its word finds.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub icons: Vec<String>,
+    /// The name of the source the slide's facts come from, as the prompt's `=== SOURCE: … ===`
+    /// names it (Scaena's, narrative FUNC-3): what its beat's evidence cites.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_ref: Option<String>,
 }
 
 /// The exact figures a chart plots.
@@ -161,6 +165,7 @@ pub fn normalize(raw: &Value) -> Slide {
             .filter_map(Value::as_str)
             .map(|s| js::trim(s).to_string())
             .collect(),
+        source_ref: some("sourceRef"),
     }
 }
 
@@ -328,6 +333,17 @@ mod tests {
             normalize(&json!({ "keyBullets": ["Fast: a day", "Safe: sealed"], "icons": [" rocket ", "shield", 3] }));
         assert_eq!(s.icons, ["rocket", "shield"]);
         assert!(normalize(&json!({ "icons": null })).icons.is_empty());
+    }
+
+    /// Scaena's `sourceRef` (narrative FUNC-3): the source's name, trimmed; none where it is left
+    /// out, blank, or null.
+    #[test]
+    fn a_slides_source_is_read_as_named() {
+        let s = normalize(&json!({ "slideTitle": "Shipping", "sourceRef": " notes.md " }));
+        assert_eq!(s.source_ref.as_deref(), Some("notes.md"));
+        for none in [json!({}), json!({ "sourceRef": "  " }), json!({ "sourceRef": null })] {
+            assert_eq!(normalize(&none).source_ref, None, "{none}");
+        }
     }
 
     #[test]
