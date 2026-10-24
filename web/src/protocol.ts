@@ -640,6 +640,8 @@ export interface Thumb {
   width?: number;
   height?: number;
   pixels?: ArrayBuffer;
+  /** Why it could not be painted, said in words (lift-up STAB-4): no pixels come with it. */
+  failed?: string;
 }
 
 /** A node a patch adds: its id, where it lands, and the patch. */
