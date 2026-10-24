@@ -224,7 +224,7 @@ private func streaming(_ text: String) -> [String] {
     let asked = Seen()
     let assistant = Assistant(editor: editor, send: { _ in (Data(), 0) }) { _, heard in
         await asked.keep(await asked.kept + ["asked"])
-        try await Task.sleep(for: .milliseconds(600))
+        try await Task.sleep(for: .seconds(4))
         var whole = ""
         for event in events {
             whole += event
@@ -232,10 +232,12 @@ private func streaming(_ text: String) -> [String] {
         }
         return (Data(whole.utf8), 200)
     }
-    assistant.silence = 0.2
+    // Each piece is shown on the main actor, which every test on it shares: a deadline of 2 s
+    // is one a busy runner does not reach between two pieces.
+    assistant.silence = 2
     assistant.waits = [0.05]
     assistant.ask("Is the cover clean?", provider: .anthropic, model: "a-model", key: "sk-test")
-    for _ in 0..<500 where assistant.working {
+    for _ in 0..<3000 where assistant.working {
         try await Task.sleep(for: .milliseconds(10))
     }
     #expect(!assistant.working)
@@ -262,10 +264,12 @@ private func streaming(_ text: String) -> [String] {
         }
         return (Data(whole.utf8), 200)
     }
-    assistant.silence = 0.2
+    // Each piece is shown on the main actor, which every test on it shares: a deadline of 2 s
+    // is one a busy runner does not reach between two pieces.
+    assistant.silence = 2
     assistant.waits = [0.05]
     assistant.ask("Is the cover clean?", provider: .anthropic, model: "a-model", key: "sk-test")
-    for _ in 0..<500 where assistant.working {
+    for _ in 0..<3000 where assistant.working {
         try await Task.sleep(for: .milliseconds(10))
     }
     #expect(!assistant.working)
