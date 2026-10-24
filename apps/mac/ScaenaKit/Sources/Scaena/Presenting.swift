@@ -19,13 +19,27 @@ import SwiftUI
 /// rest follows it (PLAN 2.70): a state is shown, a web address opens in the browser. The
 /// presenter's keys are the browser's player's (PLAN 2.105): B or . a black screen and W or , a
 /// white one, until a key or a click brings the slide back; a slide's number then Return; L the
-/// laser, where the pointer is over the slide or the presenter's; and ? the keys, listed.
+/// laser, where the pointer is over the slide or the presenter's; and ? the keys, listed. While
+/// the deck plays, the screen stays awake (`Awake`), and a display that comes or goes moves the
+/// stage: a projector plugged in after Play takes it, and one unplugged gives it back (`Staging`,
+/// lift-up REL-1).
 @MainActor
 enum Presenting {
-    private static var windows: [NSWindow] = []
+    private static var showing: Showing?
+    /// The stage, while the deck plays.
+    private static var stage: StageWindow?
+    /// The presenter's window, while the stage is on another display.
+    private static var presenter: NSWindow?
     private static var closing: NSObjectProtocol?
+    /// The displays watched for one that comes or goes while the deck plays (lift-up REL-1).
+    private static var displays: NSObjectProtocol?
+    /// The display the deck is edited on, where the presenter's window goes: the key window's as
+    /// the show began, whatever window is key after.
+    private static var home: CGDirectDisplayID?
+    /// The screen kept awake while the deck plays (lift-up REL-1).
+    private static var awake: Awake?
     /// The show that plays, if one does: what a remote drives (PLAN 4.10).
-    private(set) static weak var current: Showing?
+    static var current: Showing? { showing }
     /// What is told, as the show ends, the state it stopped on.
     private static var stopped: ((String) -> Void)?
 
@@ -36,55 +50,103 @@ enum Presenting {
         Self.stopped = stopped
         let showing = Showing(editor: editor, from: state)
         showing.ended = { Presenting.end() }
-        current = showing
+        self.showing = showing
         RemoteHost.shared.follow(showing)
-        let main = NSScreen.main ?? NSScreen.screens.first
-        let external = NSScreen.screens.first { $0 != main }
-        guard let screen = external ?? main else { return }
-        let stage = StageWindow(screen: screen, content: StageView(showing: showing))
-        windows = [stage]
-        showing.elsewhere = external != nil && main != nil
-        if external != nil, let main {
-            let presenter = NSWindow(
-                contentRect: main.visibleFrame, styleMask: [.titled, .closable, .miniaturizable, .resizable],
-                backing: .buffered, defer: false)
-            presenter.title = "Presenter"
-            presenter.isReleasedWhenClosed = false
-            presenter.contentView = NSHostingView(rootView: PresenterView(showing: showing))
-            presenter.setFrame(main.visibleFrame, display: true)
-            // Closing the presenter's window ends the show.
-            closing = NotificationCenter.default.addObserver(
-                forName: NSWindow.willCloseNotification, object: presenter, queue: .main
-            ) { _ in
-                Task { @MainActor in Presenting.end() }
-            }
-            windows.append(presenter)
-            stage.orderFrontRegardless()
-            presenter.makeKeyAndOrderFront(nil)
-        } else {
-            stage.makeKeyAndOrderFront(nil)
+        guard let first = NSScreen.main ?? NSScreen.screens.first else { return }
+        home = first.displayID
+        awake = Awake(reason: "Scaena is presenting a deck")
+        stage = StageWindow(screen: first, content: StageView(showing: showing))
+        place()
+        // A display that comes or goes while the deck plays: a projector plugged in after Play
+        // takes the stage, and one unplugged gives it back (lift-up REL-1).
+        displays = NotificationCenter.default.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main
+        ) { _ in
+            Task { @MainActor in Presenting.place() }
         }
         NSApp.activate()
         NSCursor.setHiddenUntilMouseMoves(true)
     }
 
-    /// End the show: its windows close, and the window that played it shows where it stopped.
+    /// The stage where it belongs (`Staging`): on a display other than the one the deck is edited
+    /// on where there is one, the presenter's window on that one; else on it alone. Read again as
+    /// displays come and go, each window moved where it now belongs, the presenter's opened or closed.
+    static func place() {
+        guard let showing, let stage else { return }
+        let screens = NSScreen.screens
+        guard let placed = Staging(home: home, among: screens.map(\.displayID)) else { return }
+        let onto = screens.first { $0.displayID == placed.stage } ?? screens[0]
+        if stage.frame != onto.frame { stage.setFrame(onto.frame, display: true) }
+        showing.elsewhere = placed.presenter != nil
+        let main = placed.presenter.flatMap { id in screens.first { $0.displayID == id } }
+        switch (main, presenter) {
+        case (let main?, nil):
+            let window = NSWindow(
+                contentRect: main.visibleFrame, styleMask: [.titled, .closable, .miniaturizable, .resizable],
+                backing: .buffered, defer: false)
+            window.title = "Presenter"
+            window.isReleasedWhenClosed = false
+            window.contentView = NSHostingView(rootView: PresenterView(showing: showing))
+            window.setFrame(main.visibleFrame, display: true)
+            // Closing the presenter's window ends the show.
+            closing = NotificationCenter.default.addObserver(
+                forName: NSWindow.willCloseNotification, object: window, queue: .main
+            ) { _ in
+                Task { @MainActor in Presenting.end() }
+            }
+            presenter = window
+            stage.orderFrontRegardless()
+            window.makeKeyAndOrderFront(nil)
+        case (let main?, let window?):
+            if window.frame != main.visibleFrame { window.setFrame(main.visibleFrame, display: true) }
+        case (nil, let window?):
+            // The display the stage was on is gone: the stage comes home, and the presenter's
+            // window goes, its close no longer the show's end.
+            dismiss(window)
+            stage.makeKeyAndOrderFront(nil)
+        case (nil, nil):
+            if !stage.isKeyWindow { stage.makeKeyAndOrderFront(nil) }
+        }
+    }
+
+    /// The presenter's window closed by the show, not by a person: closing it ends nothing.
+    private static func dismiss(_ window: NSWindow) {
+        if let closing { NotificationCenter.default.removeObserver(closing) }
+        closing = nil
+        presenter = nil
+        window.orderOut(nil)
+        window.close()
+    }
+
+    /// End the show: its windows close, the screen may sleep, and the window that played it shows
+    /// where it stopped.
     static func end() {
-        let reached = current?.show.slot?.state
+        let reached = showing?.show.slot?.state
         let tell = stopped
         stopped = nil
         defer { if let reached { tell?(reached) } }
         Pointer.hidden(false)
-        current = nil
+        showing = nil
         RemoteHost.shared.follow(nil)
-        if let closing { NotificationCenter.default.removeObserver(closing) }
-        closing = nil
-        let open = windows
-        windows = []
-        for window in open {
-            window.orderOut(nil)
-            window.close()
+        if let displays { NotificationCenter.default.removeObserver(displays) }
+        displays = nil
+        awake?.end()
+        awake = nil
+        if let presenter { dismiss(presenter) }
+        if let stage {
+            stage.orderOut(nil)
+            stage.close()
         }
+        stage = nil
+        home = nil
+    }
+}
+
+extension NSScreen {
+    /// The display this screen is, as the system numbers it: the same display across the screens
+    /// AppKit makes for it as displays come and go.
+    var displayID: CGDirectDisplayID {
+        (deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value ?? 0
     }
 }
 #else
@@ -101,6 +163,9 @@ enum Presenting {
     /// The stage on the display the iPad drives, while the deck plays there.
     private static var stage: UIWindow?
     private static var watching: [NSObjectProtocol] = []
+    /// The iPad kept from locking while the deck plays (lift-up REL-1): never touched while the
+    /// remote drives it, it would.
+    private static var awake: Awake?
     /// The show that plays, if one does: what a remote drives (PLAN 4.10).
     static var current: Showing? { showing }
     /// What is told, as the show ends, the state it stopped on.
@@ -120,6 +185,7 @@ enum Presenting {
         self.showing = showing
         Self.stopped = stopped
         RemoteHost.shared.follow(showing)
+        awake = Awake(reason: "Scaena is presenting a deck")
         place()
         // The status bar and the home indicator out of the slide's way while it plays, as a
         // presentation app's slideshow hides them.
@@ -137,7 +203,7 @@ enum Presenting {
     }
 
     /// End the show: the stage and the presenter's view go, the display the iPad drives shows the
-    /// iPad's screen again, and the window that played it shows where it stopped.
+    /// iPad's screen again, the iPad may lock, and the window that played it shows where it stopped.
     static func end() {
         let reached = showing?.show.slot?.state
         let tell = stopped
@@ -145,6 +211,8 @@ enum Presenting {
         defer { if let reached { tell?(reached) } }
         for token in watching { NotificationCenter.default.removeObserver(token) }
         watching = []
+        awake?.end()
+        awake = nil
         leave()
         showing = nil
         RemoteHost.shared.follow(nil)

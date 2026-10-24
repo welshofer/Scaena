@@ -369,6 +369,21 @@ impl Snapshot {
         self.subsets.insert(font.to_string(), (chars.to_string(), bytes));
     }
 
+    /// A session of its own on the deck and the files as the snapshot was taken, to run a tool
+    /// that only reads on another thread ([`crate::assistant::reads_alone`], narrative lift-up
+    /// PERF-2): it answers as the session it was taken from did, and is let go after.
+    pub fn session(&self) -> Result<Session, Error> {
+        let deck = self.deck.to_json().map_err(|e| Error::Deck(e.to_string()))?;
+        let mut session = Session::new(&deck, &self.theme_json)?;
+        let theme = self.deck.theme.as_ref().and_then(|t| t.as_str());
+        for (path, bytes) in self.files.iter() {
+            if path != "deck.json" && Some(path.as_str()) != theme {
+                session.add_file(path, bytes.clone());
+            }
+        }
+        Ok(session)
+    }
+
     /// The bundle with the deck as the snapshot was taken, saved as [`Session::save`] saves the
     /// session: on whatever thread holds it. The session keeps the bundle as it was until it
     /// adopts the save ([`Session::adopt_since`]).
