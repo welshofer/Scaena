@@ -286,7 +286,41 @@ impl Generation {
         self.inner.choose_arc(name.as_deref());
     }
 
-    /// Where it stands: `arc`, `slides`, or `done`.
+    /// Ask for the outline before the slides (narrative FUNC-1): once the arc is chosen, the next
+    /// request is the outline's, whose answer `outline` gives, to settle or take as it is.
+    #[wasm_bindgen(js_name = outlineFirst)]
+    pub fn outline_first(&mut self) -> Result<(), JsError> {
+        self.inner.outline_first().map_err(error)
+    }
+
+    /// The outline, JSON `{ bigIdea, beats: [{ name, claim, slides }] }`, once the model wrote it
+    /// or the person settled one; none before.
+    pub fn outline(&self) -> Option<String> {
+        self.inner.outline().map(|o| serde_json::to_string(o).expect("an outline is JSON"))
+    }
+
+    /// The beats the slides are spread over at this length, JSON `[{ name, claim, slides }]`: the
+    /// outline's where one stands, else the arc's with no claims; none before the arc is chosen.
+    pub fn plan(&self) -> Option<String> {
+        self.inner.plan().map(|p| serde_json::to_string(&p).expect("a plan is JSON"))
+    }
+
+    /// The outline as the person settled it, JSON as `outline` gives it: what the slides are
+    /// written to (narrative FUNC-1). Refused with why where no beat keeps a claim.
+    pub fn settle(&mut self, outline: &str) -> Result<String, JsError> {
+        let outline: scaena_narrato::Outline =
+            serde_json::from_str(outline).map_err(|e| error(format!("the outline: {e}")))?;
+        self.inner.settle(&outline).map_err(error)?;
+        Ok(self.said())
+    }
+
+    /// Where it stands, as `answer` says it, with no answer read: JSON `{ step, slides, arc?,
+    /// reasoning?, fallback?, written?, truncated?, outline? }`.
+    pub fn standing(&self) -> String {
+        self.said()
+    }
+
+    /// Where it stands: `arc`, `outline`, `slides`, or `done`.
     pub fn step(&self) -> String {
         serde_json::to_value(self.inner.step()).ok().and_then(|v| v.as_str().map(str::to_string)).unwrap_or_default()
     }
@@ -303,11 +337,18 @@ impl Generation {
         Some(serde_json::to_string(&request).expect("a request is JSON"))
     }
 
-    /// The answer to the last request read: where the generation stands, JSON `{ step, slides,
-    /// arc?, fallback?, written?, truncated? }`, `slides` the fewest asked for and `written` how
-    /// many came back.
-    pub fn answer(&mut self, status: u16, status_text: &str, body: &str) -> Result<String, JsError> {
-        self.inner.answer(status, status_text, body).map_err(error)?;
+    /// The answer to the last request read, `after` its `Retry-After`: where the generation
+    /// stands, JSON `{ step, slides, arc?, fallback?, written?, truncated?, wait? }`, `slides` the
+    /// fewest asked for, `written` how many came back, and `wait` the seconds to wait before the
+    /// same request is made again, where the answer was for now (narrative REL-1).
+    pub fn answer(
+        &mut self,
+        status: u16,
+        status_text: &str,
+        body: &str,
+        after: Option<String>,
+    ) -> Result<String, JsError> {
+        self.inner.answer(status, status_text, body, after.as_deref()).map_err(error)?;
         Ok(self.said())
     }
 
@@ -324,9 +365,13 @@ impl Generation {
             "step": self.step(),
             "slides": self.inner.target(),
             "arc": self.inner.arc().map(|a| a.selection.clone()),
+            "reasoning": self.inner.arc().map(|a| a.reasoning.clone()),
             "fallback": self.inner.fallback(),
             "written": narrative.map(|n| n.slides.len()),
             "truncated": narrative.map(|n| n.truncated),
+            "outline": self.inner.outline(),
+            "wait": self.inner.again(),
+            "tried": self.inner.tried(),
         })
         .to_string()
     }
@@ -616,12 +661,12 @@ mod tests {
         assert_eq!(ask["headers"]["anthropic-dangerous-direct-browser-access"], "true", "a page calls the API itself");
         let text = ask["body"]["messages"][0]["content"][0]["text"].as_str().unwrap();
         assert!(text.contains("Topic: Pitch a Series A round"));
-        let at: Value = serde_json::from_str(&g.answer(200, "OK", &answer("anthropic-arc")).unwrap()).unwrap();
+        let at: Value = serde_json::from_str(&g.answer(200, "OK", &answer("anthropic-arc"), None).unwrap()).unwrap();
         assert_eq!((at["step"].as_str(), at["arc"].as_str()), (Some("slides"), Some("Problem\u{2013}Solution")));
         let ask: Value = serde_json::from_str(&g.request("sk-test").unwrap()).unwrap();
         let prompt = ask["body"]["messages"][0]["content"][0]["text"].as_str().unwrap();
         assert!(prompt.contains("=== SOURCE: notes.md ===") && prompt.contains("Revenue tripled in Q3."));
-        let at: Value = serde_json::from_str(&g.answer(200, "OK", &answer("anthropic-slides")).unwrap()).unwrap();
+        let at: Value = serde_json::from_str(&g.answer(200, "OK", &answer("anthropic-slides"), None).unwrap()).unwrap();
         assert_eq!((at["step"].as_str(), at["written"].as_u64()), (Some("done"), Some(5)));
         assert!(g.request("sk-test").is_none());
 
