@@ -533,7 +533,11 @@ async function play(deck: Source, how: Play, channel: BroadcastChannel) {
     // By its name alone, which finds a window of that name without loading it again, as one this
     // page opened before it was loaded again; a new one is blank, and goes to the view.
     view = open("", "scaena-presenter", "popup,width=1280,height=800");
-    if (!view) return;
+    // A blocked pop-up says so, minutes before a talk, rather than nothing at all (lift-up USE-2).
+    if (!view) {
+      status.textContent = "The presenter view was blocked: allow pop-ups for this page, then press the button again.";
+      return;
+    }
     let there = false;
     try {
       there = view.location.href === url.href;
@@ -807,7 +811,7 @@ async function presentView(deck: Source, how: Play, channel: BroadcastChannel) {
     <main><canvas id="stage"></canvas><p id="blanked" class="blanked" hidden></p></main>
     <aside>
       <div class="next"><canvas id="upnext"></canvas><p id="nextName"></p></div>
-      <div class="clock"><span id="clock" title="The time since the timer began">0:00</span><button id="pause" type="button" title="Pause the timer">Pause</button><button id="reset" type="button" title="Put the timer back to 0:00">Reset</button><span id="now" title="The time of day"></span></div>
+      <div class="clock"><span id="clock" title="The time since the show began: it starts when the deck first goes on">0:00</span><button id="pause" type="button" title="Pause the timer">Pause</button><button id="reset" type="button" title="Put the timer back to 0:00">Reset</button><span id="now" title="The time of day"></span></div>
       <p id="where"></p>
       <p class="notesize"><span>Notes</span><button id="smaller" type="button" aria-label="Smaller notes" title="Smaller notes (−)">A−</button><button id="larger" type="button" aria-label="Larger notes" title="Larger notes (+)">A+</button></p>
       <div id="notes" class="notes"></div>
@@ -932,9 +936,20 @@ async function presentView(deck: Source, how: Play, channel: BroadcastChannel) {
   // The timer (PLAN 2.121), as a presentation app's presenter's: the time since this view opened,
   // which Pause stops and runs on, and Reset puts back to 0:00, running or paused as it was; and
   // beside it the time of day.
-  /** When the timer last ran on, none while it is paused, and what it counted before that, ms. */
-  let since: number | undefined = performance.now();
+  /** When the timer last ran on, none while it is paused or the show has not begun, and what it
+   * counted before that, ms. It starts with the show (lift-up USE-2): the first time the player
+   * plays or goes past the first slide, or at once where the show is under way when this view
+   * opens, so it says how long the talk ran, not how long this view was open. */
+  let since: number | undefined;
   let counted = 0;
+  /** Whether the show has begun, and whether Pause holds the timer. */
+  let begun = false;
+  let held = false;
+  const begin = (at: At) => {
+    if (begun || (at.index === 0 && !at.playing)) return;
+    begun = true;
+    if (!held) since = performance.now();
+  };
   const elapsed = () => counted + (since === undefined ? 0 : performance.now() - since);
   const clock = () => {
     const s = Math.floor(elapsed() / 1000);
@@ -948,11 +963,12 @@ async function presentView(deck: Source, how: Play, channel: BroadcastChannel) {
   // its own keys press it.
   for (const button of [pause, reset]) button.onmousedown = (e) => e.preventDefault();
   pause.onclick = () => {
-    if (since === undefined) since = performance.now();
-    else [counted, since] = [elapsed(), undefined];
-    pause.textContent = since === undefined ? "Resume" : "Pause";
-    pause.title = since === undefined ? "Run the timer on" : "Pause the timer";
-    document.body.classList.toggle("paused", since === undefined);
+    held = !held;
+    if (held) [counted, since] = [elapsed(), undefined];
+    else if (begun) since = performance.now();
+    pause.textContent = held ? "Resume" : "Pause";
+    pause.title = held ? "Run the timer on" : "Pause the timer";
+    document.body.classList.toggle("paused", held);
     clock();
   };
   reset.onclick = () => {
@@ -1021,6 +1037,7 @@ async function presentView(deck: Source, how: Play, channel: BroadcastChannel) {
       heard = true;
       for (const button of buttons) button.disabled = false;
     }
+    begin(data);
     // What the room sees while its screen is black or white, or the show is over, said over the
     // slide shown here.
     const sees = data.blank
@@ -1059,7 +1076,7 @@ async function presentView(deck: Source, how: Play, channel: BroadcastChannel) {
        * show is over (PLAN 2.120). */
       blanked: () => (blanked.hidden ? null : blanked.textContent),
       /** The timer as it reads, and whether it is paused (PLAN 2.121). */
-      timer: () => ({ shows: $("#clock").textContent, paused: since === undefined, now: $("#now").textContent }),
+      timer: () => ({ shows: $("#clock").textContent, paused: held, now: $("#now").textContent }),
       /** Where the laser points on the slide, as the player says, or null. */
       pointed: () => (laser ? point : null),
       /** The size the next state is painted at, in the format the player shows, or null after the
