@@ -349,12 +349,14 @@ public enum ToolWords {
     /// Each tool's words, as the MCP server names the tools (`docs/schema/mcp`): while it runs,
     /// once it has, and where it did not (stopped, or an edit refused or only tried).
     private static let words: [String: (doing: String, done: String, not: String)] = [
+        "background_set": ("Setting a background…", "Set a background", "Didn't set a background"),
         "data_attach": ("Adding data…", "Added data", "Didn't add data"),
         "data_edit": ("Changing the data…", "Changed the data", "Didn't change the data"),
         "deck_create": ("Making a deck…", "Made a deck", "Didn't make a deck"),
         "deck_diff": ("Comparing versions…", "Compared versions", "Didn't compare versions"),
         "deck_export": ("Exporting the deck…", "Exported the deck", "Didn't export the deck"),
         "deck_find": ("Searching the deck…", "Searched the deck", "Didn't search the deck"),
+        "deck_generate": ("Making a deck from slides…", "Made a deck from slides", "Didn't make a deck from slides"),
         "deck_health": ("Reading the deck's story…", "Read the deck's story", "Didn't read the deck's story"),
         "deck_history": ("Reading the history…", "Looked at the history", "Didn't look at the history"),
         "deck_inspect": ("Looking over the deck…", "Looked over the deck", "Didn't look over the deck"),
@@ -366,6 +368,7 @@ public enum ToolWords {
         "map_fetch": ("Fetching a map…", "Put a map on the slide", "Didn't fetch a map"),
         "spine_read": ("Reading the outline…", "Went through the outline", "Didn't go through the outline"),
         "spine_update": ("Changing the outline…", "Changed the outline", "Didn't change the outline"),
+        "state_start": ("Adding a slide…", "Added a slide", "Didn't add a slide"),
         "theme_apply": ("Changing the theme…", "Changed the theme", "Didn't change the theme"),
         "theme_edit": ("Editing the theme…", "Edited the theme", "Didn't edit the theme"),
         "resource_read": (

@@ -31,6 +31,9 @@ Every step works through either surface. An MCP tool takes the same settings its
 | read it back | `scaena decompile <bundle>` | `deck_read`, with `scn` for `.scn` |
 | the spine | edit `spine` in `deck.json` | `spine_read`, `spine_update` |
 | find an icon | `scaena icons <words> --json`: each its `path` and `view`, for `add_node` | `icon_find` |
+| start a slide in a layout | `scaena start <bundle> <state> --layout bullets`: a new slide after that state's slide, as Add Slide starts one, with a text in each slot to write over; `scaena inspect <bundle> --state <id> --layouts` lists the layouts | `state_start` |
+| set a slide's background | `scaena background <bundle> <state> backdrop`, one of the theme's shader presets; `--none` takes it away; neither lists what the slide may take | `background_set` |
+| make a deck from slides you wrote | `scaena generate <dir> "topic" --slides slides.json`: Narrato's slide JSON, no model called | `deck_generate`: the same, the slides given inline |
 
 Errors:
 - Under `--json`, every command prints one JSON value, and an error is `{ "error": … }` (SPEC §7.1).
