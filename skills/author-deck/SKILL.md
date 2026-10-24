@@ -28,10 +28,10 @@ Every step works through either surface. An MCP tool takes the same settings its
 | see a state resolved | `scaena inspect <bundle> --state <id>`, with `--resolved`, `--timeline`, or `--data` | `deck_inspect` |
 | see what a build changes | `scaena diff <bundle> --from a --to b` | `deck_diff` |
 | look | `scaena render <bundle> --state <id> --out frame.png` | `deck_render`, which returns the PNG |
-| read it back | `scaena decompile <bundle>` | `deck_read`, with `scn` for `.scn` |
+| read it back | `scaena decompile <bundle>` | `deck_read`, with `scn` for `.scn`, and `theme` for the theme's layouts, roles, and colors |
 | the spine | edit `spine` in `deck.json` | `spine_read`, `spine_update` |
 | find an icon | `scaena icons <words> --json`: each its `path` and `view`, for `add_node` | `icon_find` |
-| start a slide in a layout | `scaena start <bundle> <state> --layout bullets`: a new slide after that state's slide, as Add Slide starts one, with a text in each slot to write over; `--claim "…"` tells its claim in a beat of its own, else it joins that state's beat; `scaena inspect <bundle> --state <id> --layouts` lists the layouts | `state_start` |
+| start a slide in a layout | `scaena start <bundle> <state> --layout bullets`: a new slide after that state's slide, as Add Slide starts one, with a text in each slot to write over; `--claim "…"` tells its claim in a beat of its own, else it joins that state's beat; `--id pricing` names it and its nodes (`pricing-header`), and it says each slot it filled with the node there, and each it left empty for a picture or a figure; `scaena inspect <bundle> --state <id> --layouts` lists the layouts | `state_start` |
 | set a slide's background | `scaena background <bundle> <state> backdrop`, one of the theme's shader presets; `--none` takes it away; neither lists what the slide may take | `background_set` |
 | write one slide as the generator builds them | the MCP server's alone: a slide in the JSON Narrato writes (`deck_generate`'s `slides`), after a slide (`after`) or in a slide's place (`replace`), its layout chosen for its items in the deck's theme and brief | `slide_write` |
 | make a deck from slides you wrote | `scaena generate <dir> "topic" --slides slides.json`: Narrato's slide JSON, no model called | `deck_generate`: the same, the slides given inline |
