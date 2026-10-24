@@ -50,6 +50,171 @@ pub fn patch(b: &Bundle, ops: &Value, dry_run: bool) -> Result<Patched, OpsError
     patch_as(b, ops, dry_run, None)
 }
 
+/// What `deck_patch` says a patch did (dogfood 3): the semantic ops it was given, as given, and
+/// what changed in the deck's slides and its story, with the patch compiled to JSON Patch only
+/// when asked for (`verbose`), since a structural op compiles to whole arrays: 59 KB for seven
+/// slides removed.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct Reported {
+    /// Whether the deck was written: not under a dry run, nor when the patch was refused.
+    pub applied: bool,
+    /// The semantic ops given (SPEC §7.3), in order, as given; JSON Patch ops are counted in
+    /// `summary`.
+    pub ops: Vec<Value>,
+    /// What changed in the deck's slides and its story.
+    pub summary: Summary,
+    /// With `verbose`, the patch as RFC 6902, in order.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub patch: Option<Vec<JsonOp>>,
+    /// What `validate` and `lint` find after the patch that they did not before.
+    pub added: Vec<Finding>,
+    /// What they found before that they do not after.
+    pub removed: Vec<Finding>,
+    /// The findings that are errors, after.
+    pub errors: usize,
+    /// The states it changes, by id, as [`Patched`] says them.
+    pub states: Vec<String>,
+    /// Each beat whose claim its slide said before the patch and says no more, as [`Patched`]
+    /// says them (lift-up FUNC-2). Left out when none.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub restated: Vec<scaena_core::claims::Restated>,
+}
+
+/// What a patch changed in a deck's slides, each by the id of its first state, and in its
+/// spine's beats, each by its id: what was added, taken away, moved among the rest, or, a beat,
+/// told otherwise (its claim, states, evidence, notes, or time). Each list is in the deck's order,
+/// and left out when empty.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, JsonSchema)]
+pub struct Summary {
+    /// How many of the ops given were JSON Patch.
+    #[serde(skip_serializing_if = "is_zero")]
+    pub json_patch: usize,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub slides_added: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub slides_removed: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub slides_moved: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub beats_added: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub beats_removed: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub beats_moved: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub beats_changed: Vec<String>,
+}
+
+fn is_zero(n: &usize) -> bool {
+    *n == 0
+}
+
+/// RFC 6902's ops; every other op is a semantic one.
+const JSON_PATCH: [&str; 6] = ["add", "remove", "replace", "move", "copy", "test"];
+
+impl Reported {
+    /// `patched`, made of `ops` on `before`, reported: `after` is the deck it made, if it made one.
+    pub fn of(before: &Deck, after: Option<&Deck>, ops: &Value, patched: Patched, verbose: bool) -> Reported {
+        let given = ops.as_array().map(Vec::as_slice).unwrap_or_default();
+        let json_patch = |op: &Value| op.get("op").and_then(Value::as_str).is_some_and(|op| JSON_PATCH.contains(&op));
+        let mut summary = after.map(|after| summary(before, after)).unwrap_or_default();
+        summary.json_patch = given.iter().filter(|op| json_patch(op)).count();
+        Reported {
+            applied: patched.applied,
+            ops: given.iter().filter(|op| !json_patch(op)).cloned().collect(),
+            summary,
+            patch: verbose.then_some(patched.patch),
+            added: patched.added,
+            removed: patched.removed,
+            errors: patched.errors,
+            states: patched.states,
+            restated: patched.restated,
+        }
+    }
+}
+
+/// [`patch`] as `deck_patch` reports it ([`Reported`]).
+pub fn reported(b: &Bundle, ops: &Value, dry_run: bool, verbose: bool) -> Result<Reported, OpsError> {
+    let (mut patched, made) = patching(b, ops, None)?;
+    let after = made.as_ref().map(|w| w.deck.clone());
+    match made {
+        Some(made) if !dry_run => write(b, made)?,
+        _ => patched.applied &= !dry_run,
+    }
+    Ok(Reported::of(&b.deck, after.as_ref(), ops, patched, verbose))
+}
+
+/// What changed from `before` to `after` in its slides and its beats ([`Summary`]).
+pub fn summary(before: &Deck, after: &Deck) -> Summary {
+    let slides = |d: &Deck| {
+        let mut ids: Vec<String> = Vec::new();
+        for s in &d.states {
+            let slide = s.slide.clone().unwrap_or_else(|| s.id.clone());
+            if !ids.contains(&slide) {
+                ids.push(slide);
+            }
+        }
+        ids
+    };
+    let beats = |d: &Deck| -> Vec<(String, Value)> {
+        let all = d.spine.iter().flat_map(|s| &s.sections).flat_map(|s| &s.beats);
+        all.map(|b| (b.id.clone(), serde_json::to_value(b).unwrap_or_default())).collect()
+    };
+    let (was, is) = (slides(before), slides(after));
+    let (told, tells) = (beats(before), beats(after));
+    let ids = |b: &[(String, Value)]| b.iter().map(|(id, _)| id.clone()).collect::<Vec<_>>();
+    let (slides_moved, beats_moved) = (moved(&was, &is), moved(&ids(&told), &ids(&tells)));
+    Summary {
+        json_patch: 0,
+        slides_added: is.iter().filter(|s| !was.contains(s)).cloned().collect(),
+        slides_removed: was.iter().filter(|s| !is.contains(s)).cloned().collect(),
+        slides_moved,
+        beats_added: tells
+            .iter()
+            .filter(|(id, _)| !told.iter().any(|(t, _)| t == id))
+            .map(|(id, _)| id.clone())
+            .collect(),
+        beats_removed: told
+            .iter()
+            .filter(|(id, _)| !tells.iter().any(|(t, _)| t == id))
+            .map(|(id, _)| id.clone())
+            .collect(),
+        beats_moved,
+        beats_changed: tells
+            .iter()
+            .filter(|(id, beat)| told.iter().any(|(t, was)| t == id && was != beat))
+            .map(|(id, _)| id.clone())
+            .collect(),
+    }
+}
+
+/// Of the ids in both `was` and `is`, those that moved among the rest: each outside the longest
+/// run of them both keep in order, in `is`'s order. One slide moved is one id, not every slide it
+/// passed.
+fn moved(was: &[String], is: &[String]) -> Vec<String> {
+    let a: Vec<&String> = was.iter().filter(|id| is.contains(id)).collect();
+    let b: Vec<&String> = is.iter().filter(|id| was.contains(id)).collect();
+    // The longest common subsequence, by its table of lengths, then walked back.
+    let mut table = vec![vec![0usize; b.len() + 1]; a.len() + 1];
+    for i in (0..a.len()).rev() {
+        for j in (0..b.len()).rev() {
+            table[i][j] = if a[i] == b[j] { table[i + 1][j + 1] + 1 } else { table[i + 1][j].max(table[i][j + 1]) };
+        }
+    }
+    let (mut i, mut j, mut kept) = (0, 0, Vec::new());
+    while i < a.len() && j < b.len() {
+        if a[i] == b[j] {
+            kept.push(b[j]);
+            (i, j) = (i + 1, j + 1);
+        } else if table[i + 1][j] >= table[i][j + 1] {
+            i += 1;
+        } else {
+            j += 1;
+        }
+    }
+    b.into_iter().filter(|id| !kept.contains(id)).cloned().collect()
+}
+
 /// [`patch`], recorded in the bundle's history as `what`; without it, by its ops' names.
 pub(crate) fn patch_as(b: &Bundle, ops: &Value, dry_run: bool, what: Option<&str>) -> Result<Patched, OpsError> {
     let (mut patched, deck) = patching(b, ops, what)?;
@@ -380,5 +545,38 @@ mod tests {
         // The title slide, which Dusk leaves them off, draws them when it asks.
         let show = json!([{ "op": "set_state", "id": "intro", "prop": "furniture", "value": true }]);
         assert_eq!(states(&numbered, show), ["intro"]);
+    }
+
+    /// A structural patch is said by its ops and what they changed, not the arrays it compiles to
+    /// (dogfood 3): a slide removed with its beat, a slide moved with its beat as one move each,
+    /// and the JSON Patch only when asked for.
+    #[test]
+    fn a_patch_is_reported_by_its_ops_and_what_they_changed() {
+        let b = crate::open(std::path::Path::new("../../docs/examples/revenue.deck.json")).unwrap();
+        let report = |ops: Value, verbose: bool| reported(&b, &ops, true, verbose).unwrap();
+        let cut = report(json!([{ "op": "remove_slide", "slide": "revenue" }]), false);
+        assert_eq!(cut.ops, [json!({ "op": "remove_slide", "slide": "revenue" })]);
+        assert_eq!(
+            cut.summary,
+            Summary {
+                slides_removed: vec!["revenue".into()],
+                beats_removed: vec!["doubled".into()],
+                ..Summary::default()
+            }
+        );
+        assert!(cut.patch.is_none() && !cut.applied);
+        let moved = report(json!([{ "op": "move_slide", "slide": "intro", "after": "close" }]), true);
+        assert_eq!(
+            moved.summary,
+            Summary { slides_moved: vec!["intro".into()], beats_moved: vec!["opening".into()], ..Summary::default() }
+        );
+        assert!(moved.patch.is_some_and(|p| !p.is_empty()));
+        let told =
+            report(json!([{ "op": "replace", "path": "/spine/sections/1/beats/0/claim", "value": "Up." }]), false);
+        assert!(told.ops.is_empty());
+        assert_eq!(
+            told.summary,
+            Summary { json_patch: 1, beats_changed: vec!["doubled".into()], ..Summary::default() }
+        );
     }
 }

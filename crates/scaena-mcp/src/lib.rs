@@ -13,8 +13,9 @@
 
 use base64::Engine as _;
 use indexmap::IndexMap;
+use rmcp::handler::server::common::FromContextPart;
 use rmcp::handler::server::router::tool::ToolRouter;
-use rmcp::handler::server::wrapper::Parameters;
+use rmcp::handler::server::tool::ToolCallContext;
 use rmcp::model::{
     CacheScope, CallToolResult, ContentBlock, ErrorData, Implementation, ListResourcesResult, PaginatedRequestParams,
     ProtocolVersion, ReadResourceRequestParams, ReadResourceResponse, ReadResourceResult, Resource, ResourceContents,
@@ -49,6 +50,32 @@ pub struct Reach(Option<Arc<dyn scaena_objects::Transport + Send + Sync>>);
 impl std::fmt::Debug for Reach {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(if self.0.is_some() { "Reach(a transport)" } else { "Reach(none)" })
+    }
+}
+
+/// A tool's arguments, as rmcp's own `Parameters` takes them, save that one that does not read
+/// is named in the error by its field (dogfood 3, `scaena_ops::arguments`). rmcp's macros find
+/// a tool's arguments by this name.
+#[derive(Debug)]
+pub struct Parameters<P>(pub P);
+
+impl<P: JsonSchema> JsonSchema for Parameters<P> {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        P::schema_name()
+    }
+
+    fn json_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        P::json_schema(generator)
+    }
+}
+
+impl<S, P: serde::de::DeserializeOwned> FromContextPart<ToolCallContext<'_, S>> for Parameters<P> {
+    fn from_context_part(context: &mut ToolCallContext<S>) -> Result<Self, ErrorData> {
+        let args = context.arguments.take().unwrap_or_default();
+        // rmcp hands an error with this prefix back to the client as the tool's own.
+        scaena_ops::arguments::read(args)
+            .map(Parameters)
+            .map_err(|e| ErrorData::invalid_params(format!("failed to deserialize parameters: {e}"), None))
     }
 }
 
@@ -529,6 +556,10 @@ pub struct DeckRead {
     /// `named`, and may be taken out (`scaena files --remove`).
     #[serde(default)]
     pub files: bool,
+    /// The theme the deck draws in too, as the bundle holds it: its colors, type roles, layouts
+    /// and their slots, and presets, by the names the deck uses (SPEC §3.6).
+    #[serde(default)]
+    pub theme: bool,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -542,6 +573,9 @@ pub struct DeckPatch {
     /// Say what would change, and write nothing.
     #[serde(default)]
     pub dry_run: bool,
+    /// The patch compiled to JSON Patch too (`patch`), which a structural op makes long.
+    #[serde(default)]
+    pub verbose: bool,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -773,13 +807,17 @@ pub struct StateStart {
     /// The state the slide goes after: after the last step of its slide, in its beat.
     pub state: String,
     /// One of the theme's layouts (`deck_inspect` with `layouts` lists what a state may take,
-    /// each by its name; `bundle://theme`'s `layouts` holds them all). Without it, a blank slide.
+    /// each by its name; `deck_read` with `theme` gives them all, in its `layouts`). Without it, a blank slide.
     #[serde(default)]
     pub layout: Option<String>,
     /// The one sentence the slide tells: it starts a beat of its own for it, just after the beat
     /// of the state it follows. Without it, the slide joins that beat.
     #[serde(default)]
     pub claim: Option<String>,
+    /// The new state's id, and its nodes' after it (`pricing-header`). Without it, the layout's
+    /// name (`bullets`, `bullets-2`, …).
+    #[serde(default)]
+    pub id: Option<String>,
     /// Say what would change, and write nothing.
     #[serde(default)]
     pub dry_run: bool,
@@ -939,24 +977,28 @@ impl Scaena {
     }
 
     #[tool(description = "The bundle's deck, as `deck.json` holds it, or as `.scn` source; with `files`, the \
-        bundle's images, fonts, and data too, and what uses each.")]
+        bundle's images, fonts, and data too, and what uses each; with `theme`, the theme it draws in.")]
     async fn deck_read(&self, Parameters(a): Parameters<DeckRead>) -> Result<Json<scaena_ops::read::Read>, String> {
-        blocking(move || scaena_ops::read::read(&open(&a.bundle)?, a.scn, a.files)).await.map(Json)
+        blocking(move || scaena_ops::read::read(&open(&a.bundle)?, a.scn, a.files, a.theme)).await.map(Json)
     }
 
     #[tool(description = "Apply a patch: JSON Patch and semantic ops (add_node, rename_node, set_prop, set_text, \
         show_node, hide_node, add_state, …; SPEC §7.3), all or none. A patch that would make the deck invalid is refused. \
-        Reports the patch as JSON Patch, and what lint finds that it did not (`added`) and finds no more (`removed`); \
-        and each beat whose claim a slide said before and says no more (`restated`), with a `fix` that sets the claim to \
-        the slide's words, or none where its headline was taken away: restate the claim, or ask the user.")]
+        Reports the semantic ops given, what changed in the slides and the story (`summary`: slides and beats \
+        added, removed, and moved, and beats told otherwise), and what lint finds that it did not (`added`) and finds \
+        no more (`removed`); with `verbose`, the patch compiled to JSON Patch too. Each beat whose claim a slide said \
+        before and says no more is `restated`, with a `fix` that sets the claim to the slide's words, or none where its \
+        headline was taken away: restate the claim, or ask the user.")]
     async fn deck_patch(
         &self,
         Parameters(a): Parameters<DeckPatch>,
         context: RequestContext<RoleServer>,
-    ) -> Result<Json<scaena_ops::patch::Patched>, String> {
+    ) -> Result<Json<scaena_ops::patch::Reported>, String> {
         let ops = Value::Array(a.ops.into_iter().map(Value::Object).collect());
         let author = author(&context);
-        blocking(move || scaena_ops::patch::patch(&*open_by(&a.bundle, author)?, &ops, a.dry_run)).await.map(Json)
+        blocking(move || scaena_ops::patch::reported(&*open_by(&a.bundle, author)?, &ops, a.dry_run, a.verbose))
+            .await
+            .map(Json)
     }
 
     #[tool(description = "Find text across the deck's words, in every state (PLAN 2.47, 2.83): its texts, each \
@@ -1347,10 +1389,12 @@ impl Scaena {
 
     #[tool(description = "Start a slide after `state`'s slide, as Add Slide starts one (PLAN 3.30), in one of the \
         theme's layouts: a new state, absolute, in the layout, with a text in each slot that says what goes there, in \
-        the slot's role, its words to type over (`replace_text` or `set_text` put yours), a shape in each slot that \
-        holds one, and the slots that wait for a picture or a figure left empty; it stays on its slide. One patch, \
-        all or none, refused as `deck_patch` refuses one, reported as `deck_patch` reports one, with `id`, the new \
-        state's. `deck_inspect` with `layouts` lists the layouts a state may take.")]
+        the slot's role, its words to type over (`replace_text` or `set_text` put yours), the headline the slide's \
+        claim and shrunk to fit, a shape in each slot that holds one, and the slots that wait for a picture or a \
+        figure left empty; it stays on its slide. One patch, all or none, refused as `deck_patch` refuses one, \
+        reported as `deck_patch` reports one with its JSON Patch, with `id`, the new state's (yours, given as `id`), \
+        `filled`, each slot and the node in it, and `empty`, each slot left for a picture or a figure and what goes \
+        there. `deck_inspect` with `layouts` lists the layouts a state may take.")]
     async fn state_start(
         &self,
         Parameters(a): Parameters<StateStart>,
@@ -1363,6 +1407,7 @@ impl Scaena {
                 &a.state,
                 a.layout.as_deref(),
                 a.claim.as_deref(),
+                a.id.as_deref(),
                 a.dry_run,
             )
         })

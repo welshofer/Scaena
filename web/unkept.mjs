@@ -50,8 +50,8 @@ try {
   await page.goto(editor("/docs/examples/revenue.deck.json"));
   await ready("revenue");
 
-  // New: a deck kept nowhere, nothing edited.
-  await page.click("#new-deck");
+  // New: a deck kept nowhere, nothing edited. New is in the File menu (lift-up ATTR-5).
+  await page.click("#file-open").then(() => page.click("#new-deck"));
   await page.fill("#making-name", "Kept nowhere");
   await page.click("#making-create");
   await ready("kept-nowhere");

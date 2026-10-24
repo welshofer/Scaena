@@ -1,6 +1,6 @@
 {
   "name": "state_start",
-  "description": "Start a slide after `state`'s slide, as Add Slide starts one (PLAN 3.30), in one of the theme's layouts: a new state, absolute, in the layout, with a text in each slot that says what goes there, in the slot's role, its words to type over (`replace_text` or `set_text` put yours), a shape in each slot that holds one, and the slots that wait for a picture or a figure left empty; it stays on its slide. One patch, all or none, refused as `deck_patch` refuses one, reported as `deck_patch` reports one, with `id`, the new state's. `deck_inspect` with `layouts` lists the layouts a state may take.",
+  "description": "Start a slide after `state`'s slide, as Add Slide starts one (PLAN 3.30), in one of the theme's layouts: a new state, absolute, in the layout, with a text in each slot that says what goes there, in the slot's role, its words to type over (`replace_text` or `set_text` put yours), the headline the slide's claim and shrunk to fit, a shape in each slot that holds one, and the slots that wait for a picture or a figure left empty; it stays on its slide. One patch, all or none, refused as `deck_patch` refuses one, reported as `deck_patch` reports one with its JSON Patch, with `id`, the new state's (yours, given as `id`), `filled`, each slot and the node in it, and `empty`, each slot left for a picture or a figure and what goes there. `deck_inspect` with `layouts` lists the layouts a state may take.",
   "inputSchema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "required": ["bundle", "state"],
@@ -12,12 +12,17 @@
         "type": "string"
       },
       "layout": {
-        "description": "One of the theme's layouts (`deck_inspect` with `layouts` lists what a state may take,\neach by its name; `bundle://theme`'s `layouts` holds them all). Without it, a blank slide.",
+        "description": "One of the theme's layouts (`deck_inspect` with `layouts` lists what a state may take,\neach by its name; `deck_read` with `theme` gives them all, in its `layouts`). Without it, a blank slide.",
         "type": ["string", "null"],
         "default": null
       },
       "claim": {
         "description": "The one sentence the slide tells: it starts a beat of its own for it, just after the beat\nof the state it follows. Without it, the slide joins that beat.",
+        "type": ["string", "null"],
+        "default": null
+      },
+      "id": {
+        "description": "The new state's id, and its nodes' after it (`pricing-header`). Without it, the layout's\nname (`bullets`, `bullets-2`, …).",
         "type": ["string", "null"],
         "default": null
       },
@@ -28,6 +33,18 @@
   "outputSchema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "$defs": {
+      "SlotFilled": {
+        "description": "A slot of a new slide's layout, and the node put in it (dogfood 3).",
+        "type": "object",
+        "properties": { "slot": { "type": "string" }, "node": { "type": "string" } },
+        "required": ["slot", "node"]
+      },
+      "SlotEmpty": {
+        "description": "A slot of a new slide's layout left empty, and what its prompt says goes there: a picture\nor a figure, for `add_node` with `at: { in: slot }` to put (dogfood 3).",
+        "type": "object",
+        "properties": { "slot": { "type": "string" }, "waits": { "type": "string" } },
+        "required": ["slot", "waits"]
+      },
       "JsonOp": {
         "description": "RFC 6902's ops.",
         "oneOf": [
@@ -151,12 +168,22 @@
         "required": ["beat", "state", "path", "claim"]
       }
     },
-    "required": ["id", "applied", "patch", "added", "removed", "errors", "states"],
+    "required": ["id", "filled", "empty", "applied", "patch", "added", "removed", "errors", "states"],
     "type": "object",
     "properties": {
       "id": {
         "description": "The id of the state added: named after its layout (`bullets`, `bullets-2`, …), or\n`slide` with none.",
         "type": "string"
+      },
+      "filled": {
+        "description": "Each slot a node fills, and the node, to put words in with `replace_text` or `set_text`.",
+        "type": "array",
+        "items": { "$ref": "#/$defs/SlotFilled" }
+      },
+      "empty": {
+        "description": "Each slot left empty for a picture or a figure, and what goes there.",
+        "type": "array",
+        "items": { "$ref": "#/$defs/SlotEmpty" }
       },
       "applied": {
         "description": "Whether the deck was written: not under a dry run, nor when the patch was refused.",
