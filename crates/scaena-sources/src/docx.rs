@@ -9,9 +9,7 @@ use crate::xml::Element;
 /// `bytes`, a `.docx`, as grounding text.
 pub fn read(bytes: &[u8]) -> Result<String, SourceError> {
     let mut pkg = Package::open(bytes)?;
-    let doc = pkg
-        .xml("word/document.xml")
-        .ok_or_else(|| SourceError::Unreadable("it has no word/document.xml: not a Word document".into()))?;
+    let doc = pkg.part("word/document.xml", "it has no word/document.xml: not a Word document")?;
     let body = doc.child("body").ok_or_else(|| SourceError::Unreadable("its document has no body".into()))?;
     let mut out = Vec::new();
     if let Some(title) = pkg.title() {

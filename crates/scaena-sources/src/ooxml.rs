@@ -40,6 +40,13 @@ impl Package {
         xml::parse(&self.text(path)?).ok()
     }
 
+    /// The part at `path`, as XML, which the file is read for: refused with `missing` where the
+    /// package has no such part, and naming the part where it does not read.
+    pub fn part(&mut self, path: &str, missing: &str) -> Result<Element, SourceError> {
+        let text = self.text(path).ok_or_else(|| SourceError::Unreadable(missing.into()))?;
+        xml::parse(&text).map_err(|e| SourceError::Unreadable(format!("its {path} does not read: {e}")))
+    }
+
     /// The relationships of the part at `path`, each target a path in the package (or an
     /// address, where it is external).
     pub fn rels(&mut self, path: &str) -> Vec<Rel> {

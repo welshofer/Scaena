@@ -159,3 +159,34 @@ fn a_cell_or_a_point_indexed_past_what_a_file_can_hold_allocates_nothing() {
     let s = read("crafted.pptx", &pptx).unwrap();
     assert!(s.text.contains("2025=4") && !s.text.contains("2026"), "{}", s.text);
 }
+
+/// A Word document or a slide nested far past what Office writes is refused, naming the part,
+/// not read until the stack overflows (the 20261024 plan's STAB-2): From a prompt, `scaena
+/// generate --source`, and the Mac's prompt window each read what they are handed.
+#[test]
+fn a_document_nested_too_deep_is_refused_not_overflowed() {
+    let deep = 200_000;
+    let nested = format!("{}<w:t>x</w:t>{}", "<w:r>".repeat(deep), "</w:r>".repeat(deep));
+    let document = format!(r#"<w:document xmlns:w="w"><w:body><w:p>{nested}</w:p></w:body></w:document>"#);
+    let docx = package(&[("word/document.xml", &document)]);
+    let refused = read("deep.docx", &docx).unwrap_err().to_string();
+    assert!(
+        refused.contains("word/document.xml does not read") && refused.contains("nested more than 256 deep"),
+        "{refused}"
+    );
+    // A slide nested so: the deck reads, that slide by its number alone.
+    let presentation = r#"<p:presentation xmlns:p="p" xmlns:r="r"><p:sldIdLst><p:sldId id="256" r:id="rId1"/></p:sldIdLst></p:presentation>"#;
+    let rels = r#"<Relationships xmlns="x"><Relationship Id="rId1" Type="http://schemas/slide" Target="slides/slide1.xml"/></Relationships>"#;
+    let slide = format!(
+        r#"<p:sld xmlns:p="p" xmlns:a="a">{}<a:t>x</a:t>{}</p:sld>"#,
+        "<a:p>".repeat(deep),
+        "</a:p>".repeat(deep)
+    );
+    let pptx = package(&[
+        ("ppt/presentation.xml", presentation),
+        ("ppt/_rels/presentation.xml.rels", rels),
+        ("ppt/slides/slide1.xml", &slide),
+    ]);
+    let read = read("deep.pptx", &pptx).unwrap();
+    assert_eq!(read.text.trim(), "## Slide 1", "{}", read.text);
+}

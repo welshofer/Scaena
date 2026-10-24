@@ -19,9 +19,7 @@ pub struct Chart {
 /// `bytes`, a `.pptx`, as grounding text.
 pub fn read(bytes: &[u8]) -> Result<String, SourceError> {
     let mut pkg = Package::open(bytes)?;
-    let presentation = pkg
-        .xml("ppt/presentation.xml")
-        .ok_or_else(|| SourceError::Unreadable("it has no ppt/presentation.xml: not a presentation".into()))?;
+    let presentation = pkg.part("ppt/presentation.xml", "it has no ppt/presentation.xml: not a presentation")?;
     let rels = pkg.rels("ppt/presentation.xml");
     // The slides in order, each with the id its sections name it by.
     let mut slides: Vec<(Option<String>, String)> = Vec::new();
