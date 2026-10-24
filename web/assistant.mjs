@@ -25,7 +25,7 @@
 import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { dirname, join } from "node:path";
-import { decode, launch, serve } from "./serve.mjs";
+import { decode, launch, serve, tab } from "./serve.mjs";
 
 const failures = [];
 const check = (ok, what) => {
@@ -306,7 +306,7 @@ try {
     // A turn gives up on silence after 3 s here, not two minutes (narrative REL-3).
     await page.goto(`${site.origin}/web/dist/editor.html?painter=cpu&source=open&bundle=/${bundle}/deck.json&assistant-timeout=3000`);
     await page.waitForFunction(() => window.scaena?.last(), null, { timeout: 120000 });
-    await page.click("#tab-assistant");
+    await tab(page, "assistant");
     return page;
   };
   /** Pick `provider` at `origin` with `key`, and wait for its models. */
@@ -411,7 +411,7 @@ try {
     // The Story tab's Ask puts its question to the assistant, which now has the tool to answer it
     // (narrative FUNC-2): the question in the box, the tab shown.
     if (id === "anthropic") {
-      await page.click("#tab-story");
+      await tab(page, "story");
       await page.waitForFunction(() => document.querySelector("#story [data-ask]"), null, { timeout: 60000 });
       const asked = await page.evaluate(() => {
         document.querySelector("#story [data-ask]").click();
@@ -460,14 +460,14 @@ try {
     // The theme's edit shows in the Theme tab, and is one step of the source's undo: ⌘Z writes the
     // theme back (PLAN 2.61).
     const accent = () => page.evaluate(() => window.scaena.theme.theme()?.tokens?.color?.accent);
-    await page.click("#tab-theming");
+    await tab(page, "theming");
     await page.waitForFunction(() => window.scaena.theme.theme()?.tokens?.color?.accent === "#2E86E4", null, { timeout: 30000 }).catch(() => {});
     check((await accent()) === "#2E86E4", `${id}: the Theme tab shows the assistant's edit: ${await accent()}`);
     await page.locator("#code .cm-content").focus();
     await page.keyboard.press("Control+z");
     await page.waitForFunction(() => window.scaena.theme.theme()?.tokens?.color?.accent === "#FF6A3D", null, { timeout: 30000 }).catch(() => {});
     check((await accent()) === "#FF6A3D" && (await page.evaluate(() => window.scaena.source())) === after, `${id}: ⌘Z writes the theme back, the source as it was`);
-    await page.click("#tab-assistant");
+    await tab(page, "assistant");
     const usage = await page.evaluate(() => window.scaena.assistant.usage());
     check(usage.input === 1000 * SCRIPT.length + 1200, `${id}: tokens counted: ${usage.input} in, ${usage.output} out`);
 
@@ -619,7 +619,7 @@ try {
         .waitForSelector("#recovering[open]", { timeout: 5000 })
         .then(() => page.click("#recovering [value=discard]"))
         .catch(() => {});
-      await page.click("#tab-assistant");
+      await tab(page, "assistant");
       await page.waitForFunction(() => document.querySelector("#key").value, null, { timeout: 10000 });
       check((await page.$eval("#key", (k) => k.value)) === "anthropic-test-key", "and comes back after a reload");
       await page.click("#forget-key");
