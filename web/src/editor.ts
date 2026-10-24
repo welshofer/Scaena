@@ -1610,7 +1610,10 @@ async function edit(source: Source, opened?: Stage) {
         const [worse, better] = [themed.added.length, themed.removed.length];
         const n = themed.recolored.length;
         const recolored = n ? ` · ${n} text${n === 1 ? "" : "s"} recolored to read on what lies behind ${n === 1 ? "it" : "them"}` : "";
-        say(`Theme ${label}${recolored} · ${issuesChanged(worse, better)}`);
+        // A text the theme set past its box, or over another, fitted as lint's fix fits it.
+        const r = themed.refitted.length;
+        const refitted = r ? ` · ${r} text${r === 1 ? "" : "s"} fitted to ${r === 1 ? "its box" : "their boxes"}` : "";
+        say(`Theme ${label}${recolored}${refitted} · ${issuesChanged(worse, better)}`);
       }
     } catch (e) {
       say(`Not re-themed: ${said(e)}`);
