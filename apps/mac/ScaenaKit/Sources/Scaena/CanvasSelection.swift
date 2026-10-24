@@ -85,6 +85,9 @@ struct CanvasSelection: View {
     /// Show another state, a slide or a step: where PageDown and PageUp go (PLAN 4.12). None where
     /// the window shows no other.
     var showing: ((String) -> Void)? = nil
+    /// What a touch holds in a keyboard's place (lift-up FUNC-4): Select, which makes a tap add to
+    /// the selection or take from it, and Only on This Slide, which keeps a gesture to the slide.
+    var touch: TouchHeld? = nil
     /// Make the patch a gesture ended in: one step to undo, named in the Edit menu as the gesture
     /// is where it says more than the patch (a resize), else as the patch says what it does.
     let make: ([JSONValue], String?) -> Void
@@ -644,7 +647,7 @@ struct CanvasSelection: View {
             if d.fork { return "On this slide only" }
             let others = d.states.filter { $0 != state }.count
             guard others > 0 else { return nil }
-            return "Also moves it on \(others) other slide\(others == 1 ? "" : "s")\(Held.keyboard ? " · ⌥ moves it here only" : "")"
+            return "Also moves it on \(others) other slide\(others == 1 ? "" : "s")\(Held.keyboard ? " · ⌥ moves it here only" : " · a long press offers Only on This Slide")"
         case .handling(let h):
             return holdingTold(h)
         default:
@@ -791,7 +794,7 @@ struct CanvasSelection: View {
                     // A click until it goes further than one.
                     guard h.moved || moved >= Self.still else { break }
                     h.moved = true
-                    h.fork = Held.option
+                    h.fork = forks
                     hold(&h, to: fit.canvas(value.location))
                     press = .handling(h)
                 default:
@@ -817,7 +820,7 @@ struct CanvasSelection: View {
                     typing.focus?()
                 case .handling(var h):
                     if h.moved {
-                        h.fork = Held.option
+                        h.fork = forks
                         hold(&h, to: fit.canvas(value.location))
                     }
                     letGo(h)
@@ -964,7 +967,7 @@ struct CanvasSelection: View {
             return
         }
         pointPicked = nil
-        let fork = Held.option
+        let fork = forks
         edit(Handling.reshaping(o.node, to: kept, in: state, fork: fork))
         said = "Point removed\(fork ? " · on this slide only" : "")"
     }
@@ -1468,7 +1471,7 @@ struct CanvasSelection: View {
         do {
             let start = try editor.session.turned(state: state, node: selected).rotate
             let now = ((start + by) * 1000).rounded() / 1000
-            edit(Handling.turning(selected, to: now, in: state, fork: Held.option))
+            edit(Handling.turning(selected, to: now, in: state, fork: forks))
             said = "Rotated to \(now.formatted())°"
         } catch {
             said = "\(name(selected, starting: true)) can't be rotated. \(Why.said(error))"
@@ -1540,7 +1543,7 @@ struct CanvasSelection: View {
     private func pick(_ point: CGPoint) {
         let hits = (try? editor.session.hits(state: state, at: point)) ?? []
         let hit = (hits.first { $0.locked == nil }?.node).map(reached)
-        if Held.shift, let hit, node != nil {
+        if extends, let hit, node != nil {
             return toggle(hit)
         }
         node = hit
@@ -1549,6 +1552,13 @@ struct CanvasSelection: View {
             typeIn(node, at: point)
         }
     }
+
+    /// Whether a press adds to the selection or takes from it: Shift, or the touch's Select held
+    /// (lift-up FUNC-4).
+    private var extends: Bool { touch?.extends ?? Held.shift }
+
+    /// Whether a gesture is kept to the slide shown: Option, or the touch's Only on This Slide held.
+    private var forks: Bool { touch?.forks ?? Held.option }
 
     /// What a press on `hit` reaches (PLAN 2.108): a shape's words, reached as the shape, which a
     /// click selects, a drag moves, and a right click offers what is done to; anything else as
@@ -1574,11 +1584,11 @@ struct CanvasSelection: View {
     @discardableResult
     private func typeIn(_ node: String, at point: CGPoint?) -> Bool {
         guard let shape = boxes.first(where: { $0.node == node }), shape.takesWords == true else {
-            return typing.enter(node, in: state, at: point, fork: Held.option)
+            return typing.enter(node, in: state, at: point, fork: forks)
         }
         if let words = shape.words {
             self.node = words
-            return typing.enter(words, in: state, at: point, fork: Held.option)
+            return typing.enter(words, in: state, at: point, fork: forks)
         }
         do {
             let worded = try editor.session.wording(state: state, shape: node)
@@ -1693,7 +1703,7 @@ struct CanvasSelection: View {
             guard let x0 = xs.min(), let x1 = xs.max(), let y0 = ys.min(), let y1 = ys.max() else { return false }
             return band.contains(CGRect(x: x0, y: y0, width: x1 - x0, height: y1 - y0))
         }.map(\.node)
-        let keep = Held.shift && parent(of: node) == nil ? selection : []
+        let keep = extends && parent(of: node) == nil ? selection : []
         let all = keep + inside.filter { !keep.contains($0) }
         node = all.first
         also = Array(all.dropFirst())
@@ -1783,7 +1793,7 @@ struct CanvasSelection: View {
     private func aim(_ value: DragGesture.Value, scale: CGFloat) {
         guard var d = drag, d.revision == editor.revision else { return }
         d.by = CGVector(dx: value.translation.width / scale, dy: value.translation.height / scale)
-        d.fork = Held.option
+        d.fork = forks
         d.how = d.targets.dragged(at: d.at, resize: d.edge != nil, shift: Held.shift)
         // A picture's corner keeps its proportions, where it lands, as a presentation app scales a
         // picture: no magnet draws one of its edges alone. Shift frees it to the grid's tracks.

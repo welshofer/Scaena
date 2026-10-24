@@ -87,9 +87,9 @@
       #overlay.panning { cursor: grab; }
       #zoom output { display: inline-block; min-width: 3.2em; text-align: center; font-variant-numeric: tabular-nums; }
       /* A part of an image's crop or focal point: its caption over its field, the % beside it. */
-      #look label.part { display: inline-grid; grid-template-columns: auto auto; align-items: center; column-gap: 3px; font-size: 12px; color: var(--muted); margin-right: 4px; }
-      #look label.part span { grid-column: 1 / -1; line-height: 1.4; }
-      #look label.part input.fraction { width: 3.8em; }
+      :is(#look, #animating) label.part { display: inline-grid; grid-template-columns: auto auto; align-items: center; column-gap: 3px; font-size: 12px; color: var(--muted); margin-right: 4px; }
+      :is(#look, #animating) label.part span { grid-column: 1 / -1; line-height: 1.4; }
+      :is(#look, #animating) label.part input.fraction { width: 3.8em; }
       #overlay .ink { fill: none; stroke-linecap: round; stroke-linejoin: round; }
       #overlay .marquee { fill: rgb(156 196 228 / 0.1); stroke: var(--info); stroke-width: 1; stroke-dasharray: 4 3; }
       #overlay .landing-line { stroke: var(--info); stroke-width: 3; }
@@ -249,6 +249,20 @@
       #rehearsing { display: flex; gap: 8px; align-items: center; padding: 6px 12px; background: var(--panel); border-bottom: 1px solid var(--info); font-variant-numeric: tabular-nums; }
       #rehearsing[hidden] { display: none; }
       #rehearsing [data-where] { flex: 1; }
+      /* The notes of the slide rehearsed, as a speaker reads them, and the next slide's name, under
+       * the bar (SPEC §2.6). */
+      #rehearsal-notes { padding: 6px 12px 8px; background: var(--panel); border-bottom: 1px solid var(--info); max-height: 30vh; overflow: auto; font-size: 15px; line-height: 1.4; }
+      #rehearsal-notes[hidden] { display: none; }
+      #rehearsal-notes [data-next] { color: var(--muted); margin: 0 0 4px; }
+      .notes p { white-space: pre-wrap; margin: 0 0 8px; }
+      .notes ul, .notes ol { margin: 0 0 8px; padding-left: 1.4em; }
+      .notes li { margin: 2px 0; }
+      .notes li > ul, .notes li > ol { margin-bottom: 0; }
+      .notes table { border-collapse: collapse; margin: 0 0 8px; }
+      .notes th, .notes td { text-align: left; vertical-align: top; padding: 2px 12px 2px 0; border-bottom: 1px solid var(--line); }
+      .notes th { font-weight: 600; }
+      .notes code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.9em; }
+      .notes > :last-child { margin-bottom: 0; }
       #rehearsed { width: min(34em, 92vw); }
       #writing { width: min(34em, 92vw); }
       #writing textarea { box-sizing: border-box; width: 100%; font: inherit; line-height: 1.4; }
@@ -322,68 +336,81 @@
       #inspector tr[aria-selected="true"] td { background: var(--line); }
       #inspector .flag { color: var(--warning); font-size: 12px; margin-left: 4px; }
       /* The node selected, its look chosen from the theme (PLAN 2.33); with none, the state's (PLAN 2.36). */
-      #look:empty { display: none; }
-      #look .named { margin: 0 0 6px; font-size: 13px; overflow-wrap: anywhere; }
-      #look .keep { padding: 0 0 6px; color: var(--muted); font-size: 13px; }
+      :is(#look, #animating):empty { display: none; }
+      :is(#look, #animating) .named { margin: 0 0 6px; font-size: 13px; overflow-wrap: anywhere; }
+      :is(#look, #animating) .keep { padding: 0 0 6px; color: var(--muted); font-size: 13px; }
       /* The controls take the room: a name and where its value lives wrap before a control is cut,
          and in a narrow panel (the source open beside the canvas) each name stands over its control. */
-      #look { container-type: inline-size; }
-      #look .fields { display: grid; grid-template-columns: fit-content(6.25em) minmax(0, 1fr) fit-content(7.5em); gap: 4px 8px; align-items: center; }
+      :is(#look, #animating) { container-type: inline-size; }
+      :is(#look, #animating) .fields { display: grid; grid-template-columns: fit-content(6.25em) minmax(0, 1fr) fit-content(7.5em); gap: 4px 8px; align-items: center; }
       @container (max-width: 359px) {
-        #look .fields { grid-template-columns: minmax(0, 1fr) fit-content(7.5em); row-gap: 2px; }
-        #look .fields > label { grid-column: 1 / -1; padding-top: 4px; }
+        :is(#look, #animating) .fields { grid-template-columns: minmax(0, 1fr) fit-content(7.5em); row-gap: 2px; }
+        :is(#look, #animating) .fields > label { grid-column: 1 / -1; padding-top: 4px; }
       }
-      #look .arrange { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 8px; align-items: center; padding: 0 0 8px; }
-      #look .arrange-kind { color: var(--muted); font-size: 13px; }
-      #look .arrange-buttons { display: flex; flex-wrap: wrap; gap: 4px; }
-      #look .arrange-buttons button { font-size: 12px; padding: 2px 6px; }
-      #look .fields + .writing { padding: 8px 0; }
-      #look .furniture-title { margin: 12px 0 4px; font-size: 12px; font-weight: 600; color: var(--muted); }
-      #look .furniture input[type="text"] { width: 100%; box-sizing: border-box; }
-      #look .fields > label { color: var(--muted); font-size: 13px; }
-      #look .control { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; min-width: 0; }
-      #look select { min-width: 0; max-width: 100%; }
-      #look input[type="number"] { width: 6em; font: inherit; font-size: 13px; background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 4px; padding: 2px 4px; }
-      #look .control > input[type="number"]:first-child { flex: 1 1 6em; width: auto; min-width: 5em; max-width: 14em; }
-      #look input[type="color"] { width: 2em; height: 1.6em; padding: 0; border: 1px solid var(--line); border-radius: 4px; background: var(--panel); }
+      :is(#look, #animating) .arrange { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 8px; align-items: center; padding: 0 0 8px; }
+      :is(#look, #animating) .arrange-kind { color: var(--muted); font-size: 13px; }
+      :is(#look, #animating) .arrange-buttons { display: flex; flex-wrap: wrap; gap: 4px; }
+      :is(#look, #animating) .arrange-buttons button { font-size: 12px; padding: 2px 6px; }
+      :is(#look, #animating) .fields + .writing { padding: 8px 0; }
+      :is(#look, #animating) .furniture-title { margin: 12px 0 4px; font-size: 12px; font-weight: 600; color: var(--muted); }
+      :is(#look, #animating) .furniture input[type="text"] { width: 100%; box-sizing: border-box; }
+      :is(#look, #animating) .fields > label { color: var(--muted); font-size: 13px; }
+      :is(#look, #animating) .control { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; min-width: 0; }
+      :is(#look, #animating) select { min-width: 0; max-width: 100%; }
+      :is(#look, #animating) input[type="number"] { width: 6em; font: inherit; font-size: 13px; background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 4px; padding: 2px 4px; }
+      :is(#look, #animating) .control > input[type="number"]:first-child { flex: 1 1 6em; width: auto; min-width: 5em; max-width: 14em; }
+      :is(#look, #animating) input[type="color"] { width: 2em; height: 1.6em; padding: 0; border: 1px solid var(--line); border-radius: 4px; background: var(--panel); }
       /* A state's notes (PLAN 2.36). */
-      #look textarea { width: 100%; min-width: 12em; font: inherit; font-size: 13px; background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 4px; padding: 2px 4px; resize: vertical; }
-      #look .lives { color: var(--muted); font-size: 12px; }
-      #look .away { padding: 0 5px; margin-left: 4px; font-size: 12px; line-height: 1.4; }
+      :is(#look, #animating) textarea { width: 100%; min-width: 12em; font: inherit; font-size: 13px; background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 4px; padding: 2px 4px; resize: vertical; }
+      :is(#look, #animating) .lives { color: var(--muted); font-size: 12px; }
+      :is(#look, #animating) .away { padding: 0 5px; margin-left: 4px; font-size: 12px; line-height: 1.4; }
       /* How the node shown, or the state, reads (PLAN 2.56). */
-      #look .reads { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--line); font-size: 13px; }
-      #look .reads h3 { margin: 0 0 4px; font-size: 12px; font-weight: 600; color: var(--muted); }
-      #look .reads p { margin: 0; }
-      #look .reads ol { margin: 0; padding-left: 1.6em; }
-      #look .reads li { margin: 2px 0; }
-      #look .reads button { font-size: 12px; padding: 0 5px; }
-      #look .reads .kind { color: var(--muted); }
+      :is(#look, #animating) .reads { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--line); font-size: 13px; }
+      :is(#look, #animating) .reads h3 { margin: 0 0 4px; font-size: 12px; font-weight: 600; color: var(--muted); }
+      :is(#look, #animating) .reads p { margin: 0; }
+      :is(#look, #animating) .reads ol { margin: 0; padding-left: 1.6em; }
+      :is(#look, #animating) .reads li { margin: 2px 0; }
+      :is(#look, #animating) .reads button { font-size: 12px; padding: 0 5px; }
+      :is(#look, #animating) .reads .kind { color: var(--muted); }
       /* The layouts the state shown may take, each drawn and judged by lint, best first (PLAN 2.92). */
-      #look .layouts { padding: 0 0 8px; }
-      #look .layouts h3 { margin: 0 0 4px; font-size: 12px; font-weight: 600; color: var(--muted); }
-      #look .suggested { display: flex; flex-wrap: wrap; gap: 6px; }
-      #look .suggested button { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 3px; font-size: 11px; text-align: left; }
-      #look .suggested button[aria-pressed="true"] { border-color: var(--info); }
-      #look .suggested button:focus-visible { outline: 2px solid var(--info); outline-offset: 1px; }
-      #look .suggested canvas { display: block; height: 72px; width: auto; background: #000; }
-      #look .suggested .verdict, #look .suggested .alike { color: var(--muted); }
-      #look .suggested .error { color: var(--error); }
-      #look .suggested .warning { color: var(--warning); }
+      :is(#look, #animating) .layouts { padding: 0 0 8px; }
+      :is(#look, #animating) .layouts h3 { margin: 0 0 4px; font-size: 12px; font-weight: 600; color: var(--muted); }
+      :is(#look, #animating) .suggested { display: flex; flex-wrap: wrap; gap: 6px; }
+      :is(#look, #animating) .suggested button { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 3px; font-size: 11px; text-align: left; }
+      :is(#look, #animating) .suggested button[aria-pressed="true"] { border-color: var(--info); }
+      :is(#look, #animating) .suggested button:focus-visible { outline: 2px solid var(--info); outline-offset: 1px; }
+      :is(#look, #animating) .suggested canvas { display: block; height: 72px; width: auto; background: #000; }
+      :is(#look, #animating) .suggested .verdict, :is(#look, #animating) .suggested .alike { color: var(--muted); }
+      :is(#look, #animating) .suggested .error { color: var(--error); }
+      :is(#look, #animating) .suggested .warning { color: var(--warning); }
       /* The slide's background (PLAN 2.148): None and each of the theme's presets, each a swatch of
          the slide with it, moving; dimmed where the slide shows data. */
-      #look .backgrounds { padding: 0 0 8px; }
-      #look .backgrounds h3 { margin: 0 0 4px; font-size: 12px; font-weight: 600; color: var(--muted); }
-      #look .backgrounds .held { margin: 0 0 4px; font-size: 11px; color: var(--muted); }
+      :is(#look, #animating) .backgrounds { padding: 0 0 8px; }
+      :is(#look, #animating) .backgrounds h3 { margin: 0 0 4px; font-size: 12px; font-weight: 600; color: var(--muted); }
+      :is(#look, #animating) .backgrounds .held { margin: 0 0 4px; font-size: 11px; color: var(--muted); }
       /* Four to a row, each as wide as its column: eight presets in two even rows (PLAN 2.148). */
-      #look .swatches { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
-      #look .swatches [role="option"] { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; padding: 3px; border: 1px solid var(--line); border-radius: 4px; font-size: 11px; cursor: pointer; }
-      #look .swatches [aria-selected="true"] { border-color: var(--info); box-shadow: inset 0 0 0 1px var(--info); }
-      #look .swatches [aria-disabled="true"] { opacity: 0.45; cursor: not-allowed; }
-      #look .swatches [role="option"]:focus-visible { outline: 2px solid var(--info); outline-offset: 1px; }
-      #look .swatches canvas { display: block; width: 100%; height: auto; background: #000; }
-      #look .swatches .kind { color: var(--muted); }
+      :is(#look, #animating) .swatches { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+      :is(#look, #animating) .swatches [role="option"] { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; padding: 3px; border: 1px solid var(--line); border-radius: 4px; font-size: 11px; cursor: pointer; }
+      :is(#look, #animating) .swatches [aria-selected="true"] { border-color: var(--info); box-shadow: inset 0 0 0 1px var(--info); }
+      :is(#look, #animating) .swatches [aria-disabled="true"] { opacity: 0.45; cursor: not-allowed; }
+      :is(#look, #animating) .swatches [role="option"]:focus-visible { outline: 2px solid var(--info); outline-offset: 1px; }
+      :is(#look, #animating) .swatches canvas { display: block; width: 100%; height: auto; background: #000; }
+      :is(#look, #animating) .swatches .kind { color: var(--muted); }
       .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }
-      #tabs { display: flex; flex-wrap: wrap; flex: none; gap: 0 4px; padding: 0 12px; border-bottom: 1px solid var(--line); }
+      /* The inspector's tabs on one row (lift-up ATTR-4, PLAN 3.18): Format, Animate, and Document a
+         segmented control, as a presentation app's are, More a menu of the rest at the row's end, and
+         Document's panels a row of their own. */
+      #tabs { display: flex; flex: none; align-items: center; gap: 6px; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+      .segments { display: flex; flex: 1 1 auto; min-width: 0; padding: 2px; gap: 2px; background: rgb(255 255 255 / 0.06); border-radius: 7px; }
+      .segments button { flex: 1 1 auto; min-width: 0; border: none; border-radius: 5px; background: none; padding: 3px 5px; font-size: 11.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .segments button:hover { color: var(--ink); }
+      .segments button[aria-selected="true"] { color: var(--ink); background: var(--panel); box-shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 0 0 1px rgb(255 255 255 / 0.06); }
+      .segments button:focus-visible, #tab-more:focus-visible { outline: 2px solid var(--info); outline-offset: -2px; }
+      #document > .segments { margin: 8px 12px 0; flex: none; }
+      #document { display: flex; flex-direction: column; min-height: 0; }
+      #document[hidden], #animate[hidden] { display: none; }
+      #animate { padding: 0 12px 12px; }
+      #animating .fields { margin-bottom: 8px; }
       /* The layers (PLAN 2.50): the state shown's nodes, topmost first, nested as they are held;
          those it does not show dimmed. */
       #layers ul { margin: 0; padding: 0; list-style: none; }
@@ -520,8 +547,10 @@
       #data [data-problems] { margin: 6px 0 0; padding: 0; list-style: none; font-size: 12px; color: var(--muted); }
       #data [data-problems] button { all: unset; color: var(--error); cursor: pointer; }
       #data [data-problems] button:focus-visible { outline: 2px solid var(--info); }
-      #tabs button { border: none; border-bottom: 2px solid transparent; border-radius: 0; background: none; padding: 6px 8px; color: var(--muted); }
-      #tabs button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--ink); }
+      #tab-more { flex: none; border: none; border-radius: 5px; background: none; padding: 3px 5px; font-size: 11.5px; color: var(--muted); white-space: nowrap; }
+      #tab-more::after { content: " ▾"; font-size: 10px; }
+      #tab-more:hover, #tab-more[aria-selected="true"] { color: var(--ink); }
+      #tab-more[aria-selected="true"] { background: rgb(255 255 255 / 0.08); }
       #assistant { display: flex; flex-direction: column; gap: 8px; padding: 8px 12px 12px; min-height: 0; }
       #assistant[hidden] { display: none; }
       #assistant input, #assistant textarea { font: inherit; font-size: 13px; background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 4px; padding: 3px 6px; }
@@ -726,6 +755,10 @@
           <button type="button" data-on title="The next slide (→, Space, or a click on the canvas)">On</button>
           <button type="button" data-end title="Stop, and see what each slide took (Escape)">End</button>
         </div>
+        <div id="rehearsal-notes" role="region" aria-label="The notes of the slide rehearsed" hidden>
+          <p data-next></p>
+          <div data-notes class="notes"></div>
+        </div>
         <div id="desk">
         <div id="preview">
           <canvas id="stage"></canvas>
@@ -786,88 +819,104 @@
         <ul id="problems" aria-label="Problems"></ul>
       </div>
       <aside id="panel">
-        <nav id="tabs" role="tablist">
-          <button role="tab" id="tab-inspector" aria-selected="true" aria-controls="inspector">Inspector</button>
-          <button role="tab" id="tab-layers" aria-selected="false" aria-controls="layers">Layers</button>
-          <button role="tab" id="tab-data" aria-selected="false" aria-controls="data">Data</button>
-          <button role="tab" id="tab-theming" aria-selected="false" aria-controls="theming">Theme</button>
-          <button role="tab" id="tab-files" aria-selected="false" aria-controls="files">Files</button>
-          <button role="tab" id="tab-versions" aria-selected="false" aria-controls="versions">Versions</button>
-          <button role="tab" id="tab-story" aria-selected="false" aria-controls="story">Story</button>
-          <button role="tab" id="tab-assistant" aria-selected="false" aria-controls="assistant">Assistant</button>
+        <!-- The inspector's tabs (lift-up ATTR-4), a presentation app's on one row (PLAN 3.18): Format,
+             Animate, and Document, a segmented control, and More, a menu of the rest, which shows the
+             panel chosen as its own. Document's panels are a row of their own. Each panel chosen
+             from More keeps its tab, hidden, for its name and its id. -->
+        <nav id="tabs" role="tablist" aria-label="Inspector">
+          <span class="segments">
+            <button role="tab" id="tab-inspector" aria-selected="true" aria-controls="inspector" title="Format: the object selected, or the slide">Format</button>
+            <button role="tab" id="tab-animate" aria-selected="false" aria-controls="animate" title="Animate: the object's builds, or the slide's transition">Animate</button>
+            <button role="tab" id="tab-document" aria-selected="false" aria-controls="document" title="Document: the theme, the data, the files, the versions, and the story">Document</button>
+          </span>
+          <button role="tab" id="tab-more" aria-selected="false" aria-haspopup="menu" aria-controls="layers" title="More: the layers, and the assistant">More</button>
+          <button role="tab" id="tab-layers" aria-selected="false" aria-controls="layers" hidden>Layers</button>
+          <button role="tab" id="tab-assistant" aria-selected="false" aria-controls="assistant" hidden>Assistant</button>
         </nav>
         <div id="inspector" role="tabpanel" aria-labelledby="tab-inspector">
           <section id="look" aria-label="The object selected"></section>
           <div id="listing"></div>
         </div>
+        <div id="animate" role="tabpanel" aria-labelledby="tab-animate" hidden>
+          <section id="animating" aria-label="The object's builds, or the slide's transition"></section>
+        </div>
         <section id="layers" role="tabpanel" aria-labelledby="tab-layers" hidden>
           <ul aria-label="This slide's objects, topmost first"></ul>
         </section>
-        <section id="data" role="tabpanel" aria-labelledby="tab-data" hidden>
-          <p class="data-head">
-            <select data-source aria-label="Data"></select>
-            <span data-where></span>
-            <button type="button" data-add title="A row after the row of the cell last focused, or at the end">+ Row</button>
-            <button type="button" data-remove title="Take the row of the cell last focused away">− Row</button>
-            <button type="button" data-quote title="The characters selected in the text you are typing in show the cell last clicked, set again as the data changes">Quote</button>
-            <button type="button" data-undo title="Undo the last change to the data (⌘Z in the table)">Undo</button>
-            <button type="button" data-redo title="Make the last change undone again (⇧⌘Z in the table)">Redo</button>
-          </p>
-          <div class="sheet"><table aria-label="The data's rows: each cell a field, Enter to set it, Escape to put it back"></table></div>
-          <ul data-problems aria-label="Cells their column does not read"></ul>
-          <p data-drawn aria-live="polite"></p>
-        </section>
-        <section id="theming" role="tabpanel" aria-labelledby="tab-theming" hidden>
-          <p data-summary></p>
-          <h3 id="theming-colors">Colors</h3>
-          <ul data-colors aria-labelledby="theming-colors"></ul>
-          <h3 id="theming-photo">From a photo</h3>
-          <p class="hint">The colors of a photo the deck holds, on the theme's own tones: its hues for the accents, the hue it leans to for the neutrals. Text still reads on the surfaces.</p>
-          <ul data-photos aria-labelledby="theming-photo"></ul>
-          <h3 id="theming-type">Type</h3>
-          <div class="theming-roles">
-            <table data-roles aria-labelledby="theming-type">
-              <thead><tr><th scope="col">Text Style</th><th scope="col">Font</th><th scope="col">Size</th><th scope="col">Weight</th><th scope="col">Line Spacing</th><th scope="col">Character Spacing</th></tr></thead>
-              <tbody></tbody>
-            </table>
-          </div>
-          <h3 id="theming-spacing">Spacing</h3>
-          <div data-spacing role="group" aria-labelledby="theming-spacing"></div>
-          <h3 id="theming-code">Code</h3>
-          <p class="hint">Each kind of word in code, in the color it is drawn in. A color the theme names is held to read on the slide; the rest follow the accent.</p>
-          <ul data-code aria-labelledby="theming-code"></ul>
-        </section>
-        <section id="files" role="tabpanel" aria-labelledby="tab-files" hidden>
-          <p class="files-head">
-            <span data-summary></span>
-            <button type="button" data-undo title="Undo the last change, a file taken out among them (⌘Z)">Undo</button>
-            <button type="button" data-redo title="Make the last change undone again (⇧⌘Z)">Redo</button>
-          </p>
-          <div data-files></div>
-        </section>
-        <section id="versions" role="tabpanel" aria-labelledby="tab-versions" hidden>
-          <p data-summary></p>
-          <button type="button" data-keep hidden title="Save the deck now as its history's first version: each save after keeps the edits since the last">Keep a history</button>
-          <ol data-versions aria-label="The deck's versions, the newest first"></ol>
-          <div data-version hidden>
-            <h3 data-title></h3>
-            <p class="versions-pick">
-              <select data-state aria-label="The version's slide shown"></select>
-              <select data-against aria-label="Compared with"></select>
-              <button type="button" data-restore title="Make this version the deck again, with its data files: one change, which ⌘Z undoes">Restore</button>
+        <div id="document" role="tabpanel" aria-labelledby="tab-document" hidden>
+          <nav class="segments" role="tablist" aria-label="Document">
+            <button role="tab" id="tab-theming" aria-selected="true" aria-controls="theming">Theme</button>
+            <button role="tab" id="tab-data" aria-selected="false" aria-controls="data">Data</button>
+            <button role="tab" id="tab-files" aria-selected="false" aria-controls="files">Files</button>
+            <button role="tab" id="tab-versions" aria-selected="false" aria-controls="versions">Versions</button>
+            <button role="tab" id="tab-story" aria-selected="false" aria-controls="story">Story</button>
+          </nav>
+          <section id="theming" role="tabpanel" aria-labelledby="tab-theming" hidden>
+            <p data-summary></p>
+            <h3 id="theming-colors">Colors</h3>
+            <ul data-colors aria-labelledby="theming-colors"></ul>
+            <h3 id="theming-photo">From a photo</h3>
+            <p class="hint">The colors of a photo the deck holds, on the theme's own tones: its hues for the accents, the hue it leans to for the neutrals. Text still reads on the surfaces.</p>
+            <ul data-photos aria-labelledby="theming-photo"></ul>
+            <h3 id="theming-type">Type</h3>
+            <div class="theming-roles">
+              <table data-roles aria-labelledby="theming-type">
+                <thead><tr><th scope="col">Text Style</th><th scope="col">Font</th><th scope="col">Size</th><th scope="col">Weight</th><th scope="col">Line Spacing</th><th scope="col">Character Spacing</th></tr></thead>
+                <tbody></tbody>
+              </table>
+            </div>
+            <h3 id="theming-spacing">Spacing</h3>
+            <div data-spacing role="group" aria-labelledby="theming-spacing"></div>
+            <h3 id="theming-code">Code</h3>
+            <p class="hint">Each kind of word in code, in the color it is drawn in. A color the theme names is held to read on the slide; the rest follow the accent.</p>
+            <ul data-code aria-labelledby="theming-code"></ul>
+          </section>
+          <section id="data" role="tabpanel" aria-labelledby="tab-data" hidden>
+            <p class="data-head">
+              <select data-source aria-label="Data"></select>
+              <span data-where></span>
+              <button type="button" data-add title="A row after the row of the cell last focused, or at the end">+ Row</button>
+              <button type="button" data-remove title="Take the row of the cell last focused away">− Row</button>
+              <button type="button" data-quote title="The characters selected in the text you are typing in show the cell last clicked, set again as the data changes">Quote</button>
+              <button type="button" data-undo title="Undo the last change to the data (⌘Z in the table)">Undo</button>
+              <button type="button" data-redo title="Make the last change undone again (⇧⌘Z in the table)">Redo</button>
             </p>
-            <img alt="" />
-            <p data-why hidden></p>
-            <ul data-changes aria-label="What changed"></ul>
-          </div>
-        </section>
-        <section id="story" role="tabpanel" aria-labelledby="tab-story" hidden>
-          <p data-score aria-live="polite"></p>
-          <dl data-measures></dl>
-          <div data-arc></div>
-          <p data-legend><i class="declared"></i>as written <i class="read"></i>as its words read <i class="curve"></i>the arc's curve <i class="bends"></i>off it; higher is more intense</p>
-          <ol data-findings aria-label="What to look at, slide by slide"></ol>
-        </section>
+            <div class="sheet"><table aria-label="The data's rows: each cell a field, Enter to set it, Escape to put it back"></table></div>
+            <ul data-problems aria-label="Cells their column does not read"></ul>
+            <p data-drawn aria-live="polite"></p>
+          </section>
+          <section id="files" role="tabpanel" aria-labelledby="tab-files" hidden>
+            <p class="files-head">
+              <span data-summary></span>
+              <button type="button" data-undo title="Undo the last change, a file taken out among them (⌘Z)">Undo</button>
+              <button type="button" data-redo title="Make the last change undone again (⇧⌘Z)">Redo</button>
+            </p>
+            <div data-files></div>
+          </section>
+          <section id="versions" role="tabpanel" aria-labelledby="tab-versions" hidden>
+            <p data-summary></p>
+            <button type="button" data-keep hidden title="Save the deck now as its history's first version: each save after keeps the edits since the last">Keep a history</button>
+            <ol data-versions aria-label="The deck's versions, the newest first"></ol>
+            <div data-version hidden>
+              <h3 data-title></h3>
+              <p class="versions-pick">
+                <select data-state aria-label="The version's slide shown"></select>
+                <select data-against aria-label="Compared with"></select>
+                <button type="button" data-restore title="Make this version the deck again, with its data files: one change, which ⌘Z undoes">Restore</button>
+              </p>
+              <img alt="" />
+              <p data-why hidden></p>
+              <ul data-changes aria-label="What changed"></ul>
+            </div>
+          </section>
+          <section id="story" role="tabpanel" aria-labelledby="tab-story" hidden>
+            <p data-score aria-live="polite"></p>
+            <dl data-measures></dl>
+            <div data-arc></div>
+            <p data-legend><i class="declared"></i>as written <i class="read"></i>as its words read <i class="curve"></i>the arc's curve <i class="bends"></i>off it; higher is more intense</p>
+            <ol data-findings aria-label="What to look at, slide by slide"></ol>
+          </section>
+        </div>
         <section id="assistant" role="tabpanel" aria-labelledby="tab-assistant" hidden>
           <div id="who">
             <select id="provider" aria-label="Provider">

@@ -30,7 +30,7 @@
 // Exits 1 on any failure.
 import { readFile } from "node:fs/promises";
 import { createServer } from "node:http";
-import { launch, serve } from "./serve.mjs";
+import { launch, serve, tab } from "./serve.mjs";
 
 const failures = [];
 const check = (ok, what) => {
@@ -329,7 +329,7 @@ try {
   check((await page.getAttribute("#play", "title")) === "The player, on the deck kept in this browser first", "and says it keeps the deck in this browser first");
 
   // Its story.
-  await page.click("#tab-story");
+  await tab(page, "story");
   await page.waitForFunction(() => document.querySelector("#story [data-score] b"), null, { timeout: 60000 });
   const scored = (await page.textContent("#story [data-score]")).trim();
   check(/^\d+ of 100, written to the Problem–Solution arc$/.test(scored), `its score, and the arc it was written to: ${scored}`);

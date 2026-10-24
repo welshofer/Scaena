@@ -13,7 +13,7 @@
 // - A state picked while a lint is under way stays shown once the lint answers.
 // - axe-core finds nothing against WCAG 2.1 AA with the Data tab shown and a row chosen.
 // Exits 1 on any failure.
-import { axeInto, launch, serve } from "./serve.mjs";
+import { axeInto, launch, serve, tab } from "./serve.mjs";
 
 const failures = [];
 const check = (ok, what) => {
@@ -70,7 +70,7 @@ try {
   };
 
   // The Data tab: q3 shown, nothing chosen, nothing outlined.
-  await page.click("#tab-data");
+  await tab(page, "data");
   await page.waitForFunction(() => window.scaena.data.shown()?.name === "q3", null, { timeout: 30000 }).catch(() => {});
   check((await outlined()).length === 0, "the Data tab opened: nothing is outlined");
 
@@ -80,7 +80,7 @@ try {
   const sevenAt = (await marked())[0]?.rect;
   check(seven.length === 1 && seven[0].node === "rev" && seven[0].key === "2026-Q2 Pro", `row 7 outlines its bar: ${JSON.stringify(seven)}`);
   check(await onMark(), "where the bar stands");
-  check(/^On this slide, row 7 draws .+ \(2026-Q2 · Pro\)\.$/.test(await drawn()) && !(await drawn()).includes(" rev "), `and says so: ${await drawn()}`);
+  check(/^On this slide, row 8 draws .+ \(2026-Q2 · Pro\)\.$/.test(await drawn()) && !(await drawn()).includes(" rev "), `and says so: ${await drawn()}`);
   await focusRow(10);
   const ten = await outlined();
   const tenAt = (await marked())[0]?.rect;
@@ -138,7 +138,7 @@ try {
   await page.selectOption("#state", "intro");
   await page.waitForFunction(() => document.querySelector("#data [data-drawn]").textContent.startsWith("On this slide, nothing"), null, { timeout: 30000 }).catch(() => {});
   check((await outlined()).length === 0, "in the intro, nothing is outlined");
-  check((await drawn()) === "On this slide, nothing draws row 7.", `and the line says so: ${await drawn()}`);
+  check((await drawn()) === "On this slide, nothing draws row 8.", `and the line says so: ${await drawn()}`);
   // The format put back asked for a lint, which answers after the intro was picked: the intro stays.
   await page.waitForTimeout(1500);
   const after = await page.evaluate(() => [document.querySelector("#state").value, window.scaena.canvas.boxed(), window.scaena.at().index]);

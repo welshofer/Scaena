@@ -122,9 +122,12 @@ const said = (e: unknown) => (e instanceof Error ? e.message : String(e));
 const themeName = (path: string) => sentence(path.replace(/^.*\//, "").replace(/\.theme\.json$|\.json$/, ""));
 /** What an edit did to what lint finds, said: 2 new issues, 1 gone; or no new issues. */
 const issuesChanged = (worse: number, better: number) => `${worse ? many(worse, "new issue") : "no new issues"}${better ? `, ${better} gone` : ""}`;
-/** `rows` of a source as a sentence says them: `row 3`, or `rows 1 and 3`. */
-const rowsSaid = (rows: number[]) =>
-  rows.length === 1 ? `row ${rows[0]}` : `rows ${rows.slice(0, -1).join(", ")} and ${rows[rows.length - 1]}`;
+/** `rows` of a source, by index, as a sentence says them, counted from 1 as a person counts
+ * them: `row 3`, or `rows 1 and 3`. */
+const rowsSaid = (indices: number[]) => {
+  const rows = indices.map((r) => r + 1);
+  return rows.length === 1 ? `row ${rows[0]}` : `rows ${rows.slice(0, -1).join(", ")} and ${rows[rows.length - 1]}`;
+};
 const html = (text: string) => text.replace(/[&<>"]/g, (c) => `&${{ "&": "amp", "<": "lt", ">": "gt", '"': "quot" }[c]};`);
 
 /** The source's keys for its findings: CodeMirror's, and Shift-F8 back to the one before. */
@@ -286,7 +289,7 @@ async function listKept() {
     });
     opening.dataset.open = "";
     li.append(opening);
-    if (name === here) li.append(Object.assign(document.createElement("span"), { className: "here", textContent: "open here" }));
+    if (name === here) li.append(Object.assign(document.createElement("span"), { className: "here", textContent: "Open here" }));
     const deleting = button("Delete…", `Delete ${name}`, () => unkeep(name));
     deleting.dataset.delete = "";
     if (name === here) {
@@ -636,15 +639,17 @@ async function edit(source: Source, opened?: Stage) {
     $<HTMLButtonElement>("#files [data-undo]").disabled = undoDepth(state) === 0;
     $<HTMLButtonElement>("#files [data-redo]").disabled = redoDepth(state) === 0;
   };
-  /** The deck's title, as its source's header says it: what the tab names. */
-  const titled = () => {
-    const header = savedSource === undefined ? null : /^deck\s+("(?:[^"\\\n]|\\.)*")/m.exec(view.state.doc.toString());
+  /** The deck's title, as its source's `deck` line writes it. */
+  const heading = () => {
+    const header = /^deck\s+("(?:[^"\\\n]|\\.)*")/m.exec(view.state.doc.toString());
     try {
       return header ? (JSON.parse(header[1]) as string) : undefined;
     } catch {
       return undefined;
     }
   };
+  /** The deck's title, once its source is read: what the tab names. */
+  const titled = () => (savedSource === undefined ? undefined : heading());
   /** Whether the deck is kept nowhere yet: made by New, or from files dropped. */
   const unkept = () => !where && ("create" in source || "files" in source);
   const tell = () => {
@@ -653,7 +658,8 @@ async function edit(source: Source, opened?: Stage) {
       opfs: `Kept in this browser as ${where?.name}`,
       serve: `In the folder ${where?.name}, served${scnOnDisk ? ", from its deck.scn" : ""}`,
     };
-    const kept = where ? kinds[where.kind] : `${name}, not saved`;
+    // A deck kept nowhere yet is named by its title, not the name it would be kept by.
+    const kept = where ? kinds[where.kind] : `${titled() || name}, not saved`;
     whereLine.textContent = `${kept}${dirty() ? " · edited" : ""}`;
     // The tab names the deck, as a window's title does, and says when it has changes not saved.
     document.title = `${titled() || name}${dirty() ? " — edited" : ""} · Scaena`;
@@ -992,29 +998,40 @@ async function edit(source: Source, opened?: Stage) {
     if (icon) await (swapping ? board.swapIcon(swapping, icon) : board.insertIcon(icon));
     $("#overlay").focus();
   }
-  const look = looks(stage, $("#look"), {
-    shown: showing,
-    slide: slideOf,
-    format,
-    source: () => view.state.doc.toString(),
-    apply: made,
-    say,
-    style: (given, words) => board.style(given, words),
-    arrange: (how) => board.arrange(how, false),
-    group: () => board.group(),
-    ungroup: () => board.ungroup(),
-    pick: () => board.pick(),
-    select: (node) => board.select(node),
-    pickLayout: (names, current) => {
-      const now = showing();
-      if (!now) return Promise.resolve(undefined);
-      return picking.pick({ purpose: { names, current }, source: view.state.doc.toString(), state: now.state, format: format() });
+  const look = looks(
+    stage,
+    $("#look"),
+    {
+      shown: showing,
+      slide: slideOf,
+      format,
+      source: () => view.state.doc.toString(),
+      apply: made,
+      say,
+      style: (given, words) => board.style(given, words),
+      arrange: (how) => board.arrange(how, false),
+      group: () => board.group(),
+      ungroup: () => board.ungroup(),
+      pick: () => board.pick(),
+      select: (node) => board.select(node),
+      pickLayout: (names, current) => {
+        const now = showing();
+        if (!now) return Promise.resolve(undefined);
+        return picking.pick({ purpose: { names, current }, source: view.state.doc.toString(), state: now.state, format: format() });
+      },
+      write: (kind, node) => write(kind, node),
+      // A map fetched again (PLAN O.1c), with the Geoapify key kept: none kept, Insert › Map… asks.
+      remap: (node, how) =>
+        void load("geoapify").then((kept) => (kept?.key ? board.refreshMap(node, kept.key, how) : say("No Geoapify key is kept: Insert › Map… keeps one"))),
+      // The tab a finding's field stands in (lift-up ATTR-4), and the timeline under the canvas.
+      reveal: (on) => tab(on === "animate" ? "animate" : "inspector"),
+      timeline: (show) => {
+        if (show !== undefined) hiding("cue", !show);
+        return !hidden("cue");
+      },
     },
-    write: (kind, node) => write(kind, node),
-    // A map fetched again (PLAN O.1c), with the Geoapify key kept: none kept, Insert › Map… asks.
-    remap: (node, how) =>
-      void load("geoapify").then((kept) => (kept?.key ? board.refreshMap(node, kept.key, how) : say("No Geoapify key is kept: Insert › Map… keeps one"))),
-  });
+    $("#animating"),
+  );
 
   /** The cue of the state shown (PLAN 2.44), under the preview: once the canvas is there. */
   let cueing: ReturnType<typeof cue> | undefined;
@@ -1086,7 +1103,8 @@ async function edit(source: Source, opened?: Stage) {
     // its characters selected (PLAN 2.38, 2.52).
     // So does focus in the Data tab, whose Quote quotes a cell in them (PLAN 2.72).
     keeps: (to) =>
-      to instanceof Node && ($("#look").contains(to) || $("#assistant").contains(to) || $("#data").contains(to) || to === $("#tab-data")),
+      to instanceof Node &&
+      ($("#look").contains(to) || $("#assistant").contains(to) || $("#data").contains(to) || to === $("#tab-data") || to === $("#tab-document")),
     zoomed: (zoom) => {
       $("#zoom output").textContent = `${Math.round(zoom * 100)}%`;
     },
@@ -1315,9 +1333,10 @@ async function edit(source: Source, opened?: Stage) {
   formatting.formats(sizes(stage.opened.formats), own());
   /** The deck played as presented, each state's time kept, and kept as its hold on request: one
    * patch, one step to undo (PLAN 2.63). */
-  const rehearsing = rehearsal(stage, $("#rehearsing"), $<HTMLDialogElement>("#rehearsed"), $("#preview"), {
+  const rehearsing = rehearsal(stage, $("#rehearsing"), $("#rehearsal-notes"), $<HTMLDialogElement>("#rehearsed"), $("#preview"), {
     slots: async () => (showing() || last?.valid ? stage.timeline(format()) : undefined),
     format,
+    notes: (state) => stage.notes(state),
     show: (index) => void show(index),
     keep: async (ops, what) => {
       try {
@@ -1488,6 +1507,16 @@ async function edit(source: Source, opened?: Stage) {
       if (redo(view)) forceLinting(view);
     } else if (undo(view)) forceLinting(view);
   });
+  /** Insert › Image… (the QA pass's J3): a PNG or a JPEG picked from the disk, put on the slide
+   * as one dropped there is. */
+  function pickImage() {
+    const input = Object.assign(document.createElement("input"), { type: "file", accept: "image/png,image/jpeg,.png,.jpg,.jpeg" });
+    input.addEventListener("change", () => {
+      const file = input.files?.[0];
+      if (file) void board.insertPicture(file);
+    });
+    input.click();
+  }
   /** What may be inserted (PLAN 2.34), grouped by type, as the deck offers it: asked again after
    * each edit, since the theme and the bundle's images change. Insert opens it as a menu
    * (`opens`): browsing the menu inserts nothing, and a choice is one patch (lift-up USE-3). */
@@ -1538,6 +1567,8 @@ async function edit(source: Source, opened?: Stage) {
         },
       });
     }
+    // A picture from the disk (the QA pass's J3), as one dropped lands.
+    items.push({ label: "Image…", run: pickImage });
     items.push({ label: "Make a picture…", run: () => void picturing.open() }, { label: "Map…", run: () => void mapping.open() });
     insertItems = items;
   }
@@ -1556,6 +1587,8 @@ async function edit(source: Source, opened?: Stage) {
    * is in it now. */
   let themeChoices: { value: string; label: string; family: string; current: boolean }[] = [];
   let themesOffered = "";
+  /** Whether the dialog's list is the themes offered now. */
+  let themesListed = false;
   async function offerThemes() {
     const held = await stage.themes().catch(() => undefined);
     if (!held) return;
@@ -1567,6 +1600,17 @@ async function edit(source: Source, opened?: Stage) {
     // The themes that ship, by family, each family a section (PLAN T.0d), each with its title
     // slide drawn at build (PLAN T.0c).
     for (const [name, { family }] of Object.entries(themes)) themeChoices.push({ value: `ships:${name}`, label: name, family, current: false });
+    const current = themeChoices.find((c) => c.current);
+    themeButton.textContent = current ? `Theme: ${current.label}` : "Theme…";
+    // The list is built as the dialog opens: built for each deck opened, its thumbnails would load
+    // in a dialog no one sees, and each deck opened after would cut the last one's off.
+    themesListed = false;
+    if (retheming.open) listThemes();
+  }
+  /** The dialog's list of the themes offered, by family, each that ships with its thumbnail. */
+  function listThemes() {
+    if (themesListed) return;
+    themesListed = true;
     const families = [...new Set(themeChoices.map((c) => c.family))];
     themeList.innerHTML = families
       .map(
@@ -1582,14 +1626,13 @@ async function edit(source: Source, opened?: Stage) {
             .join("")}</fieldset>`,
       )
       .join("");
-    const current = themeChoices.find((c) => c.current);
-    themeButton.textContent = current ? `Theme: ${current.label}` : "Theme…";
   }
   /** The theme chosen in the dialog. */
   const pickedTheme = () => themeList.querySelector<HTMLInputElement>("input:checked")?.value;
   themeButton.onclick = () => {
     if (!themeChoices.length) return say("The deck's theme is not read yet");
     retheming.returnValue = "";
+    listThemes();
     for (const input of themeList.querySelectorAll<HTMLInputElement>("input")) input.checked = themeChoices.find((c) => c.value === input.value)?.current ?? false;
     rethemeButton.disabled = true;
     retheming.showModal();
@@ -2328,12 +2371,13 @@ async function edit(source: Source, opened?: Stage) {
   };
   const typeOf = (node: string) => layering.type(node, showing()?.state ?? "");
   /** Show the tab `id` under the preview, as a click on it does. */
-  const tab = (id: "inspector" | "layers" | "data" | "theming" | "files" | "versions" | "story" | "assistant") => {
+  const tab = (id: "inspector" | "animate" | "document" | "layers" | "data" | "theming" | "files" | "versions" | "story" | "assistant") => {
     // A tab asked for shows the inspector's column, hidden or not.
     hiding("panel", false);
     const button = $<HTMLButtonElement>(`#tab-${id}`);
     button.click();
-    return button;
+    // A panel chosen from More shows as More's own tab (lift-up ATTR-4): what the focus goes to.
+    return button.hidden ? $<HTMLButtonElement>("#tab-more") : button;
   };
   /** Show the state at `index`, its declaration at the cursor, as the strip does. */
   const goTo = (index: number) => {
@@ -2527,6 +2571,8 @@ async function edit(source: Source, opened?: Stage) {
       { label: "Paste as Text", where: ["canvas"], applies: ready, run: pastedAsText },
       ...inserts,
       icon,
+      // A picture from the disk (the QA pass's J3), as one dropped lands.
+      { label: "Insert an image…", where: ["canvas"], group: "Draw and insert", applies: () => ready(), run: pickImage },
       // A map (ADR-0030, PLAN O.1c): in the slide's empty place for a picture, else where the
       // pointer last pressed; for an image selected, the command that puts one in it.
       {
@@ -2615,7 +2661,9 @@ async function edit(source: Source, opened?: Stage) {
       { label: "Open a .scaena file…", run: () => $("#open-file").click() },
       { label: "Open a folder…", applies: () => !$("#open-folder").hidden, run: () => $("#open-folder").click() },
       { label: "Decks kept in this browser…", run: () => $("#kept").click() },
-      { label: "Show the inspector", run: () => tab("inspector").focus() },
+      { label: "Show Format", run: () => tab("inspector").focus() },
+      { label: "Show Animate", run: () => tab("animate").focus() },
+      { label: "Show Document", run: () => tab("document").focus() },
       { label: "Hide the inspector", applies: () => !hidden("panel"), run: () => hiding("panel", true) },
       { label: hidden("cue") ? "Show the animations" : "Hide the animations", run: () => hiding("cue", !hidden("cue")) },
       { label: "Show the layers", run: () => tab("layers").focus() },
@@ -3065,30 +3113,87 @@ async function edit(source: Source, opened?: Stage) {
   });
 }
 
-/** The tabs under the preview: the inspector, the layers, the data, and the assistant. The arrow keys, Home, and
- * End move between them, and only the one shown is in the tab order. */
+/** The inspector's tabs (lift-up ATTR-4), a presentation app's on one row (PLAN 3.18): Format, Animate,
+ * and Document, a segmented control, and More, a menu of the rest (the layers, the assistant), which
+ * shows the panel chosen as its own tab, named for it. Document's panels, Theme, Data, Files,
+ * Versions, and Story, are a row of their own. In each row the arrow keys, Home, and End move between
+ * the tabs shown, and only the one chosen is in the tab order; on More, ↓ opens its menu, as a click
+ * does. A tab kept hidden under More, clicked (`tab()`, a test), shows its panel as the menu does,
+ * and one of Document's shows Document first. */
 function tabs() {
-  const buttons = [...document.querySelectorAll<HTMLButtonElement>('#tabs [role="tab"]')];
-  const pick = (button: HTMLButtonElement) => {
-    for (const other of buttons) {
-      const on = other === button;
-      other.setAttribute("aria-selected", String(on));
-      other.tabIndex = on ? 0 : -1;
-      $(`#${other.getAttribute("aria-controls")}`).hidden = !on;
-    }
-  };
-  buttons.forEach((button, i) => {
-    button.tabIndex = button.getAttribute("aria-selected") === "true" ? 0 : -1;
-    button.onclick = () => pick(button);
-    button.onkeydown = (e) => {
-      const to = { ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: buttons.length - 1 }[e.key];
+  const more = $<HTMLButtonElement>("#tab-more");
+  /** One row of tabs: `pick` shows one's panel and hides the others'. `shown` are those a person
+   * sees, which the arrow keys move between. */
+  function row(list: HTMLElement, picked?: (button: HTMLButtonElement) => void) {
+    const buttons = [...list.querySelectorAll<HTMLButtonElement>('[role="tab"]')].filter((b) => b !== more);
+    const shown = () => [...list.querySelectorAll<HTMLButtonElement>('[role="tab"]')].filter((b) => !b.hidden);
+    const pick = (button: HTMLButtonElement) => {
+      for (const other of buttons) {
+        const on = other === button;
+        other.setAttribute("aria-selected", String(on));
+        other.tabIndex = on ? 0 : -1;
+        $(`#${other.getAttribute("aria-controls")}`).hidden = !on;
+      }
+      picked?.(button);
+    };
+    const keys = (button: HTMLButtonElement) => (e: KeyboardEvent) => {
+      const ring = shown();
+      const i = ring.indexOf(button);
+      const to = { ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: ring.length - 1 }[e.key];
       if (to === undefined) return;
       e.preventDefault();
-      const next = buttons[(to + buttons.length) % buttons.length];
+      const next = ring[(to + ring.length) % ring.length];
+      if (next === more) {
+        // More stands for no panel until one is chosen from it: the focus goes to it alone.
+        next.focus();
+        return;
+      }
       pick(next);
       next.focus();
     };
+    for (const button of buttons) {
+      button.tabIndex = button.getAttribute("aria-selected") === "true" ? 0 : -1;
+      button.onclick = () => pick(button);
+      button.onkeydown = keys(button);
+    }
+    return { pick, keys };
+  }
+  /** Document's panel chosen is hidden and shown with Document: each panel reads its own `hidden`
+   * to know whether it is seen, asks the worker nothing while it is not, and reads again as it is
+   * shown. Kept in step from the start: a panel that thought itself seen would ask the worker for
+   * the source on every edit, and a burst of edits could then compile an older source over the
+   * deck the last one made. */
+  const documentShown = () => {
+    const chosen = $("#document .segments [aria-selected=\"true\"]").getAttribute("aria-controls");
+    for (const panel of document.querySelectorAll<HTMLElement>('#document > [role="tabpanel"]')) panel.hidden = panel.id !== chosen || $("#document").hidden;
+  };
+  const top = row($("#tabs"), (button) => {
+    // A panel chosen from More shows as More's own: named for it, selected, controlling it.
+    const under = button.hidden;
+    more.setAttribute("aria-selected", String(under));
+    more.tabIndex = under ? 0 : -1;
+    more.textContent = under ? button.textContent : "More";
+    if (under) more.setAttribute("aria-controls", button.getAttribute("aria-controls")!);
+    documentShown();
   });
+  const under = [...document.querySelectorAll<HTMLButtonElement>('#tabs [role="tab"][hidden]')];
+  more.tabIndex = -1;
+  more.onclick = () => {
+    const at = more.getBoundingClientRect();
+    menu(at.left, at.bottom + 2, under.map((b) => ({ label: b.textContent ?? "", run: () => b.click() })), more);
+  };
+  const moreKeys = top.keys(more);
+  more.onkeydown = (e) => {
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      more.click();
+    } else moreKeys(e);
+  };
+  // Document's row: one of its tabs shows Document too, so a test or a command reaches each by its id.
+  row($("#document .segments"), () => {
+    if ($("#document").hidden) top.pick($<HTMLButtonElement>("#tab-document"));
+  });
+  documentShown();
 }
 
 tabs();

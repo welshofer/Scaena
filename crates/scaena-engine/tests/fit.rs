@@ -66,6 +66,32 @@ fn shrink_sets_the_text_at_the_largest_size_that_fits() {
     assert!(placed(&roomier, "n").scale > p.scale);
 }
 
+/// A text that shrinks is held under its own `maxSize` (deck format 0.36), so a set of them side
+/// by side reads at one size: a short one that fits at its size is set at the cap. A deck saved
+/// before that reads without the cap and draws as it did.
+#[test]
+fn shrink_is_held_under_the_texts_own_max_size_from_format_0_36() {
+    let saved = |version: &str| {
+        let mut d = serde_json::to_value(deck(json!({ "n": { "type": "text", "role": "body", "fit": "shrink",
+            "maxSize": 30, "text": "Short", "at": { "col": [1, 4], "row": [2, 3] } } })))
+        .unwrap();
+        d["scaena"] = json!(version);
+        Deck::from_json(&d.to_string()).unwrap()
+    };
+    let capped = placed(&saved(scaena_core::FORMAT_VERSION), "n");
+    assert_eq!(capped.scale, 30.0 / 40.0, "body is 40; maxSize 30");
+    assert!(!capped.overflow);
+    let before = placed(&saved("0.35"), "n");
+    assert_eq!(before.scale, 1.0, "as it drew");
+    // A long one that fits only smaller than the cap is set smaller, as before.
+    let long = |max: f64| {
+        deck(json!({ "n": { "type": "text", "role": "body", "fit": "shrink", "maxSize": max, "text": LONG,
+                            "at": { "col": [1, 4], "row": 2 } } }))
+    };
+    let (under, free) = (placed(&long(39.0), "n").scale, placed(&long(400.0), "n").scale);
+    assert!(free < 39.0 / 40.0 && (under - free).abs() < 1e-3, "{under} {free}");
+}
+
 #[test]
 fn shrink_stops_at_the_minimum_size_and_reports_the_overflow() {
     let text = LONG.repeat(4);
