@@ -632,7 +632,8 @@ mod tests {
             (0..=UNZIPPED.entries).map(|i| (format!("data/{i}.csv"), vec![])).collect();
         files.push(("deck.json".into(), std::fs::read(Path::new(TORTURE).join("deck.json")).unwrap()));
         let zip = save::zip(&files.into_iter().collect()).unwrap();
-        let refused = Bundle::from_zip(&zip).err().expect("refused").to_string();
+        let Err(refused) = Bundle::from_zip(&zip) else { panic!("a zip of too many files opened") };
+        let refused = refused.to_string();
         assert!(refused.contains("files, more than a bundle may (10000)"), "{refused}");
     }
 
