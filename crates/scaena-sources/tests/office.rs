@@ -190,3 +190,16 @@ fn a_document_nested_too_deep_is_refused_not_overflowed() {
     let read = read("deep.pptx", &pptx).unwrap();
     assert_eq!(read.text.trim(), "## Slide 1", "{}", read.text);
 }
+
+/// A Word document whose text unpacks past what a part is read to, a bomb of spaces deflated to a
+/// fraction of a megabyte, is refused, naming the part (the 20261024 plan's SEC-1, for sources).
+#[test]
+fn a_word_document_that_unpacks_past_a_part_is_refused() {
+    let body = " ".repeat((64 << 20) + 1);
+    let document =
+        format!(r#"<w:document xmlns:w="w"><w:body><w:p><w:r><w:t>x</w:t></w:r></w:p>{body}</w:body></w:document>"#);
+    let docx = package(&[("word/document.xml", &document)]);
+    assert!(docx.len() < 1 << 20, "{} bytes", docx.len());
+    let refused = read("bomb.docx", &docx).unwrap_err().to_string();
+    assert!(refused.contains("its word/document.xml unpacks past 67108864 bytes"), "{refused}");
+}
