@@ -1,6 +1,6 @@
 {
   "name": "deck_history",
-  "description": "A bundle's versions (SPEC §8): each change its history keeps, by author and time, oldest first, each named by its number as listed or by its id. With `at`, the deck as it was just after one (`scn` for source); with `compare`, what changed from one version to another, or, with one, to the deck as it is now: each state added, removed, or changed (its own fields, and its nodes as `deck_diff` says them), the deck's own fields, and the files it is drawn from, data files and the theme, whose bytes changed; with `restore`, that version made the deck again, with its data files and its theme as they were: one change, refused as a patch is where the deck would not validate in the bundle as it is (`dry_run` writes nothing).",
+  "description": "A bundle's versions (SPEC §8): each change its history keeps, by author and time, oldest first, each named by its number as listed or by its id, and told as the editors tell it: what it did (`said`), by whom (`by`), and what it changed from the version before, slide by slide, each object by what it shows (`changed`). With `begin`, a history begun where the bundle keeps none, the deck as it is its first version. With `at`, the deck as it was just after one (`scn` for source); with `compare`, what changed from one version to another, or, with one, to the deck as it is now: each state added, removed, or changed (its own fields, and its nodes as `deck_diff` says them), the deck's own fields, and the files it is drawn from, data files and the theme, whose bytes changed, each with what it was before (`before`); with `restore`, that version made the deck again, with its data files and its theme as they were: one change, refused as a patch is where the deck would not validate in the bundle as it is (`dry_run` writes nothing).",
   "inputSchema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "required": ["bundle"],
@@ -8,7 +8,7 @@
     "type": "object",
     "properties": {
       "bundle": {
-        "description": "The bundle: a directory, a `.scaena` zip, or a `deck.json`. Its history is\n`history/deck.loro`, which `scaena save --history` begins.",
+        "description": "The bundle: a directory, a `.scaena` zip, or a `deck.json`. Its history is\n`history/deck.loro`, which `begin` here, `deck_create`, or `scaena save --history` begins.",
         "type": "string"
       },
       "at": {
@@ -32,12 +32,62 @@
         "description": "With `restore`, say what it would change, and write nothing.",
         "type": "boolean",
         "default": false
+      },
+      "begin": {
+        "description": "Begin a history where the bundle keeps none, and list its versions: its first holds the\ndeck as it is, and every write after is recorded. A bundle that keeps one lists it.",
+        "type": "boolean",
+        "default": false
       }
     }
   },
   "outputSchema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "$defs": {
+      "Told": {
+        "description": "A version as `deck_history` and `scaena history` list it: as the history keeps it, with what\nits change did and who made it in a person's words, as the editors say them\n(`scaena_core::words::change`, `author`), and what it changed, slide by slide, each object by\nwhat it shows: \"Slide 3: “Revenue doubled”\".",
+        "type": "object",
+        "properties": {
+          "n": { "description": "Its place in the history, oldest first, from 1.", "type": "integer", "minimum": 0 },
+          "id": {
+            "description": "What names it for as long as the history lasts: its change's id, `counter@peer`.",
+            "type": "string"
+          },
+          "author": {
+            "description": "Who made the change: `user`, `agent:<name>`, or `fs`.",
+            "type": ["string", "null"]
+          },
+          "message": { "description": "What the change did, as what made it says.", "type": ["string", "null"] },
+          "at": { "description": "When it was made, in RFC 3339, UTC.", "type": ["string", "null"] },
+          "ops": {
+            "description": "How many operations it holds: a character typed is one.",
+            "type": "integer",
+            "minimum": 0
+          },
+          "said": { "type": "string" },
+          "by": { "type": "string" },
+          "changed": {
+            "description": "What it changed from the version before, as an editor names it; none for the first, which\nholds the deck whole.",
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        },
+        "required": ["n", "id", "ops", "said", "by", "changed"]
+      },
+      "Seen": {
+        "description": "A version, and the deck as it was then: what `scaena history --at` prints.",
+        "type": "object",
+        "properties": {
+          "version": { "$ref": "#/$defs/Version" },
+          "deck": { "description": "The deck as it was, canonical." },
+          "scn": { "description": "With `scn`, the deck as it was, as `.scn` (SPEC §4).", "type": ["string", "null"] },
+          "files": {
+            "description": "The files it was drawn from that the history held then, its data files and its theme,\nby their paths.",
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        },
+        "required": ["version", "files"]
+      },
       "Version": {
         "description": "A version of the deck: as it was just after one change its history keeps.",
         "type": "object",
@@ -61,21 +111,6 @@
         },
         "required": ["n", "id", "ops"]
       },
-      "Seen": {
-        "description": "A version, and the deck as it was then: what `scaena history --at` prints.",
-        "type": "object",
-        "properties": {
-          "version": { "$ref": "#/$defs/Version" },
-          "deck": { "description": "The deck as it was, canonical." },
-          "scn": { "description": "With `scn`, the deck as it was, as `.scn` (SPEC §4).", "type": ["string", "null"] },
-          "files": {
-            "description": "The files it was drawn from that the history held then, its data files and its theme,\nby their paths.",
-            "type": "array",
-            "items": { "type": "string" }
-          }
-        },
-        "required": ["version", "files"]
-      },
       "Compared": {
         "description": "What changed from one version of the deck to another: what `scaena history --diff` prints.",
         "type": "object",
@@ -95,13 +130,18 @@
             "type": "object",
             "additionalProperties": true
           },
+          "before": {
+            "description": "Each of those as the earlier version had it; null where it had none.",
+            "type": "object",
+            "additionalProperties": true
+          },
           "files": {
             "description": "The files it is drawn from whose bytes changed, data files and the theme, by their\npaths.",
             "type": "array",
             "items": { "type": "string" }
           }
         },
-        "required": ["from", "states", "deck", "files"]
+        "required": ["from", "states", "deck", "before", "files"]
       },
       "StateChange": {
         "description": "What changed in one state from one version of the deck to another.",
@@ -142,9 +182,13 @@
             "description": "The nodes it shows that changed, resolved with the deck's overrides, as `diff` says them:\none that enters, with its props; one that exits; one whose props change, each as the\nlater version has it, and null where it is gone.",
             "type": "object",
             "additionalProperties": { "$ref": "#/$defs/Change" }
+          },
+          "before": {
+            "description": "What each of those was in the earlier version: its own fields that changed, each as the\nearlier version had it, null where it had none; and each node's props that changed or\nleft, as it had them, null where it had none.",
+            "$ref": "#/$defs/Before"
           }
         },
-        "required": ["fields", "nodes"]
+        "required": ["fields", "nodes", "before"]
       },
       "Change": {
         "description": "What changes from one state to another, resolved, by node.",
@@ -171,6 +215,15 @@
             "additionalProperties": false
           }
         ]
+      },
+      "Before": {
+        "description": "What the earlier version had of what changed.",
+        "type": "object",
+        "properties": {
+          "fields": { "type": "object", "additionalProperties": true },
+          "nodes": { "type": "object", "additionalProperties": { "type": "object", "additionalProperties": true } }
+        },
+        "required": ["fields", "nodes"]
       },
       "Restored": {
         "description": "What restoring a version did, or would do: what `scaena history --restore` prints.",
@@ -241,9 +294,13 @@
     },
     "properties": {
       "versions": {
-        "description": "Its versions, oldest first, when nothing else is asked.",
+        "description": "Its versions, oldest first, when nothing else is asked, each told in a person's words.",
         "type": ["array", "null"],
-        "items": { "$ref": "#/$defs/Version" }
+        "items": { "$ref": "#/$defs/Told" }
+      },
+      "begun": {
+        "description": "With `begin`, whether the history was begun here: false where the bundle kept one.",
+        "type": ["boolean", "null"]
       },
       "seen": { "description": "With `at`.", "anyOf": [{ "$ref": "#/$defs/Seen" }, { "type": "null" }] },
       "compared": { "description": "With `compare`.", "anyOf": [{ "$ref": "#/$defs/Compared" }, { "type": "null" }] },
