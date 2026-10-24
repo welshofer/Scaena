@@ -2062,7 +2062,7 @@ async function edit(source: Source, opened?: Stage) {
     try {
       zipped = await stage.zip(view.state.doc.toString());
     } catch (e) {
-      status.textContent = `Not downloaded: ${said(e)}`;
+      say(`Not downloaded: ${said(e)}`);
       return;
     }
     const url = URL.createObjectURL(new Blob([zipped.bytes], { type: "application/zip" }));
@@ -2070,7 +2070,8 @@ async function edit(source: Source, opened?: Stage) {
     setTimeout(() => URL.revokeObjectURL(url), 60_000);
     const [before, after] = zipped.subset.reduce(([b, a], [, x, y]) => [b + x, a + y], [0, 0]);
     const kb = (n: number) => `${Math.round(n / 1024)} KB`;
-    status.textContent = `Downloaded ${name}.scaena, ${kb(zipped.bytes.byteLength)}: its fonts cut to what it draws, ${kb(before)} to ${kb(after)}`;
+    // Said, as a save is, so a lint that answers after it keeps it rather than a word said before.
+    say(`Downloaded ${name}.scaena, ${kb(zipped.bytes.byteLength)}: its fonts cut to what it draws, ${kb(before)} to ${kb(after)}`);
     return zipped;
   }
 

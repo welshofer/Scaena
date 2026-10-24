@@ -394,13 +394,15 @@ try {
     await presenter.waitForSelector("#on", { timeout: 120000 });
     await presenter.waitForTimeout(1500);
     const was = await player.evaluate(() => window.scaena.at().index);
+    // Where the presenter view says it is, read before the click: once the player has gone on,
+    // the view may already say where it went.
+    const before = await presenter.textContent("#where");
     await presenter.click("#on");
     const went = await player
       .waitForFunction((w) => window.scaena.at().index === w + 1, was, { timeout: 30000 })
       .then(() => true)
       .catch(() => false);
     // The presenter view follows the player to where it went.
-    const before = await presenter.textContent("#where");
     const follows = await presenter
       .waitForFunction((b) => /^Slide \d+ of \d+/.test(document.querySelector("#where").textContent) && document.querySelector("#where").textContent !== b, before, { timeout: 30000 })
       .then(() => true)

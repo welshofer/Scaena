@@ -695,6 +695,75 @@ pub struct SpineUpdate {
     pub dry_run: bool,
 }
 
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct StateStart {
+    /// The bundle: a directory, a `.scaena` zip, or a `deck.json`.
+    pub bundle: String,
+    /// The state the slide goes after: after the last step of its slide, in its beat.
+    pub state: String,
+    /// One of the theme's layouts (`deck_inspect` with `layouts` lists what a state may take,
+    /// each by its name; `bundle://theme`'s `layouts` holds them all). Without it, a blank slide.
+    #[serde(default)]
+    pub layout: Option<String>,
+    /// Say what would change, and write nothing.
+    #[serde(default)]
+    pub dry_run: bool,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct BackgroundSet {
+    /// The bundle: a directory, a `.scaena` zip, or a `deck.json`.
+    pub bundle: String,
+    /// A state of the slide: the background enters in the slide's first state and stays on it.
+    pub state: String,
+    /// One of the theme's shader presets (`shaders.presets`: `backdrop`, `aurora`, `texture`,
+    /// `haze`, `lagoon`, `sweep`, `dust` in the themes that ship). Without it, the slide's
+    /// background is taken away.
+    #[serde(default)]
+    pub preset: Option<String>,
+    /// Say what would change, and write nothing.
+    #[serde(default)]
+    pub dry_run: bool,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct DeckGenerate {
+    /// Where the bundle goes: a directory that is not there yet, or is empty.
+    pub bundle: String,
+    /// The slides, as Narrato writes them: `executiveSummary`, and `slides`, each with
+    /// `slideTitle`, `subtitle`, `layoutSuggestion` (`Title`, `Bullet List`, `Big Number`,
+    /// `Chart`, `Two Column`, `Quote`, `Section Divider`, `Closing`, …), `keyBullets`,
+    /// `speakerNotes`, `beatIndex` and `beatName` (the arc's beat it belongs to), `intensity`
+    /// (0–1), `tone` (−1–1), and `visualDescription`; `chartData` where a chart is drawn.
+    pub slides: Map<String, Value>,
+    /// The theme to make it in: one that ships, by name (`dusk`, `daybreak`, `ember`, `salon`),
+    /// or a theme file. `dusk` without it.
+    #[serde(default)]
+    pub theme: Option<String>,
+    /// What the deck is about, which health reads back; the executive summary without it.
+    #[serde(default)]
+    pub topic: Option<String>,
+    /// Who it is for ("Investors", "a school board").
+    #[serde(default)]
+    pub audience: Option<String>,
+    /// `Inform`, `Persuade`, `Inspire`, `Sell`, `Educate`, or `Update Status`.
+    #[serde(default)]
+    pub goal: Option<String>,
+    /// `5-10 slides`, `11-15 slides`, `16-25 slides`, `26-40 slides`, or `41+ slides`.
+    #[serde(default)]
+    pub length: Option<String>,
+    /// The language the slides are written in, by its English name; English without it.
+    #[serde(default)]
+    pub language: Option<String>,
+    /// One of Narrato's arcs by name (`Problem-Solution`, `Hero's Journey`, …); without it,
+    /// chosen from the brief.
+    #[serde(default)]
+    pub arc: Option<String>,
+}
+
 // --- outputs --------------------------------------------------------------------------
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -736,6 +805,22 @@ pub struct Rendered {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub out: Option<String>,
     pub ms: scaena_ops::render::Timings,
+}
+
+/// A deck made from written slides (PLAN G.2): the bundle, as `deck_create` reports one, and
+/// how it was built.
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct DeckGenerated {
+    pub created: scaena_ops::create::Created,
+    /// The arc the deck follows.
+    pub arc: String,
+    /// Why the heuristic chose the arc, where none was named.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fallback: Option<String>,
+    /// Each slide's layout, in order.
+    pub layouts: Vec<String>,
+    /// The findings whose fixes were applied, each checked by laying its state out again.
+    pub fixed: Vec<Finding>,
 }
 
 // --- tools ----------------------------------------------------------------------------
@@ -1143,6 +1228,91 @@ impl Scaena {
         let author = author(&context);
         blocking(move || {
             scaena_ops::read::spine_update(&open_by(&a.bundle, author)?, Value::Object(a.spine), a.dry_run)
+        })
+        .await
+        .map(Json)
+    }
+
+    #[tool(description = "Start a slide after `state`'s slide, as Add Slide starts one (PLAN 3.30), in one of the \
+        theme's layouts: a new state, absolute, in the layout, with a text in each slot that says what goes there, in \
+        the slot's role, its words to type over (`replace_text` or `set_text` put yours), a shape in each slot that \
+        holds one, and the slots that wait for a picture or a figure left empty; it stays on its slide. One patch, \
+        all or none, refused as `deck_patch` refuses one, reported as `deck_patch` reports one, with `id`, the new \
+        state's. `deck_inspect` with `layouts` lists the layouts a state may take.")]
+    async fn state_start(
+        &self,
+        Parameters(a): Parameters<StateStart>,
+        context: RequestContext<RoleServer>,
+    ) -> Result<Json<scaena_ops::states::Started>, String> {
+        let author = author(&context);
+        blocking(move || {
+            scaena_ops::states::start(&open_by(&a.bundle, author)?, &a.state, a.layout.as_deref(), a.dry_run)
+        })
+        .await
+        .map(Json)
+    }
+
+    #[tool(description = "Set a slide's background (PLAN 2.148): one of the theme's shader presets filling the \
+        canvas behind everything on `state`'s slide, entering in the slide's first state and kept to its slide, each \
+        shader that filled the canvas before taken away, and each text too faint to read over it set in the theme's \
+        color that reads there, as a re-theme sets it. Without `preset`, the slide's background is taken away. One \
+        patch, refused as `deck_patch` refuses one, reported as `deck_patch` reports one. Backgrounds stay off a slide \
+        that shows a chart or a table (W311): data reads against a plain surface.")]
+    async fn background_set(
+        &self,
+        Parameters(a): Parameters<BackgroundSet>,
+        context: RequestContext<RoleServer>,
+    ) -> Result<Json<scaena_ops::patch::Patched>, String> {
+        let author = author(&context);
+        blocking(move || {
+            let b = open_by(&a.bundle, author)?;
+            match a.dry_run {
+                true => scaena_ops::backgrounds::backgrounding(&b, &a.state, a.preset.as_deref()).map(|(mut p, _)| {
+                    p.applied = false;
+                    p
+                }),
+                false => scaena_ops::backgrounds::background(&b, &a.state, a.preset.as_deref()),
+            }
+        })
+        .await
+        .map(Json)
+    }
+
+    #[tool(description = "Make a deck from slides written in the JSON Narrato writes them in (`scaena generate \
+        --slides`, ADR-0026), with no model called: the spine, a section for each run of slides in one beat of the \
+        arc and a beat for each slide, each slide an absolute state in the theme layout its `layoutSuggestion` comes \
+        to, its builds, and the fields `deck_health` reads (`media.narrato`), lint's fixes applied. A new bundle at \
+        `bundle`, in `theme`, as `deck_create` makes one; a deck in a script the theme's fonts do not draw is \
+        refused, since the CLI alone fetches a script's font.")]
+    async fn deck_generate(&self, Parameters(a): Parameters<DeckGenerate>) -> Result<Json<DeckGenerated>, String> {
+        let slides = Value::Object(a.slides);
+        let summary = slides["executiveSummary"].as_str().unwrap_or_default().to_string();
+        let brief = scaena_ops::narrative::Brief {
+            topic: a.topic.unwrap_or(summary),
+            audience: a.audience.unwrap_or_default(),
+            goal: a.goal.unwrap_or_default(),
+            length: a.length.unwrap_or_default(),
+            language: a.language,
+            ..scaena_ops::narrative::Brief::default()
+        };
+        // A new bundle has no folder yet: the theme is read under this server's own, as
+        // deck_create reads one.
+        let theme = self.theme_readable(a.theme.as_deref().unwrap_or("dusk"), &a.bundle).map_err(failure)?;
+        blocking(move || {
+            let made = scaena_ops::narrative::from_slides(
+                Path::new(&a.bundle),
+                &theme,
+                &slides.to_string(),
+                brief,
+                a.arc.as_deref(),
+            )?;
+            Ok(DeckGenerated {
+                created: made.created,
+                arc: made.arc,
+                fallback: made.fallback,
+                layouts: made.layouts,
+                fixed: made.fixed,
+            })
         })
         .await
         .map(Json)
