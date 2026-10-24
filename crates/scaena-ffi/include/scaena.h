@@ -144,6 +144,31 @@ char *scaena_lint_laid(struct ScaenaSession *session, struct ScaenaLaying *layin
 // `laying` is a live handle from [`scaena_laying_new`], used by one thread at a time.
 char *scaena_laying_health(struct ScaenaLaying *laying);
 
+// `state` at rest in `format`, one of the deck's formats, or its own canvas where null, from
+// `laying`'s deck, painted by the CPU painter `width` pixels wide, the height keeping the canvas's
+// aspect: the pixels [`scaena_pixels`] gives at rest, with nothing dragged or previewed, drawn
+// on the thread that calls it, which touches no session, so the Mac's thumbnails and a remote's
+// slides are drawn while the window answers (lift-up PERF-2). The engine it draws with is
+// built at the first and kept for the next. Null bytes where it cannot be painted, `*error`
+// then saying why.
+//
+// # Safety
+// `laying` is a live handle from [`scaena_laying_new`], used by one thread at a time; `format`
+// null or a NUL-terminated string; `state` one; `error` null or writable.
+struct ScaenaPixels scaena_laying_pixels(struct ScaenaLaying *laying,
+                                         const char *format,
+                                         const char *state,
+                                         uint32_t width,
+                                         char **error);
+
+// Whether `laying` was taken from the deck `session` holds as it stands: false once another
+// source compiled, a file was handed over, or the theme was edited, so what it draws is of an
+// older deck.
+//
+// # Safety
+// `session` and `laying` are live handles, on the session's thread.
+bool scaena_laying_holds(struct ScaenaSession *session, struct ScaenaLaying *laying);
+
 // Free a laying.
 //
 // # Safety

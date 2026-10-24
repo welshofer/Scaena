@@ -337,7 +337,7 @@ private actor Answers {
 /// they come to on the session, and the conversation takes them back as `run`'s; the assistant
 /// runs them so, and a call that writes on the session itself.
 @MainActor
-@Test func aCallThatOnlyReadsRunsApartAndComesToWhatItDoesOnTheSession() async throws {
+@Test(.timeLimit(.minutes(2))) func aCallThatOnlyReadsRunsApartAndComesToWhatItDoesOnTheSession() async throws {
     let lint = ToolCall(id: "t1", name: "deck_lint", args: ["state": "cover"])
     #expect(ScaenaChat.readsAlone(lint))
     #expect(ScaenaChat.readsAlone(ToolCall(id: "t2", name: "deck_render", args: ["state": "cover"])))
@@ -376,9 +376,8 @@ private actor Answers {
     let answers = Answers([answer, answering("Clean.")])
     let assistant = Assistant(editor: editor) { request in await answers.answer(request) }
     assistant.ask("Is the cover clean?", provider: .anthropic, model: "a-model", key: "sk-test")
-    for _ in 0..<500 where assistant.working {
-        try await Task.sleep(for: .milliseconds(10))
-    }
+    // Awaited, not timed: a slow simulator answers late, and a hang meets the test's time limit.
+    await assistant.asking?.value
     #expect(!assistant.working, "the question was answered")
     let ran = assistant.entries.compactMap { entry -> Ran? in
         if case .call(_, _, let ran) = entry.kind { return ran }
@@ -391,7 +390,7 @@ private actor Answers {
 /// The assistant's loop (PLAN 3.6): the question asked, the edit the model calls made on the deck
 /// the window shows and handed to the window's undo, and the answer; the conversation shows each.
 @MainActor
-@Test func theAssistantMakesTheModelsEditsAsTheWindowsOwn() async throws {
+@Test(.timeLimit(.minutes(2))) func theAssistantMakesTheModelsEditsAsTheWindowsOwn() async throws {
     let editor = DeckEditor(session: try ScaenaSession(directory: b1))
     let patch = #"{"ops": [{"op": "replace_text", "state": "cover", "node": "title", "from": 0, "to": 0, "text": "Loudly: "}]}"#
     let answers = Answers([calling("Making it louder.", [("t1", "deck_patch", patch)]), answering("Done.")])
@@ -403,9 +402,8 @@ private actor Answers {
     assistant.ask(
         "Say it louder.", provider: .anthropic, model: "a-model", key: "sk-test", seeing: Seeing(state: "cover"))
     #expect(assistant.working)
-    for _ in 0..<500 where assistant.working {
-        try await Task.sleep(for: .milliseconds(10))
-    }
+    // Awaited, not timed: a slow simulator answers late, and a hang meets the test's time limit.
+    await assistant.asking?.value
     #expect(!assistant.working, "the question was answered")
     #expect(editor.source.contains("Loudly: "), "the window's deck took the edit")
     #expect(undone == [was], "the window's undo was handed the source it replaced")
@@ -433,9 +431,8 @@ private actor Answers {
     // (narrative REL-3), here without the waits between.
     assistant.waits = [0.01, 0.01, 0.01]
     assistant.ask("Again?", provider: .anthropic, model: "a-model", key: "sk-test")
-    for _ in 0..<500 where assistant.working {
-        try await Task.sleep(for: .milliseconds(10))
-    }
+    // Awaited, not timed: a slow simulator answers late, and a hang meets the test's time limit.
+    await assistant.asking?.value
     guard case .failed(let why) = assistant.entries.last?.kind else {
         Issue.record("the refusal is said")
         return

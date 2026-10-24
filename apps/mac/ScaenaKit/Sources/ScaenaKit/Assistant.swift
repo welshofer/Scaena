@@ -90,7 +90,8 @@ public final class Assistant {
     private let send: Send
     private let stream: Stream?
     @ObservationIgnored private var chat: ScaenaChat?
-    @ObservationIgnored private var asking: Task<Void, Never>?
+    /// The question being answered: what a test awaits.
+    @ObservationIgnored private(set) var asking: Task<Void, Never>?
     @ObservationIgnored private var counted = 0
     /// The entry the answer being written goes into, until it is whole (narrative ATTR-3).
     @ObservationIgnored private var saying: Int?
