@@ -13,8 +13,19 @@ export type KeyFor = ProviderId | "geoapify";
 const item = (provider: KeyFor) => `scaena.key.${provider}`;
 
 /** The key that encrypts the keys kept on this device: made once, kept in IndexedDB, never
- * extractable. */
+ * extractable. Asked for once: two first callers (the assistant and From a prompt…) share it,
+ * rather than each make one and the last kept win (lift-up 10-24b REL-5); asked again where
+ * asking failed. */
+let vaulted: Promise<CryptoKey> | undefined;
 function vault(): Promise<CryptoKey> {
+  vaulted ??= opened().catch((why) => {
+    vaulted = undefined;
+    throw why;
+  });
+  return vaulted;
+}
+
+function opened(): Promise<CryptoKey> {
   return new Promise((resolve, reject) => {
     const open = indexedDB.open("scaena-keys", 1);
     open.onupgradeneeded = () => open.result.createObjectStore("vault");
@@ -25,10 +36,14 @@ function vault(): Promise<CryptoKey> {
       got.onerror = () => reject(got.error);
       got.onsuccess = async () => {
         if (got.result) return resolve(got.result as CryptoKey);
-        const key = await crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]);
-        const put = db.transaction("vault", "readwrite").objectStore("vault").put(key, "aes");
-        put.onerror = () => reject(put.error);
-        put.onsuccess = () => resolve(key);
+        try {
+          const key = await crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]);
+          const put = db.transaction("vault", "readwrite").objectStore("vault").put(key, "aes");
+          put.onerror = () => reject(put.error);
+          put.onsuccess = () => resolve(key);
+        } catch (why) {
+          reject(why);
+        }
       };
     };
   });
@@ -43,23 +58,37 @@ export async function load(provider: KeyFor): Promise<{ key: string; kept: boole
   if (session) return { key: session, kept: false };
   const stored = localStorage.getItem(item(provider));
   if (!stored) return undefined;
+  // The vault not reached (a private window, a blocked upgrade, storage refused): none for now,
+  // and the key kept, to be read once it is (lift-up 10-24b REL-5).
+  let key: CryptoKey;
+  try {
+    key = await vault();
+  } catch {
+    return undefined;
+  }
   try {
     const { iv, data } = JSON.parse(stored) as { iv: string; data: string };
-    const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv: bytesOf(iv) }, await vault(), bytesOf(data));
+    const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv: bytesOf(iv) }, key, bytesOf(data));
     return { key: new TextDecoder().decode(plain), kept: true };
-  } catch {
-    // Kept by another vault, which this browser no longer has: forget it.
-    localStorage.removeItem(item(provider));
+  } catch (why) {
+    // Kept by another vault, which this browser no longer has: it can never be read, so it is
+    // forgotten. Anything else leaves it as it is.
+    if (why instanceof DOMException && why.name === "OperationError") localStorage.removeItem(item(provider));
     return undefined;
   }
 }
 
-/** Keep `key` for `provider`: for this tab, or on this device, encrypted. */
+/** Keep `key` for `provider`: for this tab, or on this device, encrypted. The key kept before is
+ * let go only once this one is ready to keep: a vault not reached throws with it still kept
+ * (lift-up 10-24b REL-5). */
 export async function store(provider: KeyFor, key: string, kept: boolean) {
-  forget(provider);
-  if (!kept) return sessionStorage.setItem(item(provider), key);
+  if (!kept) {
+    forget(provider);
+    return sessionStorage.setItem(item(provider), key);
+  }
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const data = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv }, await vault(), new TextEncoder().encode(key)));
+  forget(provider);
   localStorage.setItem(item(provider), JSON.stringify({ iv: base64(iv), data: base64(data) }));
 }
 
