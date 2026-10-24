@@ -720,6 +720,17 @@ pub fn seeing(narrative: &Narrative, theme: &Theme, pictures: &Pictures, layouts
         }
     };
     let varied = varied(narrative);
+    let count = narrative.slides.len();
+    // What each slide must leave the audience with (lift-up ATTR-2): its beat's claim in the
+    // outline the person settled, by the beat the deck's sections give it, else its purpose.
+    let claim = |i: usize, slide: &Slide| {
+        let outlined = narrative.outline.as_ref().and_then(|o| {
+            let beat = (slide.beat_index.filter(|b| *b < o.beats.len()))
+                .unwrap_or_else(|| scaena_narrato::beats::beat_of(i, count, o.beats.len()));
+            o.beats.get(beat).map(|b| b.claim.clone())
+        });
+        outlined.filter(|c| !c.trim().is_empty()).or_else(|| slide.purpose.clone()).unwrap_or_default()
+    };
     (narrative.slides.iter().zip(&varied).zip(layouts).enumerate())
         .map(|(i, ((slide, v), own))| {
             let items = items(slide, v);
@@ -732,6 +743,7 @@ pub fn seeing(narrative: &Narrative, theme: &Theme, pictures: &Pictures, layouts
                 title: slide.slide_title.clone(),
                 subtitle: slide.subtitle.clone(),
                 bullets: slide.key_bullets.clone(),
+                claim: claim(i, slide),
             }
         })
         .collect()

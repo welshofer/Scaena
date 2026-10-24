@@ -454,7 +454,8 @@ impl Generation {
             .collect();
         let brief = &narrative.brief;
         let shown = (slides[0].slide, slides[slides.len() - 1].slide);
-        let prompt = look::prompt(&brief.topic, &brief.audience, count, brief.language.as_deref(), shown);
+        let big_idea = narrative.outline.as_ref().map(|o| o.big_idea.as_str());
+        let prompt = look::prompt(&brief.topic, &brief.audience, count, brief.language.as_deref(), shown, big_idea);
         let max_tokens = if s.provider == Provider::Gemini { GEMINI_MAX_TOKENS } else { LOOK_MAX_TOKENS };
         Some(s.provider.structured(&providers::Call {
             model: &s.model,
