@@ -23,7 +23,7 @@ use scaena_narrato::layouts::{self, Varied};
 use scaena_narrato::look::{Change, Choice, Seen};
 use scaena_narrato::pictures::{self, Frame, Look, Palette};
 use scaena_narrato::{
-    ChartData, Document, Generation, Icon, Narrative, Picture, Provider, Request, Settings, Slide, Step,
+    ChartData, Document, Generation, Icon, Narrative, Picture, Provenance, Provider, Request, Settings, Slide, Step,
 };
 pub use scaena_sources::Given;
 use scaena_sources::{Source, Table};
@@ -341,6 +341,32 @@ pub fn grounding(sources: &[Source], provider: Provider) -> Result<Grounding, Op
         })
         .collect();
     Ok(Grounding { content: ground.content, documents, given: ground.given })
+}
+
+/// What each source given made of the prompt, as the deck keeps it beside its brief (narrative
+/// FUNC-3): its name, kind, address where it has one, bytes, and whether it was cut short.
+pub fn provenance(given: &[Given]) -> Vec<Provenance> {
+    (given.iter())
+        .map(|g| Provenance {
+            name: g.name.clone(),
+            kind: g.kind.to_string(),
+            url: g.url.clone(),
+            bytes: g.bytes,
+            truncated: g.truncated,
+        })
+        .collect()
+}
+
+/// How a beat cites the source its slide names (narrative FUNC-3): by the source's address where
+/// it has one, else `source:NAME`, which W423 passes as it passes an address; none where the
+/// slide names a source the deck was not grounded in. A name is matched as written, then with
+/// case and spaces set aside, then as the source's address.
+fn cited(sources: &[Provenance], named: &str) -> Option<String> {
+    let loose = |s: &str| s.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase();
+    let source = (sources.iter().find(|s| s.name == named))
+        .or_else(|| sources.iter().find(|s| loose(&s.name) == loose(named)))
+        .or_else(|| sources.iter().find(|s| s.url.as_deref() == Some(named)))?;
+    Some(source.url.clone().unwrap_or_else(|| format!("{}{}", scaena_core::document::SOURCE_CITED, source.name)))
 }
 
 /// A data source kept from a sheet, or why it was not.
@@ -1667,8 +1693,11 @@ pub fn deck_as(
         if !slide.speaker_notes.is_empty() {
             entry["notes"] = json!(slide.speaker_notes);
         }
-        if let Some(data) = &made.data {
-            entry["evidence"] = json!([format!("@{data}")]);
+        let evidence: Vec<String> = (made.data.iter().map(|data| format!("@{data}")))
+            .chain(slide.source_ref.as_deref().and_then(|named| cited(&narrative.sources, named)))
+            .collect();
+        if !evidence.is_empty() {
+            entry["evidence"] = json!(evidence);
         }
         entry["media"] = json!({ "narrato": media(slide) });
         sections.last_mut().expect("opened above")["beats"].as_array_mut().expect("an array").push(entry);
@@ -1698,6 +1727,9 @@ pub fn deck_as(
     }
     if narrative.truncated {
         meta["narrative"]["truncated"] = json!(true);
+    }
+    if !narrative.sources.is_empty() {
+        meta["narrative"]["sources"] = json!(narrative.sources);
     }
     if let Some(outline) = &narrative.outline {
         meta["narrative"]["outline"] = json!(outline);
@@ -4199,6 +4231,7 @@ mod tests {
             slides,
             truncated: false,
             icons: Default::default(),
+            sources: Vec::new(),
             outline: None,
             brief: Brief {
                 topic: "Pitch a Series A round for our carbon-negative cargo platform.".into(),
@@ -6357,6 +6390,57 @@ mod tests {
         assert!(grounding(std::slice::from_ref(&large), Provider::Gemini).unwrap_err().to_string().contains("Gemini"));
         assert!(grounding(&[large], Provider::Anthropic).is_ok(), "Anthropic takes more in one request");
         assert!(grounding(&[], Provider::Anthropic).unwrap().content.is_none());
+    }
+
+    /// What the deck was grounded in is kept beside its brief, and each beat cites the source its
+    /// slide names: a file as `source:NAME`, a page by its address, matched by name, loosely, or by
+    /// address; a source the deck was not grounded in is cited by none (narrative FUNC-3). W423
+    /// passes either, as it passes an address.
+    #[test]
+    fn each_beat_cites_the_source_its_slide_names() {
+        let notes = source("notes.md", Kind::Markdown, "# Tidewater\nShipping emits about 3% of CO2.");
+        let page = source("https://example.org/report", Kind::Html, "Ports electrify by 2030.");
+        let g = grounding(&[notes, page], Provider::Anthropic).unwrap();
+        let (summary, mut slides) = catalog();
+        slides.truncate(5);
+        let refs = [None, Some("notes.md"), Some("  Notes.MD "), Some("https://example.org/report"), Some("q3.pdf")];
+        for (slide, named) in slides.iter_mut().zip(refs) {
+            slide.source_ref = named.map(str::to_string);
+        }
+        let mut n = narrative(&summary, slides);
+        n.sources = provenance(&g.given);
+        let (made, write) = generating(&n, Path::new("dusk.theme.json"), dusk(), &font).unwrap();
+        let deck = write.unwrap().deck.to_value().unwrap();
+        let sources = &deck["meta"]["narrative"]["sources"];
+        assert_eq!(
+            sources,
+            &json!([
+                { "name": "notes.md", "kind": "markdown", "bytes": g.given[0].bytes, "truncated": false },
+                { "name": "https://example.org/report", "kind": "web page", "url": "https://example.org/report",
+                  "bytes": g.given[1].bytes, "truncated": false },
+            ])
+        );
+        let beats: Vec<&Value> = (deck["spine"]["sections"].as_array().unwrap().iter())
+            .flat_map(|s| s["beats"].as_array().unwrap())
+            .collect();
+        let cites = |i: usize| -> Vec<&str> {
+            (beats[i]["evidence"].as_array().into_iter().flatten())
+                .filter_map(Value::as_str)
+                .filter(|e| !e.starts_with('@'))
+                .collect()
+        };
+        assert_eq!(cites(0), Vec::<&str>::new(), "the cover names no source");
+        assert_eq!(cites(1), ["source:notes.md"]);
+        assert_eq!(cites(2), ["source:notes.md"], "named loosely");
+        assert_eq!(cites(3), ["https://example.org/report"], "a page by its address");
+        assert_eq!(cites(4), Vec::<&str>::new(), "a source the deck was not grounded in");
+        assert!(!made.created.findings.iter().any(|f| f.code == "W423"), "{:?}", made.created.findings);
+        // A deck grounded in nothing says nothing of sources.
+        let (summary, slides) = catalog();
+        let (_, write) =
+            generating(&narrative(&summary, slides[..2].to_vec()), Path::new("dusk.theme.json"), dusk(), &font)
+                .unwrap();
+        assert!(write.unwrap().deck.to_value().unwrap()["meta"]["narrative"].get("sources").is_none());
     }
 
     #[test]

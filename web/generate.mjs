@@ -279,8 +279,17 @@ try {
   check((await page.evaluate(() => window.scaena.where().name)) === "revenue", "the deck open stays open");
   state.slow = 0;
 
-  // Grounded in a Markdown file, a CSV, and a web page.
+  // Grounded in a Markdown file, a CSV, and a web page, each slide naming the source its facts
+  // come from (narrative FUNC-3): the notes, the page for the second.
   requests.length = 0;
+  state.slides = (() => {
+    const answer = JSON.parse(SLIDES);
+    const text = answer.content.find((c) => c.type === "text");
+    const written = JSON.parse(text.text);
+    written.slides.forEach((s, i) => (s.sourceRef = i === 1 ? `${press}/press.html` : "notes.md"));
+    text.text = JSON.stringify(written);
+    return JSON.stringify(answer);
+  })();
   await opened();
   await page.setInputFiles("#prompting-files", [
     { name: "notes.md", mimeType: "text/markdown", buffer: Buffer.from(NOTES) },
@@ -387,6 +396,12 @@ try {
   const marks = await page.locator("#story [data-arc] [data-slide]").count();
   check(marks === 5, `a mark on the arc for each slide: ${marks}`);
   const said = await page.locator("#story [data-findings] li").allTextContents();
+  // Each slide names what its words came from, and its row says so (narrative FUNC-3).
+  const cited = await page.evaluate(() => window.scaena.story.health().slides.map((s) => (s.sources ?? []).join()));
+  check(slides?.prompt.includes("`sourceRef`"), "the slides' prompt asks each slide for its source");
+  check(cited[0] === "notes.md" && cited[1] === `${press}/press.html` && cited.every((c) => c), `each slide cites its source: ${cited.join(" | ")}`);
+  const from = await page.evaluate(() => [...document.querySelectorAll("#story [data-findings] li")].map((li) => [li.dataset.slide, li.querySelector("[data-sources]")?.textContent]));
+  check(from.length > 0 && from.every(([n, f]) => f === `From ${cited[Number(n) - 1]}`), `each row says what its slide came from: ${JSON.stringify(from)}`);
   const rows = await page.evaluate(() => [...document.querySelectorAll("#story [data-findings] li")].map((li) => li.dataset.slide));
   const looked = await page.evaluate(() => [...new Set(window.scaena.story.health().findings.map((f) => String(f.slide)))]);
   check(rows.join() === looked.join(), `a row for each slide with something to look at, in order: ${rows}`);
@@ -430,6 +445,14 @@ try {
   await asked.click();
   check((await page.getAttribute("#tab-assistant", "aria-selected")) === "true", "a question opens the assistant's tab");
   check((await page.inputValue("#question")) === question, `the question is in its box: ${question}`);
+  // The Files tab lists what the deck was grounded in, each with the slides citing it (FUNC-3).
+  await tab(page, "files");
+  await page.waitForSelector("#files [data-grounded] li", { timeout: 30000 }).catch(() => {});
+  const grounded = await page.locator("#files [data-grounded] li").allTextContents();
+  check(
+    grounded.length === 3 && grounded.some((g) => g.startsWith("notes.md") && /cited by Slide 1, Slide 3/.test(g)) && grounded.some((g) => g.includes("press.html") && /cited by Slide 2\b/.test(g)),
+    `the Files tab lists what the deck was grounded in, each with its slides: ${grounded.join(" | ")}`,
+  );
 
   // Items that each name an icon are set under the icons the worker finds in the set that ships,
   // fetched for them (PLAN G.23): each a path on its view, named by the icon.

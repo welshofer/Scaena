@@ -92,6 +92,9 @@ pub struct Read {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub after: Option<f64>,
     pub standing: Standing,
+    /// The sources its beat cites of those the deck was grounded in, by name (narrative FUNC-3).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub sources: Vec<String>,
 }
 
 /// How a slide stands in its arc.
@@ -496,6 +499,7 @@ pub fn health(deck: &Deck) -> Result<Health, OpsError> {
 
     // Each slide.
     let place: HashMap<&str, usize> = read.iter().enumerate().map(|(i, s)| (s.id.as_str(), i)).collect();
+    let grounded = scaena_core::files::grounded(deck);
     let slides_read: Vec<Read> = (read.iter().enumerate())
         .map(|(i, s)| {
             let meta = s.narrative_meta.as_ref();
@@ -507,9 +511,14 @@ pub fn health(deck: &Deck) -> Result<Health, OpsError> {
             } else {
                 Standing::Ok
             };
+            let beat = slides[i].beat.map(|(.., b)| b.id.clone());
+            let sources = (grounded.iter())
+                .filter(|g| beat.as_ref().is_some_and(|b| g.cited.contains(b)))
+                .map(|g| g.name.clone())
+                .collect();
             Read {
                 state: s.id.clone(),
-                beat: slides[i].beat.map(|(.., b)| b.id.clone()),
+                beat,
                 title: s.title.clone(),
                 curve: curve.get(i).copied().unwrap_or(0.5),
                 declared: meta.and_then(|m| m.expected_intensity).filter(|v| v.is_finite()).map(|v| v.clamp(0.0, 1.0)),
@@ -518,6 +527,7 @@ pub fn health(deck: &Deck) -> Result<Health, OpsError> {
                 tone_read: health::valence::detected(&text, None),
                 after: i.checked_sub(1).and_then(|p| m.coherence.pair_similarities.get(p).copied()),
                 standing,
+                sources,
             }
         })
         .collect();
@@ -706,6 +716,7 @@ mod tests {
             slides: written.slides,
             truncated: false,
             icons: Default::default(),
+            sources: Vec::new(),
             outline: None,
             brief: Brief {
                 topic: "Climate change, where we stand, for an audience of colleagues".into(),
@@ -766,6 +777,24 @@ mod tests {
         // Every finding is on a slide, in order, and says what to ask.
         assert!(h.findings.windows(2).all(|w| w[0].slide <= w[1].slide), "{:#?}", h.findings);
         assert!(h.findings.iter().all(|f| !f.ask.is_empty() && f.says.starts_with("Slide ")), "{:#?}", h.findings);
+    }
+
+    /// Each slide names the sources its beat cites of those the deck was grounded in (narrative
+    /// FUNC-3): what the Story tab shows on its row; none where it cites none.
+    #[test]
+    fn each_slide_names_the_sources_its_beat_cites() {
+        let mut deck = climate();
+        assert!(of(&deck).slides.iter().all(|s| s.sources.is_empty()), "the talk keeps no sources");
+        deck["meta"]["narrative"]["sources"] = json!([
+            { "name": "ipcc.pdf", "kind": "pdf", "bytes": 900, "truncated": false },
+            { "name": "https://example.org/noaa", "kind": "web page", "url": "https://example.org/noaa", "bytes": 300, "truncated": false },
+        ]);
+        let third = deck["states"][2]["id"].as_str().unwrap().to_string();
+        let beat = beat_of(&deck, &third);
+        deck.pointer_mut(&beat).unwrap()["evidence"] = json!(["source:ipcc.pdf", "https://example.org/noaa"]);
+        let h = of(&deck);
+        assert_eq!(h.slides[2].sources, ["ipcc.pdf", "https://example.org/noaa"]);
+        assert!(h.slides.iter().enumerate().all(|(i, s)| i == 2 || s.sources.is_empty()));
     }
 
     #[test]
