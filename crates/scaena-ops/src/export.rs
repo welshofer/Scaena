@@ -38,7 +38,7 @@ pub struct Request {
     /// at its last state, and a video plays the whole timeline.
     pub states: Option<Vec<String>>,
     /// Where it is written: a file for pdf, video, html, and the spine; a directory for
-    /// png and svg, an image per state named for it.
+    /// png and svg, an image per state named by where it stands, `Slide 03.png`.
     pub out: Option<PathBuf>,
     /// `WxH` pixels for png, svg, and video, in the canvas's aspect ratio; the canvas's
     /// size without it.
@@ -580,8 +580,55 @@ pub fn pdf_laid_out(
     Ok((laid, pages))
 }
 
-/// An image of each state at rest, in `dir`: `<state>.png` by the CPU painter, or
-/// `<state>.svg`.
+/// Each of `deck`'s states by where it stands among the slides, as an image of it is named and
+/// titled (SPEC §10): its file's name, `Slide 03` for a slide of one state, or `Slide 03, step 1`
+/// and `Slide 03, step 2` for one with steps, each number given as many digits as the deck's last
+/// slide, or the slide's last step, takes, so the files sort in the deck's order; and its title,
+/// the slide's headline as it shows there (a text in the `display`, `headline`, or `title` role,
+/// or the claim), else `Slide 3`.
+fn slide_names(deck: &scaena_core::Deck) -> Result<HashMap<String, (String, String)>, OpsError> {
+    let snaps = scaena_core::tracking::resolve_states(deck).map_err(|e| OpsError::new(e.to_string()))?;
+    // Each state's slide and step, and how many steps each slide has.
+    let (mut at, mut steps): (Vec<(usize, usize)>, Vec<usize>) = (Vec::new(), Vec::new());
+    let mut slide = None;
+    for state in &deck.states {
+        let of = deck.slide_of(state);
+        if slide != Some(of) {
+            steps.push(0);
+            slide = Some(of);
+        }
+        let last = steps.len() - 1;
+        steps[last] += 1;
+        at.push((steps.len(), steps[last]));
+    }
+    let digits = steps.len().max(1).to_string().len();
+    let mut out = HashMap::with_capacity(deck.states.len());
+    for ((state, snap), (number, step)) in deck.states.iter().zip(&snaps).zip(at) {
+        let name = match steps[number - 1] {
+            1 => format!("Slide {number:0digits$}"),
+            n => format!("Slide {number:0digits$}, step {step:0w$}", w = n.to_string().len()),
+        };
+        let headline = (snap.nodes.iter())
+            .filter(|(id, _)| {
+                deck.nodes.get(id.as_str()).is_some_and(|n| n.node_type == scaena_core::document::NodeType::Text)
+            })
+            .find(|(_, p)| {
+                p.get("semantic").and_then(serde_json::Value::as_str) == Some("claim")
+                    || matches!(
+                        p.get("role").and_then(serde_json::Value::as_str),
+                        Some("display" | "headline" | "title")
+                    )
+            })
+            .map(|(_, p)| scaena_core::reading::words(p).split_whitespace().collect::<Vec<_>>().join(" "))
+            .filter(|h| !h.is_empty());
+        out.insert(state.id.clone(), (name, headline.unwrap_or_else(|| format!("Slide {number}"))));
+    }
+    Ok(out)
+}
+
+/// An image of each state at rest, in `dir`, named by where it stands among the slides
+/// (`Slide 03.png`, `Slide 03, step 2.png`, [`slide_names`]): a PNG by the CPU painter, or an SVG
+/// titled by its slide's headline.
 fn images(
     b: &Bundle,
     format: Format,
@@ -591,9 +638,11 @@ fn images(
     progress: &Progress,
 ) -> Result<Exported, OpsError> {
     let pages = named(&b.deck, states)?;
+    // A deck nobody validated may hold any id: one that is no id is refused, as before (SEC-3).
     for state in &pages {
         file_named(state, "the state")?;
     }
+    let names = slide_names(&b.deck)?;
     progress.start(pages.len());
     let theme = crate::theme(b)?;
     let data = data_files(b)?;
@@ -605,19 +654,19 @@ fn images(
         )));
     }
     std::fs::create_dir_all(dir).map_err(|e| OpsError::new(format!("making {}: {e}", dir.display())))?;
-    let meta = b.deck.meta.as_ref();
-    let (title, lang) = (meta.and_then(|m| m.title.clone()), meta.and_then(|m| m.lang.clone()));
+    let lang = b.deck.meta.as_ref().and_then(|m| m.lang.clone());
     let (ext, svg_format) = if format == Format::Svg { ("svg", true) } else { ("png", false) };
     let (mut files, mut total, mut pixels) = (Vec::new(), 0_u64, [0, 0]);
     let mut painter = CpuPainter::default();
     for state in &pages {
+        let (name, title) = names.get(state).cloned().unwrap_or_else(|| (state.clone(), state.clone()));
         let list = at_rest(&mut engine, b, &theme, &data, state)?;
         let scale = match size {
             Some(size) => scale_for(size, list.viewport)?,
             None => 1.0,
         };
         let bytes = if svg_format {
-            let settings = SvgSettings { scale, title: title.clone(), lang: lang.clone() };
+            let settings = SvgSettings { scale, title: Some(title), lang: lang.clone() };
             pixels = list.viewport.map(|v| (v * scale).round() as u32);
             svg(&list, &assets, &settings).map_err(|e| OpsError::new(format!("{state}: {e}")))?.into_bytes()
         } else {
@@ -625,7 +674,7 @@ fn images(
             pixels = [raster.width, raster.height];
             raster.to_png()?
         };
-        let file = dir.join(format!("{state}.{ext}"));
+        let file = dir.join(format!("{name}.{ext}"));
         write(&file, &bytes)?;
         total += bytes.len() as u64;
         files.push(file.display().to_string());

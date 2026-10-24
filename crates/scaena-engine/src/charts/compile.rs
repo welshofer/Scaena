@@ -2428,8 +2428,12 @@ fn compile_in(
             let entry = |r: &&Row| if donut { r.label == e.key } else { r.series.as_deref() == Some(e.key.as_str()) };
             let (picked, all) = (rows.iter().filter(entry))
                 .fold((0, 0), |(p, n), r| (p + usize::from(lit.contains(&r.key.as_str())), n + 1));
-            if picked == 0 {
+            // A series picked in part, as a category's highlight picks one bar of each, takes the
+            // dimmed color its other marks draw: a swatch says the color most of its marks are in.
+            if picked < all {
                 e.color = dim(e.color);
+            }
+            if picked == 0 {
                 e.label.opacity = words;
             } else if picked == all {
                 // A direct name takes the signal with its series.
