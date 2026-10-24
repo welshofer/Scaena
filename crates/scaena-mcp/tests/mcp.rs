@@ -201,7 +201,8 @@ async fn an_agent_builds_a_deck_with_the_tools_alone() {
     assert_eq!(patched["applied"], true, "{patched:#}");
     // Said by its semantic ops and what they changed, the JSON Patch only when asked for
     // (dogfood 3).
-    assert_eq!(patched["ops"].as_array().map(Vec::len), Some(2), "{patched:#}");
+    assert_eq!(patched["ops"].as_array().map(Vec::len), Some(4), "{patched:#}");
+    assert_eq!(patched["summary"]["json_patch"], 1, "{patched:#}");
     assert_eq!(patched["summary"]["slides_added"], json!(["revenue"]), "{patched:#}");
     assert!(patched.get("patch").is_none(), "{patched:#}");
     // An argument that does not read is named.
