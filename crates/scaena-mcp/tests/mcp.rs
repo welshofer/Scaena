@@ -210,6 +210,23 @@ async fn an_agent_builds_a_deck_with_the_tools_alone() {
     ]);
     let patched = ok(&client, "deck_patch", json!({ "bundle": bundle, "ops": ops })).await;
     assert_eq!(patched["applied"], true, "{patched:#}");
+    // Said by its semantic ops and what they changed, the JSON Patch only when asked for
+    // (dogfood 3).
+    assert_eq!(patched["ops"].as_array().map(Vec::len), Some(4), "{patched:#}");
+    assert_eq!(patched["summary"]["json_patch"], 1, "{patched:#}");
+    assert_eq!(patched["summary"]["slides_added"], json!(["revenue"]), "{patched:#}");
+    assert!(patched.get("patch").is_none(), "{patched:#}");
+    // An argument that does not read is named.
+    let wrong = call(&client, "deck_patch", json!({ "bundle": bundle, "ops": [], "dry_run": "yes" })).await;
+    assert_eq!(wrong.is_error, Some(true));
+    assert!(text(&wrong).contains("`dry_run`: invalid type"), "{}", text(&wrong));
+    // The theme the deck draws in, as the bundle holds it.
+    let read = ok(&client, "deck_read", json!({ "bundle": bundle, "theme": true })).await;
+    assert!(
+        read["theme"]["layouts"]["figure"]["slots"]["header"].is_object(),
+        "{:#}",
+        read["theme"]["layouts"]["figure"]
+    );
     let spine = json!({ "sections": [{ "id": "q3", "beats": [
         { "id": "opening", "claim": "Q3 in review.", "states": ["start"] },
         { "id": "doubled", "claim": "Revenue doubled.", "evidence": ["@q3"], "states": ["revenue"] }] }] });
