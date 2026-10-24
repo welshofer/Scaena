@@ -20,23 +20,23 @@
     {"layer":{"node":"steps-fourth-chevron","cell":null,"label":null,"transform":[1.0,0.0,0.0,1.0,120.0,248.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
       {"fill":{"path":"M402 0L56.28125 0L0 102L56.28125 204L402 204L345.71875 102Z","rule":"nonzero","paint":{"solid":"#17171DFF"}}}
     ]}},
-    {"layer":{"node":"steps-header","cell":null,"label":null,"transform":[1.0,0.0,0.0,1.0,404.0,87.6875],"opacity":1.0,"blend":"normal","clip":null,"ops":[
-      {"glyphs":{"font":0,"size":80.0,"coords":[4587,0],"paint":{"solid":"#F2F0E9FF"},"text":"نعمل","glyphs":[
-        [50,1061.3594,65.4375],
-        [59,1120.7969,65.4375],
-        [37,1167.5156,65.4375],
-        [96,1212.9531,67.515625],
-        [13,1209.125,65.4375]
+    {"layer":{"node":"steps-header","cell":null,"label":null,"transform":[1.0,0.0,0.0,1.0,404.0,89.34375],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+      {"glyphs":{"font":0,"size":64.0,"coords":[4587,0],"paint":{"solid":"#F2F0E9FF"},"text":"نعمل","glyphs":[
+        [50,1128.2812,52.359375],
+        [59,1175.8438,52.359375],
+        [37,1213.2188,52.359375],
+        [96,1249.5625,54.015625],
+        [13,1246.5,52.359375]
       ],"clusters":[6,4,2,0,0]}},
-      {"glyphs":{"font":1,"size":80.0,"coords":[7646,-7373,0,0],"paint":{"solid":"#F2F0E9FF"},"text":" ","glyphs":[
-        [1,1231.2031,65.4375]
+      {"glyphs":{"font":1,"size":64.0,"coords":[7646,-7373,0,0],"paint":{"solid":"#F2F0E9FF"},"text":" ","glyphs":[
+        [1,1264.1562,52.359375]
       ],"clusters":[0]}},
-      {"glyphs":{"font":0,"size":80.0,"coords":[4587,0],"paint":{"solid":"#F2F0E9FF"},"text":"كيف","glyphs":[
-        [96,1306.7969,66.5625],
-        [40,1245.4375,65.4375],
-        [102,1336.1562,65.84375],
-        [12,1332.7188,65.4375],
-        [48,1362.7188,65.4375]
+      {"glyphs":{"font":0,"size":64.0,"coords":[4587,0],"paint":{"solid":"#F2F0E9FF"},"text":"كيف","glyphs":[
+        [96,1324.6406,53.25],
+        [40,1275.5469,52.359375],
+        [102,1348.125,52.671875],
+        [12,1345.375,52.359375],
+        [48,1369.375,52.359375]
       ],"clusters":[4,4,2,2,0]}}
     ]}},
     {"layer":{"node":"steps-first-title","cell":null,"label":null,"transform":[1.0,0.0,0.0,1.0,1422.0,328.60938],"opacity":1.0,"blend":"normal","clip":null,"ops":[

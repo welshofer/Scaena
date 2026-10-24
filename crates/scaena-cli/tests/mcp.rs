@@ -61,15 +61,15 @@ async fn an_agent_fixes_what_lint_finds_then_renders() {
     let made = ok(&client, "deck_create", json!({ "bundle": bundle, "theme": theme, "title": "Loop" })).await;
     assert_eq!(made["created"], true, "{made:#}");
     let ops = json!([
-        { "op": "add", "path": "/states/0/layout", "value": "figure" },
+        { "op": "add", "path": "/states/0/layout", "value": "agenda-photo" },
         { "op": "add_node", "id": "headline", "state": "start",
           "node": { "type": "text", "role": "headline", "semantic": "claim", "at": { "in": "header" },
-                    "text": "Volunteers rebuilt fifty-two miles of trail" } },
+                    "text": "Volunteers rebuilt fifty-two miles of trail across the state park" } },
     ]);
     let patched = ok(&client, "deck_patch", json!({ "bundle": bundle, "ops": ops })).await;
     assert_eq!(patched["applied"], true, "{patched:#}");
 
-    // The headline needs two lines, and its slot is one row tall.
+    // The headline needs three lines, and its slot holds two: shrunk, it takes two.
     let found = ok(&client, "deck_lint", json!({ "bundle": bundle, "severity": "error" })).await;
     let findings = found["findings"].as_array().unwrap();
     let overflow = findings.iter().find(|f| f["code"] == "E100" && f["node"] == "headline");
