@@ -3,7 +3,7 @@
 // OpenAI's Chat Completions, and Gemini's generateContent. The script is PLAN 1.19's agent loop,
 // which gate 2 asks the assistant to run in the browser (PLAN §2, criterion 4):
 //
-//   a new deck from Dusk → a headline too long for its one-row slot (deck_patch) → the E100
+//   a new deck from Dusk → a headline too long for its slot (deck_patch) → the E100
 //   lint finds, with its fix (deck_lint) → the fix (deck_lint with `fix`) → no errors
 //   (deck_lint) → the state drawn (deck_render) → a cooler accent (theme_edit) → an icon found by
 //   its words (icon_find, which the author-deck skill names, from the set the page carries) → a
@@ -60,14 +60,14 @@ const deck = {
 };
 await writeFile(join(bundle, "deck.json"), JSON.stringify(deck, null, 2));
 
-const HEADLINE = "Volunteers rebuilt fifty-two miles of trail";
+const HEADLINE = "Volunteers rebuilt fifty-two miles of trail across the state park";
 /** The agent loop, a call a turn, then the answer. */
 const SCRIPT = [
   {
     name: "deck_patch",
     args: {
       ops: [
-        { op: "add", path: "/states/0/layout", value: "figure" },
+        { op: "add", path: "/states/0/layout", value: "agenda-photo" },
         {
           op: "add_node",
           id: "headline",
