@@ -1863,10 +1863,10 @@ fn every_theme_in_the_registry_makes_and_saves_a_deck_with_its_fonts_alone() {
     }
 }
 
-/// A call that lays a deck out and lints it, as a re-theme does before and after, is answered on a
-/// thread of its own with 16 MB of stack, whatever thread Swift calls from: a
-/// Swift Testing thread holds 512 KB, and the iPad's main thread 1 MB. Called here from a thread of
-/// 256 KB, which the re-theme overruns where it runs on the caller's stack (#533).
+/// A call that lays a deck out and lints it, as a re-theme does before and after, has the stack it
+/// takes on whatever thread Swift calls from, a segment added where the caller's runs low: a Swift
+/// Testing thread holds 512 KB, and the iPad's main thread 1 MB. Called here from a thread of
+/// 256 KB, which the re-theme overran on the caller's own stack (#533).
 #[test]
 fn a_re_theme_is_answered_on_a_stack_of_its_own() {
     struct Sent(*mut ScaenaSession);

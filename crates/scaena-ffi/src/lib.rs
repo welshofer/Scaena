@@ -92,23 +92,20 @@ fn said(message: impl std::fmt::Display) -> Failure {
 }
 
 /// `f`'s result, with a panic caught and said.
-/// The stack a call that lays out and lints runs on (lift-up PERF-1's `OffMain` holds the same):
-/// a re-theme lints the deck before and after, which takes some 350 KB of stack on Linux in debug
-/// and more on Apple's, where a Swift Testing thread holds 512 KB and the iPad's main thread 1 MB.
+/// The stack a call that lays out and lints a deck takes, at most, and the room left on the
+/// caller's stack below which [`deep`] adds a segment of [`DEEP`] for it (#533). A re-theme lints
+/// the deck before and after: some 350 KB of stack on Linux in debug, and more on Apple's arm64,
+/// where a Swift Testing thread holds 512 KB and the iPad's main thread 1 MB. The Mac's main
+/// thread, 8 MB, never needs one.
+const ROOM: usize = 2 << 20;
 const DEEP: usize = 16 << 20;
 
-/// `f` run on a thread of its own with [`DEEP`] stack, the caller waiting for it: what a call of
-/// the session's may need, however deep a deck lays out, on whichever thread Swift calls from. A
-/// panic in it goes on in the caller, where [`guarded`] says it; where no thread can be made, `f`
-/// runs where it is called.
-fn deep<T: Send>(f: impl FnOnce() -> T + Send) -> T {
-    let held = std::sync::Mutex::new(Some(f));
-    let run = || held.lock().unwrap_or_else(|e| e.into_inner()).take().map(|f| f());
-    let ran = std::thread::scope(|scope| {
-        let thread = std::thread::Builder::new().name("scaena-deep".into()).stack_size(DEEP).spawn_scoped(scope, run);
-        thread.ok().map(|t| t.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic)))
-    });
-    ran.flatten().or_else(run).expect("run once")
+/// `f` run on the caller's thread, on a stack segment of [`DEEP`] where less than [`ROOM`] of
+/// the caller's own is left: a call of the session's has the room any deck takes to lay out,
+/// whichever thread Swift calls from, and stays on that thread, so what core keeps per thread
+/// (the theme checked, `validate::CHECKED`) is kept from call to call.
+fn deep<T>(f: impl FnOnce() -> T) -> T {
+    stacker::maybe_grow(ROOM, DEEP, f)
 }
 
 fn guarded<T>(f: impl FnOnce() -> Result<T, Failure>) -> Result<T, Failure> {
