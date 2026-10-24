@@ -94,6 +94,19 @@ pub struct SpineBeat {
     pub formats: IndexMap<String, String>,
 }
 
+/// The notes a presenter reads for `state` (SPEC §2.6): the state's own, else those of the
+/// first beat, in spine order, that names it; none for a state the deck lacks. A generated deck
+/// writes its speaker notes on the beats (PLAN G.2), and a state's own, where it has them, say
+/// more about that step than the beat's.
+pub fn notes<'a>(deck: &'a Deck, state: &str) -> Option<&'a str> {
+    let own = deck.states.iter().find(|s| s.id == state)?;
+    if let Some(notes) = own.notes.as_deref() {
+        return Some(notes);
+    }
+    let mut beats = deck.spine.iter().flat_map(|s| s.sections.iter()).flat_map(|s| s.beats.iter());
+    Some(beats.find(|b| b.states.iter().any(|s| s == state)).and_then(|b| b.notes.as_deref()).unwrap_or(""))
+}
+
 /// `deck`'s spine projection, placed on `timeline` when it is given: with no renders.
 pub fn projection(deck: &Deck, timeline: Option<&Timeline>) -> SpineProjection {
     let order: IndexMap<&str, usize> = deck.states.iter().enumerate().map(|(i, s)| (s.id.as_str(), i)).collect();
@@ -152,6 +165,23 @@ mod tests {
                 { "id": "none", "claim": "Nothing shows this." }] }] }
         }))
         .unwrap()
+    }
+
+    #[test]
+    fn a_presenter_reads_a_states_own_notes_else_its_first_beats() {
+        let mut deck = deck();
+        // `a` has none of its own: the first beat that names it has none either.
+        assert_eq!(notes(&deck, "a"), Some(""));
+        deck.spine.as_mut().unwrap().sections[0].beats[0].notes = Some("Build it.".into());
+        assert_eq!(notes(&deck, "a"), Some("Build it."));
+        assert_eq!(notes(&deck, "a2"), Some("Build it."));
+        // Its own win.
+        assert_eq!(notes(&deck, "b"), Some("Pause."));
+        // A state no beat names, with none of its own, has none; one the deck lacks, no answer.
+        deck.states[2].notes = None;
+        deck.spine.as_mut().unwrap().sections[0].beats[1].states.clear();
+        assert_eq!(notes(&deck, "b"), Some(""));
+        assert_eq!(notes(&deck, "gone"), None);
     }
 
     #[test]
