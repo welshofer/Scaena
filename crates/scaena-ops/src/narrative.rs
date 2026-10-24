@@ -29,7 +29,7 @@ pub use scaena_sources::Given;
 use scaena_sources::{Source, Table};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 /// The canvas a made deck draws on.
@@ -954,20 +954,37 @@ pub fn overflowing(deck: &Deck, findings: &[Finding]) -> Result<Vec<Long>, OpsEr
 /// side by side (the words under each step, the figures of a scorecard), or the deck's section
 /// titles. Each grows or shrinks as its place allows, laid out by the engine, then all of its set
 /// are held to the size the one with the least room reached, by its `maxSize`, which caps a text
-/// that shrinks too (deck format 0.36). Whether any size changed.
-fn alike(doc: &mut Value, view: &View) -> Result<bool, OpsError> {
-    let deck = Deck::from_json(&doc.to_string()).context("the deck")?;
+/// that shrinks too (deck format 0.36). Each is measured as it was before `alike` held it, by
+/// what `held` keeps of it, so that a second run after lint's fixes changes only a set a fix
+/// changed. Whether any size changed.
+fn alike(doc: &mut Value, view: &View, held: &mut Held) -> Result<bool, OpsError> {
+    // What `alike` wrote taken back, for measuring alone: each one's room, not its cap.
+    let mut measured = doc.clone();
+    for (id, most) in &held.most {
+        let node = &mut measured["nodes"][id];
+        match (most, node.as_object_mut()) {
+            (Some(most), _) => node["maxSize"] = most.clone(),
+            (None, Some(node)) => {
+                node.remove("maxSize");
+            }
+            (None, None) => {}
+        }
+    }
+    for id in &held.grew {
+        measured["nodes"][id]["fit"] = json!("grow");
+    }
+    let deck = Deck::from_json(&measured.to_string()).context("the deck")?;
     let Some(theme) = view.theme(&deck)? else { return Ok(false) };
     let theme = scaena_engine::theme::Theme::from_json(&theme)?;
     let mut engine = crate::lint::engine_in(&deck, view, &theme, None)?;
     let data = crate::lint::data_in(&deck, view)?;
-    // Each growing text: its set, its state, its id, and its role's size.
+    // Each growing or shrinking text: its set, its state, its id, and its role's size.
     let mut members: Vec<(String, String, String, f64)> = Vec::new();
-    for state in doc["states"].as_array().into_iter().flatten() {
+    for state in measured["states"].as_array().into_iter().flatten() {
         let (Some(id), Some(shown)) = (state["id"].as_str(), state["props"].as_object()) else { continue };
         let layout = state["layout"].as_str().unwrap_or_default();
         for node in shown.keys() {
-            let n = &doc["nodes"][node];
+            let n = &measured["nodes"][node];
             let (Some("grow" | "shrink"), Some(slot), Some(role)) =
                 (n["fit"].as_str(), n["at"]["in"].as_str(), n["role"].as_str())
             else {
@@ -1025,18 +1042,30 @@ fn alike(doc: &mut Value, view: &View) -> Result<bool, OpsError> {
             continue;
         }
         let node = &mut doc["nodes"][id];
+        let before = node.get("maxSize").cloned();
         // One of a set that a fit made shrink: one that grows never goes under its role's size,
         // so it shrinks too, under the same cap.
         if node["fit"] == "grow" && size < *own {
             node["fit"] = json!("shrink");
             node["maxSize"] = json!(size);
-            changed = true;
+            held.grew.insert(id.clone());
         } else if node["maxSize"].as_f64().is_none_or(|most| size < most) {
             node["maxSize"] = json!(size);
-            changed = true;
+        } else {
+            continue;
         }
+        held.most.entry(id.clone()).or_insert(before);
+        changed = true;
     }
     Ok(changed)
+}
+
+/// What [`alike`] wrote over, so a run after it measures each text as it was: each one's
+/// `maxSize` before `alike` first set it, and those it made shrink where they grew.
+#[derive(Default)]
+struct Held {
+    most: BTreeMap<String, Option<Value>>,
+    grew: BTreeSet<String>,
 }
 
 /// How many of `findings` are errors.
@@ -1126,7 +1155,8 @@ pub fn making(
         created.findings = lint_in(&deck, &view)?.findings;
     }
     // Each set of texts a slide sets side by side, and every section's title, held to one size.
-    if alike(&mut doc, &view)? {
+    let mut held = Held::default();
+    if alike(&mut doc, &view, &mut held)? {
         let deck = Deck::from_json(&doc.to_string()).context("the deck set alike")?;
         created.findings = lint_in(&deck, &view)?.findings;
     }
@@ -1134,7 +1164,7 @@ pub fn making(
     // makes a text of a set shrink, the set held to one size again.
     let mut settled = settle(doc, created.findings, &view)?;
     let mut doc = settled.deck.to_value()?;
-    if alike(&mut doc, &view)? {
+    if alike(&mut doc, &view, &mut held)? {
         settled.deck = Deck::from_json(&doc.to_string()).context("the deck set alike again")?;
         settled.findings = lint_in(&settled.deck, &view)?.findings;
     }
@@ -3844,6 +3874,37 @@ mod tests {
         let props = deck["states"][n]["props"].as_object().unwrap();
         let id = props.keys().find(|id| deck["nodes"][id.as_str()]["at"]["in"] == slot).unwrap();
         &deck["nodes"][id.as_str()]
+    }
+
+    /// Setting a deck's sets alike twice, as making does after lint's fixes, changes nothing the
+    /// second time: each text is measured with its room, not the cap the first run gave it, so
+    /// no figure shrinks another tenth and no title loses a quarter unit.
+    #[test]
+    fn a_deck_set_alike_twice_is_set_as_once() {
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        for narrative in [climate(), {
+            let (summary, slides) = catalog();
+            narrative(&summary, slides)
+        }] {
+            let built = deck(&narrative, &theme, &Pictures::new()).unwrap();
+            let req = Create {
+                theme: PathBuf::from("dusk.theme.json"),
+                deck: Some(built.deck),
+                assets: built.assets,
+                ..Create::default()
+            };
+            let none = |path: &Path| -> Result<Vec<u8>, OpsError> { Err(OpsError::new(path.display().to_string())) };
+            let (_, write) = creating(&req, dusk(), &font, &none).unwrap();
+            let write = write.unwrap();
+            let nothing = scaena_store::Files::Zip(Default::default());
+            let view = View { base: &nothing, pending: write.files.clone() };
+            let mut doc = write.deck.to_value().unwrap();
+            let mut held = Held::default();
+            assert!(alike(&mut doc, &view, &mut held).unwrap(), "the first run sets some set alike");
+            let once = doc.clone();
+            assert!(!alike(&mut doc, &view, &mut held).unwrap(), "the second run changes nothing");
+            assert_eq!(doc, once);
+        }
     }
 
     #[test]
