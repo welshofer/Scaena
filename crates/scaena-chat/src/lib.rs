@@ -158,9 +158,6 @@ pub enum Next {
     Done { text: String, stop: Stop, usage: Option<Usage> },
 }
 
-/// The tools whose results are the deck's own words, which reach the model fenced as data.
-const FENCED: [&str; 2] = ["deck_read", "deck_find"];
-
 impl Chat {
     pub fn new(provider: Provider, model: &str, system: String, tools: Vec<Tool>) -> Chat {
         Chat {
@@ -216,10 +213,10 @@ impl Chat {
 
     /// The results of the calls the last answer made, every call answered, in its order:
     /// whether the model may be asked again, or the question has taken its rounds.
-    /// What `deck_read` and `deck_find` read, the deck's own words, reach the model fenced as
-    /// data (lift-up SEC-3).
+    /// Each result, errors too, reaches the model fenced as data under its tool's name: what a
+    /// tool reads is the deck's words or a source's, and an error can quote them (lift-up SEC-3).
     pub fn results(&mut self, mut results: Vec<ToolResult>) -> bool {
-        for r in results.iter_mut().filter(|r| !r.error && FENCED.contains(&r.name.as_str())) {
+        for r in results.iter_mut() {
             r.json = scaena_fence::fenced(&r.name.replace('_', "-"), &r.json);
         }
         self.conversation.push(Message::Tool { results });
