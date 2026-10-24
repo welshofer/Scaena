@@ -143,7 +143,9 @@ try {
   check(asked?.headers["x-api-key"] === "writing-test-key", "the key goes to the provider in its own header");
   check(asked && !("tools" in asked.body), "a question asked once sends no tools");
   check(asked?.body.system?.[0]?.text.startsWith("You tighten the words of one text on a slide"), "told the engine's instructions");
-  check(asked?.body.messages?.[0]?.content?.[0]?.text === "This quarter changed the shape of the business.", "asked the words as the slide shows them");
+  // The words as the slide shows them, with the point its beat makes (lift-up FUNC-3).
+  const words = "This quarter changed the shape of the business.";
+  check(asked?.body.messages?.[0]?.content?.[0]?.text === `The text:\n${words}\nThe point its slide makes: ${words}`, "asked the words as the slide shows them, with its claim");
   await page.click("#writing-use");
   await page.evaluate(() => window.scaena.writing.settled());
   check((await source()).includes('"This quarter reshaped the business."'), "Use it makes the text read so");
@@ -250,7 +252,7 @@ try {
   const why = scripted.requests.at(-1)?.body.messages?.[0]?.content?.[0]?.text ?? "";
   check(/^Finding [EW]\d+ \((error|warning)\): /.test(why), `asked as the finding says it: ${JSON.stringify(why.split("\n")[0])}`);
   await page.click("#writing-leave");
-  check(scripted.requests.length === 7, `one request for each tool asked: ${scripted.requests.length}`);
+  check(scripted.requests.length === 10, `one request for each tool asked, and the rewrite asked again: ${scripted.requests.length}`);
 
   // 6b. The source's own issue, while it does not compile, is explained all the same.
   await page.evaluate((s) => window.scaena.type(`${s}\nthis is not scn {`), await source());
@@ -258,7 +260,7 @@ try {
   await page.click("#problems li button.explain");
   check(await answered("#writing-said"), "Explain says what the source's own issue means");
   const compiling = await dialog();
-  check(compiling.title === "About This Issue" && scripted.requests.length === 8, `asked once, though the deck does not compile: ${compiling.title} · ${await status()}`);
+  check(compiling.title === "About This Issue" && scripted.requests.length === 11, `asked once, though the deck does not compile: ${compiling.title} · ${await status()}`);
   await page.click("#writing-leave");
 
   // 7. Describe (PLAN 2.119): the picture as the slide shows it goes before the words.
