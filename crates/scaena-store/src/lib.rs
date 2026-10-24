@@ -55,6 +55,10 @@ pub enum StoreError {
     Json(#[from] serde_json::Error),
     #[error("{}: not a zip bundle: {source}", path.display())]
     Zip { path: PathBuf, source: zip::result::ZipError },
+    /// A zip bundle that would unpack past what a bundle may hold ([`Unzipped`]): a zip bomb,
+    /// or a header that claims a size it does not hold, refused before it takes the memory.
+    #[error("{}: {why}", path.display())]
+    TooLarge { path: PathBuf, why: String },
     #[error("not a bundle or deck file: {0}")]
     NotABundle(PathBuf),
     #[error("{0}: {1}")]
@@ -73,6 +77,23 @@ pub enum StoreError {
 
 /// Where a bundle keeps its CRDT document and its history (SPEC §3.1, §8).
 pub const HISTORY: &str = "history/deck.loro";
+
+/// What a zip bundle may unpack to, at most (lift-up SEC-1): a `.scaena` someone sends is opened
+/// by the browser, the Mac and the iPad, the CLI, and the MCP server, and one that would unpack
+/// past these is refused, saying why, before it takes the memory. Far above any deck: B4, the
+/// largest bench deck, unpacks to some 30 MB.
+#[derive(Clone, Copy, Debug)]
+pub struct Unzipped {
+    /// Files, at most.
+    pub entries: usize,
+    /// Bytes in one file, at most.
+    pub entry: u64,
+    /// Bytes in all of them, at most.
+    pub total: u64,
+}
+
+/// The bounds every zip bundle is opened within.
+pub const UNZIPPED: Unzipped = Unzipped { entries: 10_000, entry: 256 << 20, total: 1 << 30 };
 
 /// Where a bundle's files are: a directory on disk, or in memory, by their paths inside
 /// the bundle: the entries of a zip, read once, or the files a page holds.
@@ -326,17 +347,44 @@ fn unzip(path: &Path) -> Result<BTreeMap<String, Vec<u8>>, StoreError> {
 /// Every file in the zip `reader` holds, by its path inside the bundle; `path` names it in
 /// an error.
 fn unzip_from(reader: impl Read + std::io::Seek, path: &Path) -> Result<BTreeMap<String, Vec<u8>>, StoreError> {
+    unzip_within(reader, path, UNZIPPED)
+}
+
+/// [`unzip_from`], within `most`: each file read no further than one byte past what one may
+/// hold, and its room kept by what it may hold, not by what its header claims.
+fn unzip_within(
+    reader: impl Read + std::io::Seek,
+    path: &Path,
+    most: Unzipped,
+) -> Result<BTreeMap<String, Vec<u8>>, StoreError> {
     let zip_error = |source| StoreError::Zip { path: path.to_path_buf(), source };
+    let too_large = |why: String| StoreError::TooLarge { path: path.to_path_buf(), why };
     let mut archive = zip::ZipArchive::new(reader).map_err(zip_error)?;
+    if archive.len() > most.entries {
+        return Err(too_large(format!("holds {} files, more than a bundle may ({})", archive.len(), most.entries)));
+    }
     let mut out = BTreeMap::new();
+    let mut total = 0u64;
     for i in 0..archive.len() {
         let mut entry = archive.by_index(i).map_err(zip_error)?;
         if entry.is_dir() {
             continue;
         }
         let name = normal(entry.name())?;
-        let mut bytes = Vec::with_capacity(entry.size() as usize);
-        entry.read_to_end(&mut bytes)?;
+        let room = entry.size().min(most.entry).min(most.total - total);
+        let mut bytes = Vec::with_capacity(usize::try_from(room).unwrap_or(0));
+        (&mut entry).take(most.entry + 1).read_to_end(&mut bytes)?;
+        let read = bytes.len() as u64;
+        if read > most.entry {
+            return Err(too_large(format!(
+                "`{name}` unpacks past {} bytes, more than a file in a bundle may",
+                most.entry
+            )));
+        }
+        total += read;
+        if total > most.total {
+            return Err(too_large(format!("unpacks past {} bytes, more than a bundle may", most.total)));
+        }
         out.insert(name, bytes);
     }
     Ok(out)
@@ -539,6 +587,54 @@ mod tests {
     use super::*;
 
     const TORTURE: &str = "../../tests/fixtures/torture.scaena";
+
+    /// A zip of `files`, as a save writes one.
+    fn zipped(files: &[(&str, Vec<u8>)]) -> Vec<u8> {
+        save::zip(&files.iter().map(|(name, bytes)| (name.to_string(), bytes.clone())).collect()).unwrap()
+    }
+
+    /// Unpacks `zip` within small bounds, saying why it is refused where it is.
+    fn within(zip: &[u8]) -> Result<BTreeMap<String, Vec<u8>>, String> {
+        let most = Unzipped { entries: 3, entry: 1000, total: 1500 };
+        unzip_within(std::io::Cursor::new(zip), Path::new("sent.scaena"), most).map_err(|e| e.to_string())
+    }
+
+    /// A zip bundle unpacks only within what a bundle may hold (lift-up SEC-1): too many files, a
+    /// file that inflates past its bound, or all of them past theirs, is refused naming the
+    /// bundle; and the room a file is read into is what it may hold, not what its header claims.
+    #[test]
+    fn a_zip_that_unpacks_past_a_bundle_is_refused_before_it_takes_the_memory() {
+        let fits = within(&zipped(&[("deck.json", b"{}".to_vec()), ("data/a.csv", vec![b'a'; 1000])])).unwrap();
+        assert_eq!(fits["data/a.csv"].len(), 1000);
+        let many: Vec<(&str, Vec<u8>)> = ["a", "b", "c", "d"].iter().map(|n| (*n, vec![])).collect();
+        let refused = within(&zipped(&many)).unwrap_err();
+        assert!(refused.starts_with("sent.scaena: holds 4 files"), "{refused}");
+        // A bomb: a thousand and one zeros deflate to a few bytes.
+        let refused = within(&zipped(&[("fonts/bomb.ttf", vec![0; 1001])])).unwrap_err();
+        assert!(refused.contains("`fonts/bomb.ttf` unpacks past 1000 bytes"), "{refused}");
+        let refused = within(&zipped(&[("a", vec![1; 800]), ("b", vec![2; 800])])).unwrap_err();
+        assert!(refused.contains("unpacks past 1500 bytes, more than a bundle may"), "{refused}");
+        // A header that claims some 4 GB for ten bytes: read whole, in the room ten bytes need at
+        // most, never the room it claims.
+        let mut forged = zipped(&[("a", vec![7; 10])]);
+        let central = forged.windows(4).position(|w| w == [0x50, 0x4b, 0x01, 0x02]).unwrap();
+        forged[central + 24..central + 28].copy_from_slice(&0xFFFF_FFF0u32.to_le_bytes());
+        let read = within(&forged).unwrap();
+        assert_eq!(read["a"], vec![7; 10]);
+        assert!(read["a"].capacity() <= 1000, "room kept by the header's claim: {}", read["a"].capacity());
+    }
+
+    /// The bounds every zip bundle opens within reach the browser's, the Mac's, and the CLI's
+    /// open: a bundle of more files than one may hold is refused, not unpacked.
+    #[test]
+    fn a_bundle_sent_as_a_zip_of_too_many_files_does_not_open() {
+        let mut files: Vec<(String, Vec<u8>)> =
+            (0..=UNZIPPED.entries).map(|i| (format!("data/{i}.csv"), vec![])).collect();
+        files.push(("deck.json".into(), std::fs::read(Path::new(TORTURE).join("deck.json")).unwrap()));
+        let zip = save::zip(&files.into_iter().collect()).unwrap();
+        let refused = Bundle::from_zip(&zip).err().expect("refused").to_string();
+        assert!(refused.contains("files, more than a bundle may (10000)"), "{refused}");
+    }
 
     #[test]
     fn fonts_are_read_in_deck_order_under_their_bundle_ids() {

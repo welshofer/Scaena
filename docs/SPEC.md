@@ -102,7 +102,7 @@ The deck keeps its notes as written (§3.11): a person's lines, or the markdown 
 
 ### 3.1 Bundle
 
-A deck is a **bundle**: a directory `name.scaena/` or a zip of the same layout with extension `.scaena`. Every command reads either, or a bare deck file, whose directory then stands in for the bundle.
+A deck is a **bundle**: a directory `name.scaena/` or a zip of the same layout with extension `.scaena`. Every command reads either, or a bare deck file, whose directory then stands in for the bundle. A zip unpacks to at most 10,000 files, 256 MB a file, and 1 GB in all; one past any of these is refused, saying which, before it takes the memory, whatever its headers claim (`scaena_store::UNZIPPED`).
 
 ```
 name.scaena/
