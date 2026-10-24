@@ -1646,6 +1646,7 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
         - shows what each call came to and the frame it drew, each call named in a person's words, never by its tool's name (`ToolWords`, PLAN 3.18);
         - says what it is doing while it works ("Thinking…", or the call running, as "Editing the deck…"), a light sweeping across the words, held still where Reduce Motion is on; the browser's panel says "Working…" the same way, still where motion is less;
         - Stop answers the calls not yet run as stopped.
+        - *a call that only reads (`deck_lint` without `fix`, `deck_render`, `deck_health`; `scaena_session::assistant::reads_alone`) runs on the editor's `OffMain` queue (narrative lift-up PERF-1) on a session of a snapshot of the deck (`ScaenaSession.Snapshot.opened`, `scaena_chat_run_apart`), and the conversation takes it back as `run`'s (`took`), so the window and the sweep go on while it works; every other call runs on the session, as the window's edits do (narrative lift-up PERF-2; the `ffi` suite's `a_call_that_only_reads_runs_apart_on_a_snapshot_and_comes_to_what_it_does_on_the_session`, ScaenaKit's `aCallThatOnlyReadsRunsApartAndComesToWhatItDoesOnTheSession`).*
     - **On this Mac.** With Apple's Foundation Models (macOS 26, Apple Intelligence):
       - Explain, beside a finding, says what it means for the deck;
       - the inspector drafts a state's notes from how it reads;
