@@ -694,11 +694,11 @@ fn pictures_are_made_by_the_users_image_model_and_kept_in_the_bundle() {
     let said = String::from_utf8_lossy(&out.stdout).into_owned() + &String::from_utf8_lossy(&out.stderr);
     assert_eq!(out.status.code(), Some(0), "{said}");
     let made = json(&out);
-    // Two in five slides want one: the cover and the ending. The cover's, refused, leaves it a
-    // cover that waits for no picture, and says why.
+    // Two in five slides want one: the cover and the ending, which ends over its picture. The
+    // cover's, refused, leaves it a cover that waits for no picture, and says why.
     assert_eq!(made["pictures"], 1, "{said}");
     let layouts: Vec<&str> = made["layouts"].as_array().unwrap().iter().filter_map(Value::as_str).collect();
-    assert_eq!((layouts[0], layouts[4]), ("title-center", "title-split"), "{layouts:?}");
+    assert_eq!((layouts[0], layouts[4]), ("title-center", "poster"), "{layouts:?}");
     let unpictured = made["unpictured"][0].as_str().unwrap_or_default();
     assert!(unpictured.starts_with("slide 1:") && unpictured.contains("safety system"), "{unpictured}");
     let asked = asked.lock().unwrap();
