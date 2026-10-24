@@ -61,6 +61,7 @@ import type {
   Choices,
   StateChoices,
   Lexicon,
+  SpeakerNotes,
   Look,
   Put,
   BundleFile,
@@ -142,6 +143,7 @@ type Reply = Extract<
       | "written"
       | "wrote"
       | "words"
+      | "notes"
       | "look"
       | "put"
       | "bundleFiles"
@@ -882,6 +884,12 @@ export class Stage {
     return this.request<"words">({ type: "words", id: ++this.asked, state }).then(({ words }) => words);
   }
 
+  /** The notes a presenter reads for `state` (SPEC §2.6): its own, else its first beat's, as
+   * written and as the blocks a speaker reads; what a rehearsal shows beside the slide. */
+  notes(state: string): Promise<SpeakerNotes> {
+    return this.request<"notes">({ type: "notes", id: ++this.asked, state }).then(({ notes }) => notes);
+  }
+
   /** The layouts `state` may take, best first, in the deck shown (PLAN 2.92), as `stateChoices`
    * offers them: each judged by lint, with the patch that gives it, and painted at rest `height`
    * pixels high. The deck the worker holds: a request on a timer never takes it back to a source
@@ -1307,6 +1315,7 @@ export class Stage {
       case "written":
       case "wrote":
       case "words":
+      case "notes":
       case "look":
       case "put":
       case "bundleFiles":
