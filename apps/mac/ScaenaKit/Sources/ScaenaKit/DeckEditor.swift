@@ -84,6 +84,9 @@ public final class DeckEditor {
     /// lints and counted itself, before it waits for the layout, so an edit made there is one
     /// made while it is under way, with no clock to catch it by (PLAN 4.13).
     @ObservationIgnored var begun: (() -> Void)?
+    /// For a test: told, as a lint of every state lays the deck out, whether it does so on the
+    /// main thread and the stack it has.
+    @ObservationIgnored var laidOn: (@Sendable (_ main: Bool, _ stack: Int) -> Void)?
     /// For a test: called on the caller's actor once a read of the deck's health has taken the
     /// deck it reads, before it waits for the answer, as `begun` is for a lint.
     @ObservationIgnored var reading: (() -> Void)?
@@ -252,7 +255,7 @@ public final class DeckEditor {
     }
 
     /// Lint every state, in every format: once the deck opens, and once edits stop (PLAN 4.13).
-    /// The deck as it stands is laid out on a queue of its own, one lint at a time, while the
+    /// The deck as it stands is laid out on a thread of its own, one lint at a time, while the
     /// caller's actor (the window's) goes on answering; its findings are taken on that actor
     /// when it is done. A lint of a deck an edit has changed since it began is dropped, so what
     /// an older deck had never replaces what lint found in this one.
@@ -262,7 +265,7 @@ public final class DeckEditor {
         lints += 1
         defer { lints -= 1 }
         begun?()
-        await linter.lay(laying, for: began)
+        await linter.lay(laying, for: began, told: laidOn)
         guard began == compiled, let linting = try? session.lint(laid: laying) else { return }
         findings = linting.findings
         whole = linting.whole
@@ -379,18 +382,35 @@ final class OffMain: Sendable {
     func run<T: Sendable>(_ work: @escaping @Sendable () throws -> T) async throws -> T {
         let label = self.label
         return try await withCheckedThrowingContinuation { (done: CheckedContinuation<T, any Error>) in
-            let thread = Thread { done.resume(with: Result { try work() }) }
-            thread.name = label
-            thread.stackSize = Self.stack
-            thread.qualityOfService = .utility
-            thread.start()
+            Self.start(label) { done.resume(with: Result { try work() }) }
         }
+    }
+
+    /// `work` done on a thread of its own with `stack` bytes of stack, the caller's thread waiting
+    /// for it: what a queue that keeps its work in order, as the linter's does, runs its work on.
+    static func waiting(_ label: String, _ work: @escaping @Sendable () -> Void) {
+        let done = DispatchSemaphore(value: 0)
+        start(label) {
+            work()
+            done.signal()
+        }
+        done.wait()
+    }
+
+    private static func start(_ label: String, _ work: @escaping @Sendable () -> Void) {
+        let thread = Thread(block: work)
+        thread.name = label
+        thread.stackSize = stack
+        thread.qualityOfService = .utility
+        thread.start()
     }
 }
 
 /// Where a deck's every state is linted, away from the window (PLAN 4.13): one lint at a time on
 /// a queue of its own, so lints begun as edits stop wait for the one before rather than share the
-/// machine with it, and one of a deck an edit has changed since it was begun is not laid out.
+/// machine with it, and one of a deck an edit has changed since it was begun is not laid out. Each
+/// is laid out on a thread with `OffMain.stack` bytes of stack, which the queue waits for: laying
+/// out every state of a deck whose containers nest deep runs past a queue worker's 512 KB.
 private final class Linter: Sendable {
     private let queue = DispatchQueue(label: "ScaenaKit.lint", qos: .utility)
     /// The deck compiled last, as `DeckEditor` counts them.
@@ -398,10 +418,16 @@ private final class Linter: Sendable {
 
     /// Lay `laying` out, taken from the deck `began` counts, on the queue: once the lints before
     /// it are done, and only where no other deck has been compiled since.
-    func lay(_ laying: Laying, for began: Int) async {
+    /// `told`, for a test, hears whether the layout ran on the main thread and the stack it had.
+    func lay(_ laying: Laying, for began: Int, told: (@Sendable (_ main: Bool, _ stack: Int) -> Void)? = nil) async {
         await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
             queue.async {
-                if self.latest.load(ordering: .relaxed) == began { laying.lay() }
+                if self.latest.load(ordering: .relaxed) == began {
+                    OffMain.waiting("ScaenaKit.lint") {
+                        told?(Thread.isMainThread, Thread.current.stackSize)
+                        laying.lay()
+                    }
+                }
                 done.resume()
             }
         }
