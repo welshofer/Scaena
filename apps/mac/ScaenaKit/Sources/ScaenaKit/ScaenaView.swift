@@ -108,7 +108,7 @@ public final class ScaenaView: PlatformView {
 
     public override func makeBackingLayer() -> CALayer {
         let layer = CAMetalLayer()
-        layer.pixelFormat = .bgra8Unorm
+        Self.match(layer)
         return layer
     }
 
@@ -143,7 +143,7 @@ public final class ScaenaView: PlatformView {
     }
 
     private func made() {
-        metalLayer?.pixelFormat = .bgra8Unorm
+        if let metalLayer { Self.match(metalLayer) }
         registerForTraitChanges([UITraitDisplayScale.self]) { (view: ScaenaView, _: UITraitCollection) in
             view.resized()
         }
@@ -166,6 +166,15 @@ public final class ScaenaView: PlatformView {
     #endif
 
     private var metalLayer: CAMetalLayer? { layer as? CAMetalLayer }
+
+    /// The layer takes the painter's pixels as they are, eight bits a channel, and says they are
+    /// sRGB, as the slides' thumbnails, the PNG, and the PDF say theirs are (lift-up ATTR-1): a
+    /// layer with no color space is not matched to the display, and on a P3 display shows the
+    /// theme's colors more saturated than everything else that draws the deck.
+    private static func match(_ layer: CAMetalLayer) {
+        layer.pixelFormat = .bgra8Unorm
+        layer.colorspace = CGColorSpace(name: CGColorSpace.sRGB)
+    }
 
     /// Whether the view paints (lift-up PERF-2): a frame is owed, the frame shown not the playhead's,
     /// or the cue plays on. Its display link ticks while this holds, and rests between.

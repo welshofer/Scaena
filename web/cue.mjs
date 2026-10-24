@@ -19,7 +19,7 @@
 //   leaves `intro`, written in `intro`.
 // - Undone, the deck is as it was, and it validates.
 // Exits 1 on any failure.
-import { launch, serve } from "./serve.mjs";
+import { addAnimation, launch, serve } from "./serve.mjs";
 
 const server = await serve();
 const failures = [];
@@ -246,9 +246,18 @@ try {
   // Add a motion: the backdrop fades in as it enters `close`.
   await show("close");
   await page.evaluate(() => window.scaena.canvas.select("bg"));
-  await page.waitForFunction(() => [...document.querySelectorAll("#cue [data-add] option")].some((o) => o.value.includes('"enter","bg","fade"')), null, { timeout: 30000 });
+  await page.waitForFunction(() => window.scaena.cue.offers().some((o) => JSON.stringify(o.value).includes('"enter","bg","fade"')), null, { timeout: 30000 });
+  // Add an animation is a button whose menu ↓ opens: browsing it adds nothing (lift-up USE-3).
+  await page.locator("#cue [data-add]").focus();
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("ArrowDown");
+  await page.waitForTimeout(300);
+  const browsed = await source();
+  check(await page.evaluate(() => document.activeElement?.getAttribute("role") === "menuitem"), "↓ on Add an animation opens its menu, and ↓ moves in it");
+  await page.keyboard.press("Escape");
+  check((await source()) === browsed && !(await status()).includes("added to"), "browsing it adds nothing");
   n = await trips();
-  await page.locator("#cue [data-add]").selectOption('["enter","bg","fade"]');
+  await addAnimation(page, '["enter","bg","fade"]');
   check(await says("Fade added to") && (await status()).includes("as it enters"), `the menu adds a fade as the backdrop enters: ${await status()}`);
   await redrawn(n);
   check(await barred("bg enter"), "and the cue has its bar");
@@ -256,9 +265,9 @@ try {
 
   // And the subtitle rises out as it leaves `intro`: the exit is written where it leaves from.
   await show("revenue");
-  await page.waitForFunction(() => [...document.querySelectorAll("#cue [data-add] option")].some((o) => o.value.includes('"exit","subtitle","rise"')), null, { timeout: 30000 });
+  await page.waitForFunction(() => window.scaena.cue.offers().some((o) => JSON.stringify(o.value).includes('"exit","subtitle","rise"')), null, { timeout: 30000 });
   n = await trips();
-  await page.locator("#cue [data-add]").selectOption('["exit","subtitle","rise"]');
+  await addAnimation(page, '["exit","subtitle","rise"]');
   // A rise played out is said as a Build Out effect is: Sink.
   check(await says("Sink added to") && (await status()).includes("as it leaves"), `a rise as the subtitle leaves, said as Sink: ${await status()}`);
   await redrawn(n);

@@ -3,11 +3,14 @@ name: ci
 # pull requests apart (bench.yml).
 # - A draft pull request gets the fast checks, on Linux: fmt, clippy, the workspace's tests, and
 #   the schemas. Its author has run `just check`, which covers them and more.
-# - A pull request marked ready for review is the checkpoint: everything on Linux (the painters on
-#   lavapipe, the WASM engine in Chromium, the parity harness) and on macOS (Metal, and NEON
-#   against the x86-64 goldens). A push to it after that runs Linux in full, and
-#   macOS again only where the push touches what can paint differently there: the painters, the
-#   shaders, the goldens, or the lockfile. A manual run (workflow_dispatch) runs everything.
+# - A pull request marked ready for review, and each push to it after that, runs everything on
+#   Linux (the painters on lavapipe, the WASM engine in Chromium, the parity harness), and macOS
+#   where the pull request touches what paints or builds differently there, each reason with its
+#   own checks. What paints (the painters, the shaders, the goldens) runs the workspace's tests
+#   and the painters on Metal, NEON against the x86-64 goldens. What builds the apps (the C ABI,
+#   the Mac's and the iPad's sources, the shots script) runs the C ABI's tests, ScaenaKit, the Mac
+#   app's window, and the iPad's job. The lockfile and this file are both. A manual run
+#   (workflow_dispatch) runs everything.
 # - `main` runs Linux in full on each push, a newer push cancelling an older run, and everything
 #   once a week, which catches what the merges did between. A release tag runs everything.
 # - A pull request that changes only prose skips the Rust and WASM jobs. The schemas, which also
@@ -40,6 +43,8 @@ jobs:
       code: ${{ steps.diff.outputs.code }}
       full: ${{ steps.diff.outputs.full }}
       os: ${{ steps.diff.outputs.os }}
+      paint: ${{ steps.diff.outputs.paint }}
+      app: ${{ steps.diff.outputs.app }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -73,28 +78,36 @@ jobs:
           # macOS at the checkpoints; on a ready pull request, only where it touches what can paint
           # or build differently there, or where it carries the `apple` label (read as the event
           # comes: a label added takes effect at the pull request's next push or ready_for_review).
-          apple() {
+          # Each reason runs its own checks there: what paints, the workspace's tests and the
+          # painters on Metal; what builds the apps, the C ABI's tests, ScaenaKit, the Mac app's
+          # window, and the iPad's job. Neither runs the other's: Swift alone leaves the workspace's
+          # tests to Linux, and a golden alone leaves the apps as main has them.
+          paint=false
+          app=false
+          reasons() {
             for f in $(git diff --name-only "$@"); do
               case "$f" in
-                crates/scaena-paint/* | crates/scaena-pixels/* | crates/scaena-core/src/shader.rs | crates/scaena-ffi/* | apps/mac/* | apps/ipad/* | tests/golden/* | Cargo.lock | .github/workflows/ci.yml | scripts/shots.sh) return 0 ;;
+                crates/scaena-paint/* | crates/scaena-pixels/* | crates/scaena-core/src/shader.rs | tests/golden/*) paint=true ;;
+                crates/scaena-ffi/* | apps/mac/* | apps/ipad/* | scripts/shots.sh) app=true ;;
+                Cargo.lock | .github/workflows/ci.yml) paint=true app=true ;;
               esac
             done
-            return 1
           }
-          macos=false
           case "$EVENT" in
-            schedule | workflow_dispatch) macos=true ;;
-            push) macos=$TAG ;;
+            schedule | workflow_dispatch) paint=true app=true ;;
+            push) paint=$TAG app=$TAG ;;
             pull_request)
               if [ "$DRAFT" != true ]; then
-                if [ "$LABELED" = true ] || apple HEAD^1 HEAD; then macos=true; fi
+                if [ "$LABELED" = true ]; then paint=true app=true; else reasons HEAD^1 HEAD; fi
               fi ;;
           esac
-          if [ "$macos" = true ]; then os='["ubuntu-latest","macos-latest"]'; else os='["ubuntu-latest"]'; fi
+          if [ "$paint" = true ] || [ "$app" = true ]; then os='["ubuntu-latest","macos-latest"]'; else os='["ubuntu-latest"]'; fi
           echo "code=$code" >> "$GITHUB_OUTPUT"
           echo "full=$full" >> "$GITHUB_OUTPUT"
           echo "os=$os" >> "$GITHUB_OUTPUT"
-          echo "Code changed: $code; everything on Linux: $full; runners: $os" | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "paint=$paint" >> "$GITHUB_OUTPUT"
+          echo "app=$app" >> "$GITHUB_OUTPUT"
+          echo "Code changed: $code; everything on Linux: $full; runners: $os; on macOS, what paints: $paint, what builds the apps: $app" | tee -a "$GITHUB_STEP_SUMMARY"
   rust:
     needs: changes
     if: needs.changes.outputs.code == 'true'
@@ -163,7 +176,12 @@ jobs:
         with:
           path: ~/.cache/apt/ffmpeg
           key: apt-${{ github.job }}-ffmpeg-${{ steps.ffmpeg_image.outputs.image }}
-      - run: cargo test --workspace --locked --exclude scaena-paint
+      # On macOS, the workspace's tests where the pull request touches what paints; where it touches
+      # only what builds the apps, the C ABI's own, whose Swift the steps after it test.
+      - if: runner.os == 'Linux' || needs.changes.outputs.paint == 'true'
+        run: cargo test --workspace --locked --exclude scaena-paint
+      - if: runner.os == 'macOS' && needs.changes.outputs.paint != 'true'
+        run: cargo test -p scaena-ffi --locked
       # The Mac's C ABI (PLAN 3.1, ADR-0021): from C on both runners, as `just ffi` runs it, with
       # the system libraries rustc names; and from Swift on macOS, where ScaenaKit's tests link the
       # same static library.
@@ -175,7 +193,7 @@ jobs:
           cc -std=c11 -Wall -Wextra -Werror -I crates/scaena-ffi/include crates/scaena-ffi/tests/c/smoke.c target/debug/libscaena_ffi.a $libs -o target/ffi/smoke
           cd tests/bench/b1.scaena && ../../../target/ffi/smoke . $(find . -type f ! -name '.*' | sed 's|^\./||' | sort)
       - name: ScaenaKit, the C ABI from Swift
-        if: runner.os == 'macOS'
+        if: runner.os == 'macOS' && needs.changes.outputs.app == 'true'
         run: |
           swift --version && xcrun --show-sdk-version
           flags=(-Xlinker -L"$PWD/target/debug")
@@ -213,7 +231,7 @@ jobs:
       # (scripts/shots.sh). Seen more than tested: the shots are pushed whatever the walk found, and
       # a check it makes that does not hold fails this step after them, not the job.
       - name: The Mac app's window
-        if: runner.os == 'macOS' && github.event_name == 'pull_request'
+        if: runner.os == 'macOS' && github.event_name == 'pull_request' && needs.changes.outputs.app == 'true'
         continue-on-error: true
         run: |
           walked=0
@@ -224,7 +242,7 @@ jobs:
       # from the CPU goldens (blessed on x86-64 AVX2): vello_cpu at this runner's SIMD level, and
       # vello on this runner's adapter: Metal on macOS, Mesa's lavapipe (software Vulkan) on Linux.
       # SCAENA_REQUIRE_GPU makes a missing adapter a failure, not a skip (PLAN 0.7, ADR-0004).
-      # A full run's.
+      # A full run's, and on macOS where the pull request touches what paints.
       # Lavapipe, kept and restored as ffmpeg is above.
       - if: runner.os == 'Linux' && needs.changes.outputs.full == 'true'
         id: mesa_vulkan_drivers_image
@@ -242,7 +260,7 @@ jobs:
         with:
           path: ~/.cache/apt/mesa-vulkan-drivers
           key: apt-${{ github.job }}-mesa-vulkan-drivers-${{ steps.mesa_vulkan_drivers_image.outputs.image }}
-      - if: needs.changes.outputs.full == 'true'
+      - if: needs.changes.outputs.full == 'true' && (runner.os == 'Linux' || needs.changes.outputs.paint == 'true')
         run: cargo test -p scaena-paint -p scaena-cli --features gpu --locked -- --nocapture
         env:
           SCAENA_REQUIRE_GPU: "1"
@@ -254,19 +272,22 @@ jobs:
           path: tests/golden/torture/actual/
           if-no-files-found: ignore
       # The engine, both painters, and the WASM bindings (whose WebGPU half exists only on wasm32)
-      # must keep compiling for the browser (PLAN 0.1, 0.8).
-      - run: cargo clippy -p scaena-engine -p scaena-paint -p scaena-session -p scaena-wasm -p scaena-subset -p scaena-history -p scaena-resources -p scaena-pdf -p scaena-generator --all-features --target wasm32-unknown-unknown --locked -- -D warnings
+      # must keep compiling for the browser (PLAN 0.1, 0.8). On Linux: what compiles for wasm32
+      # is the same on either runner.
+      - if: runner.os == 'Linux'
+        run: cargo clippy -p scaena-engine -p scaena-paint -p scaena-session -p scaena-wasm -p scaena-subset -p scaena-history -p scaena-resources -p scaena-pdf -p scaena-generator --all-features --target wasm32-unknown-unknown --locked -- -D warnings
       # The player's engine alone, as a single-file export carries it (PLAN 2.5), and the engine
       # without its hyphenation patterns and code tables, as the editor's module leaves them out
       # (ADR-0015, PLAN 2.132).
-      - run: cargo clippy -p scaena-wasm --no-default-features --features gpu,cpu --target wasm32-unknown-unknown --locked -- -D warnings
-  # ScaenaKit on an iPad simulator (PLAN 4.1, ADR-0023), wherever macOS runs: the engine built
-  # for the simulator, the Xcode project XcodeGen makes, and ScaenaKit's tests run by xcodebuild
-  # on the newest iPad the runner's Xcode offers. Beside the macOS job, not in it, so the two
-  # take their time together.
+      - if: runner.os == 'Linux'
+        run: cargo clippy -p scaena-wasm --no-default-features --features gpu,cpu --target wasm32-unknown-unknown --locked -- -D warnings
+  # ScaenaKit on an iPad simulator (PLAN 4.1, ADR-0023), wherever macOS runs for what builds the
+  # apps: the engine built for the simulator, the Xcode project XcodeGen makes, and ScaenaKit's
+  # tests run by xcodebuild on the newest iPad the runner's Xcode offers. Beside the macOS job, not
+  # in it, so the two take their time together.
   ipad:
     needs: changes
-    if: needs.changes.outputs.code == 'true' && contains(needs.changes.outputs.os, 'macos')
+    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.app == 'true'
     runs-on: macos-latest
     # The UI tests' screenshots are pushed to a branch of the pull request's own (scripts/shots.sh).
     permissions:
@@ -324,8 +345,9 @@ jobs:
     runs-on: ubuntu-latest
     # With nothing in its cache, #103's run passed every step, then ran out of 45 minutes while
     # saving the cache: its runner took twice as long over the browser tests as #88's. With its
-    # cache, #88's took 29.
-    timeout-minutes: 60
+    # cache, #88's took 29. With the walks added since, #445's took 48 and #497's 50, and #466's
+    # ran out of 60 minutes in its last steps, every walk passed.
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable

@@ -10,7 +10,7 @@
 // - Typing into the figure makes it words: it quotes nothing.
 // - axe-core finds nothing with the Data tab shown.
 // Exits 1 on any failure.
-import { axeInto, launch, serve } from "./serve.mjs";
+import { axeInto, launch, serve, tab } from "./serve.mjs";
 
 const failures = [];
 const check = (ok, what) => {
@@ -67,7 +67,7 @@ try {
   /** The Data tab shown, on `@q3`, and the cell of Pro's Q3 revenue (row 10, column 2) focused. */
   const cell = () => page.locator('#data input[data-row="10"][data-col="2"]');
   const toData = async () => {
-    await page.click("#tab-data");
+    await tab(page, "data");
     await cell().waitFor({ timeout: 30000 });
     await cell().focus();
   };
