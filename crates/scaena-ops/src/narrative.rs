@@ -1690,6 +1690,8 @@ pub fn deck_as(
             Planned { beat, items, icons, layout }
         })
         .collect();
+    let mut planned = planned;
+    rebroken(&mut planned, narrative, &varied, theme, pictures, layouts);
     let numbers = divider_numbers(narrative, &planned);
     // The part of the talk a slide is in, as its foot names it: its divider's title, for the
     // slides of the beat the divider opened, and none once the talk moves to another.
@@ -1835,6 +1837,56 @@ pub fn deck_as(
         out["data"] = Value::Object(deck.data);
     }
     Ok(Made { deck: out, layouts: chosen, assets: BTreeMap::new() })
+}
+
+/// `planned` with no three slides in a row on one of the theme's layouts (lift-up ATTR-2):
+/// Narrato breaks its runs by its own names, which several of come to one of the theme's
+/// (`body`, `image-text`, and `callout` each to `bullets`), so a run is broken again once each
+/// slide has its theme layout. The middle of three takes the first other layout of places that sets
+/// its items as they are written ([`others`]: labelled points as columns or cards); a layout the
+/// person chose for a slide stays, and so does a slide only a list sets. The slides moved, by their
+/// index.
+fn rebroken(
+    planned: &mut [Planned],
+    narrative: &Narrative,
+    varied: &[Varied],
+    theme: &Theme,
+    pictures: &Pictures,
+    layouts: &BTreeMap<usize, String>,
+) -> Vec<usize> {
+    let mut moved = Vec::new();
+    let mut i = 1;
+    while i + 1 < planned.len() {
+        let run = planned[i - 1].layout == planned[i].layout && planned[i].layout == planned[i + 1].layout;
+        let chosen = (i - 1..=i + 1).any(|k| layouts.contains_key(&k));
+        if !run || chosen {
+            i += 1;
+            continue;
+        }
+        let p = &planned[i];
+        let (slide, v) = (&narrative.slides[i], &varied[i]);
+        let options = others(
+            v.layout.identity(),
+            slide,
+            &p.items,
+            theme,
+            pictures.contains_key(&i),
+            p.icons.is_some(),
+            &p.layout,
+        );
+        // Another list is no other look, and numbering points that have no order says something
+        // false of them: a run is broken only by a layout of places that sets them as they are.
+        match options.into_iter().find(|l| !matches!(l.as_str(), "bullets" | "numbered")) {
+            Some(layout) => {
+                planned[i].layout = layout;
+                moved.push(i);
+                // The next run starts after the one broken.
+                i += 2;
+            }
+            None => i += 1,
+        }
+    }
+    moved
 }
 
 /// Each slide of `narrative` after Narrato's variety pass, but for its cap on dividers: Vzestup
@@ -5356,6 +5408,56 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn three_slides_on_one_of_the_themes_layouts_are_broken_once_they_have_it() {
+        // Narrato reads "Bullet List", "Image + Text", and "Bar Chart" as three layouts and breaks
+        // no run of them, but with no picture and no data each comes to the theme's bullets, three
+        // in a row (lift-up ATTR-2).
+        // The middle one takes another layout that sets its items; a layout the person chose
+        // stays.
+        let list = |title: &str, layout: &str| {
+            serde_json::json!({ "slideTitle": title, "subtitle": "", "layoutSuggestion": layout,
+              "keyBullets": ["Verification: weeks per container", "Offsets: no one sees the ledger",
+                "Shippers: they pay twice"],
+              "beatIndex": 1, "beatName": "Problem" })
+        };
+        let text = serde_json::json!({
+            "executiveSummary": "Proof is the product.",
+            "slides": [
+                { "slideTitle": "Proof is the product", "subtitle": "A talk", "layoutSuggestion": "Title",
+                  "keyBullets": [], "beatIndex": 0, "beatName": "Hook" },
+                list("Why green freight stalls", "Bullet List"),
+                list("What shippers told us", "Image + Text"),
+                list("Where the money goes", "Bar Chart"),
+                { "slideTitle": "Thank you", "subtitle": "", "layoutSuggestion": "Closing", "keyBullets": [],
+                  "beatIndex": 2, "beatName": "Close" },
+            ]
+        })
+        .to_string();
+        let written = answer::slides(&text).unwrap();
+        let n = narrative(&written.executive_summary, written.slides);
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let unbroken = |made: &Made| (made.layouts.windows(3)).all(|w| !(w[0] == w[1] && w[1] == w[2]));
+        let made = deck(&n, &theme, &Pictures::new()).unwrap();
+        assert!(unbroken(&made), "{:?}", made.layouts);
+        assert_eq!((made.layouts[1].as_str(), made.layouts[3].as_str()), ("bullets", "bullets"), "{:?}", made.layouts);
+        assert_eq!(made.layouts[2], "three-columns", "a list of labelled points as columns");
+        // Points with no labels and no order have no other layout but a list: they stay bullets,
+        // never numbered, which would say they have an order.
+        let plain = text
+            .replace("Verification: weeks per container", "Verification takes weeks")
+            .replace("Offsets: no one sees the ledger", "No one sees the offsets' ledger")
+            .replace("Shippers: they pay twice", "Shippers pay twice");
+        let written = answer::slides(&plain).unwrap();
+        let unlabelled =
+            deck(&narrative(&written.executive_summary, written.slides), &theme, &Pictures::new()).unwrap();
+        assert_eq!(unlabelled.layouts[1..4], ["bullets", "bullets", "bullets"], "{:?}", unlabelled.layouts);
+        // The person's own layout for the middle one is kept, run or no run.
+        let chosen: BTreeMap<usize, String> = [(2, "bullets".to_string())].into();
+        let kept = deck_as(&n, &theme, &Pictures::new(), &chosen).unwrap();
+        assert_eq!(kept.layouts[1..4], ["bullets", "bullets", "bullets"], "{:?}", kept.layouts);
     }
 
     #[test]
