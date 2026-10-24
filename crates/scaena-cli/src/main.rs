@@ -2165,8 +2165,14 @@ fn num(x: f64) -> String {
 /// the display list if asked for.
 fn render(args: RenderArgs, json: bool) -> Result<ExitCode> {
     let RenderArgs { bundle, state, t, format, size, out, display_list, painter } = args;
-    let req =
-        scaena_ops::render::Request { state: state.clone(), t, format: format.clone(), size, painter: painter.into() };
+    let req = scaena_ops::render::Request {
+        state: state.clone(),
+        t,
+        format: format.clone(),
+        size,
+        scale: None,
+        painter: painter.into(),
+    };
     let r = scaena_ops::render::render(&bundle, &req)?;
     if let Some(path) = &display_list {
         std::fs::write(path, r.display_list.to_golden_json()?)

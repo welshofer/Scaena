@@ -1558,6 +1558,8 @@ async function edit(source: Source, opened?: Stage) {
    * is in it now. */
   let themeChoices: { value: string; label: string; family: string; current: boolean }[] = [];
   let themesOffered = "";
+  /** Whether the dialog's list is the themes offered now. */
+  let themesListed = false;
   async function offerThemes() {
     const held = await stage.themes().catch(() => undefined);
     if (!held) return;
@@ -1569,6 +1571,17 @@ async function edit(source: Source, opened?: Stage) {
     // The themes that ship, by family, each family a section (PLAN T.0d), each with its title
     // slide drawn at build (PLAN T.0c).
     for (const [name, { family }] of Object.entries(themes)) themeChoices.push({ value: `ships:${name}`, label: name, family, current: false });
+    const current = themeChoices.find((c) => c.current);
+    themeButton.textContent = current ? `Theme: ${current.label}` : "Theme…";
+    // The list is built as the dialog opens: built for each deck opened, its thumbnails would load
+    // in a dialog no one sees, and each deck opened after would cut the last one's off.
+    themesListed = false;
+    if (retheming.open) listThemes();
+  }
+  /** The dialog's list of the themes offered, by family, each that ships with its thumbnail. */
+  function listThemes() {
+    if (themesListed) return;
+    themesListed = true;
     const families = [...new Set(themeChoices.map((c) => c.family))];
     themeList.innerHTML = families
       .map(
@@ -1584,14 +1597,13 @@ async function edit(source: Source, opened?: Stage) {
             .join("")}</fieldset>`,
       )
       .join("");
-    const current = themeChoices.find((c) => c.current);
-    themeButton.textContent = current ? `Theme: ${current.label}` : "Theme…";
   }
   /** The theme chosen in the dialog. */
   const pickedTheme = () => themeList.querySelector<HTMLInputElement>("input:checked")?.value;
   themeButton.onclick = () => {
     if (!themeChoices.length) return say("The deck's theme is not read yet");
     retheming.returnValue = "";
+    listThemes();
     for (const input of themeList.querySelectorAll<HTMLInputElement>("input")) input.checked = themeChoices.find((c) => c.value === input.value)?.current ?? false;
     rethemeButton.disabled = true;
     retheming.showModal();
