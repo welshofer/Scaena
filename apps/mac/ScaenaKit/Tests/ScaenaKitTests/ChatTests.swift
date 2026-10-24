@@ -1,5 +1,5 @@
 import Foundation
-import ScaenaKit
+@testable import ScaenaKit
 import Security
 import Testing
 
@@ -118,9 +118,10 @@ private actor Answers {
     }
     let snapshot = try session.snapshot()
     for (index, call) in calls.enumerated() {
-        let ran = try await Task.detached {
+        // On a thread with the stack the editor's own runs them on, as a cooperative thread's is smaller.
+        let ran = try await OffMain(label: "ChatTests").run {
             try ScaenaChat.runApart(call, model: "a-model", on: try snapshot.opened(), at: at)
-        }.value
+        }
         let took = try chat.took(index, ran: ran)
         #expect(took.summary == want[index].summary && took.json == want[index].json, "\(call.name)")
         #expect(took.png == want[index].png)
