@@ -672,14 +672,17 @@ struct PromptView: View {
         let (research, contact, token) = (self.research && self.provider != .openai, self.secContact, self.token)
         // The outline shown to settle (narrative FUNC-1), the generation waiting on what is decided
         // of it; none where the slides are to come at once.
-        let settle: Generator.Settle? = showOutline
-            ? { outlined in
-                await withCheckedContinuation { continuation in
+        let settle: Generator.Settle?
+        if showOutline {
+            settle = { @MainActor (outlined: Outlined) async -> OutlineDecision? in
+                await withCheckedContinuation { (continuation: CheckedContinuation<OutlineDecision?, Never>) in
                     show(outlined)
                     deciding = continuation
                 }
             }
-            : nil
+        } else {
+            settle = nil
+        }
         running = Task { @MainActor in
             defer { running = nil }
             #if !os(macOS)

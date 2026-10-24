@@ -195,7 +195,7 @@ private func anthropic(_ text: String) -> Data {
     let written = requests[2].body ?? ""
     #expect(written.contains("**Outline (Scaena)**"))
     #expect(written.contains("No carrier can cut it alone."))
-    #expect(written.contains("Beat 6 \\\"Thanks\\\""), written)
+    #expect(written.contains("Beat 6 \\\"Thanks\\\""), "\(written)")
     #expect(!written.contains("Join the round."), "the beat dropped")
     // The deck keeps the outline, and its first section is the outline's first beat.
     let deck = try session.tool("deck_read", [:])
