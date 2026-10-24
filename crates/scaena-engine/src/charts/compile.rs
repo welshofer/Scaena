@@ -2429,7 +2429,8 @@ fn compile_in(
             let (picked, all) = (rows.iter().filter(entry))
                 .fold((0, 0), |(p, n), r| (p + usize::from(lit.contains(&r.key.as_str())), n + 1));
             // A series picked in part, as a category's highlight picks one bar of each, takes the
-            // dimmed color its other marks draw: a swatch says the color most of its marks are in.
+            // dimmed color its other marks draw: the marks picked take the signal every series
+            // shares, so only the series' own color, dimmed, still says which series the swatch is.
             if picked < all {
                 e.color = dim(e.color);
             }

@@ -10,7 +10,10 @@
 //!   this slide, the slides after it that showed it showing it again), and the preset's added,
 //!   entering in the slide's first state and kept to its slide (PLAN 3.24). Each text on the
 //!   slide too faint to read over it is then set in the theme's color that reads there, as a
-//!   re-theme sets it (PLAN 2.82), in the same patch; None leaves those colors, which still read.
+//!   re-theme sets it (PLAN 2.82), in the same patch, and the background keeps a record of each
+//!   (`recolored`, deck format 0.38). The background taken away, by None or another, takes each
+//!   color it set away where the text still has it, so the text reads in its theme's own again,
+//!   and what then reads too faintly over what is left is set again as above.
 //!   Each option's own patch is the slide with it alone, which a preview draws at once; the
 //!   editors ask for [`setting`]'s when one is chosen.
 //! - [`backgrounding`] checks it as a patch is checked, writing nothing, and [`background`]
@@ -132,9 +135,11 @@ fn seed(slide: &str) -> u64 {
 /// The patch that gives `state`'s slide `preset` as its background, or none (`None`): each shader
 /// that fills its canvas in its first state taken away, then the preset's entering there, kept to
 /// the slide. One that shows on another slide too is hidden from this one, and comes back on each
-/// slide after it that showed it. Each text the slide's states show too faint to read then is set
-/// in the theme's color that reads where it stands (E110, E111), as a re-theme sets it (PLAN 2.82),
-/// which lints the slide. Refused for a preset the theme does not have.
+/// slide after it that showed it. Each color a background taken away set (its `recolored`) is
+/// taken away where its text still has it on the slide. Each text the slide's states show too faint
+/// to read then is set in the theme's color that reads where it stands (E110, E111), as a re-theme
+/// sets it (PLAN 2.82), which lints the slide, and the preset's background records it. Refused for
+/// a preset the theme does not have.
 pub fn setting(
     deck: &Deck,
     theme: &Theme,
@@ -142,15 +147,77 @@ pub fn setting(
     state: &str,
     preset: Option<&str>,
 ) -> Result<Vec<Value>, OpsError> {
+    let first = first_of(deck, state)?;
+    let old = current(deck, &scaena_core::resolve_states(deck).context("tracking")?[first]);
     let mut patch = placing(deck, theme, files, state, preset)?;
-    let slide = deck.slide_of(&deck.states[first_of(deck, state)?]);
+    let slide = deck.slide_of(&deck.states[first]);
     let slid: Vec<&str> =
         (deck.states.iter()).filter(|st| deck.slide_of(st) == slide).map(|st| st.id.as_str()).collect();
+    patch.extend(uncolored(deck, files, &patch, &old, &slid)?);
     let lint = |deck: &Deck| Ok(crate::lint::lint_states_in(deck, files, &slid)?.findings);
     let made = compiled(deck, files, &patch)?;
     let after = lint(&made)?;
-    patch.extend(crate::theme::recoloring(made, &[], &slid, after, lint)?.ops);
+    let done = crate::theme::recoloring(made, &[], &slid, after, lint)?;
+    patch.extend(done.ops);
+    // The background added keeps a record of each text it set in a color that reads over it.
+    let added = (done.deck.nodes.iter())
+        .find(|(id, n)| n.node_type == NodeType::Shader && !deck.nodes.contains_key(*id))
+        .map(|(id, _)| id.clone());
+    if let Some(id) = added {
+        let snaps = scaena_core::resolve_states(&done.deck).context("tracking")?;
+        let mut record = serde_json::Map::new();
+        for f in &done.recolored {
+            let (Some(node), Some(at)) = (f.node.as_deref(), f.state.as_deref()) else { continue };
+            let snap = done.deck.state_index(at).map(|i| &snaps[i]);
+            if let Some(name) = snap.and_then(|snap| color_of(&done.deck, snap, node)) {
+                record.insert(node.to_string(), Value::String(name));
+            }
+        }
+        if !record.is_empty() {
+            let path = format!("/nodes/{}/recolored", id.replace('~', "~0").replace('/', "~1"));
+            patch.push(json!({ "op": "add", "path": path, "value": record }));
+        }
+    }
     Ok(patch)
+}
+
+/// The theme color `node`'s text is set in as `snap` shows it, by its name: the deck's overrides',
+/// which win over every state, else the state's. None for a color written out, or none at all.
+fn color_of(deck: &Deck, snap: &scaena_core::tracking::Snapshot, node: &str) -> Option<String> {
+    let color = |props: Option<&Props>| props?.get("style")?.get("color")?.as_str().map(String::from);
+    color(deck.overrides.get(node)).or_else(|| color(snap.nodes.get(node)))
+}
+
+/// The ops that take away each color a background in `old` set (its `recolored`) where its text
+/// still has it in a state of the slide (`slid`), once `patch` is made: a `choose` of no
+/// `style/color` there, written where the color lives, so what is under it shows. A color a person
+/// chose since stays, and a text no longer in the deck is passed over.
+fn uncolored(
+    deck: &Deck,
+    files: &View,
+    patch: &[Value],
+    old: &[String],
+    slid: &[&str],
+) -> Result<Vec<Value>, OpsError> {
+    let record: Vec<(&String, &str)> = (old.iter())
+        .filter_map(|id| deck.nodes.get(id)?.props.get("recolored")?.as_object())
+        .flatten()
+        .filter_map(|(text, name)| Some((text, name.as_str()?)))
+        .collect();
+    let mut ops: Vec<Value> = Vec::new();
+    for (text, name) in record {
+        // One state at a time, the deck made again after each: states that share where the color
+        // is written lose it together.
+        for state in slid {
+            let made = compiled(deck, files, &[patch, ops.as_slice()].concat())?;
+            let Some(i) = made.state_index(state) else { continue };
+            let snaps = scaena_core::resolve_states(&made).context("tracking")?;
+            if made.nodes.contains_key(text.as_str()) && color_of(&made, &snaps[i], text).as_deref() == Some(name) {
+                ops.push(json!({ "op": "choose", "node": text, "state": state, "prop": "style/color", "value": null }));
+            }
+        }
+    }
+    Ok(ops)
 }
 
 /// `deck` with `patch` applied.

@@ -5,7 +5,7 @@
 use scaena_ops::backgrounds::{background, backgrounding, offered};
 use scaena_ops::lint::View;
 use scaena_store::SaveOptions;
-use serde_json::Value;
+use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 
 const REVENUE: &str = "../../docs/examples/revenue.deck.json";
@@ -126,12 +126,63 @@ fn a_background_keeps_the_slides_words_readable() {
     let (bare, _) = scaena_ops::patch::patching(&b, &Value::Array(bare), None).unwrap();
     assert!(bare.added.iter().any(|f| f.code == "E110"), "backdrop leaves a text faint: {:?}", bare.added);
 
-    // …which the patch sets in a color that reads there: one patch, one undo step.
+    // …which the patch sets in a color that reads there: one patch, one undo step. The background
+    // keeps a record of each text it set so, by the theme color it set.
+    let plain = b.deck.to_value().unwrap();
     let made = background(&b, &first, Some("backdrop")).unwrap();
     assert!(made.applied, "{made:?}");
     assert_eq!(faint(&dir), Vec::<String>::new());
+    let b = scaena_ops::open(&dir).unwrap();
+    let (id, shader) = (b.deck.nodes.iter()).find(|(_, n)| n.props.get("preset").is_some()).unwrap();
+    let record = shader.props["recolored"].as_object().cloned().unwrap();
+    assert!(!record.is_empty(), "{shader:?}");
+    let colors = |doc: &Value| doc.to_string().matches("\"color\"").count();
+    assert!(colors(&b.deck.to_value().unwrap()) > colors(&plain));
 
-    // None leaves the color, which still reads.
+    // None takes each color it set away, and the slide reads in its theme's own colors again.
+    assert!(background(&b, &first, None).unwrap().applied);
+    let after = scaena_ops::open(&dir).unwrap().deck;
+    assert!(faint(&dir).is_empty());
+    assert!(!after.nodes.contains_key(id), "the background is gone");
+    assert_eq!(colors(&after.to_value().unwrap()), colors(&plain), "the colors it set are gone");
+
+    // A color a person chose since stays: set it again, choose another for one text it recorded,
+    // and take it away.
+    let b = scaena_ops::open(&dir).unwrap();
+    assert!(background(&b, &first, Some("backdrop")).unwrap().applied);
+    let b = scaena_ops::open(&dir).unwrap();
+    let shader = b.deck.nodes.values().find(|n| n.props.get("preset").is_some()).unwrap();
+    let (text, _) = shader.props["recolored"].as_object().unwrap().iter().next().unwrap();
+    let theirs = json!([{ "op": "choose", "node": text, "state": first, "prop": "style/color", "value": "accent" }]);
+    assert!(scaena_ops::patch::patch(&b, &theirs, false).unwrap().applied);
+    let b = scaena_ops::open(&dir).unwrap();
+    assert!(background(&b, &first, None).unwrap().applied);
+    let kept = scaena_ops::open(&dir).unwrap().deck.to_value().unwrap();
+    assert!(kept.to_string().contains("\"accent\""), "the person's color stays: {kept}");
+}
+
+/// A background set before it kept a record (a deck saved in format 0.35 or older), or whose record
+/// names only a text the deck no longer has, takes nothing away it did not record: its slide's
+/// colors stay, and still read.
+#[test]
+fn a_background_with_no_record_leaves_the_colors() {
+    let dir = dusk("unrecorded");
+    let b = scaena_ops::open(&dir).unwrap();
+    let first = b.deck.states.last().unwrap().id.clone();
+    assert!(background(&b, &first, Some("backdrop")).unwrap().applied);
+    // Saved as deck format 0.35 saved it: no record, which opens as the current format.
+    let file = dir.join("deck.json");
+    let mut doc: Value = serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
+    doc["scaena"] = json!("0.35");
+    for node in doc["nodes"].as_object_mut().unwrap().values_mut() {
+        node.as_object_mut().unwrap().remove("recolored");
+    }
+    std::fs::write(&file, serde_json::to_string_pretty(&doc).unwrap()).unwrap();
+    let b = scaena_ops::open(&dir).unwrap();
+    let id = (b.deck.nodes.iter()).find(|(_, n)| n.props.get("preset").is_some()).map(|(id, _)| id.clone()).unwrap();
+    // A record that names only a text the deck no longer has is passed over too.
+    let gone = json!([{ "op": "add", "path": format!("/nodes/{id}/recolored"), "value": { "gone": "onSurface" } }]);
+    assert!(scaena_ops::patch::patch(&b, &gone, false).unwrap().applied);
     let b = scaena_ops::open(&dir).unwrap();
     let recolored = b.deck.to_value().unwrap();
     assert!(background(&b, &first, None).unwrap().applied);
