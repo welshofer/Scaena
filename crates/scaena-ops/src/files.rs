@@ -4,14 +4,24 @@
 //! --remove` takes them.
 
 use crate::{Bundle, OpsError};
-use scaena_core::files::{BundleFile, Named};
+use scaena_core::files::{BundleFile, Grounded, Named};
 use schemars::JsonSchema;
 use serde::Serialize;
 
-/// The bundle's images, fonts, and data, and what uses each: what `scaena files` lists.
+/// The bundle's images, fonts, and data, and what uses each: what `scaena files` lists; and the
+/// sources a deck made from a prompt was grounded in, with the beats citing each (narrative
+/// FUNC-3).
 #[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct Listed {
     pub files: Vec<BundleFile>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub sources: Vec<Grounded>,
+}
+
+/// What `scaena files` lists of `b`: its files ([`files`]) and the sources its deck was
+/// grounded in (`scaena_core::files::grounded`).
+pub fn listed(b: &Bundle) -> Result<Listed, OpsError> {
+    Ok(Listed { files: files(b)?, sources: scaena_core::files::grounded(&b.deck) })
 }
 
 /// The bundle's images, fonts, and data, in that order and each by its path, with what in the
