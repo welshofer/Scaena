@@ -81,6 +81,26 @@ public final class ScaenaSession {
         return ScaenaSession(handle: made)
     }
 
+    /// The themes that ship, in the order New tries them: Dusk first, as the browser's New starts.
+    public static let newThemes = ["dusk", "daybreak", "ember", "salon"]
+
+    /// A new deck, as `create` makes one, in the first of `themes` that makes one, with why each
+    /// before it made none (lift-up STAB-3): New falls back to another theme that ships, and says
+    /// so, rather than ending the app. Nil where none of them makes a deck.
+    public static func create(
+        first themes: [String] = newThemes, title: String
+    ) -> (session: ScaenaSession?, failed: [(theme: String, error: any Error)]) {
+        var failed: [(theme: String, error: any Error)] = []
+        for theme in themes {
+            do {
+                return (try create(theme: theme, title: title), failed)
+            } catch {
+                failed.append((theme, error))
+            }
+        }
+        return (nil, failed)
+    }
+
     /// Open a `.scaena` zip.
     public init(zip: Data) throws {
         var error: UnsafeMutablePointer<CChar>?
