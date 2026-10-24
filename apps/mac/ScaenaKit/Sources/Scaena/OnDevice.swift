@@ -103,6 +103,7 @@ enum Writer {
         case .notes: "Draft Notes"
         case .explain: "Explain"
         case .describe: "Describe"
+        case .claim: "Check the Claim"
         }
     }
 
