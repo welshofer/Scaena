@@ -76,6 +76,17 @@ fn scratch(test: &str) -> PathBuf {
     dir
 }
 
+/// A client of a server working in `dir`, as an agent's is started in its project's folder: a
+/// new bundle goes only where the server writes.
+async fn connect_in(dir: &Path) -> Client {
+    serve(
+        scaena_mcp::Scaena::default().with_dir(dir.to_path_buf()),
+        ClientConfig::default(),
+        ClientLifecycleMode::Initialize,
+    )
+    .await
+}
+
 fn path(p: &Path) -> String {
     p.to_str().unwrap().to_string()
 }
@@ -165,8 +176,8 @@ async fn the_resources_say_how_long_to_keep_them() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn an_agent_builds_a_deck_with_the_tools_alone() {
-    let client = connect().await;
     let root = scratch("build");
+    let client = connect_in(&root).await;
     let dir = root.join("q3");
     let bundle = path(&dir);
     // The data file beside the bundle: a tool reads only there or under its own folder.
@@ -303,8 +314,9 @@ async fn an_agent_builds_a_deck_with_the_tools_alone() {
 /// makes one, with no model called.
 #[tokio::test(flavor = "multi_thread")]
 async fn an_agent_starts_a_slide_sets_a_background_and_builds_from_written_slides() {
-    let client = connect().await;
-    let dir = scratch("editors-ops").join("q3");
+    let root = scratch("editors-ops");
+    let client = connect_in(&root).await;
+    let dir = root.join("q3");
     let bundle = path(&dir);
     ok(&client, "deck_create", json!({ "bundle": bundle, "theme": "dusk", "title": "Q3" })).await;
 
@@ -401,8 +413,9 @@ async fn an_agent_starts_a_slide_sets_a_background_and_builds_from_written_slide
 /// with its fonts, and Salon by `gallery`, the name it shipped under, too.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_theme_that_ships_applies_by_its_name() {
-    let client = connect().await;
-    let dir = scratch("theme-by-name").join("deck");
+    let root = scratch("theme-by-name");
+    let client = connect_in(&root).await;
+    let dir = root.join("deck");
     let bundle = path(&dir);
     ok(&client, "deck_create", json!({ "bundle": bundle, "theme": "dusk", "title": "Q3" })).await;
     let named = |dir: &Path| -> Value {
@@ -605,6 +618,53 @@ async fn a_theme_is_read_only_from_the_servers_folder_or_by_its_name() {
     assert_eq!(generated.is_error, Some(true));
     assert!(text(&generated).contains("is outside where this server reads"), "{}", text(&generated));
     assert!(!here.join("d").exists());
+    client.cancel().await.unwrap();
+}
+
+/// Over MCP a theme's fonts are looked for no higher than the folder it was read under, and a
+/// new bundle goes only where the server writes: a font one folder above the server's is not
+/// read, and no bundle is made outside its folder or in a hidden one (SPEC §7.2).
+#[tokio::test(flavor = "multi_thread")]
+async fn a_themes_fonts_and_a_new_bundle_stay_in_the_servers_folder() {
+    let root = scratch("font-walk");
+    let here = root.join("server");
+    std::fs::create_dir_all(&here).unwrap();
+    let server = scaena_mcp::Scaena::default().with_dir(here.clone());
+    let client = serve(server, ClientConfig::default(), ClientLifecycleMode::Initialize).await;
+    let made = ok(&client, "deck_create", json!({ "bundle": path(&here.join("a")), "theme": "dusk" })).await;
+    assert_eq!(made["created"], true, "{made:#}");
+    // The theme in the server's folder, its fonts one folder above it.
+    std::fs::copy(here.join("a/themes/dusk.theme.json"), here.join("loose.theme.json")).unwrap();
+    copy_dir(&here.join("a/fonts"), &root.join("fonts"));
+    let loose = path(&here.join("loose.theme.json"));
+    let refused = call(&client, "deck_create", json!({ "bundle": path(&here.join("b")), "theme": loose })).await;
+    assert_eq!(refused.is_error, Some(true));
+    assert!(text(&refused).contains("is not beside"), "{}", text(&refused));
+    assert!(!here.join("b").exists());
+    let slides: Value =
+        serde_json::from_str(&std::fs::read_to_string("../scaena-narrato/tests/answers/catalog.json").unwrap())
+            .unwrap();
+    let generated =
+        call(&client, "deck_generate", json!({ "bundle": path(&here.join("c")), "slides": slides, "theme": loose }))
+            .await;
+    assert_eq!(generated.is_error, Some(true));
+    assert!(text(&generated).contains("is not beside"), "{}", text(&generated));
+    // With its fonts beside it, the same theme makes a bundle.
+    copy_dir(&root.join("fonts"), &here.join("fonts"));
+    let made = ok(&client, "deck_create", json!({ "bundle": path(&here.join("b")), "theme": loose })).await;
+    assert_eq!(made["created"], true, "{made:#}");
+    // A new bundle outside the server's folder, or in a hidden one, is not made.
+    for (bundle, tool) in [(root.join("outside"), "deck_create"), (here.join(".hidden/x"), "deck_create")]
+        .into_iter()
+        .chain([(root.join("outside"), "deck_generate"), (here.join(".hidden/x"), "deck_generate")])
+    {
+        let args = json!({ "bundle": path(&bundle), "theme": "dusk", "slides": slides });
+        let args = if tool == "deck_create" { json!({ "bundle": path(&bundle), "theme": "dusk" }) } else { args };
+        let refused = call(&client, tool, args).await;
+        assert_eq!(refused.is_error, Some(true), "{tool} {}", bundle.display());
+        assert!(text(&refused).contains("is outside where this server writes"), "{}", text(&refused));
+        assert!(!bundle.exists(), "{}", bundle.display());
+    }
     client.cancel().await.unwrap();
 }
 

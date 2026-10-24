@@ -133,13 +133,22 @@ impl Scaena {
     /// The theme file a tool reads, held as [`Self::readable`] holds a data file. A theme that
     /// ships, by its name, where no file of that name is, passes as it is: nothing is read from
     /// the disk for it.
-    fn theme_readable(&self, theme: &str, bundle: &str) -> Result<PathBuf, OpsError> {
+    /// With it comes the folder it was found under, the server's or the bundle's, which the
+    /// walk up for its fonts stops at: a theme in this server's folder reads no font above it.
+    fn theme_readable(&self, theme: &str, bundle: &str) -> Result<(PathBuf, Option<PathBuf>), OpsError> {
         let asked = Path::new(theme);
         let there = |p: &Path| std::fs::symlink_metadata(p).is_ok();
         if !there(asked) && !there(&self.here()?.join(asked)) {
-            return Ok(asked.to_path_buf());
+            return Ok((asked.to_path_buf(), None));
         }
-        self.readable(asked, bundle)
+        let (real, root) = self.held(&asked.to_string_lossy(), bundle, "reads")?;
+        Ok((real, Some(root)))
+    }
+
+    /// Where a new bundle goes: held as [`Self::writable`] holds a file a tool writes, so an
+    /// agent makes no bundle in a hidden folder, the home folder, or the disk's root.
+    fn new_bundle(&self, bundle: &str) -> Result<PathBuf, OpsError> {
+        self.within(bundle, bundle, "writes")
     }
 
     /// This server's working directory, or the folder it was given in its place.
@@ -156,6 +165,11 @@ impl Scaena {
     /// this server `does` its work. The root of the disk and the home folder are no such folder:
     /// a server started there, or a bundle kept straight in either, would reach all of it.
     fn within(&self, out: &str, bundle: &str, does: &str) -> Result<PathBuf, OpsError> {
+        self.held(out, bundle, does).map(|(real, _)| real)
+    }
+
+    /// [`Self::within`], and the folder it is held under.
+    fn held(&self, out: &str, bundle: &str, does: &str) -> Result<(PathBuf, PathBuf), OpsError> {
         let here = self.here()?;
         let home = (self.home.clone()).or_else(|| std::env::var_os("HOME").map(PathBuf::from));
         let home = home.and_then(|h| std::fs::canonicalize(h).ok());
@@ -195,8 +209,11 @@ impl Scaena {
         let mut real = std::fs::canonicalize(there).map_err(|_| refused())?;
         real.extend(made.iter().rev());
         let hidden = |below: &Path| below.components().any(|c| c.as_os_str().to_string_lossy().starts_with('.'));
-        let held = roots.iter().any(|r| real.strip_prefix(r).is_ok_and(|below| !hidden(below)));
-        if held { Ok(real) } else { Err(refused()) }
+        let root = roots.iter().find(|r| real.strip_prefix(r).is_ok_and(|below| !hidden(below)));
+        match root {
+            Some(root) => Ok((real.clone(), root.clone())),
+            None => Err(refused()),
+        }
     }
 }
 
@@ -413,6 +430,13 @@ fn open(bundle: &str) -> Result<scaena_ops::Bundle, OpsError> {
 /// The bundle, edited by `author`: what it writes is theirs in its history.
 fn open_by(bundle: &str, author: String) -> Result<scaena_ops::Bundle, OpsError> {
     let mut b = open(bundle)?;
+    b.author = author;
+    Ok(b)
+}
+
+/// The bundle just made at `bundle`, where `new_bundle` put it, edited by `author`.
+fn made_by(bundle: &Path, author: String) -> Result<scaena_ops::Bundle, OpsError> {
+    let mut b = scaena_ops::open(bundle)?;
     b.author = author;
     Ok(b)
 }
@@ -856,9 +880,11 @@ impl Scaena {
     ) -> Result<Json<scaena_ops::create::Created>, String> {
         let author = author(&context);
         // A new bundle has no folder yet: the theme is read under this server's own.
-        let theme = self.theme_readable(&a.theme, &a.bundle).map_err(failure)?;
+        let bundle = self.new_bundle(&a.bundle).map_err(failure)?;
+        let (theme, fonts_within) = self.theme_readable(&a.theme, &a.bundle).map_err(failure)?;
         let req = scaena_ops::create::Create {
             theme,
+            fonts_within,
             deck: a.deck.map(Value::Object),
             scn: a.scn,
             title: a.title,
@@ -866,9 +892,9 @@ impl Scaena {
             ..Default::default()
         };
         blocking(move || {
-            let created = scaena_ops::create::create(Path::new(&a.bundle), &req)?;
+            let created = scaena_ops::create::create(&bundle, &req)?;
             if created.created && a.history {
-                scaena_ops::history::begin(&open_by(&a.bundle, author)?, "deck_create")?;
+                scaena_ops::history::begin(&made_by(&bundle, author)?, "deck_create")?;
             }
             Ok(created)
         })
@@ -1120,10 +1146,12 @@ impl Scaena {
         context: RequestContext<RoleServer>,
     ) -> Result<Json<scaena_ops::theme::Themed>, String> {
         let author = author(&context);
-        let theme = self.theme_readable(&a.theme, &a.bundle).map_err(failure)?;
-        blocking(move || scaena_ops::theme::theme_apply(&open_by(&a.bundle, author)?, &theme, a.dry_run, a.force))
-            .await
-            .map(Json)
+        let (theme, within) = self.theme_readable(&a.theme, &a.bundle).map_err(failure)?;
+        blocking(move || {
+            scaena_ops::theme::theme_apply(&open_by(&a.bundle, author)?, &theme, within.as_deref(), a.dry_run, a.force)
+        })
+        .await
+        .map(Json)
     }
 
     #[tool(description = "Edit the theme the deck names (ADR-0016): its colors, type roles, spacing, and the rest, \
@@ -1341,17 +1369,14 @@ impl Scaena {
         };
         // A new bundle has no folder yet: the theme is read under this server's own, as
         // deck_create reads one.
-        let theme = self.theme_readable(a.theme.as_deref().unwrap_or("dusk"), &a.bundle).map_err(failure)?;
+        let bundle = self.new_bundle(&a.bundle).map_err(failure)?;
+        let (theme, within) = self.theme_readable(a.theme.as_deref().unwrap_or("dusk"), &a.bundle).map_err(failure)?;
         blocking(move || {
-            let made = scaena_ops::narrative::from_slides(
-                Path::new(&a.bundle),
-                &theme,
-                &slides.to_string(),
-                brief,
-                a.arc.as_deref(),
-            )?;
+            let theme = scaena_ops::create::ThemeSource::of(&theme)?.within(within);
+            let made =
+                scaena_ops::narrative::from_slides(&bundle, theme, &slides.to_string(), brief, a.arc.as_deref())?;
             if made.created.created && a.history {
-                scaena_ops::history::begin(&open_by(&a.bundle, author)?, "deck_create")?;
+                scaena_ops::history::begin(&made_by(&bundle, author)?, "deck_create")?;
             }
             Ok(DeckGenerated {
                 created: made.created,
