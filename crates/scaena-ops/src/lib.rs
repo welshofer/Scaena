@@ -14,6 +14,7 @@
 pub mod arrange;
 pub mod backgrounds;
 pub mod clipboard;
+pub mod coding;
 pub mod compile;
 pub mod create;
 pub mod data;
