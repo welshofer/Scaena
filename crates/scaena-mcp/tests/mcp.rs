@@ -496,7 +496,8 @@ async fn a_tool_that_stops_says_why() {
         assert!(failure["message"].as_str().is_some_and(|m| !m.is_empty()), "{failure:#}");
         if tool == "deck_history" {
             let message = failure["message"].as_str().unwrap();
-            assert!(message.contains("`scaena save --history` begins one") || message.contains("one of"), "{message}");
+            // It names what an agent can call to begin one (dogfood pass 3, item 4).
+            assert!(message.contains("`deck_history` with `begin`") || message.contains("one of"), "{message}");
         }
         for (k, v) in says.as_object().unwrap() {
             assert_eq!(&failure[k], v, "{tool}: {failure:#}");
@@ -718,6 +719,87 @@ async fn a_long_export_keeps_going_while_the_client_asks_after_it() {
     // Handed back, it is done with: the next export of the file starts afresh.
     let svg = ok(&client, "deck_export", json!({ "bundle": deck, "format": "svg", "out": images })).await;
     assert!(svg["running"]["of"].as_u64().is_some_and(|of| of as usize == files.len()), "{svg:#}");
+    client.cancel().await.unwrap();
+}
+
+/// Writes to one bundle at once each land (the 20261024 plan's REL-2): an agent calls tools in
+/// parallel, and two patches that read the same deck must not write one over the other while
+/// both say they were made. A deck file names its bundle as its folder does.
+#[tokio::test(flavor = "multi_thread")]
+async fn writes_to_one_bundle_at_once_each_land() {
+    let root = scratch("at-once");
+    let bundle = root.join("q3");
+    let opts = scaena_store::SaveOptions { subset_fonts: false, now: "2026-10-24T00:00:00Z".into(), history: false };
+    scaena_ops::open(&Path::new(EXAMPLES).join("revenue.deck.json")).unwrap().save(&bundle, &opts).unwrap();
+    let server = scaena_mcp::Scaena::default().with_dir(root.clone());
+    let client = serve(server, ClientConfig::default(), ClientLifecycleMode::Initialize).await;
+    let names = [path(&bundle), path(&bundle.join("deck.json"))];
+    let patches: Vec<_> = (0..16)
+        .map(|i| {
+            let ops = json!([{ "op": "add_node", "id": format!("note{i}"), "state": "intro",
+                "node": { "type": "text", "role": "body", "text": format!("Note {i}"), "at": { "in": "canvas" } } }]);
+            let args = json!({ "bundle": names[i % 2], "ops": ops }).as_object().unwrap().clone();
+            let peer = client.peer().clone();
+            tokio::spawn(async move {
+                peer.call_tool(CallToolRequestParams::new("deck_patch".to_string()).with_arguments(args)).await.unwrap()
+            })
+        })
+        .collect();
+    for patch in patches {
+        let done = patch.await.unwrap();
+        assert_ne!(done.is_error, Some(true), "{}", text(&done));
+    }
+    let deck = scaena_ops::open(&bundle).unwrap().deck;
+    let lost: Vec<String> = (0..16).map(|i| format!("note{i}")).filter(|id| !deck.nodes.contains_key(id)).collect();
+    assert!(lost.is_empty(), "patches said they were made, and the deck lacks {lost:?}");
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_agent_makes_a_deck_edits_it_twice_and_restores_the_first_edit() {
+    let dir = scratch("history-loop");
+    let bundle = path(&dir.join("q3"));
+    let client = connect_in(&dir).await;
+    // Made with its history begun: every write after is a version.
+    ok(&client, "deck_create", json!({ "bundle": bundle, "theme": "dusk", "title": "Q3" })).await;
+    let ops = json!([
+        { "op": "add_node", "id": "title", "state": "start",
+          "node": { "type": "text", "role": "display", "text": "Q3 Review", "at": { "in": "title" } } },
+        { "op": "add", "path": "/states/0/layout", "value": "title" }
+    ]);
+    ok(&client, "deck_patch", json!({ "bundle": bundle, "ops": ops })).await;
+    let ops = json!([{ "op": "set_text", "node": "title", "text": "Q3, in full" }]);
+    ok(&client, "deck_patch", json!({ "bundle": bundle, "ops": ops })).await;
+
+    let listed = ok(&client, "deck_history", json!({ "bundle": bundle })).await;
+    let versions = listed["versions"].as_array().expect("the versions");
+    assert_eq!(versions.len(), 3, "{listed:#}");
+    for told in versions {
+        assert!(told["author"].as_str().is_some_and(|by| by.starts_with("agent:")), "{told:#}");
+        assert!(told["by"].as_str().is_some_and(|by| by.starts_with("the assistant")), "{told:#}");
+        assert!(told["said"].as_str().is_some_and(|said| !said.is_empty()), "{told:#}");
+    }
+    assert!(versions[2]["changed"].to_string().contains("Slide 1"), "{listed:#}");
+
+    // What the second edit changed, and what it was before.
+    let compared = ok(&client, "deck_history", json!({ "bundle": bundle, "compare": ["2", "3"] })).await;
+    let start = &compared["compared"]["states"]["start"]["changed"];
+    assert_eq!(start["before"]["nodes"]["title"]["text"], "Q3 Review", "{compared:#}");
+
+    let restored = ok(&client, "deck_history", json!({ "bundle": bundle, "restore": "2" })).await;
+    assert_eq!(restored["restored"]["applied"], true, "{restored:#}");
+    let deck = scaena_ops::open(&dir.join("q3")).unwrap().deck;
+    assert_eq!(deck.nodes["title"].props.get("text"), Some(&json!("Q3 Review")));
+    let listed = ok(&client, "deck_history", json!({ "bundle": bundle })).await;
+    assert_eq!(listed["versions"].as_array().map(Vec::len), Some(4), "the restore is a change of its own");
+
+    // A deck made without one begins it once.
+    let plain = path(&dir.join("plain"));
+    ok(&client, "deck_create", json!({ "bundle": plain, "theme": "dusk", "history": false })).await;
+    let begun = ok(&client, "deck_history", json!({ "bundle": plain, "begin": true })).await;
+    assert_eq!(begun["begun"], true, "{begun:#}");
+    let again = ok(&client, "deck_history", json!({ "bundle": plain, "begin": true })).await;
+    assert_eq!(again["begun"], false, "{again:#}");
     client.cancel().await.unwrap();
 }
 

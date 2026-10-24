@@ -18,6 +18,7 @@ import { ALT, type Key, MOD, SHIFT } from "./commands";
 import { counted, worst } from "./marks";
 import type { Edited, Finding, Slot } from "./protocol";
 import type { Stage } from "./stage";
+import { unpainted } from "./strip";
 
 /** What the light table answers, focused (PLAN 2.65), as the keys sheet lists it. */
 export const slidesKeys = (): Key[] => [
@@ -97,7 +98,7 @@ export function slides(stage: Stage, into: HTMLElement, button: HTMLButtonElemen
   /** The slide with the focus, by id: the one the keys act from. */
   let focus: string | undefined;
   /** Each last state's picture, by state: what identifies its drawing, and its pixels. */
-  const pictures = new Map<string, { digest: string; image: ImageData }>();
+  const pictures = new Map<string, { digest: string; image?: ImageData }>();
   /** Each state's findings in the format shown, by id. */
   let findings = new Map<string, Finding[]>();
   /** One change at a time, each made on the source the one before left. */
@@ -149,6 +150,8 @@ export function slides(stage: Stage, into: HTMLElement, button: HTMLButtonElemen
     const canvas = tile(slide.id)?.querySelector("canvas");
     const picture = pictures.get(lastOf(slide));
     if (!canvas || !picture) return;
+    unpainted(canvas, !picture.image);
+    if (!picture.image) return;
     [canvas.width, canvas.height] = [picture.image.width, picture.image.height];
     canvas.getContext("2d")?.putImageData(picture.image, 0, 0);
   }
@@ -168,8 +171,11 @@ export function slides(stage: Stage, into: HTMLElement, button: HTMLButtonElemen
       const got = await stage.thumbnails(high(), known, editor.format(), all.map(lastOf));
       if (asked !== painting) return;
       for (const t of got) {
-        if (!t.pixels || !t.width || !t.height) continue;
-        pictures.set(t.state, { digest: t.digest, image: new ImageData(new Uint8ClampedArray(t.pixels), t.width, t.height) });
+        // One that could not be painted keeps its digest, so it is not asked for again until its
+        // drawing changes, and its tile says so (lift-up STAB-4).
+        if (t.failed !== undefined) pictures.set(t.state, { digest: t.digest });
+        else if (t.pixels && t.width && t.height)
+          pictures.set(t.state, { digest: t.digest, image: new ImageData(new Uint8ClampedArray(t.pixels), t.width, t.height) });
       }
       for (const s of all) draw(s);
     } catch {

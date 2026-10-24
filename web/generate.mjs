@@ -28,8 +28,9 @@
 //   of it, and the cover's title as the model tightened it.
 // - Its story (PLAN G.9): the Story tab reads it as Vzestup measures a talk, by the generator's
 //   module: its score and the arc it was written to, the six measures, coherence by words
-//   unscored, a mark on the arc for each slide. A finding's slide is shown at a press; its fix is
-//   one change, which ⌘Z takes back; and its question goes into the assistant's box.
+//   unscored, a mark on the arc for each slide. No fix rewrites the plan's intensity or tone. A
+//   slide moved out of its beat's order has drifted: a finding's slide is shown at a press; its
+//   fix is one change, which ⌘Z takes back; and its question goes into the assistant's box.
 // Exits 1 on any failure.
 import { mkdir, readFile } from "node:fs/promises";
 import { createServer } from "node:http";
@@ -308,6 +309,7 @@ try {
   check(refused.includes("invalid x-api-key"), `the provider's refusal in its words: ${refused}`);
   await page.waitForFunction(() => !document.querySelector("#prompting-go").disabled, null, { timeout: 30000 });
   check(true, "Generate can be pressed again");
+  check((await page.inputValue("#prompting-goal")) === "Persuade", "what was chosen stays chosen after a failed run");
   state.fail = false;
 
   // Cancel stops it; the deck open stays open.
@@ -380,8 +382,13 @@ try {
   check(await page.locator("#prompting").evaluate((d) => !d.open), "the deck made, the dialog closed");
   const made = await page.evaluate(() => window.scaena.where());
   check(made.where === undefined, `the deck made is kept nowhere until it is saved: ${JSON.stringify(made)}`);
+  // The story is read after the deck's first lint: its score comes into the line once it is.
+  await page.waitForFunction(() => / · story \d+ of 100\b/.test(document.querySelector("#status")?.textContent ?? ""), null, { timeout: 30000 }).catch(() => {});
   const status = await page.textContent("#status");
   check(/Made: 5 slides on the arc Problem–Solution, 2 pictures/.test(status), `the status says what was made: ${status}`);
+  // The deck lands on its story (narrative USE-2): the Story tab shown, its score in the line.
+  check(/ · story \d+ of 100\b/.test(status), `the status says the story's score: ${status}`);
+  check((await page.getAttribute("#tab-story", "aria-selected")) === "true", "the Story tab is shown as the deck lands");
   // Two pictures, the cover's and the ending's, by the best image model the key lists.
   check(painted.length === 2, `two pictures asked for: ${painted.length}`);
   check(
@@ -442,6 +449,20 @@ try {
   const looked = await page.evaluate(() => [...new Set(window.scaena.story.health().findings.map((f) => String(f.slide)))]);
   check(rows.join() === looked.join(), `a row for each slide with something to look at, in order: ${rows}`);
   check(!said.some((s) => /\d\.\d\d/.test(s)), `in a person's words, no figure: ${said.join(" | ")}`);
+  // The words are to carry the plan's intensity and tone: a gap is asked of the assistant, and
+  // no fix declares what the words read in the plan's place.
+  const planned = await page.evaluate(() => window.scaena.story.health().findings.filter((f) => (f.kind === "intensity" || f.kind === "tone") && f.fix).length);
+  check(planned === 0, `no fix rewrites the plan's intensity or tone: ${planned}`);
+  // A slide moved out of its beat's order has drifted, and its fix makes it part of the beat it
+  // now stands in.
+  const second = await page.evaluate(() => window.scaena.last().states[1][0]);
+  await page.locator(`#strip li[data-state="${second}"]`).click();
+  const unmoved = await page.evaluate(() => window.scaena.source());
+  await page.keyboard.press("Alt+ArrowRight");
+  await page.waitForFunction((was) => window.scaena.source() !== was, unmoved, { timeout: 30000 }).catch(() => {});
+  await page
+    .waitForFunction(() => window.scaena.story.health()?.findings.some((f) => f.kind === "drift"), null, { timeout: 30000 })
+    .catch(() => {});
   const fixable = page.locator("#story [data-findings] li:has([data-fix])").first();
   check((await fixable.count()) === 1, `a finding offers its fix: ${said.join(" | ")}`);
   const slide = Number((await fixable.locator("[data-show]").textContent()).replace("Slide ", ""));
@@ -481,6 +502,11 @@ try {
   await asked.click();
   check((await page.getAttribute("#tab-assistant", "aria-selected")) === "true", "a question opens the assistant's tab");
   check((await page.inputValue("#question")) === question, `the question is in its box: ${question}`);
+  // The slide moved goes back, so what follows reads the deck as made.
+  await page.locator("#overlay").focus();
+  await page.keyboard.press("Control+z");
+  await page.waitForFunction((was) => window.scaena.source() === was, unmoved, { timeout: 30000 }).catch(() => {});
+  check((await page.evaluate(() => window.scaena.source())) === unmoved, "⌘Z takes the move back");
   // The Files tab lists what the deck was grounded in, each with the slides citing it (FUNC-3).
   await tab(page, "files");
   await page.waitForSelector("#files [data-grounded] li", { timeout: 30000 }).catch(() => {});

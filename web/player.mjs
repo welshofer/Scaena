@@ -32,7 +32,8 @@
 //   over its slide. Its timer pauses, runs on, and resets to 0:00, and the time of day stands
 //   beside it (PLAN 2.121); after a press on Resume, Space goes on and presses it no more. P again
 //   brings it to the front as it is, its timer running. Its notes scroll, long or short, the next
-//   state's from their top, and its buttons and its timer's stay in its window. With no player
+//   state's from their top, A+, A−, +, and - grow and shrink them, the size kept for the next view
+//   (lift-up USE-4), and its buttons and its timer's stay in its window. With no player
 //   open, or once the player closes, even as the view opens, it says so, every word of it, and
 //   its buttons wait until one is.
 // - A link at rest shows a hand under the pointer.
@@ -390,6 +391,20 @@ try {
   check((await wake(presenter)).held === 1, `the presenter view holds a screen wake lock while it is open: ${JSON.stringify(await wake(presenter))}`);
   check((await presenter.textContent("#notes")) === notes(1), `it shows ${states[1]}'s notes, its beat's`);
   check((await presenter.textContent("#nextName")) === `Next: ${slots[2].said}`, `it shows ${states[2]} next, by its slide's number: ${await presenter.textContent("#nextName")}`);
+  // The notes' size (lift-up USE-4): 20 px to start, A+ and + a step up, A− and - a step down,
+  // kept in this browser for the next presenter view; the player answers neither key.
+  const notesPx = (page) => page.evaluate(() => parseFloat(getComputedStyle(document.querySelector("#notes")).fontSize));
+  const startSize = await notesPx(presenter);
+  await presenter.click("#larger");
+  const clicked = await notesPx(presenter);
+  await presenter.keyboard.press("+");
+  const keyed = await notesPx(presenter);
+  await presenter.keyboard.press("-");
+  const back = await notesPx(presenter);
+  check(startSize === 20 && clicked === 24 && keyed === 28 && back === 24, `A+ and + make the notes larger, and - smaller: ${startSize}, ${clicked}, ${keyed}, then ${back} px`);
+  const atPlayer = (await player.evaluate(() => window.scaena.at())).index;
+  await player.keyboard.press("+");
+  check((await player.evaluate(() => window.scaena.at())).index === atPlayer, "the player itself answers no notes key");
   // Its timer (PLAN 2.121): Pause stops it where it stands, Reset puts it back to 0:00, paused as it
   // was, and Resume runs it on from there; the time of day stands beside it.
   const timer = () => presenter.evaluate(() => window.scaena.timer());
@@ -567,6 +582,7 @@ try {
     return m * 60 + s >= least && m * 60 + s;
   };
   await popup.waitForFunction(() => window.scaena?.follows?.(), null, { timeout: 120000 });
+  check((await notesPx(popup)) === 24, `a presenter view opened again keeps the notes' size: ${await notesPx(popup)} px`);
   await popup.waitForFunction(seconds, 2, { timeout: 15000, polling: 100 }).catch(() => {});
   let loads = 0;
   popup.on("framenavigated", (frame) => frame === popup.mainFrame() && loads++);

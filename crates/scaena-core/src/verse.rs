@@ -22,7 +22,7 @@
 //! it, an English line is uncounted, never counted by the rules alone.
 
 use serde::{Deserialize, Serialize};
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 /// The table's SHA-256, in hex: what a page hands over is held to it.
@@ -314,24 +314,39 @@ thread_local! {
     /// The table, once it is had.
     static HANDED: RefCell<Option<Rc<str>>> = const { RefCell::new(None) };
     static LOADER: RefCell<Option<Loader>> = const { RefCell::new(None) };
+    /// Whether the loader was asked and had none: it is asked again only once another loader is
+    /// set (lift-up PERF-5), so a table that cannot be had costs one request, not one a line.
+    static TRIED: Cell<bool> = const { Cell::new(false) };
 }
 
 /// Where this thread gets the table where it is not compiled in, the first time an English line
 /// counts: `loader` gives `verse/words.txt`'s text, held to [`TABLE_SHA256`], or none.
 pub fn set_loader(loader: impl Fn() -> Option<String> + 'static) {
     LOADER.with(|l| *l.borrow_mut() = Some(Box::new(loader)));
+    TRIED.with(|t| t.set(false));
 }
 
 /// The table: compiled in, else handed over by the loader the first time it is asked for.
 fn table() -> Option<Table> {
+    had(compiled()).map(Table)
+}
+
+/// The table's text: `built`, else the loader's the first time it is asked for, kept.
+fn had(built: Option<&'static str>) -> Option<Rc<str>> {
     if let Some(text) = HANDED.with(|h| h.borrow().clone()) {
-        return Some(Table(text));
+        return Some(text);
     }
-    let text: Rc<str> = compiled()
-        .map(Rc::from)
-        .or_else(|| LOADER.with(|l| l.borrow().as_ref().and_then(|load| load())).map(Rc::from))?;
+    let text: Rc<str> = built.map(Rc::from).or_else(|| {
+        if TRIED.with(Cell::get) {
+            return None;
+        }
+        let loaded = LOADER.with(|l| l.borrow().as_ref().map(|load| load()));
+        // Asked, and given none: not asked again. With no loader, nothing was asked.
+        TRIED.with(|t| t.set(matches!(loaded, Some(None))));
+        loaded.flatten().map(Rc::from)
+    })?;
     HANDED.with(|h| *h.borrow_mut() = Some(text.clone()));
-    Some(Table(text))
+    Some(text)
 }
 
 #[cfg(feature = "syllables")]
@@ -772,5 +787,29 @@ mod tests {
         assert_eq!(matched(b"creat!u", b"creat", 0), Some(5));
         assert_eq!(matched(b".[^b][^b][^b]*ed$", b"xmmmed", 0), Some(6));
         assert_eq!(remove(b"unhappily", SINGLE), (b"happi".to_vec(), 2));
+    }
+
+    /// A table the loader does not have is not asked for again until another loader is set, and
+    /// one it gives is kept (lift-up PERF-5).
+    #[test]
+    fn a_table_that_cannot_be_had_is_asked_for_once() {
+        let asked = Rc::new(Cell::new(0));
+        let count = Rc::clone(&asked);
+        set_loader(move || {
+            count.set(count.get() + 1);
+            None
+        });
+        for _ in 0..3 {
+            assert!(had(None).is_none());
+        }
+        assert_eq!(asked.get(), 1);
+        let count = Rc::clone(&asked);
+        set_loader(move || {
+            count.set(count.get() + 1);
+            Some("words".into())
+        });
+        assert_eq!(had(None).as_deref(), Some("words"));
+        assert_eq!(had(None).as_deref(), Some("words"));
+        assert_eq!(asked.get(), 2);
     }
 }
