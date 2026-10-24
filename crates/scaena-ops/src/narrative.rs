@@ -1856,6 +1856,9 @@ fn layout_for(
         "headline" if pictured => "headline",
         "headline" => "statement",
         "manifesto" => "manifesto",
+        // With no picture to show, the people stand by name, under the headline, with no band
+        // left empty for their faces.
+        "team" if !pictured => "team-names",
         "team" => match n {
             0..=3 => "team",
             4 => "team-four",
@@ -2536,7 +2539,9 @@ impl Slots<'_> {
                 })
             }
             // "Name, role: credit".
-            ("team" | "team-four" | "team-six", _, Some((k, part))) if part != "art" => {
+            ("team" | "team-four" | "team-six" | "team-names", _, Some((k, part)))
+                if part != "art" && part != "card" =>
+            {
                 let item = self.item(k)?;
                 let label = item.label.clone().unwrap_or_else(|| item.whole.clone());
                 let (person, role) =
