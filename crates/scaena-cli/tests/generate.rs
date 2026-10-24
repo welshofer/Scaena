@@ -3,7 +3,7 @@
 //! the command says which to set, before any call is made; and with sources, a provider on this
 //! machine answers as a provider would, and the requests it is sent show what grounds the deck.
 
-use serde_json::Value;
+use serde_json::{Value, json};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
@@ -66,6 +66,49 @@ fn slides_written_elsewhere_make_a_bundle_with_no_call() {
     // A place taken is refused before anything is made.
     let again = json(&scaena(&["--json", "generate", bundle, "again", "--slides", &catalog()]));
     assert!(again["error"]["message"].as_str().unwrap().contains("not an empty directory"));
+}
+
+/// The sources a deck is grounded in are kept beside its brief, each beat cites the one its slide
+/// names, lint finds nothing in the citations, and `scaena files` lists each with the beats
+/// citing it (narrative FUNC-3).
+#[test]
+fn each_beat_cites_the_source_its_slide_names() {
+    let dir = place("cited");
+    let bundle = dir.to_str().unwrap();
+    let notes = place("cited-notes").with_extension("md");
+    std::fs::write(&notes, "# Tidewater field notes\n\nPort calls doubled in Q3.").unwrap();
+    let name = notes.file_name().unwrap().to_str().unwrap().to_string();
+    let text = std::fs::read_to_string(catalog()).unwrap();
+    let mut written: Value = serde_json::from_str(&text).unwrap();
+    for slide in written["slides"].as_array_mut().unwrap().iter_mut().skip(1).take(3) {
+        slide["sourceRef"] = json!(name);
+    }
+    written["slides"][4]["sourceRef"] = json!("elsewhere.pdf");
+    let slides = place("cited-slides").with_extension("json");
+    std::fs::write(&slides, written.to_string()).unwrap();
+    let (slides, notes) = (slides.to_str().unwrap(), notes.to_str().unwrap());
+    let out = scaena(&["--json", "generate", bundle, "Tidewater's Series A", "--slides", slides, "--source", notes]);
+    assert_eq!(out.status.code(), Some(0), "{}", String::from_utf8_lossy(&out.stdout));
+    let deck: Value = serde_json::from_str(&std::fs::read_to_string(dir.join("deck.json")).unwrap()).unwrap();
+    let kept = &deck["meta"]["narrative"]["sources"];
+    assert_eq!(kept[0]["name"], json!(name), "{kept}");
+    assert_eq!((kept[0]["kind"].as_str(), kept[0].get("url")), (Some("markdown"), None));
+    let cited = format!("source:{name}");
+    let beats: Vec<&Value> =
+        (deck["spine"]["sections"].as_array().unwrap().iter()).flat_map(|s| s["beats"].as_array().unwrap()).collect();
+    let citing: Vec<&str> = (beats.iter())
+        .filter(|b| b["evidence"].as_array().is_some_and(|e| e.contains(&json!(cited))))
+        .map(|b| b["id"].as_str().unwrap())
+        .collect();
+    assert_eq!(citing.len(), 3, "{citing:?}");
+    assert!(!beats.iter().any(|b| b["evidence"].to_string().contains("elsewhere.pdf")), "not grounded in it");
+    let lint = json(&scaena(&["--json", "lint", bundle]));
+    assert!(!lint.to_string().contains("W423"), "{lint}");
+    let files = json(&scaena(&["--json", "files", bundle]));
+    assert_eq!(files["sources"][0]["name"], json!(name));
+    assert_eq!(files["sources"][0]["cited"], json!(citing));
+    let said = String::from_utf8(scaena(&["files", bundle]).stdout).unwrap();
+    assert!(said.contains("grounded in") && said.contains(&format!("cited by {}", citing.join(", "))), "{said}");
 }
 
 /// A deck in Ukrainian is written in Ukrainian, which the shipped fonts draw, and one with a

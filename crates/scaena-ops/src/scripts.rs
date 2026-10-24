@@ -348,6 +348,7 @@ mod tests {
             slides: written.slides.clone(),
             truncated: false,
             icons: Default::default(),
+            sources: Vec::new(),
             brief: scaena_narrato::Brief {
                 topic: written.slides[0].slide_title.clone(),
                 language: Some(language.into()),

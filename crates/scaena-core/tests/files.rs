@@ -3,7 +3,7 @@
 //! the states that show them so.
 
 use scaena_core::Deck;
-use scaena_core::files::{BundleFile, Kind, Named, files};
+use scaena_core::files::{BundleFile, Kind, Named, files, grounded};
 use scaena_core::model::Theme;
 use serde_json::{Value, json};
 
@@ -135,4 +135,33 @@ fn an_image_is_named_by_its_nodes_and_its_evidence_and_used_where_they_show() {
     assert_eq!(cover.states, ["images"]);
     // The containers' photos, where that state shows them.
     assert!(card.used.iter().any(|u| u.node == "board-photo" && u.states.contains(&"containers".to_string())));
+}
+
+/// The sources a deck made from a prompt was grounded in (narrative FUNC-3), each with the beats
+/// that cite it: a file as `source:NAME`, a page by its address; none for a deck that keeps none.
+#[test]
+fn the_sources_a_deck_was_grounded_in_are_listed_with_the_beats_citing_them() {
+    let mut doc: Value = serde_json::from_str(EXAMPLE).unwrap();
+    let deck: Deck = serde_json::from_value(doc.clone()).unwrap();
+    assert!(grounded(&deck).is_empty(), "the example keeps no sources");
+    doc["meta"]["narrative"] = json!({ "sources": [
+        { "name": "notes.md", "kind": "markdown", "bytes": 120, "truncated": false },
+        { "name": "https://example.org/report", "kind": "web page", "url": "https://example.org/report", "bytes": 80, "truncated": true },
+        { "kind": "nameless" },
+    ] });
+    let beats = doc["spine"]["sections"][0]["beats"].as_array_mut().unwrap();
+    let first = beats[0]["id"].as_str().unwrap().to_string();
+    let shown = beats[0]["states"][0].as_str().unwrap().to_string();
+    beats[0]["evidence"] = json!(["source:notes.md", "https://example.org/report"]);
+    let deck: Deck = serde_json::from_value(doc).unwrap();
+    let g = grounded(&deck);
+    assert_eq!(g.len(), 2, "what does not read as a source is passed over");
+    assert_eq!(
+        (g[0].name.as_str(), g[0].kind.as_str(), g[0].url.as_deref(), g[0].bytes),
+        ("notes.md", "markdown", None, 120)
+    );
+    assert_eq!(g[0].cited, std::slice::from_ref(&first));
+    assert_eq!((g[1].url.as_deref(), g[1].truncated), (Some("https://example.org/report"), true));
+    assert_eq!(g[1].cited, [first]);
+    assert_eq!(g[1].states, [shown], "each citing beat by its first state, which an editor names");
 }

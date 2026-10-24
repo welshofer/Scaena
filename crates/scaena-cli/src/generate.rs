@@ -681,6 +681,7 @@ pub fn run(a: GenerateArgs, json: bool) -> Result<ExitCode> {
     brief.source_content = grounding.content.clone();
     let settings = Settings { provider, model: model.clone(), base: a.base.clone(), browser: false };
     let mut generation = Generation::new(brief, settings).map_err(|e| anyhow!(e))?;
+    generation.give_sources(scaena_ops::narrative::provenance(&grounding.given));
     match &a.slides {
         Some(path) => {
             generation.choose_arc(a.arc.as_deref());

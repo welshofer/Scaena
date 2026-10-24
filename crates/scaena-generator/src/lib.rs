@@ -271,11 +271,12 @@ impl Generation {
             })
             .collect();
         let settings = Settings { provider, model: asking.model, base: asking.base, browser: true };
-        let inner = scaena_narrato::Generation::new(brief, settings).map_err(error)?;
+        let mut inner = scaena_narrato::Generation::new(brief, settings).map_err(error)?;
+        inner.give_sources(scaena_ops::narrative::provenance(&ground.given));
         Ok(Generation { inner, documents, given: ground.given })
     }
 
-    /// What each source gave the prompt, JSON `[{ name, kind, bytes, truncated }]`.
+    /// What each source gave the prompt, JSON `[{ name, kind, url?, bytes, truncated }]`.
     pub fn given(&self) -> String {
         serde_json::to_string(&self.given).expect("what was given is JSON")
     }

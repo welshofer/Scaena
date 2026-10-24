@@ -1251,6 +1251,12 @@ impl Player {
         serde_json::to_string(&self.0.bundle_files().map_err(js)?).map_err(js)
     }
 
+    /// The sources a deck made from a prompt was grounded in, as JSON (narrative FUNC-3):
+    /// `[{ name, kind, url?, bytes, truncated, cited, states }]`, as `scaena files --json` lists them.
+    pub fn grounded(&self) -> String {
+        serde_json::to_string(&self.0.grounded()).expect("what a deck was grounded in is JSON")
+    }
+
     /// `path` taken out of the bundle (PLAN 2.59): one of its images, fonts, or data that nothing
     /// names. `dataUndo` puts it back; the next save takes it out where the bundle is kept. An
     /// error says why, where something names it.

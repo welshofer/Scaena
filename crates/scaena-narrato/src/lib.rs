@@ -77,6 +77,24 @@ pub struct Narrative {
     /// none has no icon.
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub icons: std::collections::BTreeMap<String, Icon>,
+    /// What the deck was grounded in, each source as the prompt named it (narrative FUNC-3): what
+    /// the client gave, which [`Generation::give_sources`] hands over. The deck keeps them beside
+    /// its brief, and each beat cites the one its slide names ([`Slide::source_ref`]).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sources: Vec<Provenance>,
+}
+
+/// Where a source the deck was grounded in came from (narrative FUNC-3): its name, as the prompt
+/// named it; its kind, in a word (`markdown`, `pdf`, `page`, …); its address, where it has one;
+/// and what of it the prompt was given, in bytes, and whether it was cut short to fit.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Provenance {
+    pub name: String,
+    pub kind: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    pub bytes: usize,
+    pub truncated: bool,
 }
 
 /// An icon a slide's word names (PLAN G.23): its name in its set, and its outline on its view.
@@ -152,6 +170,8 @@ pub struct Generation {
     narrative: Option<Narrative>,
     /// The slides as the model wrote them, the text [`Generation::written`] read.
     written: Option<String>,
+    /// What the deck is grounded in, as the client gave it ([`Generation::give_sources`]).
+    sources: Vec<Provenance>,
 }
 
 impl Generation {
@@ -165,6 +185,7 @@ impl Generation {
             fallback: None,
             narrative: None,
             written: None,
+            sources: Vec::new(),
         })
     }
 
@@ -215,6 +236,15 @@ impl Generation {
         if let Some(narrative) = &mut self.narrative {
             narrative.icons = icons;
         }
+    }
+
+    /// What the deck is grounded in, each source as the prompt names it (narrative FUNC-3): kept
+    /// with the narrative, written or yet to be, for the deck it makes.
+    pub fn give_sources(&mut self, sources: Vec<Provenance>) {
+        if let Some(narrative) = &mut self.narrative {
+            narrative.sources = sources.clone();
+        }
+        self.sources = sources;
     }
 
     pub fn into_narrative(self) -> Option<Narrative> {
@@ -427,6 +457,7 @@ impl Generation {
             truncated: written.recovered || stopped,
             brief: Brief { source_content: None, ..self.brief.clone() },
             icons: Default::default(),
+            sources: self.sources.clone(),
         });
         self.step = Step::Done;
         Ok(self.step)

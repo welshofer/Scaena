@@ -64,6 +64,7 @@ import type {
   Look,
   Put,
   BundleFile,
+  Grounded,
   Compared,
   Starter,
   Version,
@@ -642,7 +643,12 @@ export class Stage {
   }
 
   bundleFiles(source: string): Promise<BundleFile[]> {
-    return this.request<"bundleFiles">({ type: "bundleFiles", id: ++this.asked, source }).then(({ files }) => files);
+    return this.listing(source).then(({ files }) => files);
+  }
+
+  /** The bundle's files, and the sources its deck was grounded in (narrative FUNC-3). */
+  listing(source: string): Promise<{ files: BundleFile[]; grounded: Grounded[] }> {
+    return this.request<"bundleFiles">({ type: "bundleFiles", id: ++this.asked, source });
   }
 
   /** `path` taken out of the bundle, by the user (PLAN 2.59): one nothing names. `dataUndo` puts it
