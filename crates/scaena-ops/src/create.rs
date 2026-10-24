@@ -197,6 +197,19 @@ pub struct Created {
     pub errors: usize,
 }
 
+/// Whether `file`, a font a theme names, is a path under `fonts/` that stays there: no `..`, no
+/// root. A theme is read before it is validated, so a name like `fonts/../../.ssh/id_rsa` must
+/// not reach the disk at all.
+pub(crate) fn fonts_named(file: &str) -> Result<(), OpsError> {
+    let path = Path::new(file);
+    let plain = path.components().all(|c| matches!(c, std::path::Component::Normal(_)));
+    if plain && path.starts_with("fonts") && path.components().count() > 1 {
+        Ok(())
+    } else {
+        Err(OpsError::new(format!("the theme's font `{file}` is not a file under fonts/")))
+    }
+}
+
 /// Make a bundle at `path`, a directory not there yet or empty: the theme and its fonts,
 /// the data files, and the deck, pointed at them. Written only if it validates.
 pub fn create(path: &Path, req: &Create) -> Result<Created, OpsError> {
@@ -211,6 +224,7 @@ pub fn create(path: &Path, req: &Create) -> Result<Created, OpsError> {
                 .with_context(|| format!("reading {}{}", req.theme.display(), or_shipped()))?;
             // A font is beside the theme, or above it: in the bundle the theme belongs to.
             let font = |file: &str| -> Result<Vec<u8>, OpsError> {
+                fonts_named(file)?;
                 let found =
                     req.theme.ancestors().skip(1).map(|dir| dir.join(file)).find(|p| p.is_file()).with_context(
                         || format!("the theme's font `{file}` is not beside {} or above it", req.theme.display()),
@@ -284,6 +298,7 @@ impl ThemeSource {
                 crate::shipped::font(file).with_context(|| format!("the theme names `{file}`, which does not ship"))?;
             return Ok(bytes.to_vec());
         }
+        fonts_named(file)?;
         let found =
             self.file.ancestors().skip(1).map(|dir| dir.join(file)).find(|p| p.is_file()).with_context(|| {
                 format!("the theme's font `{file}` is not beside {} or above it", self.file.display())
@@ -401,4 +416,16 @@ pub fn creating(
     let mut made = Write::new(deck, Why::new("deck_create"));
     made.files = files;
     Ok((created, Some(made)))
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn a_themes_font_stays_under_fonts() {
+        use super::fonts_named;
+        assert!(fonts_named("fonts/Inter.ttf").is_ok() && fonts_named("fonts/inter/Inter-Italic.ttf").is_ok());
+        for bad in ["fonts/../../.ssh/id_rsa", "/etc/passwd", "fonts", "Inter.ttf", "../fonts/x.ttf"] {
+            assert!(fonts_named(bad).is_err(), "{bad}");
+        }
+    }
 }

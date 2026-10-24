@@ -30,6 +30,10 @@ typedef struct ScaenaSaved ScaenaSaved;
 // One bundle open for editing.
 typedef struct ScaenaSession ScaenaSession;
 
+// What a save reads of a session, taken in a moment to be saved on another thread while the
+// session goes on (lift-up PERF-5): [`scaena_snapshot_new`].
+typedef struct ScaenaSnapshot ScaenaSnapshot;
+
 // Frames painted onto a `CAMetalLayer` by vello on Metal (PLAN 3.2): what the Mac's view
 // shows. Made by [`scaena_surface_new`], on the Mac alone.
 typedef struct ScaenaSurface ScaenaSurface;
@@ -131,6 +135,15 @@ bool scaena_laying_lay(struct ScaenaLaying *laying);
 // string, or null.
 char *scaena_lint_laid(struct ScaenaSession *session, struct ScaenaLaying *laying, const char *now);
 
+// The narrative health of `laying`'s deck (PLAN G.9), as `health` gives the session's:
+// `{"ok": health}`. Read on the thread that calls it, which touches no session, so the Story
+// panel's reading of a deck as it is typed leaves the window's thread free (lift-up narrative
+// PERF-1). It lays nothing out, and may be read before or after [`scaena_laying_lay`].
+//
+// # Safety
+// `laying` is a live handle from [`scaena_laying_new`], used by one thread at a time.
+char *scaena_laying_health(struct ScaenaLaying *laying);
+
 // Free a laying.
 //
 // # Safety
@@ -176,7 +189,9 @@ char *scaena_picture(const uint8_t *bytes, size_t len);
 // `states`, `formats`, `sizes` (`{own, anew}`: the deck's own canvas named by its shape, and the
 // formats it lays out anew), `setFormat {format?}`, `canvasSize`, `duration {state}`, `timeline`,
 // `files`, `imageFiles`, `digest {state}`, `reading {state}`, `reads {state}` (each node read,
-// in turn: its role and its words, PLAN 3.17), `source`, `compiledFrom
+// in turn: its role and its words, PLAN 3.17), `notes {state}` (what a presenter reads: the
+// state's own, else its first beat's, SPEC §2.6, `{text, blocks}`, the blocks lines, a list, or
+// a table), `source`, `compiledFrom
 // {source}`, `compile {source}`, `lint {state?}`, `fix {patch}`, `inspect {state}`, `boxes
 // {state}`, `hit {state, x, y}`, `layers {state}`, `carets {state, node}`, `choices {state,
 // node}`, `stateChoices {state}`, `words {state}` (its objects by what they show, and the
@@ -351,6 +366,32 @@ struct ScaenaSaved *scaena_save(struct ScaenaSession *session,
                                 bool subset,
                                 char **error);
 
+// What a save of `session` reads, taken now to be saved away from the session's thread (lift-up
+// PERF-5): [`scaena_snapshot_save`] saves it on whatever thread holds it, and
+// [`scaena_adopt_since`] goes on from the save. Free with [`scaena_snapshot_free`].
+//
+// # Safety
+// `session` is a live handle.
+struct ScaenaSnapshot *scaena_snapshot_new(struct ScaenaSession *session);
+
+// Save `snapshot` at `now` as [`scaena_save`] saves the session: fonts subset if `subset`, and
+// the edits since the last save recorded, on the thread that calls it, which touches no session.
+// Null where it cannot be saved, `*error` then saying why.
+//
+// # Safety
+// `snapshot` is a live handle from [`scaena_snapshot_new`], used by one thread at a time; `now` a
+// NUL-terminated string; `error` null or writable.
+struct ScaenaSaved *scaena_snapshot_save(struct ScaenaSnapshot *snapshot,
+                                         const char *now,
+                                         bool subset,
+                                         char **error);
+
+// Let go of a snapshot.
+//
+// # Safety
+// `snapshot` is a live handle from [`scaena_snapshot_new`], or null.
+void scaena_snapshot_free(struct ScaenaSnapshot *snapshot);
+
 // The saved bundle's files and what the save did, as JSON: `{"files": [path], "replaced":
 // [path], "summary": …}`. `replaced` are the files of the bundle as it was that the save
 // renamed or rewrote: one saved in place drops those `files` does not hold.
@@ -379,6 +420,18 @@ struct ScaenaBytes scaena_saved_zip(const struct ScaenaSaved *saved, char **erro
 // # Safety
 // `session` is a live handle; `saved` one from [`scaena_save`].
 char *scaena_adopt(struct ScaenaSession *session, const struct ScaenaSaved *saved);
+
+// Go on from `saved`, a save of `snapshot`, once the caller has written it where it keeps the
+// bundle, as [`scaena_adopt`] does, where the session is still as `snapshot` was taken (lift-up
+// PERF-5): its files are taken out of `saved`, which holds none after. Where the session changed
+// since, it goes on as it is and adopts nothing. `{"ok": {"adopted": bool}}` or `{"error"}`.
+//
+// # Safety
+// `session` is a live handle, on its own thread; `snapshot` one from [`scaena_snapshot_new`];
+// `saved` one from [`scaena_snapshot_save`].
+char *scaena_adopt_since(struct ScaenaSession *session,
+                         const struct ScaenaSnapshot *snapshot,
+                         struct ScaenaSaved *saved);
 
 // Let go of a save.
 //
