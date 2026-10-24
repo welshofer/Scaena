@@ -98,7 +98,7 @@ try {
   await showState("budget");
   await suggestedFor("budget", "figure");
   const shown = await buttons();
-  const best = "figure,map,bar-chart,line-chart,positioning-map,venn,panorama,metric-trend,narrow-figure";
+  const best = "figure,map,bar-chart,venn,line-chart,positioning-map,panorama,metric-trend,narrow-figure";
   check(shown.map((b) => b.layout).join() === best, `best first: ${shown.map((b) => b.layout).join(", ")}`);
   check(shown[0]?.pressed === "true" && shown.slice(1).every((b) => b.pressed === "false"), "the layout it takes now is pressed");
   check(

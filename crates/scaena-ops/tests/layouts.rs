@@ -25,9 +25,9 @@ fn a_state_is_offered_each_layout_that_draws_it_otherwise_judged_by_lint_best_fi
             "figure",
             "map",
             "bar-chart",
+            "venn",
             "line-chart",
             "positioning-map",
-            "venn",
             "panorama",
             "metric-trend",
             "narrow-figure"
@@ -45,8 +45,8 @@ fn a_state_is_offered_each_layout_that_draws_it_otherwise_judged_by_lint_best_fi
     // fewest empty stands for the rest: Map, and Positioning Map.
     assert_eq!(suggested[1].layout, "map");
     assert_eq!(suggested[1].alike, ["two-figures", "pictograph"]);
-    assert_eq!(suggested[4].layout, "positioning-map");
-    assert_eq!(suggested[4].alike, ["risk-matrix"]);
+    assert_eq!(suggested[5].layout, "positioning-map");
+    assert_eq!(suggested[5].alike, ["risk-matrix"]);
     for other in &suggested[1..] {
         assert!(!other.current && other.errors > 0, "{other:?}");
         assert!(other.alike.is_empty() || ["map", "positioning-map"].contains(&other.layout.as_str()), "{other:?}");
