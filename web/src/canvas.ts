@@ -2735,6 +2735,36 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     });
   }
 
+  /** Make Code, Not Code, or Tidy Code on text `node` (PLAN 2.139): one patch, one step to undo,
+   * the text still selected. */
+  function coded(node: string, how: "code" | "prose" | "tidy") {
+    if (locks([node], how === "code" ? "is made code" : how === "prose" ? "is made words again" : "is tidied")) {
+      return Promise.resolve();
+    }
+    return inTurn(async () => {
+      const shown = editor.shown();
+      if (!shown) return editor.say(WAITING);
+      const name = Called(node);
+      const [doing, done, not] = {
+        code: ["Making code…", `${name} made code`, "Not made code"],
+        prose: ["Making words…", `${name} made words again`, "Not made words"],
+        tidy: ["Tidying the code…", `${name} tidied`, "Not tidied"],
+      }[how];
+      try {
+        const patch =
+          how === "code"
+            ? await stage.coding(editor.source(), node)
+            : how === "prose"
+              ? await stage.uncoding(editor.source(), node)
+              : await stage.tidying(editor.source(), shown.state, node);
+        if (!patch.length) return editor.say(`${name} is tidy already`);
+        await change(patch, doing, done, node);
+      } catch (e) {
+        editor.say(`${not}: ${said(e)}`);
+      }
+    });
+  }
+
   /** What is selected in a new group where it stands (PLAN 2.43): one patch, the group selected. */
   function group() {
     return inTurn(async () => {
@@ -4467,6 +4497,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     connect,
     /** Draw a text's lines as a diagram in its place (PLAN 2.110). */
     diagram,
+    coded,
     /** Pick the focal point of the image selected with the next press on it, as the inspector's
      * Pick does; and a file dropped on the canvas: a picture on an image, put in its place (PLAN
      * 2.45), else inserted there, and data attached as a source with a chart of it there. */

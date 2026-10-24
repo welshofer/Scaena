@@ -94,7 +94,7 @@ pub struct Laid<'a> {
 /// boxes stand under the nearest shallower line above them. The boxes are filled with the theme's
 /// accent (a hierarchy's below its top with `surface-2`), their words in `body`, centered, shrunk
 /// to fit, in the color that reads on the fill. Refused for a node that is no text, or a shape's
-/// words, for one that is locked or held by what is (PLAN 2.95), which nothing deletes, and for
+/// words, for code (PLAN 2.139), for one that is locked or held by what is (PLAN 2.95), which nothing deletes, and for
 /// lines a diagram of `kind` cannot draw: one step, a cycle of two, more steps than fit, or a
 /// hierarchy with no line under another. `files` is the bundle's, which the patch is made on.
 ///
@@ -123,6 +123,11 @@ pub fn diagramming(
     }
     if scaena_core::tracking::words_of(deck, found).is_some() {
         return Err(OpsError::new(format!("`{node}` is a shape's words: a diagram is drawn from a text of its own")));
+    }
+    if props.get("code").is_some_and(Value::is_object) {
+        return Err(OpsError::new(format!(
+            "`{node}` is code: its lines are code's, not a diagram's steps (PLAN 2.139)"
+        )));
     }
     // The text goes, and nothing deletes what is locked, or held by what is (PLAN 2.95).
     let parent_of = |id: &str| snap.nodes.get(id)?.get("at")?.get("parent")?.as_str();
