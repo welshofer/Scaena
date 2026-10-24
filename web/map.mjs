@@ -153,7 +153,7 @@ try {
   check(await back(nearer), "and redo puts it back");
 
   // 4. Downloaded: the picture kept, no key. Exported as one file and opened offline: it draws.
-  const [download] = await Promise.all([page.waitForEvent("download"), page.click("#download")]);
+  const [download] = await Promise.all([page.waitForEvent("download"), page.click("#file-open").then(() => page.click("#download"))]);
   const zip = await readFile(await download.path());
   const asset = nearer.match(/"(assets\/[0-9a-f]{64}\.png)"/)?.[1];
   check(!!asset && zip.includes(Buffer.from(asset.replace(/^assets\//, ""))) && !zip.includes(Buffer.from("map-test-key")), `the download keeps the map's picture and no key: ${asset}`);

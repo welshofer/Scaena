@@ -14,9 +14,17 @@ type Client = RunningService<RoleClient, ClientConfig>;
 /// in a project (a tool reads a theme only under it, SPEC §7.2), and a client talking to it
 /// on its stdio.
 async fn serve() -> (Client, tokio::process::Child) {
+    serve_in(&Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")).await
+}
+
+/// `scaena mcp` started in `dir`, the project a test makes its bundles in: the server writes
+/// only under the folder it works in, which `CARGO_TARGET_TMPDIR` is not, wherever the target
+/// is kept (SPEC §7.2).
+async fn serve_in(dir: &Path) -> (Client, tokio::process::Child) {
+    std::fs::create_dir_all(dir).unwrap();
     let mut child = tokio::process::Command::new(env!("CARGO_BIN_EXE_scaena"))
         .arg("mcp")
-        .current_dir(Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
+        .current_dir(dir)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .spawn()
@@ -55,10 +63,9 @@ async fn an_agent_fixes_what_lint_finds_then_renders() {
     let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join("mcp-agent-loop");
     let _ = std::fs::remove_dir_all(&dir);
     let bundle = dir.join("deck").to_str().unwrap().to_string();
-    let (client, mut child) = serve().await;
+    let (client, mut child) = serve_in(&dir).await;
 
-    let theme = "docs/examples/themes/dusk.theme.json";
-    let made = ok(&client, "deck_create", json!({ "bundle": bundle, "theme": theme, "title": "Loop" })).await;
+    let made = ok(&client, "deck_create", json!({ "bundle": bundle, "theme": "dusk", "title": "Loop" })).await;
     assert_eq!(made["created"], true, "{made:#}");
     let ops = json!([
         { "op": "add", "path": "/states/0/layout", "value": "agenda-photo" },
@@ -100,10 +107,12 @@ async fn deck_create_takes_every_theme_in_the_registry_by_its_name() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let registry: Value =
         serde_json::from_slice(&std::fs::read(root.join("docs/themes/registry.json")).unwrap()).unwrap();
-    let (client, _child) = serve().await;
+    let made_in = Path::new(env!("CARGO_TARGET_TMPDIR")).join("mcp-registry");
+    let _ = std::fs::remove_dir_all(&made_in);
+    let (client, _child) = serve_in(&made_in).await;
     for theme in registry["themes"].as_array().unwrap() {
         let slug = theme["slug"].as_str().unwrap();
-        let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("mcp-registry-{slug}"));
+        let dir = made_in.join(slug);
         let _ = std::fs::remove_dir_all(&dir);
         let made = ok(&client, "deck_create", json!({ "bundle": dir, "theme": slug, "title": "Field notes" })).await;
         assert_eq!(made["errors"], 0, "{slug}: {made:#}");

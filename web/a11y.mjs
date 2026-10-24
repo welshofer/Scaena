@@ -192,19 +192,21 @@ try {
   await editor.waitForSelector("#look .fields", { timeout: 30000 }).catch(() => {});
   check((await editor.locator("#look select").count()) > 0, "the inspector shows the title's look to choose");
   await audit(editor, "the editor, a node's look in its inspector");
-  // Open .scaena… is reached by Tab, and Enter on it opens the file picker. The wait for the
-  // picker starts before the first Tab: Playwright only catches a file chooser once its waiting
-  // has turned interception on, which it does asynchronously, and a picker opened before that
-  // passes it by.
+  // Open .scaena… is reached by the keys: Enter on File opens its menu (lift-up ATTR-5), ↓ moves
+  // to it, and Enter on it opens the file picker. The wait for the picker starts before the first
+  // key: Playwright only catches a file chooser once its waiting has turned interception on, which
+  // it does asynchronously, and a picker opened before that passes it by.
   const chooser = editor.waitForEvent("filechooser", { timeout: 5000 }).catch(() => null);
-  await editor.focus("#new-deck");
-  let reached;
-  for (let i = 0; i < 6 && reached !== "open-scaena" && reached !== "save"; i++) {
-    await editor.keyboard.press("Tab");
+  await editor.focus("#file-open");
+  await editor.keyboard.press("Enter");
+  let reached = await editor.evaluate(() => document.activeElement?.id);
+  for (let i = 0; i < 6 && reached !== "open-scaena" && reached !== "download"; i++) {
+    await editor.keyboard.press("ArrowDown");
     reached = await editor.evaluate(() => document.activeElement?.id);
   }
   if (reached === "open-scaena") await editor.keyboard.press("Enter");
-  check(reached === "open-scaena" && (await chooser) !== null, `Open .scaena… is reached by Tab, and Enter opens the file picker: ${reached}`);
+  check(reached === "open-scaena" && (await chooser) !== null, `Open .scaena… is reached from File by the keys, and Enter opens the file picker: ${reached}`);
+  await editor.keyboard.press("Escape");
   const source = await editor.evaluate(() => window.scaena.source());
   const long = "Revenue doubled, and then some, as Pro grew three times faster than Core in every quarter";
   await editor.evaluate((t) => window.scaena.type(t), source.replace('"Revenue doubled"', `"${long}"`));
