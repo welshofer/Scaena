@@ -205,15 +205,25 @@ const mostHelpers = (() => {
   return Number.isInteger(n) && n >= 0 ? n : Number.POSITIVE_INFINITY;
 })();
 
-/** How long a worker that failed outside a message has to answer a `ping` before it is taken to
- * have died (lift-up 10-24b STAB-2), ms. */
-const PROBE = 3000;
+/** How long a worker that failed outside a message has to say anything at all before it is taken
+ * to have died (lift-up 10-24b STAB-2), ms: one task of a live worker, a large deck's whole lint
+ * or a PDF's preparation, holds it for seconds. */
+export const PROBE = 20000;
 
 /** How a page starts the engine: a worker, and the engine's module, compiled, if the page
  * carries it, as a single-file export does (PLAN 2.5). A worker without it loads its own. */
 export interface Engine {
   spawn: () => Worker;
   module?: WebAssembly.Module;
+}
+
+/** Whether `listen` hears anything within `within` ms: `listen` is handed what to call on each
+ * thing heard (lift-up 10-24b STAB-2). */
+export function lives(within: number, listen: (heard: () => void) => void): Promise<boolean> {
+  return new Promise((resolve) => {
+    const late = setTimeout(() => resolve(false), within);
+    listen(() => (clearTimeout(late), resolve(true)));
+  });
 }
 
 export class Stage {
@@ -234,6 +244,9 @@ export class Stage {
    * which went with it, each by the name it was dropped as, where it was. A page that does not
    * start the stage again (`restart`) hears an error. */
   onDied: (death: { message: string; lost: string[] }) => void = (death) => this.onError(new Error(`the engine stopped: ${death.message}`));
+  /** Called on each message the worker sends, while a worker that failed is asked whether it
+   * lives. */
+  private heard?: () => void;
   /** The formats beside the canvas are painted: `state`, `t` ms into its cue (PLAN 2.62). */
   onBesides: (state: string, t: number) => void = () => {};
   /** Called as the canvas's attributes change: `size`, which frames are painted at from then
@@ -276,7 +289,10 @@ export class Stage {
   }
 
   private hear(worker: Worker) {
-    worker.onmessage = ({ data }: MessageEvent<FromWorker>) => this.listen(data);
+    worker.onmessage = ({ data }: MessageEvent<FromWorker>) => {
+      if (worker === this.worker) this.heard?.();
+      this.listen(data);
+    };
     worker.onerror = (e) => void this.failed(worker, e.message || "the worker failed");
     // A message that could not be read leaves the request it answered waiting: each waiting is
     // refused, and the worker, which still answers, is kept.
@@ -299,14 +315,17 @@ export class Stage {
     this.onDied({ message, lost });
   }
 
-  /** Whether the worker answers a `ping` within `PROBE` ms. */
+  /** Whether the worker says anything within `PROBE` ms: an answer to anything, or to a `ping`,
+   * which it answers once the task it is in ends. */
   private probe(): Promise<boolean> {
     const id = ++this.asked;
-    return new Promise((resolve) => {
-      const late = setTimeout(() => (this.waiting.delete(id), resolve(false)), PROBE);
-      const heard = () => (clearTimeout(late), this.waiting.delete(id), resolve(true));
+    return lives(PROBE, (heard) => {
+      this.heard = heard;
       this.waiting.set(id, { resolve: heard, reject: heard });
       this.send({ type: "ping", id });
+    }).finally(() => {
+      this.heard = undefined;
+      this.waiting.delete(id);
     });
   }
 
@@ -1290,10 +1309,11 @@ export class Stage {
     for (const { reject } of waiting) reject(error);
   }
 
-  /** Fail outside a message and answer nothing more, as a worker out of memory does, to test the
-   * page's recovery (lift-up 10-24b STAB-2). */
-  die() {
-    this.send({ type: "die" });
+  /** Fail outside a message and answer nothing more, as a worker out of memory does, or nothing
+   * for `busy` ms, as a live one in a long task does, to test the page's recovery (lift-up 10-24b
+   * STAB-2). */
+  die(busy?: number) {
+    this.send({ type: "die", busy });
   }
 
   /** Panic in the engine, to test the page's recovery (lift-up STAB-2): the editor's module alone

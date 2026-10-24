@@ -231,15 +231,17 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         return await open(data.source, data.painter, data.canvas, data.engine);
       case "trap":
         return player.trap();
-      case "die":
-        // An error outside the message, then a worker that answers nothing more.
+      case "die": {
+        // An error outside the message, then one task that answers nothing, for good or `busy` ms.
         setTimeout(() => {
-          throw new Error("the worker died, as asked, to test the editor's recovery");
+          throw new Error(`the worker ${data.busy === undefined ? "died" : "failed"}, as asked, to test the editor's recovery`);
         });
+        const until = data.busy;
         setTimeout(() => {
-          for (;;);
+          for (const end = performance.now() + (until ?? Number.POSITIVE_INFINITY); performance.now() < end; );
         });
         return;
+      }
       case "briefing": {
         await init(data.engine && { module_or_path: data.engine });
         const { choices } = await import("@scaena/generate");

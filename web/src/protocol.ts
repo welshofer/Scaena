@@ -993,9 +993,10 @@ export type ToWorker =
   /** Whether the worker still answers (lift-up 10-24b STAB-2): `pong`, even from an engine
    * stopped. */
   | { type: "ping"; id: number }
-  /** Fail outside any message and answer nothing after, as a worker out of memory does, to test
-   * the page's recovery from a worker that died (lift-up 10-24b STAB-2). */
-  | { type: "die" }
+  /** Fail outside any message, then answer nothing, as a worker out of memory does, to test the
+   * page's recovery from a worker that died (lift-up 10-24b STAB-2): for good, or, with `busy`,
+   * for that many ms of one task, as a worker that lives through it does, then answer again. */
+  | { type: "die"; busy?: number }
   | { type: "generate"; generate: Generate; engine?: WebAssembly.Module }
   /** The outline as the person settled it (narrative FUNC-1): the slides are written to it. */
   | { type: "storySettled"; outline: StoryOutline }

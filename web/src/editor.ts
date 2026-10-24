@@ -3055,8 +3055,9 @@ async function edit(source: Source, opened?: Stage) {
       where: () => ({ name, where, dirty: dirty() }),
       /** Panic in the engine, for a test (lift-up STAB-2), and how many times it was started again. */
       crash: () => stage.trap(),
-      /** The worker dies outside a message, for a test (lift-up 10-24b STAB-2). */
-      die: () => stage.die(),
+      /** The worker dies outside a message, or fails and is busy `busy` ms, for a test (lift-up
+       * 10-24b STAB-2). */
+      die: (busy?: number) => stage.die(busy),
       restarts: () => restarts,
       /** The recovery copy kept now, for a test (lift-up REL-4). */
       keepCopy,
