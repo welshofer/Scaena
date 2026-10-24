@@ -115,6 +115,7 @@ async fn the_tools_and_resources_are_listed() {
             "deck_read",
             "deck_render",
             "icon_find",
+            "image_add",
             "map_fetch",
             "spine_read",
             "spine_update",
@@ -172,6 +173,43 @@ async fn the_resources_say_how_long_to_keep_them() {
         assert_eq!(read.ttl_ms.zip(read.cache_scope), hints, "{lifecycle:?}: resources/read");
         client.cancel().await.unwrap();
     }
+}
+
+/// A picture the user hands an agent goes into the bundle and onto the slide (lift-up 10-24b
+/// FUNC-5): at a box, described; then one past 8192 px a side, made smaller as the browser and
+/// the Mac make one, in its place. A dry run writes nothing.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_agent_puts_a_picture_it_is_handed_on_a_slide() {
+    let root = scratch("picture");
+    let client = connect_in(&root).await;
+    let dir = root.join("logo");
+    let bundle = path(&dir);
+    ok(&client, "deck_create", json!({ "bundle": bundle, "theme": "dusk", "title": "Logo" })).await;
+    let logo = root.join("logo.png");
+    std::fs::copy("../../tests/fixtures/maps/map.png", &logo).unwrap();
+    let asked = json!({ "bundle": bundle, "file": path(&logo), "at": [80, 80, 480, 270], "alt": "The logo" });
+    let added = ok(&client, "image_add", asked).await;
+    assert_eq!(added["applied"], true, "{added:#}");
+    assert_eq!(added["node"], "picture");
+    let src = added["src"].as_str().unwrap().to_string();
+    assert!(src.starts_with("assets/") && dir.join(&src).is_file(), "{added:#}");
+    // Too large to take as it is: made smaller, its proportions kept, as a PNG.
+    let big = root.join("banner.png");
+    let wide = scaena_paint::Raster { width: 9000, height: 30, rgba: vec![200; 9000 * 30 * 4] };
+    std::fs::write(&big, wide.to_png_fast().unwrap()).unwrap();
+    let dry = json!({ "bundle": bundle, "file": path(&big), "into": "picture", "dry_run": true });
+    let tried = ok(&client, "image_add", dry).await;
+    assert_eq!(tried["applied"], false, "{tried:#}");
+    assert!(!dir.join(tried["src"].as_str().unwrap()).exists(), "a dry run writes nothing");
+    let put = ok(&client, "image_add", json!({ "bundle": bundle, "file": path(&big), "into": "picture" })).await;
+    assert_eq!((put["applied"].as_bool(), put["said"].as_str()), (Some(true), Some("Picture put in the image")), "{put:#}");
+    let made = std::fs::read(dir.join(put["src"].as_str().unwrap())).unwrap();
+    let seen = scaena_engine::images::Picture::read(&made).unwrap();
+    assert_eq!((seen.width, seen.height), (8192, 27), "made smaller, its proportions kept");
+    assert!(put["src"].as_str().unwrap().ends_with(".png"));
+    // A file outside where this server reads is not read.
+    let outside = call(&client, "image_add", json!({ "bundle": bundle, "file": "/etc/hostname", "at": [0, 0, 10, 10] })).await;
+    assert_eq!(outside.is_error, Some(true));
 }
 
 #[tokio::test(flavor = "multi_thread")]

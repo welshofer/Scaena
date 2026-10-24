@@ -280,7 +280,7 @@ pub fn place(b: &Bundle, target: &Target, fetch: &Fetch) -> Result<Placed, OpsEr
 }
 
 /// Node `node`'s props as `state` shows them, its overrides last; none where it shows none.
-fn shown_props(b: &Bundle, state: Option<&str>, node: &str) -> Result<Option<scaena_core::document::Props>, OpsError> {
+pub(crate) fn shown_props(b: &Bundle, state: Option<&str>, node: &str) -> Result<Option<scaena_core::document::Props>, OpsError> {
     let snaps = scaena_core::resolve_states(&b.deck).context("tracking")?;
     let snap = match state {
         Some(s) => snaps.iter().find(|x| x.state_id == s),
@@ -292,7 +292,7 @@ fn shown_props(b: &Bundle, state: Option<&str>, node: &str) -> Result<Option<sca
 }
 
 /// Node `node`'s box at rest in `state`, canvas units.
-fn box_of(
+pub(crate) fn box_of(
     b: &Bundle,
     theme: &scaena_engine::theme::Theme,
     state: &str,
@@ -306,7 +306,7 @@ fn box_of(
 }
 
 /// The first of `base`, `base-2`, `base-3`, … that names no node of `deck`.
-fn fresh(deck: &scaena_core::Deck, base: &str) -> String {
+pub(crate) fn fresh(deck: &scaena_core::Deck, base: &str) -> String {
     (1..)
         .map(|n| if n == 1 { base.to_string() } else { format!("{base}-{n}") })
         .find(|id| !deck.nodes.contains_key(id))

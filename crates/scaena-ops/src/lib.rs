@@ -36,6 +36,7 @@ pub mod maps;
 #[cfg(feature = "narrato")]
 pub mod narrative;
 pub mod patch;
+pub mod pictures;
 pub mod read;
 pub mod render;
 pub mod scripts;
