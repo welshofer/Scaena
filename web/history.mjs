@@ -20,7 +20,7 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { dirname, join } from "node:path";
 import initHistory, { changes } from "../crates/scaena-history/pkg/scaena_history.js";
-import { launch, serve } from "./serve.mjs";
+import { launch, serve, tab } from "./serve.mjs";
 
 const failures = [];
 const check = (ok, what) => {
@@ -131,7 +131,7 @@ try {
   check((await type(page, source.replace('"Revenue doubled"', '"Revenue more than doubled"'))).valid, "the user types an edit");
 
   // The assistant renames the title.
-  await page.click("#tab-assistant");
+  await tab(page, "assistant");
   await page.selectOption("#provider", "anthropic");
   await page.fill("#base", provider);
   await page.fill("#key", "anthropic-test-key");

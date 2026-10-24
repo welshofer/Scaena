@@ -351,6 +351,21 @@ pub unsafe extern "C" fn scaena_lint_laid(
     }))
 }
 
+/// The narrative health of `laying`'s deck (PLAN G.9), as `health` gives the session's:
+/// `{"ok": health}`. Read on the thread that calls it, which touches no session, so the Story
+/// panel's reading of a deck as it is typed leaves the window's thread free (lift-up narrative
+/// PERF-1). It lays nothing out, and may be read before or after [`scaena_laying_lay`].
+///
+/// # Safety
+/// `laying` is a live handle from [`scaena_laying_new`], used by one thread at a time.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn scaena_laying_health(laying: *mut ScaenaLaying) -> *mut c_char {
+    envelope(guarded(|| {
+        let laying = unsafe { handle(laying, "laying") }?;
+        serde_json::to_value(scaena_ops::health::health(laying.0.deck()).map_err(said)?).map_err(said)
+    }))
+}
+
 /// Free a laying.
 ///
 /// # Safety

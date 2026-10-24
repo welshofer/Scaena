@@ -99,6 +99,12 @@ impl Laying {
     pub fn laid(&self) -> bool {
         self.laid.is_some()
     }
+
+    /// The deck taken: what its narrative health is read from away from the session, as its
+    /// lint is laid out (lift-up narrative PERF-1).
+    pub fn deck(&self) -> &Deck {
+        &self.deck
+    }
 }
 
 /// A [`Laying`] goes to another thread and back: it shares nothing with the session that a
