@@ -1,0 +1,342 @@
+Attributes: Application, 0x118d0f840, pid: 37379, label: 'Scaena'
+Element subtree:
+ →Application, 0x118d0f840, pid: 37379, label: 'Scaena'
+    Window (Main), 0x118d0f980, {{0.0, 0.0}, {1376.0, 1032.0}}
+      Other, 0x118d0fac0, {{0.0, 0.0}, {1376.0, 1032.0}}
+        Other, 0x118d0fc00, {{0.0, 0.0}, {1376.0, 1032.0}}
+          Other, 0x118d0fd40, {{0.0, 0.0}, {1376.0, 1032.0}}
+            Other, 0x118d0fe80, {{0.0, 0.0}, {1376.0, 1032.0}}
+              Other, 0x118cff700, {{0.0, 0.0}, {1376.0, 1032.0}}
+                Other, 0x118cff5c0, {{0.0, 0.0}, {1376.0, 1032.0}}
+                  Other, 0x118cff480, {{0.0, 0.0}, {1376.0, 1032.0}}
+                    Other, 0x116ff7c00, {{0.0, 0.0}, {1376.0, 1032.0}}
+                      Button, 0x116ff7980, {{649.0, 506.0}, {78.0, 20.5}}, label: 'New Deck'
+                      Button, 0x118cb5e00, {{607.5, 506.0}, {161.0, 20.5}}, label: 'New from a Prompt…'
+                      Other, 0x118cb5cc0, {{0.0, 0.0}, {1376.0, 1032.0}}
+                        Other, 0x118cb2940, {{0.0, 0.0}, {1376.0, 1032.0}}
+                          Other, 0x118cb0f00, {{0.0, 0.0}, {1376.0, 1032.0}}
+                            Other, 0x118cb0280, {{0.0, 0.0}, {1376.0, 1032.0}}
+                          Other, 0x118cb1680, {{0.0, 0.0}, {1376.0, 1032.0}}
+                            Other, 0x118cb2f80, {{0.0, 0.0}, {1376.0, 1032.0}}
+                              Other, 0x118cb2e40, {{0.0, 0.0}, {1376.0, 1032.0}}
+                                Other, 0x118cb3ac0, {{0.0, 0.0}, {1376.0, 1032.0}}
+                                  Other, 0x118cb2800, {{213.0, 144.0}, {750.0, 868.0}}
+                                  Other, 0x118cb3340, {{413.0, 144.0}, {750.0, 868.0}}
+                              Other, 0x118cb3200, {{0.0, 0.0}, {1376.0, 1032.0}}
+                              Other, 0x118cb0140, {{313.0, 88.0}, {750.0, 868.0}}
+                                Other, 0x118cb1e00, {{313.0, 88.0}, {750.0, 868.0}}
+                                  StaticText, 0x118cb2300, {{529.0, 173.0}, {318.0, 115.0}}, label: 'Scaena'
+                                  Button, 0x118cb1400, {{548.0, 324.0}, {280.0, 50.5}}, label: 'New Deck'
+                                    StaticText, 0x118cb35c0, {{647.5, 339.0}, {80.5, 20.5}}, label: 'New Deck'
+                                  Button, 0x118cb3700, {{548.0, 386.5}, {280.0, 50.5}}, label: 'New from a Prompt…'
+                                    StaticText, 0x118cb1040, {{603.5, 401.5}, {168.5, 20.5}}, label: 'New from a Prompt…'
+                            Other, 0x118cb2580, {{0.0, 0.0}, {1376.0, 1032.0}}
+                              Other, 0x118cb1540, {{-1376.0, -1032.0}, {4128.0, 3096.0}}
+                              Other, 0x118cb3c00, {{0.0, 0.0}, {1376.0, 1032.0}}
+                                Other, 0x118cb3d40, {{0.0, 0.0}, {1376.0, 1032.0}}
+                                  Other, 0x118cb0dc0, {{0.0, 0.0}, {1376.0, 1032.0}}
+                                    Other, 0x118cb2440, {{0.0, 0.0}, {1376.0, 1032.0}}
+                                      Other, 0x118cb0a00, {{0.0, 0.0}, {1376.0, 1032.0}}
+                                        Other, 0x118cb0c80, {{0.0, 0.0}, {1376.0, 1032.0}}
+                                          Other, 0x118cb0780, {{0.0, 0.0}, {1376.0, 1032.0}}
+                                          Other, 0x118cb08c0, {{0.0, 0.0}, {1376.0, 1032.0}}
+                                            Other, 0x118cb0640, {{0.0, 0.0}, {1376.0, 1032.0}}
+                                              Other, 0x118cf3e80, {{0.0, 0.0}, {1376.0, 1032.0}}
+                                                Other, 0x118cf35c0, {{0.0, 0.0}, {1376.0, 1032.0}}
+                                                  Other, 0x118cf1f40, {{0.0, 0.0}, {1376.0, 1032.0}}
+                                                    Other, 0x118cf21c0, {{0.0, 0.0}, {1376.0, 1032.0}}
+                                                      Other, 0x118cf2580, {{8.0, 519.9}, {1360.0, 504.1}}
+                                                        Other, 0x118cf2940, {{8.0, 519.9}, {1360.0, 504.1}}
+                                                          Other, 0x118cf2800, {{8.0, 519.9}, {1360.0, 504.1}}
+                                                            Other, 0x118cf26c0, {{8.0, 519.9}, {1360.0, 504.1}}
+                                                              Other, 0x118cf2300, {{8.0, 519.9}, {1360.0, 504.1}}
+                                                                Other, 0x118cf2440, {{8.0, 519.9}, {1360.0, 504.1}}
+                                                                  Other, 0x118cf2080, {{8.0, 519.9}, {1360.0, 504.1}}
+                                                                    Other, 0x118cf2d00, {{8.0, 519.9}, {1360.0, 504.1}}
+                                                                      Other, 0x118cf1680, {{8.0, 519.9}, {1360.0, 504.1}}
+                                                                        Other, 0x118cf1b80, {{8.0, 519.9}, {1360.0, 504.1}}
+                                                                      Other, 0x118cf1e00, {{8.0, 519.9}, {1360.0, 504.1}}
+                                                                      Other, 0x118cf1cc0, {{8.0, 519.9}, {1360.0, 504.1}}
+                                                                        Other, 0x118cf17c0, {{8.0, 519.9}, {1360.0, 504.1}}
+                                                                          Other, 0x118cf1a40, {{8.0, 529.8}, {1360.0, 43.5}}
+                                                                            Button, 0x118cf1900, {{525.2, 533.8}, {55.3, 35.6}}, identifier: 'ToggleSideBar', label: 'Toggle sidebar'
+                                                                            Button, 0x118cf2e40, {{580.5, 533.8}, {94.4, 35.6}}, label: 'Recents'
+                                                                              Button, 0x118cf2bc0, {{580.5, 533.8}, {94.4, 35.6}}, label: 'Recents'
+                                                                            Button, 0x118cf3340, {{674.9, 533.8}, {87.0, 35.6}}, label: 'Shared'
+                                                                              Button, 0x118cf3980, {{674.9, 533.8}, {87.0, 35.6}}, label: 'Shared'
+                                                                            Button, 0x118cf3480, {{761.9, 533.8}, {89.0, 35.6}}, label: 'Browse', Selected
+                                                                              Button, 0x118cf3840, {{761.9, 533.8}, {89.0, 35.6}}, label: 'Browse', Selected
+                                                                        Other, 0x118cf3700, {{8.0, 519.9}, {1360.0, 504.1}}
+                                                                          Other, 0x118cf3200, {{8.0, 519.9}, {1360.0, 504.1}}
+                                                                            Other, 0x118cf2f80, {{8.0, 519.9}, {1360.0, 504.1}}
+                                                                              Other, 0x118cf30c0, {{8.0, 519.9}, {1360.0, 504.1}}, identifier: 'Browse View'
+                                                                                Other, 0x118cf3c00, {{8.0, 519.9}, {1360.0, 504.1}}
+                                                                                  Other, 0x118cf3ac0, {{8.0, 519.9}, {1360.0, 504.1}}
+                                                                                    Other, 0x118cf3d40, {{8.0, 519.9}, {1360.0, 504.1}}
+                                                                                      Other, 0x118cf2a80, {{8.0, 519.9}, {1360.0, 504.1}}
+                                                                                      Other, 0x118cc0a00, {{8.0, 519.9}, {1360.0, 504.1}}, identifier: 'DOC.browsingRoot Source: com.apple.FileProvider.LocalStorage, Title: On My iPad'
+                                                                                        NavigationBar, 0x118cc08c0, {{8.0, 529.8}, {1360.0, 53.4}}, identifier: 'FullDocumentManagerViewControllerNavigationBar'
+                                                                                          Button, 0x118cc0780, {{21.8, 533.8}, {35.6, 35.6}}, identifier: 'DOC.navBarButton.backInHistory', label: 'Back', Disabled
+                                                                                          Button, 0x118cc1a40, {{73.2, 533.8}, {35.6, 35.6}}, identifier: 'DOC.navBarButton.forwardInHistory', label: 'Forward', Disabled
+                                                                                          Button, 0x118cc1400, {{124.6, 541.2}, {57.8, 20.8}}, label: 'Scaena, Actions Menu'
+                                                                                          Button, 0x118cc1040, {{1108.6, 533.8}, {72.6, 35.6}}, label: 'Select'
+                                                                                          Button, 0x118cc1180, {{1201.0, 533.8}, {43.5, 35.6}}, label: 'New Folder'
+                                                                                          Button, 0x118cc0dc0, {{1260.3, 533.8}, {38.5, 35.6}}, identifier: 'DOC.itemCollectionMenuButton.Icons', label: 'Icons'
+                                                                                          Button, 0x118cc0f00, {{1318.6, 533.8}, {35.6, 35.6}}, label: 'Search'
+                                                                                        Other, 0x118cc0b40, {{8.0, 519.9}, {1360.0, 504.1}}
+                                                                                          Other, 0x118cc0c80, {{8.0, 519.9}, {1360.0, 504.1}}
+                                                                                            Other, 0x118cc1e00, {{8.0, 519.9}, {1360.0, 504.1}}
+                                                                                              Other, 0x118cc3840, {{8.0, 519.9}, {1360.0, 504.1}}
+                                                                                                Other, 0x118cc3980, {{8.0, 519.9}, {1360.0, 504.1}}
+                                                                                                  Other, 0x118cc3c00, {{8.0, 519.9}, {1360.0, 504.1}}
+                                                                                                ScrollView, 0x118cc3d40, {{8.0, 519.9}, {1360.0, 504.1}}
+                                                                                                  Other, 0x118cc3e80, {{8.0, 519.9}, {1360.0, 504.1}}
+                                                                                                    Other, 0x118cc3ac0, {{8.0, 519.9}, {1360.0, 117.4}}
+                                                                                                  Other, 0x118cc1f40, {{8.0, 519.9}, {1360.0, 504.1}}
+                                                                                                    Other, 0x118cc3700, {{8.0, 519.9}, {1360.0, 117.4}}
+                                                                                                      Image, 0x118cc35c0, {{-110.6, 407.3}, {1597.2, 225.3}}, identifier: 'AdditionalDimmingOverlay'
+                                                                                                      Other, 0x118cc3480, {{8.0, 519.9}, {1360.0, 53.4}}
+                                                                                                      Other, 0x118cc3340, {{8.0, 519.9}, {1360.0, 117.4}}
+                                                                                                        Other, 0x118cc3200, {{8.0, 519.9}, {1360.0, 117.4}}
+                                                                                                      Other, 0x118cc2580, {{8.0, 519.9}, {1360.0, 117.4}}
+                                                                                                        Other, 0x118cc2080, {{8.0, 519.9}, {1360.0, 117.4}}
+                                                                                                      Other, 0x118cc1cc0, {{8.0, 519.9}, {1360.0, 117.4}}
+                                                                                                        Other, 0x118cc0000, {{8.0, 519.9}, {1360.0, 117.4}}
+                                                                                                        Other, 0x118cc0140, {{8.0, 519.9}, {1360.0, 117.4}}
+                                                                                                  CollectionView, 0x118cc0640, {{8.0, 519.9}, {1360.0, 504.1}}, identifier: 'File View', value: Icon Mode
+                                                                                                    Cell, 0x118cc12c0, {{195.8, 593.1}, {130.5, 187.8}}, identifier: 'Create Document', label: 'Create Document'
+                                                                                                      Other, 0x118cc03c0, {{195.8, 593.1}, {130.5, 187.8}}
+                                                                                                      Other, 0x118cc0500, {{195.8, 593.1}, {130.5, 187.8}}
+                                                                                                        Other, 0x118cc1540, {{219.5, 597.0}, {83.0, 83.0}}
+                                                                                                          Image, 0x118cc1680, {{229.9, 597.0}, {62.3, 83.0}}
+                                                                                                          Other, 0x118cc0280, {{229.9, 597.0}, {62.3, 83.0}}
+                                                                                                        Other, 0x118cc1900, {{198.8, 685.0}, {124.5, 41.0}}
+                                                                                                          StaticText, 0x118cc1b80, {{198.8, 685.0}, {124.5, 19.8}}, label: 'Create Document'
+                                                                                                          StaticText, 0x118cc17c0, {{198.8, 711.7}, {124.5, 14.3}}
+                                                                                                    Cell, 0x118cd1cc0, {{338.1, 593.1}, {130.5, 187.8}}, identifier: 'b1, scaena', label: 'b1, scaena, Today, 4:12 PM, 1.2 MB'
+                                                                                                      Other, 0x118cd1e00, {{338.1, 593.1}, {130.5, 187.8}}
+                                                                                                      Other, 0x118cd3e80, {{338.1, 593.1}, {130.5, 187.8}}
+                                                                                                        Other, 0x118cd1f40, {{361.8, 597.0}, {83.0, 83.0}}
+                                                                                                          Image, 0x118cd2080, {{361.8, 597.0}, {83.0, 83.0}}
+                                                                                                        Other, 0x118cd21c0, {{341.1, 685.0}, {124.5, 55.3}}
+                                                                                                          StaticText, 0x118cd2580, {{341.1, 685.0}, {124.5, 19.8}}, label: 'b1'
+                                                                                                          StaticText, 0x118cd26c0, {{341.1, 707.7}, {124.5, 14.3}}, label: 'Today, 4:12 PM'
+                                                                                                          StaticText, 0x118cd2a80, {{341.1, 726.0}, {124.5, 14.3}}, label: '1.2 MB'
+                                                                                                    Other, 0x118cd0140, {{8.0, 966.7}, {1360.0, 37.6}}
+                                                                                                    Other, 0x118cd03c0, {{1335.4, 583.2}, {29.7, 417.8}}, label: 'Vertical scroll bar, 1 page', value: 0%
+                                                                                                      Other, 0x118cd0a00, {{1362.1, 746.3}, {3.0, 251.5}}
+                                                                                                    Other, 0x118cd0b40, {{1335.4, 583.2}, {29.7, 417.8}}, label: 'Vertical scroll bar, 1 page', value: 0%
+                                                                                                      Other, 0x118cd0640, {{1362.1, 746.3}, {3.0, 251.5}}
+                                                                                                  Other, 0x118cd0c80, {{1177.2, 583.2}, {29.7, 417.8}}, label: 'Vertical scroll bar, 1 page', value: 0%
+                                                                                                    Other, 0x118cd0f00, {{1203.9, 991.1}, {3.0, 6.9}}
+                                                                                                  Other, 0x118cd1680, {{166.1, 971.6}, {1043.7, 29.7}}, label: 'Horizontal scroll bar, 1 page', value: 0%
+                                                                                                    Other, 0x118cd1900, {{1200.0, 998.3}, {6.9, 3.0}}
+                                                                                                  Other, 0x118cd1a40, {{1177.2, 583.2}, {29.7, 417.8}}, label: 'Vertical scroll bar, 1 page', value: 0%
+                                                                                                    Other, 0x118cd1040, {{1203.9, 991.1}, {3.0, 6.9}}
+                                                                                                  Other, 0x118cd1180, {{166.1, 971.6}, {1043.7, 29.7}}, label: 'Horizontal scroll bar, 1 page', value: 0%
+                                                                                                    Other, 0x118cd0dc0, {{1200.0, 998.3}, {6.9, 3.0}}
+                                                                                        Other, 0x118cd1b80, {{8.0, 519.9}, {1360.0, 504.1}}
+                                                                                          Other, 0x118cd17c0, {{8.0, 519.9}, {1360.0, 504.1}}
+                                                                                Other, 0x118cd1540, {{8.0, 519.9}, {1360.0, 504.1}}
+                                                                                  Other, 0x118cd08c0, {{8.0, 519.9}, {1360.0, 504.1}}
+                                                        Other, 0x118cd12c0, {{8.0, 519.9}, {1360.0, 504.1}}
+                                                          Other, 0x118cd1400, {{8.0, 519.9}, {1360.0, 504.1}}
+                                                            Other, 0x118cd0780, {{8.0, 519.9}, {1360.0, 504.1}}
+                                                              Other, 0x118cd2bc0, {{8.0, 519.9}, {1360.0, 504.1}}
+                                                                Other, 0x118cd3340, {{8.0, 519.9}, {1360.0, 504.1}}
+                                                                  Other, 0x118cd3480, {{8.0, 519.9}, {1020.0, 484.3}}
+                                                              Other, 0x118cd0000, {{8.0, 519.9}, {1360.0, 504.1}}
+                                                                Other, 0x118cd0500, {{8.0, 519.9}, {1020.0, 484.3}}
+                                                  Other, 0x118cd3700, {{0.0, 0.0}, {1376.0, 1032.0}}
+                                                    Other, 0x118cd3840, {{0.0, 0.0}, {1376.0, 1032.0}}
+                                                      Other, 0x118cd35c0, {{0.0, 0.0}, {1376.0, 1032.0}}
+                                                  Other, 0x118cd3200, {{0.0, 0.0}, {0.0, 0.0}}
+              Other, 0x118cd2d00, {{0.0, 0.0}, {1376.0, 1032.0}}
+                Other, 0x118cd2e40, {{0.0, 0.0}, {1376.0, 1032.0}}
+      Other, 0x118cd30c0, {{0.0, 0.0}, {1376.0, 1032.0}}
+        Other, 0x118cd2f80, {{0.0, 0.0}, {1376.0, 1032.0}}
+          Other, 0x118cd2800, {{0.0, 0.0}, {1376.0, 1032.0}}
+            Other, 0x118cd2940, {{0.0, 0.0}, {1376.0, 1032.0}}
+              NavigationBar, 0x118cd2440, {{0.0, 32.0}, {1376.0, 54.0}}, identifier: 'New from a Prompt'
+                Other, 0x118cd2300, {{14.0, 36.0}, {76.5, 36.0}}, identifier: 'prompt-cancel', label: 'Cancel'
+                  Other, 0x118d10000, {{14.0, 36.0}, {76.5, 36.0}}
+                    Button, 0x118d10140, {{14.0, 36.0}, {76.5, 36.0}}, identifier: 'prompt-cancel', label: 'Cancel'
+                StaticText, 0x118d10280, {{611.0, 43.5}, {153.5, 21.0}}, label: 'New from a Prompt'
+                Other, 0x118d103c0, {{1264.5, 36.0}, {97.5, 36.0}}, identifier: 'prompt-generate', label: 'Generate'
+                  Other, 0x118d10500, {{1264.5, 36.0}, {97.5, 36.0}}
+                    Button, 0x118d10640, {{1264.5, 36.0}, {97.5, 36.0}}, identifier: 'prompt-generate', label: 'Generate', Disabled
+              Other, 0x118d10780, {{0.0, 0.0}, {1376.0, 1032.0}}
+                Other, 0x118d108c0, {{0.0, 0.0}, {1376.0, 1032.0}}
+                  Other, 0x118d10a00, {{0.0, 0.0}, {1376.0, 1032.0}}
+                    Other, 0x118d10b40, {{0.0, 0.0}, {1376.0, 1032.0}}
+                      CollectionView, 0x118d10c80, {{0.0, 0.0}, {1376.0, 543.0}}
+                        Other, 0x118d10dc0, {{-20.0, -1000.0}, {1416.0, 1419.0}}
+                        Other, 0x118d10f00, {{0.0, 0.0}, {1376.0, 543.0}}
+                        Other, 0x118d11040, {{0.0, 0.0}, {1376.0, 543.0}}
+                        Cell, 0x118d11180, {{20.0, 121.0}, {1336.0, 72.5}}
+                          Other, 0x118d112c0, {{20.0, 121.0}, {1336.0, 72.5}}
+                            Other, 0x118d11400, {{20.0, 121.0}, {1336.0, 72.5}}
+                          Other, 0x118d11540, {{20.0, 121.0}, {1336.0, 72.5}}
+                            Other, 0x118d11680, {{20.0, 121.0}, {1336.0, 72.5}}
+                              Other, 0x118d117c0, {{20.0, 121.0}, {1336.0, 72.5}}
+                                TextField, 0x118d11900, {{40.0, 136.0}, {1296.0, 42.5}}, identifier: 'prompt-topic', placeholderValue: 'A deck about…'
+                                  Other, 0x118d11a40, {{40.0, 154.2}, {1296.0, 21.2}}, label: 'Horizontal scroll bar, 1 page', value: 0%
+                                    Other, 0x118d11b80, {{43.0, 172.5}, {1290.0, 3.0}}
+                        Cell, 0x118d11cc0, {{20.0, 193.5}, {1336.0, 52.0}}
+                          Other, 0x118d11e00, {{20.0, 193.5}, {1336.0, 52.0}}
+                            Other, 0x118d11f40, {{20.0, 193.5}, {1336.0, 52.0}}
+                          Other, 0x118d12080, {{20.0, 193.5}, {1336.0, 52.0}}
+                            Other, 0x118d121c0, {{20.0, 193.5}, {1336.0, 52.0}}
+                              Other, 0x118d12300, {{20.0, 193.5}, {1336.0, 52.0}}
+                                StaticText, 0x118d12440, {{40.0, 209.2}, {71.5, 20.5}}, label: 'Audience'
+                                TextField, 0x118d12580, {{119.5, 208.5}, {1216.5, 22.0}}, placeholderValue: 'Colleagues'
+                        Other, 0x118d126c0, {{40.0, 192.5}, {1296.0, 1.0}}
+                        Cell, 0x118d12800, {{20.0, 245.5}, {1336.0, 52.0}}
+                          Other, 0x118d12940, {{20.0, 245.5}, {1336.0, 52.0}}
+                            Other, 0x118d12a80, {{20.0, 245.5}, {1336.0, 52.0}}
+                          Other, 0x118d12bc0, {{20.0, 245.5}, {1336.0, 52.0}}
+                            Other, 0x118d12d00, {{20.0, 245.5}, {1336.0, 52.0}}
+                              Other, 0x118d12e40, {{20.0, 245.5}, {1336.0, 52.0}}
+                                StaticText, 0x118d12f80, {{40.0, 261.2}, {35.0, 20.5}}, label: 'Goal'
+                                Button, 0x118d130c0, {{40.0, 254.5}, {1296.0, 34.5}}, label: 'Goal, Inform'
+                                  StaticText, 0x118d13200, {{1270.5, 261.5}, {49.5, 20.5}}, label: 'Inform'
+                        Other, 0x118d13340, {{40.0, 244.5}, {1296.0, 1.0}}
+                        Cell, 0x118d13480, {{20.0, 297.5}, {1336.0, 52.0}}
+                          Other, 0x118d135c0, {{20.0, 297.5}, {1336.0, 52.0}}
+                            Other, 0x118d13700, {{20.0, 297.5}, {1336.0, 52.0}}
+                          Other, 0x118d13840, {{20.0, 297.5}, {1336.0, 52.0}}
+                            Other, 0x118d13980, {{20.0, 297.5}, {1336.0, 52.0}}
+                              Other, 0x118d13ac0, {{20.0, 297.5}, {1336.0, 52.0}}
+                                StaticText, 0x118d13c00, {{40.0, 313.2}, {53.0, 20.5}}, label: 'Length'
+                                Button, 0x118d13d40, {{40.0, 306.5}, {1296.0, 34.5}}, identifier: 'prompt-length', label: 'Length, 5–10 slides'
+                                  StaticText, 0x118d13e80, {{1234.0, 313.5}, {86.0, 20.5}}, label: '5–10 slides'
+                        Other, 0x118d14000, {{40.0, 296.5}, {1296.0, 1.0}}
+                        Cell, 0x118d14140, {{20.0, 349.5}, {1336.0, 52.0}}
+                          Other, 0x118d14280, {{20.0, 349.5}, {1336.0, 52.0}}
+                            Other, 0x118d143c0, {{20.0, 349.5}, {1336.0, 52.0}}
+                          Other, 0x118d14500, {{20.0, 349.5}, {1336.0, 52.0}}
+                            Other, 0x118d14640, {{20.0, 349.5}, {1336.0, 52.0}}
+                              Other, 0x118d14780, {{20.0, 349.5}, {1336.0, 52.0}}
+                                StaticText, 0x118d148c0, {{40.0, 365.2}, {53.0, 20.5}}, label: 'Theme'
+                                Button, 0x118d14a00, {{40.0, 358.5}, {1296.0, 34.5}}, label: 'Theme, Dusk'
+                                  StaticText, 0x118d14b40, {{1281.0, 365.5}, {39.0, 20.5}}, label: 'Dusk'
+                        Other, 0x118d14c80, {{40.0, 348.5}, {1296.0, 1.0}}
+                        Other, 0x118d14dc0, {{-20.0, 419.0}, {1416.0, 162.0}}
+                        Cell, 0x118d14f00, {{20.0, 419.0}, {1336.0, 40.5}}
+                          Other, 0x118d15040, {{20.0, 419.0}, {1336.0, 40.5}}
+                          Other, 0x118d15180, {{20.0, 419.0}, {1336.0, 40.5}}
+                            Other, 0x118d152c0, {{20.0, 419.0}, {1336.0, 40.5}}
+                              Other, 0x118d15400, {{20.0, 419.0}, {1336.0, 40.5}}
+                                StaticText, 0x118d15540, {{20.0, 419.0}, {1336.0, 40.5}}, label: 'Written by'
+                        Cell, 0x118d15680, {{20.0, 459.5}, {1336.0, 52.0}}
+                          Other, 0x118d157c0, {{20.0, 459.5}, {1336.0, 52.0}}
+                            Other, 0x118d15900, {{20.0, 459.5}, {1336.0, 52.0}}
+                          Other, 0x118d15a40, {{20.0, 459.5}, {1336.0, 52.0}}
+                            Other, 0x118d15b80, {{20.0, 459.5}, {1336.0, 52.0}}
+                              Other, 0x118d15cc0, {{20.0, 459.5}, {1336.0, 52.0}}
+                                StaticText, 0x118d15e00, {{40.0, 475.2}, {63.5, 20.5}}, label: 'Provider'
+                                Button, 0x118d15f40, {{40.0, 468.5}, {1296.0, 34.5}}, label: 'Provider, Anthropic'
+                                  StaticText, 0x118d16080, {{1245.5, 475.5}, {74.5, 20.5}}, label: 'Anthropic'
+                        Cell, 0x118d161c0, {{20.0, 511.5}, {1336.0, 52.0}}
+                          Other, 0x118d16300, {{20.0, 511.5}, {1336.0, 52.0}}
+                            Other, 0x118d16440, {{20.0, 511.5}, {1336.0, 52.0}}
+                          Other, 0x118d16580, {{20.0, 511.5}, {1336.0, 52.0}}
+                            Other, 0x118d166c0, {{20.0, 511.5}, {1336.0, 52.0}}
+                              Other, 0x118d16800, {{20.0, 511.5}, {1336.0, 52.0}}
+                                Button, 0x118d16940, {{20.0, 511.5}, {1336.0, 52.0}}, label: 'Add an Anthropic Key…'
+                        Other, 0x118d16a80, {{40.0, 510.5}, {1296.0, 1.0}}
+                        Other, 0x118d16bc0, {{1343.0, 86.0}, {30.0, 457.0}}, label: 'Vertical scroll bar, 3 pages', value: 0%
+                          Other, 0x118d16d00, {{1370.0, 533.0}, {3.0, 7.0}}
+                        Other, 0x118d16e40, {{1343.0, 86.0}, {30.0, 457.0}}, label: 'Vertical scroll bar, 3 pages', value: 0%
+                          Other, 0x118d16f80, {{1370.0, 533.0}, {3.0, 7.0}}
+                      Other, 0x118d170c0, {{16.0, 555.0}, {1344.0, 457.0}}, identifier: 'prompt-outline'
+                        StaticText, 0x118d17200, {{16.0, 555.0}, {89.0, 20.5}}, label: 'The outline'
+                        StaticText, 0x118d17340, {{16.0, 583.5}, {621.0, 14.5}}, label: 'Arc: Problem–Solution. Donors know the trail; the talk moves them from the loss to what their gift keeps open.'
+                        TextField, 0x118d17480, {{16.0, 606.0}, {1344.0, 22.0}}, identifier: 'prompt-big-idea', value: A trail is kept by...
+                          Other, 0x118d175c0, {{16.0, 614.0}, {1344.0, 11.0}}, label: 'Horizontal scroll bar, 1 page', value: 0%
+                            Other, 0x118d17700, {{19.0, 622.0}, {1338.0, 3.0}}
+                        CollectionView, 0x118d17840, {{16.0, 636.0}, {1344.0, 333.5}}, identifier: 'prompt-beats'
+                          Other, 0x118d17980, {{-4.0, -31.0}, {1384.0, 1791.0}}
+                          Cell, 0x118d17ac0, {{36.0, 671.0}, {1304.0, 70.0}}
+                            Other, 0x118d17c00, {{36.0, 671.0}, {1304.0, 70.0}}
+                              Other, 0x118d17d40, {{36.0, 671.0}, {1304.0, 70.0}}
+                            Other, 0x118d17e80, {{36.0, 671.0}, {1304.0, 70.0}}
+                              Other, 0x118d18000, {{36.0, 671.0}, {1304.0, 70.0}}
+                                Other, 0x118d18140, {{36.0, 671.0}, {1304.0, 70.0}}
+                                  TextField, 0x118d18280, {{56.0, 686.0}, {1167.5, 16.0}}, identifier: 'prompt-beat-name', placeholderValue: 'The beat's name', value: Problem: Define co...
+                                  StaticText, 0x118d183c0, {{1231.5, 686.8}, {35.5, 14.5}}, label: '1 slide'
+                                  Button, 0x118d18500, {{1275.0, 687.0}, {45.0, 14.5}}, label: 'Remove the beat'
+                                  TextField, 0x118d18640, {{56.0, 704.0}, {1264.0, 22.0}}, identifier: 'prompt-beat-claim', value: The storm took fif...
+                                    Other, 0x118d18780, {{56.0, 712.0}, {1264.0, 11.0}}, label: 'Horizontal scroll bar, 1 page', value: 0%
+                                      Other, 0x118d188c0, {{59.0, 720.0}, {1258.0, 3.0}}
+                          Cell, 0x118d18a00, {{36.0, 741.0}, {1304.0, 70.0}}
+                            Other, 0x118d18b40, {{36.0, 741.0}, {1304.0, 70.0}}
+                              Other, 0x118d18c80, {{36.0, 741.0}, {1304.0, 70.0}}
+                            Other, 0x118d18dc0, {{36.0, 741.0}, {1304.0, 70.0}}
+                              Other, 0x118d18f00, {{36.0, 741.0}, {1304.0, 70.0}}
+                                Other, 0x118d19040, {{36.0, 741.0}, {1304.0, 70.0}}
+                                  TextField, 0x118d19180, {{56.0, 756.0}, {1167.5, 16.0}}, identifier: 'prompt-beat-name', placeholderValue: 'The beat's name', value: Impact: Quantify c...
+                                  StaticText, 0x118d192c0, {{1231.5, 756.8}, {35.5, 14.5}}, label: '1 slide'
+                                  Button, 0x118d19400, {{1275.0, 757.0}, {45.0, 14.5}}, label: 'Remove the beat'
+                                  TextField, 0x118d19540, {{56.0, 774.0}, {1264.0, 22.0}}, identifier: 'prompt-beat-claim', value: Every closed mile ...
+                                    Other, 0x118d19680, {{56.0, 782.0}, {1264.0, 11.0}}, label: 'Horizontal scroll bar, 1 page', value: 0%
+                                      Other, 0x118d197c0, {{59.0, 790.0}, {1258.0, 3.0}}
+                          Other, 0x118d19900, {{1231.5, 740.0}, {88.5, 1.0}}
+                          Cell, 0x118d19a40, {{36.0, 811.0}, {1304.0, 70.0}}
+                            Other, 0x118d19b80, {{36.0, 811.0}, {1304.0, 70.0}}
+                              Other, 0x118d19cc0, {{36.0, 811.0}, {1304.0, 70.0}}
+                            Other, 0x118d19e00, {{36.0, 811.0}, {1304.0, 70.0}}
+                              Other, 0x118d19f40, {{36.0, 811.0}, {1304.0, 70.0}}
+                                Other, 0x118d1a080, {{36.0, 811.0}, {1304.0, 70.0}}
+                                  TextField, 0x118d1a1c0, {{56.0, 826.0}, {1167.5, 16.0}}, identifier: 'prompt-beat-name', placeholderValue: 'The beat's name', value: Existing Approache...
+                                  StaticText, 0x118d1a300, {{1231.5, 826.8}, {35.5, 14.5}}, label: '1 slide'
+                                  Button, 0x118d1a440, {{1275.0, 827.0}, {45.0, 14.5}}, label: 'Remove the beat'
+                                  TextField, 0x118d1a580, {{56.0, 844.0}, {1264.0, 22.0}}, identifier: 'prompt-beat-claim', value: Contract crews can...
+                                    Other, 0x118d1a6c0, {{56.0, 852.0}, {1264.0, 11.0}}, label: 'Horizontal scroll bar, 1 page', value: 0%
+                                      Other, 0x118d1a800, {{59.0, 860.0}, {1258.0, 3.0}}
+                          Other, 0x118d1a940, {{1231.5, 810.0}, {88.5, 1.0}}
+                          Cell, 0x118d1aa80, {{36.0, 881.0}, {1304.0, 70.0}}
+                            Other, 0x118d1abc0, {{36.0, 881.0}, {1304.0, 70.0}}
+                              Other, 0x118d1ad00, {{36.0, 881.0}, {1304.0, 70.0}}
+                            Other, 0x118d1ae40, {{36.0, 881.0}, {1304.0, 70.0}}
+                              Other, 0x118d1af80, {{36.0, 881.0}, {1304.0, 70.0}}
+                                Other, 0x118d1b0c0, {{36.0, 881.0}, {1304.0, 70.0}}
+                                  TextField, 0x118d1b200, {{56.0, 896.0}, {1167.5, 16.0}}, identifier: 'prompt-beat-name', placeholderValue: 'The beat's name', value: Solution: Introduc...
+                                  StaticText, 0x118d1b340, {{1231.5, 896.8}, {35.5, 14.5}}, label: '1 slide'
+                                  Button, 0x118d1b480, {{1275.0, 897.0}, {45.0, 14.5}}, label: 'Remove the beat'
+                                  TextField, 0x118d1b5c0, {{56.0, 914.0}, {1264.0, 22.0}}, identifier: 'prompt-beat-claim', value: Volunteers rebuilt...
+                                    Other, 0x118d1b700, {{56.0, 922.0}, {1264.0, 11.0}}, label: 'Horizontal scroll bar, 1 page', value: 0%
+                                      Other, 0x118d1b840, {{59.0, 930.0}, {1258.0, 3.0}}
+                          Other, 0x118d1b980, {{1231.5, 880.0}, {88.5, 1.0}}
+                          Cell, 0x118d1bac0, {{36.0, 951.0}, {1304.0, 70.0}}
+                            Other, 0x118d1bc00, {{36.0, 951.0}, {1304.0, 70.0}}
+                              Other, 0x118d1bd40, {{36.0, 951.0}, {1304.0, 70.0}}
+                            Other, 0x118d1be80, {{36.0, 951.0}, {1304.0, 70.0}}
+                              Other, 0x118d20000, {{36.0, 951.0}, {1304.0, 70.0}}
+                                Other, 0x118d20140, {{36.0, 951.0}, {1304.0, 70.0}}
+                                  TextField, 0x118d20280, {{56.0, 966.0}, {1159.5, 16.0}}, identifier: 'prompt-beat-name', placeholderValue: 'The beat's name', value: Proof: Case studie...
+                                  StaticText, 0x118d203c0, {{1223.5, 966.8}, {43.5, 14.5}}, label: '2 slides'
+                                  Button, 0x118d20500, {{1275.0, 967.0}, {45.0, 14.5}}, label: 'Remove the beat'
+                                  TextField, 0x118d20640, {{56.0, 984.0}, {1264.0, 22.0}}, identifier: 'prompt-beat-claim', value: Ninety thousand pe...
+                                    Other, 0x118d20780, {{56.0, 992.0}, {1264.0, 11.0}}, label: 'Horizontal scroll bar, 1 page', value: 0%
+                                      Other, 0x118d208c0, {{59.0, 1000.0}, {1258.0, 3.0}}
+                          Other, 0x118d20a00, {{1231.5, 950.0}, {88.5, 1.0}}
+                          Other, 0x118d20b40, {{1327.0, 636.0}, {30.0, 333.5}}, label: 'Vertical scroll bar, 2 pages', value: 0%
+                            Other, 0x118d20c80, {{1354.0, 959.5}, {3.0, 7.0}}
+                          Other, 0x118d20dc0, {{1327.0, 636.0}, {30.0, 333.5}}, label: 'Vertical scroll bar, 2 pages', value: 0%
+                            Other, 0x118d20f00, {{1354.0, 959.5}, {3.0, 7.0}}
+                        Button, 0x118d21040, {{16.0, 984.5}, {83.0, 20.5}}, identifier: 'prompt-add-beat', label: 'Add a Beat'
+                        Button, 0x118d21180, {{107.0, 984.5}, {29.5, 20.5}}, label: 'Edit'
+                        Button, 0x118d212c0, {{905.5, 977.5}, {175.0, 34.5}}, label: 'Arc, Problem–Solution'
+                          StaticText, 0x118d21400, {{917.5, 984.5}, {135.0, 20.5}}, label: 'Problem–Solution'
+                        Button, 0x118d21540, {{1131.0, 984.5}, {101.5, 20.5}}, identifier: 'prompt-outline-again', label: 'Outline Again'
+                        Button, 0x118d21680, {{1240.5, 984.5}, {119.5, 20.5}}, identifier: 'prompt-write', label: 'Write the Slides'
+              Other, 0x118d217c0, {{0.0, 0.0}, {1376.0, 1032.0}}
+                Other, 0x118d21900, {{0.0, 0.0}, {1376.0, 1032.0}}
+Path to element:
+ →Application, 0x118d0f840, pid: 37379, label: 'Scaena'
+Query chain:
+ →Find: Target Application 'com.welshofer.Scaena'
+  Output: {
+    Application, 0x118d21a40, pid: 37379, label: 'Scaena'
+  }
