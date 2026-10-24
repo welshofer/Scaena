@@ -92,6 +92,22 @@ fn said(message: impl std::fmt::Display) -> Failure {
 }
 
 /// `f`'s result, with a panic caught and said.
+/// The stack a call that lays out and lints a deck takes, at most, and the room left on the
+/// caller's stack below which [`deep`] adds a segment of [`DEEP`] for it (#533). A re-theme lints
+/// the deck before and after: some 350 KB of stack on Linux in debug, and more on Apple's arm64,
+/// where a Swift Testing thread holds 512 KB and the iPad's main thread 1 MB. The Mac's main
+/// thread, 8 MB, never needs one.
+const ROOM: usize = 2 << 20;
+const DEEP: usize = 16 << 20;
+
+/// `f` run on the caller's thread, on a stack segment of [`DEEP`] where less than [`ROOM`] of
+/// the caller's own is left: a call of the session's has the room any deck takes to lay out,
+/// whichever thread Swift calls from, and stays on that thread, so what core keeps per thread
+/// (the theme checked, `validate::CHECKED`) is kept from call to call.
+fn deep<T>(f: impl FnOnce() -> T) -> T {
+    stacker::maybe_grow(ROOM, DEEP, f)
+}
+
 fn guarded<T>(f: impl FnOnce() -> Result<T, Failure>) -> Result<T, Failure> {
     match catch_unwind(AssertUnwindSafe(f)) {
         Ok(result) => result,
@@ -552,7 +568,7 @@ pub unsafe extern "C" fn scaena_call(
                 serde_json::from_str(a).map_err(|e| said(format!("{method}: the arguments are not JSON: {e}")))?
             }
         };
-        call(&mut session.0, method, &args)
+        deep(|| call(&mut session.0, method, &args))
     }))
 }
 
@@ -582,7 +598,7 @@ pub unsafe extern "C" fn scaena_tool(
         };
         let author = unsafe { maybe_text(author, "author") }?.unwrap_or("agent");
         let at = unsafe { maybe_text(at, "at") }?.and_then(scaena_session::store::seconds);
-        match session.0.tool(name, args, Caller { author, at }) {
+        match deep(|| session.0.tool(name, args, Caller { author, at })) {
             Ok(called) => {
                 let result: Value = serde_json::from_str(&called.result).map_err(said)?;
                 Ok(json!({ "ok": result, "edited": called.edited }))

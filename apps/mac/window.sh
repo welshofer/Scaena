@@ -45,7 +45,9 @@ function run(argv) {
 JS
 done
 system_profiler SPDisplaysDataType | grep -i resolution || true
-open -a "$app" "$out/trails.scaena"
+# Launched with `-sampleOutline YES`, New from a Prompt… shows an outline as one reads, with no
+# call made (narrative FUNC-1): the step's screen kept below.
+open -a "$app" "$out/trails.scaena" --args -sampleOutline YES
 # The window, its states drawn small, and the canvas painted.
 sleep 15
 screencapture -x "$out/shots/mac-trails.png"
@@ -624,6 +626,11 @@ menu File "New from a Prompt…"
 sleep 3
 shot prompt
 echo "New from a Prompt: the windows $(app 'get name of every window' | tr '\n' ' '); the topic $(frames find prompt-topic), Generate $(frames find prompt-generate)"
+# The outline before the slides (narrative FUNC-1), as the sample shows it: the big idea, each
+# beat's claim, Add a Beat, Outline Again, and Write the Slides.
+echo "the outline: the big idea $(frames find prompt-big-idea), the beats $(frames find prompt-beats), Write the Slides $(frames find prompt-write)"
+[[ "$(frames find prompt-write)" =~ ^-?[0-9]+\ -?[0-9]+\ [0-9]+\ [0-9]+$ ]] || failing "New from a Prompt shows no outline to write the slides from"
+shot prompt-outline
 # Its length a range as it is written, with an en dash, not Narrato's hyphen.
 echo "the length it asks for: $(frames value prompt-length)"
 app 'key code 53' >/dev/null
