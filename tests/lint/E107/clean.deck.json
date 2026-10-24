@@ -1,5 +1,5 @@
 {
-  "scaena": "0.37",
+  "scaena": "0.38",
   "_comment": "E107 clean: the same slide, its picture one that draws.",
   "canvas": {"width": 1920, "height": 1080},
   "theme": "theme.json",
