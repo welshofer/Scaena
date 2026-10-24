@@ -15,7 +15,10 @@
 // - axe-core finds nothing against WCAG 2.1 AA in the marks, the strip, or a mark opened.
 // - In the haiku example, a poem of 5, 8, and 5 is I404, said with its counts, the syllable table
 //   handed to the editor's module (PLAN O.4h).
+// - A picture whose pixels do not decode is E107, with its file and why, and the deck lints whole.
 // Exits 1 on any failure.
+import { readFile } from "node:fs/promises";
+import { crc32 } from "node:zlib";
 import { axeInto, launch, serve } from "./serve.mjs";
 
 const server = await serve();
@@ -194,6 +197,48 @@ try {
     "one of 5, 8, and 5 is, with its counts, the table handed over",
   );
   check(await until(() => window.scaena.canvas.marks().some((m) => m.node === "poem")), "and marked on the poem");
+
+  // A picture whose pixels do not decode (E107): the trails example with its storm photo's
+  // pixel stream damaged, its header whole. The deck lints whole all the same, the photo a
+  // finding with its file and the painter's reason, marked on the photo.
+  const photo = await readFile("docs/examples/assets/trails-ridge.png");
+  const damaged = Buffer.from(photo);
+  const idat = damaged.indexOf("IDAT");
+  const length = damaged.readUInt32BE(idat - 4);
+  damaged.fill(0x55, idat + 6, idat + 4 + length);
+  damaged.writeUInt32BE(crc32(damaged.subarray(idat, idat + 4 + length)), idat + 4 + length);
+  const broken = await browser.newContext({ viewport: { width: 1920, height: 1200 }, deviceScaleFactor: 1 });
+  await broken.route("**/assets/trails-ridge.png", (r) => r.fulfill({ contentType: "image/png", body: damaged }));
+  const undrawn = await broken.newPage();
+  undrawn.on("pageerror", (e) => failures.push(`undrawn: ${e.message}`));
+  await undrawn.goto(`${server.origin}/web/dist/editor.html?painter=cpu&source=open&bundle=/docs/examples/trails.deck.json`);
+  check(
+    await undrawn.waitForFunction(() => window.scaena?.last()?.whole, null, { timeout: 120000 }).then(() => true, () => false),
+    "a deck with a picture that cannot be drawn lints whole",
+  );
+  const e107 = await undrawn.evaluate(() => window.scaena.last().findings.filter((f) => f.code === "E107").map((f) => ({ node: f.node, message: f.message })));
+  check(
+    e107.length === 1 && e107[0].node === "storm-photo" && e107[0].message.includes("assets/trails-ridge.png") && e107[0].message.includes("png:"),
+    `the picture is a finding with its file and why: ${JSON.stringify(e107)}`,
+  );
+  check(!(await undrawn.evaluate(() => document.querySelector("#status").textContent.startsWith("Error"))), "and the status says no error");
+  // The slide is drawn all the same, the photo's box empty: on the canvas, and in the strip.
+  const storm = await undrawn.evaluate(() => window.scaena.opened.states.indexOf("storm"));
+  const stormAt = (await undrawn.evaluate(() => window.scaena.source())).indexOf("state storm") + "state ".length;
+  await undrawn.evaluate((offset) => window.scaena.cursor(offset), stormAt);
+  check(
+    await undrawn
+      .waitForFunction((i) => window.scaena.shown() === i && window.scaena.at().index === i && window.scaena.canvas.boxed() === "storm", storm, { timeout: 30000 })
+      .then(() => true, () => false),
+    "the canvas shows the slide with the picture",
+  );
+  await undrawn.waitForTimeout(1000);
+  check(!(await undrawn.evaluate(() => document.querySelector("#status").textContent.startsWith("Error"))), "drawing it says no error");
+  check(
+    await undrawn.waitForFunction(() => window.scaena.strip.digests().storm, null, { timeout: 30000 }).then(() => true, () => false),
+    "and its thumbnail is painted",
+  );
+  await broken.close();
 } catch (e) {
   failures.push(`error: ${e.message}`);
 } finally {

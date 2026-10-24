@@ -1,0 +1,14 @@
+{
+  "scaena": "0.37",
+  "_comment": "E107 trigger: a picture whose header reads and whose pixels do not decode, under a headline whose contrast is painted over it.",
+  "canvas": {"width": 1920, "height": 1080},
+  "theme": "theme.json",
+  "fonts": [{"family": "Roboto Serif", "file": "fonts/RobotoSerif-VF.ttf"}, {"family": "EB Garamond", "file": "fonts/EBGaramond-VF.ttf"}],
+  "nodes": {
+    "h": {"type": "text", "text": "A field", "at": {"in": "header"}},
+    "pic": {"type": "image", "src": "assets/undrawable.png", "at": {"in": "main"}, "alt": "A blue field."}
+  },
+  "states": [
+    {"id": "a", "layout": "figure", "props": {"h": {}, "pic": {}}}
+  ]
+}
