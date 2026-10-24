@@ -65,7 +65,7 @@ Errors:
    - One state per click. Set `layout`, then only what changes: text, `kind`, `at`, `remove`. Group builds with `slide`.
    - A state tracks the one before it, so a new slide keeps the last slide's nodes on screen unless it lists them in `remove`. Or it may set `mode: "absolute"` and list everything it shows, which keeps each slide self-contained.
    - Leave motion for the `motion-pass` skill, apart from at most one `enter` per new object.
-   - Between slides that share nothing, a slide transition moves each slide whole instead of morphing: `"transition": { "style": "push", "direction": "left", "duration": "standard" }`, `dissolve`, `push`, `cover`, `reveal`, or `wipe` (SPEC §3.9). Keep Magic Move, no `style`, where the slides share what they show.
+   - Between slides that share nothing, a slide transition moves each slide whole instead of morphing: `"transition": { "style": "push", "direction": "left", "duration": "standard" }`, `dissolve`, `push`, `cover`, `reveal`, or `wipe`, or the slide entered through shapes that grow, `circle`, `circleWave`, `diamond`, `diamondWave`, or `radial` (SPEC §3.9). Keep Magic Move, no `style`, where the slides share what they show.
    - Give every state a `hold` if the deck will run on its own (video, a kiosk). A player advances by holds too, so a deck presented live has none.
 5. **Lint loop.**
    - Run `scaena lint <bundle> --json` (`deck_lint`). Fix every error, and take warnings seriously: W300 and W301 mean you reached for pixels, so use a role, slot, or token instead.

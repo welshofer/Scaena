@@ -25,7 +25,7 @@
 // Each step is screenshotted into target/first-deck/, with its time. Exits 1 on any failure.
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { launch, serve } from "./serve.mjs";
+import { addAnimation, insert, inserts, launch, serve } from "./serve.mjs";
 
 const out = "target/first-deck";
 await mkdir(out, { recursive: true });
@@ -217,14 +217,12 @@ try {
   await step("sample-chart", async () => {
     // The deck has no data, and Insert offers a chart and a table all the same, of a few sample
     // rows, as a presentation app does: the chart comes with them, and one undo takes both out.
-    // Each says it is of sample data, as a person reads it at once.
-    await until("a chart offered", () => document.querySelectorAll("#insert optgroup[label=Chart] option").length > 0);
-    const groups = await page.evaluate(() =>
-      Object.fromEntries([...document.querySelectorAll("#insert optgroup")].map((g) => [g.label, [...g.children].map((o) => o.textContent)])),
-    );
-    check(groups.Chart?.includes("Chart (sample data)") && groups.Table?.includes("Table (sample data)"), `a deck with no data offers a chart and a table of sample rows: ${groups.Chart} · ${groups.Table}`);
+    // Each is named by its rows' source in words, as a person names it (PLAN 3.18): Sample.
+    await until("a chart offered", () => window.scaena.inserts().some((i) => i.section === "Chart"));
+    const groups = await inserts(page);
+    check(groups.Chart?.includes("Sample") && groups.Table?.includes("Sample"), `a deck with no data offers a chart and a table of sample rows: ${groups.Chart} · ${groups.Table}`);
     const before = await mark();
-    await page.selectOption("#insert", { label: "Chart (sample data)" });
+    await insert(page, "Sample", "Chart");
     await changed(before);
     const text = await source();
     check(/^data sample\s+inline:\[/m.test(text) && /sample-chart chart:bar data:@sample/.test(text), `the chart comes with its rows: ${await status()}`);
@@ -245,7 +243,7 @@ try {
     await page.click('#starting button[data-start="full"]');
     await changed(before);
     const nodes = await shownNodes();
-    await page.selectOption("#insert", { label: "Body" });
+    await insert(page, "Body");
     await page.waitForFunction((n) => window.scaena.canvas.boxes().length > n, nodes.length, { timeout: 60000 });
     const body = (await shownNodes()).find((n) => !nodes.includes(n));
     await typeInto(body, ["Three trails surveyed", "Two need new bridges", "One closes for winter"]);
@@ -315,13 +313,13 @@ try {
     await showState(0);
     const [x, y] = await middleOf(title);
     await page.mouse.click(x, y);
-    await until("a motion offered for the title", () => document.querySelectorAll("#cue [data-add] option").length > 1);
-    const options = await page.evaluate(() => [...document.querySelectorAll("#cue [data-add] option")].map((o) => [o.value, o.textContent]));
+    await until("a motion offered for the title", () => window.scaena.cue.offers().length > 0);
+    const options = await page.evaluate(() => window.scaena.cue.offers().map((o) => [JSON.stringify(o.value), o.label]));
     // Fade, as it enters, from the theme's builds, which start with Appear.
     const enter = options.find(([v]) => /^\["enter",.*,"fade"\]$/.test(v));
     if (!check(Boolean(enter), `the cue offers a motion for the title: ${options.map((o) => o[1]).join(", ")}`)) return;
     const before = await mark();
-    await page.locator("#cue [data-add]").selectOption(enter[0]);
+    await addAnimation(page, enter[0]);
     await changed(before);
     check(/enter:fade/.test(await source()), `the title fades in: ${await status()}`);
   });

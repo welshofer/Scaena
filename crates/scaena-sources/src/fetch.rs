@@ -123,9 +123,89 @@ pub fn remote(spec: &str) -> Result<Option<Remote>, SourceError> {
         if let Some((kind, id)) = google(spec) {
             return Ok(Some(Remote::Google { kind, id }));
         }
+        public(spec)?;
         return Ok(Some(Remote::Web(spec.to_string())));
     }
     Ok(None)
+}
+
+/// Whether `url` is an address a web source may name: `https`, on a host the public internet
+/// reaches. A host written as an address must be a public one, and `localhost`, a name of one
+/// label, or a loopback, private, link-local, or shared address is refused, so a link handed to
+/// the CLI, the Mac, or the iPad reaches nothing on the user's own machine or network by its name.
+pub fn public(url: &str) -> Result<(), SourceError> {
+    let refused = || SourceError::Unreadable(format!("{url}: a web source is a public https address"));
+    let rest = url.get(..8).filter(|s| s.eq_ignore_ascii_case("https://")).map(|_| &url[8..]).ok_or_else(refused)?;
+    let authority = rest.split(['/', '?', '#', '\\']).next().unwrap_or_default();
+    let authority = authority.rsplit_once('@').map_or(authority, |(_, a)| a);
+    let host = match authority.strip_prefix('[') {
+        Some(v6) => v6.split(']').next().unwrap_or_default(),
+        None => authority.split(':').next().unwrap_or_default(),
+    };
+    let host = host.trim_end_matches('.').to_ascii_lowercase();
+    if let Ok(ip) = host.parse::<std::net::IpAddr>() {
+        return if reached(ip) { Ok(()) } else { Err(refused()) };
+    }
+    let last = host.rsplit('.').next().unwrap_or_default();
+    // A host whose last label is a number is an address however it is written (`127.1`,
+    // `0x7f.0.0.1`), which the resolver reads as one; no top-level domain is a number.
+    let numeric = last.bytes().all(|b| b.is_ascii_digit()) || last.starts_with("0x");
+    if host.is_empty() || !host.contains('.') || host.ends_with(".localhost") || numeric {
+        return Err(refused());
+    }
+    Ok(())
+}
+
+/// Whether the public internet reaches `ip`.
+fn reached(ip: std::net::IpAddr) -> bool {
+    use std::net::IpAddr;
+    match ip {
+        IpAddr::V4(v4) => {
+            let [a, b, ..] = v4.octets();
+            let shared = a == 100 && (64..128).contains(&b);
+            !(v4.is_private()
+                || v4.is_loopback()
+                || v4.is_link_local()
+                || v4.is_unspecified()
+                || v4.is_broadcast()
+                || v4.is_documentation()
+                || v4.is_multicast()
+                || shared
+                || a == 0)
+        }
+        IpAddr::V6(v6) => match v6.to_ipv4_mapped() {
+            Some(v4) => reached(IpAddr::V4(v4)),
+            None => {
+                let first = v6.segments()[0];
+                let local = (first & 0xfe00) == 0xfc00 || (first & 0xffc0) == 0xfe80;
+                !(v6.is_loopback() || v6.is_unspecified() || v6.is_multicast() || local)
+            }
+        },
+    }
+}
+
+/// Where a redirect from `from` to `location` goes, read as a browser reads it, once
+/// [`public`] lets it: a client that follows a plan's redirects itself asks this of each.
+pub fn redirected(from: &str, location: &str) -> Result<String, SourceError> {
+    let location = location.trim();
+    let next = if location.contains("://") {
+        location.to_string()
+    } else {
+        let (scheme, rest) = from.split_once("://").unwrap_or(("https", from));
+        let end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
+        let origin = format!("{scheme}://{}", &rest[..end]);
+        if let Some(net) = location.strip_prefix("//") {
+            format!("{scheme}://{net}")
+        } else if location.starts_with('/') {
+            format!("{origin}{location}")
+        } else {
+            let path = rest[end..].split(['?', '#']).next().unwrap_or_default();
+            let dir = path.rsplit_once('/').map_or("", |(d, _)| d);
+            format!("{origin}{dir}/{location}")
+        }
+    };
+    public(&next)?;
+    Ok(next)
 }
 
 /// A form SEC files: `10-K`, `8-K`, `DEF 14A`, `S-1`.
@@ -500,6 +580,45 @@ mod tests {
             matches!(remote("https://github.com/a/b/tree/main/docs").unwrap(), Some(Remote::GitHub(r)) if r.sub_path.as_deref() == Some("docs"))
         );
         assert_eq!(remote("https://example.com/a").unwrap(), Some(Remote::Web("https://example.com/a".into())));
+        // A web source is a public https address, however the host is written.
+        for refused in [
+            "http://example.com/a",
+            "https://localhost/a",
+            "https://LOCALHOST.:8080/a",
+            "https://api.localhost/a",
+            "https://intranet/a",
+            "https://127.0.0.1/a",
+            "https://127.1/a",
+            "https://0x7f.0.0.1/a",
+            "https://2130706433/a",
+            "https://10.0.0.8/a",
+            "https://192.168.1.1/a",
+            "https://172.16.4.4/a",
+            "https://169.254.169.254/latest/meta-data",
+            "https://100.64.0.1/a",
+            "https://0.0.0.0/a",
+            "https://[::1]/a",
+            "https://[fd00::1]/a",
+            "https://[fe80::1]/a",
+            "https://[::ffff:127.0.0.1]/a",
+            "https://user@127.0.0.1/a",
+            "https://example.com@10.0.0.1/a",
+        ] {
+            let err = remote(refused).expect_err(refused).to_string();
+            assert!(err.contains("a web source is a public https address"), "{refused}: {err}");
+        }
+        assert!(remote("https://93.184.215.14/a").unwrap().is_some());
+        assert!(remote("https://[2606:2800:21f:cb07:6820:80da:af6b:8b2c]/a").unwrap().is_some());
+        // Each redirect a client follows is held to the same.
+        assert_eq!(redirected("https://example.com/a/b?q", "c").unwrap(), "https://example.com/a/c");
+        assert_eq!(redirected("https://example.com/a/b", "/d").unwrap(), "https://example.com/d");
+        assert_eq!(redirected("https://example.com/a", "//cdn.example.org/x").unwrap(), "https://cdn.example.org/x");
+        assert_eq!(
+            redirected("https://example.com/a", "https://www.example.com/").unwrap(),
+            "https://www.example.com/"
+        );
+        assert!(redirected("https://example.com/a", "http://169.254.169.254/").is_err());
+        assert!(redirected("https://example.com/a", "https://localhost/admin").is_err());
         assert_eq!(remote("notes/q3.md").unwrap(), None);
         let id = "1AbC_dEf-GhIjKlMnOp";
         let doc = remote(&format!("https://docs.google.com/document/d/{id}/edit?usp=sharing")).unwrap();

@@ -468,6 +468,21 @@ impl Deck {
     pub fn slide_of<'a>(&self, state: &'a State) -> &'a str {
         state.slide.as_deref().unwrap_or(&state.id)
     }
+
+    /// The deck's slides, in order, each the indices of its states: a slide's first state, then
+    /// each step that names it as its slide. A state naming a slide that no earlier state starts
+    /// is a slide of its own.
+    pub fn slides(&self) -> Vec<Vec<usize>> {
+        let mut out: Vec<(&str, Vec<usize>)> = Vec::new();
+        for (k, state) in self.states.iter().enumerate() {
+            let id = self.slide_of(state);
+            match out.last_mut() {
+                Some((last, states)) if *last == id => states.push(k),
+                _ => out.push((id, vec![k])),
+            }
+        }
+        out.into_iter().map(|(_, states)| states).collect()
+    }
 }
 
 #[cfg(test)]
@@ -475,6 +490,27 @@ mod tests {
     use super::*;
 
     const EXAMPLE: &str = include_str!("../../../docs/examples/revenue.deck.json");
+
+    /// A deck's slides are its states grouped by the slide each names: a step follows the slide
+    /// it builds on, and a state naming a slide no earlier state starts is a slide of its own.
+    #[test]
+    fn a_decks_slides_are_its_states_by_the_slide_each_names() {
+        let deck: Deck = serde_json::from_value(serde_json::json!({
+            "scaena": crate::FORMAT_VERSION,
+            "canvas": { "width": 1920, "height": 1080 },
+            "nodes": {},
+            "states": [
+                { "id": "cover" },
+                { "id": "points" },
+                { "id": "points-2", "slide": "points" },
+                { "id": "points-3", "slide": "points" },
+                { "id": "close" },
+                { "id": "stray", "slide": "points" }
+            ]
+        }))
+        .unwrap();
+        assert_eq!(deck.slides(), [vec![0], vec![1, 2, 3], vec![4], vec![5]]);
+    }
 
     #[test]
     fn example_deck_round_trips() {

@@ -93,8 +93,38 @@ pub fn personas() -> &'static [Persona] {
 
 /// The arc named `name` exactly, else the first (Hero's Journey), as Vzestup falls back.
 pub fn arc(name: &str) -> &'static NarrativeArc {
+    named(name).unwrap_or(&arcs()[0])
+}
+
+/// The arc `name` names, matched as a person or a model writes it (narrative STAB-5): case
+/// aside; a hyphen for an en dash or an arrow; a straight apostrophe for a curly one; the
+/// spaces, slashes, and parentheses as they fall; and by a part, where `name` holds a catalog
+/// name or starts one ("PARL", "the Problem-Solution arc"). Several matched, the longest name
+/// wins, so "Hero's Journey for Change" is not "Hero's Journey". None where no catalog name is
+/// so matched, which the caller says.
+pub fn named(name: &str) -> Option<&'static NarrativeArc> {
     let all = arcs();
-    all.iter().find(|a| a.arc == name).unwrap_or(&all[0])
+    if let Some(exact) = all.iter().find(|a| a.arc == name) {
+        return Some(exact);
+    }
+    let wanted = key(name);
+    if wanted.len() < 4 {
+        return None;
+    }
+    if let Some(same) = all.iter().find(|a| key(&a.arc) == wanted) {
+        return Some(same);
+    }
+    (all.iter())
+        .map(|a| (a, key(&a.arc)))
+        .filter(|(_, k)| wanted.contains(k.as_str()) || k.starts_with(&wanted))
+        .max_by_key(|(_, k)| k.len())
+        .map(|(a, _)| a)
+}
+
+/// `name` as it is compared: its letters and digits alone, lowercase, so punctuation, spacing,
+/// and the kind of dash or apostrophe fall away.
+fn key(name: &str) -> String {
+    name.chars().filter(char::is_ascii_alphanumeric).flat_map(char::to_lowercase).collect()
 }
 
 /// The persona a brief names by id, else the first whose name holds the audience or is held
