@@ -446,32 +446,35 @@ async function look(
 ) {
   const layouts = JSON.stringify((JSON.parse(making.report()) as { layouts: string[] }).layouts);
   const seen = generation.seeing(theme.text, placed, layouts);
-  const drawn = [];
-  for (let i = 0; i < making.count; i++) drawn.push(await jpeg(making.pixels(i, LOOK_WIDTH)));
-  // A dozen slides a round (narrative PERF-5), each numbered as it stands in the deck; the changes
-  // answered folded into one, and a round not answered losing its own slides' changes alone.
-  const slides = JSON.parse(seen) as { slide: number }[];
-  const changes: { slide: number }[] = [];
-  let unanswered: string | undefined;
-  let looking = false;
-  for (let start = 0; start < slides.length; start += LOOK_BATCH) {
-    const round = slides.slice(start, start + LOOK_BATCH);
-    const part = JSON.stringify(round);
-    const asked = generation.lookRequest(key, part, JSON.stringify(drawn.slice(start, start + LOOK_BATCH)));
-    if (!asked) continue;
-    if (!looking) hear({ kind: "looking", slides: drawn.length });
-    looking = true;
-    const reply = await send(JSON.parse(asked));
-    try {
-      changes.push(...(JSON.parse(generation.lookAnswer(reply.status, reply.statusText, reply.body, part)) as { slide: number }[]));
-    } catch (e) {
-      const which = round.length === 1 ? `slide ${round[0].slide}` : `slides ${round[0].slide}\u2013${round[round.length - 1].slide}`;
-      const why = `${which} not looked at: ${said(e)}`;
-      unanswered = unanswered ? `${unanswered}; ${why}` : why;
-    }
-  }
-  if (!looking) return;
+  // A slide that would not draw for the model to see, as a deck the model asked for that cannot be
+  // made again, leaves the deck as it was, saying why (narrative STAB-3): the look is a polish.
   try {
+    const drawn = [];
+    for (let i = 0; i < making.count; i++) drawn.push(await jpeg(making.pixels(i, LOOK_WIDTH)));
+    // A dozen slides a round (narrative PERF-5), each numbered as it stands in the deck; the
+    // changes answered folded into one, and a round not answered losing its own slides' changes
+    // alone.
+    const slides = JSON.parse(seen) as { slide: number }[];
+    const changes: { slide: number }[] = [];
+    let unanswered: string | undefined;
+    let looking = false;
+    for (let start = 0; start < slides.length; start += LOOK_BATCH) {
+      const round = slides.slice(start, start + LOOK_BATCH);
+      const part = JSON.stringify(round);
+      const asked = generation.lookRequest(key, part, JSON.stringify(drawn.slice(start, start + LOOK_BATCH)));
+      if (!asked) continue;
+      if (!looking) hear({ kind: "looking", slides: drawn.length });
+      looking = true;
+      const reply = await send(JSON.parse(asked));
+      try {
+        changes.push(...(JSON.parse(generation.lookAnswer(reply.status, reply.statusText, reply.body, part)) as { slide: number }[]));
+      } catch (e) {
+        const which = round.length === 1 ? `slide ${round[0].slide}` : `slides ${round[0].slide}\u2013${round[round.length - 1].slide}`;
+        const why = `${which} not looked at: ${said(e)}`;
+        unanswered = unanswered ? `${unanswered}; ${why}` : why;
+      }
+    }
+    if (!looking) return;
     if (!changes.length) {
       if (unanswered) {
         making.unlooked(unanswered);
