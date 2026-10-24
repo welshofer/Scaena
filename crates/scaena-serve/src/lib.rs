@@ -280,6 +280,16 @@ impl Shared {
                 if head {
                     response.headers_mut().insert(header::CONTENT_LENGTH, len.into());
                 }
+                // A bundle's file is never a live page on this origin, where its script could
+                // write the bundle as the pages do (lift-up 10-24b SEC-2): sandboxed, with nothing it
+                // may load, and one a browser would run is a download. The pages read the
+                // bundle's files as bytes, which neither header touches.
+                let headers = response.headers_mut();
+                headers
+                    .insert(header::CONTENT_SECURITY_POLICY, HeaderValue::from_static("sandbox; default-src 'none'"));
+                if pages::live(rel) {
+                    headers.insert(header::CONTENT_DISPOSITION, HeaderValue::from_static("attachment"));
+                }
                 response
             }
             Ok(Err(e)) => said(StatusCode::NOT_FOUND, &e),

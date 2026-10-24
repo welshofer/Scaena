@@ -199,9 +199,9 @@ fn a_line_of_openers_is_read_once() {
     }
 }
 
-/// 2.135's languages each read a megabyte of each of their constructs' openers in one pass, on one
-/// line and on lines of a kilobyte: none reads on again from each opener, as a Dockerfile's words
-/// and Make's directives once did, a megabyte of either taking minutes.
+/// 2.135's and 2.145's languages each read a megabyte of each of their constructs' openers in one
+/// pass, on one line and on lines of a kilobyte: none reads on again from each opener, as a
+/// Dockerfile's words and Make's directives once did, a megabyte of either taking minutes.
 #[test]
 fn a_megabyte_of_openers_reads_in_one_pass() {
     const OPENERS: &[(&str, &[&str])] = &[
@@ -222,6 +222,13 @@ fn a_megabyte_of_openers_reads_in_one_pass() {
         ("css", &["{", "a{", "a:", ".a", "#a", "#fff ", "@media (a:", "url(", "url(a", "\"", "(", "[", "/*"]),
         ("css", &["a[", "a\\{", "-1px ", "a{b:c"]),
         ("scss", &["#{", "\"#{", "#{a", "$a:", "&-", "@include a(", "a.b(", "a:#{", "a{#{", "//", "%a"]),
+        ("html", &["<script>(", "<style>a{", "<script type=\"a\">", "<script lang=\""]),
+        ("markdown", &["# ", "*a", "_a", "**a", "`a", "``", "[a", "[a](", "[a][", "![", "<a", "<!--", "<http:"]),
+        ("markdown", &["\\*", "| ", "> ", "- [ ] ", "1. ", "```\n", "```a\n", "~~~\n", "---\n", "a\n---\n"]),
+        ("php", &["<?php ", "<?= ", "?>", "<?php '", "<?php \"", "<?php /*", "<?php //", "<<<A\n", "<<<'A'\n"]),
+        ("php", &["$a", "\"{$", "\"${", "#[", "#", "<?php #", "<p><?php <<<A\n", "<a b=\"<?= "]),
+        ("vue", &["{{", "{{a}}", "<a :b=\"", "<a @b=\"", "<a v-if=\"", "<script>", "<style lang=\"scss\">"]),
+        ("svelte", &["{", "{#if ", "{:else if ", "{/if}", "{@html ", "<a b={", "<a b=\"{", "<a {...", "{\"", "{`"]),
     ];
     std::thread::scope(|scope| {
         for &(name, pieces) in OPENERS {
@@ -298,7 +305,15 @@ fn what_never_closes_runs_to_the_end_in_its_class() {
         ("hcl", "x = 1 /* never closed\ny = 2", "/*", Class::Comment),
         ("graphql", "\"\"\"never closed\ntype A { a: B }", "\"\"\"", Class::String),
         ("html", "<p>a <!-- never closed\n<b>x</b>", "<!--", Class::Comment),
-        ("html", "<script>never closed</div>\n<p>", "never", Class::Plain),
+        ("html", "<script>let s = `never closed\n<p>", "`", Class::String),
+        ("html", "<style>a { } /* never closed\n<p>", "/*", Class::Comment),
+        ("markdown", "# Title\n```rust\nlet s = \"never closed\n", "\"", Class::String),
+        ("markdown", "Text.\n<!-- never closed\n# Heading", "<!--", Class::Comment),
+        ("php", "<p><?php echo 'never closed\n?>", "'", Class::String),
+        ("php", "<p><?php /* never closed\n?>", "/*", Class::Comment),
+        ("php", "$s = <<<EOT\nnever terminated\n", "<<<", Class::String),
+        ("vue", "<p>{{ count + `never closed }}</p>\n", "`", Class::String),
+        ("svelte", "<p>{ \"never closed }</p>", "\"", Class::String),
         ("html", "<a href=\"never closed\n<b>x</b>", "\"", Class::String),
         ("xml", "<a><![CDATA[never closed <b/>\n", "never", Class::String),
         ("xml", "<?xml never closed\n<a/>", "<?", Class::Meta),
@@ -395,6 +410,28 @@ fn nesting_stops_at_eight() {
             assert_eq!(token_at(&tokens, at).0 == Class::String, k < MAX_NESTING, "{name}: the {}th heredoc", k + 1);
         }
     }
+    // PHP's `{$` in strings alike.
+    let text = format!("x = {}y{}", "\"{$".repeat(12), "}\"".repeat(12));
+    let tokens = highlight(&text, lang("php"));
+    let opens: Vec<usize> = text.match_indices("{$").map(|(i, _)| i).take(MAX_NESTING + 1).collect();
+    for (k, &at) in opens.iter().enumerate() {
+        let want = if k < MAX_NESTING { Class::Punctuation } else { Class::String };
+        assert_eq!(token_at(&tokens, at).0, want, "php: the {}th `{{$`", k + 1);
+    }
+    // Parts in another language inside one another (PLAN 2.145): Markdown fenced in Markdown, `n`
+    // deep, around a fence of Rust. Its `fn` is a keyword while the Rust is at most eight parts
+    // deep, and its container's text after.
+    for n in 0..12 {
+        let mut text = "```rust\nfn main() {}\n```".to_string();
+        for k in 0..n {
+            let fence = "`".repeat(4 + k);
+            text = format!("{fence}markdown\n{text}\n{fence}");
+        }
+        let tokens = highlight(&text, lang("markdown"));
+        let at = text.find("fn").unwrap();
+        let want = if n < MAX_NESTING { Class::Keyword } else { Class::Plain };
+        assert_eq!(token_at(&tokens, at).0, want, "rust fenced in markdown {n} deep");
+    }
     // JSX elements in elements: the ninth `<a>` is its parent's text.
     let text = format!("x = {}", "<a>".repeat(12));
     let tokens = highlight(&text, lang("jsx"));
@@ -403,6 +440,105 @@ fn nesting_stops_at_eight() {
         let want = if k < MAX_NESTING { Class::Tag } else { Class::Plain };
         assert_eq!(token_at(&tokens, at).0, want, "the {}th element", k + 1);
     }
+}
+
+/// A part in another language colors as that language colors it alone (PLAN 2.145): a Markdown
+/// fence's Rust and Python and its front matter's YAML, HTML's script and style by their `type`
+/// and `lang`, and Vue's and Svelte's expressions, byte for byte past the white space it starts
+/// with.
+#[test]
+fn a_part_colors_as_its_language_alone() {
+    let cases = [
+        (
+            "markdown",
+            "Intro.\n\n```rust\nfn main() { let s = \"x\"; }\n```\n",
+            "fn main() { let s = \"x\"; }\n",
+            "rust",
+        ),
+        ("markdown", "- a\n  ```py title=\"f.py\"\n  def f(x): return f\"{x}\"\n  ```\n", "def f(x)", "python"),
+        ("markdown", "---\ntitle: x\ntags: [a, b]\n---\n# Hi\n", "title: x\ntags: [a, b]\n", "yaml"),
+        (
+            "html",
+            "<p>a</p><script>const n = 1 < 2 ? `a${b}` : /re/g;</script>",
+            "const n = 1 < 2 ? `a${b}` : /re/g;",
+            "javascript",
+        ),
+        ("html", "<script lang=\"ts\">let n: number = 1;</script>", "let n: number = 1;", "typescript"),
+        ("html", "<script type=\"importmap\">{\"imports\": {}}</script>", "{\"imports\": {}}", "json"),
+        ("html", "<style>a > b { color: #fff; }</style>", "a > b { color: #fff; }", "css"),
+        ("vue", "<p :a=\"x.y(1)\">{{ x ? 'a' : b }}</p>", "x.y(1)", "javascript"),
+        ("vue", "<p :a=\"x.y(1)\">{{ x ? 'a' : b }}</p>", " x ? 'a' : b ", "javascript"),
+        ("vue", "<style lang=\"scss\">a { &.b { c: $d; } }</style>", "a { &.b { c: $d; } }", "scss"),
+        ("svelte", "<p>{items.map((i) => i * 2)}</p>", "items.map((i) => i * 2)", "javascript"),
+    ];
+    for (container, text, part, language) in cases {
+        let at = text.find(part).unwrap();
+        // A part found inside its line: the alone reading starts where the part does.
+        let whole = highlight(text, lang(container));
+        let alone = highlight(part, lang(language));
+        let lead = part.bytes().take_while(u8::is_ascii_whitespace).count();
+        for k in lead..part.len() {
+            assert_eq!(token_at(&whole, at + k).0, token_at(&alone, k).0, "{container}: {part:?} at {k}");
+        }
+    }
+    // A script whose type no browser runs is a template's text, plain.
+    let text = "<script type=\"text/x-template\">if (a) { b(); }</script>";
+    assert_eq!(token_at(&highlight(text, lang("html")), text.find("if").unwrap()).0, Class::Plain);
+}
+
+/// PHP switches between HTML and its code at `<?php`, `<?=`, and `?>`, in text and in an
+/// attribute's value; a `?>` in a string is the string's, and one in a line comment ends the
+/// code, as PHP ends it. A PHP text with no opener is code throughout, and `<?xml` opens none.
+#[test]
+fn a_php_file_switches_between_html_and_php() {
+    let text = "<?xml version=\"1.0\"?>\n<p class=\"<?= $c ?>\"><?php echo '?>'; // done ?></p>\n<?php $n = 1;";
+    let tokens = highlight(text, lang("php"));
+    let class = |at: usize| token_at(&tokens, at).0;
+    let find = |what: &str| text.find(what).unwrap();
+    assert_eq!(class(find("<?xml")), Class::Meta);
+    assert_eq!(class(find("p class")), Class::Tag);
+    assert_eq!(class(find("<?=")), Class::Meta);
+    assert_eq!(class(find("$c")), Class::Variable);
+    assert_eq!(class(find(" ?>\"") + 1), Class::Meta);
+    assert_eq!(class(find("<?php echo")), Class::Meta);
+    assert_eq!(class(find("echo")), Class::Keyword);
+    assert_eq!(class(find("'?>'") + 1), Class::String);
+    assert_eq!(class(find("// done")), Class::Comment);
+    assert_eq!(class(find("done ?>") + 5), Class::Meta);
+    assert_eq!(class(find("</p>") + 2), Class::Tag);
+    assert_eq!(class(find("$n")), Class::Variable);
+    assert_eq!(class(find("1;")), Class::Number);
+    // A snippet, with no opener: code throughout.
+    let text = "$double = fn($y) => $y * 2; // twice";
+    let tokens = highlight(text, lang("php"));
+    assert_eq!(token_at(&tokens, 0).0, Class::Variable);
+    assert_eq!(token_at(&tokens, text.find("fn").unwrap()).0, Class::Keyword);
+    assert_eq!(token_at(&tokens, text.find("//").unwrap()).0, Class::Comment);
+}
+
+/// Markdown colors its headings, emphasis, code spans, links, and fences, a fence in the language
+/// its info string names; and it is never detected by itself, only named by a fence.
+#[test]
+fn markdown_colors_what_it_marks_and_is_never_detected_by_itself() {
+    use scaena_core::code::{Detected, Hints, detect};
+    let text =
+        "# Title\n\nSome *em*, **strong**, `code`, a_snake_case and [a](https://x.y).\n\n```{.python}\nx = 1\n```\n";
+    let tokens = highlight(text, lang("markdown"));
+    let class = |what: &str| token_at(&tokens, text.find(what).unwrap()).0;
+    assert_eq!(class("# Title"), Class::Keyword);
+    assert_eq!(class("*em*"), Class::Variable);
+    assert_eq!(class("**strong**"), Class::Constant);
+    assert_eq!(class("`code`"), Class::String);
+    assert_eq!(class("a_snake"), Class::Plain);
+    assert_eq!(class("https"), Class::String);
+    assert_eq!(class("1\n```"), Class::Number);
+    let readme =
+        "# Trails\n\nVolunteers rebuilt *fifty-two* miles.\n\n- One\n- Two\n\nSee [the report](https://x.y).\n";
+    assert_ne!(detect(readme, &Hints::default()).language().map(|l| l.name), Some("markdown"));
+    let file = Hints { file: Some("README.md"), ..Hints::default() };
+    assert_ne!(detect(readme, &file).language().map(|l| l.name), Some("markdown"));
+    let fenced = Hints { fence: Some("markdown"), ..Hints::default() };
+    assert_eq!(detect(readme, &fenced), Detected::Named(language("markdown").unwrap()));
 }
 
 #[test]
@@ -950,9 +1086,9 @@ fn the_sixteen_kinds_are_named_once() {
 }
 
 /// The pieces random text is made of: what opens and closes what the scanners know, and text.
-/// Those after `5.` are the constructs of Python, Ruby, Shell, consoles, PowerShell, and SQL, and
+/// Those after `5.` are the constructs of Python, Ruby, Shell, consoles, PowerShell, and SQL,
 /// those after `?|` of YAML, TOML, Dockerfiles, diffs, HCL, GraphQL, Makefiles, INI, HTML, XML,
-/// CSS, and SCSS.
+/// CSS, and SCSS, and those after `&-` of Markdown, PHP, Vue, and Svelte.
 const PIECES: &[&str] = &[
     " ",
     "  ",
@@ -1259,6 +1395,32 @@ const PIECES: &[&str] = &[
     "@mixin ",
     "&-",
     "%placeholder",
+    "```rust\n",
+    "```\n",
+    "~~~\n",
+    "---\n",
+    "+++\n",
+    "# ",
+    "**",
+    "_",
+    "[a](",
+    "](",
+    "![",
+    "<https:",
+    "<?php ",
+    "<?= ",
+    "?>",
+    "<<<A\n",
+    "\nA;\n",
+    "\"{$",
+    "$a",
+    "{{",
+    "}}",
+    ":a=\"",
+    "{#if ",
+    "{:else}",
+    "{/if}",
+    "{@html ",
 ];
 
 /// Openers, and what closes each, nested 100 deep.
@@ -1298,6 +1460,11 @@ const DEEP: &[(&str, &str)] = &[
     ("<a b=\"", "\">"),
     ("a { b: #{", "} }"),
     ("@media (", ") {}"),
+    ("```markdown\n", "\n```\n"),
+    ("<?php \"{$", "}\" ?>"),
+    ("{{ (", ") }}"),
+    ("{#if (", ")}{/if}"),
+    ("<script>(", ")</script>"),
 ];
 
 /// A text of `pieces` pieces at most, picked at random; with `breaks`, line breaks among them.

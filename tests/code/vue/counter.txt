@@ -1,0 +1,18 @@
+<template>
+  <div class="counter" :class="{ active: count > 0 }">
+    <button @click="count++" :disabled="count >= max">Add</button>
+    <p v-if="count">{{ count }} of {{ max }}</p>
+    <li v-for="item in items" :key="item.id">{{ item.name.toUpperCase() }}</li>
+    <slot #default="{ label }">Fallback &amp; more</slot>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { ref } from "vue";
+const props = defineProps<{ max: number }>();
+const count = ref<number>(0);
+</script>
+
+<style scoped lang="scss">
+.counter { &.active { color: $accent; } }
+</style>

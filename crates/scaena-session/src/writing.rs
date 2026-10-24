@@ -208,6 +208,13 @@ impl Session {
         Ok(match ask.kind.as_str() {
             "proofread" | "tighten" | "rewrite" => {
                 let node = ask.node.as_deref().ok_or_else(|| Error::Ops(format!("{}: `node` is a text", ask.kind)))?;
+                // Code is written as it runs, not as prose reads (PLAN 2.139).
+                if self.carets(&ask.state, node)?.is_some_and(|c| c.code.is_some()) {
+                    return Err(Error::Ops(format!(
+                        "{}: `{node}` is code, written as it runs: its words are not proofread, tightened, or rewritten",
+                        ask.kind
+                    )));
+                }
                 let text = (words(self, node)?)
                     .filter(|t| !t.trim().is_empty())
                     .ok_or_else(|| Error::Ops("the text has no words to write: type some first".into()))?;

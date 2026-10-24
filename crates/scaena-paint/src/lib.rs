@@ -58,6 +58,14 @@ pub enum PaintError {
     Shaded(String),
 }
 
+impl PaintError {
+    /// Whether this is a picture whose pixels do not decode, its header read (E107): what a
+    /// painter leaves out, its box empty, drawing the rest of the frame.
+    pub fn undecodable(&self) -> bool {
+        matches!(self, PaintError::Png(_) | PaintError::Jpeg(_))
+    }
+}
+
 impl From<ShaderError> for PaintError {
     fn from(e: ShaderError) -> Self {
         PaintError::Shader(e)
@@ -651,6 +659,9 @@ impl<P: Painter> scaena_core::lint::Backdrop for Backdrop<'_, P> {
         let raster = self.painter.paint(dl, self.assets, scale).map_err(|e| e.to_string())?;
         Ok(scaena_core::lint::Pixels { width: raster.width, height: raster.height, rgba: raster.rgba })
     }
+    fn picture(&mut self, asset: &str) -> Result<(), String> {
+        self.assets.image(asset).map(|_| ()).map_err(|e| e.to_string())
+    }
 }
 
 /// The most pixels a raster holds: 2^25, an 8K frame (7680 × 4320) and a little more. A
@@ -1109,7 +1120,11 @@ pub mod cpu {
                         }
                     }
                     Op::Image { asset, src, dst, quality } => {
-                        let picture = self.store.image(asset)?;
+                        // A picture whose pixels do not decode leaves its box empty (E107).
+                        let picture = match self.store.image(asset) {
+                            Err(e) if e.undecodable() => continue,
+                            picture => picture?,
+                        };
                         self.ctx.set_transform(xf);
                         self.ctx.set_paint(Image {
                             image: ImageSource::Pixmap(picture.pixmap()),
@@ -1713,7 +1728,11 @@ pub mod gpu {
                         }
                     }
                     Op::Image { asset, src, dst, quality } => {
-                        let picture = self.store.image(asset)?;
+                        // A picture whose pixels do not decode leaves its box empty (E107).
+                        let picture = match self.store.image(asset) {
+                            Err(e) if e.undecodable() => continue,
+                            picture => picture?,
+                        };
                         let image = ImageData {
                             data: picture.rgba.clone(),
                             format: vello::peniko::ImageFormat::Rgba8,
