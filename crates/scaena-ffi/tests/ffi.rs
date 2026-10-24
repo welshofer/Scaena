@@ -1037,7 +1037,7 @@ fn code_keys_and_commands_make_the_browsers_edit() {
     let op = json!({ "op": "replace_text", "node": "title", "state": "cover", "from": chars, "to": chars, "text": "\n    fn" });
     assert_eq!(call(s, "typed", json!({ "ops": [op] })), true);
     let typed = call(s, "carets", json!({ "state": "cover", "node": "title" }));
-    let line = typed["text"].as_str().unwrap().split('\n').last().unwrap().to_string();
+    let line = typed["text"].as_str().unwrap().rsplit('\n').next().unwrap().to_string();
     let at = typed["text"].as_str().unwrap().encode_utf16().count();
     let tab = call(s, "keyed", json!({ "text": line, "from": 0, "to": 0, "key": "Shift+Tab", "tab": 4 }));
     assert_eq!(tab["text"], "fn", "{tab}");
