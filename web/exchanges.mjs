@@ -11,7 +11,7 @@
 // Exits 1 on any failure. Node reads the adapters' TypeScript as it stands, its types stripped.
 import { readFile, writeFile } from "node:fs/promises";
 import { isDeepStrictEqual } from "node:util";
-import { seen, system } from "./src/assistant/prompt.ts";
+import { RULE, fenced, seen, system } from "./src/assistant/prompt.ts";
 import { providers } from "./src/assistant/providers.ts";
 
 const write = process.argv.includes("--write");
@@ -88,6 +88,8 @@ const told = conversation.prompt;
 record.prompt = {
   system: told.decks.map((deck, i) => system(deck, told.resources, told.bundleSkills[i], told.authorDeck)),
   seen: told.seeings.map((seeing) => seen(seeing ?? undefined)),
+  // The fence, as scaena-fence writes it (lift-up SEC-3): the rule, and each text fenced.
+  fence: { rule: RULE, fenced: (told.fenced ?? []).map(([label, text]) => fenced(label, text)) },
 };
 
 const failures = [];
@@ -105,8 +107,9 @@ if (write) {
       check(isDeepStrictEqual(record[id][part], kept[id][part]), `${id}: the ${part} the adapter makes is the one recorded`);
     }
   }
-  for (const part of ["system", "seen"]) {
-    check(isDeepStrictEqual(record.prompt[part], kept.prompt?.[part]), `the ${part === "system" ? "system prompt" : "line saying what the editor shows"} is the one recorded`);
+  for (const part of ["system", "seen", "fence"]) {
+    const what = { system: "system prompt", seen: "line saying what the editor shows", fence: "fence" }[part];
+    check(isDeepStrictEqual(record.prompt[part], kept.prompt?.[part]), `the ${what} is the one recorded`);
   }
 }
 if (failures.length) {
