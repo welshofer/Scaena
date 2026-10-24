@@ -46,6 +46,11 @@ pub struct SlideForHealth {
     /// What its words embed as, for coherence; where any pair lacks one, their words are read.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub embedding: Option<Vec<f64>>,
+    /// A slide whose layout makes one point (a big number, a quote, a statement): Scaena's,
+    /// not Vzestup's (ADR-0032, proposed). It is left out of the points a slide makes on
+    /// average; every other measure reads it.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub one_idea: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub narrative_meta: Option<NarrativeMeta>,
 }
@@ -419,11 +424,12 @@ pub fn metrics(slides: &[SlideForHealth], length_minutes: Option<u32>) -> LocalH
 
     // Content balance.
     let units = |text: &str| text.encode_utf16().count();
-    let bullets: usize = (visible.iter())
+    let pointed: Vec<&SlideForHealth> = visible.iter().filter(|s| !s.one_idea).collect();
+    let bullets: usize = (pointed.iter())
         .map(|s| s.body.split('\n').map(js::trim).filter(|l| l.starts_with('\u{2022}') || l.starts_with('-')).count())
         .sum();
     let per_slide = |total: usize| if count > 0 { total as f64 / count as f64 } else { 0.0 };
-    let avg_bullets = per_slide(bullets);
+    let avg_bullets = if pointed.is_empty() { 0.0 } else { bullets as f64 / pointed.len() as f64 };
     let avg_notes = per_slide(visible.iter().map(|s| units(&s.notes)).sum());
     let visual_coverage = per_slide(visible.iter().filter(|s| s.embedding.is_some() || units(&s.body) > 30).count());
     let bullet_score =

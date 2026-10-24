@@ -220,6 +220,19 @@ fn declared(beat: &Beat) -> Option<NarrativeMeta> {
     })
 }
 
+/// The shipped themes' layouts that make one point by design (ADR-0032, proposed).
+const ONE_IDEA: [&str; 9] = [
+    "big-number",
+    "number-photo",
+    "stat",
+    "quote",
+    "photo-quote",
+    "quote-portrait",
+    "statement",
+    "thesis",
+    "big-question",
+];
+
 /// The slides of `deck` as health reads them, each by its first state's id.
 fn readings(deck: &Deck, slides: &[Slide]) -> Result<Vec<SlideForHealth>, OpsError> {
     let snaps = resolve_states(deck).map_err(|e| OpsError::new(e.to_string()))?;
@@ -284,6 +297,7 @@ fn readings(deck: &Deck, slides: &[Slide]) -> Result<Vec<SlideForHealth>, OpsErr
             body: lines.into_iter().map(|(_, l)| l).collect::<Vec<_>>().join("\n"),
             notes: notes.join("\n"),
             narrative_meta: beat.and_then(declared),
+            one_idea: snaps[last].layout.as_deref().is_some_and(|l| ONE_IDEA.contains(&l)),
             ..SlideForHealth::default()
         });
     }
@@ -408,7 +422,14 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
     let slides = slides(deck);
     let read = readings(deck, &slides)?;
     let n = read.len();
-    let m = health::metrics(&read, None);
+    let mut m = health::metrics(&read, None);
+    // Tone read from the words the room sees (ADR-0032, proposed).
+    let seen: Vec<SlideForHealth> = read.iter().map(|s| SlideForHealth { notes: String::new(), ..s.clone() }).collect();
+    m.tone_gaps = health::tone_gaps(&seen);
+    let tone_match = health::tone_match(&seen);
+    m.tone_match.score = tone_match.score;
+    m.tone_match.measured_slides = tone_match.measured_slides;
+    m.tone_match.mean_abs_gap = tone_match.mean_abs_gap;
 
     // The arc's own curve and beats, as Vzestup's graph draws them. Fidelity is read against the
     // arc the deck was written to, where it names one, as that graph reads it; else against a
@@ -542,7 +563,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
                 declared: meta.and_then(|m| m.expected_intensity).filter(|v| v.is_finite()).map(|v| v.clamp(0.0, 1.0)),
                 read: health::intensity::detected(&text, None),
                 tone: meta.and_then(|m| m.expected_valence).filter(|v| v.is_finite()).map(|v| v.clamp(-1.0, 1.0)),
-                tone_read: health::valence::detected(&text, None),
+                tone_read: health::valence::detected(&seen[i].text(), None),
                 after: i.checked_sub(1).and_then(|p| m.coherence.pair_similarities.get(p).copied()),
                 standing,
             }
@@ -713,6 +734,12 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
     // A slide that does not stand first, then in the order the slides stand, and on each slide in
     // the order health found them.
     scaena_core::sort::by_key(&mut findings, |f| (f.kind != Kind::Layout, f.slide));
+    // A slide that does not stand caps the score (ADR-0032, proposed): its share, and ten more.
+    let broken = findings.iter().filter(|f| f.kind == Kind::Layout).count();
+    let score = match broken {
+        0 => score,
+        b => score.min(((100.0 * (n - b) as f64 / n as f64).round() as u32).saturating_sub(10 * b as u32)),
+    };
 
     Ok(Health {
         score,
