@@ -11,7 +11,7 @@
 //   the source and the picker are as they were.
 // Exits 1 on any failure.
 import { createHash } from "node:crypto";
-import { launch, serve } from "./serve.mjs";
+import { launch, retheme, serve } from "./serve.mjs";
 
 const server = await serve();
 const failures = [];
@@ -29,13 +29,13 @@ try {
     page.on("console", (m) => m.type() === "error" && failures.push(`${bundle}: console: ${m.text()}`));
     await page.goto(`${server.origin}/web/dist/editor.html?painter=cpu&bundle=${bundle}`);
     await page.waitForFunction(() => window.scaena?.last(), null, { timeout: 120000 });
-    await page.waitForFunction(() => document.querySelector("#theme")?.options.length > 0, null, { timeout: 30000 });
+    await page.waitForFunction(() => window.scaena.themeChoices().length > 0, null, { timeout: 30000 });
     return page;
   };
   const source = (page) => page.evaluate(() => window.scaena.source());
   const status = (page) => page.evaluate(() => document.querySelector("#status").textContent);
   const offered = (page) =>
-    page.evaluate(() => [...document.querySelectorAll("#theme option")].map((o) => `${o.parentElement.label}/${o.textContent}${o.selected ? "*" : ""}`));
+    page.evaluate(() => window.scaena.themeChoices().map((c) => `${c.family}/${c.label}${c.current ? "*" : ""}`));
   /** The preview as painted, with nothing focused over it. */
   const drawn = async (page) => {
     await page.evaluate(() => document.activeElement?.blur());
@@ -59,8 +59,30 @@ try {
     `the picker offers the deck's Dusk, chosen, and the themes built in, by family: ${first.join(", ")}`,
   );
 
+  // Theme… is a button: ↓ on it re-themes nothing, and in its dialog the arrow keys move between
+  // the themes and Cancel leaves the deck as it was; Re-theme alone re-themes (lift-up USE-3,
+  // WCAG 3.2.2). A select re-themed at each press.
+  await page.locator("#theme").focus();
+  await page.keyboard.press("ArrowDown");
+  await page.waitForTimeout(300);
+  check((await source(page)) === original && !(await status(page)).startsWith("Re-theming"), "↓ on Theme… re-themes nothing");
+  await page.click("#theme");
+  await page.waitForSelector("#retheming[open]", { timeout: 10000 });
+  check(await page.evaluate(() => document.querySelector("#retheming input:checked")?.value === "path:themes/dusk.theme.json"), "the dialog opens on the deck's Dusk");
+  check(await page.evaluate(() => document.querySelector("#retheming-apply").disabled), "with Re-theme off, since the deck is in it");
+  await page.locator("#retheming input:checked").focus();
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("ArrowDown");
+  await page.waitForTimeout(300);
+  check((await source(page)) === original, "the arrow keys move between the themes and re-theme nothing");
+  check(await page.evaluate(() => !document.querySelector("#retheming-apply").disabled), "and Re-theme is on, another chosen");
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(300);
+  check((await source(page)) === original && (await page.evaluate(() => !document.querySelector("#retheming").open)), "Escape leaves the deck as it was");
+  check(await page.evaluate(() => document.querySelector("#theme").textContent === "Theme: Dusk"), `the button names the deck's theme: ${await page.evaluate(() => document.querySelector("#theme").textContent)}`);
+
   // Daybreak, which ships.
-  await page.selectOption("#theme", "ships:Daybreak");
+  await retheme(page, "ships:Daybreak");
   const named = await page
     .waitForFunction(() => window.scaena.source().includes('theme:"themes/daybreak.theme.json"'), null, { timeout: 60000 })
     .then(() => true, () => false);
@@ -79,13 +101,13 @@ try {
   check(back, "one undo puts the source back");
   await settled(page);
   check((await drawn(page)) === dusk, "and the preview is drawn in Dusk again");
-  await page.waitForFunction(() => document.querySelector("#theme option:checked")?.textContent === "Dusk", null, { timeout: 30000 }).catch(() => {});
+  await page.waitForFunction(() => window.scaena.themeChoices().find((c) => c.current)?.label === "Dusk", null, { timeout: 30000 }).catch(() => {});
   check((await offered(page)).includes("In this deck/Dusk*"), "the picker shows Dusk again");
 
   // The trails example in Daybreak: the storm slide's words would be dark on its dark photo, so the
   // re-theme sets each in Daybreak's color that reads there, and says so (PLAN 2.82).
   const trails = await open("/docs/examples/trails.deck.json");
-  await trails.selectOption("#theme", "ships:Daybreak");
+  await retheme(trails, "ships:Daybreak");
   const recolored = await trails
     .waitForFunction(() => document.querySelector("#status").textContent.startsWith("Theme Daybreak"), null, { timeout: 60000 })
     .then(() => true, () => false);
@@ -104,7 +126,7 @@ try {
   const torture = await open("/tests/fixtures/torture.scaena");
   const before = await source(torture);
   const was = await offered(torture);
-  await torture.selectOption("#theme", "ships:Dusk");
+  await retheme(torture, "ships:Dusk");
   const refused = await torture
     .waitForFunction(() => document.querySelector("#status").textContent.includes("not taken"), null, { timeout: 60000 })
     .then(() => true, () => false);
