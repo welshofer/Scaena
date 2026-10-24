@@ -1016,6 +1016,46 @@ fn text_typed_in_place_is_the_patch_the_browsers_typing_makes() {
     unsafe { scaena_session_free(s) };
 }
 
+/// Code typed in place (PLAN 2.139), as the browser's typing makes it: Make Code one patch, its
+/// carets saying its tab stops; a key answered as a code editor answers it, `{ text, from, to }`
+/// in UTF-16 code units, which a `replace_text` then makes; Tidy Code nothing where it is tidy;
+/// and Not Code one patch again.
+#[test]
+fn code_keys_and_commands_make_the_browsers_edit() {
+    let s = open(B1);
+    let made = call(s, "coding", json!({ "node": "title", "language": "rust" }));
+    assert_eq!(tool(s, "deck_patch", json!({ "ops": made }))["edited"], true, "{made}");
+    let carets = call(s, "carets", json!({ "state": "cover", "node": "title" }));
+    assert_eq!(carets["code"], json!({ "tab": 4, "from": 1 }), "{carets}");
+    // Return after the text: a line indented as it, and the change typed as any is.
+    let text = carets["text"].as_str().unwrap().to_string();
+    let end = text.encode_utf16().count();
+    let keyed = call(s, "keyed", json!({ "text": text, "from": end, "to": end, "key": "Return", "tab": 4 }));
+    assert_eq!(keyed["text"], format!("{text}\n"), "{keyed}");
+    assert_eq!((keyed["from"].clone(), keyed["to"].clone()), (json!(end + 1), json!(end + 1)));
+    let chars = text.chars().count();
+    let op = json!({ "op": "replace_text", "node": "title", "state": "cover", "from": chars, "to": chars, "text": "\n    fn" });
+    assert_eq!(call(s, "typed", json!({ "ops": [op] })), true);
+    let typed = call(s, "carets", json!({ "state": "cover", "node": "title" }));
+    let line = typed["text"].as_str().unwrap().rsplit('\n').next().unwrap().to_string();
+    let at = typed["text"].as_str().unwrap().encode_utf16().count();
+    let tab = call(s, "keyed", json!({ "text": line, "from": 0, "to": 0, "key": "Shift+Tab", "tab": 4 }));
+    assert_eq!(tab["text"], "fn", "{tab}");
+    assert_eq!(
+        call(s, "keyed", json!({ "text": "x", "from": at, "to": at, "key": "Tab" })),
+        Value::Null,
+        "off the text"
+    );
+    assert_eq!(call(s, "keyed", json!({ "text": "x", "from": 0, "to": 0, "key": "Escape" })), Value::Null);
+    // Tidy Code where the code is tidy: nothing; Not Code: `code` gone.
+    let tidy = call(s, "tidying", json!({ "state": "cover", "node": "title" }));
+    assert!(tidy.as_array().is_some_and(|ops| ops.iter().all(|op| op["op"] == "replace_text")), "{tidy}");
+    let not = call(s, "uncoding", json!({ "node": "title" }));
+    assert_eq!(tool(s, "deck_patch", json!({ "ops": not }))["edited"], true, "{not}");
+    assert_eq!(call(s, "carets", json!({ "state": "cover", "node": "title" }))["code"], Value::Null);
+    unsafe { scaena_session_free(s) };
+}
+
 /// A text's characters (PLAN 3.10), as the browser's editor gives them (PLAN 2.38, 2.69, 2.70):
 /// what the inspector offers for them, a link given them and found where it is drawn, and their
 /// paragraphs made a list's items.

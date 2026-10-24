@@ -11,23 +11,23 @@
     {"layer":{"node":"photo-picture","cell":null,"label":null,"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
       {"image":{"asset":"sha256:3d5f90cf0309fa7ccd35986c83d1f375b415f4714823676df4afa35b077cb6ea","src":[27.328125,0.0,105.328125,120.0],"dst":[0.0,0.0,948.0,1080.0],"quality":"high"}}
     ]}},
-    {"layer":{"node":"photo-header","cell":null,"label":null,"transform":[1.0,0.0,0.0,1.0,1114.0,239.6875],"opacity":1.0,"blend":"normal","clip":null,"ops":[
-      {"glyphs":{"font":0,"size":80.0,"coords":[4587,0],"paint":{"solid":"#F2F0E9FF"},"text":"الأرض","glyphs":[
-        [96,426.79688,69.84375],
-        [27,346.40625,65.4375],
-        [21,451.51562,65.4375],
-        [99,478.95312,61.6875],
-        [5,481.20312,65.4375],
-        [54,509.51562,65.4375],
-        [3,527.2031,65.4375]
+    {"layer":{"node":"photo-header","cell":null,"label":null,"transform":[1.0,0.0,0.0,1.0,1114.0,241.34375],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+      {"glyphs":{"font":0,"size":64.0,"coords":[4587,0],"paint":{"solid":"#F2F0E9FF"},"text":"الأرض","glyphs":[
+        [96,478.64062,55.875],
+        [27,414.3125,52.359375],
+        [21,498.42188,52.359375],
+        [99,520.375,49.34375],
+        [5,522.15625,52.359375],
+        [54,544.8125,52.359375],
+        [3,558.9531,52.359375]
       ],"clusters":[8,8,6,4,4,2,0]}},
-      {"glyphs":{"font":1,"size":80.0,"coords":[7646,-7373,0,0],"paint":{"solid":"#F2F0E9FF"},"text":" ","glyphs":[
-        [1,546.3125,65.4375]
+      {"glyphs":{"font":1,"size":64.0,"coords":[7646,-7373,0,0],"paint":{"solid":"#F2F0E9FF"},"text":" ","glyphs":[
+        [1,574.25,52.359375]
       ],"clusters":[0]}},
-      {"glyphs":{"font":0,"size":80.0,"coords":[4587,0],"paint":{"solid":"#F2F0E9FF"},"text":"على","glyphs":[
-        [72,560.5625,65.4375],
-        [51,620.5625,65.4375],
-        [38,644.9531,65.4375]
+      {"glyphs":{"font":0,"size":64.0,"coords":[4587,0],"paint":{"solid":"#F2F0E9FF"},"text":"على","glyphs":[
+        [72,585.6406,52.359375],
+        [51,633.6406,52.359375],
+        [38,653.1719,52.359375]
       ],"clusters":[4,2,0]}}
     ]}},
     {"layer":{"node":"photo-body","cell":null,"label":null,"transform":[1.0,0.0,0.0,1.0,1114.0,481.82812],"opacity":1.0,"blend":"normal","clip":null,"ops":[

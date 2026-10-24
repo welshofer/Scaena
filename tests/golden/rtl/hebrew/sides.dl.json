@@ -8,22 +8,22 @@
   ],
   "ops":[
     {"fill":{"path":"M0 0L1920 0L1920 1080L0 1080Z","rule":"nonzero","paint":{"solid":"#101014FF"}}},
-    {"layer":{"node":"sides-header","cell":null,"label":null,"transform":[1.0,0.0,0.0,1.0,404.0,82.078125],"opacity":1.0,"blend":"normal","clip":null,"ops":[
-      {"glyphs":{"font":0,"size":80.0,"coords":[9216,0],"paint":{"solid":"#F2F0E9FF"},"text":"ואחרי","glyphs":[
-        [33,1046.7969,71.046875],
-        [23,1070.6406,71.046875],
-        [12,1112.0781,71.046875],
-        [1,1164.875,71.046875],
-        [30,1216.0,71.046875]
+    {"layer":{"node":"sides-header","cell":null,"label":null,"transform":[1.0,0.0,0.0,1.0,404.0,84.859375],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+      {"glyphs":{"font":0,"size":64.0,"coords":[9216,0],"paint":{"solid":"#F2F0E9FF"},"text":"ואחרי","glyphs":[
+        [33,1116.6406,56.828125],
+        [23,1135.7188,56.828125],
+        [12,1168.8594,56.828125],
+        [1,1211.1094,56.828125],
+        [30,1252.0,56.828125]
       ],"clusters":[8,6,4,2,0]}},
-      {"glyphs":{"font":1,"size":80.0,"coords":[7646,-7373,0,0],"paint":{"solid":"#F2F0E9FF"},"text":" ","glyphs":[
-        [1,1240.3125,71.046875]
+      {"glyphs":{"font":1,"size":64.0,"coords":[7646,-7373,0,0],"paint":{"solid":"#F2F0E9FF"},"text":" ","glyphs":[
+        [1,1271.4531,56.828125]
       ],"clusters":[0]}},
-      {"glyphs":{"font":0,"size":80.0,"coords":[9216,0],"paint":{"solid":"#F2F0E9FF"},"text":"לפני","glyphs":[
-        [33,1254.5625,71.046875],
-        [20,1277.125,71.046875],
-        [21,1307.2031,71.046875],
-        [16,1354.0781,71.046875]
+      {"glyphs":{"font":0,"size":64.0,"coords":[9216,0],"paint":{"solid":"#F2F0E9FF"},"text":"לפני","glyphs":[
+        [33,1282.8438,56.828125],
+        [20,1300.8906,56.828125],
+        [21,1324.9531,56.828125],
+        [16,1362.4688,56.828125]
       ],"clusters":[6,4,2,0]}}
     ]}},
     {"layer":{"node":"sides-before","cell":null,"label":null,"transform":[1.0,0.0,0.0,1.0,972.0,255.57812],"opacity":1.0,"blend":"normal","clip":null,"ops":[

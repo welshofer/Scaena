@@ -816,6 +816,7 @@ impl Engine {
             clip: None,
             fit: TextFit::Wrap,
             natural: None,
+            code: None,
         };
         Ok(SceneNode {
             id: id.into(),
@@ -1006,7 +1007,11 @@ impl Engine {
             }
             None => text,
         };
-        Ok(PlacedText { cell, origin, text, scale, overflow, clip, fit, natural })
+        let code = spec.code.as_ref().map(|c| crate::carets::CaretCode {
+            tab: c.tab,
+            from: (props.get("code").and_then(|c| c.get("start")).and_then(Value::as_u64)).map_or(1, |n| n as usize),
+        });
+        Ok(PlacedText { cell, origin, text, scale, overflow, clip, fit, natural, code })
     }
 }
 
@@ -1118,6 +1123,9 @@ pub struct PlacedText {
     /// trims it: what its box grows to hold first, at the size its width lets it
     /// ([`Engine::grown`]). `None` for any other text.
     pub natural: Option<[f32; 2]>,
+    /// Where it is code, what its keys read (PLAN 2.139): its tab stops and its first line's
+    /// number.
+    pub code: Option<crate::carets::CaretCode>,
 }
 
 /// Canvas y of the paragraph top, so the text's anchor sits where its alignment says

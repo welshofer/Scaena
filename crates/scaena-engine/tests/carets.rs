@@ -353,3 +353,23 @@ fn bold_toggles_by_the_weight_each_character_is_set_in() {
     let c = TextEngine::new().layout(&mut fonts, &theme, &spec, 1600.0).unwrap().carets([0.0, 0.0]);
     assert_eq!(c.bolding(0, 4)["style/weight"], serde_json::Value::Null);
 }
+
+/// A code text's carets say what its keys read (PLAN 2.139): its tab stops, the theme's
+/// `code.tab` else four columns, and the number its first line goes by, its `code.start` where it
+/// has one, else 1; a prose text's say none.
+#[test]
+fn a_code_texts_carets_say_its_tab_stops_and_first_line() {
+    use scaena_engine::carets::CaretCode;
+    assert_eq!(carets("code", "code-block").code, Some(CaretCode { tab: 4, from: 1 }));
+    assert_eq!(carets("liga", "liga-on").code, None);
+    let (mut deck, _, mut engine) = torture();
+    // A first line numbered as the gutter numbers it (`code.start`, which the format takes with the
+    // gutter, PLAN 2.136), and tab stops two columns apart.
+    let code = deck.nodes.get_mut("code-block").unwrap();
+    code.props.insert("code".into(), serde_json::json!({ "language": "typescript", "start": 12 }));
+    let mut written: serde_json::Value = serde_json::from_slice(&read("theme.json")).unwrap();
+    written["code"]["tab"] = serde_json::json!(2);
+    let theme = Theme::from_json(&written.to_string()).unwrap();
+    let scene = at_rest(&mut engine, &deck, &theme, "code");
+    assert_eq!(scene.carets("code-block").unwrap().code, Some(CaretCode { tab: 2, from: 12 }));
+}

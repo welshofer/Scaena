@@ -1009,6 +1009,52 @@ impl Session {
         }
     }
 
+    /// The patch Make Code makes of `node` (PLAN 2.139, `scaena_ops::coding`): `code` in
+    /// `language`, else in the language its words read as, else plain text, and the theme's code
+    /// role; its runs folded into its `text`, and what a code text does not take (E106) taken away
+    /// wherever the node's are written. One patch, one step to undo.
+    #[cfg(feature = "editor")]
+    pub fn coding(&self, node: &str, language: Option<&str>) -> Result<Vec<serde_json::Value>, Error> {
+        scaena_ops::coding::coding(&self.deck, &self.theme, node, language).map_err(|e| Error::Ops(e.to_string()))
+    }
+
+    /// The patch Not Code makes of `node` (PLAN 2.139): `code` taken away from it, from every delta,
+    /// and from the overrides, and the text set in `body` where it was set in the code role.
+    #[cfg(feature = "editor")]
+    pub fn uncoding(&self, node: &str) -> Result<Vec<serde_json::Value>, Error> {
+        scaena_ops::coding::uncoding(&self.deck, &self.theme, node).map_err(|e| Error::Ops(e.to_string()))
+    }
+
+    /// The patch Tidy Code makes of `node` as `state` shows it (PLAN 2.139): a `replace_text` for
+    /// each run of lines tidying changes, written where the text lives. Empty where it is tidy.
+    #[cfg(feature = "editor")]
+    pub fn tidying(&self, state: &str, node: &str) -> Result<Vec<serde_json::Value>, Error> {
+        scaena_ops::coding::tidying(&self.deck, &self.theme, state, node).map_err(|e| Error::Ops(e.to_string()))
+    }
+
+    /// `text` with `from` to `to` selected after `key` in a code text, as a code editor answers it
+    /// (PLAN 2.139, `scaena_core::code::keyed`): `{ "text", "from", "to" }`, which an editor makes a
+    /// `replace_text` of as of what is typed. `key` is `Tab`, `Shift+Tab`, or `Return`; `tab` the
+    /// columns between the text's tab stops, its carets' `code.tab`; and the offsets UTF-16 code
+    /// units, as a page and Swift count a string. None for a key code does not answer, or a
+    /// selection off the text's characters.
+    pub fn keyed(text: &str, from: usize, to: usize, key: &str, tab: usize) -> Option<serde_json::Value> {
+        let key = scaena_core::code::Key::named(key)?;
+        let byte = |units: usize| {
+            let mut counted = 0;
+            for (b, c) in text.char_indices() {
+                if counted >= units {
+                    return (counted == units).then_some(b);
+                }
+                counted += c.len_utf16();
+            }
+            (counted == units).then_some(text.len())
+        };
+        let keyed = scaena_core::code::keyed(text, byte(from)?, byte(to)?, key, tab)?;
+        let units = utf16(&keyed.text);
+        Some(serde_json::json!({ "text": keyed.text, "from": units(keyed.from), "to": units(keyed.to) }))
+    }
+
     /// [`Session::hit`] as a client lists them (ADR-0013): `[{ "node", "rect", "containers",
     /// "transform"?, "locked"? }]`, each node's containers innermost first, read through its
     /// transform as a box's is; `locked` where the node is locked (PLAN 2.95), which a pointer
@@ -1387,11 +1433,10 @@ impl Session {
     }
 
     /// Each text of the deck that `query` matches, once for each place it is written, with
-    /// the states that show it from there (PLAN 2.47).
+    /// the states that show it from there (PLAN 2.47), and each cell of its data files.
     #[cfg(feature = "editor")]
     pub fn find(&self, query: &scaena_core::patch::Query) -> Result<Vec<scaena_core::patch::Found>, Error> {
-        let doc = self.deck.to_value().map_err(|e| Error::Deck(e.to_string()))?;
-        scaena_core::patch::find(&doc, query).map_err(Error::Ops)
+        scaena_ops::find::find(&self.bundle(), query).map_err(|e| Error::Ops(e.to_string()))
     }
 
     /// The patch that replaces what `query` matches with `with` (PLAN 2.47): every match, a
@@ -1459,10 +1504,11 @@ impl Session {
     /// [`Session::carets`] as a page and the Mac take it (PLAN 2.32, 3.6): `{ "text", "lines":
     /// [{ "top", "bottom", "x", "start", "end", "broken", "chars": [[offset, lead, trail]] }],
     /// "items": [{ "kind", "level", "marker" } | null], "links": [[from, to, { "href" } | {
-    /// "state" }]] }`, canvas units, its offsets in UTF-16 code units, as JavaScript and Swift
-    /// count a string; `items` each paragraph as a list's item (ADR-0018), and `links` each
-    /// stretch of it a link goes from (PLAN 2.70), which ⌘K shows. Null for a node that is no
-    /// text there.
+    /// "state" }]], "code": { "tab", "from" } | null }`, canvas units, its offsets in UTF-16 code
+    /// units, as JavaScript and Swift count a string; `items` each paragraph as a list's item
+    /// (ADR-0018), `links` each stretch of it a link goes from (PLAN 2.70), which ⌘K shows, and
+    /// `code`, where it is code, its tab stops and its first line's number, which its keys read
+    /// (PLAN 2.139). Null for a node that is no text there.
     pub fn carets_json(&mut self, state: &str, node: &str) -> Result<serde_json::Value, Error> {
         let Some(c) = self.carets(state, node)? else { return Ok(serde_json::Value::Null) };
         let units = utf16(&c.text);
@@ -1484,7 +1530,7 @@ impl Session {
             }
             start = look.end;
         }
-        Ok(serde_json::json!({ "text": c.text, "lines": lines, "items": c.items, "links": links }))
+        Ok(serde_json::json!({ "text": c.text, "lines": lines, "items": c.items, "links": links, "code": c.code }))
     }
 
     /// What an inspector offers for `node` as `state` shows it (ADR-0013, PLAN 2.33): each
@@ -4386,8 +4432,100 @@ mod tests {
         s
     }
 
+    /// The code commands (PLAN 2.139), each one patch the deck takes: Make Code on prose with runs,
+    /// a list, `fit: wrap`, and a delta on a later step gives a valid code text in the code role,
+    /// its carets saying its tab stops; the looks, lists, and writing tools that code does not take
+    /// are refused on it; Tidy Code tidies it, a second time nothing; and Not Code, from its own
+    /// props and from a later step's delta, takes `code` away everywhere, the text in `body` again.
+    #[cfg(feature = "editor")]
+    #[test]
+    fn code_commands_make_and_take_code_and_tidy_it() {
+        use serde_json::json;
+        let by = || assistant::Caller { author: "user", at: None };
+        let mut s = revenue();
+        let taken = |s: &mut Session, patch: &[serde_json::Value]| {
+            let called = s.tool("deck_patch", json!({ "ops": patch }), by());
+            assert!(called.as_ref().is_ok_and(|c| c.edited), "{patch:?}: {:?}", called.map(|c| c.result));
+        };
+        // Prose with runs, a list, `fit: wrap`, and what a later step writes that code does not take.
+        let look = s.bolding("revenue", "note", 0, 7).unwrap();
+        taken(&mut s, &[json!({ "op": "style_text", "node": "note", "from": 0, "to": 7, "look": look })]);
+        taken(&mut s, &[json!({ "op": "list", "node": "note", "from": 0, "to": 1, "kind": "bullet" })]);
+        taken(
+            &mut s,
+            &[
+                json!({ "op": "add", "path": "/nodes/note/fit", "value": "wrap" }),
+                json!({ "op": "add", "path": "/states/1/props/note/hyphenate", "value": false }),
+            ],
+        );
+        assert!(s.deck.nodes["note"].props.contains_key("runs"));
+        let made = s.coding("note", Some("plain")).unwrap();
+        taken(&mut s, &made);
+        let note = &s.deck.nodes["note"].props;
+        assert_eq!(note.get("code"), Some(&json!({ "language": "plain" })));
+        assert_eq!(note.get("role"), Some(&json!("code")));
+        assert_eq!(note.get("text"), Some(&json!("Revenue in $M. Enterprise recognized on delivery.")));
+        for gone in ["runs", "list", "fit"] {
+            assert!(!note.contains_key(gone), "{gone} stays: {note:?}");
+        }
+        assert!(!s.deck.states[1].props["note"].contains_key("hyphenate"));
+        assert!(s.coding("note", None).is_err(), "code already");
+        // Its carets say its tab stops and its first line's number.
+        let carets = s.carets("revenue", "note").unwrap().unwrap();
+        assert_eq!(carets.code, Some(scaena_engine::carets::CaretCode { tab: 4, from: 1 }));
+        assert_eq!(s.carets_json("revenue", "note").unwrap()["code"], json!({ "tab": 4, "from": 1 }));
+        assert_eq!(s.carets_json("revenue", "title").unwrap()["code"], json!(null), "prose");
+        // What code does not take: a look of its own for some characters, a list, the writing tools.
+        for refused in [
+            json!({ "op": "style_text", "node": "note", "from": 0, "to": 3, "look": { "style/weight": 700 } }),
+            json!({ "op": "list", "node": "note", "from": 0, "to": 1, "kind": "number" }),
+        ] {
+            let called = s.tool("deck_patch", json!({ "ops": [refused.clone()] }), by());
+            assert!(called.is_err() || called.as_ref().is_ok_and(|c| !c.edited), "{refused}: taken");
+        }
+        let ask = writing::Ask {
+            kind: "proofread".into(),
+            state: "revenue".into(),
+            node: Some("note".into()),
+            finding: None,
+        };
+        assert!(s.writing(&ask).is_err(), "proofread on code");
+        // Tidy Code: its tabs to spaces, the white space after its lines and the indentation they
+        // share taken off; then nothing more.
+        taken(&mut s, &[json!({ "op": "replace", "path": "/nodes/note/text", "value": "\tx = 1   \n\t\ty = 2\n" })]);
+        let tidy = s.tidying("revenue", "note").unwrap();
+        assert!(!tidy.is_empty() && tidy.iter().all(|op| op["op"] == "replace_text"), "{tidy:?}");
+        taken(&mut s, &tidy);
+        assert_eq!(s.code_words("revenue", "note").unwrap(), s.tidied("\tx = 1   \n\t\ty = 2\n", "plain"));
+        assert!(s.tidying("revenue", "note").unwrap().is_empty(), "tidy again");
+        // Not Code, from its own props: no `code` anywhere, its role `body`.
+        let not = s.uncoding("note").unwrap();
+        taken(&mut s, &not);
+        assert!(!s.deck.nodes["note"].props.contains_key("code"));
+        assert_eq!(s.deck.nodes["note"].props.get("role"), Some(&json!("body")));
+        assert!(s.uncoding("note").is_err(), "no code");
+        // And from a later step's delta alone.
+        taken(&mut s, &[json!({ "op": "add", "path": "/states/1/props/note/code", "value": { "language": "rust" } })]);
+        assert!(s.carets("revenue", "note").unwrap().unwrap().code.is_some());
+        let not = s.uncoding("note").unwrap();
+        taken(&mut s, &not);
+        assert!(s.deck.states.iter().all(|st| st.props.get("note").is_none_or(|p| !p.contains_key("code"))));
+        assert!(s.carets("revenue", "note").unwrap().unwrap().code.is_none());
+    }
+
+    /// A key in a code text (PLAN 2.139), by its UTF-16 offsets as a page and Swift count them.
+    #[test]
+    fn a_code_key_counts_utf16_as_a_page_does() {
+        use serde_json::json;
+        assert_eq!(Session::keyed("é", 1, 1, "Tab", 4), Some(json!({ "text": "é   ", "from": 4, "to": 4 })));
+        // 𝑥 is two code units: the caret after it is at 2, and Return keeps the line's indentation.
+        assert_eq!(Session::keyed("  𝑥", 4, 4, "Return", 4), Some(json!({ "text": "  𝑥\n  ", "from": 7, "to": 7 })));
+        assert_eq!(Session::keyed("𝑥", 1, 1, "Tab", 4), None, "inside a character");
+        assert_eq!(Session::keyed("x", 0, 0, "Escape", 4), None, "no key code answers");
+    }
+
     /// Find and replace across the deck's words (PLAN 2.47, 2.83): each text, and the beat's
-    /// claim and the chart's description, once for each place it is written; one match replaced
+    /// claim and the chart's description and axis title, once for each place it is written; one match replaced
     /// alone, where its text lives; and every match by the assistant's `deck_find`, one patch.
     #[cfg(feature = "editor")]
     #[test]
@@ -4405,9 +4543,11 @@ mod tests {
                 ("", "/spine/sections/1/beats/0/claim", 1),
                 ("title", "/states/1/props/title/text", 1),
                 ("rev", "/nodes/rev/alt", 1),
+                ("rev", "/nodes/rev/y/title", 1),
                 ("note", "/nodes/note/text", 1),
             ],
-            "Review, the claim's Revenue, Revenue doubled, the description's revenue, and Revenue in $M"
+            "Review, the claim's Revenue, Revenue doubled, the description's revenue, the axis's Revenue ($M), and \
+             Revenue in $M"
         );
         // One match, alone: the third place's first.
         let one = s.replacing(&query, "Inc", Some([2, 0])).unwrap();
@@ -4426,7 +4566,7 @@ mod tests {
         let called = s.tool("deck_find", serde_json::json!({ "find": "rev", "replace": "REV" }), by).unwrap();
         let result: serde_json::Value = serde_json::from_str(&called.result).unwrap();
         assert!(called.edited, "{result}");
-        assert_eq!(result["matches"], 4, "{result}");
+        assert_eq!(result["matches"], 5, "{result}");
         assert_eq!(result["replaced"]["applied"], true, "{result}");
         assert!(s.source().contains("Q3 REView"), "{}", s.source());
         assert!(
@@ -5255,9 +5395,10 @@ mod tests {
             pasted.findings.iter().map(|f| (f.code.as_str(), f.path.as_deref())).collect();
         assert_eq!(found, [("E102", Some("/nodes/subtitle/role"))], "{:?}", pasted.findings);
         assert!(pasted.findings[0].message.contains("role `title`"), "{:?}", pasted.findings);
-        // Dusk's title, 48 cu, is nearest its body, 32, of the roles every theme has.
-        assert_eq!(clip.roles.get("title").map(String::as_str), Some("body"));
-        assert_eq!(pasted.patch[0]["node"]["role"], "body", "in its place: {:?}", pasted.patch);
+        // Dusk's title, 48 cu, is nearest its headline, 64, by the type scale's steps, of the roles
+        // every theme has: its body, 32, is a larger step away.
+        assert_eq!(clip.roles.get("title").map(String::as_str), Some("headline"));
+        assert_eq!(pasted.patch[0]["node"]["role"], "headline", "in its place: {:?}", pasted.patch);
         assert!(t.typed(&serde_json::json!(pasted.patch), None).unwrap(), "the deck takes {:?}", pasted.patch);
         assert_eq!(t.deck.nodes["subtitle"].props.get("text"), s.deck.nodes["subtitle"].props.get("text"));
 
