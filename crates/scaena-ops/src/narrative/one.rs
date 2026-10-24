@@ -191,6 +191,21 @@ pub fn slide_into(
             add_beat(&mut patch, &sections, last, beat, made.deck.pointer("/spine/sections/0").cloned())
         }
     };
+    // Its nodes stay on its slide, as a slide's own do (PLAN 3.24): a deck whose next slide
+    // starts from the state before it, rather than on its own, would show them there.
+    let mut with = doc.clone();
+    if scaena_core::patch::apply(&mut with, &patch).is_ok()
+        && let Ok(with) = Deck::from_json(&with.to_string())
+        && let Some(first) = states.first()
+    {
+        let new: Vec<(String, scaena_core::document::Node)> = (built.nodes.iter())
+            .filter(|(id, _)| !nodes_before.contains_key(*id))
+            .filter_map(|(id, node)| Some((id.clone(), serde_json::from_value(node.clone()).ok()?)))
+            .collect();
+        for hide in crate::inspect::leaving(&with, first, &new) {
+            patch.push(serde_json::to_value(hide).context("a patch")?);
+        }
+    }
     if let Some(old) = replaced {
         patch.push(json!({ "op": "remove_slide", "slide": old }));
     }

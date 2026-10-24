@@ -7287,4 +7287,26 @@ mod tests {
         assert_eq!((added.after, added.now, added.claim), (None, None, None));
         assert_eq!(added.before.as_deref(), Some(claim(&firsts[3]).as_str()));
     }
+
+    #[test]
+    fn a_slide_written_into_a_deck_whose_next_slide_tracks_from_it_stays_on_its_own_slide() {
+        // The revenue example's slides each start from the state before: what a slide written
+        // between two of them adds would show on the next one but for a hide, as a node inserted
+        // on a slide stays on it (PLAN 3.24).
+        let doc: Value =
+            serde_json::from_str(&std::fs::read_to_string(root().join("docs/examples/revenue.deck.json")).unwrap())
+                .unwrap();
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let (_, slides) = catalog();
+        let first = doc["states"][0]["id"].as_str().unwrap().to_string();
+        let written = slide_into(&doc, &theme, slides[8].clone(), &Place::After(first), BTreeMap::new()).unwrap();
+        let files = scaena_store::Files::Dir(root().join("docs/examples"));
+        let view = View { base: &files, pending: BTreeMap::new() };
+        let after = scaena_core::patch::compile(&doc, &written.patch, &view).unwrap().doc;
+        let deck = Deck::from_json(&after.to_string()).unwrap();
+        let errors: Vec<_> = (lint_in(&deck, &view).unwrap().findings.into_iter())
+            .filter(|f| f.severity == scaena_core::Severity::Error)
+            .collect();
+        assert!(errors.is_empty(), "{errors:#?}");
+    }
 }
