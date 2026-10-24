@@ -577,8 +577,9 @@ pub(crate) mod tests {
             size: Some("960x540".into()),
             ..Default::default()
         };
-        scaena_ops::export::export(&disk, &req).unwrap();
-        let cli = std::fs::read(dir.join(format!("{state}.png"))).unwrap();
+        // The file the export wrote, named by its slide (`Slide 02.png`).
+        let written = scaena_ops::export::export(&disk, &req).unwrap().files.unwrap();
+        let cli = std::fs::read(&written[0]).unwrap();
         std::fs::remove_dir_all(&dir).unwrap();
         assert!(s.png(&state, 960).unwrap() == cli, "{state}: the PNG differs from the CLI's");
         assert!(s.png("nowhere", 960).is_err());
