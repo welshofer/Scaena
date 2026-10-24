@@ -710,12 +710,18 @@ pub fn looked(
     Ok(adopt(before.0, again, kept, &refused))
 }
 
-/// What lint finds wrong with each slide of a made deck: its errors, and its warnings.
+/// What lint finds wrong with each slide of a made deck, in all its states: its errors, and its
+/// warnings.
 fn wrongs(made: &Generated, write: &Write) -> Vec<(usize, usize)> {
     use scaena_core::Severity;
-    (write.deck.states.iter())
-        .map(|state| {
-            let on = || made.created.findings.iter().filter(|f| f.state.as_deref() == Some(state.id.as_str()));
+    (write.deck.slides().into_iter())
+        .map(|states| {
+            let on = || {
+                made.created
+                    .findings
+                    .iter()
+                    .filter(|f| states.iter().any(|k| f.state.as_deref() == Some(write.deck.states[*k].id.as_str())))
+            };
             (
                 on().filter(|f| f.severity == Severity::Error).count(),
                 on().filter(|f| f.severity == Severity::Warning).count(),
@@ -773,12 +779,14 @@ pub fn adopt(before: Generated, after: (Generated, Write), kept: Vec<Change>, re
     (made, write)
 }
 
-/// Each state of the deck `write` makes, at rest, drawn `width` pixels wide by the CPU painter,
-/// as a JPEG, in their order: what the model looks at (PLAN G.13).
+/// Each slide of the deck `write` makes, whole at its last state and at rest, drawn `width`
+/// pixels wide by the CPU painter, as a JPEG, in their order: what the model looks at (PLAN
+/// G.13).
 pub fn drawn(write: &Write, width: u32) -> Result<Vec<Picture>, OpsError> {
     let mut drawing = Drawing::new(write)?;
-    (write.deck.states.iter())
-        .map(|state| {
+    (write.deck.slides().into_iter())
+        .map(|states| {
+            let state = &write.deck.states[*states.last().expect("a slide has a state")];
             let raster = drawing.draw(&state.id, width)?;
             let jpeg = scaena_export::pdf::jpeg(&raster.rgba, raster.width, raster.height, 82)
                 .ok_or_else(|| OpsError::new(format!("state `{}` would not encode as a JPEG", state.id)))?;
@@ -1247,6 +1255,8 @@ pub fn deck_as(
     let mut chosen = Vec::with_capacity(count);
     let mut section_number = 0;
     let mut running: Option<String> = None;
+    // Whether the section open is titled by a divider of its own.
+    let mut divided = false;
     let mut previous: Option<(String, &Slide)> = None;
     for (i, (slide, v)) in narrative.slides.iter().zip(&varied).enumerate() {
         let beat = (slide.beat_index.filter(|b| *b < names.len()))
@@ -1279,18 +1289,33 @@ pub fn deck_as(
         };
         let entrance = entrance(&layout, slide, previous.as_ref().map(|(l, s)| (l.as_str(), *s)), i + 1 == count);
         let made = deck.slide(slots, entrance)?;
-        if layout.starts_with("section") && !slide.slide_title.is_empty() {
+        let divider = layout.starts_with("section") && !slide.slide_title.is_empty();
+        if divider {
             running = Some(slide.slide_title.clone());
         }
         previous = Some((layout.clone(), slide));
         chosen.push(layout);
 
-        // The spine: a section for each run of slides in one beat, a beat for each slide.
+        // The spine: a section for each run of slides in one beat, a beat for each slide. A
+        // section is titled by what its slides say (narrative ATTR-5): its divider's title, else
+        // the beat's name as the model wrote it on the run's first slide, else the arc's name for
+        // the beat, which reads as a template ("Problem", "Solution") in the PDF's outline, the
+        // player's picker, and the Story tab.
         if last_beat != Some(beat) {
-            let name = names.get(beat).copied().unwrap_or("Section");
+            let named = slide.beat_name.as_deref().map(str::trim).filter(|n| !n.is_empty());
+            let name = match (divider, named) {
+                (true, _) => slide.slide_title.as_str(),
+                (false, Some(named)) => named,
+                (false, None) => names.get(beat).copied().unwrap_or("Section"),
+            };
             let id = deck.unique(&slug(name, "section"), Taken::Section);
             sections.push(json!({ "id": id, "title": name, "beats": [] }));
+            divided = divider;
             last_beat = Some(beat);
+        } else if divider && !divided {
+            // The run's first divider, after a slide or two: the section takes its title.
+            sections.last_mut().expect("opened above")["title"] = json!(slide.slide_title);
+            divided = true;
         }
         let claim = if slide.slide_title.is_empty() { format!("Slide {}", i + 1) } else { slide.slide_title.clone() };
         let beat_id = deck.unique(&slug(&claim, "beat"), Taken::Beat);
@@ -1301,7 +1326,8 @@ pub fn deck_as(
             v.layout.layout,
             &slide.visual_description,
         );
-        let mut entry = json!({ "id": beat_id, "claim": claim, "states": [state], "duration": seconds });
+        let states: Vec<&str> = std::iter::once(state.as_str()).chain(made.steps.iter().map(String::as_str)).collect();
+        let mut entry = json!({ "id": beat_id, "claim": claim, "states": states, "duration": seconds });
         if !slide.speaker_notes.is_empty() {
             entry["notes"] = json!(slide.speaker_notes);
         }
@@ -1915,9 +1941,11 @@ struct Slots<'a> {
     icons: Option<Vec<&'a Icon>>,
 }
 
-/// What one slide added beyond its nodes: the data source its chart reads.
+/// What one slide added beyond its nodes: the data source its chart reads, and the steps its
+/// list builds by (narrative ATTR-2), each a state after the slide's own.
 struct SlideMade {
     data: Option<String>,
+    steps: Vec<String>,
 }
 
 /// What fills a slot.
@@ -2658,7 +2686,9 @@ impl Builder {
             .get(s.layout)
             .ok_or_else(|| OpsError::new(format!("the theme has no layout `{}`", s.layout)))?;
         let mut props = Map::new();
-        let mut made = SlideMade { data: None };
+        let mut made = SlideMade { data: None, steps: Vec::new() };
+        // A list that builds by bullet (ATTR-2): its node, and how many paragraphs it has.
+        let mut bulleted: Option<(String, usize)> = None;
         let mut claimed = false;
         // What builds once the transition ends (G.17): each item's nodes, by its place's ordinal
         // (`first-…`, `second-…`), and each chart.
@@ -2745,6 +2775,17 @@ impl Builder {
                         node["fit"] = json!("grow");
                         node["maxSize"] = json!(most);
                     }
+                    // A slide whose one item is a short list in the bullets layout builds it by
+                    // bullet, as a speaker paces an argument (ATTR-2): each paragraph enters by
+                    // the theme's By Bullet on a click of its own.
+                    if name == "body"
+                        && s.layout.starts_with("bullets")
+                        && (3..=6).contains(&entries.len())
+                        && let Some(preset) = by_bullet_preset(s.theme)
+                    {
+                        node["enter"] = json!(preset);
+                        bulleted = Some((id.clone(), entries.len()));
+                    }
                     node
                 }
                 Fill::Prompt => {
@@ -2808,6 +2849,15 @@ impl Builder {
             self.nodes.insert(id.clone(), node);
             props.insert(id, json!({}));
         }
+        // The slide shows its list's first paragraph; each step one more (ATTR-2), as the
+        // editor's By Bullet makes them (`scaena_core::patch` `by_bullet`, PLAN 2.129).
+        if let Some((list, n)) = &bulleted {
+            props.insert(list.clone(), json!({ "paragraphs": [1, 1] }));
+            for k in 2..=*n {
+                let id = self.unique(&format!("{}-{k}", s.state), Taken::State);
+                made.steps.push(id);
+            }
+        }
         let mut state = json!({ "id": s.state, "mode": "absolute", "layout": s.layout, "props": props });
         let durations = &s.theme.motion.durations;
         let mut transition = durations.get("standard").map_or(420.0, |d| d.0);
@@ -2829,8 +2879,25 @@ impl Builder {
             state["choreography"] = choreography;
         }
         self.states.push(state);
+        if let Some((list, _)) = &bulleted {
+            for (k, id) in made.steps.iter().enumerate() {
+                let props = json!({ list.clone(): { "paragraphs": [1, k + 2] } });
+                self.states.push(json!({ "id": id, "slide": s.state, "props": props }));
+            }
+        }
         Ok(made)
     }
+}
+
+/// The theme's motion preset that builds a text by its paragraphs (By Bullet, PLAN 2.129), where
+/// it has one: `bullets` where that is one, else the first that splits by paragraphs.
+fn by_bullet_preset(theme: &Theme) -> Option<&str> {
+    use scaena_core::model::values::SplitUnit;
+    let splits = |name: &str| theme.motion.presets.get(name).is_some_and(|p| p.split == Some(SplitUnit::Paragraphs));
+    if splits("bullets") {
+        return Some("bullets");
+    }
+    theme.motion.presets.keys().map(String::as_str).find(|name| splits(name))
 }
 
 /// How a slide builds once its transition, `transition` ms long, ends (G.17): each of its items
@@ -4067,6 +4134,42 @@ mod tests {
         assert_eq!(kept(made.looked.clone(), &[13]).len(), 1);
     }
 
+    /// A section is titled by what its slides say (narrative ATTR-5): its divider's title, where
+    /// the run has one, first or after a slide; else the beat's name as the model wrote it; else
+    /// the arc's name for the beat.
+    #[test]
+    fn a_section_is_titled_by_its_divider_else_the_models_beat_name_else_the_arcs() {
+        let (summary, slides) = catalog();
+        let at = |layout: &str| slides.iter().find(|s| s.layout_suggestion == layout).unwrap().clone();
+        let beat = |mut slide: Slide, index: usize, name: Option<&str>| {
+            slide.beat_index = Some(index);
+            slide.beat_name = name.map(str::to_string);
+            slide
+        };
+        let mut divider = at("Section Header");
+        divider.slide_title = "The problem is the cost of proof".into();
+        let mut later = at("Section Header");
+        later.slide_title = "Where the money goes".into();
+        let picked = vec![
+            beat(at("Title"), 0, Some("  Hook  ")),
+            beat(divider, 1, Some("Stakes")),
+            beat(at("Bullet List"), 1, None),
+            beat(at("Big Number"), 2, None),
+            beat(at("Bullet List"), 3, Some("Ask")),
+            beat(later, 3, None),
+            beat(at("Closing"), 3, None),
+        ];
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let made = deck(&narrative(&summary, picked), &theme, &Pictures::new()).unwrap();
+        let spine = made.deck["spine"]["sections"].as_array().unwrap();
+        let titles: Vec<&str> = spine.iter().map(|s| s["title"].as_str().unwrap()).collect();
+        let names = scaena_narrato::arcs::arc("Problem\u{2013}Solution").beat_names();
+        assert_eq!(titles, ["Hook", "The problem is the cost of proof", names[2], "Where the money goes"]);
+        let beats: Vec<usize> = spine.iter().map(|s| s["beats"].as_array().unwrap().len()).collect();
+        assert_eq!(beats, [1, 2, 1, 3]);
+        assert_eq!(spine[1]["id"], "the-problem-is-the-cost-of-proof");
+    }
+
     #[test]
     fn a_generation_runs_on_the_clients_transport_and_fits_what_runs_over() {
         use scaena_narrato::{Provider, Settings};
@@ -4147,6 +4250,69 @@ mod tests {
         assert!(matches!(heard[0], Progress::Choosing));
         assert!(heard.iter().any(|p| matches!(p, Progress::Fitting { texts: 1 })));
         assert!(heard.iter().any(|p| matches!(p, Progress::Fitted { texts: 1 })));
+    }
+
+    /// A generated slide whose one item is a short list in the bullets layout builds it by
+    /// bullet (narrative ATTR-2), as the editor's By Bullet does (PLAN 2.129): the slide shows
+    /// the first point, each step one more, on a click of its own, the beat holding every step;
+    /// the deck validates, and the look pass sees the slide whole and judges it as one.
+    #[test]
+    fn a_generated_list_builds_by_bullet() {
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let (summary, slides) = catalog();
+        assert_eq!((slides[54].layout_suggestion.as_str(), slides[54].key_bullets.len()), ("Bullet List", 4));
+        let n = narrative(&summary, vec![slides[0].clone(), slides[1].clone(), slides[54].clone(), slides[55].clone()]);
+        let built = deck(&n, &theme, &Pictures::new()).unwrap();
+        assert_eq!(built.layouts, ["title-center", "agenda", "bullets", "closing"]);
+        let states = built.deck["states"].as_array().unwrap();
+        assert_eq!(states.len(), 4 + 3, "the list's three steps");
+        let slide = &states[2];
+        let id = slide["id"].as_str().unwrap();
+        let (list, props) =
+            slide["props"].as_object().unwrap().iter().find(|(_, p)| !p["paragraphs"].is_null()).unwrap();
+        assert_eq!(built.deck["nodes"][list]["enter"], "bullets");
+        assert_eq!(built.deck["nodes"][list]["at"]["in"], "body");
+        assert_eq!(props["paragraphs"], json!([1, 1]));
+        for k in 2..=4 {
+            let step = &states[k + 1];
+            assert_eq!(step["id"], format!("{id}-{k}"));
+            assert_eq!(step["slide"], id);
+            assert_eq!(step["props"][list]["paragraphs"], json!([1, k]));
+            assert!(step.get("transition").is_none() && step.get("mode").is_none());
+        }
+        // The agenda, a list in its own layout, and the closing come in whole.
+        assert!(states[1]["props"].as_object().unwrap().values().all(|p| p["paragraphs"].is_null()));
+        assert_eq!(states[6]["layout"], "closing");
+        // The beat holds the slide and its steps.
+        let beats: Vec<&Value> = built.deck["spine"]["sections"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .flat_map(|s| s["beats"].as_array().unwrap())
+            .collect();
+        assert_eq!(beats.len(), 4);
+        assert_eq!(beats[2]["states"], json!([id, format!("{id}-2"), format!("{id}-3"), format!("{id}-4")]));
+        // It validates and lints no worse, and reads as four slides: the look pass draws each
+        // slide whole and judges it as one.
+        let (made, write) =
+            making(built, "Problem\u{2013}Solution", Path::new("dusk.theme.json"), dusk(), &font).unwrap();
+        assert!(made.created.created && made.created.errors == 0, "{:#?}", made.created.findings);
+        assert!(!made.created.findings.iter().any(|f| f.code.starts_with("W32")), "{:#?}", made.created.findings);
+        let write = write.unwrap();
+        assert_eq!(write.deck.slides(), [vec![0], vec![1], vec![2, 3, 4, 5], vec![6]]);
+        assert_eq!(drawn(&write, 64).unwrap().len(), 4);
+        assert_eq!(wrongs(&made, &write).len(), 4);
+        assert!(worse((&made, &write), (&made, &write)).is_empty());
+        // A list of two, or of seven, comes in whole.
+        let mut two = slides[54].clone();
+        two.key_bullets.truncate(2);
+        let mut seven = slides[54].clone();
+        seven.key_bullets.extend((1..=3).map(|k| format!("One more point, number {k}")));
+        for list in [two, seven] {
+            let n = narrative(&summary, vec![slides[0].clone(), list, slides[55].clone()]);
+            let built = deck(&n, &theme, &Pictures::new()).unwrap();
+            assert_eq!(built.deck["states"].as_array().unwrap().len(), 3, "{:?}", built.layouts);
+        }
     }
 
     /// A generated deck enters by its structure (narrative ATTR-1): each section divider and the
@@ -4384,6 +4550,14 @@ mod tests {
             crate::lint::write(&b, write.clone()).unwrap();
         }
         assert!(errors.is_empty(), "{errors:#?}");
-        assert_eq!(write.deck.states.len(), 56);
+        // A slide for each of the catalog's, and a step for each point past the first of the
+        // short lists set in the bullets layout (ATTR-2).
+        assert_eq!(write.deck.slides().len(), 56);
+        let steps: usize = (write.deck.states.iter()).filter(|s| s.slide.is_some()).count();
+        let bulleted = (made.layouts.iter().zip(&n.slides))
+            .filter(|(l, s)| l.starts_with("bullets") && (3..=6).contains(&s.key_bullets.len()))
+            .map(|(_, s)| s.key_bullets.len() - 1)
+            .sum::<usize>();
+        assert!(steps > 0 && steps == bulleted, "{steps} steps, {bulleted} points past the first");
     }
 }

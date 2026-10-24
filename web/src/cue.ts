@@ -20,7 +20,7 @@
 //   rest again when it is pressed, and an edit shows it at rest.
 // - Each change is one patch, by the user, one step to undo. What the deck refuses, the status
 //   says why.
-import { type Key, SHIFT } from "./commands";
+import { type Key, opens, SHIFT } from "./commands";
 import { listen } from "./life";
 import type { At, Cue, Edited, Inspected, Lexicon, Motion } from "./protocol";
 import type { Stage } from "./stage";
@@ -33,7 +33,7 @@ export interface CueEditor {
   format(): string | undefined;
   source(): string;
   /** Take `source`, a patch's, as one change: one step to undo. */
-  apply(source: string, edited: Edited): void;
+  apply(source: string, edited: Edited, said?: string): void;
   say(text: string): void;
   /** The node the canvas selects, and select one there. */
   chosen(): string | undefined;
@@ -116,7 +116,10 @@ export function cue(stage: Stage, into: HTMLElement, preview: HTMLElement, edito
   const lanes = into.querySelector<HTMLElement>(".lanes")!;
   const play = into.querySelector<HTMLButtonElement>("[data-play]")!;
   const clock = into.querySelector<HTMLElement>(".clock")!;
-  const adder = into.querySelector<HTMLSelectElement>("[data-add]")!;
+  const adder = into.querySelector<HTMLButtonElement>("[data-add]")!;
+  /** What Add an animation offers now: each under what it is for, with the motion, the node, and
+   * the preset it adds. The button opens them as a menu: browsing it adds nothing (lift-up USE-3). */
+  let offers: { section: string; label: string; value: [string, string, string] }[] = [];
   /** The state as the inspector last read it, and its words. */
   let read: Inspected | undefined;
   let words: Lexicon | undefined;
@@ -268,7 +271,7 @@ export function cue(stage: Stage, into: HTMLElement, preview: HTMLElement, edito
       editor.say(doing);
       try {
         const { source, edited } = await stage.make(editor.source, [op], at.index, editor.format());
-        editor.apply(source, edited);
+        editor.apply(source, edited, done);
         editor.say(done);
       } catch (e) {
         editor.say(`Not changed: ${said(e)}`);
@@ -401,7 +404,7 @@ export function cue(stage: Stage, into: HTMLElement, preview: HTMLElement, edito
     const at = editor.shown();
     const found = read;
     const none = () => {
-      adder.replaceChildren(new Option("Add an animation…", ""));
+      offers = [];
       adder.disabled = true;
     };
     if (!at || !found?.timeline) return none();
@@ -416,11 +419,9 @@ export function cue(stage: Stage, into: HTMLElement, preview: HTMLElement, edito
       return field?.takes.kind === "name" ? field.takes.names : [];
     };
     const has = (n: string, kind: string) => found.timeline?.motions.some((m) => m.node === n && m.motion === kind);
-    const groups: HTMLOptGroupElement[] = [];
+    const list: typeof offers = [];
     const group = (label: string, kind: string, of: string, presets: string[]) => {
-      const g = Object.assign(document.createElement("optgroup"), { label });
-      for (const p of presets) g.append(new Option(named(words, kind === "exit" ? "motion-exit" : "motion-preset", p), JSON.stringify([kind, of, p])));
-      if (presets.length) groups.push(g);
+      for (const p of presets) list.push({ section: label, label: named(words, kind === "exit" ? "motion-exit" : "motion-preset", p), value: [kind, of, p] });
     };
     if (node && found.nodes[node]) {
       const enters = (found.entered ?? []).includes(node) || found.nodes[node].type === "chart";
@@ -434,19 +435,18 @@ export function cue(stage: Stage, into: HTMLElement, preview: HTMLElement, edito
       if (!has(gone, "exit")) group(`${object(words, gone)}, as it leaves`, "exit", gone, await offered(before, gone, "exit"));
     }
     if (read !== found) return;
-    adder.replaceChildren(new Option("Add an animation…", ""), ...groups);
+    offers = list;
     // With nothing to add, it says why: the canvas selects what an animation is for.
-    adder.disabled = groups.length === 0;
-    adder.title = groups.length
+    adder.disabled = list.length === 0;
+    adder.title = list.length
       ? "An animation from the theme: for the object selected, as it enters or for emphasis, or for one that leaves, as it leaves"
       : "Select an object on the canvas to animate it";
   }
-  adder.onchange = () => {
-    const chosen = adder.value;
-    adder.value = "";
+  opens(adder, () => offers.map((o) => ({ label: o.label, section: o.section, run: () => add(o.value) })));
+  /** `preset` added to `node` as its `motion`, one patch. */
+  function add([motion, node, preset]: [string, string, string]) {
     const at = editor.shown();
-    if (!chosen || !at) return;
-    const [motion, node, preset] = JSON.parse(chosen) as [string, string, string];
+    if (!at) return;
     // An exit is read from the state the node leaves: the one before this one.
     const states = editor.states();
     const state = motion === "exit" ? states[states.indexOf(at.state) - 1] : at.state;
@@ -454,11 +454,13 @@ export function cue(stage: Stage, into: HTMLElement, preview: HTMLElement, edito
     if (!state) return editor.say(`${it[0].toUpperCase()}${it.slice(1)} leaves no slide before this one`);
     const verb = { enter: "as it enters", emphasis: "for emphasis", exit: "as it leaves" }[motion];
     void make({ op: "apply_preset", node, preset, motion, state }, "Adding…", `${named(words, motion === "exit" ? "motion-exit" : "motion-preset", preset)} added to ${it} ${verb}`);
-  };
+  }
 
   return {
     show,
     offer,
+    /** What Add an animation offers now, for a test: each under what it is for, with what it adds. */
+    offers: () => offers,
     rest,
     seek,
     toggle,
