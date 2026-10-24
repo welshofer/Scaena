@@ -246,8 +246,9 @@ public final class Generator {
             .appending(path: "Scaena/Fonts")
     }
 
-    /// The engine's generation, freed with it.
-    private final class Made {
+    /// The engine's generation, freed with it. Sendable: its steps are made one at a time, each
+    /// awaited before the next, on the main actor or, for the slow ones, on a thread of their own.
+    private final class Made: @unchecked Sendable {
         let pointer = scaena_generator_new()!
 
         deinit {
@@ -258,6 +259,41 @@ public final class Generator {
     /// What a brief may ask.
     nonisolated public static func choices() throws -> BriefChoices {
         try ScaenaSession.decode(scaena_generator_choices(), as: BriefChoices.self)
+    }
+
+    /// The stack a slow step is made on: 16 MB, twice the Mac main thread's. Building a deck and drawing
+    /// its slides recurses deeper than a dispatch queue's 512 KB worker stack allows in a debug
+    /// build (the generator's FFI test overflows at 512 KB and passes from 1 MB).
+    nonisolated static let stack = 16 << 20
+
+    /// For a test: told each step `stepAway` makes, on the thread it makes it on.
+    var away: (@Sendable (String) -> Void)?
+
+    /// `step`, made on a thread of its own, away from the main actor: the steps that build the deck
+    /// and draw every slide (`make`, `looked`, `fitted`), which take seconds for a deck of 20 to 45
+    /// slides, while the brief's window goes on answering and its steps go on showing (lift-up
+    /// narrative PERF-3). One step at a time: each is awaited before the next is made.
+    func stepAway<T: Decodable & Sendable>(_ method: String, _ args: [String: JSONValue] = [:]) async throws -> T {
+        let json = String(decoding: try JSONEncoder().encode(JSONValue.object(args)), as: UTF8.self)
+        return try await Self.stepped(on: made, method, json, heard: away)
+    }
+
+    /// `method` made on `made` on a thread of its own with `stack` bytes of stack, its answer awaited.
+    nonisolated private static func stepped<T: Decodable & Sendable>(
+        on made: Made, _ method: String, _ json: String, heard: (@Sendable (String) -> Void)?
+    ) async throws -> T {
+        try await withCheckedThrowingContinuation { (done: CheckedContinuation<T, any Error>) in
+            let thread = Thread {
+                heard?(method)
+                done.resume(with: Result {
+                    try ScaenaSession.decode(scaena_generator_call(made.pointer, method, json, nil, 0), as: T.self)
+                })
+            }
+            thread.name = "ScaenaKit.generate"
+            thread.stackSize = stack
+            thread.qualityOfService = .userInitiated
+            thread.start()
+        }
     }
 
     func step<T: Decodable>(_ method: String, _ args: [String: JSONValue] = [:], bytes: Data? = nil) throws -> T {
@@ -424,8 +460,8 @@ public final class Generator {
         let truncated: Bool?
     }
 
-    private struct Making: Decodable {
-        struct Look: Decodable {
+    private struct Making: Decodable, Sendable {
+        struct Look: Decodable, Sendable {
             let request: GeneratorRequest
             let slides: Int
         }
@@ -434,18 +470,18 @@ public final class Generator {
         let fit: Fit?
     }
 
-    private struct Fit: Decodable {
+    private struct Fit: Decodable, Sendable {
         let request: GeneratorRequest
         let texts: Int
     }
 
-    private struct Looking: Decodable {
+    private struct Looking: Decodable, Sendable {
         let looked: Int
         let unlooked: String?
         let fit: Fit?
     }
 
-    private struct Fitting: Decodable {
+    private struct Fitting: Decodable, Sendable {
         let fitted: Int?
         let unfitted: String?
     }
@@ -661,14 +697,15 @@ public final class Generator {
             try await paint(painter, theme: theme, hear: hear)
         }
         hear(.making)
-        let making: Making = try step("make", ["theme": .string(theme), "key": .string(key), "look": .bool(look)])
+        let making: Making = try await stepAway(
+            "make", ["theme": .string(theme), "key": .string(key), "look": .bool(look)])
         var fit = making.fit
         // The deck shown to the model as it is drawn (PLAN G.13), each slide's change kept where
         // lint finds the slide no worse; then the fit, asked after it.
         if let seeing = making.look {
             hear(.looking(slides: seeing.slides))
             let reply = await send(seeing.request)
-            let looking: Looking = try step(
+            let looking: Looking = try await stepAway(
                 "looked",
                 [
                     "status": .number(Double(reply.status)),
@@ -682,7 +719,7 @@ public final class Generator {
         if let fit {
             hear(.fitting(texts: fit.texts))
             let reply = await send(fit.request)
-            let fitting: Fitting = try step(
+            let fitting: Fitting = try await stepAway(
                 "fitted",
                 [
                     "status": .number(Double(reply.status)),

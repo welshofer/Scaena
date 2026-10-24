@@ -51,6 +51,9 @@ pub struct Request {
     /// What paints a video's frames: the CPU painter, or vello on the GPU in a build with
     /// the `gpu` feature (PLAN 2.22). Every other export paints with the CPU painter.
     pub painter: crate::render::Painter,
+    /// How a video and the spine pace the timeline (SPEC §2.4, §10): by the beats' durations
+    /// where a state has no hold (the default), or by the holds alone.
+    pub pace: scaena_core::spine::Pace,
 }
 
 /// What an export wrote (SPEC §7.1).
@@ -85,6 +88,9 @@ pub struct Exported {
     /// How long a video runs, ms: its frames at its rate.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub duration_ms: Option<f64>,
+    /// How a video or the spine paced the timeline: `beats` or `holds`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pace: Option<String>,
     /// When each state plays in a video, in order.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub timeline: Option<Vec<Played>>,
@@ -127,6 +133,8 @@ pub struct Played {
     /// When it starts, ms into the video.
     pub start: f64,
     pub span: f64,
+    /// Its time at rest in the video, ms: its `hold`, or its share of its beat's `duration`
+    /// (`pace`).
     pub hold: f64,
 }
 
@@ -214,7 +222,7 @@ pub fn export_watched(b: &Bundle, req: &Request, progress: &Progress) -> Result<
             Err(OpsError::new("--states picks the frames of png, svg, pdf, and video; spine is the whole spine"))
         }
         Format::Spine => {
-            let mut exported = spine(b, out, req.size.as_deref(), progress)?;
+            let mut exported = spine(b, out, req.size.as_deref(), req.pace, progress)?;
             exported.out = shown;
             Ok(exported)
         }
@@ -365,19 +373,30 @@ pub const THUMBNAIL_WIDTH: f32 = 480.0;
 /// takes each beat's renders, in `renders/` beside it: the state that shows the beat at
 /// rest as a thumbnail (`<beat>.png`, `size` or [`THUMBNAIL_WIDTH`] wide), and in each of
 /// the deck's other formats at that format's canvas size (`<beat>@9x16.png`).
-fn spine(b: &Bundle, out: Option<&Path>, size: Option<&str>, progress: &Progress) -> Result<Exported, OpsError> {
+fn spine(
+    b: &Bundle,
+    out: Option<&Path>,
+    size: Option<&str>,
+    pace: scaena_core::spine::Pace,
+    progress: &Progress,
+) -> Result<Exported, OpsError> {
     let theme = crate::theme(b)?;
     let data = data_files(b)?;
     let (mut engine, assets) = engine(b, &theme)?;
     let timeline = engine.timeline(&b.deck, &theme, &data)?;
-    let mut projection = scaena_core::spine::projection(&b.deck, Some(&timeline));
+    let mut projection = scaena_core::spine::projection(&b.deck, Some(&timeline), pace);
     let canvas = [b.deck.canvas.width as f32, b.deck.canvas.height as f32];
     let scale = match size {
         Some(size) => scale_for(size, canvas)?,
         None => THUMBNAIL_WIDTH / canvas[0],
     };
     let Some(out) = out else {
-        return Ok(Exported { format: "spine".into(), spine: Some(projection), ..Exported::default() });
+        return Ok(Exported {
+            format: "spine".into(),
+            spine: Some(projection),
+            pace: Some(pace.name().into()),
+            ..Exported::default()
+        });
     };
     let dir = out.parent().filter(|d| !d.as_os_str().is_empty()).unwrap_or(Path::new("."));
     // The formats that lay the deck out on another canvas than its own.
@@ -429,7 +448,14 @@ fn spine(b: &Bundle, out: Option<&Path>, size: Option<&str>, progress: &Progress
     let text = serde_json::to_string_pretty(&projection)? + "\n";
     write(out, text.as_bytes())?;
     total += text.len() as u64;
-    Ok(Exported { format: "spine".into(), files: Some(files), size: pixels, bytes: Some(total), ..Exported::default() })
+    Ok(Exported {
+        format: "spine".into(),
+        files: Some(files),
+        size: pixels,
+        pace: Some(pace.name().into()),
+        bytes: Some(total),
+        ..Exported::default()
+    })
 }
 
 /// The states a PDF draws: those asked for, in that order; else each slide at its last
@@ -708,8 +734,8 @@ impl Reel {
         }
         if length <= 0.0 {
             return Err(OpsError::new(
-                "the timeline is 0 ms long: a video plays each state's transition and motions, then its `hold` \
-                 (SPEC §2.4); give the states a hold",
+                "the timeline is 0 ms long: a video plays each state's transition and motions, then its `hold`, \
+                 or its share of its beat's `duration` (SPEC §2.4); give the states a hold or the beats a duration",
             ));
         }
         let frames = (length * f64::from(fps) / 1000.0).ceil() as u64;
@@ -782,7 +808,8 @@ fn export_video(
     let theme = crate::theme(b)?;
     let data = data_files(b)?;
     let (mut engine, assets) = engine(b, &theme)?;
-    let reel = Reel::new(&engine.timeline(&b.deck, &theme, &data)?, states, fps)?;
+    let timeline = engine.timeline(&b.deck, &theme, &data)?;
+    let reel = Reel::new(&scaena_core::spine::paced(&b.deck, &timeline, req.pace), states, fps)?;
     let canvas = [b.deck.canvas.width as f32, b.deck.canvas.height as f32];
     let scale = match size {
         Some(size) => scale_for(size, canvas)?,
@@ -833,6 +860,7 @@ fn export_video(
         frames: Some(encoded.frames),
         fps: Some(fps),
         duration_ms: Some(reel.duration_ms()),
+        pace: Some(req.pace.name().into()),
         timeline: Some(played),
         chapters: (!chapters.is_empty()).then_some(chapters),
         painter: Some(if painter == scaena_export::video::Painter::Gpu { "gpu" } else { "cpu" }.into()),
