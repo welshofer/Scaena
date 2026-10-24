@@ -564,14 +564,26 @@ async function play(deck: Source, how: Play, channel: BroadcastChannel) {
     const r = stage.canvas.getBoundingClientRect();
     return [(e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height];
   };
+  // Fullscreen, the pointer over the slide hides once it has rested two seconds, as a presentation
+  // app's does, and shows again as it moves (lift-up ATTR-4).
+  let idling: ReturnType<typeof setTimeout> | undefined;
+  const rest = (moving: boolean) => {
+    clearTimeout(idling);
+    document.body.classList.remove("idle");
+    if (moving && document.fullscreenElement)
+      idling = setTimeout(() => document.body.classList.add("idle"), 2000);
+  };
+  document.addEventListener("fullscreenchange", () => rest(false));
   stage.canvas.addEventListener("pointermove", (e) => {
     pointer = over(e);
     if (laser) pointAt(pointer);
+    rest(true);
     void hover();
   });
   stage.canvas.addEventListener("pointerleave", () => {
     pointer = undefined;
     if (laser) pointAt(undefined);
+    rest(false);
     void hover();
   });
   addEventListener("resize", drawDot);
