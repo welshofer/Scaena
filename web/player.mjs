@@ -889,7 +889,7 @@ try {
       await page.waitForFunction(() => document.fullscreenElement === null, null, { timeout: 5000 }).catch(() => {});
     } else {
       const why = await page.evaluate(() => ({ status: document.querySelector("#status").textContent, focus: `${document.activeElement?.tagName}#${document.activeElement?.id}` }));
-      failures.push(`dense ${painter}: F did not make the player fullscreen: ${JSON.stringify(why)}`);
+      failures.push(`dense ${painter}, painted by ${paints}: F did not make the player fullscreen: ${JSON.stringify(why)}`);
     }
     await page.close();
   }
