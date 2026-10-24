@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import Network
 
@@ -26,6 +27,8 @@ public final class RemoteServer {
     /// How many wrong codes have been tried since the code was made, as it changes.
     public var tried: (Int) -> Void = { _ in }
 
+    /// The code's point, worked out as the code is made: what each hello raises (`Pairing.base`).
+    private var base: P256.KeyAgreement.PublicKey
     private let listener: NWListener
     /// Each remote by its connection: pairing, then paired, its channel sealed.
     private var remotes: [Int: Joining] = [:]
@@ -52,6 +55,7 @@ public final class RemoteServer {
     /// and so on up to five minutes.
     public init(name: String?, code: String = Remote.code(), loopback: Bool = false, cooldown: Double = 5) throws {
         self.code = code
+        base = try Pairing.base(code)
         self.cooldown = cooldown
         listener = try NWListener(using: Remote.parameters(loopback: loopback))
         if let name { listener.service = NWListener.Service(name: name, type: Remote.service) }
@@ -168,7 +172,7 @@ public final class RemoteServer {
         hellos.append(now)
         // No hello of this version is no try at the code.
         guard let body, let hello = try? JSONDecoder().decode(Pairing.Hello.self, from: body),
-            let pairing = try? Pairing(side: .presenter, code: code), let keys = try? pairing.keys(from: hello),
+            let pairing = try? Pairing(side: .presenter, base: base), let keys = try? pairing.keys(from: hello),
             let answer = try? JSONEncoder().encode(pairing.hello)
         else {
             joining.connection.cancel()
@@ -241,7 +245,15 @@ public final class RemoteServer {
                 remotes[id] = nil
                 remote.connection.cancel()
             }
-            code = Remote.code()
+            // The new code's point, worked out now rather than as a remote joins: every code has one.
+            var next = Remote.code()
+            var made = try? Pairing.base(next)
+            while made == nil {
+                next = Remote.code()
+                made = try? Pairing.base(next)
+            }
+            code = next
+            if let made { base = made }
             recoded(code)
         }
         tried(wrong)

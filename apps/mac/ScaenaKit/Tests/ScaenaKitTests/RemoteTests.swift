@@ -272,7 +272,7 @@ private func tried(_ endpoint: NWEndpoint, _ parameters: NWParameters, _ seconds
     let again = try Pairing(side: .remote, code: "4821")
     #expect(remote.hello.key.count == 32 && remote.hello.nonce.count == 16 && remote.hello.version == Remote.version)
     #expect(remote.hello.key != again.hello.key, "the same code sends another point each time")
-    #expect(remote.hello.key != Pairing.point("4821"), "and never the code's own point")
+    #expect(remote.hello.key != Pairing.x(try Pairing.base("4821")), "and never the code's own point")
     let ofRemote = try remote.keys(from: presenter.hello)
     let ofPresenter = try presenter.keys(from: remote.hello)
     #expect(ofPresenter.proves(.remote, ofRemote.tag(.remote)), "the ends with one code prove themselves")
@@ -286,13 +286,16 @@ private func tried(_ endpoint: NWEndpoint, _ parameters: NWParameters, _ seconds
     let ofPresenterToStranger = try presenter.keys(from: stranger.hello)
     #expect(!ofPresenterToStranger.proves(.remote, ofStranger.tag(.remote)), "another code proves nothing")
     #expect(!ofStranger.proves(.presenter, ofPresenterToStranger.tag(.presenter)))
-    // A hello of another version, or a point of low order, pairs with nothing.
+    // A hello of another version, or an x of no point of the curve, pairs with nothing: one past
+    // the field's prime, and 1, which no point has.
     var other = presenter.hello
     other.version = Remote.version + 1
     #expect(throws: Pairing.Trouble.self) { try remote.keys(from: other) }
-    var low = presenter.hello
-    low.key = Data(repeating: 0, count: 32)
-    #expect(throws: (any Error).self) { try remote.keys(from: low) }
+    for x in [Data(repeating: 0xff, count: 32), Data(repeating: 0, count: 31) + Data([1])] {
+        var none = presenter.hello
+        none.key = x
+        #expect(throws: Pairing.Trouble.self) { try remote.keys(from: none) }
+    }
     // The channel: each message sealed in turn, read by the other end in turn, and no other.
     let sending = Sealed(keys: ofRemote, side: .remote)
     let receiving = Sealed(keys: ofPresenter, side: .presenter)
@@ -305,6 +308,25 @@ private func tried(_ endpoint: NWEndpoint, _ parameters: NWParameters, _ seconds
     #expect(try receiving.open(second) == Data("back".utf8))
     let elsewhere = Sealed(keys: ofRemote, side: .remote)
     #expect(throws: (any Error).self, "the other way's key") { try elsewhere.open(try sending.seal(Data("end".utf8))) }
+}
+
+/// Every code of four digits has its point on P-256 (lift-up SEC-5), so no hello says which codes
+/// it could be; and the map from a code to its point is pinned, so no change to it goes unnoticed:
+/// each point's x, as SHA-256 of the label, the code, and the first counter that gives a point.
+@Test func everyCodeHasItsPointOnTheCurve() throws {
+    let pinned = [
+        "0000": "be08c668dc503304e72a59c263a547ceb036013a36ed270d74586beae146a5e7",
+        "1111": "eeb07914c80dde656064cc95a8faf91bd03bcb456034dfbed51a359c111e8d72",
+        "9999": "c29c84114b4e092152eb6af7d71a7877b6250d95ced934677026eef1d54c679e",
+    ]
+    for (code, x) in pinned {
+        let made = Pairing.x(try Pairing.base(code)).map { String(format: "%02x", $0) }.joined()
+        #expect(made == x, "\(code)'s point")
+    }
+    for n in 0..<10_000 {
+        let code = String(format: "%04d", n)
+        #expect((try? Pairing.base(code)) != nil, "\(code) has its point")
+    }
 }
 
 /// What a presenter offers its deck as is its device's name alone (lift-up SEC-5), within what a
