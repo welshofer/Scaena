@@ -235,13 +235,14 @@ mod tests {
         };
         for url in [format!("http://localhost:{port}/"), format!("http://127.0.0.1:{port}/")] {
             let said = resolves_public(&url, system).unwrap_err().to_string();
-            assert!(said.contains("resolves to 127.0.0.1, on this machine or its network"), "{said}");
+            // `localhost` may resolve to ::1 first, as it does on CI's Linux.
+            assert!(said.contains(" resolves to ") && said.contains("on this machine or its network"), "{said}");
             let get = Get { url: url.clone(), headers: Vec::new(), most: 1 << 20 };
             let said = fetched(&agent(), &get).unwrap_err().to_string();
             assert!(said.contains("on this machine or its network"), "{said}");
             // The agent alone, with no check before it: its resolver refuses, and connects to nothing.
             let said = agent().get(&url).call().unwrap_err().to_string();
-            assert!(said.contains("resolves to 127.0.0.1"), "{url}: {said}");
+            assert!(said.contains("on this machine or its network"), "{url}: {said}");
             assert!(listener.accept().is_err(), "{url}: nothing connected");
         }
         for ip in ["10.0.0.1", "192.168.1.1", "169.254.169.254", "100.64.0.1", "::1", "fe80::1", "::ffff:127.0.0.1"] {
