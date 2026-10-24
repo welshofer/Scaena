@@ -1215,6 +1215,7 @@ fn clear(doc: &mut Value, view: &View, found: Vec<Finding>, held: &mut Held) -> 
         if round > 0 {
             findings = lint_in(&deck, view)?.findings;
         }
+        findings.extend(tight(doc, &deck, view, theme)?);
         // Each text in a collision, or whose descenders crowd the text under it (I405, by no
         // overlap): the largest overlap it is in, and where. Whether it grows or shrinks is read
         // as it is laid out, by its own fit or its slot's.
@@ -1334,6 +1335,66 @@ fn clear(doc: &mut Value, view: &View, found: Vec<Finding>, held: &mut Held) -> 
         }
     }
     Ok(true)
+}
+
+/// Each card's words or term's meaning that grew (in a place of a set's own, `first`, …, or
+/// `meaning` and `example`) and whose ink comes within two of the theme's gutters of a text under
+/// it, the room I405 asks under a figure, so the text under it reads as its own (a definition
+/// ending on the next term). Each is found as I405 finds a figure's tail: `clear` steps it a
+/// twentieth smaller until it stands that far clear.
+fn tight(doc: &Value, deck: &Deck, view: &View, theme: &scaena_engine::theme::Theme) -> Result<Vec<Finding>, OpsError> {
+    use scaena_engine::sample::Content;
+    let gutter = theme.grid.gutter as f32;
+    let mut engine = crate::lint::engine_in(deck, view, theme, None)?;
+    let data = crate::lint::data_in(deck, view)?;
+    let mut found = Vec::new();
+    for state in doc["states"].as_array().into_iter().flatten() {
+        let (Some(id), Some(shown)) = (state["id"].as_str(), state["props"].as_object()) else { continue };
+        let grown: Vec<&str> = (shown.keys())
+            .filter(|node| {
+                let n = &doc["nodes"][node.as_str()];
+                n["type"] == "text"
+                    && n["fit"] == "grow"
+                    && n["at"]["in"].as_str().is_some_and(|slot| {
+                        matches!(ordinal(slot), Some((_, ""))) || matches!(slot, "meaning" | "example")
+                    })
+            })
+            .map(String::as_str)
+            .collect();
+        if grown.is_empty() {
+            continue;
+        }
+        let req =
+            scaena_engine::FrameRequest { deck, theme, data: &data, state: id, t_ms: f64::INFINITY, format: None };
+        let Ok(scene) = engine.at_rest(&req) else { continue };
+        let texts: Vec<(&str, [f32; 4])> = (scene.nodes.iter())
+            .filter_map(|n| match &n.content {
+                Content::Text(_) => Some((n.id.as_str(), n.ink()?)),
+                _ => None,
+            })
+            .collect();
+        for a in &grown {
+            let Some(ink) = texts.iter().find(|(t, _)| t == a).map(|(_, ink)| *ink) else { continue };
+            let bottom = ink[1] + ink[3];
+            let under = texts.iter().find(|(b, under)| {
+                let across = (ink[0] + ink[2]).min(under[0] + under[2]) - ink[0].max(under[0]);
+                let gap = under[1] - bottom;
+                b != a && across > 1.0 && (0.0..2.0 * gutter).contains(&gap)
+            });
+            if let Some((b, _)) = under {
+                let mut f = Finding::new(
+                    "I405",
+                    scaena_core::lint::Severity::Info,
+                    format!("`{a}` comes within two gutters of `{b}`"),
+                );
+                f.node = Some(a.to_string());
+                f.state = Some(id.to_string());
+                f.measure = Some(json!({ "nodes": [a, b], "states": [id] }));
+                found.push(f);
+            }
+        }
+    }
+    Ok(found)
 }
 
 /// How much a text set at size `at` overlaps, for its size: the area over its size squared.
@@ -2659,6 +2720,17 @@ fn keeps_prompt(slot: &str) -> bool {
         || matches!(slot, "needs-title" | "method-title" | "x-low" | "x-high" | "y-low" | "y-high")
 }
 
+/// Roles that set words to be read, not a figure, a title, or a label.
+fn words_role(role: &str) -> bool {
+    matches!(role, "body" | "lede" | "caption")
+}
+
+/// Whether `text` is a few short lines at most: three lines of the measure a comfortable line
+/// keeps, 60 characters.
+fn short(text: &str) -> bool {
+    text.chars().count() <= 180 && text.lines().count() <= 3
+}
+
 /// Roles that set a figure.
 fn figure_role(role: &str) -> bool {
     matches!(role, "figure" | "hero" | "value" | "numeral")
@@ -2896,9 +2968,10 @@ impl Slots<'_> {
     /// How large the text in the slot `name`, set in `role`, may grow to fill its place (Jay's
     /// review, 2026-10-12): a part of a set (`first`, `second-title`, …) to the theme's lede for
     /// words, its body for a caption or a name set as a label, its numeral for a scorecard's
-    /// figure, and its headline for another figure but a date; a section's or a cover's title to
-    /// the theme's display size, and what supports a section's to the lede; a quote to half again
-    /// its size. None where it keeps its role's size.
+    /// figure and for another figure but a date; a section's or a cover's title to
+    /// the theme's display size, and what supports a section's to the lede; a quote to
+    /// nine-tenths of the headline, or the display's size where no headline heads it. None where
+    /// it keeps its role's size.
     fn grown(&self, name: &str, role: &str) -> Option<f64> {
         let size = |r: &str| self.theme.typography.roles.get(r).map(|r| r.size);
         let at_least = |r: &str| size(r).filter(|most| size(role).is_some_and(|own| *most > own));
@@ -2915,19 +2988,40 @@ impl Slots<'_> {
                 let most = if self.layout == "myth-fact" { 0.9 } else { 0.75 };
                 size("headline").map(|h| h * most).filter(|most| size(role).is_some_and(|own| *most > own))
             }
+            // Quotes side by side, as one alone grows: as large as their cards take, under the
+            // headline's size, the set held to one (dogfood pass 4).
+            (Some(_), "quote") => {
+                size("headline").map(|h| h * 0.9).filter(|most| size(role).is_some_and(|own| *most > own))
+            }
             (Some(_), "caption") => at_least("body"),
             // What a figure or a row is, named in a label, as large as words read from the room.
             (Some((_, "title" | "criterion")), "label") => at_least("body"),
             // A journey's phases and lanes, over and beside its cells, likewise.
             (Some((_, "phase" | "lane")), "label") if self.layout == "journey" => at_least("body"),
             (Some((_, "figure")), "figure") => at_least("numeral"),
+            // A tier's price is its card's point: as large as its place takes, up to the hero's
+            // size, the set's held to one (dogfood pass 4).
+            (Some((_, "price")), "figure") => size("hero").or_else(|| at_least("numeral")),
             // Two figures, as large as the slide takes: up to the hero's size.
             (Some((_, "figure")), "hero") if self.layout == "two-figures" => size("hero"),
-            (Some(_), "figure") if !dated => at_least("headline"),
+            // A scorecard's figures are its point: as large as their places take, toward the
+            // numeral's size, the set held to one and kept clear of each other (dogfood pass 5).
+            (Some(_), "figure") if !dated => at_least("numeral"),
             (Some(_), _) => None,
             (None, "headline") if name == "title" && (section || self.layout == "title-split") => at_least("display"),
+            // One sentence set large: as large as its place takes, up to the hero's size
+            // (dogfood pass 4).
+            (None, "display") if name == "statement" => {
+                size("hero").filter(|most| size(role).is_some_and(|own| *most > own))
+            }
             (None, "body") if name == "support" && section => at_least("lede"),
-            (None, "quote") if name == "quote" => size("quote").map(|q| q * 1.5),
+            // A quote under a headline is the slide's words, not its title: as large as its place
+            // takes, under the headline's size; on a slide no headline heads, it is the slide,
+            // and grows toward the display size, as a lone statement does (dogfood pass 4).
+            (None, "quote") if name == "quote" => {
+                let most = if self.headed() { size("headline").map(|h| h * 0.9) } else { size("display") };
+                most.filter(|most| size(role).is_some_and(|own| *most > own))
+            }
             // A line's figure, as large as its column takes, up to a scorecard's; what it says
             // under it, as words read from the room (G.19).
             (None, "figure") if name == "callout" && self.layout == "line-chart" => at_least("numeral"),
@@ -2937,6 +3031,42 @@ impl Slots<'_> {
             (None, "caption") if self.layout == "journey" && journey_cell(name) => at_least("lede"),
             _ => None,
         }
+    }
+
+    /// Three-quarters of the theme's headline: as large as words under a heading grow.
+    fn under_headline(&self) -> Option<f64> {
+        self.theme.typography.roles.get("headline").map(|r| r.size * 0.75)
+    }
+
+    /// How large a text set in `role` in a place of its own grows where no set holds it: a
+    /// term's meaning and its example, under the term. None elsewhere.
+    fn alone(&self, name: &str, role: &str) -> Option<f64> {
+        match (self.layout, name) {
+            ("definition", "meaning" | "example") if words_role(role) => self.under_headline(),
+            _ => None,
+        }
+    }
+
+    /// The size of the title over the card whose words are in the slot `name`, where the card
+    /// has one: its `-title` place's role's.
+    fn titled(&self, name: &str) -> Option<f64> {
+        self.role_of(&format!("{name}-title")).and_then(|r| self.size(r))
+    }
+
+    /// The theme's size for `role`.
+    fn size(&self, role: &str) -> Option<f64> {
+        self.theme.typography.roles.get(role).map(|r| r.size)
+    }
+
+    /// Whether a figure leads the card whose words are in the slot `name`: its `-figure` place,
+    /// or its `-title` set in a figure's role. Its words keep to a caption's size under it.
+    fn figured(&self, name: &str) -> bool {
+        self.has(&format!("{name}-figure")) || self.role_of(&format!("{name}-title")).is_some_and(figure_role)
+    }
+
+    /// Whether a place in the layout sets a headline.
+    fn headed(&self) -> bool {
+        self.template().is_some_and(|l| l.slots.values().any(|s| s.role.as_deref() == Some("headline")))
     }
 
     /// The role of the layout's slot of this name.
@@ -3548,7 +3678,27 @@ impl Builder {
                     let mut node = json!({ "type": "text", "role": role, "text": text, "at": at });
                     // Set as large as its place allows, up to its ceiling (`making` holds a set
                     // of them to one size).
-                    if let Some(most) = s.grown(name, slot.role.as_deref().unwrap_or(role)) {
+                    let most = s
+                        .grown(name, slot.role.as_deref().unwrap_or(role))
+                        .or_else(|| short(&text).then(|| s.alone(name, role)).flatten())
+                        .map(|most| {
+                            // A few short lines of words alone in a large place, a card's own words
+                            // or a term's meaning, grow toward three-quarters of the headline, never
+                            // past it, as a short list does (dogfood pass 4).
+                            let own = (matches!(ordinal(name), Some((_, ""))) && !s.figured(name))
+                                || s.alone(name, role).is_some();
+                            let most = match own && words_role(role) && short(&text) {
+                                true => s.under_headline().map_or(most, |h| h.max(most)),
+                                false => most,
+                            };
+                            // Under a card's title, its words grow no larger than the title is set.
+                            match s.titled(name).filter(|_| words_role(role)) {
+                                Some(title) => most.min(title),
+                                None => most,
+                            }
+                        })
+                        .filter(|most| s.size(role).is_none_or(|own| *most > own));
+                    if let Some(most) = most {
                         node["fit"] = json!("grow");
                         node["maxSize"] = json!(most);
                         // A figure grows on its one line; a cover's or a divider's title on as
@@ -3558,12 +3708,27 @@ impl Builder {
                             node["maxLines"] = json!(1);
                         } else if name == "title" {
                             node["maxLines"] = json!(if text.split_whitespace().count() <= 3 { 1 } else { 2 });
+                        } else if name == "statement" {
+                            // A statement grows on three lines at most, as a headline stands, so
+                            // it keeps room around it.
+                            node["maxLines"] = json!(3);
                         }
                     }
                     // A side's statement stands in the middle of its card, on as many as three lines
                     // as it grows to fill the card (G.20); the running head stands on the slide's
                     // foot, as a footer does.
                     match (s.layout, ordinal(name)) {
+                        // A statement with nothing under it takes the rows its support leaves, and
+                        // stands in the middle of them.
+                        ("statement", None) if name == "statement" && s.subtitle().is_none() && s.items.is_empty() => {
+                            node["align"] = json!({ "y": "center" });
+                            let support = template.slots.get("support").and_then(|s| s.row.as_ref());
+                            if let (Some(col), Some(Range::Span([top, _])), Some(Range::Span([_, foot]))) =
+                                (slot.col.as_ref(), slot.row.as_ref(), support)
+                            {
+                                node["at"] = json!({ "col": col, "row": [top, foot] });
+                            }
+                        }
                         ("myth-fact", Some((_, ""))) => {
                             node["align"] = json!({ "y": "center" });
                             node["maxLines"] = json!(3);
@@ -5201,6 +5366,147 @@ mod tests {
         assert_eq!(node(&deck, &state, "third")["text"], "Adds SSO, audit log, and a 99.9% SLA");
     }
 
+    /// A few short lines of words alone in a large place grow toward three-quarters of the
+    /// headline (dogfood pass 4): a term's meaning, and a set of cards' answers, held to one size.
+    #[test]
+    fn a_short_text_alone_in_a_large_place_grows_under_its_heading() {
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let (summary, slides) = catalog();
+        let made = |name: &str, bullets: &[&str]| {
+            let mut slide = slides.iter().find(|s| s.layout_suggestion == name).unwrap().clone();
+            slide.key_bullets = bullets.iter().map(|b| b.to_string()).collect();
+            let made = deck(
+                &narrative(&summary, vec![slides[0].clone(), slide, slides[55].clone()]),
+                &theme,
+                &Pictures::new(),
+            )
+            .unwrap();
+            let state = made.deck["states"][1]["id"].as_str().unwrap().to_string();
+            (made.layouts[1].clone(), made.deck.clone(), state)
+        };
+        let most = |deck: &Value, state: &str, slot: &str| deck["nodes"][format!("{state}-{slot}")]["maxSize"].as_f64();
+        let under = theme.typography.roles["headline"].size * 0.75;
+        let (layout, deck, state) = made(
+            "Definition",
+            &[
+                "The probability that A is true given that B has happened, written P(A | B)",
+                "P(rain | cloudy) is higher than P(rain): knowing it's cloudy changes the odds",
+            ],
+        );
+        assert_eq!(layout, "definition");
+        assert_eq!(most(&deck, &state, "meaning"), Some(under));
+        assert_eq!(most(&deck, &state, "example"), Some(under));
+        // A meaning of more than a few lines keeps its size.
+        let long = "The probability that A is true given that B has happened, written P(A | B), which is the \
+                    joint probability of A and B divided by the probability of B, defined wherever B can \
+                    happen at all";
+        let (_, deck, state) = made("Definition", &[long, "P(rain | cloudy) is higher than P(rain)"]);
+        assert_eq!(most(&deck, &state, "meaning"), None);
+        // Each card's short answer grows as far, the set held to one size by making.
+        let (layout, deck, state) = made(
+            "FAQ",
+            &[
+                "Does Relay send anything on its own?: Never by default; you choose which topics can auto-send",
+                "Where does our data go?: It stays in your region and never trains shared models",
+                "How long does setup take?: About 20 minutes with Zendesk, Intercom, or Front",
+            ],
+        );
+        assert_eq!(layout, "cards");
+        // Each card's answer grows no larger than its question's role is set.
+        let title = theme.typography.roles[theme.layouts["cards"].slots["first-title"].role.as_deref().unwrap()].size;
+        for card in ["first", "second", "third"] {
+            assert_eq!(most(&deck, &state, card), Some(under.min(title)), "{card}");
+        }
+        // A tier's price grows as its card's figure, up to the hero's size.
+        let (layout, deck, state) = made(
+            "Scorecard",
+            &[
+                "$0: Starter, up to 3 agents and 500 drafts a month",
+                "$29: Team, per agent per month, unlimited drafts",
+                "$59: Business, adds SSO, audit log, and a 99.9% SLA",
+            ],
+        );
+        assert_eq!(layout, "pricing");
+        let hero = theme.typography.roles["hero"].size;
+        for card in ["first-price", "second-price", "third-price"] {
+            assert_eq!(most(&deck, &state, card), Some(hero), "{card}");
+            assert_eq!(deck["nodes"][format!("{state}-{card}")]["maxLines"], 1, "{card}");
+        }
+        // A scorecard's figures grow past the headline's size, toward the numeral's.
+        let (layout, deck, state) = made(
+            "KPI Grid",
+            &["$48.2M: ARR, up 9% on Q2", "114%: net revenue retention", "78.4%: gross margin, up 2.1 points"],
+        );
+        let headline = theme.typography.roles["headline"].size;
+        assert!(layout.starts_with("number"), "{layout}");
+        for card in ["first-title", "second-title", "third-title"] {
+            let figure = most(&deck, &state, card);
+            assert!(figure.is_some_and(|f| f > headline), "{card}: {figure:?}");
+        }
+        // Quotes side by side under a headline grow toward nine-tenths of it, held alike; a
+        // quote set as large as that already keeps its own size.
+        let (layout, deck, state) = made(
+            "Testimonials",
+            &[
+                "Our queue used to be a Monday problem. Now it's empty by ten. \u{2014} Aisha Bello, Kettle & Co.",
+                "Relay sounds like us on our best day. \u{2014} Tom Brandt, Parcelpoint",
+            ],
+        );
+        assert_eq!(layout, "two-quotes");
+        let quote = theme.typography.roles["quote"].size;
+        let grows = (headline * 0.9 > quote).then_some(headline * 0.9);
+        for card in ["first", "second"] {
+            assert_eq!(most(&deck, &state, card), grows, "{card}");
+        }
+        // In Ember, whose quote is smaller than its headline, they grow.
+        let ember: Theme = serde_json::from_str(
+            &std::fs::read_to_string(root().join("docs/examples/themes/ember.theme.json")).unwrap(),
+        )
+        .unwrap();
+        let mut slide = slides.iter().find(|s| s.layout_suggestion == "Testimonials").unwrap().clone();
+        slide.key_bullets = vec![
+            "Our queue used to be a Monday problem. Now it's empty by ten. \u{2014} Aisha Bello, Kettle & Co.".into(),
+            "Relay sounds like us on our best day. \u{2014} Tom Brandt, Parcelpoint".into(),
+        ];
+        let made_in = super::deck(
+            &narrative(&summary, vec![slides[0].clone(), slide, slides[55].clone()]),
+            &ember,
+            &Pictures::new(),
+        )
+        .unwrap();
+        assert_eq!(made_in.layouts[1], "two-quotes");
+        let state_in = made_in.deck["states"][1]["id"].as_str().unwrap();
+        let cap = ember.typography.roles["headline"].size * 0.9;
+        assert!(cap > ember.typography.roles["quote"].size);
+        for card in ["first", "second"] {
+            assert_eq!(most(&made_in.deck, state_in, card), Some(cap), "{card} in Ember");
+        }
+        // A statement with nothing under it grows toward the hero's size over the rows its
+        // support leaves, in the middle of them.
+        let mut slide = slides.iter().find(|s| s.layout_suggestion == "Statement").unwrap().clone();
+        slide.subtitle = String::new();
+        slide.key_bullets.clear();
+        let made = super::deck(
+            &narrative(&summary, vec![slides[0].clone(), slide, slides[55].clone()]),
+            &theme,
+            &Pictures::new(),
+        )
+        .unwrap();
+        assert_eq!(made.layouts[1], "statement");
+        let state = made.deck["states"][1]["id"].as_str().unwrap();
+        let statement = &made.deck["nodes"][format!("{state}-statement")];
+        let slots = &theme.layouts["statement"].slots;
+        let (Some(Range::Span([top, _])), Some(Range::Span([_, foot]))) =
+            (slots["statement"].row.as_ref(), slots["support"].row.as_ref())
+        else {
+            panic!("the statement layout's rows")
+        };
+        assert_eq!(statement["at"]["row"], json!([top, foot]));
+        assert_eq!(statement["align"], json!({ "y": "center" }));
+        assert_eq!(statement["maxSize"].as_f64(), Some(theme.typography.roles["hero"].size));
+        assert_eq!(statement["maxLines"], 3, "a statement grows on three lines at most");
+    }
+
     /// A figure keeps the magnitude a language writes after it: "41.2万ドル" is $412K.
     #[test]
     fn a_figure_keeps_its_magnitude_in_any_language() {
@@ -5445,6 +5751,46 @@ mod tests {
             assert!(!alike(&mut doc, &view, &mut held).unwrap(), "the second run changes nothing");
             assert_eq!(doc, once);
         }
+    }
+
+    #[test]
+    fn a_grown_definition_stands_two_gutters_clear_of_the_next_term() {
+        // A glossary's definitions grow to fill their places, and a definition that wraps would end
+        // on the next row's term, which reads as its own. The deck made sets them smaller until
+        // each stands two of the theme's gutters clear of the text under it (dogfood pass 4).
+        let text = serde_json::json!({
+            "executiveSummary": "Bayes, plainly.",
+            "slides": [
+                { "slideTitle": "Bayes, plainly", "subtitle": "A lecture", "layoutSuggestion": "Title",
+                  "keyBullets": [], "beatIndex": 0, "beatName": "Hook" },
+                { "slideTitle": "Four words we'll use for the rest of the course", "subtitle": "",
+                  "layoutSuggestion": "Glossary", "beatIndex": 1, "beatName": "Foundations",
+                  "keyBullets": [
+                    "Prior: what you believe before the evidence, P(H)",
+                    "Likelihood: how probable the evidence is if H is true, P(E | H)",
+                    "Evidence: how probable the evidence is overall, P(E)",
+                    "Posterior: what you believe after the evidence, P(H | E)"
+                  ] },
+                { "slideTitle": "Thank you", "subtitle": "", "layoutSuggestion": "Closing", "keyBullets": [],
+                  "beatIndex": 2, "beatName": "Close" },
+            ]
+        })
+        .to_string();
+        let written = answer::slides(&text).unwrap();
+        let n = narrative(&written.executive_summary, written.slides);
+        let file = "salon.theme.json";
+        let json = std::fs::read_to_string(root().join("docs/examples/themes").join(file)).unwrap();
+        let theme: Theme = serde_json::from_str(&json).unwrap();
+        let built = deck(&n, &theme, &Pictures::new()).unwrap();
+        assert_eq!(built.layouts[1], "glossary");
+        let (_, write) = making(built, "Problem\u{2013}Solution", Path::new(file), json.clone(), &font).unwrap();
+        let write = write.unwrap();
+        let nothing = scaena_store::Files::Zip(Default::default());
+        let view = View { base: &nothing, pending: write.files.clone() };
+        let doc = write.deck.to_value().unwrap();
+        let engine_theme = scaena_engine::theme::Theme::from_json(&json).unwrap();
+        let tight = tight(&doc, &write.deck, &view, &engine_theme).unwrap();
+        assert!(tight.is_empty(), "{tight:#?}");
     }
 
     #[test]
@@ -5740,9 +6086,10 @@ mod tests {
         assert!(dividers.iter().all(|i| made.layouts[*i] == "section-photo"), "{:?}", made.layouts);
         assert!(titles.iter().all(|t| *t == titles[0]), "{titles:?}");
         assert!(titles[0] > size("headline") && titles[0] <= size("display"), "{titles:?}");
-        // A quote grows past its size, to half again at most.
+        // A quote that no headline heads is the slide: it grows past the headline's size,
+        // toward the display's.
         let quote = most(&node(10, "quote"));
-        assert!(quote > size("quote") && quote <= size("quote") * 1.5, "{quote}");
+        assert!(quote > size("headline") && quote <= size("display"), "{quote}");
         // The cover's title grows past the headline's size beside its picture, on two lines at
         // most; a divider's of a few words on one.
         assert_eq!(node(0, "title")["maxLines"], 2);
