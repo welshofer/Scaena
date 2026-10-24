@@ -302,6 +302,47 @@ public final class Typing {
         return true
     }
 
+    /// Tab, Shift+Tab, or Return in code, as a code editor answers it (PLAN 2.139): `key` is the
+    /// session's name for it. Tab indents to the next stop, or each line a selection touches;
+    /// Shift+Tab takes a stop away; Return breaks the line at its indentation, a stop more after an
+    /// opening bracket, leaving no line of indentation alone. The change is typed as any is: one
+    /// `replace_text` of what differs, in the burst of typing it joins. Whether code answered it:
+    /// where it does not (words, a composition, a key code leaves), the key goes on as before.
+    @discardableResult
+    public func codeKey(_ key: String) -> Bool {
+        guard inCode, marked == nil, let carets else { return false }
+        let tab = carets.code?.tab ?? 4
+        guard let keyed = try? editor.session.keyed(text: carets.text, from: from, to: to, key: key, tab: tab)
+        else { return false }
+        let (range, text) = Self.change(from: carets.text, to: keyed.text)
+        if range.length > 0 || !text.isEmpty {
+            guard replace(range, with: text) else { return true }
+        }
+        let length = self.carets?.length ?? 0
+        anchor = min(max(keyed.from, 0), length)
+        head = min(max(keyed.to, 0), length)
+        on = nil
+        goal = nil
+        return true
+    }
+
+    /// What differs from `old` in `new`: the range of `old` it replaces and what it puts there,
+    /// UTF-16 offsets, never parting a surrogate pair.
+    static func change(from old: String, to new: String) -> (NSRange, String) {
+        let was = Array(old.utf16)
+        let now = Array(new.utf16)
+        var head = 0
+        while head < was.count, head < now.count, was[head] == now[head] { head += 1 }
+        if head > 0, UTF16.isLeadSurrogate(was[head - 1]) { head -= 1 }
+        var tail = 0
+        while tail < was.count - head, tail < now.count - head, was[was.count - 1 - tail] == now[now.count - 1 - tail] {
+            tail += 1
+        }
+        if tail > 0, UTF16.isTrailSurrogate(was[was.count - tail]) { tail -= 1 }
+        let put = String(decoding: now[head..<(now.count - tail)], as: UTF16.self)
+        return (NSRange(location: head, length: was.count - head - tail), put)
+    }
+
     // MARK: Where the caret goes
 
     /// How far a move goes.

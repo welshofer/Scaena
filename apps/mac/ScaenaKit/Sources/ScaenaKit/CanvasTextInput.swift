@@ -197,6 +197,8 @@ public final class CanvasKeys: UIView {
     /// Tab and Shift+Tab: in a list, the items selected a level in, or out; elsewhere a text's
     /// field gives Tab to what is next, as the browser's does: typing stops.
     private func tab(back: Bool) {
+        // In code, a stop in or out (PLAN 2.139).
+        if typing.codeKey(back ? "Shift+Tab" : "Tab") { return }
         if typing.inList {
             typing.list(by: back ? -1 : 1, done: back ? "A level out" : "A level in")
         } else {
@@ -493,6 +495,8 @@ extension CanvasKeys: UITextInput {
     public func insertText(_ text: String) {
         guard typing.typing else { return }
         inputting {
+            // In code, a code editor's Return (PLAN 2.139).
+            if text == "\n", typing.marked == nil, typing.codeKey("Return") { return }
             switch text {
             case "\n" where typing.marked == nil && typing.endsList:
                 // In an empty item, the list ends there (ADR-0018); else a new paragraph, an item

@@ -12,6 +12,15 @@ public struct Carets: Decodable, Equatable, Sendable {
     public let lines: [Line]
     /// Its paragraphs as a list's items (ADR-0018), by paragraph; none past the last.
     public let items: [ListMark?]?
+    /// Where the text is code (PLAN 2.139): the columns a tab stands at, and the first line's
+    /// number. None for words.
+    public let code: Code?
+
+    /// A code text's stops and its first line's number.
+    public struct Code: Decodable, Equatable, Sendable {
+        public let tab: Int
+        public let from: Int
+    }
 
     /// A line as the engine set it.
     public struct Line: Decodable, Equatable, Sendable {

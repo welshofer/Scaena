@@ -604,3 +604,53 @@ private func carets(_ json: String) throws -> Carets {
     #endif
     prose.leave()
 }
+
+/// A code editor's keys in code (PLAN 2.139): Tab indents to the next stop and Shift+Tab takes it
+/// away, Return breaks the line a stop further in after an opening brace, each typed as typing
+/// is, the burst one step to undo; in words, the keys go on as before, and Tab leaves the text.
+@MainActor
+@Test func codeKeysAreACodeEditorsAndTabOutsideCodeLeaves() throws {
+    let editor = DeckEditor(session: try ScaenaSession(directory: tortureDeck))
+    editor.shown = "code"
+    let typing = Typing(editor: editor)
+    var steps = 0
+    typing.edited = { _, joins in
+        if !joins { steps += 1 }
+    }
+    #expect(typing.enter("code-block", in: "code", at: nil))
+    let tab = try #require(typing.carets?.code?.tab, "code says its stops")
+    #expect(typing.carets?.code?.from == 1)
+    let written = try #require(typing.carets?.text)
+
+    typing.move(.text(start: true))
+    #expect(typing.codeKey("Tab"))
+    #expect(typing.carets?.text == String(repeating: " ", count: tab) + written, "a stop in")
+    #expect(typing.from == tab && typing.to == tab)
+    #expect(typing.codeKey("Shift+Tab"))
+    #expect(typing.carets?.text == written, "and out again")
+
+    // Return after an opening brace: the line broken a stop further in, the caret there.
+    let brace = (written as NSString).range(of: "type Talk = {")
+    let at = NSMaxRange(brace)
+    #expect(typing.replace(NSRange(location: at, length: 0), with: ""))
+    #expect(typing.from == at)
+    #expect(typing.codeKey("Return"))
+    let after = try #require(typing.carets?.text) as NSString
+    let indent = typing.from - at - 1
+    #expect(indent > 0 && after.substring(with: NSRange(location: at, length: 1)) == "\n")
+    #expect(after.substring(with: NSRange(location: at + 1, length: indent)).allSatisfy { $0 == " " || $0 == "\t" })
+    #expect(steps == 1, "one burst of typing, one step to undo")
+    typing.leave()
+
+    // In words, code answers nothing, and Tab leaves the text as before (PLAN 3.10).
+    let words = DeckEditor(session: try ScaenaSession(directory: b1))
+    words.shown = "cover"
+    let prose = Typing(editor: words)
+    #expect(prose.enter("subtitle", in: "cover", at: nil))
+    #expect(!prose.codeKey("Tab") && !prose.codeKey("Return"))
+    #if os(iOS)
+    let view = CanvasKeys(typing: prose)
+    view.key("\t")
+    #expect(!prose.typing, "Tab outside code leaves the text")
+    #endif
+}
