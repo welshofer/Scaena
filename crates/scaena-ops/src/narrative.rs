@@ -5146,7 +5146,8 @@ mod tests {
             let figure = most(&deck, &state, card);
             assert!(figure.is_some_and(|f| f > headline), "{card}: {figure:?}");
         }
-        // Quotes side by side grow as one alone does, under the headline's size.
+        // Quotes side by side under a headline grow toward nine-tenths of it, held alike; a
+        // quote set as large as that already keeps its own size.
         let (layout, deck, state) = made(
             "Testimonials",
             &[
@@ -5155,8 +5156,33 @@ mod tests {
             ],
         );
         assert_eq!(layout, "two-quotes");
+        let quote = theme.typography.roles["quote"].size;
+        let grows = (headline * 0.9 > quote).then_some(headline * 0.9);
         for card in ["first", "second"] {
-            assert_eq!(most(&deck, &state, card), Some(headline * 0.9), "{card}");
+            assert_eq!(most(&deck, &state, card), grows, "{card}");
+        }
+        // In Ember, whose quote is smaller than its headline, they grow.
+        let ember: Theme = serde_json::from_str(
+            &std::fs::read_to_string(root().join("docs/examples/themes/ember.theme.json")).unwrap(),
+        )
+        .unwrap();
+        let mut slide = slides.iter().find(|s| s.layout_suggestion == "Testimonials").unwrap().clone();
+        slide.key_bullets = vec![
+            "Our queue used to be a Monday problem. Now it's empty by ten. \u{2014} Aisha Bello, Kettle & Co.".into(),
+            "Relay sounds like us on our best day. \u{2014} Tom Brandt, Parcelpoint".into(),
+        ];
+        let made_in = super::deck(
+            &narrative(&summary, vec![slides[0].clone(), slide, slides[55].clone()]),
+            &ember,
+            &Pictures::new(),
+        )
+        .unwrap();
+        assert_eq!(made_in.layouts[1], "two-quotes");
+        let state_in = made_in.deck["states"][1]["id"].as_str().unwrap();
+        let cap = ember.typography.roles["headline"].size * 0.9;
+        assert!(cap > ember.typography.roles["quote"].size);
+        for card in ["first", "second"] {
+            assert_eq!(most(&made_in.deck, state_in, card), Some(cap), "{card} in Ember");
         }
         // A statement with nothing under it grows toward the hero's size over the rows its
         // support leaves, in the middle of them.
