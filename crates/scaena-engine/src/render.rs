@@ -943,6 +943,12 @@ impl Engine {
             let (top, bottom) = base.trimmed(trim);
             [base.width, bottom - top]
         });
+        // A shrinking text's own `maxSize`, where it is under its size, is the most it is set at
+        // (deck format 0.36): a set of texts side by side held to one size. A role's is not.
+        let cap = match fit {
+            TextFit::Shrink => number("maxSize").map_or(1.0, |m| (m / spec.role.size).min(1.0)),
+            _ => f32::INFINITY,
+        };
         let (scale, text) = match fit {
             // Code shrinks no further than its `minSize`, else its role's, else 12 pt at
             // presentation size, and never above its own size; worked out, since no line of it
@@ -957,9 +963,9 @@ impl Engine {
                 let floor = number("minSize").or(spec.role.min_size).map_or(0.5, |m| m / spec.role.size).min(1.0);
                 worked_out(&mut lay, &fits, &base, [cell[2], cell[3]], trim, floor)?
             }
-            TextFit::Shrink if !fits(&base) => {
+            TextFit::Shrink if !fits(&base) || cap < 1.0 => {
                 let floor = number("minSize").or(spec.role.min_size).map_or(0.5, |m| m / spec.role.size).min(1.0);
-                largest_fit(&mut lay, &fits, floor, 1.0)?
+                largest_fit(&mut lay, &fits, floor.min(cap), cap)?
             }
             TextFit::Grow if fits(&base) => {
                 let ceiling = number("maxSize").or(spec.role.max_size).map_or(2.0, |m| m / spec.role.size).max(1.0);
@@ -977,6 +983,8 @@ impl Engine {
             }
             _ => (1.0, base),
         };
+        // Code and verse, worked out from one layout, held under the cap the same way.
+        let (scale, text) = if scale > cap { (cap, lay(cap)?) } else { (scale, text) };
         let overflow = !fits_box(&text);
         let clip = (fit == TextFit::Clip).then_some(cell);
         let top = text_top(cell, align_y, &text, trim);

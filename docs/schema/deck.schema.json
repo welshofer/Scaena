@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://scaena.dev/schema/deck-0.35.json",
+  "$id": "https://scaena.dev/schema/deck-0.36.json",
   "title": "Scaena deck document",
   "description": "Canonical deck.json. A deck is a scene graph (nodes) plus an ordered cue list (states) over a narrative spine, rendered against a theme. See docs/SPEC.md §3.",
   "type": "object",
@@ -10,7 +10,7 @@
     "scaena": {
       "description": "Format version (semver, major.minor[.patch]).",
       "type": "string",
-      "pattern": "^0\\.35(\\.[0-9]+)?$"
+      "pattern": "^0\\.36(\\.[0-9]+)?$"
     },
     "meta": { "$ref": "#/$defs/Meta" },
     "canvas": { "$ref": "#/$defs/Canvas" },
@@ -624,7 +624,11 @@
         "wrap": { "$ref": "#/$defs/Wrap" },
         "maxLines": { "type": "integer", "minimum": 1 },
         "minSize": { "type": "number", "exclusiveMinimum": 0 },
-        "maxSize": { "type": "number", "exclusiveMinimum": 0 },
+        "maxSize": {
+          "description": "The most its size may grow to under `fit: grow`; under `fit: shrink`, where it is under the text's size, the most it is set at (deck format 0.36).",
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
         "box": { "$ref": "#/$defs/TextBox" },
         "features": { "type": "object", "additionalProperties": { "$ref": "#/$defs/FeatureValue" } },
         "axes": {
@@ -1938,7 +1942,7 @@
         "wrap": { "anyOf": [{ "$ref": "#/$defs/Wrap" }, { "type": "null" }] },
         "maxLines": { "anyOf": [{ "type": "integer", "minimum": 1 }, { "type": "null" }] },
         "minSize": { "anyOf": [{ "type": "number", "exclusiveMinimum": 0 }, { "type": "null" }] },
-        "maxSize": { "anyOf": [{ "type": "number", "exclusiveMinimum": 0 }, { "type": "null" }] },
+        "maxSize": { "anyOf": [{ "exclusiveMinimum": 0, "type": "number" }, { "type": "null" }] },
         "box": { "anyOf": [{ "$ref": "#/$defs/TextBox" }, { "type": "null" }] },
         "features": {
           "anyOf": [

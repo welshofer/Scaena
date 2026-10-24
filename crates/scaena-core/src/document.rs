@@ -417,25 +417,53 @@ impl Deck {
     }
 
     /// Parse a `deck.json` string. A deck saved before a shadow drew reads without its
-    /// `shadow`s, as it drew (`crate::version`).
+    /// `shadow`s, and one saved before a shrinking text was held under its `maxSize` without the
+    /// `maxSize` of each text whose own `fit` is `shrink`, as it drew (`crate::version`).
     pub fn from_json(s: &str) -> Result<Deck, serde_json::Error> {
         let mut deck: Deck = serde_json::from_str(s)?;
+        // The format as saved, which reading it as the current one wrote over.
+        #[derive(Deserialize)]
+        struct Saved {
+            scaena: String,
+        }
+        let mut saved: Option<String> = None;
+        let mut saved = |s: &str| -> Result<String, serde_json::Error> {
+            if saved.is_none() {
+                saved = Some(serde_json::from_str::<Saved>(s)?.scaena);
+            }
+            Ok(saved.clone().unwrap_or_default())
+        };
         let mut cast = (deck.nodes.values_mut().map(|n| &mut n.props))
             .chain(deck.states.iter_mut().flat_map(|s| s.props.values_mut()))
             .chain(deck.overrides.values_mut())
             .filter(|p| p.contains_key("shadow"))
             .peekable();
-        if cast.peek().is_some() {
-            // The format as saved, which reading it as the current one wrote over.
-            #[derive(Deserialize)]
-            struct Saved {
-                scaena: String,
-            }
-            if crate::version::unshadows(&serde_json::from_str::<Saved>(s)?.scaena) {
-                cast.for_each(|p| {
-                    p.shift_remove("shadow");
+        if cast.peek().is_some() && crate::version::unshadows(&saved(s)?) {
+            cast.for_each(|p| {
+                p.shift_remove("shadow");
+            });
+        }
+        let capped = |p: &Props| p.contains_key("maxSize");
+        let any = deck.nodes.values().any(|n| capped(&n.props))
+            || deck.states.iter().flat_map(|s| s.props.values()).any(capped)
+            || deck.overrides.values().any(capped);
+        if any && crate::version::uncaps(&saved(s)?) {
+            // Each text whose own fit shrinks, and never grows.
+            let fits = (deck.nodes.iter().map(|(id, n)| (id, &n.props)))
+                .chain(deck.states.iter().flat_map(|s| s.props.iter()))
+                .filter_map(|(id, p)| Some((id.clone(), p.get("fit")?.as_str()?.to_string())));
+            let fits: Vec<(String, String)> = fits.collect();
+            let shrinks = |id: &str| {
+                let fit: Vec<&str> = fits.iter().filter(|(of, _)| of == id).map(|(_, f)| f.as_str()).collect();
+                fit.contains(&"shrink") && !fit.contains(&"grow")
+            };
+            (deck.nodes.iter_mut().map(|(id, n)| (id, &mut n.props)))
+                .chain(deck.states.iter_mut().flat_map(|s| s.props.iter_mut()))
+                .chain(deck.overrides.iter_mut())
+                .filter(|(id, _)| shrinks(id))
+                .for_each(|(_, p)| {
+                    p.shift_remove("maxSize");
                 });
-            }
         }
         Ok(deck)
     }

@@ -949,11 +949,12 @@ pub fn overflowing(deck: &Deck, findings: &[Finding]) -> Result<Vec<Long>, OpsEr
     Ok(out)
 }
 
-/// The texts of `doc` that grow (`fit: grow`, as [`Slots::grown`] marks them) held to one size
-/// in each set, so that each set reads as one: a set is the parts a slide's layout sets side by
-/// side (the words under each step, the figures of a scorecard), or the deck's section titles.
-/// Each grows as far as its place allows, laid out by the engine, then all of its set are held to
-/// the size the one with the least room reached. Whether any size changed.
+/// The texts of `doc` that grow (`fit: grow`, as [`Slots::grown`] marks them) or shrink held to
+/// one size in each set, so that each set reads as one: a set is the parts a slide's layout sets
+/// side by side (the words under each step, the figures of a scorecard), or the deck's section
+/// titles. Each grows or shrinks as its place allows, laid out by the engine, then all of its set
+/// are held to the size the one with the least room reached, by its `maxSize`, which caps a text
+/// that shrinks too (deck format 0.36). Whether any size changed.
 fn alike(doc: &mut Value, view: &View) -> Result<bool, OpsError> {
     let deck = Deck::from_json(&doc.to_string()).context("the deck")?;
     let Some(theme) = view.theme(&deck)? else { return Ok(false) };
@@ -967,7 +968,7 @@ fn alike(doc: &mut Value, view: &View) -> Result<bool, OpsError> {
         let layout = state["layout"].as_str().unwrap_or_default();
         for node in shown.keys() {
             let n = &doc["nodes"][node];
-            let (Some("grow"), Some(slot), Some(role)) =
+            let (Some("grow" | "shrink"), Some(slot), Some(role)) =
                 (n["fit"].as_str(), n["at"]["in"].as_str(), n["role"].as_str())
             else {
                 continue;
@@ -1011,7 +1012,7 @@ fn alike(doc: &mut Value, view: &View) -> Result<bool, OpsError> {
         *counts.entry(set.as_str()).or_default() += 1;
     }
     let mut changed = false;
-    for (set, _, id, _) in &members {
+    for (set, _, id, own) in &members {
         let (Some(size), Some(2..)) = (least.get(set.as_str()), counts.get(set.as_str())) else { continue };
         // Figures side by side keep the air between them: a tenth under the size the widest
         // reached its place at.
@@ -1019,8 +1020,18 @@ fn alike(doc: &mut Value, view: &View) -> Result<bool, OpsError> {
         let size = if figures { size * 0.9 } else { *size };
         // A quarter of a unit under, so that every one of them fits at it.
         let size = (size * 4.0).floor() / 4.0;
+        // A text that shrinks and took no more than that keeps no cap it does not need.
+        if doc["nodes"][id]["fit"] == "shrink" && reached.get(id).is_some_and(|r| *r <= size + 0.25) {
+            continue;
+        }
         let node = &mut doc["nodes"][id];
-        if node["maxSize"].as_f64().is_none_or(|most| size < most) {
+        // One of a set that a fit made shrink: one that grows never goes under its role's size,
+        // so it shrinks too, under the same cap.
+        if node["fit"] == "grow" && size < *own {
+            node["fit"] = json!("shrink");
+            node["maxSize"] = json!(size);
+            changed = true;
+        } else if node["maxSize"].as_f64().is_none_or(|most| size < most) {
             node["maxSize"] = json!(size);
             changed = true;
         }
@@ -1119,8 +1130,14 @@ pub fn making(
         let deck = Deck::from_json(&doc.to_string()).context("the deck set alike")?;
         created.findings = lint_in(&deck, &view)?.findings;
     }
-    // Then each fix lint offers, each checked by laying its state out again with it.
-    let settled = settle(doc, created.findings, &view)?;
+    // Then each fix lint offers, each checked by laying its state out again with it; a fix that
+    // makes a text of a set shrink, the set held to one size again.
+    let mut settled = settle(doc, created.findings, &view)?;
+    let mut doc = settled.deck.to_value()?;
+    if alike(&mut doc, &view)? {
+        settled.deck = Deck::from_json(&doc.to_string()).context("the deck set alike again")?;
+        settled.findings = lint_in(&settled.deck, &view)?.findings;
+    }
     made.fixed.extend(settled.fixed);
     made.created.errors = errors(&settled.findings);
     made.created.findings = settled.findings;
@@ -3659,6 +3676,73 @@ mod tests {
         let testimonials = made("Testimonials");
         has(&testimonials, "first", "\u{201c}We cut our freight emissions below zero in one quarter\u{201d}");
         has(&testimonials, "first-note", "\u{2014} VP Supply Chain, national grocer");
+    }
+
+    /// Texts a slide sets side by side are one size where they shrink to fit, as where they grow:
+    /// a team's credits, a FAQ's answers, each set at the size the one with the least room took.
+    #[test]
+    fn a_set_of_texts_that_shrink_is_set_alike() {
+        let (summary, slides) = catalog();
+        let at = |layout: &str| slides.iter().find(|s| s.layout_suggestion == layout).unwrap().clone();
+        let mut team = at("Team");
+        team.key_bullets = [
+            "Maya Chen, CEO: ran Gulf operations at a top-three carrier",
+            "Ade Okafor, CTO: built direct air capture at scale",
+            "Luis Ortega, COO: scaled ports across three continents, opened eleven terminals from Rotterdam to Singapore, and ran the largest retrofit program the industry has seen",
+        ]
+        .map(String::from)
+        .to_vec();
+        let mut faq = at("FAQ");
+        faq.key_bullets = [
+            "Is the removal permanent?: Yes",
+            "What if fuel prices spike?: Lanes are priced on a fuel index",
+            "Who verifies it?: An accredited auditor checks every voyage against the registry, publishes each certificate, and samples the mineralized carbon at the store ashore each quarter of the year",
+            "Can others copy it?: Our capture design holds four patents",
+        ]
+        .map(String::from)
+        .to_vec();
+        let built = deck(
+            &narrative(&summary, vec![slides[0].clone(), team, faq, slides[55].clone()]),
+            &serde_json::from_str::<Theme>(&dusk()).unwrap(),
+            &Pictures::new(),
+        )
+        .unwrap();
+        let (made, write) =
+            making(built, "Problem\u{2013}Solution", Path::new("dusk.theme.json"), dusk(), &font).unwrap();
+        assert!(made.created.created, "{:#?}", made.created.findings);
+        let write = write.unwrap();
+        let nothing = scaena_store::Files::Zip(Default::default());
+        let view = View { base: &nothing, pending: write.files.clone() };
+        let theme = scaena_engine::theme::Theme::from_json(&dusk()).unwrap();
+        let mut engine = crate::lint::engine_in(&write.deck, &view, &theme, None).unwrap();
+        let data = crate::lint::data_in(&write.deck, &view).unwrap();
+        let deck = write.deck.to_value().unwrap();
+        // The size each text of `slots` in the `n`th state is set at.
+        let mut sizes = |n: usize, slots: &[&str]| -> Vec<f64> {
+            let state = deck["states"][n]["id"].as_str().unwrap().to_string();
+            let ids: Vec<String> = slots.iter().map(|s| format!("{state}-{s}")).collect();
+            let ids: Vec<&str> = ids.iter().map(String::as_str).collect();
+            let req = scaena_engine::FrameRequest {
+                deck: &write.deck,
+                theme: &theme,
+                data: &data,
+                state: &state,
+                t_ms: f64::INFINITY,
+                format: None,
+            };
+            let placed = engine.text_layouts(&req, &ids).unwrap();
+            ids.iter()
+                .zip(&placed)
+                .map(|(id, p)| {
+                    let role = deck["nodes"][*id]["role"].as_str().unwrap();
+                    (f64::from(p.scale) * theme.typography.roles[role].size * 4.0).round() / 4.0
+                })
+                .collect()
+        };
+        let alike = |sizes: Vec<f64>| assert!(sizes.windows(2).all(|w| (w[0] - w[1]).abs() < 0.3), "{sizes:?}");
+        alike(sizes(1, &["first", "second", "third"]));
+        alike(sizes(2, &["first", "second", "third", "fourth"]));
+        alike(sizes(2, &["first-title", "second-title", "third-title", "fourth-title"]));
     }
 
     #[test]
