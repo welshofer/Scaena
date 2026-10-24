@@ -215,7 +215,12 @@ impl Chat {
 
     /// The results of the calls the last answer made, every call answered, in its order:
     /// whether the model may be asked again, or the question has taken its rounds.
-    pub fn results(&mut self, results: Vec<ToolResult>) -> bool {
+    /// Each result, errors too, reaches the model fenced as data under its tool's name: what a
+    /// tool reads is the deck's words or a source's, and an error can quote them (lift-up SEC-3).
+    pub fn results(&mut self, mut results: Vec<ToolResult>) -> bool {
+        for r in results.iter_mut() {
+            r.json = scaena_fence::fenced(&r.name.replace('_', "-"), &r.json);
+        }
         self.conversation.push(Message::Tool { results });
         self.taken += 1;
         self.taken < self.rounds

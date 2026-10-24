@@ -158,7 +158,7 @@ try {
   await page.waitForFunction(() => window.scaena.assistant.transcript().filter((t) => t === "said: Done.").length >= 3, null, { timeout: 60000 }).catch(() => {});
   const characters = scripted.asked.at(-1) ?? "";
   check(
-    characters.startsWith('[In the editor: state revenue shown; selected: title (text); in title, characters 0 to 7 selected: "Revenue".]'),
+    characters.startsWith('[In the editor: state revenue shown; selected: title (text); in title, characters 0 to 7 selected:\n<data label="selected">\nRevenue\n</data>.]'),
     `the question carries the characters selected: ${JSON.stringify(characters)}`,
   );
   await settled();
