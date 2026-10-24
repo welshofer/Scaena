@@ -1724,7 +1724,8 @@ fn assemble(
     let mut running: Option<(String, usize)> = None;
     // Whether the section open is titled by a divider of its own.
     let mut divided = false;
-    let mut previous: Option<(String, &Slide)> = None;
+    let before = deck.previous.take();
+    let mut previous: Option<(String, &Slide)> = before.as_ref().map(|(layout, slide)| (layout.clone(), slide));
     for (i, ((slide, v), Planned { beat, items, icons, layout })) in
         narrative.slides.iter().zip(&varied).zip(planned).enumerate()
     {
@@ -3479,6 +3480,9 @@ struct Builder {
     beats: Vec<String>,
     /// The deck reads right to left (PLAN T.5a): a theme's shapes stand mirrored in their boxes.
     mirrored: bool,
+    /// The slide before the first one made, by its layout: an open deck's, which a slide written
+    /// into it enters after (lift-up FUNC-1).
+    previous: Option<(String, Slide)>,
 }
 
 impl Builder {
@@ -7230,6 +7234,50 @@ mod tests {
         (made.deck, theme, slides)
     }
 
+    /// No files: a deck whose data are written inline, or none.
+    fn no_files() -> BTreeMap<String, Vec<u8>> {
+        BTreeMap::new()
+    }
+
+    /// The deck at `path` from the repository's root, as JSON, and its folder's files.
+    fn deck_at(path: &str) -> (Value, scaena_store::Files) {
+        let path = root().join(path);
+        let doc = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        (doc, scaena_store::Files::Dir(path.parent().unwrap().to_path_buf()))
+    }
+
+    /// The bundle files `files` as a data source reads them.
+    fn read_by(files: &scaena_store::Files) -> BTreeMap<String, Vec<u8>> {
+        let mut out = BTreeMap::new();
+        for p in ["data/q3-revenue.csv"] {
+            if let Ok(bytes) = files.read(p) {
+                out.insert(p.to_string(), bytes);
+            }
+        }
+        out
+    }
+
+    /// `doc` with `patch` compiled and applied in `files`, as `deck_patch` applies one.
+    fn patched_in(doc: &Value, patch: &[Value], files: &scaena_store::Files) -> Value {
+        let view = View { base: files, pending: BTreeMap::new() };
+        scaena_core::patch::compile(doc, patch, &view).unwrap().doc
+    }
+
+    /// Every state of `before` but those of `gone` shows in `after` what it showed, its own nodes
+    /// with each value it had: a slide written in or written again changes no other slide.
+    fn others_kept(before: &Value, after: &Value, gone: &[&str]) {
+        let snaps =
+            |d: &Value| scaena_core::tracking::resolve_states(&Deck::from_json(&d.to_string()).unwrap()).unwrap();
+        let now = snaps(after);
+        for was in snaps(before).iter().filter(|s| !gone.contains(&s.state_id.as_str())) {
+            let is = now.iter().find(|s| s.state_id == was.state_id).expect("the state stays");
+            let theirs: Vec<(&String, &scaena_core::document::Props)> =
+                is.nodes.iter().filter(|(id, _)| before["nodes"].get(id.as_str()).is_some()).collect();
+            let mine: Vec<(&String, &scaena_core::document::Props)> = was.nodes.iter().collect();
+            assert_eq!(theirs, mine, "`{}` shows what it showed", was.state_id);
+        }
+    }
+
     /// `doc` with `patch` compiled and applied, as `deck_patch` applies one.
     fn patched(doc: &Value, patch: &[Value]) -> Value {
         let nothing = scaena_store::Files::Zip(Default::default());
@@ -7259,8 +7307,15 @@ mod tests {
     fn a_slide_written_after_another_stands_after_it_and_in_its_beats_section() {
         let (doc, theme, slides) = made_of(&[0, 8, 12, 55]);
         let before = firsts(&doc);
-        let written =
-            slide_into(&doc, &theme, slides[20].clone(), &Place::After(before[1].clone()), BTreeMap::new()).unwrap();
+        let written = slide_into(
+            &doc,
+            &theme,
+            slides[20].clone(),
+            &Place::After(before[1].clone()),
+            BTreeMap::new(),
+            &no_files(),
+        )
+        .unwrap();
         let after = patched(&doc, &written.patch);
         let now = firsts(&after);
         assert_eq!(now.len(), before.len() + 1);
@@ -7285,7 +7340,7 @@ mod tests {
         let story: Vec<_> = found.iter().filter(|f| matches!(f.code.as_str(), "W426" | "W429")).collect();
         assert!(story.is_empty(), "{story:#?}");
         // At the end, it goes after every slide, in the last section.
-        let end = slide_into(&doc, &theme, slides[20].clone(), &Place::End, BTreeMap::new()).unwrap();
+        let end = slide_into(&doc, &theme, slides[20].clone(), &Place::End, BTreeMap::new(), &no_files()).unwrap();
         let after = patched(&doc, &end.patch);
         assert_eq!(firsts(&after).last(), Some(&end.states[0]));
     }
@@ -7304,8 +7359,15 @@ mod tests {
             second["props"].as_object().unwrap().keys().filter(|k| **k != header).cloned().collect();
         let (_, _, old_beat) = beat_of(&doc, &before[1]);
 
-        let written =
-            slide_into(&doc, &theme, slides[8].clone(), &Place::Replace(before[1].clone()), BTreeMap::new()).unwrap();
+        let written = slide_into(
+            &doc,
+            &theme,
+            slides[8].clone(),
+            &Place::Replace(before[1].clone()),
+            BTreeMap::new(),
+            &no_files(),
+        )
+        .unwrap();
         let after = patched(&doc, &written.patch);
         let now = firsts(&after);
         assert_eq!(now.len(), before.len());
@@ -7344,7 +7406,7 @@ mod tests {
             let (s, b, _) = beat_of(&doc, state);
             doc["spine"]["sections"][s]["beats"][b]["claim"].as_str().unwrap().to_string()
         };
-        let again = one_asked(&doc, &Place::Replace(firsts[1].clone()), "Shorter").unwrap();
+        let again = one_asked(&doc, &Place::Replace(firsts[1].clone()), "Shorter", &no_files()).unwrap();
         assert_eq!(again.brief.audience, "Investors");
         assert_eq!(again.arc, "Problem\u{2013}Solution");
         assert_eq!(again.before.as_deref(), Some(claim(&firsts[0]).as_str()));
@@ -7352,7 +7414,7 @@ mod tests {
         assert_eq!(again.claim.as_deref(), Some(claim(&firsts[1]).as_str()));
         let now = again.now.unwrap();
         assert!(now.contains(&slides[8].key_bullets[0].split(':').next().unwrap().trim().to_string()), "{now}");
-        let added = one_asked(&doc, &Place::After(firsts[3].clone()), "What comes next").unwrap();
+        let added = one_asked(&doc, &Place::After(firsts[3].clone()), "What comes next", &no_files()).unwrap();
         assert_eq!((added.after, added.now, added.claim), (None, None, None));
         assert_eq!(added.before.as_deref(), Some(claim(&firsts[3]).as_str()));
     }
@@ -7368,7 +7430,8 @@ mod tests {
         let theme: Theme = serde_json::from_str(&dusk()).unwrap();
         let (_, slides) = catalog();
         let first = doc["states"][0]["id"].as_str().unwrap().to_string();
-        let written = slide_into(&doc, &theme, slides[8].clone(), &Place::After(first), BTreeMap::new()).unwrap();
+        let written =
+            slide_into(&doc, &theme, slides[8].clone(), &Place::After(first), BTreeMap::new(), &no_files()).unwrap();
         let files = scaena_store::Files::Dir(root().join("docs/examples"));
         let view = View { base: &files, pending: BTreeMap::new() };
         let after = scaena_core::patch::compile(&doc, &written.patch, &view).unwrap().doc;
@@ -7377,5 +7440,121 @@ mod tests {
             .filter(|f| f.severity == scaena_core::Severity::Error)
             .collect();
         assert!(errors.is_empty(), "{errors:#?}");
+    }
+
+    #[test]
+    fn a_slide_written_again_keeps_what_the_slides_after_it_inherit() {
+        // Review of #637, finding 1: B3's slides each start from the one before, and its first
+        // slide's grain, kicker, and quote are every later slide's too.
+        let (doc, files) = deck_at("tests/bench/b3.scaena/deck.json");
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let (_, slides) = catalog();
+        let written =
+            slide_into(&doc, &theme, slides[8].clone(), &Place::Replace("s1".into()), BTreeMap::new(), &no_files())
+                .unwrap();
+        let after = patched_in(&doc, &written.patch, &files);
+        others_kept(&doc, &after, &["s1"]);
+        for id in ["grain", "kicker", "quote"] {
+            assert!(after["nodes"].get(id).is_some(), "`{id}` stays");
+        }
+        // The charts example's later slides keep the note the first shows them.
+        let (doc, files) = deck_at("docs/examples/charts.deck.json");
+        let written =
+            slide_into(&doc, &theme, slides[20].clone(), &Place::Replace("bars".into()), BTreeMap::new(), &no_files())
+                .unwrap();
+        let after = patched_in(&doc, &written.patch, &files);
+        others_kept(&doc, &after, &["bars"]);
+        assert!(after["nodes"].get("note").is_some());
+        // And one written after a slide changes none of the rest.
+        let written =
+            slide_into(&doc, &theme, slides[20].clone(), &Place::After("stack".into()), BTreeMap::new(), &no_files())
+                .unwrap();
+        others_kept(&doc, &patched_in(&doc, &written.patch, &files), &[]);
+    }
+
+    #[test]
+    fn a_slide_written_again_keeps_its_chart_its_beat_its_links_and_how_it_enters() {
+        // Review of #637, findings 4 and 6, on the revenue example: its slide's chart and data,
+        // its beat's evidence, media, notes, and time, the links to it, and its own fields.
+        let (mut doc, files) = deck_at("docs/examples/revenue.deck.json");
+        doc["nodes"]["title"]["runs"] = json!([{ "text": "Q3 Review", "link": { "state": "mix" } }]);
+        doc["nodes"]["title"].as_object_mut().unwrap().remove("text");
+        doc["states"][1]["notes"] = json!("Pause on the bar.");
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let (_, slides) = catalog();
+        // A chart slide written with no rows of its own: the old slide's chart's are carried.
+        let mut slide = slides.iter().find(|s| s.chart_data.is_some()).unwrap().clone();
+        slide.chart_data = None;
+        let read = read_by(&files);
+        let written =
+            slide_into(&doc, &theme, slide, &Place::Replace("revenue".into()), BTreeMap::new(), &read).unwrap();
+        let after = patched_in(&doc, &written.patch, &files);
+        let first = &written.states[0];
+        // Every other slide shows what it showed, the link now to the slide written.
+        let mut linked = doc.clone();
+        linked["nodes"]["title"]["runs"][0]["link"]["state"] = json!(first);
+        others_kept(&linked, &after, &["revenue", "mix"]);
+        // The beat stays the beat it was, the new slide's states in it.
+        let (s, b, id) = beat_of(&after, first);
+        assert_eq!(id, "doubled");
+        let beat = &after["spine"]["sections"][s]["beats"][b];
+        let was = &doc["spine"]["sections"][1]["beats"][0];
+        for key in ["claim", "evidence", "notes", "duration", "media"] {
+            assert_eq!(beat[key], was[key], "the beat keeps its {key}");
+        }
+        // The data stays, and the slide draws a chart from its rows.
+        assert!(after["data"].get("q3").is_some(), "the beat's evidence keeps its source");
+        let state = after["states"].as_array().unwrap().iter().find(|s| s["id"] == first.as_str()).unwrap();
+        let charted = state["props"].as_object().unwrap().keys().any(|id| after["nodes"][id]["type"] == "chart");
+        assert!(charted, "the chart is drawn again");
+        // Its transition, hold, and notes are the old slide's, and a link to it goes to it.
+        assert_eq!(state["transition"], doc["states"][1]["transition"]);
+        assert_eq!(state["hold"], doc["states"][1]["hold"]);
+        assert_eq!(state["notes"], json!("Pause on the bar."));
+        assert_eq!(after["nodes"]["title"]["runs"][0]["link"]["state"], json!(first));
+    }
+
+    #[test]
+    fn a_slide_written_after_another_enters_as_a_made_decks_slides_do() {
+        let (doc, theme, slides) = made_of(&[0, 8, 12, 55]);
+        let before = firsts(&doc);
+        let written = slide_into(
+            &doc,
+            &theme,
+            slides[20].clone(),
+            &Place::After(before[1].clone()),
+            BTreeMap::new(),
+            &no_files(),
+        )
+        .unwrap();
+        let after = patched(&doc, &written.patch);
+        let state = after["states"].as_array().unwrap().iter().find(|s| s["id"] == written.states[0].as_str()).unwrap();
+        assert!(state.get("transition").is_some(), "it enters after the slide before it: {state:#}");
+    }
+
+    #[test]
+    fn a_slide_added_to_a_deck_with_no_spine_makes_none() {
+        let (doc, files) = deck_at("docs/examples/charts.deck.json");
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let (_, slides) = catalog();
+        let written =
+            slide_into(&doc, &theme, slides[20].clone(), &Place::After("bars".into()), BTreeMap::new(), &no_files())
+                .unwrap();
+        let after = patched_in(&doc, &written.patch, &files);
+        assert!(after.get("spine").is_none());
+        assert_eq!(written.beat, "");
+    }
+
+    #[test]
+    fn a_model_is_shown_the_slide_as_it_shows_with_its_charts_rows() {
+        // Review of #637, finding 7: the revenue slide's words as it resolves, not the cover's.
+        let (doc, files) = deck_at("docs/examples/revenue.deck.json");
+        let asked = one_asked(&doc, &Place::Replace("revenue".into()), "", &read_by(&files)).unwrap();
+        let now = asked.now.unwrap();
+        let cover = doc["nodes"]["title"]["text"].as_str().unwrap();
+        let mix = &doc["states"][2]["props"]["title"]["text"];
+        assert!(!now.contains(cover), "{now}");
+        assert!(mix.as_str().is_none_or(|t| now.contains(t)), "{now}");
+        assert!(now.contains("quarter, product, revenue, customers"), "{now}");
     }
 }

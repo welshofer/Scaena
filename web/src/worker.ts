@@ -854,7 +854,13 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         } finally {
           read.free();
         }
-        return post({ type: "slideAsked", id: data.id, asked: await oneAsked(deck, data.place, data.ask) });
+        // The files its data sources read, for the rows of a chart the slide draws.
+        const sources = Object.values((JSON.parse(deck) as { data?: Record<string, { source?: unknown }> }).data ?? {});
+        const files = sources.flatMap(({ source }) => {
+          const bytes = typeof source === "string" ? player.file(source) : undefined;
+          return bytes ? [[source as string, bytes] as [string, Uint8Array]] : [];
+        });
+        return post({ type: "slideAsked", id: data.id, asked: await oneAsked(deck, data.place, data.ask, files) });
       }
       case "slideWrite": {
         const { oneAnswered } = await import("@scaena/generate");

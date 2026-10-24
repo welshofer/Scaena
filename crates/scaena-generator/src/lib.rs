@@ -799,15 +799,41 @@ fn place(place: &str) -> Result<scaena_ops::narrative::Place, JsError> {
     }
 }
 
-/// What to ask a model for one slide of `deck` (`deck.json`) at `place`, with the person's `ask`
-/// (lift-up FUNC-1): `{ system, prompt }`, the request's two halves, as Write This Slide Again… and Add
-/// a Slide About… send them.
-#[wasm_bindgen(js_name = oneAsked)]
-pub fn one_asked(deck: &str, place_json: &str, ask: &str) -> Result<String, JsError> {
-    let doc: Value = serde_json::from_str(deck).map_err(error)?;
-    let one = scaena_ops::narrative::one_asked(&doc, &place(place_json)?, ask).map_err(error)?;
-    let asked = json!({ "system": scaena_narrato::one::ONE_SLIDE_SYSTEM, "prompt": scaena_narrato::one::prompt(&one) });
-    Ok(asked.to_string())
+/// What to ask a model for one slide of a deck (lift-up FUNC-1), as Write This Slide Again… and
+/// Add a Slide About… ask it: the bundle's data files handed over first, which the rows of the
+/// chart a slide draws are read from.
+#[wasm_bindgen]
+pub struct OneAsking {
+    files: std::collections::BTreeMap<String, Vec<u8>>,
+}
+
+#[wasm_bindgen]
+impl OneAsking {
+    #[wasm_bindgen(constructor)]
+    pub fn new() -> OneAsking {
+        OneAsking { files: Default::default() }
+    }
+
+    /// The bundle's file at `path`.
+    pub fn add(&mut self, path: &str, bytes: Vec<u8>) {
+        self.files.insert(path.to_string(), bytes);
+    }
+
+    /// What to ask for one slide of `deck` (`deck.json`) at `place`, with the person's `ask`:
+    /// `{ system, prompt }`, the request's two halves.
+    pub fn asked(&self, deck: &str, place_json: &str, ask: &str) -> Result<String, JsError> {
+        let doc: Value = serde_json::from_str(deck).map_err(error)?;
+        let one = scaena_ops::narrative::one_asked(&doc, &place(place_json)?, ask, &self.files).map_err(error)?;
+        let asked =
+            json!({ "system": scaena_narrato::one::ONE_SLIDE_SYSTEM, "prompt": scaena_narrato::one::prompt(&one) });
+        Ok(asked.to_string())
+    }
+}
+
+impl Default for OneAsking {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 /// The one slide a model's `answer` holds, as Narrato writes a slide: what the editor's

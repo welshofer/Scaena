@@ -44,9 +44,21 @@ export interface SlidePlace {
 }
 
 /** What to ask a model for one slide of `deck` at `place`, with the person's `ask` (lift-up
- * FUNC-1): the request's instructions and prompt. */
-export async function oneAsked(deck: string, place: SlidePlace, ask: string): Promise<{ system: string; prompt: string }> {
-  return JSON.parse((await generator()).oneAsked(deck, JSON.stringify(place), ask)) as { system: string; prompt: string };
+ * FUNC-1), the bundle's data `files` read for the rows of a chart the slide draws: the request's
+ * instructions and prompt. */
+export async function oneAsked(
+  deck: string,
+  place: SlidePlace,
+  ask: string,
+  files: Iterable<[string, Uint8Array]>,
+): Promise<{ system: string; prompt: string }> {
+  const asking = new (await generator()).OneAsking();
+  try {
+    for (const [path, bytes] of files) asking.add(path, bytes);
+    return JSON.parse(asking.asked(deck, JSON.stringify(place), ask)) as { system: string; prompt: string };
+  } finally {
+    asking.free();
+  }
 }
 
 /** The one slide a model's `answer` holds, as Narrato writes a slide. */
