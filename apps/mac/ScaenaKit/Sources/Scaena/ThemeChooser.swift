@@ -103,24 +103,23 @@ struct ThemeChooser: View {
         .accessibilityIdentifier("theme-\(theme.name)")
     }
 
-    /// Each theme's title slide: the one the app's build drew, else drawn here, one at a time, the
-    /// chooser shown first and each tile as it is drawn.
+    /// Each theme's title slide: the one the Mac app's build drew, else painted away from the
+    /// window, one at a time, the chooser shown first and each tile as it lands (lift-up PERF-4).
     private func draw() async {
         for theme in themes where drawn[theme.name] == nil {
             if let built = Self.built(theme.name) {
                 drawn[theme.name] = built
                 continue
             }
-            await Task.yield()
             guard !Task.isCancelled else { return }
-            drawn[theme.name] = Self.titleSlide(in: theme.name, width: Int(Self.width * scale))
+            drawn[theme.name] = await Self.titleSlide(in: theme.name, width: Int(Self.width * scale))
         }
     }
 
-    /// The title slide of the theme that ships named `name` as the app's build drew it, by
+    /// The title slide of the theme that ships named `name` as the Mac app's build drew it, by
     /// `scaena-cli`'s `theme_thumbnails` into its Resources' `themes` folder, as the browser's
-    /// build draws its New dialog's (PLAN T.0c, lift-up PERF-4); none where the app was built
-    /// without them, as `swift run` builds it.
+    /// build draws its New dialog's (PLAN T.0c, lift-up PERF-4); none on the iPad, whose build
+    /// draws none, or where the app was built without them, as `swift run` builds it.
     private static func built(_ name: String) -> CGImage? {
         guard let url = Bundle.main.url(forResource: name, withExtension: "png", subdirectory: "themes"),
             let source = CGImageSourceCreateWithURL(url as CFURL, nil)
@@ -130,14 +129,15 @@ struct ThemeChooser: View {
 
     /// What the theme that ships named `name` looks like: a title slide started in a deck of its
     /// own as New starts one, its words those the theme's layout says go there and its backdrop in
-    /// its picture's place, drawn `width` pixels wide.
-    private static func titleSlide(in name: String, width: Int) -> CGImage? {
+    /// its picture's place, drawn `width` pixels wide, painted away from the window (lift-up
+    /// PERF-4).
+    private static func titleSlide(in name: String, width: Int) async -> CGImage? {
         guard let session = try? ScaenaSession.create(theme: name, title: "Untitled") else { return nil }
         let editor = DeckEditor(session: session)
         guard let first = editor.slots.first?.state,
             let started = try? session.titling(after: first),
             (try? editor.make(started.patch)) != nil
         else { return nil }
-        return editor.drawing(started.id, width: width)
+        return await editor.drawingAway(started.id, width: width)
     }
 }

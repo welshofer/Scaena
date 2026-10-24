@@ -42,13 +42,6 @@ targets:
         script: |
           "$SRCROOT/engine.sh" "$([ "$PLATFORM_NAME" = iphoneos ] && echo device || echo sim)" "$([ "$CONFIGURATION" = Release ] && echo release || echo debug)"
         basedOnDependencyAnalysis: false
-    postCompileScripts:
-      # The themes' title slides engine.sh drew, which the theme chooser shows (lift-up PERF-4).
-      - name: Themes
-        script: |
-          mkdir -p "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/themes"
-          cp "$SRCROOT/../../target/ipad/themes/"*.png "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/themes/"
-        basedOnDependencyAnalysis: false
     settings:
       base:
         # The Mac app's language mode, as its package builds it.
