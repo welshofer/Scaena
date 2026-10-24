@@ -202,13 +202,18 @@ async fn an_agent_puts_a_picture_it_is_handed_on_a_slide() {
     assert_eq!(tried["applied"], false, "{tried:#}");
     assert!(!dir.join(tried["src"].as_str().unwrap()).exists(), "a dry run writes nothing");
     let put = ok(&client, "image_add", json!({ "bundle": bundle, "file": path(&big), "into": "picture" })).await;
-    assert_eq!((put["applied"].as_bool(), put["said"].as_str()), (Some(true), Some("Picture put in the image")), "{put:#}");
+    assert_eq!(
+        (put["applied"].as_bool(), put["said"].as_str()),
+        (Some(true), Some("Picture put in the image")),
+        "{put:#}"
+    );
     let made = std::fs::read(dir.join(put["src"].as_str().unwrap())).unwrap();
     let seen = scaena_engine::images::Picture::read(&made).unwrap();
     assert_eq!((seen.width, seen.height), (8192, 27), "made smaller, its proportions kept");
     assert!(put["src"].as_str().unwrap().ends_with(".png"));
     // A file outside where this server reads is not read.
-    let outside = call(&client, "image_add", json!({ "bundle": bundle, "file": "/etc/hostname", "at": [0, 0, 10, 10] })).await;
+    let outside =
+        call(&client, "image_add", json!({ "bundle": bundle, "file": "/etc/hostname", "at": [0, 0, 10, 10] })).await;
     assert_eq!(outside.is_error, Some(true));
 }
 

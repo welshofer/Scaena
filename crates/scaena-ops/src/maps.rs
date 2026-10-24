@@ -280,7 +280,11 @@ pub fn place(b: &Bundle, target: &Target, fetch: &Fetch) -> Result<Placed, OpsEr
 }
 
 /// Node `node`'s props as `state` shows them, its overrides last; none where it shows none.
-pub(crate) fn shown_props(b: &Bundle, state: Option<&str>, node: &str) -> Result<Option<scaena_core::document::Props>, OpsError> {
+pub(crate) fn shown_props(
+    b: &Bundle,
+    state: Option<&str>,
+    node: &str,
+) -> Result<Option<scaena_core::document::Props>, OpsError> {
     let snaps = scaena_core::resolve_states(&b.deck).context("tracking")?;
     let snap = match state {
         Some(s) => snaps.iter().find(|x| x.state_id == s),
