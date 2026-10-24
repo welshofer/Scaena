@@ -297,6 +297,15 @@ public final class ScaenaSession {
                 throw error
             }
         }
+
+        /// A session of its own on the deck and files as the snapshot was taken, to run a call
+        /// that only reads on the thread that holds it (narrative lift-up PERF-2,
+        /// `ScaenaChat.runApart`): it answers as the session it was taken from did.
+        public func opened() throws -> ScaenaSession {
+            var error: UnsafeMutablePointer<CChar>?
+            guard let session = scaena_snapshot_open(handle, &error) else { throw ScaenaError.taking(error) }
+            return ScaenaSession(handle: session)
+        }
     }
 
     /// What a save reads of the session as it stands, to be saved away from its thread.
