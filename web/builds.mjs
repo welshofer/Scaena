@@ -25,7 +25,7 @@
 //   steps back. In `close`, which the note leaves, the cue's menu offers it By Bullet as it leaves,
 //   and nothing else: one patch, a step after `mix` for each paragraph it lets go, one undo.
 // Exits 1 on any failure.
-import { launch, serve } from "./serve.mjs";
+import { addAnimation, launch, serve } from "./serve.mjs";
 
 const server = await serve();
 const failures = [];
@@ -68,20 +68,20 @@ try {
   await page.evaluate(() => window.scaena.cursor(window.scaena.source().indexOf("state close") + "state ".length));
   await page.waitForFunction((i) => window.scaena.shown() === i && window.scaena.at().index === i, index, { timeout: 30000 });
   await page.evaluate(() => window.scaena.canvas.select("bg"));
-  await page.waitForFunction(() => [...document.querySelectorAll("#cue [data-add] option")].some((o) => o.value.includes('"enter","bg","pop"')), null, {
+  await page.waitForFunction(() => window.scaena.cue.offers().some((o) => JSON.stringify(o.value).includes('"enter","bg","pop"')), null, {
     timeout: 30000,
   });
   // The backdrop's own builds: the menu also offers each object that leaves its own exits, a
   // text's among them.
   const offered = await page.evaluate(() =>
-    [...document.querySelectorAll("#cue [data-add] option")].filter((o) => o.value.includes('"bg"')).map((o) => o.textContent),
+    window.scaena.cue.offers().filter((o) => o.value[1] === "bg").map((o) => o.label),
   );
   const wanted = ["Appear", "Pop", "Fade and Scale", "Drop", "Move In from Left", "Move In from Bottom", "Spin", "Swing", "Flip", "Blink", "Jiggle"];
   check(
     wanted.every((w) => offered.includes(w)) && !offered.includes("Typewriter") && !offered.includes("Word by Word"),
     `the menu offers a presentation app's builds, in its words, and none that plays a text's letters or words: ${wanted.filter((w) => !offered.includes(w)).join(", ") || "all of them"}`,
   );
-  const values = await page.evaluate(() => [...document.querySelectorAll("#cue [data-add] option")].map((o) => o.value));
+  const values = await page.evaluate(() => window.scaena.cue.offers().map((o) => JSON.stringify(o.value)));
   const offers = (kind, node, preset) => values.includes(JSON.stringify([kind, node, preset]));
   check(
     !["typewriter", "words", "grow"].some((p) => offers("enter", "bg", p)),
@@ -91,9 +91,8 @@ try {
   check(offers("exit", "rev", "grow"), "and the chart that leaves takes Grow on its marks");
   const kinds = await page.evaluate(() => {
     const by = { enter: [], emphasis: [], exit: [] };
-    for (const o of document.querySelectorAll("#cue [data-add] option")) {
-      if (!o.value.startsWith("[")) continue;
-      const [kind, , preset] = JSON.parse(o.value);
+    for (const o of window.scaena.cue.offers()) {
+      const [kind, , preset] = o.value;
       by[kind]?.push(preset);
     }
     return by;
@@ -119,7 +118,7 @@ try {
 
   // Pop, as it enters.
   let n = await trips();
-  await page.locator("#cue [data-add]").selectOption('["enter","bg","pop"]');
+  await addAnimation(page, '["enter","bg","pop"]');
   check((await says("Pop added to")) && (await status()).includes("as it enters"), `Pop is added as the backdrop enters: ${await status()}`);
   await redrawn(n);
   const popped = await bar("bg enter");
@@ -147,11 +146,11 @@ try {
   check((await source()) === added, "one undo takes the wait back");
 
   // Jiggle, for emphasis.
-  await page.waitForFunction(() => [...document.querySelectorAll("#cue [data-add] option")].some((o) => o.value.includes('"emphasis","bg","jiggle"')), null, {
+  await page.waitForFunction(() => window.scaena.cue.offers().some((o) => JSON.stringify(o.value).includes('"emphasis","bg","jiggle"')), null, {
     timeout: 30000,
   });
   n = await trips();
-  await page.locator("#cue [data-add]").selectOption('["emphasis","bg","jiggle"]');
+  await addAnimation(page, '["emphasis","bg","jiggle"]');
   check((await says("Jiggle added to")) && (await status()).includes("for emphasis"), `Jiggle is added for emphasis: ${await status()}`);
   await redrawn(n);
   check((await bar("bg emphasis")) !== undefined, "with its own bar");
@@ -248,16 +247,16 @@ try {
   await page.waitForFunction((i) => window.scaena.shown() === i && window.scaena.at().index === i, close, { timeout: 30000 });
   const leaving = '["exit","note","bullets"]';
   await page
-    .waitForFunction((v) => [...document.querySelectorAll("#cue [data-add] option")].some((o) => o.value === v), leaving, { timeout: 30000 })
+    .waitForFunction((v) => window.scaena.cue.offers().some((o) => JSON.stringify(o.value) === v), leaving, { timeout: 30000 })
     .catch(() => {});
-  const cued = await page.evaluate((v) => [...document.querySelectorAll("#cue [data-add] option")].find((o) => o.value === v)?.textContent, leaving);
+  const cued = await page.evaluate((v) => window.scaena.cue.offers().find((o) => JSON.stringify(o.value) === v)?.label, leaving);
   check(cued === "By Bullet", `Add an animation… offers the note By Bullet as it leaves: ${cued}`);
   const bulletless = await page.evaluate(() =>
-    [...document.querySelectorAll("#cue [data-add] option")].some((o) => o.value.startsWith('["exit",') && o.value.endsWith(',"bullets"]') && !o.value.includes('"note"')),
+    window.scaena.cue.offers().some((o) => JSON.stringify(o.value).startsWith('["exit",') && JSON.stringify(o.value).endsWith(',"bullets"]') && !JSON.stringify(o.value).includes('"note"')),
   );
   check(!bulletless, "and nothing else that leaves, none a text of paragraphs");
   n = await trips();
-  await page.locator("#cue [data-add]").selectOption(leaving);
+  await addAnimation(page, leaving);
   await redrawn(n);
   await page.waitForFunction((l) => window.scaena.source() !== l, listed, { timeout: 30000 }).catch(() => {});
   const out = await page.evaluate(() => window.scaena.last().states.map((s) => s[0]).join(" "));

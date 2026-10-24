@@ -62,7 +62,7 @@ import { picturer } from "./picturing";
 import { sourceOf } from "./bundle";
 import { canvas, canvasKeys, placed } from "./canvas";
 import { markName, noteName } from "./notes";
-import { type Command, type Group, type Key, keyOf, MOD, MOD_ALT, menu, palette, SHIFT, sheet } from "./commands";
+import { type Command, type Group, type Key, keyOf, MOD, MOD_ALT, menu, opens, palette, SHIFT, sheet } from "./commands";
 import { cue, cueKeys } from "./cue";
 import { dataKeys, sheets } from "./data";
 import { filesPanel } from "./files";
@@ -1478,16 +1478,14 @@ async function edit(source: Source, opened?: Stage) {
     } else if (undo(view)) forceLinting(view);
   });
   /** What may be inserted (PLAN 2.34), grouped by type, as the deck offers it: asked again after
-   * each edit, since the theme and the bundle's images change. */
-  const inserter = $<HTMLSelectElement>("#insert");
-  /** The Insert menu's own choices beside what the deck offers: a picture made (PLAN 2.107), and
-   * a draw tool by its key (PLAN 2.123). */
-  const MAKE_PICTURE = "make-picture";
-  const INSERT_MAP = "insert-map";
-  const DRAW = "draw:";
+   * each edit, since the theme and the bundle's images change. Insert opens it as a menu
+   * (`opens`): browsing the menu inserts nothing, and a choice is one patch (lift-up USE-3). */
+  const inserter = $<HTMLButtonElement>("#insert");
   let offered = "";
   /** What may be inserted, by label, as the deck last offered it: what the palette lists. */
   let insertable: string[] = [];
+  /** The Insert menu's items, each under its kind. */
+  let insertItems: Command[] = [];
   async function offer() {
     const state = last?.states[shown]?.[0];
     const [inserts, words] = await Promise.all([
@@ -1501,51 +1499,51 @@ async function edit(source: Source, opened?: Stage) {
     // Each as a person names it (PLAN 2.99): its kind, then a text by its role, a shape by its
     // kind, an effect by the theme's preset, a source's chart or table by the source's file
     // (PLAN 3.18), and a picture by its name.
-    const groups = new Map<string, HTMLOptGroupElement>();
+    const items: Command[] = [];
     for (const [n, insert] of inserts.entries()) {
       const { kind, said } = inserting(words, insert);
-      const group = groups.get(kind) ?? Object.assign(document.createElement("optgroup"), { label: kind });
-      groups.set(kind, group);
-      group.append(new Option(said, String(n)));
+      items.push({
+        label: said,
+        section: kind,
+        run: () => {
+          void board.insert(n, said);
+          $("#overlay").focus();
+        },
+      });
       insertable.push(`${kind} · ${said}`);
     }
     // Icons are the set's that ship, not the theme's or the bundle's: Icon… opens their picker. A
     // picture made by the user's image model (PLAN 2.107) comes after what the deck offers.
-    const icon = Object.assign(document.createElement("optgroup"), { label: "Icon" });
-    icon.append(new Option("Icon…", "icon"));
-    // The draw tools, each with its key (PLAN 2.123): a drag on the slide draws what each draws.
-    const draw = Object.assign(document.createElement("optgroup"), { label: "Draw" });
-    draw.append(...DRAWING.map(({ key, tool }) => new Option(`${tool} (${key.toUpperCase()})`, `${DRAW}${key}`)));
-    inserter.replaceChildren(
-      new Option("Insert…", ""),
-      ...groups.values(),
-      icon,
-      draw,
-      new Option("Make a picture…", MAKE_PICTURE),
-      new Option("Map…", INSERT_MAP),
-    );
-  }
-  inserter.onchange = () => {
-    const chosen = inserter.selectedOptions[0];
-    inserter.value = "";
-    if (!chosen?.value) return;
-    if (chosen.value === "icon") return void insertIcon();
-    if (chosen.value === MAKE_PICTURE) return void picturing.open();
-    if (chosen.value === INSERT_MAP) return void mapping.open();
-    // A draw tool is its key's gesture: chosen again while it is taken up, it stays so.
-    if (chosen.value.startsWith(DRAW)) {
-      const key = chosen.value.slice(DRAW.length);
-      if (key === "p" ? board.pen() : board.armed()?.key === key) return void $("#overlay").focus();
-      return press(key);
+    items.push({ label: "Icon…", section: "Icon", run: () => void insertIcon() });
+    // The draw tools, each with its key (PLAN 2.123): a drag on the slide draws what each draws. A
+    // draw tool is its key's gesture: chosen again while it is taken up, it stays so.
+    for (const { key, tool } of DRAWING) {
+      items.push({
+        label: `${tool} (${key.toUpperCase()})`,
+        section: "Draw",
+        run: () => {
+          if (key === "p" ? board.pen() : board.armed()?.key === key) return void $("#overlay").focus();
+          press(key);
+        },
+      });
     }
-    void board.insert(Number(chosen.value), chosen.textContent ?? undefined);
-    $("#overlay").focus();
-  };
+    items.push({ label: "Make a picture…", run: () => void picturing.open() }, { label: "Map…", run: () => void mapping.open() });
+    insertItems = items;
+  }
+  opens(inserter, () => insertItems);
   /** The deck's theme (PLAN 2.39): the theme files the bundle holds, the one it names chosen, and
-   * the themes that ship. One chosen re-themes the deck, as `scaena theme --apply` does: refused,
-   * with why, where the deck would not validate in it; else one change, one step to undo, and
-   * the status says what lint finds in it that it did not before. */
-  const themePicker = $<HTMLSelectElement>("#theme");
+   * the themes that ship, by family, in the dialog Theme… opens. Re-theme alone re-themes the deck
+   * in the one chosen (lift-up USE-3), as `scaena theme --apply` does: refused, with why, where
+   * the deck would not validate in it; else one change, one step to undo, and the status says
+   * what lint finds in it that it did not before. */
+  const themeButton = $<HTMLButtonElement>("#theme");
+  const retheming = $<HTMLDialogElement>("#retheming");
+  const themeList = retheming.querySelector<HTMLElement>("[data-themes]")!;
+  const rethemeButton = $<HTMLButtonElement>("#retheming-apply");
+  /** Each theme the dialog offers: its value (`path:…` for one the deck holds, `ships:…` for one
+   * that ships, none for the deck's own), what it is called, its section, and whether the deck
+   * is in it now. */
+  let themeChoices: { value: string; label: string; family: string; current: boolean }[] = [];
   let themesOffered = "";
   async function offerThemes() {
     const held = await stage.themes().catch(() => undefined);
@@ -1553,30 +1551,58 @@ async function edit(source: Source, opened?: Stage) {
     const key = JSON.stringify([held, Object.keys(themes)]);
     if (key === themesOffered) return;
     themesOffered = key;
-    const inBundle = Object.assign(document.createElement("optgroup"), { label: "In this deck" });
-    for (const file of held.files) inBundle.append(new Option(themeName(file), `path:${file}`, file === held.current, file === held.current));
-    if (held.current === "(inline)") inBundle.append(new Option("The deck’s own", "", true, true));
-    // The themes that ship, by family, each family a section (PLAN T.0d).
-    const ships = familySections((name) => `ships:${name}`);
-    themePicker.replaceChildren(...[inBundle, ...ships].filter((g) => g.children.length > 0));
+    themeChoices = held.files.map((file) => ({ value: `path:${file}`, label: themeName(file), family: "In this deck", current: file === held.current }));
+    if (held.current === "(inline)") themeChoices.push({ value: "", label: "The deck’s own", family: "In this deck", current: true });
+    // The themes that ship, by family, each family a section (PLAN T.0d), each with its title
+    // slide drawn at build (PLAN T.0c).
+    for (const [name, { family }] of Object.entries(themes)) themeChoices.push({ value: `ships:${name}`, label: name, family, current: false });
+    const families = [...new Set(themeChoices.map((c) => c.family))];
+    themeList.innerHTML = families
+      .map(
+        (family) =>
+          `<fieldset><legend>${html(family)}</legend>${themeChoices
+            .filter((c) => c.family === family)
+            .map((c) => {
+              const thumbnail = c.value.startsWith("ships:") ? themes[c.label]?.thumbnail : undefined;
+              return `<label><input type="radio" name="theme" value="${html(c.value)}"${c.current ? " checked" : ""} />${
+                thumbnail ? `<img src="${html(thumbnail)}" alt="" width="96" height="54" />` : ""
+              }<span>${html(c.label)}</span>${c.current ? '<span class="now">Now</span>' : ""}</label>`;
+            })
+            .join("")}</fieldset>`,
+      )
+      .join("");
+    const current = themeChoices.find((c) => c.current);
+    themeButton.textContent = current ? `Theme: ${current.label}` : "Theme…";
   }
-  themePicker.onchange = async () => {
-    const chosen = themePicker.value;
-    // The theme the deck names: the picker goes back to it at once where the choice is not made.
-    const named = [...themePicker.options].find((o) => o.defaultSelected)?.value ?? "";
+  /** The theme chosen in the dialog. */
+  const pickedTheme = () => themeList.querySelector<HTMLInputElement>("input:checked")?.value;
+  themeButton.onclick = () => {
+    if (!themeChoices.length) return say("The deck's theme is not read yet");
+    retheming.returnValue = "";
+    for (const input of themeList.querySelectorAll<HTMLInputElement>("input")) input.checked = themeChoices.find((c) => c.value === input.value)?.current ?? false;
+    rethemeButton.disabled = true;
+    retheming.showModal();
+  };
+  // Browsing the themes changes nothing: Re-theme takes one other than the deck's.
+  heed(themeList, "change", () => {
+    const picked = pickedTheme();
+    rethemeButton.disabled = picked === undefined || (themeChoices.find((c) => c.value === picked)?.current ?? false);
+  });
+  heed(retheming, "close", () => {
+    const picked = pickedTheme();
+    if (retheming.returnValue === "retheme" && picked !== undefined) void retheme(picked);
+  });
+  /** The deck re-themed in `chosen`: `ships:NAME`, or `path:FILE` of a theme it holds. */
+  async function retheme(chosen: string) {
     const now = showing();
     const [kind, name] = [chosen.slice(0, chosen.indexOf(":")), chosen.slice(chosen.indexOf(":") + 1)];
-    if (!now || !name) {
-      themePicker.value = named;
-      return say("Not re-themed: the source has an error to fix first, or the assistant is at work");
-    }
+    if (!now || !name) return say("Not re-themed: the source has an error to fix first, or the assistant is at work");
     const label = kind === "ships" ? name : themeName(name);
     say(`Re-theming in ${label}…`);
     try {
       const theme = kind === "ships" ? { ships: name } : { path: name };
       const { themed, source, edited } = await stage.retheme(view.state.doc.toString(), theme, now.index, format());
       if (themed.refused) {
-        themePicker.value = named;
         const errors = themed.added.filter((f) => f.severity === "error");
         say(`${label} not taken: the deck would not open in it. ${why(lexicon, errors, 1)}`);
       } else if (source && edited) {
@@ -1587,13 +1613,12 @@ async function edit(source: Source, opened?: Stage) {
         say(`Theme ${label}${recolored} · ${issuesChanged(worse, better)}`);
       }
     } catch (e) {
-      themePicker.value = named;
       say(`Not re-themed: ${said(e)}`);
     } finally {
       themesOffered = "";
       void offerThemes();
     }
-  };
+  }
   // A node's row in the inspector selects it on the canvas.
   inspector.onclick = (e) => {
     const row = (e.target as Element).closest("tr[data-node]");
@@ -2037,7 +2062,7 @@ async function edit(source: Source, opened?: Stage) {
     try {
       zipped = await stage.zip(view.state.doc.toString());
     } catch (e) {
-      status.textContent = `Not downloaded: ${said(e)}`;
+      say(`Not downloaded: ${said(e)}`);
       return;
     }
     const url = URL.createObjectURL(new Blob([zipped.bytes], { type: "application/zip" }));
@@ -2045,7 +2070,8 @@ async function edit(source: Source, opened?: Stage) {
     setTimeout(() => URL.revokeObjectURL(url), 60_000);
     const [before, after] = zipped.subset.reduce(([b, a], [, x, y]) => [b + x, a + y], [0, 0]);
     const kb = (n: number) => `${Math.round(n / 1024)} KB`;
-    status.textContent = `Downloaded ${name}.scaena, ${kb(zipped.bytes.byteLength)}: its fonts cut to what it draws, ${kb(before)} to ${kb(after)}`;
+    // Said, as a save is, so a lint that answers after it keeps it rather than a word said before.
+    say(`Downloaded ${name}.scaena, ${kb(zipped.bytes.byteLength)}: its fonts cut to what it draws, ${kb(before)} to ${kb(after)}`);
     return zipped;
   }
 
@@ -2556,23 +2582,14 @@ async function edit(source: Source, opened?: Stage) {
 
   /** What is done to the deck and the bundle, and where the page looks. */
   function deckCommands(): Command[] {
-    const rethemes = [...themePicker.querySelectorAll("option")].filter((o) => o.value && !o.defaultSelected);
+    const rethemes = themeChoices.filter((c) => c.value && !c.current);
     return [
       // Each named by the change it takes back or makes again, where the last change said what
       // it was (lift-up USE-4).
       { label: lastDone ? `Undo ${lastDone}` : "Undo", keys: `${MOD}Z`, group: "Edit", applies: () => undoDepth(view.state) > 0 && !assisting, run: () => undo(view) && forceLinting(view) },
       { label: lastUndone ? `Redo ${lastUndone}` : "Redo", keys: `${MOD}${SHIFT}Z`, group: "Edit", applies: () => redoDepth(view.state) > 0 && !assisting, run: () => redo(view) && forceLinting(view) },
       { label: "Find in the deck's texts", keys: `${MOD}F`, group: "Find and replace", run: () => finding?.open() },
-      ...rethemes.map(
-        (o): Command => ({
-          label: `Re-theme in ${o.textContent}`,
-          applies: () => showing() !== undefined,
-          run: () => {
-            themePicker.value = o.value;
-            themePicker.dispatchEvent(new Event("change"));
-          },
-        }),
-      ),
+      ...rethemes.map((c): Command => ({ label: `Re-theme in ${c.label}`, applies: () => showing() !== undefined, run: () => void retheme(c.value) })),
       { label: "Save", keys: `${MOD}S`, group: "The editor", run: () => save().catch(failed) },
       { label: "Show or fold the source", keys: `${MOD}\\`, group: "The editor", run: () => fold(folded()) },
       { label: "Save as…", applies: () => !$("#save-as").hidden, run: () => $("#save-as").click() },
@@ -3007,6 +3024,10 @@ async function edit(source: Source, opened?: Stage) {
       versions: versioning,
       /** The theme panel (PLAN 2.61): the theme as it shows it, and an edit made there. */
       theme: theming,
+      /** The Insert menu (PLAN 2.34): each item it offers now, under its kind. */
+      inserts: () => insertItems.map(({ section, label }) => ({ section, label })),
+      /** The theme dialog (PLAN 2.39): each theme it offers, by family, the deck's own marked. */
+      themeChoices: () => themeChoices,
       /** The formats side by side (PLAN 2.62): shown or hidden, and what they last painted. */
       formats: formatting,
       /** The rehearsal (PLAN 2.63): started, stopped, and what each state took. */

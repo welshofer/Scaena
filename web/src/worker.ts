@@ -887,7 +887,8 @@ function syllables(): string | undefined {
 
 interface DeckFiles {
   meta?: { title?: string };
-  theme: string;
+  /** A theme file's path, or the theme itself, written inline (SPEC §3.1). */
+  theme: string | object;
   fonts?: { file: string }[];
   data?: Record<string, { source?: unknown }>;
   states: { id: string; notes?: string }[];
@@ -1053,7 +1054,8 @@ async function fetched(deck: string): Promise<Player> {
   };
   const json = await (await get(deck)).text();
   const files = JSON.parse(json) as DeckFiles;
-  const fetchedPlayer = new Player(json, await (await get(files.theme)).text());
+  const theme = typeof files.theme === "string" ? await (await get(files.theme)).text() : JSON.stringify(files.theme);
+  const fetchedPlayer = new Player(json, theme);
   const data = Object.values(files.data ?? {}).flatMap(({ source }) => (typeof source === "string" ? [source] : []));
   const paths = new Set([...(files.fonts ?? []).map((f) => f.file), ...data, ...fetchedPlayer.imageFiles()]);
   if (new URL(deck).pathname.endsWith("/deck.json")) {
@@ -1065,7 +1067,7 @@ async function fetched(deck: string): Promise<Player> {
       for (const path of Object.keys(listed ?? {})) paths.add(path);
     }
   }
-  paths.delete(files.theme);
+  if (typeof files.theme === "string") paths.delete(files.theme);
   const bytes = await Promise.all(
     [...paths].map(async (path) => [path, new Uint8Array(await (await get(path)).arrayBuffer())] as const),
   );
