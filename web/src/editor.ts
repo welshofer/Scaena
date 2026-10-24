@@ -475,6 +475,12 @@ const rewrites = invertedEffects.of((tr) =>
  * again, so a node an undo brings back finds the file it draws. */
 const fileTaken = StateEffect.define<{ path: string; out: boolean }>();
 const takes = invertedEffects.of((tr) => tr.effects.filter((e) => e.is(fileTaken)).map((e) => fileTaken.of({ ...e.value, out: !e.value.out })));
+/** What a change is, in a person's words, carried by its transaction (lift-up USE-4): an undo says
+ * what it took back, and a redo what it made again. The inverse carries the same words. */
+const described = StateEffect.define<string>();
+const describes = invertedEffects.of((tr) => tr.effects.filter((e) => e.is(described)).map((e) => described.of(e.value)));
+/** `words` as a change is described: without the status's "⌘Z undoes it", which an undo makes untrue. */
+const describing = (words: string) => words.replace(/\s*·\s*⌘Z undoes it$/, "");
 
 async function edit(source: Source, opened?: Stage) {
   const status = $("#status");
@@ -648,7 +654,11 @@ async function edit(source: Source, opened?: Stage) {
     if (params.has("painter")) playing.set("painter", painter);
     play.href = `index.html?${playing}`;
     play.hidden = where?.kind === "folder";
-    play.title = unkept() ? "The player, on the deck kept in this browser first" : "The player, on the deck as last saved";
+    play.title = unkept()
+      ? "The player, on the deck kept in this browser first"
+      : dirty()
+        ? "The player, from the slide shown, once the deck is saved"
+        : "The player, from the slide shown";
     // A served bundle saves to its folder alone.
     $<HTMLButtonElement>("#save-as").hidden = where?.kind === "serve";
     scheduleCopy();
@@ -656,21 +666,6 @@ async function edit(source: Source, opened?: Stage) {
   address(where);
   tell();
   void listKept();
-  // A new deck plays once it is kept: Play keeps it in this browser first, as its first save does,
-  // then opens the player on it, in the window opened as it was pressed.
-  play.onclick = (e) => {
-    if (!unkept()) return;
-    e.preventDefault();
-    const shown = window.open("about:blank", "_blank");
-    void save()
-      .then((done) => {
-        if (!done) return void shown?.close();
-        say("Kept in this browser to play it");
-        if (shown) shown.location.href = play.href;
-        else window.open(play.href, "_blank");
-      })
-      .catch(failed);
-  };
 
   /** What the last edit came to, and each edit's round trip for the page's own record. */
   let last: Edited | undefined;
@@ -721,6 +716,10 @@ async function edit(source: Source, opened?: Stage) {
    * source its edit made (PLAN 2.52). */
   let touching: { source: string; nodes: string[] } | undefined;
 
+  /** What the last change was, in a person's words, where it said (lift-up USE-4): what Undo
+   * takes back; and what the last undo took back: what Redo makes again. */
+  let lastDone: string | undefined;
+  let lastUndone: string | undefined;
   const view = new EditorView({
     parent: $("#code"),
     state: EditorState.create({
@@ -731,6 +730,7 @@ async function edit(source: Source, opened?: Stage) {
         history(),
         rewrites,
         takes,
+        describes,
         drawSelection(),
         highlightActiveLine(),
         keymap.of([...defaultKeymap, ...historyKeymap, ...findingKeys, indentWithTab]),
@@ -783,6 +783,24 @@ async function edit(source: Source, opened?: Stage) {
           for (const tr of update.transactions) {
             if (!tr.isUserEvent("undo") && !tr.isUserEvent("redo")) continue;
             for (const e of tr.effects) if (e.is(fileTaken)) void filing.taken(e.value.path, e.value.out, tr.isUserEvent("redo"));
+          }
+          // An undo or a redo says what it took back or made again (lift-up USE-4), as the Data and
+          // Files tabs say of theirs: a file taken out or put back is the Files tab's to say.
+          for (const tr of update.transactions) {
+            const words = tr.effects.find((e) => e.is(described))?.value;
+            if (tr.isUserEvent("undo") || tr.isUserEvent("redo")) {
+              if (tr.effects.some((e) => e.is(fileTaken))) continue;
+              const redo = tr.isUserEvent("redo");
+              const what = words ?? "an edit of the source";
+              say(`${redo ? "Made again" : "Undone"}: ${what}`);
+              // Said of the source the undo made: it stays through that source's lint.
+              toldOf = update.state.doc.toString();
+              lastUndone = redo ? undefined : what;
+              lastDone = redo ? what : undefined;
+            } else if (tr.docChanged || words !== undefined) {
+              lastDone = words ?? (tr.isUserEvent("input.type") ? "what was typed" : "an edit of the source");
+              lastUndone = undefined;
+            }
           }
           if (update.selectionSet) follow();
           undoable(update.state);
@@ -940,12 +958,14 @@ async function edit(source: Source, opened?: Stage) {
   /** The words for the state shown (PLAN 2.99): its objects by what they show, the theme's names
    * said. Asked for each time the state shown is inspected. */
   let lexicon: Lexicon | undefined;
-  /** Take `source`, a patch made on the canvas or in the inspector: one change, one step to undo. */
-  const made = (source: string, edited: Edited) => {
+  /** Take `source`, a patch made on the canvas or in the inspector: one change, one step to undo,
+   * which `said`, the change in a person's words, names when it is undone (lift-up USE-4). */
+  const made = (source: string, edited: Edited, said?: string) => {
     taken = { source, edited, showings };
     anchor();
     const changes = change(view.state.doc.toString(), source);
-    view.dispatch({ changes, userEvent: "input.canvas", annotations: isolateHistory.of("full") });
+    const effects = said ? [described.of(describing(said))] : [];
+    view.dispatch({ changes, effects, userEvent: "input.canvas", annotations: isolateHistory.of("full") });
   };
   /** The node selected, its look chosen from the theme in the inspector (PLAN 2.33): each choice a
    * patch, as each gesture on the canvas is. */
@@ -1013,7 +1033,7 @@ async function edit(source: Source, opened?: Stage) {
       view.dispatch(
         joins
           ? { changes, userEvent: "input.type.compose" }
-          : { changes, userEvent: "input.type", annotations: isolateHistory.of("before") },
+          : { changes, effects: [described.of("what was typed")], userEvent: "input.type", annotations: isolateHistory.of("before") },
       );
     },
     // The canvas shows what an undo made at once, not once the editor would lint.
@@ -1202,6 +1222,10 @@ async function edit(source: Source, opened?: Stage) {
    * a slide to show, a fix that is one change to undo, and a question for the assistant. */
   const story = storyPanel(stage, $("#story"), {
     source: () => view.state.doc.toString(),
+    check: (state) => {
+      if (assisting) return say("Nothing asked: the assistant is at work on the deck");
+      void writing.offer({ kind: "claim", state });
+    },
     show: async (state) => {
       const index = last?.states.findIndex(([id]) => id === state) ?? -1;
       const start = last?.states[index]?.[1];
@@ -1244,7 +1268,7 @@ async function edit(source: Source, opened?: Stage) {
           return r;
         }
         // One change, which carries the data files the restore wrote for its undo.
-        const effects = filesWritten.of(done.files);
+        const effects = [filesWritten.of(done.files), described.of(`Version ${version.n} restored`)];
         anchor();
         if (done.source === view.state.doc.toString()) {
           view.dispatch({ effects, annotations: isolateHistory.of("full") });
@@ -1318,13 +1342,13 @@ async function edit(source: Source, opened?: Stage) {
       if (done.source === view.state.doc.toString()) {
         if (!effects.length) return void say(`Theme: ${what}, as it was`);
         anchor();
-        view.dispatch({ effects, annotations: isolateHistory.of("full") });
+        view.dispatch({ effects: [...effects, described.of(`Theme: ${what}`)], annotations: isolateHistory.of("full") });
         wrote(done.edited);
       } else {
         anchor();
         taken = { source: done.source, edited: done.edited, showings };
         const changes = change(view.state.doc.toString(), done.source);
-        view.dispatch({ changes, effects, userEvent: "input.theme", annotations: isolateHistory.of("full") });
+        view.dispatch({ changes, effects: [...effects, described.of(`Theme: ${what}`)], userEvent: "input.theme", annotations: isolateHistory.of("full") });
       }
       const issues = r.added.length || r.removed.length ? ` · ${issuesChanged(r.added.length, r.removed.length)}` : "";
       say(`Theme: ${what}${issues} · ⌘Z undoes it`);
@@ -2103,11 +2127,11 @@ async function edit(source: Source, opened?: Stage) {
       touching = touched?.length ? { source, nodes: touched } : undefined;
       // A theme it edited goes in the source's history with the theme's text before and after,
       // as the Theme tab's edit does (PLAN 2.61): ⌘Z writes the theme back.
-      const effects = files.length ? [filesWritten.of(files)] : [];
+      const effects = [...(files.length ? [filesWritten.of(files)] : []), described.of("the assistant’s edit")];
       // An edit that leaves the source as it is wrote a file beside it: a data file (`data_edit`),
       // or the theme (`theme_edit`).
       if (source === view.state.doc.toString()) {
-        if (effects.length) {
+        if (files.length) {
           anchor();
           view.dispatch({ effects, annotations: isolateHistory.of("full") });
         }
@@ -2517,6 +2541,9 @@ async function edit(source: Source, opened?: Stage) {
       { label: "Export it as a PNG…", where: ["state"], applies: () => now() !== undefined, run: () => openExport("png") },
       // Its notes, drafted from how it reads by the model the assistant uses (PLAN 2.101).
       { label: "Draft its notes", where: ["state"], applies: () => now() !== undefined, run: () => write("notes") },
+      // Whether its words carry its beat's claim, judged by the same model, which offers the
+      // headline rewritten to carry it (narrative FUNC-4).
+      { label: "Check its claim", where: ["state"], applies: () => now() !== undefined, run: () => write("claim") },
       { label: "Show the light table", applies: () => now() !== undefined && !table.open(), run: () => table.toggle(true) },
       { label: "Close the light table", applies: () => table.open(), run: () => table.toggle(false) },
       // Page Down and Page Up on the slide (PLAN 2.126).
@@ -2531,8 +2558,10 @@ async function edit(source: Source, opened?: Stage) {
   function deckCommands(): Command[] {
     const rethemes = [...themePicker.querySelectorAll("option")].filter((o) => o.value && !o.defaultSelected);
     return [
-      { label: "Undo", keys: `${MOD}Z`, group: "Edit", applies: () => undoDepth(view.state) > 0 && !assisting, run: () => undo(view) && forceLinting(view) },
-      { label: "Redo", keys: `${MOD}${SHIFT}Z`, group: "Edit", applies: () => redoDepth(view.state) > 0 && !assisting, run: () => redo(view) && forceLinting(view) },
+      // Each named by the change it takes back or makes again, where the last change said what
+      // it was (lift-up USE-4).
+      { label: lastDone ? `Undo ${lastDone}` : "Undo", keys: `${MOD}Z`, group: "Edit", applies: () => undoDepth(view.state) > 0 && !assisting, run: () => undo(view) && forceLinting(view) },
+      { label: lastUndone ? `Redo ${lastUndone}` : "Redo", keys: `${MOD}${SHIFT}Z`, group: "Edit", applies: () => redoDepth(view.state) > 0 && !assisting, run: () => redo(view) && forceLinting(view) },
       { label: "Find in the deck's texts", keys: `${MOD}F`, group: "Find and replace", run: () => finding?.open() },
       ...rethemes.map(
         (o): Command => ({
@@ -2846,6 +2875,41 @@ async function edit(source: Source, opened?: Stage) {
         tell();
       }
     },
+  };
+
+  /** The player's address, on the slide shown (lift-up FUNC-2): the link's, as `tell` set it where
+   * the deck is kept, and the state shown by its id. */
+  const playingFrom = () => {
+    const url = new URL(play.href);
+    const state = showing()?.state ?? last?.states[shown]?.[0];
+    if (state === undefined) url.searchParams.delete("state");
+    else url.searchParams.set("state", state);
+    return url.href;
+  };
+  // Play opens the player on the slide shown, on the deck as the editor has it: the player plays
+  // the deck as saved, so one with changes not saved is saved first, if the person says so, and
+  // the player's window, opened in the click, goes to it once it is. Declined, the link plays the
+  // deck as last saved. A new deck plays once it is kept: Play keeps it in this browser first, as
+  // its first save does, with nothing asked.
+  play.onclick = (e) => {
+    play.href = playingFrom();
+    const fresh = unkept();
+    if (!fresh && !dirty()) return;
+    if (!fresh && !confirm("The deck has changes not saved, which the player would not play. Save it first?")) return;
+    e.preventDefault();
+    const opened = window.open("about:blank", "_blank");
+    void save().then(
+      (done) => {
+        if (!done) return void opened?.close();
+        if (fresh) say("Kept in this browser to play it");
+        if (opened) opened.location.href = playingFrom();
+        else window.open(playingFrom(), "_blank");
+      },
+      (error: unknown) => {
+        opened?.close();
+        failed(error);
+      },
+    );
   };
 
   // A state picked by its id, not its place among the options: an edit not yet compiled, such as

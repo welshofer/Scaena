@@ -1280,8 +1280,9 @@ fn tree(deck: &Deck, snap: &Snapshot, placement: &Placement) -> Result<HashMap<S
 const SPANS_KEPT: usize = 4096;
 
 /// A hash of what every state of `deck` is drawn from, which a state's snapshot does not say: the
-/// deck but for its nodes, states, overrides, and spine, the theme, and the data.
-fn drawn_from(deck: &Deck, theme: &Theme, data: &DataFiles) -> u64 {
+/// deck but for its nodes, states, overrides, and spine, the theme, and the data. One part of
+/// [`rest_key`], worked out once for a deck.
+pub fn drawn_from(deck: &Deck, theme: &Theme, data: &DataFiles) -> u64 {
     let mut doc = serde_json::to_value(deck).unwrap_or_default();
     if let Some(doc) = doc.as_object_mut() {
         for key in ["nodes", "states", "overrides", "spine", "comment"] {
@@ -1313,6 +1314,27 @@ fn span_key(drawn: u64, deck: &Deck, snapshots: &[Snapshot], i: usize) -> u64 {
             snap.nodes.keys().map(|id| deck.nodes.get(id).map(|n| n.node_type)).collect();
         serde_json::to_vec(&(&snap.layout, &snap.nodes, &over, &types)).unwrap_or_default().hash(&mut h);
     }
+    h.finish()
+}
+
+/// A hash of everything state `i` at rest is drawn from, at `time` seconds on the global timeline
+/// (its shaders' clock), which a client keeps a memo of its drawing by (lift-up PERF-4): what every
+/// state is drawn from (`drawn`, [`drawn_from`]), what the state shows (each node as the states
+/// write it, the deck's overrides over it, and its type, and its layout), and its slide's number
+/// and whether the slide shows it (ADR-0028). Two states that hash alike draw alike; a state
+/// edited, or one whose slide number or start moved, hashes anew.
+pub fn rest_key(drawn: u64, deck: &Deck, snapshots: &[Snapshot], i: usize, time: f64) -> u64 {
+    let mut h = std::hash::DefaultHasher::new();
+    drawn.hash(&mut h);
+    let snap = &snapshots[i];
+    let over: Vec<Option<&Props>> = snap.nodes.keys().map(|id| deck.overrides.get(id)).collect();
+    let types: Vec<Option<NodeType>> = snap.nodes.keys().map(|id| deck.nodes.get(id).map(|n| n.node_type)).collect();
+    serde_json::to_vec(&(&snap.layout, &snap.nodes, &over, &types)).unwrap_or_default().hash(&mut h);
+    match crate::furniture::slide(deck, &snap.state_id) {
+        Some(slide) => (slide.number, slide.of, slide.shows).hash(&mut h),
+        None => 0u8.hash(&mut h),
+    }
+    time.to_bits().hash(&mut h);
     h.finish()
 }
 

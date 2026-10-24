@@ -30,7 +30,7 @@
         "default": null
       },
       "out": {
-        "description": "Where to write it: a file (pdf, video, html, spine), or a directory that gets an\nimage per state (png, svg). Only the spine needs none.",
+        "description": "Where to write it: a file (pdf, video, html, spine), or a directory that gets an\nimage per state (png, svg), under the server's working directory or the bundle's\nfolder. Only the spine needs none.",
         "type": ["string", "null"],
         "default": null
       },

@@ -44,7 +44,7 @@ export interface DataEditor {
   format(): string | undefined;
   source(): string;
   /** Take `source`, the deck after an edit of rows written inline: one change, one step to undo. */
-  apply(source: string, edited: Edited): void;
+  apply(source: string, edited: Edited, said?: string): void;
   /** Take an edit of a data file: the source as it stands, shown and linted as `edited` says, and a
    * change to save. */
   took(edited: Edited): void;
@@ -253,10 +253,11 @@ export function sheets(stage: Stage, into: HTMLElement, editor: DataEditor) {
         } else if (source !== undefined && edited) {
           // Figures that quote the data, set again, are an edit of the deck's source too.
           const quoted = result.quoted ?? [];
-          if (result.file && !quoted.length) editor.took(edited);
-          else editor.apply(source, edited);
           const figures = quoted.map((n) => object(editor.words?.(), n, true)).join(", ");
-          editor.say(quoted.length ? `${done}; what ${figures} quotes set again` : done);
+          const told = quoted.length ? `${done}; what ${figures} quotes set again` : done;
+          if (result.file && !quoted.length) editor.took(edited);
+          else editor.apply(source, edited, told);
+          editor.say(told);
         } else {
           // Nothing written: the data says so already, as when a cell set is committed again
           // across a redraw. It is set, and the status says so rather than "Changing the data…".
