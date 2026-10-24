@@ -163,7 +163,7 @@ cd target/site && python3 serve.py      # then open http://localhost:8080/editor
 
 | | |
 |---|---|
-| **New…** | a new deck: a title and a theme (Dusk, Daybreak, Ember, or Salon), with its fonts, on a title slide whose words you type over. It is kept nowhere until you save it. |
+| **New…** | a new deck: a title and a theme (Dusk, Daybreak, Ember, or Salon), with its fonts, on a title slide whose words you type over. It is kept nowhere until you save it, and says "Not saved yet" under the slide: leaving the page, or opening another deck, asks first. |
 | **Open folder…** (Chrome, Edge) | a bundle folder on your disk. **Save** writes back into it. Use this to keep your work as files. |
 | **Open .scaena…** | a `.scaena` file, copied into the browser's storage. |
 | **Kept in this browser…** | the bundles this browser keeps. A deck opened from the site's own folder saves here, under its name. Each is opened by its name, renamed with **Rename…**, or deleted with **Delete…**, which asks first; the deck open is renamed where it is and saves there from then on, and is not deleted. |

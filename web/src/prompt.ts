@@ -76,7 +76,7 @@ type Given = { file: File } | { link: string };
 export function prompting(
   engine: Engine,
   opener: HTMLElement,
-  dirty: () => boolean,
+  unsaved: () => boolean,
   open: (source: Source) => Promise<void>,
   tell: (line: string) => void,
 ) {
@@ -267,7 +267,7 @@ export function prompting(
     if (running || !worker) return;
     await whoWrites();
     if (!asking?.key || !asking.model) return;
-    if (dirty() && !confirm("The bundle has changes not saved. Make a new deck, and lose them when it opens?")) return;
+    if (unsaved() && !confirm("The deck open is not saved. Make a new deck, and lose what is not saved when it opens?")) return;
     const job: Generate = {
       brief: {
         topic: topic.value.trim(),
