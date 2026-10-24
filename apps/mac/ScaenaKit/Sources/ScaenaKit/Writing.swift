@@ -115,19 +115,47 @@ public struct Declined: LocalizedError, Sendable, Equatable {
 }
 
 /// Who answers a writing tool where the model on the device is asked first (lift-up STAB-4): its
-/// answer, or, where it declines (`Declined`) and the user keeps a key, the user's own model's,
-/// with why it was asked. Without a key the decline is thrown; any other failure is thrown as it
-/// came.
+/// answer, or, where it declines (`Declined`), the decline, with the user's own model to ask where
+/// a key is kept. Nothing is asked of that model here: the words leave the device only when the
+/// person agrees (`Elsewhere.agreed`). Any other failure is thrown as it came.
 public enum Answering {
+    public enum Outcome: Sendable {
+        case answered(String)
+        /// The device declined; `elsewhere` is the user's own model, none where no key is kept.
+        case declined(Declined, elsewhere: Elsewhere?)
+    }
+
+    /// The user's own model, which a decline offers to ask with their key.
+    public struct Elsewhere: Sendable {
+        public let model: String
+        /// The provider, by its name.
+        public let provider: String
+        let ask: @Sendable () async throws -> String
+
+        public init(model: String, provider: String, ask: @escaping @Sendable () async throws -> String) {
+            self.model = model
+            self.provider = provider
+            self.ask = ask
+        }
+
+        /// The button that asks it, in a person's words (PLAN 3.18).
+        public var offered: String { "Ask \(model) with your \(provider) key" }
+
+        /// Where its answer came from, as the sheet notes it.
+        public var whence: String { "Written by \(model), with your \(provider) key, as you asked." }
+
+        /// Its answer, asked once the person has agreed to send the words off the device.
+        public func agreed() async throws -> String { try await ask() }
+    }
+
     public static func answer(
         _ onDevice: @Sendable () async throws -> String,
-        else byKey: (@Sendable () async throws -> String)?
-    ) async throws -> (text: String, declined: Declined?) {
+        else elsewhere: Elsewhere?
+    ) async throws -> Outcome {
         do {
-            return (try await onDevice(), nil)
+            return .answered(try await onDevice())
         } catch let declined as Declined {
-            guard let byKey else { throw declined }
-            return (try await byKey(), declined)
+            return .declined(declined, elsewhere: elsewhere)
         }
     }
 }

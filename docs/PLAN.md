@@ -1651,7 +1651,7 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
       - the inspector tightens a text's words.
 
       Each answer is offered to take as one patch (a `set_state` of `notes`, a `replace_text` of the whole text), or to leave. Nothing leaves the Mac; without the model, none is offered.
-      - *What the on-device model declines that the user's own model may take (more than its context holds, its guardrails, a language it does not write, or its model not on the device yet) goes to the assistant's model where a key is kept, and the sheet says why and who wrote it ("Apple Intelligence declined this, so … wrote it instead, with your Anthropic key."); with no key it is said as before (lift-up STAB-4, ScaenaKit's `Answering`, `aWritingToolTheDeviceDeclinesIsAnsweredByTheUsersModel`).*
+      - *What the on-device model declines that the user's own model may take (more than its context holds, its guardrails, a language it does not write, or its model not on the device yet) leaves the Mac only when the person asks: the sheet says why ("Apple Intelligence declined this. Nothing has left this Mac.") and, where a key is kept, offers "Ask … with your Anthropic key" beside Cancel, the assistant's model sent nothing until it is pressed; with no key it is said as before (lift-up STAB-4, ScaenaKit's `Answering`, `aWritingToolTheDeviceDeclinesAsksTheUsersModelOnlyOnceAgreed`).*
     - Tests:
       - scaena-chat's `exchanges`: the three adapters' requests and reads, models, and failures, and the page's prompt, against the record; a question run through two rounds; frames named past the newest two.
       - scaena-chat's unit tests: every MCP tool known; a summary for each kind of call.
