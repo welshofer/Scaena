@@ -23,6 +23,15 @@ request on:
   than the base by more than the floor in every turn: one slow run on either side can sway a
   turn, not three.
 
+A **cold** bench (`render_cold/`, `mcp_render/`: a process started, then one render) is judged
+with its group. Starting a process is the same for every deck, so a change that slows it slows
+each deck's cold render alike, and a slowdown in one deck's own work shows in the warm benches
+too. One deck's cold time strays far more than the run's noise: #626's B1 ran +12%, then +26%,
++86%, and +80% timed again, while its other decks ran −15% to +1%. So a cold group is slower
+when the median of its decks' changes is past the floor, and is timed again whole, every deck
+in each turn, and regresses when that median is past the floor in every turn. A cold deck that
+takes longer than its SPEC §15 budget fails alone, every time it was timed.
+
 Each runner keeps a history of what the benches measured on `main`, run by run. The report
 shows it beside each bench for context; it does not judge. `probe/` benches time the
 machine, not Scaena: they are shown, never judged.
@@ -67,6 +76,8 @@ BUDGETS = [
 ]
 DECKS = ["b1", "b2", "b3", "b4"]
 PROBE = "probe/"
+# The groups that start a process for each render, judged as a group (see above).
+COLD = ("render_cold", "mcp_render")
 # The fewest benches beside a base that measure a run's noise; with fewer, the floor is
 # `--floor` alone.
 NOISE_BENCHES = 10
@@ -143,6 +154,34 @@ def noise(run: dict, base: dict):
     return 1.4826 * statistics.median(abs(x - middle) for x in logs), len(logs)
 
 
+def cold(bench: str):
+    """The cold group a bench is in, or `None`."""
+    group = bench.split("/", 1)[0]
+    return group if group in COLD else None
+
+
+def group_change(run: dict, base: dict, group: str):
+    """How much slower a cold group ran than its base: the median of its decks' changes, of
+    those both ran. `None` where they share none."""
+    changes = [
+        ns(run, b) / ns(base, b) - 1 for b in run["benches"] if cold(b) == group and ns(base, b) and ns(run, b)
+    ]
+    return statistics.median(changes) if changes else None
+
+
+def budget_ns(bench: str, now: dict):
+    """The SPEC §15 budget of a cold bench in ns, and the time it is held to (per iteration or
+    per element), or `None` where SPEC names none."""
+    group, _, deck = bench.partition("/")
+    if group not in COLD:
+        return None
+    for name, _, per, budgets in BUDGETS:
+        if name == group and isinstance(budgets, dict) and deck in budgets:
+            n = now["ns"] / (now.get("elements") or 1) if per == "element" else now["ns"]
+            return budgets[deck] * 1e6, n
+    return None
+
+
 def floor(run: dict, base: dict, opts) -> float:
     """The smallest slowdown that counts in this run: `--floor`, or `--sigmas` times the
     run's noise if that is more."""
@@ -161,6 +200,16 @@ class Judged:
         # Each turn of timing again, the pull request beside its base.
         pairs = [(ns(a, bench), ns(b, bench)) for a, b in turns]
         self.turns = [a / b - 1 for a, b in pairs if a and b]
+        # A cold bench: its group's median change, in this run and in each turn it was timed.
+        self.group = cold(bench)
+        if self.group:
+            self.group_change = group_change(run, base, self.group)
+            self.group_turns = [c for c in (group_change(a, b, self.group) for a, b in turns) if c is not None]
+        # A cold bench's SPEC §15 budget: over it every time it was timed fails alone.
+        budget = budget_ns(bench, self.now)
+        self.budget = budget and budget[0]
+        times = [budget[1]] + [ns(a, bench) / (self.now.get("elements") or 1) for a, _ in turns if ns(a, bench)] if budget else []
+        self.over = bool(budget) and all(t > budget[0] for t in times)
         # Main's runs, on the same machine model when there are enough of those.
         same = [p for p in past if p.get("machine") == run.get("machine")]
         past = same if len(same) >= opts.min_runs else past
@@ -176,19 +225,32 @@ class Judged:
 
     @property
     def slower(self) -> bool:
-        """Slower than its base by more than the floor, each time they were timed together."""
-        return self.judged and self.change > self.floor and all(t > self.floor for t in self.turns)
+        """Slower than its base by more than the floor, each time they were timed together; a cold
+        bench, when its group is."""
+        if not self.judged:
+            return False
+        if self.group:
+            past = self.group_change is not None and self.group_change > self.floor
+            return past and all(t > self.floor for t in self.group_turns)
+        return self.change > self.floor and all(t > self.floor for t in self.turns)
+
+    @property
+    def fails(self) -> bool:
+        """Whether it fails the gate: slower than its base, or a cold bench over its budget."""
+        return self.slower or (self.over and not self.probe)
 
     @property
     def verdict(self) -> str:
         if self.probe:
             return "the machine, not judged"
+        if self.over:
+            return "**over its budget**"
         if self.change is None:
             return "recorded" if self.main is not None else "new"
         if self.slower:
-            return "**slower**"
+            return "**slower** (its group)" if self.group else "**slower**"
         if self.change > self.floor:
-            return "ok: not slower again"
+            return "ok: its group is not slower" if self.group else "ok: not slower again"
         return "faster" if self.change < -self.floor else "ok"
 
     @property
@@ -197,6 +259,8 @@ class Judged:
         return " · ".join(pct(t) for t in self.turns) or "—"
 
     def error(self) -> str:
+        if self.over:
+            return f"{self.bench}: {fmt_ns(self.now['ns'])}, over SPEC §15's {fmt_ns(self.budget)} every time it was timed"
         again = f", and {self.again} timed again" if self.turns else ""
         return (
             f"{self.bench}: {fmt_ns(self.now['ns'])} against its base's {fmt_ns(self.base)} on the same machine, "
@@ -222,10 +286,17 @@ def suspects(args) -> None:
     """The benches slower than their base by more than the run's floor, to time again."""
     run, base = load(args.run), load(args.base)
     at = floor(run, base, args)
-    slower = [
-        b for b in sorted(run["benches"])
-        if not b.startswith(PROBE) and ns(base, b) and ns(run, b) / ns(base, b) - 1 > at
-    ]
+
+    def suspect(b: str) -> bool:
+        if b.startswith(PROBE) or not ns(base, b):
+            return False
+        if cold(b):
+            # A cold group is timed again whole, when its median is past the floor.
+            change = group_change(run, base, cold(b))
+            return change is not None and change > at
+        return ns(run, b) / ns(base, b) - 1 > at
+
+    slower = [b for b in sorted(run["benches"]) if suspect(b)]
     Path(args.out).write_text("".join(f"{b}\n" for b in slower))
     print(f"floor {at:.0%}: {len(slower)} benches to time again" + (f": {', '.join(slower)}" if slower else ""))
 
@@ -257,7 +328,7 @@ def budget_rows(run: dict) -> list[str]:
 
 def check(args) -> int:
     run, judged, at = judge(args)
-    slower = [j for j in judged if j.slower]
+    slower = [j for j in judged if j.fails]
     lines = [f"### Benchmarks on {run.get('runner') or 'this runner'}", ""]
     about = [run.get("machine"), run.get("sha") and f"commit `{run['sha'][:12]}`"]
     if any(about):
@@ -273,7 +344,10 @@ def check(args) -> int:
     if not count:
         verdict = "Recorded, not judged: only a pull request is timed beside a base"
     elif slower:
-        verdict = f"**{len(slower)} of {count} benches regressed**: slower than the base by more than {floor_}, every time"
+        verdict = (
+            f"**{len(slower)} of {count} benches regressed**: slower than the base by more than {floor_}, every time, "
+            "or a cold bench over its SPEC §15 budget"
+        )
         if args.accept:
             verdict += "; the pull request accepts it (`bench-accept`)"
     else:

@@ -99,7 +99,9 @@ private func anthropic(_ text: String) -> Data {
     let kept = try session.bundleFiles().map(\.path).filter { $0.hasPrefix("assets/picture-") }
     #expect(kept.count == pictures)
     #expect(kept.allSatisfy { $0.hasSuffix(".jpg") })
-    #expect(heard.first == .choosing)
+    // What the file gave is said before the arc is asked for (narrative USE-5).
+    #expect(heard.first == .grounded(name: "notes.md", kind: "markdown", kilobytes: 1, cut: false))
+    #expect(heard.dropFirst().first == .choosing)
     #expect(heard.contains(.painting(pictures: pictures, model: "gpt-image-1")))
     #expect(heard.contains(.painted(pictures: pictures, unmade: [])))
     #expect(heard.contains(.making))
@@ -220,7 +222,8 @@ private func anthropic(_ text: String) -> Data {
     #expect(!(direct2[1].body ?? "").contains("**Outline (Scaena)**"))
 }
 
-/// A provider that refuses says why, in its words, and no deck is made.
+/// A provider that refuses says why in a person's words, as the pictures do (lift-up USE-3), its
+/// own words left to the log, and no deck is made.
 @MainActor
 @Test func aProvidersRefusalIsSaidInItsWords() async throws {
     let generator = Generator { _ in
@@ -232,7 +235,7 @@ private func anthropic(_ text: String) -> Data {
             brief: Brief(topic: "Anything"), provider: .anthropic, model: "a-model", key: "sk-wrong", theme: "dusk"
         ) { _ in }
     }
-    #expect(refused?.message.contains("invalid x-api-key") == true, "\(String(describing: refused))")
+    #expect(refused?.message == "Anthropic didn't accept your key. Check it, or replace it.", "\(String(describing: refused))")
 }
 
 /// A pictures key whose image models cannot be listed loses the pictures, not the deck
