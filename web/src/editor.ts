@@ -87,6 +87,7 @@ import type {
   Lexicon,
   Linted,
   Painter,
+  ProviderId,
   Rewritten,
   SaveTo,
   Seeing,
@@ -221,6 +222,7 @@ let current:
       say: (text: string) => void;
       /** The deck's story read: its score (narrative USE-2). */
       story: () => Promise<number>;
+      models: (provider: ProviderId, key: string, base?: string) => Promise<string[]>;
       kept: () => string | undefined;
       rekeep: (from: string, to?: string) => Promise<void>;
       typeTitle: () => Promise<boolean>;
@@ -443,6 +445,7 @@ async function controls() {
       }
     },
     (line) => current?.say(line),
+    (provider, key, base) => (current ? current.models(provider, key, base) : Promise.reject(new Error("no deck is open"))),
   );
 }
 
@@ -2936,6 +2939,7 @@ async function edit(source: Source, opened?: Stage) {
     dirty,
     say,
     story: async () => (await stage.health(view.state.doc.toString())).score,
+    models: (provider, key, base) => stage.models(provider, key, base),
     kept: () => (where?.kind === "opfs" ? where.name : undefined),
     // New's deck opens typing in its title, its words selected (PLAN 3.21): whether it does.
     typeTitle: async () => {

@@ -55,7 +55,8 @@ public final class Assistant {
 
     private let send: Send
     @ObservationIgnored private var chat: ScaenaChat?
-    @ObservationIgnored private var asking: Task<Void, Never>?
+    /// The question being answered: what a test awaits.
+    @ObservationIgnored private(set) var asking: Task<Void, Never>?
     @ObservationIgnored private var counted = 0
 
     public init(editor: DeckEditor, send: @escaping Send = Assistant.urlSession) {
