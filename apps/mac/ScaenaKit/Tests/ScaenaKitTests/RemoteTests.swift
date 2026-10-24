@@ -164,6 +164,50 @@ private func tried(_ endpoint: NWEndpoint, _ parameters: NWParameters, _ seconds
     server.stop()
 }
 
+/// A join leaves the wrong codes counted (lift-up SEC-5): they are counted since the code was made,
+/// so four wrong, then a join, then one more makes the code anew. A join bought no more tries.
+@MainActor @Test func aJoinLeavesTheWrongCodesCounted() async throws {
+    let (server, heard) = try await presenter("4821", cooldown: 1.5)
+    let port = try #require(server.port)
+    for wrong in ["0000", "1111", "2222", "3333"] {
+        let stranger = RemoteClient(here(port), code: wrong, seconds: 5)
+        #expect(await waited { lost(stranger) != nil }, "\(wrong) is never joined")
+    }
+    #expect(await waited { heard.tried == 4 }, "four wrong codes are counted: \(heard.tried)")
+    let remote = RemoteClient(here(port), code: "4821")
+    #expect(await waited { remote.status == .joined }, "the code joins: \(remote.status)")
+    #expect(heard.recoded.isEmpty && server.code == "4821")
+    let fifth = RemoteClient(here(port), code: "4444", seconds: 5)
+    #expect(await waited { lost(fifth) != nil }, "the fifth is never joined")
+    #expect(await waited { heard.recoded.count == 1 }, "the fifth wrong code, after the join, makes the code anew")
+    #expect(server.code != "4821")
+    remote.leave()
+    server.stop()
+}
+
+/// Before it pairs, a presenter holds no frame of more than `Remote.small` (lift-up SEC-5): one
+/// that says it is longer is let go unread, and is no try at the code.
+@MainActor @Test func aFrameTooLongToPairIsLetGo() async throws {
+    let (server, heard) = try await presenter("4821")
+    let port = try #require(server.port)
+    let seen = Seen()
+    let connection = NWConnection(to: here(port), using: .tcp)
+    connection.stateUpdateHandler = { state in
+        MainActor.assumeIsolated { seen.states.append("\(state)") }
+    }
+    connection.start(queue: .main)
+    #expect(await waited { seen.states.last == "ready" }, "TCP connects: \(seen.states)")
+    connection.send(frame: Data(repeating: 0x20, count: Remote.small + 1))
+    let closed = Seen()
+    connection.receiveFrame(largest: Remote.small) { body in
+        MainActor.assumeIsolated { closed.states.append(body == nil ? "closed" : "answered") }
+    }
+    #expect(await waited { closed.states == ["closed"] }, "it is let go: \(closed.states)")
+    #expect(heard.tried == 0 && heard.recoded.isEmpty && server.code == "4821", "and is no try at the code")
+    connection.cancel()
+    server.stop()
+}
+
 /// A proof that comes after the code was made anew, its keys made under the old code, is no try
 /// and never pairs (lift-up SEC-5): the pairings let go at the fifth wrong code take their keys
 /// with them at once, so the guesses at one code stay five, not one for each pairing open. The
@@ -173,7 +217,7 @@ private func tried(_ endpoint: NWEndpoint, _ parameters: NWParameters, _ seconds
     let heard = Heard()
     server.recoded = { heard.recoded.append($0) }
     server.tried = { heard.tried = $0 }
-    var ids: [ObjectIdentifier] = []
+    var ids: [Int] = []
     var proofs: [Data] = []
     for code in ["0000", "1111", "2222", "3333", "4444", "4821"] {
         let remote = try Pairing(side: .remote, code: code)
@@ -206,7 +250,7 @@ private func tried(_ endpoint: NWEndpoint, _ parameters: NWParameters, _ seconds
     // A frame that is no hello.
     connection.send(frame: Data("{\"hello\": \"world\"}".utf8))
     let closed = Seen()
-    connection.receiveFrame { body in
+    connection.receiveFrame(largest: Remote.small) { body in
         MainActor.assumeIsolated { closed.states.append(body == nil ? "closed" : "answered") }
     }
     #expect(await waited { closed.states == ["closed"] }, "it is let go: \(closed.states)")

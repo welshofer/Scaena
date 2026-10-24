@@ -7,16 +7,22 @@ import ScaenaNotes
 /// or an iPad presents, over the local network, and shows its notes and what comes next. The
 /// presenter offers the deck by Bonjour under its device's name; a remote joins it with the code the
 /// presenter's editor shows, by which both ends pair (`Pairing`, lift-up SEC-5): a key exchange the
-/// code authenticates, from which a recorded join tells nothing of the code, and a wrong code is one
-/// try, online, of the few the presenter allows before it makes the code anew. Every message after
+/// code authenticates, from which a recorded join tells one bit of the code (`Pairing`), and a
+/// wrong code is one try, online, of the few the presenter allows before it makes the code anew. Every message after
 /// is sealed under the keys the pairing made (`Sealed`), so no one on the network reads what passes.
 /// Each message is JSON, its length before it. This module holds no engine: a remote draws what the
 /// presenter sends it.
 public enum Remote {
     /// The Bonjour service a presenter offers its deck under.
     public static let service = "_scaena-remote._tcp"
-    /// The most a message may hold: a place, its two pictures at a remote's size, and its notes.
+    /// The most a message may hold: a place, its two pictures at a remote's size, and its notes,
+    /// which only a remote reads, from a presenter it has paired with.
     static let largest = 16 << 20
+    /// The most a presenter reads in a message: a hello is some 90 bytes, a proof some 55, and a
+    /// sealed command some 45, so no one in range makes it hold more before pairing.
+    static let small = 1 << 10
+    /// How many hellos a presenter works out a second: the rest are let go unanswered.
+    static let hellos = 10
     /// The pairing's version, which each hello says: ends of other versions do not pair.
     static let version = 2
     /// How many wrong codes a presenter takes before it makes its code anew.
@@ -56,7 +62,10 @@ public enum Remote {
 /// exchange, SPEKE on Curve25519. The code is hashed to a point of the curve; each end raises it to
 /// a secret of its own and sends the result, a point that is random whatever the code, and raises
 /// the other's to its secret: the same key at both ends, never sent. So a join recorded on the
-/// network tells nothing of the code, however many are tried against it offline. Each end then
+/// network tests no code offline, however many are tried against it. It tells one bit: SHA-256 read
+/// as a u-coordinate lands on the curve for some codes and on its twist for the rest, and X25519
+/// keeps a twist's point on the twist, so a hello says which half the code is in, until the code is
+/// mapped onto the curve itself. Each end then
 /// proves it holds the key, and so the code, by a tag the other checks: a wrong code is one try,
 /// online, which the presenter counts. The channel's keys, one each way, come from the key and both
 /// ends' nonces.
@@ -81,7 +90,7 @@ struct Pairing {
 
     /// Why a hello or a proof is refused.
     enum Trouble: Error {
-        /// Another version, no point of the curve, or a point of low order.
+        /// Another version, a key or a nonce of another length, or a point of low order.
         case hello
         /// A message that was not sealed under the channel's key, or not the next one.
         case sealed
@@ -95,10 +104,11 @@ struct Pairing {
         /// Both hellos, the remote's first.
         private let transcript: Data
 
-        fileprivate init(bytes: Data, transcript: Data) {
-            remoteToPresenter = SymmetricKey(data: bytes.prefix(32))
-            presenterToRemote = SymmetricKey(data: bytes.dropFirst(32).prefix(32))
-            proof = SymmetricKey(data: bytes.dropFirst(64).prefix(32))
+        /// The three keys from `bytes`, read where they lie, never copied into bytes of their own.
+        fileprivate init(bytes: UnsafeRawBufferPointer, transcript: Data) {
+            remoteToPresenter = SymmetricKey(data: UnsafeRawBufferPointer(rebasing: bytes[0..<32]))
+            presenterToRemote = SymmetricKey(data: UnsafeRawBufferPointer(rebasing: bytes[32..<64]))
+            proof = SymmetricKey(data: UnsafeRawBufferPointer(rebasing: bytes[64..<96]))
             self.transcript = transcript
         }
 
@@ -127,8 +137,8 @@ struct Pairing {
         hello = Hello(version: Remote.version, key: raised, nonce: Self.nonce())
     }
 
-    /// The keys, from the other end's `hello`; `Trouble.hello` where it is of another version, no
-    /// point of the curve, or one of low order, whose key anyone could make.
+    /// The keys, from the other end's `hello`; `Trouble.hello` where it is of another version, of
+    /// another length, or a point of low order, whose key anyone could make.
     func keys(from peer: Hello) throws -> Keys {
         guard peer.version == Remote.version, peer.key.count == 32, peer.nonce.count == 16 else { throw Trouble.hello }
         let theirs = try Curve25519.KeyAgreement.PublicKey(rawRepresentation: peer.key)
@@ -139,7 +149,7 @@ struct Pairing {
         let derived = shared.hkdfDerivedSymmetricKey(
             using: SHA256.self, salt: remote.nonce + presenter.nonce,
             sharedInfo: Data("Scaena Remote keys \(Remote.version)".utf8) + transcript, outputByteCount: 96)
-        return Keys(bytes: derived.withUnsafeBytes { Data($0) }, transcript: transcript)
+        return derived.withUnsafeBytes { Keys(bytes: $0, transcript: transcript) }
     }
 
     /// The code hashed to a point of the curve, as its u-coordinate: the base both ends raise.
@@ -311,13 +321,13 @@ extension NWConnection {
         header.prefix(4).reduce(0) { $0 << 8 | Int($1) }
     }
 
-    /// The next frame's body, on the main queue; nil where none can come, and the frame is not
-    /// taken up again after.
-    func receiveFrame(_ take: @escaping (Data?) -> Void) {
+    /// The next frame's body, on the main queue; nil where none can come or it says it is longer
+    /// than `largest`, and the frame is not taken up again after.
+    func receiveFrame(largest: Int, _ take: @escaping (Data?) -> Void) {
         receive(minimumIncompleteLength: 4, maximumLength: 4) { [weak self] header, _, _, error in
             guard let self, let header, header.count == 4, error == nil else { return take(nil) }
             let length = Self.length(header)
-            guard length > 0, length <= Remote.largest else { return take(nil) }
+            guard length > 0, length <= largest else { return take(nil) }
             self.receive(minimumIncompleteLength: length, maximumLength: length) { body, _, _, error in
                 guard let body, body.count == length, error == nil else { return take(nil) }
                 take(body)
