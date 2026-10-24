@@ -3762,7 +3762,7 @@ fn chart_node(
     // Every value with the decimals of the most precise of them, two at most: 2.0 beside 1.1.
     let decimals = decimals(chart);
     let titled = |name: &str| match chart.unit.as_deref() {
-        Some(unit) if !name.contains(unit) => format!("{name} ({unit})"),
+        Some(unit) if !name.to_lowercase().contains(&unit.to_lowercase()) => format!("{name} ({unit})"),
         _ => name.to_string(),
     };
     let y_title = match (on_axis(subtitle), chart.series.first().and_then(|s| s.name.as_deref())) {
@@ -3817,6 +3817,7 @@ fn chart_node(
     if kind == "line" && !several {
         let mut notes = vec![json!({ "kind": "highlight", "at": {} })];
         notes.extend(period(chart, [Some(title), takeaway]));
+        notes.extend(named_figure(chart, None, [Some(title), takeaway]));
         node["annotations"] = json!(notes);
     }
     // Lines of several series light the one the headline, else the takeaway, names: "SMB churn
@@ -3827,9 +3828,59 @@ fn chart_node(
     {
         let mut notes = vec![json!({ "kind": "highlight", "at": { "series": named } })];
         notes.extend(period(chart, [Some(title), takeaway]));
+        notes.extend(named_figure(chart, Some(&named), [Some(title), takeaway]));
         node["annotations"] = json!(notes);
     }
     node
+}
+
+/// A callout on the point of a line whose figure the first of `said` that names one of its values
+/// names, where its ends' labels do not already say it: "Outage hours fell from 286 to 2 in three
+/// years" labels the 286 its line peaks at (dogfood pass 4). `series` is the line of several lit.
+fn named_figure(chart: &ChartData, series: Option<&str>, said: [Option<&str>; 2]) -> Option<Value> {
+    let line = match series {
+        Some(name) => chart.series.iter().find(|s| s.name.as_deref() == Some(name))?,
+        None => chart.series.first()?,
+    };
+    let places = decimals(chart);
+    let near = 0.5 * 10f64.powi(-(places as i32));
+    let last = line.values.len().checked_sub(1)?;
+    said.into_iter().flatten().find_map(|text| {
+        figures(text).into_iter().filter(|n| !chart.categories.iter().any(|c| c.parse() == Ok(*n))).find_map(|n| {
+            let at = line.values.iter().position(|v| (v - n).abs() < near).filter(|&i| i != 0 && i != last)?;
+            let mut place = json!({ "x": chart.categories.get(at)? });
+            if let Some(name) = series {
+                place["series"] = json!(name);
+            }
+            Some(json!({ "kind": "callout", "at": place, "text": grouped(line.values[at], places) }))
+        })
+    })
+}
+
+/// The figures `text` writes, as numbers: "$1,140" is 1140, "4.9%" is 4.9.
+fn figures(text: &str) -> Vec<f64> {
+    text.split(|c: char| !(c.is_ascii_digit() || c == '.' || c == ','))
+        .map(|w| w.trim_matches(['.', ',']).replace(',', ""))
+        .filter(|w| !w.is_empty())
+        .filter_map(|w| w.parse().ok())
+        .collect()
+}
+
+/// `value` with `places` decimals and its thousands grouped, as the chart's own labels write it.
+fn grouped(value: f64, places: usize) -> String {
+    let written = format!("{:.places$}", value.abs());
+    let (whole, part) = written.split_once('.').map_or((written.as_str(), None), |(w, p)| (w, Some(p)));
+    let mut out = String::new();
+    for (i, c) in whole.chars().enumerate() {
+        if i > 0 && (whole.len() - i) % 3 == 0 {
+            out.push(',');
+        }
+        out.push(c);
+    }
+    if let Some(part) = part {
+        out = format!("{out}.{part}");
+    }
+    if value < 0.0 { format!("\u{2212}{out}") } else { out }
 }
 
 /// The subtitle that titles a chart's value axis, as a designer titles a chart over its plot:
@@ -4878,6 +4929,37 @@ mod tests {
             .collect();
         assert_eq!(beats[3]["media"]["narrato"]["subtitle"], "Share of tickets by topic, 1,140 teams");
         assert!(beats[0]["media"]["narrato"].get("subtitle").is_none(), "the cover has none");
+    }
+
+    /// A line labels the figure its headline names where its ends do not (dogfood pass 4), and an
+    /// axis titled by a subtitle that names the unit takes it no second time.
+    #[test]
+    fn a_line_labels_the_figure_its_headline_names() {
+        let chart: ChartData = serde_json::from_value(json!({
+            "categories": ["2021", "2022", "2023", "2024"],
+            "series": [{ "name": "Outage hours", "values": [24, 286, 40, 2] }],
+            "unit": "hours",
+        }))
+        .unwrap();
+        let said = |title: &str| named_figure(&chart, None, [Some(title), None]);
+        assert_eq!(
+            said("Outage hours fell from 286 to 2 in three years"),
+            Some(json!({ "kind": "callout", "at": { "x": "2022" }, "text": "286" }))
+        );
+        assert_eq!(said("Outage hours fell to 2 by 2024"), None, "an end is labelled already, a year is no figure");
+        assert_eq!(figures("$1,140 and 4.9%, in 2024."), [1140.0, 4.9, 2024.0]);
+        assert_eq!((grouped(1140.0, 0), grouped(-2.5, 1)), ("1,140".to_string(), "\u{2212}2.5".to_string()));
+        let node = chart_node(
+            &chart,
+            "d",
+            "line-chart",
+            ["Outage hours fell from 286 to 2", ""],
+            Some("Hours without power per year, Port Alder"),
+            "en",
+            json!({}),
+        );
+        assert_eq!(node["y"]["title"], "Hours without power per year, Port Alder");
+        assert_eq!(node["annotations"][1]["text"], "286", "{node:#}");
     }
 
     /// A series is named as a whole word: "US" is not in "business", nor "EU" in "neutral".
