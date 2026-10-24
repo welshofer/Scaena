@@ -1466,7 +1466,7 @@ fn files(bundle: &Path, remove: Option<&[String]>, dry_run: bool, json: bool) ->
         }
         return Ok(code);
     }
-    let listed = scaena_ops::files::Listed { files: scaena_ops::files::files(&b)? };
+    let listed = scaena_ops::files::listed(&b)?;
     if json {
         println!("{}", serde_json::to_string_pretty(&listed)?);
         return Ok(ExitCode::SUCCESS);
@@ -1490,6 +1490,21 @@ fn files(bundle: &Path, remove: Option<&[String]>, dry_run: bool, json: bool) ->
             println!("    named by {}", names.join(", "));
             for used in &f.used {
                 println!("    {} in {}", used.node, used.states.join(", "));
+            }
+        }
+    }
+    // What a deck made from a prompt was grounded in, which is no file of the bundle (FUNC-3).
+    if !listed.sources.is_empty() {
+        println!("grounded in");
+        for s in &listed.sources {
+            let cut = if s.truncated { ", cut short to fit" } else { "" };
+            println!("  {}  {}, {}{cut}", s.name, s.kind, size(s.bytes));
+            if let Some(url) = s.url.as_deref().filter(|u| *u != s.name) {
+                println!("    at {url}");
+            }
+            match s.cited.as_slice() {
+                [] => println!("    no beat cites it"),
+                beats => println!("    cited by {}", beats.join(", ")),
             }
         }
     }
