@@ -103,7 +103,8 @@ pub fn candidates(
         let reach = if current { Vec::new() } else { changed(deck, &made, theme.furniture.as_ref())? };
         let (empty, recast) = fit(&made, theme, state, layout)?;
         let (errors, warnings, alike) = (0, 0, Vec::new());
-        let suggestion = Suggestion { layout: layout.clone(), current, errors, warnings, empty, recast, alike, reach, patch };
+        let suggestion =
+            Suggestion { layout: layout.clone(), current, errors, warnings, empty, recast, alike, reach, patch };
         found.push(Candidate { suggestion, deck: made });
     }
     Ok(found)
@@ -122,7 +123,9 @@ fn fit(deck: &Deck, theme: &Theme, state: &str, layout: &str) -> Result<(usize, 
     let Some(slots) = theme.layouts.get(layout).map(|l| &l.slots) else { return Ok((0, 0)) };
     let snapshots = scaena_core::resolve_states(deck).context("tracking")?;
     let Some(snapshot) = snapshots.iter().find(|s| s.state_id == state) else { return Ok((0, 0)) };
-    let slot_of = |props: &scaena_core::document::Props| props.get("at").and_then(|at| at.get("in")).and_then(Value::as_str).map(str::to_owned);
+    let slot_of = |props: &scaena_core::document::Props| {
+        props.get("at").and_then(|at| at.get("in")).and_then(Value::as_str).map(str::to_owned)
+    };
     let placed: Vec<_> = snapshot.nodes.values().filter_map(|props| Some((slot_of(props)?, props))).collect();
     let empty = slots.iter().filter(|(name, slot)| place(slot) && !placed.iter().any(|(at, _)| at == *name)).count();
     let recast = placed

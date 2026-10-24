@@ -21,7 +21,17 @@ fn a_state_is_offered_each_layout_that_draws_it_otherwise_judged_by_lint_best_fi
     let names: Vec<&str> = suggested.iter().map(|s| s.layout.as_str()).collect();
     assert_eq!(
         names,
-        ["figure", "map", "bar-chart", "line-chart", "positioning-map", "venn", "panorama", "metric-trend", "narrow-figure"],
+        [
+            "figure",
+            "map",
+            "bar-chart",
+            "line-chart",
+            "positioning-map",
+            "venn",
+            "panorama",
+            "metric-trend",
+            "narrow-figure"
+        ],
         "{suggested:#?}"
     );
     // The layout it takes now first, with nothing to patch, and those it draws alike beside it.
@@ -169,11 +179,16 @@ fn a_layout_the_state_fills_comes_before_one_that_waits_for_more() {
     let doc = scaena_core::patch::compile(&b.deck.to_value().unwrap(), &patch, &files).unwrap().doc;
     b.deck = scaena_core::Deck::from_value(&doc).unwrap();
     let suggested = suggest(&b, &state, None).unwrap();
-    let judged: Vec<_> = suggested.iter().map(|s| (s.layout.as_str(), s.errors, s.warnings, s.empty, s.recast)).collect();
+    let judged: Vec<_> =
+        suggested.iter().map(|s| (s.layout.as_str(), s.errors, s.warnings, s.empty, s.recast)).collect();
     assert!(suggested[0].current && suggested[0].layout == "numbered-cards", "{judged:?}");
     assert!(suggested[0].empty > 0, "Numbered Cards waits for a fourth item: {judged:?}");
     // Three Numbers, filled, its figures set as figures; then the three-item layouts it fills too,
     // each setting its figures in another role, in the theme's order.
-    assert_eq!((suggested[1].layout.as_str(), suggested[1].empty, suggested[1].recast), ("numbers", 0, 0), "{judged:?}");
+    assert_eq!(
+        (suggested[1].layout.as_str(), suggested[1].empty, suggested[1].recast),
+        ("numbers", 0, 0),
+        "{judged:?}"
+    );
     assert!(suggested[2..].iter().all(|s| (s.empty, s.recast) > (0, 0)), "{judged:?}");
 }

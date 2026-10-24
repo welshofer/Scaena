@@ -180,9 +180,10 @@ try {
   await suggestedFor("storm", "narrow-figure");
   const kept = await page.evaluate(() => document.activeElement?.dataset.layout);
   check(kept === "narrow-figure", `the focus stays on it, drawn again: ${kept}`);
-  // The other drawing is named for the first in the theme's order of the layouts that draw it.
+  // The other drawing is named for the layout of those that draw it whose places the state leaves
+  // fewest empty: photo-caption, which poster, full, figure, and table draw alike.
   const other = (await buttons()).find((b) => b.pressed === "false")?.layout;
-  check(other === "poster", `the best of the others is poster, which full, figure, table, and photo-caption draw alike: ${other}`);
+  check(other === "photo-caption", `the best of the others is photo-caption, which poster, full, figure, and table draw alike: ${other}`);
   await page.focus(`#look .layouts [data-layout="${other}"]`);
   await previewing(other);
   check((await previewed()) === other, `the focus on ${other} previews it`);
