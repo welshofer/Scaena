@@ -763,6 +763,7 @@ pub const LISTED: &[(&str, &str)] = &[
     ("I401", "It never shows on any slide."),
     ("I402", "Settings of its own keep a theme change from reaching it."),
     ("I403", "Its code is in a language Scaena colors only by its strings, numbers, and comments."),
+    ("I405", "Its letters' tails come close to the text under it."),
 ];
 
 /// What lint finds, said in a sentence, by its code: what an editor marks ([`MARKED`]), then what

@@ -1,0 +1,58 @@
+{
+  "scaena": "0.36",
+  "_comment": "I405 trigger: a big number whose descender's tail comes within the theme's gutter of the caption under it.",
+  "canvas": {
+    "width": 1920,
+    "height": 1080
+  },
+  "theme": "theme.json",
+  "fonts": [
+    {
+      "family": "Roboto Serif",
+      "file": "fonts/RobotoSerif-VF.ttf"
+    },
+    {
+      "family": "EB Garamond",
+      "file": "fonts/EBGaramond-VF.ttf"
+    }
+  ],
+  "nodes": {
+    "hero": {
+      "type": "text",
+      "role": "numeral",
+      "text": "11 days",
+      "semantic": "claim",
+      "at": {
+        "rect": [
+          96,
+          200,
+          1728,
+          160
+        ]
+      }
+    },
+    "says": {
+      "type": "text",
+      "role": "caption",
+      "text": "From order to doorstep, on average.",
+      "semantic": "evidence",
+      "at": {
+        "rect": [
+          96,
+          392,
+          1728,
+          40
+        ]
+      }
+    }
+  },
+  "states": [
+    {
+      "id": "s",
+      "props": {
+        "hero": {},
+        "says": {}
+      }
+    }
+  ]
+}

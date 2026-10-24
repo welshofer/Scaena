@@ -1099,8 +1099,9 @@ fn reached(
 }
 
 /// `doc` with each text that grows or shrinks and collides with another (lint E101, by its
-/// glyphs' ink: a descender over the text under it) set a step smaller, a twentieth of the size
-/// it reached, round by round until E101 finds it clear. `found` is what lint finds in `doc`
+/// glyphs' ink: a descender over the text under it), or whose descenders come within the
+/// theme's gutter of the text under it (I405: a figure's tail over its name), set a step smaller,
+/// a twentieth of the size it reached, round by round until lint finds it clear. `found` is what lint finds in `doc`
 /// as it is, so the first round lints nothing again. A text that grows and must go under its
 /// role's size shrinks under its new `maxSize`, as [`alike`] makes one, and `held` keeps what
 /// was there before, so [`alike`] measures it as it was. A step that leaves the collision as
@@ -1130,35 +1131,43 @@ fn clear(doc: &mut Value, view: &View, found: Vec<Finding>, held: &mut Held) -> 
         if round > 0 {
             findings = lint_in(&deck, view)?.findings;
         }
-        // Each text that grows or shrinks in a collision: the largest overlap it is in, and where.
-        let mut colliding: BTreeMap<String, (f64, String, f64)> = BTreeMap::new();
-        for f in findings.iter().filter(|f| f.code == "E101") {
+        // Each text that grows or shrinks in a collision, or whose descenders crowd the text under
+        // it (I405, by no overlap): the largest overlap it is in, and where.
+        let mut colliding: BTreeMap<String, (f64, String, f64, f64)> = BTreeMap::new();
+        for f in findings.iter().filter(|f| f.code == "E101" || f.code == "I405") {
             let Some(m) = f.measure.as_ref() else { continue };
-            let (Some(state), Some(w), Some(h)) =
-                (m["states"][0].as_str(), m["overlap"][0].as_f64(), m["overlap"][1].as_f64())
-            else {
-                continue;
+            let Some(state) = m["states"][0].as_str() else { continue };
+            let nodes = m["nodes"].as_array().map_or(&[][..], Vec::as_slice);
+            // The text over the other, whose tail is what crowds, and the share of its size that
+            // leaves the gutter.
+            let (area, ids, aim) = match (m["overlap"][0].as_f64(), m["overlap"][1].as_f64()) {
+                (Some(w), Some(h)) => (w * h, nodes, 1.0),
+                _ => {
+                    let aim = m["aim"].as_f64().zip(m["size"].as_f64()).map_or(1.0, |(aim, size)| aim / size);
+                    (0.0, &nodes[..nodes.len().min(1)], aim)
+                }
             };
-            for id in m["nodes"].as_array().into_iter().flatten().filter_map(Value::as_str) {
+            for id in ids.iter().filter_map(Value::as_str) {
                 let n = &doc["nodes"][id];
                 let (Some("grow" | "shrink"), Some(role)) = (n["fit"].as_str(), n["role"].as_str()) else { continue };
                 let Some(size) = theme.typography.roles.get(role).map(|r| r.size) else { continue };
-                let at = colliding.entry(id.to_string()).or_insert((0.0, state.to_string(), size));
-                at.0 = at.0.max(w * h);
+                let at = colliding.entry(id.to_string()).or_insert((0.0, state.to_string(), size, 1.0));
+                at.0 = at.0.max(area);
+                at.3 = at.3.min(aim);
             }
         }
         let members: Vec<(String, String, String, f64)> = (colliding.iter())
             .filter(|(id, _)| !stuck.contains(*id))
-            .map(|(id, (_, state, size))| (String::new(), state.clone(), id.clone(), *size))
+            .map(|(id, (_, state, size, _))| (String::new(), state.clone(), id.clone(), *size))
             .collect();
         let reached = reached(&deck, view, theme, &members)?;
         // A step that left the collision as large for the text's size is taken back.
         for (id, step) in std::mem::take(&mut steps) {
             let now = match (colliding.get(&id), reached.get(&id)) {
-                (Some((area, ..)), Some(at)) => area / (at * at),
+                (Some((area, ..)), Some(at)) => badness(*area, *at),
                 _ => continue,
             };
-            if now >= step.was * 0.999 {
+            if !less(now, step.was) {
                 let node = &mut doc["nodes"][&id];
                 match step.most {
                     Some(most) => node["maxSize"] = most,
@@ -1172,12 +1181,13 @@ fn clear(doc: &mut Value, view: &View, found: Vec<Finding>, held: &mut Held) -> 
         }
         let mut changed = false;
         for (_, _, id, size) in &members {
-            let (Some(at), Some((area, ..))) = (reached.get(id), colliding.get(id)) else { continue };
+            let (Some(at), Some((area, _, _, aim))) = (reached.get(id), colliding.get(id)) else { continue };
             if stuck.contains(id) {
                 continue;
             }
-            // A twentieth smaller, on a quarter of a unit, never under half its role's size.
-            let next = (at * 0.95 * 4.0).floor() / 4.0;
+            // A twentieth smaller, or to the size that leaves the gutter under it, on a quarter of a
+            // unit, never under half its role's size.
+            let next = (at * aim.min(0.95) * 4.0).floor() / 4.0;
             let node = &mut doc["nodes"][id];
             let most = node.get("maxSize").cloned();
             if next < size * 0.5 || most.as_ref().and_then(Value::as_f64).is_some_and(|m| next >= m) {
@@ -1192,7 +1202,7 @@ fn clear(doc: &mut Value, view: &View, found: Vec<Finding>, held: &mut Held) -> 
             node["maxSize"] = json!(next);
             held.most.entry(id.clone()).or_insert(most.clone());
             first.entry(id.clone()).or_insert((most.clone(), fit.clone()));
-            steps.insert(id.clone(), Step { was: area / (at * at), most, fit });
+            steps.insert(id.clone(), Step { was: badness(*area, *at), most, fit });
             changed = true;
         }
         if !changed {
@@ -1236,6 +1246,19 @@ fn clear(doc: &mut Value, view: &View, found: Vec<Finding>, held: &mut Held) -> 
     Ok(true)
 }
 
+/// How much a text set at size `at` overlaps, for its size: the area over its size squared.
+fn badness(area: f64, at: f64) -> f64 {
+    area / (at * at)
+}
+
+/// Whether a step took a text from overlapping as much as `was` for its size to `now`. One that
+/// only crowds the text under it (I405) always gains: its tail shortens as it is set smaller, its
+/// baseline on the grid, and it comes clear before half its size, though a step that snaps the
+/// baseline lower may leave less room for a round.
+fn less(now: f64, was: f64) -> bool {
+    was == 0.0 || now < was * 0.999
+}
+
 /// What [`alike`] wrote over, so a run after it measures each text as it was: each one's
 /// `maxSize` before `alike` first set it, and those it made shrink where they grew.
 #[derive(Default)]
@@ -1256,10 +1279,12 @@ struct Settled {
     findings: Vec<Finding>,
 }
 
-/// `doc` with each fix `found` offers applied, each once, as `lint --fix` applies them.
+/// `doc` with each fix `found` offers applied, each once, as `lint --fix` applies them, I405's
+/// aside, which [`clear`] has taken.
 fn settle(mut doc: Value, found: Vec<Finding>, view: &View) -> Result<Settled, OpsError> {
     let mut fixed = Vec::new();
-    for f in found.iter().filter(|f| f.fix.is_some()) {
+    // A text crowding the one under it is [`clear`]'s, which holds its set to one size.
+    for f in found.iter().filter(|f| f.fix.is_some() && f.code != "I405") {
         let mut next = doc.clone();
         if scaena_core::patch::apply(&mut next, f.fix.as_deref().unwrap_or_default()).is_ok() {
             doc = next;
@@ -4815,6 +4840,45 @@ mod tests {
             let before = deck.clone();
             assert!(!clear(&mut deck, &view, found, &mut Held::default()).unwrap(), "{name}");
             assert_eq!(deck, before, "{name}");
+        }
+    }
+
+    #[test]
+    fn a_big_numbers_tail_is_set_clear_of_the_words_under_it_by_the_themes_gutter() {
+        // A figure grows to fill its place, its baseline on the place's foot, and a comma's tail
+        // hangs below it toward the words under it. Let grow past the theme's cap, "40,000"'s comma
+        // comes within the theme's gutter of its claim (I405): the deck made sets it smaller until
+        // lint finds the gutter between them.
+        let text = serde_json::json!({
+            "executiveSummary": "Delivery is slow.",
+            "slides": [
+                { "slideTitle": "Delivery is slow", "subtitle": "A talk", "layoutSuggestion": "Title",
+                  "keyBullets": [], "beatIndex": 0, "beatName": "Hook" },
+                { "slideTitle": "Orders wait too long", "subtitle": "", "layoutSuggestion": "Big Number",
+                  "keyBullets": ["40,000", "orders a week wait more than ten days"], "beatIndex": 1,
+                  "beatName": "Problem" },
+                { "slideTitle": "Thank you", "subtitle": "", "layoutSuggestion": "Closing", "keyBullets": [],
+                  "beatIndex": 2, "beatName": "Close" },
+            ]
+        })
+        .to_string();
+        let written = answer::slides(&text).unwrap();
+        let n = narrative(&written.executive_summary, written.slides);
+        for name in ["dusk", "ember", "salon"] {
+            let file = format!("{name}.theme.json");
+            let json = std::fs::read_to_string(root().join("docs/examples/themes").join(&file)).unwrap();
+            let theme: Theme = serde_json::from_str(&json).unwrap();
+            let mut built = deck(&n, &theme, &Pictures::new()).unwrap();
+            let number = "orders-wait-too-long-number";
+            assert_eq!(built.deck["nodes"][number]["text"], "40,000", "{name}");
+            built.deck["nodes"][number]["fit"] = json!("grow");
+            built.deck["nodes"][number]["maxSize"] = json!(640);
+            let (made, write) = making(built, "Problem\u{2013}Solution", Path::new(&file), json, &font).unwrap();
+            let crowded: Vec<_> =
+                made.created.findings.iter().filter(|f| f.code == "I405" || f.code == "E101").collect();
+            assert!(crowded.is_empty(), "{name}: {crowded:#?}");
+            let deck = write.unwrap().deck.to_value().unwrap();
+            assert!(deck["nodes"][number]["maxSize"].as_f64().unwrap() < 640.0, "{name}: {:#}", deck["nodes"][number]);
         }
     }
 
