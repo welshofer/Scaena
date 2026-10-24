@@ -457,7 +457,7 @@ Each layout's slots say what goes in them (`prompt`, SPEC §3.6): words to type 
 | `ranking` | `kicker`, `header`, `first-card`, `third-card`, `first-rank`, `second-rank`, `third-rank`, `fourth-rank`, `first`, `second`, `third`, `fourth`, `first-figure`, `second-figure`, `third-figure`, `fourth-figure` | Ranking, in Numbers |
 | `progress` | `kicker`, `header`, `first-track`, `second-track`, `third-track`, `first-bar`, `second-bar`, `third-bar`, `first`, `second`, `third`, `first-figure`, `second-figure`, `third-figure` | Progress, in Numbers |
 | `number-photo` | `art`, `number`, `claim`, `under` | Number and Photo, in Numbers |
-| `metric-trend` | `kicker`, `header`, `number`, `claim`, `main`, `note` | Number and Trend, in Numbers |
+| `metric-trend` | `kicker`, `header`, `number`, `claim`, `main`, `note`, `source` | Number and Trend, in Numbers |
 | `kpi-dashboard` | `kicker`, `header`, `first-figure`, `second-figure`, `third-figure`, `fourth-figure`, `first-title`, `second-title`, `third-title`, `fourth-title`, `first`, `second`, `third`, `fourth`, `first-chart`, `second-chart` | KPI Dashboard, in Numbers |
 | `status-report` | `kicker`, `header`, `first-card`, `third-card`, `stream-label`, `status-label`, `next-label`, `risk-label`, `first-icon`, `second-icon`, `third-icon`, `first`, `second`, `third`, `first-status`, `second-status`, `third-status`, `first-next`, `second-next`, `third-next`, `first-risk`, `second-risk`, `third-risk` | Status Report, in Numbers |
 | `market-size` | `header`, `first-circle`, `second-circle`, `third-circle`, `first-figure`, `second-figure`, `third-figure`, `first-title`, `second-title`, `third-title`, `first`, `second`, `third` | Market Size, in Numbers |
@@ -467,12 +467,12 @@ Each layout's slots say what goes in them (`prompt`, SPEC §3.6): words to type 
 | `split` | `body`, `main` | Chart and Words, in Charts |
 | `figure-numbers` | `kicker`, `header`, `main`, `first-title`, `first`, `second-title`, `second` | Chart and Numbers, in Charts |
 | `bar-chart` | `kicker`, `header`, `main`, `takeaway`, `note` | Bar Chart, in Charts |
-| `line-chart` | `kicker`, `header`, `main`, `callout`, `note` | Line Chart, in Charts |
+| `line-chart` | `kicker`, `header`, `main`, `callout`, `note`, `source` | Line Chart, in Charts |
 | `donut-chart` | `kicker`, `header`, `main`, `first-title`, `first`, `second-title`, `second` | Donut Chart, in Charts |
 | `table` | `kicker`, `header`, `main`, `note` | Table, in Charts |
 | `chart-bullets` | `kicker`, `header`, `main`, `body` | Chart and Bullets, in Charts |
 | `two-charts` | `kicker`, `header`, `first-title`, `second-title`, `first-chart`, `second-chart` | Two Charts, in Charts |
-| `positioning-map` | `kicker`, `header`, `main`, `takeaway`, `note` | Positioning Map, in Charts |
+| `positioning-map` | `kicker`, `header`, `main`, `takeaway`, `note`, `source` | Positioning Map, in Charts |
 | `full` | `kicker`, `header`, `main`, `note` | Full Bleed, in Pictures |
 | `art-left` | `kicker`, `header`, `art`, `body` | Art Left, in Pictures |
 | `art-right` | `kicker`, `header`, `body`, `art` | Art Right, in Pictures |

@@ -1,6 +1,6 @@
 {
   "name": "theme_apply",
-  "description": "Re-theme: point the deck at another theme, a file or one that ships by name (dusk, daybreak, ember, salon), copied into the bundle with its fonts, and say what that changes in what lint finds. A text the theme leaves too faint to read where it stands is set in the theme's color that reads there, as its contrast error's fix offers (`recolored`); the deck is not otherwise touched. A theme that would leave the deck invalid, as one that lacks a name it uses does, is refused (`refused`, and its errors in `added`) unless `force`: the deck keeps its theme, and the new one is copied in, so one `deck_patch` with the `retheme` op and the fixes swaps it with the deck valid throughout.",
+  "description": "Re-theme: point the deck at another theme, a file or one that ships by name (dusk, daybreak, ember, salon), copied into the bundle with its fonts, and say what that changes in what lint finds. A text the theme leaves too faint to read where it stands is set in the theme's color that reads there, as its contrast error's fix offers (`recolored`), and one it sets past its box or over another node (E100, E101) is fitted as lint's checked fix fits it, shrunk to fit (`refitted`); the deck is not otherwise touched. A theme that would leave the deck invalid, as one that lacks a name it uses does, is refused (`refused`, and its errors in `added`) unless `force`: the deck keeps its theme, and the new one is copied in, so one `deck_patch` with the `retheme` op and the fixes swaps it with the deck valid throughout.",
   "inputSchema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "required": ["bundle", "theme"],
@@ -57,7 +57,18 @@
       },
       "Severity": { "type": "string", "enum": ["info", "warning", "error"] }
     },
-    "required": ["theme", "applied", "mapped", "listed", "added", "removed", "errors", "refused", "recolored"],
+    "required": [
+      "theme",
+      "applied",
+      "mapped",
+      "listed",
+      "added",
+      "removed",
+      "errors",
+      "refused",
+      "recolored",
+      "refitted"
+    ],
     "type": "object",
     "properties": {
       "theme": { "description": "The theme's path in the bundle.", "type": "string" },
@@ -96,6 +107,11 @@
       },
       "recolored": {
         "description": "The contrast errors the theme brought that a color of its own fixes, each fixed, one for\neach text recolored (PLAN 2.82): a text that read in the deck's theme reads in this one,\nset in its color that reads where the text stands. What lint finds after is in `added`.",
+        "type": "array",
+        "items": { "$ref": "#/$defs/Finding" }
+      },
+      "refitted": {
+        "description": "The overflows and overlaps the theme brought (E100, E101) that lint's checked fix puts\nright, each fixed, one for each node: a text that fitted in the deck's theme and runs past\nits box in this one shrinks to fit it, as `lint --fix` would. What lint finds after, an\noverlap no fix reaches among it, is in `added`.",
         "type": "array",
         "items": { "$ref": "#/$defs/Finding" }
       }
