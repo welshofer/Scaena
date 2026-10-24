@@ -682,7 +682,8 @@ pub fn fitted(made: &mut Generated, mut write: Write, rewrites: Vec<(String, Str
     }
     let mut doc = write.deck.to_value()?;
     for (id, text) in &rewrites {
-        doc["nodes"][id]["text"] = json!(typeset(text));
+        let lang = doc["meta"]["lang"].as_str().unwrap_or("en").to_string();
+        doc["nodes"][id]["text"] = json!(typeset(text, &lang));
     }
     let nothing = scaena_store::Files::Zip(Default::default());
     let view = View { base: &nothing, pending: write.files.clone() };
@@ -2664,8 +2665,29 @@ fn figure_role(role: &str) -> bool {
 }
 
 /// Someone else's words in quotation marks, the marks a model may have set taken off first.
-fn quoted(text: &str) -> String {
-    format!("\u{201c}{}\u{201d}", unquoted(text))
+fn quoted(text: &str, lang: &str) -> String {
+    let marks = Marks::of(lang);
+    format!("{}{}{}", marks.open, unquoted(text), marks.close)
+}
+
+/// The double quotation marks a language sets, each with the space it keeps inside: “…” in
+/// English and most others, 「…」 in Japanese and Traditional Chinese, „…“ in German, and « … » in
+/// French, its spaces ones a line never breaks at.
+struct Marks {
+    open: &'static str,
+    close: &'static str,
+}
+
+impl Marks {
+    fn of(lang: &str) -> Marks {
+        let base = lang.split('-').next().unwrap_or(lang);
+        match (base, lang) {
+            ("ja", _) | (_, "zh-Hant") => Marks { open: "\u{300c}", close: "\u{300d}" },
+            ("de", _) => Marks { open: "\u{201e}", close: "\u{201c}" },
+            ("fr", _) => Marks { open: "\u{ab}\u{a0}", close: "\u{a0}\u{bb}" },
+            _ => Marks { open: "\u{201c}", close: "\u{201d}" },
+        }
+    }
 }
 
 /// Who said a quote, led by a dash: "\u{2014} Head of Logistics".
@@ -2766,8 +2788,15 @@ fn in_unit(value: f64, unit: Option<&str>) -> String {
             format!("{sign}{n}{}", &u[sign.len_utf8()..])
         }
         Some(u) if u.starts_with(['%', '\u{b0}', '/', '\u{d7}']) => format!("{n}{u}"),
+        // A unit written in a script set without spaces sits against its figure: "2時間", "340ドル".
+        Some(u) if u.chars().next().is_some_and(unspaced) => format!("{n}{u}"),
         Some(u) => format!("{n} {u}"),
     }
+}
+
+/// Whether `c` is of a script written without spaces between its words: kana, Han, and Hangul.
+fn unspaced(c: char) -> bool {
+    matches!(c as u32, 0x3040..=0x30ff | 0x3400..=0x9fff | 0xac00..=0xd7af | 0xf900..=0xfaff | 0xff66..=0xff9f)
 }
 
 /// A detail cut at "; " into a list's items.
@@ -3018,7 +3047,7 @@ impl Slots<'_> {
                 false => i.figure().unwrap_or_else(|| i.whole.clone()),
             }),
             // A quote in its marks, so that it never reads as the presenter's own words.
-            "quote" => self.item(0).map(|i| quoted(&i.whole)).or_else(|| self.title()),
+            "quote" => self.item(0).map(|i| quoted(&i.whole, self.lang)).or_else(|| self.title()),
             "who" => self.item(1).map(|i| attributed(&i.whole)).or_else(|| self.subtitle()),
             "meaning" => self.item(0).map(|i| i.whole.clone()).or_else(|| self.subtitle()),
             "example" => self.item(1).map(|i| i.whole.clone()),
@@ -3219,7 +3248,7 @@ impl Slots<'_> {
                 let item = self.item(k)?;
                 let (words, who) = said(item);
                 text(match part {
-                    "" => Some(quoted(&words)),
+                    "" => Some(quoted(&words, self.lang)),
                     "note" => who.map(|w| attributed(&w)),
                     _ => None,
                 })
@@ -4073,9 +4102,8 @@ fn words(text: &str) -> usize {
 
 /// `narrative` with the words each slide shows set as a typesetter sets them ([`typeset`]).
 fn typeset_all(narrative: &Narrative) -> Narrative {
-    fn set(s: &mut String) {
-        *s = typeset(s);
-    }
+    let lang = deck_lang(&narrative.brief).unwrap_or("en");
+    let set = |s: &mut String| *s = typeset(s, lang);
     let mut out = narrative.clone();
     set(&mut out.executive_summary);
     for slide in &mut out.slides {
@@ -4097,10 +4125,18 @@ fn typeset_all(narrative: &Narrative) -> Narrative {
 /// `text` set as a typesetter sets it (G.16): an apostrophe and quotation marks curled, a range
 /// of figures and a dash set apart by spaces each an en dash, and three dots an ellipsis. Words
 /// that read as code keep their marks, and a figure's minus and a date's hyphens stay.
-fn typeset(text: &str) -> String {
+///
+/// Double quotation marks are the deck's language's (`lang`, [`Marks`]): 「…」 in Japanese,
+/// „…“ in German, « … » in French. A single mark is curled as English curls it, since a closing
+/// one reads as an apostrophe. A short parenthetical, "P(E | H)", is kept on one line, its spaces
+/// ones no line breaks at (U+00A0).
+fn typeset(text: &str, lang: &str) -> String {
     if text.contains(['`', '{', '}', '<', '>']) {
         return text.to_string();
     }
+    let marks = Marks::of(lang);
+    // Outside English, a model's curled marks are the language's too.
+    let english = marks.open == "\u{201c}";
     let chars: Vec<char> = text.chars().collect();
     let digit = |i: usize| chars.get(i).is_some_and(char::is_ascii_digit);
     let mut out = String::with_capacity(text.len());
@@ -4110,14 +4146,28 @@ fn typeset(text: &str) -> String {
         let after = chars.get(i + 1).copied();
         // A quotation opens at the start, after a space, or after a bracket, a dash, or a mark
         // that opens another.
-        let opens = before.is_none_or(|b| b.is_whitespace() || "([\u{2014}\u{2013}\u{201c}\u{2018}".contains(b));
+        let opens = before.is_none_or(|b| {
+            b.is_whitespace() || "([\u{2014}\u{2013}\u{201c}\u{2018}\u{300c}\u{201e}\u{ab}".contains(b)
+        });
         match chars[i] {
             // An apostrophe in a word or after it ("Canada's", "countries'") and one for a decade's
             // first digits ("'90s") curl one way; a single quotation opening, the other.
             '\'' if opens && !(digit(i + 1) && digit(i + 2)) => out.push('\u{2018}'),
             '\'' => out.push('\u{2019}'),
-            '"' if opens => out.push('\u{201c}'),
-            '"' => out.push('\u{201d}'),
+            '"' | '\u{201c}' | '\u{201d}' if chars[i] == '"' || !english => {
+                if opens {
+                    out.push_str(marks.open);
+                    // French keeps its own space inside; the one written goes.
+                    while marks.open.ends_with('\u{a0}') && chars.get(i + 1).is_some_and(|c| *c == ' ') {
+                        i += 1;
+                    }
+                } else {
+                    if marks.close.starts_with('\u{a0}') {
+                        out.truncate(out.trim_end_matches(' ').len());
+                    }
+                    out.push_str(marks.close);
+                }
+            }
             '.' if after == Some('.') && chars.get(i + 2) == Some(&'.') => {
                 out.push('\u{2026}');
                 i += 3;
@@ -4128,11 +4178,28 @@ fn typeset(text: &str) -> String {
             {
                 out.push('\u{2013}')
             }
+            '(' => match short_parenthetical(&chars[i..]) {
+                Some(len) => {
+                    out.extend(chars[i..i + len].iter().map(|c| if *c == ' ' { '\u{a0}' } else { *c }));
+                    i += len;
+                    continue;
+                }
+                None => out.push('('),
+            },
             c => out.push(c),
         }
         i += 1;
     }
     out
+}
+
+/// How many characters the parenthetical `chars` opens runs to, its brackets included, where
+/// what it holds is a dozen characters or fewer with a space in it, "(E | H)": one a line should
+/// not break inside.
+fn short_parenthetical(chars: &[char]) -> Option<usize> {
+    let close = chars.iter().position(|c| *c == ')')?;
+    let inside = &chars[1..close];
+    (inside.len() <= 12 && inside.contains(&' ') && !inside.contains(&'(')).then_some(close + 1)
 }
 
 /// Whether the hyphen at `at` joins one of several runs of digits, as a date's do: 2024-10-12.
@@ -4181,6 +4248,8 @@ fn at_places(value: f64, places: usize, unit: Option<&str>) -> String {
             format!("{sign}{n}{}", &u[sign.len_utf8()..])
         }
         Some(u) if u.starts_with(['%', '\u{b0}', '/', '\u{d7}']) => format!("{n}{u}"),
+        // A unit written in a script set without spaces sits against its figure: "2時間", "340ドル".
+        Some(u) if u.chars().next().is_some_and(unspaced) => format!("{n}{u}"),
         Some(u) => format!("{n} {u}"),
     }
 }
@@ -4674,29 +4743,64 @@ mod tests {
         assert_eq!(period(&line(&["Q1", "Q2", "Q3"]), [Some("Since 1980"), None]), None);
     }
 
+    fn typeset_en(text: &str) -> String {
+        typeset(text, "en")
+    }
+
     #[test]
     fn words_are_set_as_a_typesetter_sets_them() {
-        assert_eq!(typeset("Canada's wildfires"), "Canada\u{2019}s wildfires");
-        assert_eq!(typeset("the '90s, the countries' pledges"), "the \u{2019}90s, the countries\u{2019} pledges");
+        assert_eq!(typeset_en("Canada's wildfires"), "Canada\u{2019}s wildfires");
+        assert_eq!(typeset_en("the '90s, the countries' pledges"), "the \u{2019}90s, the countries\u{2019} pledges");
         assert_eq!(
-            typeset("\"A highway to 'climate hell'\""),
+            typeset_en("\"A highway to 'climate hell'\""),
             "\u{201c}A highway to \u{2018}climate hell\u{2019}\u{201d}"
         );
         assert_eq!(
-            typeset("2021-2024, 70-90% lost, 1.5-2\u{b0}C"),
+            typeset_en("2021-2024, 70-90% lost, 1.5-2\u{b0}C"),
             "2021\u{2013}2024, 70\u{2013}90% lost, 1.5\u{2013}2\u{b0}C"
         );
-        assert_eq!(typeset("Climate - where we stand..."), "Climate \u{2013} where we stand\u{2026}");
+        assert_eq!(typeset_en("Climate - where we stand..."), "Climate \u{2013} where we stand\u{2026}");
         // A figure's minus, a date's hyphens, and a name's keep theirs; code keeps its quotes.
-        assert_eq!(typeset("-13% by 2024-10-12, COVID-19"), "-13% by 2024-10-12, COVID-19");
-        assert_eq!(typeset("`let s = \"x\";`"), "`let s = \"x\";`");
+        assert_eq!(typeset_en("-13% by 2024-10-12, COVID-19"), "-13% by 2024-10-12, COVID-19");
+        assert_eq!(typeset_en("`let s = \"x\";`"), "`let s = \"x\";`");
         // Set once, words stay as they are.
-        let once = typeset("Canada's \"record\" 2021-2024...");
-        assert_eq!(typeset(&once), once);
+        let once = typeset_en("Canada's \"record\" 2021-2024...");
+        assert_eq!(typeset_en(&once), once);
         // A figure's minus is not a bullet's mark.
         let i = item("-13%: Arctic summer ice per decade");
         assert_eq!((i.label.as_deref(), i.figure().as_deref()), (Some("-13%"), Some("-13%")));
         assert_eq!(item("- Measure our travel").whole, "Measure our travel");
+    }
+
+    /// A quotation is marked as the deck's language marks one, a model's curled marks too, and set
+    /// once it stays (dogfood pass 6, V2).
+    #[test]
+    fn a_quotation_is_marked_as_its_language_marks_one() {
+        let said = "She said \"we did this ourselves\".";
+        assert_eq!(typeset(said, "en"), "She said \u{201c}we did this ourselves\u{201d}.");
+        assert_eq!(typeset(said, "de"), "She said \u{201e}we did this ourselves\u{201c}.");
+        assert_eq!(typeset(said, "fr"), "She said \u{ab}\u{a0}we did this ourselves\u{a0}\u{bb}.");
+        assert_eq!(
+            typeset("\u{300c}x\u{300d} \u{201c}\u{81ea}\u{5206}\u{305f}\u{3061}\u{3067}\u{201d}", "ja"),
+            "\u{300c}x\u{300d} \u{300c}\u{81ea}\u{5206}\u{305f}\u{3061}\u{3067}\u{300d}"
+        );
+        for lang in ["en", "de", "fr", "ja", "zh-Hant"] {
+            let once = typeset(said, lang);
+            assert_eq!(typeset(&once, lang), once, "{lang}");
+        }
+        // A quote slot's quotation, its own marks taken off first.
+        assert_eq!(quoted("\u{201c}Ours\u{201d}", "ja"), "\u{300c}Ours\u{300d}");
+        assert_eq!(quoted("Ours", "zh-Hant"), "\u{300c}Ours\u{300d}");
+        assert_eq!(quoted("Ours", "zh-Hans"), "\u{201c}Ours\u{201d}");
+        assert_eq!(quoted("Ours", "de"), "\u{201e}Ours\u{201c}");
+        // A line's latest figure sits against a unit in a script set without spaces (V3).
+        assert_eq!(in_unit(2.0, Some("\u{6642}\u{9593}")), "2\u{6642}\u{9593}");
+        assert_eq!(in_unit(2.0, Some("hours")), "2 hours");
+        // A short parenthetical is kept on one line; a long one may still wrap.
+        assert_eq!(typeset("P(H | E) = P(E | H)", "en"), "P(H\u{a0}|\u{a0}E) = P(E\u{a0}|\u{a0}H)");
+        let long = "the posterior (what we believe after the test)";
+        assert_eq!(typeset(long, "en"), long);
+        assert_eq!(typeset("(2024)", "en"), "(2024)");
     }
 
     #[test]
@@ -6027,7 +6131,7 @@ mod tests {
             let chart = placed(&made.deck, n, "main");
             let alt = chart["alt"].as_str().unwrap();
             let title = &climate().slides[n].slide_title;
-            assert_ne!(alt, typeset(title), "state {n}");
+            assert_ne!(alt, typeset_en(title), "state {n}");
             let kind = if chart["kind"] == "line" { "Line chart" } else { "Bar chart" };
             assert!(alt.starts_with(kind), "state {n}: {alt}");
         }
@@ -6713,7 +6817,7 @@ mod tests {
         let made = deck(&narrative(&summary, picked), &theme, &Pictures::new()).unwrap();
         let spine = made.deck["spine"]["sections"].as_array().unwrap();
         let titles: Vec<&str> = spine.iter().map(|s| s["title"].as_str().unwrap()).collect();
-        let headline = typeset(&at("Big Number").slide_title);
+        let headline = typeset_en(&at("Big Number").slide_title);
         assert_eq!(titles, ["Hook", "The problem is the cost of proof", headline.as_str(), "Where the money goes"]);
         let beats: Vec<usize> = spine.iter().map(|s| s["beats"].as_array().unwrap().len()).collect();
         assert_eq!(beats, [1, 2, 1, 3]);
@@ -6742,7 +6846,7 @@ mod tests {
             beat(untitled, 2),
             beat(at("Closing"), 3),
         ];
-        let headline = |i: usize| typeset(&picked[i].slide_title);
+        let headline = |i: usize| typeset_en(&picked[i].slide_title);
         let theme: Theme = serde_json::from_str(&dusk()).unwrap();
         let made = deck(&narrative(&summary, picked.clone()), &theme, &Pictures::new()).unwrap();
         let spine = made.deck["spine"]["sections"].as_array().unwrap();
