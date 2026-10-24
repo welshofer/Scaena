@@ -1099,6 +1099,8 @@ scaena mcp                                            # stdio MCP server exposin
 
 Exit codes: `0` ok; `1` findings that are errors (`validate`, `lint`, `compile`, `theme`, `patch`, `find --replace`, `data --edits`, `history --restore`), or a file `files --remove` keeps; `2` invalid input; `3` not built yet, naming the PLAN task that builds it.
 
+A deck made from a prompt keeps the whole brief it was made from in `meta.narrative.brief` (narrative FUNC-4): its `topic`, `audience`, `goal`, and `length`, and, where they were given, its `modality`, `desiredOutcomes`, `personaId`, and `voice`. The assistant's story of the deck says how it is delivered, what it is to achieve, and its voice beside the rest, in the browser and on the Mac alike (`scaena_chat::Facts`), so later edits keep to them.
+
 A command that writes a bundle that keeps history (`patch`, `find --replace`, `data --edits`, `theme --apply`, `lint --fix`, `history --restore`, `save`; §8) records its change there, by `$SCAENA_AUTHOR` (`user` without it), saying what it did.
 
 #### 7.1.1 Finding, data, files, and history

@@ -1723,6 +1723,18 @@ pub fn deck_as(
     if let Some(lang) = deck_lang(brief) {
         meta["lang"] = json!(lang);
     }
+    // The rest of the brief, where it was given (narrative FUNC-4): later edits, the assistant's
+    // and the writing tools', are written to the voice and outcomes the person asked for.
+    for (key, value) in [
+        ("modality", &brief.modality),
+        ("desiredOutcomes", &brief.desired_outcomes),
+        ("personaId", &brief.persona_id),
+        ("voice", &brief.voice),
+    ] {
+        if let Some(value) = value.as_deref().map(str::trim).filter(|v| !v.is_empty()) {
+            meta["narrative"]["brief"][key] = json!(value);
+        }
+    }
     if narrative.truncated {
         meta["narrative"]["truncated"] = json!(true);
     }
@@ -5957,7 +5969,11 @@ mod tests {
             std::fs::read_to_string(root().join(format!("crates/scaena-narrato/tests/answers/{name}.json"))).unwrap()
         };
         let settings = Settings { provider: Provider::Anthropic, model: "a-model".into(), base: None, browser: false };
-        let mut g = Generation::new(narrative("", Vec::new()).brief, settings).unwrap();
+        let mut brief = narrative("", Vec::new()).brief;
+        brief.voice = Some("Plain, confident, no jargon".into());
+        brief.desired_outcomes = Some("A term sheet by spring".into());
+        brief.persona_id = Some("investors".into());
+        let mut g = Generation::new(brief, settings).unwrap();
         assert_eq!(g.answer(200, "OK", &answer("anthropic-arc"), None).unwrap(), Step::Slides);
         assert_eq!(g.answer(200, "OK", &answer("anthropic-slides"), None).unwrap(), Step::Done);
         let n = g.into_narrative().unwrap();
@@ -5966,6 +5982,13 @@ mod tests {
         let deck = write.unwrap().deck;
         assert_eq!(deck.states.len(), n.slides.len());
         assert_eq!(deck.meta.as_ref().and_then(|m| m.description.as_deref()), Some(n.executive_summary.as_str()));
+        // The whole brief is kept (narrative FUNC-4): its voice, outcomes, persona, and modality,
+        // the brief's default where none was asked.
+        let kept = &deck.meta.as_ref().unwrap().extra["narrative"]["brief"];
+        assert_eq!(kept["voice"], "Plain, confident, no jargon");
+        assert_eq!(kept["desiredOutcomes"], "A term sheet by spring");
+        assert_eq!(kept["personaId"], "investors");
+        assert!(kept["modality"].as_str().is_some_and(|m| m.starts_with("In-person")), "{kept}");
         // Each slide a beat, its title the claim, the chart's figures its evidence.
         let beats: Vec<_> = deck.spine.iter().flat_map(|s| &s.sections).flat_map(|s| &s.beats).collect();
         assert_eq!(beats.len(), n.slides.len());
