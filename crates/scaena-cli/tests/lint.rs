@@ -165,7 +165,7 @@ fn deck(data: Value, nodes: Value) -> Value {
     let props: serde_json::Map<String, Value> =
         nodes.as_object().unwrap().keys().map(|k| (k.clone(), serde_json::json!({}))).collect();
     serde_json::json!({
-        "scaena": "0.36",
+        "scaena": "0.37",
         "canvas": { "width": 1920, "height": 1080 },
         "theme": "theme.json",
         "fonts": [
@@ -425,6 +425,21 @@ fn lint_fix_applies_what_lint_offers_and_lints_again() {
     assert_eq!(out.status.code(), Some(0));
     assert!(String::from_utf8_lossy(&out.stdout).contains("nothing to fix"));
     assert_eq!(std::fs::read(dir.join("deck.json")).unwrap(), before);
+}
+
+/// A beat planned before its slide, in a spine written first, is reported and never fixed away:
+/// `lint --fix` leaves the story a deck is written from (dogfood 3).
+#[test]
+fn a_planned_beat_is_reported_and_lint_fix_keeps_it() {
+    let dir = fixture("planned", "W429", "trigger");
+    let (_, found) = lint(&dir);
+    let w429 = found.iter().find(|f| f["code"] == "W429").unwrap();
+    assert!(w429["fix"].is_null(), "{w429:#}");
+    let before = std::fs::read(dir.join("deck.json")).unwrap();
+    let out = scaena(&["--json", "lint", dir.to_str().unwrap(), "--fix"]);
+    let v: Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert!(v["fixed"].as_array().is_none_or(|f| f.iter().all(|f| f["code"] != "W429")), "{v:#}");
+    assert_eq!(std::fs::read(dir.join("deck.json")).unwrap(), before, "the planned beat is kept");
 }
 
 #[test]

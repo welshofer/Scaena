@@ -316,6 +316,16 @@ pub fn start(
     Ok(started)
 }
 
+/// The patch that makes a new deck's title slide after `shown`'s slide (PLAN 3.30): in the theme's
+/// `title` layout, its words to type over and each place that waits with an `example` given it,
+/// the theme's backdrop where a picture goes, as the New dialog draws the theme. So a new deck
+/// opens as its theme was shown, with no place left empty for lint to find (W304); Add Slide's
+/// [`starting`] leaves such a place waiting. Where the theme's example cannot be drawn, the slide
+/// [`starting`] makes.
+pub fn titled(deck: &Deck, theme: &Theme, shown: &str) -> Result<AddedState, OpsError> {
+    example(deck, theme, shown, "title").or_else(|_| starting(deck, theme, shown, Some("title")))
+}
+
 /// The patch that draws `layout`'s picture after `shown`'s slide (PLAN 3.31): the slide
 /// [`starting`] makes, and in each slot that waits with an `example`, what it says: a picture
 /// drawn by the theme's shader preset, under the cards and the words over it, each picture on the

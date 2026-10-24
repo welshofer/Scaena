@@ -199,8 +199,8 @@ fn role(cx: &Context, snap: &Snapshot, props: &Props) -> Option<String> {
 /// W423: a beat whose `evidence` names a data source or an asset that none of its states
 /// shows (a chart or table reading the source, an image of the asset). A figure from the
 /// data set as text is a literal that lint cannot trace to its source (finding 6), so a
-/// node marked `semantic: evidence` shows a data source too. URLs are cited, not shown,
-/// and are not checked.
+/// node marked `semantic: evidence` shows a data source too. URLs and the sources a deck was
+/// grounded in (`source:NAME`, narrative FUNC-3) are cited, not shown, and are not checked.
 struct W423EvidenceNotShown;
 impl Rule for W423EvidenceNotShown {
     fn code(&self) -> &'static str {
@@ -219,7 +219,7 @@ impl Rule for W423EvidenceNotShown {
             for (k, cited) in beat.evidence.iter().enumerate() {
                 let key = if cited.starts_with('@') {
                     "data"
-                } else if cited.contains("://") {
+                } else if cited.contains("://") || cited.starts_with(crate::document::SOURCE_CITED) {
                     continue;
                 } else {
                     "src"
@@ -358,9 +358,11 @@ impl Rule for W426SpineOutOfOrder {
 }
 
 /// W429: a beat that names no state the deck has: its claim, its evidence, and its time are told
-/// nowhere, though the spine, the PDF's outline, and health read them (dogfood 3). Its fix takes
-/// out every such beat, and a section that leaves with no beat; each finding carries it, and it
-/// applies once, each beat checked where it stands first.
+/// on no slide, though the spine, the PDF's outline, and health read them (dogfood 3). A beat that
+/// names a state the deck lacks is E102, so the beats this finds list no state at all: one planned
+/// before its slide, a spine written first, or one a cut left behind before `remove_slide` took
+/// its beats with it. Nothing tells those apart, so it carries no fix: a fix would delete the
+/// story a spine-first deck is written from.
 struct W429BeatWithNoStates;
 impl Rule for W429BeatWithNoStates {
     fn code(&self) -> &'static str {
@@ -370,39 +372,20 @@ impl Rule for W429BeatWithNoStates {
         Severity::Warning
     }
     fn check(&self, cx: &Context) -> Vec<Finding> {
-        let Some(spine) = &cx.deck.spine else { return vec![] };
-        let mut empty = Vec::new();
-        for (s, section) in spine.sections.iter().enumerate() {
-            for (b, beat) in section.beats.iter().enumerate() {
-                if !beat.states.iter().any(|id| cx.deck.state_index(id).is_some()) {
-                    empty.push((s, b, beat));
-                }
-            }
-        }
-        if empty.is_empty() {
-            return vec![];
-        }
-        let deck = serde_json::json!({ "spine": spine });
-        let pairs: Vec<(usize, usize)> = empty.iter().map(|(s, b, _)| (*s, *b)).collect();
-        let mut fix: Vec<Value> = empty
-            .iter()
-            .map(|(s, b, beat)| serde_json::json!({ "op": "test", "path": format!("/spine/sections/{s}/beats/{b}/id"), "value": beat.id }))
-            .collect();
-        fix.extend(crate::patch::spine_without(&deck, &pairs).iter().filter_map(|op| serde_json::to_value(op).ok()));
-        empty
-            .iter()
-            .map(|(s, b, beat)| {
+        beats(cx)
+            .into_iter()
+            .filter(|(_, beat)| !beat.states.iter().any(|id| cx.deck.state_index(id).is_some()))
+            .map(|(at, beat)| {
                 Finding::new(
                     self.code(),
                     self.severity(),
-                    format!(
-                        "beat `{}` names no state the deck has: its claim \"{}\" is told nowhere",
-                        beat.id, beat.claim
-                    ),
+                    format!("beat `{}` is not told yet: its claim \"{}\" is on no slide", beat.id, beat.claim),
                 )
-                .at(format!("/spine/sections/{s}/beats/{b}"))
-                .hint("Take the beat out (the fix does), or list the states that tell it.")
-                .fix(fix.clone())
+                .at(at)
+                .hint(
+                    "Start a slide for it (`state_start` with its claim), or list the states that tell it; \
+                     a beat left by a cut slide may go.",
+                )
             })
             .collect()
     }

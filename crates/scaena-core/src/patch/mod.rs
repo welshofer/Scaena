@@ -16,7 +16,6 @@ mod find;
 mod ops;
 
 pub use find::{Found, Kind, Query, find, replacing};
-pub(crate) use ops::spine_without;
 pub use ops::{Written, written};
 pub use ops::{deleting, depths, held};
 

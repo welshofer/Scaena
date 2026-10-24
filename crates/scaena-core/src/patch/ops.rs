@@ -2129,29 +2129,7 @@ fn hide_node(d: &Doc, node: &str, state: &str) -> Result<Vec<JsonOp>, String> {
             None => JsonOp::Add { path: format!("/states/{i}/remove"), value: Value::Array(vec![value]) },
         });
     }
-    ops.extend(idle_with(d, &deck, &snapshots, &ops, node, i));
     Ok(ops)
-}
-
-/// The ops that take out each motion of `node`, from state `from` on, that moves nothing once
-/// `ops` hide it (W322): an entrance, an emphasis, or an exit where it is no longer on screen to
-/// make them (dogfood 3). One that moved nothing before stays, for lint to say.
-fn idle_with(d: &Doc, deck: &Deck, snapshots: &[Snapshot], ops: &[JsonOp], node: &str, from: usize) -> Vec<JsonOp> {
-    let (Some(next), before) = (applied(d.0, ops), crate::lint::idle(deck, snapshots)) else { return Vec::new() };
-    let Ok(after) = typed(&Doc(&next)) else { return Vec::new() };
-    let Ok(shown) = resolve_states(&after) else { return Vec::new() };
-    let was = |f: &crate::lint::Finding| before.iter().any(|b| b.path == f.path && b.node == f.node);
-    let at = |f: &crate::lint::Finding| after.states.iter().position(|s| Some(&s.id) == f.state.as_ref());
-    let mut found: Vec<crate::lint::Finding> = crate::lint::idle(&after, &shown)
-        .into_iter()
-        .filter(|f| f.node.as_deref() == Some(node) && at(f).is_some_and(|i| i >= from) && !was(f))
-        .collect();
-    // The last pointer first, so each removal stands where it pointed.
-    let key = |f: &crate::lint::Finding| -> Vec<usize> {
-        f.path.as_deref().unwrap_or_default().split('/').filter_map(|s| s.parse().ok()).collect()
-    };
-    crate::sort::by_key(&mut found, |f| std::cmp::Reverse(key(f)));
-    found.iter().flat_map(|f| f.fix.iter().flatten()).filter_map(|op| serde_json::from_value(op.clone()).ok()).collect()
 }
 
 /// Where `after` or `before` puts a state: an index into the states without `moving`, the
@@ -2438,7 +2416,7 @@ fn remove_slide(d: &Doc, slide: &str) -> Result<Vec<JsonOp>, String> {
 /// The ops that take `beats` (each a section's index and a beat's in it) out of the spine of
 /// `deck`: each beat, and a section it leaves with none, the last index first so each pointer
 /// stands where it pointed.
-pub(crate) fn spine_without(deck: &Value, beats: &[(usize, usize)]) -> Vec<JsonOp> {
+fn spine_without(deck: &Value, beats: &[(usize, usize)]) -> Vec<JsonOp> {
     let sections = deck.pointer("/spine/sections").and_then(Value::as_array).map_or(&[][..], Vec::as_slice);
     let mut ops = Vec::new();
     let mut whole = Vec::new();

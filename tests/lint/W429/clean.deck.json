@@ -1,5 +1,5 @@
 {
-  "scaena": "0.36",
+  "scaena": "0.37",
   "_comment": "W429 clean: every beat names a state the deck has.",
   "canvas": {"width": 1920, "height": 1080},
   "theme": "theme.json",
