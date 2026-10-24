@@ -12,10 +12,12 @@
 
 mod prompt;
 mod providers;
+mod stream;
 mod tools;
 
 pub use prompt::{Brief, Characters, Client, Facts, Listed, Seeing, Selected, seen, system, system_of};
 pub use providers::{Ask, Provider, Request, Stop, Turn, Usage, inlined};
+pub use stream::{Stream, assembled, is_sse};
 pub use tools::{RESOURCE_READ, made, resource_read, summary, tools};
 
 use serde::{Deserialize, Serialize};
