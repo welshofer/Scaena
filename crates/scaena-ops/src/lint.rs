@@ -66,6 +66,10 @@ impl BundleFiles for View<'_> {
     fn read_text(&self, path: &str) -> Option<String> {
         String::from_utf8(self.read(path).ok()?).ok()
     }
+
+    fn linked_out(&self, path: &str) -> bool {
+        !self.pending.contains_key(path) && self.base.linked_out(path)
+    }
 }
 
 /// What `validate` finds in the bundle at `path`, as it is on disk: its schemas, its

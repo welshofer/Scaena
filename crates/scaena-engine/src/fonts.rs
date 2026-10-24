@@ -53,7 +53,13 @@ pub struct BundleFonts {
     /// The glyphs [`BundleFonts::check_glyphs`] has found the painters can draw, by font
     /// blob, face, and instance.
     drawable: HashMap<(u64, u32, Vec<i16>), HashSet<u32>>,
+    /// How far each glyph's outline reaches above and below its baseline, in ems, by font blob,
+    /// face, instance, and glyph ([`BundleFonts::reach`]).
+    reaches: HashMap<GlyphKey, (f32, f32)>,
 }
+
+/// A glyph by font blob, face, instance, and glyph id.
+type GlyphKey = (u64, u32, Vec<i16>, u32);
 
 impl Default for BundleFonts {
     fn default() -> Self {
@@ -64,6 +70,7 @@ impl Default for BundleFonts {
             slanted: BTreeSet::new(),
             embedding: BTreeMap::new(),
             drawable: HashMap::new(),
+            reaches: HashMap::new(),
         }
     }
 }
@@ -213,6 +220,29 @@ impl BundleFonts {
         Ok(())
     }
 
+    /// How far glyph `gid`'s outline reaches above its baseline and below it, in ems, at
+    /// `coords`: its ink, a capital's or an ascender's top and a descender's tail. Nothing for a
+    /// glyph that draws no outline of its own (a space, a color glyph's layers, a font that does
+    /// not read).
+    pub fn reach(&mut self, font: &FontData, coords: &[i16], gid: u32) -> Option<(f32, f32)> {
+        let key = (font.data.id(), font.index, coords.to_vec(), gid);
+        if let Some(&r) = self.reaches.get(&key) {
+            return (r != (0.0, 0.0)).then_some(r);
+        }
+        let reach = (|| {
+            let face = skrifa::FontRef::from_index(font.data.data(), font.index).ok()?;
+            let upem = f32::from(face.head().ok()?.units_per_em()).max(1.0);
+            let normalized: Vec<NormalizedCoord> = coords.iter().map(|&c| NormalizedCoord::from_bits(c)).collect();
+            let outline = face.outline_glyphs().get(GlyphId::new(gid))?;
+            let mut pen = ReachPen { low: f32::INFINITY, high: f32::NEG_INFINITY };
+            outline.draw(DrawSettings::unhinted(Size::unscaled(), LocationRef::new(&normalized)), &mut pen).ok()?;
+            (pen.high >= pen.low).then(|| (pen.high / upem, -pen.low / upem))
+        })()
+        .unwrap_or((0.0, 0.0));
+        self.reaches.insert(key, reach);
+        (reach != (0.0, 0.0)).then_some(reach)
+    }
+
     /// The display-list reference for a font parley selected.
     pub fn font_ref(&self, font: &FontData) -> Result<FontRef, EngineError> {
         let id = self.by_blob.get(&font.data.id()).ok_or_else(|| {
@@ -283,6 +313,37 @@ fn pointless(face: &skrifa::FontRef, id: GlyphId) -> bool {
 
 /// A pen that keeps nothing: drawing into it only reads the outline.
 struct NoPen;
+
+/// The lowest and highest points an outline reaches, in font units: y grows up. Its curves'
+/// control points count, which bound the curve.
+struct ReachPen {
+    low: f32,
+    high: f32,
+}
+
+impl ReachPen {
+    fn at(&mut self, ys: &[f32]) {
+        for &y in ys {
+            (self.low, self.high) = (self.low.min(y), self.high.max(y));
+        }
+    }
+}
+
+impl OutlinePen for ReachPen {
+    fn move_to(&mut self, _: f32, y: f32) {
+        self.at(&[y]);
+    }
+    fn line_to(&mut self, _: f32, y: f32) {
+        self.at(&[y]);
+    }
+    fn quad_to(&mut self, _: f32, y1: f32, _: f32, y: f32) {
+        self.at(&[y1, y]);
+    }
+    fn curve_to(&mut self, _: f32, y1: f32, _: f32, y2: f32, _: f32, y: f32) {
+        self.at(&[y1, y2, y]);
+    }
+    fn close(&mut self) {}
+}
 
 impl OutlinePen for NoPen {
     fn move_to(&mut self, _: f32, _: f32) {}

@@ -857,6 +857,32 @@ pub unsafe extern "C" fn scaena_snapshot_save(
     }
 }
 
+/// A session of its own on `snapshot`'s deck and files, to run a call that only reads on the thread
+/// that holds it (narrative lift-up PERF-2, [`scaena_chat_run_apart`]): it answers as the session
+/// it was taken from did. Null where it cannot be opened, `*error` then saying why. Free with
+/// [`scaena_session_free`].
+///
+/// # Safety
+/// `snapshot` is a live handle from [`scaena_snapshot_new`]; `error` null or writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn scaena_snapshot_open(
+    snapshot: *const ScaenaSnapshot,
+    error: *mut *mut c_char,
+) -> *mut ScaenaSession {
+    let opened = guarded(|| {
+        // SAFETY: the caller gives a live handle, or null.
+        let snapshot = unsafe { snapshot.as_ref() }.ok_or_else(|| said("snapshot is null"))?;
+        snapshot.0.session().map_err(said)
+    });
+    match opened {
+        Ok(session) => Box::into_raw(Box::new(ScaenaSession(session))),
+        Err(failure) => {
+            unsafe { report(error, failure) };
+            std::ptr::null_mut()
+        }
+    }
+}
+
 /// Let go of a snapshot.
 ///
 /// # Safety
@@ -1291,6 +1317,8 @@ pub unsafe extern "C" fn scaena_chat_new(args: *const c_char, error: *mut *mut c
 ///   model's name, at `at` (RFC 3339): `{id, name, error, summary, made, json, png?, edited,
 ///   rewritten}`, `made` whether it did what its words say. A `call` `{id, name, args}` may be
 ///   given in its place.
+/// - `took {index, ran}`: the last answer's call `index`, run apart on a snapshot's session by
+///   [`scaena_chat_run_apart`], taken as `run` takes what it ran: `ran` back.
 /// - `next`: the calls' results handed to the model, every call answered (those not run, as
 ///   stopped): whether it may be asked again, or the question has taken its rounds.
 /// - `use {provider, model, base?}`: another model from the next request on, the conversation
@@ -1320,6 +1348,55 @@ pub unsafe extern "C" fn scaena_chat_call(
             }
         };
         chat.0.call(session, method, &args)
+    }))
+}
+
+/// Whether the call `name` with `args` (JSON, or null) only reads the deck, and may run apart from
+/// the session on a snapshot's ([`scaena_snapshot_open`], [`scaena_chat_run_apart`], narrative
+/// lift-up PERF-2): `deck_render`, `deck_health`, and `deck_lint` without `fix`.
+///
+/// # Safety
+/// `name` is a NUL-terminated string; `args` one, or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn scaena_chat_reads_alone(name: *const c_char, args: *const c_char) -> bool {
+    guarded(|| {
+        let name = unsafe { text(name, "name") }?;
+        let args = match unsafe { maybe_text(args, "args") }? {
+            None => Value::Null,
+            Some(a) => serde_json::from_str(a).map_err(said)?,
+        };
+        Ok(scaena_session::assistant::reads_alone(name, &args))
+    })
+    .unwrap_or(false)
+}
+
+/// Run `call` (`{id, name, args}`, a call of a conversation's last answer) on `session`, a
+/// snapshot's ([`scaena_snapshot_open`]), by `agent:` and `model`, at `at` (RFC 3339, or null), on
+/// the thread that calls it (narrative lift-up PERF-2): `{"ok": ran}`, what the conversation's
+/// `run` gives, for its `took` on the conversation's thread; or `{"error"}`. Only for a call that
+/// reads alone ([`scaena_chat_reads_alone`]).
+///
+/// # Safety
+/// `session` is a live handle, used by this thread alone; `model` and `call` NUL-terminated
+/// strings; `at` one, or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn scaena_chat_run_apart(
+    session: *mut ScaenaSession,
+    model: *const c_char,
+    call: *const c_char,
+    at: *const c_char,
+) -> *mut c_char {
+    envelope(guarded(|| {
+        let session = unsafe { handle(session, "session") }?;
+        let model = unsafe { text(model, "model") }?;
+        let call = unsafe { text(call, "call") }?;
+        let call: scaena_chat::Call =
+            serde_json::from_str(call).map_err(|e| said(format!("run apart: `call` as {{id, name, args}}: {e}")))?;
+        if !scaena_session::assistant::reads_alone(&call.name, &call.args) {
+            return Err(said(format!("run apart: `{}` writes, and runs on the session itself", call.name)));
+        }
+        let at = unsafe { maybe_text(at, "at") }?.and_then(scaena_session::store::seconds);
+        Ok(chat::run_apart(&mut session.0, model, &call, at))
     }))
 }
 
