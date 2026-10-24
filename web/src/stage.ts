@@ -1269,7 +1269,7 @@ export class Stage {
 
   private send(message: ToWorker) {
     const version = "source" in message && typeof message.source === "string" ? this.sourceVersion() : undefined;
-    this.worker.postMessage(version === undefined ? message : { ...message, version });
+    this.worker.postMessage(version === undefined ? message : { ...message, seen: version });
   }
 
   private request<T extends Reply["type"]>(message: Extract<ToWorker, { id: number }>): Promise<Extract<Reply, { type: T }>> {

@@ -69,22 +69,22 @@ try {
       // the patch's source taken as version 2; then ⌘Z puts version 3, the source before the
       // patch again, and a request with it is posted before its edit. It is newer than the deck
       // held, so the deck is compiled from it, not answered as it stood before the undo.
-      await ask({ type: "edit", source: stepSource, index, version: 1 });
-      const patched = await ask({ type: "make", source: stepSource, ops: [{ op: "place", node: "tally", at: { col: [1, 9], row: 5 } }], index, version: 1 });
-      await ask({ type: "edit", source: patched.source, index, version: 2 });
-      await ask({ type: "bundleFiles", source: stepSource, version: 3 });
+      await ask({ type: "edit", source: stepSource, index, seen: 1 });
+      const patched = await ask({ type: "make", source: stepSource, ops: [{ op: "place", node: "tally", at: { col: [1, 9], row: 5 } }], index, seen: 1 });
+      await ask({ type: "edit", source: patched.source, index, seen: 2 });
+      await ask({ type: "bundleFiles", source: stepSource, seen: 3 });
       const { source: undone } = await ask({ type: "source" });
       // And a request from before the patch, its version older than the deck held, is answered
       // from that deck.
-      await ask({ type: "edit", source: patched.source, index, version: 4 });
-      await ask({ type: "bundleFiles", source: stepSource, version: 3 });
+      await ask({ type: "edit", source: patched.source, index, seen: 4 });
+      await ask({ type: "bundleFiles", source: stepSource, seen: 3 });
       const { source: kept } = await ask({ type: "source" });
       // The linter's edit of the source the page had while a patch was made on it, posted in the
       // same task as the patch (#597's builds.mjs on CI): the deck stays the patch's, and the step
       // it added reads.
-      const { added: more } = await ask({ type: "addingState", source: kept, state: "containers", what: "step", version: 5 });
-      const adding = ask({ type: "make", source: kept, ops: more.patch, index: index + 1, version: 5 });
-      const linting = ask({ type: "edit", source: kept, index, version: 5 });
+      const { added: more } = await ask({ type: "addingState", source: kept, state: "containers", what: "step", seen: 5 });
+      const adding = ask({ type: "make", source: kept, ops: more.patch, index: index + 1, seen: 5 });
+      const linting = ask({ type: "edit", source: kept, index, seen: 5 });
       await Promise.all([adding, linting]);
       const readOut = await ask({ type: "read", state: more.id });
       worker.terminate();

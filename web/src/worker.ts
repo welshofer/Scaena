@@ -228,7 +228,7 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
   // over the deck an edit compiled while its frame paints: it lints that deck and no other.
   while (editing && typeof (data as { source?: unknown }).source === "string") await editing;
   // Taken now: what it carries is read against the deck as it stands.
-  const carried = (data as { version?: unknown }).version;
+  const carried = (data as { seen?: unknown }).seen;
   if (typeof carried === "number") asked = carried;
   try {
     switch (data.type) {
