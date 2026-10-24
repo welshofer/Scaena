@@ -1267,13 +1267,18 @@ impl Scaena {
         and so unscored), how the intensity each declares follows the curve of the arc it was written to, and whether its \
         words carry the intensity and the tone it declares. Each slide as read: where its arc's curve stands, what it declares, and what its words \
         read. Findings slide by slide, each with what to ask about it and, where one is safe, a patch for `deck_patch`: \
-        a slide's declared intensity or tone set to what its words read, or a moved slide made part of the beat it now \
-        stands in.")]
+        a moved slide made part of the beat it now stands in. A slide on which lint finds an error comes first. Words \
+        far from the intensity or the tone a slide declares are the words' to change, not the plan's.")]
     async fn deck_health(
         &self,
         Parameters(a): Parameters<BundleArg>,
     ) -> Result<Json<scaena_ops::health::Health>, String> {
-        blocking(move || scaena_ops::health::health(&open(&a.bundle)?.deck)).await.map(Json)
+        blocking(move || {
+            let b = open(&a.bundle)?;
+            scaena_ops::health::health_in(&b.deck, &scaena_ops::lint::lint(&b)?.findings)
+        })
+        .await
+        .map(Json)
     }
 
     #[tool(description = "Find the icons that ship (Phosphor, MIT) by words: each word begins a word of an icon's \
