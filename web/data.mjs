@@ -21,7 +21,7 @@
 import { execFileSync } from "node:child_process";
 import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { axeInto, launch, serve } from "./serve.mjs";
+import { axeInto, launch, serve, tab } from "./serve.mjs";
 
 const out = "target/web-data";
 rmSync(out, { recursive: true, force: true });
@@ -71,7 +71,7 @@ try {
   check((await page.evaluate(() => window.scaena.last().valid)) === false, "a cell its column does not read leaves the deck invalid");
 
   // The Data tab: the source as a table.
-  await page.click("#tab-data");
+  await tab(page, "data");
   await page.waitForFunction(() => window.scaena.data.shown()?.sheet.rows.length === 12, null, { timeout: 60000 });
   const shown = await page.evaluate(() => ({
     sources: [...document.querySelectorAll("#data [data-source] option")].map((o) => o.value),
@@ -93,7 +93,7 @@ try {
     return { invalid: cell.getAttribute("aria-invalid"), title: cell.title, listed: [...document.querySelectorAll("#data [data-problems] li")].map((li) => li.textContent) };
   });
   check(
-    marked.invalid === "true" && marked.title.includes("`n/a` is not a number") && marked.listed.length === 1 && marked.listed[0].startsWith("revenue, row 3"),
+    marked.invalid === "true" && marked.title.includes("`n/a` is not a number") && marked.listed.length === 1 && marked.listed[0].startsWith("revenue, row 4"),
     `the cell that does not read is marked, with why, and listed: ${JSON.stringify(marked)}`,
   );
   await axeInto(page);
@@ -111,7 +111,7 @@ try {
   await page.setViewportSize({ width: 1600, height: 1100 });
 
   // Fixed: the deck validates.
-  await set(3, 2, "19.8", "Row 3, revenue: set");
+  await set(3, 2, "19.8", "Row 4, revenue: set");
   await page.waitForFunction(() => window.scaena.last()?.valid, null, { timeout: 60000 }).catch(() => {});
   const fixed = await page.evaluate(() => ({
     valid: window.scaena.last().valid,
@@ -139,7 +139,7 @@ try {
   await page.waitForFunction(() => window.scaena.at()?.index === 1, null, { timeout: 30000 }).catch(() => {});
   await page.waitForTimeout(300);
   const before = await page.locator("#stage").screenshot();
-  await set(2, 2, "4.6", "Row 2, revenue: set");
+  await set(2, 2, "4.6", "Row 3, revenue: set");
   await page.waitForTimeout(500);
   const after = await page.locator("#stage").screenshot();
   check((await value(2, 2)) === "4.6", "the cell holds what it was set to");

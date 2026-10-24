@@ -20,7 +20,7 @@
 //   `mix`; its transition, which a cut takes away; its hold, in seconds; and its notes. Each is one
 //   `set_state` patch, one step to undo.
 // Exits 1 on any failure.
-import { launch, serve } from "./serve.mjs";
+import { launch, serve, tab } from "./serve.mjs";
 
 const server = await serve();
 const url = (bundle) => `${server.origin}/web/dist/editor.html?painter=cpu&bundle=${bundle}`;
@@ -240,7 +240,9 @@ try {
   await undo();
   check(await back(original), "and one undo takes it back");
 
-  // Its transition, its own: a duration from the theme, then an ease, then none, a cut.
+  // Its transition, its own, on the Animate tab (lift-up ATTR-4): a duration from the theme, then
+  // an ease, then none, a cut.
+  await tab(page, "animate");
   const slow = (await slot()).span;
   await page.selectOption("#look-transition-duration", "fast");
   check(await reads("state mix slide:revenue transition:fast"), `a duration chosen: ${await mixLine()}`);
@@ -252,9 +254,9 @@ try {
     .waitForFunction(() => window.scaena.look.offered()?.fields.find((f) => f.prop === "transition/ease")?.lives?.state === "mix", null, { timeout: 30000 })
     .catch(() => {});
   check((await stated("transition/ease"))?.lives?.state === "mix", `set in mix: ${JSON.stringify((await stated("transition/ease"))?.lives)}`);
-  await page.click('#look [data-away="transition/ease"]');
+  await page.click('#animating [data-away="transition/ease"]');
   await page.evaluate(() => window.scaena.look.settled());
-  await page.click('#look [data-away="transition/duration"]');
+  await page.click('#animating [data-away="transition/duration"]');
   await page.evaluate(() => window.scaena.look.settled());
   await page.waitForFunction(() => !window.scaena.source().split("\n").find((l) => l.startsWith("state mix"))?.includes("transition"), null, {
     timeout: 30000,
@@ -287,13 +289,15 @@ try {
   check(put.value === held && put.value === put.was, `the field shows the deck's hold again: ${JSON.stringify(put)}, the deck's ${held}`);
   await page.evaluate(() => {
     window.holdChanges = 0;
-    document.querySelector("#look").addEventListener("change", (e) => e.target.id === "look-hold" && window.holdChanges++);
+    document.querySelector("#animating").addEventListener("change", (e) => e.target.id === "look-hold" && window.holdChanges++);
   });
   await page.locator("#overlay").focus();
   await page.evaluate(() => window.scaena.look.settled());
   await page.waitForTimeout(500);
   const again = await page.evaluate(() => window.holdChanges);
   check(again === 0, `leaving the field sends nothing again: ${again} more change(s), ${await status()}`);
+  // Its notes are Format's.
+  await tab(page, "inspector");
   await page.fill("#look-notes", "Let the stack land.");
   await page.locator("#overlay").focus();
   check(await reads('notes "Let the stack land."'), "notes written in the inspector are the state's");

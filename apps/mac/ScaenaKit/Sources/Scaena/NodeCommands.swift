@@ -49,6 +49,10 @@ struct DeckActions {
     var drawing = false
     /// Copy the words of the code selected as text (PLAN 2.133).
     var copyCode: (() -> Void)? = nil
+    /// Hold Only on This Slide, or let it go (lift-up FUNC-4): each gesture kept to the slide shown,
+    /// as Option keeps one; and whether it is held. A long press offers it where there is no key.
+    var keepToSlide: (() -> Void)? = nil
+    var keptToSlide = false
     /// Paste the words on the pasteboard as words, never as code (PLAN 2.133).
     var pasteAsText: (() -> Void)? = nil
     /// Whether a node selected shows on another slide too: Delete from All Slides takes it off

@@ -118,6 +118,8 @@ struct DeckView: View {
     @SceneStorage("formats") private var showsFormats = false
     /// How close the canvas is shown, and the part of it shown (PLAN 3.16).
     @State private var zoom = Zoom(canvas: CGSize(width: 1920, height: 1080))
+    /// What a touch holds in a keyboard's place: Select, and Only on This Slide (lift-up FUNC-4).
+    @State private var touch = TouchHeld()
     /// Whether the find bar shows over the canvas (PLAN 3.16).
     @State private var searching = false
     /// Edit › Find Next and Find Previous (lift-up USE-5): how often asked, and which way.
@@ -305,12 +307,12 @@ struct DeckView: View {
                 rehearsal = nil
             }
         } else if showsSlides {
-            LightTable(editor: editor, picked: $slidesPicked, show: showState) { ops, then in
+            LightTable(editor: editor, picked: $slidesPicked, show: showState, make: { ops, then in
                 perform {
                     try document.make(ops, undo: undo)
                     slidesPicked = Set(then)
                 }
-            }
+            }, touch: touch)
         } else {
             // The canvas takes the room the find bar, the other sizes, and the timeline leave.
             CanvasColumn {
@@ -352,8 +354,10 @@ struct DeckView: View {
             viewing
             zooming
             #if !os(macOS)
-            // Undo by touch, as a presentation app's on the iPad (PLAN 4.11).
+            // Undo by touch, as a presentation app's on the iPad (PLAN 4.11), and Select, which lets
+            // a touch alone select several (lift-up FUNC-4).
             UndoButton(undo: undo)
+            SelectButton(touch: touch)
             #endif
         }
         ToolbarItemGroup {
@@ -928,7 +932,8 @@ struct DeckView: View {
                                 penning: { takePen() },
                                 inked: { points in ink(points, in: shown) },
                                 painted: painted,
-                                showing: { state in chosen = state }
+                                showing: { state in chosen = state },
+                                touch: touch
                             ) { ops, name in
                                 perform { try document.make(ops, undo: undo, named: name) }
                             }
@@ -1161,6 +1166,9 @@ struct DeckView: View {
         if selection.count == 2 { made.connect = { arrow in connect(arrow, in: shown) } }
         if one && texted { made.diagram = { kind in diagram(kind, in: shown) } }
         made.deletesElsewhere = elsewhere
+        // A gesture kept to the slide shown without Option, from a long press (lift-up FUNC-4).
+        made.keepToSlide = { touch.onlyThisSlide.toggle() }
+        made.keptToSlide = touch.onlyThisSlide
         // Code selected copies as text, and words paste as words (PLAN 2.133).
         if one, let node, codes.contains(node) { made.copyCode = { copyCode(node, in: shown) } }
         made.pasteAsText = { pasteAsText() }
