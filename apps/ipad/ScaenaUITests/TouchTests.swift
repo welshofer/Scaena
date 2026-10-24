@@ -318,7 +318,7 @@ final class TouchTests: XCTestCase {
         try XCTContext.runActivity(named: "A long press offers Only on This Slide, which a tap holds") { _ in
             title.press(forDuration: 1.2)
             let only = all.matching(NSPredicate(format: "label == 'Only on This Slide'")).firstMatch
-            guard only.waitForExistence(timeout: 5) else {
+            guard paged(to: only, in: app) else {
                 keep(app, as: "no-only-this-slide")
                 throw Unseen(description: "a long press offered no Only on This Slide: \(app.debugDescription)")
             }
@@ -326,7 +326,7 @@ final class TouchTests: XCTestCase {
             only.tap()
             settle(1)
             title.press(forDuration: 1.2)
-            guard only.waitForExistence(timeout: 5) else {
+            guard paged(to: only, in: app) else {
                 throw Unseen(description: "a second long press offered no Only on This Slide: \(app.debugDescription)")
             }
             keep(app, as: "only-this-slide")
@@ -370,6 +370,35 @@ final class TouchTests: XCTestCase {
                 throw Unseen(description: "with Select let go, a tap did not pick belief-1 alone: \(app.debugDescription)")
             }
         }
+    }
+
+    /// Whether `item` comes to show in the edit menu a long press opened, the menu paged on as a
+    /// person pages it. The menu sets its items in one row, a page at a time, and lists none of a
+    /// page it does not show; the arrow to the next page stands just past the row's last item.
+    @MainActor
+    private func paged(to item: XCUIElement, in app: XCUIApplication) -> Bool {
+        // What the menu lists: buttons, or menu items, by the system's version.
+        let kinds = NSPredicate(
+            format: "elementType == %lu OR elementType == %lu",
+            XCUIElement.ElementType.button.rawValue, XCUIElement.ElementType.menuItem.rawValue)
+        let listed = app.descendants(matching: .any).matching(kinds)
+        guard wait(5, { listed.matching(NSPredicate(format: "label == 'Copy'")).firstMatch.isHittable }) else {
+            return false
+        }
+        let row = listed.matching(NSPredicate(format: "label == 'Copy'")).firstMatch.frame.midY
+        for _ in 0..<8 {
+            if item.waitForExistence(timeout: 1), item.isHittable { return true }
+            let shown = listed.allElementsBoundByIndex.filter { abs($0.frame.midY - row) < 6 && $0.frame.width > 0 }
+            guard let last = shown.max(by: { $0.frame.maxX < $1.frame.maxX }) else { return false }
+            // The arrow, where it is listed as an element of its own; else the point just past the
+            // last item, where it stands.
+            let said = last.label.lowercased()
+            let arrow = !said.contains(where: \.isLetter) || ["forward", "next", "more"].contains { said.contains($0) }
+            let x = arrow ? last.frame.midX : last.frame.maxX + 20
+            app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: x, dy: row)).tap()
+            settle(0.5)
+        }
+        return item.exists && item.isHittable
     }
 
     /// How close the canvas is shown, as it tells VoiceOver: "whole" where nothing is zoomed.
