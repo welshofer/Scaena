@@ -47,6 +47,10 @@ pub enum StoreError {
     Missing(String),
     #[error("`{0}` is not a path inside the bundle (relative, no `..`)")]
     OutsideBundle(String),
+    /// A path inside a folder bundle whose link leads out of it: a bundle is self-contained
+    /// (SPEC §3.1), and what is outside it is neither read into a save nor written over.
+    #[error("`{0}` is a link that leads out of the bundle; copy the file into the bundle in its place")]
+    LinkedOut(String),
     #[error("deck.json: {0}")]
     Json(#[from] serde_json::Error),
     #[error("{}: not a zip bundle: {source}", path.display())]
@@ -127,6 +131,10 @@ impl BundleFiles for Files {
             Files::Dir(root) => inside(root, path).is_ok_and(|p| p.is_file()),
             Files::Zip(entries) => normal(path).is_ok_and(|key| entries.contains_key(&key)),
         }
+    }
+
+    fn linked_out(&self, path: &str) -> bool {
+        matches!(self, Files::Dir(root) if matches!(inside(root, path), Err(StoreError::LinkedOut(_))))
     }
 
     fn read_text(&self, path: &str) -> Option<String> {
@@ -331,7 +339,9 @@ fn unzip_from(reader: impl Read + std::io::Seek, path: &Path) -> Result<BTreeMap
 
 /// The files under `dir`, as paths relative to `root` with `/` between parts; none whose name
 /// starts with a dot, as a partial a save left behind does ([`write_whole`]), and as the Mac's
-/// open and `scaena serve`'s scan pass them over.
+/// open and `scaena serve`'s scan pass them over. A link is listed only where it is a file that
+/// stays inside the bundle: a linked folder is not walked, so a link to `/` or to a folder
+/// above lists nothing and never walks the disk.
 fn walk(root: &Path, dir: &Path, out: &mut Vec<String>) -> Result<(), StoreError> {
     for entry in std::fs::read_dir(dir)? {
         let entry = entry?;
@@ -339,7 +349,11 @@ fn walk(root: &Path, dir: &Path, out: &mut Vec<String>) -> Result<(), StoreError
             continue;
         }
         let path = entry.path();
-        if path.is_dir() {
+        let kind = entry.file_type()?;
+        if kind.is_symlink() && (path.is_dir() || !links_inside(root, &path)) {
+            continue;
+        }
+        if kind.is_dir() {
             walk(root, &path, out)?;
         } else if let Ok(rel) = path.strip_prefix(root) {
             let parts: Vec<String> = rel.components().map(|c| c.as_os_str().to_string_lossy().into_owned()).collect();
@@ -423,12 +437,38 @@ fn staged(path: &Path, bytes: &[u8]) -> std::io::Result<PathBuf> {
     Ok(partial)
 }
 
+/// `rel`, a path inside the bundle at `root`, as a path on disk: relative, with no `..`, and,
+/// read through every link, still inside the bundle. A bundle taken from git or an archive
+/// keeps its links, and one that leads out would read a file the user did not mean into what
+/// a save or an export carries, or write a data edit over one outside.
 fn inside(root: &Path, rel: &str) -> Result<PathBuf, StoreError> {
     let normal = Path::new(rel).components().all(|c| matches!(c, Component::Normal(_) | Component::CurDir));
     if rel.is_empty() || !normal {
         return Err(StoreError::OutsideBundle(rel.to_string()));
     }
-    Ok(root.join(rel))
+    let path = root.join(rel);
+    // A bundle not made yet has nothing to lead out through.
+    let Ok(real_root) = std::fs::canonicalize(root) else { return Ok(path) };
+    // The nearest part of it that is there, read through its links; the rest is made new.
+    let mut there = path.as_path();
+    while std::fs::symlink_metadata(there).is_err() {
+        match there.parent() {
+            Some(parent) => there = parent,
+            None => return Ok(path),
+        }
+    }
+    match std::fs::canonicalize(there) {
+        Ok(real) if real.starts_with(&real_root) => Ok(path),
+        _ => Err(StoreError::LinkedOut(rel.to_string())),
+    }
+}
+
+/// Whether `path`, a link inside the bundle at `root`, leads somewhere still inside it.
+fn links_inside(root: &Path, path: &Path) -> bool {
+    match (std::fs::canonicalize(root), std::fs::canonicalize(path)) {
+        (Ok(root), Ok(real)) => real.starts_with(root),
+        _ => false,
+    }
 }
 
 #[cfg(test)]
