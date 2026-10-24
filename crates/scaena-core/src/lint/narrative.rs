@@ -19,6 +19,7 @@ pub(super) fn rules() -> Vec<Box<dyn Rule>> {
         Box::new(W424TooManyClaims),
         Box::new(W425RepeatedClaim),
         Box::new(W426SpineOutOfOrder),
+        Box::new(W429BeatWithNoStates),
     ]
 }
 
@@ -353,5 +354,56 @@ impl Rule for W426SpineOutOfOrder {
             }
         }
         out
+    }
+}
+
+/// W429: a beat that names no state the deck has: its claim, its evidence, and its time are told
+/// nowhere, though the spine, the PDF's outline, and health read them (dogfood 3). Its fix takes
+/// out every such beat, and a section that leaves with no beat; each finding carries it, and it
+/// applies once, each beat checked where it stands first.
+struct W429BeatWithNoStates;
+impl Rule for W429BeatWithNoStates {
+    fn code(&self) -> &'static str {
+        "W429"
+    }
+    fn severity(&self) -> Severity {
+        Severity::Warning
+    }
+    fn check(&self, cx: &Context) -> Vec<Finding> {
+        let Some(spine) = &cx.deck.spine else { return vec![] };
+        let mut empty = Vec::new();
+        for (s, section) in spine.sections.iter().enumerate() {
+            for (b, beat) in section.beats.iter().enumerate() {
+                if !beat.states.iter().any(|id| cx.deck.state_index(id).is_some()) {
+                    empty.push((s, b, beat));
+                }
+            }
+        }
+        if empty.is_empty() {
+            return vec![];
+        }
+        let deck = serde_json::json!({ "spine": spine });
+        let pairs: Vec<(usize, usize)> = empty.iter().map(|(s, b, _)| (*s, *b)).collect();
+        let mut fix: Vec<Value> = empty
+            .iter()
+            .map(|(s, b, beat)| serde_json::json!({ "op": "test", "path": format!("/spine/sections/{s}/beats/{b}/id"), "value": beat.id }))
+            .collect();
+        fix.extend(crate::patch::spine_without(&deck, &pairs).iter().filter_map(|op| serde_json::to_value(op).ok()));
+        empty
+            .iter()
+            .map(|(s, b, beat)| {
+                Finding::new(
+                    self.code(),
+                    self.severity(),
+                    format!(
+                        "beat `{}` names no state the deck has: its claim \"{}\" is told nowhere",
+                        beat.id, beat.claim
+                    ),
+                )
+                .at(format!("/spine/sections/{s}/beats/{b}"))
+                .hint("Take the beat out (the fix does), or list the states that tell it.")
+                .fix(fix.clone())
+            })
+            .collect()
     }
 }

@@ -505,7 +505,8 @@ impl Rule for W322Idle {
                             .at(pointer.clone())
                             .state(state.id.clone())
                             .node(id)
-                            .hint("Remove the item, or move it to the state where the node enters, leaves, or is on screen."),
+                            .hint("Remove the item, or move it to the state where the node enters, leaves, or is on screen.")
+                            .fix(untargeted(&state.choreography, i, &pointer, id)),
                         );
                     }
                 }
@@ -513,6 +514,38 @@ impl Rule for W322Idle {
         }
         out
     }
+}
+
+/// The motions that move nothing in `deck` (W322), as `snapshots` resolve it: what `hide_node`
+/// takes out with a node it hides (dogfood 3).
+pub(crate) fn idle(deck: &crate::Deck, snapshots: &[crate::tracking::Snapshot]) -> Vec<Finding> {
+    W322Idle.check(&Context { deck, theme: None, snapshots })
+}
+
+/// The patch that takes `id` out of the motion at `pointer` in state `i`'s `choreography`: out of
+/// its targets where it has others, else the motion goes, and a sequence or a parallel it leaves
+/// with none goes with it.
+fn untargeted(choreography: &[Value], i: usize, pointer: &str, id: &str) -> Vec<Value> {
+    let base = format!("/states/{i}/choreography");
+    let Some(rest) = pointer.strip_prefix(&base) else { return Vec::new() };
+    let root = Value::Array(choreography.to_vec());
+    let Some(item) = root.pointer(rest) else { return Vec::new() };
+    if let Some(Value::Array(targets)) = item.get("target")
+        && targets.len() > 1
+        && let Some(k) = targets.iter().position(|t| t.as_str() == Some(id))
+    {
+        return vec![serde_json::json!({ "op": "remove", "path": format!("{pointer}/target/{k}") })];
+    }
+    let mut steps: Vec<&str> = rest.split('/').skip(1).collect();
+    while steps.len() >= 3 {
+        let parent = format!("/{}", steps[..steps.len() - 1].join("/"));
+        if root.pointer(&parent).and_then(Value::as_array).is_some_and(|a| a.len() == 1) {
+            steps.truncate(steps.len() - 2);
+        } else {
+            break;
+        }
+    }
+    vec![serde_json::json!({ "op": "remove", "path": format!("{base}/{}", steps.join("/")) })]
 }
 
 /// Every choreography target in `item`, with its pointer.

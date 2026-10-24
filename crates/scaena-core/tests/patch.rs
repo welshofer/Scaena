@@ -228,12 +228,35 @@ fn slides_move_copy_and_go_keeping_their_looks() {
         }
     };
 
-    // `close` before the slide `revenue`, and that slide, its step `mix` with it, after `close`.
-    for op in [
-        json!({ "op": "move_slide", "slide": "close", "before": "revenue" }),
-        json!({ "op": "move_slide", "slide": "revenue", "after": "close" }),
+    // Each section's beats, as the spine tells them.
+    let told = |doc: &Value| -> Vec<(String, Vec<String>)> {
+        let sections = doc["spine"]["sections"].as_array().unwrap();
+        let id = |v: &Value| v["id"].as_str().unwrap().to_string();
+        sections.iter().map(|s| (id(s), s["beats"].as_array().unwrap().iter().map(id).collect())).collect()
+    };
+    let spine = |pairs: &[(&str, &[&str])]| -> Vec<(String, Vec<String>)> {
+        pairs.iter().map(|(s, beats)| (s.to_string(), beats.iter().map(|b| b.to_string()).collect())).collect()
+    };
+    let w426 = |doc: &Value| {
+        scaena_core::lint::check(&deck(doc), None).into_iter().filter(|f| f.code == "W426" || f.code == "W429").count()
+    };
+
+    // `close` before the slide `revenue`, and that slide, its step `mix` with it, after `close`:
+    // the beat that tells only the slide moves with it, so the spine tells what the deck plays
+    // in its order (dogfood 3, T2), a section it leaves with no beat gone.
+    for (op, after) in [
+        (
+            json!({ "op": "move_slide", "slide": "close", "before": "revenue" }),
+            spine(&[("open", &["opening", "thanks"]), ("growth", &["doubled"])]),
+        ),
+        (
+            json!({ "op": "move_slide", "slide": "revenue", "after": "close" }),
+            spine(&[("open", &["opening"]), ("end", &["thanks", "doubled"])]),
+        ),
     ] {
         let c = patch(&doc, json!([op])).unwrap();
+        assert_eq!(told(&c.doc), after, "{op}");
+        assert_eq!(w426(&c.doc), 0, "{op}: the spine in the deck's order");
         assert_eq!(ids(&c.doc), ["intro", "close", "revenue", "mix"], "{op}");
         shows_as(&c.doc, &[("intro", "intro"), ("close", "close"), ("revenue", "revenue"), ("mix", "mix")]);
         assert_eq!(c.doc["states"][0], doc["states"][0], "intro's JSON as it was");
@@ -254,12 +277,20 @@ fn slides_move_copy_and_go_keeping_their_looks() {
     let again = patch(&c.doc, json!([{ "op": "duplicate_slide", "slide": "revenue" }])).unwrap();
     assert_eq!(&ids(&again.doc)[3..5], ["revenue-3", "mix-3"]);
 
-    // `revenue` gone, both its states: `close` written again to show what it showed.
+    // `revenue` gone, both its states: `close` written again to show what it showed. The beat it
+    // told goes, its claim told nowhere now, with the section it leaves with none, and the data
+    // source its chart read, which nothing reads then (dogfood 3, T1).
     let c = patch(&doc, json!([{ "op": "remove_slide", "slide": "revenue" }])).unwrap();
     assert_eq!(ids(&c.doc), ["intro", "close"]);
     shows_as(&c.doc, &[("intro", "intro"), ("close", "close")]);
-    assert_eq!(c.doc["spine"]["sections"][1]["beats"][0]["states"], json!([]));
+    assert_eq!(told(&c.doc), spine(&[("open", &["opening"]), ("end", &["thanks"])]));
+    assert!(c.doc.get("data").and_then(|d| d.get("q3")).is_none(), "{}", c.doc["data"]);
+    assert_eq!(w426(&c.doc), 0);
     assert_eq!(errors(&c.doc), Vec::<String>::new());
+    // A beat that keeps a state of its own stays, and so does a source something still reads.
+    let c = patch(&doc, json!([{ "op": "remove_slide", "slide": "close" }])).unwrap();
+    assert_eq!(told(&c.doc), spine(&[("open", &["opening"]), ("growth", &["doubled"])]));
+    assert!(c.doc["data"].get("q3").is_some());
 
     for (op, says) in [
         (json!({ "op": "move_slide", "slide": "mix", "after": "close" }), "`mix` is a step of slide `revenue`"),
@@ -272,6 +303,28 @@ fn slides_move_copy_and_go_keeping_their_looks() {
         let err = patch(&doc, json!([op])).unwrap_err();
         assert!(err.message.contains(says), "{op}: {err}");
     }
+}
+
+/// `delete_node` deletes as the editors' Delete does (dogfood 3): from the state on where an
+/// earlier state still shows the node, else from the deck; with `everywhere`, from the deck.
+#[test]
+fn delete_node_deletes_as_the_editors_delete_does() {
+    let doc = example();
+    // `note` enters in `revenue`: deleted from `mix`, it leaves there and stays in `revenue`.
+    let c = patch(&doc, json!([{ "op": "delete_node", "node": "note", "state": "mix" }])).unwrap();
+    assert!(c.doc["nodes"].get("note").is_some());
+    let snaps = scaena_core::resolve_states(&deck(&c.doc)).unwrap();
+    let shows = |state: &str| snaps.iter().find(|s| s.state_id == state).unwrap().nodes.contains_key("note");
+    assert!(shows("revenue") && !shows("mix") && !shows("close"));
+    // Deleted from `revenue`, where it enters, no state shows it: it goes from the deck.
+    let c = patch(&doc, json!([{ "op": "delete_node", "node": "note", "state": "revenue" }])).unwrap();
+    assert!(c.doc["nodes"].get("note").is_none());
+    assert_eq!(errors(&c.doc), Vec::<String>::new());
+    // Everywhere, from the deck, wherever it shows.
+    let c = patch(&doc, json!([{ "op": "delete_node", "node": "note", "state": "mix", "everywhere": true }])).unwrap();
+    assert!(c.doc["nodes"].get("note").is_none());
+    let err = patch(&doc, json!([{ "op": "delete_node", "node": "note", "state": "intro" }])).unwrap_err();
+    assert!(err.message.contains("not on screen"), "{err}");
 }
 
 #[test]
@@ -295,6 +348,8 @@ fn show_and_hide_make_a_node_enter_and_leave() {
         json!([
             { "op": "add", "path": "/states/2/remove", "value": ["note"] },
             { "op": "remove", "path": "/states/0/props/subtitle" },
+            // Its entrance there, which would move nothing now, goes with it (W322, dogfood 3).
+            { "op": "remove", "path": "/states/0/choreography/1" },
             { "op": "add", "path": "/states/2/props/subtitle", "value": { "role": "caption" } },
             { "op": "replace", "path": "/states/3/remove", "value": ["note"] },
         ])

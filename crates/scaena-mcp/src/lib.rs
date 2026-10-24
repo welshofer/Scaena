@@ -706,6 +706,10 @@ pub struct StateStart {
     /// each by its name; `bundle://theme`'s `layouts` holds them all). Without it, a blank slide.
     #[serde(default)]
     pub layout: Option<String>,
+    /// The one sentence the slide tells: it starts a beat of its own for it, just after the beat
+    /// of the state it follows. Without it, the slide joins that beat.
+    #[serde(default)]
+    pub claim: Option<String>,
     /// Say what would change, and write nothing.
     #[serde(default)]
     pub dry_run: bool,
@@ -1246,7 +1250,13 @@ impl Scaena {
     ) -> Result<Json<scaena_ops::states::Started>, String> {
         let author = author(&context);
         blocking(move || {
-            scaena_ops::states::start(&open_by(&a.bundle, author)?, &a.state, a.layout.as_deref(), a.dry_run)
+            scaena_ops::states::start(
+                &open_by(&a.bundle, author)?,
+                &a.state,
+                a.layout.as_deref(),
+                a.claim.as_deref(),
+                a.dry_run,
+            )
         })
         .await
         .map(Json)

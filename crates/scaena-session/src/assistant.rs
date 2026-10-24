@@ -331,6 +331,8 @@ struct StateStart {
     #[serde(default)]
     layout: Option<String>,
     #[serde(default)]
+    claim: Option<String>,
+    #[serde(default)]
     dry_run: bool,
 }
 
@@ -502,7 +504,10 @@ impl Session {
             // A slide started as Add Slide starts one (PLAN 3.30), linted as an edit is.
             "state_start" => {
                 let a: StateStart = args(name, a)?;
-                let added = scaena_ops::states::starting(&b.deck, &self.theme, &a.state, a.layout.as_deref())?;
+                let mut added = scaena_ops::states::starting(&b.deck, &self.theme, &a.state, a.layout.as_deref())?;
+                if let Some(claim) = a.claim.as_deref() {
+                    added = scaena_ops::states::claimed(&b.deck, added, claim)?;
+                }
                 let what = scaena_ops::states::said(&self.theme, a.layout.as_deref());
                 let validated = self.validated.clone();
                 let judge = |deck: &Deck, theme: &Theme, states: &[&str]| {

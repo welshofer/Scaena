@@ -61,6 +61,18 @@ pub(super) fn compile(doc: &Value, op: &SemanticOp, files: &dyn BundleFiles) -> 
         }
         SemanticOp::ShowNode { node, state, props } => show_node(&d, node, state, props.clone())?,
         SemanticOp::HideNode { node, state } => hide_node(&d, node, state)?,
+        SemanticOp::DeleteNode { node, state, everywhere } => {
+            let steps = deleting(&typed(&d)?, files, &[node.as_str()], state, *everywhere)?;
+            let mut work = doc.clone();
+            let mut ops = Vec::new();
+            for step in steps {
+                let step: SemanticOp = serde_json::from_value(step).map_err(|e| e.to_string())?;
+                let out = compile(&work, &step, files)?;
+                work = applied(&work, &out.ops).ok_or("the deletion does not apply")?;
+                ops.extend(out.ops);
+            }
+            ops
+        }
         SemanticOp::Group { id, nodes, state } => group(&d, id, nodes, state.as_deref())?,
         SemanticOp::Ungroup { group } => ungroup(&d, group)?,
         SemanticOp::SetProp { node, prop, value, state } => {
@@ -2117,7 +2129,29 @@ fn hide_node(d: &Doc, node: &str, state: &str) -> Result<Vec<JsonOp>, String> {
             None => JsonOp::Add { path: format!("/states/{i}/remove"), value: Value::Array(vec![value]) },
         });
     }
+    ops.extend(idle_with(d, &deck, &snapshots, &ops, node, i));
     Ok(ops)
+}
+
+/// The ops that take out each motion of `node`, from state `from` on, that moves nothing once
+/// `ops` hide it (W322): an entrance, an emphasis, or an exit where it is no longer on screen to
+/// make them (dogfood 3). One that moved nothing before stays, for lint to say.
+fn idle_with(d: &Doc, deck: &Deck, snapshots: &[Snapshot], ops: &[JsonOp], node: &str, from: usize) -> Vec<JsonOp> {
+    let (Some(next), before) = (applied(d.0, ops), crate::lint::idle(deck, snapshots)) else { return Vec::new() };
+    let Ok(after) = typed(&Doc(&next)) else { return Vec::new() };
+    let Ok(shown) = resolve_states(&after) else { return Vec::new() };
+    let was = |f: &crate::lint::Finding| before.iter().any(|b| b.path == f.path && b.node == f.node);
+    let at = |f: &crate::lint::Finding| after.states.iter().position(|s| Some(&s.id) == f.state.as_ref());
+    let mut found: Vec<crate::lint::Finding> = crate::lint::idle(&after, &shown)
+        .into_iter()
+        .filter(|f| f.node.as_deref() == Some(node) && at(f).is_some_and(|i| i >= from) && !was(f))
+        .collect();
+    // The last pointer first, so each removal stands where it pointed.
+    let key = |f: &crate::lint::Finding| -> Vec<usize> {
+        f.path.as_deref().unwrap_or_default().split('/').filter_map(|s| s.parse().ok()).collect()
+    };
+    crate::sort::by_key(&mut found, |f| std::cmp::Reverse(key(f)));
+    found.iter().flat_map(|f| f.fix.iter().flatten()).filter_map(|op| serde_json::from_value(op.clone()).ok()).collect()
 }
 
 /// Where `after` or `before` puts a state: an index into the states without `moving`, the
@@ -2208,7 +2242,56 @@ fn move_slide(d: &Doc, slide: &str, after: Option<&str>, before: Option<&str>) -
     if states.iter().map(|s| &s.id).eq(deck.states.iter().map(|s| &s.id)) {
         return Ok(Vec::new());
     }
-    Ok(vec![JsonOp::Replace { path: "/states".into(), value: looks_kept(d, &deck, states, &[])? }])
+    let ids: Vec<&str> = deck.states[moving].iter().map(|s| s.id.as_str()).collect();
+    let spine = moved_beat(d, &ids, &states);
+    let mut ops = vec![JsonOp::Replace { path: "/states".into(), value: looks_kept(d, &deck, states, &[])? }];
+    if let Some(sections) = spine {
+        ops.push(JsonOp::Replace { path: "/spine/sections".into(), value: sections });
+    }
+    Ok(ops)
+}
+
+/// The spine's sections with the beat that tells only the slide whose states are `moved` moved
+/// with it (dogfood 3), the deck's states now in `order`: just after the beat that tells the
+/// state before the slide, else just before the one that tells the state after it, so the spine
+/// tells the story in the order the deck plays it (W426). A section it leaves with no beat goes.
+/// None where no beat tells the slide alone, or none tells a state beside it.
+fn moved_beat(d: &Doc, moved: &[&str], order: &[State]) -> Option<Value> {
+    let mut sections = d.0.pointer("/spine/sections")?.as_array()?.clone();
+    let listed = |beat: &Value| -> Vec<String> {
+        let states = beat.get("states").and_then(Value::as_array).map_or(&[][..], Vec::as_slice);
+        states
+            .iter()
+            .filter_map(Value::as_str)
+            .filter(|s| order.iter().any(|o| o.id == *s))
+            .map(str::to_string)
+            .collect()
+    };
+    let (s, b) = d.beats().find_map(|(s, b, beat)| {
+        let told = listed(beat);
+        (!told.is_empty() && told.iter().all(|t| moved.contains(&t.as_str()))).then_some((s, b))
+    })?;
+    let beats = sections.get_mut(s)?.get_mut("beats")?.as_array_mut()?;
+    let beat = beats.remove(b);
+    if beats.is_empty() {
+        sections.remove(s);
+    }
+    let first = order.iter().position(|o| o.id == moved[0])?;
+    let telling = |state: &str, last: bool| {
+        let mut at = sections.iter().enumerate().flat_map(|(s, section)| {
+            let beats = section.get("beats").and_then(Value::as_array).map_or(&[][..], Vec::as_slice);
+            beats
+                .iter()
+                .enumerate()
+                .filter(|(_, beat)| listed(beat).iter().any(|t| t == state))
+                .map(move |(b, _)| (s, b))
+        });
+        if last { at.last() } else { at.next() }
+    };
+    let before = first.checked_sub(1).and_then(|i| telling(&order[i].id, true)).map(|(s, b)| (s, b + 1));
+    let (s, b) = before.or_else(|| order.get(first + moved.len()).and_then(|o| telling(&o.id, false)))?;
+    sections.get_mut(s)?.get_mut("beats")?.as_array_mut()?.insert(b, beat);
+    Some(Value::Array(sections))
 }
 
 fn duplicate_slide(d: &Doc, slide: &str) -> Result<Vec<JsonOp>, String> {
@@ -2310,11 +2393,18 @@ fn remove_slide(d: &Doc, slide: &str) -> Result<Vec<JsonOp>, String> {
     let states: Vec<State> = deck.states.iter().filter(|s| !gone.contains(&s.id.as_str())).cloned().collect();
     let written = looks_kept(d, &deck, states, &[])?;
     let mut ops = Vec::new();
+    // A beat the slide leaves with no states goes, its claim told nowhere now (dogfood 3).
+    let mut emptied = Vec::new();
     for (s, b, beat) in d.beats() {
         if let Some(Value::Array(listed)) = beat.get("states")
             && listed.iter().any(|x| x.as_str().is_some_and(|x| gone.contains(&x)))
         {
-            let kept = listed.iter().filter(|x| !x.as_str().is_some_and(|x| gone.contains(&x))).cloned().collect();
+            let kept: Vec<Value> =
+                listed.iter().filter(|x| !x.as_str().is_some_and(|x| gone.contains(&x))).cloned().collect();
+            if kept.is_empty() {
+                emptied.push((s, b));
+                continue;
+            }
             ops.push(JsonOp::Replace {
                 path: format!("/spine/sections/{s}/beats/{b}/states"),
                 value: Value::Array(kept),
@@ -2332,7 +2422,66 @@ fn remove_slide(d: &Doc, slide: &str) -> Result<Vec<JsonOp>, String> {
         }
     }
     ops.extend(left_behind(&deck, range, &next));
+    ops.extend(spine_without(d.0, &emptied));
+    // A data source the slide read that nothing reads after goes with it.
+    if let Some(after) = applied(d.0, &ops) {
+        for source in d.0.get("data").and_then(Value::as_object).into_iter().flat_map(|m| m.keys()) {
+            let named = format!("@{source}");
+            if reads(d.0, &named) && !reads(&after, &named) {
+                ops.push(JsonOp::Remove { path: format!("/data/{}", esc(source)) });
+            }
+        }
+    }
     Ok(ops)
+}
+
+/// The ops that take `beats` (each a section's index and a beat's in it) out of the spine of
+/// `deck`: each beat, and a section it leaves with none, the last index first so each pointer
+/// stands where it pointed.
+pub(crate) fn spine_without(deck: &Value, beats: &[(usize, usize)]) -> Vec<JsonOp> {
+    let sections = deck.pointer("/spine/sections").and_then(Value::as_array).map_or(&[][..], Vec::as_slice);
+    let mut ops = Vec::new();
+    let mut whole = Vec::new();
+    for (s, section) in sections.iter().enumerate().rev() {
+        let count = section.get("beats").and_then(Value::as_array).map_or(0, Vec::len);
+        let mut going: Vec<usize> = beats.iter().filter(|(t, _)| *t == s).map(|(_, b)| *b).collect();
+        crate::sort::sort(&mut going);
+        going.dedup();
+        if going.is_empty() {
+            continue;
+        }
+        if going.len() == count {
+            whole.push(s);
+            continue;
+        }
+        for b in going.into_iter().rev() {
+            ops.push(JsonOp::Remove { path: format!("/spine/sections/{s}/beats/{b}") });
+        }
+    }
+    ops.extend(whole.into_iter().map(|s| JsonOp::Remove { path: format!("/spine/sections/{s}") }));
+    ops
+}
+
+/// `deck` with `ops` applied, where they apply.
+fn applied(deck: &Value, ops: &[JsonOp]) -> Option<Value> {
+    let ops: Vec<Value> = ops.iter().map(serde_json::to_value).collect::<Result<_, _>>().ok()?;
+    let mut next = deck.clone();
+    super::apply(&mut next, &ops).ok()?;
+    Some(next)
+}
+
+/// Whether anything in `deck` but its data sources names `source` (`@` and its id): a chart, a
+/// table, or a run's quote that reads it, or a beat that cites it.
+fn reads(deck: &Value, source: &str) -> bool {
+    fn names(v: &Value, source: &str) -> bool {
+        match v {
+            Value::String(s) => s == source,
+            Value::Array(items) => items.iter().any(|v| names(v, source)),
+            Value::Object(m) => m.values().any(|v| names(v, source)),
+            _ => false,
+        }
+    }
+    deck.as_object().is_some_and(|m| m.iter().any(|(k, v)| k != "data" && names(v, source)))
 }
 
 /// The ops that take out of the deck each node the states at `gone` of `deck` show that no state
@@ -2875,6 +3024,82 @@ fn rename_state(d: &Doc, id: &str, to: &str) -> Result<Vec<JsonOp>, String> {
         ops.push(JsonOp::Replace { path: format!("{path}/state"), value: to_value() });
     }
     Ok(ops)
+}
+
+/// The ops, semantic ones, that delete `nodes` from `state` as the editors' Delete does (PLAN
+/// 2.34, 2.42), with each node they hold there: each leaves there and in the states after it
+/// (`hide_node`), and one that no state shows then goes from the deck (`remove_node`), so a node
+/// inserted and deleted leaves nothing behind. With `everywhere`, each goes from the deck, with
+/// each node it holds in any state. A node goes before what holds it, and each goes once. A
+/// connector one of whose ends goes is left to go with it, as tracking and `remove_node` take
+/// it, and goes from the deck where no state shows it then (PLAN 2.109). `files` is the bundle's,
+/// which the patch is made on. What `delete_node` compiles to (dogfood 3).
+pub fn deleting(
+    deck: &Deck,
+    files: &dyn BundleFiles,
+    nodes: &[&str],
+    state: &str,
+    everywhere: bool,
+) -> Result<Vec<Value>, String> {
+    let snaps = resolve_states(deck).map_err(|e| e.to_string())?;
+    let snap = snaps.iter().find(|s| s.state_id == state).ok_or_else(|| format!("unknown state `{state}`"))?;
+    if let Some(node) = nodes.iter().find(|node| !snap.nodes.contains_key(**node)) {
+        return Err(format!("`{node}` is not on screen in `{state}`"));
+    }
+    let holding: Vec<&Snapshot> = if everywhere { snaps.iter().collect() } else { vec![snap] };
+    let mut gone: Vec<String> = Vec::new();
+    for node in nodes {
+        for id in held(&holding, node) {
+            if !gone.contains(&id) {
+                gone.push(id);
+            }
+        }
+    }
+    let ends = |id: &String| deck.nodes.get(id).and_then(crate::tracking::connects_of);
+    let with_end = |id: &String| ends(id).is_some_and(|(from, to)| gone.iter().any(|g| g == from || g == to));
+    let (joined, gone): (Vec<String>, Vec<String>) = gone.iter().cloned().partition(with_end);
+    let remove = |id: &String| serde_json::json!({ "op": "remove_node", "id": id });
+    if everywhere {
+        return Ok(gone.iter().map(remove).collect());
+    }
+    let hide: Vec<Value> =
+        gone.iter().map(|id| serde_json::json!({ "op": "hide_node", "node": id, "state": state })).collect();
+    let doc = deck.to_value().map_err(|e| e.to_string())?;
+    let hidden = super::compile(&doc, &hide, files).map_err(|e| e.message)?;
+    let after = Deck::from_value(&hidden.doc)?;
+    let after = resolve_states(&after).map_err(|e| e.to_string())?;
+    let shown = |id: &String| after.iter().any(|s| s.nodes.contains_key(id));
+    // A connector deleted with its end, which no state shows then, goes from the deck first.
+    let left = joined.iter().filter(|id| !shown(id)).map(remove);
+    Ok(left.chain(gone.iter().zip(hide).map(|(id, hide)| if shown(id) { hide } else { remove(id) })).collect())
+}
+
+/// `node` and each node it holds in `snaps`, at any depth: the deepest first, `node` last.
+pub fn held(snaps: &[&Snapshot], node: &str) -> Vec<String> {
+    let mut ids = depths(snaps, node);
+    crate::sort::by_key(&mut ids, |(_, depth)| std::cmp::Reverse(*depth));
+    ids.into_iter().map(|(id, _)| id).chain(std::iter::once(node.to_string())).collect()
+}
+
+/// Each node `node` holds in `snaps`, at any depth, with how deep: in the order `snaps` declare
+/// them.
+pub fn depths(snaps: &[&Snapshot], node: &str) -> Vec<(String, usize)> {
+    let mut depth: indexmap::IndexMap<String, usize> = indexmap::IndexMap::new();
+    for snap in snaps {
+        let parent = |id: &str| snap.nodes.get(id)?.get("at")?.get("parent")?.as_str().map(String::from);
+        for id in snap.nodes.keys() {
+            let (mut up, mut steps) = (parent(id), 1);
+            while let Some(p) = up.filter(|_| steps <= snap.nodes.len()) {
+                if p == node {
+                    let d = depth.entry(id.clone()).or_default();
+                    *d = (*d).max(steps);
+                    break;
+                }
+                (up, steps) = (parent(&p), steps + 1);
+            }
+        }
+    }
+    depth.into_iter().collect()
 }
 
 #[cfg(test)]

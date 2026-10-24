@@ -150,6 +150,36 @@ pub fn starting(deck: &Deck, theme: &Theme, shown: &str, layout: Option<&str>) -
     Ok(AddedState { id, patch })
 }
 
+/// `added`, a slide [`starting`] made, telling `claim` in a beat of its own (dogfood 3): the beat
+/// just after the one that tells the state the slide follows, in that section, else last; and
+/// not in that beat, which would then make two claims. Refused in a deck with no spine.
+pub fn claimed(deck: &Deck, mut added: AddedState, claim: &str) -> Result<AddedState, OpsError> {
+    let spine = deck.spine.as_ref().filter(|s| !s.sections.is_empty()).ok_or_else(|| {
+        OpsError::new(
+            "the deck has no spine to tell the claim in: start the slide with no claim, or give the deck a spine first",
+        )
+    })?;
+    let first =
+        added.patch.first_mut().and_then(Value::as_object_mut).ok_or_else(|| OpsError::new("no slide added"))?;
+    first.remove("beat");
+    let after = first.get("after").and_then(Value::as_str).unwrap_or_default().to_string();
+    let told = spine
+        .sections
+        .iter()
+        .enumerate()
+        .find_map(|(s, section)| section.beats.iter().position(|b| b.states.contains(&after)).map(|b| (s, b + 1)));
+    let last = spine.sections.len() - 1;
+    let (s, b) = told.unwrap_or((last, spine.sections[last].beats.len()));
+    let taken = |id: &str| spine.sections.iter().flat_map(|s| &s.beats).any(|b| b.id == id);
+    let id = (1..)
+        .map(|n| if n == 1 { added.id.clone() } else { format!("{}-{n}", added.id) })
+        .find(|id| !taken(id))
+        .expect("some number is free");
+    let beat = json!({ "id": id, "claim": claim, "states": [added.id] });
+    added.patch.push(json!({ "op": "add", "path": format!("/spine/sections/{s}/beats/{b}"), "value": beat }));
+    Ok(added)
+}
+
 /// A slide started and written into the bundle (`state_start`, `scaena start`): the new state's
 /// id, and what the patch did, as `deck_patch` reports a patch.
 #[derive(Debug, Clone, Serialize, JsonSchema)]
@@ -172,9 +202,17 @@ pub fn said(theme: &Theme, layout: Option<&str>) -> String {
 /// [`start`] with nothing written: [`starting`]'s patch checked as a patch is (refused where it
 /// would leave the deck invalid), and the bundle it writes, for a client that keeps its bundle in
 /// memory.
-pub fn started(b: &Bundle, shown: &str, layout: Option<&str>) -> Result<(Started, Option<Write>), OpsError> {
+pub fn started(
+    b: &Bundle,
+    shown: &str,
+    layout: Option<&str>,
+    claim: Option<&str>,
+) -> Result<(Started, Option<Write>), OpsError> {
     let theme = crate::theme(b)?;
-    let added = starting(&b.deck, &theme, shown, layout)?;
+    let mut added = starting(&b.deck, &theme, shown, layout)?;
+    if let Some(claim) = claim {
+        added = claimed(&b.deck, added, claim)?;
+    }
     let (patched, write) = crate::patch::patching(b, &Value::Array(added.patch), Some(&said(&theme, layout)))?;
     Ok((Started { id: added.id, patched }, write))
 }
@@ -183,9 +221,16 @@ pub fn started(b: &Bundle, shown: &str, layout: Option<&str>) -> Result<(Started
 /// (PLAN 3.30), written into the bundle as one change: [`starting`]'s patch, applied as
 /// `deck_patch` applies one, all or none, refused where it would leave the deck invalid. A dry
 /// run says what it would do and writes nothing. The theme's layouts are its `layouts`, which
-/// `inspect --layouts` lists for a state, each by the name a person calls it.
-pub fn start(b: &Bundle, shown: &str, layout: Option<&str>, dry_run: bool) -> Result<Started, OpsError> {
-    let (mut started, write) = started(b, shown, layout)?;
+/// `inspect --layouts` lists for a state, each by the name a person calls it. With `claim`, the
+/// slide tells it in a beat of its own ([`claimed`]).
+pub fn start(
+    b: &Bundle,
+    shown: &str,
+    layout: Option<&str>,
+    claim: Option<&str>,
+    dry_run: bool,
+) -> Result<Started, OpsError> {
+    let (mut started, write) = started(b, shown, layout, claim)?;
     match write {
         Some(write) if !dry_run => crate::lint::write(b, write)?,
         _ => started.patched.applied &= !dry_run,
@@ -691,6 +736,36 @@ mod tests {
         );
         assert!(starting(&deck, &theme, "revenue", Some("nowhere")).is_err());
         assert!(starting(&deck, &theme, "nowhere", Some("bullets")).is_err());
+    }
+
+    /// A slide started with a claim tells it in a beat of its own, just after the beat of the
+    /// state it follows, not in that beat, which would then make two claims (dogfood 3, T3).
+    #[test]
+    fn a_slide_started_with_a_claim_tells_it_in_a_beat_of_its_own() {
+        let deck = revenue();
+        let theme =
+            scaena_engine::theme::Theme::from_json(include_str!("../../../docs/examples/themes/dusk.theme.json"))
+                .unwrap();
+        let started = starting(&deck, &theme, "revenue", Some("bullets")).unwrap();
+        let started = claimed(&deck, started, "Pro will lead next year.").unwrap();
+        assert!(started.patch[0].get("beat").is_none(), "{}", started.patch[0]);
+        let doc = scaena_core::patch::compile(&deck.to_value().unwrap(), &started.patch, &NoFiles).unwrap().doc;
+        let beats: Vec<(&str, &Value)> = doc["spine"]["sections"][1]["beats"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|b| (b["id"].as_str().unwrap(), &b["states"]))
+            .collect();
+        assert_eq!(beats, [("doubled", &json!(["revenue", "mix"])), ("bullets", &json!(["bullets"]))]);
+        assert_eq!(doc["spine"]["sections"][1]["beats"][1]["claim"], "Pro will lead next year.");
+        let d = Deck::from_value(&doc).unwrap();
+        let found = scaena_core::lint::check(&d, None);
+        assert!(!found.iter().any(|f| f.code == "W426" || f.code == "W429"), "{found:#?}");
+        // A deck with no spine has nowhere to tell a claim.
+        let mut bare = revenue();
+        bare.spine = None;
+        let started = starting(&bare, &theme, "revenue", Some("bullets")).unwrap();
+        assert!(claimed(&bare, started, "Pro will lead.").is_err());
     }
 
     /// What waits on a slide (PLAN 3.30): a slide started in `art-left` waits for its picture,
