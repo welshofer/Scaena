@@ -69,6 +69,21 @@ try {
     if (status) throw new Error(`${address}: ${status}`);
     return page;
   };
+  // A deck whose theme is written in it, as deck.schema.json allows, opens from its URL as from a
+  // bundle (lift-up FUNC-5): the revenue example with its theme inline, served beside it.
+  {
+    const deck = JSON.parse(await readFile("docs/examples/revenue.deck.json", "utf8"));
+    deck.theme = JSON.parse(await readFile(new URL(deck.theme, new URL("../docs/examples/", import.meta.url)), "utf8"));
+    const served = (u) => u.pathname === "/docs/examples/inline-theme.deck.json";
+    await context.route(served, (r) => r.fulfill({ contentType: "application/json", body: JSON.stringify(deck) }));
+    const inline = await open(url("/docs/examples/inline-theme.deck.json")).then(
+      (page) => page,
+      (e) => String(e),
+    );
+    const at = typeof inline === "string" ? inline : await inline.evaluate(() => window.scaena.at());
+    check(typeof inline !== "string" && at.index === 0, `a deck with its theme inline opens from its URL: ${JSON.stringify(at)}`);
+    if (typeof inline !== "string") await inline.close();
+  }
   /** Where the player's deck is, once `test(arg)` holds of it in the page. */
   const until = (page, test, what, arg = null, timeout = 15000) =>
     page
