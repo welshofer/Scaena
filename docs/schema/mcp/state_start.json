@@ -26,6 +26,11 @@
         "type": ["string", "null"],
         "default": null
       },
+      "claim": {
+        "description": "The one sentence the slide tells: it starts a beat of its own for it, just after the beat\nof the state it follows. Without it, the slide joins that beat.",
+        "type": ["string", "null"],
+        "default": null
+      },
       "dry_run": { "description": "Say what would change, and write nothing.", "type": "boolean", "default": false }
     },
     "additionalProperties": false
