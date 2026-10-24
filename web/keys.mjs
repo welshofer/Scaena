@@ -205,7 +205,7 @@ try {
   // F8 and Shift+F8, as the sheet says: to the next finding in the source, and back. A headline
   // too long and forty-five words on screen are two.
   const words = Array.from({ length: 45 }, (_, i) => `word${i}`).join(" ");
-  const dense = was.replace('"Revenue doubled"', '"Revenue doubled, and then some, and more"').replace('"Revenue in $M. Enterprise recognized on delivery."', `"${words}."`);
+  const dense = was.replace('"Revenue doubled"', '"Revenue doubled, and then some, as Pro grew three times faster than Core in every quarter"').replace('"Revenue in $M. Enterprise recognized on delivery."', `"${words}."`);
   await page.evaluate((s) => window.scaena.type(s), dense);
   await page.waitForFunction((s) => window.scaena.source() === s && window.scaena.last()?.whole, dense, { timeout: 60000, polling: 50 }).catch(() => {});
   await page.waitForFunction(() => document.querySelectorAll(".cm-lintRange").length >= 2, null, { timeout: 30000 }).catch(() => {});

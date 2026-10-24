@@ -77,20 +77,20 @@ fn a_state_is_offered_each_layout_that_draws_it_otherwise_judged_by_lint_best_fi
 fn a_clean_layout_that_draws_the_state_otherwise_is_suggested() {
     let b = scaena_ops::open(Path::new(TRAILS)).unwrap();
     // The storm slide's caption is its one node in a slot: five layouts set it at the foot of the
-    // photo, alike, and the rest elsewhere: four where lint finds nothing, two-figures under its
-    // figures and narrow-figure higher up and to the right among them, then those it finds
-    // something in.
+    // photo, alike, and the rest elsewhere: five where lint finds nothing, venn's among them,
+    // two-figures under its figures and narrow-figure higher up and to the right, then those it
+    // finds something in.
     let suggested = suggest(&b, "storm", None).unwrap();
     let judged: Vec<_> = suggested.iter().map(|s| (s.layout.as_str(), s.current, s.errors, s.warnings)).collect();
     assert_eq!(
         judged,
         [
             ("full", true, 0, 0),
+            ("venn", false, 0, 0),
             ("two-figures", false, 0, 0),
             ("metric-trend", false, 0, 0),
             ("narrow-figure", false, 0, 0),
             ("panorama", false, 0, 0),
-            ("venn", false, 0, 1),
             ("bar-chart", false, 1, 0),
             ("line-chart", false, 1, 0),
             ("risk-matrix", false, 2, 0)
@@ -104,14 +104,16 @@ fn a_clean_layout_that_draws_the_state_otherwise_is_suggested() {
 fn the_layouts_that_draw_a_state_alike_fold_into_the_one_it_takes() {
     let b = scaena_ops::open(Path::new(TRAILS)).unwrap();
     // The agenda's header is the one node in a slot. Most layouts put it in the same place, folded
-    // into the one the agenda takes; five put it elsewhere: beside a picture off either edge, as
-    // `photo-grid-text` does `photo-left`'s, over a map across the slide, and beside an agenda's
-    // topics, with a picture or without (PLAN 3.30, 3.31, O.1e).
+    // into the one the agenda takes; four put it elsewhere: beside a picture off the left edge,
+    // as `photo-grid-text` does `photo-left`'s, over a map across the slide, and beside an
+    // agenda's topics, with a picture or without, where `photo-right` draws it as `agenda` does
+    // (PLAN 3.30, 3.31, O.1e).
     let suggested = suggest(&b, "agenda", None).unwrap();
     let names: Vec<&str> = suggested.iter().map(|s| s.layout.as_str()).collect();
-    assert_eq!(names, ["full", "agenda-photo", "photo-left", "map-full", "photo-right", "agenda"], "{suggested:#?}");
+    assert_eq!(names, ["full", "agenda-photo", "photo-left", "map-full", "agenda"], "{suggested:#?}");
     assert!(suggested[0].current && suggested[1..].iter().all(|s| !s.current));
     assert_eq!(suggested[2].alike, ["photo-grid-text"]);
+    assert_eq!(suggested[4].alike[0], "photo-right");
     assert_eq!(suggested[0].alike[..4], ["title-only", "manifesto", "bullets", "numbered"]);
     assert!(
         ["cards", "three-up", "number-grid", "swot", "org-chart"]

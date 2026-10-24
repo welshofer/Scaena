@@ -66,7 +66,7 @@ try {
   check(first.valid && first.findings.every((f) => f.severity !== "error"), "the revenue example lints with no error");
 
   // An edit: a headline too long for its slot.
-  const long = "Revenue doubled, and then some";
+  const long = "Revenue doubled, and then some, as Pro grew three times faster than Core in every quarter";
   const edited = source.replace('"Revenue doubled"', `"${long}"`);
   let last = await type(page, edited);
   const overflow = last.findings.find((f) => f.code === "E100" && f.fix);
@@ -89,7 +89,9 @@ try {
   check(fixed.includes(long), "the fix keeps the headline's words");
   const changed = fixed.split("\n").filter((l, i) => l !== edited.split("\n")[i]).length;
   check(changed > 0 && changed <= 3, `the fix changes only the lines it is about: ${changed}`);
-  check(!last.findings.some((f) => f.code === "E100"), "after the fix, no E100");
+  // 9:16's header is too narrow for words that run past the deck's canvas's: they overflow there
+  // at any size the role allows, which only shorter words mend.
+  check(!last.findings.some((f) => f.code === "E100" && f.format === undefined), "after the fix, no E100 on the deck's canvas");
 
   // A source that does not compile, typed in `close`, which the preview shows from the
   // cursor on.

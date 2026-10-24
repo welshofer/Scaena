@@ -5240,9 +5240,10 @@ mod tests {
             pasted.findings.iter().map(|f| (f.code.as_str(), f.path.as_deref())).collect();
         assert_eq!(found, [("E102", Some("/nodes/subtitle/role"))], "{:?}", pasted.findings);
         assert!(pasted.findings[0].message.contains("role `title`"), "{:?}", pasted.findings);
-        // Dusk's title, 48 cu, is nearest its body, 32, of the roles every theme has.
-        assert_eq!(clip.roles.get("title").map(String::as_str), Some("body"));
-        assert_eq!(pasted.patch[0]["node"]["role"], "body", "in its place: {:?}", pasted.patch);
+        // Dusk's title, 48 cu, is nearest its headline, 64, by the type scale's steps, of the roles
+        // every theme has: its body, 32, is a larger step away.
+        assert_eq!(clip.roles.get("title").map(String::as_str), Some("headline"));
+        assert_eq!(pasted.patch[0]["node"]["role"], "headline", "in its place: {:?}", pasted.patch);
         assert!(t.typed(&serde_json::json!(pasted.patch), None).unwrap(), "the deck takes {:?}", pasted.patch);
         assert_eq!(t.deck.nodes["subtitle"].props.get("text"), s.deck.nodes["subtitle"].props.get("text"));
 

@@ -1108,7 +1108,7 @@ mod tests {
     fn a_fix_comes_back_as_source() {
         let mut s = revenue();
         // A headline too long for its slot at its size overflows: E100, fixed by shrinking.
-        let long = "Revenue doubled, and then some";
+        let long = "Revenue doubled, and then some, as Pro grew three times faster than Core in every quarter";
         let source = s.source().replace("\"Revenue doubled\"", &format!("\"{long}\""));
         assert!(s.compile(&source).valid);
         let linted = s.lint(None, None).unwrap();
@@ -1129,7 +1129,7 @@ mod tests {
     #[test]
     fn a_lint_of_one_state_answers_for_it_and_keeps_the_rest() {
         let mut s = revenue();
-        let long = "Revenue doubled, and then some";
+        let long = "Revenue doubled, and then some, as Pro grew three times faster than Core in every quarter";
         let source = s.source().replace("\"Revenue doubled\"", &format!("\"{long}\""));
         assert!(s.compile(&source).valid);
         let whole = s.lint(None, None).unwrap();
@@ -1166,7 +1166,7 @@ mod tests {
     #[test]
     fn a_lint_laid_out_away_from_the_session_is_the_sessions_and_a_stale_one_is_dropped() {
         let mut s = revenue();
-        let long = "Revenue doubled, and then some";
+        let long = "Revenue doubled, and then some, as Pro grew three times faster than Core in every quarter";
         let source = s.source().replace("\"Revenue doubled\"", &format!("\"{long}\""));
         assert!(s.compile(&source).valid);
         let mut laying = s.laying().unwrap();
@@ -1290,8 +1290,11 @@ mod tests {
         let mut s = revenue();
         // A headline too long for its header in every format (E100, laid out), and a note placed
         // by `rect` on a slide with a layout in a deck with formats (W301 and W302, document rules').
-        let source = (s.source().replace("\"Revenue doubled\"", "\"Revenue doubled, and then some, and more\""))
-            .replace("semantic:source\n    at:in(note)", "semantic:source\n    at:rect(1200, 980, 600, 60)");
+        let source = (s.source().replace(
+            "\"Revenue doubled\"",
+            "\"Revenue doubled, and then some, as Pro grew three times faster than Core in every quarter\"",
+        ))
+        .replace("semantic:source\n    at:in(note)", "semantic:source\n    at:rect(1200, 980, 600, 60)");
         assert!(s.compile(&source).valid);
         // Each finding about `revenue`: its code, the format it names, and whether it is shown.
         let found = |l: &Linting| -> Vec<(String, Option<String>, bool)> {
