@@ -73,6 +73,11 @@ cargo rustc -q --color never -p scaena-ffi --lib --crate-type staticlib --target
   -- --print native-static-libs >>"$log" 2>&1 || failed "cargo could not build the engine for $target"
 libs=$(sed -n 's/.*native-static-libs: //p' "$log")
 [ -n "$libs" ] || failed "rustc named no system libraries for $target"
+# Each theme that ships drawn as its title slide (PLAN T.0c), which the app's theme chooser shows
+# rather than making and drawing a deck in each as New opens (lift-up PERF-4); the app's build
+# copies them in (project.yml's Themes phase).
+cargo run -q --color never --locked -p scaena-cli --example theme_thumbnails -- "$root/target/ipad/themes" >>"$log" 2>&1 \
+  || failed "cargo could not draw the themes' title slides"
 out="$root/target/ipad/$platform-$configuration"
 mkdir -p "$out"
 ln -sf "$root/target/$target/$profile/libscaena_ffi.a" "$out/libscaena_ffi.a"

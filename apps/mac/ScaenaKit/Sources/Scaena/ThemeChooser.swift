@@ -1,16 +1,19 @@
+import ImageIO
 import ScaenaKit
 import SwiftUI
 
 /// The themes that ship, offered as a new deck's window opens (PLAN 3.3), as the browser's New
 /// offers them (PLAN 2.12) and a presentation app's theme chooser does: each drawn as a title
-/// slide started in it, by its name. A click puts the deck in that theme before anything is on
-/// it; Cancel, or Escape, keeps the theme it was made in.
+/// slide started in it, by its name, the first selected. A click selects one, and Create, Return,
+/// or a double click puts the deck in it before anything is on it (lift-up ATTR-5); Cancel, or
+/// Escape, keeps the theme it was made in.
 struct ThemeChooser: View {
     /// The themes that ship.
     let themes: [ShippedTheme]
-    /// The name of the theme a click chose; none to keep the deck's.
+    /// The name of the theme chosen; none to keep the deck's.
     let chosen: (String?) -> Void
     @State private var drawn: [String: CGImage] = [:]
+    @State private var selected: String?
     @Environment(\.displayScale) private var scale
 
     /// How wide a theme's slide is shown, points.
@@ -44,17 +47,27 @@ struct ThemeChooser: View {
                 Spacer()
                 Button("Cancel") { chosen(nil) }
                     .keyboardShortcut(.cancelAction)
+                Button("Create") { chosen(selected) }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(selected == nil)
+                    .accessibilityIdentifier("theme-create")
             }
         }
         .padding(24)
         .frame(minWidth: 480, idealWidth: 760)
-        .task { await draw() }
+        // Drawn again, and the first selected, once the themes are given (they may come after the
+        // chooser shows).
+        .task(id: themes.map(\.name)) {
+            if selected == nil { selected = themes.byFamily.first?.themes.first?.name }
+            await draw()
+        }
     }
 
     private func tile(_ theme: ShippedTheme) -> some View {
         let name = Words.phrase(theme.name)
+        let isSelected = selected == theme.name
         return Button {
-            chosen(theme.name)
+            selected = theme.name
         } label: {
             VStack(spacing: 6) {
                 Group {
@@ -71,24 +84,48 @@ struct ThemeChooser: View {
                 }
                 .clipShape(RoundedRectangle(cornerRadius: 6))
                 .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(.separator))
+                .padding(3)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 9)
+                        .strokeBorder(isSelected ? Color.accentColor : .clear, lineWidth: 3)
+                )
                 Text(name)
                     .font(.headline)
             }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        // A double click, or a double tap, creates the deck in it, as a presentation app's does.
+        .simultaneousGesture(TapGesture(count: 2).onEnded { chosen(theme.name) })
         .help("Start the deck in \(name)")
         .accessibilityLabel(name)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
         .accessibilityIdentifier("theme-\(theme.name)")
     }
 
-    /// Each theme drawn, one at a time, the sheet shown first and each tile as it is drawn.
+    /// Each theme's title slide: the one the app's build drew, else drawn here, one at a time, the
+    /// chooser shown first and each tile as it is drawn.
     private func draw() async {
         for theme in themes where drawn[theme.name] == nil {
+            if let built = Self.built(theme.name) {
+                drawn[theme.name] = built
+                continue
+            }
             await Task.yield()
             guard !Task.isCancelled else { return }
             drawn[theme.name] = Self.titleSlide(in: theme.name, width: Int(Self.width * scale))
         }
+    }
+
+    /// The title slide of the theme that ships named `name` as the app's build drew it, by
+    /// `scaena-cli`'s `theme_thumbnails` into its Resources' `themes` folder, as the browser's
+    /// build draws its New dialog's (PLAN T.0c, lift-up PERF-4); none where the app was built
+    /// without them, as `swift run` builds it.
+    private static func built(_ name: String) -> CGImage? {
+        guard let url = Bundle.main.url(forResource: name, withExtension: "png", subdirectory: "themes"),
+            let source = CGImageSourceCreateWithURL(url as CFURL, nil)
+        else { return nil }
+        return CGImageSourceCreateImageAtIndex(source, 0, nil)
     }
 
     /// What the theme that ships named `name` looks like: a title slide started in a deck of its
