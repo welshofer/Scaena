@@ -1214,6 +1214,7 @@ fn clear(doc: &mut Value, view: &View, found: Vec<Finding>, held: &mut Held) -> 
         if round > 0 {
             findings = lint_in(&deck, view)?.findings;
         }
+        findings.extend(tight(doc, &deck, view, theme)?);
         // Each text in a collision, or whose descenders crowd the text under it (I405, by no
         // overlap): the largest overlap it is in, and where. Whether it grows or shrinks is read
         // as it is laid out, by its own fit or its slot's.
@@ -1333,6 +1334,66 @@ fn clear(doc: &mut Value, view: &View, found: Vec<Finding>, held: &mut Held) -> 
         }
     }
     Ok(true)
+}
+
+/// Each card's words or term's meaning that grew (in a place of a set's own, `first`, …, or
+/// `meaning` and `example`) and whose ink comes within two of the theme's gutters of a text under
+/// it, the room I405 asks under a figure, so the text under it reads as its own (a definition
+/// ending on the next term). Each is found as I405 finds a figure's tail: `clear` steps it a
+/// twentieth smaller until it stands that far clear.
+fn tight(doc: &Value, deck: &Deck, view: &View, theme: &scaena_engine::theme::Theme) -> Result<Vec<Finding>, OpsError> {
+    use scaena_engine::sample::Content;
+    let gutter = theme.grid.gutter as f32;
+    let mut engine = crate::lint::engine_in(deck, view, theme, None)?;
+    let data = crate::lint::data_in(deck, view)?;
+    let mut found = Vec::new();
+    for state in doc["states"].as_array().into_iter().flatten() {
+        let (Some(id), Some(shown)) = (state["id"].as_str(), state["props"].as_object()) else { continue };
+        let grown: Vec<&str> = (shown.keys())
+            .filter(|node| {
+                let n = &doc["nodes"][node.as_str()];
+                n["type"] == "text"
+                    && n["fit"] == "grow"
+                    && n["at"]["in"].as_str().is_some_and(|slot| {
+                        matches!(ordinal(slot), Some((_, ""))) || matches!(slot, "meaning" | "example")
+                    })
+            })
+            .map(String::as_str)
+            .collect();
+        if grown.is_empty() {
+            continue;
+        }
+        let req =
+            scaena_engine::FrameRequest { deck, theme, data: &data, state: id, t_ms: f64::INFINITY, format: None };
+        let Ok(scene) = engine.at_rest(&req) else { continue };
+        let texts: Vec<(&str, [f32; 4])> = (scene.nodes.iter())
+            .filter_map(|n| match &n.content {
+                Content::Text(_) => Some((n.id.as_str(), n.ink()?)),
+                _ => None,
+            })
+            .collect();
+        for a in &grown {
+            let Some(ink) = texts.iter().find(|(t, _)| t == a).map(|(_, ink)| *ink) else { continue };
+            let bottom = ink[1] + ink[3];
+            let under = texts.iter().find(|(b, under)| {
+                let across = (ink[0] + ink[2]).min(under[0] + under[2]) - ink[0].max(under[0]);
+                let gap = under[1] - bottom;
+                b != a && across > 1.0 && (0.0..2.0 * gutter).contains(&gap)
+            });
+            if let Some((b, _)) = under {
+                let mut f = Finding::new(
+                    "I405",
+                    scaena_core::lint::Severity::Info,
+                    format!("`{a}` comes within two gutters of `{b}`"),
+                );
+                f.node = Some(a.to_string());
+                f.state = Some(id.to_string());
+                f.measure = Some(json!({ "nodes": [a, b], "states": [id] }));
+                found.push(f);
+            }
+        }
+    }
+    Ok(found)
 }
 
 /// How much a text set at size `at` overlaps, for its size: the area over its size squared.
@@ -2905,6 +2966,17 @@ impl Slots<'_> {
         }
     }
 
+    /// The size of the title over the card whose words are in the slot `name`, where the card
+    /// has one: its `-title` place's role's.
+    fn titled(&self, name: &str) -> Option<f64> {
+        self.role_of(&format!("{name}-title")).and_then(|r| self.size(r))
+    }
+
+    /// The theme's size for `role`.
+    fn size(&self, role: &str) -> Option<f64> {
+        self.theme.typography.roles.get(role).map(|r| r.size)
+    }
+
     /// Whether a figure leads the card whose words are in the slot `name`: its `-figure` place,
     /// or its `-title` set in a figure's role. Its words keep to a caption's size under it.
     fn figured(&self, name: &str) -> bool {
@@ -3515,19 +3587,27 @@ impl Builder {
                     let mut node = json!({ "type": "text", "role": role, "text": text, "at": at });
                     // Set as large as its place allows, up to its ceiling (`making` holds a set
                     // of them to one size).
-                    if let Some(most) = s
+                    let most = s
                         .grown(name, slot.role.as_deref().unwrap_or(role))
                         .or_else(|| short(&text).then(|| s.alone(name, role)).flatten())
-                    {
-                        // A few short lines of words alone in a large place, a card's own words or
-                        // a term's meaning, grow toward three-quarters of the headline, never past
-                        // it, as a short list does (dogfood pass 4).
-                        let own = (matches!(ordinal(name), Some((_, ""))) && !s.figured(name))
-                            || s.alone(name, role).is_some();
-                        let most = match own && words_role(role) && short(&text) {
-                            true => s.under_headline().map_or(most, |h| h.max(most)),
-                            false => most,
-                        };
+                        .map(|most| {
+                            // A few short lines of words alone in a large place, a card's own words
+                            // or a term's meaning, grow toward three-quarters of the headline, never
+                            // past it, as a short list does (dogfood pass 4).
+                            let own = (matches!(ordinal(name), Some((_, ""))) && !s.figured(name))
+                                || s.alone(name, role).is_some();
+                            let most = match own && words_role(role) && short(&text) {
+                                true => s.under_headline().map_or(most, |h| h.max(most)),
+                                false => most,
+                            };
+                            // Under a card's title, its words grow no larger than the title is set.
+                            match s.titled(name).filter(|_| words_role(role)) {
+                                Some(title) => most.min(title),
+                                None => most,
+                            }
+                        })
+                        .filter(|most| s.size(role).is_none_or(|own| *most > own));
+                    if let Some(most) = most {
                         node["fit"] = json!("grow");
                         node["maxSize"] = json!(most);
                         // A figure grows on its one line; a cover's or a divider's title on as
@@ -3537,6 +3617,10 @@ impl Builder {
                             node["maxLines"] = json!(1);
                         } else if name == "title" {
                             node["maxLines"] = json!(if text.split_whitespace().count() <= 3 { 1 } else { 2 });
+                        } else if name == "statement" {
+                            // A statement grows on three lines at most, as a headline stands, so
+                            // it keeps room around it.
+                            node["maxLines"] = json!(3);
                         }
                     }
                     // A side's statement stands in the middle of its card, on as many as three lines
@@ -5117,8 +5201,10 @@ mod tests {
             ],
         );
         assert_eq!(layout, "cards");
+        // Each card's answer grows no larger than its question's role is set.
+        let title = theme.typography.roles[theme.layouts["cards"].slots["first-title"].role.as_deref().unwrap()].size;
         for card in ["first", "second", "third"] {
-            assert_eq!(most(&deck, &state, card), Some(under), "{card}");
+            assert_eq!(most(&deck, &state, card), Some(under.min(title)), "{card}");
         }
         // A tier's price grows as its card's figure, up to the hero's size.
         let (layout, deck, state) = made(
@@ -5207,6 +5293,7 @@ mod tests {
         assert_eq!(statement["at"]["row"], json!([top, foot]));
         assert_eq!(statement["align"], json!({ "y": "center" }));
         assert_eq!(statement["maxSize"].as_f64(), Some(theme.typography.roles["hero"].size));
+        assert_eq!(statement["maxLines"], 3, "a statement grows on three lines at most");
     }
 
     /// A figure keeps the magnitude a language writes after it: "41.2万ドル" is $412K.
@@ -5453,6 +5540,46 @@ mod tests {
             assert!(!alike(&mut doc, &view, &mut held).unwrap(), "the second run changes nothing");
             assert_eq!(doc, once);
         }
+    }
+
+    #[test]
+    fn a_grown_definition_stands_two_gutters_clear_of_the_next_term() {
+        // A glossary's definitions grow to fill their places, and a definition that wraps would end
+        // on the next row's term, which reads as its own. The deck made sets them smaller until
+        // each stands two of the theme's gutters clear of the text under it (dogfood pass 4).
+        let text = serde_json::json!({
+            "executiveSummary": "Bayes, plainly.",
+            "slides": [
+                { "slideTitle": "Bayes, plainly", "subtitle": "A lecture", "layoutSuggestion": "Title",
+                  "keyBullets": [], "beatIndex": 0, "beatName": "Hook" },
+                { "slideTitle": "Four words we'll use for the rest of the course", "subtitle": "",
+                  "layoutSuggestion": "Glossary", "beatIndex": 1, "beatName": "Foundations",
+                  "keyBullets": [
+                    "Prior: what you believe before the evidence, P(H)",
+                    "Likelihood: how probable the evidence is if H is true, P(E | H)",
+                    "Evidence: how probable the evidence is overall, P(E)",
+                    "Posterior: what you believe after the evidence, P(H | E)"
+                  ] },
+                { "slideTitle": "Thank you", "subtitle": "", "layoutSuggestion": "Closing", "keyBullets": [],
+                  "beatIndex": 2, "beatName": "Close" },
+            ]
+        })
+        .to_string();
+        let written = answer::slides(&text).unwrap();
+        let n = narrative(&written.executive_summary, written.slides);
+        let file = "salon.theme.json";
+        let json = std::fs::read_to_string(root().join("docs/examples/themes").join(file)).unwrap();
+        let theme: Theme = serde_json::from_str(&json).unwrap();
+        let built = deck(&n, &theme, &Pictures::new()).unwrap();
+        assert_eq!(built.layouts[1], "glossary");
+        let (_, write) = making(built, "Problem\u{2013}Solution", Path::new(file), json.clone(), &font).unwrap();
+        let write = write.unwrap();
+        let nothing = scaena_store::Files::Zip(Default::default());
+        let view = View { base: &nothing, pending: write.files.clone() };
+        let doc = write.deck.to_value().unwrap();
+        let engine_theme = scaena_engine::theme::Theme::from_json(&json).unwrap();
+        let tight = tight(&doc, &write.deck, &view, &engine_theme).unwrap();
+        assert!(tight.is_empty(), "{tight:#?}");
     }
 
     #[test]
