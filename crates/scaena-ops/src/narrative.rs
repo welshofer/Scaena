@@ -327,6 +327,34 @@ pub const LOOK_BATCH: usize = 12;
 /// two waits, not four, and never so many that a provider's rate limit is tripped.
 pub const LOOKS_AT_ONCE: usize = 3;
 
+/// What each of `requests` answered, a few asked at once ([`LOOKS_AT_ONCE`]), and those a busy
+/// provider answered for now asked again, after the wait the slides and pictures take, up to
+/// [`TRIES`] times in all, the wait said (lift-up REL-1). Each reply in its request's place.
+fn asked_again(requests: &[Request], transport: &mut dyn Transport, say: &mut dyn FnMut(Progress)) -> Vec<Reply> {
+    let mut replies: Vec<Reply> = vec![Reply::default(); requests.len()];
+    let mut open: Vec<usize> = (0..requests.len()).collect();
+    for tried in 0..TRIES {
+        let asking: Vec<Request> = open.iter().map(|&i| requests[i].clone()).collect();
+        let got: Vec<Reply> = asking.chunks(LOOKS_AT_ONCE).flat_map(|some| transport.send_all(some)).collect();
+        let mut wait: f64 = 0.0;
+        let mut again = Vec::new();
+        for (&i, reply) in open.iter().zip(got) {
+            if let Some(w) = scaena_narrato::retry_after(reply.status, &reply.body, reply.after.as_deref(), tried) {
+                wait = wait.max(w);
+                again.push(i);
+            }
+            replies[i] = reply;
+        }
+        if again.is_empty() {
+            break;
+        }
+        say(Progress::Retrying { wait, tried: tried + 1 });
+        transport.pause(wait);
+        open = again;
+    }
+    replies
+}
+
 /// The rounds a look at `slides` slides goes in: each the indices of [`LOOK_BATCH`] slides at
 /// most, in order.
 pub fn look_rounds(slides: usize) -> impl Iterator<Item = std::ops::Range<usize>> {
@@ -562,8 +590,7 @@ pub fn generate_drawn(
                     say(Progress::Looking { slides: seen.len() });
                 }
                 let requests: Vec<Request> = asked.iter().map(|(_, r)| r.clone()).collect();
-                let replies: Vec<Reply> =
-                    requests.chunks(LOOKS_AT_ONCE).flat_map(|some| transport.send_all(some)).collect();
+                let replies = asked_again(&requests, transport, say);
                 let asked_any = !asked.is_empty();
                 for ((round, _), reply) in asked.into_iter().zip(replies) {
                     match generation.look_answer(reply.status, &reply.status_text, &reply.body, &seen[round.clone()]) {
@@ -612,7 +639,8 @@ pub fn generate_drawn(
     let (Some(key), false) = (key, longs.is_empty()) else { return Ok((made, Some(write))) };
     let Some(request) = generation.fit_request(key, &longs) else { return Ok((made, Some(write))) };
     say(Progress::Fitting { texts: longs.len() });
-    let reply = transport.send(&request);
+    // A busy provider asked again for the fit, as for the look (lift-up REL-1).
+    let reply = asked_again(std::slice::from_ref(&request), transport, say).remove(0);
     let rewrites = match generation.fit_answer(reply.status, &reply.status_text, &reply.body, &longs) {
         Ok(rewrites) => rewrites,
         Err(why) => {

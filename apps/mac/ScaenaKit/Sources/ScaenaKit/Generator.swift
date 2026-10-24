@@ -590,11 +590,19 @@ public final class Generator {
         let looked: Int?
         let unlooked: String?
         let fit: Fit?
+        /// Seconds to wait before `look`, the same round, is asked again, and how many times it
+        /// was asked so far (lift-up REL-1).
+        let wait: Double?
+        let tried: Int?
     }
 
     private struct Fitting: Decodable, Sendable {
         let fitted: Int?
         let unfitted: String?
+        /// The fit asked again after `wait` seconds, `tried` times so far (lift-up REL-1).
+        let fit: Fit?
+        let wait: Double?
+        let tried: Int?
     }
 
     /// Who makes a deck's pictures (PLAN G.10): an image provider, the user's key for it, where
@@ -855,14 +863,20 @@ public final class Generator {
         if let first = seeing { hear(.looking(slides: first.slides)) }
         while let round = seeing {
             let reply = await send(round.request)
-            let looking: Looking = try await stepAway(
-                "looked",
-                [
-                    "status": .number(Double(reply.status)),
-                    "statusText": .string(reply.status == 0 ? reply.text : HTTPURLResponse.localizedString(forStatusCode: reply.status)),
-                    "body": .string(reply.status == 0 ? "" : reply.text),
-                    "key": .string(key),
-                ])
+            var answered: [String: JSONValue] = [
+                "status": .number(Double(reply.status)),
+                "statusText": .string(reply.status == 0 ? reply.text : HTTPURLResponse.localizedString(forStatusCode: reply.status)),
+                "body": .string(reply.status == 0 ? "" : reply.text),
+                "key": .string(key),
+            ]
+            if let after = reply.after { answered["after"] = .string(after) }
+            let looking: Looking = try await stepAway("looked", answered)
+            // A busy provider: the same round asked again after the wait the engine says, as the
+            // slides are (lift-up REL-1).
+            if let wait = looking.wait {
+                hear(.retrying(seconds: wait, tried: looking.tried ?? 0))
+                try await Task.sleep(for: .seconds(wait))
+            }
             seeing = looking.look
             if seeing != nil { continue }
             if let why = looking.unlooked { hear(.unlooked(why)) } else { hear(.looked(slides: looking.looked ?? 0)) }
@@ -870,16 +884,27 @@ public final class Generator {
         }
         if let fit {
             hear(.fitting(texts: fit.texts))
-            let reply = await send(fit.request)
-            let fitting: Fitting = try await stepAway(
-                "fitted",
-                [
+            var asking: Fit? = fit
+            while let now = asking {
+                let reply = await send(now.request)
+                var answered: [String: JSONValue] = [
                     "status": .number(Double(reply.status)),
                     "statusText": .string(HTTPURLResponse.localizedString(forStatusCode: reply.status)),
                     "body": .string(reply.text),
-                ])
-            if let n = fitting.fitted { hear(.fitted(texts: n)) }
-            if let why = fitting.unfitted { hear(.unfitted(why)) }
+                ]
+                if let after = reply.after { answered["after"] = .string(after) }
+                let fitting: Fitting = try await stepAway("fitted", answered)
+                asking = nil
+                // A busy provider: the fit asked again after the wait the engine says (lift-up REL-1).
+                if let wait = fitting.wait, let again = fitting.fit {
+                    hear(.retrying(seconds: wait, tried: fitting.tried ?? 0))
+                    try await Task.sleep(for: .seconds(wait))
+                    asking = again
+                    continue
+                }
+                if let n = fitting.fitted { hear(.fitted(texts: n)) }
+                if let why = fitting.unfitted { hear(.unfitted(why)) }
+            }
         }
         let generated: Generated = try step("report")
         var error: UnsafeMutablePointer<CChar>?
