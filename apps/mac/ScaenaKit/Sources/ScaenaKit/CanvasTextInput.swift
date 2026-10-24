@@ -84,7 +84,8 @@ public final class CanvasKeys: UIView {
         Task { @MainActor [weak self] in
             guard let self, self.window != nil else { return }
             if self.typing.typing {
-                if !self.isFirstResponder { self.becomeFirstResponder() }
+                // The keyboard read again for the text now typed in: plain for code (PLAN 2.139).
+                if !self.isFirstResponder { self.becomeFirstResponder() } else { self.reloadInputViews() }
             } else if !self.presses.isFirstResponder {
                 self.presses.becomeFirstResponder()
             }
@@ -448,6 +449,40 @@ public final class CanvasKeys: UIView {
             guard let box = typing.box else { return .zero }
             return UIAccessibility.convertToScreenCoordinates(onView(Self.box(around: box.corners)), in: self)
         }
+        set {}
+    }
+}
+
+/// While code is typed in, the keyboard types what is pressed (PLAN 2.139): no smart quotes or
+/// dashes, no smart insert and delete, no correction, capitals, spelling, or prediction. In words,
+/// the system's own.
+extension CanvasKeys {
+    @objc public var autocapitalizationType: UITextAutocapitalizationType {
+        get { typing.inCode ? .none : .sentences }
+        set {}
+    }
+    @objc public var autocorrectionType: UITextAutocorrectionType {
+        get { typing.inCode ? .no : .default }
+        set {}
+    }
+    @objc public var spellCheckingType: UITextSpellCheckingType {
+        get { typing.inCode ? .no : .default }
+        set {}
+    }
+    @objc public var smartQuotesType: UITextSmartQuotesType {
+        get { typing.inCode ? .no : .default }
+        set {}
+    }
+    @objc public var smartDashesType: UITextSmartDashesType {
+        get { typing.inCode ? .no : .default }
+        set {}
+    }
+    @objc public var smartInsertDeleteType: UITextSmartInsertDeleteType {
+        get { typing.inCode ? .no : .default }
+        set {}
+    }
+    @objc public var inlinePredictionType: UITextInlinePredictionType {
+        get { typing.inCode ? .no : .default }
         set {}
     }
 }

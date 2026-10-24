@@ -1164,7 +1164,8 @@ struct DeckView: View {
         made.draw = { takePen() }
         made.drawing = pen != nil
         if selection.count == 2 { made.connect = { arrow in connect(arrow, in: shown) } }
-        if one && texted { made.diagram = { kind in diagram(kind, in: shown) } }
+        // A diagram is drawn from words, never from code (PLAN 2.139).
+        if one && texted, !(node.map(codes.contains) ?? false) { made.diagram = { kind in diagram(kind, in: shown) } }
         made.deletesElsewhere = elsewhere
         // A gesture kept to the slide shown without Option, from a long press (lift-up FUNC-4).
         made.keepToSlide = { touch.onlyThisSlide.toggle() }

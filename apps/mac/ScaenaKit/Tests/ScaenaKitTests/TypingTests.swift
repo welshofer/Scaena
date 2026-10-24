@@ -558,3 +558,49 @@ private func carets(_ json: String) throws -> Carets {
     typing.leave()
     #endif
 }
+
+/// Code takes none of the looks words take (PLAN 2.139): ⌘B, ⌘I, and the list keys change nothing
+/// in it and say why, no step to undo; and on the iPad, while code is typed in, the keyboard types
+/// what is pressed, with no smart quotes or dashes, correction, capitals, or spelling, where words
+/// keep the system's own.
+@MainActor
+@Test func codeTakesNoLookNoListAndAPlainKeyboard() throws {
+    let editor = DeckEditor(session: try ScaenaSession(directory: tortureDeck))
+    editor.shown = "code"
+    let typing = Typing(editor: editor)
+    var steps = 0
+    typing.edited = { _, joins in
+        if !joins { steps += 1 }
+    }
+    #expect(typing.enter("code-block", in: "code", at: nil))
+    #expect(typing.inCode)
+    let written = typing.carets?.text
+    typing.selectAll()
+    typing.bold()
+    #expect(typing.told == "Code is set in its theme's colors, not in bold")
+    typing.italic()
+    #expect(typing.told == "Code is set in its theme's colors, not in italic")
+    typing.toggle("bullet")
+    #expect(typing.told == "Code keeps its lines as written, in no list")
+    #expect(steps == 0 && typing.carets?.text == written, "nothing changed, nothing to undo")
+    #if os(iOS)
+    let view = CanvasKeys(typing: typing)
+    #expect(view.autocorrectionType == .no && view.spellCheckingType == .no && view.autocapitalizationType == .none)
+    #expect(view.smartQuotesType == .no && view.smartDashesType == .no && view.smartInsertDeleteType == .no)
+    #expect(view.inlinePredictionType == .no)
+    #endif
+    typing.leave()
+
+    // Words are not code, and keep the system's keyboard.
+    let words = DeckEditor(session: try ScaenaSession(directory: b1))
+    words.shown = "cover"
+    let prose = Typing(editor: words)
+    #expect(prose.enter("subtitle", in: "cover", at: nil))
+    #expect(!prose.inCode)
+    #if os(iOS)
+    let plain = CanvasKeys(typing: prose)
+    #expect(plain.autocorrectionType == .default && plain.smartQuotesType == .default)
+    #expect(plain.autocapitalizationType == .sentences)
+    #endif
+    prose.leave()
+}

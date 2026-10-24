@@ -463,9 +463,14 @@ public final class Typing {
 
     // MARK: A look for the characters selected
 
+    /// Whether the text typed in is code (PLAN 2.131): set as written in its theme's colors, which
+    /// no look of its own, list, or writing tool changes, its keys a code editor's (PLAN 2.139).
+    public var inCode: Bool { box?.code != nil }
+
     /// ⌘B: the characters selected bold, or, all bold already, not (PLAN 2.38), as the engine reads
-    /// the weight it sets each in.
+    /// the weight it sets each in. Code takes none: its theme colors it (PLAN 2.139).
     public func bold() {
+        guard !inCode else { return say("Code is set in its theme's colors, not in bold") }
         guard let node, let state, let carets, from < to else { return say("Select some words to make them bold") }
         do {
             let look = try editor.session.bolding(
@@ -477,8 +482,10 @@ public final class Typing {
     }
 
     /// ⌘I: the characters selected in italic, or, all italic already, not (PLAN 2.40), as each
-    /// asks for it: a family without an italic face sets them upright all the same (W231).
+    /// asks for it: a family without an italic face sets them upright all the same (W231). Code takes
+    /// none (PLAN 2.139).
     public func italic() {
+        guard !inCode else { return say("Code is set in its theme's colors, not in italic") }
         guard let node, let state, let carets, from < to else {
             return say("Select some words to set them in italic")
         }
@@ -622,6 +629,11 @@ public final class Typing {
     /// One `list` patch, one step to undo; `done` is what the status says. Whether it was made.
     @discardableResult
     public func list(kind: String? = nil, by: Int? = nil, done: String) -> Bool {
+        // Code keeps no list: its lines are as written (PLAN 2.139).
+        guard !inCode else {
+            say("Code keeps its lines as written, in no list")
+            return false
+        }
         guard let node, let state, let carets else { return false }
         var op: [String: JSONValue] = [
             "op": "list", "node": .string(node), "state": .string(state),
