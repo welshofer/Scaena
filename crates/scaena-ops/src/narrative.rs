@@ -6571,8 +6571,8 @@ mod tests {
 
     /// A long deck is shown to the model a dozen slides at a time (narrative PERF-5): each round
     /// says which slides it shows, numbered as they stand in the deck; the changes answered are
-    /// folded into one; and a round the provider refuses loses its own slides' changes alone,
-    /// said beside the rest.
+    /// folded into one; a round a busy provider answers for now is asked again (lift-up REL-1);
+    /// and a round the provider refuses loses its own slides' changes alone, said beside the rest.
     #[test]
     fn a_long_deck_is_looked_at_a_dozen_slides_at_a_time() {
         use scaena_narrato::{Provider, Settings};
@@ -6611,19 +6611,27 @@ mod tests {
                     // The second slide's title tightened; the rest kept.
                     let change = json!({ "slides": [{ "slide": 2, "layout": "", "title": "Agenda", "subtitle": "", "bullets": [], "why": "One word." }] });
                     (200, anthropic(&change.to_string()))
-                } else {
+                } else if looks.len() == 2 {
+                    // Busy the first time: asked again.
                     assert_eq!(captions.first().map(|c| &c[..18]), Some("Slide 13 of 14, dr"), "{captions:?}");
                     (529, r#"{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}"#.to_string())
+                } else {
+                    // Then refused for good.
+                    (
+                        400,
+                        r#"{"type":"error","error":{"type":"invalid_request_error","message":"Too many images"}}"#
+                            .to_string(),
+                    )
                 }
             } else {
                 (200, anthropic(&written))
             };
-            Reply {
-                status,
-                status_text: if status == 200 { "OK".into() } else { "Overloaded".into() },
-                body: reply,
-                after: None,
-            }
+            let status_text = match status {
+                200 => "OK",
+                400 => "Bad Request",
+                _ => "Overloaded",
+            };
+            Reply { status, status_text: status_text.into(), body: reply, after: None }
         };
         let mut heard = Vec::new();
         let mut say = |p: Progress| heard.push(p);
@@ -6642,9 +6650,11 @@ mod tests {
             &mut say,
         )
         .unwrap();
-        assert_eq!(looks.len(), 2, "two rounds: {looks:?}");
-        assert_eq!((looks[0].1, looks[1].1), (12, 2), "a dozen slides, then the two left");
+        assert_eq!(looks.len(), 3, "two rounds, the second asked again once: {looks:?}");
+        assert_eq!((looks[0].1, looks[1].1, looks[2].1), (12, 2, 2), "a dozen slides, then the two left");
         assert!(looks[1].0.starts_with("You have seen slides 13\u{2013}14 of the 14 slides"), "{}", looks[1].0);
+        assert_eq!(looks[1].0, looks[2].0, "the same round asked again");
+        assert!(heard.iter().any(|p| matches!(p, Progress::Retrying { tried: 1, .. })), "{heard:?}");
         assert_eq!(heard.iter().filter(|p| matches!(p, Progress::Looking { slides: 14 })).count(), 1, "{heard:?}");
         assert!(made.created.created, "{:#?}", made.created.findings);
         // The first round's change is kept, and the second round's refusal is said beside it.
@@ -6654,7 +6664,7 @@ mod tests {
             "{made:#?}"
         );
         let unlooked = made.unlooked.as_deref().unwrap_or_default();
-        assert!(unlooked.contains("slides 13\u{2013}14 not looked at: 529 Overloaded"), "{unlooked}");
+        assert!(unlooked.contains("slides 13\u{2013}14 not looked at: 400 Bad Request"), "{unlooked}");
         assert!(write.is_some());
     }
 
