@@ -685,7 +685,7 @@ For tables, stats, rows of cards, other chart kinds, and shader backgrounds, see
 - **Present** from the player: → and ← step, F goes fullscreen, and **Presenter** opens the presenter view, its timer paused and reset by its Pause and Reset, the time of day beside it. B blacks the screen until a key brings the slide back, a slide's number then Return goes there, L is the laser, and ? lists the keys. Past the last slide, a black screen says the show has ended: → or Escape leaves it, out of fullscreen, and ← shows the last slide. `?fps` in the player's address shows its frame rate.
 - **One file that plays anywhere, offline:** `scaena export talk --format html --out talk.html`. It is the player and the deck in one HTML file, for a USB stick or an email.
 - **PDF:** `scaena export talk --format pdf --out talk.pdf`. It draws each slide at its last state, in spine order, with real text a reader can copy.
-- **Images and video:** `--format png` or `--format svg` write each state into a directory. `--format mp4` plays the timeline, cues and holds, at `--fps`, with a chapter per beat.
+- **Images and video:** `--format png` or `--format svg` write each state into a directory, named by its slide and step (`Slide 03.png`, or `Slide 03, step 1.png`, `Slide 03, step 2.png` for a slide with steps) so the files sort in the deck's order; each SVG is titled by its slide's headline. `--format mp4` plays the timeline, cues and holds, at `--fps`, with a chapter per beat.
 
 ## Reference
 
