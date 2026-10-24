@@ -248,6 +248,21 @@ private func anthropic(_ text: String) -> Data {
 }
 
 /// What a brief may ask is Narrato's: its goals, lengths, arcs, and defaults.
+/// A redirect is followed only to a public https address by name: a page a source names cannot
+/// send the app on to this machine or its network (lift-up SEC-2).
+@Test func aRedirectIsFollowedOnlyToAPublicAddress() throws {
+    for followed in ["https://example.com/a", "https://www.example.org./b?c", "https://cdn.example.net:8443/x"] {
+        #expect(GeneratorReply.follows(URL(string: followed)!), "\(followed)")
+    }
+    for refused in [
+        "http://example.com/a", "https://localhost/a", "https://api.localhost/a", "https://intranet/a",
+        "https://127.0.0.1/a", "https://169.254.169.254/latest", "https://0x7f.0.0.1/a", "https://[::1]/a",
+        "https://[fd00::1]/a", "file:///etc/hosts",
+    ] {
+        #expect(!GeneratorReply.follows(URL(string: refused)!), "\(refused)")
+    }
+}
+
 @Test func whatABriefMayAskIsNarratos() throws {
     let choices = try Generator.choices()
     #expect(choices.goals.contains("Inform"))

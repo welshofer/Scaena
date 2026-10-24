@@ -163,9 +163,13 @@ async fn the_resources_say_how_long_to_keep_them() {
 #[tokio::test(flavor = "multi_thread")]
 async fn an_agent_builds_a_deck_with_the_tools_alone() {
     let client = connect().await;
-    let dir = scratch("build").join("q3");
+    let root = scratch("build");
+    let dir = root.join("q3");
     let bundle = path(&dir);
-    let csv = path(&Path::new(EXAMPLES).join("data/q3-revenue.csv"));
+    // The data file beside the bundle: a tool reads only there or under its own folder.
+    let csv = root.join("q3-revenue.csv");
+    std::fs::copy(Path::new(EXAMPLES).join("data/q3-revenue.csv"), &csv).unwrap();
+    let csv = path(&csv);
 
     // A theme that ships, by name, with its fonts: the agent needs no theme file (PLAN 2.13).
     let made = ok(&client, "deck_create", json!({ "bundle": bundle, "theme": "dusk", "title": "Q3" })).await;
@@ -380,15 +384,92 @@ async fn a_tool_that_stops_says_why() {
     client.cancel().await.unwrap();
 }
 
+/// A tool writes `out` only under the server's folder or the bundle's (lift-up SEC-1).
+#[tokio::test(flavor = "multi_thread")]
+async fn a_tool_writes_only_under_its_folder_or_beside_the_bundle() {
+    // What an agent read may tell it where to write: the server writes `out` under its own
+    // folder or the bundle's, read through every link, and nowhere else.
+    let here = scratch("confined");
+    let elsewhere = scratch("confined-elsewhere");
+    let server = scaena_mcp::Scaena::default().with_dir(here.clone());
+    let client = serve(server, ClientConfig::default(), ClientLifecycleMode::Initialize).await;
+    let deck = path(&Path::new(EXAMPLES).join("revenue.deck.json"));
+    let outside = path(&elsewhere.join("keys"));
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(&elsewhere, here.join("link")).unwrap();
+    let mut refused = vec![outside.clone(), path(&here.join("../confined-elsewhere/keys")), "/".into()];
+    if cfg!(unix) {
+        refused.push(path(&here.join("link/keys")));
+    }
+    for out in &refused {
+        let render = call(&client, "deck_render", json!({ "bundle": deck, "state": "revenue", "out": out })).await;
+        assert_eq!(render.is_error, Some(true), "{out}");
+        assert!(text(&render).contains("is outside where this server writes"), "{}", text(&render));
+        let export = call(&client, "deck_export", json!({ "bundle": deck, "format": "pdf", "out": out })).await;
+        assert_eq!(export.is_error, Some(true), "{out}");
+        assert!(text(&export).contains("is outside where this server writes"), "{}", text(&export));
+    }
+    assert_eq!(elsewhere.read_dir().unwrap().count(), 0, "nothing was written outside");
+    // Nor is a file outside them read into a bundle, whatever it is.
+    let bundle = path(&here.join("q3"));
+    ok(&client, "deck_create", json!({ "bundle": bundle, "theme": "dusk", "title": "Q3" })).await;
+    std::fs::write(elsewhere.join("credentials"), "aws_secret_access_key\nAKIA0000\n").unwrap();
+    let read = call(
+        &client,
+        "data_attach",
+        json!({ "bundle": bundle, "id": "keys", "file": path(&elsewhere.join("credentials")) }),
+    )
+    .await;
+    assert_eq!(read.is_error, Some(true));
+    assert!(text(&read).contains("is outside where this server reads"), "{}", text(&read));
+    assert!(!here.join("q3/data/credentials").exists());
+    // Under its folder, nothing hidden: no key, no cloud credentials, no git hook.
+    std::fs::create_dir_all(here.join(".ssh")).unwrap();
+    std::fs::create_dir_all(here.join(".aws")).unwrap();
+    for out in [".ssh/authorized_keys", ".ssh/frame.png", ".git/hooks/pre-commit.png"] {
+        let render = call(&client, "deck_render", json!({ "bundle": deck, "state": "revenue", "out": out })).await;
+        assert_eq!(render.is_error, Some(true), "{out}");
+        assert!(text(&render).contains("in no hidden folder"), "{out}: {}", text(&render));
+    }
+    std::fs::write(here.join(".aws/credentials.csv"), "key,secret\nAKIA0000,abc\n").unwrap();
+    let hidden = json!({ "bundle": bundle, "id": "aws", "file": path(&here.join(".aws/credentials.csv")) });
+    let read = call(&client, "data_attach", hidden).await;
+    assert_eq!(read.is_error, Some(true));
+    assert!(text(&read).contains("is outside where this server reads"), "{}", text(&read));
+    // And only what the tool writes, by its name: no notes, no shell's start-up file.
+    let notes = call(&client, "deck_render", json!({ "bundle": deck, "state": "revenue", "out": "notes.txt" })).await;
+    assert_eq!(notes.is_error, Some(true));
+    assert!(text(&notes).contains("is no .png file"), "{}", text(&notes));
+    let pdf = call(&client, "deck_export", json!({ "bundle": deck, "format": "pdf", "out": "profile" })).await;
+    assert_eq!(pdf.is_error, Some(true));
+    assert!(text(&pdf).contains("is no .pdf file"), "{}", text(&pdf));
+    let images =
+        call(&client, "deck_export", json!({ "bundle": deck, "format": "png", "out": "LaunchAgent.plist" })).await;
+    assert_eq!(images.is_error, Some(true));
+    assert!(text(&images).contains("this writes a folder of images there"), "{}", text(&images));
+    assert!(
+        !here.join("notes.txt").exists()
+            && !here.join("profile").exists()
+            && !here.join(".ssh/authorized_keys").exists()
+    );
+    // Under its folder, by a path relative to it, it writes.
+    let rendered =
+        call(&client, "deck_render", json!({ "bundle": deck, "state": "revenue", "out": "revenue.png" })).await;
+    assert_ne!(rendered.is_error, Some(true), "{}", text(&rendered));
+    assert!(here.join("revenue.png").is_file());
+    client.cancel().await.unwrap();
+}
+
 /// An export that outlives the client's wait keeps going (SPEC §7.2): the call answers
 /// that it is running and how far it has got, the same call again waits for the rest, and
 /// a different export of the same file is refused until it is done.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_long_export_keeps_going_while_the_client_asks_after_it() {
     // A server that waits for nothing, so every export outlives its first call.
-    let server = scaena_mcp::Scaena::default().with_export_wait(Duration::ZERO);
+    let scratched = scratch("long-export");
+    let server = scaena_mcp::Scaena::default().with_export_wait(Duration::ZERO).with_dir(scratched.clone());
     let client = serve(server, ClientConfig::default(), ClientLifecycleMode::Initialize).await;
-    let dir = scratch("long-export").join("images");
+    let dir = scratched.join("images");
     let (images, deck) = (path(&dir), path(&Path::new(EXAMPLES).join("revenue.deck.json")));
     let png = json!({ "bundle": deck, "format": "png", "out": images });
     let first = ok(&client, "deck_export", png.clone()).await;

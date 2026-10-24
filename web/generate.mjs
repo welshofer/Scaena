@@ -81,10 +81,7 @@ const provider = createServer(async (req, res) => {
     "access-control-allow-methods": "GET, POST, OPTIONS",
   };
   const path = new URL(req.url, "http://x").pathname;
-  // A page whose site lets no other page read it: no CORS header.
-  if (path === "/closed.html") return res.writeHead(200, { "content-type": "text/html" }).end(PAGE);
   if (req.method === "OPTIONS") return res.writeHead(204, cors).end();
-  if (path === "/press.html") return res.writeHead(200, { ...cors, "content-type": "text/html; charset=utf-8" }).end(PAGE);
   const reply = (status, body) =>
     res.writeHead(status, { ...cors, "content-type": "application/json" }).end(typeof body === "string" ? body : JSON.stringify(body));
   // OpenAI's image models, and a picture for each one asked for.
@@ -202,7 +199,21 @@ try {
   check(sec.includes("--source sec:TICKER") && sec.includes("Mac"), `SEC says the Mac and the CLI read it: ${sec}`);
   check(await page.locator("#prompting").evaluate((d) => d.open), "the dialog stays open");
   await removeAll();
-  await link(`${origin}/closed.html`);
+  // A web source is a public https address: one on this machine is refused before it is asked.
+  await link(`${origin}/press.html`);
+  await page.click("#prompting-go");
+  const local = await failed();
+  check(local.includes("a web source is a public https address"), `a link to this machine is refused: ${local}`);
+  await removeAll();
+  // The press's site, a public address. A page it lets no other page read fails the fetch as
+  // CORS fails it (a response fulfilled here skips that check, so the request is aborted).
+  const press = "https://press.example.com";
+  await page.route(`${press}/**`, (route) =>
+    route.request().url().endsWith("/press.html")
+      ? route.fulfill({ status: 200, body: PAGE, headers: { "content-type": "text/html; charset=utf-8", "access-control-allow-origin": "*" } })
+      : route.abort("accessdenied"),
+  );
+  await link(`${press}/closed.html`);
   await page.click("#prompting-go");
   const closed = await failed();
   check(closed.includes("could not be read from this page"), `a site that lets no other page read it says so: ${closed}`);
@@ -274,7 +285,7 @@ try {
     { name: "notes.md", mimeType: "text/markdown", buffer: Buffer.from(NOTES) },
     { name: "q3.csv", mimeType: "text/csv", buffer: Buffer.from("region,revenue\nGulf,4.1\nAtlantic,2.2\n") },
   ]);
-  await link(`${origin}/press.html`);
+  await link(`${press}/press.html`);
   const listed = await page.locator("#prompting-sources li").allTextContents();
   check(listed.length === 3, `the sources are listed: ${listed.map((l) => l.replace(/\s*Remove$/, "")).join(", ")}`);
   check(await page.isChecked("#prompting-show-outline"), "the outline is shown first by default");
@@ -336,7 +347,7 @@ try {
     slides?.prompt.includes("=== SOURCE: notes.md ===") && slides.prompt.includes("Port calls doubled in Q3"),
     "the Markdown file is in the slides' prompt",
   );
-  check(slides?.prompt.includes(`=== SOURCE: ${origin}/press.html ===`) && slides.prompt.includes("third route"), "the web page is in the slides' prompt");
+  check(slides?.prompt.includes(`=== SOURCE: ${press}/press.html ===`) && slides.prompt.includes("third route"), "the web page is in the slides' prompt");
   check(slides?.prompt.includes("=== SOURCE: q3.csv ==="), "the CSV is in the slides' prompt");
   const look = requests.find((r) => r.asked === "look");
   const drawn = look?.body.messages[0].content.filter((c) => c.type === "image") ?? [];

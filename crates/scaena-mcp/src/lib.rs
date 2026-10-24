@@ -63,6 +63,10 @@ pub struct Scaena {
     wait: Duration,
     /// What makes `map_fetch`'s requests.
     reach: Reach,
+    /// Where `out` may be written besides beside a bundle; the working directory without it.
+    dir: Option<PathBuf>,
+    /// The home folder, which is never such a place; `$HOME` without it.
+    home: Option<PathBuf>,
 }
 
 impl Default for Scaena {
@@ -72,7 +76,14 @@ impl Default for Scaena {
             route.attr.input_schema = standard(&route.attr.input_schema);
             route.attr.output_schema = route.attr.output_schema.as_deref().map(standard);
         }
-        Scaena { tool_router, exports: Arc::default(), wait: EXPORT_WAIT, reach: Reach::default() }
+        Scaena {
+            tool_router,
+            exports: Arc::default(),
+            wait: EXPORT_WAIT,
+            reach: Reach::default(),
+            dir: None,
+            home: None,
+        }
     }
 }
 
@@ -87,6 +98,112 @@ impl Scaena {
     pub fn with_transport(mut self, transport: Arc<dyn scaena_objects::Transport + Send + Sync>) -> Self {
         self.reach = Reach(Some(transport));
         self
+    }
+
+    /// The same server, writing `out` under `dir` in place of its working directory.
+    pub fn with_dir(mut self, dir: PathBuf) -> Self {
+        self.dir = Some(dir);
+        self
+    }
+
+    /// Where a tool writes `out`, a file named as `wrote` says or a folder: under this server's
+    /// working directory or the folder that holds `bundle` (see [`Self::within`]). So a path an
+    /// agent was told by what it read (a deck, a data file, a page) reaches nothing else the user
+    /// can write, and no tool writes a key, a shell's start-up file, or a launch agent.
+    fn writable(&self, out: &str, bundle: &str, wrote: Wrote) -> Result<PathBuf, OpsError> {
+        let path = self.within(out, bundle, "writes")?;
+        let ext = path.extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase);
+        match wrote {
+            Wrote::File(want) if ext.as_deref() != Some(want) => {
+                Err(OpsError::new(format!("{out} is no .{want} file, which is what this writes there")))
+            }
+            Wrote::Folder if ext.is_some() && !path.is_dir() => {
+                Err(OpsError::new(format!("{out} is a file's name: this writes a folder of images there")))
+            }
+            _ => Ok(path),
+        }
+    }
+
+    /// The file a tool copies into a bundle, held as [`Self::writable`] holds what it writes: so a
+    /// path an agent was told reads nothing else the user can, into a bundle that is shared.
+    fn readable(&self, file: &Path, bundle: &str) -> Result<PathBuf, OpsError> {
+        self.within(&file.to_string_lossy(), bundle, "reads")
+    }
+
+    /// `out` read through every link, where it is under this server's working directory or the
+    /// folder that holds `bundle`, and nothing under that folder it passes through is hidden
+    /// (`.ssh`, `.aws`, `.config`, `.git`, a shell's start-up files); else why not, saying where
+    /// this server `does` its work. The root of the disk and the home folder are no such folder:
+    /// a server started there, or a bundle kept straight in either, would reach all of it.
+    fn within(&self, out: &str, bundle: &str, does: &str) -> Result<PathBuf, OpsError> {
+        let here = match &self.dir {
+            Some(dir) => dir.clone(),
+            None => std::env::current_dir().map_err(|e| OpsError::new(format!("this server has no folder: {e}")))?,
+        };
+        let home = (self.home.clone()).or_else(|| std::env::var_os("HOME").map(PathBuf::from));
+        let home = home.and_then(|h| std::fs::canonicalize(h).ok());
+        let beside = std::fs::canonicalize(bundle).ok().and_then(|b| b.parent().map(Path::to_path_buf));
+        let roots: Vec<PathBuf> = [Some(here.clone()), beside]
+            .into_iter()
+            .flatten()
+            .filter_map(|r| std::fs::canonicalize(r).ok())
+            .filter(|r| r.parent().is_some() && Some(r) != home.as_ref())
+            .collect();
+        if roots.is_empty() {
+            return Err(OpsError::new(format!(
+                "{out}: this server {does} only under its own folder or the bundle's, and neither is one of its \
+                 own (the disk's root or the home folder): keep the bundle in a folder of its own"
+            )));
+        }
+        let refused = || {
+            let places: Vec<String> = roots.iter().map(|r| r.display().to_string()).collect();
+            OpsError::new(format!(
+                "{out} is outside where this server {does}: under {}, in no hidden folder",
+                places.join(" or ")
+            ))
+        };
+        let asked = Path::new(out);
+        if out.is_empty() || asked.components().any(|c| matches!(c, std::path::Component::ParentDir)) {
+            return Err(refused());
+        }
+        let asked = here.join(asked);
+        // The nearest part of it that is there, read through its links; the rest is made new.
+        let mut there = asked.as_path();
+        let mut made = Vec::new();
+        while std::fs::symlink_metadata(there).is_err() {
+            let (Some(name), Some(parent)) = (there.file_name(), there.parent()) else { return Err(refused()) };
+            made.push(name);
+            there = parent;
+        }
+        let mut real = std::fs::canonicalize(there).map_err(|_| refused())?;
+        real.extend(made.iter().rev());
+        let hidden = |below: &Path| below.components().any(|c| c.as_os_str().to_string_lossy().starts_with('.'));
+        let held = roots.iter().any(|r| real.strip_prefix(r).is_ok_and(|below| !hidden(below)));
+        if held { Ok(real) } else { Err(refused()) }
+    }
+}
+
+/// What a tool writes at a path: a file of this extension, or a folder.
+#[derive(Debug, Clone, Copy)]
+enum Wrote {
+    File(&'static str),
+    Folder,
+}
+
+impl Wrote {
+    /// What `deck_export` writes in `format`, named as `scaena_export::Format` names it; none for
+    /// a format it does not know, which the export refuses before it writes.
+    fn exported(format: &str) -> Option<Wrote> {
+        Some(match format {
+            "pdf" => Wrote::File("pdf"),
+            "mp4" => Wrote::File("mp4"),
+            "webm" => Wrote::File("webm"),
+            "prores" => Wrote::File("mov"),
+            "html" => Wrote::File("html"),
+            "spine" => Wrote::File("json"),
+            "png" | "svg" => Wrote::Folder,
+            _ => return None,
+        })
     }
 }
 
@@ -440,7 +557,7 @@ pub struct DeckRender {
     pub size: Option<String>,
     #[serde(default)]
     pub painter: scaena_ops::render::Painter,
-    /// Also write the PNG here.
+    /// Also write the PNG here: under the server's working directory or the bundle's folder.
     #[serde(default)]
     pub out: Option<String>,
 }
@@ -459,7 +576,8 @@ pub struct DeckExport {
     #[serde(default)]
     pub states: Option<Vec<String>>,
     /// Where to write it: a file (pdf, video, html, spine), or a directory that gets an
-    /// image per state (png, svg). Only the spine needs none.
+    /// image per state (png, svg), under the server's working directory or the bundle's
+    /// folder. Only the spine needs none.
     #[serde(default)]
     pub out: Option<String>,
     /// `WxH` pixels for png, svg, and video, in the canvas's aspect ratio; the canvas's
@@ -736,11 +854,17 @@ impl Scaena {
             size: a.size,
             painter: a.painter,
         };
-        let out = a.out.clone();
+        let out = a
+            .out
+            .as_deref()
+            .map(|out| self.writable(out, &a.bundle, Wrote::File("png")))
+            .transpose()
+            .map_err(failure)?;
         let frame = blocking(move || {
             let frame = scaena_ops::render::render(Path::new(&a.bundle), &req)?;
             if let Some(out) = &out {
-                std::fs::write(out, &frame.png).map_err(|e| OpsError::new(format!("writing {out}: {e}")))?;
+                std::fs::write(out, &frame.png)
+                    .map_err(|e| OpsError::new(format!("writing {}: {e}", out.display())))?;
             }
             Ok(frame)
         })
@@ -769,7 +893,12 @@ impl Scaena {
         let req = scaena_ops::export::Request {
             format: a.format.clone(),
             states: a.states.clone(),
-            out: a.out.clone().map(Into::into),
+            out: match (a.out.as_deref(), Wrote::exported(&a.format)) {
+                (Some(out), Some(wrote)) => Some(self.writable(out, &a.bundle, wrote).map_err(failure)?),
+                // No format of its own: the export refuses it before anything is written.
+                (_, None) => None,
+                (None, Some(_)) => None,
+            },
             size: a.size.clone(),
             fps: a.fps,
             audio: a.audio.clone().map(Into::into),
@@ -891,7 +1020,9 @@ impl Scaena {
         context: RequestContext<RoleServer>,
     ) -> Result<Json<scaena_ops::create::Attached>, String> {
         let author = author(&context);
-        blocking(move || scaena_ops::create::attach(&open_by(&a.bundle, author)?, &a.data)).await.map(Json)
+        let mut data = a.data;
+        data.file = self.readable(&data.file, &a.bundle).map_err(failure)?;
+        blocking(move || scaena_ops::create::attach(&open_by(&a.bundle, author)?, &data)).await.map(Json)
     }
 
     #[tool(description = "Put a map on a slide (ADR-0030): a picture of `place` (an address, a place, or `lat, lon`) \
@@ -1073,4 +1204,48 @@ const RESOURCE_TTL_MS: u64 = 3_600_000;
 /// `tools/list` does.
 fn hints(context: &RequestContext<RoleServer>) -> bool {
     context.protocol_version().is_some_and(|v| v >= ProtocolVersion::V_2026_07_28)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A folder of its own under the system's temporary folder, empty.
+    fn scratch(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("scaena-mcp-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn the_disks_root_and_the_home_folder_are_no_folder_of_a_servers_own() {
+        let home = scratch("home");
+        let nowhere = home.join("no-bundle");
+        let at = |dir: &Path| Scaena { dir: Some(dir.to_path_buf()), home: Some(home.clone()), ..Scaena::default() };
+        // Started at the disk's root, or at home, with no bundle beside anything: nothing is written.
+        for dir in [Path::new("/"), home.as_path()] {
+            let err = at(dir).within(&path(&home.join(".ssh/authorized_keys")), &path(&nowhere), "writes").unwrap_err();
+            assert!(err.message.contains("keep the bundle in a folder of its own"), "{}", err.message);
+            let err = at(dir).within("notes/frame.png", &path(&nowhere), "writes").unwrap_err();
+            assert!(err.message.contains("keep the bundle in a folder of its own"), "{}", err.message);
+        }
+        // A bundle kept straight in the home folder makes it no root either.
+        let bundle = home.join("deck.json");
+        std::fs::write(&bundle, "{}").unwrap();
+        let err = at(Path::new("/")).within(&path(&home.join("frame.png")), &path(&bundle), "writes").unwrap_err();
+        assert!(err.message.contains("keep the bundle in a folder of its own"), "{}", err.message);
+        // In a folder of its own, under home, it is one.
+        let own = home.join("talks");
+        std::fs::create_dir_all(&own).unwrap();
+        let bundle = own.join("deck.json");
+        std::fs::write(&bundle, "{}").unwrap();
+        let ok = at(Path::new("/")).within(&path(&own.join("frame.png")), &path(&bundle), "writes").unwrap();
+        assert_eq!(ok, std::fs::canonicalize(&own).unwrap().join("frame.png"));
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    fn path(p: &Path) -> String {
+        p.to_string_lossy().into_owned()
+    }
 }

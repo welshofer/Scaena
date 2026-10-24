@@ -177,8 +177,10 @@ pub fn dated(deck: &Deck, now: i64) -> Vec<Finding> {
         let first = first.and_then(Value::as_str);
         let message: Box<dyn Fn(&str) -> String> = if crate::fetched::passed(fetched, first, now) {
             let Some(forecast) = &fetched.forecast else { continue };
-            let day: String =
-                first.map_or_else(|| crate::fetched::date(&fetched.at).unwrap_or("").into(), |d| d[..10].into());
+            // A first date that is no day was judged by the day it was fetched, and says that day.
+            let day: String = first
+                .filter(|d| crate::fetched::days(d).is_some())
+                .map_or_else(|| crate::fetched::date(&fetched.at).unwrap_or("").into(), |d| d[..10].into());
             let place = forecast.place.name.clone();
             Box::new(move |what: &str| {
                 format!("{what} forecast `@{name}` starts on {day}, a day that has passed in {place}")
@@ -291,5 +293,19 @@ mod tests {
         let codes: Vec<String> = lint_document(&deck, Some(&dusk())).into_iter().map(|f| f.code).collect();
         assert!(codes.contains(&"W401".to_string()), "{codes:?}");
         assert!(codes.contains(&"I400".to_string()), "{codes:?}");
+    }
+
+    /// A forecast whose first date is no day, too short to cut or cut inside a character, is
+    /// judged and said by the day it was fetched (lift-up STAB-5), never a panic.
+    #[test]
+    fn a_forecasts_first_date_that_is_no_day_says_the_day_it_was_fetched() {
+        let mut deck = Deck::from_json(include_str!("../../../../tests/lint/W428/trigger.deck.json")).unwrap();
+        let now = 1_800_000_000;
+        for first in ["2026", "", "2026-10-0é", "２０２６-10-01"] {
+            let rows = deck.data.get_mut("week").unwrap().source.get_mut("inline").unwrap();
+            rows[0]["date"] = first.into();
+            let found: Vec<String> = dated(&deck, now).into_iter().map(|f| f.message).collect();
+            assert!(found.iter().any(|m| m.contains("`@week` starts on 2026-10-01")), "{first:?}: {found:#?}");
+        }
     }
 }
