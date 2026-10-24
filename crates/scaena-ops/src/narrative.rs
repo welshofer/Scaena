@@ -4211,7 +4211,7 @@ mod tests {
         )
         .unwrap();
         assert!(made.created.created && made.created.errors == 0, "{:#?}", made.created.findings);
-        assert_eq!(write.map(|w| w.deck.states.len()), Some(5), "the deck stands as made");
+        assert_eq!(write.map(|w| w.deck.slides().len()), Some(5), "the deck stands as made");
         assert_eq!(
             made.unlooked.as_deref(),
             Some("the slides could not be drawn for the model: state `cover` is past the painter's largest raster")
