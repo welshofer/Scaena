@@ -167,16 +167,19 @@ final class OpeningTests: XCTestCase {
     /// B1 left as it was, each step this test made taken back by the toolbar's Undo (PLAN 4.11)
     /// until it has none to take back, as it had none when B1 opened. The tests after these open B1
     /// too, and the app saves an edit by itself: a text left on the cover, over its title, took the
-    /// taps ThemeTests and TouchTests meant for the title and the theme's body role.
+    /// taps ThemeTests and TouchTests meant for the title and the theme's body role. Undo stays
+    /// enabled while it offers Redo; it reads as the step it takes back, and as Undo alone once there
+    /// is none.
     @MainActor
     private func leaveB1(in app: XCUIApplication) {
         let undo = app.navigationBars.buttons.matching(NSPredicate(format: "identifier == 'undo'")).firstMatch
         XCTAssertTrue(undo.waitForExistence(timeout: 5), "no Undo in the toolbar: \(app.debugDescription)")
-        for _ in 0..<4 where undo.isEnabled {
+        for _ in 0..<4 where undo.label != "Undo" {
+            let step = undo.label
             undo.tap()
-            _ = wait(5) { !undo.isEnabled }
+            _ = wait(5) { undo.label != step }
         }
-        XCTAssertFalse(undo.isEnabled, "B1 is not left as it was: \(app.debugDescription)")
+        XCTAssertEqual(undo.label, "Undo", "B1 is not left as it was: \(app.debugDescription)")
         settle()
     }
 }
