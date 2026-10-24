@@ -78,7 +78,16 @@ pub fn project<'d>(
             true => "none".to_string(),
             false => listed(),
         };
-        return Err(EngineError::Layout(format!("format `{name}` is not one of the deck's formats ({listed})")));
+        // How to list it, as one JSON Patch op: the list made where the deck has none, else the
+        // format added to the end of it.
+        let op = match deck.formats.is_empty() {
+            true => format!(r#"{{"op": "add", "path": "/formats", "value": ["{name}"]}}"#),
+            false => format!(r#"{{"op": "add", "path": "/formats/-", "value": "{name}"}}"#),
+        };
+        return Err(EngineError::Layout(format!(
+            "format `{name}` is not one of the deck's formats ({listed}): list it to lay the deck out there, \
+             with the patch `[{op}]`; a layout whose theme gives `{name}` no slots of its own keeps its slots there"
+        )));
     }
     let mut projected = deck.clone();
     (projected.canvas.width, projected.canvas.height) = (canvas[0], canvas[1]);

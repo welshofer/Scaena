@@ -176,7 +176,7 @@ A file dropped on the source joins the bundle, and its path, quoted, goes where 
 
 **Your own deck in the site.** Copy its folder into the site's `decks/`, then open `editor.html?bundle=decks/my-talk/`, or the same address on `index.html` to play it. **Open folder…** shows only where the browser can open one (Chrome and Edge, not Safari or Firefox). Elsewhere, saves stay in the browser until you **Download .scaena**, or until you serve the folder with `scaena serve` instead.
 
-**Start a deck.** **New…** asks for a title and a theme. The deck it makes has the theme and the fonts the theme names, as an assistant's `deck_create` makes one, and opens on a title slide in the theme's `title` layout: its title, the line under it, and its kicker are words to type over, and the place for a picture holds the theme's backdrop, as the dialog shows it. Its first **Save** keeps it in the browser under a name made from its title; **Save as…** puts it in a folder on your disk instead. To start from another deck, open that one and **Save as…** under a new name.
+**Start a deck.** **New…** asks for a title and a theme. The deck it makes has the theme and the fonts the theme names, as an assistant's `deck_create` makes one, and opens on a title slide in the theme's `title` layout: its title, the line under it, and its kicker are words to type over, and the place for a picture is outlined. Its first **Save** keeps it in the browser under a name made from its title; **Save as…** puts it in a folder on your disk instead. To start from another deck, open that one and **Save as…** under a new name.
 
 ## The command line: edit, check, look
 
