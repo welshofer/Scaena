@@ -1294,8 +1294,13 @@ export class Stage {
     this.worker.postMessage({ type: "helpers", ports } satisfies ToWorker, ports);
   }
 
+  /** The page's version of the source (the editor's `version`): sent with each request that
+   * carries a source, so the worker answers a request no newer than its deck from that deck. */
+  sourceVersion: () => number | undefined = () => undefined;
+
   private send(message: ToWorker) {
-    this.worker.postMessage(message);
+    const version = "source" in message && typeof message.source === "string" ? this.sourceVersion() : undefined;
+    this.worker.postMessage(version === undefined ? message : { ...message, seen: version });
   }
 
   private request<T extends Reply["type"]>(message: Extract<ToWorker, { id: number }>): Promise<Extract<Reply, { type: T }>> {
