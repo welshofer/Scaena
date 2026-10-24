@@ -200,8 +200,11 @@ async function provider(wire) {
 const site = await serve();
 const browser = await launch();
 try {
-  const context = await browser.newContext({ viewport: { width: 1600, height: 1000 }, deviceScaleFactor: 1 });
+  /** The editor on the bundle, in a browser of its own: the page before it left the assistant's
+   * edits not saved, and a page that opened the deck again beside it would be offered them first
+   * (lift-up REL-4). */
   const open = async () => {
+    const context = await browser.newContext({ viewport: { width: 1600, height: 1000 }, deviceScaleFactor: 1 });
     const page = await context.newPage();
     page.on("pageerror", (e) => failures.push(`page: ${e.message}`));
     page.on("console", (m) => m.type() === "error" && !/Failed to load resource/.test(m.text()) && failures.push(`console: ${m.text()}`));
@@ -434,6 +437,13 @@ try {
       check(keys.session === null && keys.local && !keys.local.includes("anthropic-test-key"), "kept on this device, it is encrypted");
       await page.reload();
       await page.waitForFunction(() => window.scaena?.last(), null, { timeout: 120000 });
+      // The editor offers the copy it kept of what the assistant changed and ⌘Z took back, the
+      // theme written twice (lift-up REL-4), a modal over the page: discarded, since it is the
+      // key that is checked here.
+      await page
+        .waitForSelector("#recovering[open]", { timeout: 5000 })
+        .then(() => page.click("#recovering [value=discard]"))
+        .catch(() => {});
       await page.click("#tab-assistant");
       await page.waitForFunction(() => document.querySelector("#key").value, null, { timeout: 10000 });
       check((await page.$eval("#key", (k) => k.value)) === "anthropic-test-key", "and comes back after a reload");

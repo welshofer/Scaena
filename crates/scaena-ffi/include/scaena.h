@@ -180,7 +180,9 @@ char *scaena_picture(const uint8_t *bytes, size_t len);
 // `states`, `formats`, `sizes` (`{own, anew}`: the deck's own canvas named by its shape, and the
 // formats it lays out anew), `setFormat {format?}`, `canvasSize`, `duration {state}`, `timeline`,
 // `files`, `imageFiles`, `digest {state}`, `reading {state}`, `reads {state}` (each node read,
-// in turn: its role and its words, PLAN 3.17), `source`, `compiledFrom
+// in turn: its role and its words, PLAN 3.17), `notes {state}` (what a presenter reads: the
+// state's own, else its first beat's, SPEC §2.6, `{text, blocks}`, the blocks lines, a list, or
+// a table), `source`, `compiledFrom
 // {source}`, `compile {source}`, `lint {state?}`, `fix {patch}`, `inspect {state}`, `boxes
 // {state}`, `hit {state, x, y}`, `layers {state}`, `carets {state, node}`, `choices {state,
 // node}`, `stateChoices {state}`, `words {state}` (its objects by what they show, and the

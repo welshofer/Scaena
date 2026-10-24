@@ -21,6 +21,8 @@ extension UTType {
 /// each edit since the last save recorded in its history (PLAN 3.3, SPEC §8). macOS keeps its
 /// versions, as it does any document's that saves in place.
 final class ScaenaDocument: ReferenceFileDocument {
+    /// A zip not named `.scaena` is read too, from Open With, the Open dialog, and a drop; the app
+    /// owns only the two types it defines, and is an alternate for zips (Info.plist, lift-up USE-1).
     static var readableContentTypes: [UTType] { [.scaenaDeck, .scaenaDeckZip, .zip] }
     static var writableContentTypes: [UTType] { [.scaenaDeck] }
 

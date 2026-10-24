@@ -24,7 +24,7 @@
 // Each step is screenshotted into target/edit-deck/, with its time. Exits 1 on any failure.
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { decode, launch, serve } from "./serve.mjs";
+import { decode, launch, retheme, serve } from "./serve.mjs";
 
 const out = "target/edit-deck";
 await mkdir(out, { recursive: true });
@@ -138,10 +138,10 @@ try {
 
   // 1. The theme picker: Daybreak, then the theme the deck had.
   await step("theme-daybreak", async () => {
-    await until("Daybreak in the theme picker", () => [...document.querySelectorAll("#theme option")].some((o) => o.value === "ships:Daybreak"));
-    const was = await page.$eval("#theme", (s) => s.value);
+    await until("Daybreak in the theme picker", () => window.scaena.themeChoices().some((c) => c.value === "ships:Daybreak"));
+    const was = await page.evaluate(() => window.scaena.themeChoices().find((c) => c.current)?.value);
     const before = await mark();
-    await page.selectOption("#theme", "ships:Daybreak");
+    await retheme(page, "ships:Daybreak");
     await changed(before);
     check(/daybreak/i.test((await source()).split("\n").find((l) => l.startsWith("deck ")) ?? ""), `the deck is in Daybreak: ${await status()}`);
     // In Daybreak the storm slide would set its title and note dark on its dark photo: the
@@ -156,9 +156,9 @@ try {
       const faint = await page.evaluate((n) => window.scaena.last().findings.some((f) => f.node === n && (f.code === "E110" || f.code === "E111")), node);
       check(!faint, `${node} reads in Daybreak: no contrast error on it`);
     }
-    await until(`${was} in the theme picker`, (w) => [...document.querySelectorAll("#theme option")].some((o) => o.value === w), was);
+    await until(`${was} in the theme picker`, (w) => window.scaena.themeChoices().some((c) => c.value === w), was);
     const again = await mark();
-    await page.selectOption("#theme", was);
+    await retheme(page, was);
     await changed(again);
     const deckLine = (await source()).split("\n").find((l) => l.startsWith("deck ")) ?? "";
     check(/dusk/i.test(deckLine), `and back in the theme it had: ${deckLine}`);
@@ -394,13 +394,15 @@ try {
     await presenter.waitForSelector("#on", { timeout: 120000 });
     await presenter.waitForTimeout(1500);
     const was = await player.evaluate(() => window.scaena.at().index);
+    // Where the presenter view says it is, read before the click: once the player has gone on,
+    // the view may already say where it went.
+    const before = await presenter.textContent("#where");
     await presenter.click("#on");
     const went = await player
       .waitForFunction((w) => window.scaena.at().index === w + 1, was, { timeout: 30000 })
       .then(() => true)
       .catch(() => false);
     // The presenter view follows the player to where it went.
-    const before = await presenter.textContent("#where");
     const follows = await presenter
       .waitForFunction((b) => /^Slide \d+ of \d+/.test(document.querySelector("#where").textContent) && document.querySelector("#where").textContent !== b, before, { timeout: 30000 })
       .then(() => true)
