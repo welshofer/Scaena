@@ -9,8 +9,10 @@ import AppKit
 
 /// The remote (PLAN 4.10), on an iPhone or an iPad: the presenters on the local network; one
 /// chosen, the code its editor shows; then the show it plays: the slide as the audience sees it,
-/// the next, the notes, where the show is and the time since it began, and Back and Next, a tap or
-/// a swipe as on the stage. With no show playing, Play plays it.
+/// the next, the notes, where the show is and the presenter's timer, and Back and Next, a tap or a
+/// swipe as on the stage. With no show playing, Play plays it. What the room sees is mirrored: a
+/// black or white screen and the end of the show, which the Show menu asks for too, with the timer
+/// paused or reset and a slide by its number (lift-up FUNC-5).
 public struct RemoteView: View {
     @State private var browser = RemoteBrowser()
     @State private var client: RemoteClient?
@@ -109,6 +111,9 @@ public struct RemoteView: View {
 private struct RemoteShow: View {
     let client: RemoteClient
     let leave: () -> Void
+    /// Whether Go to Slide… asks for a number, and the number typed.
+    @State private var going = false
+    @State private var number = ""
 
     var body: some View {
         Group {
@@ -160,14 +165,23 @@ private struct RemoteShow: View {
             HStack {
                 Text("\(place.index + 1) of \(place.count)")
                 Spacer()
-                if let began = place.began {
+                // The presenter's timer, as their view reads it, paused where it is; from a presenter
+                // that sends none, the time since the show began.
+                if let timer = place.timer {
+                    TimelineView(.periodic(from: .now, by: 1)) { context in
+                        Text(timer.reads(at: context.date)).monospacedDigit()
+                            .foregroundStyle(timer.paused ? .secondary : .primary)
+                            .accessibilityLabel(timer.paused ? "Timer, paused" : "Timer")
+                            .accessibilityValue(timer.reads(at: context.date))
+                    }
+                } else if let began = place.began {
                     TimelineView(.periodic(from: .now, by: 1)) { context in
                         Text(elapsed(context.date, since: began)).monospacedDigit()
                     }
                 }
             }
             .font(.headline)
-            slide(place.slide)
+            screen(place)
                 .contentShape(Rectangle())
                 .onTapGesture { client.send(.on) }
                 .gesture(
@@ -179,7 +193,7 @@ private struct RemoteShow: View {
                         }
                 )
                 .accessibilityElement(children: .ignore)
-                .accessibilityLabel("Slide \(place.index + 1) of \(place.count)")
+                .accessibilityLabel(seen(place))
                 .accessibilityAddTraits(.isButton)
                 .accessibilityAction { client.send(.on) }
                 .accessibilityIdentifier("remote-slide")
@@ -218,8 +232,60 @@ private struct RemoteShow: View {
         .padding()
         .navigationTitle(place.deck)
         .toolbar {
+            Menu("Show") {
+                Button(place.blank == .black ? "Show the Slide" : "Black Screen") { client.send(.black) }
+                Button(place.blank == .white ? "Show the Slide" : "White Screen") { client.send(.white) }
+                Button("Go to Slide…") {
+                    number = ""
+                    going = true
+                }
+                Divider()
+                Button(place.timer?.paused == true ? "Resume Timer" : "Pause Timer") { client.send(.pauseTimer) }
+                Button("Reset Timer") { client.send(.resetTimer) }
+            }
+            .accessibilityIdentifier("remote-show-menu")
             Button("End Show", role: .destructive) { client.send(.end) }
         }
+        .alert("Go to Slide", isPresented: $going) {
+            TextField("Number", text: $number)
+                #if os(iOS)
+                .keyboardType(.numberPad)
+                #endif
+            Button("Go") {
+                if let slide = Int(number.trimmingCharacters(in: .whitespaces)) { client.go(slide: slide) }
+            }
+            Button("Cancel", role: .cancel) {}
+        }
+    }
+
+    /// What the room sees, as the stage shows it: the end of the show, a black or white screen, or
+    /// the slide.
+    @ViewBuilder private func screen(_ place: RemotePlace) -> some View {
+        if place.over {
+            covered(.black, "End of the show")
+        } else if let blank = place.blank {
+            covered(blank == .black ? .black : .white, blank == .black ? "Black screen" : "White screen")
+        } else {
+            slide(place.slide)
+        }
+    }
+
+    /// The slide out of sight under `color`, saying so in small words, as the stage's 16:9.
+    private func covered(_ color: Color, _ words: String) -> some View {
+        RoundedRectangle(cornerRadius: 6)
+            .fill(color)
+            .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(.quaternary))
+            .overlay {
+                Text(words).font(.caption).foregroundStyle(color == .black ? Color.white.opacity(0.7) : Color.black.opacity(0.55))
+            }
+            .aspectRatio(16 / 9, contentMode: .fit)
+    }
+
+    /// What VoiceOver hears of the screen: where the show is, and what the room sees there.
+    private func seen(_ place: RemotePlace) -> String {
+        let at = "Slide \(place.index + 1) of \(place.count)"
+        if place.over { return "\(at), end of the show" }
+        return place.blank.map { "\(at), \($0.rawValue) screen" } ?? at
     }
 
     /// A state drawn at rest, as the presenter sent it.

@@ -651,6 +651,37 @@ try {
       await tab(page, "assistant");
       await page.waitForFunction(() => document.querySelector("#key").value, null, { timeout: 10000 });
       check((await page.$eval("#key", (k) => k.value)) === "anthropic-test-key", "and comes back after a reload");
+      // The vault not reached (IndexedDB refused, as in a private window): the key is not read,
+      // and kept, and read again once the vault is reached (lift-up 10-24b REL-5).
+      await page.addInitScript(() => {
+        if (sessionStorage.getItem("scaena.test.vault") !== "unreached") return;
+        indexedDB.open = () => {
+          const asked = {};
+          setTimeout(() => asked.onerror?.(new Event("error")));
+          return asked;
+        };
+      });
+      const reopened = async () => {
+        await page.reload();
+        await page.waitForFunction(() => window.scaena?.last(), null, { timeout: 120000 });
+        await page
+          .waitForSelector("#recovering[open]", { timeout: 5000 })
+          .then(() => page.click("#recovering [value=discard]"))
+          .catch(() => {});
+        await tab(page, "assistant");
+      };
+      await page.evaluate(() => sessionStorage.setItem("scaena.test.vault", "unreached"));
+      await reopened();
+      await page.waitForTimeout(1500);
+      const unreached = await stored();
+      check(
+        (await page.$eval("#key", (k) => k.value)) === "" && unreached.local === keys.local,
+        "with the vault not reached, the key is not read, and kept as it was",
+      );
+      await page.evaluate(() => sessionStorage.removeItem("scaena.test.vault"));
+      await reopened();
+      await page.waitForFunction(() => document.querySelector("#key").value, null, { timeout: 10000 });
+      check((await page.$eval("#key", (k) => k.value)) === "anthropic-test-key", "and read again once it is");
       await page.click("#forget-key");
       keys = await stored();
       check(keys.session === null && keys.local === null && (await page.$eval("#key", (k) => k.value)) === "", "Forget key forgets it everywhere");
