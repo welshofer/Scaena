@@ -746,6 +746,7 @@ pub const LISTED: &[(&str, &str)] = &[
     ("W300", "It's set in a value of its own where the theme has a name for one."),
     ("W301", "It's placed off the theme's grid."),
     ("W302", "It's placed where the deck's other sizes won't move it."),
+    ("W304", "This slide leaves a place for a picture empty."),
     ("W320", "Too many things move at once."),
     ("W321", "This slide's animations run too long."),
     ("W322", "An animation here moves nothing."),

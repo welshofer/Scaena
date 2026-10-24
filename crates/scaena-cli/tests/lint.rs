@@ -83,7 +83,7 @@ fn lint_with(bundle: &Path, args: &[&str]) -> (i32, Vec<Value>) {
 }
 
 /// Each rule's trigger, and where in the deck it finds what it finds.
-const RULES: [(&str, &[&str]); 46] = [
+const RULES: [(&str, &[&str]); 47] = [
     ("E100", &["/nodes/t"]),
     ("E101", &["/nodes/b", "/nodes/note", "/nodes/src"]),
     ("E110", &["/nodes/t"]),
@@ -104,6 +104,7 @@ const RULES: [(&str, &[&str]); 46] = [
     ("W301", &["/nodes/t/at/rect"]),
     ("W302", &["/nodes/t/at/col"]),
     ("W303", &["/nodes/t"]),
+    ("W304", &["/states/0"]),
     ("W310", &["/nodes/c/labels", "/nodes/c/labels", "/nodes/c/labels"]),
     ("W311", &["/nodes/bg"]),
     ("W312", &["/nodes/c"]),
@@ -484,6 +485,17 @@ fn the_example_decks_and_b1_lint_clean() {
         let (exit, found) = lint(&Path::new(ROOT).join(bundle));
         assert_eq!((exit, found.len()), (0, 0), "{bundle}: {found:#?}");
     }
+}
+
+#[test]
+fn a_slide_still_saying_its_prompts_waits_for_its_picture_unflagged() {
+    // W304's trigger, its headline still the words its slot asks for, as Add Slide leaves it.
+    let dir = fixture("unwritten", "W304", "trigger");
+    let mut deck: Value = serde_json::from_slice(&std::fs::read(dir.join("deck.json")).unwrap()).unwrap();
+    deck["nodes"]["t"]["text"] = "What this slide says".into();
+    std::fs::write(dir.join("deck.json"), serde_json::to_vec_pretty(&deck).unwrap()).unwrap();
+    let (exit, found) = lint(&dir);
+    assert_eq!((exit, found.len()), (0, 0), "{found:#?}");
 }
 
 /// A finding as a line of the golden: what, in which format and state, where, and whether

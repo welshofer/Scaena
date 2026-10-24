@@ -231,7 +231,12 @@ async fn an_agent_builds_a_deck_with_the_tools_alone() {
     let png = base64::engine::general_purpose::STANDARD.decode(&image.data).unwrap();
     assert!(png.starts_with(b"\x89PNG"));
     let facts: Value = serde_json::from_str(&text(&rendered)).unwrap();
-    assert_eq!((facts["size"].clone(), facts["digest"].as_str().map(str::len)), (json!([1920, 1080]), Some(16)));
+    // At half the canvas, for a model to see; the whole canvas only where `size` asks for it.
+    assert_eq!((facts["size"].clone(), facts["digest"].as_str().map(str::len)), (json!([960, 540]), Some(16)));
+    let whole =
+        call(&client, "deck_render", json!({ "bundle": bundle, "state": "revenue", "size": "1920x1080" })).await;
+    let whole: Value = serde_json::from_str(&text(&whole)).unwrap();
+    assert_eq!((whole["size"].clone(), &whole["digest"]), (json!([1920, 1080]), &facts["digest"]));
     // The same state renders to the same drawing.
     let again = call(&client, "deck_render", json!({ "bundle": bundle, "state": "revenue" })).await;
     let again: Value = serde_json::from_str(&text(&again)).unwrap();
