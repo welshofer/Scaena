@@ -810,25 +810,10 @@ pub fn one_asked(deck: &str, place_json: &str, ask: &str) -> Result<String, JsEr
     Ok(asked.to_string())
 }
 
-/// The one slide a model's `answer` holds, as Narrato writes a slide: what `slideInto` takes.
+/// The one slide a model's `answer` holds, as Narrato writes a slide: what the editor's
+/// module writes into the deck (`Player.slideWrite`).
 #[wasm_bindgen(js_name = oneAnswered)]
 pub fn one_answered(answer: &str) -> Result<String, JsError> {
     let slide = scaena_narrato::one::answer(answer).map_err(error)?;
     serde_json::to_string(&slide).map_err(error)
-}
-
-/// `slide` (a slide as Narrato writes one) built for `deck` in `theme` (its JSON) at `place`, as
-/// the deck's generator builds a slide (lift-up FUNC-1), each icon its words name from `icons`
-/// (`{ word: { name, path, view } }`, as `giveIcons` takes them): `{ patch, states, layout, beat }`,
-/// the patch the session takes as one `deck_patch`.
-#[wasm_bindgen(js_name = slideInto)]
-pub fn slide_into(deck: &str, theme: &str, slide: &str, place_json: &str, icons: &str) -> Result<String, JsError> {
-    let doc: Value = serde_json::from_str(deck).map_err(error)?;
-    let theme: scaena_core::model::theme::Theme =
-        serde_json::from_str(theme).map_err(|e| error(format!("the theme: {e}")))?;
-    let slide: scaena_ops::narrative::Slide =
-        serde_json::from_str(slide).map_err(|e| error(format!("the slide: {e}")))?;
-    let icons = serde_json::from_str(icons).map_err(|e| error(format!("the icons: {e}")))?;
-    let written = scaena_ops::narrative::slide_into(&doc, &theme, slide, &place(place_json)?, icons).map_err(error)?;
-    serde_json::to_string(&written).map_err(error)
 }

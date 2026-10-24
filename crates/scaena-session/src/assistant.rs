@@ -30,7 +30,8 @@ use serde_json::{Map, Value, json};
 /// generation (`generate`, the Mac's), and the browser's page from the generator's module, as its
 /// Story tab reads it, since the editor's module carries none of it. `slide_write` writes one
 /// slide as the deck's generator builds them (lift-up FUNC-1): the session where it carries
-/// generation, and the browser's page by the generator's module, whose patch the session takes.
+/// generation, the browser's editor module among them, the page handing it the icons the slide's
+/// words name ([`Session::slide_write`]).
 pub const TOOLS: &[&str] = &[
     "deck_read",
     "deck_patch",
@@ -569,32 +570,21 @@ impl Session {
                     scaena_ops::states::Started { id: added.id, filled: added.filled, empty: added.empty, patched };
                 Ok(Called { edited, ..Called::of(started)? })
             }
-            // One slide written as the deck's generator builds them (lift-up FUNC-1): where this
-            // library carries generation. The browser's page builds it by the generator's module.
+            // One slide written as the deck's generator builds them (lift-up FUNC-1), its icons
+            // found in the set this library carries; the browser's page finds them in the set
+            // beside it and calls `slide_write` itself.
             #[cfg(feature = "generate")]
             "slide_write" => {
-                let a: SlideWrite = args(name, a)?;
-                let slide: scaena_ops::narrative::Slide = serde_json::from_value(Value::Object(a.slide))
-                    .map_err(|e| ops(format!("slide_write: the slide: {e}")))?;
-                let place = match (a.replace, a.after) {
-                    (Some(_), Some(_)) => return Err(ops("slide_write: give `after` or `replace`, not both")),
-                    (Some(state), None) => scaena_ops::narrative::Place::Replace(state),
-                    (None, Some(state)) => scaena_ops::narrative::Place::After(state),
-                    (None, None) => scaena_ops::narrative::Place::End,
-                };
                 #[cfg(feature = "shipped")]
-                let icons = scaena_ops::narrative::icons_found(&slide.icons);
+                let icons = |words: &[String]| scaena_ops::narrative::icons_found(words);
                 #[cfg(not(feature = "shipped"))]
-                let icons = Default::default();
-                let (mut written, write) = scaena_ops::narrative::slide_writing(&b, slide, &place, icons)?;
-                written.patched.applied &= !a.dry_run;
-                let edited = self.write(write.filter(|_| !a.dry_run), by)?;
-                Ok(Called { edited, ..Called::of(written)? })
+                let icons = |_: &[String]| Default::default();
+                self.slide_write(a, icons, by)
             }
             #[cfg(not(feature = "generate"))]
             "slide_write" => {
                 let _: SlideWrite = args(name, a)?;
-                Err(ops("slide_write: the page writes the slide by the generator's module"))
+                Err(ops("slide_write: this library carries no generation"))
             }
             // A slide's background set to a theme preset, or taken away (PLAN 2.148).
             "background_set" => {
@@ -720,6 +710,36 @@ impl Session {
 impl From<OpsError> for Error {
     fn from(e: OpsError) -> Error {
         Error::Tool(e)
+    }
+}
+
+#[cfg(feature = "generate")]
+impl Session {
+    /// `slide_write` (lift-up FUNC-1), as its MCP tool takes it less the bundle, by `by`: one
+    /// slide written into the deck as the deck's generator builds them, its set of texts held to
+    /// one size and set clear, and lint's fixes on it taken, in one patch; each icon its words name
+    /// found by `icons`, which the browser's page answers from the set beside it.
+    pub fn slide_write(
+        &mut self,
+        a: Value,
+        icons: impl FnOnce(&[String]) -> std::collections::BTreeMap<String, scaena_narrato::Icon>,
+        by: Caller,
+    ) -> Result<Called, Error> {
+        let a: SlideWrite = args("slide_write", a)?;
+        let slide: scaena_ops::narrative::Slide =
+            serde_json::from_value(Value::Object(a.slide)).map_err(|e| ops(format!("slide_write: the slide: {e}")))?;
+        let place = match (a.replace, a.after) {
+            (Some(_), Some(_)) => return Err(ops("slide_write: give `after` or `replace`, not both")),
+            (Some(state), None) => scaena_ops::narrative::Place::Replace(state),
+            (None, Some(state)) => scaena_ops::narrative::Place::After(state),
+            (None, None) => scaena_ops::narrative::Place::End,
+        };
+        let icons = icons(&slide.icons);
+        let b = self.bundle();
+        let (mut written, write) = scaena_ops::narrative::slide_writing(&b, slide, &place, icons)?;
+        written.patched.applied &= !a.dry_run;
+        let edited = self.write(write.filter(|_| !a.dry_run), by)?;
+        Ok(Called { edited, ..Called::of(written)? })
     }
 }
 

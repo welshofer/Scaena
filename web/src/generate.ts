@@ -54,33 +54,6 @@ export async function oneAnswered(answer: string): Promise<Record<string, unknow
   return JSON.parse((await generator()).oneAnswered(answer)) as Record<string, unknown>;
 }
 
-/** `slide` built for `deck` in `theme` at `place`, as the deck's generator builds a slide, its
- * icons found in the set the page carries: the patch that puts it there, its states, its layout,
- * and its beat. */
-export async function slideInto(
-  deck: string,
-  theme: string,
-  slide: Record<string, unknown>,
-  place: SlidePlace,
-): Promise<{ patch: unknown[]; states: string[]; layout: string; beat: string }> {
-  const words = Array.isArray(slide.icons) ? (slide.icons as unknown[]).filter((w): w is string => typeof w === "string") : [];
-  const found: Record<string, { name: string; path: string; view: number[] }> = {};
-  if (words.length) {
-    const set = await iconSet();
-    for (const word of words) {
-      const [first] = findIcons(set, word);
-      if (first) found[word] = { name: first.name, path: first.regular, view: set.view };
-    }
-  }
-  const g = await generator();
-  return JSON.parse(g.slideInto(deck, theme, JSON.stringify(slide), JSON.stringify(place), JSON.stringify(found))) as {
-    patch: unknown[];
-    states: string[];
-    layout: string;
-    beat: string;
-  };
-}
-
 /** What a brief may ask, as Narrato knows it. */
 export async function choices(): Promise<Choices> {
   return JSON.parse((await generator()).choices()) as Choices;

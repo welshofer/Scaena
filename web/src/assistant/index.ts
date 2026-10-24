@@ -31,6 +31,8 @@ export interface Session {
   mapAiming(aim: string): string;
   mapRefreshing(state: string, node: string, zoom?: number, lat?: number, lon?: number): string;
   mapping(target: string, fetched: string, pin: string, label: string | undefined, png: Uint8Array): string;
+  /** `slide_write` with the icons its words name, found by the page (lift-up FUNC-1). */
+  slideWrite(args: string, icons: string, author?: string, at?: string): Called;
 }
 
 /** What a tool returned (`ToolResult`). */
@@ -329,63 +331,32 @@ async function mapFetch(
   }
 }
 
-/** `slide_write` (lift-up FUNC-1): one slide built by the generator's module as the deck's
- * generator builds slides, since the editor's module carries none of it, and taken by the session as
- * one `deck_patch` by `author`; then each fix lint offers on the slide's states taken, as the
- * Mac's session takes them. Its answer is the MCP tool's, and whether the deck changed; or why it
- * did not. The Mac's session writes the slide itself. */
+/** `slide_write` (lift-up FUNC-1): one slide written as the deck's generator builds slides, its
+ * set held to one size and set clear and lint's fixes on it taken, by the session in the editor's
+ * module as the Mac's writes one, by `author`; the icons its words name found in the set the page
+ * carries, which the engine's module lacks. Its answer is the MCP tool's, and whether the deck
+ * changed; or why it did not. */
 export async function slideWrite(session: Session, args: unknown, author: string): Promise<[string, boolean, boolean]> {
-  const stop = (message: string): [string, boolean, boolean] => [JSON.stringify({ message }), true, false];
-  const a = (args ?? {}) as { slide?: unknown; after?: unknown; replace?: unknown; dry_run?: unknown };
-  const known = Object.keys(a).every((k) => ["slide", "after", "replace", "dry_run"].includes(k));
-  const place = (v: unknown) => v === undefined || v === null || typeof v === "string";
-  if (!known || typeof a.slide !== "object" || a.slide === null || !place(a.after) || !place(a.replace)) {
-    return stop("slide_write takes `slide`, a slide as Narrato writes one; `after` or `replace`, a state; and `dry_run`");
-  }
-  if (a.after && a.replace) return stop("slide_write: give `after` or `replace`, not both");
-  const dry = a.dry_run === true;
-  const read = session.tool("deck_read", "{}");
-  let deck: string;
+  const slide = (args as { slide?: { icons?: unknown } } | null)?.slide;
+  const words = Array.isArray(slide?.icons) ? slide.icons.filter((w): w is string => typeof w === "string") : [];
+  const found: Record<string, { name: string; path: string; view: number[] }> = {};
   try {
-    if (read.error) return [read.json, true, false];
-    deck = JSON.stringify((JSON.parse(read.json) as { deck: unknown }).deck);
-  } finally {
-    read.free();
-  }
-  const held = session.themeText();
-  if (!held) return stop("slide_write: the deck names no theme");
-  const at = new Date().toISOString();
-  const call = (name: string, json: unknown): { json: string; error: boolean; edited: boolean } => {
-    const called = session.tool(name, JSON.stringify(json), author, at);
-    try {
-      return { json: called.json, error: called.error, edited: called.edited };
-    } finally {
-      called.free();
-    }
-  };
-  try {
-    const { slideInto } = await import("@scaena/generate");
-    const where = a.replace ? { replace: a.replace as string } : a.after ? { after: a.after as string } : {};
-    const written = await slideInto(deck, (JSON.parse(held) as { text: string }).text, a.slide as Record<string, unknown>, where);
-    const patched = call("deck_patch", { ops: written.patch, dry_run: dry });
-    if (patched.error) return [patched.json, true, false];
-    const report = JSON.parse(patched.json) as Record<string, unknown> & { applied?: boolean };
-    const fixed: unknown[] = [];
-    const left: { code?: string }[] = [];
-    if (report.applied) {
-      for (const state of written.states) {
-        const linted = call("deck_lint", { state, fix: true });
-        if (linted.error) continue;
-        const r = JSON.parse(linted.json) as { fixed?: unknown[]; findings?: { code?: string; fix?: unknown }[] };
-        fixed.push(...(r.fixed ?? []));
-        left.push(...(r.findings ?? []).filter((f) => !f.fix));
+    if (words.length) {
+      const set = await iconSet();
+      for (const word of words) {
+        const [first] = findIcons(set, word);
+        if (first) found[word] = { name: first.name, path: first.regular, view: set.view };
       }
-      left.sort((x, y) => Number(x.code !== "E100") - Number(y.code !== "E100"));
     }
-    const out = { ...report, slide: written.states, layout: written.layout, beat: written.beat, fixed, left };
-    return [JSON.stringify(out), false, Boolean(report.applied)];
   } catch (e) {
-    return stop(e instanceof Error ? e.message : String(e));
+    return [JSON.stringify({ message: `slide_write: the icons: ${e instanceof Error ? e.message : String(e)}` }), true, false];
+  }
+  const called = session.slideWrite(JSON.stringify(args ?? {}), JSON.stringify(found), author, new Date().toISOString());
+  try {
+    const applied = !called.error && (JSON.parse(called.json) as { applied?: boolean }).applied === true;
+    return [called.json, called.error, applied && called.edited];
+  } finally {
+    called.free();
   }
 }
 
