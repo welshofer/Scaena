@@ -285,6 +285,8 @@ try {
   await page.waitForFunction(() => window.scaena.where().name !== "revenue" && window.scaena.last(), null, { timeout: 180000 });
   const made = await page.evaluate(() => window.scaena.where());
   check(made.where === undefined, `the deck made is kept nowhere until it is saved: ${JSON.stringify(made)}`);
+  // The story is read after the deck's first lint: its score comes into the line once it is.
+  await page.waitForFunction(() => / · story \d+ of 100\b/.test(document.querySelector("#status")?.textContent ?? ""), null, { timeout: 30000 }).catch(() => {});
   const status = await page.textContent("#status");
   check(/Made: 5 slides on the arc Problem–Solution, 2 pictures/.test(status), `the status says what was made: ${status}`);
   // The deck lands on its story (narrative USE-2): the Story tab shown, its score in the line.

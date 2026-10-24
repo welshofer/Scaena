@@ -320,10 +320,12 @@ export function prompting(
       const deck = await done;
       dialog.close("generated");
       await open({ files: deck.files, name: deck.name });
-      // The deck lands on its story (narrative USE-2): the arc's curve, the pacing against the
-      // brief, and each slide's fix, where Gamma lands on its outline; its score in the line.
+      // What was made is said at once; the deck lands on its story (narrative USE-2): the arc's
+      // curve, the pacing against the brief, and each slide's fix, where Gamma lands on its
+      // outline, its score in the line as soon as the story is read.
+      tell(made(deck.made));
       const score = await story();
-      tell(score === undefined ? made(deck.made) : `${made(deck.made)} · story ${score} of 100`);
+      if (score !== undefined) tell(`${made(deck.made)} · story ${score} of 100`);
     } catch (err) {
       // Closed while it ran, it says nothing more.
       if (worker !== making) return;
