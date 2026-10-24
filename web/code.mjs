@@ -7,6 +7,9 @@
 //   tidied: its tabs and the indentation its lines share gone, its line ends one. One step to undo.
 // - Its chip says Rust; a press on it offers the languages, and Python chosen is one step to undo.
 // - Copy Code puts its words on the clipboard as text.
+// - Keys typed in it in one burst (PLAN 2.139): Enter a line a stop in after `{`, Shift+Tab a stop
+//   out, letters between, each in turn and one step to undo; ⌘B withheld. Not Code, Tidy Code,
+//   and Make Code, each from the palette.
 // - Prose pastes as words, and Paste as Text pastes code as words.
 // - VS Code's mode names the language of what it copies.
 // Exits 1 on any failure.
@@ -138,7 +141,51 @@ try {
   await says("The code copied as text");
   const copied = await page.evaluate(() => navigator.clipboard.readText());
   check(copied === "fn main() {\n    let total = 42;\n    println!(\"{total}\");\n}", `Copy Code copies its words: ${JSON.stringify(copied)}`);
+
+  // Keys typed in code (PLAN 2.139), in one burst: Enter after `fn main() {` is a line a stop in,
+  // two letters on it, Shift+Tab a stop out, and a third; the engine answers each key in turn, so
+  // none is lost, and the burst is one step to undo.
+  await page.locator("#overlay").focus();
+  await page.keyboard.press("Enter");
+  await page.waitForFunction(() => window.scaena.canvas.typing?.() !== undefined, null, { timeout: 30000 }).catch(() => {});
+  await page.waitForTimeout(300);
+  await page.keyboard.press("Control+Home");
+  await page.keyboard.press("End");
+  await page.keyboard.press("Enter");
+  await page.keyboard.type("ab");
+  await page.keyboard.press("Shift+Tab");
+  await page.keyboard.type("c");
+  // ⌘B in code is withheld: no characters of it take a look.
+  await page.keyboard.press("Control+b");
+  check(await says("Code is set as written"), `⌘B in code says code takes no look: ${await status()}`);
+  await page.keyboard.press("Escape");
+  check(await changed(pasted), "the keys change the code");
+  await run("Copy Code");
+  await says("The code copied as text");
+  const keyed = await page.evaluate(() => navigator.clipboard.readText());
+  check(
+    keyed === "fn main() {\nabc\n    let total = 42;\n    println!(\"{total}\");\n}",
+    `Enter, letters, and Shift+Tab as a code editor's: ${JSON.stringify(keyed)}`,
+  );
+  check(await undo(pasted), "⌘Z takes the burst back in one step");
+
+  // Not Code makes it words; Tidy Code finds it tidy; Make Code makes prose code (PLAN 2.139).
+  await run("Not Code");
+  check(await changed(pasted), "Not Code changes the deck");
+  check(!(await coded()), "Not Code makes it words");
+  check(await undo(pasted), "⌘Z gives the code back");
+  await run("Tidy Code");
+  check(await says("is tidy already"), `Tidy Code finds it tidy: ${await status()}`);
   check(await undo(original), "⌘Z takes the paste away");
+  await press([960, 760]);
+  check(await paste({ "text/plain": "Margins held through the quarter." }), "the canvas takes prose to make code of");
+  check(await changed(original), "the prose comes in");
+  const prose = await source();
+  await run("Make Code");
+  check(await changed(prose), "Make Code changes the deck");
+  check((await coded())?.code !== undefined, `Make Code makes it code: ${JSON.stringify((await coded())?.code)}`);
+  check(await undo(prose), "⌘Z gives the words back");
+  check(await undo(original), "⌘Z takes the prose away");
 
   // Prose pastes as words.
   await press([960, 760]);

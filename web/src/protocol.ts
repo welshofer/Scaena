@@ -283,6 +283,19 @@ export interface Carets {
   /** Its words still as its slot's prompt put them (PLAN 3.30): typing begins with them all
    * selected, so it replaces them. Asked as typing begins, not after each change. */
   prompt?: boolean;
+  /** Where it is code (PLAN 2.139): the columns between its tab stops, and the number its first
+   * line goes by; none for prose. */
+  code?: { tab: number; from: number } | null;
+}
+
+/** A key a code text answers as a code editor does (PLAN 2.139, `code::keyed`). */
+export type CodeKey = "Tab" | "Shift+Tab" | "Return";
+
+/** A text and its selection after a code key, offsets in UTF-16 code units. */
+export interface Keyed {
+  text: string;
+  from: number;
+  to: number;
 }
 
 /** Where a link goes (PLAN 2.70): a web address, or a state of the deck. */
@@ -1140,6 +1153,15 @@ export type ToWorker =
   | { type: "codeWords"; id: number; source: string; state: string; node: string; format?: string }
   /** `text` tidied as a paste of code in `language` is (PLAN 2.133). */
   | { type: "tidied"; id: number; text: string; language: string }
+  /** `text` with `from` to `to` selected after `key` in code whose tab stops are `tab` apart
+   * (PLAN 2.139). */
+  | { type: "keyed"; id: number; text: string; from: number; to: number; key: CodeKey; tab: number }
+  /** Make Code's patch of `node`, in `language` or the one its words read as (PLAN 2.139). */
+  | { type: "coding"; id: number; source: string; node: string; language?: string }
+  /** Not Code's patch of `node` (PLAN 2.139). */
+  | { type: "uncoding"; id: number; source: string; node: string }
+  /** Tidy Code's patch of `node` as `state` shows it (PLAN 2.139). */
+  | { type: "tidying"; id: number; source: string; state: string; node: string }
   | { type: "italicizing"; id: number; source: string; state: string; node: string; from: number; to: number; format?: string }
   /** The theme the deck names, and the theme files the bundle holds (PLAN 2.39). */
   | { type: "themes"; id: number }
@@ -1982,6 +2004,8 @@ export type FromWorker =
   | { type: "bolding"; id: number; look: Record<string, unknown> }
   | { type: "codeWords"; id: number; words: string }
   | { type: "tidied"; id: number; text: string }
+  | { type: "keyed"; id: number; keyed: Keyed | null }
+  | { type: "coding" | "uncoding" | "tidying"; id: number; patch: unknown[] }
   | { type: "italicizing"; id: number; look: Record<string, unknown> }
   | { type: "themes"; id: number; themes: Themes }
   /** A theme chosen: what it did, as `theme --apply` says it, and unless it was refused, the

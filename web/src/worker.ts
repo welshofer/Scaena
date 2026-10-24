@@ -46,6 +46,7 @@ import type {
   FromWorker,
   Generate,
   Insert,
+  Keyed,
   Layer,
   LayoutSuggestion,
   Backgrounds,
@@ -575,6 +576,24 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
       }
       case "tidied":
         return post({ type: "tidied", id: data.id, text: player.tidied(data.text, data.language) });
+      case "keyed": {
+        const keyed = JSON.parse(Player.keyed(data.text, data.from, data.to, data.key, data.tab)) as Keyed | null;
+        return post({ type: "keyed", id: data.id, keyed });
+      }
+      // Make Code, Not Code, and Tidy Code (PLAN 2.139): each the patch the page then makes.
+      case "coding":
+      case "uncoding":
+      case "tidying": {
+        const behind = !player.compiledFrom(data.source);
+        if (behind) saveable(data.source);
+        const patch =
+          data.type === "coding"
+            ? player.coding(data.node, data.language)
+            : data.type === "uncoding"
+              ? player.uncoding(data.node)
+              : player.tidying(data.state, data.node);
+        return post({ type: data.type, id: data.id, patch: JSON.parse(patch) as unknown[] });
+      }
       case "codeWords": {
         const behind = !player.compiledFrom(data.source);
         if (behind) saveable(data.source);
