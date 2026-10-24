@@ -123,7 +123,7 @@ fn each_text_is_found_where_it_is_written_and_replaced_there_in_one_patch() {
     assert!(
         said.contains("beat doubled's claim in revenue")
             && said.contains("rev's description in revenue")
-            && said.contains("rev's words in revenue (/nodes/rev/y/title)"),
+            && said.contains("rev's words in revenue, mix (/nodes/rev/y/title)"),
         "{said}"
     );
 }
