@@ -108,6 +108,12 @@ public final class Laying: @unchecked Sendable {
     public func lay() {
         _ = scaena_laying_lay(handle)
     }
+
+    /// The deck's narrative health (PLAN G.9), as the session's `health()` reads it, read on the
+    /// thread that calls it, laying nothing out (lift-up narrative PERF-1).
+    public func health() throws -> Health {
+        try ScaenaSession.decode(scaena_laying_health(handle), as: Health.self)
+    }
 }
 
 /// What an inspector offers (PLAN 2.33, 2.36): each property of a node in a state, or of the

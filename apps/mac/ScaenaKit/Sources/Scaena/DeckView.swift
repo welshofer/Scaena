@@ -650,7 +650,8 @@ struct DeckView: View {
     /// The deck played here, as presented, keeping the time each slide takes (PLAN 3.14).
     private func rehearse() {
         showsSlides = false
-        rehearsal = Rehearsal(slots: editor.slots)
+        rehearsal = Rehearsal(
+            slots: editor.slots, notes: editor.slots.map { (try? editor.session.notes(state: $0.state)) ?? .none })
     }
 
     /// What a press on an empty slot's words does on `state` (PLAN 3.30): fills it, on a slide made
