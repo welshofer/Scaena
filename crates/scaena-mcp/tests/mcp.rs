@@ -423,6 +423,35 @@ async fn a_tool_writes_only_under_its_folder_or_beside_the_bundle() {
     assert_eq!(read.is_error, Some(true));
     assert!(text(&read).contains("is outside where this server reads"), "{}", text(&read));
     assert!(!here.join("q3/data/credentials").exists());
+    // Under its folder, nothing hidden: no key, no cloud credentials, no git hook.
+    std::fs::create_dir_all(here.join(".ssh")).unwrap();
+    std::fs::create_dir_all(here.join(".aws")).unwrap();
+    for out in [".ssh/authorized_keys", ".ssh/frame.png", ".git/hooks/pre-commit.png"] {
+        let render = call(&client, "deck_render", json!({ "bundle": deck, "state": "revenue", "out": out })).await;
+        assert_eq!(render.is_error, Some(true), "{out}");
+        assert!(text(&render).contains("in no hidden folder"), "{out}: {}", text(&render));
+    }
+    std::fs::write(here.join(".aws/credentials.csv"), "key,secret\nAKIA0000,abc\n").unwrap();
+    let hidden = json!({ "bundle": bundle, "id": "aws", "file": path(&here.join(".aws/credentials.csv")) });
+    let read = call(&client, "data_attach", hidden).await;
+    assert_eq!(read.is_error, Some(true));
+    assert!(text(&read).contains("is outside where this server reads"), "{}", text(&read));
+    // And only what the tool writes, by its name: no notes, no shell's start-up file.
+    let notes = call(&client, "deck_render", json!({ "bundle": deck, "state": "revenue", "out": "notes.txt" })).await;
+    assert_eq!(notes.is_error, Some(true));
+    assert!(text(&notes).contains("is no .png file"), "{}", text(&notes));
+    let pdf = call(&client, "deck_export", json!({ "bundle": deck, "format": "pdf", "out": "profile" })).await;
+    assert_eq!(pdf.is_error, Some(true));
+    assert!(text(&pdf).contains("is no .pdf file"), "{}", text(&pdf));
+    let images =
+        call(&client, "deck_export", json!({ "bundle": deck, "format": "png", "out": "LaunchAgent.plist" })).await;
+    assert_eq!(images.is_error, Some(true));
+    assert!(text(&images).contains("this writes a folder of images there"), "{}", text(&images));
+    assert!(
+        !here.join("notes.txt").exists()
+            && !here.join("profile").exists()
+            && !here.join(".ssh/authorized_keys").exists()
+    );
     // Under its folder, by a path relative to it, it writes.
     let rendered =
         call(&client, "deck_render", json!({ "bundle": deck, "state": "revenue", "out": "revenue.png" })).await;
