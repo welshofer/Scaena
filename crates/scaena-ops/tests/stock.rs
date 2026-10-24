@@ -12,6 +12,11 @@ const EXAMPLES: &str = "../../docs/examples";
 /// The revenue example in a bundle of its own, with what it names, and a slide in the theme's
 /// Chart layout with nothing on it yet, in the first beat.
 fn bundle(test: &str, lang: &str) -> PathBuf {
+    bundle_in(test, lang, "figure")
+}
+
+/// The same, the slide in the theme's `layout`.
+fn bundle_in(test: &str, lang: &str, layout: &str) -> PathBuf {
     let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("stock-{test}"));
     let _ = std::fs::remove_dir_all(&dir);
     let mut deck: Value =
@@ -33,7 +38,7 @@ fn bundle(test: &str, lang: &str) -> PathBuf {
     deck["states"]
         .as_array_mut()
         .unwrap()
-        .push(json!({ "id": "price", "mode": "absolute", "layout": "figure", "props": {} }));
+        .push(json!({ "id": "price", "mode": "absolute", "layout": layout, "props": {} }));
     deck["spine"]["sections"][0]["beats"][0]["states"].as_array_mut().unwrap().push(json!("price"));
     std::fs::write(dir.join("deck.json"), serde_json::to_vec_pretty(&deck).unwrap()).unwrap();
     dir
@@ -109,6 +114,29 @@ fn a_price_chart_fills_the_slides_places_and_quotes_its_change() {
         stocking(&b, &Aim { state: Some("revenue".into()), at: None }, &series("ACME", "USD", "3m", 1.0, 2.0, 1.0))
             .unwrap_err();
     assert!(err.message.contains("no empty place for a chart"), "{err}");
+}
+
+/// The Price Chart layout (PLAN O.3e) takes each part of a stock in a place of its own: the line in
+/// its chart place, the claim in its headline, the change in its figure, and the period in its
+/// caption, linting with no error.
+#[test]
+fn the_price_chart_layout_takes_the_line_the_claim_the_change_and_the_period() {
+    let dir = bundle_in("price-chart", "en-US", "price-chart");
+    let b = scaena_ops::open(&dir).unwrap();
+    let made =
+        stock(&b, &Aim { state: Some("price".into()), at: None }, &series("ACME", "USD", "3m", 180.0, 195.8, 182.4))
+            .unwrap();
+    assert!(made.patched.applied, "{:#?}", made.patched);
+    let b = scaena_ops::open(&dir).unwrap();
+    let at = |id: &str| b.deck.nodes[id].props["at"].clone();
+    assert_eq!(at(made.chart.as_deref().unwrap()), json!({ "in": "main" }));
+    assert_eq!(at("acme-claim"), json!({ "in": "header" }));
+    assert_eq!(at("acme-change"), json!({ "in": "change" }));
+    assert_eq!(at("acme-period"), json!({ "in": "period" }));
+    assert_eq!(said(&b.deck, "acme-claim"), "ACME is up 7.3% over three months");
+    assert_eq!(said(&b.deck, "acme-change"), "+7.3%");
+    assert_eq!(said(&b.deck, "acme-period"), "Three months to Sep 20, 2026");
+    assert_eq!(errors(&b), Vec::<String>::new());
 }
 
 #[test]

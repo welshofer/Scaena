@@ -468,6 +468,7 @@ Each layout's slots say what goes in them (`prompt`, SPEC §3.6): words to type 
 | `figure-numbers` | `kicker`, `header`, `main`, `first-title`, `first`, `second-title`, `second` | Chart and Numbers, in Charts |
 | `bar-chart` | `kicker`, `header`, `main`, `takeaway`, `note` | Bar Chart, in Charts |
 | `line-chart` | `kicker`, `header`, `main`, `callout`, `note`, `source` | Line Chart, in Charts |
+| `price-chart` | `kicker`, `header`, `main`, `change`, `period` | Price Chart, in Charts |
 | `donut-chart` | `kicker`, `header`, `main`, `first-title`, `first`, `second-title`, `second` | Donut Chart, in Charts |
 | `table` | `kicker`, `header`, `main`, `note` | Table, in Charts |
 | `chart-bullets` | `kicker`, `header`, `main`, `body` | Chart and Bullets, in Charts |
