@@ -211,10 +211,12 @@ pub struct Beat {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[schemars(with = "model::IdList")]
     pub states: Vec<String>,
-    /// Speaker notes.
+    /// Speaker notes: what a presenter reads for each state it names that has none of its own
+    /// (SPEC §2.6).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub notes: Option<String>,
-    /// Estimated seconds.
+    /// Estimated seconds: what a video and the spine give its states with no `hold`, less
+    /// their cues (SPEC §2.4).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(range(min = 0))]
     pub duration: Option<f64>,
@@ -356,10 +358,11 @@ pub struct State {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[schemars(with = "Vec<model::ChoreoItem>")]
     pub choreography: Vec<Value>,
-    /// Auto-advance dwell in ms (video and kiosk).
+    /// Auto-advance dwell in ms (video and kiosk). It wins over its beat's `duration`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(range(min = 0))]
     pub hold: Option<f64>,
+    /// Speaker notes, which a presenter reads over its beat's (SPEC §2.6).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub notes: Option<String>,
     #[serde(default, rename = "_comment", skip_serializing_if = "Option::is_none")]

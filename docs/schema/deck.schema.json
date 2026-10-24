@@ -530,8 +530,15 @@
           "items": { "type": "string" }
         },
         "states": { "$ref": "#/$defs/IdList" },
-        "notes": { "description": "Speaker notes.", "type": "string" },
-        "duration": { "description": "Estimated seconds.", "type": "number", "minimum": 0 },
+        "notes": {
+          "description": "Speaker notes: what a presenter reads for each state it names that has none of its own (SPEC §2.6).",
+          "type": "string"
+        },
+        "duration": {
+          "description": "Estimated seconds: what a video and the spine give its states with no `hold`, less their cues (SPEC §2.4).",
+          "type": "number",
+          "minimum": 0
+        },
         "media": {
           "description": "Projection hints (infographic priority, podcast script, …).",
           "type": "object",
@@ -1809,8 +1816,15 @@
         },
         "remove": { "description": "Nodes that exit in this state.", "$ref": "#/$defs/IdList" },
         "choreography": { "type": "array", "items": { "$ref": "#/$defs/ChoreoItem" } },
-        "hold": { "description": "Auto-advance dwell in ms (video and kiosk).", "type": "number", "minimum": 0 },
-        "notes": { "type": "string" },
+        "hold": {
+          "description": "Auto-advance dwell in ms (video and kiosk). It wins over its beat's `duration`.",
+          "type": "number",
+          "minimum": 0
+        },
+        "notes": {
+          "description": "Speaker notes, which a presenter reads over its beat's (SPEC §2.6).",
+          "type": "string"
+        },
         "_comment": { "type": "string" }
       }
     },

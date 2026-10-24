@@ -550,8 +550,8 @@ impl Engine {
         let runs: Vec<Value> = runs
             .into_iter()
             .map(|r| match r.link {
-                Some(href) => serde_json::json!({ "text": r.text, "link": { "href": href } }),
-                None => serde_json::json!({ "text": r.text }),
+                Some(href) => serde_json::json!({ "text": kept(&r.text), "link": { "href": href } }),
+                None => serde_json::json!({ "text": kept(&r.text) }),
             })
             .collect();
         if runs.is_empty() {
@@ -613,8 +613,8 @@ impl Engine {
             .flat_map(|f| &f.credit)
             .filter(|r| !r.text.is_empty())
             .map(|r| match &r.link {
-                Some(href) => serde_json::json!({ "text": r.text, "link": { "href": href } }),
-                None => serde_json::json!({ "text": r.text }),
+                Some(href) => serde_json::json!({ "text": kept(&r.text), "link": { "href": href } }),
+                None => serde_json::json!({ "text": kept(&r.text) }),
             })
             .collect();
         if credit.is_empty() && pin.is_none() {
@@ -1557,4 +1557,10 @@ fn typed_prop<T: serde::de::DeserializeOwned>(props: &Props, key: &str) -> Resul
         .map(serde_json::from_value)
         .transpose()
         .map_err(|e| EngineError::Layout(format!("`{key}`: {e}")))
+}
+
+/// A credit's words as they are laid out: the space before each separator ` · ` no break, so a
+/// line breaks after the dot, never before it, and no line of a credit starts with one.
+fn kept(text: &str) -> String {
+    text.replace(" \u{b7} ", "\u{a0}\u{b7} ")
 }

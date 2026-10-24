@@ -71,8 +71,8 @@ try {
   await page.waitForSelector("#look-transition-style", { timeout: 30000 });
   const original = await source();
   /** The exits the cue's Add an animation… menu offers. */
-  const exits = () => page.evaluate(() => [...document.querySelectorAll("#cue [data-add] option")].filter((o) => o.value.startsWith('["exit"')).length);
-  await page.waitForFunction(() => [...document.querySelectorAll("#cue [data-add] option")].some((o) => o.value.startsWith('["exit"')), null, { timeout: 30000 }).catch(() => {});
+  const exits = () => page.evaluate(() => window.scaena.cue.offers().filter((o) => JSON.stringify(o.value).startsWith('["exit"')).length);
+  await page.waitForFunction(() => window.scaena.cue.offers().some((o) => JSON.stringify(o.value).startsWith('["exit"')), null, { timeout: 30000 }).catch(() => {});
   check((await exits()) > 0, `before, the cue offers an exit for what leaves: ${await exits()}`);
   const styles = await options("#look-transition-style");
   check(
@@ -99,7 +99,7 @@ try {
   // each style's layers).
   const span = await page.evaluate(() => window.scaena.last().slots.find((s) => s.state === "close").span);
   check(span > 0, `its cue runs: ${span} ms`);
-  await page.waitForFunction(() => ![...document.querySelectorAll("#cue [data-add] option")].some((o) => o.value.startsWith('["exit"')), null, { timeout: 30000 }).catch(() => {});
+  await page.waitForFunction(() => !window.scaena.cue.offers().some((o) => JSON.stringify(o.value).startsWith('["exit"')), null, { timeout: 30000 }).catch(() => {});
   check((await exits()) === 0, `a push moves the slide left whole: the cue offers none of its exits, not ${await exits()}`);
 
   // Bottom to Top.

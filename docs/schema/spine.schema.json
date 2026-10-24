@@ -28,6 +28,10 @@
       "items": { "type": "string" }
     },
     "spine": { "description": "The spine as the deck holds it; absent if it has none.", "$ref": "#/$defs/Spine" },
+    "pace": {
+      "description": "How the timeline its states and beats are placed on was paced (`Pace`). Given the timeline.",
+      "$ref": "#/$defs/Pace"
+    },
     "states": {
       "description": "Every state, in cue-list order.",
       "type": "array",
@@ -75,8 +79,15 @@
           "items": { "type": "string" }
         },
         "states": { "$ref": "#/$defs/IdList" },
-        "notes": { "description": "Speaker notes.", "type": "string" },
-        "duration": { "description": "Estimated seconds.", "type": "number", "minimum": 0 },
+        "notes": {
+          "description": "Speaker notes: what a presenter reads for each state it names that has none of its own (SPEC §2.6).",
+          "type": "string"
+        },
+        "duration": {
+          "description": "Estimated seconds: what a video and the spine give its states with no `hold`, less their cues (SPEC §2.4).",
+          "type": "number",
+          "minimum": 0
+        },
         "media": {
           "description": "Projection hints (infographic priority, podcast script, …).",
           "type": "object",
@@ -90,6 +101,21 @@
       "items": { "$ref": "#/$defs/Id" },
       "uniqueItems": true
     },
+    "Pace": {
+      "description": "How a projection paces the deck's global timeline (SPEC §2.4, §10).",
+      "oneOf": [
+        {
+          "description": "Each state its `hold`; where it has none, its share of its beat's `duration`, less the cues of the beat's states (`paced`): a talk timed as it is given, though a player waits on the presenter.",
+          "type": "string",
+          "const": "beats"
+        },
+        {
+          "description": "Each state its `hold` alone, as a player auto-advances: a state with none comes to rest and goes on at once.",
+          "type": "string",
+          "const": "holds"
+        }
+      ]
+    },
     "SpineState": {
       "description": "A state: its slide, its notes, and where it plays.",
       "type": "object",
@@ -98,8 +124,15 @@
       "properties": {
         "id": { "type": "string" },
         "slide": { "description": "The slide it builds (SPEC §2.2).", "type": "string" },
-        "notes": { "type": "string" },
+        "notes": {
+          "description": "What a presenter reads for it (SPEC §2.6, `notes`): its own notes, else its beat's. None where nothing is written on it.",
+          "type": "string"
+        },
         "hold": { "description": "Its dwell at rest, ms, as the deck gives it.", "type": "number" },
+        "rest": {
+          "description": "Its time at rest on the timeline, ms: its `hold`, or under `pace: beats`, where it has none, its share of its beat's `duration` (`paced`). Given the timeline.",
+          "type": "number"
+        },
         "start": {
           "description": "When its transition starts on the global timeline, ms. Given the timeline.",
           "type": "number"

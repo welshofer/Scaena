@@ -682,6 +682,73 @@ fn pictures_are_made_by_the_users_image_model_and_kept_in_the_bundle() {
     assert_eq!(scaena(&["validate", bundle]).status.code(), Some(0));
 }
 
+/// An image API on this machine that takes no key: its model listing refused.
+fn unlisted(method: &str, path: &str, _body: &str) -> Answer {
+    match (method, path) {
+        ("GET", "/v1/models") => {
+            let refused = r#"{"error":{"message":"Incorrect API key provided","type":"invalid_request_error","code":"invalid_api_key"}}"#;
+            (401, "application/json", refused.as_bytes().to_vec())
+        }
+        _ => (404, "text/plain", b"not here".to_vec()),
+    }
+}
+
+/// A pictures key whose image models cannot be listed loses the pictures, not the deck
+/// (narrative REL-4): the deck is made without them, as the browser makes it, and why is said
+/// beside it; `--pictures` named with no key for it is still refused before any call.
+#[test]
+fn a_pictures_key_that_lists_no_model_loses_the_pictures_not_the_deck() {
+    let (base, asked) = serve(unlisted);
+    let dir = place("unlisted");
+    let bundle = dir.to_str().unwrap();
+    let mut c = Command::new(env!("CARGO_BIN_EXE_scaena"));
+    for k in KEYS.into_iter().chain(PROXIES).chain(["SCAENA_MODEL"]) {
+        c.env_remove(k);
+    }
+    let out = c
+        .env("OPENAI_API_KEY", "sk-wrong")
+        .args(["--json", "generate", bundle, "Tidewater's Series A", "--slides", &catalog()])
+        .args(["--pictures", "openai", "--picture-base", &base])
+        .output()
+        .unwrap();
+    let said = String::from_utf8_lossy(&out.stdout).into_owned() + &String::from_utf8_lossy(&out.stderr);
+    assert_eq!(out.status.code(), Some(0), "{said}");
+    let made = json(&out);
+    // No picture made, which the JSON leaves out.
+    assert_eq!((made["created"]["created"].as_bool(), made["pictures"].as_u64()), (Some(true), None), "{said}");
+    let unpictured = made["unpictured"].as_array().unwrap();
+    assert_eq!(unpictured.len(), 1, "{said}");
+    let why = unpictured[0].as_str().unwrap();
+    assert!(why.starts_with("OpenAI's image models:") && why.contains("Incorrect API key"), "{why}");
+    assert!(dir.join("deck.json").is_file());
+    assert_eq!(scaena(&["validate", bundle]).status.code(), Some(0));
+    let asked = asked.lock().unwrap();
+    assert_eq!(asked.iter().map(|a| a.path.as_str()).collect::<Vec<_>>(), ["/v1/models"], "the listing alone");
+    drop(asked);
+    // The plain report says it beside the deck.
+    let out = Command::new(env!("CARGO_BIN_EXE_scaena"))
+        .env("OPENAI_API_KEY", "sk-wrong")
+        .args(["generate", place("unlisted-said").to_str().unwrap(), "Tidewater's Series A", "--slides", &catalog()])
+        .args(["--pictures", "openai", "--picture-base", &base])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("picture not made: OpenAI's image models:"), "{stdout}");
+    assert!(String::from_utf8_lossy(&out.stderr).contains("0 pictures made; not made:"), "{stdout}");
+    // Named with no key for it, pictures are refused before any call, as before.
+    let out = json(&scaena(&[
+        "--json",
+        "generate",
+        place("unlisted-2").to_str().unwrap(),
+        "x",
+        "--slides",
+        &catalog(),
+        "--pictures",
+        "openai",
+    ]));
+    assert!(out["error"]["message"].as_str().unwrap().contains("OPENAI_API_KEY"), "{out:#}");
+}
+
 /// How many times the slides have been asked for, across the kept run below: the first
 /// [`BUSY`] times, the provider is too busy to write them.
 static SLIDES_ASKED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);

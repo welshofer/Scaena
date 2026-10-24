@@ -324,8 +324,9 @@ public final class Generator {
             .appending(path: "Scaena/Fonts")
     }
 
-    /// The engine's generation, freed with it.
-    private final class Made {
+    /// The engine's generation, freed with it. Sendable: its steps are made one at a time, each
+    /// awaited before the next, on the main actor or, for the slow ones, on a thread of their own.
+    private final class Made: @unchecked Sendable {
         let pointer = scaena_generator_new()!
 
         deinit {
@@ -336,6 +337,41 @@ public final class Generator {
     /// What a brief may ask.
     nonisolated public static func choices() throws -> BriefChoices {
         try ScaenaSession.decode(scaena_generator_choices(), as: BriefChoices.self)
+    }
+
+    /// The stack a slow step is made on: 16 MB, twice the Mac main thread's. Building a deck and drawing
+    /// its slides recurses deeper than a dispatch queue's 512 KB worker stack allows in a debug
+    /// build (the generator's FFI test overflows at 512 KB and passes from 1 MB).
+    nonisolated static let stack = 16 << 20
+
+    /// For a test: told each step `stepAway` makes, on the thread it makes it on.
+    var away: (@Sendable (String) -> Void)?
+
+    /// `step`, made on a thread of its own, away from the main actor: the steps that build the deck
+    /// and draw every slide (`make`, `looked`, `fitted`), which take seconds for a deck of 20 to 45
+    /// slides, while the brief's window goes on answering and its steps go on showing (lift-up
+    /// narrative PERF-3). One step at a time: each is awaited before the next is made.
+    func stepAway<T: Decodable & Sendable>(_ method: String, _ args: [String: JSONValue] = [:]) async throws -> T {
+        let json = String(decoding: try JSONEncoder().encode(JSONValue.object(args)), as: UTF8.self)
+        return try await Self.stepped(on: made, method, json, heard: away)
+    }
+
+    /// `method` made on `made` on a thread of its own with `stack` bytes of stack, its answer awaited.
+    nonisolated private static func stepped<T: Decodable & Sendable>(
+        on made: Made, _ method: String, _ json: String, heard: (@Sendable (String) -> Void)?
+    ) async throws -> T {
+        try await withCheckedThrowingContinuation { (done: CheckedContinuation<T, any Error>) in
+            let thread = Thread {
+                heard?(method)
+                done.resume(with: Result {
+                    try ScaenaSession.decode(scaena_generator_call(made.pointer, method, json, nil, 0), as: T.self)
+                })
+            }
+            thread.name = "ScaenaKit.generate"
+            thread.stackSize = stack
+            thread.qualityOfService = .userInitiated
+            thread.start()
+        }
     }
 
     func step<T: Decodable>(_ method: String, _ args: [String: JSONValue] = [:], bytes: Data? = nil) throws -> T {
@@ -509,8 +545,8 @@ public final class Generator {
         let tried: Int?
     }
 
-    private struct Making: Decodable {
-        struct Look: Decodable {
+    private struct Making: Decodable, Sendable {
+        struct Look: Decodable, Sendable {
             let request: GeneratorRequest
             let slides: Int
         }
@@ -519,18 +555,18 @@ public final class Generator {
         let fit: Fit?
     }
 
-    private struct Fit: Decodable {
+    private struct Fit: Decodable, Sendable {
         let request: GeneratorRequest
         let texts: Int
     }
 
-    private struct Looking: Decodable {
+    private struct Looking: Decodable, Sendable {
         let looked: Int
         let unlooked: String?
         let fit: Fit?
     }
 
-    private struct Fitting: Decodable {
+    private struct Fitting: Decodable, Sendable {
         let fitted: Int?
         let unfitted: String?
     }
@@ -576,19 +612,26 @@ public final class Generator {
         let unmade: [String]
     }
 
+    /// What `painter`'s key lists: its best image model, as the engine orders them, or none,
+    /// saying why.
+    private enum Listed {
+        case model(String)
+        case none(why: String)
+    }
+
     /// The best image model `painter`'s key lists, as the engine orders them; none where it
-    /// lists none.
-    private func bestModel(_ painter: Painter) async throws -> String? {
+    /// lists none, or where the listing fails, said in a person's words (PLAN 3.18): the deck is
+    /// made without pictures, as the browser's and the CLI's are (narrative REL-4), never lost
+    /// to its pictures' key.
+    private func bestModel(_ painter: Painter) async throws -> Listed {
         var listing: [String: JSONValue] = ["provider": .string(painter.provider.rawValue), "key": .string(painter.key)]
         if let base = painter.base { listing["base"] = .string(base) }
         let list: Listing = try step("imageModels", listing)
         let listed = await send(list.request)
         // A key the provider does not take, no way to it, or an answer that does not read, said in
         // a person's words (PLAN 3.18), not in the provider's own nor in what the answer holds.
-        let unlisted = {
-            ScaenaError(message: Why.answered(painter.provider, status: listed.status, body: listed.text))
-        }
-        guard (200..<300).contains(listed.status) else { throw unlisted() }
+        let unlisted = Listed.none(why: Why.answered(painter.provider, status: listed.status, body: listed.text))
+        guard (200..<300).contains(listed.status) else { return unlisted }
         let models: Models
         do {
             models = try step(
@@ -599,9 +642,12 @@ public final class Generator {
                     "body": .string(listed.text),
                 ])
         } catch {
-            throw unlisted()
+            return unlisted
         }
-        return models.models.first
+        guard let model = models.models.first else {
+            return .none(why: "your \(painter.provider.name) key lists no image model")
+        }
+        return .model(model)
     }
 
     /// The pictures asked for made by `painter`, every one at once, a busy provider asked again
@@ -643,8 +689,11 @@ public final class Generator {
     /// The pictures the narrative's slides ask for, made by `painter`'s best image model, every
     /// one at once, a busy provider asked again after the wait the engine says; kept for `make`.
     private func paint(_ painter: Painter, theme: String, hear: (GeneratingStep) -> Void) async throws {
-        guard let model = try await bestModel(painter) else {
-            hear(.painted(pictures: 0, unmade: ["your \(painter.provider.name) key lists no image model"]))
+        let model: String
+        switch try await bestModel(painter) {
+        case .model(let best): model = best
+        case .none(let why):
+            hear(.painted(pictures: 0, unmade: [why]))
             return
         }
         var asking: [String: JSONValue] = [
@@ -672,8 +721,11 @@ public final class Generator {
     /// lists, as a made deck's pictures are. Why none was made, where none was, in a person's words
     /// (PLAN 3.18): the key not accepted, the provider's safety system refusing, the provider busy.
     public func picture(subject: String, theme: String, size: CGSize, painter: Painter) async throws -> MadePicture {
-        guard let model = try await bestModel(painter) else {
-            throw ScaenaError(message: "your \(painter.provider.name) key lists no image model")
+        // One picture is the whole ask here, so a key that lists no image model is the error.
+        let model: String
+        switch try await bestModel(painter) {
+        case .model(let best): model = best
+        case .none(let why): throw ScaenaError(message: why)
         }
         var asking: [String: JSONValue] = [
             "theme": .string(theme), "subject": .string(subject), "look": .string(painter.look),
@@ -766,14 +818,15 @@ public final class Generator {
             try await paint(painter, theme: theme, hear: hear)
         }
         hear(.making)
-        let making: Making = try step("make", ["theme": .string(theme), "key": .string(key), "look": .bool(look)])
+        let making: Making = try await stepAway(
+            "make", ["theme": .string(theme), "key": .string(key), "look": .bool(look)])
         var fit = making.fit
         // The deck shown to the model as it is drawn (PLAN G.13), each slide's change kept where
         // lint finds the slide no worse; then the fit, asked after it.
         if let seeing = making.look {
             hear(.looking(slides: seeing.slides))
             let reply = await send(seeing.request)
-            let looking: Looking = try step(
+            let looking: Looking = try await stepAway(
                 "looked",
                 [
                     "status": .number(Double(reply.status)),
@@ -787,7 +840,7 @@ public final class Generator {
         if let fit {
             hear(.fitting(texts: fit.texts))
             let reply = await send(fit.request)
-            let fitting: Fitting = try step(
+            let fitting: Fitting = try await stepAway(
                 "fitted",
                 [
                     "status": .number(Double(reply.status)),
