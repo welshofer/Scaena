@@ -23,9 +23,16 @@ import Testing
     }
     #expect(!editor.whole && !unread(editor), "the state shown alone is linted at an edit")
 
+    // Laid out off the main thread, on a stack that holds a deck whose containers nest deep: a
+    // dispatch queue's 512 KB worker leaves too little room.
+    let laidOn = LaidOn()
+    editor.laidOn = { laidOn.take(main: $0, stack: $1) }
     await editor.lintEvery()
+    editor.laidOn = nil
     #expect(editor.whole && !editor.linting)
     #expect(unread(editor), "every state linted: \(editor.findings.map(\.code))")
+    let (main, stack) = try #require(laidOn.taken, "every state was laid out")
+    #expect(!main && stack >= OffMain.stack, "laid out on the main thread or a small stack: \(main), \(stack)")
 
     // A lint of one state after it keeps what it found on the others.
     editor.lintShown()
@@ -65,6 +72,18 @@ import Testing
     stale.lay()
     _ = try window.editor.make([typed])
     #expect(try session.lint(laid: stale) == nil, "another source compiled since")
+}
+
+/// Where a lint of every state laid the deck out, as the thread it ran on tells it.
+private final class LaidOn: @unchecked Sendable {
+    private let lock = NSLock()
+    private var was: (main: Bool, stack: Int)?
+
+    func take(main: Bool, stack: Int) {
+        lock.withLock { was = (main, stack) }
+    }
+
+    var taken: (main: Bool, stack: Int)? { lock.withLock { was } }
 }
 
 /// The window's editor, on the main actor, as the window holds it.
