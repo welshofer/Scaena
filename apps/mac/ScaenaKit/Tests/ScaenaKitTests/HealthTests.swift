@@ -32,6 +32,11 @@ import Testing
 
     // The next read answers for the deck as it is.
     #expect(try await editor.health() != nil)
+
+    // Read off the main thread, on a stack that holds a deck larger than B1: a dispatch queue's
+    // 512 KB worker leaves too little room.
+    let (main, stack) = try await editor.offMain.run { (Thread.isMainThread, Thread.current.stackSize) }
+    #expect(!main && stack >= OffMain.stack, "read on the main thread or a small stack: \(main), \(stack)")
 }
 
 /// The window's editor, on the main actor, as the window holds it.
