@@ -47,6 +47,7 @@ import type {
   FromWorker,
   Generate,
   Insert,
+  Keyed,
   Layer,
   LayoutSuggestion,
   Backgrounds,
@@ -577,6 +578,24 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
       }
       case "tidied":
         return post({ type: "tidied", id: data.id, text: player.tidied(data.text, data.language) });
+      case "keyed": {
+        const keyed = JSON.parse(Player.keyed(data.text, data.from, data.to, data.key, data.tab, data.language)) as Keyed | null;
+        return post({ type: "keyed", id: data.id, keyed });
+      }
+      // Make Code, Not Code, and Tidy Code (PLAN 2.139): each the patch the page then makes.
+      case "coding":
+      case "uncoding":
+      case "tidying": {
+        const behind = !player.compiledFrom(data.source);
+        if (behind) saveable(data.source);
+        const patch =
+          data.type === "coding"
+            ? player.coding(data.node, data.language)
+            : data.type === "uncoding"
+              ? player.uncoding(data.node)
+              : player.tidying(data.state, data.node);
+        return post({ type: data.type, id: data.id, patch: JSON.parse(patch) as unknown[] });
+      }
       case "codeWords": {
         const behind = !player.compiledFrom(data.source);
         if (behind) saveable(data.source);
@@ -2060,6 +2079,8 @@ function run(index: number, t: number, run: number, still = false, alone = false
   let rested = -1;
   /** When the run's last frame was painted, by the display's clock. */
   let last: number | undefined;
+  /** The slot whose cue came to rest and laid out the next one's (lift-up PERF-1). */
+  let prepared = -1;
   const frame = async (now: number) => {
     if (run !== latest) return;
     let t = offset + Math.max(0, now - start);
@@ -2086,11 +2107,32 @@ function run(index: number, t: number, run: number, still = false, alone = false
       post({ type: "at", index, t: shown, global: slot.start + shown, playing, frame: timing });
       if (still) rested = index;
     }
+    // Its cue over, held or waiting, the next one's is laid out meanwhile; a cut never samples one.
+    if (!still && t >= slot.span && prepared !== index) {
+      prepared = index;
+      ahead(index + 1, run);
+    }
     if (!playing) return;
     if (still) setTimeout(() => frame(performance.now()), slot.span + slot.hold - t);
     else next(frame);
   };
   next(frame);
+}
+
+/** Lay out the cue into slot `index` while the one before it rests or holds, so going on draws its
+ * first frame at once (lift-up PERF-1): once the worker has answered what waits, and only while run
+ * `run` is the one shown. */
+function ahead(index: number, run: number) {
+  const slot = slots[index];
+  if (!slot || slot.span <= 0) return;
+  setTimeout(() => {
+    if (run !== latest) return;
+    try {
+      player.prepare(slot.state);
+    } catch (e) {
+      console.warn(`the next cue could not be laid out ahead: ${said(e)}`);
+    }
+  }, 0);
 }
 
 const next = (frame: (now: number) => void) => {

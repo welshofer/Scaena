@@ -121,6 +121,10 @@ const CODE: &[(&str, &str)] = &[
         "export function Card({ title }) {\n  return (\n    <div className=\"card\">\n      <h2>{title}</h2>\n    </div>\n  );\n}\n",
     ),
     ("ini", "[core]\n\teditor = vim\n\tautocrlf = input\n[user]\n\tname = Ann\n\temail = ann@example.com\n"),
+    (
+        "php",
+        "<?php\n\nfunction total(array $items): float\n{\n    $sum = 0;\n    foreach ($items as $item) {\n        $sum += $item->price;\n    }\n    return $sum;\n}\n",
+    ),
 ];
 
 /// Words, not code: each pastes as text.

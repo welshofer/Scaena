@@ -3173,10 +3173,20 @@ impl Slots<'_> {
                     .or_else(|| self.slide.chart_data.as_ref().and_then(latest)),
             ),
             // The takeaway; then, where the layout has no place for it, the chart's source a line
-            // of its own.
+            // of its own. A takeaway that names the headline's first and last figures again says
+            // nothing the room has not just read, and gives way to what the latest figure counts
+            // and when, from the chart's own data: "without power in 2026".
             ("line-chart", "note", _) => {
-                let takeaway =
-                    self.item(0).map(|i| if i.figure_first() { sentence(&i.detail) } else { i.whole.clone() });
+                let item = self.item(0);
+                let said = item.map(|i| if i.figure_first() { sentence(&i.detail) } else { i.whole.clone() });
+                let takeaway = match said {
+                    Some(t) if self.title().is_some_and(|h| restates(&h, &t)) => {
+                        // The latest figure is the callout's only where no takeaway leads with its own.
+                        let latest = !item.is_some_and(Item::figure_first);
+                        self.slide.chart_data.as_ref().filter(|_| latest).and_then(|c| counted(c, self.subtitle()))
+                    }
+                    said => said,
+                };
                 let source = self.caption().filter(|_| !self.has("source"));
                 text(match (takeaway.filter(|t| !t.is_empty()), source) {
                     (Some(t), Some(c)) => Some(format!("{t}\n{c}")),
@@ -4338,6 +4348,51 @@ fn named_figure(chart: &ChartData, series: Option<&str>, said: [Option<&str>; 2]
             Some(json!({ "kind": "callout", "at": place, "text": grouped(line.values[at], places) }))
         })
     })
+}
+
+/// What a line's latest figure counts, and when, from its own data: its axis's title less the
+/// unit the figure carries and the rate the line runs at, else its series' name whole, then its
+/// last category: "without power in 2026" under "2 hours" from "Hours without power per year".
+fn counted(chart: &ChartData, subtitle: Option<String>) -> Option<String> {
+    let when = chart.categories.last()?;
+    // A series' own name is said whole; an axis's title loses what the figure beside it says.
+    let (measure, titled) = match subtitle {
+        Some(t) => (t, true),
+        None => (chart.series.first().and_then(|s| s.name.clone()).unwrap_or_default(), false),
+    };
+    let mut words: Vec<&str> = measure.split(',').next().unwrap_or_default().split_whitespace().collect();
+    let unit = if titled { chart.unit.as_deref().unwrap_or_default().trim() } else { "" };
+    if words.first().is_some_and(|w| !unit.is_empty() && w.eq_ignore_ascii_case(unit)) {
+        words.remove(0);
+    }
+    if words.last().is_some_and(|w| !unit.is_empty() && w.eq_ignore_ascii_case(unit)) {
+        words.pop();
+    }
+    let rates = ["year", "quarter", "month", "week", "day", "hour"];
+    if let [.., per, every] = words.as_slice()
+        && matches!(per.to_lowercase().as_str(), "per" | "a" | "each" | "every")
+        && rates.contains(&every.to_lowercase().as_str())
+    {
+        words.truncate(words.len() - 2);
+    }
+    let mut measure = words.join(" ");
+    // Lowercased as the middle of a sentence, an acronym kept: "ARR in Q3", "outages in 2026".
+    let acronym = measure
+        .split_whitespace()
+        .next()
+        .is_some_and(|w| w.chars().filter(|c| c.is_alphabetic()).all(char::is_uppercase));
+    if !acronym && let Some(first) = measure.chars().next() {
+        measure = first.to_lowercase().chain(measure.chars().skip(1)).collect();
+    }
+    Some(if measure.is_empty() { format!("in {when}") } else { format!("{measure} in {when}") })
+}
+
+/// Whether `note` names the first and last of the figures `headline` writes, two or more: "Outage
+/// hours fell to 2 in 2026, after 286 in the storm year" under "Outage hours fell from 286 to 2".
+fn restates(headline: &str, note: &str) -> bool {
+    let (said, again) = (figures(headline), figures(note));
+    let named = |f: &f64| again.contains(f);
+    said.len() >= 2 && said.first().is_some_and(named) && said.last().is_some_and(named)
 }
 
 /// The figures `text` writes, as numbers: "$1,140" is 1140, "4.9%" is 4.9.
@@ -5766,6 +5821,20 @@ mod tests {
         );
         assert_eq!(said("Outage hours fell to 2 by 2024"), None, "an end is labelled already, a year is no figure");
         assert_eq!(figures("$1,140 and 4.9%, in 2024."), [1140.0, 4.9, 2024.0]);
+        // A takeaway that names the headline's first and last figures again gives way; one that
+        // adds to them, or a headline of one figure, keeps it.
+        let headline = "Outage hours fell from 286 to 2 in three years";
+        assert!(restates(headline, "Outage hours fell to 2 in 2026, after 286 in the storm year"));
+        assert!(!restates(headline, "Outage hours fell to 2 in 2026, the lowest in the county"));
+        assert!(!restates("ARR reached $910K", "ARR reached $910K in September"));
+        // Where it gives way, the latest figure is said from the data: what it counts, and when.
+        let outages: ChartData = serde_json::from_value(json!({
+            "categories": ["2021", "2026"], "series": [{ "name": "Outage hours", "values": [24, 2] }], "unit": "hours",
+        }))
+        .unwrap();
+        let said = |subtitle: Option<&str>| counted(&outages, subtitle.map(String::from));
+        assert_eq!(said(Some("Hours without power per year, Port Alder")).as_deref(), Some("without power in 2026"));
+        assert_eq!(said(None).as_deref(), Some("outage hours in 2026"));
         assert_eq!((grouped(1140.0, 0), grouped(-2.5, 1)), ("1,140".to_string(), "\u{2212}2.5".to_string()));
         let node = chart_node(
             &chart,

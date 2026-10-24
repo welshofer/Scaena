@@ -18,6 +18,19 @@ const write = process.argv.includes("--write");
 const conversation = JSON.parse(await readFile("tests/assistant/conversation.json", "utf8"));
 const recordPath = "tests/assistant/exchanges.json";
 
+/** `text` as a body that arrives in pieces of 97 bytes, each cut wherever it falls. */
+function pieces(text) {
+  const bytes = new TextEncoder().encode(text);
+  let at = 0;
+  return new ReadableStream({
+    pull(controller) {
+      if (at >= bytes.length) return controller.close();
+      controller.enqueue(bytes.slice(at, at + 97));
+      at += 97;
+    },
+  });
+}
+
 /** Each request `run` makes, and the answer `reply` gives it, by a `fetch` that calls nothing. */
 async function asking(reply, run) {
   const asked = [];
@@ -30,7 +43,7 @@ async function asking(reply, run) {
       body: init.body === undefined ? null : JSON.parse(init.body),
     });
     const { status, body } = reply;
-    return new Response(typeof body === "string" ? body : JSON.stringify(body), { status, statusText: "" });
+    return new Response(typeof body === "string" || body instanceof ReadableStream ? body : JSON.stringify(body), { status, statusText: "" });
   };
   try {
     return { asked, result: await run().then((value) => ({ value }), (e) => ({ error: e.message })) };
@@ -49,6 +62,10 @@ for (const [id, provider] of Object.entries(providers)) {
     messages: conversation.messages,
   };
   const turn = await asking({ status: 200, body: conversation.answers[id] }, () => provider.turn(ask));
+  // The same answer as the provider streams it (narrative ATTR-3), the body handed over in
+  // pieces that cut its events mid-way: read as the whole one is, its words out as they come.
+  const said = [];
+  const streamed = await asking({ status: 200, body: pieces(conversation.streamed[id]) }, () => provider.turn({ ...ask, onText: (text) => said.push(text) }));
   const models = await asking({ status: 200, body: conversation.models[id] }, () => provider.models(conversation.key));
   const failure = await asking(conversation.failures[id], () => provider.turn(ask));
   // A question asked once, with nothing to call: a writing tool's (PLAN 2.101).
@@ -59,7 +76,7 @@ for (const [id, provider] of Object.entries(providers)) {
   const pictured = { ...once, system: picture.system, messages: [{ role: "user", text: picture.prompt, png: picture.png }] };
   const shown = await asking({ status: 200, body: conversation.answers[id] }, () => provider.turn(pictured));
   record[id] = {
-    turn: { request: turn.asked[0], read: turn.result.value },
+    turn: { request: turn.asked[0], read: turn.result.value, streamed: { read: streamed.result.value, said } },
     models: { request: models.asked[0], read: models.result.value },
     failure: { message: failure.result.error },
     once: { request: asked.asked[0] },
