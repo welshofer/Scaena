@@ -35,6 +35,8 @@ targets:
         product: ScaenaKit
       - package: ScaenaKit
         product: ScaenaRemote
+      - package: ScaenaKit
+        product: ScaenaNotes
     preBuildScripts:
       - name: Engine
         script: |
@@ -62,6 +64,8 @@ targets:
     dependencies:
       - package: ScaenaKit
         product: ScaenaRemote
+      - package: ScaenaKit
+        product: ScaenaNotes
     settings:
       base:
         SWIFT_VERSION: "5.0"
@@ -144,6 +148,8 @@ targets:
         product: ScaenaKit
       - package: ScaenaKit
         product: ScaenaRemote
+      - package: ScaenaKit
+        product: ScaenaNotes
     preBuildScripts:
       - name: Engine
         script: |

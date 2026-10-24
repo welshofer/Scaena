@@ -13,19 +13,24 @@ let package = Package(
         .library(name: "ScaenaKit", targets: ["ScaenaKit"]),
         // The presenter remote (PLAN 4.10, ADR-0025): no engine, so the iPhone's remote is small.
         .library(name: "ScaenaRemote", targets: ["ScaenaRemote"]),
+        // Speaker notes as a presenter reads them (SPEC §2.6, lift-up USE-1): the blocks the engine
+        // sends and the one view that shows them, which ScaenaKit and the remote share.
+        .library(name: "ScaenaNotes", targets: ["ScaenaNotes"]),
         // The app's executable; `apps/mac/build-app.sh` puts it in `Scaena.app` (PLAN 3.3).
         .executable(name: "Scaena", targets: ["Scaena"]),
     ],
     targets: [
         // `scaena.h`, from where cbindgen writes it, and the static library it declares.
         .systemLibrary(name: "CScaena", path: "Sources/CScaena"),
-        .target(name: "ScaenaKit", dependencies: ["CScaena"]),
+        .target(name: "ScaenaNotes"),
+        .target(name: "ScaenaKit", dependencies: ["CScaena", "ScaenaNotes"]),
         // Network.framework's handlers are not yet annotated for Swift 6's isolation checking, as
         // SwiftUI's document protocols are not: the remote and the app build in Swift 5 mode,
         // ScaenaKit in 6.
-        .target(name: "ScaenaRemote", swiftSettings: [.swiftLanguageMode(.v5)]),
+        .target(name: "ScaenaRemote", dependencies: ["ScaenaNotes"], swiftSettings: [.swiftLanguageMode(.v5)]),
         .executableTarget(
-            name: "Scaena", dependencies: ["ScaenaKit", "ScaenaRemote"], swiftSettings: [.swiftLanguageMode(.v5)]),
-        .testTarget(name: "ScaenaKitTests", dependencies: ["ScaenaKit", "ScaenaRemote"]),
+            name: "Scaena", dependencies: ["ScaenaKit", "ScaenaRemote", "ScaenaNotes"],
+            swiftSettings: [.swiftLanguageMode(.v5)]),
+        .testTarget(name: "ScaenaKitTests", dependencies: ["ScaenaKit", "ScaenaRemote", "ScaenaNotes"]),
     ]
 )
