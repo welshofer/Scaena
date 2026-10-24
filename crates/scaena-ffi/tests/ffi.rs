@@ -786,9 +786,14 @@ fn the_assistant_asks_with_the_users_key_and_runs_each_call_on_the_bundle() {
     let body = body_of(&request);
     let system = body["system"][0]["text"].as_str().unwrap();
     assert!(system.starts_with("You are the assistant in Scaena's Mac app"), "{system}");
-    assert!(system.contains("The deck: 40 states (cover, goal, goal-why"), "{system}");
-    assert!(system.contains("Its title:\n<data label=\"title\">\nB1: the manifesto as a talk\n</data>"), "{system}");
     assert!(system.contains("--- scaena://skills/author-deck ---"));
+    // The deck's facts last, a block of their own and uncached, so an edit leaves the rest cached
+    // (lift-up PERF-2).
+    assert!(body["system"][0]["cache_control"].is_object() && body["system"][1]["cache_control"].is_null());
+    let facts = body["system"][1]["text"].as_str().unwrap();
+    assert!(facts.starts_with(scaena_chat::FACTS), "{facts}");
+    assert!(facts.contains("The deck: 40 states (cover, goal, goal-why"), "{facts}");
+    assert!(facts.contains("Its title:\n<data label=\"title\">\nB1: the manifesto as a talk\n</data>"), "{facts}");
     let question = body["messages"][0]["content"][0]["text"].as_str().unwrap();
     assert_eq!(question, "[In the window: state cover shown; selected: title (text).]\n\nIs the cover clean?");
     let tools: Vec<&str> = body["tools"].as_array().unwrap().iter().map(|t| t["name"].as_str().unwrap()).collect();
