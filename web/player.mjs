@@ -859,8 +859,11 @@ try {
   // Full sharpness (lift-up ATTR-2): at 2560 × 1440 and twice the density, the slide fills the
   // room the bar leaves, and in fullscreen the screen, and its frames are painted at the size it
   // is shown, in device pixels, by WebGPU; by the CPU painter at the canvas's own size, scaled up
-  // to the room. The fullscreen frame is kept as target/web-smoke/sharp-2560x1440@2x.png.
-  const dense = await browser.newContext({ viewport: { width: 2560, height: 1440 }, deviceScaleFactor: 2 });
+  // to the room. The fullscreen frame is kept as target/web-smoke/sharp-2560x1440@2x.png. In a
+  // browser of its own: once a page of another context has closed, headless Chromium can hold a
+  // page's first fullscreen some 25 s, which is the browser's, not the player's (lift-up F1).
+  const denseBrowser = await launch();
+  const dense = await denseBrowser.newContext({ viewport: { width: 2560, height: 1440 }, deviceScaleFactor: 2 });
   for (const painter of ["auto", "cpu"]) {
     const page = await dense.newPage();
     page.on("pageerror", (e) => failures.push(`dense ${painter}: ${e.message}`));
@@ -921,6 +924,7 @@ try {
     await page.close();
   }
   await dense.close();
+  await denseBrowser.close();
 } catch (e) {
   failures.push(String(e));
 } finally {
