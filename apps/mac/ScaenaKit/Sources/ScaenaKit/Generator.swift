@@ -609,8 +609,11 @@ public final class Generator {
         let texts: Int
     }
 
+    /// One round of the look answered: the next round where one is left (narrative PERF-5), else
+    /// what the look came to and the fit asked for.
     private struct Looking: Decodable, Sendable {
-        let looked: Int
+        let look: Making.Look?
+        let looked: Int?
         let unlooked: String?
         let fit: Fit?
     }
@@ -872,9 +875,12 @@ public final class Generator {
         var fit = making.fit
         // The deck shown to the model as it is drawn (PLAN G.13), each slide's change kept where
         // lint finds the slide no worse; then the fit, asked after it.
-        if let seeing = making.look {
-            hear(.looking(slides: seeing.slides))
-            let reply = await send(seeing.request)
+        // The look goes a dozen slides a round (narrative PERF-5): each answer asks the next
+        // round, until the engine says what the look came to.
+        var seeing = making.look
+        if let first = seeing { hear(.looking(slides: first.slides)) }
+        while let round = seeing {
+            let reply = await send(round.request)
             let looking: Looking = try await stepAway(
                 "looked",
                 [
@@ -883,10 +889,12 @@ public final class Generator {
                     "body": .string(reply.status == 0 ? "" : reply.text),
                     "key": .string(key),
                 ])
+            seeing = looking.look
+            if seeing != nil { continue }
             if let why = looking.unlooked {
                 hear(.unlooked(unanswered(why, provider, reply)))
             } else {
-                hear(.looked(slides: looking.looked))
+                hear(.looked(slides: looking.looked ?? 0))
             }
             fit = looking.fit
         }
