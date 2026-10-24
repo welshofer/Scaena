@@ -161,6 +161,10 @@ try {
   // A state shown just after an edit on the canvas stays shown once the editor lints the source.
   // The lint takes the patch's own result, which names the state shown when it was made: a click
   // on another state between the two is a move, as it is while the worker compiles.
+  // Each state's tile stays across an edit, its canvas the same element (lift-up 10-24b PERF-5).
+  await page.evaluate(() => {
+    for (const c of document.querySelectorAll("#strip li[data-state] canvas")) c.kept = c.closest("li").dataset.state;
+  });
   await item("revenue").click();
   await shows(1);
   await page.waitForFunction(() => window.scaena.canvas.boxes().some((b) => b.node === "note"), null, { timeout: 30000 });
@@ -192,6 +196,8 @@ try {
   check(then === 2 && linted === 2 && (await selected()) === "mix", `mix, clicked just after a Delete on revenue, stays shown once the source is linted: ${then} then ${linted}`);
   await undo();
   check(await back(original), "one undo takes the Delete back");
+  const kept = await page.evaluate(() => [...document.querySelectorAll("#strip li[data-state] canvas")].map((c) => c.kept === c.closest("li").dataset.state));
+  check(kept.length === 4 && kept.every(Boolean), `each tile, its canvas too, is the one it was before the Delete and its undo: ${kept}`);
 
   // + Step after revenue: in its slide, showing what it shows.
   await item("revenue").click();
