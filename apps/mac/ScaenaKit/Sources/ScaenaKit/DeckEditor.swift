@@ -360,20 +360,30 @@ public final class DeckEditor {
 }
 
 /// Where work on a deck taken from the session (a `Laying`) is done, away from the caller's actor
-/// (lift-up narrative PERF-1): one piece at a time, on a queue of its own, its answer awaited.
-/// What reads the deck as it stands, its health first, runs here while the window answers; the
-/// caller drops an answer for a deck an edit has changed since it was taken.
+/// (lift-up narrative PERF-1): on a thread of its own, its answer awaited. What reads the deck as it
+/// stands, its health first, runs here while the window answers; the caller drops an answer for a
+/// deck an edit has changed since it was taken. Each piece has a `Laying` of its own, so pieces may
+/// overlap.
 final class OffMain: Sendable {
-    private let queue: DispatchQueue
+    /// The stack each piece runs on: 16 MB, twice the Mac main thread's. Reading a deck recurses
+    /// deeper than a dispatch queue's 512 KB worker stack holds with room to spare for a deck
+    /// larger than B1 (B1's health read overflows at 256 KB in a debug build).
+    static let stack = 16 << 20
+    private let label: String
 
     init(label: String) {
-        queue = DispatchQueue(label: label, qos: .utility)
+        self.label = label
     }
 
-    /// `work`'s answer, done on the queue once the work before it is.
+    /// `work`'s answer, done on a thread of its own.
     func run<T: Sendable>(_ work: @escaping @Sendable () throws -> T) async throws -> T {
-        try await withCheckedThrowingContinuation { (done: CheckedContinuation<T, any Error>) in
-            queue.async { done.resume(with: Result { try work() }) }
+        let label = self.label
+        return try await withCheckedThrowingContinuation { (done: CheckedContinuation<T, any Error>) in
+            let thread = Thread { done.resume(with: Result { try work() }) }
+            thread.name = label
+            thread.stackSize = Self.stack
+            thread.qualityOfService = .utility
+            thread.start()
         }
     }
 }
