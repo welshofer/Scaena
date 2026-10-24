@@ -683,7 +683,8 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         const deck = deckRead();
         if (!deck) throw new Error("the deck does not read");
         const { health } = await import("@scaena/generate");
-        return post({ type: "health", id: data.id, health: await health(JSON.stringify(deck)) });
+        // Read beside what the last lint found, a slide lint finds broken first (lift-up 10-24b STAB-1).
+        return post({ type: "health", id: data.id, health: await health(JSON.stringify(deck), player.findings()) });
       }
       case "makePicture": {
         // The theme frames are drawn in, as its JSON: its palette colors the picture.
