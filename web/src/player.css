@@ -41,7 +41,18 @@ body.presenter { display: grid; grid-template-columns: 2fr 1fr; grid-template-ro
 .presenter #now { margin-left: auto; font-size: 20px; color: #b5b3ae; }
 .presenter #where { font-size: 20px; font-variant-numeric: tabular-nums; }
 .presenter #where:empty { display: none; }
-.presenter .notes { font-size: 20px; line-height: 1.4; white-space: pre-wrap; flex: 1; min-height: 0; overflow: auto; }
+.presenter .notes { font-size: 20px; line-height: 1.4; flex: 1; min-height: 0; overflow: auto; }
+/* The notes as a speaker reads them (SPEC §2.6): lines as written, a list with its marks, a table
+ * in its columns, each word in its look. */
+.notes p { white-space: pre-wrap; margin: 0 0 10px; }
+.notes ul, .notes ol { margin: 0 0 10px; padding-left: 1.4em; }
+.notes li { margin: 2px 0; }
+.notes li > ul, .notes li > ol { margin-bottom: 0; }
+.notes table { border-collapse: collapse; margin: 0 0 10px; }
+.notes th, .notes td { text-align: left; vertical-align: top; padding: 3px 14px 3px 0; border-bottom: 1px solid #444; }
+.notes th { font-weight: 600; }
+.notes code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.9em; }
+.notes > :last-child { margin-bottom: 0; }
 /* What the view says goes on to another line where it must, none of it cut off. */
 .presenter #status { white-space: normal; }
 .presenter #status a { color: #8ab4f8; }

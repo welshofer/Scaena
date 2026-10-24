@@ -1266,6 +1266,38 @@ fn states_and_slides_are_added_moved_and_timed_as_the_browsers_are() {
     unsafe { scaena_session_free(t) };
 }
 
+/// The notes a presenter reads (SPEC §2.6): a state's own, else those of the first beat that
+/// names it, as the browser's presenter view reads them, so the Mac's and the remote show a
+/// generated deck's, which are written on its beats.
+#[test]
+fn a_presenter_reads_a_states_own_notes_else_its_beats() {
+    let s = revenue();
+    let beats = call(s, "notes", json!({ "state": "revenue" }));
+    assert!(beats["text"].as_str().unwrap().starts_with("Pause on the Q3 bar before the build."), "{beats}");
+    // Plain notes read as their lines.
+    assert_eq!(beats["blocks"][0]["kind"], "lines", "{beats}");
+    assert_eq!(
+        call(s, "notes", json!({ "state": "intro" }))["text"],
+        json!("Open on the title. Don't talk over the build.")
+    );
+    let unknown = answered(s, "notes", &json!({ "state": "no-such-state" }));
+    assert!(unknown["error"]["message"].as_str().is_some_and(|m| m.contains("no-such-state")), "{unknown}");
+    // The markdown a generated deck's model writes is kept as written, and read as a speaker
+    // reads it (lift-up USE-1): a list, and a table, with the words in their looks.
+    let notes =
+        "Lead with the **number**.\n- Pro is a third\n- Then the ask\n\n| Tier | Share |\n|---|---|\n| Pro | 33% |";
+    let op = json!({ "op": "set_state", "id": "mix", "prop": "notes", "value": notes });
+    assert_eq!(tool(s, "deck_patch", json!({ "ops": [op] }))["edited"], true);
+    let read = call(s, "notes", json!({ "state": "mix" }));
+    assert_eq!(read["text"], json!(notes), "{read}");
+    let kinds: Vec<&str> = read["blocks"].as_array().unwrap().iter().map(|b| b["kind"].as_str().unwrap()).collect();
+    assert_eq!(kinds, ["lines", "list", "table"], "{read}");
+    assert_eq!(read["blocks"][0]["lines"][0][1], json!({ "text": "number", "bold": true }), "{read}");
+    assert_eq!(read["blocks"][1]["items"][1]["spans"][0]["text"], "Then the ask", "{read}");
+    assert_eq!(read["blocks"][2]["rows"][1][1][0]["text"], "33%", "{read}");
+    unsafe { scaena_session_free(s) };
+}
+
 /// The revenue example as a bundle: its deck, and the fonts, themes, data, and images the examples
 /// share.
 fn revenue() -> *mut ScaenaSession {
