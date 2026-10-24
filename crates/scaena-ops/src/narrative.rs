@@ -2066,6 +2066,8 @@ enum Fill {
     List(Vec<String>, &'static str),
     /// The prompt's own words: a column's or a lane's label.
     Prompt,
+    /// Such a label in the deck's language.
+    Label(String),
     Shape,
     /// An item's icon, in a place for one (G.23).
     Icon(Icon),
@@ -2361,16 +2363,15 @@ impl Slots<'_> {
             return text(self.item(k).and_then(|i| i.label.clone()));
         }
         if keeps_prompt(name) {
-            // The theme's prompts are English: a deck in another language keeps none of its
-            // words, a place whose prompt has a letter left empty, a numeral kept (dogfood 2).
-            let english =
-                slot.prompt.as_ref().and_then(Prompt::text).is_some_and(|(w, _)| w.chars().any(char::is_alphabetic));
-            if self.lang != "en" && english {
-                return None;
-            }
+            // The theme's prompts are English: a deck in another language says them in its own,
+            // a column's head, an axis's end, a month (dogfood 2), else keeps the theme's word.
+            let said = (self.lang != "en")
+                .then(|| slot.prompt.as_ref().and_then(Prompt::text).and_then(|(w, _)| label(self.lang, &w)))
+                .flatten();
+            let fill = || said.map_or(Fill::Prompt, |w| Fill::Label(w.to_string()));
             return match ordinal(name) {
-                Some((k, _)) => self.item(k).map(|_| Fill::Prompt),
-                None => Some(Fill::Prompt),
+                Some((k, _)) => self.item(k).map(|_| fill()),
+                None => Some(fill()),
             };
         }
         if picture {
@@ -2920,6 +2921,10 @@ impl Builder {
                     };
                     json!({ "type": "text", "role": role, "text": words, "at": at, "semantic": "navigation" })
                 }
+                Fill::Label(words) => {
+                    let Some(role) = &slot.role else { continue };
+                    json!({ "type": "text", "role": role, "text": words, "at": at, "semantic": "navigation" })
+                }
                 Fill::Shape => {
                     let Some(Prompt::Shape(shape)) = &slot.prompt else { continue };
                     let mut node =
@@ -2957,8 +2962,10 @@ impl Builder {
                     chart_node(chart, &data, s.layout, &s.slide.slide_title, takeaway, s.lang, at)
                 }
             };
-            // An email or a web address the words name links to it (PLAN 2.70, dogfood 2).
-            if let Some(runs) = node["text"].as_str().and_then(linked) {
+            // An email or a web address the words name links to it (PLAN 2.70, dogfood 2); a bare
+            // domain only in words that do not head the slide, where "Booking.com" names a firm.
+            let heading = matches!(node["role"].as_str(), Some("display" | "headline" | "title"));
+            if let Some(runs) = node["text"].as_str().and_then(|t| linked(t, !heading)) {
                 node.as_object_mut().map(|n| n.remove("text"));
                 node["runs"] = json!(runs);
             }
@@ -3021,8 +3028,10 @@ impl Builder {
 
 /// `text` as runs where it names an email or a web address, each of them a run that links to it
 /// (PLAN 2.70): "priya@manifest.dev · manifest.dev" mails the one and opens the other (dogfood 2).
-/// None where it names neither.
-fn linked(text: &str) -> Option<Vec<Value>> {
+/// A bare domain links only where `bare` says, and only written in lower case, as an address is:
+/// "ASP.NET" and "Booking.com" name things. None where it names neither. A linked text is runs,
+/// which [`overflowing`] does not read, so one that runs past its place is not rewritten to fit.
+fn linked(text: &str, bare: bool) -> Option<Vec<Value>> {
     let mut runs = Vec::new();
     let mut plain = String::new();
     for piece in text.split_inclusive(char::is_whitespace) {
@@ -3032,7 +3041,7 @@ fn linked(text: &str) -> Option<Vec<Value>> {
         let end = (word.char_indices().rev())
             .find(|(_, c)| c.is_alphanumeric() || *c == '/')
             .map_or(start, |(i, c)| (i + c.len_utf8()).max(start));
-        let Some(href) = href(&word[start..end]) else {
+        let Some(href) = href(&word[start..end], bare) else {
             plain.push_str(piece);
             continue;
         };
@@ -3053,8 +3062,9 @@ fn linked(text: &str) -> Option<Vec<Value>> {
 }
 
 /// Where `word` goes, as a link the deck's schema takes: `mailto:` an email, else a web address
-/// as written or, bare, over `https:`. None for a word that is neither, such as "Node.js" or "3.5".
-fn href(word: &str) -> Option<String> {
+/// as written, or with `www.` or, where `bare` says, bare and in lower case, over `https:`. None
+/// for a word that is neither, such as "Node.js" or "3.5".
+fn href(word: &str, bare: bool) -> Option<String> {
     // A host whose last label is a top-level domain people write: "manifest.dev", "portal.org/playbook".
     let host = |s: &str| {
         let host = s.split('/').next().unwrap_or_default();
@@ -3075,8 +3085,79 @@ fn href(word: &str) -> Option<String> {
         let user = !user.is_empty() && user.chars().all(|c| c.is_ascii_alphanumeric() || "._%+-".contains(c));
         return (user && !domain.contains('/') && host(domain)).then(|| format!("mailto:{word}"));
     }
-    host(word).then(|| format!("https://{word}"))
+    let lower = !word.chars().any(char::is_uppercase);
+    ((word.starts_with("www.") || (bare && lower)) && host(word)).then(|| format!("https://{word}"))
 }
+
+/// A label a theme's layout prompts with in English (a column's head, an axis's end, a month),
+/// in the language `lang` names (BCP 47), where it is one of Narrato's: none for another word.
+fn label(lang: &str, word: &str) -> Option<&'static str> {
+    const LANGS: [&str; 14] = ["es", "fr", "de", "pt", "it", "nl", "cs", "pl", "uk", "ja", "zh-Hans", "ko", "ar", "hi"];
+    const MONTHS: [&str; 12] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    let at = LANGS.iter().position(|l| *l == lang)?;
+    if let Some(m) = MONTHS.iter().position(|w| *w == word) {
+        return Some(match lang {
+            // The locales numbers and dates are written in, where Scaena has one.
+            "es" | "fr" | "de" | "nl" => scaena_core::format::Locale::of(Some(lang)).short_months[m],
+            _ => SHORT_MONTHS[at][m],
+        });
+    }
+    LABELS.iter().find(|(w, _)| *w == word).map(|(_, said)| said[at])
+}
+
+/// The months, short, in Narrato's languages by [`label`]'s order; Spanish, French, German, and
+/// Dutch are the locales', so theirs are empty here.
+#[rustfmt::skip]
+const SHORT_MONTHS: [[&str; 12]; 14] = [
+    ["", "", "", "", "", "", "", "", "", "", "", ""],
+    ["", "", "", "", "", "", "", "", "", "", "", ""],
+    ["", "", "", "", "", "", "", "", "", "", "", ""],
+    ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"],
+    ["gen", "feb", "mar", "apr", "mag", "giu", "lug", "ago", "set", "ott", "nov", "dic"],
+    ["", "", "", "", "", "", "", "", "", "", "", ""],
+    ["led", "úno", "bře", "dub", "kvě", "čvn", "čvc", "srp", "zář", "říj", "lis", "pro"],
+    ["sty", "lut", "mar", "kwi", "maj", "cze", "lip", "sie", "wrz", "paź", "lis", "gru"],
+    ["січ", "лют", "бер", "кві", "тра", "чер", "лип", "сер", "вер", "жов", "лис", "гру"],
+    ["1月", "2月", "3月", "4月", "5月", "6月", "7月", "8月", "9月", "10月", "11月", "12月"],
+    ["1月", "2月", "3月", "4月", "5月", "6月", "7月", "8月", "9月", "10月", "11月", "12月"],
+    ["1월", "2월", "3월", "4월", "5월", "6월", "7월", "8월", "9월", "10월", "11월", "12월"],
+    ["يناير", "فبراير", "مارس", "أبريل", "مايو", "يونيو", "يوليو", "أغسطس", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر"],
+    ["जन॰", "फ़र॰", "मार्च", "अप्रैल", "मई", "जून", "जुल॰", "अग॰", "सित॰", "अक्तू॰", "नव॰", "दिस॰"],
+];
+
+/// The other labels the shipped layouts prompt with, in Narrato's languages by [`label`]'s
+/// order: es, fr, de, pt, it, nl, cs, pl, uk, ja, zh-Hans, ko, ar, hi.
+#[rustfmt::skip]
+const LABELS: &[(&str, [&str; 14])] = &[
+    ("About", ["Asunto", "Objet", "Betreff", "Assunto", "Oggetto", "Onderwerp", "Věc", "Temat", "Тема", "件名", "主题", "제목", "الموضوع", "विषय"]),
+    ("Action", ["Acción", "Action", "Maßnahme", "Ação", "Azione", "Actie", "Úkol", "Działanie", "Дія", "アクション", "行动", "할 일", "الإجراء", "कार्य"]),
+    ("By", ["Plazo", "Échéance", "Bis", "Prazo", "Entro", "Uiterlijk", "Termín", "Termin", "Термін", "期限", "截止", "기한", "الموعد", "समय-सीमा"]),
+    ("Customer", ["Cliente", "Client", "Kunde", "Cliente", "Cliente", "Klant", "Zákazník", "Klient", "Клієнт", "顧客", "客户", "고객", "العميل", "ग्राहक"]),
+    ("Date", ["Fecha", "Date", "Datum", "Data", "Data", "Datum", "Datum", "Data", "Дата", "日付", "日期", "날짜", "التاريخ", "दिनांक"]),
+    ("Does", ["Hace", "Fait", "Tut", "Faz", "Fa", "Doet", "Dělá", "Robi", "Робить", "行動", "行为", "행동", "يفعل", "करता है"]),
+    ("Feels", ["Siente", "Ressent", "Fühlt", "Sente", "Prova", "Voelt", "Cítí", "Czuje", "Відчуває", "感情", "感受", "감정", "يشعر", "महसूस करता है"]),
+    ("Finance", ["Finanzas", "Finance", "Finanzen", "Finanças", "Finanza", "Financiën", "Finance", "Finanse", "Фінанси", "財務", "财务", "재무", "المالية", "वित्त"]),
+    ("From", ["De", "De", "Von", "De", "Da", "Van", "Od", "Od", "Від", "差出人", "发件人", "보낸 사람", "من", "प्रेषक"]),
+    ("Lead", ["Responsable", "Responsable", "Verantwortlich", "Responsável", "Responsabile", "Verantwoordelijk", "Odpovídá", "Odpowiedzialny", "Відповідальний", "責任者", "负责", "책임", "المسؤول", "प्रमुख"]),
+    ("Less effort", ["Menos esfuerzo", "Moins d'effort", "Weniger Aufwand", "Menos esforço", "Meno sforzo", "Minder moeite", "Méně úsilí", "Mniej wysiłku", "Менше зусиль", "労力 小", "投入少", "노력 적음", "جهد أقل", "कम मेहनत"]),
+    ("Less value", ["Menos valor", "Moins de valeur", "Weniger Nutzen", "Menos valor", "Meno valore", "Minder waarde", "Menší hodnota", "Mniejsza wartość", "Менша цінність", "価値 低", "价值低", "가치 낮음", "قيمة أقل", "कम मूल्य"]),
+    ("Method", ["Preparación", "Préparation", "Zubereitung", "Preparo", "Procedimento", "Bereiding", "Postup", "Przygotowanie", "Приготування", "作り方", "做法", "만드는 법", "الطريقة", "विधि"]),
+    ("More effort", ["Más esfuerzo", "Plus d'effort", "Mehr Aufwand", "Mais esforço", "Più sforzo", "Meer moeite", "Více úsilí", "Więcej wysiłku", "Більше зусиль", "労力 大", "投入多", "노력 많음", "جهد أكبر", "ज़्यादा मेहनत"]),
+    ("More value", ["Más valor", "Plus de valeur", "Mehr Nutzen", "Mais valor", "Più valore", "Meer waarde", "Větší hodnota", "Większa wartość", "Більша цінність", "価値 高", "价值高", "가치 높음", "قيمة أكبر", "ज़्यादा मूल्य"]),
+    ("Next milestone", ["Próximo hito", "Prochaine étape", "Nächster Meilenstein", "Próximo marco", "Prossima tappa", "Volgende mijlpaal", "Další milník", "Następny etap", "Наступний етап", "次のマイルストーン", "下一里程碑", "다음 마일스톤", "المرحلة التالية", "अगला पड़ाव"]),
+    ("Option", ["Opción", "Option", "Option", "Opção", "Opzione", "Optie", "Možnost", "Opcja", "Варіант", "選択肢", "选项", "옵션", "الخيار", "विकल्प"]),
+    ("Owner", ["Responsable", "Responsable", "Verantwortlich", "Responsável", "Responsabile", "Eigenaar", "Vlastník", "Właściciel", "Власник", "担当", "负责人", "담당", "المسؤول", "ज़िम्मेदार"]),
+    ("Risk", ["Riesgo", "Risque", "Risiko", "Risco", "Rischio", "Risico", "Riziko", "Ryzyko", "Ризик", "リスク", "风险", "위험", "المخاطر", "जोखिम"]),
+    ("Sales", ["Ventas", "Ventes", "Vertrieb", "Vendas", "Vendite", "Verkoop", "Prodej", "Sprzedaż", "Продажі", "営業", "销售", "영업", "المبيعات", "बिक्री"]),
+    ("Sponsor", ["Patrocinador", "Commanditaire", "Sponsor", "Patrocinador", "Sponsor", "Sponsor", "Sponzor", "Sponsor", "Спонсор", "スポンサー", "发起人", "후원", "الراعي", "प्रायोजक"]),
+    ("Status", ["Estado", "Statut", "Status", "Status", "Stato", "Status", "Stav", "Status", "Статус", "状況", "状态", "상태", "الحالة", "स्थिति"]),
+    ("Team", ["Equipo", "Équipe", "Team", "Equipe", "Team", "Team", "Tým", "Zespół", "Команда", "チーム", "团队", "팀", "الفريق", "टीम"]),
+    ("Thinks", ["Piensa", "Pense", "Denkt", "Pensa", "Pensa", "Denkt", "Myslí", "Myśli", "Думає", "思考", "想法", "생각", "يفكر", "सोचता है"]),
+    ("To", ["Para", "À", "An", "Para", "A", "Aan", "Komu", "Do", "Кому", "宛先", "收件人", "받는 사람", "إلى", "प्रति"]),
+    ("Total", ["Total", "Total", "Summe", "Total", "Totale", "Totaal", "Celkem", "Razem", "Разом", "合計", "合计", "합계", "الإجمالي", "कुल"]),
+    ("Workstream", ["Línea de trabajo", "Chantier", "Arbeitspaket", "Frente de trabalho", "Area di lavoro", "Werkstroom", "Pracovní oblast", "Obszar prac", "Напрям роботи", "作業領域", "工作流", "작업 흐름", "مسار العمل", "कार्यधारा"]),
+    ("You need", ["Ingredientes", "Ingrédients", "Zutaten", "Ingredientes", "Ingredienti", "Ingrediënten", "Suroviny", "Składniki", "Інгредієнти", "材料", "食材", "재료", "المكونات", "सामग्री"]),
+];
 
 /// A layout's slots in the order its nodes are written, which is the order a reader hears them
 /// at one depth (SPEC §3.12): each item's places together, its number, title, and body, where the
@@ -4205,7 +4286,7 @@ mod tests {
     #[test]
     fn contact_lines_link_their_emails_and_addresses() {
         assert_eq!(
-            linked("priya@manifest.dev \u{b7} manifest.dev"),
+            linked("priya@manifest.dev \u{b7} manifest.dev", true),
             Some(vec![
                 json!({ "text": "priya@manifest.dev", "link": { "href": "mailto:priya@manifest.dev" } }),
                 json!({ "text": " \u{b7} " }),
@@ -4213,7 +4294,7 @@ mod tests {
             ])
         );
         assert_eq!(
-            linked("Read the playbook (portalderpower.org/playbook)."),
+            linked("Read the playbook (portalderpower.org/playbook).", true),
             Some(vec![
                 json!({ "text": "Read the playbook (" }),
                 json!({ "text": "portalderpower.org/playbook", "link": { "href": "https://portalderpower.org/playbook" } }),
@@ -4221,16 +4302,29 @@ mod tests {
             ])
         );
         assert_eq!(
-            linked("See https://example.com/a for more"),
+            linked("See https://example.com/a for more", true),
             Some(vec![
                 json!({ "text": "See " }),
                 json!({ "text": "https://example.com/a", "link": { "href": "https://example.com/a" } }),
                 json!({ "text": " for more" }),
             ])
         );
-        for plain in ["Built on Node.js 3.5, e.g. U.S. ports", "A 4.2% rise", "Ask @team", "Revenue: $4.1M"] {
-            assert_eq!(linked(plain), None, "{plain}");
+        for plain in
+            ["Built on Node.js 3.5, e.g. U.S. ports", "A 4.2% rise", "Ask @team", "Revenue: $4.1M", "Built on ASP.NET"]
+        {
+            assert_eq!(linked(plain, true), None, "{plain}");
         }
+        // A heading's bare domain names a firm; an address with `www.` or a scheme links anywhere.
+        assert_eq!(linked("Booking.com books more nights", false), None);
+        assert_eq!(linked("Sign up at relay.app", false), None);
+        assert_eq!(
+            linked("Sign up at relay.app", true).unwrap()[1],
+            json!({ "text": "relay.app", "link": { "href": "https://relay.app" } })
+        );
+        assert_eq!(
+            linked("Visit www.relay.app now", false).unwrap()[1],
+            json!({ "text": "www.relay.app", "link": { "href": "https://www.relay.app" } })
+        );
         let theme: Theme = serde_json::from_str(&dusk()).unwrap();
         let mut talk = climate();
         let last = talk.slides.len() - 1;
@@ -4270,9 +4364,29 @@ mod tests {
         for english in ["Does", "Thinks", "Feels"] {
             assert!(!said.iter().any(|w| w == english), "{english} in {said:?}");
         }
+        for spanish in ["Hace", "Piensa", "Siente"] {
+            assert!(said.iter().any(|w| w == spanish), "{spanish} in {said:?}");
+        }
         let note = placed(&made.deck, 4, "note")["text"].as_str().unwrap().to_string();
         assert!(note.ends_with("Fuente: NASA GISS"), "{note}");
         assert!(placed(&made.deck, 4, "main")["alt"].as_str().unwrap().starts_with("Gráfico de líneas"));
+        // A year's months and a 2×2's axes, in Spanish, never left empty.
+        let mut talk2 = talk.clone();
+        talk2.slides[9].key_bullets = vec!["One".into(), "Two".into()];
+        for (layout, words) in [("year", &["ene", "dic"][..]), ("matrix", &["Más valor", "Menos esfuerzo"][..])] {
+            let layouts = BTreeMap::from([(9, layout.to_string())]);
+            let made = deck_as(&talk2, &theme, &Pictures::new(), &layouts).unwrap();
+            assert_eq!(made.layouts[9], layout);
+            let said: Vec<String> =
+                shown(&made.deck, made.deck["states"][9]["id"].as_str().unwrap()).into_iter().map(|(_, w)| w).collect();
+            for word in words {
+                assert!(said.iter().any(|w| w == word), "{layout}: {word} in {said:?}");
+            }
+        }
+        assert_eq!(label("es", "Jan"), Some("ene"));
+        assert_eq!(label("ja", "Total"), Some("合計"));
+        assert_eq!(label("es", "Something else"), None);
+        assert_eq!(label("en", "Total"), None);
         // In English, the lanes keep the theme's words, and the source says so.
         talk.brief.language = None;
         let made = deck_as(&talk, &theme, &Pictures::new(), &layouts).unwrap();
