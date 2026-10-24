@@ -139,14 +139,8 @@ impl Laying {
         let slot = timeline.slot(state).ok_or_else(|| scaena_engine::EngineError::UnknownState(state.to_string()))?;
         // Its shaders at the time it comes to rest, as `Session::frame` draws them there.
         let time = (slot.start + slot.span) / 1000.0;
-        let req = FrameRequest {
-            deck: &self.deck,
-            theme: &self.theme,
-            data: &self.data,
-            state,
-            t_ms: f64::INFINITY,
-            format,
-        };
+        let req =
+            FrameRequest { deck: &self.deck, theme: &self.theme, data: &self.data, state, t_ms: f64::INFINITY, format };
         let dl = drawer.engine.at_rest(&req)?.draw_at(time);
         let scale = width as f32 / dl.viewport[0];
         Ok(drawer.painter.paint(&dl, &drawer.store, scale)?)
