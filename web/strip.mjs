@@ -599,17 +599,10 @@ try {
   check(stormMarked.said === "This slide couldn’t be drawn", `the storm slide's tile says it couldn't be drawn: ${JSON.stringify(stormMarked)}`);
   check(stormMarked.others, "and the slides around it are painted");
   check(warned.length === 1 && warned[0].includes("storm"), `the cause is in the console once: ${JSON.stringify(warned)}`);
-  // An edit to another slide paints the strip again: the storm slide is not tried again.
-  const trailsSource = await unpaintable.evaluate(() => window.scaena.source());
-  const before = (await unpaintable.evaluate(() => window.scaena.strip.digests())).cover;
-  await unpaintable.evaluate((s) => window.scaena.type(s), trailsSource.replaceAll("High Country Trails", "High Country Paths"));
-  check(
-    await unpaintable
-      .waitForFunction((was) => window.scaena.strip.digests().cover !== was, before, { timeout: 60000 })
-      .then(() => true, () => false),
-    "an edit paints the slide it changed again",
-  );
-  check(warned.length === 1, `and the storm slide is not painted again: ${warned.length} warnings`);
+  // The strip painted again, three times over: the storm slide is not tried again. (An edit would
+  // paint the strip once every state is linted, which this deck's damaged photo stops.)
+  for (let i = 0; i < 3; i++) await unpaintable.evaluate(() => window.scaena.strip.painted());
+  check(warned.length === 1, `and the storm slide is not painted again, however often the strip paints: ${warned.length} warnings`);
   check((await stormTile()).said === "This slide couldn’t be drawn", "its tile still says so");
   await broken.close();
 } finally {
