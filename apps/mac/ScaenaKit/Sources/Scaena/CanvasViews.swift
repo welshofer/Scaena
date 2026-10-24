@@ -90,6 +90,16 @@ struct CanvasActions {
     let zoomed: Bool
     /// Open the find bar.
     let find: () -> Void
+    /// The next match, or the one before, shown; none while the find bar is closed (lift-up USE-5).
+    var findNext: (() -> Void)? = nil
+    var findPrevious: (() -> Void)? = nil
+    /// The Format menu, on the text typed in (PLAN 3.9, 3.10): the characters selected made bold
+    /// or italic, linked, or their paragraphs a list's items (`bullet`, `number`); none while no
+    /// text is typed in.
+    var bold: (() -> Void)? = nil
+    var italic: (() -> Void)? = nil
+    var link: (() -> Void)? = nil
+    var list: ((String) -> Void)? = nil
 }
 
 private struct CanvasActionsKey: FocusedValueKey {
@@ -105,8 +115,9 @@ extension FocusedValues {
 }
 
 /// The View menu's canvas commands (PLAN 3.16), as the browser's (PLAN 2.46, 2.47): Zoom In (⌘=),
-/// Zoom Out (⌘−), Fit Slide (⌘0), as the toolbar's Zoom names it, and Find in Deck (⇧⌘F), which ⌘F
-/// on the canvas opens too.
+/// Zoom Out (⌘−), and Fit Slide (⌘0), as the toolbar's Zoom names it; and Edit › Find, as every
+/// Mac app has it (lift-up USE-5): Find… (⌘F), which the canvas opens itself too, Find Next (⌘G),
+/// and Find Previous (⇧⌘G), the find bar's Return and Shift+Return.
 struct ViewCommands: Commands {
     @FocusedValue(\.canvasActions) private var canvas
 
@@ -122,10 +133,20 @@ struct ViewCommands: Commands {
             Button("Fit Slide") { canvas?.fit() }
                 .keyboardShortcut("0", modifiers: .command)
                 .disabled(canvas?.zoomed != true)
+        }
+        CommandGroup(after: .pasteboard) {
             Divider()
-            Button("Find in Deck…") { canvas?.find() }
-                .keyboardShortcut("f", modifiers: [.command, .shift])
-                .disabled(canvas == nil)
+            Menu("Find") {
+                Button("Find…") { canvas?.find() }
+                    .keyboardShortcut(MenuKey.find.key, modifiers: MenuKey.find.modifiers)
+                    .disabled(canvas == nil)
+                Button("Find Next") { canvas?.findNext?() }
+                    .keyboardShortcut(MenuKey.findNext.key, modifiers: MenuKey.findNext.modifiers)
+                    .disabled(canvas?.findNext == nil)
+                Button("Find Previous") { canvas?.findPrevious?() }
+                    .keyboardShortcut(MenuKey.findPrevious.key, modifiers: MenuKey.findPrevious.modifiers)
+                    .disabled(canvas?.findPrevious == nil)
+            }
         }
     }
 }
@@ -133,11 +154,15 @@ struct ViewCommands: Commands {
 /// The find bar over the canvas (PLAN 3.16, as the browser's, PLAN 2.47, 2.83): what is sought,
 /// found in the deck's words in every state (its texts, each node's description, each state's
 /// notes, and each beat's claim and notes), once for each place each is written. Return goes to
-/// the next match, Shift+Return to the one before, each shown in its state with its node
-/// selected; Replace replaces the match shown, Replace All every match in one patch, each one step
-/// to undo. Escape closes it.
+/// the next match, Shift+Return to the one before, as do Edit › Find Next (⌘G) and Find Previous
+/// (⇧⌘G), which `step` counts and `by` says the way of (lift-up USE-5), each shown in its state
+/// with its node selected; Replace replaces the match shown, Replace All every match in one patch,
+/// each one step to undo. Escape closes it.
 struct FindBar: View {
     let editor: DeckEditor
+    /// How often the menu asked for the next match or the one before, and which, `1` or `-1`.
+    var step = 0
+    var by = 1
     /// Show a match: its state, and its node selected where its words are a node's.
     let reveal: (_ state: String?, _ node: String?) -> Void
     /// Make a replacement's patch: one step to undo.
@@ -211,6 +236,7 @@ struct FindBar: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
         .onAppear { focused = true }
+        .onChange(of: step) { go(by) }
         #if os(macOS)
         .onExitCommand { close() }
         #else
