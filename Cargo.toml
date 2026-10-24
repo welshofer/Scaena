@@ -145,6 +145,8 @@ cbindgen = { version = "0.29.4", default-features = false }
 rmcp   = { version = "3.5", default-features = false, features = ["server", "macros", "schemars", "transport-io"] }
 tokio  = { version = "1", features = ["rt-multi-thread", "macros", "io-std", "sync", "time"] }
 base64 = "0.23"
+# A stack segment for the deep path on whatever thread Swift calls from (#533).
+stacker = "0.1"
 # Gzip for a single-file HTML export's files (PLAN 2.5), on the backend zip already builds.
 flate2 = { version = "1.1", default-features = false, features = ["zlib-rs"] }
 # `scaena serve` (PLAN 2.11, ADR-0012): HTTP/1.1 on the tokio the MCP server already runs on.

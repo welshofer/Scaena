@@ -1411,6 +1411,7 @@ export class Stage {
       // What a worker that makes a deck from a prompt says (PLAN G.5): a stage's never does.
       case "briefing":
       case "generating":
+      case "storyOutlined":
       case "generated":
         return;
       default: {
