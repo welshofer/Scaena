@@ -148,6 +148,9 @@ function facts(session: Session): Deck {
       audience: word(given.audience),
       goal: word(given.goal),
       length: word(given.length),
+      modality: word(given.modality),
+      desiredOutcomes: word(given.desiredOutcomes),
+      voice: word(given.voice),
     };
     const told = brief && Object.values(brief).some((v) => v !== undefined) ? brief : undefined;
     const claims = (deck?.spine?.sections ?? []).flatMap((s) => (s.beats ?? []).flatMap((b) => word(b.claim) ?? []));
@@ -169,7 +172,18 @@ function facts(session: Session): Deck {
 interface ReadDeck {
   meta?: {
     title?: string;
-    narrative?: { arc?: unknown; brief?: { topic?: unknown; audience?: unknown; goal?: unknown; length?: unknown } };
+    narrative?: {
+      arc?: unknown;
+      brief?: {
+        topic?: unknown;
+        audience?: unknown;
+        goal?: unknown;
+        length?: unknown;
+        modality?: unknown;
+        desiredOutcomes?: unknown;
+        voice?: unknown;
+      };
+    };
   };
   theme?: unknown;
   spine?: { sections?: { beats?: { claim?: unknown }[] }[] };

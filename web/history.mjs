@@ -175,7 +175,7 @@ try {
   check(!after.some((c) => c.author === "fs"), `scaena save finds nothing to take in by fs: ${JSON.stringify(said(after.slice(history.length)))}`);
 
   // A download records too.
-  const [download] = await Promise.all([page.waitForEvent("download"), page.click("#download")]);
+  const [download] = await Promise.all([page.waitForEvent("download"), page.click("#file-open").then(() => page.click("#download"))]);
   const zipped = join("target/web-history", "revenue.scaena");
   await writeFile(zipped, await readFile(await download.path()));
   const read = execFileSync("python3", [

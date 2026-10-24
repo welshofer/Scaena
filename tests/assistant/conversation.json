@@ -1,384 +1,401 @@
 {
- "comment": "One conversation, as each provider is asked it and its answer read back, and what the model is told: the system prompt for each deck and what the editor shows as a question is asked (ADR-0022); and a question asked once with nothing to call, as a writing tool asks it (PLAN 2.101). web/exchanges.mjs runs the browser's adapters and prompt on it and records what they send, read, and say in exchanges.json; scaena-chat's tests hold the Rust adapters and the page's prompt to that record. The PNG is one transparent pixel. `streamed` is the same answer as each provider streams it (narrative ATTR-3): read, it is `answers` read, and its words come out as they are written.",
- "model": "a-model",
- "key": "sk-test",
- "system": "You are the assistant.",
- "tools": [
-  {
-   "name": "deck_lint",
-   "description": "Lint the deck.",
-   "schema": {
-    "$schema": "https://json-schema.org/draft/2020-12/schema",
-    "type": "object",
-    "properties": {
-     "state": {
-      "type": "string"
-     },
-     "fix": {
-      "$ref": "#/$defs/Fix"
-     }
-    },
-    "$defs": {
-     "Fix": {
-      "type": "boolean",
-      "description": "Apply the fixes."
-     }
-    }
-   }
-  },
-  {
-   "name": "deck_render",
-   "description": "Render a state.",
-   "schema": {
-    "type": "object",
-    "properties": {
-     "state": {
-      "type": "string"
-     }
-    },
-    "required": [
-     "state"
-    ]
-   }
-  }
- ],
- "messages": [
-  {
-   "role": "user",
-   "text": "[In the editor: state cover shown; nothing selected.]\n\nIs the cover clean?"
-  },
-  {
-   "role": "assistant",
-   "text": "I will lint it and look.",
-   "calls": [
+  "comment": "One conversation, as each provider is asked it and its answer read back, and what the model is told: the system prompt for each deck and what the editor shows as a question is asked (ADR-0022); and a question asked once with nothing to call, as a writing tool asks it (PLAN 2.101). web/exchanges.mjs runs the browser's adapters and prompt on it and records what they send, read, and say in exchanges.json; scaena-chat's tests hold the Rust adapters and the page's prompt to that record. The PNG is one transparent pixel. `streamed` is the same answer as each provider streams it (narrative ATTR-3): read, it is `answers` read, and its words come out as they are written.",
+  "model": "a-model",
+  "key": "sk-test",
+  "system": "You are the assistant.",
+  "tools": [
     {
-     "id": "toolu_01",
-     "name": "deck_lint",
-     "args": {
-      "state": "cover",
-      "fix": false
-     }
-    },
-    {
-     "id": "local-1-deck_render",
-     "name": "deck_render",
-     "args": {}
-    }
-   ],
-   "raw": [
-    {
-     "text": "Thinking about the cover.",
-     "thought": true
-    },
-    {
-     "text": "I will lint it and look."
-    },
-    {
-     "functionCall": {
-      "id": "toolu_01",
       "name": "deck_lint",
-      "args": {
-       "state": "cover",
-       "fix": false
-      }
-     },
-     "thoughtSignature": "c2ln"
-    },
-    {
-     "functionCall": {
-      "name": "deck_render",
-      "args": {}
-     }
-    }
-   ]
-  },
-  {
-   "role": "tool",
-   "results": [
-    {
-     "id": "toolu_01",
-     "name": "deck_lint",
-     "json": "{\"findings\":[]}",
-     "error": false
-    },
-    {
-     "id": "local-1-deck_render",
-     "name": "deck_render",
-     "json": "{\"state\":\"cover\",\"width\":1}",
-     "error": false,
-     "png": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
-    }
-   ]
-  },
-  {
-   "role": "tool",
-   "results": [
-    {
-     "id": "toolu_02",
-     "name": "deck_patch",
-     "json": "{\"message\":\"no such op\"}",
-     "error": true
-    }
-   ]
-  },
-  {
-   "role": "user",
-   "text": "And the next state?"
-  }
- ],
- "answers": {
-  "anthropic": {
-   "id": "msg_01",
-   "type": "message",
-   "role": "assistant",
-   "content": [
-    {
-     "type": "text",
-     "text": "The cover is clean."
-    },
-    {
-     "type": "tool_use",
-     "id": "toolu_03",
-     "name": "deck_render",
-     "input": {
-      "state": "why"
-     }
-    }
-   ],
-   "stop_reason": "tool_use",
-   "usage": {
-    "input_tokens": 1200,
-    "output_tokens": 40
-   }
-  },
-  "openai": {
-   "id": "chatcmpl-01",
-   "choices": [
-    {
-     "index": 0,
-     "finish_reason": "tool_calls",
-     "message": {
-      "role": "assistant",
-      "content": "The cover is clean.",
-      "tool_calls": [
-       {
-        "id": "call_03",
-        "type": "function",
-        "function": {
-         "name": "deck_render",
-         "arguments": "{\"state\":\"why\"}"
-        }
-       },
-       {
-        "id": "call_04",
-        "type": "function",
-        "function": {
-         "name": "deck_lint",
-         "arguments": "not json"
-        }
-       }
-      ]
-     }
-    }
-   ],
-   "usage": {
-    "prompt_tokens": 1200,
-    "completion_tokens": 40
-   }
-  },
-  "gemini": {
-   "candidates": [
-    {
-     "content": {
-      "role": "model",
-      "parts": [
-       {
-        "text": "Looking again.",
-        "thought": true
-       },
-       {
-        "text": "The cover is clean."
-       },
-       {
-        "functionCall": {
-         "name": "deck_render",
-         "args": {
-          "state": "why"
-         }
+      "description": "Lint the deck.",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "state": {
+            "type": "string"
+          },
+          "fix": {
+            "$ref": "#/$defs/Fix"
+          }
         },
-        "thoughtSignature": "c2lnMg=="
-       }
+        "$defs": {
+          "Fix": {
+            "type": "boolean",
+            "description": "Apply the fixes."
+          }
+        }
+      }
+    },
+    {
+      "name": "deck_render",
+      "description": "Render a state.",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "state": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "state"
+        ]
+      }
+    }
+  ],
+  "messages": [
+    {
+      "role": "user",
+      "text": "[In the editor: state cover shown; nothing selected.]\n\nIs the cover clean?"
+    },
+    {
+      "role": "assistant",
+      "text": "I will lint it and look.",
+      "calls": [
+        {
+          "id": "toolu_01",
+          "name": "deck_lint",
+          "args": {
+            "state": "cover",
+            "fix": false
+          }
+        },
+        {
+          "id": "local-1-deck_render",
+          "name": "deck_render",
+          "args": {}
+        }
+      ],
+      "raw": [
+        {
+          "text": "Thinking about the cover.",
+          "thought": true
+        },
+        {
+          "text": "I will lint it and look."
+        },
+        {
+          "functionCall": {
+            "id": "toolu_01",
+            "name": "deck_lint",
+            "args": {
+              "state": "cover",
+              "fix": false
+            }
+          },
+          "thoughtSignature": "c2ln"
+        },
+        {
+          "functionCall": {
+            "name": "deck_render",
+            "args": {}
+          }
+        }
       ]
-     },
-     "finishReason": "STOP"
+    },
+    {
+      "role": "tool",
+      "results": [
+        {
+          "id": "toolu_01",
+          "name": "deck_lint",
+          "json": "{\"findings\":[]}",
+          "error": false
+        },
+        {
+          "id": "local-1-deck_render",
+          "name": "deck_render",
+          "json": "{\"state\":\"cover\",\"width\":1}",
+          "error": false,
+          "png": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "results": [
+        {
+          "id": "toolu_02",
+          "name": "deck_patch",
+          "json": "{\"message\":\"no such op\"}",
+          "error": true
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "text": "And the next state?"
     }
-   ],
-   "usageMetadata": {
-    "promptTokenCount": 1200,
-    "candidatesTokenCount": 40
-   }
-  }
- },
- "models": {
-  "anthropic": {
-   "data": [
-    {
-     "id": "claude-b",
-     "type": "model"
+  ],
+  "answers": {
+    "anthropic": {
+      "id": "msg_01",
+      "type": "message",
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "The cover is clean."
+        },
+        {
+          "type": "tool_use",
+          "id": "toolu_03",
+          "name": "deck_render",
+          "input": {
+            "state": "why"
+          }
+        }
+      ],
+      "stop_reason": "tool_use",
+      "usage": {
+        "input_tokens": 1200,
+        "output_tokens": 40
+      }
     },
-    {
-     "id": "claude-a",
-     "type": "model"
+    "openai": {
+      "id": "chatcmpl-01",
+      "choices": [
+        {
+          "index": 0,
+          "finish_reason": "tool_calls",
+          "message": {
+            "role": "assistant",
+            "content": "The cover is clean.",
+            "tool_calls": [
+              {
+                "id": "call_03",
+                "type": "function",
+                "function": {
+                  "name": "deck_render",
+                  "arguments": "{\"state\":\"why\"}"
+                }
+              },
+              {
+                "id": "call_04",
+                "type": "function",
+                "function": {
+                  "name": "deck_lint",
+                  "arguments": "not json"
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "usage": {
+        "prompt_tokens": 1200,
+        "completion_tokens": 40
+      }
+    },
+    "gemini": {
+      "candidates": [
+        {
+          "content": {
+            "role": "model",
+            "parts": [
+              {
+                "text": "Looking again.",
+                "thought": true
+              },
+              {
+                "text": "The cover is clean."
+              },
+              {
+                "functionCall": {
+                  "name": "deck_render",
+                  "args": {
+                    "state": "why"
+                  }
+                },
+                "thoughtSignature": "c2lnMg=="
+              }
+            ]
+          },
+          "finishReason": "STOP"
+        }
+      ],
+      "usageMetadata": {
+        "promptTokenCount": 1200,
+        "candidatesTokenCount": 40
+      }
     }
-   ]
   },
-  "openai": {
-   "data": [
-    {
-     "id": "gpt-b"
+  "models": {
+    "anthropic": {
+      "data": [
+        {
+          "id": "claude-b",
+          "type": "model"
+        },
+        {
+          "id": "claude-a",
+          "type": "model"
+        }
+      ]
     },
-    {
-     "id": "gpt-a"
+    "openai": {
+      "data": [
+        {
+          "id": "gpt-b"
+        },
+        {
+          "id": "gpt-a"
+        }
+      ]
+    },
+    "gemini": {
+      "models": [
+        {
+          "name": "models/gemini-b",
+          "supportedGenerationMethods": [
+            "generateContent"
+          ]
+        },
+        {
+          "name": "models/embed",
+          "supportedGenerationMethods": [
+            "embedContent"
+          ]
+        },
+        {
+          "name": "models/gemini-a"
+        }
+      ]
     }
-   ]
   },
-  "gemini": {
-   "models": [
-    {
-     "name": "models/gemini-b",
-     "supportedGenerationMethods": [
-      "generateContent"
-     ]
+  "failures": {
+    "anthropic": {
+      "status": 401,
+      "body": "{\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"invalid x-api-key\"}}"
     },
-    {
-     "name": "models/embed",
-     "supportedGenerationMethods": [
-      "embedContent"
-     ]
+    "openai": {
+      "status": 429,
+      "body": "{\"error\":{\"message\":\"Rate limit reached\"}}"
     },
-    {
-     "name": "models/gemini-a"
+    "gemini": {
+      "status": 500,
+      "body": "upstream exploded"
     }
-   ]
-  }
- },
- "failures": {
-  "anthropic": {
-   "status": 401,
-   "body": "{\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"invalid x-api-key\"}}"
   },
-  "openai": {
-   "status": 429,
-   "body": "{\"error\":{\"message\":\"Rate limit reached\"}}"
-  },
-  "gemini": {
-   "status": 500,
-   "body": "upstream exploded"
-  }
- },
- "prompt": {
-  "decks": [
-   {
-    "title": "Ridgeline",
-    "states": [
-     "cover",
-     "why",
-     "close"
+  "prompt": {
+    "decks": [
+      {
+        "title": "Ridgeline",
+        "states": [
+          "cover",
+          "why",
+          "close"
+        ],
+        "formats": [
+          "9:16",
+          "1:1"
+        ],
+        "theme": "dusk"
+      },
+      {
+        "states": [
+          "only"
+        ],
+        "formats": []
+      },
+      {
+        "title": "Fifty-two miles",
+        "states": [
+          "cover",
+          "lost",
+          "rebuilt",
+          "close"
+        ],
+        "formats": [],
+        "theme": "ember",
+        "brief": {
+          "topic": "Fifty-two miles of trail rebuilt by volunteers",
+          "audience": "Donors",
+          "goal": "inspire",
+          "length": "5-10 slides"
+        },
+        "arc": "Hero's Journey",
+        "claims": [
+          "The trail was lost to the storm.",
+          "Volunteers rebuilt it in one summer.",
+          "Your gift keeps it open."
+        ]
+      },
+      {
+        "title": "Port Alder",
+        "states": ["cover", "close"],
+        "formats": [],
+        "theme": "ember",
+        "brief": {
+          "topic": "A fishing town's own microgrid",
+          "audience": "Conference / Public",
+          "goal": "inspire",
+          "length": "11-15 slides",
+          "modality": "In-person \u2014 presenter in the room",
+          "desiredOutcomes": "Three towns ask us how to start.",
+          "voice": "Warm, plain, no jargon"
+        },
+        "claims": ["The lights went out for eleven days.", "The town built its own grid."]
+      }
     ],
-    "formats": [
-     "9:16",
-     "1:1"
+    "resources": [
+      {
+        "uri": "scaena://schema/deck",
+        "name": "The deck format"
+      },
+      {
+        "uri": "scaena://skills/author-deck",
+        "name": "Skill: author a deck"
+      }
     ],
-    "theme": "dusk"
-   },
-   {
-    "states": [
-     "only"
+    "bundleSkills": [
+      [
+        "house-style",
+        "brand-voice"
+      ],
+      [],
+      [],
+      []
     ],
-    "formats": []
-   },
-   {
-    "title": "Fifty-two miles",
-    "states": [
-     "cover",
-     "lost",
-     "rebuilt",
-     "close"
-    ],
-    "formats": [],
-    "theme": "ember",
-    "brief": {
-     "topic": "Fifty-two miles of trail rebuilt by volunteers",
-     "audience": "Donors",
-     "goal": "inspire",
-     "length": "5-10 slides"
-    },
-    "arc": "Hero's Journey",
-    "claims": [
-     "The trail was lost to the storm.",
-     "Volunteers rebuilt it in one summer.",
-     "Your gift keeps it open."
+    "authorDeck": "# Author a deck\n\nStart from the brief.",
+    "seeings": [
+      null,
+      {
+        "state": "cover",
+        "nodes": []
+      },
+      {
+        "state": "why",
+        "format": "9:16",
+        "nodes": [
+          {
+            "node": "title",
+            "type": "text"
+          },
+          {
+            "node": "chart"
+          }
+        ],
+        "characters": {
+          "node": "title",
+          "from": 4,
+          "to": 9,
+          "text": "say \"so\" — é"
+        }
+      }
     ]
-   }
-  ],
-  "resources": [
-   {
-    "uri": "scaena://schema/deck",
-    "name": "The deck format"
-   },
-   {
-    "uri": "scaena://skills/author-deck",
-    "name": "Skill: author a deck"
-   }
-  ],
-  "bundleSkills": [
-   [
-    "house-style",
-    "brand-voice"
-   ],
-   [],
-   []
-  ],
-  "authorDeck": "# Author a deck\n\nStart from the brief.",
-  "seeings": [
-   null,
-   {
-    "state": "cover",
-    "nodes": []
-   },
-   {
-    "state": "why",
-    "format": "9:16",
-    "nodes": [
-     {
-      "node": "title",
-      "type": "text"
-     },
-     {
-      "node": "chart"
-     }
-    ],
-    "characters": {
-     "node": "title",
-     "from": 4,
-     "to": 9,
-     "text": "say \"so\" — é"
-    }
-   }
-  ]
- },
- "once": {
-  "system": "You tighten the words of one text on a slide: fewer words, the same meaning.",
-  "prompt": "We have made the decision to expand into three new markets this year"
- },
- "picture": {
-  "system": "You describe a picture on a slide for someone who cannot see it.",
-  "prompt": "Describe this picture. The slide it is on reads:\nTitle: Trails we rebuilt",
-  "png": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
- },
- "streamed": {
-  "anthropic": "event: message_start\ndata: {\"type\": \"message_start\", \"message\": {\"id\": \"msg_01\", \"type\": \"message\", \"role\": \"assistant\", \"content\": [], \"usage\": {\"input_tokens\": 1200, \"output_tokens\": 0}}}\n\nevent: content_block_start\ndata: {\"type\": \"content_block_start\", \"index\": 0, \"content_block\": {\"type\": \"text\", \"text\": \"\"}}\n\nevent: content_block_delta\ndata: {\"type\": \"content_block_delta\", \"index\": 0, \"delta\": {\"type\": \"text_delta\", \"text\": \"The cover\"}}\n\nevent: content_block_delta\ndata: {\"type\": \"content_block_delta\", \"index\": 0, \"delta\": {\"type\": \"text_delta\", \"text\": \" is clean.\"}}\n\nevent: content_block_stop\ndata: {\"type\": \"content_block_stop\", \"index\": 0}\n\nevent: content_block_start\ndata: {\"type\": \"content_block_start\", \"index\": 1, \"content_block\": {\"type\": \"tool_use\", \"id\": \"toolu_03\", \"name\": \"deck_render\", \"input\": {}}}\n\nevent: content_block_delta\ndata: {\"type\": \"content_block_delta\", \"index\": 1, \"delta\": {\"type\": \"input_json_delta\", \"partial_json\": \"{\\\"state\\\"\"}}\n\nevent: content_block_delta\ndata: {\"type\": \"content_block_delta\", \"index\": 1, \"delta\": {\"type\": \"input_json_delta\", \"partial_json\": \": \\\"why\\\"}\"}}\n\nevent: content_block_stop\ndata: {\"type\": \"content_block_stop\", \"index\": 1}\n\nevent: message_delta\ndata: {\"type\": \"message_delta\", \"delta\": {\"stop_reason\": \"tool_use\", \"stop_sequence\": null}, \"usage\": {\"output_tokens\": 40}}\n\nevent: message_stop\ndata: {\"type\": \"message_stop\"}\n\n",
-  "openai": "data: {\"id\": \"chatcmpl-01\", \"choices\": [{\"index\": 0, \"delta\": {\"role\": \"assistant\", \"content\": \"\"}, \"finish_reason\": null}], \"usage\": null}\n\ndata: {\"id\": \"chatcmpl-01\", \"choices\": [{\"index\": 0, \"delta\": {\"content\": \"The cover\"}, \"finish_reason\": null}], \"usage\": null}\n\ndata: {\"id\": \"chatcmpl-01\", \"choices\": [{\"index\": 0, \"delta\": {\"content\": \" is clean.\"}, \"finish_reason\": null}], \"usage\": null}\n\ndata: {\"id\": \"chatcmpl-01\", \"choices\": [{\"index\": 0, \"delta\": {\"tool_calls\": [{\"index\": 0, \"id\": \"call_03\", \"type\": \"function\", \"function\": {\"name\": \"deck_render\", \"arguments\": \"\"}}]}, \"finish_reason\": null}], \"usage\": null}\n\ndata: {\"id\": \"chatcmpl-01\", \"choices\": [{\"index\": 0, \"delta\": {\"tool_calls\": [{\"index\": 0, \"function\": {\"arguments\": \"{\\\"state\\\"\"}}]}, \"finish_reason\": null}], \"usage\": null}\n\ndata: {\"id\": \"chatcmpl-01\", \"choices\": [{\"index\": 0, \"delta\": {\"tool_calls\": [{\"index\": 0, \"function\": {\"arguments\": \":\\\"why\\\"}\"}}]}, \"finish_reason\": null}], \"usage\": null}\n\ndata: {\"id\": \"chatcmpl-01\", \"choices\": [{\"index\": 0, \"delta\": {\"tool_calls\": [{\"index\": 1, \"id\": \"call_04\", \"type\": \"function\", \"function\": {\"name\": \"deck_lint\", \"arguments\": \"not \"}}]}, \"finish_reason\": null}], \"usage\": null}\n\ndata: {\"id\": \"chatcmpl-01\", \"choices\": [{\"index\": 0, \"delta\": {\"tool_calls\": [{\"index\": 1, \"function\": {\"arguments\": \"json\"}}]}, \"finish_reason\": null}], \"usage\": null}\n\ndata: {\"id\": \"chatcmpl-01\", \"choices\": [{\"index\": 0, \"delta\": {}, \"finish_reason\": \"tool_calls\"}], \"usage\": null}\n\ndata: {\"id\": \"chatcmpl-01\", \"choices\": [], \"usage\": {\"prompt_tokens\": 1200, \"completion_tokens\": 40}}\n\ndata: [DONE]\n\n",
-  "gemini": "data: {\"candidates\": [{\"content\": {\"role\": \"model\", \"parts\": [{\"text\": \"Looking again.\", \"thought\": true}]}}]}\n\ndata: {\"candidates\": [{\"content\": {\"role\": \"model\", \"parts\": [{\"text\": \"The cover\"}]}}]}\n\ndata: {\"candidates\": [{\"content\": {\"role\": \"model\", \"parts\": [{\"text\": \" is clean.\"}]}}]}\n\ndata: {\"candidates\": [{\"content\": {\"role\": \"model\", \"parts\": [{\"functionCall\": {\"name\": \"deck_render\", \"args\": {\"state\": \"why\"}}, \"thoughtSignature\": \"c2lnMg==\"}]}, \"finishReason\": \"STOP\"}], \"usageMetadata\": {\"promptTokenCount\": 1200, \"candidatesTokenCount\": 40}}\n\n"
- }
+  },
+  "once": {
+    "system": "You tighten the words of one text on a slide: fewer words, the same meaning.",
+    "prompt": "We have made the decision to expand into three new markets this year"
+  },
+  "picture": {
+    "system": "You describe a picture on a slide for someone who cannot see it.",
+    "prompt": "Describe this picture. The slide it is on reads:\nTitle: Trails we rebuilt",
+    "png": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+  },
+  "streamed": {
+    "anthropic": "event: message_start\ndata: {\"type\": \"message_start\", \"message\": {\"id\": \"msg_01\", \"type\": \"message\", \"role\": \"assistant\", \"content\": [], \"usage\": {\"input_tokens\": 1200, \"output_tokens\": 0}}}\n\nevent: content_block_start\ndata: {\"type\": \"content_block_start\", \"index\": 0, \"content_block\": {\"type\": \"text\", \"text\": \"\"}}\n\nevent: content_block_delta\ndata: {\"type\": \"content_block_delta\", \"index\": 0, \"delta\": {\"type\": \"text_delta\", \"text\": \"The cover\"}}\n\nevent: content_block_delta\ndata: {\"type\": \"content_block_delta\", \"index\": 0, \"delta\": {\"type\": \"text_delta\", \"text\": \" is clean.\"}}\n\nevent: content_block_stop\ndata: {\"type\": \"content_block_stop\", \"index\": 0}\n\nevent: content_block_start\ndata: {\"type\": \"content_block_start\", \"index\": 1, \"content_block\": {\"type\": \"tool_use\", \"id\": \"toolu_03\", \"name\": \"deck_render\", \"input\": {}}}\n\nevent: content_block_delta\ndata: {\"type\": \"content_block_delta\", \"index\": 1, \"delta\": {\"type\": \"input_json_delta\", \"partial_json\": \"{\\\"state\\\"\"}}\n\nevent: content_block_delta\ndata: {\"type\": \"content_block_delta\", \"index\": 1, \"delta\": {\"type\": \"input_json_delta\", \"partial_json\": \": \\\"why\\\"}\"}}\n\nevent: content_block_stop\ndata: {\"type\": \"content_block_stop\", \"index\": 1}\n\nevent: message_delta\ndata: {\"type\": \"message_delta\", \"delta\": {\"stop_reason\": \"tool_use\", \"stop_sequence\": null}, \"usage\": {\"output_tokens\": 40}}\n\nevent: message_stop\ndata: {\"type\": \"message_stop\"}\n\n",
+    "openai": "data: {\"id\": \"chatcmpl-01\", \"choices\": [{\"index\": 0, \"delta\": {\"role\": \"assistant\", \"content\": \"\"}, \"finish_reason\": null}], \"usage\": null}\n\ndata: {\"id\": \"chatcmpl-01\", \"choices\": [{\"index\": 0, \"delta\": {\"content\": \"The cover\"}, \"finish_reason\": null}], \"usage\": null}\n\ndata: {\"id\": \"chatcmpl-01\", \"choices\": [{\"index\": 0, \"delta\": {\"content\": \" is clean.\"}, \"finish_reason\": null}], \"usage\": null}\n\ndata: {\"id\": \"chatcmpl-01\", \"choices\": [{\"index\": 0, \"delta\": {\"tool_calls\": [{\"index\": 0, \"id\": \"call_03\", \"type\": \"function\", \"function\": {\"name\": \"deck_render\", \"arguments\": \"\"}}]}, \"finish_reason\": null}], \"usage\": null}\n\ndata: {\"id\": \"chatcmpl-01\", \"choices\": [{\"index\": 0, \"delta\": {\"tool_calls\": [{\"index\": 0, \"function\": {\"arguments\": \"{\\\"state\\\"\"}}]}, \"finish_reason\": null}], \"usage\": null}\n\ndata: {\"id\": \"chatcmpl-01\", \"choices\": [{\"index\": 0, \"delta\": {\"tool_calls\": [{\"index\": 0, \"function\": {\"arguments\": \":\\\"why\\\"}\"}}]}, \"finish_reason\": null}], \"usage\": null}\n\ndata: {\"id\": \"chatcmpl-01\", \"choices\": [{\"index\": 0, \"delta\": {\"tool_calls\": [{\"index\": 1, \"id\": \"call_04\", \"type\": \"function\", \"function\": {\"name\": \"deck_lint\", \"arguments\": \"not \"}}]}, \"finish_reason\": null}], \"usage\": null}\n\ndata: {\"id\": \"chatcmpl-01\", \"choices\": [{\"index\": 0, \"delta\": {\"tool_calls\": [{\"index\": 1, \"function\": {\"arguments\": \"json\"}}]}, \"finish_reason\": null}], \"usage\": null}\n\ndata: {\"id\": \"chatcmpl-01\", \"choices\": [{\"index\": 0, \"delta\": {}, \"finish_reason\": \"tool_calls\"}], \"usage\": null}\n\ndata: {\"id\": \"chatcmpl-01\", \"choices\": [], \"usage\": {\"prompt_tokens\": 1200, \"completion_tokens\": 40}}\n\ndata: [DONE]\n\n",
+    "gemini": "data: {\"candidates\": [{\"content\": {\"role\": \"model\", \"parts\": [{\"text\": \"Looking again.\", \"thought\": true}]}}]}\n\ndata: {\"candidates\": [{\"content\": {\"role\": \"model\", \"parts\": [{\"text\": \"The cover\"}]}}]}\n\ndata: {\"candidates\": [{\"content\": {\"role\": \"model\", \"parts\": [{\"text\": \" is clean.\"}]}}]}\n\ndata: {\"candidates\": [{\"content\": {\"role\": \"model\", \"parts\": [{\"functionCall\": {\"name\": \"deck_render\", \"args\": {\"state\": \"why\"}}, \"thoughtSignature\": \"c2lnMg==\"}]}, \"finishReason\": \"STOP\"}], \"usageMetadata\": {\"promptTokenCount\": 1200, \"candidatesTokenCount\": 40}}\n\n"
+  }
 }

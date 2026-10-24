@@ -138,10 +138,19 @@ export interface Query {
  * states that show it from there. `matches` are `[from, to]` in characters (Unicode scalar
  * values), as `replace_text` counts them. */
 export interface Found {
-  /** What the words are (PLAN 2.83): a text, a node's description, notes, or a beat's claim. */
-  kind: "text" | "alt" | "notes" | "claim";
-  /** The text's node, or the node the description describes; none for notes or a claim. */
+  /** What the words are (PLAN 2.83): a text, a node's description, notes, a beat's claim, the
+   * words a chart or a table draws, or a data source's cell. */
+  kind: "text" | "alt" | "notes" | "claim" | "chart" | "data";
+  /** The text's node, the node the description describes, or the chart or table; none for notes,
+   * a claim, or a cell. */
   node?: string;
+  /** The data source, for a cell. */
+  source?: string;
+  /** The file a cell is in. */
+  file?: string;
+  /** Why a replacement leaves these words as they are: a value of the data, which a filter, a
+   * quote, or a highlight may name. */
+  kept?: string;
   /** The beat, for its claim or its notes. */
   beat?: string;
   /** The first state that shows it, where a replacement is made. */
@@ -640,6 +649,8 @@ export interface Thumb {
   width?: number;
   height?: number;
   pixels?: ArrayBuffer;
+  /** Why it could not be painted, said in words (lift-up STAB-4): no pixels come with it. */
+  failed?: string;
 }
 
 /** A node a patch adds: its id, where it lands, and the patch. */
@@ -867,7 +878,7 @@ export interface HealthFinding {
   state: string;
   slide: number;
   severity: "error" | "warning" | "info";
-  kind: "title" | "empty" | "turn" | "arc" | "intensity" | "tone" | "drift";
+  kind: "title" | "empty" | "turn" | "arc" | "intensity" | "tone" | "drift" | "layout";
   says: string;
   ask: string;
   fix?: { says: string; patch: unknown[] };

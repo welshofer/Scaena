@@ -164,7 +164,7 @@
       },
       "headline": {
         "family": "display",
-        "size": 84,
+        "size": 64,
         "weight": 400,
         "leading": 1.0,
         "tracking": -0.01,

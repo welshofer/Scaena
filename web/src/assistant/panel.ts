@@ -33,10 +33,10 @@ export interface Editor {
   slide?(state: string): string;
 }
 
-/** A state's picture, and the digest of what it draws. */
+/** A state's picture, and the digest of what it draws: none where it could not be painted. */
 export interface Drawing {
   digest: string;
-  image: ImageData;
+  image?: ImageData;
 }
 
 /** How many states an edit's pictures show before it says how many more it changed. */
