@@ -278,11 +278,72 @@ fn only_the_newest_frames_are_shown_again() {
     };
     let conversation =
         vec![Message::Tool { results: vec![frame("a"), frame("b")] }, Message::Tool { results: vec![frame("c")] }];
-    let sent = scaena_chat::recent(&conversation, 2);
+    let sent = scaena_chat::recent(&conversation, 2, scaena_chat::BUDGET);
     let Message::Tool { results } = &sent[0] else { unreachable!() };
     assert_eq!(results[0].png, None);
     assert!(results[0].json.ends_with("(The frame is no longer shown: render it again to see it.)"));
     assert_eq!(results[1].png.as_deref(), Some("iVBOR"));
     let Message::Tool { results } = &sent[1] else { unreachable!() };
     assert_eq!(results[0].png.as_deref(), Some("iVBOR"));
+}
+
+/// The newest results go again whole within the budget, the last round's always, and the older
+/// ones are named in their place from the first that would pass it on, a frame's picture with
+/// them (lift-up PERF-3); within it, frames past the newest are named as before.
+#[test]
+fn only_the_newest_results_are_shown_again_within_the_budget() {
+    let result = |id: &str, name: &str, json: String, png: bool| ToolResult {
+        id: id.into(),
+        name: name.into(),
+        json,
+        error: false,
+        png: png.then(|| "iVBOR".into()),
+    };
+    let conversation = vec![
+        Message::Tool {
+            results: vec![
+                result("a1", "deck_read", "x".repeat(40), false),
+                result("a2", "deck_render", r#"{"state":"one"}"#.into(), true),
+            ],
+        },
+        Message::Tool { results: vec![result("b1", "deck_health", "y".repeat(30), false)] },
+        Message::User { text: "Again?".into(), png: None },
+        Message::Tool {
+            results: vec![
+                result("c1", "deck_read", "z".repeat(100), false),
+                result("c2", "deck_render", "{}".into(), true),
+            ],
+        },
+    ];
+    let results = |sent: &[Message], i: usize| match &sent[i] {
+        Message::Tool { results } => results.clone(),
+        _ => unreachable!(),
+    };
+    // The last round alone passes 80 bytes: it goes whole all the same, and every older result is
+    // named, its picture with it.
+    let sent = scaena_chat::recent(&conversation, 1, 80);
+    assert_eq!(results(&sent, 3), results(&conversation, 3), "the last round's results go whole");
+    let named =
+        |r: &ToolResult| r.json == format!("(What {} returned is no longer shown: call it again to see it.)", r.name);
+    assert!(results(&sent, 0).iter().chain(&results(&sent, 1)).all(|r| named(r) && r.png.is_none()));
+    // With room for the last round and the one before, the oldest is named from the first result
+    // that passes it on, and a frame within it past the newest is named as frames are.
+    let sent = scaena_chat::recent(&conversation, 1, 150);
+    assert_eq!(results(&sent, 1), results(&conversation, 1), "within the budget, whole");
+    let oldest = results(&sent, 0);
+    assert_eq!(oldest[1].json, "{\"state\":\"one\"}\n(The frame is no longer shown: render it again to see it.)");
+    assert_eq!(oldest[1].png, None);
+    assert!(named(&oldest[0]), "{}", oldest[0].json);
+    // Within the budget, nothing is named but frames.
+    assert_eq!(scaena_chat::recent(&conversation, 2, scaena_chat::BUDGET), conversation);
+
+    // A provider that finds a question too long is asked again once with half the budget.
+    let mut chat = Chat::new(Provider::Anthropic, "a-model", "Be brief.".into(), vec![]);
+    chat.ask("Read it.");
+    assert_eq!(chat.budget, scaena_chat::BUDGET);
+    assert!(chat.shorter(), "halved, and worth asking again");
+    assert_eq!(chat.budget, scaena_chat::BUDGET / 2);
+    assert!(!chat.shorter(), "once a question");
+    chat.ask("And now?");
+    assert_eq!(chat.budget, scaena_chat::BUDGET, "a new question has the whole budget");
 }

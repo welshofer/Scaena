@@ -193,6 +193,35 @@ private func streaming(_ text: String) -> [String] {
     #expect(notAccepted == "Anthropic didn't accept your key. Check it, or replace it.")
 }
 
+/// A conversation too long for the model is asked again once, with half as much of tools'
+/// results, and answered; too long again, it is said in a person's words (lift-up PERF-3).
+@MainActor
+@Test func theAssistantAsksAgainShorterWhereTheModelFindsItTooLong() async throws {
+    let editor = DeckEditor(session: try ScaenaSession(directory: b1))
+    let long = #"{"error": {"type": "invalid_request_error", "message": "prompt is too long"}}"#
+    let answers = Answers([(long, 400), (answering("Clean."), 200)])
+    let assistant = Assistant(editor: editor) { request in await answers.answer(request) }
+    assistant.ask("Is it clean?", provider: .anthropic, model: "a-model", key: "sk-test")
+    for _ in 0..<500 where assistant.working {
+        try await Task.sleep(for: .milliseconds(5))
+    }
+    #expect(await answers.asked.count == 2, "asked again once")
+    #expect(said(assistant) == ["Clean."])
+
+    let still = Answers([(long, 400), (long, 400), (answering("Clean."), 200)])
+    let again = Assistant(editor: editor) { request in await still.answer(request) }
+    again.ask("Is it clean?", provider: .anthropic, model: "a-model", key: "sk-test")
+    for _ in 0..<500 where again.working {
+        try await Task.sleep(for: .milliseconds(5))
+    }
+    #expect(await still.asked.count == 2, "once a question")
+    guard case .failed(let why) = again.entries.last?.kind else {
+        Issue.record("too long: \(again.entries)")
+        return
+    }
+    #expect(why == "That is more than Anthropic's model takes at once. Ask about less, or start again.")
+}
+
 /// A provider that goes quiet is given up on at the deadline and asked again (narrative REL-3).
 @MainActor
 @Test func theAssistantAsksASilentProviderAgain() async throws {
