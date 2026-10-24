@@ -1,4 +1,4 @@
-//! One slide written for a deck that is already there (lift-up FUNC-1): Redo This Slide… and Add
+//! One slide written for a deck that is already there (lift-up FUNC-1): Write This Slide Again… and Add
 //! a Slide About…. Scaena's own prompt, not Narrato's: it asks for one slide in the JSON Narrato
 //! writes each of its slides in, with Narrato's layout catalog and Scaena's slot shapes, so the
 //! slide is built as a made deck's are. The deck's words in it are fenced as data

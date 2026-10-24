@@ -800,7 +800,7 @@ fn place(place: &str) -> Result<scaena_ops::narrative::Place, JsError> {
 }
 
 /// What to ask a model for one slide of `deck` (`deck.json`) at `place`, with the person's `ask`
-/// (lift-up FUNC-1): `{ system, prompt }`, the request's two halves, as Redo This Slide… and Add
+/// (lift-up FUNC-1): `{ system, prompt }`, the request's two halves, as Write This Slide Again… and Add
 /// a Slide About… send them.
 #[wasm_bindgen(js_name = oneAsked)]
 pub fn one_asked(deck: &str, place_json: &str, ask: &str) -> Result<String, JsError> {

@@ -19,7 +19,7 @@
 //   as the slide shows it, a PNG before the words, gray; Use it writes the picture's description,
 //   one patch; ⌘Z puts it back.
 //
-// - Add a slide about… and Redo this slide… (lift-up FUNC-1) ask once with the slide's place in the
+// - Add a slide about… and Write this slide again… (lift-up FUNC-1) ask once with the slide's place in the
 //   deck and the person's words, write the slide the model answers as the generator writes one,
 //   one step to undo each, and write it again in its place.
 //
@@ -294,7 +294,7 @@ try {
   await page.keyboard.press("Control+z");
   check(await page.waitForFunction((o) => window.scaena.source() === o, tortured, { timeout: 10000 }).then(() => true, () => false), "one undo puts the description back");
 
-  // 8. Add a slide about… and Redo this slide… (lift-up FUNC-1): asked once, with the deck's
+  // 8. Add a slide about… and Write this slide again… (lift-up FUNC-1): asked once, with the deck's
   // place for it and the person's words; the slide written as the generator writes one, by the
   // model, one step to undo; written again in its place.
   await page.goto(`${site.origin}/web/dist/editor.html?painter=cpu&bundle=/docs/examples/revenue.deck.json`);
@@ -318,7 +318,7 @@ try {
   const times = (text) => text.split("Three things changed this quarter").length - 1;
   const once = times(await source());
   await page.evaluate(() => window.scaena.slideAsk.open("redo"));
-  check(await page.evaluate(() => document.querySelector("#slide-ask-title").textContent.startsWith("Redo ")), "Redo this slide… on the slide shown");
+  check(await page.evaluate(() => document.querySelector("#slide-ask-title").textContent.startsWith("Write ")), "Write this slide again… on the slide shown");
   await page.click("#slide-ask-go");
   await page.evaluate(() => window.scaena.slideAsk.settled());
   const redone = scripted.requests.at(-1)?.body.messages?.[0]?.content?.find?.((c) => c.type === "text")?.text ?? "";
