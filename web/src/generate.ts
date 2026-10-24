@@ -10,6 +10,7 @@
 // and kept in the browser's cache for the next deck (PLAN G.22, ADR-0027).
 import { Making, scriptChecked, scriptFor, scriptTaken, writable } from "@scaena/wasm";
 import { findIcons, iconSet } from "./icon-set";
+import { atMost } from "./most";
 import type { Choices, FetchedMap, Generate, Generated, GeneratingEvent, Health, MapAsk, MapPlace, PictureJob, StoryOutline } from "./protocol";
 import { answered } from "./words";
 
@@ -84,16 +85,16 @@ async function get(asked: { url: string; headers: Record<string, string>; most: 
       `${host} could not be read from this page: it is out of reach, or it lets no other page read it. Download what it serves and add the file, or give it to \`scaena generate\` or the Mac app`,
     );
   }
-  // The minute holds the body too: a host that answers at once and sends slowly runs out of it here.
+  // The minute holds the body too, read no further than it may be: a host that answers at once
+  // and sends slowly runs out of it here.
   let body: Uint8Array;
   try {
-    body = new Uint8Array(await response.arrayBuffer());
+    body = await atMost(response, asked.most, asked.url);
   } catch (e) {
     if (!late(e)) throw e;
     const host = new URL(asked.url).host;
     throw new Error(`${host} took more than a minute to send ${asked.url}: download it and add the file`);
   }
-  if (body.length > asked.most) throw new Error(`${asked.url} answered with more than ${asked.most >> 20} MB`);
   return { status: response.status, kind: response.headers.get("content-type") ?? "", body };
 }
 
