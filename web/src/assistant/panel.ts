@@ -52,12 +52,14 @@ const PROVIDERS: Record<ProviderId, { name: string; base: string; keys: string }
  * and where it did not (stopped, or an edit refused or only tried): no tool's name reaches the
  * conversation, as ScaenaKit's `ToolWords` says them on the Mac. */
 const TOOL_WORDS: Record<string, [doing: string, done: string, not: string]> = {
+  background_set: ["Setting a background…", "Set a background", "Didn't set a background"],
   data_attach: ["Adding data…", "Added data", "Didn't add data"],
   data_edit: ["Changing the data…", "Changed the data", "Didn't change the data"],
   deck_create: ["Making a deck…", "Made a deck", "Didn't make a deck"],
   deck_diff: ["Comparing versions…", "Compared versions", "Didn't compare versions"],
   deck_export: ["Exporting the deck…", "Exported the deck", "Didn't export the deck"],
   deck_find: ["Searching the deck…", "Searched the deck", "Didn't search the deck"],
+  deck_generate: ["Making a deck from slides…", "Made a deck from slides", "Didn't make a deck from slides"],
   deck_health: ["Reading the deck's story…", "Read the deck's story", "Didn't read the deck's story"],
   deck_history: ["Reading the history…", "Looked at the history", "Didn't look at the history"],
   deck_inspect: ["Looking over the deck…", "Looked over the deck", "Didn't look over the deck"],
@@ -69,6 +71,7 @@ const TOOL_WORDS: Record<string, [doing: string, done: string, not: string]> = {
   map_fetch: ["Fetching a map…", "Put a map on the slide", "Didn't fetch a map"],
   spine_read: ["Reading the outline…", "Went through the outline", "Didn't go through the outline"],
   spine_update: ["Changing the outline…", "Changed the outline", "Didn't change the outline"],
+  state_start: ["Adding a slide…", "Added a slide", "Didn't add a slide"],
   theme_apply: ["Changing the theme…", "Changed the theme", "Didn't change the theme"],
   theme_edit: ["Editing the theme…", "Edited the theme", "Didn't edit the theme"],
   resource_read: ["Reading how decks are written…", "Read how decks are written", "Didn't read how decks are written"],

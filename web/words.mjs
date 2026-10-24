@@ -14,7 +14,7 @@
 //   undo takes the copy back.
 // - Undo takes back the drag, the typing, the words, and the star, each one step.
 // Exits 1 on any failure.
-import { launch, serve } from "./serve.mjs";
+import { insert, launch, serve } from "./serve.mjs";
 
 const server = await serve();
 const url = (bundle) => `${server.origin}/web/dist/editor.html?painter=cpu&bundle=${bundle}`;
@@ -111,7 +111,7 @@ try {
   // A star from the shape library, in the room below the chart.
   const [px, py] = await client([700, 760]);
   await page.mouse.click(px, py);
-  await page.selectOption("#insert", { label: "Star" });
+  await insert(page, "Star");
   check(await reads("star shape kind:polygon"), "a star is inserted");
   check(await selects("star"), "and selected");
   const starred = await source();

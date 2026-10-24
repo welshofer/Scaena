@@ -541,7 +541,7 @@ fn the_assistant_asks_with_the_users_key_and_runs_each_call_on_the_bundle() {
     let question = body["messages"][0]["content"][0]["text"].as_str().unwrap();
     assert_eq!(question, "[In the window: state cover shown; selected: title (text).]\n\nIs the cover clean?");
     let tools: Vec<&str> = body["tools"].as_array().unwrap().iter().map(|t| t["name"].as_str().unwrap()).collect();
-    assert_eq!(tools.len(), 16, "the page's fifteen and resource_read: {tools:?}");
+    assert_eq!(tools.len(), 18, "the page's seventeen and resource_read: {tools:?}");
     assert_eq!(tools.last(), Some(&"resource_read"));
 
     // The model calls three tools: each runs on the bundle, as the browser runs it.
