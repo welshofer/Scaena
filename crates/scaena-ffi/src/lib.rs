@@ -1647,6 +1647,10 @@ fn call(s: &mut Session, method: &str, args: &Value) -> Result<Value, Failure> {
         }
         "canvasSize" => json!(s.canvas_size().map_err(said)?),
         "duration" => json!(s.duration(arg("state")?).map_err(said)?),
+        "prepare" => {
+            s.prepare(arg("state")?).map_err(said)?;
+            Value::Null
+        }
         "timeline" => s.slots().map_err(said)?,
         "files" => json!(s.files()),
         "imageFiles" => json!(s.image_files()),
