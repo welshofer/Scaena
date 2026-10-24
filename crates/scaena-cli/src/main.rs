@@ -1076,7 +1076,7 @@ fn new(dir: &Path, theme: &str, title: &str, json: bool) -> Result<ExitCode> {
 }
 
 fn theme_apply(bundle: &Path, theme: &Path, dry_run: bool, force: bool, json: bool) -> Result<ExitCode> {
-    let t = scaena_ops::theme::theme_apply(&open(bundle)?, theme, dry_run, force)?;
+    let t = scaena_ops::theme::theme_apply(&open(bundle)?, theme, None, dry_run, force)?;
     if json {
         println!("{}", serde_json::to_string_pretty(&t)?);
     } else if t.refused {
