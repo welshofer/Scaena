@@ -860,12 +860,19 @@ function icons(): Uint8Array | undefined {
   return fetchedNow(weatherIcons);
 }
 
-/** The bytes at `url`, fetched at once, as a worker may: none where there is no such file. */
+/** How long a fetch made at once may hold the engine's thread (lift-up REL-3): one that never
+ * answers, on a captive or a flaky network, would hold every edit, frame, and lint behind it.
+ * A worker's synchronous request may have a timeout, and one that runs out is none. */
+const WAIT_MS = 10_000;
+
+/** The bytes at `url`, fetched at once, as a worker may: none where there is no such file, or
+ * where it does not come within `WAIT_MS`. */
 function fetchedNow(url: string | undefined): Uint8Array | undefined {
   if (!url) return undefined;
   const request = new XMLHttpRequest();
   request.open("GET", url, false);
   request.responseType = "arraybuffer";
+  request.timeout = WAIT_MS;
   try {
     request.send();
   } catch {
@@ -880,6 +887,7 @@ function syllables(): string | undefined {
   if (!verse) return undefined;
   const request = new XMLHttpRequest();
   request.open("GET", verse, false);
+  request.timeout = WAIT_MS;
   try {
     request.send();
   } catch {

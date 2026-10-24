@@ -14,7 +14,8 @@
 //   rules'; on the deck's own canvas again, its own.
 // - axe-core finds nothing against WCAG 2.1 AA in the marks, the strip, or a mark opened.
 // - In the haiku example, a poem of 5, 8, and 5 is I404, said with its counts, the syllable table
-//   handed to the editor's module (PLAN O.4h).
+//   handed to the editor's module (PLAN O.4h). A table that never comes is given up after the
+//   worker's wait, and the editor goes on (lift-up REL-3).
 // Exits 1 on any failure.
 import { axeInto, launch, serve } from "./serve.mjs";
 
@@ -194,6 +195,30 @@ try {
     "one of 5, 8, and 5 is, with its counts, the table handed over",
   );
   check(await until(() => window.scaena.canvas.marks().some((m) => m.node === "poem")), "and marked on the poem");
+
+  // A table that never comes (lift-up REL-3): the worker's request for it gives up after its
+  // wait, and the engine goes on, linting the poem with no count, where it would hold every
+  // edit, frame, and lint behind it for good.
+  const stalled = await browser.newContext({ viewport: { width: 1920, height: 1200 }, deviceScaleFactor: 1 });
+  let asked = false;
+  await stalled.route("**/words-*.txt", () => {
+    asked = true;
+  });
+  const waiting = await stalled.newPage();
+  waiting.on("pageerror", (e) => failures.push(`page: ${e.message}`));
+  const started = Date.now();
+  await waiting.goto(`${server.origin}/web/dist/editor.html?painter=cpu&source=open&bundle=/docs/examples/haiku.deck.json`);
+  await waiting.waitForFunction(() => window.scaena?.last()?.whole, null, { timeout: 120000 });
+  const waited = Date.now() - started;
+  check(asked, "the syllable table was asked for");
+  check(waited >= 9000, `the engine waited for it, and no longer than its wait (${waited} ms)`);
+  check(!(await waiting.evaluate(() => window.scaena.last().findings.some((f) => f.code === "I404"))), "and lints the poem with no count");
+  await waiting.evaluate((s) => window.scaena.type(s), haiku.replace("A frog jumps", "A green frog jumps"));
+  check(
+    await waiting.waitForFunction((s) => window.scaena.source().includes("A green frog jumps") && window.scaena.last()?.valid, null, { timeout: 60000 }).then(() => true, () => false),
+    "an edit after it is compiled and linted",
+  );
+  await stalled.close();
 } catch (e) {
   failures.push(`error: ${e.message}`);
 } finally {
