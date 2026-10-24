@@ -56,7 +56,8 @@ const utf16 = (text: string, chars: number) => [...text].slice(0, chars).join(""
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 /** Where words `f` are, as the status says it, in a person's words (PLAN 2.99): the text, the
  * description of an object, the story's claim or notes, or the presenter notes. */
-export const where = (f: Found, words?: Lexicon) =>
+export const where = (f: Found, words?: Lexicon) => placed(f, words) + (f.kept ? ", a value of the data, which replacing leaves as it is" : "");
+const placed = (f: Found, words?: Lexicon) =>
   f.kind === "alt"
     ? `the description of ${f.node === undefined ? "an object" : object(words, f.node, true)}`
     : f.kind === "claim"
@@ -68,7 +69,7 @@ export const where = (f: Found, words?: Lexicon) =>
         : f.kind === "chart"
           ? `the words of ${f.node === undefined ? "a chart" : object(words, f.node, true)}`
           : f.kind === "data"
-            ? `the data${f.source ? ` “${f.source}”` : ""}${f.file ? `, in ${f.file}, which replacing leaves as it is` : ""}`
+            ? `the data${f.source ? ` “${f.source}”` : ""}${f.file ? `, in ${f.file}` : ""}`
             : `the ${(f.node === undefined ? undefined : words?.kinds[f.node])?.toLowerCase() ?? "text"}`;
 
 export function finder(stage: Stage, bar: HTMLElement, editor: FindEditor) {

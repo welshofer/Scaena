@@ -129,16 +129,23 @@ fn each_text_is_found_where_it_is_written_and_replaced_there_in_one_patch() {
 }
 
 #[test]
-fn a_data_files_cells_are_found_and_kept_as_they_are() {
+fn a_files_values_and_the_highlight_that_names_one_are_found_and_kept() {
     let path = example("cells");
     let csv = path.with_file_name("data").join("q3-revenue.csv");
     let original = std::fs::read(&csv).unwrap();
+    // The chart reads the file and highlights a series of it by its name.
+    let note = serde_json::json!([{ "op": "set_prop", "node": "rev", "prop": "annotations",
+        "value": [{ "at": { "series": "Enterprise" }, "text": "Enterprise grew fastest" }] }]);
+    std::fs::write(path.with_file_name("note.json"), note.to_string()).unwrap();
+    let patched = scaena(&["patch", path.to_str().unwrap(), "--ops", path.with_file_name("note.json").to_str().unwrap()]);
+    assert!(patched.status.success(), "{}", String::from_utf8_lossy(&patched.stderr));
 
-    // The note's text, and each of the file's cells that holds the product's name, by its row and
-    // column, in the states that draw a chart of it.
+    // The note's text and the annotation's, which are words, and each of the file's cells that
+    // holds the series' name and the highlight's `at`, which are values, kept and saying why.
     let (code, found) = find(&path, &["Enterprise", "--case"]);
     assert_eq!(code, 0, "{found}");
-    let cells: Vec<&Value> = found["found"].as_array().unwrap().iter().filter(|f| f["kind"] == "data").collect();
+    let all = found["found"].as_array().unwrap();
+    let cells: Vec<&Value> = all.iter().filter(|f| f["kind"] == "data").collect();
     assert!(!cells.is_empty(), "{found}");
     for cell in &cells {
         assert_eq!(cell["file"], "data/q3-revenue.csv", "{cell}");
@@ -146,19 +153,32 @@ fn a_data_files_cells_are_found_and_kept_as_they_are() {
         assert!(cell["lives"].as_str().unwrap().starts_with("data/q3-revenue.csv#"), "{cell}");
         assert!(cell["lives"].as_str().unwrap().ends_with("/product"), "{cell}");
         assert!(cell["states"].as_array().unwrap().contains(&Value::from("revenue")), "{cell}");
+        assert!(cell["kept"].as_str().unwrap().starts_with("a value of the data"), "{cell}");
     }
+    let at = all.iter().find(|f| f["lives"].as_str().unwrap().ends_with("/at/series")).expect("the highlight's value");
+    assert_eq!((at["kind"].as_str(), at["node"].as_str()), (Some("chart"), Some("rev")), "{at}");
+    assert!(at["kept"].is_string(), "{at}");
     assert!(found.get("kept").is_none(), "nothing is kept without a replacement: {found}");
 
-    // A replacement writes the deck alone and names the file it left as it is.
+    // A replacement writes the words alone, and names each value it left as it is: the file is as
+    // it was, and the highlight still names a series the file holds, so it picks out its bars.
     let (code, replaced) = find(&path, &["Enterprise", "--case", "--replace", "Business"]);
     assert_eq!(code, 0, "{replaced}");
-    assert_eq!(replaced["kept"], serde_json::json!(["data/q3-revenue.csv"]), "{replaced}");
-    assert_eq!(deck(&path)["nodes"]["note"]["text"], "Revenue in $M. Business recognized on delivery.");
+    let kept = replaced["kept"].as_array().unwrap();
+    assert_eq!(kept.len(), cells.len() + 1, "{replaced}");
+    assert!(kept.contains(at.get("lives").unwrap()), "{replaced}");
+    let after = deck(&path);
+    assert_eq!(after["nodes"]["note"]["text"], "Revenue in $M. Business recognized on delivery.");
+    let note = after["states"].as_array().unwrap().iter().find_map(|s| s["props"]["rev"]["annotations"].as_array());
+    let note = note.or_else(|| after["nodes"]["rev"]["annotations"].as_array()).unwrap();
+    assert_eq!(note[0]["text"], "Business grew fastest");
+    assert_eq!(note[0]["at"]["series"], "Enterprise", "the highlight names what the file holds");
     assert_eq!(std::fs::read(&csv).unwrap(), original, "the file is as it was");
+    assert_eq!(scaena(&["validate", path.to_str().unwrap()]).status.code(), Some(0));
     let out = scaena(&["find", path.to_str().unwrap(), "Enterprise", "--replace", "Business"]);
     let said = String::from_utf8_lossy(&out.stdout);
     assert!(said.contains("data q3 in data/q3-revenue.csv"), "{said}");
-    assert!(said.contains("kept: data/q3-revenue.csv holds matches"), "{said}");
+    assert!(said.contains("kept: data/q3-revenue.csv#") && said.contains("a value of the data"), "{said}");
 }
 
 #[test]

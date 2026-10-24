@@ -1,8 +1,10 @@
 //! Find and replace across the deck's words, in every state (PLAN 2.47, 2.83, ADR-0013): its
 //! texts, each node's description (`alt`), each state's notes, each beat's claim and notes, the
 //! words a chart or a table draws that the deck writes (an axis's or a channel's title, a legend's
-//! title, an annotation's text, a column's title, and the values a highlight picks out), and the
-//! words in the cells of a data source written inline (dogfood pass 3).
+//! title, an annotation's text, and a column's title), and the values of its data: the cells of a
+//! data source written inline, and the values a highlight picks out (dogfood pass 3). A value is
+//! found and kept: a filter, a quote, or a highlight may name it, which a rename of it alone would
+//! leave naming nothing, so a replacement leaves it as it is and says why (`kept`).
 //!
 //! A text node's text is written in one place for each state that shows it: the deck's
 //! `overrides`, which hold it in every state; else the latest delta that sets it, from the
@@ -50,7 +52,7 @@ pub enum Kind {
     Claim,
     /// Words a chart or a table draws that the deck writes: an axis's or a channel's `title`, a
     /// legend's `title`, an annotation's `text`, a column's `title`, or a value an annotation's
-    /// `at` picks out (`x`, `series`), which names a value of the data it is drawn from.
+    /// `at` picks out (`x`, `series`), which names a value of the data it is drawn from and is kept.
     Chart,
     /// A cell of a data source: written inline in the deck (`data.<name>.source.inline`), or in a
     /// file the bundle holds, which `file` names.
@@ -70,10 +72,13 @@ pub struct Found {
     /// The data source a cell is of, by its name.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source: Option<String>,
-    /// The file a cell is in, for a data source read from one: found, and left as it is by a
-    /// replacement, which writes the deck alone.
+    /// The file a cell is in, for a data source read from one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub file: Option<String>,
+    /// Why a replacement leaves these words as they are: they are a value of the data (a cell, or
+    /// a value a highlight picks out), which a filter, a quote, or a highlight may name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kept: Option<String>,
     /// The beat, for its claim or its notes.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub beat: Option<String>,
@@ -134,6 +139,7 @@ pub fn find(doc: &Value, query: &Query) -> Result<Vec<Found>, String> {
             node: node.map(str::to_string),
             source: None,
             file: None,
+            kept: None,
             beat,
             state: state.to_string(),
             states: vec![state.to_string()],
@@ -183,9 +189,12 @@ pub fn find(doc: &Value, query: &Query) -> Result<Vec<Found>, String> {
                 add(&mut places, Kind::Alt, Some(node), None, state, written(i, node, "alt", over), alt);
             }
             if matches!(kind(node), Some("chart" | "table")) {
-                for (prop, path, words) in drawn(&props) {
+                for (prop, path, words, value) in drawn(&props) {
                     let lives = format!("{}{path}", written(i, node, prop, over));
-                    add(&mut places, Kind::Chart, Some(node), None, state, lives, &words);
+                    add(&mut places, Kind::Chart, Some(node), None, state, lives.clone(), &words);
+                    if let Some(found) = places.get_mut(&lives).filter(|_| value) {
+                        found.kept = Some(A_VALUE.to_string());
+                    }
                 }
             }
         }
@@ -209,6 +218,7 @@ pub fn find(doc: &Value, query: &Query) -> Result<Vec<Found>, String> {
                         node: None,
                         source: Some(name.clone()),
                         file: None,
+                        kept: Some(A_VALUE.to_string()),
                         beat: None,
                         state: states.first().cloned().unwrap_or_else(|| first_state(&snapshots)),
                         states: states.clone(),
@@ -232,6 +242,7 @@ pub fn find(doc: &Value, query: &Query) -> Result<Vec<Found>, String> {
                 node: None,
                 source: None,
                 file: None,
+                kept: None,
                 beat: beat.get("id").and_then(Value::as_str).map(str::to_string),
                 state: states_of(beat).into_iter().next().unwrap_or_else(|| first.clone()),
                 states: Vec::new(),
@@ -250,28 +261,32 @@ fn first_state(snapshots: &[crate::tracking::Snapshot]) -> String {
     snapshots.first().map(|s| s.state_id.clone()).unwrap_or_default()
 }
 
+/// Why a replacement leaves a value of the data as it is, as [`Found::kept`] says it.
+pub const A_VALUE: &str = "a value of the data: rename it with `scaena data --edits`, and the filters, quotes, and \
+     highlights that name it";
+
 /// The words a chart or a table draws that the deck writes, as `props` show them: each with the
-/// property it is in and the path in it, `("y", "/title", "Revenue ($M)")`. An annotation's `at`
-/// values are among them: one names a value of the data, and a replacement that changes the data
-/// changes it too, so a highlight still picks out what it did.
-fn drawn(props: &Props) -> Vec<(&'static str, String, String)> {
+/// property it is in, the path in it, and whether it is a value of the data, `("y", "/title",
+/// "Revenue ($M)", false)`. An annotation's `at` values are values: each names one of the data's,
+/// so it is found and kept, as the data's cells are.
+fn drawn(props: &Props) -> Vec<(&'static str, String, String, bool)> {
     let mut out = Vec::new();
     for prop in ["x", "y", "series", "color", "sizeEncoding", "facet", "legend"] {
         if let Some(title) = props.get(prop).and_then(|p| p.get("title")).and_then(Value::as_str) {
-            out.push((prop, "/title".to_string(), title.to_string()));
+            out.push((prop, "/title".to_string(), title.to_string(), false));
         }
     }
     for (k, note) in props.get("annotations").and_then(Value::as_array).into_iter().flatten().enumerate() {
         if let Some(text) = note.get("text").and_then(Value::as_str) {
-            out.push(("annotations", format!("/{k}/text"), text.to_string()));
+            out.push(("annotations", format!("/{k}/text"), text.to_string(), false));
         }
         for axis in ["x", "series"] {
             match note.pointer(&format!("/at/{axis}")) {
-                Some(Value::String(v)) => out.push(("annotations", format!("/{k}/at/{axis}"), v.clone())),
+                Some(Value::String(v)) => out.push(("annotations", format!("/{k}/at/{axis}"), v.clone(), true)),
                 Some(Value::Array(vs)) => {
                     for (j, v) in vs.iter().enumerate() {
                         if let Some(v) = v.as_str() {
-                            out.push(("annotations", format!("/{k}/at/{axis}/{j}"), v.to_string()));
+                            out.push(("annotations", format!("/{k}/at/{axis}/{j}"), v.to_string(), true));
                         }
                     }
                 }
@@ -281,7 +296,7 @@ fn drawn(props: &Props) -> Vec<(&'static str, String, String)> {
     }
     for (k, column) in props.get("columns").and_then(Value::as_array).into_iter().flatten().enumerate() {
         if let Some(title) = column.get("title").and_then(Value::as_str) {
-            out.push(("columns", format!("/{k}/title"), title.to_string()));
+            out.push(("columns", format!("/{k}/title"), title.to_string(), false));
         }
     }
     out
@@ -290,13 +305,13 @@ fn drawn(props: &Props) -> Vec<(&'static str, String, String)> {
 /// The patch that replaces every match of `found` with `with`. In a text, a `replace_text` for
 /// each, in the first state that shows it, so it is written where the text lives; within a text,
 /// the last match goes first, so that the offsets of those before it still stand. Other words, a
-/// JSON Patch `replace` of them where they are written, every match in them replaced. A cell of a
-/// data source read from a file is left as it is: the file is the bundle's, not the deck's.
+/// JSON Patch `replace` of them where they are written, every match in them replaced. A value of
+/// the data is left as it is (`kept`): what names it would name nothing.
 pub fn replacing(found: &[Found], with: &str) -> Vec<Value> {
     let each = |f: &Found, &[from, to]: &[u32; 2]| json!({ "op": "replace_text", "node": f.node, "from": from, "to": to, "text": with, "state": f.state });
     found
         .iter()
-        .filter(|f| f.file.is_none())
+        .filter(|f| f.kept.is_none())
         .flat_map(|f| match f.kind {
             Kind::Text => f.matches.iter().rev().map(|m| each(f, m)).collect(),
             _ => vec![json!({ "op": "replace", "path": f.lives, "value": replaced(&f.text, &f.matches, with) })],
@@ -532,7 +547,7 @@ mod tests {
         assert_eq!(replaced("Ünï Q3 q3", &[[4, 6], [7, 9]], "x"), "Ünï x x");
     }
     #[test]
-    fn a_charts_words_and_its_inline_cells_are_found_and_replaced_where_written() {
+    fn a_charts_words_are_replaced_where_written_and_its_values_found_and_kept() {
         let mut doc = json!({
             "scaena": crate::FORMAT_VERSION,
             "canvas": { "width": 1920, "height": 1080 },
@@ -564,12 +579,18 @@ mod tests {
         let cell = found.iter().find(|f| f.kind == Kind::Data).unwrap();
         assert_eq!((cell.source.as_deref(), cell.states.as_slice()), (Some("mix"), &["a".to_string()][..]));
 
-        // Replaced in one patch, each where it is written: the highlight still picks out its row.
+        // The values, the cell and what the highlight picks out, are kept, and say why.
+        let kept: Vec<&str> = found.iter().filter(|f| f.kept.is_some()).map(|f| f.lives.as_str()).collect();
+        assert_eq!(kept, ["/nodes/c/annotations/0/at/x", "/data/mix/source/inline/0/region"], "{found:?}");
+        assert!(found.iter().filter_map(|f| f.kept.as_deref()).all(|why| why == A_VALUE));
+
+        // Words replaced in one patch, each where it is written; the values left, so the highlight
+        // still picks out the row it named.
         apply(&mut doc, &replacing(&found, "Nord"));
         assert_eq!(doc["nodes"]["c"]["x"]["title"], "Nord and south");
-        assert_eq!(doc["nodes"]["c"]["annotations"][0], json!({ "at": { "x": "Nord" }, "text": "Nord leads" }));
+        assert_eq!(doc["nodes"]["c"]["annotations"][0], json!({ "at": { "x": "North" }, "text": "Nord leads" }));
         assert_eq!(doc["nodes"]["t"]["columns"][0]["title"], "Nord?");
-        assert_eq!(doc["data"]["mix"]["source"]["inline"][0]["region"], "Nord");
+        assert_eq!(doc["data"]["mix"]["source"]["inline"][0]["region"], "North");
         assert_eq!(doc["data"]["mix"]["source"]["inline"][1]["region"], "Northwest");
         assert_eq!(doc["nodes"]["c"]["x"]["field"], "region", "a field names a column, never words");
     }

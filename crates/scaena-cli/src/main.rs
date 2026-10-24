@@ -1660,13 +1660,9 @@ fn find(
             }
             print_delta(&p.added, &p.removed);
         }
-        for file in &searched.kept {
-            let source = searched.found.iter().find(|f| f.file.as_ref() == Some(file)).and_then(|f| f.source.clone());
-            println!(
-                "kept: {file} holds matches the replacement leaves as they are; next: scaena data {} {} --edits FILE",
-                bundle.display(),
-                source.unwrap_or_default()
-            );
+        for lives in &searched.kept {
+            let why = searched.found.iter().find(|f| &f.lives == lives).and_then(|f| f.kept.as_deref());
+            println!("kept: {lives}, {}", why.unwrap_or_default());
         }
     }
     Ok(match &searched.replaced {

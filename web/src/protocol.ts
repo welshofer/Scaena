@@ -146,8 +146,11 @@ export interface Found {
   node?: string;
   /** The data source, for a cell. */
   source?: string;
-  /** The file a cell is in, which a replacement leaves as it is. */
+  /** The file a cell is in. */
   file?: string;
+  /** Why a replacement leaves these words as they are: a value of the data, which a filter, a
+   * quote, or a highlight may name. */
+  kept?: string;
   /** The beat, for its claim or its notes. */
   beat?: string;
   /** The first state that shows it, where a replacement is made. */

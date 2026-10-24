@@ -2,8 +2,9 @@
 //! texts, each node's description, each state's notes, each beat's claim and notes, the words its
 //! charts and tables draw, and its data sources' cells, once for each place they are written, with
 //! where a query matches them; and, with what to put there, the one patch that replaces every
-//! match where it is written (`scaena_core::patch::find`, `replacing`). A cell of a source read
-//! from a file is found and left as it is, the file named: the replacement writes the deck alone.
+//! match where it is written (`scaena_core::patch::find`, `replacing`). A value of the data, a
+//! cell inline or in a file or a value a highlight picks out, is found and left as it is (`kept`):
+//! a filter, a quote, or a highlight may name it.
 
 use crate::lint::{Write, write};
 use crate::patch::{Patched, patching};
@@ -25,8 +26,8 @@ pub struct Searched {
     /// `replace_text` for each in a text and a `replace` of other words, as `patch` reports it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub replaced: Option<Patched>,
-    /// With a replacement: the data files holding matches it left as they are, the deck's
-    /// replacement writing the deck alone. Each wants its own edit (`scaena data --edits`).
+    /// With a replacement: where each match it left as it is stands (`lives`, a file's cell as
+    /// `FILE#ROW/COLUMN`), each a value of the data, whose `kept` says why.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub kept: Vec<String>,
 }
@@ -68,6 +69,7 @@ fn in_files(b: &Bundle, query: &Query) -> Result<Vec<Found>, OpsError> {
                     node: None,
                     source: Some(name.clone()),
                     file: Some(path.clone()),
+                    kept: Some(scaena_core::patch::A_VALUE.to_string()),
                     beat: None,
                     state: first.clone(),
                     states: states.clone(),
@@ -101,15 +103,11 @@ pub fn search(b: &Bundle, query: &Query, replace: Option<&str>, dry_run: bool) -
 pub fn searching(b: &Bundle, query: &Query, replace: Option<&str>) -> Result<(Searched, Option<Write>), OpsError> {
     let found = find(b, query)?;
     let matches = found.iter().map(|f| f.matches.len()).sum();
-    let mut kept: Vec<String> = Vec::new();
-    if replace.is_some() {
-        for file in found.iter().filter_map(|f| f.file.clone()) {
-            if !kept.contains(&file) {
-                kept.push(file);
-            }
-        }
-    }
-    let replaceable = found.iter().any(|f| f.file.is_none() && !f.matches.is_empty());
+    let kept: Vec<String> = match replace {
+        Some(_) => found.iter().filter(|f| f.kept.is_some()).map(|f| f.lives.clone()).collect(),
+        None => Vec::new(),
+    };
+    let replaceable = found.iter().any(|f| f.kept.is_none() && !f.matches.is_empty());
     let (replaced, deck) = match replace {
         Some(with) if replaceable => {
             let ops = Value::Array(scaena_core::patch::replacing(&found, with));

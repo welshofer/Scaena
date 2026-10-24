@@ -15,7 +15,7 @@
 mod find;
 mod ops;
 
-pub use find::{Found, Kind, Query, find, matches, replacing};
+pub use find::{A_VALUE, Found, Kind, Query, find, matches, replacing};
 pub use ops::{Written, written};
 
 use crate::document::{DataSource, Node, Props, State};
