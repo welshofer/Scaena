@@ -135,10 +135,10 @@ pub struct Painter<'a> {
 }
 
 /// How many times a picture is asked for while its provider is busy: Vzestup's four, and two
-/// more for a key whose rate limit counts pictures by the minute.
-const TRIES: usize = 6;
+/// more for a key whose rate limit counts pictures by the minute; the slides' too (REL-1).
+const TRIES: usize = scaena_narrato::TRIES;
 /// The longest wait between two asks, in seconds.
-const LONGEST_WAIT: f64 = 60.0;
+const LONGEST_WAIT: f64 = scaena_narrato::LONGEST_WAIT;
 
 /// The pictures `asked` for, made by `painter` through `transport` ([`Painting`]): every one at
 /// once, each asked again while its provider is busy, up to six times in all, waiting as
@@ -281,6 +281,9 @@ pub enum Progress {
     Chose { arc: String, fallback: Option<String> },
     /// The slides are asked, at least this many.
     Writing { slides: usize },
+    /// The provider was busy, failed for now, or did not answer: the same step is asked again
+    /// after `wait` seconds, `tried` times so far (narrative REL-1).
+    Retrying { wait: f64, tried: usize },
     /// The slides came back, cut short or whole: `text` is the answer as the model wrote it, what
     /// `--slides` takes, for a client that keeps it so a run that fails later resumes from it
     /// (narrative REL-2).
@@ -411,7 +414,9 @@ fn unwritten(write: &Write) -> crate::Bundle {
 /// makes in the theme, each slide with a picture drawn beside it; then, with a key, each text
 /// that still runs past its place rewritten by the model to the length the engine measured for
 /// it ([`overflowing`]), and lint's fixes applied again. A rewrite that fails leaves the deck as
-/// it was, saying why; a picture not made leaves its slide in a layout that waits for none.
+/// it was, saying why; a picture not made leaves its slide in a layout that waits for none. A
+/// step whose provider is busy, fails for now, or does not answer is asked again after the wait
+/// the generation says, up to [`scaena_narrato::TRIES`] times (REL-1), as the pictures are.
 /// `say` hears how far it has come. Nothing is written.
 #[allow(clippy::too_many_arguments)]
 pub fn generate(
@@ -453,7 +458,13 @@ pub fn generate_drawn(
         let step = generation.step();
         say(if step == Step::Arc { Progress::Choosing } else { Progress::Writing { slides: generation.target() } });
         let reply = transport.send(&request);
-        generation.answer(reply.status, &reply.status_text, &reply.body).map_err(|e| OpsError::new(e.to_string()))?;
+        (generation.answer(reply.status, &reply.status_text, &reply.body, reply.after.as_deref()))
+            .map_err(|e| OpsError::new(e.to_string()))?;
+        if let Some(wait) = generation.again() {
+            say(Progress::Retrying { wait, tried: generation.tried() });
+            transport.pause(wait);
+            continue;
+        }
         if step == Step::Arc {
             let arc = generation.arc().map(|a| a.selection.clone()).unwrap_or_default();
             say(Progress::Chose { arc, fallback: generation.fallback().map(str::to_string) });
@@ -1540,7 +1551,12 @@ pub fn deck_as(
     // Its words set as a typesetter sets them: "Canada\u{2019}s", "2021\u{2013}2024" (G.16).
     let narrative = &typeset_all(narrative);
     let arc = narrative.narrative_arc();
-    let names = arc.beat_names();
+    // The beats the slides are spread over: the outline's where the person settled one before
+    // the slides were written (narrative FUNC-1), else the arc's.
+    let names: Vec<&str> = match &narrative.outline {
+        Some(outline) => (outline.beats.iter()).map(|b| b.name.split(':').next().unwrap_or(&b.name).trim()).collect(),
+        None => arc.beat_names(),
+    };
     let count = narrative.slides.len();
     let varied = varied(narrative);
 
@@ -1614,11 +1630,14 @@ pub fn deck_as(
         // the beat's name as the model wrote it on the run's first slide, else that slide's
         // headline, else the arc's name for the beat, which reads as a template ("Problem",
         // "Solution") in the PDF's outline, the player's picker, and the Story tab. Narrato
-        // echoes the arc's names, so a name that is one of them is no name of the model's.
+        // echoes the arc's names, so a name that is one of them is no name of the model's. Where
+        // the person settled an outline, its beat's name stands in for the model's and the
+        // headline both: the slides were written to it (narrative FUNC-1).
         if last_beat != Some(beat) {
+            let outlined = narrative.outline.is_some();
             let named = (slide.beat_name.as_deref().map(str::trim))
-                .filter(|n| !n.is_empty() && !names.iter().any(|arc| arc.eq_ignore_ascii_case(n)));
-            let headline = Some(slide.slide_title.as_str()).filter(|t| !t.trim().is_empty());
+                .filter(|n| !n.is_empty() && !outlined && !names.iter().any(|arc| arc.eq_ignore_ascii_case(n)));
+            let headline = Some(slide.slide_title.as_str()).filter(|t| !t.trim().is_empty() && !outlined);
             let name = match (divider, named, headline) {
                 (true, _, _) => slide.slide_title.as_str(),
                 (false, Some(named), _) => named,
@@ -1679,6 +1698,9 @@ pub fn deck_as(
     }
     if narrative.truncated {
         meta["narrative"]["truncated"] = json!(true);
+    }
+    if let Some(outline) = &narrative.outline {
+        meta["narrative"]["outline"] = json!(outline);
     }
     let mut out = json!({
         "scaena": scaena_core::FORMAT_VERSION,
@@ -2130,6 +2152,8 @@ fn layout_for(
         "metric" => "big-number",
         "scorecard" | "kpi-grid" => match n {
             0..=2 => "two-numbers",
+            // Three prices, each with its tier: a pricing slide.
+            3 if priced(items) && theme.layouts.contains_key("pricing") => "pricing",
             3 => "numbers",
             // Four figures too wide for a quarter of the slide, or named at length: a square of
             // them, each as large as its quarter takes (G.16).
@@ -2782,7 +2806,15 @@ impl Slots<'_> {
             if part.is_empty()
                 && let Some(kind) = list_kind
             {
-                return Some(Fill::List(listed(&item.detail).iter().map(|p| sentence(p)).collect(), kind));
+                // What the item's figure and name places leave of it, as a text place takes it.
+                let role = slot.role.as_deref().unwrap_or_default();
+                let rest = self.part(k, item, "", role).unwrap_or_else(|| item.detail.clone());
+                let points: Vec<String> = listed(&rest).iter().map(|p| sentence(p)).collect();
+                // One point is words, not a list of one.
+                return Some(match <[String; 1]>::try_from(points) {
+                    Ok([one]) => Fill::Text(one),
+                    Err(points) => Fill::List(points, kind),
+                });
             }
             let role = slot.role.as_deref().unwrap_or_default();
             return text(self.part(k, item, part, role));
@@ -2840,6 +2872,7 @@ impl Slots<'_> {
         // Where the layout shows the item's figure apart, and where its name.
         let figure_apart = sibling("figure")
             || sibling("target")
+            || sibling("price")
             || (sibling("title") && figure_role(title_role))
             || (sibling("number") && self.numbered_by_figure());
         let name_apart = (sibling("title") && !figure_role(title_role)) || sibling("date") || sibling("item");
@@ -3335,12 +3368,32 @@ impl Builder {
                     let mut node =
                         json!({ "type": "text", "role": role, "text": entries.join("\n"), "list": list, "at": at });
                     // A slide's one list, where it is short, set larger to fill its place: up to the
-                    // size of the theme's lede, under its titles still.
-                    // An agenda's short lines up to the size of its titles.
-                    let most = if s.layout.starts_with("agenda") { "title" } else { "lede" };
+                    // size of the theme's lede, under its titles still, and where each of its
+                    // lines is short, up to three-quarters of the headline, as a card's statement
+                    // grows (dogfood pass 4). An agenda's short lines up to the size of its titles.
+                    let size = |r: &str| s.theme.typography.roles.get(r).map(|r| r.size);
+                    let short = entries.len() <= 5 && entries.iter().all(|e| e.chars().count() <= 60);
+                    let most = match () {
+                        _ if s.layout.starts_with("agenda") => size("title"),
+                        _ if short => size("headline").map(|h| (h * 0.75).max(size("lede").unwrap_or(0.0))),
+                        _ => size("lede"),
+                    };
                     if name == "body"
-                        && let Some(most) = s.theme.typography.roles.get(most).map(|r| r.size)
+                        && let Some(most) = most
                     {
+                        node["fit"] = json!("grow");
+                        node["maxSize"] = json!(most);
+                    }
+                    // A list in a place of a set, each side's or each phase's, grows as the set's
+                    // words do, held to one size with the rest of its set (G.12).
+                    // A short one in a body's place grows as the slide's one short list does.
+                    if ordinal(name).is_some()
+                        && let Some(most) = s.grown(name, role)
+                    {
+                        let most = match short && role == "body" {
+                            true => size("headline").map_or(most, |h| (h * 0.75).max(most)),
+                            false => most,
+                        };
                         node["fit"] = json!("grow");
                         node["maxSize"] = json!(most);
                     }
@@ -3777,6 +3830,17 @@ fn ordered(categories: &[String]) -> bool {
 
 /// Whether four items' figures want a square of them, not a row (G.16): the widest longer than
 /// a quarter of the slide sets at a figure's size grown, "4.5 mm/yr", or one named at length.
+/// Whether each of `items` is a price and the tier it buys, named first in its words: "$29:
+/// Team, per agent per month".
+fn priced(items: &[Item]) -> bool {
+    items.iter().all(|i| {
+        let tier = i.name().unwrap_or_default();
+        i.figure_first()
+            && i.label.as_deref().is_some_and(|l| l.starts_with(['$', '\u{20ac}', '\u{a3}', '\u{a5}']))
+            && (1..=3).contains(&tier.split_whitespace().count())
+    })
+}
+
 fn square(items: &[Item]) -> bool {
     let widest = items.iter().filter_map(Item::figure).map(|f| f.chars().count()).max().unwrap_or(0);
     let longest = items.iter().filter_map(Item::name).map(|n| n.chars().count()).max().unwrap_or(0);
@@ -4135,6 +4199,7 @@ mod tests {
             slides,
             truncated: false,
             icons: Default::default(),
+            outline: None,
             brief: Brief {
                 topic: "Pitch a Series A round for our carbon-negative cargo platform.".into(),
                 audience: "Investors".into(),
@@ -4601,6 +4666,97 @@ mod tests {
             ],
         );
         assert_eq!(layout, "milestones");
+    }
+
+    /// Short words in a large place grow to fill it (dogfood pass 4): each side's list of a
+    /// pros and cons, each month's of a roadmap, as one set; a slide's one short list past the
+    /// lede, under its headline still. Prices each with a tier go on a pricing slide, the tier
+    /// titling its card and the price its figure.
+    #[test]
+    fn short_lists_grow_to_fill_their_places_and_prices_name_their_tiers() {
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let (summary, slides) = catalog();
+        let made = |name: &str, bullets: &[&str]| {
+            let mut slide = slides.iter().find(|s| s.layout_suggestion == name).unwrap().clone();
+            slide.key_bullets = bullets.iter().map(|b| b.to_string()).collect();
+            let made = deck(
+                &narrative(&summary, vec![slides[0].clone(), slide, slides[55].clone()]),
+                &theme,
+                &Pictures::new(),
+            )
+            .unwrap();
+            let state = made.deck["states"][1]["id"].as_str().unwrap().to_string();
+            (made.layouts[1].clone(), made.deck.clone(), state)
+        };
+        let node = |deck: &Value, state: &str, slot: &str| deck["nodes"][format!("{state}-{slot}")].clone();
+        let size = |r: &str| theme.typography.roles[r].size;
+        // Each side's list of short points grows as the words of a set do, to three-quarters of
+        // the headline.
+        let (layout, deck, state) = made(
+            "Pros / Cons",
+            &[
+                "Pros: cuts SMB churn by an estimated 40%; simpler packaging; wins back price-sensitive prospects",
+                "Cons: $1.2M of ARR at risk from downgrades; sales retraining in Q4; margin dilution of 0.4 points",
+            ],
+        );
+        assert_eq!(layout, "pros-cons");
+        for side in ["first", "second"] {
+            let n = node(&deck, &state, side);
+            assert!(n["list"].is_array(), "{n:#}");
+            assert_eq!(
+                (n["fit"].as_str(), n["maxSize"].as_f64()),
+                (Some("grow"), Some(size("headline") * 0.75)),
+                "{n:#}"
+            );
+        }
+        let (layout, deck, state) = made(
+            "Roadmap",
+            &[
+                "October: launch the Starter tier; call 400 at-risk SMB accounts; fix the renewal email flow",
+                "November: close the two Fortune 500 pilots; hire four enterprise AEs; restart paid search",
+                "December: run the partner webinar series; review churn weekly; set FY27 targets",
+            ],
+        );
+        assert_eq!(layout, "roadmap");
+        assert_eq!(node(&deck, &state, "first")["fit"], "grow");
+        // A slide's one list of short lines may grow past the lede, to three-quarters of its
+        // headline; a long one keeps the lede.
+        let (layout, deck, state) = made(
+            "Numbered",
+            &[
+                "How common is the condition in people like me?",
+                "How often does the test catch it?",
+                "How often does it raise a false alarm?",
+                "Of all the positives, what share are real?",
+            ],
+        );
+        assert_eq!(layout, "numbered");
+        assert_eq!(node(&deck, &state, "body")["maxSize"].as_f64(), Some(size("headline") * 0.75));
+        let (_, deck, state) = made(
+            "Numbered",
+            &[
+                "How common is the condition in people like me, counted over the last ten years of screening?",
+                "How often does the test catch it?",
+                "How often does it raise a false alarm?",
+            ],
+        );
+        assert_eq!(node(&deck, &state, "body")["maxSize"].as_f64(), Some(size("lede")));
+        // Prices each with its tier: the tier titles the card, the price is its figure.
+        let (layout, deck, state) = made(
+            "Scorecard",
+            &[
+                "$0: Starter, up to 3 agents and 500 drafts a month",
+                "$29: Team, per agent per month, unlimited drafts",
+                "$59: Business, adds SSO, audit log, and a 99.9% SLA",
+            ],
+        );
+        assert_eq!(layout, "pricing");
+        assert_eq!(node(&deck, &state, "first-title")["text"], "Starter");
+        assert_eq!(node(&deck, &state, "first-price")["text"], "$0");
+        assert_eq!(node(&deck, &state, "first")["text"], "Up to 3 agents and 500 drafts a month");
+        assert!(node(&deck, &state, "first")["list"].is_null(), "one point is no list");
+        assert_eq!(node(&deck, &state, "third-title")["text"], "Business");
+        assert_eq!(node(&deck, &state, "third")["text"], "Adds SSO, audit log, and a 99.9% SLA");
     }
 
     /// A figure keeps the magnitude a language writes after it: "41.2万ドル" is $412K.
@@ -5660,8 +5816,8 @@ mod tests {
         };
         let settings = Settings { provider: Provider::Anthropic, model: "a-model".into(), base: None, browser: false };
         let mut g = Generation::new(narrative("", Vec::new()).brief, settings).unwrap();
-        assert_eq!(g.answer(200, "OK", &answer("anthropic-arc")).unwrap(), Step::Slides);
-        assert_eq!(g.answer(200, "OK", &answer("anthropic-slides")).unwrap(), Step::Done);
+        assert_eq!(g.answer(200, "OK", &answer("anthropic-arc"), None).unwrap(), Step::Slides);
+        assert_eq!(g.answer(200, "OK", &answer("anthropic-slides"), None).unwrap(), Step::Done);
         let n = g.into_narrative().unwrap();
         let (made, write) = generating(&n, Path::new("dusk.theme.json"), dusk(), &font).unwrap();
         assert!(made.created.created && made.created.errors == 0, "{:#?}", made.created.findings);
@@ -5673,6 +5829,97 @@ mod tests {
         assert_eq!(beats.len(), n.slides.len());
         assert_eq!(beats[0].claim, n.slides[0].slide_title);
         assert!(beats.iter().any(|b| b.evidence.iter().any(|e| e.starts_with('@'))));
+    }
+
+    /// A provider that is busy twice is asked the slides again, after the wait each answer
+    /// asks for, and the run goes on with the answer that then comes (narrative REL-1): the
+    /// client's transport waits, and the progress says each ask. Six busy answers end it.
+    #[test]
+    fn a_busy_provider_is_asked_the_slides_again() {
+        use scaena_narrato::{Generation, Provider, Settings};
+        struct Scripted {
+            replies: Vec<Reply>,
+            asked: usize,
+            paused: Vec<f64>,
+        }
+        impl Transport for Scripted {
+            fn send(&mut self, _: &Request) -> Reply {
+                self.asked += 1;
+                self.replies.remove(0)
+            }
+            fn pause(&mut self, seconds: f64) {
+                self.paused.push(seconds);
+            }
+        }
+        let answer = |name: &str| {
+            std::fs::read_to_string(root().join(format!("crates/scaena-narrato/tests/answers/{name}.json"))).unwrap()
+        };
+        let reply = |status: u16, text: &str, body: &str, after: Option<&str>| Reply {
+            status,
+            status_text: text.into(),
+            body: body.into(),
+            after: after.map(str::to_string),
+        };
+        let settings =
+            || Settings { provider: Provider::Anthropic, model: "a-model".into(), base: None, browser: false };
+        let mut g = Generation::new(narrative("", Vec::new()).brief, settings()).unwrap();
+        g.choose_arc(Some("Problem\u{2013}Solution"));
+        let mut transport = Scripted {
+            replies: vec![
+                reply(529, "Overloaded", r#"{"error":{"message":"Overloaded"}}"#, None),
+                reply(503, "Service Unavailable", "", Some("5")),
+                reply(200, "OK", &answer("anthropic-slides"), None),
+            ],
+            asked: 0,
+            paused: Vec::new(),
+        };
+        let mut heard = Vec::new();
+        let mut say = |p: Progress| heard.push(p);
+        let (made, write) = generate(
+            g,
+            Some("sk-test"),
+            &[],
+            None,
+            Looking::No,
+            Path::new("dusk.theme.json"),
+            dusk(),
+            &font,
+            &mut transport,
+            &mut say,
+        )
+        .unwrap();
+        assert_eq!((transport.asked, transport.paused), (3, vec![2.0, 5.0]));
+        assert!(made.created.created && made.created.errors == 0, "{:#?}", made.created.findings);
+        assert_eq!(write.unwrap().deck.states.len(), 5);
+        let retried: Vec<&Progress> = heard.iter().filter(|p| matches!(p, Progress::Retrying { .. })).collect();
+        assert_eq!(retried, [&Progress::Retrying { wait: 2.0, tried: 1 }, &Progress::Retrying { wait: 5.0, tried: 2 }]);
+        assert!(heard.iter().any(|p| matches!(p, Progress::Wrote { slides: 5, .. })));
+
+        // Six for now in a row: the error says so, after every try.
+        let mut g = Generation::new(narrative("", Vec::new()).brief, settings()).unwrap();
+        g.choose_arc(Some("Problem\u{2013}Solution"));
+        let mut transport = Scripted {
+            replies: (0..scaena_narrato::TRIES).map(|_| reply(0, "connection reset", "", None)).collect(),
+            asked: 0,
+            paused: Vec::new(),
+        };
+        let mut heard = Vec::new();
+        let mut say = |p: Progress| heard.push(p);
+        let err = generate(
+            g,
+            Some("sk-test"),
+            &[],
+            None,
+            Looking::No,
+            Path::new("dusk.theme.json"),
+            dusk(),
+            &font,
+            &mut transport,
+            &mut say,
+        )
+        .unwrap_err();
+        assert_eq!(err.message, "the request did not complete: connection reset (asked 6 times)");
+        assert_eq!((transport.asked, transport.paused), (6, vec![2.0, 4.0, 8.0, 16.0, 32.0]));
     }
 
     /// An Anthropic answer whose text is `text`.
