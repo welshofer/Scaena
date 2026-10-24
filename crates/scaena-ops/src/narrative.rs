@@ -7246,15 +7246,10 @@ mod tests {
         (doc, scaena_store::Files::Dir(path.parent().unwrap().to_path_buf()))
     }
 
-    /// The bundle files `files` as a data source reads them.
+    /// The revenue example's data file, from `files`, as its source reads it.
     fn read_by(files: &scaena_store::Files) -> BTreeMap<String, Vec<u8>> {
-        let mut out = BTreeMap::new();
-        for p in ["data/q3-revenue.csv"] {
-            if let Ok(bytes) = files.read(p) {
-                out.insert(p.to_string(), bytes);
-            }
-        }
-        out
+        let path = "data/q3-revenue.csv";
+        files.read(path).map(|bytes| BTreeMap::from([(path.to_string(), bytes)])).unwrap_or_default()
     }
 
     /// `doc` with `patch` compiled and applied in `files`, as `deck_patch` applies one.
