@@ -19,6 +19,7 @@ pub(super) fn rules() -> Vec<Box<dyn Rule>> {
         Box::new(W424TooManyClaims),
         Box::new(W425RepeatedClaim),
         Box::new(W426SpineOutOfOrder),
+        Box::new(W429BeatWithNoStates),
     ]
 }
 
@@ -353,5 +354,39 @@ impl Rule for W426SpineOutOfOrder {
             }
         }
         out
+    }
+}
+
+/// W429: a beat that names no state the deck has: its claim, its evidence, and its time are told
+/// on no slide, though the spine, the PDF's outline, and health read them (dogfood 3). A beat that
+/// names a state the deck lacks is E102, so the beats this finds list no state at all: one planned
+/// before its slide, a spine written first, or one a cut left behind before `remove_slide` took
+/// its beats with it. Nothing tells those apart, so it carries no fix: a fix would delete the
+/// story a spine-first deck is written from.
+struct W429BeatWithNoStates;
+impl Rule for W429BeatWithNoStates {
+    fn code(&self) -> &'static str {
+        "W429"
+    }
+    fn severity(&self) -> Severity {
+        Severity::Warning
+    }
+    fn check(&self, cx: &Context) -> Vec<Finding> {
+        beats(cx)
+            .into_iter()
+            .filter(|(_, beat)| !beat.states.iter().any(|id| cx.deck.state_index(id).is_some()))
+            .map(|(at, beat)| {
+                Finding::new(
+                    self.code(),
+                    self.severity(),
+                    format!("beat `{}` is not told yet: its claim \"{}\" is on no slide", beat.id, beat.claim),
+                )
+                .at(at)
+                .hint(
+                    "Start a slide for it (`state_start` with its claim), or list the states that tell it; \
+                     a beat left by a cut slide may go.",
+                )
+            })
+            .collect()
     }
 }
