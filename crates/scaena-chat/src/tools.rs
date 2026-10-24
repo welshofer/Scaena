@@ -25,6 +25,7 @@ const MCP: &[(&str, &str)] = &[
     ("deck_read", include_str!("../../../docs/schema/mcp/deck_read.json")),
     ("deck_render", include_str!("../../../docs/schema/mcp/deck_render.json")),
     ("icon_find", include_str!("../../../docs/schema/mcp/icon_find.json")),
+    ("image_add", include_str!("../../../docs/schema/mcp/image_add.json")),
     ("map_fetch", include_str!("../../../docs/schema/mcp/map_fetch.json")),
     ("spine_read", include_str!("../../../docs/schema/mcp/spine_read.json")),
     ("spine_update", include_str!("../../../docs/schema/mcp/spine_update.json")),
