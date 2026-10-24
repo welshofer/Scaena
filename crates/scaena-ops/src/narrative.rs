@@ -2631,6 +2631,14 @@ impl Slots<'_> {
                 self.fact().as_deref().and_then(figure).or_else(|| self.item(0).and_then(|i| figure(&i.whole)))
             }
             "under" | "detail" => self.fact().or_else(|| self.item(1).map(|i| i.whole.clone())),
+            // A chart's source, in a place of its own beside its note (dogfood pass 4).
+            "source" => self.caption(),
+            // A note beside a place for the source: the slide's fact where the source took none of it.
+            "note" if self.has("source") && self.slide.chart_data.is_some() => {
+                let sourced = (self.slide.chart_data.as_ref().and_then(|c| c.source_id.as_deref()))
+                    .is_some_and(|s| !s.trim().is_empty());
+                if sourced { self.fact() } else { None }
+            }
             "note" if layout.ends_with("chart") && self.slide.chart_data.is_some() => self.caption(),
             "note" => {
                 let source = self.slide.chart_data.as_ref().and_then(|c| c.source_id.clone()).map(|s| self.sourced(&s));
@@ -2739,11 +2747,13 @@ impl Slots<'_> {
                 (self.item(0).filter(|i| i.figure_first()).and_then(|i| i.label.clone()))
                     .or_else(|| self.slide.chart_data.as_ref().and_then(latest)),
             ),
-            // The takeaway, then the chart's caption a line of its own: what it shows, and its source.
+            // The takeaway; then, where the layout has no place for it, the chart's source a line
+            // of its own.
             ("line-chart", "note", _) => {
                 let takeaway =
                     self.item(0).map(|i| if i.figure_first() { sentence(&i.detail) } else { i.whole.clone() });
-                text(match (takeaway.filter(|t| !t.is_empty()), self.caption()) {
+                let source = self.caption().filter(|_| !self.has("source"));
+                text(match (takeaway.filter(|t| !t.is_empty()), source) {
                     (Some(t), Some(c)) => Some(format!("{t}\n{c}")),
                     (t, c) => t.or(c),
                 })
@@ -3006,7 +3016,7 @@ impl Slots<'_> {
             "under" | "note" if self.fact().as_deref() == Some(text) || text.starts_with(own(self.lang).source) => {
                 Some("source")
             }
-            "who" => Some("source"),
+            "who" | "source" => Some("source"),
             "kicker" => Some("navigation"),
             "number" if matches!(self.layout, "section" | "section-photo") => Some("navigation"),
             _ => None,
@@ -3244,6 +3254,7 @@ impl Builder {
             // never shrinks the takeaway with it to fit (dogfood: charts).
             if s.layout == "line-chart"
                 && name == "note"
+                && !s.has("source")
                 && s.caption().is_some()
                 && s.theme.typography.roles.contains_key("caption")
                 && let Some((takeaway, source)) = node["text"].as_str().and_then(|t| t.rsplit_once('\n'))
@@ -4894,7 +4905,7 @@ mod tests {
             })),
             answer::normalize(&json!({ "slideTitle": "Thank you", "layoutSuggestion": "Closing" })),
         ];
-        let made = deck(&narrative("A review.", slides), &theme, &Pictures::new()).unwrap();
+        let made = deck(&narrative("A review.", slides.clone()), &theme, &Pictures::new()).unwrap();
         let firsts: Vec<&str> = (made.deck["states"].as_array().unwrap().iter())
             .filter(|s| s.get("slide").is_none())
             .map(|s| s["id"].as_str().unwrap())
@@ -4905,21 +4916,15 @@ mod tests {
         let churn = node(1, "main");
         assert_eq!(churn["annotations"], json!([{ "kind": "highlight", "at": { "series": "SMB" } }]));
         assert_eq!(churn["y"]["title"], "Quarterly logo churn by segment, %");
-        // The takeaway in the note's role, then the source on a line of its own in the caption's,
-        // so the source never shrinks the takeaway.
-        assert_eq!(
-            node(1, "note")["runs"],
-            json!([
-                { "text": "SMB churn has risen four quarters in a row" },
-                { "text": "\nSource: Churn dashboard", "role": "caption" },
-            ])
-        );
-        // One series: the subtitle titles it too, and the takeaway stands over the source alone.
+        // The takeaway alone in the note, which grows to its size, and the source in its own place
+        // (dogfood pass 4).
+        assert_eq!(node(1, "note")["text"], "SMB churn has risen four quarters in a row");
+        assert_eq!(node(1, "source")["text"], "Source: Churn dashboard");
+        assert_eq!(node(1, "source")["semantic"], "source");
+        // One series: the subtitle titles it too.
         assert_eq!(node(2, "main")["y"]["title"], "Annual recurring revenue by month, $K");
-        assert_eq!(
-            words(&node(2, "note")),
-            "ARR reached $910K in September, up 5\u{d7} since January\nSource: Churn dashboard"
-        );
+        assert_eq!(node(2, "note")["text"], "ARR reached $910K in September, up 5\u{d7} since January");
+        assert_eq!(node(2, "source")["text"], "Source: Churn dashboard");
         // A bar chart's axis takes the unit its subtitle lacks, and its caption is its source.
         assert_eq!(node(3, "main")["y"]["title"], "Share of tickets by topic, 1,140 teams (%)");
         assert_eq!(node(3, "note")["text"], "Source: Relay ticket benchmark");
@@ -4929,6 +4934,20 @@ mod tests {
             .collect();
         assert_eq!(beats[3]["media"]["narrato"]["subtitle"], "Share of tickets by topic, 1,140 teams");
         assert!(beats[0]["media"]["narrato"].get("subtitle").is_none(), "the cover has none");
+        // A bundle's older copy of the theme, its line chart with no place for a source: the source
+        // stands under the takeaway in the caption's role.
+        let mut older = theme.clone();
+        older.layouts.get_mut("line-chart").unwrap().slots.shift_remove("source");
+        let made = deck(&narrative("A review.", slides), &older, &Pictures::new()).unwrap();
+        let first = (made.deck["states"].as_array().unwrap().iter()).filter(|s| s.get("slide").is_none()).nth(1);
+        let note = &made.deck["nodes"][format!("{}-note", first.unwrap()["id"].as_str().unwrap())];
+        assert_eq!(
+            note["runs"],
+            json!([
+                { "text": "SMB churn has risen four quarters in a row" },
+                { "text": "\nSource: Churn dashboard", "role": "caption" },
+            ])
+        );
     }
 
     /// A line labels the figure its headline names where its ends do not (dogfood pass 4), and an
@@ -5286,8 +5305,8 @@ mod tests {
         for spanish in ["Hace", "Piensa", "Siente"] {
             assert!(said.iter().any(|w| w == spanish), "{spanish} in {said:?}");
         }
-        let note = words(placed(&made.deck, 4, "note"));
-        assert!(note.ends_with("Fuente: NASA GISS"), "{note}");
+        let source = words(placed(&made.deck, 4, "source"));
+        assert_eq!(source, "Fuente: NASA GISS");
         assert!(placed(&made.deck, 4, "main")["alt"].as_str().unwrap().starts_with("Gráfico de líneas"));
         // A year's months and a 2×2's axes, in Spanish, never left empty.
         let mut talk2 = talk.clone();
@@ -5314,7 +5333,7 @@ mod tests {
             .map(|(_, w)| w)
             .collect();
         assert!(said.iter().any(|w| w == "Does"), "{said:?}");
-        assert!(words(placed(&made.deck, 4, "note")).ends_with("Source: NASA GISS"));
+        assert_eq!(words(placed(&made.deck, 4, "source")), "Source: NASA GISS");
     }
 
     #[test]
