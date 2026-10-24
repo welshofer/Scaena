@@ -23,7 +23,7 @@ use scaena_narrato::layouts::{self, Varied};
 use scaena_narrato::look::{Change, Choice, Seen};
 use scaena_narrato::pictures::{self, Frame, Look, Palette};
 use scaena_narrato::{
-    ChartData, Document, Generation, Icon, Narrative, Picture, Provider, Request, Settings, Slide, Step,
+    ChartData, Document, Generation, Icon, Narrative, Picture, Provenance, Provider, Request, Settings, Slide, Step,
 };
 pub use scaena_sources::Given;
 use scaena_sources::{Source, Table};
@@ -343,6 +343,32 @@ pub fn grounding(sources: &[Source], provider: Provider) -> Result<Grounding, Op
     Ok(Grounding { content: ground.content, documents, given: ground.given })
 }
 
+/// What each source given made of the prompt, as the deck keeps it beside its brief (narrative
+/// FUNC-3): its name, kind, address where it has one, bytes, and whether it was cut short.
+pub fn provenance(given: &[Given]) -> Vec<Provenance> {
+    (given.iter())
+        .map(|g| Provenance {
+            name: g.name.clone(),
+            kind: g.kind.to_string(),
+            url: g.url.clone(),
+            bytes: g.bytes,
+            truncated: g.truncated,
+        })
+        .collect()
+}
+
+/// How a beat cites the source its slide names (narrative FUNC-3): by the source's address where
+/// it has one, else `source:NAME`, which W423 passes as it passes an address; none where the
+/// slide names a source the deck was not grounded in. A name is matched as written, then with
+/// case and spaces set aside, then as the source's address.
+fn cited(sources: &[Provenance], named: &str) -> Option<String> {
+    let loose = |s: &str| s.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase();
+    let source = (sources.iter().find(|s| s.name == named))
+        .or_else(|| sources.iter().find(|s| loose(&s.name) == loose(named)))
+        .or_else(|| sources.iter().find(|s| s.url.as_deref() == Some(named)))?;
+    Some(source.url.clone().unwrap_or_else(|| format!("{}{}", scaena_core::document::SOURCE_CITED, source.name)))
+}
+
 /// A data source kept from a sheet, or why it was not.
 #[derive(Debug, Clone, Serialize)]
 pub struct Kept {
@@ -548,21 +574,19 @@ pub fn generate_drawn(
 /// `speakerNotes`, `beatIndex`, `beatName`, `intensity`, `tone`, …), as an agent writes them;
 /// `brief` says what the deck is about and for whom, which health reads back (PLAN G.9); `arc`
 /// names one of Narrato's, else the heuristic chooses from the brief. The bundle is made at `dir`,
-/// a directory not there yet or empty, in `theme`, a theme that ships by name or a theme file,
+/// a directory not there yet or empty, in `theme`, a theme that ships or a theme file read,
 /// as [`generate`] makes one: the spine, each slide in the theme's layout its layout comes to,
 /// its builds, and the `media.narrato` fields health reads, lint's fixes applied. A deck in a
 /// script the theme's fonts do not draw is refused here: `scaena generate` fetches the
 /// script's font (PLAN G.22), which no server's tool does.
 pub fn from_slides(
     dir: &Path,
-    theme: &Path,
+    theme: crate::create::ThemeSource,
     slides: &str,
     brief: Brief,
     arc: Option<&str>,
 ) -> Result<Generated, OpsError> {
-    use crate::create::ThemeSource;
     crate::create::vacant(dir)?;
-    let theme = ThemeSource::of(theme)?;
     let font = |file: &str| theme.font(file);
     let language = brief.language.as_deref();
     if let Some(script) = crate::scripts::needed(language, slides, &theme.text, &font)? {
@@ -1667,8 +1691,11 @@ pub fn deck_as(
         if !slide.speaker_notes.is_empty() {
             entry["notes"] = json!(slide.speaker_notes);
         }
-        if let Some(data) = &made.data {
-            entry["evidence"] = json!([format!("@{data}")]);
+        let evidence: Vec<String> = (made.data.iter().map(|data| format!("@{data}")))
+            .chain(slide.source_ref.as_deref().and_then(|named| cited(&narrative.sources, named)))
+            .collect();
+        if !evidence.is_empty() {
+            entry["evidence"] = json!(evidence);
         }
         entry["media"] = json!({ "narrato": media(slide) });
         sections.last_mut().expect("opened above")["beats"].as_array_mut().expect("an array").push(entry);
@@ -1698,6 +1725,9 @@ pub fn deck_as(
     }
     if narrative.truncated {
         meta["narrative"]["truncated"] = json!(true);
+    }
+    if !narrative.sources.is_empty() {
+        meta["narrative"]["sources"] = json!(narrative.sources);
     }
     if let Some(outline) = &narrative.outline {
         meta["narrative"]["outline"] = json!(outline);
@@ -2152,6 +2182,8 @@ fn layout_for(
         "metric" => "big-number",
         "scorecard" | "kpi-grid" => match n {
             0..=2 => "two-numbers",
+            // Three prices, each with its tier: a pricing slide.
+            3 if priced(items) && theme.layouts.contains_key("pricing") => "pricing",
             3 => "numbers",
             // Four figures too wide for a quarter of the slide, or named at length: a square of
             // them, each as large as its quarter takes (G.16).
@@ -2804,7 +2836,15 @@ impl Slots<'_> {
             if part.is_empty()
                 && let Some(kind) = list_kind
             {
-                return Some(Fill::List(listed(&item.detail).iter().map(|p| sentence(p)).collect(), kind));
+                // What the item's figure and name places leave of it, as a text place takes it.
+                let role = slot.role.as_deref().unwrap_or_default();
+                let rest = self.part(k, item, "", role).unwrap_or_else(|| item.detail.clone());
+                let points: Vec<String> = listed(&rest).iter().map(|p| sentence(p)).collect();
+                // One point is words, not a list of one.
+                return Some(match <[String; 1]>::try_from(points) {
+                    Ok([one]) => Fill::Text(one),
+                    Err(points) => Fill::List(points, kind),
+                });
             }
             let role = slot.role.as_deref().unwrap_or_default();
             return text(self.part(k, item, part, role));
@@ -2834,6 +2874,14 @@ impl Slots<'_> {
                 self.fact().as_deref().and_then(figure).or_else(|| self.item(0).and_then(|i| figure(&i.whole)))
             }
             "under" | "detail" => self.fact().or_else(|| self.item(1).map(|i| i.whole.clone())),
+            // A chart's source, in a place of its own beside its note (dogfood pass 4).
+            "source" => self.caption(),
+            // A note beside a place for the source: the slide's fact where the source took none of it.
+            "note" if self.has("source") && self.slide.chart_data.is_some() => {
+                let sourced = (self.slide.chart_data.as_ref().and_then(|c| c.source_id.as_deref()))
+                    .is_some_and(|s| !s.trim().is_empty());
+                if sourced { self.fact() } else { None }
+            }
             "note" if layout.ends_with("chart") && self.slide.chart_data.is_some() => self.caption(),
             "note" => {
                 let source = self.slide.chart_data.as_ref().and_then(|c| c.source_id.clone()).map(|s| self.sourced(&s));
@@ -2862,6 +2910,7 @@ impl Slots<'_> {
         // Where the layout shows the item's figure apart, and where its name.
         let figure_apart = sibling("figure")
             || sibling("target")
+            || sibling("price")
             || (sibling("title") && figure_role(title_role))
             || (sibling("number") && self.numbered_by_figure());
         let name_apart = (sibling("title") && !figure_role(title_role)) || sibling("date") || sibling("item");
@@ -2942,11 +2991,13 @@ impl Slots<'_> {
                 (self.item(0).filter(|i| i.figure_first()).and_then(|i| i.label.clone()))
                     .or_else(|| self.slide.chart_data.as_ref().and_then(latest)),
             ),
-            // The takeaway, then the chart's caption a line of its own: what it shows, and its source.
+            // The takeaway; then, where the layout has no place for it, the chart's source a line
+            // of its own.
             ("line-chart", "note", _) => {
                 let takeaway =
                     self.item(0).map(|i| if i.figure_first() { sentence(&i.detail) } else { i.whole.clone() });
-                text(match (takeaway.filter(|t| !t.is_empty()), self.caption()) {
+                let source = self.caption().filter(|_| !self.has("source"));
+                text(match (takeaway.filter(|t| !t.is_empty()), source) {
                     (Some(t), Some(c)) => Some(format!("{t}\n{c}")),
                     (t, c) => t.or(c),
                 })
@@ -3209,7 +3260,7 @@ impl Slots<'_> {
             "under" | "note" if self.fact().as_deref() == Some(text) || text.starts_with(own(self.lang).source) => {
                 Some("source")
             }
-            "who" => Some("source"),
+            "who" | "source" => Some("source"),
             "kicker" => Some("navigation"),
             "number" if matches!(self.layout, "section" | "section-photo") => Some("navigation"),
             _ => None,
@@ -3357,12 +3408,32 @@ impl Builder {
                     let mut node =
                         json!({ "type": "text", "role": role, "text": entries.join("\n"), "list": list, "at": at });
                     // A slide's one list, where it is short, set larger to fill its place: up to the
-                    // size of the theme's lede, under its titles still.
-                    // An agenda's short lines up to the size of its titles.
-                    let most = if s.layout.starts_with("agenda") { "title" } else { "lede" };
+                    // size of the theme's lede, under its titles still, and where each of its
+                    // lines is short, up to three-quarters of the headline, as a card's statement
+                    // grows (dogfood pass 4). An agenda's short lines up to the size of its titles.
+                    let size = |r: &str| s.theme.typography.roles.get(r).map(|r| r.size);
+                    let short = entries.len() <= 5 && entries.iter().all(|e| e.chars().count() <= 60);
+                    let most = match () {
+                        _ if s.layout.starts_with("agenda") => size("title"),
+                        _ if short => size("headline").map(|h| (h * 0.75).max(size("lede").unwrap_or(0.0))),
+                        _ => size("lede"),
+                    };
                     if name == "body"
-                        && let Some(most) = s.theme.typography.roles.get(most).map(|r| r.size)
+                        && let Some(most) = most
                     {
+                        node["fit"] = json!("grow");
+                        node["maxSize"] = json!(most);
+                    }
+                    // A list in a place of a set, each side's or each phase's, grows as the set's
+                    // words do, held to one size with the rest of its set (G.12).
+                    // A short one in a body's place grows as the slide's one short list does.
+                    if ordinal(name).is_some()
+                        && let Some(most) = s.grown(name, role)
+                    {
+                        let most = match short && role == "body" {
+                            true => size("headline").map_or(most, |h| (h * 0.75).max(most)),
+                            false => most,
+                        };
                         node["fit"] = json!("grow");
                         node["maxSize"] = json!(most);
                     }
@@ -3447,6 +3518,7 @@ impl Builder {
             // never shrinks the takeaway with it to fit (dogfood: charts).
             if s.layout == "line-chart"
                 && name == "note"
+                && !s.has("source")
                 && s.caption().is_some()
                 && s.theme.typography.roles.contains_key("caption")
                 && let Some((takeaway, source)) = node["text"].as_str().and_then(|t| t.rsplit_once('\n'))
@@ -3799,6 +3871,17 @@ fn ordered(categories: &[String]) -> bool {
 
 /// Whether four items' figures want a square of them, not a row (G.16): the widest longer than
 /// a quarter of the slide sets at a figure's size grown, "4.5 mm/yr", or one named at length.
+/// Whether each of `items` is a price and the tier it buys, named first in its words: "$29:
+/// Team, per agent per month".
+fn priced(items: &[Item]) -> bool {
+    items.iter().all(|i| {
+        let tier = i.name().unwrap_or_default();
+        i.figure_first()
+            && i.label.as_deref().is_some_and(|l| l.starts_with(['$', '\u{20ac}', '\u{a3}', '\u{a5}']))
+            && (1..=3).contains(&tier.split_whitespace().count())
+    })
+}
+
 fn square(items: &[Item]) -> bool {
     let widest = items.iter().filter_map(Item::figure).map(|f| f.chars().count()).max().unwrap_or(0);
     let longest = items.iter().filter_map(Item::name).map(|n| n.chars().count()).max().unwrap_or(0);
@@ -3965,7 +4048,7 @@ fn chart_node(
     // Every value with the decimals of the most precise of them, two at most: 2.0 beside 1.1.
     let decimals = decimals(chart);
     let titled = |name: &str| match chart.unit.as_deref() {
-        Some(unit) if !name.contains(unit) => format!("{name} ({unit})"),
+        Some(unit) if !name.to_lowercase().contains(&unit.to_lowercase()) => format!("{name} ({unit})"),
         _ => name.to_string(),
     };
     let y_title = match (on_axis(subtitle), chart.series.first().and_then(|s| s.name.as_deref())) {
@@ -4020,6 +4103,18 @@ fn chart_node(
     if kind == "line" && !several {
         let mut notes = vec![json!({ "kind": "highlight", "at": {} })];
         notes.extend(period(chart, [Some(title), takeaway]));
+        notes.extend(named_figure(chart, None, [Some(title), takeaway]));
+        node["annotations"] = json!(notes);
+    }
+    // Lines of several series light the one the headline, else the takeaway, names: "SMB churn
+    // climbed to 4.9% while mid-market churn fell" is about SMB's.
+    if kind == "line"
+        && several
+        && let Some(named) = named_series(chart, [Some(title), takeaway])
+    {
+        let mut notes = vec![json!({ "kind": "highlight", "at": { "series": named } })];
+        notes.extend(period(chart, [Some(title), takeaway]));
+        notes.extend(named_figure(chart, Some(&named), [Some(title), takeaway]));
         node["annotations"] = json!(notes);
     }
     // Lines of several series light the one the headline, else the takeaway, names: "SMB churn
@@ -4033,6 +4128,55 @@ fn chart_node(
         node["annotations"] = json!(notes);
     }
     node
+}
+
+/// A callout on the point of a line whose figure the first of `said` that names one of its values
+/// names, where its ends' labels do not already say it: "Outage hours fell from 286 to 2 in three
+/// years" labels the 286 its line peaks at (dogfood pass 4). `series` is the line of several lit.
+fn named_figure(chart: &ChartData, series: Option<&str>, said: [Option<&str>; 2]) -> Option<Value> {
+    let line = match series {
+        Some(name) => chart.series.iter().find(|s| s.name.as_deref() == Some(name))?,
+        None => chart.series.first()?,
+    };
+    let places = decimals(chart);
+    let near = 0.5 * 10f64.powi(-(places as i32));
+    let last = line.values.len().checked_sub(1)?;
+    said.into_iter().flatten().find_map(|text| {
+        figures(text).into_iter().filter(|n| !chart.categories.iter().any(|c| c.parse() == Ok(*n))).find_map(|n| {
+            let at = line.values.iter().position(|v| (v - n).abs() < near).filter(|&i| i != 0 && i != last)?;
+            let mut place = json!({ "x": chart.categories.get(at)? });
+            if let Some(name) = series {
+                place["series"] = json!(name);
+            }
+            Some(json!({ "kind": "callout", "at": place, "text": grouped(line.values[at], places) }))
+        })
+    })
+}
+
+/// The figures `text` writes, as numbers: "$1,140" is 1140, "4.9%" is 4.9.
+fn figures(text: &str) -> Vec<f64> {
+    text.split(|c: char| !(c.is_ascii_digit() || c == '.' || c == ','))
+        .map(|w| w.trim_matches(['.', ',']).replace(',', ""))
+        .filter(|w| !w.is_empty())
+        .filter_map(|w| w.parse().ok())
+        .collect()
+}
+
+/// `value` with `places` decimals and its thousands grouped, as the chart's own labels write it.
+fn grouped(value: f64, places: usize) -> String {
+    let written = format!("{:.places$}", value.abs());
+    let (whole, part) = written.split_once('.').map_or((written.as_str(), None), |(w, p)| (w, Some(p)));
+    let mut out = String::new();
+    for (i, c) in whole.chars().enumerate() {
+        if i > 0 && (whole.len() - i) % 3 == 0 {
+            out.push(',');
+        }
+        out.push(c);
+    }
+    if let Some(part) = part {
+        out = format!("{out}.{part}");
+    }
+    if value < 0.0 { format!("\u{2212}{out}") } else { out }
 }
 
 /// The subtitle that titles a chart's value axis, as a designer titles a chart over its plot:
@@ -4157,6 +4301,7 @@ mod tests {
             slides,
             truncated: false,
             icons: Default::default(),
+            sources: Vec::new(),
             outline: None,
             brief: Brief {
                 topic: "Pitch a Series A round for our carbon-negative cargo platform.".into(),
@@ -4624,6 +4769,97 @@ mod tests {
             ],
         );
         assert_eq!(layout, "milestones");
+    }
+
+    /// Short words in a large place grow to fill it (dogfood pass 4): each side's list of a
+    /// pros and cons, each month's of a roadmap, as one set; a slide's one short list past the
+    /// lede, under its headline still. Prices each with a tier go on a pricing slide, the tier
+    /// titling its card and the price its figure.
+    #[test]
+    fn short_lists_grow_to_fill_their_places_and_prices_name_their_tiers() {
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let (summary, slides) = catalog();
+        let made = |name: &str, bullets: &[&str]| {
+            let mut slide = slides.iter().find(|s| s.layout_suggestion == name).unwrap().clone();
+            slide.key_bullets = bullets.iter().map(|b| b.to_string()).collect();
+            let made = deck(
+                &narrative(&summary, vec![slides[0].clone(), slide, slides[55].clone()]),
+                &theme,
+                &Pictures::new(),
+            )
+            .unwrap();
+            let state = made.deck["states"][1]["id"].as_str().unwrap().to_string();
+            (made.layouts[1].clone(), made.deck.clone(), state)
+        };
+        let node = |deck: &Value, state: &str, slot: &str| deck["nodes"][format!("{state}-{slot}")].clone();
+        let size = |r: &str| theme.typography.roles[r].size;
+        // Each side's list of short points grows as the words of a set do, to three-quarters of
+        // the headline.
+        let (layout, deck, state) = made(
+            "Pros / Cons",
+            &[
+                "Pros: cuts SMB churn by an estimated 40%; simpler packaging; wins back price-sensitive prospects",
+                "Cons: $1.2M of ARR at risk from downgrades; sales retraining in Q4; margin dilution of 0.4 points",
+            ],
+        );
+        assert_eq!(layout, "pros-cons");
+        for side in ["first", "second"] {
+            let n = node(&deck, &state, side);
+            assert!(n["list"].is_array(), "{n:#}");
+            assert_eq!(
+                (n["fit"].as_str(), n["maxSize"].as_f64()),
+                (Some("grow"), Some(size("headline") * 0.75)),
+                "{n:#}"
+            );
+        }
+        let (layout, deck, state) = made(
+            "Roadmap",
+            &[
+                "October: launch the Starter tier; call 400 at-risk SMB accounts; fix the renewal email flow",
+                "November: close the two Fortune 500 pilots; hire four enterprise AEs; restart paid search",
+                "December: run the partner webinar series; review churn weekly; set FY27 targets",
+            ],
+        );
+        assert_eq!(layout, "roadmap");
+        assert_eq!(node(&deck, &state, "first")["fit"], "grow");
+        // A slide's one list of short lines may grow past the lede, to three-quarters of its
+        // headline; a long one keeps the lede.
+        let (layout, deck, state) = made(
+            "Numbered",
+            &[
+                "How common is the condition in people like me?",
+                "How often does the test catch it?",
+                "How often does it raise a false alarm?",
+                "Of all the positives, what share are real?",
+            ],
+        );
+        assert_eq!(layout, "numbered");
+        assert_eq!(node(&deck, &state, "body")["maxSize"].as_f64(), Some(size("headline") * 0.75));
+        let (_, deck, state) = made(
+            "Numbered",
+            &[
+                "How common is the condition in people like me, counted over the last ten years of screening?",
+                "How often does the test catch it?",
+                "How often does it raise a false alarm?",
+            ],
+        );
+        assert_eq!(node(&deck, &state, "body")["maxSize"].as_f64(), Some(size("lede")));
+        // Prices each with its tier: the tier titles the card, the price is its figure.
+        let (layout, deck, state) = made(
+            "Scorecard",
+            &[
+                "$0: Starter, up to 3 agents and 500 drafts a month",
+                "$29: Team, per agent per month, unlimited drafts",
+                "$59: Business, adds SSO, audit log, and a 99.9% SLA",
+            ],
+        );
+        assert_eq!(layout, "pricing");
+        assert_eq!(node(&deck, &state, "first-title")["text"], "Starter");
+        assert_eq!(node(&deck, &state, "first-price")["text"], "$0");
+        assert_eq!(node(&deck, &state, "first")["text"], "Up to 3 agents and 500 drafts a month");
+        assert!(node(&deck, &state, "first")["list"].is_null(), "one point is no list");
+        assert_eq!(node(&deck, &state, "third-title")["text"], "Business");
+        assert_eq!(node(&deck, &state, "third")["text"], "Adds SSO, audit log, and a 99.9% SLA");
     }
 
     /// A figure keeps the magnitude a language writes after it: "41.2万ドル" is $412K.
@@ -5144,7 +5380,7 @@ mod tests {
             })),
             answer::normalize(&json!({ "slideTitle": "Thank you", "layoutSuggestion": "Closing" })),
         ];
-        let made = deck(&narrative("A review.", slides), &theme, &Pictures::new()).unwrap();
+        let made = deck(&narrative("A review.", slides.clone()), &theme, &Pictures::new()).unwrap();
         let firsts: Vec<&str> = (made.deck["states"].as_array().unwrap().iter())
             .filter(|s| s.get("slide").is_none())
             .map(|s| s["id"].as_str().unwrap())
@@ -5155,21 +5391,15 @@ mod tests {
         let churn = node(1, "main");
         assert_eq!(churn["annotations"], json!([{ "kind": "highlight", "at": { "series": "SMB" } }]));
         assert_eq!(churn["y"]["title"], "Quarterly logo churn by segment, %");
-        // The takeaway in the note's role, then the source on a line of its own in the caption's,
-        // so the source never shrinks the takeaway.
-        assert_eq!(
-            node(1, "note")["runs"],
-            json!([
-                { "text": "SMB churn has risen four quarters in a row" },
-                { "text": "\nSource: Churn dashboard", "role": "caption" },
-            ])
-        );
-        // One series: the subtitle titles it too, and the takeaway stands over the source alone.
+        // The takeaway alone in the note, which grows to its size, and the source in its own place
+        // (dogfood pass 4).
+        assert_eq!(node(1, "note")["text"], "SMB churn has risen four quarters in a row");
+        assert_eq!(node(1, "source")["text"], "Source: Churn dashboard");
+        assert_eq!(node(1, "source")["semantic"], "source");
+        // One series: the subtitle titles it too.
         assert_eq!(node(2, "main")["y"]["title"], "Annual recurring revenue by month, $K");
-        assert_eq!(
-            words(&node(2, "note")),
-            "ARR reached $910K in September, up 5\u{d7} since January\nSource: Churn dashboard"
-        );
+        assert_eq!(node(2, "note")["text"], "ARR reached $910K in September, up 5\u{d7} since January");
+        assert_eq!(node(2, "source")["text"], "Source: Churn dashboard");
         // A bar chart's axis takes the unit its subtitle lacks, and its caption is its source.
         assert_eq!(node(3, "main")["y"]["title"], "Share of tickets by topic, 1,140 teams (%)");
         assert_eq!(node(3, "note")["text"], "Source: Relay ticket benchmark");
@@ -5179,6 +5409,51 @@ mod tests {
             .collect();
         assert_eq!(beats[3]["media"]["narrato"]["subtitle"], "Share of tickets by topic, 1,140 teams");
         assert!(beats[0]["media"]["narrato"].get("subtitle").is_none(), "the cover has none");
+        // A bundle's older copy of the theme, its line chart with no place for a source: the source
+        // stands under the takeaway in the caption's role.
+        let mut older = theme.clone();
+        older.layouts.get_mut("line-chart").unwrap().slots.shift_remove("source");
+        let made = deck(&narrative("A review.", slides), &older, &Pictures::new()).unwrap();
+        let first = (made.deck["states"].as_array().unwrap().iter()).filter(|s| s.get("slide").is_none()).nth(1);
+        let note = &made.deck["nodes"][format!("{}-note", first.unwrap()["id"].as_str().unwrap())];
+        assert_eq!(
+            note["runs"],
+            json!([
+                { "text": "SMB churn has risen four quarters in a row" },
+                { "text": "\nSource: Churn dashboard", "role": "caption" },
+            ])
+        );
+    }
+
+    /// A line labels the figure its headline names where its ends do not (dogfood pass 4), and an
+    /// axis titled by a subtitle that names the unit takes it no second time.
+    #[test]
+    fn a_line_labels_the_figure_its_headline_names() {
+        let chart: ChartData = serde_json::from_value(json!({
+            "categories": ["2021", "2022", "2023", "2024"],
+            "series": [{ "name": "Outage hours", "values": [24, 286, 40, 2] }],
+            "unit": "hours",
+        }))
+        .unwrap();
+        let said = |title: &str| named_figure(&chart, None, [Some(title), None]);
+        assert_eq!(
+            said("Outage hours fell from 286 to 2 in three years"),
+            Some(json!({ "kind": "callout", "at": { "x": "2022" }, "text": "286" }))
+        );
+        assert_eq!(said("Outage hours fell to 2 by 2024"), None, "an end is labelled already, a year is no figure");
+        assert_eq!(figures("$1,140 and 4.9%, in 2024."), [1140.0, 4.9, 2024.0]);
+        assert_eq!((grouped(1140.0, 0), grouped(-2.5, 1)), ("1,140".to_string(), "\u{2212}2.5".to_string()));
+        let node = chart_node(
+            &chart,
+            "d",
+            "line-chart",
+            ["Outage hours fell from 286 to 2", ""],
+            Some("Hours without power per year, Port Alder"),
+            "en",
+            json!({}),
+        );
+        assert_eq!(node["y"]["title"], "Hours without power per year, Port Alder");
+        assert_eq!(node["annotations"][1]["text"], "286", "{node:#}");
     }
 
     /// A series is named as a whole word: "US" is not in "business", nor "EU" in "neutral".
@@ -5505,8 +5780,8 @@ mod tests {
         for spanish in ["Hace", "Piensa", "Siente"] {
             assert!(said.iter().any(|w| w == spanish), "{spanish} in {said:?}");
         }
-        let note = words(placed(&made.deck, 4, "note"));
-        assert!(note.ends_with("Fuente: NASA GISS"), "{note}");
+        let source = words(placed(&made.deck, 4, "source"));
+        assert_eq!(source, "Fuente: NASA GISS");
         assert!(placed(&made.deck, 4, "main")["alt"].as_str().unwrap().starts_with("Gráfico de líneas"));
         // A year's months and a 2×2's axes, in Spanish, never left empty.
         let mut talk2 = talk.clone();
@@ -5533,7 +5808,7 @@ mod tests {
             .map(|(_, w)| w)
             .collect();
         assert!(said.iter().any(|w| w == "Does"), "{said:?}");
-        assert!(words(placed(&made.deck, 4, "note")).ends_with("Source: NASA GISS"));
+        assert_eq!(words(placed(&made.deck, 4, "source")), "Source: NASA GISS");
     }
 
     #[test]
@@ -6224,6 +6499,57 @@ mod tests {
         assert!(grounding(std::slice::from_ref(&large), Provider::Gemini).unwrap_err().to_string().contains("Gemini"));
         assert!(grounding(&[large], Provider::Anthropic).is_ok(), "Anthropic takes more in one request");
         assert!(grounding(&[], Provider::Anthropic).unwrap().content.is_none());
+    }
+
+    /// What the deck was grounded in is kept beside its brief, and each beat cites the source its
+    /// slide names: a file as `source:NAME`, a page by its address, matched by name, loosely, or by
+    /// address; a source the deck was not grounded in is cited by none (narrative FUNC-3). W423
+    /// passes either, as it passes an address.
+    #[test]
+    fn each_beat_cites_the_source_its_slide_names() {
+        let notes = source("notes.md", Kind::Markdown, "# Tidewater\nShipping emits about 3% of CO2.");
+        let page = source("https://example.org/report", Kind::Html, "Ports electrify by 2030.");
+        let g = grounding(&[notes, page], Provider::Anthropic).unwrap();
+        let (summary, mut slides) = catalog();
+        slides.truncate(5);
+        let refs = [None, Some("notes.md"), Some("  Notes.MD "), Some("https://example.org/report"), Some("q3.pdf")];
+        for (slide, named) in slides.iter_mut().zip(refs) {
+            slide.source_ref = named.map(str::to_string);
+        }
+        let mut n = narrative(&summary, slides);
+        n.sources = provenance(&g.given);
+        let (made, write) = generating(&n, Path::new("dusk.theme.json"), dusk(), &font).unwrap();
+        let deck = write.unwrap().deck.to_value().unwrap();
+        let sources = &deck["meta"]["narrative"]["sources"];
+        assert_eq!(
+            sources,
+            &json!([
+                { "name": "notes.md", "kind": "markdown", "bytes": g.given[0].bytes, "truncated": false },
+                { "name": "https://example.org/report", "kind": "web page", "url": "https://example.org/report",
+                  "bytes": g.given[1].bytes, "truncated": false },
+            ])
+        );
+        let beats: Vec<&Value> = (deck["spine"]["sections"].as_array().unwrap().iter())
+            .flat_map(|s| s["beats"].as_array().unwrap())
+            .collect();
+        let cites = |i: usize| -> Vec<&str> {
+            (beats[i]["evidence"].as_array().into_iter().flatten())
+                .filter_map(Value::as_str)
+                .filter(|e| !e.starts_with('@'))
+                .collect()
+        };
+        assert_eq!(cites(0), Vec::<&str>::new(), "the cover names no source");
+        assert_eq!(cites(1), ["source:notes.md"]);
+        assert_eq!(cites(2), ["source:notes.md"], "named loosely");
+        assert_eq!(cites(3), ["https://example.org/report"], "a page by its address");
+        assert_eq!(cites(4), Vec::<&str>::new(), "a source the deck was not grounded in");
+        assert!(!made.created.findings.iter().any(|f| f.code == "W423"), "{:?}", made.created.findings);
+        // A deck grounded in nothing says nothing of sources.
+        let (summary, slides) = catalog();
+        let (_, write) =
+            generating(&narrative(&summary, slides[..2].to_vec()), Path::new("dusk.theme.json"), dusk(), &font)
+                .unwrap();
+        assert!(write.unwrap().deck.to_value().unwrap()["meta"]["narrative"].get("sources").is_none());
     }
 
     #[test]

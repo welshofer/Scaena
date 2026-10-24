@@ -1,5 +1,5 @@
 {
-  "scaena": "0.36",
+  "scaena": "0.37",
   "_comment": "W428 trigger, linted at 2026-10-15T18:00:00Z: a week fetched on 2026-10-01 in Boston, whose first day has passed there, shown by `t`. A day's prices of AAPL run to 2026-10-13, more than a day before, and no node shows them.",
   "canvas": {
     "width": 1920,
