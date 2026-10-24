@@ -30,10 +30,34 @@ public final class Assistant {
     /// How a request is made, and what it answered: its body and status.
     public typealias Send = @Sendable (URLRequest) async throws -> (Data, Int)
 
+    /// How a request is made whose answer is read as it is written (narrative ATTR-3): each
+    /// piece of the body handed to `heard` as it arrives, and the whole body and status at the end.
+    public typealias Stream = @Sendable (URLRequest, _ heard: @Sendable (String) async -> Void) async throws -> (Data, Int)
+
     /// A request made with `URLSession`, under the app's sandbox and the system's proxies.
     nonisolated public static let urlSession: Send = { request in
         let (data, response) = try await URLSession.shared.data(for: request)
         return (data, (response as? HTTPURLResponse)?.statusCode ?? 0)
+    }
+
+    /// A request made with `URLSession`, its answer read line by line as it arrives.
+    nonisolated public static let urlSessionStream: Stream = { request, heard in
+        let (bytes, response) = try await URLSession.shared.bytes(for: request)
+        var whole = Data()
+        var line = Data()
+        for try await byte in bytes {
+            line.append(byte)
+            if byte == 0x0A {
+                whole.append(line)
+                await heard(String(decoding: line, as: UTF8.self))
+                line.removeAll(keepingCapacity: true)
+            }
+        }
+        if !line.isEmpty {
+            whole.append(line)
+            await heard(String(decoding: line, as: UTF8.self))
+        }
+        return (whole, (response as? HTTPURLResponse)?.statusCode ?? 0)
     }
 
     public let editor: DeckEditor
@@ -45,6 +69,16 @@ public final class Assistant {
     /// A question another panel drafted for the user to send (the story's, PLAN G.9): the
     /// assistant's panel takes it into its box, and it is gone from here.
     public var drafted: String?
+    /// Why the provider is being asked again, and when, while it is (narrative REL-3): "Anthropic
+    /// is busy. Trying again in 4 s (2 of 3)…"; none while nothing waits.
+    public private(set) var waiting: String?
+    /// How long an answer, once it has begun, may go with nothing more from the provider before it
+    /// is asked again: two minutes; a test shortens it. The wait for its first line is the
+    /// request's own timeout, ten minutes, since a model that reasons first may say nothing for
+    /// longer than two.
+    public var silence: TimeInterval = 120
+    /// The waits before asking again, in seconds; a test shortens them.
+    public var waits: [TimeInterval] = [2, 4, 8]
     /// Hears each change the assistant makes to the deck: the source it replaced and the files it
     /// wrote beside the deck, for an undo.
     @ObservationIgnored public var edited: (_ before: String, _ files: [Rewritten]) -> Void = { _, _ in }
@@ -54,14 +88,31 @@ public final class Assistant {
     @ObservationIgnored public var mapSend: Generator.Send = { await GeneratorReply.made($0) }
 
     private let send: Send
+    private let stream: Stream?
     @ObservationIgnored private var chat: ScaenaChat?
     /// The question being answered: what a test awaits.
     @ObservationIgnored private(set) var asking: Task<Void, Never>?
     @ObservationIgnored private var counted = 0
+    /// The entry the answer being written goes into, until it is whole (narrative ATTR-3).
+    @ObservationIgnored private var saying: Int?
 
-    public init(editor: DeckEditor, send: @escaping Send = Assistant.urlSession) {
+    /// The assistant on `editor`'s deck, its requests made by `stream`, which reads each answer as
+    /// it is written (narrative ATTR-3), else by `send`, which reads it whole: `URLSession`'s in
+    /// the app, a stand-in in a test.
+    public init(editor: DeckEditor, send: @escaping Send, stream: Stream?) {
         self.editor = editor
         self.send = send
+        self.stream = stream
+    }
+
+    /// The assistant on `editor`'s deck, as the app makes it: each answer read as it is written.
+    public convenience init(editor: DeckEditor) {
+        self.init(editor: editor, send: Assistant.urlSession, stream: Assistant.urlSessionStream)
+    }
+
+    /// The assistant on `editor`'s deck, each answer read whole by `send`: a test's stand-in.
+    public convenience init(editor: DeckEditor, send: @escaping Send) {
+        self.init(editor: editor, send: send, stream: nil)
     }
 
     /// Ask `text` of `model`, of `provider`'s, with `key`: begun with what the window shows. A
@@ -119,27 +170,25 @@ public final class Assistant {
             while true {
                 try Task.checkCancellation()
                 let request = try chat.request(key: key).urlRequest()
-                let (data, status) = try await send(request)
-                try Task.checkCancellation()
-                let body = String(decoding: data, as: UTF8.self)
                 let next: Next
                 do {
-                    next = try chat.answer(status: status, body: body)
-                } catch {
+                    next = try await turn(request, chat: chat)
+                } catch let refusal as Refusal {
                     // A refusal, or an answer that does not read, said in a person's words (PLAN
                     // 3.18), never the provider's own: the conversation is as it was.
-                    add(.failed(Why.answered(chat.provider, status: status, body: body)))
+                    unsaid()
+                    add(.failed(refusal.said))
                     return
                 }
                 switch next {
                 case .done(let text, let stop, let used):
                     count(used)
-                    if !text.isEmpty { add(.said(text)) }
+                    said(text)
                     add(.done(stop))
                     return
                 case .calls(let text, let calls, let used):
                     count(used)
-                    if !text.isEmpty { add(.said(text)) }
+                    said(text)
                     for (index, call) in calls.enumerated() {
                         // A call the user stopped before it ran is answered as stopped.
                         if Task.isCancelled { break }
@@ -257,8 +306,125 @@ public final class Assistant {
         }
     }
 
+    /// A provider's answer that is no answer, in a person's words.
+    private struct Refusal: Error {
+        let said: String
+    }
+
+    /// When the answer being read last said something: never, until its first line.
+    private actor Lines {
+        private var last: ContinuousClock.Instant?
+
+        func heard() {
+            last = .now
+        }
+
+        /// Whether the answer has begun and said nothing for `silence` since.
+        func quiet(for silence: TimeInterval) -> Bool {
+            guard let last else { return false }
+            return ContinuousClock.now - last > .seconds(silence)
+        }
+    }
+
+    /// One turn of the model: `request` made and its answer read, and, where the provider is busy
+    /// (408, 429), down (5xx), or silent past its deadline, asked again after a wait, up to
+    /// `waits.count` times, the window told of each wait (narrative REL-3). A refusal that is
+    /// not worth asking again, a key not taken or a question too long, is thrown as a `Refusal`;
+    /// the user's stop, as a cancellation.
+    private func turn(_ request: URLRequest, chat: ScaenaChat) async throws -> Next {
+        defer { waiting = nil }
+        for attempt in 0... {
+            saying = nil
+            let again: String
+            do {
+                let (data, status) = try await answered(request, chat: chat)
+                try Task.checkCancellation()
+                let body = String(decoding: data, as: UTF8.self)
+                do {
+                    return try chat.answer(status: status, body: body)
+                } catch {
+                    let why = Why.Answer(status: status, body: body)
+                    guard why == .busy || why == .down else {
+                        throw Refusal(said: Why.answered(chat.provider, status: status, body: body))
+                    }
+                    again = why == .busy ? "\(chat.provider.name) is busy." : "\(chat.provider.name) couldn't answer just now."
+                }
+            } catch let error as URLError where error.code == .timedOut {
+                again = "\(chat.provider.name) went quiet."
+            }
+            try Task.checkCancellation()
+            guard attempt < waits.count else {
+                throw Refusal(said: again + " Try again in a moment.")
+            }
+            unsaid()
+            let wait = waits[attempt]
+            waiting = "\(again) Trying again in \(Int(wait)) s (\(attempt + 1) of \(waits.count))…"
+            try await Task.sleep(for: .seconds(wait))
+        }
+        fatalError("a turn ends by returning or throwing")
+    }
+
+    /// `request` made and its answer read: as it is written where the assistant streams, each
+    /// piece's words shown as they come (narrative ATTR-3); else whole.
+    /// Once the answer has begun, `silence` with no new line gives it up as timed out (narrative
+    /// REL-3); the wait for its first line is the request's own timeout.
+    private func answered(_ request: URLRequest, chat: ScaenaChat) async throws -> (Data, Int) {
+        guard let stream else { return try await send(request) }
+        let lines = Lines()
+        let silence = silence
+        return try await withThrowingTaskGroup(of: (Data, Int)?.self) { group in
+            group.addTask {
+                // The closure crosses to the session's task, so it carries nothing of the
+                // conversation: each piece is read by the conversation the assistant holds, on the
+                // main actor.
+                try await stream(request) { chunk in
+                    await lines.heard()
+                    await self.heard(chunk)
+                }
+            }
+            group.addTask {
+                repeat {
+                    try await Task.sleep(for: .seconds(silence / 4))
+                    if await lines.quiet(for: silence) { throw URLError(.timedOut) }
+                } while !Task.isCancelled
+                return nil
+            }
+            defer { group.cancelAll() }
+            guard let answer = try await group.next() ?? nil else { throw URLError(.timedOut) }
+            return answer
+        }
+    }
+
+    /// A piece of the answer, as it arrives: the words it completes shown in the entry the answer
+    /// is written into.
+    private func heard(_ chunk: String) {
+        guard let chat, let words = try? chat.heard(chunk), !words.isEmpty else { return }
+        if let at = saying, case .said(let sofar) = entries[at].kind {
+            entries[at].kind = .said(sofar + words)
+        } else {
+            saying = add(.said(words))
+        }
+    }
+
+    /// The answer's words, whole: in the entry they were written into, or a new one.
+    private func said(_ text: String) {
+        defer { saying = nil }
+        if let at = saying {
+            if text.isEmpty { entries.remove(at: at) } else { entries[at].kind = .said(text) }
+        } else if !text.isEmpty {
+            add(.said(text))
+        }
+    }
+
+    /// The words written so far taken away: the answer did not read.
+    private func unsaid() {
+        if let at = saying { entries.remove(at: at) }
+        saying = nil
+    }
+
     /// A question stopped: every call of the last answer answered, as stopped where it never ran.
     private func settle(_ chat: ScaenaChat) {
+        saying = nil
         _ = try? chat.next()
         add(.done("stopped"))
     }
