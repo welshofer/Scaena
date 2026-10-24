@@ -1,5 +1,5 @@
 {
-  "scaena": "0.35",
+  "scaena": "0.36",
   "_comment": "W304 clean: the same slide with its picture's place filled, here by a shape placed in it.",
   "canvas": {"width": 1920, "height": 1080},
   "theme": "theme.json",
