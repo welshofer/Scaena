@@ -1387,11 +1387,10 @@ impl Session {
     }
 
     /// Each text of the deck that `query` matches, once for each place it is written, with
-    /// the states that show it from there (PLAN 2.47).
+    /// the states that show it from there (PLAN 2.47), and each cell of its data files.
     #[cfg(feature = "editor")]
     pub fn find(&self, query: &scaena_core::patch::Query) -> Result<Vec<scaena_core::patch::Found>, Error> {
-        let doc = self.deck.to_value().map_err(|e| Error::Deck(e.to_string()))?;
-        scaena_core::patch::find(&doc, query).map_err(Error::Ops)
+        scaena_ops::find::find(&self.bundle(), query).map_err(|e| Error::Ops(e.to_string()))
     }
 
     /// The patch that replaces what `query` matches with `with` (PLAN 2.47): every match, a
@@ -4387,7 +4386,7 @@ mod tests {
     }
 
     /// Find and replace across the deck's words (PLAN 2.47, 2.83): each text, and the beat's
-    /// claim and the chart's description, once for each place it is written; one match replaced
+    /// claim and the chart's description and axis title, once for each place it is written; one match replaced
     /// alone, where its text lives; and every match by the assistant's `deck_find`, one patch.
     #[cfg(feature = "editor")]
     #[test]
@@ -4405,9 +4404,11 @@ mod tests {
                 ("", "/spine/sections/1/beats/0/claim", 1),
                 ("title", "/states/1/props/title/text", 1),
                 ("rev", "/nodes/rev/alt", 1),
+                ("rev", "/nodes/rev/y/title", 1),
                 ("note", "/nodes/note/text", 1),
             ],
-            "Review, the claim's Revenue, Revenue doubled, the description's revenue, and Revenue in $M"
+            "Review, the claim's Revenue, Revenue doubled, the description's revenue, the axis's Revenue ($M), and \
+             Revenue in $M"
         );
         // One match, alone: the third place's first.
         let one = s.replacing(&query, "Inc", Some([2, 0])).unwrap();
@@ -4426,7 +4427,7 @@ mod tests {
         let called = s.tool("deck_find", serde_json::json!({ "find": "rev", "replace": "REV" }), by).unwrap();
         let result: serde_json::Value = serde_json::from_str(&called.result).unwrap();
         assert!(called.edited, "{result}");
-        assert_eq!(result["matches"], 4, "{result}");
+        assert_eq!(result["matches"], 5, "{result}");
         assert_eq!(result["replaced"]["applied"], true, "{result}");
         assert!(s.source().contains("Q3 REView"), "{}", s.source());
         assert!(
