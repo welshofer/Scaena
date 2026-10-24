@@ -415,6 +415,28 @@ fn unwritten(write: &Write) -> crate::Bundle {
 /// `say` hears how far it has come. Nothing is written.
 #[allow(clippy::too_many_arguments)]
 pub fn generate(
+    generation: Generation,
+    key: Option<&str>,
+    documents: &[Document],
+    painter: Option<&Painter>,
+    looking: Looking,
+    theme_file: &Path,
+    theme: String,
+    font: &dyn Fn(&str) -> Result<Vec<u8>, OpsError>,
+    transport: &mut dyn Transport,
+    say: &mut dyn FnMut(Progress),
+) -> Result<(Generated, Option<Write>), OpsError> {
+    let draw = |write: &Write| drawn(write, LOOK_WIDTH);
+    generate_drawn(generation, key, documents, painter, looking, theme_file, theme, font, transport, say, &draw)
+}
+
+/// [`generate`], each slide drawn for the model to see by `draw` (the CPU painter's JPEGs, as
+/// [`generate`] draws them; a browser draws by its own module). The look is a polish on a deck
+/// the model has written and validated (narrative STAB-3): a `draw` that fails, as a deck the
+/// model asked for that cannot be made again, leaves the deck as it was, saying why in
+/// `unlooked`, and is never an error.
+#[allow(clippy::too_many_arguments)]
+pub fn generate_drawn(
     mut generation: Generation,
     key: Option<&str>,
     documents: &[Document],
@@ -425,6 +447,7 @@ pub fn generate(
     font: &dyn Fn(&str) -> Result<Vec<u8>, OpsError>,
     transport: &mut dyn Transport,
     say: &mut dyn FnMut(Progress),
+    draw: &dyn Fn(&Write) -> Result<Vec<Picture>, OpsError>,
 ) -> Result<(Generated, Option<Write>), OpsError> {
     while let Some(request) = key.and_then(|key| generation.request(key, documents)) {
         let step = generation.step();
@@ -466,21 +489,26 @@ pub fn generate(
     let seen = seeing(&narrative, &model, &pictures, &made.layouts);
     let changes = match (looking, key) {
         (Looking::Answered(text), _) => Some(scaena_narrato::look::read(text, &seen).map_err(OpsError::new)),
-        (Looking::Asked, Some(key)) => {
-            let drawn = drawn(&write, LOOK_WIDTH)?;
-            generation.look_request(key, &seen, &drawn).map(|request| {
+        (Looking::Asked, Some(key)) => match draw(&write) {
+            Ok(drawn) => generation.look_request(key, &seen, &drawn).map(|request| {
                 say(Progress::Looking { slides: seen.len() });
                 let reply = transport.send(&request);
                 (generation.look_answer(reply.status, &reply.status_text, &reply.body, &seen))
                     .map_err(|e| OpsError::new(e.to_string()))
-            })
-        }
+            }),
+            // A slide that would not draw for the model to see: the deck stands as made.
+            Err(why) => Some(Err(OpsError::new(format!("the slides could not be drawn for the model: {why}")))),
+        },
         _ => None,
     };
     match changes {
         Some(Ok(changes)) => {
             let shown = Shown { narrative: &narrative, theme: &model, pictures: &pictures, assets: &assets };
-            (made, write) = looked(shown, changes, (made, write), theme_file, &theme, font)?;
+            match looked(shown, changes, (made.clone(), write.clone()), theme_file, &theme, font) {
+                Ok(after) => (made, write) = after,
+                // The deck the model asked for could not be made again: the one made stands.
+                Err(why) => made.unlooked = Some(format!("the deck the model asked for could not be made: {why}")),
+            }
             say(Progress::Looked { slides: made.looked.len() });
         }
         Some(Err(why)) => made.unlooked = Some(why.to_string()),
@@ -804,7 +832,7 @@ pub fn worse(before: (&Generated, &Write), after: (&Generated, &Write)) -> Vec<u
 
 /// `changes` less those on the slides `refused` names by index.
 pub fn kept(mut changes: Vec<Change>, refused: &[usize]) -> Vec<Change> {
-    changes.retain(|c| !refused.contains(&(c.slide - 1)));
+    changes.retain(|c| !c.slide.checked_sub(1).is_some_and(|index| refused.contains(&index)));
     changes
 }
 
@@ -5550,6 +5578,68 @@ mod tests {
         after.created.findings.push(long);
         assert_eq!(worse((&made, &write), (&after, &write)), vec![3]);
         assert_eq!(kept(made.looked.clone(), &[13]).len(), 1);
+    }
+
+    /// The look is a polish on a deck the model has written and validated (narrative STAB-3): a
+    /// slide that will not draw for the model to see leaves the deck as made, saying why, with
+    /// no look asked for, and the fit still asked; and a change on a slide numbered 0 is kept
+    /// as any other, never a subtraction past zero.
+    #[test]
+    fn a_look_that_cannot_draw_the_slides_leaves_the_deck_as_made() {
+        use scaena_narrato::{Provider, Settings};
+        let (summary, slides) = catalog();
+        let picked = [slides[0].clone(), slides[1].clone(), slides[4].clone(), slides[54].clone(), slides[55].clone()];
+        let written = json!({ "executiveSummary": summary, "slides": picked }).to_string();
+        let arc =
+            std::fs::read_to_string(root().join("crates/scaena-narrato/tests/answers/anthropic-arc.json")).unwrap();
+        let mut asked: Vec<String> = Vec::new();
+        let mut send = |r: &Request| {
+            let body = r.body.as_ref().unwrap();
+            let content = body["messages"][0]["content"].as_array().unwrap();
+            let prompt = content.last().unwrap()["text"].as_str().unwrap().to_string();
+            let reply = if prompt.contains("=== CATALOG ===") {
+                arc.clone()
+            } else if prompt.contains("runs past its place") {
+                anthropic(r#"{"texts": []}"#)
+            } else if prompt.starts_with("You have seen the") {
+                panic!("the slides were not drawn, so the model is not shown them");
+            } else {
+                anthropic(&written)
+            };
+            asked.push(prompt);
+            Reply { status: 200, status_text: "OK".into(), body: reply, after: None }
+        };
+        let mut heard = Vec::new();
+        let mut say = |p: Progress| heard.push(p);
+        let settings = Settings { provider: Provider::Anthropic, model: "a-model".into(), base: None, browser: false };
+        let g = Generation::new(narrative("", Vec::new()).brief, settings).unwrap();
+        let painter_down = |_: &Write| Err(OpsError::new("state `cover` is past the painter's largest raster"));
+        let (made, write) = generate_drawn(
+            g,
+            Some("sk-test"),
+            &[],
+            None,
+            Looking::Asked,
+            Path::new("dusk.theme.json"),
+            dusk(),
+            &font,
+            &mut send,
+            &mut say,
+            &painter_down,
+        )
+        .unwrap();
+        assert!(made.created.created && made.created.errors == 0, "{:#?}", made.created.findings);
+        assert_eq!(write.map(|w| w.deck.slides().len()), Some(5), "the deck stands as made");
+        assert_eq!(
+            made.unlooked.as_deref(),
+            Some("the slides could not be drawn for the model: state `cover` is past the painter's largest raster")
+        );
+        assert!(made.looked.is_empty());
+        assert!(!heard.iter().any(|p| matches!(p, Progress::Looking { .. })), "{heard:?}");
+        assert_eq!(asked.len(), 2, "the arc and the slides; nothing to fit on these");
+        let zero = Change { slide: 0, title: Some("x".into()), ..Change::default() };
+        assert_eq!(kept(vec![zero.clone()], &[0]).len(), 1, "slide 0 names no index");
+        assert_eq!(kept(vec![zero, Change { slide: 1, ..Change::default() }], &[0]).len(), 1);
     }
 
     /// A section is titled by what its slides say (narrative ATTR-5): its divider's title, where
