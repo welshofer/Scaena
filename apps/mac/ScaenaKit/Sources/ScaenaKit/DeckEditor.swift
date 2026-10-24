@@ -1,6 +1,7 @@
 import CoreGraphics
 import Dispatch
 import Foundation
+import ImageIO
 import Observation
 import Synchronization
 
@@ -90,8 +91,19 @@ public final class DeckEditor {
     /// For a test: called on the caller's actor once a read of the deck's health has taken the
     /// deck it reads, before it waits for the answer, as `begun` is for a lint.
     @ObservationIgnored var reading: (() -> Void)?
-    /// Each state drawn small, by the digest of its drawing at rest and the width asked.
-    @ObservationIgnored private var drawings: [String: (digest: String, width: Int, image: CGImage)] = [:]
+    /// Each state drawn small, by its id and the width asked, with the digest of its drawing at
+    /// rest: the strip's, the presenter's next, and a remote's stand side by side (lift-up PERF-2).
+    @ObservationIgnored private var drawings: [Drawn: (digest: String, image: CGImage)] = [:]
+    /// The drawings by when each was last asked for, the least recent first: past `drawingsKept`,
+    /// it is let go.
+    @ObservationIgnored private var asked: [Drawn] = []
+    static let drawingsKept = 256
+    /// Where states are drawn away from the window, one at a time (lift-up PERF-2).
+    @ObservationIgnored private let drawer = Drawer()
+    /// The deck as it stands, taken twice: one to draw from on the drawer's thread, and one the
+    /// session is asked about here, whether it still holds the deck, so neither is used by two
+    /// threads at once.
+    @ObservationIgnored private var drawnFrom: (held: Laying, drawing: Laying)?
     /// Each slide to start as its layout's picture shows it (PLAN 3.31), by its layout, `""` the
     /// blank slide: for the theme, the format, and the height they were drawn in, the `key`.
     @ObservationIgnored private var started: (key: String, drawn: [String: (starter: Starter, image: CGImage)]) = ("", [:])
@@ -288,10 +300,66 @@ public final class DeckEditor {
     /// drawing changed, as the browser's strip draws it (PLAN 2.35).
     public func drawing(_ state: String, width: Int) -> CGImage? {
         guard let digest = try? session.digest(state: state) else { return nil }
-        if let kept = drawings[state], kept.digest == digest, kept.width == width { return kept.image }
+        let drawn = Drawn(state: state, width: width)
+        if let image = kept(drawn, digest) { return image }
         guard let image = try? session.pixels(state, width: width).image else { return nil }
-        drawings[state] = (digest, width, image)
+        keep(drawn, digest, image)
         return image
+    }
+
+    /// `state` drawn at rest `width` pixels wide, as `drawing` draws it, but away from the window
+    /// (lift-up PERF-2): painted on a thread of its own from the deck as it stands, one drawing at
+    /// a time, by an engine kept while the deck stands, while the caller's actor (the window's, or
+    /// the stage's) goes on answering. Kept as `drawing` keeps it, where the deck still draws as
+    /// it did when asked. Where the source did not compile to a deck that validates, drawn here.
+    public func drawingAway(_ state: String, width: Int, isolation: isolated (any Actor)? = #isolation) async -> CGImage? {
+        guard let digest = try? session.digest(state: state) else { return nil }
+        let drawn = Drawn(state: state, width: width)
+        if let image = kept(drawn, digest) { return image }
+        if drawnFrom.map({ !session.holds($0.held) }) ?? true {
+            drawnFrom = session.laying().flatMap { held in session.laying().map { (held: held, drawing: $0) } }
+        }
+        guard let laying = drawnFrom?.drawing else { return drawing(state, width: width) }
+        let format = self.format
+        let painted = await drawer.draw { try laying.pixels(format: format, state: state, width: width) }
+        guard let image = painted?.image else { return nil }
+        if (try? session.digest(state: state)) == digest { keep(drawn, digest, image) }
+        return image
+    }
+
+    /// `state` drawn at rest `width` pixels wide away from the window, as `drawingAway` draws it,
+    /// and made a PNG there too: what a remote is sent (lift-up PERF-2).
+    public func pngAway(_ state: String, width: Int, isolation: isolated (any Actor)? = #isolation) async -> Data? {
+        guard let image = await drawingAway(state, width: width) else { return nil }
+        let drawn = Unsent(image)
+        return await drawer.draw { Self.png(drawn.value) } ?? nil
+    }
+
+    /// `image` as a PNG.
+    static func png(_ image: CGImage) -> Data? {
+        let data = NSMutableData()
+        guard let made = CGImageDestinationCreateWithData(data as CFMutableData, "public.png" as CFString, 1, nil)
+        else { return nil }
+        CGImageDestinationAddImage(made, image, nil)
+        return CGImageDestinationFinalize(made) ? data as Data : nil
+    }
+
+    /// The drawing kept for `drawn`, where it is of the drawing `digest` names: asked for now.
+    private func kept(_ drawn: Drawn, _ digest: String) -> CGImage? {
+        guard let kept = drawings[drawn], kept.digest == digest else { return nil }
+        if let at = asked.firstIndex(of: drawn) { asked.remove(at: at) }
+        asked.append(drawn)
+        return kept.image
+    }
+
+    /// Keep `image` for `drawn`, of the drawing `digest` names, the least recently asked for let
+    /// go past `drawingsKept`.
+    private func keep(_ drawn: Drawn, _ digest: String, _ image: CGImage) {
+        if drawings.updateValue((digest, image), forKey: drawn) != nil, let at = asked.firstIndex(of: drawn) {
+            asked.remove(at: at)
+        }
+        asked.append(drawn)
+        while asked.count > Self.drawingsKept { drawings[asked.removeFirst()] = nil }
     }
 
     /// The slides `layouts` start after the slide of `state`, a nil among them the blank one, each
@@ -359,6 +427,40 @@ public final class DeckEditor {
         findings = compiling.findings
         lintShown()
         return before
+    }
+}
+
+/// A state drawn small: its id, and the width asked.
+private struct Drawn: Hashable {
+    let state: String
+    let width: Int
+}
+
+/// Where states are drawn small away from the window (lift-up PERF-2): one at a time on a queue of
+/// its own, as the linter lays a deck out, each on a thread with `OffMain.stack` bytes of stack,
+/// so a strip of a long deck drawn as it opens is drawn a state after another, not all at once.
+private final class Drawer: Sendable {
+    private let queue = DispatchQueue(label: "ScaenaKit.draw", qos: .utility)
+
+    /// What `work` answers, done on the queue, or none where it throws.
+    func draw<T: Sendable>(_ work: @escaping @Sendable () throws -> T) async -> T? {
+        await withCheckedContinuation { (done: CheckedContinuation<T?, Never>) in
+            queue.async {
+                let answer = Unsent<T?>(nil)
+                OffMain.waiting("ScaenaKit.draw") { answer.value = try? work() }
+                done.resume(returning: answer.value)
+            }
+        }
+    }
+}
+
+/// A value handed to one other thread and back, one thread at a time: a drawing to be made a
+/// PNG, or what a piece of work answers, read once it is done.
+private final class Unsent<T>: @unchecked Sendable {
+    var value: T
+
+    init(_ value: T) {
+        self.value = value
     }
 }
 

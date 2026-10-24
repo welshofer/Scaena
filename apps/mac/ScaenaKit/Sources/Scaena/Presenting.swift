@@ -1083,7 +1083,12 @@ struct PresenterView: View {
         .onAppear { focused = true }
         .task(id: show.index) {
             notes = show.slot.map { showing.notes($0.state) } ?? .none
-            next = show.next.flatMap { showing.editor.drawing($0.state, width: Int(360 * scale)) }
+            // Drawn away from the stage, so a step plays on while the next is drawn (lift-up PERF-2).
+            if let coming = show.next {
+                next = await showing.editor.drawingAway(coming.state, width: Int(360 * scale))
+            } else {
+                next = nil
+            }
         }
     }
 
