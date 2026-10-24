@@ -96,7 +96,7 @@ try {
   check((await page.locator("#strip .found").count()) === 0, "and no count in the strip");
 
   // A headline too long for its header: E100 on the title, an error mark at its box's corner.
-  const long = original.replace('"Revenue doubled"', '"Revenue doubled, and then some, and more"');
+  const long = original.replace('"Revenue doubled"', '"Revenue doubled, and then some, as Pro grew three times faster than Core in every quarter"');
   await type(long);
   check(await until(() => window.scaena.canvas.marks().some((m) => m.node === "title" && m.severity === "error")), "a headline too long: an error mark on the title");
   const title = await mark("title");
