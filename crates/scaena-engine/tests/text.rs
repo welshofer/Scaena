@@ -695,6 +695,28 @@ fn japanese_breaks_between_its_phrases_and_a_number_keeps_its_counter() {
         }
     }
     assert!(inside > 0, "Chinese still breaks between two of its characters");
+    // No line starts with what may not start one, nor ends with an opening bracket (kinsoku):
+    // the dogfood's thesis, balanced as a headline is and wrapped as body text, its comma on
+    // the line it closes, even where its measure makes a phrase break mid-word.
+    let opens_no_line =
+        |c: char| "、。，．・：；？！」』）】〕〉》ーぁぃぅぇぉっゃゅょゎァィゥェォッャュョヮヵヶ".contains(c);
+    let thesis = "レジリエンスは届けられるものではなく、隣人どうしで築くもの";
+    let mut comma_closes = false;
+    for wrap in [Wrap::Greedy, Wrap::Balance] {
+        for quarter in 16..=60 {
+            let width = quarter as f32 / 4.0 * size;
+            let mut spec = TextSpec::plain(theme.text_role("body").unwrap(), thesis);
+            spec.lang = Some("ja".into());
+            spec.wrap = Some(wrap);
+            let layout = engine.layout(&mut fonts, &theme, &spec, width).unwrap();
+            for (before, after) in breaks(&layout) {
+                assert!(!opens_no_line(after), "{wrap:?} at {width}: {before} | {after}");
+                assert!(!"「『（【〔〈《".contains(before), "{wrap:?} at {width}: {before} | {after}");
+                comma_closes |= before == '、';
+            }
+        }
+    }
+    assert!(comma_closes, "the comma closes a line at some measure");
 }
 
 #[test]
