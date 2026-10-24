@@ -128,7 +128,7 @@ Rules:
 
 ```jsonc
 {
-  "scaena": "0.36",
+  "scaena": "0.37",
   "meta":   { "title": "...", "author": "...", "created": "...", "lang": "en-US" },
   "canvas": { "width": 1920, "height": 1080, "unit": "cu" },   // canvas units; 1 cu = 1 px at 1080p
   "formats": ["16:9", "9:16"],                               // the formats it is laid out in too (§3.4)
@@ -797,7 +797,7 @@ Expressions are `docs/spec/expr.md`'s. Each step reads the table the step before
 }
 ```
 
-- `evidence` cites what a beat stands on: `@source`, a data source of the deck's; an asset's path; a URL; or `source:NAME`, a source a deck made from a prompt was grounded in, by the name `meta.narrative.sources` gives it (deck format 0.36, narrative FUNC-3). Each of those keeps where it came from beside the brief: `{ name, kind, url?, bytes, truncated }`, its name as the prompt named it, what it is (`markdown`, `pdf`, `web page`, `github repository`, …), its address where it has one, and what of it the prompt was given. A beat cites a source by its address where it has one, else as `source:NAME`.
+- `evidence` cites what a beat stands on: `@source`, a data source of the deck's; an asset's path; a URL; or `source:NAME`, a source a deck made from a prompt was grounded in, by the name `meta.narrative.sources` gives it (deck format 0.37, narrative FUNC-3). Each of those keeps where it came from beside the brief: `{ name, kind, url?, bytes, truncated }`, its name as the prompt named it, what it is (`markdown`, `pdf`, `web page`, `github repository`, …), its address where it has one, and what of it the prompt was given. A beat cites a source by its address where it has one, else as `source:NAME`.
 - Every state SHOULD belong to exactly one beat; orphan states are lint **W401**.
 - The spine order defines reading order for accessibility and the export order for every projection (§10). It SHOULD be the order the states play in: a beat that comes after another in the spine while its states play first is lint **W426**, since the PDF would tell the story in one order and the video in another.
 
