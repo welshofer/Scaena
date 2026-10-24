@@ -17,7 +17,7 @@
 //   node web/icons.mjs     (after `just web`; from the repository's root)
 //
 // Exits 1 on any failure.
-import { launch, serve } from "./serve.mjs";
+import { insert, launch, serve } from "./serve.mjs";
 
 const server = await serve();
 const failures = [];
@@ -75,7 +75,7 @@ try {
   };
   /** Open the picker from the Insert menu, and wait for its icons. */
   const open = async () => {
-    await page.selectOption("#insert", "icon");
+    await insert(page, "Icon…");
     await page.waitForSelector("#iconing[open] .icons button.icon", { timeout: 30000 });
   };
   const picker = () =>
@@ -109,7 +109,7 @@ try {
   await page.waitForFunction(() => window.scaena.shown() === 1 && window.scaena.canvas.boxed() === "revenue", null, { timeout: 30000 });
 
   const original = await source();
-  const offered = await page.evaluate(() => [...document.querySelectorAll("#insert option")].map((o) => o.textContent));
+  const offered = await page.evaluate(() => window.scaena.inserts().map((i) => i.label));
   check(offered.includes("Icon…"), `the Insert menu offers Icon…: ${offered.slice(-3)}`);
 
   // The picker: every icon, drawn, a few hundred at a time.

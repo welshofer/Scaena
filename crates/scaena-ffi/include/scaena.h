@@ -131,6 +131,15 @@ bool scaena_laying_lay(struct ScaenaLaying *laying);
 // string, or null.
 char *scaena_lint_laid(struct ScaenaSession *session, struct ScaenaLaying *laying, const char *now);
 
+// The narrative health of `laying`'s deck (PLAN G.9), as `health` gives the session's:
+// `{"ok": health}`. Read on the thread that calls it, which touches no session, so the Story
+// panel's reading of a deck as it is typed leaves the window's thread free (lift-up narrative
+// PERF-1). It lays nothing out, and may be read before or after [`scaena_laying_lay`].
+//
+// # Safety
+// `laying` is a live handle from [`scaena_laying_new`], used by one thread at a time.
+char *scaena_laying_health(struct ScaenaLaying *laying);
+
 // Free a laying.
 //
 // # Safety
@@ -176,7 +185,9 @@ char *scaena_picture(const uint8_t *bytes, size_t len);
 // `states`, `formats`, `sizes` (`{own, anew}`: the deck's own canvas named by its shape, and the
 // formats it lays out anew), `setFormat {format?}`, `canvasSize`, `duration {state}`, `timeline`,
 // `files`, `imageFiles`, `digest {state}`, `reading {state}`, `reads {state}` (each node read,
-// in turn: its role and its words, PLAN 3.17), `source`, `compiledFrom
+// in turn: its role and its words, PLAN 3.17), `notes {state}` (what a presenter reads: the
+// state's own, else its first beat's, SPEC §2.6, `{text, blocks}`, the blocks lines, a list, or
+// a table), `source`, `compiledFrom
 // {source}`, `compile {source}`, `lint {state?}`, `fix {patch}`, `inspect {state}`, `boxes
 // {state}`, `hit {state, x, y}`, `layers {state}`, `carets {state, node}`, `choices {state,
 // node}`, `stateChoices {state}`, `words {state}` (its objects by what they show, and the

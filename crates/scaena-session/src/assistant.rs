@@ -39,6 +39,8 @@ pub const TOOLS: &[&str] = &[
     "deck_render",
     "spine_read",
     "spine_update",
+    "state_start",
+    "background_set",
     "deck_health",
     "data_attach",
     "data_edit",
@@ -322,6 +324,26 @@ struct SpineUpdate {
     dry_run: bool,
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StateStart {
+    state: String,
+    #[serde(default)]
+    layout: Option<String>,
+    #[serde(default)]
+    dry_run: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct BackgroundSet {
+    state: String,
+    #[serde(default)]
+    preset: Option<String>,
+    #[serde(default)]
+    dry_run: bool,
+}
+
 /// What `deck_lint` returns, as its MCP tool does.
 #[derive(Serialize)]
 struct Linted {
@@ -477,6 +499,29 @@ impl Session {
                 let edited = self.write(deck.filter(|_| !a.dry_run), by)?;
                 Ok(Called { edited, ..Called::of(patched)? })
             }
+            // A slide started as Add Slide starts one (PLAN 3.30), linted as an edit is.
+            "state_start" => {
+                let a: StateStart = args(name, a)?;
+                let added = scaena_ops::states::starting(&b.deck, &self.theme, &a.state, a.layout.as_deref())?;
+                let what = scaena_ops::states::said(&self.theme, a.layout.as_deref());
+                let validated = self.validated.clone();
+                let judge = |deck: &Deck, theme: &Theme, states: &[&str]| {
+                    self.judge(deck, theme, states).map_err(|e| scaena_ops::OpsError::new(e.to_string()))
+                };
+                let ops = Value::Array(added.patch);
+                let (mut patched, deck) = scaena_ops::patch::editing(&b, &ops, Some(&what), validated, judge)?;
+                patched.applied &= !a.dry_run;
+                let edited = self.write(deck.filter(|_| !a.dry_run), by)?;
+                Ok(Called { edited, ..Called::of(scaena_ops::states::Started { id: added.id, patched })? })
+            }
+            // A slide's background set to a theme preset, or taken away (PLAN 2.148).
+            "background_set" => {
+                let a: BackgroundSet = args(name, a)?;
+                let (mut patched, write) = scaena_ops::backgrounds::backgrounding(&b, &a.state, a.preset.as_deref())?;
+                patched.applied &= !a.dry_run;
+                let edited = self.write(write.filter(|_| !a.dry_run), by)?;
+                Ok(Called { edited, ..Called::of(patched)? })
+            }
             "data_attach" => {
                 let a: scaena_ops::create::Attach = args(name, a)?;
                 let path = a.file.to_string_lossy().into_owned();
@@ -581,7 +626,8 @@ impl Session {
         let digest = dl.digest().map_err(ops)?;
         let scale = match a.size.as_deref() {
             Some(size) => scaena_ops::render::scale_for(size, dl.viewport)?,
-            None => 1.0,
+            // Half the canvas, as the MCP server's tool draws one for a model (narrative PERF-4).
+            None => scaena_ops::render::FOR_A_MODEL,
         };
         let raster = scaena_paint::cpu::CpuPainter::default().paint(&dl, &self.store, scale)?;
         let size = [raster.width, raster.height];
@@ -680,6 +726,12 @@ mod tests {
         // Something is drawn: the background is not all there is.
         let first = &frame.rgba[..4];
         assert!(frame.rgba.chunks(4).any(|p| p != first));
+        // Asked no size, half the canvas, as a model sees it (narrative PERF-4).
+        let half = call(&mut s, "deck_render", json!({ "state": "start" }));
+        let canvas = &s.deck().canvas;
+        let halved = json!([(canvas.width / 2.0) as u32, (canvas.height / 2.0) as u32]);
+        assert_eq!(half.result["size"], halved, "{}", half.result);
+        assert_eq!(half.result["digest"], rendered.result["digest"]);
         // A size past what a raster holds is an error the model reads, not an allocation that
         // would stop the page's worker (PLAN 2.26).
         let huge = s.tool("deck_render", json!({ "state": "start", "size": "32768x18432" }), AGENT).unwrap_err();
@@ -710,6 +762,33 @@ mod tests {
         assert!(failure(&wrong)["message"].as_str().unwrap().contains("bundle"), "{}", failure(&wrong));
         let op = s.tool("deck_patch", json!({ "ops": [{ "op": "remove_node", "id": "nothing" }] }), AGENT).unwrap_err();
         assert_eq!(failure(&op)["op"], 0, "{}", failure(&op));
+    }
+
+    /// The assistant starts a slide and sets its background as the editor's gestures do
+    /// (narrative FUNC-5): each one edit the page takes, a dry run none.
+    #[test]
+    fn starts_a_slide_and_sets_its_background() {
+        let mut s = dusk();
+        let dry = call(&mut s, "state_start", json!({ "state": "start", "layout": "bullets", "dry_run": true }));
+        assert_eq!(
+            (dry.result["applied"].clone(), dry.result["id"].clone(), dry.edited),
+            (json!(false), json!("bullets"), false)
+        );
+        let started = call(&mut s, "state_start", json!({ "state": "start", "layout": "bullets" }));
+        assert_eq!((started.result["applied"].clone(), started.edited), (json!(true), true), "{}", started.result);
+        assert_eq!(started.result["errors"], 0, "{}", started.result);
+        let read = call(&mut s, "deck_read", Value::Null);
+        assert_eq!(read.result["deck"]["states"][1]["layout"], "bullets", "{}", read.result);
+        let set = call(&mut s, "background_set", json!({ "state": "bullets", "preset": "texture" }));
+        assert_eq!((set.result["applied"].clone(), set.edited), (json!(true), true), "{}", set.result);
+        let read = call(&mut s, "deck_read", Value::Null);
+        assert_eq!(read.result["deck"]["nodes"]["bullets-background"]["preset"], "texture", "{}", read.result);
+        let gone = call(&mut s, "background_set", json!({ "state": "bullets" }));
+        assert_eq!((gone.result["applied"].clone(), gone.edited), (json!(true), true), "{}", gone.result);
+        let read = call(&mut s, "deck_read", Value::Null);
+        assert!(read.result["deck"]["nodes"].get("bullets-background").is_none(), "{}", read.result);
+        let lacks = s.tool("background_set", json!({ "state": "bullets", "preset": "nowhere" }), AGENT).unwrap_err();
+        assert!(failure(&lacks)["message"].as_str().unwrap().contains("nowhere"), "{}", failure(&lacks));
     }
 
     #[test]

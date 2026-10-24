@@ -47,6 +47,14 @@ pub struct Generating {
     map: Option<scaena_objects::map::MapPlan>,
 }
 
+/// A [`Generating`] goes from one thread to another between steps (lift-up narrative PERF-3): the
+/// Mac and the iPad make the steps that build the deck and draw its slides away from the main
+/// actor, one step at a time.
+const _: fn() = || {
+    fn sent<T: Send>() {}
+    sent::<Generating>();
+};
+
 /// The pictures made (`Painting::finish`): where each slide's is kept, their bytes by their paths
 /// in the bundle, and why each other asked for was not.
 type Painted = (Pictures, BTreeMap<String, Vec<u8>>, Vec<String>);

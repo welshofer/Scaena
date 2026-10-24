@@ -220,6 +220,8 @@ scaena render talk --state revenue --out revenue.png && open revenue.png
   - `scaena inspect talk --state revenue --resolved` shows what a state holds after the theme.
   - `scaena diff talk --from revenue --to mix` shows what a click changes.
   - `scaena patch` makes edits as JSON operations (SPEC §7.3).
+  - `scaena start talk revenue --layout bullets` adds a slide after the slide `revenue` is on, in one of the theme's layouts, as the editor's Add Slide does: its words to write over. `scaena inspect talk --state revenue --layouts` lists the layouts a slide may take.
+  - `scaena background talk revenue backdrop` gives a slide one of the theme's backgrounds, `--none` takes it away, and with neither it lists what the slide may take.
   - `scaena data talk q3` shows a data source's rows as written, each by its index, and any value its column does not read. `--edits` sets cells, adds rows, and takes them away, in one write of the file that keeps every other byte (SPEC §3.10).
   - `scaena files talk` lists the bundle's images, fonts, and data, what names each, and the objects drawn from each, in which states. `--remove` takes out files nothing names, and refuses the rest.
   - `scaena theme talk --edit ops.json` edits the theme the deck names by JSON Patch operations on it (`/tokens/color/accent`, `/type/roles/body/size`), refused where the deck would not check in the theme it leaves; `--apply theme.json` swaps in another theme, and `--apply salon` one that ships, by its name, with its fonts (SPEC §3.6).
@@ -328,7 +330,7 @@ section open "Open"
 section growth "Growth"
   beat doubled "Pro drove the growth." evidence:[@q3] states:[revenue, mix]
 
-state cover layout:title
+state cover layout:title-center
   title text role:display "Q3 Review" semantic:navigation at:in(title)
   claim text role:title "Revenue doubled this year." semantic:claim at:in(subtitle)
   notes "Let the title sit before you speak."
@@ -352,7 +354,7 @@ Line by line:
 - **Fonts and data.** `font` lists each of the theme's font families, with its file in the bundle, and each family's italic face (`style:italic`), which text in italic is set in. `data q3 "…"` declares a data source and its columns' types. A chart reads it as `@q3`.
 - **Fonts a theme keeps as they are.** A theme family may say `upright: true`: it has no italic by design, because its script sets none, as Japanese and Korean do not. Text in italic is set upright in it, and lint still says so (W231). A family may also say `whole: true`, and then no save subsets its files, in the editor, on the Mac and the iPad, or with `scaena save`: a font whose license reserves its name, as Pretendard's does, may not keep that name once it is cut down. Both are the theme's to say, not the deck's (SPEC §3.6).
 - **The spine.** `section` and `beat` say what each part claims, and which states make the claim. The PDF, the video's chapters, and the narrative lint read them.
-- **`state cover layout:title`** is the first click, on the theme's `title` layout.
+- **`state cover layout:title-center`** is the first click, on the theme's `title-center` layout: a title and the line under it, centered. The theme's `title` layout keeps a place for a picture beside them, which lint (W304) says is empty until one fills it.
   - `title text role:display "Q3 Review" … at:in(title)` declares an object where it first appears: its id, its type, its text, its role, and its slot.
   - `notes` are the speaker's notes.
 - **`state revenue layout:figure transition:standard`** is the next click, on another layout:
