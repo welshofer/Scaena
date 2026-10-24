@@ -92,12 +92,13 @@ struct ThemeChooser: View {
     }
 
     /// What the theme that ships named `name` looks like: a title slide started in a deck of its
-    /// own, its words those the theme's layout says go there, drawn `width` pixels wide.
+    /// own as New starts one, its words those the theme's layout says go there and its backdrop in
+    /// its picture's place, drawn `width` pixels wide.
     private static func titleSlide(in name: String, width: Int) -> CGImage? {
         guard let session = try? ScaenaSession.create(theme: name, title: "Untitled") else { return nil }
         let editor = DeckEditor(session: session)
         guard let first = editor.slots.first?.state,
-            let started = try? session.starting(after: first, layout: "title"),
+            let started = try? session.titling(after: first),
             (try? editor.make(started.patch)) != nil
         else { return nil }
         return editor.drawing(started.id, width: width)

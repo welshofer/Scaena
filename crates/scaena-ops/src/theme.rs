@@ -131,7 +131,12 @@ fn beside(theme: &Path, text: &str) -> BTreeMap<String, Vec<u8>> {
             if crate::create::fonts_named(file).is_err() {
                 continue;
             }
-            let found = [folder.join(file), folder.join("..").join(file)].iter().find_map(|p| std::fs::read(p).ok());
+            // A link out of the folder is passed over as a face not found.
+            let dirs = [folder.to_path_buf(), folder.join("..")];
+            let found = crate::create::font_in(dirs.iter().map(|d| d.as_path()), file)
+                .ok()
+                .flatten()
+                .and_then(|p| std::fs::read(p).ok());
             if let Some(bytes) = found {
                 fonts.insert(file.to_string(), bytes);
             }
