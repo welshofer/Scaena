@@ -140,6 +140,16 @@ pub enum Kind {
     /// The closing it opens never lands the big idea the outline settled.
     #[serde(rename = "bigIdea")]
     BigIdea,
+    /// A break in its story the narrative lint finds: no claim shown, evidence with no claim,
+    /// more than one claim, or the claim of the slide before it again (W420, W421, W424, W425).
+    Story,
+    /// It makes more points, or shows more words, than a room takes in.
+    Dense,
+    /// It shows something, and gives the speaker nothing to say about it.
+    Notes,
+    /// The deck runs past the range of slides its brief asked for; this slide turns least from
+    /// the one before, and is the first to cut.
+    Pacing,
 }
 
 /// Something to look at on one slide: what it says, what to ask the assistant, and, where one
@@ -234,10 +244,13 @@ fn declared(beat: &Beat) -> Option<NarrativeMeta> {
     })
 }
 
-/// The slides of `deck` as health reads them, each by its first state's id.
-fn readings(deck: &Deck, slides: &[Slide]) -> Result<Vec<SlideForHealth>, OpsError> {
+/// The slides of `deck` as health reads them, each by its first state's id, and the most points
+/// any one of its texts makes: its list's items, or its paragraphs (lift-up 10-24b FUNC-2). A
+/// grid of short places, a SWOT or a timeline, makes few in each.
+fn readings(deck: &Deck, slides: &[Slide]) -> Result<(Vec<SlideForHealth>, Vec<usize>), OpsError> {
     let snaps = resolve_states(deck).map_err(|e| OpsError::new(e.to_string()))?;
     let mut out = Vec::with_capacity(slides.len());
+    let mut most = Vec::with_capacity(slides.len());
     for slide in slides {
         let (Some(&first), Some(&last)) = (slide.states.first(), slide.states.last()) else { continue };
         let beat = slide.beat.map(|(.., b)| b);
@@ -255,6 +268,7 @@ fn readings(deck: &Deck, slides: &[Slide]) -> Result<Vec<SlideForHealth>, OpsErr
         };
         // Each item of a set its own point, its parts together; each item of a list one too.
         let mut lines: Vec<(Option<&str>, String)> = Vec::new();
+        let mut points = 0;
         for &(_, props) in &texts {
             let said = words(props);
             let said = said.trim();
@@ -263,6 +277,7 @@ fn readings(deck: &Deck, slides: &[Slide]) -> Result<Vec<SlideForHealth>, OpsErr
             if said.is_empty() || said == title || aside {
                 continue;
             }
+            points = points.max(scaena_core::lists::paragraphs(said).len());
             let listed: Vec<Option<Value>> = match props.get("list") {
                 Some(Value::Array(items)) => items.iter().map(|i| (!i.is_null()).then(|| i.clone())).collect(),
                 _ => Vec::new(),
@@ -300,8 +315,9 @@ fn readings(deck: &Deck, slides: &[Slide]) -> Result<Vec<SlideForHealth>, OpsErr
             narrative_meta: beat.and_then(declared),
             ..SlideForHealth::default()
         });
+        most.push(points);
     }
-    Ok(out)
+    Ok((out, most))
 }
 
 /// The slides whose beat breaks the order the deck's beats run in: each outside the longest run
@@ -353,6 +369,12 @@ fn asked(length: &str) -> Option<(usize, Option<usize>)> {
     let (lo, hi) = range.split_once(['-', '\u{2013}'])?;
     Some((lo.trim().parse().ok()?, Some(hi.trim().parse().ok()?)))
 }
+
+/// More points than a slide makes for a room to take in, as Vzestup's balance reads two to five
+/// as full (lift-up 10-24b FUNC-2).
+const DENSE_POINTS: usize = 5;
+/// More words than a room reads on a slide while the speaker talks.
+const DENSE_WORDS: usize = 75;
 
 /// A range of slides, as a person writes it: "16–25", "41 or more".
 fn range(lo: usize, hi: Option<usize>) -> String {
@@ -420,7 +442,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
     let asked =
         (narrative.and_then(|n| n.get("brief")).and_then(|b| b.get("length")).and_then(Value::as_str)).and_then(asked);
     let slides = slides(deck);
-    let read = readings(deck, &slides)?;
+    let (read, most) = readings(deck, &slides)?;
     let n = read.len();
     let m = health::metrics(&read, None);
 
@@ -806,6 +828,116 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
             );
         }
     }
+    // Coaching, slide by slide (lift-up 10-24b FUNC-2): the narrative lint's warnings where they
+    // fall, a slide that says more than a room takes in, one that leaves the speaker nothing to
+    // say, and the slides to cut first where the deck runs past what its brief asked.
+    let slide_of_state = |id: &str| slides.iter().position(|sl| sl.states.iter().any(|&j| deck.states[j].id == id));
+    let slide_of_beat = |path: &str| -> Option<usize> {
+        let rest = path.strip_prefix("/spine/sections/")?;
+        let mut parts = rest.split('/');
+        let s: usize = parts.next()?.parse().ok()?;
+        let b: usize = parts.nth(1)?.parse().ok()?;
+        slides.iter().position(|sl| sl.beat.is_some_and(|(i, j, _)| i == s && j == b))
+    };
+    let slide_of_path = |path: &str| -> Option<usize> {
+        let i: usize = path.strip_prefix("/states/")?.split('/').next()?.parse().ok()?;
+        slide_of_state(&deck.states.get(i)?.id)
+    };
+    let mut told: Vec<(usize, &str)> = Vec::new();
+    for f in lint.iter().filter(|f| matches!(f.code.as_str(), "W420" | "W421" | "W424" | "W425")) {
+        let at = (f.state.as_deref().and_then(slide_of_state))
+            .or_else(|| f.path.as_deref().and_then(|p| slide_of_beat(p).or_else(|| slide_of_path(p))));
+        let Some(i) = at.filter(|&i| i < read.len()) else { continue };
+        if told.contains(&(i, f.code.as_str())) {
+            continue;
+        }
+        told.push((i, f.code.as_str()));
+        let k = i + 1;
+        let said = scaena_core::words::said(&f.code, f.measure.as_ref()).unwrap_or_else(|| f.message.clone());
+        let ask = match f.code.as_str() {
+            "W420" => format!("Say slide {k}'s claim on it: the one sentence it is there to prove, as its headline."),
+            "W421" => {
+                format!(
+                    "Slide {k} ends on evidence: say on it what the evidence proves, so the room knows why it is there."
+                )
+            }
+            "W424" => format!("Keep one claim on slide {k}: make the others the evidence for it, or split the slide."),
+            _ => format!("Make slide {k} say something slide {} doesn't, or fold the two together.", i.max(1)),
+        };
+        find(&read[i].id, Severity::Warning, Kind::Story, format!("Slide {k}: {said}"), ask, None);
+    }
+    for (i, s) in read.iter().enumerate() {
+        let k = i + 1;
+        let points = most.get(i).copied().unwrap_or(0);
+        let words = s.body.split_whitespace().count();
+        if points > DENSE_POINTS {
+            find(
+                &s.id,
+                Severity::Warning,
+                Kind::Dense,
+                format!("Slide {k} makes {points} points in one place, more than a room takes in."),
+                format!("Tighten slide {k} to the {DENSE_POINTS} points that matter most, or split it in two."),
+                None,
+            );
+        } else if words > DENSE_WORDS {
+            find(
+                &s.id,
+                Severity::Warning,
+                Kind::Dense,
+                format!("Slide {k} shows {words} words, more than a room reads while you speak."),
+                format!("Tighten slide {k}'s words to what the room must read, and move the rest to its notes."),
+                None,
+            );
+        }
+        if !s.body.trim().is_empty() && s.notes.trim().is_empty() {
+            find(
+                &s.id,
+                Severity::Info,
+                Kind::Notes,
+                format!("Slide {k} has nothing for you to say: it has no notes."),
+                format!("Draft notes for slide {k}: what to tell the room beyond what it shows."),
+                None,
+            );
+        }
+    }
+    if let Some((lo, Some(hi))) = asked.filter(|_| n > 2) {
+        let over = n.saturating_sub(hi);
+        if over > 0 {
+            // The slides that turn least from the one before, the first and the last kept.
+            let pairs = &m.coherence.pair_similarities;
+            let mut cut: Vec<usize> = (1..n.saturating_sub(1)).collect();
+            scaena_core::sort::by_key(&mut cut, |&i| {
+                std::cmp::Reverse((pairs.get(i - 1).copied().unwrap_or(0.0) * 1e6) as i64)
+            });
+            cut.truncate(over);
+            scaena_core::sort::by_key(&mut cut, |&i| i);
+            if let Some(&first) = cut.first() {
+                let named: Vec<String> = cut.iter().map(|i| (i + 1).to_string()).collect();
+                let (named, adds) = match named.split_last() {
+                    Some((last, [])) => (format!("slide {last}"), "adds least to the slide before it"),
+                    Some((last, rest)) => {
+                        (format!("slides {} and {last}", rest.join(", ")), "add least to the slides before them")
+                    }
+                    None => (String::new(), ""),
+                };
+                find(
+                    &read[first].id,
+                    Severity::Warning,
+                    Kind::Pacing,
+                    format!(
+                        "The deck runs {} past the {} slides the brief asked for: {named} {adds}.",
+                        counted(over, "slide"),
+                        range(lo, Some(hi))
+                    ),
+                    format!(
+                        "Bring the deck to the {} slides the brief asked for: {named} {adds}. Fold them in, or cut them.",
+                        range(lo, Some(hi))
+                    ),
+                    None,
+                );
+            }
+        }
+    }
     // A slide lint finds an error on: what the first says, and how many more there are.
     for (i, slide) in slides.iter().enumerate() {
         let k = i + 1;
@@ -911,6 +1043,62 @@ mod tests {
             }
         }
         panic!("no beat tells {id}")
+    }
+
+    /// Coaching slide by slide (lift-up 10-24b FUNC-2): a narrative warning lint finds is a
+    /// `story` finding on its slide in the editors' words; a slide of more than five points is
+    /// `dense`; a content slide with no notes asks for them; and a deck past the range its brief
+    /// asked names the slides that turn least as the first to cut.
+    #[test]
+    fn health_coaches_slide_by_slide() {
+        use scaena_core::lint::Finding as Linted;
+        let mut deck = climate();
+        let d = Deck::from_value(&deck).unwrap();
+        let id = |k: usize| deck["states"][k]["id"].as_str().unwrap().to_string();
+        let lint = [Linted::new("W424", Severity::Warning, "two claims")
+            .state(id(3))
+            .measure(json!({ "claims": 2, "max": 1 }))];
+        let h = health_in(&d, &lint).unwrap();
+        let slide = h.slides.iter().position(|s| s.state == id(3)).map(|i| i + 1);
+        let story = h.findings.iter().find(|f| f.kind == Kind::Story).expect("a story finding");
+        assert_eq!(Some(story.slide), slide);
+        assert_eq!(story.says, format!("Slide {}: More than one claim is on screen at once.", story.slide));
+        assert!(story.ask.starts_with(&format!("Keep one claim on slide {}", story.slide)), "{}", story.ask);
+
+        // Seven points on a slide, and no notes for it.
+        let first = h.slides.iter().position(|s| !s.title.is_empty()).unwrap();
+        let state = &h.slides[first].state;
+        let points = (1..=7).map(|n| format!("Point {n}")).collect::<Vec<_>>().join("\n");
+        let list: Vec<Value> = (1..=7).map(|_| json!({ "kind": "bullet" })).collect();
+        deck["nodes"]["dense"] = json!({ "type": "text", "role": "body", "text": points, "list": list, "at": { "rect": [0.1, 0.4, 0.8, 0.5] } });
+        // On every state of the slide, so its last shows it.
+        for st in deck["states"].as_array_mut().unwrap() {
+            if st["id"] == *state || st["slide"] == *state {
+                st["props"]["dense"] = json!({});
+            }
+        }
+        let h = of(&deck);
+        let dense = h.findings.iter().find(|f| f.kind == Kind::Dense && f.slide == first + 1);
+        assert!(
+            dense.is_some_and(|f| f.says.ends_with("makes 7 points in one place, more than a room takes in.")),
+            "{:?}",
+            h.findings
+        );
+        assert!((h.findings.iter()).all(|f| f.kind != Kind::Notes || f.severity == Severity::Info));
+
+        // Twenty-five slides where ten to fifteen were asked: ten to cut, named.
+        deck["meta"]["narrative"]["brief"]["length"] = json!("10-15 slides");
+        let h = of(&deck);
+        let paced: Vec<&Finding> = h.findings.iter().filter(|f| f.kind == Kind::Pacing).collect();
+        assert_eq!(paced.len(), 1, "{:?}", h.findings);
+        assert!(
+            paced[0]
+                .says
+                .starts_with("The deck runs 10 slides past the 10\u{2013}15 slides the brief asked for: slides "),
+            "{}",
+            paced[0].says
+        );
+        assert!(paced[0].slide > 1 && paced[0].slide < 25);
     }
 
     /// The settled outline read (lift-up 10-24b FUNC-1): a deck whose beats each say their claim

@@ -891,7 +891,7 @@ export interface HealthFinding {
   state: string;
   slide: number;
   severity: "error" | "warning" | "info";
-  kind: "title" | "empty" | "turn" | "arc" | "intensity" | "tone" | "drift" | "layout" | "claim" | "bigIdea";
+  kind: "title" | "empty" | "turn" | "arc" | "intensity" | "tone" | "drift" | "layout" | "claim" | "bigIdea" | "story" | "dense" | "notes" | "pacing";
   says: string;
   ask: string;
   fix?: { says: string; patch: unknown[] };
