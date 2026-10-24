@@ -166,7 +166,20 @@ public final class RemoteServer {
         }
     }
 
-    private func heard(_ id: ObjectIdentifier, proof body: Data?) {
+    /// A pairing whose hellos have passed with `keys`, as `heard(_:hello:)` leaves one: what a test
+    /// hands proofs to in the order it chooses, which the loopback cannot pin.
+    func pairing(_ connection: NWConnection, keys: Pairing.Keys) -> ObjectIdentifier {
+        let id = ObjectIdentifier(connection)
+        let joining = Joining(connection)
+        joining.keys = keys
+        remotes[id] = joining
+        return id
+    }
+
+    /// The remotes paired, joined or not yet.
+    var paired: Int { remotes.values.filter(\.paired).count }
+
+    func heard(_ id: ObjectIdentifier, proof body: Data?) {
         guard let joining = remotes[id], let keys = joining.keys else { return }
         guard let body, let proof = try? JSONDecoder().decode(Pairing.Proof.self, from: body) else {
             joining.connection.cancel()
@@ -194,15 +207,21 @@ public final class RemoteServer {
     }
 
     /// A wrong code: the remote is let go, and after `Remote.tries` the code is made anew, those
-    /// pairing let go, and no remote pairs for a while, longer each time.
+    /// pairing let go, and no remote pairs for a while, longer each time. Each let go is dropped
+    /// with its keys at once, not when its connection says it is cancelled: a proof already on its
+    /// way, its keys made under the old code, then finds nothing, is no try, and never pairs.
     private func wrongly(_ joining: Joining) {
+        joining.keys = nil
         joining.connection.cancel()
         wrong += 1
         if wrong >= Remote.tries {
             wrong = 0
             rotations += 1
             cooling = Date().addingTimeInterval(min(cooldown * pow(2, Double(rotations - 1)), 300))
-            for remote in remotes.values where !remote.paired {
+            for (id, remote) in remotes where !remote.paired {
+                remote.keys = nil
+                remote.timeout?.cancel()
+                remotes[id] = nil
                 remote.connection.cancel()
             }
             code = Remote.code()

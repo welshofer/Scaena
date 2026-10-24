@@ -164,6 +164,33 @@ private func tried(_ endpoint: NWEndpoint, _ parameters: NWParameters, _ seconds
     server.stop()
 }
 
+/// A proof that comes after the code was made anew, its keys made under the old code, is no try
+/// and never pairs (lift-up SEC-5): the pairings let go at the fifth wrong code take their keys
+/// with them at once, so the guesses at one code stay five, not one for each pairing open. The
+/// proofs are handed over in turn, the right one last, as the loopback cannot order them.
+@MainActor @Test func aProofLateForTheCodeMadeAnewIsNoTry() throws {
+    let server = try RemoteServer(name: nil, code: "4821", loopback: true)
+    let heard = Heard()
+    server.recoded = { heard.recoded.append($0) }
+    server.tried = { heard.tried = $0 }
+    var ids: [ObjectIdentifier] = []
+    var proofs: [Data] = []
+    for code in ["0000", "1111", "2222", "3333", "4444", "4821"] {
+        let remote = try Pairing(side: .remote, code: code)
+        let presenter = try Pairing(side: .presenter, code: "4821")
+        let connection = NWConnection(to: here(9), using: Remote.parameters(loopback: true))
+        ids.append(server.pairing(connection, keys: try presenter.keys(from: remote.hello)))
+        let tag = try remote.keys(from: presenter.hello).tag(.remote)
+        proofs.append(try JSONEncoder().encode(Pairing.Proof(proof: tag)))
+    }
+    for (id, proof) in zip(ids, proofs).prefix(5) { server.heard(id, proof: proof) }
+    #expect(heard.recoded.count == 1 && heard.tried == 0, "the fifth wrong code makes the code anew")
+    server.heard(ids[5], proof: proofs[5])
+    #expect(server.paired == 0, "the old code's right proof, late, pairs nothing")
+    #expect(heard.tried == 0 && heard.recoded.count == 1, "and is no try")
+    server.stop()
+}
+
 /// A connection that speaks no pairing is let go and counts as no try (lift-up SEC-5): a port
 /// scanner, or a remote of another version, cannot change the code.
 @MainActor @Test func aConnectionWithoutThePairingIsNoTry() async throws {
