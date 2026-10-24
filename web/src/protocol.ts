@@ -286,6 +286,19 @@ export interface Carets {
   /** Its words still as its slot's prompt put them (PLAN 3.30): typing begins with them all
    * selected, so it replaces them. Asked as typing begins, not after each change. */
   prompt?: boolean;
+  /** Where it is code (PLAN 2.139): the columns between its tab stops, the number its first line
+   * goes by, and its language, which its keys are given; none for prose. */
+  code?: { tab: number; from: number; language: string } | null;
+}
+
+/** A key a code text answers as a code editor does (PLAN 2.139, `code::keyed`). */
+export type CodeKey = "Tab" | "Shift+Tab" | "Return";
+
+/** A text and its selection after a code key, offsets in UTF-16 code units. */
+export interface Keyed {
+  text: string;
+  from: number;
+  to: number;
 }
 
 /** Where a link goes (PLAN 2.70): a web address, or a state of the deck. */
@@ -1143,6 +1156,15 @@ export type ToWorker =
   | { type: "codeWords"; id: number; source: string; state: string; node: string; format?: string }
   /** `text` tidied as a paste of code in `language` is (PLAN 2.133). */
   | { type: "tidied"; id: number; text: string; language: string }
+  /** `text` with `from` to `to` selected after `key` in code whose tab stops are `tab` apart
+   * (PLAN 2.139). */
+  | { type: "keyed"; id: number; text: string; from: number; to: number; key: CodeKey; tab: number; language?: string }
+  /** Make Code's patch of `node`, in `language` or the one its words read as (PLAN 2.139). */
+  | { type: "coding"; id: number; source: string; node: string; language?: string }
+  /** Not Code's patch of `node` (PLAN 2.139). */
+  | { type: "uncoding"; id: number; source: string; node: string }
+  /** Tidy Code's patch of `node` as `state` shows it (PLAN 2.139). */
+  | { type: "tidying"; id: number; source: string; state: string; node: string }
   | { type: "italicizing"; id: number; source: string; state: string; node: string; from: number; to: number; format?: string }
   /** The theme the deck names, and the theme files the bundle holds (PLAN 2.39). */
   | { type: "themes"; id: number }
@@ -1494,6 +1516,9 @@ export interface Asking {
   seeing?: Seeing;
   /** The Geoapify key kept, which `map_fetch` fetches a map with (ADR-0030). */
   mapKey?: string;
+  /** How long one turn may go without a word from the provider before it is asked again
+   * (narrative REL-3); two minutes without it. */
+  timeoutMs?: number;
 }
 
 /** What a person asks a model to write (PLAN 2.101): a text's words proofread, tightened, or
@@ -1558,6 +1583,12 @@ export interface Seeing {
 
 /** What the page hears as the assistant works. */
 export type AssistantEvent =
+  /** The model is saying `text`: more of the answer it is writing, which `text` then gives
+   * whole (narrative ATTR-3). */
+  | { kind: "saying"; text: string }
+  /** The provider was busy, down, or silent, and the same turn is asked again after `seconds`
+   * (narrative REL-3): `message` says so in a person's words, the `attempt`th of `of`. */
+  | { kind: "waiting"; message: string; seconds: number; attempt: number; of: number }
   /** The model said `text`. */
   | { kind: "text"; text: string }
   /** It calls tool `name`. */
@@ -1985,6 +2016,8 @@ export type FromWorker =
   | { type: "bolding"; id: number; look: Record<string, unknown> }
   | { type: "codeWords"; id: number; words: string }
   | { type: "tidied"; id: number; text: string }
+  | { type: "keyed"; id: number; keyed: Keyed | null }
+  | { type: "coding" | "uncoding" | "tidying"; id: number; patch: unknown[] }
   | { type: "italicizing"; id: number; look: Record<string, unknown> }
   | { type: "themes"; id: number; themes: Themes }
   /** A theme chosen: what it did, as `theme --apply` says it, and unless it was refused, the

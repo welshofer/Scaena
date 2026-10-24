@@ -572,9 +572,11 @@ final class Showing {
         if rests { rested() }
     }
 
-    /// The state shown at rest: where it holds, it goes on by itself once its hold is over.
+    /// The state shown at rest: where it holds, it goes on by itself once its hold is over. The
+    /// next state's cue is laid out meanwhile, so going on moves at once (lift-up PERF-1).
     private func rested() {
         holding?.cancel()
+        if let next = show.next, next.span > 0 { try? editor.session.prepare(next.state) }
         guard let hold = show.rested() else { return }
         waits(hold)
     }
