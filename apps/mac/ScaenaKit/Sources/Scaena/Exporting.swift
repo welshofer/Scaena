@@ -8,7 +8,8 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 /// The deck's exports (PLAN 3.8): the PDF `scaena export` writes, a page for each slide at its
-/// last state, the state shown as a PNG, and every slide as PNGs in one zip, each named by its
+/// last state, or with the presenter's notes under each, as `--notes` writes it; the state shown
+/// as a PNG, and every slide as PNGs in one zip, each named by its
 /// number (PLAN 2.122), as the editor's Export… makes them. Each is written
 /// when it is asked for, into a folder of its own, then shared through the Share sheet, shown in
 /// Quick Look, or saved where the user says.
@@ -17,6 +18,8 @@ enum Exporting {
     enum Kind {
         /// The deck as a PDF.
         case pdf
+        /// The deck as a PDF with the presenter's notes: each slide smaller, its notes under it.
+        case notes
         /// A state at rest as a PNG, this many pixels wide.
         case png(state: String, width: Int)
         /// Every slide once its steps have played, as PNGs this many pixels wide in one zip.
@@ -24,7 +27,7 @@ enum Exporting {
 
         var type: UTType {
             switch self {
-            case .pdf: .pdf
+            case .pdf, .notes: .pdf
             case .png: .png
             case .slides: .zip
             }
@@ -36,6 +39,8 @@ enum Exporting {
         switch kind {
         case .pdf:
             return try editor.session.pdf()
+        case .notes:
+            return try editor.session.pdf(notes: true)
         case .png(let state, let width):
             return try editor.session.png(state, width: width)
         case .slides(let width):
@@ -58,6 +63,7 @@ enum Exporting {
         let safe = title(of: editor)
         switch kind {
         case .pdf: return "\(safe).pdf"
+        case .notes: return "\(safe) - Notes.pdf"
         case .png(let state, _): return "\(safe) – \(state).png"
         case .slides: return "\(safe) - Slides.zip"
         }

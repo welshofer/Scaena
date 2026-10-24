@@ -42,13 +42,14 @@ export type SaveTo = { folder: FileSystemDirectoryHandle } | { opfs: string };
  * - `slides`: every slide once its steps have played, each as `png` paints it, in one zip, named
  *   by its number, `{name} - Slide 3.png` (PLAN 2.122);
  * - `pdf`: the deck, each slide at its last state, drawn by the PDF's own module, which the
- *   worker loads the first time a PDF is asked for;
+ *   worker loads the first time a PDF is asked for; with `notes`, each slide smaller with the
+ *   presenter's notes under it, as `export --format pdf --notes` prints them;
  * - `html`: the deck as one file that plays offline, named `name`: `page`, the single-file
  *   player's page, filled in with the bundle, its fonts subset. */
 export type Export =
   | { kind: "png"; state: string; width: number; format?: string }
   | { kind: "slides"; width: number; format?: string; name: string }
-  | { kind: "pdf" }
+  | { kind: "pdf"; notes?: boolean }
   | { kind: "html"; page: string; name: string };
 
 /** Where an open bundle is kept, and saves to: a folder on disk, the browser's storage, or the

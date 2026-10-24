@@ -8,6 +8,9 @@ import Testing
     let session = try ScaenaSession(directory: b1)
     let pdf = try session.pdf()
     #expect(pdf.starts(with: Array("%PDF-".utf8)), "a PDF")
+    // With the presenter's notes: each slide smaller with its notes under it, other pages.
+    let noted = try session.pdf(notes: true)
+    #expect(noted.starts(with: Array("%PDF-".utf8)) && noted != pdf, "a PDF with notes")
     let png = try session.png("cover", width: 640)
     #expect(png.starts(with: [0x89, 0x50, 0x4E, 0x47]), "a PNG")
     let width = png[16..<20].reduce(0) { $0 << 8 | Int($1) }

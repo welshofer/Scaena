@@ -1227,10 +1227,11 @@ impl Player {
     }
 
     /// The deck's pages laid out for its PDF, as bytes the PDF's own module (`scaena-pdf`)
-    /// draws: the PDF `scaena export --format pdf` writes (PLAN 2.54).
+    /// draws: the PDF `scaena export --format pdf` writes (PLAN 2.54), with `notes` the one
+    /// `--notes` writes, each slide with the presenter's notes under it.
     #[wasm_bindgen(js_name = pdfLaidOut)]
-    pub fn pdf_laid_out(&self) -> Result<Vec<u8>, JsError> {
-        self.0.pdf_laid_out().map_err(js)
+    pub fn pdf_laid_out(&self, notes: bool) -> Result<Vec<u8>, JsError> {
+        self.0.pdf_laid_out(notes).map_err(js)
     }
 
     /// The deck as one HTML file that plays offline (PLAN 2.54): `page`, the single-file

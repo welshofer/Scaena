@@ -833,6 +833,35 @@ impl Engine {
         Ok(self.text_layouts(req, &[node])?.remove(0))
     }
 
+    /// `slide`, a state's frame at rest, with `notes`, as the pages a PDF with the presenter's
+    /// notes prints for it ([`crate::notes`]): the notes set in the theme's `body` role, its
+    /// family and size, in [`crate::notes::INK`], their paragraphs as written, laid out once
+    /// across the page's width and broken between pages at their lines.
+    pub fn notes_pages(
+        &mut self,
+        deck: &Deck,
+        theme: &Theme,
+        slide: &DisplayList,
+        notes: &str,
+    ) -> Result<Vec<DisplayList>, EngineError> {
+        let geometry = crate::notes::Geometry::of(slide.viewport);
+        let laid = if notes.trim().is_empty() {
+            None
+        } else {
+            let mut props = Props::new();
+            props.insert("type".into(), "text".into());
+            props.insert("text".into(), notes.into());
+            props.insert("role".into(), "body".into());
+            let spec = text_spec(deck, theme, &props, None).map_err(|e| in_node(crate::notes::NOTES, e))?;
+            let mut text = self.text.layout(&mut self.fonts, theme, &spec, geometry.width)?;
+            for run in &mut text.runs {
+                run.color = crate::notes::INK;
+            }
+            Some(text)
+        };
+        Ok(crate::notes::pages(slide, laid.as_ref(), &geometry, crate::sample::text_ops))
+    }
+
     /// Text nodes of a state, each laid out and placed as [`Engine::text_layout`] places one,
     /// the state resolved and placed once: what sets several texts alike reads.
     pub fn text_layouts(&mut self, req: &FrameRequest, nodes: &[&str]) -> Result<Vec<PlacedText>, EngineError> {

@@ -189,10 +189,13 @@ public final class ScaenaSession {
     }
 
     /// The deck as a PDF (PLAN 3.8): a page for each slide at its last state, the bytes `scaena
-    /// export --format pdf` writes, as the browser's PDF module draws them.
-    public func pdf() throws -> Data {
+    /// export --format pdf` writes, as the browser's PDF module draws them; with `notes`, each
+    /// slide smaller with the presenter's notes under it, the bytes `--notes` writes.
+    public func pdf(notes: Bool = false) throws -> Data {
+        let asked: JSONValue = ["notes": .bool(notes)]
+        let args = String(decoding: try JSONEncoder().encode(asked), as: UTF8.self)
         var error: UnsafeMutablePointer<CChar>?
-        return try Self.take(scaena_export(handle, "pdf", nil, &error), error)
+        return try Self.take(scaena_export(handle, "pdf", args, &error), error)
     }
 
     /// `state` at rest as a PNG `width` pixels wide, painted by the CPU painter, as the editor's
