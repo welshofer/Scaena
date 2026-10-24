@@ -1100,6 +1100,8 @@ fn growing(doc: &Value, theme: &scaena_engine::theme::Theme) -> Vec<(String, Str
             let set = match ordinal(slot) {
                 Some((_, part)) => format!("{id}\u{1f}{part}\u{1f}{role}"),
                 None if slot == "title" && layout.starts_with("section") => format!("\u{1f}{layout}\u{1f}{role}"),
+                // A journey's cells, every lane's, one set: the map reads at one size.
+                None if layout == "journey" && journey_cell(slot) => format!("{id}\u{1f}cell\u{1f}{role}"),
                 None => continue,
             };
             members.push((set, id.to_string(), node.clone(), size));
@@ -2542,6 +2544,11 @@ fn ordinal(slot: &str) -> Option<(usize, &str)> {
     })
 }
 
+/// Whether `slot` is one of a journey's cells: what a person does, thinks, or feels in a phase.
+fn journey_cell(slot: &str) -> bool {
+    ["does-", "thinks-", "feels-"].iter().any(|lane| slot.strip_prefix(lane).is_some_and(|o| ORDINALS.contains(&o)))
+}
+
 /// Slots whose prompt names a structure the slide keeps: a column's or a lane's label, a rank, a
 /// step's numeral, an axis.
 fn keeps_prompt(slot: &str) -> bool {
@@ -2785,6 +2792,8 @@ impl Slots<'_> {
             (Some(_), "caption") => at_least("body"),
             // What a figure or a row is, named in a label, as large as words read from the room.
             (Some((_, "title" | "criterion")), "label") => at_least("body"),
+            // A journey's phases and lanes, over and beside its cells, likewise.
+            (Some((_, "phase" | "lane")), "label") if self.layout == "journey" => at_least("body"),
             (Some((_, "figure")), "figure") => at_least("numeral"),
             // Two figures, as large as the slide takes: up to the hero's size.
             (Some((_, "figure")), "hero") if self.layout == "two-figures" => size("hero"),
@@ -2797,6 +2806,9 @@ impl Slots<'_> {
             // under it, as words read from the room (G.19).
             (None, "figure") if name == "callout" && self.layout == "line-chart" => at_least("numeral"),
             (None, "caption") if name == "note" && self.layout == "line-chart" => at_least("body"),
+            // A journey's cells, a few words each, as large as their places take, up to the lede,
+            // all of a slide's at one size (dogfood pass 5).
+            (None, "caption") if self.layout == "journey" && journey_cell(name) => at_least("lede"),
             _ => None,
         }
     }
@@ -3494,16 +3506,22 @@ impl Builder {
                     }
                     node
                 }
-                Fill::Prompt => {
-                    let (Some(role), Some((words, _))) = (&slot.role, slot.prompt.as_ref().and_then(Prompt::text))
-                    else {
-                        continue;
+                Fill::Prompt | Fill::Label(_) => {
+                    let said = match &fill {
+                        Fill::Label(words) => Some(words.clone()),
+                        _ => slot.prompt.as_ref().and_then(Prompt::text).map(|(words, _)| words),
                     };
-                    json!({ "type": "text", "role": role, "text": words, "at": at, "semantic": "navigation" })
-                }
-                Fill::Label(words) => {
-                    let Some(role) = &slot.role else { continue };
-                    json!({ "type": "text", "role": role, "text": words, "at": at, "semantic": "navigation" })
+                    let (Some(role), Some(words)) = (&slot.role, said) else { continue };
+                    let mut node =
+                        json!({ "type": "text", "role": role, "text": words, "at": at, "semantic": "navigation" });
+                    // A journey's lanes grow with its phases and cells; other labels kept keep their size.
+                    if s.layout == "journey"
+                        && let Some(most) = s.grown(name, role)
+                    {
+                        node["fit"] = json!("grow");
+                        node["maxSize"] = json!(most);
+                    }
+                    node
                 }
                 Fill::Shape => {
                     let Some(Prompt::Shape(shape)) = &slot.prompt else { continue };
@@ -4866,6 +4884,27 @@ mod tests {
         );
         assert_eq!(layout, "roadmap");
         assert_eq!(node(&deck, &state, "first")["fit"], "grow");
+        // A journey's cells, a few words each, grow to the lede, every lane's; its phases and
+        // lanes to the body (dogfood pass 5).
+        let (layout, deck, state) = made(
+            "Journey",
+            &[
+                "Spring 2024: knock on every door / will anyone sign up? / hopeful but unsure",
+                "Summer 2024: raise $2.1M from 312 households / this might actually work / proud",
+                "Winter 2024: bolt the first panels to the co-op roof / we did this ourselves / elated",
+            ],
+        );
+        assert_eq!(layout, "journey");
+        for lane in ["does", "thinks", "feels"] {
+            for part in ["first", "second", "third"] {
+                let n = node(&deck, &state, &format!("{lane}-{part}"));
+                assert_eq!((n["fit"].as_str(), n["maxSize"].as_f64()), (Some("grow"), Some(size("lede"))), "{n:#}");
+            }
+        }
+        for label in ["first-phase", "third-lane"] {
+            let n = node(&deck, &state, label);
+            assert_eq!((n["fit"].as_str(), n["maxSize"].as_f64()), (Some("grow"), Some(size("body"))), "{n:#}");
+        }
         // A slide's one list of short lines may grow past the lede, to three-quarters of its
         // headline; a long one keeps the lede.
         let (layout, deck, state) = made(
