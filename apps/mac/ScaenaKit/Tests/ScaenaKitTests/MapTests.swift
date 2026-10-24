@@ -125,7 +125,7 @@ private actor Model {
 /// model's agent, one edit the window's undo takes back; its result the MCP tool's. With no key
 /// kept, it says where one goes, and changes nothing.
 @MainActor
-@Test func theAssistantFetchesAMapAsInsertDoes() async throws {
+@Test(.timeLimit(.minutes(2))) func theAssistantFetchesAMapAsInsertDoes() async throws {
     let maps = repository.appending(path: "tests/fixtures/maps")
     let several = try Data(contentsOf: maps.appending(path: "places-several.json"))
     let picture = try Data(contentsOf: maps.appending(path: "map.png"))
@@ -148,9 +148,8 @@ private actor Model {
 
     assistant.ask(
         "Put a map of Springfield, Massachusetts on the cover.", provider: .anthropic, model: "a-model", key: "sk-test")
-    for _ in 0..<500 where assistant.working {
-        try await Task.sleep(for: .milliseconds(10))
-    }
+    // Awaited, not timed: a slow simulator answers late, and a hang meets the test's time limit.
+    await assistant.asking?.value
     let ran = assistant.entries.compactMap { entry -> Ran? in
         if case .call(_, _, let ran) = entry.kind { return ran }
         return nil

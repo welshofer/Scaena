@@ -2,7 +2,7 @@
 
 use crate::lint::Write;
 use crate::patch::Patched;
-use crate::{Bundle, OpsError};
+use crate::{Bundle, Context, OpsError};
 use schemars::JsonSchema;
 use serde::Serialize;
 use serde_json::{Value, json};
@@ -20,15 +20,26 @@ pub struct Read {
     /// and the nodes drawn from it, as `scaena files` lists them (PLAN 2.59).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub files: Option<Vec<scaena_core::files::BundleFile>>,
+    /// With `theme`, the theme the deck draws in, as the bundle holds it (SPEC §3.6): its
+    /// colors, type roles, layouts and their slots, and presets, by the names the deck uses.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub theme: Option<Value>,
 }
 
 /// The bundle's deck: as JSON, or with `scn`, as `.scn`; with `files`, the bundle's images,
-/// fonts, and data too.
-pub fn read(b: &Bundle, scn: bool, files: bool) -> Result<Read, OpsError> {
+/// fonts, and data too; with `theme`, the theme it draws in (dogfood 3).
+pub fn read(b: &Bundle, scn: bool, files: bool, theme: bool) -> Result<Read, OpsError> {
     let files = if files { Some(crate::files::files(b)?) } else { None };
+    let theme = match theme {
+        true => {
+            let text = b.theme_json.as_deref().context("the deck names no theme")?;
+            Some(serde_json::from_str(text).context("the bundle's theme")?)
+        }
+        false => None,
+    };
     Ok(match scn {
-        true => Read { deck: None, scn: Some(scaena_core::dsl::decompile(&b.deck)), files },
-        false => Read { deck: Some(b.deck.to_value()?), scn: None, files },
+        true => Read { deck: None, scn: Some(scaena_core::dsl::decompile(&b.deck)), files, theme },
+        false => Read { deck: Some(b.deck.to_value()?), scn: None, files, theme },
     })
 }
 

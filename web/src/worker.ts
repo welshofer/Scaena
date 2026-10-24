@@ -26,6 +26,7 @@ import init, {
   shaderRows,
 } from "@scaena/wasm";
 import { deleteKept, keptBundle, newBundle, readAll, remove, renameKept, write } from "./folders";
+import type { Decision, Outlined } from "./generate";
 import { finding } from "./words";
 import type {
   Added,
@@ -45,6 +46,7 @@ import type {
   FromWorker,
   Generate,
   Insert,
+  Keyed,
   Layer,
   LayoutSuggestion,
   Backgrounds,
@@ -58,6 +60,7 @@ import type {
   Look,
   Put,
   BundleFile,
+  Grounded,
   MapRefresh,
   MapTarget,
   Mapped,
@@ -235,6 +238,15 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
       }
       case "generate":
         return await generating(data.generate, data.engine);
+      // The person's decision on the outline shown (narrative FUNC-1): the generation waits on it.
+      case "storySettled":
+        deciding?.({ settled: data.outline });
+        deciding = undefined;
+        return;
+      case "outlineAgain":
+        deciding?.({ arc: data.arc });
+        deciding = undefined;
+        return;
       case "reload": {
         if (!("url" in from)) throw new Error("only a bundle read from a URL is read again");
         latest++;
@@ -564,6 +576,24 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
       }
       case "tidied":
         return post({ type: "tidied", id: data.id, text: player.tidied(data.text, data.language) });
+      case "keyed": {
+        const keyed = JSON.parse(Player.keyed(data.text, data.from, data.to, data.key, data.tab, data.language)) as Keyed | null;
+        return post({ type: "keyed", id: data.id, keyed });
+      }
+      // Make Code, Not Code, and Tidy Code (PLAN 2.139): each the patch the page then makes.
+      case "coding":
+      case "uncoding":
+      case "tidying": {
+        const behind = !player.compiledFrom(data.source);
+        if (behind) saveable(data.source);
+        const patch =
+          data.type === "coding"
+            ? player.coding(data.node, data.language)
+            : data.type === "uncoding"
+              ? player.uncoding(data.node)
+              : player.tidying(data.state, data.node);
+        return post({ type: data.type, id: data.id, patch: JSON.parse(patch) as unknown[] });
+      }
       case "codeWords": {
         const behind = !player.compiledFrom(data.source);
         if (behind) saveable(data.source);
@@ -661,7 +691,12 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         return post({ type: "dataUndone", id: data.id, ...(await dataUndo(data.source, data.redo, data.index, data.format)) });
       case "bundleFiles":
         current(data.source);
-        return post({ type: "bundleFiles", id: data.id, files: JSON.parse(player.bundleFiles()) as BundleFile[] });
+        return post({
+          type: "bundleFiles",
+          id: data.id,
+          files: JSON.parse(player.bundleFiles()) as BundleFile[],
+          grounded: JSON.parse(player.grounded()) as Grounded[],
+        });
       case "health": {
         current(data.source);
         const deck = deckRead();
@@ -860,12 +895,19 @@ function icons(): Uint8Array | undefined {
   return fetchedNow(weatherIcons);
 }
 
-/** The bytes at `url`, fetched at once, as a worker may: none where there is no such file. */
+/** How long a fetch made at once may hold the engine's thread (lift-up REL-3): one that never
+ * answers, on a captive or a flaky network, would hold every edit, frame, and lint behind it.
+ * A worker's synchronous request may have a timeout, and one that runs out is none. */
+const WAIT_MS = 10_000;
+
+/** The bytes at `url`, fetched at once, as a worker may: none where there is no such file, or
+ * where it does not come within `WAIT_MS`. */
 function fetchedNow(url: string | undefined): Uint8Array | undefined {
   if (!url) return undefined;
   const request = new XMLHttpRequest();
   request.open("GET", url, false);
   request.responseType = "arraybuffer";
+  request.timeout = WAIT_MS;
   try {
     request.send();
   } catch {
@@ -880,6 +922,7 @@ function syllables(): string | undefined {
   if (!verse) return undefined;
   const request = new XMLHttpRequest();
   request.open("GET", verse, false);
+  request.timeout = WAIT_MS;
   try {
     request.send();
   } catch {
@@ -1106,6 +1149,9 @@ async function shipped(theme: string): Promise<{ file: string; text: string; fon
 /** The deck `job` asks for, made from a prompt (PLAN G.5) in this worker, which holds no deck: in
  * the theme that ships as `job.theme`, saying how far it has come, then its files, its name, and
  * what it came to. The page opens it as it opens any bundle's files. */
+/** What the person decides of the outline shown, once they do (narrative FUNC-1). */
+let deciding: ((decision: Decision) => void) | undefined;
+
 async function generating(job: Generate, engine?: WebAssembly.Module) {
   await init(engine && { module_or_path: engine });
   // Lint lays the deck's texts out, which can hyphenate them and color their code, counts a haiku, and lays out its forecasts.
@@ -1115,7 +1161,15 @@ async function generating(job: Generate, engine?: WebAssembly.Module) {
   setIcons(icons);
   const { generate } = await import("@scaena/generate");
   const theme = await shipped(job.theme);
-  const { files, made, title } = await generate(job, theme, (event) => post({ type: "generating", event }));
+  // The outline shown to the person (narrative FUNC-1), the generation waiting on what they decide
+  // of it: `settled` or `outlineAgain`, which the page sends.
+  const settle = (outlined: Outlined) => {
+    post({ type: "storyOutlined", ...outlined });
+    return new Promise<Decision>((resolve) => {
+      deciding = resolve;
+    });
+  };
+  const { files, made, title } = await generate(job, theme, (event) => post({ type: "generating", event }), settle);
   const out: Record<string, ArrayBuffer> = {};
   for (const [path, bytes] of files) out[path] = (bytes as Uint8Array).slice().buffer as ArrayBuffer;
   post({ type: "generated", files: out, name: nameFor(title), made }, Object.values(out));
@@ -1123,9 +1177,11 @@ async function generating(job: Generate, engine?: WebAssembly.Module) {
 
 /** A new deck titled `title` (PLAN 2.12), as `deck_create` makes one: the theme that ships as
  * `theme` and the fonts it names. Its one state, with nothing on it, is made a title slide in
- * the theme's `title` layout, its words to type over and its picture's place waiting, as a
- * presentation app's new deck opens and the Mac's does (PLAN 3.30): made before the page reads
- * the deck, so no undo goes back to the empty state. A theme with no such layout leaves it. */
+ * the theme's `title` layout, its words to type over and its picture's place waiting, as Add
+ * Slide starts it (PLAN 3.30): made before the page reads the deck, so no undo goes back to the
+ * empty state. A theme with no such layout leaves it. The Mac's new deck opens with the theme's
+ * backdrop in that place (`titling`); here it waits until the CPU painter draws one without
+ * holding up the editor's gestures. */
 async function made(theme: string, title: string): Promise<Player> {
   const { file, text, fonts } = await shipped(theme);
   const created = Player.create(file, text, title, fonts);
@@ -1502,22 +1558,33 @@ async function thumbnails(height: number, known: Record<string, string>, only?: 
   for (const { state } of slots) {
     if (mine !== thumbing[kind]) break;
     if (only && !only.includes(state)) continue;
+    let digest: string | undefined;
+    let thumb: Thumb;
     try {
-      const digest = player.digest(state);
+      digest = player.digest(state);
       if (known[state] === digest) {
         thumbs.push({ state, digest });
         continue;
       }
       const pixels = player.pixels(state, Infinity, width);
-      const thumb = { state, digest, width, height: pixels.length / 4 / width, pixels: pixels.buffer as ArrayBuffer };
-      if (each) each(thumb);
-      else thumbs.push(thumb);
-    } catch {
-      continue;
+      thumb = { state, digest, width, height: pixels.length / 4 / width, pixels: pixels.buffer as ArrayBuffer };
+    } catch (e) {
+      thumb = unpainted(state, digest, e);
     }
+    if (each) each(thumb);
+    else thumbs.push(thumb);
     await new Promise((go) => setTimeout(go, 0));
   }
   return thumbs;
+}
+
+/** A state whose thumbnail could not be painted (lift-up STAB-4): said to the page, which marks
+ * its tile and keeps its drawing's digest, so it is painted again only once its drawing changes,
+ * and the cause kept in the console. One whose drawing cannot be had is tried again each time. */
+function unpainted(state: string, digest: string | undefined, e: unknown): Thumb {
+  const why = said(e);
+  console.warn(`The thumbnail of ${state} could not be painted: ${why}`);
+  return { state, digest: digest ?? "", failed: why };
 }
 
 /** Each state whose drawing is not the one `known` holds, at rest, `height` pixels high, as the
@@ -1528,15 +1595,16 @@ function redrawn(height: number, known: Record<string, string>): { drawn: Thumb[
   const width = Math.max(1, Math.round((height * w) / h));
   const drawn: Thumb[] = [];
   for (const { state } of slots) {
+    let digest: string | undefined;
     try {
-      const digest = player.digest(state);
+      digest = player.digest(state);
       if (known[state] === digest) continue;
       const pixels = player.pixels(state, Infinity, width);
       drawn.push({ state, digest, width, height: pixels.length / 4 / width, pixels: pixels.buffer as ArrayBuffer });
-      known[state] = digest;
-    } catch {
-      continue;
+    } catch (e) {
+      drawn.push(unpainted(state, digest, e));
     }
+    if (digest !== undefined) known[state] = digest;
   }
   const gone = Object.keys(known).filter((state) => !slots.some((s) => s.state === state));
   for (const state of gone) delete known[state];
@@ -1986,6 +2054,8 @@ function run(index: number, t: number, run: number, still = false, alone = false
   let rested = -1;
   /** When the run's last frame was painted, by the display's clock. */
   let last: number | undefined;
+  /** The slot whose cue came to rest and laid out the next one's (lift-up PERF-1). */
+  let prepared = -1;
   const frame = async (now: number) => {
     if (run !== latest) return;
     let t = offset + Math.max(0, now - start);
@@ -2012,11 +2082,32 @@ function run(index: number, t: number, run: number, still = false, alone = false
       post({ type: "at", index, t: shown, global: slot.start + shown, playing, frame: timing });
       if (still) rested = index;
     }
+    // Its cue over, held or waiting, the next one's is laid out meanwhile; a cut never samples one.
+    if (!still && t >= slot.span && prepared !== index) {
+      prepared = index;
+      ahead(index + 1, run);
+    }
     if (!playing) return;
     if (still) setTimeout(() => frame(performance.now()), slot.span + slot.hold - t);
     else next(frame);
   };
   next(frame);
+}
+
+/** Lay out the cue into slot `index` while the one before it rests or holds, so going on draws its
+ * first frame at once (lift-up PERF-1): once the worker has answered what waits, and only while run
+ * `run` is the one shown. */
+function ahead(index: number, run: number) {
+  const slot = slots[index];
+  if (!slot || slot.span <= 0) return;
+  setTimeout(() => {
+    if (run !== latest) return;
+    try {
+      player.prepare(slot.state);
+    } catch (e) {
+      console.warn(`the next cue could not be laid out ahead: ${said(e)}`);
+    }
+  }, 0);
 }
 
 const next = (frame: (now: number) => void) => {

@@ -91,6 +91,36 @@ final class OpeningTests: XCTestCase {
         XCTAssertFalse(canvas.exists, "Cancel opened a deck: \(app.debugDescription)")
     }
 
+    /// The outline before the slides (narrative FUNC-1): launched with `-sampleOutline YES`, the brief
+    /// shows an outline as one reads, with no call made, as it shows the one the model writes: the
+    /// arc, the big idea, each beat's claim to type over, Add a Beat, Outline Again, and Write the
+    /// Slides. Kept as a screenshot of the step.
+    @MainActor
+    func testTheOutlineIsShownToSettleBeforeTheSlides() {
+        let app = launched(arguments: ["-sampleOutline", "YES"])
+        let canvas = app.descendants(matching: .any).matching(identifier: "canvas").firstMatch
+        if canvas.waitForExistence(timeout: 10) {
+            app.buttons.matching(identifier: "BackButton").firstMatch.tap()
+            XCTAssertTrue(wait(10) { !canvas.exists }, "the deck brought back did not close: \(app.debugDescription)")
+        }
+        let prompting = app.staticTexts.matching(NSPredicate(format: "label == 'New from a Prompt…'")).firstMatch
+        XCTAssertTrue(
+            prompting.waitForExistence(timeout: 30), "the launch screen offers no New from a Prompt…: \(app.debugDescription)")
+        prompting.tap()
+        let write = app.buttons["prompt-write"]
+        XCTAssertTrue(write.waitForExistence(timeout: 10), "the brief shows no outline to write the slides from: \(app.debugDescription)")
+        let claims = app.descendants(matching: .any).matching(identifier: "prompt-beat-claim")
+        XCTAssertTrue(claims.count >= 3, "the outline shows no beats' claims: \(app.debugDescription)")
+        XCTAssertTrue(app.buttons["prompt-add-beat"].exists && app.buttons["prompt-outline-again"].exists, "\(app.debugDescription)")
+        let idea = app.descendants(matching: .any).matching(identifier: "prompt-big-idea").firstMatch
+        XCTAssertTrue(idea.exists, "the outline has no big idea: \(app.debugDescription)")
+        settle()
+        keep(app, as: "prompt-outline")
+        keepElements(app, as: "prompt-outline-elements")
+        app.buttons["prompt-cancel"].tap()
+        XCTAssertTrue(wait(10) { !write.exists }, "Cancel left the outline up: \(app.debugDescription)")
+    }
+
     /// B1 in its window: its forty states down the side, the first shown, and Play.
     @MainActor
     func testB1OpensInItsWindow() throws {
@@ -131,6 +161,7 @@ final class OpeningTests: XCTestCase {
         XCTAssertTrue(typing.waitForExistence(timeout: 5), "the text inserted is not typed in: \(app.debugDescription)")
         settle()
         keep(app, as: "inserted")
+        leaveB1(in: app)
     }
 
     /// Code pasted on the slide is a code text in its language, its chip saying which (PLAN 2.133).
@@ -160,6 +191,26 @@ final class OpeningTests: XCTestCase {
         XCTAssertEqual(chip.value as? String, "Rust", "the chip does not say Rust: \(chip.debugDescription)")
         settle()
         keep(app, as: "code-pasted")
+        leaveB1(in: app)
+    }
+
+    /// B1 left as it was, each step this test made taken back by the toolbar's Undo (PLAN 4.11)
+    /// until it has none to take back, as it had none when B1 opened. The tests after these open B1
+    /// too, and the app saves an edit by itself: a text left on the cover, over its title, took the
+    /// taps ThemeTests and TouchTests meant for the title and the theme's body role. Undo stays
+    /// enabled while it offers Redo; it reads as the step it takes back, and as Undo alone once there
+    /// is none.
+    @MainActor
+    private func leaveB1(in app: XCUIApplication) {
+        let undo = app.navigationBars.buttons.matching(NSPredicate(format: "identifier == 'undo'")).firstMatch
+        XCTAssertTrue(undo.waitForExistence(timeout: 5), "no Undo in the toolbar: \(app.debugDescription)")
+        for _ in 0..<4 where undo.label != "Undo" {
+            let step = undo.label
+            undo.tap()
+            _ = wait(5) { undo.label != step }
+        }
+        XCTAssertEqual(undo.label, "Undo", "B1 is not left as it was: \(app.debugDescription)")
+        settle()
     }
 }
 

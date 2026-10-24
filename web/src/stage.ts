@@ -10,6 +10,7 @@ import type {
   Attached,
   At,
   Cells,
+  CodeKey,
   DataEdited,
   DataMark,
   DataSource,
@@ -24,6 +25,7 @@ import type {
   Hit,
   Insert,
   Inspected,
+  Keyed,
   Layer,
   LayoutSuggestion,
   Backgrounds,
@@ -65,6 +67,7 @@ import type {
   Look,
   Put,
   BundleFile,
+  Grounded,
   Compared,
   Starter,
   Version,
@@ -168,6 +171,10 @@ type Reply = Extract<
       | "bolding"
       | "codeWords"
       | "tidied"
+      | "keyed"
+      | "coding"
+      | "uncoding"
+      | "tidying"
       | "italicizing"
       | "themes"
       | "rethemed"
@@ -234,6 +241,8 @@ export class Stage {
   /** What takes each thumbnail as it is painted, by the request's id. */
   private thumbing = new Map<number, (thumb: Thumb) => void>();
   private asked = 0;
+  /** The name each file dropped had, by its path in the bundle, which names it by its content. */
+  private dropped = new Map<string, string>();
   /** The patch being made, which the next waits for (`make`). */
   private making: Promise<void> = Promise.resolve();
 
@@ -644,7 +653,12 @@ export class Stage {
   }
 
   bundleFiles(source: string): Promise<BundleFile[]> {
-    return this.request<"bundleFiles">({ type: "bundleFiles", id: ++this.asked, source }).then(({ files }) => files);
+    return this.listing(source).then(({ files }) => files);
+  }
+
+  /** The bundle's files, and the sources its deck was grounded in (narrative FUNC-3). */
+  listing(source: string): Promise<{ files: BundleFile[]; grounded: Grounded[] }> {
+    return this.request<"bundleFiles">({ type: "bundleFiles", id: ++this.asked, source });
   }
 
   /** `path` taken out of the bundle, by the user (PLAN 2.59): one nothing names. `dataUndo` puts it
@@ -805,8 +819,31 @@ export class Stage {
     return this.request<"characterChoices">(asked).then(({ choices }) => choices);
   }
 
-  /** What ⌘B gives the characters `from` to `to` (Unicode scalar values) of `node`'s text in
-   * `state`, on the deck the editor's `source` compiles to (PLAN 2.38): `style_text`'s `look`. */
+  /** `text` with `from` to `to` (UTF-16) selected after `key` in code whose tab stops are `tab`
+   * columns apart, in `language`, as a code editor answers it (PLAN 2.139, `code::keyed`): a
+   * Makefile's stop a tab; none for a key code does not answer. */
+  keyed(text: string, from: number, to: number, key: CodeKey, tab: number, language?: string): Promise<Keyed | null> {
+    const asked = { type: "keyed" as const, id: ++this.asked, text, from, to, key, tab, language };
+    return this.request<"keyed">(asked).then(({ keyed }) => keyed);
+  }
+
+  /** Make Code's patch of `node` (PLAN 2.139): `code` in `language`, else in the language its words
+   * read as, and the theme's code role, what code does not take taken away. */
+  coding(source: string, node: string, language?: string): Promise<unknown[]> {
+    return this.request<"coding">({ type: "coding", id: ++this.asked, source, node, language }).then(({ patch }) => patch);
+  }
+
+  /** Not Code's patch of `node` (PLAN 2.139): `code` taken away everywhere, the text in `body`. */
+  uncoding(source: string, node: string): Promise<unknown[]> {
+    return this.request<"uncoding">({ type: "uncoding", id: ++this.asked, source, node }).then(({ patch }) => patch);
+  }
+
+  /** Tidy Code's patch of `node` as `state` shows it (PLAN 2.139): `[]` where it is tidy. */
+  tidying(source: string, state: string, node: string): Promise<unknown[]> {
+    const asked = { type: "tidying" as const, id: ++this.asked, source, state, node };
+    return this.request<"tidying">(asked).then(({ patch }) => patch);
+  }
+
   /** `text` tidied as code in `language` is when it is pasted (PLAN 2.133, `code::tidy`). */
   tidied(text: string, language: string): Promise<string> {
     return this.request<"tidied">({ type: "tidied", id: ++this.asked, text, language }).then(({ text }) => text);
@@ -818,6 +855,8 @@ export class Stage {
     return this.request<"codeWords">(asked).then(({ words }) => words);
   }
 
+  /** What ⌘B gives the characters `from` to `to` (Unicode scalar values) of `node`'s text in
+   * `state`, on the deck the editor's `source` compiles to (PLAN 2.38): `style_text`'s `look`. */
   bolding(source: string, state: string, node: string, from: number, to: number, format?: string): Promise<Record<string, unknown>> {
     const asked = { type: "bolding" as const, id: ++this.asked, source, state, node, from, to, format };
     return this.request<"bolding">(asked).then(({ look }) => look);
@@ -1144,9 +1183,15 @@ export class Stage {
    * could not show, one too large among them, is refused and kept out of the bundle. */
   drop(name: string, bytes: ArrayBuffer): Promise<string> {
     return this.request<"dropped">({ type: "drop", id: ++this.asked, name, bytes }).then(({ path }) => {
+      this.dropped.set(path, name);
       this.wrote([path]);
       return path;
     });
+  }
+
+  /** The name the file at `path` had when it was dropped on this page, where it was. */
+  droppedAs(path: string): string | undefined {
+    return this.dropped.get(path);
   }
 
   /** What the PNG or JPEG `bytes` are as a picture, read as the engine reads it before it is
@@ -1332,6 +1377,10 @@ export class Stage {
       case "bolding":
       case "codeWords":
       case "tidied":
+      case "keyed":
+      case "coding":
+      case "uncoding":
+      case "tidying":
       case "italicizing":
       case "themes":
       case "rethemed":
@@ -1403,6 +1452,7 @@ export class Stage {
       // What a worker that makes a deck from a prompt says (PLAN G.5): a stage's never does.
       case "briefing":
       case "generating":
+      case "storyOutlined":
       case "generated":
         return;
       default: {

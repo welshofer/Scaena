@@ -6,7 +6,8 @@ import SwiftUI
 /// last state at rest, as the PDF draws it, to reorder, copy, and take out across a large deck. The
 /// slider under the grid, or a pinch, makes the slides larger or smaller, as many to a row as fit,
 /// and the size is kept for the next time. A click selects a slide, Shift+click every slide from the
-/// one last clicked, ⌘-click adds one or takes it away; ← and → select the slide before or after,
+/// one last clicked, ⌘-click adds one or takes it away, as does a tap with the toolbar's Select held
+/// (lift-up FUNC-4); ← and → select the slide before or after,
 /// Home and End the first and the last. The slides selected, dragged onto another, go before it
 /// where they come after it and after it where they come before; ⌥← and ⌥→ move them a place; ⌘D
 /// (the Node menu's Duplicate) copies them, each just after itself; Delete takes them out. Return,
@@ -20,6 +21,9 @@ struct LightTable: View {
     let show: (String) -> Void
     /// Make `ops`, one step to undo, then select the slides `then`.
     let make: ([JSONValue], [String]) -> Void
+    /// What a touch holds in a keyboard's place (lift-up FUNC-4): Select held, a tap adds a slide or
+    /// takes it out, as ⌘ and a click do.
+    var touch: TouchHeld? = nil
     /// The slide last clicked: where Shift+click selects from.
     @State private var anchor: String?
     @FocusState private var focused: Bool
@@ -51,8 +55,10 @@ struct LightTable: View {
                         ForEach(Array(slides.enumerated()), id: \.element.id) { n, slide in
                             SlideCell(
                                 editor: editor, slide: slide, number: n + 1, picked: picked.contains(slide.id),
-                                revision: editor.revision, width: cell
+                                revision: editor.revision, width: cell,
+                                headline: editor.slots.first { $0.state == slide.last }?.headline
                             )
+                            .accessibilityActions { actions(slide, in: slides) }
                             .onTapGesture(count: 2) { show(slide.states.first ?? slide.id) }
                             .onTapGesture { click(slide.id, in: slides) }
                             .draggable(slide.id)
@@ -137,7 +143,7 @@ struct LightTable: View {
         let ids = slides.map(\.id)
         if Held.shift, let anchor, let a = ids.firstIndex(of: anchor), let b = ids.firstIndex(of: id) {
             picked = Set(ids[min(a, b)...max(a, b)])
-        } else if Held.command {
+        } else if Held.command || touch?.selecting == true {
             if picked.contains(id) { picked.remove(id) } else { picked.insert(id) }
             anchor = id
         } else {
@@ -153,6 +159,28 @@ struct LightTable: View {
         guard ids.indices.contains(at + by) else { return }
         picked = [ids[at + by]]
         anchor = ids[at + by]
+    }
+
+    /// What VoiceOver offers on a slide (lift-up 10-24b USE-4), each what its key does to it alone:
+    /// moved a place, copied, taken out, or shown on the canvas.
+    @ViewBuilder private func actions(_ slide: Slide, in slides: [Slide]) -> some View {
+        let ids = slides.map(\.id)
+        if let i = ids.firstIndex(of: slide.id) {
+            if i > 0 {
+                Button("Move Before") { make(Restaging.moveSlides([slide.id], before: true, ids[i - 1]), [slide.id]) }
+            }
+            if i + 1 < ids.count {
+                Button("Move After") { make(Restaging.moveSlides([slide.id], before: false, ids[i + 1]), [slide.id]) }
+            }
+        }
+        Button("Duplicate Slide") { make(Restaging.duplicateSlides([slide.id]), [slide.id]) }
+        if ids.count > 1 {
+            Button("Delete Slide") {
+                let after = ids.drop { $0 != slide.id }.dropFirst().first ?? ids.last { $0 != slide.id }
+                make(Restaging.removeSlides([slide.id]), after.map { [$0] } ?? [])
+            }
+        }
+        Button("Show on the Canvas") { show(slide.states.first ?? slide.id) }
     }
 
     /// The slides selected, in the deck's order.
@@ -205,6 +233,8 @@ private struct SlideCell: View {
     let revision: Int
     /// How wide it stands, in points.
     let width: CGFloat
+    /// The words that head it as it is drawn, which VoiceOver reads it by (lift-up 10-24b USE-4).
+    let headline: String?
     @State private var drawing: CGImage?
     @Environment(\.displayScale) private var scale
 
@@ -241,11 +271,12 @@ private struct SlideCell: View {
         }
         .contentShape(Rectangle())
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(slide.states.count > 1 ? "Slide \(number), \(slide.states.count) steps" : "Slide \(number)")
+        .accessibilityLabel(SlideReading.cell(number: number, headline: headline))
+        .accessibilityValue(SlideReading.steps(slide.states.count))
         .accessibilityIdentifier("slide-\(slide.id)")
         .accessibilityAddTraits(picked ? .isSelected : [])
         .task(id: "\(slide.last)\u{1f}\(revision)\u{1f}\(drawn)") {
-            drawing = editor.drawing(slide.last, width: drawn)
+            drawing = await editor.drawingAway(slide.last, width: drawn)
         }
     }
 }

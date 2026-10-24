@@ -1,5 +1,8 @@
 import CScaena
 import Foundation
+import os
+
+private let generatingLog = Logger(subsystem: "com.welshofer.Scaena", category: "generating")
 
 /// What a brief may ask, as Narrato knows it (PLAN G.6): its goals, lengths, and ways a deck is
 /// delivered, the audiences its personas name, its arcs, and the defaults a field left empty takes.
@@ -52,17 +55,91 @@ public struct Brief: Encodable, Sendable {
     }
 }
 
+/// The deck's outline before its slides (narrative FUNC-1): the big idea, and each beat with the one
+/// claim its slides must leave the audience with and the slides it takes, as the engine's
+/// `scaena_narrato::Outline` keeps it.
+public struct StoryOutline: Codable, Sendable, Equatable {
+    public struct Beat: Codable, Sendable, Equatable {
+        /// Its name: the arc's, or the person's own for a beat they added.
+        public var name: String
+        /// The one sentence its slides must leave the audience with.
+        public var claim: String
+        /// The slides it takes, as the plan spreads them.
+        public var slides: Int
+
+        public init(name: String, claim: String, slides: Int = 0) {
+            self.name = name
+            self.claim = claim
+            self.slides = slides
+        }
+    }
+
+    public var bigIdea: String
+    public var beats: [Beat]
+
+    public init(bigIdea: String, beats: [Beat]) {
+        self.bigIdea = bigIdea
+        self.beats = beats
+    }
+}
+
+/// The outline as the model wrote it, shown for the person to settle (narrative FUNC-1): on `arc`,
+/// chosen for `reasoning`, or the heuristic's where `fallback` says why.
+public struct Outlined: Sendable, Equatable {
+    public let outline: StoryOutline
+    public let arc: String
+    public let reasoning: String
+    public let fallback: String?
+
+    public init(outline: StoryOutline, arc: String, reasoning: String, fallback: String? = nil) {
+        self.outline = outline
+        self.arc = arc
+        self.reasoning = reasoning
+        self.fallback = fallback
+    }
+
+    /// An outline as one reads, for a window shown with none written: what the screenshots CI keeps
+    /// show of the step.
+    public static let sample = Outlined(
+        outline: StoryOutline(
+            bigIdea: "A trail is kept by the people who walk it.",
+            beats: [
+                .init(name: "Problem: Define core challenge and stakes", claim: "The storm took fifty-two miles of trail in one night.", slides: 1),
+                .init(name: "Impact: Quantify cost of inaction", claim: "Every closed mile costs the valley a season of visitors.", slides: 1),
+                .init(name: "Existing Approaches: Why they fall short", claim: "Contract crews cannot reach the high sections before the snow.", slides: 1),
+                .init(name: "Solution: Introduce your answer", claim: "Volunteers rebuilt it in one summer, a mile a weekend.", slides: 1),
+                .init(name: "Proof: Case studies, data, demos", claim: "Ninety thousand people walked it again this year.", slides: 2),
+                .init(name: "Call to Action: Next steps", claim: "Your gift keeps the crews on the trail next summer.", slides: 2),
+            ]),
+        arc: "Problem–Solution",
+        reasoning: "Donors know the trail; the talk moves them from the loss to what their gift keeps open.")
+}
+
+/// What the person decided of the outline shown: settled, so the slides are written to it; or
+/// another arc, by name or the heuristic's where none, to outline again.
+public enum OutlineDecision: Sendable, Equatable {
+    case settled(StoryOutline)
+    case anotherArc(String?)
+}
+
 /// How far a deck being made from a prompt has come, as `scaena generate` says it.
 public enum GeneratingStep: Equatable, Sendable {
     case fetchingFont(family: String, language: String, megabytes: Double)
     case reading(String)
     case read(name: String, kind: String)
+    case grounded(name: String, kind: String, kilobytes: Int, cut: Bool)
     case researching(String)
     case researchingNow(String)
     case researched(sources: Int, cut: Bool)
     case choosing
     case chose(arc: String, fallback: String?)
+    /// The outline before the slides (narrative FUNC-1): asked, written with this many beats, and
+    /// settled by the person with this many.
+    case outlining
+    case outlined(beats: Int)
+    case settled(beats: Int)
     case writing(slides: Int)
+    case retrying(seconds: Double, tried: Int)
     case wrote(slides: Int, truncated: Bool)
     case painting(pictures: Int, model: String)
     case painted(pictures: Int, unmade: [String])
@@ -81,13 +158,22 @@ public enum GeneratingStep: Equatable, Sendable {
             "Fetching \(family), the font a deck in \(language) is set in (\(String(format: "%.1f", megabytes)) MB)…"
         case .reading(let name): "Reading \(name)…"
         case .read(let name, let kind): "Read \(name) (\(kind))"
+        case .grounded(let name, let kind, 0, _):
+            "No room for \(name) (\(kind)): the sources before it took the million bytes they share"
+        case .grounded(let name, let kind, let kilobytes, let cut):
+            "Grounded in \(name) (\(kind), \(kilobytes) KB\(cut ? ", cut short to fit" : ""))"
         case .researching(let topic): "Researching \(topic)… (minutes)"
         case .researchingNow(let doing): doing
         case .researched(let sources, let cut): "Researched: \(sources) sources\(cut ? ", cut short" : "")"
         case .choosing: "Choosing the arc…"
         case .chose(let arc, let fallback):
             fallback.map { "Arc: \(arc), the heuristic's (\($0))" } ?? "Arc: \(arc)"
+        case .outlining: "Outlining the story: the big idea, and what each beat says…"
+        case .outlined(let beats): "Outline: \(beats) beats. Read it, change what you will, then Write the Slides."
+        case .settled(let beats): "Outline settled: \(beats) beats"
         case .writing(let slides): "Writing the slides, at least \(slides)…"
+        case .retrying(let seconds, let tried):
+            "The provider is busy or did not answer: asking again in \(Int(seconds.rounded())) s (try \(tried + 1) of 6)…"
         case .wrote(let slides, let truncated): "\(slides) slides written\(truncated ? ", the answer cut short" : "")"
         case .painting(let pictures, let model): "Making \(pictures) pictures with \(model)… (a minute or two)"
         case .painted(let pictures, let unmade) where unmade.isEmpty: "\(pictures) pictures made"
@@ -180,7 +266,30 @@ public struct GeneratorReply: Sendable {
     /// followed only where ``follows(_:)`` lets it, else answered as it came.
     public static func made(_ request: GeneratorRequest, by session: URLSession = .shared) async -> GeneratorReply {
         do {
-            let (data, response) = try await session.data(for: try request.urlRequest(), delegate: Redirects())
+            let (data, response): (Data, URLResponse)
+            if let most = request.most {
+                // A source's body read no further than its plan's `most`, as it arrives: a page or a
+                // redirect a person names can stream gigabytes, and the app would run out of memory
+                // before a check after the whole (the 20261024 plan's SEC-2), as the CLI reads it.
+                let (bytes, answered) = try await session.bytes(for: try request.urlRequest(), delegate: Redirects())
+                let tooMuch = GeneratorReply(
+                    status: 0, kind: "", body: Data("\(request.url) answered with more than \(most >> 20) MB".utf8))
+                if answered.expectedContentLength > Int64(most) {
+                    bytes.task.cancel()
+                    return tooMuch
+                }
+                var read = Data()
+                for try await byte in bytes {
+                    read.append(byte)
+                    if read.count > most {
+                        bytes.task.cancel()
+                        return tooMuch
+                    }
+                }
+                (data, response) = (read, answered)
+            } else {
+                (data, response) = try await session.data(for: try request.urlRequest(), delegate: Redirects())
+            }
             let http = response as? HTTPURLResponse
             return GeneratorReply(
                 status: http?.statusCode ?? 0, kind: http?.value(forHTTPHeaderField: "content-type") ?? "", body: data,
@@ -294,6 +403,27 @@ public final class Generator {
             thread.qualityOfService = .userInitiated
             thread.start()
         }
+    }
+
+    /// What `read` makes of `provider`'s `reply`. Where the reply was a refusal, its error is said
+    /// in a person's words, as the pictures' are, "Anthropic didn't accept your key. Check it, or
+    /// replace it." in place of "401 Unauthorized: invalid x-api-key" (lift-up USE-3); the
+    /// provider's own words go to the log. An answer that came but did not read keeps its own.
+    func reading<T>(_ provider: Provider, _ reply: GeneratorReply, _ read: () throws -> T) throws -> T {
+        do {
+            return try read()
+        } catch {
+            guard !(200..<300).contains(reply.status) else { throw error }
+            generatingLog.notice("\(provider.name, privacy: .public): \(String(describing: error), privacy: .public)")
+            throw ScaenaError(message: Why.answered(provider, status: reply.status, body: reply.text))
+        }
+    }
+
+    /// Why a look or a fit was not taken, said in a person's words where `reply` was a refusal.
+    func unanswered(_ why: String, _ provider: Provider, _ reply: GeneratorReply) -> String {
+        guard !(200..<300).contains(reply.status) else { return why }
+        generatingLog.notice("\(provider.name, privacy: .public): \(why, privacy: .public)")
+        return Why.answered(provider, status: reply.status, body: reply.text)
     }
 
     func step<T: Decodable>(_ method: String, _ args: [String: JSONValue] = [:], bytes: Data? = nil) throws -> T {
@@ -426,13 +556,15 @@ public final class Generator {
         while let request = next.send {
             if let wait = next.wait { try await Task.sleep(nanoseconds: UInt64(wait) * 1_000_000) }
             let reply = await send(request)
-            next = try step(
-                "researched",
-                [
-                    "key": .string(key), "status": .number(Double(reply.status)),
-                    "statusText": .string(HTTPURLResponse.localizedString(forStatusCode: reply.status)),
-                    "body": .string(reply.text),
-                ])
+            next = try reading(provider, reply) {
+                try step(
+                    "researched",
+                    [
+                        "key": .string(key), "status": .number(Double(reply.status)),
+                        "statusText": .string(HTTPURLResponse.localizedString(forStatusCode: reply.status)),
+                        "body": .string(reply.text),
+                    ])
+            }
             if let progress = next.progress, progress != doing {
                 doing = progress
                 hear(.researchingNow(progress))
@@ -450,14 +582,32 @@ public final class Generator {
         return args
     }
 
+    /// What each source gave the deck, as `begin` says it.
+    private struct Begun: Decodable {
+        struct Given: Decodable {
+            let name: String
+            let kind: String
+            let bytes: Int
+            let truncated: Bool
+        }
+        let given: [Given]
+    }
+
     private struct Standing: Decodable {
         let step: String
         let slides: Int?
         let request: GeneratorRequest?
         let arc: String?
+        let reasoning: String?
         let fallback: String?
         let written: Int?
         let truncated: Bool?
+        /// The outline, once the model wrote it or the person settled one (narrative FUNC-1).
+        let outline: StoryOutline?
+        /// The seconds to wait before the same step is asked again, where its last answer was
+        /// for now (narrative REL-1).
+        let wait: Double?
+        let tried: Int?
     }
 
     private struct Making: Decodable, Sendable {
@@ -475,8 +625,11 @@ public final class Generator {
         let texts: Int
     }
 
+    /// One round of the look answered: the next round where one is left (narrative PERF-5), else
+    /// what the look came to and the fit asked for.
     private struct Looking: Decodable, Sendable {
-        let looked: Int
+        let look: Making.Look?
+        let looked: Int?
         let unlooked: String?
         let fit: Fit?
     }
@@ -662,34 +815,74 @@ public final class Generator {
         return MadePicture(bytes: made.bytes, ext: made.ext, alt: made.alt, model: model)
     }
 
+    /// How the person settles the outline shown (narrative FUNC-1): their decision, or none where
+    /// they stopped, which stops the deck.
+    public typealias Settle = @MainActor (Outlined) async -> OutlineDecision?
+
     /// The deck `brief` asks for, grounded in the sources read, written by `provider`'s `model`
     /// with `key`, on `arc` where one is named, in the theme that ships as `theme`, its pictures
     /// made by `painter` where one is given, and shown to the model as it is drawn unless `look`
     /// says not (PLAN G.13): the bundle made, opened, and what it came to. `hear` hears how far it
-    /// has come.
+    /// has come. With `outline`, the outline is written first and shown by it, and the slides
+    /// follow what the person decided of it (narrative FUNC-1); without, the slides come at once.
     public func generate(
         brief: Brief, arc: String? = nil, provider: Provider, model: String, base: String? = nil, key: String,
-        theme: String, painter: Painter? = nil, look: Bool = true, hear: (GeneratingStep) -> Void
+        theme: String, painter: Painter? = nil, look: Bool = true, outline: Settle? = nil,
+        hear: (GeneratingStep) -> Void
     ) async throws -> (ScaenaSession, Generated) {
         try await prepare(language: brief.language, theme: theme, hear: hear)
         var args = try asking(brief: brief, provider: provider, model: model, base: base)
         if let arc { args["arc"] = .string(arc) }
-        let _: JSONValue = try step("begin", args)
+        let begun: Begun = try step("begin", args)
+        // What each source gave, said before a call is paid for (narrative USE-5).
+        for given in begun.given {
+            hear(.grounded(name: given.name, kind: given.kind, kilobytes: (given.bytes + 1023) / 1024, cut: given.truncated))
+        }
+        if arc != nil, outline != nil { let _: Standing = try step("outline") }
         while true {
             let standing: Standing = try step("request", ["key": .string(key)])
             guard let request = standing.request else { break }
-            hear(standing.step == "arc" ? .choosing : .writing(slides: standing.slides ?? 0))
+            hear(standing.step == "arc" ? .choosing : standing.step == "outline" ? .outlining : .writing(slides: standing.slides ?? 0))
             let reply = await send(request)
-            let now: Standing = try step(
-                "answer",
-                [
-                    "status": .number(Double(reply.status)),
-                    "statusText": .string(reply.status == 0 ? reply.text : HTTPURLResponse.localizedString(forStatusCode: reply.status)),
-                    "body": .string(reply.status == 0 ? "" : reply.text),
-                ])
-            if standing.step == "arc" {
+            var answered: [String: JSONValue] = [
+                "status": .number(Double(reply.status)),
+                "statusText": .string(reply.status == 0 ? reply.text : HTTPURLResponse.localizedString(forStatusCode: reply.status)),
+                "body": .string(reply.status == 0 ? "" : reply.text),
+            ]
+            if let after = reply.after { answered["after"] = .string(after) }
+            let now: Standing = try reading(provider, reply) { try step("answer", answered) }
+            // An answer for now (busy, a server's failure, none): the same step asked again after
+            // the wait the engine says, up to six times (narrative REL-1); a cancellation ends the
+            // wait.
+            if let wait = now.wait {
+                hear(.retrying(seconds: wait, tried: now.tried ?? 0))
+                try await Task.sleep(for: .seconds(wait))
+                continue
+            }
+            switch standing.step {
+            case "arc":
                 hear(.chose(arc: now.arc ?? "", fallback: now.fallback))
-            } else {
+                // The outline before the slides: the next request is the outline's.
+                if outline != nil { let _: Standing = try step("outline") }
+            case "outline":
+                guard let outline, let written = now.outline else { break }
+                hear(.outlined(beats: written.beats.count))
+                let shown = Outlined(outline: written, arc: now.arc ?? "", reasoning: now.reasoning ?? "", fallback: now.fallback)
+                guard let decided = await outline(shown) else { throw CancellationError() }
+                switch decided {
+                case .settled(let settled):
+                    let encoded = try JSONDecoder().decode(JSONValue.self, from: try JSONEncoder().encode(settled))
+                    let after: Standing = try step("settle", ["outline": encoded])
+                    hear(.settled(beats: after.outline?.beats.count ?? 0))
+                case .anotherArc(let name):
+                    // Chosen with no call, and outlined again.
+                    var choosing: [String: JSONValue] = [:]
+                    if let name { choosing["arc"] = .string(name) }
+                    let chosen: Standing = try step("chooseArc", choosing)
+                    hear(.chose(arc: chosen.arc ?? "", fallback: nil))
+                    let _: Standing = try step("outline")
+                }
+            default:
                 hear(.wrote(slides: now.written ?? 0, truncated: now.truncated ?? false))
             }
         }
@@ -702,9 +895,12 @@ public final class Generator {
         var fit = making.fit
         // The deck shown to the model as it is drawn (PLAN G.13), each slide's change kept where
         // lint finds the slide no worse; then the fit, asked after it.
-        if let seeing = making.look {
-            hear(.looking(slides: seeing.slides))
-            let reply = await send(seeing.request)
+        // The look goes a dozen slides a round (narrative PERF-5): each answer asks the next
+        // round, until the engine says what the look came to.
+        var seeing = making.look
+        if let first = seeing { hear(.looking(slides: first.slides)) }
+        while let round = seeing {
+            let reply = await send(round.request)
             let looking: Looking = try await stepAway(
                 "looked",
                 [
@@ -713,7 +909,13 @@ public final class Generator {
                     "body": .string(reply.status == 0 ? "" : reply.text),
                     "key": .string(key),
                 ])
-            if let why = looking.unlooked { hear(.unlooked(why)) } else { hear(.looked(slides: looking.looked)) }
+            seeing = looking.look
+            if seeing != nil { continue }
+            if let why = looking.unlooked {
+                hear(.unlooked(unanswered(why, provider, reply)))
+            } else {
+                hear(.looked(slides: looking.looked ?? 0))
+            }
             fit = looking.fit
         }
         if let fit {
@@ -727,7 +929,7 @@ public final class Generator {
                     "body": .string(reply.text),
                 ])
             if let n = fitting.fitted { hear(.fitted(texts: n)) }
-            if let why = fitting.unfitted { hear(.unfitted(why)) }
+            if let why = fitting.unfitted { hear(.unfitted(unanswered(why, provider, reply))) }
         }
         let generated: Generated = try step("report")
         var error: UnsafeMutablePointer<CChar>?

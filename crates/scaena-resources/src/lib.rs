@@ -191,7 +191,7 @@ static ALL: LazyLock<Vec<Served>> = LazyLock::new(|| {
         let part = |v: &Value| serde_json::to_string(v).expect("JSON prints");
         out.push(listed(&uri, about, JSON, &part(&theme)));
         // The index says each section once, with the part that holds its layouts, and each layout
-        // by its name and what it is for under its section: 174 layouts said each with its section
+        // by its name and what it is for under its section: 175 layouts said each with its section
         // and its part would not arrive whole (S.3).
         let mut sections: Vec<Section> = Vec::new();
         for (name, layout) in layouts.as_object().into_iter().flatten() {

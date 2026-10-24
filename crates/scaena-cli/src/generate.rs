@@ -7,7 +7,7 @@ use anyhow::{Context, Result, anyhow, bail};
 use clap::Args;
 use scaena_narrato::brief::MODALITIES;
 use scaena_narrato::pictures::{self, Look, Quality};
-use scaena_narrato::{Brief, Generation, Provider, Request, Settings};
+use scaena_narrato::{Brief, Generation, Outline, Provider, Request, Settings, Step};
 use scaena_ops::create::ThemeSource;
 use scaena_ops::narrative::{Looking, Painter, Progress, Reply, Transport};
 use std::path::{Path, PathBuf};
@@ -83,6 +83,11 @@ pub struct GenerateArgs {
     /// agent, or Anthropic's model with web search. It takes minutes; its report is a source.
     #[arg(long)]
     research: bool,
+    /// Go on when a source got no room in the million bytes the sources share, the first given
+    /// taking it first; without it, the deck is not asked for, so the model is not told to trace
+    /// each slide to what it was never shown.
+    #[arg(long)]
+    allow_cut: bool,
     /// Who makes the slides' pictures (PLAN G.10): `openai` or `gemini`, with its key from the
     /// environment, or `none`; else the first of those whose key the environment holds. Two in
     /// five slides get one, ten at most: the cover, the dividers, the ending, and the rest by
@@ -114,6 +119,15 @@ pub struct GenerateArgs {
     /// the look is answered in: taken with no call, as `--slides` gives the slides.
     #[arg(long)]
     look_answer: Option<PathBuf>,
+    /// Show the outline before the slides are written: the arc, the big idea, and one claim for
+    /// each beat, written to FILE as JSON, and no deck made. Edit it (a claim, a beat moved,
+    /// taken out, or added), then `--from-outline FILE` writes the slides to it.
+    #[arg(long, conflicts_with = "slides")]
+    outline: Option<PathBuf>,
+    /// Make the deck from the outline `--outline` wrote, as edited: the slides follow its beats,
+    /// in its order, each carrying its claim.
+    #[arg(long, conflicts_with_all = ["slides", "outline"])]
+    from_outline: Option<PathBuf>,
 }
 
 /// The environment variables a provider's key is read from, in order.
@@ -318,6 +332,11 @@ fn said(p: &Progress) -> String {
         Progress::Chose { arc, fallback: None } => format!("arc: {arc}"),
         Progress::Chose { arc, fallback: Some(why) } => format!("arc: {arc}, the heuristic's ({why})"),
         Progress::Writing { slides } => format!("writing the slides, at least {slides}…"),
+        Progress::Retrying { wait, tried } => format!(
+            "the provider is busy or did not answer: asking again in {wait:.0} s (try {} of {})…",
+            tried + 1,
+            scaena_narrato::TRIES
+        ),
         Progress::Wrote { slides, truncated: false, .. } => format!("{slides} slides written"),
         Progress::Wrote { slides, truncated: true, .. } => format!("{slides} slides written, the answer cut short"),
         Progress::Fitting { texts } => format!("{texts} texts run past their place: asking for them shorter…"),
@@ -384,6 +403,17 @@ fn research(
         sheets: Vec::new(),
         pdf: None,
     })
+}
+
+/// The wait `generation` asks for before its step is asked again, slept, where its last answer
+/// was for now (narrative REL-1), and said as the slides' is.
+fn waited(generation: &Generation, json: bool) {
+    if let Some(wait) = generation.again() {
+        if !json {
+            eprintln!("{}", said(&Progress::Retrying { wait, tried: generation.tried() }));
+        }
+        std::thread::sleep(Duration::from_secs_f64(wait.clamp(0.0, 120.0)));
+    }
 }
 
 /// Where a run keeps what it has paid for as it arrives, under the bundle's directory.
@@ -473,6 +503,7 @@ impl Kept {
                     args.push("--no-look".into());
                 }
                 flag(&mut args, "look-answer", path(a.look_answer.as_deref()).as_deref());
+                flag(&mut args, "from-outline", path(a.from_outline.as_deref()).as_deref());
             }
         }
         flag(&mut args, "audience", a.audience.as_deref());
@@ -483,10 +514,14 @@ impl Kept {
         flag(&mut args, "language", a.language.as_deref());
         flag(&mut args, "persona", a.persona.as_deref());
         flag(&mut args, "voice", a.voice.as_deref());
+        // The kept report first, as the run packs the research first (narrative USE-5).
+        flag(&mut args, "source", path(self.research.as_deref()).as_deref());
         for source in &a.source {
             flag(&mut args, "source", Some(source));
         }
-        flag(&mut args, "source", path(self.research.as_deref()).as_deref());
+        if a.allow_cut {
+            args.push("--allow-cut".into());
+        }
         flag(&mut args, "sec-contact", a.sec_contact.as_deref());
         flag(&mut args, "pictures", a.pictures.as_deref());
         flag(&mut args, "picture-model", a.picture_model.as_deref());
@@ -539,6 +574,18 @@ fn vacant(dir: &Path, going_on: bool, json: bool) -> Result<()> {
         }
     }
     scaena_ops::create::vacant(dir).map_err(Into::into)
+}
+
+/// What a source gave the deck, in a line: its bytes in the prompt, cut short to fit where they
+/// were, or no room at all.
+fn given(g: &scaena_sources::Given) -> String {
+    match (g.bytes, g.truncated) {
+        (0, _) => {
+            format!("no room for {} ({}): the sources before it took the million bytes they share", g.name, g.kind)
+        }
+        (bytes, true) => format!("grounded in {} ({}, {} KB, cut short to fit)", g.name, g.kind, bytes.div_ceil(1024)),
+        (bytes, false) => format!("grounded in {} ({}, {} KB)", g.name, g.kind, bytes.div_ceil(1024)),
+    }
 }
 
 /// The first of `vars` the environment holds, not blank.
@@ -688,12 +735,31 @@ pub fn run(a: GenerateArgs, json: bool) -> Result<ExitCode> {
         let key = key.as_deref().context("deep research asks a model: --slides makes no call")?;
         let report = research(&brief, provider, &model, a.base.as_deref(), key, &agent, json)?;
         kept.research(&report.text);
-        read.push(report);
+        // Asked for last and the costliest, the report is packed first, so it is the last cut.
+        read.insert(0, report);
     }
     let grounding = scaena_ops::narrative::grounding(&read, provider)?;
     brief.source_content = grounding.content.clone();
+    // What each source gave, said before a call is paid for (narrative USE-5): the sources share
+    // a million bytes, the first given taking it first, and one that got none is refused unless
+    // the deck is to be made without it.
+    if !json {
+        for g in &grounding.given {
+            eprintln!("{}", given(g));
+        }
+    }
+    let unroomed: Vec<&str> = grounding.given.iter().filter(|g| g.bytes == 0).map(|g| g.name.as_str()).collect();
+    if !unroomed.is_empty() && !a.allow_cut && a.slides.is_none() {
+        bail!(
+            "no room for {}: the sources share {} KB, the first given taking it first; give fewer, or smaller, or \
+             --allow-cut to make the deck without it",
+            unroomed.join(", "),
+            scaena_sources::SOURCE_CONTENT_CAP / 1024
+        );
+    }
     let settings = Settings { provider, model: model.clone(), base: a.base.clone(), browser: false };
     let mut generation = Generation::new(brief, settings).map_err(|e| anyhow!(e))?;
+    generation.give_sources(scaena_ops::narrative::provenance(&grounding.given));
     match &a.slides {
         Some(path) => {
             generation.choose_arc(a.arc.as_deref());
@@ -702,6 +768,90 @@ pub fn run(a: GenerateArgs, json: bool) -> Result<ExitCode> {
         }
         None if a.arc.is_some() => generation.choose_arc(a.arc.as_deref()),
         None => {}
+    }
+    // The outline before the slides (narrative FUNC-1): asked once the arc is chosen, written to
+    // the file for the person to settle, and nothing more made; or taken from the file they
+    // settled, the slides then written to it.
+    if let Some(path) = &a.outline {
+        let key = key.as_deref().context("the outline asks a model: --slides makes no call")?;
+        while generation.step() == Step::Arc {
+            let request = generation.request(key, &grounding.documents).expect("the arc is asked");
+            if !json {
+                eprintln!("choosing the arc…");
+            }
+            let reply = fetch(&agent, &request);
+            generation
+                .answer(reply.status, &reply.status_text, &reply.body, reply.after.as_deref())
+                .map_err(|e| anyhow!(e))?;
+            waited(&generation, json);
+        }
+        let chosen = generation.arc().cloned().expect("the arc is chosen");
+        if !json {
+            match generation.fallback() {
+                Some(why) => eprintln!("arc: {}, the heuristic's ({why})", chosen.selection),
+                None => eprintln!("arc: {}", chosen.selection),
+            }
+            eprintln!("outlining…");
+        }
+        generation.outline_first().map_err(|e| anyhow!(e))?;
+        // Asked again, as the slides are, where the provider is busy (narrative REL-1).
+        while generation.step() == Step::Outline {
+            let request = generation.request(key, &grounding.documents).expect("the outline is asked");
+            let reply = fetch(&agent, &request);
+            (generation.answer(reply.status, &reply.status_text, &reply.body, reply.after.as_deref()))
+                .map_err(|e| anyhow!("the outline: {e}"))?;
+            waited(&generation, json);
+        }
+        let outline = generation.outline().expect("the outline is written");
+        let written = serde_json::json!({
+            "arc": chosen.selection,
+            "reasoning": chosen.reasoning,
+            "bigIdea": outline.big_idea,
+            "beats": outline.beats,
+        });
+        std::fs::write(path, format!("{}\n", serde_json::to_string_pretty(&written)?))
+            .with_context(|| format!("writing {}", path.display()))?;
+        if json {
+            println!("{}", serde_json::to_string_pretty(&written)?);
+        } else {
+            println!("outline: {}", path.display());
+            println!("  arc: {}", chosen.selection);
+            if !outline.big_idea.is_empty() {
+                println!("  big idea: {}", outline.big_idea);
+            }
+            for (i, beat) in outline.beats.iter().enumerate() {
+                let slides = if beat.slides == 1 { "1 slide".to_string() } else { format!("{} slides", beat.slides) };
+                println!("  {}. {} ({slides}): {}", i + 1, beat.name, beat.claim);
+            }
+            println!(
+                "next: edit {}, then scaena generate {} {:?} --from-outline {}",
+                path.display(),
+                dir.display(),
+                generation.brief().topic,
+                path.display()
+            );
+        }
+        return Ok(ExitCode::SUCCESS);
+    }
+    if let Some(path) = &a.from_outline {
+        let text = std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
+        let value: serde_json::Value = serde_json::from_str(&text)
+            .with_context(|| format!("{}: not the JSON --outline writes", path.display()))?;
+        let outline: Outline = serde_json::from_value(value.clone())
+            .with_context(|| format!("{}: not the outline --outline writes", path.display()))?;
+        let arc = value.get("arc").and_then(serde_json::Value::as_str).filter(|a| !a.is_empty());
+        if let Some(name) = arc
+            && !scaena_narrato::arcs::arcs().iter().any(|a| a.arc == name)
+        {
+            bail!("{}: `{name}` is no arc of Narrato's", path.display());
+        }
+        if generation.step() == Step::Arc {
+            generation.choose_arc(arc.or(a.arc.as_deref()));
+        }
+        generation.settle(&outline).map_err(|e| anyhow!("{}: {e}", path.display()))?;
+        if !json {
+            eprintln!("outline: {} beats from {}", outline.beats.len(), path.display());
+        }
     }
     let (painting, unpictured) = match painter(&a, &agent)? {
         Pictures::By(settings, key, look) => (Some((settings, key, look)), None),
@@ -814,8 +964,7 @@ pub fn run(a: GenerateArgs, json: bool) -> Result<ExitCode> {
             println!("  picture not made: {why}");
         }
         for g in &grounding.given {
-            let cut = if g.truncated { ", cut short to fit" } else { "" };
-            println!("  grounded in {} ({}, {} KB{cut})", g.name, g.kind, g.bytes.div_ceil(1024));
+            println!("  {}", given(g));
         }
         for k in &sheets {
             match (&k.id, &k.why) {

@@ -10,7 +10,8 @@
 // and kept in the browser's cache for the next deck (PLAN G.22, ADR-0027).
 import { Making, scriptChecked, scriptFor, scriptTaken, writable } from "@scaena/wasm";
 import { findIcons, iconSet } from "./icon-set";
-import type { Choices, FetchedMap, Generate, Generated, GeneratingEvent, Health, MapAsk, MapPlace, PictureJob } from "./protocol";
+import { atMost } from "./most";
+import type { Choices, FetchedMap, Generate, Generated, GeneratingEvent, Health, MapAsk, MapPlace, PictureJob, StoryOutline } from "./protocol";
 import { answered } from "./words";
 
 type Generator = typeof import("@scaena/generator");
@@ -53,30 +54,73 @@ interface Request {
 async function send(request: Request): Promise<{ status: number; statusText: string; body: string; after?: string }> {
   try {
     const body = request.body == null ? undefined : JSON.stringify(request.body);
-    const response = await fetch(request.url, { method: request.method, headers: request.headers, body });
+    const signal = AbortSignal.timeout(ANSWERED_WITHIN);
+    const response = await fetch(request.url, { method: request.method, headers: request.headers, body, signal });
     const after = response.headers.get("retry-after") ?? undefined;
     return { status: response.status, statusText: response.statusText, body: await response.text(), after };
   } catch (e) {
-    return { status: 0, statusText: said(e), body: "" };
+    // A provider that takes the request and never answers is asked again, as a busy one is
+    // (narrative REL-1), and the progress says why (lift-up REL-4).
+    return { status: 0, statusText: late(e) ? LATE : said(e), body: "" };
   }
 }
+
+/** What a request that waited past its deadline is answered. */
+const LATE = "The provider didn't answer in 15 minutes";
+
+/** The providers that write a deck, by name. */
+const WRITERS = { anthropic: "Anthropic", openai: "OpenAI", gemini: "Gemini" } as const;
+
+/** What `take` reads of a provider's `reply`. Where the reply was a refusal, its error is said in
+ * a person's words, as the pictures' are, "Anthropic didn't accept your key. Check it, or replace
+ * it." in place of "401 Unauthorized: invalid x-api-key" (lift-up USE-3); the provider's own words
+ * go to the console. An answer that came but did not read keeps its own words. */
+function read<T>(provider: string, reply: { status: number; statusText: string; body: string }, take: () => T): T {
+  try {
+    return take();
+  } catch (e) {
+    if (reply.status >= 200 && reply.status < 300) throw e;
+    console.warn(`${provider}: ${said(e)}`);
+    const waited = reply.status === 0 && reply.statusText === LATE;
+    throw new Error(waited ? `${provider} didn't answer in 15 minutes. Try again in a moment.` : answered(provider, reply.status, reply.body));
+  }
+}
+
+/** How long a provider has to answer a request: 15 minutes, as the Mac's `URLSession` waits and
+ * near the CLI's 20 (lift-up REL-4). */
+const ANSWERED_WITHIN = 900_000;
+
+/** How long a link's host has to answer a GET. */
+const FETCHED_WITHIN = 60_000;
 
 /** A GET a link's plan asks for: its status, its content type, and its body. A host that lets
  * no other page read it (CORS) fails as a network does, and says so. */
 async function get(asked: { url: string; headers: Record<string, string>; most: number }) {
   let response: Response;
   try {
-    response = await fetch(asked.url, { headers: asked.headers });
-  } catch {
+    response = await fetch(asked.url, { headers: asked.headers, signal: AbortSignal.timeout(FETCHED_WITHIN) });
+  } catch (e) {
     const host = new URL(asked.url).host;
+    if (late(e)) throw new Error(`${host} didn't answer in a minute`);
     throw new Error(
       `${host} could not be read from this page: it is out of reach, or it lets no other page read it. Download what it serves and add the file, or give it to \`scaena generate\` or the Mac app`,
     );
   }
-  const body = new Uint8Array(await response.arrayBuffer());
-  if (body.length > asked.most) throw new Error(`${asked.url} answered with more than ${asked.most >> 20} MB`);
+  // The minute holds the body too, read no further than it may be: a host that answers at once
+  // and sends slowly runs out of it here.
+  let body: Uint8Array;
+  try {
+    body = await atMost(response, asked.most, asked.url);
+  } catch (e) {
+    if (!late(e)) throw e;
+    const host = new URL(asked.url).host;
+    throw new Error(`${host} took more than a minute to send ${asked.url}: download it and add the file`);
+  }
   return { status: response.status, kind: response.headers.get("content-type") ?? "", body };
 }
+
+/** Whether `e` is a deadline's abort (`AbortSignal.timeout`). */
+const late = (e: unknown) => e instanceof DOMException && e.name === "TimeoutError";
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -142,12 +186,28 @@ async function scriptFont(script: Script, hear: (event: GeneratingEvent) => void
   return bytes;
 }
 
+/** The outline as the model wrote it (narrative FUNC-1), shown for the person to settle: on `arc`,
+ * chosen for `reasoning`, or the heuristic's where `fallback` says why. */
+export interface Outlined {
+  outline: StoryOutline;
+  arc: string;
+  reasoning: string;
+  fallback?: string;
+}
+
+/** What the person decided of an outline: settled, so the slides are written to it; or another
+ * arc, by name or the heuristic's where none, to outline again. */
+export type Decision = { settled: StoryOutline } | { arc?: string };
+
 /** The deck `job` asks for, made in `given`: the bundle's files by their paths, what it came
- * to, and its title. `hear` hears how far it has come. */
+ * to, and its title. `hear` hears how far it has come. With `job.outline`, the outline is
+ * written first and `settle` shows it to the person, whose decision the slides follow (narrative
+ * FUNC-1); without, the slides are written at once. */
 export async function generate(
   job: Generate,
   given: Theme,
   hear: (event: GeneratingEvent) => void,
+  settle?: (outlined: Outlined) => Promise<Decision>,
 ): Promise<{ files: Map<string, Uint8Array>; made: Generated; title: string }> {
   // Before a file is read or a call is paid for: the script's font where the theme's fonts do
   // not draw the language (PLAN G.22), and a deck in letters they still cannot draw refused, as
@@ -177,20 +237,57 @@ export async function generate(
     }
     if (job.research) await research(g, brief, asking, job, sources, hear);
     const generation = new g.Generation(brief, asking, sources);
+    // What each source gave, said before a call is paid for (narrative USE-5): the sources share
+    // a million bytes, the first given taking it first, and one cut short, or given no room, says
+    // so here, not after the deck is made.
+    for (const given of JSON.parse(generation.given()) as Generated["sources"]) {
+      hear({ kind: "grounded", name: given.name, what: given.kind, kilobytes: Math.ceil(given.bytes / 1024), cut: given.truncated });
+    }
     try {
+      const outlining = Boolean(job.outline && settle);
       if (job.arc) generation.chooseArc(job.arc);
+      if (job.arc && outlining) generation.outlineFirst();
       for (let asked = generation.request(job.key); asked; asked = generation.request(job.key)) {
         const step = generation.step();
-        hear(step === "arc" ? { kind: "choosing" } : { kind: "writing", slides: generation.target() });
+        hear(step === "arc" ? { kind: "choosing" } : step === "outline" ? { kind: "outlining" } : { kind: "writing", slides: generation.target() });
         const reply = await send(JSON.parse(asked));
-        const at = JSON.parse(generation.answer(reply.status, reply.statusText, reply.body)) as {
+        const answer = read(WRITERS[job.provider], reply, () => generation.answer(reply.status, reply.statusText, reply.body, reply.after));
+        const at = JSON.parse(answer) as {
           arc?: string;
+          reasoning?: string | null;
           fallback?: string | null;
           written?: number | null;
           truncated?: boolean | null;
+          outline?: StoryOutline | null;
+          wait?: number | null;
+          tried?: number | null;
         };
-        if (step === "arc") hear({ kind: "chose", arc: at.arc ?? "", fallback: at.fallback ?? undefined });
-        else hear({ kind: "wrote", slides: at.written ?? 0, truncated: at.truncated ?? false });
+        // An answer for now (busy, a server's failure, none): the same step asked again after
+        // the wait the generator says, up to six times (narrative REL-1).
+        if (at.wait != null) {
+          hear({ kind: "retrying", seconds: at.wait, tried: at.tried ?? 0 });
+          await new Promise((r) => setTimeout(r, at.wait! * 1000));
+          continue;
+        }
+        if (step === "arc") {
+          hear({ kind: "chose", arc: at.arc ?? "", fallback: at.fallback ?? undefined });
+          // The outline before the slides (narrative FUNC-1): the next request is the outline's.
+          if (outlining) generation.outlineFirst();
+        } else if (step === "outline") {
+          const outline = at.outline ?? { bigIdea: "", beats: [] };
+          hear({ kind: "outlined", beats: outline.beats.length });
+          const decided = await settle!({ outline, arc: at.arc ?? "", reasoning: at.reasoning ?? "", fallback: at.fallback ?? undefined });
+          if ("settled" in decided) {
+            const now = JSON.parse(generation.settle(JSON.stringify(decided.settled))) as { outline?: StoryOutline | null };
+            hear({ kind: "settled", beats: now.outline?.beats.length ?? 0 });
+          } else {
+            // Another arc, chosen with no call, and outlined again.
+            generation.chooseArc(decided.arc || undefined);
+            generation.outlineFirst();
+            const chosen = JSON.parse(generation.standing()) as { arc?: string };
+            hear({ kind: "chose", arc: chosen.arc ?? decided.arc ?? "" });
+          }
+        } else hear({ kind: "wrote", slides: at.written ?? 0, truncated: at.truncated ?? false });
       }
       await giveIcons(generation);
       const painted = job.pictures ? await paint(g, generation, job.pictures, theme, hear) : undefined;
@@ -199,8 +296,9 @@ export async function generate(
       const making = new Making(built, theme.file, theme.text, theme.fonts, painted?.bytes ?? new Map());
       try {
         if (painted) making.painted(painted.made, JSON.stringify(painted.unmade));
-        if (job.look !== false) await look(generation, making, job.key, theme, painted?.placed ?? "{}", hear);
-        await fit(generation, making, job.key, hear);
+        const name = WRITERS[job.provider];
+        if (job.look !== false) await look(generation, making, job.key, name, theme, painted?.placed ?? "{}", hear);
+        await fit(generation, making, job.key, name, hear);
         making.keep(sources.tables());
         const made = { ...JSON.parse(making.report()), sources: JSON.parse(generation.given()) } as Generated;
         const files = making.files();
@@ -404,7 +502,8 @@ async function research(
     let doing: string | undefined;
     for (;;) {
       const reply = await send(asked);
-      const next = JSON.parse(researching.answer(job.key, reply.status, reply.statusText, reply.body)) as {
+      const answer = read(WRITERS[job.provider], reply, () => researching.answer(job.key, reply.status, reply.statusText, reply.body));
+      const next = JSON.parse(answer) as {
         send?: Request;
         wait?: number;
         done?: { sources: number; cut: boolean };
@@ -426,6 +525,10 @@ async function research(
 
 /** How wide each slide is drawn for the model to see, in pixels (`scaena_ops::narrative::LOOK_WIDTH`). */
 const LOOK_WIDTH = 1024;
+/** The most slides shown to the model in one look request (`scaena_ops::narrative::LOOK_BATCH`,
+ * narrative PERF-5): a long deck goes in rounds, each small enough to upload and under a
+ * provider's limit on images in one request. */
+const LOOK_BATCH = 12;
 
 /** The deck shown to the model as it is drawn (PLAN G.13): each slide drawn by the editor's
  * module, a JPEG made of it here, and what the model asks to change (another of a slide's
@@ -436,27 +539,56 @@ async function look(
   generation: InstanceType<Generator["Generation"]>,
   making: Making,
   key: string,
+  name: string,
   theme: Theme,
   placed: string,
   hear: (event: GeneratingEvent) => void,
 ) {
   const layouts = JSON.stringify((JSON.parse(making.report()) as { layouts: string[] }).layouts);
   const seen = generation.seeing(theme.text, placed, layouts);
-  const drawn = [];
-  for (let i = 0; i < making.count; i++) drawn.push(await jpeg(making.pixels(i, LOOK_WIDTH)));
-  const asked = generation.lookRequest(key, seen, JSON.stringify(drawn));
-  if (!asked) return;
-  hear({ kind: "looking", slides: drawn.length });
-  const reply = await send(JSON.parse(asked));
+  // A slide that would not draw for the model to see, as a deck the model asked for that cannot be
+  // made again, leaves the deck as it was, saying why (narrative STAB-3): the look is a polish.
   try {
-    const changes = JSON.parse(generation.lookAnswer(reply.status, reply.statusText, reply.body, seen)) as {
-      slide: number;
-    }[];
-    if (!changes.length) return hear({ kind: "looked", slides: 0 });
+    const drawn = [];
+    for (let i = 0; i < making.count; i++) drawn.push(await jpeg(making.pixels(i, LOOK_WIDTH)));
+    // A dozen slides a round (narrative PERF-5), each numbered as it stands in the deck; the
+    // changes answered folded into one, and a round not answered losing its own slides' changes
+    // alone.
+    const slides = JSON.parse(seen) as { slide: number }[];
+    const changes: { slide: number }[] = [];
+    let unanswered: string | undefined;
+    let looking = false;
+    for (let start = 0; start < slides.length; start += LOOK_BATCH) {
+      const round = slides.slice(start, start + LOOK_BATCH);
+      const part = JSON.stringify(round);
+      const asked = generation.lookRequest(key, part, JSON.stringify(drawn.slice(start, start + LOOK_BATCH)));
+      if (!asked) continue;
+      if (!looking) hear({ kind: "looking", slides: drawn.length });
+      looking = true;
+      const reply = await send(JSON.parse(asked));
+      try {
+        changes.push(...(JSON.parse(read(name, reply, () => generation.lookAnswer(reply.status, reply.statusText, reply.body, part))) as { slide: number }[]));
+      } catch (e) {
+        const which = round.length === 1 ? `slide ${round[0].slide}` : `slides ${round[0].slide}\u2013${round[round.length - 1].slide}`;
+        const why = `${which} not looked at: ${said(e)}`;
+        unanswered = unanswered ? `${unanswered}; ${why}` : why;
+      }
+    }
+    if (!looking) return;
+    if (!changes.length) {
+      if (unanswered) {
+        making.unlooked(unanswered);
+        return hear({ kind: "unlooked", why: unanswered });
+      }
+      return hear({ kind: "looked", slides: 0 });
+    }
     const tried = JSON.parse(
       making.relook(generation.deckChanged(theme.text, placed, JSON.stringify(changes)), JSON.stringify(changes), "[]"),
     ) as "kept" | { worse: number[] };
-    if (tried === "kept") return hear({ kind: "looked", slides: changes.length });
+    if (tried === "kept") {
+      if (unanswered) making.unlooked(unanswered);
+      return hear({ kind: "looked", slides: changes.length });
+    }
     const kept = changes.filter((c) => !tried.worse.includes(c.slide - 1));
     if (!tried.worse.length || !kept.length) {
       const why = tried.worse.length
@@ -472,7 +604,10 @@ async function look(
         JSON.stringify(tried.worse),
       ),
     ) as "kept" | { worse: number[] };
-    if (again === "kept") return hear({ kind: "looked", slides: kept.length });
+    if (again === "kept") {
+      if (unanswered) making.unlooked(unanswered);
+      return hear({ kind: "looked", slides: kept.length });
+    }
     making.unlooked("lint found a slide the model changed worse for it");
     hear({ kind: "unlooked", why: "lint found a slide the model changed worse for it" });
   } catch (e) {
@@ -499,6 +634,7 @@ async function fit(
   generation: InstanceType<Generator["Generation"]>,
   making: Making,
   key: string,
+  name: string,
   hear: (event: GeneratingEvent) => void,
 ) {
   const longs = making.longs();
@@ -509,7 +645,7 @@ async function fit(
   hear({ kind: "fitting", texts });
   const reply = await send(JSON.parse(asked));
   try {
-    const rewrites = generation.fitAnswer(reply.status, reply.statusText, reply.body, longs);
+    const rewrites = read(name, reply, () => generation.fitAnswer(reply.status, reply.statusText, reply.body, longs));
     making.fitted(rewrites);
     hear({ kind: "fitted", texts: (JSON.parse(rewrites) as unknown[]).length });
   } catch (e) {

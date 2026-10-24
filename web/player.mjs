@@ -24,6 +24,8 @@
 // - The end of the show (PLAN 2.120): going on past the last state turns the screen black and says
 //   the show has ended, the status too; ← shows the last slide again, going on again keeps it,
 //   and a click or Escape leaves it, back on the last slide, and in fullscreen out of it.
+// - A format the deck does not lay out in, and a promise no handler caught, are said in the
+//   player's status, the slide shown staying (lift-up STAB-5).
 // - The presenter view follows the player, shows the state's notes (its beat's, where it has
 //   none), and steers it: on, back, and with End and Home to the last and the first; and its own
 //   presenter's keys steer the room's screen, its laser pointed from the slide it shows, and drawn
@@ -32,12 +34,19 @@
 //   over its slide. Its timer pauses, runs on, and resets to 0:00, and the time of day stands
 //   beside it (PLAN 2.121); after a press on Resume, Space goes on and presses it no more. P again
 //   brings it to the front as it is, its timer running. Its notes scroll, long or short, the next
-//   state's from their top, and its buttons and its timer's stay in its window. With no player
+//   state's from their top, A+, A−, +, and - grow and shrink them, the size kept for the next view
+//   (lift-up USE-4), and its buttons and its timer's stay in its window. With no player
 //   open, or once the player closes, even as the view opens, it says so, every word of it, and
 //   its buttons wait until one is.
 // - A link at rest shows a hand under the pointer.
 // - With `?fps`, the frame meter reads a played cue's frames: frames a second, the worst frame,
 //   late frames, and the mean paint (gate 2, criterion 1).
+// - The screen stays awake while the deck is presented (lift-up REL-1): fullscreen asks for a
+//   screen wake lock and leaving it lets it go, one the browser let go while the page was hidden
+//   is asked for again as the page shows, and the presenter view holds one while it is open. The
+//   wake lock API is stood in for, headless Chromium having no screen to keep awake.
+// - Fullscreen, the pointer over the slide hides once it has rested two seconds, from the moment
+//   the show fills the screen, and shows again as it moves (lift-up ATTR-4).
 // - At 2560 × 1440 and twice the density (lift-up ATTR-2), the slide fills the room the bar
 //   leaves, and in fullscreen the screen, painted at the size it is shown in device pixels by
 //   WebGPU, and by the CPU painter at the canvas's own size, scaled up.
@@ -58,10 +67,38 @@ const check = (ok, what) => {
 const browser = await launch();
 try {
   const context = await browser.newContext({ viewport: { width: 1920, height: 1200 }, deviceScaleFactor: 1 });
+  // The screen wake lock API, stood in for: each lock asked for is counted, and `held` is how many
+  // are held now; `drop()` lets them go as the browser does when the page is hidden.
+  await context.addInitScript(() => {
+    const locks = new Set();
+    const stand = { asked: 0, get held() { return locks.size; }, drop() { for (const l of locks) l.release(); } };
+    Object.defineProperty(navigator, "wakeLock", {
+      value: {
+        request: async (type) => {
+          if (type !== "screen") throw new TypeError(type);
+          stand.asked += 1;
+          const lock = new EventTarget();
+          lock.type = type;
+          lock.released = false;
+          lock.release = async () => {
+            if (lock.released) return;
+            lock.released = true;
+            locks.delete(lock);
+            lock.dispatchEvent(new Event("release"));
+          };
+          locks.add(lock);
+          return lock;
+        },
+      },
+    });
+    window.wake = stand;
+  });
   const open = async (address) => {
     const page = await context.newPage();
-    page.on("pageerror", (e) => failures.push(`${address}: ${e.message}`));
-    page.on("console", (m) => m.type() === "error" && failures.push(`${address}: console: ${m.text()}`));
+    // The one promise left uncaught on purpose, to be said in the status (lift-up STAB-5).
+    const meant = (text) => text.includes("a promise no one caught");
+    page.on("pageerror", (e) => meant(e.message) || failures.push(`${address}: ${e.message}`));
+    page.on("console", (m) => m.type() === "error" && !meant(m.text()) && failures.push(`${address}: console: ${m.text()}`));
     await page.goto(address);
     await page.waitForFunction(() => window.scaena || document.querySelector("#status")?.textContent.startsWith("Error"), null, {
       timeout: 120000,
@@ -70,6 +107,9 @@ try {
     if (status) throw new Error(`${address}: ${status}`);
     return page;
   };
+  /** How many screen wake locks `page` asked for, and holds now (lift-up REL-1). */
+  const wake = (page) => page.evaluate(() => ({ asked: window.wake.asked, held: window.wake.held }));
+
   // A deck whose theme is written in it, as deck.schema.json allows, opens from its URL as from a
   // bundle (lift-up FUNC-5): the revenue example with its theme inline, served beside it.
   {
@@ -352,8 +392,23 @@ try {
     .waitForFunction((want) => window.scaena.follows() === want, follows(1), { timeout: 15000 })
     .then(() => true, () => false);
   check(followed, `the presenter view follows the player to ${states[1]}`);
+  check((await wake(presenter)).held === 1, `the presenter view holds a screen wake lock while it is open: ${JSON.stringify(await wake(presenter))}`);
   check((await presenter.textContent("#notes")) === notes(1), `it shows ${states[1]}'s notes, its beat's`);
   check((await presenter.textContent("#nextName")) === `Next: ${slots[2].said}`, `it shows ${states[2]} next, by its slide's number: ${await presenter.textContent("#nextName")}`);
+  // The notes' size (lift-up USE-4): 20 px to start, A+ and + a step up, A− and - a step down,
+  // kept in this browser for the next presenter view; the player answers neither key.
+  const notesPx = (page) => page.evaluate(() => parseFloat(getComputedStyle(document.querySelector("#notes")).fontSize));
+  const startSize = await notesPx(presenter);
+  await presenter.click("#larger");
+  const clicked = await notesPx(presenter);
+  await presenter.keyboard.press("+");
+  const keyed = await notesPx(presenter);
+  await presenter.keyboard.press("-");
+  const back = await notesPx(presenter);
+  check(startSize === 20 && clicked === 24 && keyed === 28 && back === 24, `A+ and + make the notes larger, and - smaller: ${startSize}, ${clicked}, ${keyed}, then ${back} px`);
+  const atPlayer = (await player.evaluate(() => window.scaena.at())).index;
+  await player.keyboard.press("+");
+  check((await player.evaluate(() => window.scaena.at())).index === atPlayer, "the player itself answers no notes key");
   // Its timer (PLAN 2.121): Pause stops it where it stands, Reset puts it back to 0:00, paused as it
   // was, and Resume runs it on from there; the time of day stands beside it.
   const timer = () => presenter.evaluate(() => window.scaena.timer());
@@ -452,6 +507,29 @@ try {
   await turnTo("");
   const wide = await upright(false);
   check(tall && wide, `it paints the next state in the format the player shows, 9:16 and its own: ${tall}, ${wide}`);
+  // A format the deck does not lay out in, and a promise no handler caught (lift-up STAB-5): each is
+  // said in the player's status, the slide shown staying, and the player goes on.
+  const before = await player.evaluate(() => window.scaena.at().index);
+  await player.evaluate(() => {
+    const picker = document.querySelector("#format");
+    picker.add(new Option("1:1", "1:1"));
+    picker.value = "1:1";
+    picker.dispatchEvent(new Event("change"));
+  });
+  const refused = await player
+    .waitForFunction(() => document.querySelector("#status").textContent.startsWith("Error:"), null, { timeout: 15000 })
+    .then(() => player.evaluate(() => document.querySelector("#status").textContent), () => null);
+  check(refused?.includes("1:1") && (await player.evaluate(() => window.scaena.at().index)) === before, `a format the deck does not lay out in is said, the slide staying: ${refused}`);
+  await player.evaluate(() => {
+    const picker = document.querySelector("#format");
+    picker.remove(picker.options.length - 1);
+    void Promise.reject(new Error("a promise no one caught"));
+  });
+  const lost = await player
+    .waitForFunction(() => document.querySelector("#status").textContent === "Error: a promise no one caught", null, { timeout: 5000 })
+    .then(() => true, () => false);
+  check(lost, "a promise no handler caught is said in the status");
+  await turnTo("");
   // Its presenter's keys steer the player's screen (PLAN 2.105): B turns the room's black, and the
   // view says so; a key brings the slide back.
   await presenter.keyboard.press("b");
@@ -531,6 +609,7 @@ try {
     return m * 60 + s >= least && m * 60 + s;
   };
   await popup.waitForFunction(() => window.scaena?.follows?.(), null, { timeout: 120000 });
+  check((await notesPx(popup)) === 24, `a presenter view opened again keeps the notes' size: ${await notesPx(popup)} px`);
   await popup.waitForFunction(seconds, 2, { timeout: 15000, polling: 100 }).catch(() => {});
   let loads = 0;
   popup.on("framenavigated", (frame) => frame === popup.mainFrame() && loads++);
@@ -545,15 +624,43 @@ try {
   await popup.close();
 
   // Fullscreen: F asks for it, and the slide stands in the middle of the screen, on black.
+  check((await wake(player)).held === 0, "before fullscreen, the player holds no wake lock");
   await player.keyboard.press("f");
   const full = await player.waitForFunction(() => document.fullscreenElement !== null, null, { timeout: 5000 }).then(() => true, () => false);
   check(full, "F makes the player fullscreen");
   if (full) {
+    // The screen stays awake (lift-up REL-1): a lock held, and one the browser let go while the
+    // page was hidden asked for again as the page shows.
+    const locked = await player.waitForFunction(() => window.wake.held === 1, null, { timeout: 5000 }).then(() => true, () => false);
+    check(locked, `fullscreen, the player holds a screen wake lock: ${JSON.stringify(await wake(player))}`);
+    const before = (await wake(player)).asked;
+    await player.evaluate(() => {
+      window.wake.drop();
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    const again = await player.waitForFunction((n) => window.wake.asked === n + 1 && window.wake.held === 1, before, { timeout: 5000 }).then(() => true, () => false);
+    check(again, `let go while the page was hidden, the lock is asked for again as it shows: ${JSON.stringify(await wake(player))}`);
     await player.waitForFunction(() => document.querySelector(".bar").offsetParent === null, null, { timeout: 5000 }).catch(() => {});
     const centred = await standing(player);
     check(
       Math.abs(centred.top - (centred.room - centred.height) / 2) <= 1 && centred.background === "rgb(0, 0, 0)",
       `in the middle of the screen, on black: ${JSON.stringify(centred)}`,
+    );
+    // The pointer over the slide hides once it has rested two seconds, and shows as it moves
+    // (lift-up ATTR-4).
+    const cursor = () => player.evaluate(() => getComputedStyle(document.querySelector("#stage")).cursor);
+    await player.waitForTimeout(2300);
+    const entered = await cursor();
+    await player.mouse.move(400, 300);
+    await player.mouse.move(420, 310);
+    const moving = await cursor();
+    await player.waitForTimeout(2300);
+    const rested = await cursor();
+    await player.mouse.move(440, 320);
+    const moved = await cursor();
+    check(
+      entered === "none" && moving !== "none" && rested === "none" && moved !== "none",
+      `fullscreen, the pointer hides from the start and over the slide at rest, and shows as it moves: ${entered}, ${moving}, ${rested}, ${moved}`,
     );
     // At the end of the show, going on again keeps it, fullscreen; a click leaves fullscreen, on
     // the last slide (PLAN 2.120).
@@ -571,6 +678,8 @@ try {
       "in fullscreen, → past the last ends the show, → again keeps it, and a click leaves fullscreen, on the last slide",
     );
     if (!left) await player.keyboard.press("f");
+    const slept = await player.waitForFunction(() => window.wake.held === 0, null, { timeout: 5000 }).then(() => true, () => false);
+    check(slept, `out of fullscreen, the lock is let go: ${JSON.stringify(await wake(player))}`);
   }
   await player.close();
 

@@ -1,6 +1,7 @@
 //! The C family, read by one scanner that a table drives for each language: C, C++, C#, Go,
 //! Java, JavaScript with JSX, TypeScript and TSX, Kotlin, Swift, Rust, Dart, Scala, Zig,
-//! Objective-C, and Protocol Buffers.
+//! Objective-C, Protocol Buffers, and PHP's code (PLAN 2.145), which `markup` reads between its
+//! tags.
 //!
 //! A language's [`Spec`] says what its words are, which strings open how, and what its
 //! comments, `#`, `@`, `'`, `/`, and `<` begin. A word is:
@@ -40,6 +41,9 @@ const TYPE_ARGUMENTS: usize = 64;
 
 /// How far C#'s format after an interpolation's `:` is looked through for its `}`.
 const FORMAT: usize = 64;
+
+/// The longest identifier a PHP heredoc opens with.
+const IDENTIFIER: usize = 64;
 
 /// How a language of the C family reads.
 #[derive(Debug)]
@@ -98,6 +102,8 @@ pub(crate) struct Spec {
     dollar: bool,
     /// Whether a word just before `!` is a macro, which reads as a function: Rust's `println!`.
     macros: bool,
+    /// Whether `$` before a word makes it a variable: PHP's `$name`.
+    sigils: bool,
     /// Whether `->` reaches a member, as `.` does.
     arrow: bool,
 }
@@ -141,6 +147,9 @@ enum Close {
     Quotes { quote: u8, count: u8, hashes: u8 },
     /// `)`, the `len` bytes at `from`, and `"`: C++'s `R"x(…)x"`.
     Delimiter { from: usize, len: u8 },
+    /// The `len` bytes at `from`, first on a line past spaces and tabs, and no word's character
+    /// after them: PHP's heredoc, `<<<EOT` to `EOT;`.
+    Heredoc { from: usize, len: u8 },
     /// The line's end: Zig's `\\` lines.
     Line,
 }
@@ -166,6 +175,8 @@ enum Interp {
     Paren,
     /// `{…}`, with `{{` a brace: C#.
     Brace,
+    /// `$name`, `${…}`, and `{$…}`, the code from its `$`: PHP.
+    Php,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -177,6 +188,9 @@ enum Raw {
     Swift,
     /// `R"x(…)x"`, after `u8`, `u`, `U`, or `L`.
     Cpp,
+    /// `<<<EOT`, `<<<"EOT"`, and `<<<'EOT'` at a line's end: PHP's heredocs, which interpolate,
+    /// and its nowdocs, in single quotes, which do not.
+    Php,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -201,6 +215,8 @@ enum Hash {
     Meta,
     /// A private member: JavaScript's `#count`.
     Private,
+    /// A comment to the line's end, but for `#[`, which opens an attribute: PHP's.
+    Comment,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -405,6 +421,11 @@ impl Scanner<'_, '_> {
         }
         if b.is_ascii_digit() || (b == b'.' && next.is_ascii_digit() && !self.operand) {
             self.emit(number_end(self.b, i, self.b.len(), self.spec.digit_quotes), Class::Number);
+            self.operand = true;
+            return;
+        }
+        if b == b'$' && self.spec.sigils && is_word_start(next) {
+            self.emit(word_end(self.b, i + 1, self.b.len()), Class::Variable);
             self.operand = true;
             return;
         }
@@ -723,6 +744,37 @@ impl Scanner<'_, '_> {
                 let close = Close::Delimiter { from, len: u8::try_from(j - from).unwrap_or(u8::MAX) };
                 Some((j + 1 - i, string(close, Escape::None, Interp::None, true)))
             }
+            Raw::Php => {
+                if !b[i..].starts_with(b"<<<") {
+                    return None;
+                }
+                let mut j = i + 3;
+                while matches!(self.at(j), b' ' | b'\t') {
+                    j += 1;
+                }
+                let quote = self.at(j);
+                let quoted = matches!(quote, b'"' | b'\'');
+                let from = j + usize::from(quoted);
+                if !is_word_start(self.at(from)) || self.at(from) >= 0x80 {
+                    return None;
+                }
+                let to = word_end(b, from, b.len().min(from + IDENTIFIER));
+                let mut k = to;
+                if quoted {
+                    if self.at(k) != quote {
+                        return None;
+                    }
+                    k += 1;
+                }
+                // The identifier ends its line, as PHP writes it.
+                if !is_break(self.at(k)) && k < b.len() {
+                    return None;
+                }
+                let close = Close::Heredoc { from, len: u8::try_from(to - from).unwrap_or(u8::MAX) };
+                let (escape, interp) =
+                    if quote == b'\'' { (Escape::None, Interp::None) } else { (Escape::Backslash, Interp::Php) };
+                Some((k - i, string(close, escape, interp, true)))
+            }
         }
     }
 
@@ -770,13 +822,18 @@ impl Scanner<'_, '_> {
             }
             let interp = s.interp;
             if c == b'$'
-                && matches!(interp, Interp::DollarBrace | Interp::Dollar)
+                && matches!(interp, Interp::DollarBrace | Interp::Dollar | Interp::Php)
                 && self.at(i + 1) == b'{'
                 && self.can_nest()
             {
                 return self.interpolate(i, i + 2, b'}', b'{', s);
             }
-            if c == b'$' && interp == Interp::Dollar && (self.at(i + 1).is_ascii_alphabetic() || self.at(i + 1) == b'_')
+            if c == b'{' && interp == Interp::Php && self.at(i + 1) == b'$' && self.can_nest() {
+                return self.interpolate(i, i + 1, b'}', b'{', s);
+            }
+            if c == b'$'
+                && matches!(interp, Interp::Dollar | Interp::Php)
+                && (self.at(i + 1).is_ascii_alphabetic() || self.at(i + 1) == b'_')
             {
                 let mut to = i + 2;
                 while self.at(to).is_ascii_alphanumeric() || self.at(to) == b'_' {
@@ -832,6 +889,23 @@ impl Scanner<'_, '_> {
                     && b[end - 1] == b'"';
                 closes.then_some(len + 2)
             }
+            Close::Heredoc { from, len } => {
+                let len = usize::from(len);
+                // Only where it could close, its first byte after a space, a tab, or a break, is
+                // the line looked back over, so each run of spaces is looked over once.
+                if b[i] != b[from] || i == 0 || !matches!(b[i - 1], b' ' | b'\t' | b'\n' | b'\r') {
+                    return None;
+                }
+                let mut k = i;
+                while k > 0 && matches!(b[k - 1], b' ' | b'\t') {
+                    k -= 1;
+                }
+                let closes = k > from + len
+                    && is_break(b[k - 1])
+                    && b.get(i..i + len) == Some(&b[from..from + len])
+                    && !is_word(self.at(i + len));
+                closes.then_some(len)
+            }
             Close::Line => None,
         }
     }
@@ -876,6 +950,19 @@ impl Scanner<'_, '_> {
                     }
                 }
                 self.emit(j, Class::Attribute);
+                true
+            }
+            Hash::Comment if next == b'[' => {
+                // `#[`, and the attribute's name by its namespace: `#[Route`, `#[\Attribute`.
+                let mut j = i + 2;
+                while self.at(j) == b'\\' || is_word_start(self.at(j)) {
+                    j = word_end(b, j + usize::from(self.at(j) == b'\\'), len);
+                }
+                self.emit(j, Class::Attribute);
+                true
+            }
+            Hash::Comment => {
+                self.emit(line_end(b, i, len), Class::Comment);
                 true
             }
             Hash::Meta | Hash::Private if is_word_start(next) => {
@@ -1227,6 +1314,11 @@ const RUST_STRINGS: &[Opener] = &[
     opens("\"", quoted(b'"', 1, Escape::Backslash, Interp::None, true)),
 ];
 const PROTO_STRINGS: &[Opener] = &[opens("\"", DQ), opens("'", SQ)];
+const PHP_STRINGS: &[Opener] = &[
+    opens("\"", quoted(b'"', 1, Escape::Backslash, Interp::Php, true)),
+    opens("'", quoted(b'\'', 1, Escape::Backslash, Interp::None, true)),
+    opens("`", quoted(b'`', 1, Escape::Backslash, Interp::Php, true)),
+];
 
 /// What a language is before its own table says otherwise.
 const BASE: Spec = Spec {
@@ -1255,6 +1347,7 @@ const BASE: Spec = Spec {
     digit_quotes: false,
     dollar: false,
     macros: false,
+    sigils: false,
     arrow: false,
 };
 
@@ -1453,6 +1546,21 @@ pub(crate) static RUST: Spec = Spec {
     hash: Hash::Attribute,
     lifetimes: true,
     macros: true,
+    ..BASE
+};
+
+pub(crate) static PHP: Spec = Spec {
+    keywords: &[PHP_KEYWORDS],
+    types: &[PHP_TYPES],
+    constants: &[PHP_CONSTANTS],
+    builtins: &[PHP_BUILTINS],
+    functions: PHP_FUNCTIONS,
+    declares: PHP_DECLARES,
+    strings: PHP_STRINGS,
+    raw: Raw::Php,
+    hash: Hash::Comment,
+    sigils: true,
+    arrow: true,
     ..BASE
 };
 
@@ -2350,6 +2458,90 @@ const PROTO_TYPES: Table = words!(
 const PROTO_CONSTANTS: Table = words!("clike/proto-constants", ["false", "inf", "nan", "true"]);
 const PROTO_FUNCTIONS: Table = words!("clike/proto-functions", ["rpc"]);
 const PROTO_DECLARES: Table = words!("clike/proto-declares", ["enum", "message", "service"]);
+const PHP_KEYWORDS: Table = words!(
+    "clike/php-keywords",
+    [
+        "abstract",
+        "and",
+        "as",
+        "break",
+        "case",
+        "catch",
+        "class",
+        "clone",
+        "const",
+        "continue",
+        "declare",
+        "default",
+        "die",
+        "do",
+        "echo",
+        "else",
+        "elseif",
+        "empty",
+        "enddeclare",
+        "endfor",
+        "endforeach",
+        "endif",
+        "endswitch",
+        "endwhile",
+        "enum",
+        "eval",
+        "exit",
+        "extends",
+        "final",
+        "finally",
+        "fn",
+        "for",
+        "foreach",
+        "function",
+        "global",
+        "goto",
+        "if",
+        "implements",
+        "include",
+        "include_once",
+        "instanceof",
+        "insteadof",
+        "interface",
+        "isset",
+        "list",
+        "match",
+        "namespace",
+        "new",
+        "or",
+        "print",
+        "private",
+        "protected",
+        "public",
+        "readonly",
+        "require",
+        "require_once",
+        "return",
+        "static",
+        "switch",
+        "throw",
+        "trait",
+        "try",
+        "unset",
+        "use",
+        "var",
+        "while",
+        "xor",
+        "yield",
+    ]
+);
+const PHP_TYPES: Table = words!(
+    "clike/php-types",
+    ["array", "bool", "callable", "float", "int", "iterable", "mixed", "never", "object", "string", "void",]
+);
+const PHP_CONSTANTS: Table = words!("clike/php-constants", ["false", "null", "true"]);
+const PHP_BUILTINS: Table = words!("clike/php-builtins", ["parent", "self"]);
+const PHP_FUNCTIONS: Table = words!("clike/php-functions", ["fn", "function"]);
+const PHP_DECLARES: Table = words!(
+    "clike/php-declares",
+    ["class", "enum", "extends", "implements", "instanceof", "interface", "new", "trait",]
+);
 
 /// Every table this scanner reads, in the order its file lists them (`tables::written`).
 pub(super) const WORDS: &[Table] = &[
@@ -2425,13 +2617,19 @@ pub(super) const WORDS: &[Table] = &[
     PROTO_CONSTANTS,
     PROTO_FUNCTIONS,
     PROTO_DECLARES,
+    PHP_KEYWORDS,
+    PHP_TYPES,
+    PHP_CONSTANTS,
+    PHP_BUILTINS,
+    PHP_FUNCTIONS,
+    PHP_DECLARES,
 ];
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn specs() -> [&'static Spec; 16] {
+    fn specs() -> [&'static Spec; 17] {
         [
             &C,
             &CPP,
@@ -2449,6 +2647,7 @@ mod tests {
             &ZIG,
             &RUST,
             &PROTOBUF,
+            &PHP,
         ]
     }
 

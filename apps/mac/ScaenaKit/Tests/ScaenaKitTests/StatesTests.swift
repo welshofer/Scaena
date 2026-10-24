@@ -54,6 +54,19 @@ private func playing(_ editor: DeckEditor) -> [String] {
     ])
 }
 
+/// The slides down the side and the light table read each slide to VoiceOver by its headline
+/// (lift-up 10-24b USE-4), as the engine says what heads it: B1's cover by its display line.
+@Test func eachSlideReadsByItsHeadline() throws {
+    let editor = DeckEditor(session: try ScaenaSession(directory: b1))
+    let cover = try #require(editor.slots.first)
+    #expect(cover.headline == "Scaena")
+    #expect(SlideReading.row(number: 1, step: 1, headline: cover.headline) == "Slide 1: Scaena")
+    #expect(SlideReading.row(number: 3, step: 2, headline: "What we refuse") == "Slide 3, step 2: What we refuse")
+    #expect(SlideReading.row(number: 4, step: 1, headline: nil) == "Slide 4")
+    #expect(SlideReading.cell(number: 2, headline: "") == "Slide 2")
+    #expect(SlideReading.steps(3) == "3 steps" && SlideReading.steps(1).isEmpty)
+}
+
 /// A rehearsal (PLAN 2.63, 3.14): the time each state is shown kept, back and on again; at the
 /// end each state reached holds what it took less its cue, to a tenth of a second, as one patch.
 @Test func aRehearsalKeepsWhatEachStateTook() throws {
@@ -190,26 +203,27 @@ private func playing(_ editor: DeckEditor) -> [String] {
 }
 
 /// A new deck opens on a title slide (PLAN 3.30): its one blank state made a slide in the theme's
-/// `title` layout, its words in their slots and its picture's place waiting; a deck with something
-/// on it is left as it is.
+/// `title` layout, its words in their slots and the theme's backdrop in its picture's place, as the
+/// theme chooser draws it, so no place waits (W304); a deck with something on it is left as it is.
 @Test func aNewDeckOpensOnATitleSlide() throws {
     let editor = DeckEditor(session: try ScaenaSession.create(theme: "Dusk", title: "Untitled"))
     #expect(editor.startOnTitleSlide() == "title")
     #expect(editor.slots.map(\.state) == ["title"])
-    #expect(try editor.session.waiting(state: "title").map(\.slot) == ["art"])
-    #expect(try editor.session.boxes(state: "title").count >= 3, "the kicker, the title, and the subtitle")
+    #expect(try editor.session.waiting(state: "title").isEmpty, "the backdrop stands in the picture's place")
+    #expect(try editor.session.boxes(state: "title").count >= 4, "the backdrop, the kicker, the title, and the subtitle")
     #expect(editor.startOnTitleSlide() == nil, "a title slide stays as it is")
 }
 
-/// An empty slot's words as the canvas may stand them (PLAN 3.30): the title slide's picture's
-/// place, a slot drawn tall and narrow, on a line, then two, and so on down to its longest word's
-/// width, each line whole words; the canvas shows the first way that fits, so no word is cut, as
+/// An empty slot's words as the canvas may stand them (PLAN 3.30): a title slide's picture's
+/// place, as Add Slide starts it, a slot drawn tall and narrow, on a line, then two, and so on
+/// down to its longest word's width, each line whole words; the canvas shows the first way that fits, so no word is cut, as
 /// "A pictur…" was in the slot drawn 92 points wide. Each way holds every word, in order, on a line
 /// more than the way before it.
 @Test func anEmptySlotsWordsBreakOnlyBetweenWords() throws {
     let editor = DeckEditor(session: try ScaenaSession.create(theme: "Dusk", title: "Untitled"))
-    #expect(editor.startOnTitleSlide() == "title")
-    let art = try #require(try editor.session.waiting(state: "title").first { $0.slot == "art" })
+    let started = try editor.session.starting(after: "start", layout: "title")
+    try editor.make(started.patch)
+    let art = try #require(try editor.session.waiting(state: started.id).first { $0.slot == "art" })
     #expect(art.words == "A picture, or a backdrop")
     #expect(
         art.lines == [

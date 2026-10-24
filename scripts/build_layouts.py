@@ -394,8 +394,11 @@ layout("Frameworks", "swot", "Strengths, weaknesses, opportunities, and threats,
     "kicker": KICKER,
     "header": header(),
     **{f"{o}-card": card(c, r) for o, (c, r) in zip(ORDINALS, [((1, 6), (3, 6)), ((7, 12), (3, 6)), ((1, 6), (7, 10)), ((7, 12), (7, 10))])},
-    **{f"{o}-title": slot(c, (r[0], r[0] + 1), "label", w, inset=24) for o, (c, r), w in zip(ORDINALS, [((1, 6), (3, 6)), ((7, 12), (3, 6)), ((1, 6), (7, 10)), ((7, 12), (7, 10))], ["Strengths", "Weaknesses", "Opportunities", "Threats"])},
-    **{o: slot(c, (r[0] + 2, r[1]), "caption", {"bullet": w}, inset=24) for o, (c, r), w in zip(ORDINALS, [((1, 6), (3, 6)), ((7, 12), (3, 6)), ((1, 6), (7, 10)), ((7, 12), (7, 10))], [["What we do well", "Our edge"], ["Where we fall short", "What we lack"], ["What opens up", "Who needs us"], ["What could hurt us", "Who competes"]])},
+    # The quarter's name stands on its points, set in the body's size in the rest of the card and
+    # shrunk where there are more than it holds. A card's inset leaves a row of its own no room for
+    # the name: it takes two, at their foot.
+    **{f"{o}-title": slot(c, (r[0], r[0] + 1), "label", w, inset=24, align={"y": "end"}) for o, (c, r), w in zip(ORDINALS, [((1, 6), (3, 6)), ((7, 12), (3, 6)), ((1, 6), (7, 10)), ((7, 12), (7, 10))], ["Strengths", "Weaknesses", "Opportunities", "Threats"])},
+    **{o: slot(c, (r[0] + 2, r[1]), "body", {"bullet": w}, inset=24, fit="shrink") for o, (c, r), w in zip(ORDINALS, [((1, 6), (3, 6)), ((7, 12), (3, 6)), ((1, 6), (7, 10)), ((7, 12), (7, 10))], [["What we do well", "Our edge"], ["Where we fall short", "What we lack"], ["What opens up", "Who needs us"], ["What could hurt us", "Who competes"]])},
 })
 
 layout("Frameworks", "okrs", "One objective, and the key results that say it is met, each with its target.", {
@@ -497,11 +500,15 @@ layout("Process", "process", "Four stages left to right, each pointing to the ne
 layout("Process", "how-it-works", "Three steps, each under its large number: how it works, start to finish.", {
     "kicker": KICKER,
     "header": header(),
-    # A row clear of the headline, so a headline of two lines stands clear of the numbers.
-    **{f"{o}-number": slot(c, (4, 5), "numeral", str(i + 1)) for i, (o, c) in enumerate(zip(ORDINALS, THIRDS))},
-    **{f"{o}-title": slot(c, (6, 7), "title", w) for o, c, w in zip(ORDINALS, THIRDS, ["Sign up", "Set it up", "Go"])},
+    # A step reads as one piece: its number stands on its title, a row clear of the headline, and
+    # its title on what happens. A title takes the two lines it needs at the set's size, every
+    # step's words starting on one row; one too long for two shrinks, its set with it.
+    **{f"{o}-number": slot(c, (4, 5), "numeral", str(i + 1), align={"y": "end"}) for i, (o, c) in enumerate(zip(ORDINALS, THIRDS))},
+    **{f"{o}-title": slot(c, (6, 7), "title", w, fit="shrink") for o, c, w in zip(ORDINALS, THIRDS, ["Sign up", "Set it up", "Go"])},
     **{o: slot(c, (8, 10), "body", "What happens, in a line") for o, c in zip(ORDINALS, THIRDS)},
-}, ember={**{f"{o}-number": (c, (4, 8)) for o, c in zip(ORDINALS, THIRDS)}, **{f"{o}-title": (c, (9, 10)) for o, c in zip(ORDINALS, THIRDS)}, **{o: (c, (11, 12)) for o, c in zip(ORDINALS, THIRDS)}})
+    # Ember's numeral is large enough that its descent, under a number set on its slot's foot,
+    # reaches a row's gutter: its number ends a row above its title.
+}, ember={**{f"{o}-number": (c, (4, 7)) for o, c in zip(ORDINALS, THIRDS)}, **{f"{o}-title": (c, (9, 10)) for o, c in zip(ORDINALS, THIRDS)}, **{o: (c, (11, 12)) for o, c in zip(ORDINALS, THIRDS)}})
 
 layout("Process", "pipeline", "Stages in order, each with how many reach it and how many go on.", {
     "kicker": KICKER,
@@ -518,7 +525,9 @@ layout("Process", "journey", "A person's path in phases, and what they do, think
     "second-lane": card((1, 12), (6, 7)),
     **{f"{o}-phase": slot(c, (3, 3), "label", w) for o, c, w in zip(ORDINALS, [(4, 6), (7, 9), (10, 12)], ["Discover", "Try", "Stay"])},
     **{f"{o}-lane": slot((1, 3), r, "label", w, inset=24, align={"y": "center"}) for o, r, w in zip(ORDINALS, [(4, 5), (6, 7), (8, 9)], ["Does", "Thinks", "Feels"])},
-    **{f"{lane}-{o}": slot(c, r, "caption", w, align={"y": "center"}) for lane, r, ws in zip(["does", "thinks", "feels"], [(4, 5), (6, 7), (8, 9)], [["Hears of it", "Signs up", "Comes back"], ["Is it for me?", "This is easy", "I rely on it"], ["Curious", "Relieved", "At home"]]) for o, c, w in zip(ORDINALS, [(4, 6), (7, 9), (10, 12)], ws)},
+    # What they do, think, and feel are the slide's points: set in the body's size, shrunk where
+    # one runs longer than its cell holds.
+    **{f"{lane}-{o}": slot(c, r, "body", w, align={"y": "center"}, fit="shrink") for lane, r, ws in zip(["does", "thinks", "feels"], [(4, 5), (6, 7), (8, 9)], [["Hears of it", "Signs up", "Comes back"], ["Is it for me?", "This is easy", "I rely on it"], ["Curious", "Relieved", "At home"]]) for o, c, w in zip(ORDINALS, [(4, 6), (7, 9), (10, 12)], ws)},
 })
 
 layout("Process", "recipe", "What it takes and how it's done: what you need, then the method, step by step.", {
@@ -632,8 +641,10 @@ layout("Numbers", "metric-trend", "One number and the line that led to it: where
     "number": slot((1, 5), (3, 6), "hero", "42%", align={"y": "end"}, fit="shrink"),
     "claim": slot((1, 5), (8, 9), "title", "What the number means"),
     "main": slot((7, 12), (3, 8), prompt="A chart of how it got there", example=chart("line")),
-    "note": slot((7, 12), (9, 10), "caption", "Six months, by month"),
-}, ember={"number": ((1, 5), (4, 8)), "claim": ((1, 5), (10, 12)), "main": ((7, 12), (4, 10)), "note": ((7, 12), (11, 12))})
+    "note": slot((7, 12), (9, 9), "caption", "Six months, by month"),
+    "source": slot((7, 12), (10, 10), "caption", "Its source"),
+}, ember={"number": ((1, 5), (4, 8)), "claim": ((1, 5), (10, 12)), "main": ((7, 12), (4, 10)), "note": ((7, 12), (11, 11)),
+          "source": ((7, 12), (12, 12))})
 
 # Charts ----------------------------------------------------------------------------------------
 
@@ -651,6 +662,7 @@ layout("Charts", "line-chart", "A headline over a line chart, the turn it takes 
     "main": slot((1, 9), (3, 10), prompt="A line chart", example=chart("line")),
     "callout": slot((10, 12), (3, 5), "figure", "+38%", align={"y": "end"}),
     "note": slot((10, 12), (6, 8), "caption", "What changed, and when"),
+    "source": slot((10, 12), (9, 10), "caption", "Its source"),
 })
 
 layout("Charts", "donut-chart", "Shares of a whole: a donut, and the parts that matter most beside it.", {
@@ -755,6 +767,15 @@ layout("People", "team-six", "Six people, three by two, each with a picture, a n
     **{o: slot((c[0] + 2, c[1]), (r[1], r[1]), "caption", "What they do") for o, (c, r) in zip(ORDINALS, TEAM_SIX)},
 })
 
+TEAM_NAMES = [(c, r) for r in [(3, 6), (7, 10)] for c in THIRDS]
+layout("People", "team-names", "Up to six people, three by two, each on a card with their name and what they do: a team with no pictures of them.", {
+    "kicker": KICKER,
+    "header": header(),
+    **{f"{o}-card": card(c, r) for o, (c, r) in zip(ORDINALS, TEAM_NAMES)},
+    **{f"{o}-title": slot(c, (r[0], r[0] + 1), "title", "A name", inset=24, align={"y": "end"}) for o, (c, r) in zip(ORDINALS, TEAM_NAMES)},
+    **{o: slot(c, (r[0] + 2, r[1]), "body", "What they do", inset=24, fit="shrink") for o, (c, r) in zip(ORDINALS, TEAM_NAMES)},
+})
+
 ORG = [(1, 4), (5, 8), (9, 12)]
 layout("People", "org-chart", "Who reports to whom: one at the top, and three under them.", {
     "kicker": KICKER,
@@ -835,7 +856,8 @@ layout("Editorial", "faq", "The questions people ask, each on its card with its 
     "kicker": KICKER,
     "header": header("What people ask"),
     **{f"{o}-card": card(c, r) for o, (c, r) in zip(ORDINALS, FAQ)},
-    **{f"{o}-title": slot(c, (r[0], r[0] + 1), "title", "A question?", inset=24) for o, (c, r) in zip(ORDINALS, FAQ)},
+    # A question stands on its answer, however many lines it takes.
+    **{f"{o}-title": slot(c, (r[0], r[0] + 1), "title", "A question?", inset=24, align={"y": "end"}) for o, (c, r) in zip(ORDINALS, FAQ)},
     **{o: slot(c, (r[0] + 2, r[1]), "body", "Its answer, in a line.", inset=24) for o, (c, r) in zip(ORDINALS, FAQ)},
 })
 
@@ -843,7 +865,8 @@ GLOSSARY = [((1, 6), (3, 6)), ((7, 12), (3, 6)), ((1, 6), (7, 10)), ((7, 12), (7
 layout("Editorial", "glossary", "Terms and what they mean, set as a dictionary sets them.", {
     "kicker": KICKER,
     "header": header("Terms"),
-    **{f"{o}-title": slot(c, (r[0], r[0] + 1), "title", "A term") for o, (c, r) in zip(ORDINALS, GLOSSARY)},
+    # A term stands on what it means, as a dictionary sets it.
+    **{f"{o}-title": slot(c, (r[0], r[0] + 1), "title", "A term", align={"y": "end"}) for o, (c, r) in zip(ORDINALS, GLOSSARY)},
     **{o: slot(c, (r[0] + 2, r[1]), "body", "What it means, in a line.") for o, (c, r) in zip(ORDINALS, GLOSSARY)},
 })
 
@@ -1034,6 +1057,7 @@ layout("Charts", "positioning-map", "Each player placed by two measures, a dot a
     "main": slot((1, 8), (3, 10), prompt="A scatter of the players", example=chart("scatter")),
     "takeaway": slot((9, 12), (3, 6), "lede", "Where we stand, in a sentence"),
     "note": slot((9, 12), (7, 8), "caption", "Each dot a player, ours marked"),
+    "source": slot((9, 12), (9, 10), "caption", "Its source"),
 })
 
 # Comparison ------------------------------------------------------------------------------------
@@ -1547,6 +1571,10 @@ OLD_SLOTS = {
     # A list's points are read from the back of the room: set in the lede, as Statements' credo
     # sets its own, not in the body's size, which leaves three of them in the top of the slot.
     "bullets": {"body": {"role": "lede"}},
+    # The words stand on who said them, or on what supports them, a gutter apart, whatever lines
+    # they take: the two read as one piece.
+    "quote": {"quote": {"align": {"x": "start", "y": "end"}}},
+    "statement": {"statement": {"align": {"x": "start", "y": "end"}}},
     "numbered": {"body": {"role": "lede"}},
 }
 
@@ -1645,7 +1673,7 @@ NAMES = {
     "callout": "Callouts", "photo-grid-text": "Photo Grid and Words",
     # People
     "team": "Team", "testimonials": "Testimonials", "quote-portrait": "Quote and Portrait", "bio": "Bio",
-    "team-four": "Team of Four", "team-six": "Team of Six", "org-chart": "Org Chart", "speaker": "Speaker",
+    "team-four": "Team of Four", "team-six": "Team of Six", "team-names": "Team by Name", "org-chart": "Org Chart", "speaker": "Speaker",
     "two-quotes": "Two Quotes",
     # Editorial
     "definition": "Definition", "letter": "Letter", "memo": "Memo", "receipt": "Receipt",

@@ -55,7 +55,11 @@ try {
   const outside = [];
   const refused = [];
   context.on("request", (r) => !r.url().startsWith(home) && !/^(blob|data):/.test(r.url()) && outside.push(r.url()));
-  context.on("requestfailed", (r) => refused.push(`${r.url()}: ${r.failure()?.errorText}`));
+  // An abort is the page cancelling its own load (a dialog's thumbnails as it closes), not a refusal.
+  context.on("requestfailed", (r) => {
+    const why = r.failure()?.errorText;
+    if (why !== "net::ERR_ABORTED") refused.push(`${r.url()}: ${why}`);
+  });
   const watch = (page) => {
     page.on("pageerror", (e) => failures.push(`${page.url()}: ${e.message}`));
     page.on("console", (m) => m.type() === "error" && failures.push(`${page.url()}: console: ${m.text()}`));
@@ -152,7 +156,7 @@ try {
   const linted = await page.evaluate(() => window.scaena.last());
   const errors = linted?.findings.filter((f) => f.severity === "error") ?? [];
   check(linted?.valid && linted.whole && !errors.length, `it compiles the deck and lints every state with no error (${errors.map((f) => f.code).join(", ") || "none"})`);
-  const [download] = await Promise.all([page.waitForEvent("download", { timeout: 60000 }), page.click("#download")]).catch(() => [undefined]);
+  const [download] = await Promise.all([page.waitForEvent("download", { timeout: 60000 }), page.click("#file-open").then(() => page.click("#download"))]).catch(() => [undefined]);
   const zip = download ? await readFile(await download.path()) : Buffer.alloc(0);
   check(zip[0] === 0x50 && zip[1] === 0x4b, `Download works, the subsetter loaded from what the site keeps: ${zip.length} bytes`);
 

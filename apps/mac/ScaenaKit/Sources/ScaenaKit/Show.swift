@@ -6,6 +6,25 @@ public enum Blank: String, Sendable {
     case black, white
 }
 
+/// The sizes the presenter's notes step through, in points, as a presentation app's A↑ and A↓ step
+/// them (lift-up USE-4): the browser's presenter view steps through the same, in pixels.
+public enum NotesSize {
+    public static let sizes: [Double] = [12, 14, 16, 18, 20, 24, 28, 32, 40, 48]
+    /// Where the notes start: the Mac's body text, and the iPad's larger, as each read before.
+    #if os(macOS)
+    public static let standard: Double = 16
+    #else
+    public static let standard: Double = 20
+    #endif
+
+    /// The size a step `by` from `size` reaches, held to the list's ends; a size not in the list
+    /// steps from the first in it at least as large.
+    public static func stepped(_ size: Double, by: Int) -> Double {
+        let from = sizes.firstIndex { $0 >= size } ?? sizes.count - 1
+        return sizes[min(sizes.count - 1, max(0, from + by))]
+    }
+}
+
 /// A deck played as it is presented (PLAN 3.5), paced as the browser's player paces it (PLAN
 /// 2.2, SPEC §2.4): a state of the deck's timeline, and the playhead in its cue. Going on plays
 /// the next state's cue, and going on during a cue finishes it; going back shows the state before

@@ -32,6 +32,13 @@ extension ScaenaSession {
         return try call("starting", .object(args))
     }
 
+    /// The patch that makes a new deck's title slide after the slide of `state` (PLAN 3.30): in the
+    /// theme's `title` layout, its words to type over and the theme's backdrop in its picture's
+    /// place, as the theme chooser draws it.
+    public func titling(after state: String) throws -> AddedState {
+        try call("titling", ["state": .string(state)])
+    }
+
     /// The slides a person may start (PLAN 3.31), as a picker lists them before it draws any: one
     /// in each of the theme's layouts, in its order, then a blank one, each with no picture.
     public func starters() throws -> [Starter] {
@@ -209,6 +216,31 @@ public struct Starter: Decodable, Sendable, Identifiable, Equatable {
     public func matches(_ words: String) -> Bool {
         let said = ([name ?? "Blank", description ?? "", group ?? "", layout ?? ""] + also).joined(separator: " ")
         return words.split(whereSeparator: \.isWhitespace).allSatisfy { said.localizedStandardContains($0) }
+    }
+}
+
+/// How VoiceOver reads a slide down the side or on the light table (lift-up 10-24b USE-4): by its
+/// number and the words that head it, as a presentation app's navigator reads a slide's title.
+public enum SlideReading {
+    /// A row of the slides down the side: `Slide 3: What we refuse`, a step `Slide 3, step 2: …`,
+    /// and one no text heads by its number alone.
+    public static func row(number: Int, step: Int, headline: String?) -> String {
+        headed(step > 1 ? "Slide \(number), step \(step)" : "Slide \(number)", headline)
+    }
+
+    /// A slide on the light table: `Slide 3: What we refuse`, by the state it is drawn at.
+    public static func cell(number: Int, headline: String?) -> String {
+        headed("Slide \(number)", headline)
+    }
+
+    /// What a slide of several steps says after its name: `3 steps`; one of one, nothing.
+    public static func steps(_ count: Int) -> String {
+        count > 1 ? "\(count) steps" : ""
+    }
+
+    private static func headed(_ name: String, _ headline: String?) -> String {
+        guard let headline, !headline.isEmpty else { return name }
+        return "\(name): \(headline)"
     }
 }
 

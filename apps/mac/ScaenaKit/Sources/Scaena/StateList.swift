@@ -18,6 +18,8 @@ struct StateList: View {
     let make: ([JSONValue], String?) -> Void
     /// Add a step or a slide after a state, then show it.
     let add: (String, StateAdding) -> Void
+    /// The rows, as the Slides rotor finds them (lift-up 10-24b USE-4).
+    @Namespace private var rows
 
     /// Each state with its slide's number, and its place among the slide's steps from 1.
     private var places: [String: (slide: Int, step: Int)] {
@@ -60,8 +62,23 @@ struct StateList: View {
                     editor: editor, slot: slot, number: place.slide, step: place.step, revision: editor.revision,
                     picked: chosen == slot.state)
                     .contextMenu { menu(slot) }
+                    .accessibilityActions { actions(slot) }
+                    .accessibilityRotorEntry(id: slot.state, in: rows)
             }
             .onMove(perform: move)
+        }
+        // VoiceOver's rotor goes from slide to slide, each read by its headline, and shows the one
+        // it lands on, as Keynote's navigator does (lift-up 10-24b USE-4).
+        .accessibilityRotor("Slides") {
+            ForEach(editor.slots, id: \.state) { slot in
+                let place = numbered[slot.state] ?? (slide: 0, step: 1)
+                if place.step == 1 {
+                    AccessibilityRotorEntry(
+                        Text(SlideReading.row(number: place.slide, step: 1, headline: slot.headline)), id: slot.state,
+                        in: rows
+                    ) { chosen = slot.state }
+                }
+            }
         }
         #if os(macOS)
         list.onDeleteCommand(perform: deleteChosen)
@@ -121,6 +138,26 @@ struct StateList: View {
             make(Restaging.removeSlides([slot.slide]), shownAfter(removing: slot.slide))
         }
         .disabled(Slide.of(editor.slots).count < 2)
+    }
+
+    /// What VoiceOver offers on a row (lift-up 10-24b USE-4): the context menu's commands, those
+    /// that would do nothing left out, as its actions.
+    @ViewBuilder private func actions(_ slot: ScaenaSession.Slot) -> some View {
+        let states = editor.slots.map(\.state)
+        if states.first != slot.state {
+            Button("Move Up") { step(slot.state, by: -1) }
+        }
+        if states.last != slot.state {
+            Button("Move Down") { step(slot.state, by: 1) }
+        }
+        Button("Duplicate Slide") { make(Restaging.duplicateSlides([slot.slide]), nil) }
+        Button("New Slide") { add(slot.state, .slide) }
+        if editor.slots.filter({ $0.slide == slot.slide }).count > 1 {
+            Button("Delete Step") { remove(slot.state) }
+        }
+        if Slide.of(editor.slots).count > 1 {
+            Button("Delete Slide") { make(Restaging.removeSlides([slot.slide]), shownAfter(removing: slot.slide)) }
+        }
     }
 
     /// A state dragged to `to`, a place in the list as it was: just before the state there, or
@@ -205,10 +242,11 @@ private struct StateRow: View {
         }
         .padding(.vertical, step > 1 ? 1 : 4)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(step > 1 ? "Slide \(number), step \(step)" : "Slide \(number)")
+        .accessibilityLabel(SlideReading.row(number: number, step: step, headline: slot.headline))
+        .accessibilityAddTraits(picked ? .isSelected : [])
         .accessibilityIdentifier("state-\(slot.state)")
         .task(id: "\(slot.state)\u{1f}\(revision)") {
-            drawing = editor.drawing(slot.state, width: Int(width * scale))
+            drawing = await editor.drawingAway(slot.state, width: Int(width * scale))
         }
     }
 }

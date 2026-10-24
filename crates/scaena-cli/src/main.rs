@@ -157,7 +157,9 @@ enum Cmd {
         state_choices: bool,
         /// The layouts the state may take, best first (PLAN 2.92): each of the theme's layouts
         /// that `--state-choices` offers, with what lint finds in the state laid out in it
-        /// (fewest errors, then fewest warnings, then the theme's order), the states the change
+        /// (fewest errors, then fewest warnings, then the layout it takes now, then those whose
+        /// places it leaves fewest empty, then those that set fewest of its texts in another
+        /// role, then the theme's order), the states the change
         /// reaches, and the `set_state` patch that makes it. Needs `--state`.
         #[arg(long, requires = "state")]
         layouts: bool,
@@ -399,6 +401,13 @@ enum Cmd {
         /// blank slide without it.
         #[arg(long)]
         layout: Option<String>,
+        /// The one sentence the slide tells, in a beat of its own just after the beat of STATE.
+        /// Without it, the slide joins that beat.
+        #[arg(long)]
+        claim: Option<String>,
+        /// The new state's id, and its nodes' after it. Without it, the layout's name.
+        #[arg(long)]
+        id: Option<String>,
         /// Say what would change, and write nothing.
         #[arg(long)]
         dry_run: bool,
@@ -850,14 +859,17 @@ fn run(cli: Cli) -> Result<ExitCode> {
             };
             map(&a, cli.json)
         }
-        Cmd::Start { bundle, state, layout, dry_run } => start(&bundle, &state, layout.as_deref(), dry_run, cli.json),
+        Cmd::Start { bundle, state, layout, claim, id, dry_run } => {
+            start(&bundle, &state, layout.as_deref(), claim.as_deref(), id.as_deref(), dry_run, cli.json)
+        }
         Cmd::Background { bundle, state, preset, none, dry_run } => {
             background(&bundle, &state, preset.as_deref(), none, dry_run, cli.json)
         }
         Cmd::Health { bundle } => health(&bundle, cli.json),
         Cmd::Icons { query, fill, limit } => icons(&query.join(" "), fill, limit, cli.json),
         Cmd::History { bundle, at, scn, diff, restore, dry_run } => {
-            let ask = scaena_ops::history::Ask { at, scn, compare: diff.unwrap_or_default(), restore, dry_run };
+            let ask =
+                scaena_ops::history::Ask { at, scn, compare: diff.unwrap_or_default(), restore, dry_run, begin: false };
             history(&bundle, &ask, cli.json)
         }
         Cmd::Find { bundle, text, case, words, replace, dry_run } => {
@@ -1052,8 +1064,8 @@ fn diagnostic(
 
 /// `scaena theme --apply` (PLAN 1.6): point the deck at another theme, and report the
 /// delta in what `validate` and `lint` find: what the new theme breaks, and what it fixes.
-/// A theme change is a pure re-render (SPEC §2.5), so the deck itself is not touched beyond
-/// its `theme`. A theme that would leave the deck invalid is refused unless `force`, and
+/// A text it leaves too faint is recolored, and one it sets past its box or over another is
+/// refitted, as lint's fixes do; what no fix reaches is said, with the next step. A theme that would leave the deck invalid is refused unless `force`, and
 /// exits 1. Findings after it, if any are errors, exit 1.
 /// `scaena new` (PLAN 2.13): a bundle from a theme and its fonts, as `deck_create` makes one.
 /// Findings that are errors exit 1, and the bundle is not made.
@@ -1074,7 +1086,7 @@ fn new(dir: &Path, theme: &str, title: &str, json: bool) -> Result<ExitCode> {
 }
 
 fn theme_apply(bundle: &Path, theme: &Path, dry_run: bool, force: bool, json: bool) -> Result<ExitCode> {
-    let t = scaena_ops::theme::theme_apply(&open(bundle)?, theme, dry_run, force)?;
+    let t = scaena_ops::theme::theme_apply(&open(bundle)?, theme, None, dry_run, force)?;
     if json {
         println!("{}", serde_json::to_string_pretty(&t)?);
     } else if t.refused {
@@ -1098,7 +1110,24 @@ fn theme_apply(bundle: &Path, theme: &Path, dry_run: bool, force: bool, json: bo
                 f.code
             );
         }
+        // Each text the theme set past its box or over another, fitted as lint's fix fits it.
+        for f in &t.refitted {
+            let at = f.state.as_deref().map(|s| format!(" in `{s}`")).unwrap_or_default();
+            let what = if f.code == "E100" { "it fits its box" } else { "it no longer lies over another" };
+            println!("  refitted `{}`{at}: {what} ({})", f.node.as_deref().unwrap_or("?"), f.code);
+        }
         print_delta(&t.added, &t.removed);
+        // What the theme brought that no fix reaches, and where to put it right.
+        let left = t.added.iter().filter(|f| f.severity == Severity::Error).count();
+        if left > 0 {
+            let d = bundle.display();
+            let them = if left == 1 { "it" } else { "them" };
+            println!(
+                "still: {left} error{} the theme brought that no fix reaches; next: scaena serve {d} to move {them}, \
+                 or scaena lint {d} for each one's hint",
+                if left == 1 { "" } else { "s" }
+            );
+        }
     }
     Ok(if t.errors > 0 { ExitCode::from(1) } else { ExitCode::SUCCESS })
 }
@@ -1299,9 +1328,17 @@ fn data(bundle: &Path, source: &str, edits: Option<&Path>, dry_run: bool, json: 
 /// `scaena start` (PLAN 3.30): a slide started in a layout after a state's slide, as one patch,
 /// reported as `patch` reports one, with the new state's id. Exits 1 where it is refused or
 /// errors remain, as `patch` does.
-fn start(bundle: &Path, state: &str, layout: Option<&str>, dry_run: bool, json: bool) -> Result<ExitCode> {
+fn start(
+    bundle: &Path,
+    state: &str,
+    layout: Option<&str>,
+    claim: Option<&str>,
+    id: Option<&str>,
+    dry_run: bool,
+    json: bool,
+) -> Result<ExitCode> {
     let b = open(bundle)?;
-    let s = scaena_ops::states::start(&b, state, layout, dry_run)?;
+    let s = scaena_ops::states::start(&b, state, layout, claim, id, dry_run)?;
     if json {
         println!("{}", serde_json::to_string_pretty(&s)?);
     } else {
@@ -1310,6 +1347,12 @@ fn start(bundle: &Path, state: &str, layout: Option<&str>, dry_run: bool, json: 
             (true, _) => println!("refused: the slide would make the deck invalid; nothing was written"),
             (false, true) => println!("would add {} after {state}'s slide, {} ops as JSON Patch", s.id, p.patch.len()),
             (false, false) => println!("added {} after {state}'s slide, {} ops as JSON Patch", s.id, p.patch.len()),
+        }
+        for f in &s.filled {
+            println!("  {}: {}", f.slot, f.node);
+        }
+        for e in &s.empty {
+            println!("  {}: empty, for {}", e.slot, e.waits);
         }
         print_delta(&p.added, &p.removed);
     }
@@ -1373,7 +1416,9 @@ fn background(
 }
 
 fn health(bundle: &Path, json: bool) -> Result<ExitCode> {
-    let h = scaena_ops::health::health(&open(bundle)?.deck)?;
+    // With what lint finds: a slide that does not stand as it is to be read is found first.
+    let b = open(bundle)?;
+    let h = scaena_ops::health::health_in(&b.deck, &scaena_ops::lint::lint(&b)?.findings)?;
     if json {
         println!("{}", serde_json::to_string_pretty(&h)?);
         return Ok(ExitCode::SUCCESS);
@@ -1401,6 +1446,7 @@ fn health(bundle: &Path, json: bool) -> Result<ExitCode> {
             Severity::Info => "info ",
         };
         println!("{sev} {}: {}", f.state, f.says);
+        println!("  ask: {}", f.ask);
         if let Some(fix) = &f.fix {
             println!("  fix: {}: {}", fix.says, serde_json::to_string(&fix.patch)?);
         }
@@ -1447,7 +1493,7 @@ fn files(bundle: &Path, remove: Option<&[String]>, dry_run: bool, json: bool) ->
         }
         return Ok(code);
     }
-    let listed = scaena_ops::files::Listed { files: scaena_ops::files::files(&b)? };
+    let listed = scaena_ops::files::listed(&b)?;
     if json {
         println!("{}", serde_json::to_string_pretty(&listed)?);
         return Ok(ExitCode::SUCCESS);
@@ -1471,6 +1517,21 @@ fn files(bundle: &Path, remove: Option<&[String]>, dry_run: bool, json: bool) ->
             println!("    named by {}", names.join(", "));
             for used in &f.used {
                 println!("    {} in {}", used.node, used.states.join(", "));
+            }
+        }
+    }
+    // What a deck made from a prompt was grounded in, which is no file of the bundle (FUNC-3).
+    if !listed.sources.is_empty() {
+        println!("grounded in");
+        for s in &listed.sources {
+            let cut = if s.truncated { ", cut short to fit" } else { "" };
+            println!("  {}  {}, {}{cut}", s.name, s.kind, size(s.bytes));
+            if let Some(url) = s.url.as_deref().filter(|u| *u != s.name) {
+                println!("    at {url}");
+            }
+            match s.cited.as_slice() {
+                [] => println!("    no beat cites it"),
+                beats => println!("    cited by {}", beats.join(", ")),
             }
         }
     }
@@ -1532,9 +1593,13 @@ fn history(bundle: &Path, ask: &scaena_ops::history::Ask, json: bool) -> Result<
         let text = v.to_string();
         if text.chars().count() > 60 { format!("{}…", text.chars().take(59).collect::<String>()) } else { text }
     };
-    for v in h.versions.iter().flatten() {
+    for told in h.versions.iter().flatten() {
+        let v = &told.version;
         let (at, by) = (v.at.as_deref().unwrap_or("-"), v.author.as_deref().unwrap_or("-"));
         println!("{:>4}  {at}  {by:<14}  {}  ({})", v.n, v.message.as_deref().unwrap_or(""), v.id);
+        if !told.changed.is_empty() {
+            println!("        {}", told.changed.join("; "));
+        }
     }
     if let Some(seen) = &h.seen {
         match (&seen.scn, &seen.deck) {
@@ -1632,7 +1697,8 @@ fn print_sheet(sheet: &scaena_ops::data::Sheet) {
 }
 
 /// `scaena find` (PLAN 2.47, 2.83): each of the deck's words the query matches (its texts, each
-/// node's description, each state's notes, and each beat's claim and notes), once for each place
+/// node's description, each state's notes, each beat's claim and notes, the words its charts and
+/// tables draw, and its data's cells), once for each place
 /// they are written, with the states that show them and their matches; with `--replace`, every match replaced in
 /// one patch, reported and written as `patch` reports and writes one, and exiting as it does.
 fn find(
@@ -1664,6 +1730,11 @@ fn find(
                 (Kind::Notes, Some(_)) => format!("beat {beat}'s notes"),
                 (Kind::Notes, None) => format!("{}'s notes", f.state),
                 (Kind::Claim, _) => format!("beat {beat}'s claim"),
+                (Kind::Chart, _) => format!("{node}'s words"),
+                (Kind::Data, _) => match &f.file {
+                    Some(file) => format!("data {} in {file}", f.source.as_deref().unwrap_or_default()),
+                    None => format!("data {}", f.source.as_deref().unwrap_or_default()),
+                },
             };
             let shown = if f.states.is_empty() { "no state".to_string() } else { f.states.join(", ") };
             println!("  {what} in {shown} ({}): {:?} at {}", f.lives, f.text, quoted.join(", "));
@@ -1675,6 +1746,10 @@ fn find(
                 (false, false) => println!("replaced them, {} ops as JSON Patch", p.patch.len()),
             }
             print_delta(&p.added, &p.removed);
+        }
+        for lives in &searched.kept {
+            let why = searched.found.iter().find(|f| &f.lives == lives).and_then(|f| f.kept.as_deref());
+            println!("kept: {lives}, {}", why.unwrap_or_default());
         }
     }
     Ok(match &searched.replaced {
@@ -2165,8 +2240,14 @@ fn num(x: f64) -> String {
 /// the display list if asked for.
 fn render(args: RenderArgs, json: bool) -> Result<ExitCode> {
     let RenderArgs { bundle, state, t, format, size, out, display_list, painter } = args;
-    let req =
-        scaena_ops::render::Request { state: state.clone(), t, format: format.clone(), size, painter: painter.into() };
+    let req = scaena_ops::render::Request {
+        state: state.clone(),
+        t,
+        format: format.clone(),
+        size,
+        scale: None,
+        painter: painter.into(),
+    };
     let r = scaena_ops::render::render(&bundle, &req)?;
     if let Some(path) = &display_list {
         std::fs::write(path, r.display_list.to_golden_json()?)

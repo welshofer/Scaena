@@ -118,8 +118,13 @@ struct DeckView: View {
     @SceneStorage("formats") private var showsFormats = false
     /// How close the canvas is shown, and the part of it shown (PLAN 3.16).
     @State private var zoom = Zoom(canvas: CGSize(width: 1920, height: 1080))
+    /// What a touch holds in a keyboard's place: Select, and Only on This Slide (lift-up FUNC-4).
+    @State private var touch = TouchHeld()
     /// Whether the find bar shows over the canvas (PLAN 3.16).
     @State private var searching = false
+    /// Edit › Find Next and Find Previous (lift-up USE-5): how often asked, and which way.
+    @State private var findStep = 0
+    @State private var findBy = 1
 
     private var editor: DeckEditor { document.editor }
 
@@ -302,17 +307,20 @@ struct DeckView: View {
                 rehearsal = nil
             }
         } else if showsSlides {
-            LightTable(editor: editor, picked: $slidesPicked, show: showState) { ops, then in
+            LightTable(editor: editor, picked: $slidesPicked, show: showState, make: { ops, then in
                 perform {
                     try document.make(ops, undo: undo)
                     slidesPicked = Set(then)
                 }
-            }
+            }, touch: touch)
         } else {
             // The canvas takes the room the find bar, the other sizes, and the timeline leave.
             CanvasColumn {
                 if searching {
-                    FindBar(editor: editor, reveal: reveal, make: { ops in perform { try document.make(ops, undo: undo, named: "Replace") } }) {
+                    FindBar(
+                        editor: editor, step: findStep, by: findBy, reveal: reveal,
+                        make: { ops in perform { try document.make(ops, undo: undo, named: "Replace") } }
+                    ) {
                         searching = false
                     }
                     Divider()
@@ -346,8 +354,10 @@ struct DeckView: View {
             viewing
             zooming
             #if !os(macOS)
-            // Undo by touch, as a presentation app's on the iPad (PLAN 4.11).
+            // Undo by touch, as a presentation app's on the iPad (PLAN 4.11), and Select, which lets
+            // a touch alone select several (lift-up FUNC-4).
             UndoButton(undo: undo)
+            SelectButton(touch: touch)
             #endif
         }
         ToolbarItemGroup {
@@ -609,6 +619,12 @@ struct DeckView: View {
             play: editor.slots.isEmpty ? nil : { play() },
             rehearse: editor.slots.isEmpty || rehearsal != nil || !editor.valid ? nil : { rehearse() },
             remote: { remoting = true })
+        // File › Export To, as a presentation app has it (lift-up USE-5): what the toolbar's Share
+        // saves.
+        if !editor.slots.isEmpty {
+            made.savePDF = { save(.pdf) }
+            made.saveImages = { save(allSlides) }
+        }
         // The Slide menu acts on the slide shown, as the slide list's menu acts on its slide.
         if let shown, rehearsal == nil, let slide = editor.slots.first(where: { $0.state == shown })?.slide {
             made.newSlide = { addState(after: shown, as: .slide) }
@@ -806,11 +822,15 @@ struct DeckView: View {
                 }
             }
             // A deck New made: the themes that ship offered first, once its window is up. A deck
-            // made from a prompt says what it came to.
+            // made from a prompt says what it came to, and lands on its story (narrative USE-2):
+            // the Document tab's Story panel, with the arc's curve and each slide's fix.
             .task {
                 if let opening = document.opening {
                     document.opening = nil
                     said = opening
+                    showsInspector = true
+                    tab = .document
+                    documentPanel = .story
                 }
                 guard document.startsNew else { return }
                 document.startsNew = false
@@ -908,7 +928,7 @@ struct DeckView: View {
                             CanvasSelection(
                                 editor: editor, state: shown, size: size, zoom: $zoom, node: $node, also: $also,
                                 typing: typing, pointed: $pointed, said: $said, delete: delete, clip: clip,
-                                finding: { searching = true }, actions: actions,
+                                finding: { searching = true }, stepping: stepping, actions: actions,
                                 fix: { finding in perform { try document.fix(finding, undo: undo) } },
                                 dropped: { items, at in drop(items, in: shown, at: at) },
                                 fill: filling(shown),
@@ -916,7 +936,8 @@ struct DeckView: View {
                                 penning: { takePen() },
                                 inked: { points in ink(points, in: shown) },
                                 painted: painted,
-                                showing: { state in chosen = state }
+                                showing: { state in chosen = state },
+                                touch: touch
                             ) { ops, name in
                                 perform { try document.make(ops, undo: undo, named: name) }
                             }
@@ -1020,11 +1041,40 @@ struct DeckView: View {
         }
     }
 
-    /// What the View menu does to the canvas (PLAN 3.16): zoom, the whole canvas, and find.
+    /// Edit › Find Next (`1`) and Find Previous (`-1`) by their keys on the canvas (lift-up USE-5):
+    /// the find bar stepped; none while it is closed.
+    private var stepping: ((Int) -> Void)? {
+        guard searching else { return nil }
+        return { by in
+            findBy = by
+            findStep += 1
+        }
+    }
+
+    /// What the View menu does to the canvas (PLAN 3.16): zoom, the whole canvas, and find; Edit ›
+    /// Find Next and Find Previous while the find bar is open; and the Format menu while a text is
+    /// typed in (lift-up USE-5).
     private var canvasActions: CanvasActions? {
         guard shown != nil, !showsSlides, rehearsal == nil else { return nil }
-        return CanvasActions(
+        var made = CanvasActions(
             zoom: { by in zoom.step(by) }, fit: { zoom.fit() }, zoomed: zoom.level > 1, find: { searching = true })
+        if searching {
+            made.findNext = {
+                findBy = 1
+                findStep += 1
+            }
+            made.findPrevious = {
+                findBy = -1
+                findStep += 1
+            }
+        }
+        if let typing, typing.typing {
+            made.bold = { typing.bold() }
+            made.italic = { typing.italic() }
+            made.link = { typing.askLink() }
+            made.list = { kind in typing.toggle(kind) }
+        }
+        return made
     }
 
     /// Show what `finding` is about: its state, and its node selected, brought into view where the
@@ -1120,6 +1170,9 @@ struct DeckView: View {
         if selection.count == 2 { made.connect = { arrow in connect(arrow, in: shown) } }
         if one && texted { made.diagram = { kind in diagram(kind, in: shown) } }
         made.deletesElsewhere = elsewhere
+        // A gesture kept to the slide shown without Option, from a long press (lift-up FUNC-4).
+        made.keepToSlide = { touch.onlyThisSlide.toggle() }
+        made.keptToSlide = touch.onlyThisSlide
         // Code selected copies as text, and words paste as words (PLAN 2.133).
         if one, let node, codes.contains(node) { made.copyCode = { copyCode(node, in: shown) } }
         made.pasteAsText = { pasteAsText() }
@@ -1526,7 +1579,7 @@ struct DeckView: View {
         }
     }
 
-    /// ⌘G: the nodes selected in a new group where they stand, the group selected (PLAN 2.43).
+    /// ⌥⌘G: the nodes selected in a new group where they stand, the group selected (PLAN 2.43).
     private func group(in state: String) {
         let nodes = selection
         perform {
@@ -1598,7 +1651,7 @@ struct DeckView: View {
         }
     }
 
-    /// ⌘⇧G: the group selected taken apart, what it held selected (PLAN 2.43).
+    /// ⇧⌥⌘G: the group selected taken apart, what it held selected (PLAN 2.43).
     private func ungroup(in state: String) {
         guard let group = node else { return }
         let held = ((try? editor.session.boxes(state: state)) ?? []).filter { $0.parent == group }.map(\.node)

@@ -87,6 +87,7 @@ import type {
   Lexicon,
   Linted,
   Painter,
+  ProviderId,
   Rewritten,
   SaveTo,
   Seeing,
@@ -104,6 +105,7 @@ import { scn, scnHighlight } from "./scn";
 import { client, listen, served, status as onDisk } from "./served";
 import { worker } from "./spawn";
 import { Stage } from "./stage";
+import { toolbar } from "./toolbar";
 import { slides as lightTable, slidesKeys } from "./slides";
 import { strip, stripKeys } from "./strip";
 import { type Selected, typingKeys } from "./typing";
@@ -122,9 +124,12 @@ const said = (e: unknown) => (e instanceof Error ? e.message : String(e));
 const themeName = (path: string) => sentence(path.replace(/^.*\//, "").replace(/\.theme\.json$|\.json$/, ""));
 /** What an edit did to what lint finds, said: 2 new issues, 1 gone; or no new issues. */
 const issuesChanged = (worse: number, better: number) => `${worse ? many(worse, "new issue") : "no new issues"}${better ? `, ${better} gone` : ""}`;
-/** `rows` of a source as a sentence says them: `row 3`, or `rows 1 and 3`. */
-const rowsSaid = (rows: number[]) =>
-  rows.length === 1 ? `row ${rows[0]}` : `rows ${rows.slice(0, -1).join(", ")} and ${rows[rows.length - 1]}`;
+/** `rows` of a source, by index, as a sentence says them, counted from 1 as a person counts
+ * them: `row 3`, or `rows 1 and 3`. */
+const rowsSaid = (indices: number[]) => {
+  const rows = indices.map((r) => r + 1);
+  return rows.length === 1 ? `row ${rows[0]}` : `rows ${rows.slice(0, -1).join(", ")} and ${rows[rows.length - 1]}`;
+};
 const html = (text: string) => text.replace(/[&<>"]/g, (c) => `&${{ "&": "amp", "<": "lt", ">": "gt", '"': "quot" }[c]};`);
 
 /** The source's keys for its findings: CodeMirror's, and Shift-F8 back to the one before. */
@@ -210,12 +215,16 @@ function folders<T>(mode: IDBTransactionMode, act: (store: IDBObjectStore) => ID
 /** What the editor has open, to close when it opens another bundle; `say` puts a line in its
  * status that stays, before what lint finds, until the source is edited by hand. `kept` is the
  * name the browser keeps it under, if it does, and `rekeep` renames a bundle the browser keeps, or
- * deletes it, through the bundle's worker, which writes where the page may not (PLAN 2.124). */
+ * deletes it, through the bundle's worker, which writes where the page may not (PLAN 2.124).
+ * `unsaved` says whether closing it loses something: an edit not saved, or a deck kept nowhere. */
 let current:
   | {
       close: () => void;
-      dirty: () => boolean;
+      unsaved: () => boolean;
       say: (text: string) => void;
+      /** The deck's story read: its score (narrative USE-2). */
+      story: () => Promise<number>;
+      models: (provider: ProviderId, key: string, base?: string) => Promise<string[]>;
       kept: () => string | undefined;
       rekeep: (from: string, to?: string) => Promise<void>;
       typeTitle: () => Promise<boolean>;
@@ -236,7 +245,7 @@ function namedFor(source: Source): string {
  * were asked about already. One that does not open leaves the bundle open as it was, in use, and
  * the status says why, by the file's name. */
 async function open(source: Source, asked = false) {
-  if (!asked && current?.dirty() && !confirm("The bundle has changes not saved. Open another and lose them?")) return;
+  if (!asked && current?.unsaved() && !confirm("The deck open is not saved. Open another and lose what is not saved?")) return;
   $("#status").textContent = "Opening…";
   let stage: Stage;
   try {
@@ -284,7 +293,7 @@ async function listKept() {
     });
     opening.dataset.open = "";
     li.append(opening);
-    if (name === here) li.append(Object.assign(document.createElement("span"), { className: "here", textContent: "open here" }));
+    if (name === here) li.append(Object.assign(document.createElement("span"), { className: "here", textContent: "Open here" }));
     const deleting = button("Delete…", `Delete ${name}`, () => unkeep(name));
     deleting.dataset.delete = "";
     if (name === here) {
@@ -426,9 +435,19 @@ async function controls() {
   prompting(
     worker,
     $("#new-prompt"),
-    () => current?.dirty() ?? false,
+    () => current?.unsaved() ?? false,
     (source) => open(source, true),
+    async () => {
+      // The Story tab shown reads the deck's health itself; the score goes in the line.
+      $<HTMLButtonElement>("#tab-story").click();
+      try {
+        return await current?.story();
+      } catch {
+        return undefined;
+      }
+    },
     (line) => current?.say(line),
+    (provider, key, base) => (current ? current.models(provider, key, base) : Promise.reject(new Error("no deck is open"))),
   );
 }
 
@@ -492,6 +511,8 @@ async function edit(source: Source, opened?: Stage) {
   const inspector = $("#inspector");
   const listing = $("#listing");
   const whereLine = $("#where");
+  // The toolbar's icons, its File menu, and its keys (lift-up ATTR-5).
+  toolbar($("#toolbar"));
   const play = $<HTMLAnchorElement>("#play");
   const stage = opened ?? (await Stage.open($<HTMLCanvasElement>("#stage"), source, painter, worker));
   stage.onError = failed;
@@ -530,6 +551,11 @@ async function edit(source: Source, opened?: Stage) {
   let filed = 0;
   let filedSaved = 0;
   const dirty = () => filed !== filedSaved || (savedSource !== undefined && view.state.doc.toString() !== savedSource);
+  /** Whether the deck is kept nowhere yet: made by New, from a prompt, or from files dropped. */
+  const unkept = () => !where && ("create" in source || "files" in source);
+  /** Whether closing the deck would lose something: an edit not saved, or a deck kept nowhere,
+   * which opens with nothing edited and nothing of it kept (lift-up 10-24 REL-1). */
+  const unsaved = () => dirty() || unkept();
   /** The folder on disk the bundle is kept in, where the page has its handle. */
   let folderHandle: FileSystemDirectoryHandle | undefined = "folder" in source ? source.folder : undefined;
   /** How many times the engine has been started again after a panic (lift-up STAB-2). */
@@ -595,7 +621,7 @@ async function edit(source: Source, opened?: Stage) {
     copyTimer = undefined;
     const run = async () => {
       const key = copyKey();
-      if (!dirty()) {
+      if (!unsaved()) {
         copied = new Map();
         return discard(key);
       }
@@ -625,24 +651,25 @@ async function edit(source: Source, opened?: Stage) {
     $<HTMLButtonElement>("#files [data-undo]").disabled = undoDepth(state) === 0;
     $<HTMLButtonElement>("#files [data-redo]").disabled = redoDepth(state) === 0;
   };
-  /** The deck's title, as its source's header says it: what the tab names. */
-  const titled = () => {
-    const header = savedSource === undefined ? null : /^deck\s+("(?:[^"\\\n]|\\.)*")/m.exec(view.state.doc.toString());
+  /** The deck's title, as its source's `deck` line writes it. */
+  const heading = () => {
+    const header = /^deck\s+("(?:[^"\\\n]|\\.)*")/m.exec(view.state.doc.toString());
     try {
       return header ? (JSON.parse(header[1]) as string) : undefined;
     } catch {
       return undefined;
     }
   };
-  /** Whether the deck is kept nowhere yet: made by New, or from files dropped. */
-  const unkept = () => !where && ("create" in source || "files" in source);
+  /** The deck's title, once its source is read: what the tab names. */
+  const titled = () => (savedSource === undefined ? undefined : heading());
   const tell = () => {
     const kinds = {
       folder: `In the folder ${where?.name}`,
       opfs: `Kept in this browser as ${where?.name}`,
       serve: `In the folder ${where?.name}, served${scnOnDisk ? ", from its deck.scn" : ""}`,
     };
-    const kept = where ? kinds[where.kind] : `${name}, not saved`;
+    // A deck kept nowhere yet is named by its title, not the name it would be kept by.
+    const kept = where ? kinds[where.kind] : `${titled() || name} · Not saved yet`;
     whereLine.textContent = `${kept}${dirty() ? " · edited" : ""}`;
     // The tab names the deck, as a window's title does, and says when it has changes not saved.
     document.title = `${titled() || name}${dirty() ? " — edited" : ""} · Scaena`;
@@ -1490,6 +1517,16 @@ async function edit(source: Source, opened?: Stage) {
       if (redo(view)) forceLinting(view);
     } else if (undo(view)) forceLinting(view);
   });
+  /** Insert › Image… (the QA pass's J3): a PNG or a JPEG picked from the disk, put on the slide
+   * as one dropped there is. */
+  function pickImage() {
+    const input = Object.assign(document.createElement("input"), { type: "file", accept: "image/png,image/jpeg,.png,.jpg,.jpeg" });
+    input.addEventListener("change", () => {
+      const file = input.files?.[0];
+      if (file) void board.insertPicture(file);
+    });
+    input.click();
+  }
   /** What may be inserted (PLAN 2.34), grouped by type, as the deck offers it: asked again after
    * each edit, since the theme and the bundle's images change. Insert opens it as a menu
    * (`opens`): browsing the menu inserts nothing, and a choice is one patch (lift-up USE-3). */
@@ -1540,6 +1577,8 @@ async function edit(source: Source, opened?: Stage) {
         },
       });
     }
+    // A picture from the disk (the QA pass's J3), as one dropped lands.
+    items.push({ label: "Image…", run: pickImage });
     items.push({ label: "Make a picture…", run: () => void picturing.open() }, { label: "Map…", run: () => void mapping.open() });
     insertItems = items;
   }
@@ -1558,6 +1597,8 @@ async function edit(source: Source, opened?: Stage) {
    * is in it now. */
   let themeChoices: { value: string; label: string; family: string; current: boolean }[] = [];
   let themesOffered = "";
+  /** Whether the dialog's list is the themes offered now. */
+  let themesListed = false;
   async function offerThemes() {
     const held = await stage.themes().catch(() => undefined);
     if (!held) return;
@@ -1569,6 +1610,18 @@ async function edit(source: Source, opened?: Stage) {
     // The themes that ship, by family, each family a section (PLAN T.0d), each with its title
     // slide drawn at build (PLAN T.0c).
     for (const [name, { family }] of Object.entries(themes)) themeChoices.push({ value: `ships:${name}`, label: name, family, current: false });
+    const current = themeChoices.find((c) => c.current);
+    // The words under the toolbar's icon, which the toolbar keeps in its label.
+    (themeButton.querySelector(".label") ?? themeButton).textContent = current ? `Theme: ${current.label}` : "Theme…";
+    // The list is built as the dialog opens: built for each deck opened, its thumbnails would load
+    // in a dialog no one sees, and each deck opened after would cut the last one's off.
+    themesListed = false;
+    if (retheming.open) listThemes();
+  }
+  /** The dialog's list of the themes offered, by family, each that ships with its thumbnail. */
+  function listThemes() {
+    if (themesListed) return;
+    themesListed = true;
     const families = [...new Set(themeChoices.map((c) => c.family))];
     themeList.innerHTML = families
       .map(
@@ -1584,14 +1637,13 @@ async function edit(source: Source, opened?: Stage) {
             .join("")}</fieldset>`,
       )
       .join("");
-    const current = themeChoices.find((c) => c.current);
-    themeButton.textContent = current ? `Theme: ${current.label}` : "Theme…";
   }
   /** The theme chosen in the dialog. */
   const pickedTheme = () => themeList.querySelector<HTMLInputElement>("input:checked")?.value;
   themeButton.onclick = () => {
     if (!themeChoices.length) return say("The deck's theme is not read yet");
     retheming.returnValue = "";
+    listThemes();
     for (const input of themeList.querySelectorAll<HTMLInputElement>("input")) input.checked = themeChoices.find((c) => c.value === input.value)?.current ?? false;
     rethemeButton.disabled = true;
     retheming.showModal();
@@ -1623,7 +1675,10 @@ async function edit(source: Source, opened?: Stage) {
         const [worse, better] = [themed.added.length, themed.removed.length];
         const n = themed.recolored.length;
         const recolored = n ? ` · ${n} text${n === 1 ? "" : "s"} recolored to read on what lies behind ${n === 1 ? "it" : "them"}` : "";
-        say(`Theme ${label}${recolored} · ${issuesChanged(worse, better)}`);
+        // A text the theme set past its box, or over another, fitted as lint's fix fits it.
+        const r = themed.refitted.length;
+        const refitted = r ? ` · ${r} text${r === 1 ? "" : "s"} fitted to ${r === 1 ? "its box" : "their boxes"}` : "";
+        say(`Theme ${label}${recolored}${refitted} · ${issuesChanged(worse, better)}`);
       }
     } catch (e) {
       say(`Not re-themed: ${said(e)}`);
@@ -2162,6 +2217,7 @@ async function edit(source: Source, opened?: Stage) {
 
   const assistant = panel(stage, {
     source: () => view.state.doc.toString(),
+    states: () => last?.states.map(([id]) => id) ?? [],
     apply: (source, edited, touched, files = []) => {
       touching = touched?.length ? { source, nodes: touched } : undefined;
       // A theme it edited goes in the source's history with the theme's text before and after,
@@ -2366,6 +2422,10 @@ async function edit(source: Source, opened?: Stage) {
   function nodeCommands(): Command[] {
     const any = () => picked().length > 0;
     const one = () => picked().length === 1;
+    /** One text selected, and it is code as the slide shows it (PLAN 2.133, 2.139). */
+    const isCode = () => one() && !!board.boxes().find((b) => b.node === picked()[0])?.code;
+    /** One text selected, and it is prose. */
+    const prose = () => one() && typeOf(picked()[0]) === "text" && !isCode();
     const pressing = (label: string, keys: string, key: string, init: KeyboardEventInit, group: Group, applies = any): Command => ({
       label,
       keys,
@@ -2383,14 +2443,19 @@ async function edit(source: Source, opened?: Stage) {
     return [
       ...annotationCommands(),
       { label: "Type in it", keys: "Enter", group: "Type", where: ["node"], applies: () => one() && typeOf(picked()[0]) === "text", run: () => press("Enter") },
-      { label: "Bulleted list", keys: `${MOD}${SHIFT}8`, group: "Type", where: ["node"], applies: () => one() && typeOf(picked()[0]) === "text", run: () => board.list("bullet") },
-      { label: "Numbered list", keys: `${MOD}${SHIFT}7`, group: "Type", where: ["node"], applies: () => one() && typeOf(picked()[0]) === "text", run: () => board.list("number") },
+      // A list's marks, the writing tools, and the diagram makers are prose's, not code's (PLAN 2.139).
+      { label: "Bulleted list", keys: `${MOD}${SHIFT}8`, group: "Type", where: ["node"], applies: () => prose(), run: () => board.list("bullet") },
+      { label: "Numbered list", keys: `${MOD}${SHIFT}7`, group: "Type", where: ["node"], applies: () => prose(), run: () => board.list("number") },
+      // A text made code, made words again, or tidied (PLAN 2.139): each one patch.
+      { label: "Make Code", group: "Type", where: ["node"], applies: () => prose(), run: () => board.coded(picked()[0], "code") },
+      { label: "Not Code", group: "Type", where: ["node"], applies: () => isCode(), run: () => board.coded(picked()[0], "prose") },
+      { label: "Tidy Code", group: "Type", where: ["node"], applies: () => isCode(), run: () => board.coded(picked()[0], "tidy") },
       // A text's words, by the model the assistant uses, offered to take or leave (PLAN 2.101).
       ...(["proofread", "tighten", "rewrite"] as const).map(
         (kind): Command => ({
           label: TOOLS[kind],
           where: ["node"],
-          applies: () => one() && typeOf(picked()[0]) === "text",
+          applies: () => prose(),
           run: () => write(kind, picked()[0]),
         }),
       ),
@@ -2434,7 +2499,7 @@ async function edit(source: Source, opened?: Stage) {
       { label: "Copy", keys: `${MOD}C`, group: "Edit", where: ["node", "layer"], applies: any, run: () => clip("copy") },
       { label: "Cut", keys: `${MOD}X`, group: "Edit", where: ["node", "layer"], applies: any, run: () => clip("cut") },
       // A code text's words as text, for an editor or a terminal (PLAN 2.133).
-      { label: "Copy Code", where: ["node"], applies: () => one() && !!board.boxes().find((b) => b.node === picked()[0])?.code, run: () => copyCode(picked()[0]) },
+      { label: "Copy Code", where: ["node"], applies: () => isCode(), run: () => copyCode(picked()[0]) },
       // A look copied and pasted (PLAN 2.58): Option makes ⌥C a character, so the key goes by its place.
       pressing("Copy the look", `${MOD_ALT}C`, "c", mod({ altKey: true, code: "KeyC" }), "Edit", one),
       pressing("Paste the look", `${MOD_ALT}V`, "v", mod({ altKey: true, code: "KeyV" }), "Edit", () => any() && board.copiedLook() !== undefined),
@@ -2447,7 +2512,7 @@ async function edit(source: Source, opened?: Stage) {
         label: `Make a ${kind} diagram`,
         group: "Draw and insert",
         where: ["node"],
-        applies: () => one() && typeOf(picked()[0]) === "text",
+        applies: () => prose(),
         run: () => board.diagram(picked()[0], kind),
       })),
       pressing("Group", `${MOD}G`, "g", mod(), "Arrange"),
@@ -2530,6 +2595,8 @@ async function edit(source: Source, opened?: Stage) {
       { label: "Paste as Text", where: ["canvas"], applies: ready, run: pastedAsText },
       ...inserts,
       icon,
+      // A picture from the disk (the QA pass's J3), as one dropped lands.
+      { label: "Insert an image…", where: ["canvas"], group: "Draw and insert", applies: () => ready(), run: pickImage },
       // A map (ADR-0030, PLAN O.1c): in the slide's empty place for a picture, else where the
       // pointer last pressed; for an image selected, the command that puts one in it.
       {
@@ -2874,7 +2941,7 @@ async function edit(source: Source, opened?: Stage) {
     const field = document.activeElement;
     const unsettled =
       board.unsettled() || ((field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement) && $("#look").contains(field) && field.value !== field.defaultValue);
-    if (dirty() || unsettled) e.preventDefault();
+    if (unsaved() || unsettled) e.preventDefault();
   };
   current = {
     close: () => {
@@ -2887,8 +2954,10 @@ async function edit(source: Source, opened?: Stage) {
       // What it listened for on the page goes with it: the bundle opened next hears each key once.
       ended();
     },
-    dirty,
+    unsaved,
     say,
+    story: async () => (await stage.health(view.state.doc.toString())).score,
+    models: (provider, key, base) => stage.models(provider, key, base),
     kept: () => (where?.kind === "opfs" ? where.name : undefined),
     // New's deck opens typing in its title, its words selected (PLAN 3.21): whether it does.
     typeTitle: async () => {

@@ -50,9 +50,11 @@ pub struct Reading {
     pub credit: Vec<(String, Option<LinkTarget>)>,
 }
 
-/// How each node `snap` shows reads, by id.
+/// How each node `snap` shows reads, by id. A state that shows no heading of the first level
+/// reads its claim as one (`semantic: claim`, SPEC §3.12): a big number's meaning, a quote.
 pub fn readings(deck: &Deck, snap: &Snapshot) -> HashMap<String, Reading> {
-    snap.nodes
+    let mut read: HashMap<String, Reading> = snap
+        .nodes
         .iter()
         .filter_map(|(id, props)| {
             let t = deck.nodes.get(id)?.node_type;
@@ -65,7 +67,16 @@ pub fn readings(deck: &Deck, snap: &Snapshot) -> HashMap<String, Reading> {
             }
             Some((id.clone(), read))
         })
-        .collect()
+        .collect();
+    if !read.values().any(|r| r.kind == Kind::Heading(1)) {
+        for (id, r) in read.iter_mut() {
+            let claim = snap.nodes.get(id).and_then(|p| p.get("semantic")).and_then(Value::as_str) == Some("claim");
+            if claim && r.kind == Kind::Paragraph {
+                r.kind = Kind::Heading(1);
+            }
+        }
+    }
+    read
 }
 
 /// How a node of type `t` with these props reads.
@@ -399,6 +410,20 @@ fn listed(words: &str, items: &[Option<ListItem>], say: &dyn Fn(Range<usize>) ->
     out
 }
 
+/// What heads a state: the words of its first text that makes its claim or is set in a heading's
+/// role (`display`, `headline`, `title`), on one line; none where no text heads it. What an
+/// exported SVG is titled by, and a slide list's row is read by (lift-up 10-24b USE-4).
+pub fn headline(deck: &Deck, snap: &Snapshot) -> Option<String> {
+    (snap.nodes.iter())
+        .filter(|(id, _)| deck.nodes.get(id.as_str()).is_some_and(|n| n.node_type == NodeType::Text))
+        .find(|(_, p)| {
+            p.get("semantic").and_then(Value::as_str) == Some("claim")
+                || matches!(p.get("role").and_then(Value::as_str), Some("display" | "headline" | "title"))
+        })
+        .map(|(_, p)| words(p).split_whitespace().collect::<Vec<_>>().join(" "))
+        .filter(|h| !h.is_empty())
+}
+
 /// A text node's words: its `text`, or its runs' texts in turn.
 pub fn words(props: &Props) -> String {
     stretches(props).into_iter().map(|(w, _)| w).collect()
@@ -602,6 +627,54 @@ mod tests {
             .to_string(),
         )
         .expect("a deck")
+    }
+
+    /// A slide no text heads, a big number's or a quote's, reads its claim as its heading; one
+    /// that has a headline reads its claim as the paragraph it is (dogfood 2).
+    #[test]
+    fn a_slide_with_no_heading_reads_its_claim_as_one() {
+        let deck = Deck::from_json(
+            &json!({
+                "scaena": crate::FORMAT_VERSION,
+                "canvas": { "width": 1920, "height": 1080 },
+                "theme": "theme.json",
+                "nodes": {
+                    "number": { "type": "text", "role": "hero", "text": "4.2%" },
+                    "meaning": { "type": "text", "role": "lede", "text": "Of freight spend recovered", "semantic": "claim" },
+                    "title": { "type": "text", "role": "headline", "text": "Recovered" },
+                    "under": { "type": "text", "role": "caption", "text": "In the pilot" }
+                },
+                "states": [
+                    { "id": "big", "layout": "big-number", "props": { "number": {}, "meaning": {}, "under": {} } },
+                    { "id": "titled", "mode": "absolute", "layout": "title", "props": { "title": {}, "meaning": {}, "under": {} } }
+                ]
+            })
+            .to_string(),
+        )
+        .expect("a deck");
+        let snaps = crate::resolve_states(&deck).expect("snapshots");
+        let kinds = |n: usize| {
+            let read = readings(&deck, &snaps[n]);
+            let mut kinds: Vec<(String, Kind)> = read.into_iter().map(|(id, r)| (id, r.kind)).collect();
+            kinds.sort_by(|a, b| a.0.cmp(&b.0));
+            kinds
+        };
+        assert_eq!(
+            kinds(0),
+            [
+                ("meaning".into(), Kind::Heading(1)),
+                ("number".into(), Kind::Paragraph),
+                ("under".into(), Kind::Paragraph)
+            ]
+        );
+        assert_eq!(
+            kinds(1),
+            [
+                ("meaning".into(), Kind::Paragraph),
+                ("title".into(), Kind::Heading(1)),
+                ("under".into(), Kind::Paragraph)
+            ]
+        );
     }
 
     #[test]

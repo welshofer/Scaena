@@ -15,8 +15,9 @@
 mod find;
 mod ops;
 
-pub use find::{Found, Kind, Query, find, replacing};
+pub use find::{A_VALUE, Found, Kind, Query, find, matches, replacing};
 pub use ops::{Written, written};
+pub use ops::{deleting, depths, held};
 
 use crate::document::{DataSource, Node, Props, State};
 use crate::model::values::{AnnotationAt, AnnotationKind, Duration, NonNegative, Range, Rect};
@@ -179,6 +180,19 @@ pub enum SemanticOp {
         node: String,
         #[schemars(with = "Id")]
         state: String,
+    },
+    /// `node` deleted from `state` as the editors' Delete deletes it (PLAN 2.34, dogfood 3), with
+    /// each node it holds there: each leaves there and in the states after it, as `hide_node`
+    /// takes it, and one that no state shows then goes from the deck, as `remove_node` takes it,
+    /// so a node added and deleted leaves nothing behind. A connector to it goes with it. With
+    /// `everywhere`, it goes from the deck, with each node it holds in any state.
+    DeleteNode {
+        #[schemars(with = "Id")]
+        node: String,
+        #[schemars(with = "Id")]
+        state: String,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        everywhere: bool,
     },
     /// A new group, `id`, holding `nodes` where they stand (ADR-0008, ADR-0013). They are
     /// children of one container, the slide or a group, as `state` shows them (else as their
@@ -558,6 +572,7 @@ impl SemanticOp {
             SemanticOp::RenameNode { .. } => "rename_node",
             SemanticOp::ShowNode { .. } => "show_node",
             SemanticOp::HideNode { .. } => "hide_node",
+            SemanticOp::DeleteNode { .. } => "delete_node",
             SemanticOp::Group { .. } => "group",
             SemanticOp::Ungroup { .. } => "ungroup",
             SemanticOp::SetProp { .. } => "set_prop",

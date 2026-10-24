@@ -228,14 +228,14 @@ try {
     const set = Math.round((Number(held) + 0.4) * 10) / 10;
     await cell.fill(String(set));
     await cell.press("Enter");
-    await until("the cell set", () => /^Row 0, .*: set/.test(document.querySelector("#status").textContent));
+    await until("the cell set", () => /^Row 1, .*: set/.test(document.querySelector("#status").textContent));
     // The chart drawn again: the canvas as painted is not what it was.
     let now = await painted();
     for (let i = 0; i < 40 && differ(was, now) <= 100; i++) {
       await page.waitForTimeout(250);
       now = await painted();
     }
-    check(differ(was, now) > 100, `a cell set (${columns[number + 1]} of row 0: ${held} → ${set}) draws the chart again: ${differ(was, now)} pixels changed · ${await status()}`);
+    check(differ(was, now) > 100, `a cell set (${columns[number + 1]} of row 1: ${held} → ${set}) draws the chart again: ${differ(was, now)} pixels changed · ${await status()}`);
   });
 
   // 5. A figure quoted from the Data tab into the title's characters.
@@ -271,7 +271,11 @@ try {
     await find.fill("Alpine");
     await until("find's count", () => /\d+ match/.test(document.querySelector("#find output").textContent));
     const said = await page.textContent("#find output");
-    const count = Number(said.match(/(\d+) match/)?.[1] ?? 0);
+    // What a replacement makes: the matches in words. The values of the data, the hours' crew
+    // names and the series the annotation picks out, are found and kept.
+    const found = await page.evaluate(() => window.scaena.find.found());
+    const count = found.filter((f) => !f.kept).reduce((n, f) => n + f.matches.length, 0);
+    const kept = found.filter((f) => f.kept).length;
     const before = ((await source()).match(/Summit/g) ?? []).length;
     // Every "Alpine" in the deck's words; a chart's annotation that names the data's Alpine series
     // is no word, and stays.
@@ -285,7 +289,7 @@ try {
     const after = await source();
     // Every "Alpine" the deck says, in its texts, its claims, and its descriptions (PLAN 2.83), and
     // none left but the series the annotation names.
-    check(count === alpine && (after.match(/Summit/g) ?? []).length - before === count && !/Alpine/.test(words(after)) && /Alpine/.test(after), `⌘F finds "Alpine" everywhere the deck says it (${said}, of ${alpine} in its words), and Replace All replaces all ${count}, the data's series named as it was`);
+    check(count === alpine && kept > 0 && (after.match(/Summit/g) ?? []).length - before === count && !/Alpine/.test(words(after)) && /Alpine/.test(after), `⌘F finds "Alpine" everywhere the deck says it (${said}: ${count} in its words, of ${alpine}, and ${kept} values of its data, kept), and Replace All replaces the ${count}, the data's series named as it was`);
     await page.click('#find [data-find="close"]');
   });
 
@@ -429,7 +433,7 @@ try {
     check(pdf.name.endsWith(".pdf") && pdf.bytes.subarray(0, 5).toString() === "%PDF-", `Export… downloads ${pdf.name}, ${pdf.bytes.length} B`);
   });
   await step("download", async () => {
-    const zip = await downloaded(() => page.click("#download"));
+    const zip = await downloaded(() => page.click("#file-open").then(() => page.click("#download")));
     check(zip.name.endsWith(".scaena") && zip.bytes[0] === 0x50 && zip.bytes[1] === 0x4b, `Download gives ${zip.name}, ${zip.bytes.length} B`);
   });
 

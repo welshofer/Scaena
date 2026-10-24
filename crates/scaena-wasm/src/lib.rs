@@ -137,6 +137,12 @@ impl Player {
         self.0.frame(state, t_ms).map_err(js)?.to_postcard().map_err(js)
     }
 
+    /// Lay out the cue into `state` ahead, while the state shown rests: the state a show goes on
+    /// to, whose first frame then lays out nothing (lift-up PERF-1).
+    pub fn prepare(&mut self, state: &str) -> Result<(), JsError> {
+        self.0.prepare(state).map_err(js)
+    }
+
     /// What identifies `state`'s drawing at rest, in the format shown: its display list's
     /// digest (FNV-1a over its postcard bytes, as the goldens keep it). One digest, one
     /// drawing, so a thumbnail painted from it stands until it changes (PLAN 2.35).
@@ -755,6 +761,32 @@ impl Player {
         self.0.code_words(state, node).map_err(js)
     }
 
+    /// The patch Make Code makes of `node`, as JSON (PLAN 2.139): `code` in `language`, else in the
+    /// language its words read as, and the theme's code role, what code does not take taken away.
+    pub fn coding(&self, node: &str, language: Option<String>) -> Result<String, JsError> {
+        serde_json::to_string(&self.0.coding(node, language.as_deref()).map_err(js)?).map_err(js)
+    }
+
+    /// The patch Not Code makes of `node`, as JSON (PLAN 2.139): `code` taken away everywhere it
+    /// is written, the text set in `body` where it was in the code role.
+    pub fn uncoding(&self, node: &str) -> Result<String, JsError> {
+        serde_json::to_string(&self.0.uncoding(node).map_err(js)?).map_err(js)
+    }
+
+    /// The patch Tidy Code makes of `node` as `state` shows it, as JSON (PLAN 2.139): a
+    /// `replace_text` for each run of lines it changes; `[]` where it is tidy.
+    pub fn tidying(&self, state: &str, node: &str) -> Result<String, JsError> {
+        serde_json::to_string(&self.0.tidying(state, node).map_err(js)?).map_err(js)
+    }
+
+    /// `text` with `from` to `to` (UTF-16 code units) selected after `key` in a code text whose
+    /// tab stops are `tab` columns apart, as JSON (PLAN 2.139): `{ text, from, to }`, or `null` for
+    /// a key code does not answer. `language` is the text's `code.language`, so a Makefile's stop
+    /// is a tab.
+    pub fn keyed(text: &str, from: usize, to: usize, key: &str, tab: usize, language: Option<String>) -> String {
+        Session::keyed(text, from, to, key, tab, language.as_deref()).unwrap_or(serde_json::Value::Null).to_string()
+    }
+
     /// What ⌘B gives the characters `from` to `to` (Unicode scalar values) of `node`'s text
     /// in `state`, as JSON: `style_text`'s `look` (PLAN 2.38).
     pub fn bolding(&mut self, state: &str, node: &str, from: usize, to: usize) -> Result<String, JsError> {
@@ -1033,6 +1065,12 @@ impl Player {
         serde_json::to_string(&self.0.starting(state, layout.as_deref()).map_err(js)?).map_err(js)
     }
 
+    /// The patch that makes a new deck's title slide after the slide of `state`, as JSON:
+    /// `{ id, patch }`, its places for a picture given the theme's example (PLAN 3.30).
+    pub fn titling(&self, state: &str) -> Result<String, JsError> {
+        serde_json::to_string(&self.0.titling(state).map_err(js)?).map_err(js)
+    }
+
     /// Whether `node`, as `state` shows it, still reads as its slot's prompt (PLAN 3.30): what the
     /// canvas selects whole as typing begins in it.
     pub fn prompted(&self, state: &str, node: &str) -> Result<bool, JsError> {
@@ -1256,6 +1294,12 @@ impl Player {
     #[wasm_bindgen(js_name = bundleFiles)]
     pub fn bundle_files(&self) -> Result<String, JsError> {
         serde_json::to_string(&self.0.bundle_files().map_err(js)?).map_err(js)
+    }
+
+    /// The sources a deck made from a prompt was grounded in, as JSON (narrative FUNC-3):
+    /// `[{ name, kind, url?, bytes, truncated, cited, states }]`, as `scaena files --json` lists them.
+    pub fn grounded(&self) -> String {
+        serde_json::to_string(&self.0.grounded()).expect("what a deck was grounded in is JSON")
     }
 
     /// `path` taken out of the bundle (PLAN 2.59): one of its images, fonts, or data that nothing

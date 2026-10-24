@@ -98,7 +98,7 @@ try {
   await showState("budget");
   await suggestedFor("budget", "figure");
   const shown = await buttons();
-  const best = "figure,venn,risk-matrix,two-figures,bar-chart,line-chart,metric-trend,panorama,narrow-figure";
+  const best = "figure,map,bar-chart,venn,line-chart,positioning-map,panorama,metric-trend,narrow-figure";
   check(shown.map((b) => b.layout).join() === best, `best first: ${shown.map((b) => b.layout).join(", ")}`);
   check(shown[0]?.pressed === "true" && shown.slice(1).every((b) => b.pressed === "false"), "the layout it takes now is pressed");
   check(
@@ -132,8 +132,8 @@ try {
   const storm = await buttons();
   check(
     storm.map((b) => b.says).join(" | ") ===
-      "Full Bleed · No issues · also Poster, Chart, Table, Photo and Caption | Two Figures · No issues · also Pictograph, Map | Number and Trend · No issues | Narrow Chart · No issues | Panorama · No issues | Venn Diagram · 1 issue | Bar Chart · 1 issue | Line Chart · 1 issue | Risk Matrix · 2 issues · also Positioning Map" &&
-      storm.map((b) => b.found).join() === ",,,,,warning,error,error,error",
+      "Full Bleed · No issues · also Poster, Chart, Table, Photo and Caption | Narrow Chart · No issues | Panorama · No issues | Map · No issues · also Two Figures, Pictograph | Venn Diagram · No issues | Number and Trend · No issues | Bar Chart · 1 issue | Line Chart · 1 issue | Positioning Map · 2 issues · also Risk Matrix" &&
+      storm.map((b) => b.found).join() === ",,,,,,error,error,error",
     `storm: ${storm.map((b) => `${b.says}${b.found ? ` (${b.found})` : ""}`).join(" | ")}`,
   );
   const before = await shot();
@@ -180,9 +180,10 @@ try {
   await suggestedFor("storm", "narrow-figure");
   const kept = await page.evaluate(() => document.activeElement?.dataset.layout);
   check(kept === "narrow-figure", `the focus stays on it, drawn again: ${kept}`);
-  // The other drawing is named for the first in the theme's order of the layouts that draw it.
+  // The other drawing is named for the layout of those that draw it whose places the state leaves
+  // fewest empty: photo-caption, which poster, full, figure, and table draw alike.
   const other = (await buttons()).find((b) => b.pressed === "false")?.layout;
-  check(other === "poster", `the best of the others is poster, which full, figure, table, and photo-caption draw alike: ${other}`);
+  check(other === "photo-caption", `the best of the others is photo-caption, which poster, full, figure, and table draw alike: ${other}`);
   await page.focus(`#look .layouts [data-layout="${other}"]`);
   await previewing(other);
   check((await previewed()) === other, `the focus on ${other} previews it`);

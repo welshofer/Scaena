@@ -78,7 +78,16 @@ pub fn project<'d>(
             true => "none".to_string(),
             false => listed(),
         };
-        return Err(EngineError::Layout(format!("format `{name}` is not one of the deck's formats ({listed})")));
+        // How to list it, as one JSON Patch op: the list made where the deck has none, else the
+        // format added to the end of it.
+        let op = match deck.formats.is_empty() {
+            true => format!(r#"{{"op": "add", "path": "/formats", "value": ["{name}"]}}"#),
+            false => format!(r#"{{"op": "add", "path": "/formats/-", "value": "{name}"}}"#),
+        };
+        return Err(EngineError::Layout(format!(
+            "format `{name}` is not one of the deck's formats ({listed}): list it to lay the deck out there, \
+             with the patch `[{op}]`; a layout whose theme gives `{name}` no slots of its own keeps its slots there"
+        )));
     }
     let mut projected = deck.clone();
     (projected.canvas.width, projected.canvas.height) = (canvas[0], canvas[1]);
@@ -807,6 +816,7 @@ impl Engine {
             clip: None,
             fit: TextFit::Wrap,
             natural: None,
+            code: None,
         };
         Ok(SceneNode {
             id: id.into(),
@@ -997,7 +1007,12 @@ impl Engine {
             }
             None => text,
         };
-        Ok(PlacedText { cell, origin, text, scale, overflow, clip, fit, natural })
+        let code = spec.code.as_ref().map(|c| crate::carets::CaretCode {
+            tab: c.tab,
+            from: (props.get("code").and_then(|c| c.get("start")).and_then(Value::as_u64)).map_or(1, |n| n as usize),
+            language: c.language.clone(),
+        });
+        Ok(PlacedText { cell, origin, text, scale, overflow, clip, fit, natural, code })
     }
 }
 
@@ -1109,6 +1124,9 @@ pub struct PlacedText {
     /// trims it: what its box grows to hold first, at the size its width lets it
     /// ([`Engine::grown`]). `None` for any other text.
     pub natural: Option<[f32; 2]>,
+    /// Where it is code, what its keys read (PLAN 2.139): its tab stops and its first line's
+    /// number.
+    pub code: Option<crate::carets::CaretCode>,
 }
 
 /// Canvas y of the paragraph top, so the text's anchor sits where its alignment says

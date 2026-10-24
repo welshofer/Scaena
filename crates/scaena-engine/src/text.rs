@@ -308,6 +308,11 @@ pub struct TextLayout {
     /// Widest line, trailing whitespace and hung quotes excluded.
     pub width: f32,
     pub height: f32,
+    /// Where its glyphs' ink stands, from the paragraph top: from the highest point of its first
+    /// line's letters to the lowest of its last's, a descender that hangs past `height` where
+    /// the leading is tight (a display role's 0.9). What lint E101 judges. Its line boxes where
+    /// nothing draws.
+    pub ink: (f32, f32),
     /// The breaking actually used.
     pub wrap: Wrap,
     /// Why the requested `pretty` or `balance` fell back to greedy, if it did.
@@ -671,6 +676,29 @@ impl TextEngine {
                     builder.push(StyleProperty::Underline(true), range.clone());
                 }
             }
+            // A numeral style's spacing, on the figures alone: each run of them in its span's look.
+            if spec.spans.iter().any(|s| spec.numeric.or(s.style.numeric).is_some()) {
+                let figures = figure_runs(&text);
+                let mut at = 0;
+                for (span, t) in spec.spans.iter().zip(&cased) {
+                    let range = at..at + t.len();
+                    at = range.end;
+                    if spec.numeric.or(span.style.numeric).is_none() {
+                        continue;
+                    }
+                    let run = (span.style != spec.role || !span.features.is_empty()).then_some(span);
+                    let features = font_features(theme, &span.style, spec, run, true)?;
+                    for f in &figures {
+                        let (start, end) = (f.start.max(range.start), f.end.min(range.end));
+                        if start < end {
+                            builder.push(
+                                StyleProperty::FontFeatures(FontFeatures::List(Cow::Owned(features.clone()))),
+                                start..end,
+                            );
+                        }
+                    }
+                }
+            }
             // Code's tokens, each in its kind's look (PLAN 2.132), its plain words in theirs. A
             // change of color shapes nothing apart; a change of weight or italic is a change of face.
             if let (Some(code), Some(offsets)) = (code, code_offsets.as_ref())
@@ -814,6 +842,7 @@ impl TextEngine {
             upright: upright(theme, spec),
             indents: indents.clone(),
             block,
+            joins: figure_joins(&text, spec, &cased),
         };
         let mut read = read_layout(&layout, text, fonts, &hyphens, paragraph)?;
         if empty {
@@ -920,6 +949,11 @@ impl TextEngine {
         for prop in style_props(theme, style, spec, run)? {
             builder.push_default(prop);
         }
+        // A numbered list's marker is figures, spaced as the numeral style asks.
+        if text.chars().any(char::is_numeric) {
+            let features = font_features(theme, style, spec, run, true)?;
+            builder.push_default(StyleProperty::FontFeatures(FontFeatures::List(Cow::Owned(features))));
+        }
         let mut layout = builder.build(text);
         layout.break_all_lines(None);
         let read = read_layout(&layout, text.into(), fonts, &[], Paragraph::plain())?;
@@ -945,6 +979,8 @@ impl TextEngine {
         for prop in style_props(theme, &spec.role, spec, None)? {
             builder.push_default(prop);
         }
+        let features = font_features(theme, &spec.role, spec, None, true)?;
+        builder.push_default(StyleProperty::FontFeatures(FontFeatures::List(Cow::Owned(features))));
         let mut layout = builder.build("0");
         layout.break_all_lines(None);
         Ok(layout.width())
@@ -1053,6 +1089,79 @@ fn upright(theme: &Theme, spec: &TextSpec) -> Vec<String> {
     out
 }
 
+/// The OpenType features of text set in `role`, later winning: the family's defaults, the
+/// role's, the numeral style (the node's over the role's), the node's, and a run's (PLAN 1.38).
+/// A numeral style's spacing, tabular or proportional, is the figures' alone: it is asked only
+/// where `figures` ([`figure_runs`]), so a word keeps its own hyphen, which a font's `tnum` may
+/// widen to a figure's width.
+fn font_features(
+    theme: &Theme,
+    role: &TextRole,
+    spec: &TextSpec,
+    run: Option<&Span>,
+    figures: bool,
+) -> Result<Vec<FontFeature>, EngineError> {
+    let mut features: BTreeMap<String, u16> = match theme.families().get(&role.family) {
+        Some(f) => crate::theme::features(f.features.as_ref())
+            .map_err(|e| EngineError::Theme(format!("family `{}`: {e}", role.family)))?,
+        None => BTreeMap::new(),
+    };
+    features.extend(role.features.iter().map(|(k, v)| (k.clone(), *v)));
+    if let Some(numeric) = spec.numeric.or(role.numeric) {
+        let spacing = |k: &str| matches!(k, "tnum" | "pnum");
+        features.extend(
+            numeric.features().into_iter().filter(|(k, _)| figures || !spacing(k)).map(|(k, v)| (k.to_string(), v)),
+        );
+    }
+    if role.case == Some(Case::Smallcaps) {
+        features.insert("smcp".into(), 1);
+    }
+    features.extend(spec.features.iter().map(|(k, v)| (k.clone(), *v)));
+    if let Some(run) = run {
+        features.extend(run.features.iter().map(|(k, v)| (k.clone(), *v)));
+    }
+    features.iter().map(|(k, v)| Ok(FontFeature::new(tag(k)?, *v))).collect()
+}
+
+/// The runs of figures in `text`, as byte ranges: digits, a sign right before one, and a
+/// decimal point, a thousands separator, or a colon between two. A numeral style's spacing
+/// applies there ([`font_features`]).
+pub(crate) fn figure_runs(text: &str) -> Vec<Range<usize>> {
+    let chars: Vec<(usize, char)> = text.char_indices().collect();
+    let digit = |k: usize| chars.get(k).is_some_and(|(_, c)| c.is_numeric());
+    let mut runs: Vec<Range<usize>> = Vec::new();
+    let mut k = 0;
+    while k < chars.len() {
+        let signed = matches!(chars[k].1, '-' | '\u{2212}' | '+') && digit(k + 1);
+        if !(digit(k) || signed) {
+            k += 1;
+            continue;
+        }
+        let start = chars[k].0;
+        k += 1;
+        while k < chars.len() && (digit(k) || matches!(chars[k].1, '.' | ',' | ':') && digit(k + 1) && digit(k - 1)) {
+            k += 1;
+        }
+        let end = chars.get(k).map_or(text.len(), |(at, _)| *at);
+        runs.push(start..end);
+    }
+    runs
+}
+
+/// Where a glyph run of `text`, set from `spec`'s spans as `cased`, may join the one before it
+/// (`Paragraph::joins`): each end of a run of figures that a numeral style spaces, where no
+/// span starts or ends.
+fn figure_joins(text: &str, spec: &TextSpec, cased: &[Cow<'_, str>]) -> Vec<usize> {
+    if !spec.spans.iter().any(|s| spec.numeric.or(s.style.numeric).is_some()) {
+        return Vec::new();
+    }
+    let mut ends = vec![0];
+    for t in cased {
+        ends.push(ends.last().copied().unwrap_or(0) + t.len());
+    }
+    (figure_runs(text).into_iter()).flat_map(|r| [r.start, r.end]).filter(|at| !ends.contains(at)).collect()
+}
+
 /// parley style properties for text set in `role`, with the node's settings on top, and a
 /// run's own features and axes on top of those (PLAN 1.38).
 fn style_props(
@@ -1074,26 +1183,7 @@ fn style_props(
     let stack = theme.family_stack(&role.family)?;
     let family =
         FontFamily::List(Cow::Owned(stack.into_iter().map(|n| FontFamilyName::Named(Cow::Owned(n))).collect()));
-
-    // Features, later wins: family defaults, role, numeral style (node over role), node, run.
-    let mut features: BTreeMap<String, u16> = match theme.families().get(&role.family) {
-        Some(f) => crate::theme::features(f.features.as_ref())
-            .map_err(|e| EngineError::Theme(format!("family `{}`: {e}", role.family)))?,
-        None => BTreeMap::new(),
-    };
-    features.extend(role.features.iter().map(|(k, v)| (k.clone(), *v)));
-    if let Some(numeric) = spec.numeric.or(role.numeric) {
-        features.extend(numeric.features().map(|(k, v)| (k.to_string(), v)));
-    }
-    if role.case == Some(Case::Smallcaps) {
-        features.insert("smcp".into(), 1);
-    }
-    features.extend(spec.features.iter().map(|(k, v)| (k.clone(), *v)));
-    if let Some(run) = run {
-        features.extend(run.features.iter().map(|(k, v)| (k.clone(), *v)));
-    }
-    let features: Vec<FontFeature> =
-        features.iter().map(|(k, v)| Ok(FontFeature::new(tag(k)?, *v))).collect::<Result<_, EngineError>>()?;
+    let features = font_features(theme, role, spec, run, false)?;
 
     // Variations: `opsz` from the role, else the size (CSS `font-optical-sizing: auto`),
     // then role, node, and run axes. Weight goes through FontWeight so fontique sets `wght`
@@ -1844,6 +1934,10 @@ struct Paragraph {
     /// Where a code text's block starts across the box, canvas units: its lines start there
     /// (ADR-0029). 0 for any other text.
     block: f32,
+    /// Where a glyph run may join the one before it, as byte offsets of the text: the ends of a
+    /// run of figures that no span ends at. parley parts runs there for the figures' spacing
+    /// alone ([`figure_runs`]); where the glyphs draw alike, they are one run, as before.
+    joins: Vec<usize>,
 }
 
 impl Paragraph {
@@ -1866,6 +1960,7 @@ impl Paragraph {
             upright: Vec::new(),
             indents: Vec::new(),
             block: 0.0,
+            joins: Vec::new(),
         }
     }
 }
@@ -1893,6 +1988,7 @@ fn read_layout(
     let mut upright = p.upright;
     let mut top = 0.0_f32;
     let mut underlines = Vec::new();
+    let mut inked: Option<(f32, f32)> = None;
     // On a line grid, how far the lines so far have moved down: each gap between
     // baselines rounded up to whole grid lines, the room above the line that moved.
     let (mut moved, mut before) = (0.0_f32, None);
@@ -1952,6 +2048,7 @@ fn read_layout(
         // took, as parley counts them: its glyphs in visual cluster order.
         let mut taken: (Range<usize>, usize) = (0..0, 0);
         let first_run = runs.len();
+        let mut last_underlined = false;
         for item in line.items() {
             let PositionedLayoutItem::GlyphRun(glyph_run) = item else { continue };
             let run = glyph_run.run();
@@ -1993,7 +2090,15 @@ fn read_layout(
                 .collect();
             taken.1 += glyphs.len();
             fonts.check_glyphs(run.font(), run.normalized_coords(), glyphs.iter().map(|g| g.id))?;
-            runs.push(GlyphRun {
+            for g in &glyphs {
+                if let Some((up, down)) = fonts.reach(run.font(), run.normalized_coords(), g.id) {
+                    let size = run.font_size();
+                    inked = Some(inked.map_or((g.y - up * size, g.y + down * size), |(top, bottom): (f32, f32)| {
+                        (top.min(g.y - up * size), bottom.max(g.y + down * size))
+                    }));
+                }
+            }
+            let next = GlyphRun {
                 font: fonts.font_ref(run.font())?,
                 size: run.font_size(),
                 coords: run.normalized_coords().to_vec(),
@@ -2005,7 +2110,30 @@ fn read_layout(
                 rtl: run.is_rtl(),
                 hyphen: false,
                 mark: None,
-            });
+            };
+            // A run parted from the one before it for its figures' spacing alone, drawn alike, is
+            // one with it (`Paragraph::joins`); a link's is its own, for its underline.
+            let underlined = glyph_run.style().underline.is_some();
+            let joined = !underlined
+                && !last_underlined
+                && runs.len() > first_run
+                && runs.last().is_some_and(|prev: &GlyphRun| {
+                    !prev.rtl
+                        && !next.rtl
+                        && prev.font == next.font
+                        && prev.size == next.size
+                        && prev.coords == next.coords
+                        && prev.color == next.color
+                        && next.clusters.first().is_some_and(|c| p.joins.contains(c))
+                });
+            last_underlined = underlined;
+            if joined && let Some(prev) = runs.last_mut() {
+                prev.glyphs.extend(next.glyphs);
+                prev.clusters.extend(next.clusters);
+                prev.advances.extend(next.advances);
+                continue;
+            }
+            runs.push(next);
             // A link's underline (PLAN 2.70): under its glyphs, at the font's underline.
             // The space a line ends with is not underlined.
             let range = line.text_range();
@@ -2076,6 +2204,7 @@ fn read_layout(
         runs,
         width,
         height: layout.height() + moved,
+        ink: inked.unwrap_or((0.0, layout.height() + moved)),
         wrap: p.wrap,
         fallback: p.fallback,
         words: p.words,
@@ -2091,4 +2220,20 @@ fn read_layout(
         underlines,
         hidden: Vec::new(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::figure_runs;
+
+    #[test]
+    fn a_figure_run_is_its_digits_a_sign_before_them_and_the_marks_between_them() {
+        let runs = |text: &str| figure_runs(text).into_iter().map(|r| text[r].to_string()).collect::<Vec<_>>();
+        assert_eq!(runs("Mid-market"), Vec::<String>::new());
+        assert_eq!(runs("$4,120.50 in Q3"), ["4,120.50", "3"]);
+        assert_eq!(runs("−12% at 9:30, -3 and +2."), ["\u{2212}12", "9:30", "-3", "+2"]);
+        assert_eq!(runs("2024-2025"), ["2024", "-2025"]);
+        assert_eq!(runs("1. Plan"), ["1"]);
+        assert_eq!(runs("٣٤٥ units"), ["٣٤٥"]);
+    }
 }

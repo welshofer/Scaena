@@ -49,6 +49,11 @@
         "description": "One of Narrato's arcs by name (`Problem-Solution`, `Hero's Journey`, …); without it,\nchosen from the brief.",
         "type": ["string", "null"],
         "default": null
+      },
+      "history": {
+        "description": "Keep a history, as `deck_create` does: on unless `false`.",
+        "type": "boolean",
+        "default": true
       }
     },
     "additionalProperties": false

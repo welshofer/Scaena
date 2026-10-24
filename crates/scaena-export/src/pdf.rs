@@ -733,7 +733,11 @@ impl Cx<'_, '_> {
     /// own JPEG, what it says beyond its picture left out, turned as it is seen (ADR-0017); any
     /// other image, as its pixels.
     fn image(&mut self, asset: &str, src: [f32; 4], dst: [f32; 4], quality: Quality) -> Result<(), ExportError> {
-        let picture = self.assets.image(asset).map_err(|e| ExportError::Pdf(e.to_string()))?;
+        // A picture whose pixels do not decode leaves its box empty (E107).
+        let picture = match self.assets.image(asset) {
+            Err(e) if e.undecodable() => return Ok(()),
+            picture => picture.map_err(|e| ExportError::Pdf(e.to_string()))?,
+        };
         let filtered = quality == Quality::High;
         let (image, size, turn) = match &picture.jpeg {
             Some(jpeg) => {

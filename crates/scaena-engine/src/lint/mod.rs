@@ -10,6 +10,7 @@
 mod contrast;
 mod fonts;
 mod motion;
+mod pictures;
 mod space;
 mod text;
 
@@ -50,6 +51,7 @@ pub fn rules() -> Vec<Box<dyn Rule>> {
         Box::new(text::W231Upright),
         Box::new(text::W232Lighter),
         Box::new(space::W303UnderFurniture),
+        Box::new(space::W304EmptyPlace),
         Box::new(text::W310LabelCollision),
         Box::new(space::W311ShaderBehindData),
         Box::new(text::W312ChartTextSize),
@@ -58,6 +60,7 @@ pub fn rules() -> Vec<Box<dyn Rule>> {
         Box::new(motion::W320Concurrent),
         Box::new(motion::W321Build),
         Box::new(motion::W323Skipped),
+        Box::new(space::I405Crowded),
     ]
 }
 
@@ -202,6 +205,10 @@ fn lint_in(
                 out.extend(rule.check(&cx));
             }
             if let Some(b) = backdrop.as_deref_mut() {
+                // A picture is the same file in every format: drawn once, in the deck's own (E107).
+                if format.is_none() {
+                    out.extend(pictures::e107(&cx, &pictures::undrawable(&states, b)));
+                }
                 out.extend(contrast::check(&cx, b, &mut faint)?);
             }
         }
@@ -270,34 +277,54 @@ fn verify(
 ) -> Result<(), EngineError> {
     let json = serde_json::to_value(deck).map_err(|e| EngineError::Layout(e.to_string()))?;
     for f in findings.iter_mut().filter(|f| f.fix.is_some()) {
-        let works = (|| -> Option<bool> {
-            let mut doc = json.clone();
-            scaena_core::patch::apply(&mut doc, f.fix.as_deref()?).ok()?;
-            let patched = Deck::from_value(&doc).ok()?;
-            let (d, t) = project(&patched, theme, f.format.as_deref()).ok()?;
-            let snaps = scaena_core::resolve_states(&d).ok()?;
-            let index = snaps.iter().position(|s| Some(&s.state_id) == f.state.as_ref())?;
-            let scene = engine.scene(&d, &t, data, &snaps[index]).ok()?;
-            let state = Laid {
-                index,
-                snapshot: cascade::with_overrides(&d, &snaps[index]),
-                scene,
-                slot: Slot { state: snaps[index].state_id.clone(), start: 0.0, span: 0.0, hold: 0.0 },
-                schedule: Schedule { transition: Timing::CUT.clock(), cues: vec![], span: 0.0 },
-            };
-            let cx = Cx { deck: &d, theme: &t, format: f.format.as_deref(), states: std::slice::from_ref(&state) };
-            // A credit set below must read there (ADR-0030); text set smaller must fit.
-            let rules: Vec<&dyn Rule> = match f.code.as_str() {
-                "W314" => vec![&space::W314Credit],
-                _ => vec![&text::E100Overflow, &text::W202MaxLines, &text::W203ShrinkFloor],
-            };
-            Some(rules.iter().flat_map(|r| r.check(&cx)).all(|g| g.node != f.node))
-        })();
-        if works != Some(true) {
-            f.fix = None;
+        // A crowded text's step is taken again until it comes clear, never under half its size.
+        let floor = (f.code == "I405")
+            .then(|| f.measure.as_ref().and_then(|m| m["own"].as_f64()).map(|own| own * 0.5))
+            .flatten();
+        loop {
+            if works(engine, &json, theme, data, f) == Some(true) {
+                break;
+            }
+            let next = floor.and_then(|floor| {
+                let fix = f.fix.as_mut()?;
+                let op = fix.iter_mut().find(|op| op["path"].as_str().is_some_and(|p| p.ends_with("/maxSize")))?;
+                let next = (op["value"].as_f64()? * 0.95 * 4.0).floor() / 4.0;
+                (next >= floor).then(|| op["value"] = serde_json::json!(next))
+            });
+            if next.is_none() {
+                f.fix = None;
+                break;
+            }
         }
     }
     Ok(())
+}
+
+/// Whether laying `f`'s state out again with its fix applied to `json` shows that it works.
+fn works(engine: &mut Engine, json: &serde_json::Value, theme: &Theme, data: &DataFiles, f: &Finding) -> Option<bool> {
+    let mut doc = json.clone();
+    scaena_core::patch::apply(&mut doc, f.fix.as_deref()?).ok()?;
+    let patched = Deck::from_value(&doc).ok()?;
+    let (d, t) = project(&patched, theme, f.format.as_deref()).ok()?;
+    let snaps = scaena_core::resolve_states(&d).ok()?;
+    let index = snaps.iter().position(|s| Some(&s.state_id) == f.state.as_ref())?;
+    let scene = engine.scene(&d, &t, data, &snaps[index]).ok()?;
+    let state = Laid {
+        index,
+        snapshot: cascade::with_overrides(&d, &snaps[index]),
+        scene,
+        slot: Slot { state: snaps[index].state_id.clone(), start: 0.0, span: 0.0, hold: 0.0 },
+        schedule: Schedule { transition: Timing::CUT.clock(), cues: vec![], span: 0.0 },
+    };
+    let cx = Cx { deck: &d, theme: &t, format: f.format.as_deref(), states: std::slice::from_ref(&state) };
+    // A credit set below must read there (ADR-0030); text set smaller must fit, and
+    // a text crowding the one under it come clear of it.
+    let rules: Vec<&dyn Rule> = match f.code.as_str() {
+        "W314" => vec![&space::W314Credit],
+        "I405" => vec![&space::I405Crowded, &text::E100Overflow, &text::W203ShrinkFloor],
+        _ => vec![&text::E100Overflow, &text::W202MaxLines, &text::W203ShrinkFloor],
+    };
+    Some(rules.iter().flat_map(|r| r.check(&cx)).all(|g| g.node != f.node))
 }
 
 /// Every state of the (projected) deck, or only the states at `only`, in order, laid out, with

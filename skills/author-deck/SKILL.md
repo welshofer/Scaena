@@ -28,10 +28,10 @@ Every step works through either surface. An MCP tool takes the same settings its
 | see a state resolved | `scaena inspect <bundle> --state <id>`, with `--resolved`, `--timeline`, or `--data` | `deck_inspect` |
 | see what a build changes | `scaena diff <bundle> --from a --to b` | `deck_diff` |
 | look | `scaena render <bundle> --state <id> --out frame.png` | `deck_render`, which returns the PNG |
-| read it back | `scaena decompile <bundle>` | `deck_read`, with `scn` for `.scn` |
+| read it back | `scaena decompile <bundle>` | `deck_read`, with `scn` for `.scn`, and `theme` for the theme's layouts, roles, and colors |
 | the spine | edit `spine` in `deck.json` | `spine_read`, `spine_update` |
 | find an icon | `scaena icons <words> --json`: each its `path` and `view`, for `add_node` | `icon_find` |
-| start a slide in a layout | `scaena start <bundle> <state> --layout bullets`: a new slide after that state's slide, as Add Slide starts one, with a text in each slot to write over; `scaena inspect <bundle> --state <id> --layouts` lists the layouts | `state_start` |
+| start a slide in a layout | `scaena start <bundle> <state> --layout bullets`: a new slide after that state's slide, as Add Slide starts one, with a text in each slot to write over; `--claim "…"` tells its claim in a beat of its own, else it joins that state's beat; `--id pricing` names it and its nodes (`pricing-header`), and it says each slot it filled with the node there, and each it left empty for a picture or a figure; `scaena inspect <bundle> --state <id> --layouts` lists the layouts | `state_start` |
 | set a slide's background | `scaena background <bundle> <state> backdrop`, one of the theme's shader presets; `--none` takes it away; neither lists what the slide may take | `background_set` |
 | make a deck from slides you wrote | `scaena generate <dir> "topic" --slides slides.json`: Narrato's slide JSON, no model called | `deck_generate`: the same, the slides given inline |
 
@@ -94,7 +94,8 @@ Errors:
    - Prefer the semantic ops:
      - `set_prop` and `set_text` with a `state` change what that state shows.
      - `choose` changes one property where it lives, as a person does in the editor's inspector: `inspect --state <id> --choices <node>` (`deck_inspect` with `choices`) lists what the theme offers for each property, the value shown, and where it lives.
-     - `show_node` and `hide_node` make a node enter or leave.
+     - `show_node` and `hide_node` make a node enter or leave in a state; `delete_node` deletes one as the editors' Delete does, gone from the deck where no state shows it then.
+     - `remove_slide` and `move_slide` keep the spine whole: a beat a removal empties goes, and a beat that tells only the slide moves with it.
      - `add_state` with `beat` adds a build to its beat.
    - A patch applies whole or not at all. One that would make the deck invalid is refused, and the error names the op that failed.
 9. **Look.**

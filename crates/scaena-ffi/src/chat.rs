@@ -6,7 +6,7 @@
 
 use crate::{Failure, guarded, said};
 use base64::Engine;
-use scaena_chat::{Call, Chat, Client, Facts, Message, Provider, RESOURCE_READ, Request, Seeing, ToolResult};
+use scaena_chat::{Call, Chat, Client, Facts, Message, Provider, RESOURCE_READ, Request, Seeing, Stream, ToolResult};
 use scaena_session::Session;
 use scaena_session::assistant::{Caller, TOOLS, failure};
 use serde_json::{Value, json};
@@ -18,6 +18,8 @@ const STOPPED: &str = "the user stopped the assistant";
 pub struct Asking {
     chat: Chat,
     ran: Vec<ToolResult>,
+    /// The answer being read as it is written (narrative ATTR-3): what `heard` has been fed.
+    heard: Option<Stream>,
 }
 
 impl Asking {
@@ -30,7 +32,7 @@ impl Asking {
         let tools = scaena_chat::tools(TOOLS).map_err(said)?;
         let mut chat = Chat::new(provider, model, String::new(), tools);
         chat.base = args.get("base").and_then(Value::as_str).filter(|b| !b.is_empty()).map(str::to_string);
-        Ok(Asking { chat, ran: Vec::new() })
+        Ok(Asking { chat, ran: Vec::new(), heard: None })
     }
 
     /// One step of the conversation, by its name.
@@ -55,8 +57,19 @@ impl Asking {
                 self.ran.clear();
                 Value::Null
             }
-            "request" => request(self.chat.request(arg("key")?)),
+            "request" => {
+                self.heard = None;
+                request(self.chat.request(arg("key")?))
+            }
+            // The answer as it is written (narrative ATTR-3): `chunk`, the next piece of the
+            // body the client reads, in whatever pieces the network hands it; the words it
+            // completes, for the window to show. `answer` then reads the body whole.
+            "heard" => {
+                let stream = self.heard.get_or_insert_with(|| Stream::new(self.chat.provider));
+                json!({ "text": stream.feed(arg("chunk")?) })
+            }
             "answer" => {
+                self.heard = None;
                 let status = (args.get("status").and_then(Value::as_u64))
                     .and_then(|s| u16::try_from(s).ok())
                     .ok_or_else(|| said("answer: `status` is an HTTP status it needs"))?;
@@ -102,6 +115,25 @@ impl Asking {
                 // In place of what the session answered for it, where it was run there first.
                 self.ran.retain(|r| r.id != call.id);
                 self.ran.push(ToolResult { id: call.id, name: call.name, json, error, png: None });
+                ran
+            }
+            "took" => {
+                // A call of the last answer run apart from the conversation, on a session of a
+                // snapshot's (`run_apart`, narrative lift-up PERF-2): `ran` is what it came to,
+                // taken as `run` takes what it ran.
+                let index = args.get("index").and_then(Value::as_u64).ok_or_else(|| said("took: `index`"))?;
+                let call = (self.calls().and_then(|calls| calls.get(index as usize)).cloned())
+                    .ok_or_else(|| said(format!("took: the last answer made no call {index}")))?;
+                let ran = args.get("ran").cloned().ok_or_else(|| said("took: `ran`, what the call came to"))?;
+                if ran.get("id").and_then(Value::as_str) != Some(call.id.as_str()) {
+                    return Err(said(format!("took: `ran` is not what call {index} came to")));
+                }
+                let json =
+                    (ran.get("json").and_then(Value::as_str)).ok_or_else(|| said("took: `ran.json`"))?.to_string();
+                let error = ran.get("error").and_then(Value::as_bool).unwrap_or(false);
+                let png = ran.get("png").and_then(Value::as_str).map(str::to_string);
+                self.ran.retain(|r| r.id != call.id);
+                self.ran.push(ToolResult { id: call.id, name: call.name, json, error, png });
                 ran
             }
             "next" => {
@@ -229,6 +261,13 @@ fn skills(s: &Session) -> Vec<String> {
         .filter(|name| !name.is_empty() && !name.contains('/'))
         .map(str::to_string)
         .collect()
+}
+
+/// Run `call` on `s`, a session of a snapshot's, as `model`'s agent, at `at`, apart from any
+/// conversation (narrative lift-up PERF-2): what `run` gives, which the conversation's `took` takes
+/// back. Only for a tool that reads alone ([`scaena_session::assistant::reads_alone`]).
+pub fn run_apart(s: &mut Session, model: &str, call: &Call, at: Option<i64>) -> Value {
+    run(s, model, call, at).1
 }
 
 /// Run `call` on the session as the model's agent, at `at`: its result for the model, and what

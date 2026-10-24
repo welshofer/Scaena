@@ -1,0 +1,14 @@
+{
+  "scaena": "0.38",
+  "_comment": "W304 clean: the same slide with its picture's place filled, here by a shape placed in it.",
+  "canvas": {"width": 1920, "height": 1080},
+  "theme": "theme.json",
+  "fonts": [{"family": "Roboto Serif", "file": "fonts/RobotoSerif-VF.ttf"}, {"family": "EB Garamond", "file": "fonts/EBGaramond-VF.ttf"}],
+  "nodes": {
+    "t": {"type": "text", "role": "headline", "text": "The harbor came back", "at": {"in": "header"}},
+    "art": {"type": "shape", "kind": "rect", "fill": "accent", "at": {"in": "art"}}
+  },
+  "states": [
+    {"id": "a", "layout": "photo", "props": {"t": {}, "art": {}}}
+  ]
+}

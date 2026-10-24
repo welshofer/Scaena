@@ -25,6 +25,11 @@ pub enum Painter {
     Gpu,
 }
 
+/// Pixels per canvas unit a frame is drawn at for a model to see, where it asks no size: half
+/// the canvas (960 × 540 for 1920 × 1080). Each frame goes back into the conversation as an image,
+/// and the whole canvas costs four times the tokens for nothing a model reads (narrative PERF-4).
+pub const FOR_A_MODEL: f32 = 0.5;
+
 /// What to render.
 #[derive(Debug, Clone, Default)]
 pub struct Request {
@@ -33,8 +38,10 @@ pub struct Request {
     pub t: Option<f64>,
     /// One of the deck's `formats`, laid out again with the theme's template set for it.
     pub format: Option<String>,
-    /// `WxH` pixels, the canvas's aspect ratio; the canvas's size without it.
+    /// `WxH` pixels, the canvas's aspect ratio; without it, the canvas's size times `scale`.
     pub size: Option<String>,
+    /// Pixels per canvas unit where `size` is unset; 1, the canvas's own size, without it.
+    pub scale: Option<f32>,
     pub painter: Painter,
 }
 
@@ -122,7 +129,7 @@ pub fn render(path: &Path, req: &Request) -> Result<Rendered, OpsError> {
 
     let scale = match req.size.as_deref() {
         Some(size) => scale_for(size, dl.viewport)?,
-        None => 1.0,
+        None => req.scale.unwrap_or(1.0),
     };
     // Built after the frame, so a state the engine cannot draw costs no GPU start-up.
     let (mut painter, adapter): (Box<dyn scaena_paint::Painter>, Option<String>) = match req.painter {

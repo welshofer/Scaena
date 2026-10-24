@@ -706,6 +706,7 @@ pub fn shape(kind: &str) -> String {
 pub const MARKED: &[(&str, &str)] = &[
     ("E100", "The text doesn't fit its box."),
     ("E101", "It overlaps another object."),
+    ("E107", "Its picture's file can't be drawn."),
     ("E110", "It's hard to read against what's behind it."),
     ("E111", "It's hard to read against what's behind it."),
     ("E120", "Some of its characters aren't in its font."),
@@ -746,6 +747,7 @@ pub const LISTED: &[(&str, &str)] = &[
     ("W300", "It's set in a value of its own where the theme has a name for one."),
     ("W301", "It's placed off the theme's grid."),
     ("W302", "It's placed where the deck's other sizes won't move it."),
+    ("W304", "This slide leaves a place for a picture empty."),
     ("W320", "Too many things move at once."),
     ("W321", "This slide's animations run too long."),
     ("W322", "An animation here moves nothing."),
@@ -758,10 +760,12 @@ pub const LISTED: &[(&str, &str)] = &[
     ("W424", "More than one claim is on screen at once."),
     ("W425", "Two parts of the story in a row make the same claim."),
     ("W426", "This part of the story plays out of the outline's order."),
+    ("W429", "This part of the story is not told on a slide yet."),
     ("I400", "This step is the same as the one before it."),
     ("I401", "It never shows on any slide."),
     ("I402", "Settings of its own keep a theme change from reaching it."),
     ("I403", "Its code is in a language Scaena colors only by its strings, numbers, and comments."),
+    ("I405", "Its letters' tails come close to the text under it."),
 ];
 
 /// What lint finds, said in a sentence, by its code: what an editor marks ([`MARKED`]), then what

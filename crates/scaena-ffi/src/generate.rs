@@ -10,11 +10,12 @@
 
 use crate::{Failure, said};
 use base64::Engine;
+use scaena_narrato::Picture;
 use scaena_narrato::fit::Long;
-use scaena_narrato::look::Seen;
+use scaena_narrato::look::{Change, Seen};
 use scaena_narrato::research::{Asked, Next, Report, Research, source_name};
 use scaena_narrato::{Brief, Document, Generation, Provider, Request, Settings, Step};
-use scaena_ops::narrative::{Asked as Wanted, Painting, Pictures, Reply};
+use scaena_ops::narrative::{Asked as Wanted, Painting, Pictures, Reply, look_rounds};
 use scaena_ops::scripts::Script;
 use scaena_session::Session;
 use scaena_session::making::Making;
@@ -25,6 +26,40 @@ use std::collections::BTreeMap;
 
 /// A deck being made from a prompt: the sources read so far, the link being fetched, the
 /// research under way, the narrative being written, and the bundle being made of it.
+/// A look at the deck made, in rounds (PLAN G.13, narrative PERF-5): each slide as the model
+/// is shown it and as drawn, the round asked next, the changes answered so far, and why a round
+/// was not answered.
+#[derive(Default)]
+struct Look {
+    seen: Vec<Seen>,
+    drawn: Vec<Picture>,
+    /// The index the next round starts at, and the round last asked.
+    next: usize,
+    current: std::ops::Range<usize>,
+    changes: Vec<Change>,
+    unanswered: Option<String>,
+}
+
+impl Look {
+    /// The next round's request, with how many slides the look shows in all; none once every
+    /// round is asked.
+    fn round(&mut self, generation: &Generation, key: &str) -> Option<Value> {
+        while let Some(round) = look_rounds(self.seen.len()).find(|r| r.start == self.next) {
+            self.next = round.end;
+            if let Some(asked) = generation.look_request(key, &self.seen[round.clone()], &self.drawn[round.clone()]) {
+                self.current = round;
+                return Some(json!({ "request": request(asked), "slides": self.seen.len() }));
+            }
+        }
+        None
+    }
+
+    /// The slides the round last asked showed.
+    fn asked(&self) -> Vec<Seen> {
+        self.seen[self.current.clone()].to_vec()
+    }
+}
+
 #[derive(Default)]
 pub struct Generating {
     sources: Vec<Source>,
@@ -37,8 +72,8 @@ pub struct Generating {
     painted: Option<Painted>,
     making: Option<(Making, Vec<Long>)>,
     /// What the model is shown of the deck made, while it is asked what it would change on it
-    /// (PLAN G.13), and the theme it is made in.
-    seen: Vec<Seen>,
+    /// (PLAN G.13), a dozen slides a round (narrative PERF-5), and the theme it is made in.
+    look: Look,
     theme: String,
     /// The font for the script the deck is written in, where the theme's fonts do not draw it,
     /// once Swift has fetched it and its digest is the one pinned (PLAN G.22).
@@ -270,12 +305,35 @@ impl Generating {
             }
             "answer" => {
                 let w = self.written()?;
-                w.generation.answer(status(), &status_text(), arg("body")?).map_err(said)?;
+                let after = args.get("after").and_then(Value::as_str);
+                w.generation.answer(status(), &status_text(), arg("body")?, after).map_err(said)?;
                 where_it_stands(&w.generation)
             }
             "written" => {
                 let w = self.written()?;
                 w.generation.written(arg("text")?, false).map_err(said)?;
+                where_it_stands(&w.generation)
+            }
+            // The outline before the slides (narrative FUNC-1): asked once the arc is chosen, the
+            // next `request` the outline's; `settle` takes it as the person settled it, and
+            // `chooseArc` another arc, by name or the heuristic's, to outline again.
+            "outline" => {
+                let w = self.written()?;
+                w.generation.outline_first().map_err(said)?;
+                where_it_stands(&w.generation)
+            }
+            "settle" => {
+                let w = self.written()?;
+                let outline: scaena_narrato::Outline =
+                    serde_json::from_value(args.get("outline").cloned().unwrap_or(Value::Null))
+                        .map_err(|e| said(format!("settle: `outline`: {e}")))?;
+                w.generation.settle(&outline).map_err(said)?;
+                where_it_stands(&w.generation)
+            }
+            "chooseArc" => {
+                let w = self.written()?;
+                let arc = args.get("arc").and_then(Value::as_str).filter(|a| !a.is_empty());
+                w.generation.choose_arc(arc);
                 where_it_stands(&w.generation)
             }
             "imageModels" => {
@@ -472,42 +530,67 @@ impl Generating {
                 let looking = key.filter(|_| args.get("look").and_then(Value::as_bool) != Some(false));
                 if let Some(key) = looking {
                     let seen = scaena_ops::narrative::seeing(narrative, &model, &placed, making.layouts());
-                    let drawn = making.drawn(scaena_ops::narrative::LOOK_WIDTH).map_err(said)?;
-                    if let Some(asked) = w.generation.look_request(key, &seen, &drawn) {
-                        let slides = seen.len();
-                        self.seen = seen;
-                        self.making = Some((making, Vec::new()));
-                        return Ok(json!({ "look": { "request": request(asked), "slides": slides } }));
+                    // A slide that would not draw for the model to see leaves the deck as made,
+                    // saying why (narrative STAB-3): the look is a polish, never the deck.
+                    match making.drawn(scaena_ops::narrative::LOOK_WIDTH) {
+                        Ok(drawn) => {
+                            let mut look = Look { seen, drawn, ..Look::default() };
+                            if let Some(round) = look.round(&w.generation, key) {
+                                self.look = look;
+                                self.making = Some((making, Vec::new()));
+                                return Ok(json!({ "look": round }));
+                            }
+                        }
+                        Err(why) => making.unlooked(format!("the slides could not be drawn for the model: {why}")),
                     }
                 }
                 let fit = self.fitting(making, key)?;
                 json!({ "fit": fit })
             }
             "looked" => {
-                // The model's answer to the look: each slide's change kept where lint finds the
-                // slide no worse, then the fit asked for, as `make` asks it: `{looked, fit}`.
+                // The model's answer to one round of the look (narrative PERF-5): the next round's
+                // request where one is left, `{look}`; else each slide's change kept where lint
+                // finds the slide no worse, then the fit asked for, as `make` asks it:
+                // `{looked, unlooked, fit}`. A round not answered loses its own slides' changes
+                // alone, said beside the rest.
                 let w = self.generation.as_ref().ok_or_else(|| said("looked: no narrative is written"))?;
+                let key = args.get("key").and_then(Value::as_str);
+                let round = self.look.asked();
+                match w.generation.look_answer(status(), &status_text(), arg("body")?, &round) {
+                    Ok(changes) => self.look.changes.extend(changes),
+                    Err(why) => {
+                        let (first, last) = (round[0].slide, round[round.len() - 1].slide);
+                        let why = match round.len() {
+                            1 => format!("slide {first} not looked at: {why}"),
+                            _ => format!("slides {first}\u{2013}{last} not looked at: {why}"),
+                        };
+                        let was = self.look.unanswered.take();
+                        self.look.unanswered = Some(was.map_or(why.clone(), |was| format!("{was}; {why}")));
+                    }
+                }
+                if let Some(key) = key
+                    && let Some(next) = self.look.round(&w.generation, key)
+                {
+                    return Ok(json!({ "look": next }));
+                }
                 let (mut making, _) = self.making.take().ok_or_else(|| said("looked: no deck is made"))?;
                 let narrative = w.generation.narrative().ok_or_else(|| said("looked: no narrative is written"))?;
-                let seen = std::mem::take(&mut self.seen);
-                match w.generation.look_answer(status(), &status_text(), arg("body")?, &seen) {
-                    Ok(changes) => {
-                        let shipped = shipped(&self.theme)?;
-                        let model: scaena_core::model::theme::Theme =
-                            serde_json::from_str(shipped.text).map_err(|e| said(format!("the theme: {e}")))?;
-                        let (placed, assets, _) = self.painted.clone().unwrap_or_default();
-                        let shown = scaena_ops::narrative::Shown {
-                            narrative,
-                            theme: &model,
-                            pictures: &placed,
-                            assets: &assets,
-                        };
-                        making.look(shown, changes).map_err(said)?;
-                    }
-                    Err(why) => making.unlooked(why.to_string()),
+                let look = std::mem::take(&mut self.look);
+                if !look.changes.is_empty() {
+                    let shipped = shipped(&self.theme)?;
+                    let model: scaena_core::model::theme::Theme =
+                        serde_json::from_str(shipped.text).map_err(|e| said(format!("the theme: {e}")))?;
+                    let (placed, assets, _) = self.painted.clone().unwrap_or_default();
+                    let shown =
+                        scaena_ops::narrative::Shown { narrative, theme: &model, pictures: &placed, assets: &assets };
+                    making.look(shown, look.changes).map_err(said)?;
+                }
+                if let Some(why) = look.unanswered {
+                    let was = making.report()["unlooked"].as_str().map(str::to_string);
+                    making.unlooked(was.map_or(why.clone(), |was| format!("{was}; {why}")));
                 }
                 let report = making.report();
-                let fit = self.fitting(making, args.get("key").and_then(Value::as_str))?;
+                let fit = self.fitting(making, key)?;
                 json!({ "looked": report["looked"].as_array().map_or(0, Vec::len), "unlooked": report["unlooked"], "fit": fit })
             }
             "fitted" => {
@@ -595,7 +678,10 @@ fn researched(topic: &str, report: &Report) -> Source {
     Source { name: source_name(topic), kind: Kind::Research, text: report.source_text(), sheets: Vec::new(), pdf: None }
 }
 
-/// Where a generation stands: `{step, slides, arc?, fallback?, written?, truncated?}`.
+/// Where a generation stands: `{step, slides, arc?, reasoning?, fallback?, written?, truncated?,
+/// outline?, plan?, wait?}`, the outline once written or settled (narrative FUNC-1), the beats the
+/// slides are spread over once the arc is chosen, and `wait` the seconds to wait before the same
+/// step is asked again, where its last answer was for now (narrative REL-1).
 fn where_it_stands(g: &Generation) -> Value {
     let narrative = g.narrative();
     let step: Step = g.step();
@@ -603,8 +689,13 @@ fn where_it_stands(g: &Generation) -> Value {
         "step": step,
         "slides": g.target(),
         "arc": g.arc().map(|a| a.selection.clone()),
+        "reasoning": g.arc().map(|a| a.reasoning.clone()),
         "fallback": g.fallback(),
         "written": narrative.map(|n| n.slides.len()),
         "truncated": narrative.map(|n| n.truncated),
+        "outline": g.outline(),
+        "plan": g.plan(),
+        "wait": g.again(),
+        "tried": g.tried(),
     })
 }

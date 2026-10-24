@@ -37,8 +37,12 @@ pub fn compile_renamed(
 ) -> Result<Compiled, DslError> {
     let (mut json, map) = dsl::compile_json(source)?;
     rename_files(&mut json, renamed);
-    let text = serde_json::to_string(&json).expect("a compiled deck is JSON");
-    let findings = scaena_core::validate::validate_bundle(&text, files).expect("a compiled deck parses");
+    // A deck the source makes that no reader of deck.json could open is refused, saying why, as
+    // the source's own errors are: never a panic, which in the browser stops the editor's worker.
+    let refused = |why: String| DslError { line: 1, col: 1, offset: 0, len: 0, message: why, pointer: None };
+    let text = serde_json::to_string(&json).map_err(|e| refused(format!("the deck does not write as JSON: {e}")))?;
+    let findings = scaena_core::validate::validate_bundle(&text, files)
+        .map_err(|e| refused(format!("the deck this compiles to does not read back: {e}")))?;
     Ok(Compiled { json, map, findings })
 }
 

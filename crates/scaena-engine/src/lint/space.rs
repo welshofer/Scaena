@@ -10,16 +10,23 @@
 //!
 //! W303: a node drawn where the slide's number or footer stands (ADR-0028).
 //!
+//! W304: a place a slide's layout keeps for a picture or a figure, left empty at rest.
+//!
 //! W311: a shader painted behind a chart or a table, where they overlap.
 //!
 //! W313: a chart squashed below a legible plot.
 //!
 //! W314: a fetched picture's credit that cannot be read (ADR-0030).
+//!
+//! I405: a text set larger than the body whose descenders come within the theme's gutter of
+//! the text under it.
 
 use super::{Cx, Rule};
+use crate::render::PlacedText;
 use crate::sample::{Content, Scene, SceneNode};
 use scaena_core::displaylist::Rect;
 use scaena_core::lint::{Finding, Severity};
+use scaena_core::model::nodes::TextFit;
 use scaena_core::pose;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
@@ -233,6 +240,107 @@ impl Rule for W303UnderFurniture {
                 .hint("Move it clear of the margin the slide's number and footer stand in, or leave them off this slide (`furniture: false` on its first state).")
             })
             .collect()
+    }
+}
+
+/// W304: a place a slide's layout keeps for a picture or a figure, left empty where the slide
+/// comes to rest (its last state): its slot's prompt waits for one (PLAN 3.30), no node is placed
+/// in it, no ink in front, decoration aside, is drawn in it, and no picture or backdrop is drawn
+/// there: what an editor outlines as a place still waiting, with nothing else standing in it. One
+/// finding per slide and place.
+pub struct W304EmptyPlace;
+
+impl Rule for W304EmptyPlace {
+    fn code(&self) -> &'static str {
+        "W304"
+    }
+    fn severity(&self) -> Severity {
+        Severity::Warning
+    }
+    fn check(&self, cx: &Cx) -> Vec<Finding> {
+        use scaena_core::model::theme::{Example, Prompt};
+        let mut boxes: BTreeMap<String, Vec<crate::guides::SlotBox>> = BTreeMap::new();
+        let mut out = Vec::new();
+        for state in cx.states {
+            let at = &cx.deck.states[state.index];
+            // At rest: the slide's last state, as the light table and the PDF show it.
+            let next = cx.deck.states.get(state.index + 1);
+            if next.is_some_and(|n| cx.deck.slide_of(n) == cx.deck.slide_of(at)) {
+                continue;
+            }
+            let Some(name) = state.snapshot.layout.as_deref() else { continue };
+            let Some(slots) = cx.theme.slots(name) else { continue };
+            if !boxes.contains_key(name) {
+                let Ok(laid) = crate::guides::slots(cx.deck, cx.theme, name, cx.format) else { continue };
+                boxes.insert(name.to_string(), laid);
+            }
+            let placed: Vec<&str> = (state.snapshot.nodes.values())
+                .filter_map(|p| p.get("at").filter(|a| a.get("parent").is_none())?.get("in")?.as_str())
+                .collect();
+            // What fills a place: ink in front drawn in it, decoration aside, or a picture or a
+            // backdrop drawn there at all, as "a picture, or a backdrop" asks.
+            let stands = |id: &str| {
+                let pictured = (cx.deck.nodes.get(id)).is_some_and(|n| {
+                    matches!(
+                        n.node_type,
+                        scaena_core::document::NodeType::Image | scaena_core::document::NodeType::Shader
+                    )
+                });
+                pictured
+                    || state.snapshot.nodes.get(id).is_some_and(|p| {
+                        p.get("z").and_then(Value::as_f64).unwrap_or(0.0) >= 0.0
+                            && p.get("semantic").and_then(Value::as_str) != Some("decoration")
+                    })
+            };
+            // A slide that still says its slots' prompts, or shows nothing of its own but the cards
+            // and rules it came with, is being written: its places wait with its words, as Add
+            // Slide leaves them.
+            let prompted = |p: &scaena_core::document::Props| {
+                let slot = p.get("at").filter(|a| a.get("parent").is_none()).and_then(|a| a.get("in")?.as_str());
+                let said = slot.and_then(|s| slots.get(s)?.prompt.as_ref()?.text()).map(|(text, _)| text);
+                said.is_some_and(|said| p.get("text").and_then(Value::as_str) == Some(said.as_str()))
+            };
+            let decoration =
+                |p: &scaena_core::document::Props| p.get("semantic").and_then(Value::as_str) == Some("decoration");
+            let nodes = || state.snapshot.nodes.values();
+            if nodes().any(prompted) || nodes().all(decoration) {
+                continue;
+            }
+            for b in &boxes[name] {
+                let Some(slot) = slots.get(&b.name) else { continue };
+                // Words go where a role is; a card or a rule comes with the slide.
+                if slot.role.is_some() || slot.prompt.as_ref().and_then(Prompt::text).is_none() {
+                    continue;
+                }
+                let covered = (state.scene.nodes.iter()).any(|n| {
+                    // Where it draws: a text's lines, else its box, a backdrop's and a card's too.
+                    let area = n.ink().or(match &n.content {
+                        Content::Shader(shader) => Some(shader.rect),
+                        Content::Shape(shape) => Some(shape.rect),
+                        _ => None,
+                    });
+                    stands(&n.id)
+                        && area.is_some_and(|r| meets((b.rect, None), drawn(&state.scene, &n.id, r)).is_some())
+                });
+                if placed.contains(&b.name.as_str()) || covered {
+                    continue;
+                }
+                let figure = matches!(slot.example, Some(Example::Chart(_) | Example::Table(_)));
+                let what = if figure { "a figure" } else { "a picture" };
+                out.push(
+                    cx.finding(
+                        self.code(),
+                        self.severity(),
+                        state,
+                        format!("slot `{}` of layout `{name}` waits for {what}, and nothing fills it", b.name),
+                    )
+                    .at(format!("/states/{}", state.index))
+                    .measure(json!({ "slot": b.name, "layout": name, "rect": b.rect, "figure": figure }))
+                    .hint("Choose a layout that waits for none, or put a picture or a figure in its place."),
+                );
+            }
+        }
+        out
     }
 }
 
@@ -462,6 +570,151 @@ impl Rule for W314Credit {
             })
             .collect()
     }
+}
+
+/// I405: a text set larger than the body whose descenders take its ink within the theme's
+/// gutter of a text under it, on one level, that its baseline stands two gutters or more above: a
+/// big number's tail over its caption, never a title's over its subtitle or its paragraph. What collides is E101's; this is the room short of it. One
+/// finding per pair, at the text above, naming every state. Its fix is the step the generator
+/// takes ([`step`]): a twentieth smaller, as `fit: shrink` under a `maxSize`, stepped again by
+/// `super::verify` until the text comes clear, never under half its size.
+pub struct I405Crowded;
+
+/// A text's last line as set: its baseline and its ink's foot, canvas y, its size as set and its
+/// own, and its ink.
+struct Foot {
+    baseline: f32,
+    ink: Rect,
+    size: f32,
+    own: f32,
+}
+
+/// A text crowding the one under it: the state it first does, by how little room, how far its tail
+/// reaches below its baseline, its size there as set and its own, how it fits, and every state it
+/// does.
+struct Crowd {
+    first: usize,
+    gap: f32,
+    descent: f32,
+    size: f32,
+    own: f32,
+    fit: TextFit,
+    states: Vec<String>,
+}
+
+fn foot(placed: &PlacedText, ink: Rect) -> Option<Foot> {
+    let t = &placed.text;
+    let last = t.lines.len().checked_sub(1)?;
+    let size = t.runs.iter().filter(|r| r.line == last).map(|r| r.size).fold(0.0, f32::max);
+    (size > 0.0).then(|| Foot {
+        baseline: placed.origin[1] + t.lines[last].baseline,
+        ink,
+        size,
+        own: size / placed.scale.max(f32::EPSILON),
+    })
+}
+
+impl Rule for I405Crowded {
+    fn code(&self) -> &'static str {
+        "I405"
+    }
+    fn severity(&self) -> Severity {
+        Severity::Info
+    }
+    fn check(&self, cx: &Cx) -> Vec<Finding> {
+        let Some(body) = cx.theme.typography.roles.get("body").map(|r| r.size as f32) else { return Vec::new() };
+        let gutter = cx.theme.grid.gutter as f32;
+        // Each pair once: where it first crowds, by how little room, its size there, every state.
+        let mut pairs: BTreeMap<(String, String), Crowd> = BTreeMap::new();
+        for state in cx.states {
+            let texts: Vec<(&SceneNode, &PlacedText, Rect)> = (state.scene.nodes.iter())
+                .filter(|n| {
+                    let props = state.snapshot.nodes.get(&n.id);
+                    props.and_then(|p| p.get("semantic")).and_then(Value::as_str) != Some("decoration")
+                })
+                .filter(|n| state.scene.posed(&n.id, true) == IDENTITY)
+                .filter_map(|n| match &n.content {
+                    Content::Text(placed) => Some((n, placed, n.ink()?)),
+                    _ => None,
+                })
+                .collect();
+            for (a, placed, ink) in &texts {
+                let Some(f) = foot(placed, *ink) else { continue };
+                let bottom = f.ink[1] + f.ink[3];
+                if f.size <= body || bottom - f.baseline <= SLACK {
+                    continue;
+                }
+                for (b, _, under) in &texts {
+                    if a.id == b.id || !one_level(a, b) {
+                        continue;
+                    }
+                    let across = (f.ink[0] + f.ink[2]).min(under[0] + under[2]) - f.ink[0].max(under[0]);
+                    let gap = under[1] - bottom;
+                    // Two gutters or more under its baseline, a hero's room, its descenders within one
+                    // of it, and not across it: what collides is E101's. A title's tail over its
+                    // subtitle, or a figure's over its name, a gutter and a half under, is the theme's.
+                    if across <= SLACK || under[1] - f.baseline < 2.0 * gutter || gap >= gutter || gap < -SLACK {
+                        continue;
+                    }
+                    let crowd = pairs.entry((a.id.clone(), b.id.clone())).or_insert_with(|| Crowd {
+                        first: state.index,
+                        gap,
+                        descent: bottom - f.baseline,
+                        size: f.size,
+                        own: f.own,
+                        fit: placed.fit,
+                        states: Vec::new(),
+                    });
+                    crowd.states.push(state.snapshot.state_id.clone());
+                }
+            }
+        }
+        pairs
+            .into_iter()
+            .map(|((a, b), Crowd { first, gap, descent, size, own, fit, states })| {
+                let state = cx.laid(first);
+                // The size that leaves the gutter where its baseline stays as it is set smaller, its
+                // tail shortening with it: a text set on its foot, as a slot's figure is, which the
+                // generator steps to at once. One set from its top rises too, and needs less.
+                let aim = size * (gap + descent - gutter) / descent;
+                let f = cx
+                    .finding(
+                        self.code(),
+                        self.severity(),
+                        state,
+                        format!(
+                            "`{a}`'s descenders come {:.0} cu above `{b}`, under the theme's gutter of {gutter:.0}",
+                            gap.max(0.0)
+                        ),
+                    )
+                    .at(cx.node_path(&a))
+                    .node(a.clone())
+                    .measure(json!({
+                        "nodes": [a, b], "gap": gap, "gutter": gutter, "size": size, "aim": aim, "own": own, "states": states
+                    }))
+                    .hint("Set it smaller, or give the text under it more room.");
+                match step(cx, first, &a, size, own, fit) {
+                    Some(fix) => f.fix(fix),
+                    None => f,
+                }
+            })
+            .collect()
+    }
+}
+
+/// The generator's step for text `id` set at `size` in state `index`, its own size `own`: a
+/// twentieth smaller, on a quarter of a unit, as `fit: shrink` under a `maxSize`, or under a
+/// `maxSize` alone where it grows and stays at its own size or above. None under half its own.
+fn step(cx: &Cx, index: usize, id: &str, size: f32, own: f32, fit: TextFit) -> Option<Vec<Value>> {
+    let next = (f64::from(size) * 0.95 * 4.0).floor() / 4.0;
+    if next < f64::from(own) * 0.5 {
+        return None;
+    }
+    let mut ops = vec![json!({ "op": "add", "path": prop_path(cx, index, id, "maxSize"), "value": next })];
+    if !(fit == TextFit::Shrink || fit == TextFit::Grow && next >= f64::from(own)) {
+        ops.insert(0, json!({ "op": "add", "path": super::text::fit_path(cx, index, id), "value": "shrink" }));
+    }
+    Some(ops)
 }
 
 /// Whether `outer` holds `inner`, within half a unit.

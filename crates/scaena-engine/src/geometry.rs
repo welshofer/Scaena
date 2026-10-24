@@ -116,7 +116,8 @@ pub struct Framing {
 impl Scene {
     /// What a node new to the scene, at the root and at `z` 0, would collide with (lint E101,
     /// PLAN 2.79): what each node that stacks at `z` 0 at the root draws, text by its lines as
-    /// set, each box where it is drawn, less the nodes `exempt` names (a decoration).
+    /// set across and its glyphs' ink up and down, each box where it is drawn, less the nodes
+    /// `exempt` names (a decoration).
     pub fn crowded(&self, exempt: impl Fn(&str) -> bool) -> Vec<Rect> {
         (self.nodes.iter())
             .filter(|n| n.paint.first().is_some_and(|&(z, _)| z == 0) && !exempt(&n.id))
@@ -253,7 +254,7 @@ impl Scene {
     /// them there, and [`Scene::laid_out`] reads a point back.
     pub fn carets(&self, node: &str) -> Option<Carets> {
         self.nodes.iter().find(|n| n.id == node).and_then(|n| match &n.content {
-            Content::Text(placed) => Some(placed.text.carets(placed.origin)),
+            Content::Text(placed) => Some(Carets { code: placed.code.clone(), ..placed.text.carets(placed.origin) }),
             _ => None,
         })
     }
