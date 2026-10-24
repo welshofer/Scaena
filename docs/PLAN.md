@@ -1646,12 +1646,14 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
         - shows what each call came to and the frame it drew, each call named in a person's words, never by its tool's name (`ToolWords`, PLAN 3.18);
         - says what it is doing while it works ("Thinking…", or the call running, as "Editing the deck…"), a light sweeping across the words, held still where Reduce Motion is on; the browser's panel says "Working…" the same way, still where motion is less;
         - Stop answers the calls not yet run as stopped.
+        - *a call that only reads (`deck_lint` without `fix`, `deck_render`, `deck_health`; `scaena_session::assistant::reads_alone`) runs on the editor's `OffMain` queue (narrative lift-up PERF-1) on a session of a snapshot of the deck (`ScaenaSession.Snapshot.opened`, `scaena_chat_run_apart`), and the conversation takes it back as `run`'s (`took`), so the window and the sweep go on while it works; every other call runs on the session, as the window's edits do (narrative lift-up PERF-2; the `ffi` suite's `a_call_that_only_reads_runs_apart_on_a_snapshot_and_comes_to_what_it_does_on_the_session`, ScaenaKit's `aCallThatOnlyReadsRunsApartAndComesToWhatItDoesOnTheSession`).*
     - **On this Mac.** With Apple's Foundation Models (macOS 26, Apple Intelligence):
       - Explain, beside a finding, says what it means for the deck;
       - the inspector drafts a state's notes from how it reads;
       - the inspector tightens a text's words.
 
       Each answer is offered to take as one patch (a `set_state` of `notes`, a `replace_text` of the whole text), or to leave. Nothing leaves the Mac; without the model, none is offered.
+      - *What the on-device model declines that the user's own model may take (more than its context holds, its guardrails, a language it does not write, or its model not on the device yet) leaves the Mac only when the person asks: the sheet says why ("Apple Intelligence declined this. Nothing has left this Mac.") and, where a key is kept, offers "Ask … with your Anthropic key" beside Cancel, the assistant's model sent nothing until it is pressed; with no key it is said as before (lift-up STAB-4, ScaenaKit's `Answering`, `aWritingToolTheDeviceDeclinesAsksTheUsersModelOnlyOnceAgreed`).*
     - Tests:
       - scaena-chat's `exchanges`: the three adapters' requests and reads, models, and failures, and the page's prompt, against the record; a question run through two rounds; frames named past the newest two.
       - scaena-chat's unit tests: every MCP tool known; a summary for each kind of call.

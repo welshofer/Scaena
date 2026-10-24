@@ -190,26 +190,27 @@ private func playing(_ editor: DeckEditor) -> [String] {
 }
 
 /// A new deck opens on a title slide (PLAN 3.30): its one blank state made a slide in the theme's
-/// `title` layout, its words in their slots and its picture's place waiting; a deck with something
-/// on it is left as it is.
+/// `title` layout, its words in their slots and the theme's backdrop in its picture's place, as the
+/// theme chooser draws it, so no place waits (W304); a deck with something on it is left as it is.
 @Test func aNewDeckOpensOnATitleSlide() throws {
     let editor = DeckEditor(session: try ScaenaSession.create(theme: "Dusk", title: "Untitled"))
     #expect(editor.startOnTitleSlide() == "title")
     #expect(editor.slots.map(\.state) == ["title"])
-    #expect(try editor.session.waiting(state: "title").map(\.slot) == ["art"])
-    #expect(try editor.session.boxes(state: "title").count >= 3, "the kicker, the title, and the subtitle")
+    #expect(try editor.session.waiting(state: "title").isEmpty, "the backdrop stands in the picture's place")
+    #expect(try editor.session.boxes(state: "title").count >= 4, "the backdrop, the kicker, the title, and the subtitle")
     #expect(editor.startOnTitleSlide() == nil, "a title slide stays as it is")
 }
 
-/// An empty slot's words as the canvas may stand them (PLAN 3.30): the title slide's picture's
-/// place, a slot drawn tall and narrow, on a line, then two, and so on down to its longest word's
-/// width, each line whole words; the canvas shows the first way that fits, so no word is cut, as
+/// An empty slot's words as the canvas may stand them (PLAN 3.30): a title slide's picture's
+/// place, as Add Slide starts it, a slot drawn tall and narrow, on a line, then two, and so on
+/// down to its longest word's width, each line whole words; the canvas shows the first way that fits, so no word is cut, as
 /// "A pictur…" was in the slot drawn 92 points wide. Each way holds every word, in order, on a line
 /// more than the way before it.
 @Test func anEmptySlotsWordsBreakOnlyBetweenWords() throws {
     let editor = DeckEditor(session: try ScaenaSession.create(theme: "Dusk", title: "Untitled"))
-    #expect(editor.startOnTitleSlide() == "title")
-    let art = try #require(try editor.session.waiting(state: "title").first { $0.slot == "art" })
+    let started = try editor.session.starting(after: "start", layout: "title")
+    try editor.make(started.patch)
+    let art = try #require(try editor.session.waiting(state: started.id).first { $0.slot == "art" })
     #expect(art.words == "A picture, or a backdrop")
     #expect(
         art.lines == [

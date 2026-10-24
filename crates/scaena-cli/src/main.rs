@@ -157,7 +157,9 @@ enum Cmd {
         state_choices: bool,
         /// The layouts the state may take, best first (PLAN 2.92): each of the theme's layouts
         /// that `--state-choices` offers, with what lint finds in the state laid out in it
-        /// (fewest errors, then fewest warnings, then the theme's order), the states the change
+        /// (fewest errors, then fewest warnings, then the layout it takes now, then those whose
+        /// places it leaves fewest empty, then those that set fewest of its texts in another
+        /// role, then the theme's order), the states the change
         /// reaches, and the `set_state` patch that makes it. Needs `--state`.
         #[arg(long, requires = "state")]
         layouts: bool,
