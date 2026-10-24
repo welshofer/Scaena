@@ -589,20 +589,20 @@ try {
       () => false,
     );
   check(await settled(), "every slide's thumbnail is painted or marked");
-  const tile = () =>
+  const stormTile = () =>
     unpaintable.evaluate(() => {
       const li = document.querySelector('#strip li[data-state="storm"]');
       const canvas = document.querySelector('#strip li[data-state="cover"] canvas');
       return { said: li?.querySelector(".unpainted")?.textContent ?? null, others: canvas ? canvas.width > 0 : false };
     });
-  const marked = await tile();
-  check(marked.said === "This slide couldn’t be drawn", `the storm slide's tile says it couldn't be drawn: ${JSON.stringify(marked)}`);
-  check(marked.others, "and the slides around it are painted");
+  const stormMarked = await stormTile();
+  check(stormMarked.said === "This slide couldn’t be drawn", `the storm slide's tile says it couldn't be drawn: ${JSON.stringify(stormMarked)}`);
+  check(stormMarked.others, "and the slides around it are painted");
   check(warned.length === 1 && warned[0].includes("storm"), `the cause is in the console once: ${JSON.stringify(warned)}`);
   // An edit to another slide paints the strip again: the storm slide is not tried again.
-  const source = await unpaintable.evaluate(() => window.scaena.source());
+  const trailsSource = await unpaintable.evaluate(() => window.scaena.source());
   const before = (await unpaintable.evaluate(() => window.scaena.strip.digests())).cover;
-  await unpaintable.evaluate((s) => window.scaena.type(s), source.replaceAll("High Country Trails", "High Country Paths"));
+  await unpaintable.evaluate((s) => window.scaena.type(s), trailsSource.replaceAll("High Country Trails", "High Country Paths"));
   check(
     await unpaintable
       .waitForFunction((was) => window.scaena.strip.digests().cover !== was, before, { timeout: 60000 })
@@ -610,7 +610,7 @@ try {
     "an edit paints the slide it changed again",
   );
   check(warned.length === 1, `and the storm slide is not painted again: ${warned.length} warnings`);
-  check((await tile()).said === "This slide couldn’t be drawn", "its tile still says so");
+  check((await stormTile()).said === "This slide couldn’t be drawn", "its tile still says so");
   await broken.close();
 } finally {
   await browser.close();
