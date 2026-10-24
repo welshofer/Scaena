@@ -330,7 +330,7 @@ section open "Open"
 section growth "Growth"
   beat doubled "Pro drove the growth." evidence:[@q3] states:[revenue, mix]
 
-state cover layout:title
+state cover layout:title-center
   title text role:display "Q3 Review" semantic:navigation at:in(title)
   claim text role:title "Revenue doubled this year." semantic:claim at:in(subtitle)
   notes "Let the title sit before you speak."
@@ -354,7 +354,7 @@ Line by line:
 - **Fonts and data.** `font` lists each of the theme's font families, with its file in the bundle, and each family's italic face (`style:italic`), which text in italic is set in. `data q3 "…"` declares a data source and its columns' types. A chart reads it as `@q3`.
 - **Fonts a theme keeps as they are.** A theme family may say `upright: true`: it has no italic by design, because its script sets none, as Japanese and Korean do not. Text in italic is set upright in it, and lint still says so (W231). A family may also say `whole: true`, and then no save subsets its files, in the editor, on the Mac and the iPad, or with `scaena save`: a font whose license reserves its name, as Pretendard's does, may not keep that name once it is cut down. Both are the theme's to say, not the deck's (SPEC §3.6).
 - **The spine.** `section` and `beat` say what each part claims, and which states make the claim. The PDF, the video's chapters, and the narrative lint read them.
-- **`state cover layout:title`** is the first click, on the theme's `title` layout.
+- **`state cover layout:title-center`** is the first click, on the theme's `title-center` layout: a title and the line under it, centered. The theme's `title` layout keeps a place for a picture beside them, which lint (W304) says is empty until one fills it.
   - `title text role:display "Q3 Review" … at:in(title)` declares an object where it first appears: its id, its type, its text, its role, and its slot.
   - `notes` are the speaker's notes.
 - **`state revenue layout:figure transition:standard`** is the next click, on another layout:
