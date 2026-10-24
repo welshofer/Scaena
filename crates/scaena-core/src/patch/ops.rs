@@ -2438,7 +2438,7 @@ fn remove_slide(d: &Doc, slide: &str) -> Result<Vec<JsonOp>, String> {
 /// The ops that take `beats` (each a section's index and a beat's in it) out of the spine of
 /// `deck`: each beat, and a section it leaves with none, the last index first so each pointer
 /// stands where it pointed.
-pub(crate) fn spine_without(deck: &Value, beats: &[(usize, usize)]) -> Vec<JsonOp> {
+fn spine_without(deck: &Value, beats: &[(usize, usize)]) -> Vec<JsonOp> {
     let sections = deck.pointer("/spine/sections").and_then(Value::as_array).map_or(&[][..], Vec::as_slice);
     let mut ops = Vec::new();
     let mut whole = Vec::new();
