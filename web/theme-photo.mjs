@@ -120,7 +120,7 @@ try {
   const r = await page.locator("#overlay").boundingBox();
   await page.dispatchEvent("#overlay", "drop", { dataTransfer: transfer, clientX: r.x + r.width / 2, clientY: r.y + r.height / 2 });
   await page.waitForFunction(() => /harbor\.png/.test(document.querySelector("#status").textContent), null, { timeout: 30000 }).catch(() => {});
-  await page.click("#tab-theming");
+  await tab(page, "theming");
   const harbor = page.locator("#theming [data-photo]", { hasText: "harbor.png" });
   await harbor.first().waitFor({ timeout: 30000 }).catch(() => {});
   check((await harbor.count()) === 1, `the photo dropped is listed by the name it was dropped as: ${await page.locator("#theming [data-photos]").innerText()}`);
