@@ -578,7 +578,7 @@ pub struct DeckRender {
     /// One of the deck's `formats` (`9:16`), laid out again with its template set.
     #[serde(default)]
     pub format: Option<String>,
-    /// `WxH` pixels, with the canvas's aspect ratio; the canvas's size without it.
+    /// `WxH` pixels, with the canvas's aspect ratio; half the canvas's size without it.
     #[serde(default)]
     pub size: Option<String>,
     #[serde(default)]
@@ -621,6 +621,11 @@ pub struct DeckExport {
     /// `gpu` feature. Every other export paints with the CPU painter.
     #[serde(default)]
     pub painter: scaena_ops::render::Painter,
+    /// How a video and the spine pace the timeline: `beats` (the default) gives each state
+    /// with no `hold` its share of its beat's `duration`, as the talk is given; `holds` plays
+    /// each state's hold alone, as a player auto-advances.
+    #[serde(default)]
+    pub pace: scaena_core::spine::Pace,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -973,6 +978,7 @@ impl Scaena {
     }
 
     #[tool(description = "Render a state to a PNG, returned as an image: at rest, or `t` ms into its cue. \
+        At half the canvas's size (960 \u{d7} 540 for a 1920 \u{d7} 1080 deck) unless `size` asks for another. \
         With the display list's digest: one digest, one drawing.")]
     async fn deck_render(&self, Parameters(a): Parameters<DeckRender>) -> Result<CallToolResult, String> {
         let req = scaena_ops::render::Request {
@@ -980,6 +986,7 @@ impl Scaena {
             t: a.t,
             format: a.format,
             size: a.size,
+            scale: Some(scaena_ops::render::FOR_A_MODEL),
             painter: a.painter,
         };
         let out = a
@@ -1013,7 +1020,8 @@ impl Scaena {
 
     #[tool(description = "Export a projection to `out`: `pdf` (each slide at its last state, or `states`, a page \
         each), `png` or `svg` (an image per state, into a directory), `mp4`, `webm`, or `prores` (the timeline, \
-        each state's cue then its hold, at `fps`; needs ffmpeg), `html` (one file that plays the deck in a \
+        each state's cue then its hold, or where it has none its share of its beat's `duration` (`pace`), at \
+        `fps`; needs ffmpeg), `html` (one file that plays the deck in a \
         browser, offline: the player, the engine, and the bundle), or `spine`, which is also returned. An export \
         that takes longer than 40 s keeps going: the call returns \
         `running`, how far it has got, and the same call again waits for the rest, then returns what it wrote.")]
@@ -1031,6 +1039,7 @@ impl Scaena {
             fps: a.fps,
             audio: a.audio.clone().map(Into::into),
             painter: a.painter,
+            pace: a.pace,
         };
         let bundle = a.bundle.clone();
         let b = blocking(move || open(&bundle)).await?;
@@ -1246,7 +1255,9 @@ impl Scaena {
     }
 
     #[tool(description = "Replace the deck's spine, as a patch: checked, refused if it makes the deck invalid, \
-        with what lint finds differently.")]
+        with what lint finds differently. A beat's `notes` are what a presenter reads for each state it names \
+        that has none of its own; its `duration`, in seconds, paces a video and the spine where its states have \
+        no `hold`.")]
     async fn spine_update(
         &self,
         Parameters(a): Parameters<SpineUpdate>,

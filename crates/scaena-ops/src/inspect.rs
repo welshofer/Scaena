@@ -122,9 +122,12 @@ pub struct Views {
     pub state_choices: bool,
     /// The layouts the state inspected may take, best first (PLAN 2.92): each of the theme's
     /// layouts that `state_choices` offers, with what lint finds in the state laid out in it,
-    /// fewest errors, then fewest warnings, then the theme's order; the states its patch
-    /// changes; and that patch, one `set_state`. Those that draw the state alike, in `format`
-    /// or on the deck's canvas, are one, which names the rest (`alike`).
+    /// fewest errors, then fewest warnings, then the layout it takes now, then those whose places
+    /// it leaves fewest empty (`empty`), then those that set fewest of its texts in another role
+    /// (`recast`), then the theme's order, so a layout it fills, with as many items as the layout
+    /// has, comes before one it fills in part; the states its patch changes; and that patch, one
+    /// `set_state`. Those that draw the state alike, in `format` or on the deck's canvas, are
+    /// one, which names the rest (`alike`).
     #[serde(default)]
     pub layouts: bool,
     /// What may be inserted in the state inspected (PLAN 2.34): a text in each of the
