@@ -32,7 +32,8 @@
     "title": { "slots": { "title": { "col": [1, 10], "row": [2, 4] }, "subtitle": { "col": [1, 8], "row": 5 } } },
     "full": { "slots": { "main": { "col": [1, 12], "row": [1, 6] } } },
     "figure": { "slots": { "header": { "col": [1, 8], "row": 1 }, "main": { "col": [1, 12], "row": [2, 5] }, "footer": { "col": [1, 12], "row": 6, "role": "caption" } } },
-    "two": { "slots": { "left": { "col": [1, 6], "row": [1, 6] }, "right": { "col": [7, 12], "row": [1, 6] } } }
+    "two": { "slots": { "left": { "col": [1, 6], "row": [1, 6] }, "right": { "col": [7, 12], "row": [1, 6] } } },
+    "photo": { "slots": { "header": { "col": [1, 7], "row": 1, "role": "headline", "prompt": "What this slide says" }, "art": { "col": [8, 12], "row": [1, 6], "prompt": "A picture" } } }
   },
   "motion": {
     "durations": { "fast": 180, "standard": 420, "slow": 800 },

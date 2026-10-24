@@ -207,8 +207,10 @@ public final class ScaenaSession {
         return try Self.take(scaena_export(handle, "slides", args, &error), error)
     }
 
-    /// A save: the bundle's files as saved, to write where it is kept, then to adopt.
-    public final class Saved {
+    /// A save: the bundle's files as saved, to write where it is kept, then to adopt. Sendable: a
+    /// save of a snapshot is made on another thread and adopted on the session's, one thread at a
+    /// time (lift-up PERF-5).
+    public final class Saved: @unchecked Sendable {
         fileprivate let handle: OpaquePointer
         /// Every file of the saved bundle, by its path in it.
         public let files: [String]
@@ -264,6 +266,55 @@ public final class ScaenaSession {
     /// session's from now on.
     public func adopt(_ saved: Saved) throws {
         _ = try Self.decode(scaena_adopt(handle, saved.handle), as: JSONValue.self)
+    }
+
+    /// What a save reads of the session, taken now (lift-up PERF-5): saved on another thread
+    /// while the session goes on, then adopted with `adopt(_:since:)`. Sendable: it is taken on the
+    /// session's thread, saved on one other, and handed back after, one thread at a time.
+    public final class Snapshot: @unchecked Sendable {
+        fileprivate let handle: OpaquePointer
+
+        fileprivate init(handle: OpaquePointer) {
+            self.handle = handle
+        }
+
+        deinit {
+            scaena_snapshot_free(handle)
+        }
+
+        /// Saved at `date` as the session's `save` saves it: fonts subset if `subset`, the edits
+        /// since recorded in its history, on the thread that calls it, which touches no session.
+        public func save(at date: Date = Date(), subset: Bool = true) throws -> Saved {
+            var error: UnsafeMutablePointer<CChar>?
+            guard let saved = scaena_snapshot_save(handle, date.formatted(.iso8601), subset, &error) else {
+                throw ScaenaError.taking(error)
+            }
+            do {
+                let listed = try ScaenaSession.decode(scaena_saved_list(saved), as: SavedList.self)
+                return Saved(handle: saved, listed: listed)
+            } catch {
+                scaena_saved_free(saved)
+                throw error
+            }
+        }
+    }
+
+    /// What a save reads of the session as it stands, to be saved away from its thread.
+    public func snapshot() throws -> Snapshot {
+        guard let taken = scaena_snapshot_new(handle) else { throw ScaenaError(message: "the engine took no snapshot") }
+        return Snapshot(handle: taken)
+    }
+
+    /// Go on from `saved`, a save of `snapshot`, once it is written where the bundle is kept, its
+    /// files taken out of it, where the session is still as `snapshot` was taken (lift-up PERF-5).
+    /// Whether it did: an edit made while the save was written is kept, nothing adopted, and the
+    /// next save names its files by their content again.
+    @discardableResult
+    public func adopt(_ saved: Saved, since snapshot: Snapshot) throws -> Bool {
+        struct Adopted: Decodable {
+            let adopted: Bool
+        }
+        return try Self.decode(scaena_adopt_since(handle, snapshot.handle, saved.handle), as: Adopted.self).adopted
     }
 
     /// The `ok` of the envelope at `answer`, freed, or its `error` thrown.

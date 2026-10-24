@@ -569,7 +569,7 @@ pub struct DeckRender {
     /// One of the deck's `formats` (`9:16`), laid out again with its template set.
     #[serde(default)]
     pub format: Option<String>,
-    /// `WxH` pixels, with the canvas's aspect ratio; the canvas's size without it.
+    /// `WxH` pixels, with the canvas's aspect ratio; half the canvas's size without it.
     #[serde(default)]
     pub size: Option<String>,
     #[serde(default)]
@@ -954,6 +954,7 @@ impl Scaena {
     }
 
     #[tool(description = "Render a state to a PNG, returned as an image: at rest, or `t` ms into its cue. \
+        At half the canvas's size (960 \u{d7} 540 for a 1920 \u{d7} 1080 deck) unless `size` asks for another. \
         With the display list's digest: one digest, one drawing.")]
     async fn deck_render(&self, Parameters(a): Parameters<DeckRender>) -> Result<CallToolResult, String> {
         let req = scaena_ops::render::Request {
@@ -961,6 +962,7 @@ impl Scaena {
             t: a.t,
             format: a.format,
             size: a.size,
+            scale: Some(scaena_ops::render::FOR_A_MODEL),
             painter: a.painter,
         };
         let out = a
