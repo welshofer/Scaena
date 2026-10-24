@@ -185,7 +185,9 @@ fn a_credit_is_drawn_linked_and_never_under_12_pt() {
         let map = image(&s, id);
         let credit = map.marks.credit.as_ref().expect("a credit");
         assert!(credit.text.runs.iter().all(|r| r.size >= 24.0), "never under 24 cu at 1080p: {id}");
-        assert_eq!(credit.text.written, scaena_core::fetched::said(&deck_credit(&deck, id)));
+        // As the record says it, each separator kept with the words before it.
+        let said = scaena_core::fetched::said(&deck_credit(&deck, id)).replace(" \u{b7} ", "\u{a0}\u{b7} ");
+        assert_eq!(credit.text.written, said);
         let hrefs: Vec<&LinkTarget> = credit.text.underlines.iter().filter_map(|u| u.target.as_ref()).collect();
         for href in
             ["https://www.openstreetmap.org/copyright", "https://openmaptiles.org/", "https://www.geoapify.com/"]
