@@ -618,7 +618,7 @@ private func carets(_ json: String) throws -> Carets {
         if !joins { steps += 1 }
     }
     #expect(typing.enter("code-block", in: "code", at: nil))
-    let tab = try #require(typing.carets?.code?.tab, "code says its stops")
+    _ = try #require(typing.carets?.code?.tab, "code says its stops")
     #expect(typing.carets?.code?.from == 1)
     #expect(typing.carets?.code?.language != nil, "code says its language")
     // A Makefile's stop is a tab, named by its language; another's, spaces.
@@ -630,8 +630,10 @@ private func carets(_ json: String) throws -> Carets {
 
     typing.move(.text(start: true))
     #expect(typing.codeKey("Tab"))
-    #expect(typing.carets?.text == String(repeating: " ", count: tab) + written, "a stop in")
-    #expect(typing.from == tab && typing.to == tab)
+    // The torture deck's code indents with tabs, so a stop the keys add is a tab (PLAN 2.139).
+    #expect(written.contains("\n\ttitle"), "the code indents with tabs")
+    #expect(typing.carets?.text == "\t" + written, "a stop in")
+    #expect(typing.from == 1 && typing.to == 1)
     #expect(typing.codeKey("Shift+Tab"))
     #expect(typing.carets?.text == written, "and out again")
 
