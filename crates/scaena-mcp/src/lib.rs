@@ -958,11 +958,13 @@ impl Scaena {
     }
 
     #[tool(description = "Find text across the deck's words, in every state (PLAN 2.47, 2.83): its texts, each \
-        node's description (`alt`), each state's notes, and each beat's claim and notes (`kind`), once for each \
-        place they are written (the node's own, a state's delta, the deck's overrides, a state, or a beat), with the \
-        states that show them from there and each match, in characters. With `replace`, every match is replaced in \
-        one patch, a `replace_text` where each text lives and a JSON Patch `replace` of the rest where they are \
-        written, reported as `deck_patch` reports a patch (`replaced`).")]
+        node's description (`alt`), each state's notes, each beat's claim and notes, the titles and notes a chart or \
+        a table draws, and the string values of its data (`kind`), once for each place they are written (the node's \
+        own, a state's delta, the deck's overrides, a state, a beat, or a data source), with the states that show \
+        them from there and each match, in characters. With `replace`, every match is replaced in one patch, a \
+        `replace_text` where each text lives and a JSON Patch `replace` of the rest where they are written, \
+        reported as `deck_patch` reports a patch (`replaced`); a value of the data (a cell, or a value a \
+        highlight picks out) is found and left as it is, where it stands listed in `kept`, for `data_edit`.")]
     async fn deck_find(
         &self,
         Parameters(a): Parameters<DeckFind>,
