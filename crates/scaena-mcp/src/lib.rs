@@ -1202,9 +1202,9 @@ impl Scaena {
 
     #[tool(description = "A bundle's versions (SPEC §8): each change its history keeps, by author and time, \
         oldest first, each named by its number as listed or by its id, and told as the editors tell it: what it \
-        did (`said`), by whom (`by`), and what it changed from the version before, slide by slide, each object by \
-        what it shows (`changed`). With `begin`, a history begun where the bundle keeps none, the deck as it is \
-        its first version. With `at`, the deck as it was just after \
+        did (`said`), by whom (`by`), and, for the last 25 versions, what it changed from the version before, \
+        slide by slide, each object by what it shows (`changed`). With `begin`, a history begun where the bundle \
+        keeps none, the deck as it is its first version. With `at`, the deck as it was just after \
         one (`scn` for source); with `compare`, what changed from one version to another, or, with one, to the \
         deck as it is now: each state added, removed, or changed (its own fields, and its nodes as `deck_diff` \
         says them), the deck's own fields, and the files it is drawn from, data files and the theme, whose bytes \

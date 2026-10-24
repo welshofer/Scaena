@@ -100,8 +100,9 @@ pub struct Told {
     pub version: Version,
     pub said: String,
     pub by: String,
-    /// What it changed from the version before, as an editor names it; none for the first, which
-    /// holds the deck whole.
+    /// What it changed from the version before, as an editor names it: for the last [`TOLD`]
+    /// versions alone, each read by checking two versions out; none for the first, which holds the
+    /// deck whole.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub changed: Vec<String>,
 }
@@ -109,21 +110,33 @@ pub struct Told {
 /// At most this many of what a version changed are named.
 const NAMED: usize = 8;
 
+/// The most recent versions whose changes are told: telling one checks it and the one before it
+/// out and compares them, and a listing of 200 versions of B1 so took about 1.9 s (review on #585).
+const TOLD: usize = 25;
+
 /// Each version of `doc`, told: what each change did, by whom, and what it changed from the one
 /// before it.
 pub fn told(doc: &DeckDoc) -> Result<Vec<Told>, OpsError> {
+    let versions = listed(doc);
+    // The version before the first told, its deck the base of the first comparison.
+    let first = versions.len().saturating_sub(TOLD);
     let mut out = Vec::new();
-    let mut before: Option<Deck> = None;
-    for version in listed(doc) {
-        let (deck, _) = then(doc, &version)?;
-        let changed = match &before {
-            Some(was) => touched(was, &deck)?,
-            None => Vec::new(),
-        };
+    let mut before: Option<Deck> = match first.checked_sub(1) {
+        Some(base) => Some(then(doc, &versions[base])?.0),
+        None => None,
+    };
+    for (i, version) in versions.into_iter().enumerate() {
         let said = scaena_core::words::change(version.message.as_deref().unwrap_or_default());
         let by = scaena_core::words::author(version.author.as_deref().unwrap_or_default());
+        let mut changed = Vec::new();
+        if i >= first {
+            let (deck, _) = then(doc, &version)?;
+            if let Some(was) = &before {
+                changed = touched(was, &deck)?;
+            }
+            before = Some(deck);
+        }
         out.push(Told { version, said, by, changed });
-        before = Some(deck);
     }
     Ok(out)
 }
