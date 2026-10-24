@@ -36,8 +36,8 @@
 //   focused undo and redo (PLAN 2.77). An undo says what it took back, and a redo what it made
 //   again, in the words the change was made in (lift-up USE-4).
 // On the trails example, the strip draws each thumbnail as it is painted, the first before every
-// state is linted. A slide whose thumbnail cannot be painted is marked so on its tile, said once in
-// the console, and not painted again until its drawing changes (lift-up STAB-4).
+// state is linted. A slide whose photo cannot be drawn (E107) is painted with the photo's box empty,
+// its tile unmarked, and the deck lints whole, so an edit paints the strip again.
 // Exits 1 on any failure.
 import { readFile } from "node:fs/promises";
 import { crc32 } from "node:zlib";
@@ -565,10 +565,10 @@ try {
   );
   check(first.painted > 0 && first.linted === 0, `the first thumbnails are drawn before every state is linted: ${JSON.stringify(first)}`);
 
-  // A slide whose thumbnail cannot be painted (lift-up STAB-4): the storm slide's photo, its
-  // header whole and its pixels' stream damaged, lays out and draws no pixels. Its tile says so,
-  // the cause goes to the console once, and it is not painted again until its drawing changes,
-  // however often the strip paints.
+  // A slide whose photo cannot be drawn (E107): the storm slide's photo, its header whole and
+  // its pixels' stream damaged. Its thumbnail is painted all the same, the photo's box empty, and
+  // no tile says it couldn't be drawn (lift-up STAB-4's mark is for a slide that paints nothing).
+  // The deck lints whole, so an edit paints the strip again.
   const photo = await readFile("docs/examples/assets/trails-ridge.png");
   const damaged = Buffer.from(photo);
   const idat = damaged.indexOf("IDAT");
@@ -577,33 +577,31 @@ try {
   damaged.writeUInt32BE(crc32(damaged.subarray(idat, idat + 4 + length)), idat + 4 + length);
   const broken = await browser.newContext({ viewport: { width: 1920, height: 1200 }, deviceScaleFactor: 1 });
   await broken.route("**/assets/trails-ridge.png", (r) => r.fulfill({ contentType: "image/png", body: damaged }));
-  const unpaintable = await broken.newPage();
-  unpaintable.on("pageerror", (e) => failures.push(`unpaintable: ${e.message}`));
+  const undrawn = await broken.newPage();
+  undrawn.on("pageerror", (e) => failures.push(`undrawn: ${e.message}`));
   const warned = [];
-  unpaintable.on("console", (m) => m.type() === "warning" && m.text().includes("could not be painted") && warned.push(m.text()));
-  await unpaintable.goto(url("/docs/examples/trails.deck.json"));
-  const states = await unpaintable.evaluate(() => window.scaena.slots().length).catch(() => 15);
-  const settled = () =>
-    unpaintable.waitForFunction((n) => Object.keys(window.scaena?.strip?.digests() ?? {}).length >= n, states, { timeout: 120000 }).then(
-      () => true,
-      () => false,
-    );
-  check(await settled(), "every slide's thumbnail is painted or marked");
-  const stormTile = () =>
-    unpaintable.evaluate(() => {
-      const li = document.querySelector('#strip li[data-state="storm"]');
-      const canvas = document.querySelector('#strip li[data-state="cover"] canvas');
-      return { said: li?.querySelector(".unpainted")?.textContent ?? null, others: canvas ? canvas.width > 0 : false };
-    });
-  const stormMarked = await stormTile();
-  check(stormMarked.said === "This slide couldn’t be drawn", `the storm slide's tile says it couldn't be drawn: ${JSON.stringify(stormMarked)}`);
-  check(stormMarked.others, "and the slides around it are painted");
-  check(warned.length === 1 && warned[0].includes("storm"), `the cause is in the console once: ${JSON.stringify(warned)}`);
-  // The strip painted again, three times over: the storm slide is not tried again. (An edit would
-  // paint the strip once every state is linted, which this deck's damaged photo stops.)
-  for (let i = 0; i < 3; i++) await unpaintable.evaluate(() => window.scaena.strip.painted());
-  check(warned.length === 1, `and the storm slide is not painted again, however often the strip paints: ${warned.length} warnings`);
-  check((await stormTile()).said === "This slide couldn’t be drawn", "its tile still says so");
+  undrawn.on("console", (m) => m.type() === "warning" && m.text().includes("could not be painted") && warned.push(m.text()));
+  await undrawn.goto(url("/docs/examples/trails.deck.json"));
+  check(
+    await undrawn
+      .waitForFunction(() => window.scaena?.last()?.whole && window.scaena.strip.digests().storm, null, { timeout: 120000 })
+      .then(() => true, () => false),
+    "a deck with a photo that cannot be drawn lints whole, and the photo's slide is painted",
+  );
+  const stormTile = await undrawn.evaluate(() => {
+    const li = document.querySelector('#strip li[data-state="storm"]');
+    return { mark: li?.querySelector(".unpainted")?.textContent ?? null, painted: (li?.querySelector("canvas")?.width ?? 0) > 0 };
+  });
+  check(stormTile.painted && stormTile.mark === null && warned.length === 0, `its tile is painted, with no mark: ${JSON.stringify({ ...stormTile, warned })}`);
+  const trailsSource = await undrawn.evaluate(() => window.scaena.source());
+  const before = (await undrawn.evaluate(() => window.scaena.strip.digests())).cover;
+  await undrawn.evaluate((s) => window.scaena.type(s), trailsSource.replaceAll("High Country Trails", "High Country Paths"));
+  check(
+    await undrawn
+      .waitForFunction((was) => window.scaena.strip.digests().cover !== was, before, { timeout: 60000 })
+      .then(() => true, () => false),
+    "and an edit paints the slide it changed again",
+  );
   await broken.close();
 } finally {
   await browser.close();
