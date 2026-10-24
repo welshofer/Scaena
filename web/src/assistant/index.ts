@@ -56,6 +56,9 @@ export interface Asking {
   seeing?: Seeing;
   /** The Geoapify key kept, which `map_fetch` fetches a map with (ADR-0030). */
   mapKey?: string;
+  /** How long one turn may go without a word from the provider before it is asked again
+   * (narrative REL-3); two minutes without it. */
+  timeoutMs?: number;
 }
 
 /** The conversation, kept between questions until the page forgets it. */
@@ -96,6 +99,7 @@ export async function ask(
     call: (call) => run(session, call, edited, `agent:${asking.model}`, asking.mapKey),
     emit,
     signal,
+    timeoutMs: asking.timeoutMs,
   });
 }
 
