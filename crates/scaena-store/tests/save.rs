@@ -272,3 +272,54 @@ fn a_write_that_stops_partway_leaves_the_deck_as_it_was() {
     assert_eq!(std::fs::read(dir.join("deck.json")).unwrap(), b"{}");
     assert_eq!(std::fs::read(dir.join("notes.txt")).unwrap(), b"mine");
 }
+
+/// A folder bundle taken from git or an archive keeps its links. One that leads out of the
+/// bundle is never followed: a font linked to a file outside is not read into a save, a data
+/// folder linked outside is not written into, and a link to `/` is not walked (SPEC §3.1).
+#[cfg(unix)]
+#[test]
+fn a_link_out_of_the_bundle_is_neither_read_written_nor_walked() {
+    use std::os::unix::fs::symlink;
+    let root = scratch("links");
+    let dir = root.join("b1.scaena");
+    copy_dir(Path::new("../../tests/bench/b1.scaena"), &dir);
+    let outside = root.join("outside");
+    std::fs::create_dir_all(&outside).unwrap();
+    // A font the deck names, moved outside and linked back in: the same bytes, a link out.
+    let font = std::fs::read_dir(dir.join("fonts"))
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .find(|p| p.extension().is_some_and(|e| e == "ttf" || e == "otf"))
+        .unwrap();
+    let name = font.file_name().unwrap().to_owned();
+    std::fs::rename(&font, outside.join(&name)).unwrap();
+    symlink(outside.join(&name), &font).unwrap();
+    // A data folder linked outside, and a link to the root of the disk.
+    symlink(&outside, dir.join("data")).unwrap();
+    symlink("/", dir.join("everything")).unwrap();
+
+    // Validation says why the deck's font is not there.
+    let (deck, unparsed) = scaena_store::open_unparsed(&dir).unwrap();
+    let found = validate_bundle(&deck, &unparsed).unwrap();
+    assert!(
+        found.iter().any(|f| f.code == "E102" && f.message.contains("a link that leads out of the bundle")),
+        "{found:#?}"
+    );
+    let bundle = Bundle::open(&dir).unwrap();
+    let rel = format!("fonts/{}", name.to_string_lossy());
+    let err = bundle.read(&rel).unwrap_err().to_string();
+    assert!(err.contains("leads out of the bundle"), "{err}");
+    // Listed, it is neither the linked font nor anything under the links to folders.
+    let listed = bundle.files.list().unwrap();
+    assert!(!listed.contains(&rel), "{listed:?}");
+    assert!(listed.iter().all(|f| !f.starts_with("data/") && !f.starts_with("everything/")), "{listed:?}");
+    // A save refuses the font rather than carrying its bytes.
+    let saved = bundle.save(&root.join("saved.scaena"), &opts());
+    assert!(saved.is_err_and(|e| e.to_string().contains("leads out of the bundle")));
+    // A data edit through the linked folder writes nothing outside.
+    let mut files = std::collections::BTreeMap::new();
+    files.insert("data/q3.csv".to_string(), b"region,revenue\nGulf,4.1\n".to_vec());
+    let written = bundle.write(&files).unwrap_err().to_string();
+    assert!(written.contains("leads out of the bundle"), "{written}");
+    assert!(!outside.join("q3.csv").exists());
+}

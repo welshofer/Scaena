@@ -2305,6 +2305,13 @@ impl Session {
         scaena_ops::states::starting(&self.deck, &self.theme, state, layout).map_err(|e| Error::Ops(e.to_string()))
     }
 
+    /// The patch that makes a new deck's title slide after the slide of `state` (PLAN 3.30), its
+    /// places for a picture given the theme's example, as the New dialog draws the theme.
+    #[cfg(feature = "editor")]
+    pub fn titling(&self, state: &str) -> Result<scaena_ops::states::AddedState, Error> {
+        scaena_ops::states::titled(&self.deck, &self.theme, state).map_err(|e| Error::Ops(e.to_string()))
+    }
+
     /// Whether `node`, as `state` shows it, still reads as its slot's prompt (PLAN 3.30): what an
     /// editor selects whole as typing begins in it, so typing replaces it.
     #[cfg(feature = "editor")]
@@ -5959,6 +5966,58 @@ mod gestures {
             ((c[0] + c[2]).min(x + w) - c[0].max(x)).max(0.0) * ((c[1] + c[3]).min(y + h) - c[1].max(y)).max(0.0);
         assert!(over < 0.5 * w * h, "{c:?} covers {:.0}% of the title at {:?}", 100.0 * over / (w * h), [x, y, w, h]);
         assert!(c[1] > y, "it goes down: {c:?}");
+    }
+
+    /// A new deck's title slide, in each theme that ships here, opens as the New dialog draws the
+    /// theme: the backdrop in the place for a picture, so lint finds no place left empty there
+    /// (W304), where Add Slide's start of the same layout leaves it waiting.
+    #[cfg(feature = "editor")]
+    #[test]
+    fn a_new_decks_title_slide_has_its_backdrop_and_no_empty_place() {
+        let examples = std::path::Path::new(EXAMPLES);
+        let fonts: BTreeMap<String, Vec<u8>> = (std::fs::read_dir(examples.join("fonts")).unwrap())
+            .filter_map(|f| f.ok().map(|f| f.path()))
+            .filter(|p| p.extension().is_some_and(|e| e == "ttf"))
+            .map(|p| (format!("fonts/{}", p.file_name().unwrap().to_str().unwrap()), std::fs::read(p).unwrap()))
+            .collect();
+        for theme in ["dusk", "ember", "salon"] {
+            let file = format!("{theme}.theme.json");
+            let text = std::fs::read_to_string(examples.join("themes").join(&file)).unwrap();
+            let made = |start: fn(&Session, &str) -> scaena_ops::states::AddedState| {
+                let mut s = Session::create(&file, &text, &fonts, "Harbor").unwrap();
+                let blank = s.states()[0].clone();
+                let started = start(&s, &blank);
+                let mut ops = started.patch.clone();
+                ops.push(json!({ "op": "remove_state", "id": blank }));
+                s.tool("deck_patch", json!({ "ops": ops }), by()).unwrap();
+                // Every text's words typed over, as a person writing the slide does.
+                let snaps = scaena_core::resolve_states(&s.deck).unwrap();
+                let typed: Vec<serde_json::Value> = (snaps[0].nodes.iter())
+                    .filter_map(|(id, p)| {
+                        let said = p.get("text")?.as_str()?.chars().count();
+                        let words = "The harbor came back";
+                        Some(json!({ "op": "replace_text", "node": id, "state": started.id, "from": 0, "to": said, "text": words }))
+                    })
+                    .collect();
+                assert!(!typed.is_empty(), "{theme}: the title slide has words to type over");
+                s.tool("deck_patch", json!({ "ops": typed }), by()).unwrap();
+                let lint = s.tool("deck_lint", json!({}), by()).unwrap();
+                let lint: serde_json::Value = serde_json::from_str(&lint.result).unwrap();
+                let empty: Vec<serde_json::Value> = (lint["findings"].as_array().unwrap().iter())
+                    .filter(|f| f["state"] == started.id && f["code"] == "W304")
+                    .cloned()
+                    .collect();
+                let backdrop = (snaps[0].nodes.iter()).any(|(id, p)| {
+                    p.get("at").and_then(|a| a.get("in")) == Some(&json!("art"))
+                        && s.deck.nodes.get(id).is_some_and(|n| n.node_type == scaena_core::document::NodeType::Shader)
+                });
+                (empty, backdrop)
+            };
+            let (empty, backdrop) = made(|s, blank| s.titling(blank).unwrap());
+            assert!(empty.is_empty() && backdrop, "{theme}'s new deck: {empty:#?}, backdrop {backdrop}");
+            let (empty, backdrop) = made(|s, blank| s.starting(blank, Some("title")).unwrap());
+            assert!(empty.len() == 1 && !backdrop, "{theme}'s title started by Add Slide waits: {empty:#?}");
+        }
     }
 
     /// A deck compiled valid is validated once: what the compile found is what validation finds

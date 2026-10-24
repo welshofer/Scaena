@@ -486,7 +486,7 @@ struct Inspector: View {
                         arrange("Send to Back", "square.3.layers.3d.bottom.filled", .order("back"), in: state)
                     }
                     Button("Group", systemImage: "rectangle.3.group") { group(in: state) }
-                        .help("Put them in a group, where they stand (⌘G)")
+                        .help("Put them in a group, where they stand (⌥⌘G)")
                 }
             }
         }

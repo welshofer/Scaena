@@ -32,6 +32,13 @@ extension ScaenaSession {
         return try call("starting", .object(args))
     }
 
+    /// The patch that makes a new deck's title slide after the slide of `state` (PLAN 3.30): in the
+    /// theme's `title` layout, its words to type over and the theme's backdrop in its picture's
+    /// place, as the theme chooser draws it.
+    public func titling(after state: String) throws -> AddedState {
+        try call("titling", ["state": .string(state)])
+    }
+
     /// The slides a person may start (PLAN 3.31), as a picker lists them before it draws any: one
     /// in each of the theme's layouts, in its order, then a blank one, each with no picture.
     public func starters() throws -> [Starter] {

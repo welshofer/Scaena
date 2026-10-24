@@ -1646,12 +1646,14 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
         - shows what each call came to and the frame it drew, each call named in a person's words, never by its tool's name (`ToolWords`, PLAN 3.18);
         - says what it is doing while it works ("Thinking…", or the call running, as "Editing the deck…"), a light sweeping across the words, held still where Reduce Motion is on; the browser's panel says "Working…" the same way, still where motion is less;
         - Stop answers the calls not yet run as stopped.
+        - *a call that only reads (`deck_lint` without `fix`, `deck_render`, `deck_health`; `scaena_session::assistant::reads_alone`) runs on the editor's `OffMain` queue (narrative lift-up PERF-1) on a session of a snapshot of the deck (`ScaenaSession.Snapshot.opened`, `scaena_chat_run_apart`), and the conversation takes it back as `run`'s (`took`), so the window and the sweep go on while it works; every other call runs on the session, as the window's edits do (narrative lift-up PERF-2; the `ffi` suite's `a_call_that_only_reads_runs_apart_on_a_snapshot_and_comes_to_what_it_does_on_the_session`, ScaenaKit's `aCallThatOnlyReadsRunsApartAndComesToWhatItDoesOnTheSession`).*
     - **On this Mac.** With Apple's Foundation Models (macOS 26, Apple Intelligence):
       - Explain, beside a finding, says what it means for the deck;
       - the inspector drafts a state's notes from how it reads;
       - the inspector tightens a text's words.
 
       Each answer is offered to take as one patch (a `set_state` of `notes`, a `replace_text` of the whole text), or to leave. Nothing leaves the Mac; without the model, none is offered.
+      - *What the on-device model declines that the user's own model may take (more than its context holds, its guardrails, a language it does not write, or its model not on the device yet) leaves the Mac only when the person asks: the sheet says why ("Apple Intelligence declined this. Nothing has left this Mac.") and, where a key is kept, offers "Ask … with your Anthropic key" beside Cancel, the assistant's model sent nothing until it is pressed; with no key it is said as before (lift-up STAB-4, ScaenaKit's `Answering`, `aWritingToolTheDeviceDeclinesAsksTheUsersModelOnlyOnceAgreed`).*
     - Tests:
       - scaena-chat's `exchanges`: the three adapters' requests and reads, models, and failures, and the page's prompt, against the record; a question run through two rounds; frames named past the newest two.
       - scaena-chat's unit tests: every MCP tool known; a summary for each kind of call.
@@ -1749,12 +1751,12 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
         - the pasteboard read as the browser's clipboard is: a clip beside its text, a picture, words outranking a picture of them, and a TIFF as a PNG;
         - through `DeckEditor`, a clip, words, a look, a sheet's cells with their table, and a picture, each made.
     - **What waits.** A run on a Mac, copying from Numbers, Preview, and the Finder.
-- [ ] 3.13 Several selected: Shift+click and a marquee, moved together, aligned, spread, and ordered; ⌘G and ⌘⇧G group and ungroup (PLAN 2.42, 2.43). *(Built; waits on a run on a Mac.)*
+- [ ] 3.13 Several selected: Shift+click and a marquee, moved together, aligned, spread, and ordered; ⌥⌘G and ⇧⌥⌘G group and ungroup (PLAN 2.42, 2.43). *(Built; waits on a run on a Mac.)*
     - **Selecting several.** Shift and a click add a child of the same container to what is selected, or take one out. A drag from where nothing draws is a marquee: it selects what lies wholly inside it, children of the canvas a pointer reaches; with Shift, it adds them.
     - **Moving them.** A drag of one of them moves them all, as the browser's canvas moves several (`together`): the engine draws them moved (`setMoving` takes several), the first snapped as it would be alone and the rest as far as it went, with the guides the box around them meets. The drop is one patch, kept to the state with Option.
     - **Acting on them.** Delete, Duplicate, Copy, Cut, Lock, and Paste Look act on every node selected, each one patch; a paste of several selects them all.
     - **The inspector** offers what they all share (`Field.shared`), each choice a `choose` for each node in one patch, and buttons that align them on an edge or a middle, spread them across or down, put them in front or behind (`arranging`), and group them.
-    - **The Node menu** groups them where they stand (⌘G, `grouping`), takes a group apart (⌘⇧G, an `ungroup`), and orders them among what their container paints (⌘], ⌘[, with Option to the front and the back).
+    - **The Node menu** groups them where they stand (⌥⌘G, `grouping`), takes a group apart (⇧⌥⌘G, an `ungroup`; Keynote's keys, since ⌘G is the Mac's Find Next, lift-up USE-5), and orders them among what their container paints (⌘], ⌘[, with Option to the front and the back).
     - **The ABI.** `together`, `arranging`, and `grouping` join the session's calls.
     - Tests:
       - the `ffi` suite's `several_nodes_move_arrange_and_group_together` on B1: three nodes moved together, aligned, spread, and ordered, grouped and taken apart, and a way that is none said;

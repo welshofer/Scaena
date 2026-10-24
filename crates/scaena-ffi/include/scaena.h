@@ -259,7 +259,9 @@ char *scaena_picture(const uint8_t *bytes, size_t len);
 // one, or those `layouts` names, a null the blank one, each `{layout, name, description, group,
 // width, height}`, painted `height` pixels high, which
 // [`scaena_starter_pixels`] takes; `starting {state, layout?}`, the patch that starts one after
-// the slide of `state`, `{id, patch}`; `waiting {state}`, the slots of its layout that wait
+// the slide of `state`, `{id, patch}`; `titling {state}`, the patch that makes a new deck's
+// title slide after it, its places for a picture given the theme's example, `{id, patch}`;
+// `waiting {state}`, the slots of its layout that wait
 // for what their prompts say goes there, each `{slot, rect, words, typed, role?}`; and
 // `filling {state, slot}`, the patch that fills one that waits for words as a new slide fills
 // it, `{id, patch}`; and `prompted {state, node}`, whether a text still reads as its slot's
@@ -385,6 +387,15 @@ struct ScaenaSaved *scaena_snapshot_save(struct ScaenaSnapshot *snapshot,
                                          const char *now,
                                          bool subset,
                                          char **error);
+
+// A session of its own on `snapshot`'s deck and files, to run a call that only reads on the thread
+// that holds it (narrative lift-up PERF-2, [`scaena_chat_run_apart`]): it answers as the session
+// it was taken from did. Null where it cannot be opened, `*error` then saying why. Free with
+// [`scaena_session_free`].
+//
+// # Safety
+// `snapshot` is a live handle from [`scaena_snapshot_new`]; `error` null or writable.
+struct ScaenaSession *scaena_snapshot_open(const struct ScaenaSnapshot *snapshot, char **error);
 
 // Let go of a snapshot.
 //
@@ -541,6 +552,8 @@ struct ScaenaChat *scaena_chat_new(const char *args, char **error);
 //   model's name, at `at` (RFC 3339): `{id, name, error, summary, made, json, png?, edited,
 //   rewritten}`, `made` whether it did what its words say. A `call` `{id, name, args}` may be
 //   given in its place.
+// - `took {index, ran}`: the last answer's call `index`, run apart on a snapshot's session by
+//   [`scaena_chat_run_apart`], taken as `run` takes what it ran: `ran` back.
 // - `next`: the calls' results handed to the model, every call answered (those not run, as
 //   stopped): whether it may be asked again, or the question has taken its rounds.
 // - `use {provider, model, base?}`: another model from the next request on, the conversation
@@ -555,6 +568,28 @@ char *scaena_chat_call(struct ScaenaChat *chat,
                        struct ScaenaSession *session,
                        const char *method,
                        const char *args);
+
+// Whether the call `name` with `args` (JSON, or null) only reads the deck, and may run apart from
+// the session on a snapshot's ([`scaena_snapshot_open`], [`scaena_chat_run_apart`], narrative
+// lift-up PERF-2): `deck_render`, `deck_health`, and `deck_lint` without `fix`.
+//
+// # Safety
+// `name` is a NUL-terminated string; `args` one, or null.
+bool scaena_chat_reads_alone(const char *name, const char *args);
+
+// Run `call` (`{id, name, args}`, a call of a conversation's last answer) on `session`, a
+// snapshot's ([`scaena_snapshot_open`]), by `agent:` and `model`, at `at` (RFC 3339, or null), on
+// the thread that calls it (narrative lift-up PERF-2): `{"ok": ran}`, what the conversation's
+// `run` gives, for its `took` on the conversation's thread; or `{"error"}`. Only for a call that
+// reads alone ([`scaena_chat_reads_alone`]).
+//
+// # Safety
+// `session` is a live handle, used by this thread alone; `model` and `call` NUL-terminated
+// strings; `at` one, or null.
+char *scaena_chat_run_apart(struct ScaenaSession *session,
+                            const char *model,
+                            const char *call,
+                            const char *at);
 
 // Free a conversation.
 //
