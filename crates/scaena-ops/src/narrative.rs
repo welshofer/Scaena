@@ -3106,6 +3106,18 @@ impl Builder {
                 node.as_object_mut().map(|n| n.remove("text"));
                 node["runs"] = json!(runs);
             }
+            // A line's source stands under its takeaway in the theme's caption role, smaller, so it
+            // never shrinks the takeaway with it to fit (dogfood: charts).
+            if s.layout == "line-chart"
+                && name == "note"
+                && s.caption().is_some()
+                && s.theme.typography.roles.contains_key("caption")
+                && let Some((takeaway, source)) = node["text"].as_str().and_then(|t| t.rsplit_once('\n'))
+            {
+                let runs = json!([{ "text": takeaway }, { "text": format!("\n{source}"), "role": "caption" }]);
+                node.as_object_mut().map(|n| n.remove("text"));
+                node["runs"] = runs;
+            }
             if node.get("semantic").is_none() && node["type"] == "text" && !claimed && s.title().is_none() {
                 // A slide with no title says what it is in its first words.
                 node["semantic"] = json!("claim");
@@ -3825,10 +3837,22 @@ mod tests {
         for id in state["props"].as_object().unwrap().keys() {
             let node = &deck["nodes"][id];
             let slot = node["at"]["in"].as_str().unwrap().to_string();
-            let said = node["text"].as_str().map_or_else(|| node["type"].as_str().unwrap().to_string(), str::to_string);
+            let said = if node["text"].is_string() || node["runs"].is_array() {
+                words(node)
+            } else {
+                node["type"].as_str().unwrap().to_string()
+            };
             out.push((slot, said));
         }
         out
+    }
+
+    /// A text node's words, its runs' joined where it has them.
+    fn words(node: &Value) -> String {
+        match node["runs"].as_array() {
+            Some(runs) => runs.iter().filter_map(|r| r["text"].as_str()).collect(),
+            None => node["text"].as_str().unwrap_or_default().to_string(),
+        }
     }
 
     /// A theme is asked whether its fonts draw a language before any call is paid for (PLAN
@@ -4492,11 +4516,19 @@ mod tests {
         let churn = node(1, "main");
         assert_eq!(churn["annotations"], json!([{ "kind": "highlight", "at": { "series": "SMB" } }]));
         assert_eq!(churn["y"]["title"], "Quarterly logo churn by segment, %");
-        assert_eq!(node(1, "note")["text"], "SMB churn has risen four quarters in a row\nSource: Churn dashboard");
+        // The takeaway in the note's role, then the source on a line of its own in the caption's,
+        // so the source never shrinks the takeaway.
+        assert_eq!(
+            node(1, "note")["runs"],
+            json!([
+                { "text": "SMB churn has risen four quarters in a row" },
+                { "text": "\nSource: Churn dashboard", "role": "caption" },
+            ])
+        );
         // One series: the subtitle titles it too, and the takeaway stands over the source alone.
         assert_eq!(node(2, "main")["y"]["title"], "Annual recurring revenue by month, $K");
         assert_eq!(
-            node(2, "note")["text"],
+            words(&node(2, "note")),
             "ARR reached $910K in September, up 5\u{d7} since January\nSource: Churn dashboard"
         );
         // A bar chart's axis takes the unit its subtitle lacks, and its caption is its source.
@@ -4834,7 +4866,7 @@ mod tests {
         for spanish in ["Hace", "Piensa", "Siente"] {
             assert!(said.iter().any(|w| w == spanish), "{spanish} in {said:?}");
         }
-        let note = placed(&made.deck, 4, "note")["text"].as_str().unwrap().to_string();
+        let note = words(placed(&made.deck, 4, "note"));
         assert!(note.ends_with("Fuente: NASA GISS"), "{note}");
         assert!(placed(&made.deck, 4, "main")["alt"].as_str().unwrap().starts_with("Gráfico de líneas"));
         // A year's months and a 2×2's axes, in Spanish, never left empty.
@@ -4862,7 +4894,7 @@ mod tests {
             .map(|(_, w)| w)
             .collect();
         assert!(said.iter().any(|w| w == "Does"), "{said:?}");
-        assert!(placed(&made.deck, 4, "note")["text"].as_str().unwrap().ends_with("Source: NASA GISS"));
+        assert!(words(placed(&made.deck, 4, "note")).ends_with("Source: NASA GISS"));
     }
 
     #[test]
