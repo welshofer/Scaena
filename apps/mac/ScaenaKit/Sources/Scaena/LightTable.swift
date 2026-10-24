@@ -249,7 +249,7 @@ private struct SlideCell: View {
         .accessibilityIdentifier("slide-\(slide.id)")
         .accessibilityAddTraits(picked ? .isSelected : [])
         .task(id: "\(slide.last)\u{1f}\(revision)\u{1f}\(drawn)") {
-            drawing = editor.drawing(slide.last, width: drawn)
+            drawing = await editor.drawingAway(slide.last, width: drawn)
         }
     }
 }
