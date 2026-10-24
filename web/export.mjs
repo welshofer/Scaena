@@ -185,9 +185,6 @@ try {
     noted.name === "revenue - Notes.pdf" && noted.bytes.equals(cliNoted),
     `${noted.name}, ${noted.bytes.length} B, is the CLI's PDF with notes byte for byte (${cliNoted.length} B)`,
   );
-  await page.click("#export");
-  await page.uncheck("#exporting-with-notes");
-  await page.keyboard.press("Escape");
 
   // The deck as one HTML file, from Export….
   await page.click("#export");
