@@ -631,7 +631,8 @@ impl Session {
         let digest = dl.digest().map_err(ops)?;
         let scale = match a.size.as_deref() {
             Some(size) => scaena_ops::render::scale_for(size, dl.viewport)?,
-            None => 1.0,
+            // Half the canvas, as the MCP server's tool draws one for a model (narrative PERF-4).
+            None => scaena_ops::render::FOR_A_MODEL,
         };
         let raster = scaena_paint::cpu::CpuPainter::default().paint(&dl, &self.store, scale)?;
         let size = [raster.width, raster.height];
@@ -730,6 +731,12 @@ mod tests {
         // Something is drawn: the background is not all there is.
         let first = &frame.rgba[..4];
         assert!(frame.rgba.chunks(4).any(|p| p != first));
+        // Asked no size, half the canvas, as a model sees it (narrative PERF-4).
+        let half = call(&mut s, "deck_render", json!({ "state": "start" }));
+        let canvas = &s.deck().canvas;
+        let halved = json!([(canvas.width / 2.0) as u32, (canvas.height / 2.0) as u32]);
+        assert_eq!(half.result["size"], halved, "{}", half.result);
+        assert_eq!(half.result["digest"], rendered.result["digest"]);
         // A size past what a raster holds is an error the model reads, not an allocation that
         // would stop the page's worker (PLAN 2.26).
         let huge = s.tool("deck_render", json!({ "state": "start", "size": "32768x18432" }), AGENT).unwrap_err();

@@ -84,7 +84,9 @@ fn an_svg_outlines_its_glyphs_and_keeps_their_text_for_a_reader() {
     let svgs = exported(TORTURE, "svg", Some(&["liga", "emoji", "mesh"]), None, &dir);
     assert_eq!(svgs.pages.as_deref(), Some(&["liga".to_string(), "emoji".to_string(), "mesh".to_string()][..]));
     assert_eq!(svgs.size, Some([1920, 1080]));
-    let read = |state: &str| std::fs::read_to_string(dir.join(format!("{state}.svg"))).unwrap();
+    // Each file is the page at its place: an export names it by its slide (`Slide 03.svg`).
+    let (pages, files) = (svgs.pages.clone().unwrap(), svgs.files.clone().unwrap());
+    let read = |state: &str| std::fs::read_to_string(&files[pages.iter().position(|p| p == state).unwrap()]).unwrap();
     let liga = read("liga");
     // Glyphs are paths: no font is named, so nothing lays the text out again.
     assert!(!liga.contains("font-family"), "an SVG names no font");
@@ -101,8 +103,8 @@ fn an_svg_outlines_its_glyphs_and_keeps_their_text_for_a_reader() {
     assert!(mesh.contains("image-rendering=\"optimizeSpeed\" xlink:href=\"data:image/png;base64,"));
     // The same frame writes the same bytes.
     let again = scratch("svg-text-again");
-    exported(TORTURE, "svg", Some(&["liga"]), None, &again);
-    assert_eq!(std::fs::read_to_string(again.join("liga.svg")).unwrap(), liga);
+    let files = exported(TORTURE, "svg", Some(&["liga"]), None, &again).files.unwrap();
+    assert_eq!(std::fs::read_to_string(&files[0]).unwrap(), liga);
 }
 
 #[test]
@@ -112,7 +114,21 @@ fn pngs_are_the_cpu_painters_frames_at_any_size() {
     assert_eq!(pngs.size, Some([960, 540]));
     let files = pngs.files.unwrap();
     assert_eq!(files.len(), 2);
-    assert!(files[0].ends_with("shapes.png") && files[1].ends_with("chart.png"), "{files:?}");
+    // Each named by where it stands among the deck's slides: `chart` is the second step of its slide.
+    let deck = scaena_ops::open(Path::new(TORTURE)).unwrap().deck;
+    let said = scaena_core::words::slides(&deck);
+    let digits = scaena_core::words::last_steps(&deck).len().to_string().len();
+    for (state, file) in [("shapes", &files[0]), ("chart", &files[1])] {
+        let at = deck.states.iter().position(|s| s.id == state).unwrap();
+        let (number, step) =
+            said[at].trim_start_matches("Slide ").split_once(", step ").unwrap_or((&said[at][6..], ""));
+        let number: usize = number.parse().unwrap();
+        let named = Path::new(file).file_name().unwrap().to_string_lossy().into_owned();
+        assert!(named.starts_with(&format!("Slide {number:0digits$}")) && named.ends_with(".png"), "{state}: {named}");
+        if !step.is_empty() {
+            assert!(named.contains(&format!(", step {step}")), "{state}: {named}");
+        }
+    }
     for (state, file) in [("shapes", &files[0]), ("chart", &files[1])] {
         let png = Raster::from_png(&std::fs::read(file).unwrap()).unwrap();
         assert_eq!(png, cpu(TORTURE, state, Some("960x540")), "{state}");
@@ -138,4 +154,37 @@ fn an_image_export_says_what_it_needs() {
     assert!(ask(fps).contains("--fps"));
     let pdf = Request { format: "pdf".into(), size: Some("960x540".into()), ..png(Some(scratch("pdf-size"))) };
     assert!(ask(pdf).contains("--size"));
+}
+
+/// An image of each state is named by where it stands among the slides, as the editor's zip of
+/// slides names them (PLAN 2.122), its number given as many digits as the last slide's: the files
+/// sort in the deck's order, a step after its slide, whatever its ids say; and each SVG is titled
+/// by its slide's headline, not the deck's title. The higher-ed deck runs past nine slides, steps among them.
+#[test]
+fn images_are_named_by_their_slide_and_step_and_titled_by_its_headline() {
+    const DECK: &str = "../../docs/examples/higher-ed.deck.json";
+    let deck = scaena_ops::open(Path::new(DECK)).unwrap().deck;
+    let dir = scratch("svg-slides");
+    let svgs = exported(DECK, "svg", None, Some("480x270"), &dir);
+    let (pages, files) = (svgs.pages.unwrap(), svgs.files.unwrap());
+    let names: Vec<String> =
+        files.iter().map(|f| Path::new(f).file_name().unwrap().to_string_lossy().into_owned()).collect();
+    assert_eq!(names[0], "Slide 01.svg");
+    assert_eq!(names[2], "Slide 03, step 1.svg", "`era`, the first of slide 3's four states: {names:?}");
+    assert_eq!(names[3], "Slide 03, step 2.svg", "the second, a step of slide 3: {names:?}");
+    let mut sorted = names.clone();
+    sorted.sort();
+    assert_eq!(sorted, names, "the files sort in the deck's order");
+    assert_eq!(pages.len(), deck.states.len());
+    // Each is titled by its slide's headline as it shows there.
+    let snaps = scaena_core::tracking::resolve_states(&deck).unwrap();
+    let svg = std::fs::read_to_string(&files[1]).unwrap();
+    let headline = (snaps[1].nodes.iter())
+        .find(|(_, p)| matches!(p.get("role").and_then(|r| r.as_str()), Some("display" | "headline" | "title")))
+        .map(|(_, p)| scaena_core::reading::words(p))
+        .expect("the second slide has a headline");
+    let title = svg.split("<title>").nth(1).and_then(|t| t.split("</title>").next()).unwrap();
+    assert_eq!(title, headline.split_whitespace().collect::<Vec<_>>().join(" ").replace('&', "&amp;"));
+    let deck_title = deck.meta.as_ref().and_then(|m| m.title.clone()).unwrap_or_default();
+    assert_ne!(title, deck_title, "not the deck's title");
 }
