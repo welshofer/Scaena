@@ -282,7 +282,7 @@ struct CanvasSelection: View {
                 #if os(macOS)
                 CanvasKeysHost(
                     typing: typing, canvas: size, shown: zoom.view, command: command, clipping: clip,
-                    finding: { _ in finding() }, pressed: pressed)
+                    finding: { _ in finding() }, pressed: pressed, typeOver: { typeOver() })
                     .allowsHitTesting(false)
                 #else
                 CanvasKeysHost(
@@ -1137,7 +1137,11 @@ struct CanvasSelection: View {
         case .keyboardDeleteOrBackspace, .keyboardDeleteForward:
             return command || option || (node == nil && pointPicked == nil) ? false : deleting(everywhere: shift)
         default:
-            return false
+            // A character typed with a text selected types over its words (lift-up FUNC-3), as the
+            // Mac's input system does it (`CanvasKeys.insertText`).
+            guard !command, Typing.printable(key.characters), typeOver() else { return false }
+            typing.insert(key.characters)
+            return true
         }
     }
 
@@ -1570,6 +1574,18 @@ struct CanvasSelection: View {
     /// itself.
     private func reached(_ hit: String) -> String {
         boxes.reached(hit)
+    }
+
+    /// A key pressed with one text, or one shape with words, selected and no text typed in, as a
+    /// presentation app takes it (lift-up FUNC-3): typing begins in it with its words selected, so
+    /// the key replaces them. Whether it did; a locked node, several selected, or a press going on
+    /// leave the key to the canvas.
+    private func typeOver() -> Bool {
+        guard !typing.typing, press == nil, let node, also.isEmpty, boxes.first(where: { $0.node == node })?.locked == nil
+        else { return false }
+        guard typeIn(node, at: nil) else { return false }
+        typing.selectAll()
+        return true
     }
 
     /// Type in `node` where `point` is (PLAN 3.9), kept to the state with Option; in a shape, in

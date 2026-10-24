@@ -6,6 +6,7 @@ import UIKit
 import ImageIO
 import Observation
 import ScaenaKit
+import ScaenaNotes
 import ScaenaRemote
 import SwiftUI
 import UniformTypeIdentifiers
@@ -117,10 +118,11 @@ final class RemoteHost {
         guard key != sent else { return }
         sent = key
         let ms = show.playhead.ms.isFinite ? max(show.playhead.ms, 0) : 0
+        let notes = showing.notes(slot.state)
         server.tell(
             RemotePlace(
                 deck: deck, showing: true, state: slot.state, index: show.index, count: show.slots.count,
-                ms: rest ? 0 : ms, rest: rest, notes: showing.notes(slot.state),
+                ms: rest ? 0 : ms, rest: rest, notes: notes.text, read: notes.blocks,
                 slide: png(slot.state, showing.editor), next: show.next.flatMap { png($0.state, showing.editor) },
                 began: showing.began))
     }

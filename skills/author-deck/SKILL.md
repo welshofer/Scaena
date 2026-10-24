@@ -31,6 +31,9 @@ Every step works through either surface. An MCP tool takes the same settings its
 | read it back | `scaena decompile <bundle>` | `deck_read`, with `scn` for `.scn` |
 | the spine | edit `spine` in `deck.json` | `spine_read`, `spine_update` |
 | find an icon | `scaena icons <words> --json`: each its `path` and `view`, for `add_node` | `icon_find` |
+| start a slide in a layout | `scaena start <bundle> <state> --layout bullets`: a new slide after that state's slide, as Add Slide starts one, with a text in each slot to write over; `scaena inspect <bundle> --state <id> --layouts` lists the layouts | `state_start` |
+| set a slide's background | `scaena background <bundle> <state> backdrop`, one of the theme's shader presets; `--none` takes it away; neither lists what the slide may take | `background_set` |
+| make a deck from slides you wrote | `scaena generate <dir> "topic" --slides slides.json`: Narrato's slide JSON, no model called | `deck_generate`: the same, the slides given inline |
 
 Errors:
 - Under `--json`, every command prints one JSON value, and an error is `{ "error": … }` (SPEC §7.1).
@@ -65,7 +68,7 @@ Errors:
    - One state per click. Set `layout`, then only what changes: text, `kind`, `at`, `remove`. Group builds with `slide`.
    - A state tracks the one before it, so a new slide keeps the last slide's nodes on screen unless it lists them in `remove`. Or it may set `mode: "absolute"` and list everything it shows, which keeps each slide self-contained.
    - Leave motion for the `motion-pass` skill, apart from at most one `enter` per new object.
-   - Between slides that share nothing, a slide transition moves each slide whole instead of morphing: `"transition": { "style": "push", "direction": "left", "duration": "standard" }`, `dissolve`, `push`, `cover`, `reveal`, or `wipe` (SPEC §3.9). Keep Magic Move, no `style`, where the slides share what they show.
+   - Between slides that share nothing, a slide transition moves each slide whole instead of morphing: `"transition": { "style": "push", "direction": "left", "duration": "standard" }`, `dissolve`, `push`, `cover`, `reveal`, or `wipe`, or the slide entered through shapes that grow, `circle`, `circleWave`, `diamond`, `diamondWave`, or `radial` (SPEC §3.9). Keep Magic Move, no `style`, where the slides share what they show.
    - Give every state a `hold` if the deck will run on its own (video, a kiosk). A player advances by holds too, so a deck presented live has none.
 5. **Lint loop.**
    - Run `scaena lint <bundle> --json` (`deck_lint`). Fix every error, and take warnings seriously: W300 and W301 mean you reached for pixels, so use a role, slot, or token instead.
