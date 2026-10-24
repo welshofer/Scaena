@@ -1454,9 +1454,8 @@ pub fn deck_as(
         // headline both: the slides were written to it (narrative FUNC-1).
         if last_beat != Some(beat) {
             let outlined = narrative.outline.is_some();
-            let named = (slide.beat_name.as_deref().map(str::trim)).filter(|n| {
-                !n.is_empty() && !outlined && !names.iter().any(|arc| arc.eq_ignore_ascii_case(n))
-            });
+            let named = (slide.beat_name.as_deref().map(str::trim))
+                .filter(|n| !n.is_empty() && !outlined && !names.iter().any(|arc| arc.eq_ignore_ascii_case(n)));
             let headline = Some(slide.slide_title.as_str()).filter(|t| !t.trim().is_empty() && !outlined);
             let name = match (divider, named, headline) {
                 (true, _, _) => slide.slide_title.as_str(),
