@@ -53,22 +53,34 @@ interface Request {
 async function send(request: Request): Promise<{ status: number; statusText: string; body: string; after?: string }> {
   try {
     const body = request.body == null ? undefined : JSON.stringify(request.body);
-    const response = await fetch(request.url, { method: request.method, headers: request.headers, body });
+    const signal = AbortSignal.timeout(ANSWERED_WITHIN);
+    const response = await fetch(request.url, { method: request.method, headers: request.headers, body, signal });
     const after = response.headers.get("retry-after") ?? undefined;
     return { status: response.status, statusText: response.statusText, body: await response.text(), after };
   } catch (e) {
-    return { status: 0, statusText: said(e), body: "" };
+    // A provider that takes the request and never answers is asked again, as a busy one is
+    // (narrative REL-1), and the progress says why (lift-up REL-4).
+    const late = e instanceof DOMException && e.name === "TimeoutError";
+    return { status: 0, statusText: late ? "The provider didn't answer in 15 minutes" : said(e), body: "" };
   }
 }
+
+/** How long a provider has to answer a request: 15 minutes, as the Mac's `URLSession` waits and
+ * near the CLI's 20 (lift-up REL-4). */
+const ANSWERED_WITHIN = 900_000;
+
+/** How long a link's host has to answer a GET. */
+const FETCHED_WITHIN = 60_000;
 
 /** A GET a link's plan asks for: its status, its content type, and its body. A host that lets
  * no other page read it (CORS) fails as a network does, and says so. */
 async function get(asked: { url: string; headers: Record<string, string>; most: number }) {
   let response: Response;
   try {
-    response = await fetch(asked.url, { headers: asked.headers });
-  } catch {
+    response = await fetch(asked.url, { headers: asked.headers, signal: AbortSignal.timeout(FETCHED_WITHIN) });
+  } catch (e) {
     const host = new URL(asked.url).host;
+    if (e instanceof DOMException && e.name === "TimeoutError") throw new Error(`${host} didn't answer in a minute`);
     throw new Error(
       `${host} could not be read from this page: it is out of reach, or it lets no other page read it. Download what it serves and add the file, or give it to \`scaena generate\` or the Mac app`,
     );
