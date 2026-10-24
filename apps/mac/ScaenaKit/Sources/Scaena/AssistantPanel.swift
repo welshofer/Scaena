@@ -146,10 +146,13 @@ struct AssistantPanel: View {
                         }
                     }
                     ForEach(assistant.entries) { entry in
-                        EntryRow(entry: entry).id(entry.id)
+                        EntryRow(entry: entry, assistant: assistant).id(entry.id)
                     }
-                    // What it is doing while it works: the call running says so itself.
-                    if assistant.working, !calling {
+                    // What it is doing while it works: the call running says so itself; a
+                    // provider asked again, the wait (narrative REL-3).
+                    if let waiting = assistant.waiting {
+                        Text(waiting).font(.callout).foregroundStyle(.secondary)
+                    } else if assistant.working, !calling {
                         Text("Thinking…").font(.callout).foregroundStyle(.secondary).modifier(Sweep())
                     }
                 }
@@ -281,6 +284,7 @@ private struct Sweep: ViewModifier {
 /// One entry of the conversation.
 private struct EntryRow: View {
     let entry: Assistant.Entry
+    let assistant: Assistant
 
     var body: some View {
         switch entry.kind {
@@ -291,7 +295,40 @@ private struct EntryRow: View {
                 .frame(maxWidth: .infinity, alignment: .trailing)
                 .textSelection(.enabled)
         case .said(let text):
-            Text(markdown(text)).textSelection(.enabled)
+            // The answer as it reads (narrative ATTR-4): its paragraphs, headings, lists, and
+            // code as blocks, each line's inline markdown read; a link to a slide shows it. The
+            // deck's states are read once for the entry, not for each run.
+            let known = Set(states)
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(Array(MarkdownBlocks.blocks(of: text).enumerated()), id: \.offset) { _, block in
+                    switch block {
+                    case .paragraph(let words):
+                        Text(markdown(words, known))
+                    case .heading(_, let words):
+                        Text(markdown(words, known)).font(.headline)
+                    case .list(let ordered, let items):
+                        VStack(alignment: .leading, spacing: 3) {
+                            ForEach(Array(items.enumerated()), id: \.offset) { index, item in
+                                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                                    Text(ordered ? "\(numbered(items, at: index))." : "•")
+                                        .foregroundStyle(.secondary)
+                                        .frame(minWidth: 14, alignment: .trailing)
+                                    Text(markdown(item.text, known))
+                                }
+                                .padding(.leading, CGFloat(item.level) * 14)
+                            }
+                        }
+                    case .code(let code, _):
+                        Text(code)
+                            .font(.system(.callout, design: .monospaced))
+                            .padding(6)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 4))
+                    }
+                }
+            }
+            .textSelection(.enabled)
+            .environment(\.openURL, OpenURLAction { url in opened(url) })
         case .call(let name, _, let ran):
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
@@ -325,10 +362,51 @@ private struct EntryRow: View {
         }
     }
 
-    /// The model's words, their inline Markdown shown.
-    private func markdown(_ text: String) -> AttributedString {
+    /// The model's words, their inline Markdown shown. A state's id in a code span, and a link
+    /// to `state:ID`, link to that slide, which the window shows (narrative ATTR-4): one of
+    /// `known`, the states the deck has.
+    private func markdown(_ text: String, _ known: Set<String>) -> AttributedString {
         let inline = AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)
-        return (try? AttributedString(markdown: text, options: inline)) ?? AttributedString(text)
+        var read = (try? AttributedString(markdown: text, options: inline)) ?? AttributedString(text)
+        for run in read.runs {
+            if let link = run.link, let state = stateOf(link, known) {
+                read[run.range].link = URL(string: "scaena-state:\(state)")
+            } else if run.inlinePresentationIntent == .code, known.contains(String(read[run.range].characters)) {
+                read[run.range].link = URL(string: "scaena-state:\(String(read[run.range].characters))")
+            }
+        }
+        return read
+    }
+
+    /// The states the deck has, which an answer may link to.
+    private var states: [String] { (try? assistant.editor.session.states()) ?? [] }
+
+    /// The state a link names, where it names one of `known`: `state:ID`, or `#ID`.
+    private func stateOf(_ url: URL, _ known: Set<String>) -> String? {
+        let text = url.absoluteString
+        let named = text.hasPrefix("state:") ? String(text.dropFirst("state:".count)) : text.hasPrefix("#") ? String(text.dropFirst()) : nil
+        guard let named, known.contains(named) else { return nil }
+        return named
+    }
+
+    /// A link followed: a slide shown, or a web address opened.
+    private func opened(_ url: URL) -> OpenURLAction.Result {
+        if url.scheme == "scaena-state" {
+            let state = String(url.absoluteString.dropFirst("scaena-state:".count))
+            if states.contains(state) { assistant.editor.shown = state }
+            return .handled
+        }
+        return url.scheme == "http" || url.scheme == "https" ? .systemAction : .discarded
+    }
+
+    /// An ordered item's number: its place among the items at its level since the last of a
+    /// shallower one.
+    private func numbered(_ items: [MarkdownBlock.Item], at index: Int) -> Int {
+        var n = 0
+        for i in 0...index {
+            if items[i].level == items[index].level { n += 1 } else if items[i].level < items[index].level { n = 0 }
+        }
+        return n
     }
 
     /// Why the answer stopped, where it is worth saying.
