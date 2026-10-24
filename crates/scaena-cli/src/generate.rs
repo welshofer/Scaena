@@ -314,6 +314,11 @@ fn said(p: &Progress) -> String {
         Progress::Chose { arc, fallback: None } => format!("arc: {arc}"),
         Progress::Chose { arc, fallback: Some(why) } => format!("arc: {arc}, the heuristic's ({why})"),
         Progress::Writing { slides } => format!("writing the slides, at least {slides}…"),
+        Progress::Retrying { wait, tried } => format!(
+            "the provider is busy or did not answer: asking again in {wait:.0} s (try {} of {})…",
+            tried + 1,
+            scaena_narrato::TRIES
+        ),
         Progress::Wrote { slides, truncated: false, .. } => format!("{slides} slides written"),
         Progress::Wrote { slides, truncated: true, .. } => format!("{slides} slides written, the answer cut short"),
         Progress::Fitting { texts } => format!("{texts} texts run past their place: asking for them shorter…"),
@@ -380,6 +385,17 @@ fn research(
         sheets: Vec::new(),
         pdf: None,
     })
+}
+
+/// The wait `generation` asks for before its step is asked again, slept, where its last answer
+/// was for now (narrative REL-1), and said as the slides' is.
+fn waited(generation: &Generation, json: bool) {
+    if let Some(wait) = generation.again() {
+        if !json {
+            eprintln!("{}", said(&Progress::Retrying { wait, tried: generation.tried() }));
+        }
+        std::thread::sleep(Duration::from_secs_f64(wait.clamp(0.0, 120.0)));
+    }
 }
 
 /// Where a run keeps what it has paid for as it arrives, under the bundle's directory.
@@ -711,7 +727,10 @@ pub fn run(a: GenerateArgs, json: bool) -> Result<ExitCode> {
                 eprintln!("choosing the arc…");
             }
             let reply = fetch(&agent, &request);
-            generation.answer(reply.status, &reply.status_text, &reply.body).map_err(|e| anyhow!(e))?;
+            generation
+                .answer(reply.status, &reply.status_text, &reply.body, reply.after.as_deref())
+                .map_err(|e| anyhow!(e))?;
+            waited(&generation, json);
         }
         let chosen = generation.arc().cloned().expect("the arc is chosen");
         if !json {
@@ -722,9 +741,14 @@ pub fn run(a: GenerateArgs, json: bool) -> Result<ExitCode> {
             eprintln!("outlining…");
         }
         generation.outline_first().map_err(|e| anyhow!(e))?;
-        let request = generation.request(key, &grounding.documents).expect("the outline is asked");
-        let reply = fetch(&agent, &request);
-        generation.answer(reply.status, &reply.status_text, &reply.body).map_err(|e| anyhow!("the outline: {e}"))?;
+        // Asked again, as the slides are, where the provider is busy (narrative REL-1).
+        while generation.step() == Step::Outline {
+            let request = generation.request(key, &grounding.documents).expect("the outline is asked");
+            let reply = fetch(&agent, &request);
+            (generation.answer(reply.status, &reply.status_text, &reply.body, reply.after.as_deref()))
+                .map_err(|e| anyhow!("the outline: {e}"))?;
+            waited(&generation, json);
+        }
         let outline = generation.outline().expect("the outline is written");
         let written = serde_json::json!({
             "arc": chosen.selection,

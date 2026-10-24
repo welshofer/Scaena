@@ -132,10 +132,10 @@ pub struct Painter<'a> {
 }
 
 /// How many times a picture is asked for while its provider is busy: Vzestup's four, and two
-/// more for a key whose rate limit counts pictures by the minute.
-const TRIES: usize = 6;
+/// more for a key whose rate limit counts pictures by the minute; the slides' too (REL-1).
+const TRIES: usize = scaena_narrato::TRIES;
 /// The longest wait between two asks, in seconds.
-const LONGEST_WAIT: f64 = 60.0;
+const LONGEST_WAIT: f64 = scaena_narrato::LONGEST_WAIT;
 
 /// The pictures `asked` for, made by `painter` through `transport` ([`Painting`]): every one at
 /// once, each asked again while its provider is busy, up to six times in all, waiting as
@@ -278,6 +278,9 @@ pub enum Progress {
     Chose { arc: String, fallback: Option<String> },
     /// The slides are asked, at least this many.
     Writing { slides: usize },
+    /// The provider was busy, failed for now, or did not answer: the same step is asked again
+    /// after `wait` seconds, `tried` times so far (narrative REL-1).
+    Retrying { wait: f64, tried: usize },
     /// The slides came back, cut short or whole: `text` is the answer as the model wrote it, what
     /// `--slides` takes, for a client that keeps it so a run that fails later resumes from it
     /// (narrative REL-2).
@@ -408,7 +411,9 @@ fn unwritten(write: &Write) -> crate::Bundle {
 /// makes in the theme, each slide with a picture drawn beside it; then, with a key, each text
 /// that still runs past its place rewritten by the model to the length the engine measured for
 /// it ([`overflowing`]), and lint's fixes applied again. A rewrite that fails leaves the deck as
-/// it was, saying why; a picture not made leaves its slide in a layout that waits for none.
+/// it was, saying why; a picture not made leaves its slide in a layout that waits for none. A
+/// step whose provider is busy, fails for now, or does not answer is asked again after the wait
+/// the generation says, up to [`scaena_narrato::TRIES`] times (REL-1), as the pictures are.
 /// `say` hears how far it has come. Nothing is written.
 #[allow(clippy::too_many_arguments)]
 pub fn generate(
@@ -427,7 +432,13 @@ pub fn generate(
         let step = generation.step();
         say(if step == Step::Arc { Progress::Choosing } else { Progress::Writing { slides: generation.target() } });
         let reply = transport.send(&request);
-        generation.answer(reply.status, &reply.status_text, &reply.body).map_err(|e| OpsError::new(e.to_string()))?;
+        (generation.answer(reply.status, &reply.status_text, &reply.body, reply.after.as_deref()))
+            .map_err(|e| OpsError::new(e.to_string()))?;
+        if let Some(wait) = generation.again() {
+            say(Progress::Retrying { wait, tried: generation.tried() });
+            transport.pause(wait);
+            continue;
+        }
         if step == Step::Arc {
             let arc = generation.arc().map(|a| a.selection.clone()).unwrap_or_default();
             say(Progress::Chose { arc, fallback: generation.fallback().map(str::to_string) });
@@ -4040,8 +4051,8 @@ mod tests {
         };
         let settings = Settings { provider: Provider::Anthropic, model: "a-model".into(), base: None, browser: false };
         let mut g = Generation::new(narrative("", Vec::new()).brief, settings).unwrap();
-        assert_eq!(g.answer(200, "OK", &answer("anthropic-arc")).unwrap(), Step::Slides);
-        assert_eq!(g.answer(200, "OK", &answer("anthropic-slides")).unwrap(), Step::Done);
+        assert_eq!(g.answer(200, "OK", &answer("anthropic-arc"), None).unwrap(), Step::Slides);
+        assert_eq!(g.answer(200, "OK", &answer("anthropic-slides"), None).unwrap(), Step::Done);
         let n = g.into_narrative().unwrap();
         let (made, write) = generating(&n, Path::new("dusk.theme.json"), dusk(), &font).unwrap();
         assert!(made.created.created && made.created.errors == 0, "{:#?}", made.created.findings);
@@ -4053,6 +4064,97 @@ mod tests {
         assert_eq!(beats.len(), n.slides.len());
         assert_eq!(beats[0].claim, n.slides[0].slide_title);
         assert!(beats.iter().any(|b| b.evidence.iter().any(|e| e.starts_with('@'))));
+    }
+
+    /// A provider that is busy twice is asked the slides again, after the wait each answer
+    /// asks for, and the run goes on with the answer that then comes (narrative REL-1): the
+    /// client's transport waits, and the progress says each ask. Six busy answers end it.
+    #[test]
+    fn a_busy_provider_is_asked_the_slides_again() {
+        use scaena_narrato::{Generation, Provider, Settings};
+        struct Scripted {
+            replies: Vec<Reply>,
+            asked: usize,
+            paused: Vec<f64>,
+        }
+        impl Transport for Scripted {
+            fn send(&mut self, _: &Request) -> Reply {
+                self.asked += 1;
+                self.replies.remove(0)
+            }
+            fn pause(&mut self, seconds: f64) {
+                self.paused.push(seconds);
+            }
+        }
+        let answer = |name: &str| {
+            std::fs::read_to_string(root().join(format!("crates/scaena-narrato/tests/answers/{name}.json"))).unwrap()
+        };
+        let reply = |status: u16, text: &str, body: &str, after: Option<&str>| Reply {
+            status,
+            status_text: text.into(),
+            body: body.into(),
+            after: after.map(str::to_string),
+        };
+        let settings =
+            || Settings { provider: Provider::Anthropic, model: "a-model".into(), base: None, browser: false };
+        let mut g = Generation::new(narrative("", Vec::new()).brief, settings()).unwrap();
+        g.choose_arc(Some("Problem\u{2013}Solution"));
+        let mut transport = Scripted {
+            replies: vec![
+                reply(529, "Overloaded", r#"{"error":{"message":"Overloaded"}}"#, None),
+                reply(503, "Service Unavailable", "", Some("5")),
+                reply(200, "OK", &answer("anthropic-slides"), None),
+            ],
+            asked: 0,
+            paused: Vec::new(),
+        };
+        let mut heard = Vec::new();
+        let mut say = |p: Progress| heard.push(p);
+        let (made, write) = generate(
+            g,
+            Some("sk-test"),
+            &[],
+            None,
+            Looking::No,
+            Path::new("dusk.theme.json"),
+            dusk(),
+            &font,
+            &mut transport,
+            &mut say,
+        )
+        .unwrap();
+        assert_eq!((transport.asked, transport.paused), (3, vec![2.0, 5.0]));
+        assert!(made.created.created && made.created.errors == 0, "{:#?}", made.created.findings);
+        assert_eq!(write.unwrap().deck.states.len(), 5);
+        let retried: Vec<&Progress> = heard.iter().filter(|p| matches!(p, Progress::Retrying { .. })).collect();
+        assert_eq!(retried, [&Progress::Retrying { wait: 2.0, tried: 1 }, &Progress::Retrying { wait: 5.0, tried: 2 }]);
+        assert!(heard.iter().any(|p| matches!(p, Progress::Wrote { slides: 5, .. })));
+
+        // Six for now in a row: the error says so, after every try.
+        let mut g = Generation::new(narrative("", Vec::new()).brief, settings()).unwrap();
+        g.choose_arc(Some("Problem\u{2013}Solution"));
+        let mut transport = Scripted {
+            replies: (0..scaena_narrato::TRIES).map(|_| reply(0, "connection reset", "", None)).collect(),
+            asked: 0,
+            paused: Vec::new(),
+        };
+        let mut heard = Vec::new();
+        let mut say = |p: Progress| heard.push(p);
+        let err = generate(
+            g,
+            Some("sk-test"),
+            &[],
+            None,
+            Looking::No,
+            Path::new("dusk.theme.json"),
+            dusk(),
+            &font,
+            &mut transport,
+            &mut say,
+        )
+        .unwrap_err();
+        assert_eq!(err.message, "the request did not complete: connection reset (asked 6 times)");
+        assert_eq!((transport.asked, transport.paused), (6, vec![2.0, 4.0, 8.0, 16.0, 32.0]));
     }
 
     /// An Anthropic answer whose text is `text`.

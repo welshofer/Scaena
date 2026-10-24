@@ -37,6 +37,8 @@ export function said(event: GeneratingEvent): string {
       return `Outline settled: ${event.beats} beats`;
     case "writing":
       return `Writing the slides, at least ${event.slides}…`;
+    case "retrying":
+      return `The provider is busy or did not answer: asking again in ${Math.round(event.seconds)} s (try ${event.tried + 1} of 6)…`;
     case "wrote":
       return `${event.slides} slides written${event.truncated ? ", the answer cut short" : ""}`;
     case "painting":

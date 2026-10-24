@@ -135,6 +135,7 @@ public enum GeneratingStep: Equatable, Sendable {
     case outlined(beats: Int)
     case settled(beats: Int)
     case writing(slides: Int)
+    case retrying(seconds: Double, tried: Int)
     case wrote(slides: Int, truncated: Bool)
     case painting(pictures: Int, model: String)
     case painted(pictures: Int, unmade: [String])
@@ -163,6 +164,8 @@ public enum GeneratingStep: Equatable, Sendable {
         case .outlined(let beats): "Outline: \(beats) beats. Read it, change what you will, then Write the Slides."
         case .settled(let beats): "Outline settled: \(beats) beats"
         case .writing(let slides): "Writing the slides, at least \(slides)…"
+        case .retrying(let seconds, let tried):
+            "The provider is busy or did not answer: asking again in \(Int(seconds.rounded())) s (try \(tried + 1) of 6)…"
         case .wrote(let slides, let truncated): "\(slides) slides written\(truncated ? ", the answer cut short" : "")"
         case .painting(let pictures, let model): "Making \(pictures) pictures with \(model)… (a minute or two)"
         case .painted(let pictures, let unmade) where unmade.isEmpty: "\(pictures) pictures made"
@@ -500,6 +503,10 @@ public final class Generator {
         let truncated: Bool?
         /// The outline, once the model wrote it or the person settled one (narrative FUNC-1).
         let outline: StoryOutline?
+        /// The seconds to wait before the same step is asked again, where its last answer was
+        /// for now (narrative REL-1).
+        let wait: Double?
+        let tried: Int?
     }
 
     private struct Making: Decodable {
@@ -713,13 +720,21 @@ public final class Generator {
             guard let request = standing.request else { break }
             hear(standing.step == "arc" ? .choosing : standing.step == "outline" ? .outlining : .writing(slides: standing.slides ?? 0))
             let reply = await send(request)
-            let now: Standing = try step(
-                "answer",
-                [
-                    "status": .number(Double(reply.status)),
-                    "statusText": .string(reply.status == 0 ? reply.text : HTTPURLResponse.localizedString(forStatusCode: reply.status)),
-                    "body": .string(reply.status == 0 ? "" : reply.text),
-                ])
+            var answered: [String: JSONValue] = [
+                "status": .number(Double(reply.status)),
+                "statusText": .string(reply.status == 0 ? reply.text : HTTPURLResponse.localizedString(forStatusCode: reply.status)),
+                "body": .string(reply.status == 0 ? "" : reply.text),
+            ]
+            if let after = reply.after { answered["after"] = .string(after) }
+            let now: Standing = try step("answer", answered)
+            // An answer for now (busy, a server's failure, none): the same step asked again after
+            // the wait the engine says, up to six times (narrative REL-1); a cancellation ends the
+            // wait.
+            if let wait = now.wait {
+                hear(.retrying(seconds: wait, tried: now.tried ?? 0))
+                try await Task.sleep(for: .seconds(wait))
+                continue
+            }
             switch standing.step {
             case "arc":
                 hear(.chose(arc: now.arc ?? "", fallback: now.fallback))
