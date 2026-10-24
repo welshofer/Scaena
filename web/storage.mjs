@@ -73,9 +73,11 @@ try {
   page.on("console", (m) => m.type() === "error" && failures.push(`console: ${m.text()}`));
   /** What the page asked first, as `confirm` asks it. */
   const asked = [];
+  /** Whether the next question is declined. */
+  let declining = false;
   page.on("dialog", (d) => {
     asked.push(d.message());
-    void d.accept();
+    void (declining ? d.dismiss() : d.accept());
   });
   /** The editor once it has compiled and linted the bundle named `name`, if any. */
   const ready = async (name) => {
@@ -139,6 +141,48 @@ try {
   const played = await player.evaluate(() => window.scaena?.states ?? document.querySelector("#status").textContent);
   check(Array.isArray(played) && played.length === 4, `the player plays it from there: ${played}`);
   await player.close();
+
+  // Play opens the player on the slide shown (lift-up FUNC-2), and on the deck as the editor has
+  // it: with changes not saved, it asks to save first, and saves; declined, it plays the deck as
+  // last saved.
+  const playing = async () => {
+    // The state shown as Play is pressed: the preview follows the cursor, so an edit typed shows the
+    // state it is in.
+    const shown = await page.evaluate(() => window.scaena.last().states[window.scaena.shown()][0]);
+    const [opened] = await Promise.all([context.waitForEvent("page"), page.click("#play")]);
+    await opened.waitForFunction(() => window.scaena?.at || document.querySelector("#status")?.textContent.startsWith("Error"), null, { timeout: 120000 });
+    const at = {
+      shown,
+      state: new URL(opened.url()).searchParams.get("state"),
+      index: await opened.evaluate(() => window.scaena?.at?.().index),
+      states: await opened.evaluate(() => window.scaena?.states),
+    };
+    await opened.close();
+    return { ...at, on: at.state === shown && at.states?.[at.index] === shown };
+  };
+  await page.locator('#strip li[data-state="mix"]').click();
+  await page.waitForFunction(() => window.scaena.shown() === 2 && window.scaena.at().index === 2, null, { timeout: 30000 });
+  const onMix = await playing();
+  check(onMix.on && onMix.state === "mix", `Play opens the player on the slide shown: ${JSON.stringify(onMix)}`);
+  check(asked.length === 0, "with nothing to save, nothing is asked");
+  const tripled = reopened.replace("Revenue more than doubled", "Revenue tripled");
+  await type(tripled);
+  check((await where()).dirty, "an edit not saved");
+  const onEdited = await playing();
+  check(asked.length === 1 && asked[0].includes("Save it first?"), `Play on a deck with changes not saved asks to save it first: ${asked}`);
+  check(!(await where()).dirty && (await listing(page, "bundles/revenue", "deck.json")).includes("Revenue tripled"), "saved, so the player plays the deck as the editor has it");
+  check(onEdited.on, `on the slide shown: ${JSON.stringify(onEdited)}`);
+  await type(reopened);
+  check((await where()).dirty, "an edit not saved again");
+  declining = true;
+  const declined = await playing();
+  declining = false;
+  check(asked.length === 2 && (await where()).dirty && (await listing(page, "bundles/revenue", "deck.json")).includes("Revenue tripled"), "declined, nothing is saved, and the player plays the deck as last saved");
+  check(declined.on, `on the slide shown: ${JSON.stringify(declined)}`);
+  await page.evaluate(() => window.scaena.save());
+  check(!(await where()).dirty && (await listing(page, "bundles/revenue", "deck.json")).includes("Revenue more than doubled"), "saved again as it was");
+  await page.locator('#strip li[data-state="intro"]').click();
+  await page.waitForFunction(() => window.scaena.shown() === 0 && window.scaena.at().index === 0, null, { timeout: 30000 });
 
   // A PNG dropped where an image node's source goes.
   const png = await readFile("tests/fixtures/torture.scaena/assets/test-card.png");

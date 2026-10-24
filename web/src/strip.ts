@@ -42,7 +42,7 @@ export interface StripEditor {
   /** Show the state at slot `index`, as the state picker does. */
   show(index: number): void;
   /** Take `source`, a patch's, as one change: one step to undo. */
-  apply(source: string, edited: Edited): void;
+  apply(source: string, edited: Edited, said?: string): void;
   say(text: string): void;
   /** A slide made here, from the gallery or after the slide shown: the canvas outlines its
    * layout's empty slots (PLAN 3.30). */
@@ -194,7 +194,7 @@ export function strip(stage: Stage, into: HTMLElement, editor: StripEditor) {
       editor.say(doing);
       try {
         const { source, edited } = await stage.make(editor.source, ops, Math.max(0, to(slots)), editor.format());
-        editor.apply(source, edited);
+        editor.apply(source, edited, done);
         editor.say(done);
       } catch (e) {
         editor.say(`Not changed: ${said(e)}`);

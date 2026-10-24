@@ -26,9 +26,10 @@ Components: main universe restricted multiverse
 # A fake apt-get: logs the mirror the sources name and what it was asked (`update`, `download`,
 # `offline`, or `install`), and goes silent, fails, fetches steadily for 3 s, or trickles where
 # $SLOW, $DOWN, $STEADY, or $TRICKLE names that mirror. An update writes a list into $LISTS and a
-# download the package into $ARCHIVES, as apt's do; an install with no network needs both.
+# download the package into $ARCHIVES, as apt's do; an install with no network needs both. A dpkg
+# left interrupted ($STATE/interrupted) refuses all but an update until it is configured.
 APT_GET = """#!/usr/bin/env bash
-mirror=$(grep -m1 -oE 'http://[^ ]+' "$SOURCES" )
+mirror=$(grep -v '^#' "$SOURCES" | grep -m1 -oE '(https?://|mirror[+]file:)[^ ]+')
 case " $* " in
   *" update "*) what=update ;;
   *" --download-only "*) what=download ;;
@@ -36,6 +37,10 @@ case " $* " in
   *) what=install ;;
 esac
 echo "$mirror $what" >> "$LOG"
+if [ -f "$STATE/interrupted" ] && [ "$what" != update ]; then
+  echo "E: dpkg was interrupted, you must manually run 'sudo dpkg --configure -a' to correct the problem." >&2
+  exit 100
+fi
 if [ "$what" = offline ]; then
   [ -f "$LISTS/ubuntu_Packages" ] && [ -f "$ARCHIVES/ffmpeg.deb" ] && exit 0
   exit 100
@@ -56,16 +61,34 @@ fi
 exit 0
 """
 
+# A fake dpkg: `--configure -a` finishes what an interrupted install left, as dpkg's does.
+DPKG = """#!/usr/bin/env bash
+[ "$*" = "--configure -a" ] && rm -f "$STATE/interrupted"
+exit 0
+"""
+
+# The runner's own: its classic list, the release notes' address in a comment, and Azure's
+# mirrors named by a list of them.
+RUNNER = """# See http://help.ubuntu.com/community/UpgradeNotes for how to upgrade to
+# newer versions of the distribution.
+deb mirror+file:/etc/apt/apt-mirrors.txt noble main restricted
+deb mirror+file:/etc/apt/apt-mirrors.txt noble-updates main restricted
+deb http://security.ubuntu.com/ubuntu noble-security main restricted
+"""
+LISTED = "mirror+file:/etc/apt/apt-mirrors.txt"
+
 AZURE = "http://azure.archive.ubuntu.com/ubuntu/"
 ARCHIVE = "http://archive.ubuntu.com/ubuntu/"
 KERNEL = "http://mirrors.edge.kernel.org/ubuntu/"
 
 
 class AptInstall(unittest.TestCase):
-    def run_script(self, slow="", down="", steady="", trickle="", keep=None):
+    def run_script(self, slow="", down="", steady="", trickle="", sources=SOURCES, interrupted=False, keep=None):
         d = Path(tempfile.mkdtemp())
-        self.dir = d
-        (d / "ubuntu.sources").write_text(SOURCES)
+        (d / "ubuntu.sources").write_text(sources)
+        (d / "state").mkdir()
+        if interrupted:
+            (d / "state/interrupted").write_text("")
         bin_dir = d / "bin"
         bin_dir.mkdir()
         (d / "lists").mkdir()
@@ -73,11 +96,15 @@ class AptInstall(unittest.TestCase):
         fake = bin_dir / "apt-get"
         fake.write_text(APT_GET)
         fake.chmod(fake.stat().st_mode | stat.S_IEXEC)
+        dpkg = bin_dir / "dpkg"
+        dpkg.write_text(DPKG)
+        dpkg.chmod(dpkg.stat().st_mode | stat.S_IEXEC)
         env = dict(
             os.environ,
             PATH=f"{bin_dir}:{os.environ['PATH']}",
             SOURCES=str(d / "ubuntu.sources"),
             LOG=str(d / "log"),
+            STATE=str(d / "state"),
             SLOW=slow,
             DOWN=down,
             STEADY=steady,
@@ -142,6 +169,24 @@ class AptInstall(unittest.TestCase):
         self.assertEqual(log, [f"{AZURE} update", f"{AZURE} download", f"{AZURE} install"])
         self.assertTrue((keep / "archives/ffmpeg.deb").is_file())
         self.assertFalse((keep / "archives/other.deb").exists())
+
+    def test_the_runners_listed_mirrors_give_way_and_the_comments_stay(self):
+        # GitHub's runners name Azure's mirrors by `mirror+file:` under a comment with an address
+        # of its own: the failover rewrites the deb lines, never the comment or the security pocket.
+        done, log, sources, _ = self.run_script(slow=LISTED, sources=RUNNER)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(log[0], f"{LISTED} update")
+        self.assertEqual(log[-3:], [f"{ARCHIVE} update", f"{ARCHIVE} download", f"{ARCHIVE} install"])
+        self.assertIn(f"deb {ARCHIVE} noble main restricted", sources)
+        self.assertIn(f"deb {ARCHIVE} noble-updates main restricted", sources)
+        self.assertNotIn(LISTED, sources)
+        self.assertIn("# See http://help.ubuntu.com/community/UpgradeNotes for how", sources)
+        self.assertIn("deb http://security.ubuntu.com/ubuntu noble-security", sources)
+
+    def test_a_dpkg_left_interrupted_is_configured_and_the_install_goes_on(self):
+        done, log, _, _ = self.run_script(interrupted=True)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(log, [f"{AZURE} update", f"{AZURE} download", f"{AZURE} install"])
 
     def test_every_mirror_failing_fails_after_two_rounds(self):
         done, log, _, _ = self.run_script(down=f"{AZURE} {ARCHIVE} {KERNEL}")
