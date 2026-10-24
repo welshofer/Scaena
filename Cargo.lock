@@ -3469,6 +3469,7 @@ name = "scaena-store"
 version = "0.1.0"
 dependencies = [
  "indexmap",
+ "libc",
  "loro",
  "scaena-core",
  "serde",

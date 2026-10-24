@@ -240,17 +240,19 @@ impl Scene {
 }
 
 impl SceneNode {
-    /// What the node draws, as a box: text by its lines as set, a chart, a table, or an image
-    /// by its cell; a shape or a shader, nothing. What lint E101 judges, and what an insert
-    /// keeps clear of (PLAN 2.79).
+    /// What the node draws, as a box: text by its lines across and its glyphs' ink up and down
+    /// (a descender below a tight line box, no room above its capitals), a chart, a table, or
+    /// an image by its cell; a shape or a shader, nothing. What lint E101 judges, and what an
+    /// insert keeps clear of (PLAN 2.79).
     pub fn ink(&self) -> Option<Rect> {
         match &self.content {
             Content::Text(placed) => {
                 let t = &placed.text;
                 let left = t.lines.iter().map(|l| l.x - l.hang).fold(f32::INFINITY, f32::min);
                 let right = t.lines.iter().map(|l| l.x + l.width + l.hang_end).fold(f32::NEG_INFINITY, f32::max);
-                (left.is_finite() && right > left)
-                    .then(|| [placed.origin[0] + left, placed.origin[1], right - left, t.height])
+                let (top, bottom) = t.ink;
+                (left.is_finite() && right > left && bottom > top)
+                    .then(|| [placed.origin[0] + left, placed.origin[1] + top, right - left, bottom - top])
             }
             Content::Chart { cell, .. } | Content::Table { cell, .. } => Some(*cell),
             Content::Image(image) => Some(image.rect),

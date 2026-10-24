@@ -85,11 +85,14 @@ pub enum Files {
 impl Files {
     /// The file at `rel`, a path inside the bundle.
     pub fn read(&self, rel: &str) -> Result<Vec<u8>, StoreError> {
+        self.reading(rel, &mut Vec::new())
+    }
+
+    /// [`Self::read`], for one of several files read together: `known` holds the folders already
+    /// found to be folders and no links, which are not looked at again.
+    fn reading(&self, rel: &str, known: &mut Vec<PathBuf>) -> Result<Vec<u8>, StoreError> {
         match self {
-            Files::Dir(root) => {
-                let path = inside(root, rel)?;
-                std::fs::read(&path).map_err(|source| StoreError::Read { path, source })
-            }
+            Files::Dir(root) => opened(root, rel, known),
             Files::Zip(entries) => {
                 let key = normal(rel)?;
                 entries.get(&key).cloned().ok_or(StoreError::Missing(key))
@@ -253,21 +256,23 @@ impl Bundle {
     /// The deck's font files (`fonts[].file`) in deck order, as (bundle id, bytes). The
     /// id is the file's path inside the bundle, which is how display lists name fonts.
     pub fn read_fonts(&self) -> Result<Vec<(String, Vec<u8>)>, StoreError> {
-        self.deck.fonts.iter().map(|f| Ok((f.file.clone(), self.read(&f.file)?))).collect()
+        let known = &mut Vec::new();
+        self.deck.fonts.iter().map(|f| Ok((f.file.clone(), self.files.reading(&f.file, known)?))).collect()
     }
 
     /// The image files the deck's image nodes name, as (bundle path, bytes).
     pub fn read_images(&self) -> Result<Vec<(String, Vec<u8>)>, StoreError> {
-        self.deck.image_files().into_iter().map(|path| Ok((path.clone(), self.read(&path)?))).collect()
+        let known = &mut Vec::new();
+        self.deck.image_files().into_iter().map(|path| Ok((path.clone(), self.files.reading(&path, known)?))).collect()
     }
 
     /// The files the deck's data sources name (`data.*.source` strings), as (bundle
     /// path, bytes), in deck order; inline sources need no file.
     pub fn read_data(&self) -> Result<Vec<(String, Vec<u8>)>, StoreError> {
-        let mut out = Vec::new();
+        let (mut out, known) = (Vec::new(), &mut Vec::new());
         for source in self.deck.data.values() {
             if let serde_json::Value::String(rel) = &source.source {
-                out.push((rel.clone(), self.read(rel)?));
+                out.push((rel.clone(), self.files.reading(rel, known)?));
             }
         }
         Ok(out)
@@ -442,12 +447,70 @@ fn staged(path: &Path, bytes: &[u8]) -> std::io::Result<PathBuf> {
 /// keeps its links, and one that leads out would read a file the user did not mean into what
 /// a save or an export carries, or write a data edit over one outside.
 fn inside(root: &Path, rel: &str) -> Result<PathBuf, StoreError> {
+    held(root, rel, &mut Vec::new(), true)
+}
+
+/// The file at `rel` in the bundle at `root`, read as [`inside`] holds it. On unix it is opened
+/// with O_NOFOLLOW, which refuses a link: the folders on its way are looked at, each once for a
+/// batch of reads (`known`), and the file itself is read through its link only where it is one
+/// that stays inside. So a read costs what `std::fs::read` does, and a look at each new folder.
+fn opened(root: &Path, rel: &str, known: &mut Vec<PathBuf>) -> Result<Vec<u8>, StoreError> {
+    #[cfg(unix)]
+    {
+        use std::io::Read;
+        use std::os::unix::fs::OpenOptionsExt;
+        let path = held(root, rel, known, false)?;
+        let read = |path: PathBuf| std::fs::read(&path).map_err(|source| StoreError::Read { path, source });
+        match std::fs::OpenOptions::new().read(true).custom_flags(libc::O_NOFOLLOW).open(&path) {
+            Ok(mut file) => {
+                let mut bytes = Vec::new();
+                file.read_to_end(&mut bytes).map_err(|source| StoreError::Read { path, source })?;
+                Ok(bytes)
+            }
+            Err(e) if e.raw_os_error() == Some(libc::ELOOP) => read(resolved(root, path, rel)?),
+            Err(source) => Err(StoreError::Read { path, source }),
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let path = held(root, rel, known, true)?;
+        std::fs::read(&path).map_err(|source| StoreError::Read { path, source })
+    }
+}
+
+/// [`inside`], its last part looked at only with `last`. A folder in `known` is taken as looked
+/// at; each folder found to be no link joins it.
+fn held(root: &Path, rel: &str, known: &mut Vec<PathBuf>, last: bool) -> Result<PathBuf, StoreError> {
     let normal = Path::new(rel).components().all(|c| matches!(c, Component::Normal(_) | Component::CurDir));
     if rel.is_empty() || !normal {
         return Err(StoreError::OutsideBundle(rel.to_string()));
     }
     let path = root.join(rel);
-    // A bundle not made yet has nothing to lead out through.
+    // Only a link inside the bundle can lead out of it: each part of `rel` is looked at as it is
+    // on disk, and read through its links only where one is a link. A part not there yet, and
+    // all after it, is made new. So a read costs a look at each part of its path in the bundle,
+    // not a walk of the whole path from the disk's root.
+    let parts: Vec<Component> = Path::new(rel).components().filter(|c| matches!(c, Component::Normal(_))).collect();
+    let looked = if last { parts.len() } else { parts.len().saturating_sub(1) };
+    let mut at = root.to_path_buf();
+    for part in &parts[..looked] {
+        at.push(part);
+        if known.contains(&at) {
+            continue;
+        }
+        match std::fs::symlink_metadata(&at) {
+            Err(_) => return Ok(path),
+            Ok(meta) if meta.file_type().is_symlink() => return resolved(root, path, rel),
+            Ok(meta) if meta.is_dir() => known.push(at.clone()),
+            Ok(_) => {}
+        }
+    }
+    Ok(path)
+}
+
+/// `path`, at `rel` in the bundle at `root` and passing through a link, where read through its
+/// links it is still inside the bundle.
+fn resolved(root: &Path, path: PathBuf, rel: &str) -> Result<PathBuf, StoreError> {
     let Ok(real_root) = std::fs::canonicalize(root) else { return Ok(path) };
     // The nearest part of it that is there, read through its links; the rest is made new.
     let mut there = path.as_path();
