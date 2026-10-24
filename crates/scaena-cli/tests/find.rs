@@ -133,16 +133,18 @@ fn a_files_values_and_the_highlight_that_names_one_are_found_and_kept() {
     let path = example("cells");
     let csv = path.with_file_name("data").join("q3-revenue.csv");
     let original = std::fs::read(&csv).unwrap();
-    // The chart reads the file and highlights a series of it by its name.
-    let note = serde_json::json!([{ "op": "set_prop", "node": "rev", "prop": "annotations",
-        "value": [{ "at": { "series": "Enterprise" }, "text": "Enterprise grew fastest" }] }]);
+    // The chart reads the file, highlights a series of it by its name, and calls out its last bar.
+    let note = serde_json::json!([{ "op": "set_prop", "node": "rev", "prop": "annotations", "value": [
+        { "kind": "highlight", "at": { "series": "Enterprise" } },
+        { "kind": "callout", "at": { "x": "2026-Q3", "series": "Enterprise" }, "text": "Enterprise grew fastest" }
+    ] }]);
     std::fs::write(path.with_file_name("note.json"), note.to_string()).unwrap();
     let patched =
         scaena(&["patch", path.to_str().unwrap(), "--ops", path.with_file_name("note.json").to_str().unwrap()]);
     assert!(patched.status.success(), "{}", String::from_utf8_lossy(&patched.stderr));
 
-    // The note's text and the annotation's, which are words, and each of the file's cells that
-    // holds the series' name and the highlight's `at`, which are values, kept and saying why.
+    // The note's text and the callout's, which are words, and each of the file's cells that holds
+    // the series' name and each annotation's `at`, which are values, kept and saying why.
     let (code, found) = find(&path, &["Enterprise", "--case"]);
     assert_eq!(code, 0, "{found}");
     let all = found["found"].as_array().unwrap();
@@ -156,9 +158,12 @@ fn a_files_values_and_the_highlight_that_names_one_are_found_and_kept() {
         assert!(cell["states"].as_array().unwrap().contains(&Value::from("revenue")), "{cell}");
         assert!(cell["kept"].as_str().unwrap().starts_with("a value of the data"), "{cell}");
     }
-    let at = all.iter().find(|f| f["lives"].as_str().unwrap().ends_with("/at/series")).expect("the highlight's value");
-    assert_eq!((at["kind"].as_str(), at["node"].as_str()), (Some("chart"), Some("rev")), "{at}");
-    assert!(at["kept"].is_string(), "{at}");
+    let ats: Vec<&Value> = all.iter().filter(|f| f["lives"].as_str().unwrap().ends_with("/at/series")).collect();
+    assert_eq!(ats.len(), 2, "the highlight's value and the callout's: {found}");
+    for at in &ats {
+        assert_eq!((at["kind"].as_str(), at["node"].as_str()), (Some("chart"), Some("rev")), "{at}");
+        assert!(at["kept"].is_string(), "{at}");
+    }
     assert!(found.get("kept").is_none(), "nothing is kept without a replacement: {found}");
 
     // A replacement writes the words alone, and names each value it left as it is: the file is as
@@ -166,14 +171,15 @@ fn a_files_values_and_the_highlight_that_names_one_are_found_and_kept() {
     let (code, replaced) = find(&path, &["Enterprise", "--case", "--replace", "Business"]);
     assert_eq!(code, 0, "{replaced}");
     let kept = replaced["kept"].as_array().unwrap();
-    assert_eq!(kept.len(), cells.len() + 1, "{replaced}");
-    assert!(kept.contains(at.get("lives").unwrap()), "{replaced}");
+    assert_eq!(kept.len(), cells.len() + ats.len(), "{replaced}");
+    assert!(ats.iter().all(|at| kept.contains(&at["lives"])), "{replaced}");
     let after = deck(&path);
     assert_eq!(after["nodes"]["note"]["text"], "Revenue in $M. Business recognized on delivery.");
     let note = after["states"].as_array().unwrap().iter().find_map(|s| s["props"]["rev"]["annotations"].as_array());
     let note = note.or_else(|| after["nodes"]["rev"]["annotations"].as_array()).unwrap();
-    assert_eq!(note[0]["text"], "Business grew fastest");
     assert_eq!(note[0]["at"]["series"], "Enterprise", "the highlight names what the file holds");
+    assert_eq!(note[1]["text"], "Business grew fastest");
+    assert_eq!(note[1]["at"]["series"], "Enterprise", "and so does the callout");
     assert_eq!(std::fs::read(&csv).unwrap(), original, "the file is as it was");
     assert_eq!(scaena(&["validate", path.to_str().unwrap()]).status.code(), Some(0));
     let out = scaena(&["find", path.to_str().unwrap(), "Enterprise", "--replace", "Business"]);
