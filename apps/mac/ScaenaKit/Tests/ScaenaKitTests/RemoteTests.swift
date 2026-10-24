@@ -7,6 +7,8 @@ import Testing
 @MainActor
 private final class Heard {
     var asked: [RemoteCommand] = []
+    /// Each slide asked for by its number.
+    var slides: [Int] = []
     var joined = 0
     /// Each code made anew after wrong ones.
     var recoded: [String] = []
@@ -20,6 +22,7 @@ private func presenter(_ code: String, cooldown: Double = 5) async throws -> (Re
     let server = try RemoteServer(name: nil, code: code, loopback: true, cooldown: cooldown)
     let heard = Heard()
     server.command = { heard.asked.append($0) }
+    server.slide = { heard.slides.append($0) }
     server.joined = { heard.joined = $0 }
     server.recoded = { heard.recoded.append($0) }
     server.tried = { heard.tried = $0 }
@@ -116,6 +119,82 @@ private func tried(_ endpoint: NWEndpoint, _ parameters: NWParameters, _ seconds
 
     remote.leave()
     server.stop()
+}
+
+/// The remote sees what the room sees (lift-up FUNC-5): a black or white screen, the end of the
+/// show, and the presenter's timer, paused where it is; and it asks for them, and for a slide by
+/// its number, as the presenter's keys do.
+@MainActor @Test func aRemoteMirrorsTheScreenTheEndAndTheTimerAndAsksForThem() async throws {
+    let (server, heard) = try await presenter("5307")
+    let port = try #require(server.port)
+    let at = Date(timeIntervalSince1970: 1_790_000_000)
+    let blanked = RemotePlace(
+        deck: "B1", showing: true, state: "goal", index: 1, count: 40, blank: .black,
+        timer: RemoteTimer(elapsed: 75, paused: true, at: at))
+    server.tell(blanked)
+    let remote = RemoteClient(here(port), code: "5307")
+    guard await waited(10, { remote.status == .joined }) else {
+        Issue.record("the remote joins with the code: \(remote.status)")
+        remote.leave()
+        server.stop()
+        return
+    }
+    // Its timer is stamped as it arrives, by the remote's clock; the rest is as the presenter told it.
+    #expect(await waited { remote.place?.timer != nil }, "it hears the place")
+    let heardTimer = try #require(remote.place?.timer)
+    #expect(remote.place == blanked.received(at: heardTimer.at), "it hears the screen black")
+    #expect(heardTimer.elapsed == 75 && heardTimer.paused, "and the timer paused where it stood")
+    let ended = RemotePlace(deck: "B1", showing: true, state: "close", index: 39, count: 40, over: true)
+    server.tell(ended)
+    #expect(await waited { remote.place?.over == true && remote.place?.blank == nil }, "and the end of the show")
+
+    remote.send(.white)
+    remote.send(.pauseTimer)
+    remote.send(.resetTimer)
+    remote.go(slide: 12)
+    remote.go(slide: 0)
+    #expect(await waited { heard.asked == [.white, .pauseTimer, .resetTimer] }, "the presenter hears each")
+    #expect(await waited { heard.slides == [12] }, "and the slide by its number, never one numbered 0")
+
+    remote.leave()
+    server.stop()
+}
+
+/// A presenter from before the remote mirrored the room sends no screen, end, or timer: its place
+/// reads with none, the time since the show began standing in for the timer.
+@Test func aPlaceFromAnOlderPresenterReadsWithNoScreenEndOrTimer() throws {
+    let sent = #"{"deck":"B1","showing":true,"state":"cover","index":0,"count":40,"ms":0,"rest":true,"notes":""}"#
+    let place = try JSONDecoder().decode(RemotePlace.self, from: Data(sent.utf8))
+    #expect(place.blank == nil && !place.over && place.timer == nil)
+    let told = RemotePlace(
+        deck: "B1", showing: true, blank: .white, over: false, timer: RemoteTimer(elapsed: 3, paused: false, at: .now))
+    let back = try JSONDecoder().decode(RemotePlace.self, from: JSONEncoder().encode(told))
+    #expect(back.blank == .white && back.timer?.elapsed == 3, "what a presenter tells reads back as told")
+}
+
+/// A remote whose clock is off from the presenter's reads the presenter's time all the same: the
+/// timer is stamped as the place arrives, by the remote's own clock.
+@Test func aRemoteWithAClockOffReadsThePresentersTime() {
+    let here = Date(timeIntervalSince1970: 1_790_000_000)
+    // The presenter's clock 30 s ahead of the remote's.
+    let told = RemotePlace(
+        deck: "B1", showing: true, timer: RemoteTimer(elapsed: 75, paused: false, at: here.addingTimeInterval(30)))
+    #expect(told.timer?.reads(at: here.addingTimeInterval(10)) == "1:15", "read by the presenter's stamp, it is 10 s short")
+    let heard = told.received(at: here)
+    #expect(heard.timer?.reads(at: here) == "1:15", "taken as it arrives, it reads what the presenter's view reads")
+    #expect(heard.timer?.reads(at: here.addingTimeInterval(10)) == "1:25", "and runs on from there")
+    #expect(RemotePlace(deck: "B1", showing: true).received(at: here).timer == nil, "a place with no timer takes none")
+}
+
+/// The presenter's timer reads on the remote as on the presenter's view: paused where it stands,
+/// else running on from when it was told.
+@Test func theTimerReadsAsThePresentersDoes() {
+    let at = Date(timeIntervalSince1970: 1_790_000_000)
+    let paused = RemoteTimer(elapsed: 125, paused: true, at: at)
+    #expect(paused.reads(at: at.addingTimeInterval(60)) == "2:05", "paused, it stands")
+    let running = RemoteTimer(elapsed: 125, paused: false, at: at)
+    #expect(running.reads(at: at.addingTimeInterval(60)) == "3:05", "running, it runs on")
+    #expect(running.reads(at: at.addingTimeInterval(-30)) == "2:05", "never back for a clock behind")
 }
 
 /// After five wrong codes the presenter makes its code anew and says so (lift-up SEC-5): a remote

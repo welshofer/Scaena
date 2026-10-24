@@ -143,13 +143,16 @@ public final class ScaenaSession {
         return CGSize(width: size[0], height: size[1])
     }
 
-    /// A state on the deck's timeline: where it starts, its cue's span, and its hold, ms.
+    /// A state on the deck's timeline: where it starts, its cue's span, and its hold, ms; and the
+    /// words that head it, where a text does, which the slides down the side are read by (lift-up
+    /// 10-24b USE-4).
     public struct Slot: Decodable, Equatable, Sendable {
         public let state: String
         public let slide: String
         public let start: Double
         public let span: Double
         public let hold: Double
+        public var headline: String? = nil
     }
 
     /// The deck's states end to end (SPEC §2.4).
@@ -157,6 +160,12 @@ public final class ScaenaSession {
 
     /// How long `state`'s cue runs, ms. Past it, the state is at rest.
     public func duration(of state: String) throws -> Double { try call("duration", ["state": .string(state)]) }
+
+    /// Lay out the cue into `state` ahead, while the state shown rests: the state a show goes on
+    /// to, whose first frame then lays out nothing (lift-up PERF-1).
+    public func prepare(_ state: String) throws {
+        let _: JSONValue = try call("prepare", ["state": .string(state)])
+    }
 
     /// The deck as canonical `.scn`.
     public func source() throws -> String { try call("source") }
