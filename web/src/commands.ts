@@ -52,6 +52,9 @@ export interface Command {
   group?: Group;
   /** What a right click offers it on, besides the palette. */
   where?: Where[];
+  /** Its section of a menu, a heading over the items that share it: the Insert menu's kinds, the
+   * animations by what each is for. */
+  section?: string;
   /** Whether it applies now: one that does not is not offered. */
   applies?(): boolean;
   run(): unknown;
@@ -194,7 +197,19 @@ export function menu(x: number, y: number, items: Command[], back: HTMLElement |
   const el = document.createElement("div");
   el.className = "context-menu";
   el.setAttribute("role", "menu");
-  el.innerHTML = live.map((c, i) => `<button type="button" role="menuitem" tabindex="-1" data-n="${i}">${item(c)}</button>`).join("");
+  // Each item under its section's heading, where it has one, the items of a section grouped.
+  const parts: string[] = [];
+  let section: string | undefined;
+  for (const [i, c] of live.entries()) {
+    if (c.section !== section) {
+      if (section !== undefined) parts.push("</div>");
+      section = c.section;
+      if (section !== undefined) parts.push(`<div role="group" aria-label="${html(section)}"><span class="section" aria-hidden="true">${html(section)}</span>`);
+    }
+    parts.push(`<button type="button" role="menuitem" tabindex="-1" data-n="${i}">${item(c)}</button>`);
+  }
+  if (section !== undefined) parts.push("</div>");
+  el.innerHTML = parts.join("");
   document.body.append(el);
   // Inside the window, as near the pointer as it fits.
   const { width, height } = el.getBoundingClientRect();
@@ -236,6 +251,24 @@ export function menu(x: number, y: number, items: Command[], back: HTMLElement |
     void Promise.resolve(live[Number(n)].run());
   };
   return { close, items: () => live.map((c) => c.label) };
+}
+
+/** `button` opens a menu of `items` under itself, on a click or ↓, as a toolbar's menu button
+ * does; focus goes back to it when the menu closes. Nothing is run until an item is chosen, so
+ * the arrow keys browse it and change nothing (WCAG 3.2.2; lift-up USE-3). */
+export function opens(button: HTMLButtonElement, items: () => Command[]) {
+  const open = () => {
+    const at = button.getBoundingClientRect();
+    return menu(at.left, at.bottom + 2, items(), button);
+  };
+  button.setAttribute("aria-haspopup", "menu");
+  button.onclick = open;
+  button.onkeydown = (e) => {
+    if (e.key !== "ArrowDown") return;
+    e.preventDefault();
+    open();
+  };
+  return open;
 }
 
 /** A key, or the keys of a command, as the keys sheet lists it, in its group. */
@@ -284,8 +317,11 @@ export function sheet(dialog: HTMLDialogElement, commands: () => Command[], keys
     if (dialog.open) dialog.close();
   }
 
-  // Escape closes a modal dialog by itself; either way, focus goes back where it was.
+  // Escape closes a modal dialog by itself; either way, focus goes back where it was. The close is
+  // told a task after it, so focus put somewhere since, as a press on the canvas puts it, stays.
   listen(dialog, "close", () => {
+    const now = document.activeElement;
+    if (now && now !== document.body && !dialog.contains(now)) return;
     if (back instanceof HTMLElement && back.isConnected) back.focus();
   });
   dialog.onclick = (e) => {
