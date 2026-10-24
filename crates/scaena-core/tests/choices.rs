@@ -786,10 +786,10 @@ fn characters_offer_a_runs_look_and_show_the_first_ones() {
 fn a_texts_look_says_what_its_role_gives_where_the_deck_sets_none() {
     let c = offered(&example(), "revenue", "title");
     let gives = |prop: &str| field(&c, prop).theme.clone();
-    // The title is a headline in `revenue`, and Dusk's headline is its display face, 80 at 550.
+    // The title is a headline in `revenue`, and Dusk's headline is its display face, 64 at 550.
     assert_eq!(gives("style/family"), Some(json!("display")));
     assert_eq!(gives("style/weight"), Some(json!(550)));
-    assert_eq!(gives("style/size"), Some(json!(80.0)));
+    assert_eq!(gives("style/size"), Some(json!(64.0)));
     assert_eq!(gives("style/italic"), Some(json!(false)), "upright where the role says nothing");
     assert_eq!(gives("style/case"), Some(json!("none")), "as typed");
     assert_eq!(gives("style/color"), Some(json!("onSurface")), "a role that names no color");

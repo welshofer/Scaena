@@ -156,7 +156,7 @@ try {
   const linted = await page.evaluate(() => window.scaena.last());
   const errors = linted?.findings.filter((f) => f.severity === "error") ?? [];
   check(linted?.valid && linted.whole && !errors.length, `it compiles the deck and lints every state with no error (${errors.map((f) => f.code).join(", ") || "none"})`);
-  const [download] = await Promise.all([page.waitForEvent("download", { timeout: 60000 }), page.click("#download")]).catch(() => [undefined]);
+  const [download] = await Promise.all([page.waitForEvent("download", { timeout: 60000 }), page.click("#file-open").then(() => page.click("#download"))]).catch(() => [undefined]);
   const zip = download ? await readFile(await download.path()) : Buffer.alloc(0);
   check(zip[0] === 0x50 && zip[1] === 0x4b, `Download works, the subsetter loaded from what the site keeps: ${zip.length} bytes`);
 

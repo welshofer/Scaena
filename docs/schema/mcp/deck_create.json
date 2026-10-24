@@ -1,6 +1,6 @@
 {
   "name": "deck_create",
-  "description": "Make a bundle: a theme and its fonts, data files, and a deck pointed at them (or one state with nothing on screen). The theme is one that ships, by name (dusk, daybreak, ember, salon), or a theme file. Checked as `deck_lint` checks a bundle, and written only if it validates.",
+  "description": "Make a bundle: a theme and its fonts, data files, and a deck pointed at them (or one state with nothing on screen). The theme is one that ships, by name (dusk, daybreak, ember, salon), or a theme file. Checked as `deck_lint` checks a bundle, and written only if it validates. It keeps a history unless `history` is false: the deck made is its first version, and every write after is recorded (`deck_history`).",
   "inputSchema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "$defs": {
@@ -52,6 +52,11 @@
         "type": "array",
         "items": { "$ref": "#/$defs/Attach" },
         "default": []
+      },
+      "history": {
+        "description": "Keep a history (`history/deck.loro`, SPEC §8), as the editors' Keep a History does: the\ndeck made is its first version, every write after is recorded by its author, and\n`deck_history` lists, compares, and restores them. On unless `false`.",
+        "type": "boolean",
+        "default": true
       }
     },
     "additionalProperties": false,

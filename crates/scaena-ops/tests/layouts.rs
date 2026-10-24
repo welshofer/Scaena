@@ -79,9 +79,9 @@ fn a_state_is_offered_each_layout_that_draws_it_otherwise_judged_by_lint_best_fi
 fn a_clean_layout_that_draws_the_state_otherwise_is_suggested() {
     let b = scaena_ops::open(Path::new(TRAILS)).unwrap();
     // The storm slide's caption is its one node in a slot: five layouts set it at the foot of the
-    // photo, alike, and the rest elsewhere: four where lint finds nothing, two-figures under its
-    // figures and narrow-figure higher up and to the right among them, then those it finds
-    // something in.
+    // photo, alike, and the rest elsewhere: five where lint finds nothing, two-figures under its
+    // figures, narrow-figure higher up and to the right, and venn's among them, then those it
+    // finds something in.
     let suggested = suggest(&b, "storm", None).unwrap();
     let judged: Vec<_> = suggested.iter().map(|s| (s.layout.as_str(), s.current, s.errors, s.warnings)).collect();
     assert_eq!(
@@ -91,8 +91,8 @@ fn a_clean_layout_that_draws_the_state_otherwise_is_suggested() {
             ("narrow-figure", false, 0, 0),
             ("panorama", false, 0, 0),
             ("map", false, 0, 0),
+            ("venn", false, 0, 0),
             ("metric-trend", false, 0, 0),
-            ("venn", false, 0, 1),
             ("bar-chart", false, 1, 0),
             ("line-chart", false, 1, 0),
             ("positioning-map", false, 2, 0)
@@ -110,22 +110,24 @@ fn the_layouts_that_draw_a_state_alike_fold_into_the_one_it_takes() {
     // `photo-grid-text` does `photo-left`'s, over a map across the slide, and beside an agenda's
     // topics, with a picture or without (PLAN 3.30, 3.31, O.1e). Six more draw it as `full` does
     // but leave places for pictures empty, which lint counts (W304), so each stands apart, after
-    // the layouts lint finds nothing in. Of those that draw it alike, the one that leaves fewest
-    // places empty stands for the rest: `four-up` for `timeline-photos`.
+    // the layouts lint finds nothing in. The headline clear of the map, `map-full` is among those.
+    // Of those that draw it alike, the one that leaves fewest places empty stands for the rest:
+    // `four-up` for `timeline-photos`.
     let suggested = suggest(&b, "agenda", None).unwrap();
     let names: Vec<&str> = suggested.iter().map(|s| s.layout.as_str()).collect();
     let empty = ["bullets-photo", "kpi-dashboard", "four-up", "six-up", "acknowledgments", "logo-wall"];
     assert_eq!(
         names,
-        [&["full", "agenda-photo", "photo-left"][..], &empty, &["map-full", "photo-right", "agenda"]].concat(),
+        [&["full", "map-full", "agenda-photo", "photo-left"][..], &empty, &["agenda", "photo-right"]].concat(),
         "{suggested:#?}"
     );
-    assert!(suggested[3..9].iter().all(|s| s.errors == 0 && s.warnings > 0));
-    assert!(suggested[5].alike.iter().any(|a| a == "timeline-photos"), "{:?}", suggested[5]);
+    assert!(suggested[..4].iter().all(|s| s.errors == 0 && s.warnings == 0));
+    assert!(suggested[4..10].iter().all(|s| s.errors == 0 && s.warnings > 0));
+    assert!(suggested[6].alike.iter().any(|a| a == "timeline-photos"), "{:?}", suggested[6]);
     assert!(suggested[0].current && suggested[1..].iter().all(|s| !s.current));
-    assert_eq!(suggested[2].alike, ["photo-grid-text"]);
+    assert_eq!(suggested[3].alike, ["photo-grid-text"]);
     assert!(
-        suggested[3].alike.iter().any(|a| a == "three-up"),
+        suggested[4].alike.iter().any(|a| a == "three-up"),
         "three-up leaves its pictures empty as bullets-photo does"
     );
     assert_eq!(suggested[0].alike[..4], ["title-only", "manifesto", "bullets", "numbered"]);
