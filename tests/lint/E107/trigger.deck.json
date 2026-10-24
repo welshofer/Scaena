@@ -5,7 +5,7 @@
   "theme": "theme.json",
   "fonts": [{"family": "Roboto Serif", "file": "fonts/RobotoSerif-VF.ttf"}, {"family": "EB Garamond", "file": "fonts/EBGaramond-VF.ttf"}],
   "nodes": {
-    "h": {"type": "text", "text": "A field", "at": {"in": "header"}},
+    "h": {"type": "text", "role": "body", "text": "A field", "at": {"in": "header"}},
     "pic": {"type": "image", "src": "assets/undrawable.png", "at": {"in": "main"}, "alt": "A blue field."}
   },
   "states": [
