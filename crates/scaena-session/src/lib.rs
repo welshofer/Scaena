@@ -699,9 +699,10 @@ impl Session {
     }
 
     /// The deck's states end to end, as a client lists them: `[{ "state", "slide", "said",
-    /// "start", "span", "hold" }]`, ms (SPEC §2.4), `slide` the slide each builds on and `said` the
-    /// state as a person counts it, `Slide 3, step 2` (PLAN 2.99). What a player auto-advances by,
-    /// and a video samples.
+    /// "headline", "start", "span", "hold" }]`, ms (SPEC §2.4), `slide` the slide each builds on,
+    /// `said` the state as a person counts it, `Slide 3, step 2` (PLAN 2.99), and `headline` the
+    /// words that head it, where a text does (`reading::headline`), which a slide list reads its
+    /// rows by (lift-up 10-24b USE-4). What a player auto-advances by, and a video samples.
     pub fn slots(&mut self) -> Result<serde_json::Value, Error> {
         let timeline = self.timeline()?;
         let deck = &self.deck;
@@ -709,11 +710,16 @@ impl Session {
         // Each as a person counts it (PLAN 2.99): `Slide 3, step 2`.
         let said = scaena_core::words::slides(deck);
         let said = |id: &str| deck.states.iter().position(|s| s.id == id).and_then(|i| said.get(i)).cloned();
+        // A deck whose states do not resolve heads none of them: its slots are listed all the same.
+        let snaps = scaena_core::tracking::resolve_states(deck).unwrap_or_default();
+        let headline =
+            |id: &str| (snaps.iter()).find(|s| s.state_id == id).and_then(|s| scaena_core::reading::headline(deck, s));
         let slots: Vec<serde_json::Value> = (timeline.slots.iter())
             .map(|s| {
                 let slide = slide(&s.state);
                 let said = said(&s.state);
-                serde_json::json!({ "state": s.state, "slide": slide, "said": said, "start": s.start, "span": s.span, "hold": s.hold })
+                let headline = headline(&s.state);
+                serde_json::json!({ "state": s.state, "slide": slide, "said": said, "headline": headline, "start": s.start, "span": s.span, "hold": s.hold })
             })
             .collect();
         Ok(serde_json::Value::Array(slots))
@@ -3166,6 +3172,20 @@ mod tests {
         // A way that does not place a node is no target, and a node not on screen is an error.
         assert!(s.snap("containers", "stat-a", SnapMode::Move, cell, false).unwrap().is_none());
         assert!(s.targets("containers", "title").is_err());
+    }
+
+    /// Each slot says the words that head its state, which a slide list reads its row by (lift-up
+    /// 10-24b USE-4): the cover by its display line, the agenda by its headline.
+    #[test]
+    fn each_slot_says_its_headline() {
+        let mut s = trails();
+        let slots = s.slots().unwrap();
+        let headline = |state: &str| {
+            let slot = slots.as_array().unwrap().iter().find(|s| s["state"] == state).unwrap();
+            slot["headline"].clone()
+        };
+        assert_eq!(headline("cover"), "High Country Trails");
+        assert_eq!(headline("agenda"), "Tonight");
     }
 
     /// The trails example, the site's demo deck, its files handed over as a page hands them.
