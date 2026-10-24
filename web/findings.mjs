@@ -200,9 +200,9 @@ try {
   // wait, and the engine goes on, linting the poem with no count, where it would hold every
   // edit, frame, and lint behind it for good.
   const stalled = await browser.newContext({ viewport: { width: 1920, height: 1200 }, deviceScaleFactor: 1 });
-  let asked = false;
+  let asked = 0;
   await stalled.route("**/words-*.txt", () => {
-    asked = true;
+    asked++;
   });
   const waiting = await stalled.newPage();
   waiting.on("pageerror", (e) => failures.push(`page: ${e.message}`));
@@ -210,8 +210,9 @@ try {
   await waiting.goto(`${server.origin}/web/dist/editor.html?painter=cpu&source=open&bundle=/docs/examples/haiku.deck.json`);
   await waiting.waitForFunction(() => window.scaena?.last()?.whole, null, { timeout: 120000 });
   const waited = Date.now() - started;
-  check(asked, "the syllable table was asked for");
-  check(waited >= 9000, `the engine waited for it, and no longer than its wait (${waited} ms)`);
+  check(asked > 0, `the syllable table was asked for (${asked} times)`);
+  // Each request gives up after the worker's 10 s; the engine is held no longer than they add up to.
+  check(waited >= 9000 && waited < asked * 10000 + 30000, `the engine waited for it, each request no longer than its wait (${waited} ms, ${asked} requests)`);
   check(!(await waiting.evaluate(() => window.scaena.last().findings.some((f) => f.code === "I404"))), "and lints the poem with no count");
   await waiting.evaluate((s) => window.scaena.type(s), haiku.replace("A frog jumps", "A green frog jumps"));
   check(
