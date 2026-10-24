@@ -62,9 +62,7 @@ const MOST_COLUMNS: usize = 16_384;
 /// `bytes`, an `.xlsx`, as its sheets.
 pub fn sheets(bytes: &[u8]) -> Result<Vec<Sheet>, SourceError> {
     let mut pkg = Package::open(bytes)?;
-    let workbook = pkg
-        .xml("xl/workbook.xml")
-        .ok_or_else(|| SourceError::Unreadable("it has no xl/workbook.xml: not a workbook".into()))?;
+    let workbook = pkg.part("xl/workbook.xml", "it has no xl/workbook.xml: not a workbook")?;
     let rels = pkg.rels("xl/workbook.xml");
     let strings: Vec<String> =
         pkg.xml("xl/sharedStrings.xml").map(|sst| sst.all("si").map(rich).collect()).unwrap_or_default();
