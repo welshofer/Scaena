@@ -85,7 +85,7 @@ export async function ask(
   loaded ??= initResources();
   await loaded;
   const listed = JSON.parse(list()) as Listed[];
-  const bundleSkills = session.files().flatMap((path) => /^skills\/([^/]+)\/SKILL\.md$/.exec(path)?.[1] ?? []);
+  const bundleSkills = session.files().flatMap((path) => /^skills\/([a-z0-9-]{1,48})\/SKILL\.md$/.exec(path)?.[1] ?? []);
   const prompt = system(facts(session), listed, bundleSkills, text("scaena://skills/author-deck") ?? "");
   conversation.push({ role: "user", text: seen(asking.seeing) + asking.text });
   await converse({
@@ -235,7 +235,7 @@ async function run(
 function read(session: Session, args: unknown): [string, boolean] {
   const uri = (args as { uri?: unknown } | undefined)?.uri;
   if (typeof uri !== "string") return [JSON.stringify({ message: "resource_read takes `uri`, a string" }), true];
-  const skill = /^bundle:\/\/skills\/([^/]+)$/.exec(uri)?.[1];
+  const skill = /^bundle:\/\/skills\/([a-z0-9-]{1,48})$/.exec(uri)?.[1];
   // The theme the deck is drawn in, as theme_edit edits it (PLAN 2.61).
   if (uri === "bundle://theme") {
     const held = session.themeText();
