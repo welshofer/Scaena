@@ -220,6 +220,7 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
   const id = "id" in data ? data.id : undefined;
   const reads = READS.has(data.type);
   if (!reads) worded = undefined;
+  if (data.type === "ping") return post({ type: "pong", id: data.id });
   if (stopped !== undefined) {
     if (id !== undefined) post({ type: "error", id, message: `the engine stopped: ${stopped}` });
     return;
@@ -230,6 +231,15 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         return await open(data.source, data.painter, data.canvas, data.engine);
       case "trap":
         return player.trap();
+      case "die":
+        // An error outside the message, then a worker that answers nothing more.
+        setTimeout(() => {
+          throw new Error("the worker died, as asked, to test the editor's recovery");
+        });
+        setTimeout(() => {
+          for (;;);
+        });
+        return;
       case "briefing": {
         await init(data.engine && { module_or_path: data.engine });
         const { choices } = await import("@scaena/generate");

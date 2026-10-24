@@ -990,6 +990,12 @@ export type ToWorker =
   /** Panic, to test the page's recovery from one (lift-up STAB-2): the editor's module alone
    * carries it; the player's answers with an error. */
   | { type: "trap" }
+  /** Whether the worker still answers (lift-up 10-24b STAB-2): `pong`, even from an engine
+   * stopped. */
+  | { type: "ping"; id: number }
+  /** Fail outside any message and answer nothing after, as a worker out of memory does, to test
+   * the page's recovery from a worker that died (lift-up 10-24b STAB-2). */
+  | { type: "die" }
   | { type: "generate"; generate: Generate; engine?: WebAssembly.Module }
   /** The outline as the person settled it (narrative FUNC-1): the slides are written to it. */
   | { type: "storySettled"; outline: StoryOutline }
@@ -2013,6 +2019,8 @@ export type FromWorker =
   | { type: "thumbnails"; id: number; thumbs: Thumb[] }
   /** A thumbnail painted while the rest are, for a request that asked for each as it is. */
   | { type: "thumbed"; id: number; thumb: Thumb }
+  /** Request `id`, a `ping`, heard: the worker answers. */
+  | { type: "pong"; id: number }
   /** The patch that adds a state, and the state's id. */
   | { type: "addingState"; id: number; added: { id: string; patch: unknown[] } }
   /** The slides a person may start, each with its picture. */

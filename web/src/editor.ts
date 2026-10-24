@@ -565,7 +565,11 @@ async function edit(source: Source, opened?: Stage) {
   // stands here, kept where the bundle is kept, so Save still works; the state shown is shown
   // again, and the person is told in plain words.
   stage.onCrashed = (crash) => void restarted(crash);
-  async function restarted(crash: { message: string; files: Record<string, ArrayBuffer> }) {
+  // A worker that died outside a message, as one out of memory does, hands nothing over (lift-up
+  // 10-24b STAB-2): the stage is started again from the deck as last kept, or as it came, with the
+  // source as it stands here, and the files written since the save, which went with it, are named.
+  stage.onDied = (death) => void restarted(death);
+  async function restarted(crash: { message: string; files?: Record<string, ArrayBuffer>; lost?: string[] }) {
     const why = crash.message ? ` (${crash.message})` : "";
     say(`The engine stopped on an error${why}: starting it again…`);
     const kept =
@@ -577,7 +581,7 @@ async function edit(source: Source, opened?: Stage) {
             ? { url: source.url, serve: source.serve }
             : undefined;
     try {
-      await stage.restart({ recovered: crash.files, name, kept });
+      await stage.restart(crash.files ? { recovered: crash.files, name, kept } : (kept ?? source));
     } catch (e) {
       say(`The engine stopped on an error${why}, and could not be started again: ${said(e)}. Download the deck to keep what you changed.`);
       return;
@@ -594,6 +598,11 @@ async function edit(source: Source, opened?: Stage) {
     const found = await lint(view);
     if (view.state.doc === doc) view.dispatch(setDiagnostics(view.state, found));
     states.reformat();
+    if (!crash.files) {
+      const lost = crash.lost?.length ? ` These files were not saved, and are lost: ${crash.lost.join(", ")}.` : "";
+      say(`The engine stopped on an error${why}, and was started again from the deck as last ${where ? "saved" : "opened"}, with the source as it stands.${lost} Save when you can.`);
+      return;
+    }
     say(`The engine stopped on an error${why}, and was started again from the deck as it stands: nothing is lost. Save when you can.`);
   }
 
@@ -3046,6 +3055,8 @@ async function edit(source: Source, opened?: Stage) {
       where: () => ({ name, where, dirty: dirty() }),
       /** Panic in the engine, for a test (lift-up STAB-2), and how many times it was started again. */
       crash: () => stage.trap(),
+      /** The worker dies outside a message, for a test (lift-up 10-24b STAB-2). */
+      die: () => stage.die(),
       restarts: () => restarts,
       /** The recovery copy kept now, for a test (lift-up REL-4). */
       keepCopy,

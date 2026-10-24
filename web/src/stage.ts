@@ -193,7 +193,8 @@ type Reply = Extract<
       | "layoutSuggestions"
       | "backgrounds"
       | "backgroundFrames"
-      | "backgroundPatch";
+      | "backgroundPatch"
+      | "pong";
   }
 >;
 
@@ -203,6 +204,10 @@ const mostHelpers = (() => {
   const n = Number(new URLSearchParams(location.search).get("helpers") ?? Number.NaN);
   return Number.isInteger(n) && n >= 0 ? n : Number.POSITIVE_INFINITY;
 })();
+
+/** How long a worker that failed outside a message has to answer a `ping` before it is taken to
+ * have died (lift-up 10-24b STAB-2), ms. */
+const PROBE = 3000;
 
 /** How a page starts the engine: a worker, and the engine's module, compiled, if the page
  * carries it, as a single-file export does (PLAN 2.5). A worker without it loads its own. */
@@ -223,11 +228,19 @@ export class Stage {
    * the page to start the stage again from (`restart`). A page that does not hears an error. */
   onCrashed: (crash: { message: string; name: string; files: Record<string, ArrayBuffer> }) => void = (crash) =>
     this.onError(new Error(`the engine stopped: ${crash.message}`));
+  /** Called when the worker failed outside a message and then answered nothing for `PROBE` ms
+   * (lift-up 10-24b STAB-2), as one out of memory does: it is stopped and every request waiting
+   * on it refused, and it hands nothing over. `lost`: the bundle's files written since the save,
+   * which went with it, each by the name it was dropped as, where it was. A page that does not
+   * start the stage again (`restart`) hears an error. */
+  onDied: (death: { message: string; lost: string[] }) => void = (death) => this.onError(new Error(`the engine stopped: ${death.message}`));
   /** The formats beside the canvas are painted: `state`, `t` ms into its cue (PLAN 2.62). */
   onBesides: (state: string, t: number) => void = () => {};
   /** Called as the canvas's attributes change: `size`, which frames are painted at from then
    * on, fitted to the room (`fit`), the format shown, or the bundle read again (lift-up ATTR-2). */
   onSized: (size: [number, number]) => void = () => {};
+  /** Whether a worker that failed is being asked whether it still answers. */
+  private probing = false;
   /** Requests not yet answered, by id. */
   private waiting = new Map<number, { resolve: (reply: Reply) => void; reject: (error: Error) => void }>();
   /** What hears each step of the assistant's answer to a question, by the question's id. */
@@ -264,7 +277,37 @@ export class Stage {
 
   private hear(worker: Worker) {
     worker.onmessage = ({ data }: MessageEvent<FromWorker>) => this.listen(data);
-    worker.onerror = (e) => this.onError(new Error(e.message));
+    worker.onerror = (e) => void this.failed(worker, e.message || "the worker failed");
+    // A message that could not be read leaves the request it answered waiting: each waiting is
+    // refused, and the worker, which still answers, is kept.
+    worker.onmessageerror = () => this.refuse(new Error("the engine's answer could not be read"));
+  }
+
+  /** The worker failed outside a message (lift-up 10-24b STAB-2): an error it lives through is
+   * said, and one it died of, which leaves it answering nothing, stops it as a panic does. */
+  private async failed(worker: Worker, message: string) {
+    if (worker !== this.worker || this.probing) return;
+    this.probing = true;
+    const alive = await this.probe();
+    this.probing = false;
+    if (worker !== this.worker) return;
+    if (alive) return this.onError(new Error(message));
+    const lost = [...this.writtenSince.keys()].map((path) => this.dropped.get(path) ?? path);
+    // They went with it: none is there to keep beside the source or to save.
+    this.writtenSince.clear();
+    this.halt(new Error(`the engine stopped: ${message}`));
+    this.onDied({ message, lost });
+  }
+
+  /** Whether the worker answers a `ping` within `PROBE` ms. */
+  private probe(): Promise<boolean> {
+    const id = ++this.asked;
+    return new Promise((resolve) => {
+      const late = setTimeout(() => (this.waiting.delete(id), resolve(false)), PROBE);
+      const heard = () => (clearTimeout(late), this.waiting.delete(id), resolve(true));
+      this.waiting.set(id, { resolve: heard, reject: heard });
+      this.send({ type: "ping", id });
+    });
   }
 
   /** Open the bundle at `source` in a new worker of `engine`'s, which paints into a new
@@ -1238,6 +1281,21 @@ export class Stage {
     for (const { reject } of waiting) reject(error);
   }
 
+  /** Refuse every request waiting on the worker with `error`, and keep it. */
+  private refuse(error: Error) {
+    const waiting = [...this.waiting.values()];
+    this.waiting.clear();
+    this.hearing.clear();
+    this.thumbing.clear();
+    for (const { reject } of waiting) reject(error);
+  }
+
+  /** Fail outside a message and answer nothing more, as a worker out of memory does, to test the
+   * page's recovery (lift-up 10-24b STAB-2). */
+  die() {
+    this.send({ type: "die" });
+  }
+
   /** Panic in the engine, to test the page's recovery (lift-up STAB-2): the editor's module alone
    * carries it. */
   trap() {
@@ -1382,6 +1440,9 @@ export class Stage {
         return;
       case "thumbed":
         this.thumbing.get(data.id)?.(data.thumb);
+        return;
+      case "pong":
+        this.waiting.get(data.id)?.resolve(data);
         return;
       case "at": {
         const { type: _, id, ...at } = data;
