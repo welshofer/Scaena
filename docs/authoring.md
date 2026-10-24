@@ -159,7 +159,7 @@ cd target/site && python3 serve.py      # then open http://localhost:8080/editor
   - On the preview, a mark at the corner of an object counts the findings about it, red for an error, yellow for a warning. A mark at the top left counts those about the state itself. The strip counts each state's. Click a mark to read its findings and take a fix; "In the source" goes to the line.
   - A finding that has a fix offers it as one click, one ⌘Z. Only the lines the fix changes change.
   - The **Inspector** tab shows the state's timing, its objects, and each text's resolved look.
-- **Save.** Where the deck goes depends on where it came from:
+- **Save.** Where the deck goes depends on where it came from. The toolbar's **File** menu holds the rest:
 
 | | |
 |---|---|
