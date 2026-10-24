@@ -1979,8 +1979,8 @@ The steps are the text's lines that hold words, at their list levels (§3.5). A 
 ### 9.5 Presenter remote (Phase 4)
 
 An iPhone or an iPad drives a deck a Mac or an iPad presents, over the local network, and shows its notes and the next state (ADR-0025).
-- **Offering.** Remote… in the Play menu offers the deck by Bonjour (`_scaena-remote._tcp`), under the device's name and the deck's. Its sheet, in the editor and never on the stage, shows a code of four digits.
-- **Joining.** A remote lists the presenters on its network and joins one with the code. Both ends derive a pre-shared key for TLS 1.2 from it, and no session is resumed, so a remote without it is never joined, and nothing passes in the clear.
+- **Offering.** Remote… in the Play menu offers the deck by Bonjour (`_scaena-remote._tcp`), under the device's name alone, never the deck's. Its sheet, in the editor and never on the stage, shows a code of four digits.
+- **Joining.** A remote lists the presenters on its network and joins one with the code. Both ends pair by a password-authenticated key exchange the code authenticates (ADR-0025's amendment): a join recorded on the network tells nothing of the code, a wrong code is one try, and after five the presenter makes its code anew and waits before pairing again, longer each time. Every message after is sealed under the keys the pairing made, so a remote without the code is never joined, and nothing passes in the clear.
 - **Messages.** Each is JSON after its length, four bytes big-endian.
   - The presenter sends a place: a state and a time into its cue, or at rest (§2.4); its index and the count; its notes, as written and as the blocks a speaker reads (§2.6); when the show began; and the state and the next drawn at rest, as PNGs.
   - The remote sends play, on, back, first, last, or end, the player's steps (§9.2).
