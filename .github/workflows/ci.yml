@@ -292,8 +292,9 @@ jobs:
     runs-on: ubuntu-latest
     # With nothing in its cache, #103's run passed every step, then ran out of 45 minutes while
     # saving the cache: its runner took twice as long over the browser tests as #88's. With its
-    # cache, #88's took 29.
-    timeout-minutes: 60
+    # cache, #88's took 29. With the walks added since, #445's took 48 and #497's 50, and #466's
+    # ran out of 60 minutes in its last steps, every walk passed.
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
