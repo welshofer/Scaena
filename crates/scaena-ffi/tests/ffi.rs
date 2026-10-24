@@ -146,6 +146,39 @@ fn the_editor_compiles_lints_and_patches_as_the_browser_does() {
     unsafe { scaena_session_free(s) };
 }
 
+/// A laying goes to another thread: it is Send in all but its pointer.
+struct Sent(*mut ScaenaLaying);
+unsafe impl Send for Sent {}
+
+#[test]
+fn the_decks_health_is_read_away_from_the_session_as_its_lint_is_laid_out() {
+    // Lift-up narrative PERF-1: the Story panel reads a deck's health from the deck the session
+    // compiled last, on a thread of its own, as `health` reads it on the session's.
+    let s = open(B1);
+    let source = call(s, "source", Value::Null);
+    let compiled = call(s, "compile", json!({ "source": source.as_str().unwrap() }));
+    assert_eq!(compiled["valid"], true, "{compiled}");
+    let on_the_session = call(s, "health", Value::Null);
+
+    let laying = Sent(unsafe { scaena_laying_new(s) });
+    assert!(!laying.0.is_null(), "B1 compiled to a deck that validates");
+    let read = std::thread::spawn(move || {
+        let laying = laying;
+        let answer: Value = serde_json::from_str(&took(unsafe { scaena_laying_health(laying.0) })).unwrap();
+        (laying, answer)
+    });
+    let (laying, away) = read.join().unwrap();
+    assert!(away.get("error").is_none(), "{away}");
+    assert_eq!(away["ok"], on_the_session, "read away from the session, the health is the session's");
+    assert!(away["ok"]["score"].is_u64(), "{away}");
+    unsafe { scaena_laying_free(laying.0) };
+
+    // A null laying is an error, never a crash.
+    let none: Value = serde_json::from_str(&took(unsafe { scaena_laying_health(null_mut()) })).unwrap();
+    assert!(none["error"]["message"].is_string(), "{none}");
+    unsafe { scaena_session_free(s) };
+}
+
 #[test]
 fn a_findings_fix_is_one_click_as_in_the_browser() {
     // The editor's loop (PLAN 2.3, 3.4): a choice in the inspector is a patch, the deck's source
@@ -253,6 +286,69 @@ fn a_save_writes_the_bundle_records_its_history_and_reopens() {
     assert_eq!(adopted, json!({ "ok": null }));
     assert!(call(s, "files", Value::Null).as_array().unwrap().contains(&json!("history/deck.loro")));
     unsafe { scaena_saved_free(saved) };
+    unsafe { scaena_session_free(s) };
+}
+
+/// The Mac's save, away from the window (lift-up PERF-5): a snapshot taken on the session's thread
+/// is subset and recorded on another, and the session goes on from the save where it is still as
+/// the snapshot was taken, the save's files taken out of it; an edit made meanwhile is kept, and
+/// nothing adopted.
+#[test]
+fn a_snapshot_saves_on_another_thread_and_the_session_goes_on_from_it() {
+    struct Sent(*mut ScaenaSnapshot);
+    // SAFETY: one thread at a time holds it, as `scaena_snapshot_save` asks.
+    unsafe impl Send for Sent {}
+    let saving = |snapshot: *mut ScaenaSnapshot| {
+        let sent = Sent(snapshot);
+        let saved = std::thread::spawn(move || {
+            let sent = sent;
+            let now = c("2026-10-08T12:00:00Z");
+            let mut error = null_mut();
+            let saved = unsafe { scaena_snapshot_save(sent.0, now.as_ptr(), true, &mut error) };
+            assert!(!saved.is_null(), "saved: {}", took(error));
+            saved as usize
+        });
+        saved.join().unwrap() as *mut ScaenaSaved
+    };
+    let s = open(B1);
+    call(s, "keepHistory", Value::Null);
+    let snapshot = unsafe { scaena_snapshot_new(s) };
+    assert!(!snapshot.is_null());
+    let saved = saving(snapshot);
+    let listed: Value = serde_json::from_str(&took(unsafe { scaena_saved_list(saved) })).unwrap();
+    assert!(listed["ok"]["files"].as_array().unwrap().contains(&json!("history/deck.loro")), "{listed}");
+    let subset = &listed["ok"]["summary"]["subset"];
+    assert!(subset.as_array().is_some_and(|s| !s.is_empty()), "fonts subset: {listed}");
+    let adopted: Value = serde_json::from_str(&took(unsafe { scaena_adopt_since(s, snapshot, saved) })).unwrap();
+    assert_eq!(adopted, json!({ "ok": { "adopted": true } }));
+    assert!(call(s, "files", Value::Null).as_array().unwrap().contains(&json!("history/deck.loro")));
+    let left: Value = serde_json::from_str(&took(unsafe { scaena_saved_list(saved) })).unwrap();
+    assert_eq!(left["ok"]["files"], json!([]), "its files were taken");
+    unsafe { scaena_saved_free(saved) };
+    unsafe { scaena_snapshot_free(snapshot) };
+
+    // An edit made while the next save is written stays, and the save is not adopted.
+    let snapshot = unsafe { scaena_snapshot_new(s) };
+    let states = call(s, "states", Value::Null);
+    let first = states[0].as_str().unwrap().to_string();
+    tool(
+        s,
+        "deck_patch",
+        json!({ "ops": [{ "op": "set_state", "id": first, "prop": "notes", "value": "Said while saving." }] }),
+    );
+    let saved = saving(snapshot);
+    let adopted: Value = serde_json::from_str(&took(unsafe { scaena_adopt_since(s, snapshot, saved) })).unwrap();
+    assert_eq!(adopted, json!({ "ok": { "adopted": false } }));
+    assert!(call(s, "source", Value::Null).as_str().unwrap().contains("Said while saving."), "the edit is kept");
+    unsafe { scaena_saved_free(saved) };
+    unsafe { scaena_snapshot_free(snapshot) };
+
+    // Null handles are errors, never a crash.
+    let none: Value = serde_json::from_str(&took(unsafe { scaena_adopt_since(s, null(), null_mut()) })).unwrap();
+    assert!(none["error"]["message"].as_str().is_some_and(|e| e.contains("null")), "{none}");
+    let mut error = null_mut();
+    assert!(unsafe { scaena_snapshot_save(null_mut(), c("now").as_ptr(), false, &mut error) }.is_null());
+    assert!(took(error).contains("null"));
     unsafe { scaena_session_free(s) };
 }
 

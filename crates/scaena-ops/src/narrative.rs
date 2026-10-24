@@ -1201,6 +1201,11 @@ fn plainer(doc: &mut Value, finding: &Finding) {
     if let Some(text) = n["text"].as_str() {
         n["text"] = json!(swap(text));
     }
+    for run in n["runs"].as_array_mut().into_iter().flatten() {
+        if let Some(text) = run["text"].as_str() {
+            run["text"] = json!(swap(text));
+        }
+    }
     for axis in ["x", "y"] {
         if let Some(title) = n[axis]["title"].as_str() {
             n[axis]["title"] = json!(swap(title));
@@ -1358,8 +1363,8 @@ pub fn deck_as(
     let count = narrative.slides.len();
     let varied = varied(narrative);
 
-    let rtl =
-        narrative.brief.language.as_deref().and_then(language_tag).is_some_and(scaena_core::direction::right_to_left);
+    let lang = deck_lang(&narrative.brief);
+    let rtl = lang.is_some_and(scaena_core::direction::right_to_left);
     let mut deck = Builder { mirrored: rtl, ..Builder::default() };
     let mut sections: Vec<Value> = Vec::new();
     let mut last_beat = None;
@@ -1412,6 +1417,7 @@ pub fn deck_as(
             running: running.as_ref().map(|(r, _)| r.as_str()),
             picture,
             icons,
+            lang: lang.unwrap_or("en"),
         };
         let entrance = entrance(&layout, slide, previous.as_ref().map(|(l, s)| (l.as_str(), *s)), i + 1 == count);
         let made = deck.slide(slots, entrance)?;
@@ -1483,7 +1489,7 @@ pub fn deck_as(
     if !narrative.executive_summary.is_empty() {
         meta["description"] = json!(narrative.executive_summary);
     }
-    if let Some(lang) = brief.language.as_deref().and_then(language_tag) {
+    if let Some(lang) = deck_lang(brief) {
         meta["lang"] = json!(lang);
     }
     if narrative.truncated {
@@ -1632,6 +1638,7 @@ fn media(slide: &Slide) -> Value {
 /// The BCP 47 tag of a language the brief names by its English name.
 fn language_tag(language: &str) -> Option<&'static str> {
     Some(match language {
+        "English" => "en",
         "Spanish" => "es",
         "French" => "fr",
         "German" => "de",
@@ -1648,6 +1655,45 @@ fn language_tag(language: &str) -> Option<&'static str> {
         "Hindi" => "hi",
         _ => return None,
     })
+}
+
+/// The language a deck made from `brief` is in: the one it names, else English, as Narrato
+/// writes when none is named.
+fn deck_lang(brief: &Brief) -> Option<&'static str> {
+    brief.language.as_deref().map_or(Some("en"), language_tag)
+}
+
+/// The words a made deck says itself, not the model, in its language (`lang`, BCP 47): a
+/// source's label, and how a chart is described to a reader. English where the language is none
+/// Narrato writes in.
+struct Own {
+    /// "Source: " and its kin, with the punctuation the language sets after it.
+    source: &'static str,
+    bar: &'static str,
+    line: &'static str,
+    highest: &'static str,
+    lowest: &'static str,
+}
+
+fn own(lang: &str) -> Own {
+    let (source, bar, line, highest, lowest) = match lang {
+        "es" => ("Fuente: ", "Gráfico de barras", "Gráfico de líneas", "máximo", "mínimo"),
+        "fr" => ("Source\u{a0}: ", "Diagramme en barres", "Graphique linéaire", "maximum", "minimum"),
+        "de" => ("Quelle: ", "Balkendiagramm", "Liniendiagramm", "Höchstwert", "Tiefstwert"),
+        "pt" => ("Fonte: ", "Gráfico de barras", "Gráfico de linhas", "máximo", "mínimo"),
+        "it" => ("Fonte: ", "Grafico a barre", "Grafico a linee", "massimo", "minimo"),
+        "nl" => ("Bron: ", "Staafdiagram", "Lijndiagram", "hoogste", "laagste"),
+        "cs" => ("Zdroj: ", "Sloupcový graf", "Spojnicový graf", "maximum", "minimum"),
+        "pl" => ("Źródło: ", "Wykres słupkowy", "Wykres liniowy", "maksimum", "minimum"),
+        "uk" => ("Джерело: ", "Стовпчикова діаграма", "Лінійний графік", "максимум", "мінімум"),
+        "ja" => ("出典：", "棒グラフ", "折れ線グラフ", "最高", "最低"),
+        "zh-Hans" => ("来源：", "柱状图", "折线图", "最高", "最低"),
+        "ko" => ("출처: ", "막대 그래프", "꺾은선 그래프", "최고", "최저"),
+        "ar" => ("المصدر: ", "مخطط شريطي", "مخطط خطي", "الأعلى", "الأدنى"),
+        "hi" => ("स्रोत: ", "बार चार्ट", "लाइन चार्ट", "उच्चतम", "न्यूनतम"),
+        _ => ("Source: ", "Bar chart", "Line chart", "highest", "lowest"),
+    };
+    Own { source, bar, line, highest, lowest }
 }
 
 /// One of a slide's items: a bullet, and its label and detail where it reads "label: detail".
@@ -2113,6 +2159,8 @@ struct Slots<'a> {
     picture: Option<&'a Placed>,
     /// The icon each item is set under, where each has one (G.23).
     icons: Option<Vec<&'a Icon>>,
+    /// The deck's language (BCP 47).
+    lang: &'a str,
 }
 
 /// What one slide added beyond its nodes: the data source its chart reads, and the steps its
@@ -2128,6 +2176,8 @@ enum Fill {
     List(Vec<String>, &'static str),
     /// The prompt's own words: a column's or a lane's label.
     Prompt,
+    /// Such a label in the deck's language.
+    Label(String),
     Shape,
     /// An item's icon, in a place for one (G.23).
     Icon(Icon),
@@ -2433,9 +2483,15 @@ impl Slots<'_> {
             return text(self.item(k).and_then(|i| i.label.clone()));
         }
         if keeps_prompt(name) {
+            // The theme's prompts are English: a deck in another language says them in its own,
+            // a column's head, an axis's end, a month (dogfood 2), else keeps the theme's word.
+            let said = (self.lang != "en")
+                .then(|| slot.prompt.as_ref().and_then(Prompt::text).and_then(|(w, _)| label(self.lang, &w)))
+                .flatten();
+            let fill = || said.map_or(Fill::Prompt, |w| Fill::Label(w.to_string()));
             return match ordinal(name) {
-                Some((k, _)) => self.item(k).map(|_| Fill::Prompt),
-                None => Some(Fill::Prompt),
+                Some((k, _)) => self.item(k).map(|_| fill()),
+                None => Some(fill()),
             };
         }
         if picture {
@@ -2485,8 +2541,7 @@ impl Slots<'_> {
             }
             "under" | "detail" => self.fact().or_else(|| self.item(1).map(|i| i.whole.clone())),
             "note" => {
-                let source =
-                    self.slide.chart_data.as_ref().and_then(|c| c.source_id.clone()).map(|s| format!("Source: {s}"));
+                let source = self.slide.chart_data.as_ref().and_then(|c| c.source_id.clone()).map(|s| self.sourced(&s));
                 let fallback = if layout == "full" { self.subtitle() } else { None };
                 source.or_else(|| self.fact()).or(fallback)
             }
@@ -2570,7 +2625,7 @@ impl Slots<'_> {
                 }
             }
             ("two-figures", "note", _) => text(self.subtitle().or_else(|| {
-                (self.slide.chart_data.as_ref()).and_then(|c| c.source_id.clone()).map(|s| format!("Source: {s}"))
+                (self.slide.chart_data.as_ref()).and_then(|c| c.source_id.clone()).map(|s| self.sourced(&s))
             })),
             ("big-number" | "number-photo", "claim", _) => text(meaning(self.items).or_else(|| self.title())),
             ("big-number" | "number-photo", "under", _) => text(self.fact().or_else(|| {
@@ -2590,7 +2645,7 @@ impl Slots<'_> {
                     self.item(0).map(|i| if i.figure_first() { sentence(&i.detail) } else { i.whole.clone() });
                 let source = (self.slide.chart_data.as_ref())
                     .and_then(|c| c.source_id.clone())
-                    .map(|s| format!("Source: {s}"))
+                    .map(|s| self.sourced(&s))
                     .or_else(|| self.fact());
                 text(match (takeaway.filter(|t| !t.is_empty()), source) {
                     (Some(t), Some(s)) => Some(format!("{t} \u{b7} {s}")),
@@ -2790,6 +2845,11 @@ impl Slots<'_> {
         (self.wholes()[..half].to_vec(), self.wholes()[half..].to_vec())
     }
 
+    /// "Source: `source`", in the deck's language.
+    fn sourced(&self, source: &str) -> String {
+        format!("{}{source}", own(self.lang).source)
+    }
+
     /// What a text in `slot` is to the slide's story: the slide's claim where it says its title,
     /// or a big number's meaning, a quote, a letter's body; a source; a signpost.
     fn semantic(&self, slot: &str, text: &str) -> Option<&'static str> {
@@ -2802,7 +2862,9 @@ impl Slots<'_> {
         }
         match slot {
             "takeaway" => Some("takeaway"),
-            "under" | "note" if self.fact().as_deref() == Some(text) || text.starts_with("Source: ") => Some("source"),
+            "under" | "note" if self.fact().as_deref() == Some(text) || text.starts_with(own(self.lang).source) => {
+                Some("source")
+            }
             "who" => Some("source"),
             "kicker" => Some("navigation"),
             "number" if matches!(self.layout, "section" | "section-photo") => Some("navigation"),
@@ -2879,7 +2941,7 @@ impl Builder {
         // (`first-…`, `second-…`), and each chart.
         let mut built: Vec<(usize, Vec<String>)> = Vec::new();
         let mut charts: Vec<String> = Vec::new();
-        for (name, slot) in &template.slots {
+        for (name, slot) in read_order(&template.slots, |name, slot| name == "kicker" && s.foot(slot)) {
             let Some(fill) = s.fill(name, slot) else { continue };
             let id = self.unique(&format!("{}-{}", s.state, slug(name, "slot")), Taken::Node);
             let at = json!({ "in": name });
@@ -2980,6 +3042,10 @@ impl Builder {
                     };
                     json!({ "type": "text", "role": role, "text": words, "at": at, "semantic": "navigation" })
                 }
+                Fill::Label(words) => {
+                    let Some(role) = &slot.role else { continue };
+                    json!({ "type": "text", "role": role, "text": words, "at": at, "semantic": "navigation" })
+                }
                 Fill::Shape => {
                     let Some(Prompt::Shape(shape)) = &slot.prompt else { continue };
                     let mut node =
@@ -3014,9 +3080,16 @@ impl Builder {
                     self.data.insert(data.clone(), source(chart, s.layout == "line-chart" && years(chart)));
                     made.data = Some(data.clone());
                     let takeaway = s.item(0).map(|i| i.whole.as_str());
-                    chart_node(chart, &data, s.layout, &s.slide.slide_title, takeaway, at)
+                    chart_node(chart, &data, s.layout, &s.slide.slide_title, takeaway, s.lang, at)
                 }
             };
+            // An email or a web address the words name links to it (PLAN 2.70, dogfood 2); a bare
+            // domain only in words that do not head the slide, where "Booking.com" names a firm.
+            let heading = matches!(node["role"].as_str(), Some("display" | "headline" | "title"));
+            if let Some(runs) = node["text"].as_str().and_then(|t| linked(t, !heading)) {
+                node.as_object_mut().map(|n| n.remove("text"));
+                node["runs"] = json!(runs);
+            }
             if node.get("semantic").is_none() && node["type"] == "text" && !claimed && s.title().is_none() {
                 // A slide with no title says what it is in its first words.
                 node["semantic"] = json!("claim");
@@ -3072,6 +3145,158 @@ impl Builder {
         }
         Ok(made)
     }
+}
+
+/// `text` as runs where it names an email or a web address, each of them a run that links to it
+/// (PLAN 2.70): "priya@manifest.dev · manifest.dev" mails the one and opens the other (dogfood 2).
+/// A bare domain links only where `bare` says, and only written in lower case, as an address is:
+/// "ASP.NET" and "Booking.com" name things. None where it names neither. A linked text is runs,
+/// which [`overflowing`] does not read, so one that runs past its place is not rewritten to fit.
+fn linked(text: &str, bare: bool) -> Option<Vec<Value>> {
+    let mut runs = Vec::new();
+    let mut plain = String::new();
+    for piece in text.split_inclusive(char::is_whitespace) {
+        let word = piece.trim_end();
+        // The address within its punctuation: "(manifest.dev)," is manifest.dev.
+        let start = word.find(char::is_alphanumeric).unwrap_or(word.len());
+        let end = (word.char_indices().rev())
+            .find(|(_, c)| c.is_alphanumeric() || *c == '/')
+            .map_or(start, |(i, c)| (i + c.len_utf8()).max(start));
+        let Some(href) = href(&word[start..end], bare) else {
+            plain.push_str(piece);
+            continue;
+        };
+        plain.push_str(&word[..start]);
+        if !plain.is_empty() {
+            runs.push(json!({ "text": std::mem::take(&mut plain) }));
+        }
+        runs.push(json!({ "text": &word[start..end], "link": { "href": href } }));
+        plain.push_str(&piece[end..]);
+    }
+    if runs.is_empty() {
+        return None;
+    }
+    if !plain.is_empty() {
+        runs.push(json!({ "text": plain }));
+    }
+    Some(runs)
+}
+
+/// Where `word` goes, as a link the deck's schema takes: `mailto:` an email, else a web address
+/// as written, or with `www.` or, where `bare` says, bare and in lower case, over `https:`. None
+/// for a word that is neither, such as "Node.js" or "3.5".
+fn href(word: &str, bare: bool) -> Option<String> {
+    // A host whose last label is a top-level domain people write: "manifest.dev", "portal.org/playbook".
+    let host = |s: &str| {
+        let host = s.split('/').next().unwrap_or_default();
+        let labels: Vec<&str> = host.split('.').collect();
+        const TOP: [&str; 34] = [
+            "com", "org", "net", "edu", "gov", "io", "ai", "co", "dev", "app", "info", "biz", "xyz", "tech", "me",
+            "us", "uk", "eu", "de", "fr", "es", "it", "nl", "ca", "au", "in", "jp", "cn", "kr", "br", "ch", "se", "no",
+            "pl",
+        ];
+        labels.len() >= 2
+            && labels.iter().all(|l| !l.is_empty() && l.chars().all(|c| c.is_ascii_alphanumeric() || c == '-'))
+            && TOP.contains(&labels[labels.len() - 1].to_ascii_lowercase().as_str())
+    };
+    if let Some(rest) = word.strip_prefix("https://").or_else(|| word.strip_prefix("http://")) {
+        return host(rest).then(|| word.to_string());
+    }
+    if let Some((user, domain)) = word.split_once('@') {
+        let user = !user.is_empty() && user.chars().all(|c| c.is_ascii_alphanumeric() || "._%+-".contains(c));
+        return (user && !domain.contains('/') && host(domain)).then(|| format!("mailto:{word}"));
+    }
+    let lower = !word.chars().any(char::is_uppercase);
+    ((word.starts_with("www.") || (bare && lower)) && host(word)).then(|| format!("https://{word}"))
+}
+
+/// A label a theme's layout prompts with in English (a column's head, an axis's end, a month),
+/// in the language `lang` names (BCP 47), where it is one of Narrato's: none for another word.
+fn label(lang: &str, word: &str) -> Option<&'static str> {
+    const LANGS: [&str; 14] = ["es", "fr", "de", "pt", "it", "nl", "cs", "pl", "uk", "ja", "zh-Hans", "ko", "ar", "hi"];
+    const MONTHS: [&str; 12] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    let at = LANGS.iter().position(|l| *l == lang)?;
+    if let Some(m) = MONTHS.iter().position(|w| *w == word) {
+        return Some(match lang {
+            // The locales numbers and dates are written in, where Scaena has one.
+            "es" | "fr" | "de" | "nl" => scaena_core::format::Locale::of(Some(lang)).short_months[m],
+            _ => SHORT_MONTHS[at][m],
+        });
+    }
+    LABELS.iter().find(|(w, _)| *w == word).map(|(_, said)| said[at])
+}
+
+/// The months, short, in Narrato's languages by [`label`]'s order; Spanish, French, German, and
+/// Dutch are the locales', so theirs are empty here.
+#[rustfmt::skip]
+const SHORT_MONTHS: [[&str; 12]; 14] = [
+    ["", "", "", "", "", "", "", "", "", "", "", ""],
+    ["", "", "", "", "", "", "", "", "", "", "", ""],
+    ["", "", "", "", "", "", "", "", "", "", "", ""],
+    ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"],
+    ["gen", "feb", "mar", "apr", "mag", "giu", "lug", "ago", "set", "ott", "nov", "dic"],
+    ["", "", "", "", "", "", "", "", "", "", "", ""],
+    ["led", "úno", "bře", "dub", "kvě", "čvn", "čvc", "srp", "zář", "říj", "lis", "pro"],
+    ["sty", "lut", "mar", "kwi", "maj", "cze", "lip", "sie", "wrz", "paź", "lis", "gru"],
+    ["січ", "лют", "бер", "кві", "тра", "чер", "лип", "сер", "вер", "жов", "лис", "гру"],
+    ["1月", "2月", "3月", "4月", "5月", "6月", "7月", "8月", "9月", "10月", "11月", "12月"],
+    ["1月", "2月", "3月", "4月", "5月", "6月", "7月", "8月", "9月", "10月", "11月", "12月"],
+    ["1월", "2월", "3월", "4월", "5월", "6월", "7월", "8월", "9월", "10월", "11월", "12월"],
+    ["يناير", "فبراير", "مارس", "أبريل", "مايو", "يونيو", "يوليو", "أغسطس", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر"],
+    ["जन॰", "फ़र॰", "मार्च", "अप्रैल", "मई", "जून", "जुल॰", "अग॰", "सित॰", "अक्तू॰", "नव॰", "दिस॰"],
+];
+
+/// The other labels the shipped layouts prompt with, in Narrato's languages by [`label`]'s
+/// order: es, fr, de, pt, it, nl, cs, pl, uk, ja, zh-Hans, ko, ar, hi.
+#[rustfmt::skip]
+const LABELS: &[(&str, [&str; 14])] = &[
+    ("About", ["Asunto", "Objet", "Betreff", "Assunto", "Oggetto", "Onderwerp", "Věc", "Temat", "Тема", "件名", "主题", "제목", "الموضوع", "विषय"]),
+    ("Action", ["Acción", "Action", "Maßnahme", "Ação", "Azione", "Actie", "Úkol", "Działanie", "Дія", "アクション", "行动", "할 일", "الإجراء", "कार्य"]),
+    ("By", ["Plazo", "Échéance", "Bis", "Prazo", "Entro", "Uiterlijk", "Termín", "Termin", "Термін", "期限", "截止", "기한", "الموعد", "समय-सीमा"]),
+    ("Customer", ["Cliente", "Client", "Kunde", "Cliente", "Cliente", "Klant", "Zákazník", "Klient", "Клієнт", "顧客", "客户", "고객", "العميل", "ग्राहक"]),
+    ("Date", ["Fecha", "Date", "Datum", "Data", "Data", "Datum", "Datum", "Data", "Дата", "日付", "日期", "날짜", "التاريخ", "दिनांक"]),
+    ("Does", ["Hace", "Fait", "Tut", "Faz", "Fa", "Doet", "Dělá", "Robi", "Робить", "行動", "行为", "행동", "يفعل", "करता है"]),
+    ("Feels", ["Siente", "Ressent", "Fühlt", "Sente", "Prova", "Voelt", "Cítí", "Czuje", "Відчуває", "感情", "感受", "감정", "يشعر", "महसूस करता है"]),
+    ("Finance", ["Finanzas", "Finance", "Finanzen", "Finanças", "Finanza", "Financiën", "Finance", "Finanse", "Фінанси", "財務", "财务", "재무", "المالية", "वित्त"]),
+    ("From", ["De", "De", "Von", "De", "Da", "Van", "Od", "Od", "Від", "差出人", "发件人", "보낸 사람", "من", "प्रेषक"]),
+    ("Lead", ["Responsable", "Responsable", "Verantwortlich", "Responsável", "Responsabile", "Verantwoordelijk", "Odpovídá", "Odpowiedzialny", "Відповідальний", "責任者", "负责", "책임", "المسؤول", "प्रमुख"]),
+    ("Less effort", ["Menos esfuerzo", "Moins d'effort", "Weniger Aufwand", "Menos esforço", "Meno sforzo", "Minder moeite", "Méně úsilí", "Mniej wysiłku", "Менше зусиль", "労力 小", "投入少", "노력 적음", "جهد أقل", "कम मेहनत"]),
+    ("Less value", ["Menos valor", "Moins de valeur", "Weniger Nutzen", "Menos valor", "Meno valore", "Minder waarde", "Menší hodnota", "Mniejsza wartość", "Менша цінність", "価値 低", "价值低", "가치 낮음", "قيمة أقل", "कम मूल्य"]),
+    ("Method", ["Preparación", "Préparation", "Zubereitung", "Preparo", "Procedimento", "Bereiding", "Postup", "Przygotowanie", "Приготування", "作り方", "做法", "만드는 법", "الطريقة", "विधि"]),
+    ("More effort", ["Más esfuerzo", "Plus d'effort", "Mehr Aufwand", "Mais esforço", "Più sforzo", "Meer moeite", "Více úsilí", "Więcej wysiłku", "Більше зусиль", "労力 大", "投入多", "노력 많음", "جهد أكبر", "ज़्यादा मेहनत"]),
+    ("More value", ["Más valor", "Plus de valeur", "Mehr Nutzen", "Mais valor", "Più valore", "Meer waarde", "Větší hodnota", "Większa wartość", "Більша цінність", "価値 高", "价值高", "가치 높음", "قيمة أكبر", "ज़्यादा मूल्य"]),
+    ("Next milestone", ["Próximo hito", "Prochaine étape", "Nächster Meilenstein", "Próximo marco", "Prossima tappa", "Volgende mijlpaal", "Další milník", "Następny etap", "Наступний етап", "次のマイルストーン", "下一里程碑", "다음 마일스톤", "المرحلة التالية", "अगला पड़ाव"]),
+    ("Option", ["Opción", "Option", "Option", "Opção", "Opzione", "Optie", "Možnost", "Opcja", "Варіант", "選択肢", "选项", "옵션", "الخيار", "विकल्प"]),
+    ("Owner", ["Responsable", "Responsable", "Verantwortlich", "Responsável", "Responsabile", "Eigenaar", "Vlastník", "Właściciel", "Власник", "担当", "负责人", "담당", "المسؤول", "ज़िम्मेदार"]),
+    ("Risk", ["Riesgo", "Risque", "Risiko", "Risco", "Rischio", "Risico", "Riziko", "Ryzyko", "Ризик", "リスク", "风险", "위험", "المخاطر", "जोखिम"]),
+    ("Sales", ["Ventas", "Ventes", "Vertrieb", "Vendas", "Vendite", "Verkoop", "Prodej", "Sprzedaż", "Продажі", "営業", "销售", "영업", "المبيعات", "बिक्री"]),
+    ("Sponsor", ["Patrocinador", "Commanditaire", "Sponsor", "Patrocinador", "Sponsor", "Sponsor", "Sponzor", "Sponsor", "Спонсор", "スポンサー", "发起人", "후원", "الراعي", "प्रायोजक"]),
+    ("Status", ["Estado", "Statut", "Status", "Status", "Stato", "Status", "Stav", "Status", "Статус", "状況", "状态", "상태", "الحالة", "स्थिति"]),
+    ("Team", ["Equipo", "Équipe", "Team", "Equipe", "Team", "Team", "Tým", "Zespół", "Команда", "チーム", "团队", "팀", "الفريق", "टीम"]),
+    ("Thinks", ["Piensa", "Pense", "Denkt", "Pensa", "Pensa", "Denkt", "Myslí", "Myśli", "Думає", "思考", "想法", "생각", "يفكر", "सोचता है"]),
+    ("To", ["Para", "À", "An", "Para", "A", "Aan", "Komu", "Do", "Кому", "宛先", "收件人", "받는 사람", "إلى", "प्रति"]),
+    ("Total", ["Total", "Total", "Summe", "Total", "Totale", "Totaal", "Celkem", "Razem", "Разом", "合計", "合计", "합계", "الإجمالي", "कुल"]),
+    ("Workstream", ["Línea de trabajo", "Chantier", "Arbeitspaket", "Frente de trabalho", "Area di lavoro", "Werkstroom", "Pracovní oblast", "Obszar prac", "Напрям роботи", "作業領域", "工作流", "작업 흐름", "مسار العمل", "कार्यधारा"]),
+    ("You need", ["Ingredientes", "Ingrédients", "Zutaten", "Ingredientes", "Ingredienti", "Ingrediënten", "Suroviny", "Składniki", "Інгредієнти", "材料", "食材", "재료", "المكونات", "सामग्री"]),
+];
+
+/// A layout's slots in the order its nodes are written, which is the order a reader hears them
+/// at one depth (SPEC §3.12): each item's places together, its number, title, and body, where the
+/// layout lists every number, then every title; and what `foot` says stands at the slide's foot,
+/// a running head, after the rest (dogfood 2).
+fn read_order<'t>(
+    slots: impl IntoIterator<Item = (&'t String, &'t Slot)>,
+    foot: impl Fn(&str, &Slot) -> bool,
+) -> Vec<(&'t String, &'t Slot)> {
+    let slots: Vec<(&String, &Slot)> = slots.into_iter().collect();
+    let first = slots.iter().position(|(n, _)| ordinal(n).is_some()).unwrap_or(0);
+    let mut order: Vec<(usize, (&String, &Slot))> = slots.into_iter().enumerate().collect();
+    scaena_core::sort::by_key(&mut order, |(i, (name, slot))| match ordinal(name) {
+        _ if foot(name, slot) => (usize::MAX, 0, *i),
+        Some((k, _)) => (first, k, *i),
+        None => (*i, 0, *i),
+    });
+    order.into_iter().map(|(_, s)| s).collect()
 }
 
 /// The theme's motion preset that builds a text by its paragraphs (By Bullet, PLAN 2.129), where
@@ -3351,7 +3576,15 @@ fn signal(chart: &ChartData, takeaway: Option<&str>) -> Option<usize> {
 }
 
 /// The chart that plots `chart`'s source, `data`, in a layout's chart slot.
-fn chart_node(chart: &ChartData, data: &str, layout: &str, title: &str, takeaway: Option<&str>, at: Value) -> Value {
+fn chart_node(
+    chart: &ChartData,
+    data: &str,
+    layout: &str,
+    title: &str,
+    takeaway: Option<&str>,
+    lang: &str,
+    at: Value,
+) -> Value {
     let kind = if layout == "line-chart" { "line" } else { "bar" };
     let several = chart.series.len() > 1;
     // Every value with the decimals of the most precise of them, two at most: 2.0 beside 1.1.
@@ -3363,6 +3596,7 @@ fn chart_node(chart: &ChartData, data: &str, layout: &str, title: &str, takeaway
         _ => None,
     };
     let mut y = json!({ "field": "value", "type": "quantitative", "format": format!(",.{decimals}f") });
+    let alt = described(chart, kind, y_title.as_deref(), lang);
     if let Some(t) = y_title {
         y["title"] = json!(t);
     }
@@ -3375,7 +3609,7 @@ fn chart_node(chart: &ChartData, data: &str, layout: &str, title: &str, takeaway
         "data": format!("@{data}"),
         "x": { "field": "category", "type": if kind == "line" && years(chart) { "temporal" } else { "ordinal" } },
         "y": y,
-        "alt": title,
+        "alt": alt,
         "semantic": "evidence",
         "at": at,
     });
@@ -3411,6 +3645,44 @@ fn chart_node(chart: &ChartData, data: &str, layout: &str, title: &str, takeaway
         node["annotations"] = json!(notes);
     }
     node
+}
+
+/// What a chart shows, said to a reader who does not see it (dogfood 2), in the deck's language:
+/// its kind and what it counts, or its series; then every value where there are a dozen or fewer,
+/// else each series' highest and lowest. Never its slide's headline, which a reader has just heard
+/// and which, as the figure's alt text, would hide the data.
+fn described(chart: &ChartData, kind: &str, counts: Option<&str>, lang: &str) -> String {
+    let words = own(lang);
+    let places = decimals(chart);
+    let value = |v: f64| at_places(v, places, chart.unit.as_deref());
+    let several = chart.series.len() > 1;
+    let names: Vec<&str> = chart.series.iter().filter_map(|s| s.name.as_deref()).collect();
+    let mut head = (if kind == "line" { words.line } else { words.bar }).to_string();
+    match (several, counts) {
+        (true, _) if !names.is_empty() => head = format!("{head}: {}", names.join(", ")),
+        (_, Some(counts)) => head = format!("{head}: {counts}"),
+        _ => {}
+    }
+    let few = chart.series.iter().map(|s| s.values.len()).sum::<usize>() <= 12;
+    let series: Vec<String> = chart
+        .series
+        .iter()
+        .filter_map(|s| {
+            let pairs: Vec<(&String, f64)> = chart.categories.iter().zip(s.values.iter().copied()).collect();
+            let said = if few {
+                pairs.iter().map(|(c, v)| format!("{c} {}", value(*v))).collect::<Vec<_>>().join(", ")
+            } else {
+                let high = pairs.iter().max_by(|a, b| a.1.total_cmp(&b.1))?;
+                let low = pairs.iter().min_by(|a, b| a.1.total_cmp(&b.1))?;
+                format!("{} {} {}, {} {} {}", words.highest, high.0, value(high.1), words.lowest, low.0, value(low.1))
+            };
+            Some(match s.name.as_deref() {
+                Some(name) if several => format!("{name}: {said}"),
+                _ => said,
+            })
+        })
+        .collect();
+    if series.is_empty() { head } else { format!("{head}. {}", series.join("; ")) }
 }
 
 /// The mark a line of years makes for the first year its headline, or else its takeaway, names
@@ -4258,6 +4530,186 @@ mod tests {
         // Four next steps written as labelled items are numbered cards; a Q&A stays one.
         assert_eq!((made.layouts[22].as_str(), made.layouts[23].as_str()), ("numbered-cards", "qa"));
         assert_eq!(made.layouts[19], "numbered-cards");
+    }
+
+    /// A made deck reads to someone who hears it as it reads to someone who sees it (dogfood 2):
+    /// each item's figure, title, and words together, the running head after them; a chart said
+    /// from its data, not by its headline again; the deck in English where no language is named.
+    #[test]
+    fn a_made_deck_reads_item_by_item_its_charts_by_their_data() {
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let made = deck(&climate(), &theme, &Pictures::new()).unwrap();
+        assert_eq!(made.deck["meta"]["lang"], "en");
+        // The vital signs: four items, each a figure, a title, and a line, read in turn.
+        let order: Vec<String> = shown(&made.deck, made.deck["states"][6]["id"].as_str().unwrap())
+            .into_iter()
+            .map(|(slot, _)| slot)
+            .collect();
+        let items: Vec<&str> =
+            order.iter().filter(|s| ordinal(s).is_some()).map(|s| ORDINALS[ordinal(s).unwrap().0]).collect();
+        assert!(
+            items
+                .windows(2)
+                .all(|w| ORDINALS.iter().position(|o| *o == w[0]) <= ORDINALS.iter().position(|o| *o == w[1])),
+            "item by item: {order:?}"
+        );
+        assert_eq!(
+            order.iter().position(|s| s == "first-figure").map(|i| &order[i..i + 3]),
+            Some(&["first-figure".to_string(), "first-title".into(), "first".into()][..]),
+            "{order:?}"
+        );
+        // The running head, at the slide's foot, is read after what the slide says.
+        assert_eq!(placed(&made.deck, 6, "kicker")["align"], json!({ "y": "end" }));
+        assert_eq!(order.last().map(String::as_str), Some("kicker"), "{order:?}");
+        // A chart is described by its data: its kind and what it counts, then its values where
+        // they are few, else its highest and lowest; never by its slide's headline.
+        for n in [4, 5, 8, 16] {
+            let chart = placed(&made.deck, n, "main");
+            let alt = chart["alt"].as_str().unwrap();
+            let title = &climate().slides[n].slide_title;
+            assert_ne!(alt, typeset(title), "state {n}");
+            let kind = if chart["kind"] == "line" { "Line chart" } else { "Bar chart" };
+            assert!(alt.starts_with(kind), "state {n}: {alt}");
+        }
+        let energy = placed(&made.deck, 8, "main")["alt"].as_str().unwrap().to_string();
+        let data = climate().slides[8].chart_data.clone().unwrap();
+        assert!(
+            data.categories.iter().all(|c| energy.contains(c.as_str())),
+            "every value said where they are few: {energy}"
+        );
+        let warming = placed(&made.deck, 4, "main")["alt"].as_str().unwrap().to_string();
+        assert!(warming.starts_with("Line chart: Anomaly (\u{b0}C). 1880 "), "{warming}");
+        // More than a dozen values: each series' highest and lowest.
+        let months = ChartData {
+            categories: (1..=13).map(|m| format!("M{m}")).collect(),
+            series: vec![
+                answer::Series { name: Some("North".into()), values: (1..=13).map(f64::from).collect() },
+                answer::Series { name: Some("South".into()), values: (1..=13).map(|v| f64::from(20 - v)).collect() },
+            ],
+            unit: None,
+            source_id: None,
+        };
+        assert_eq!(
+            described(&months, "bar", None, "en"),
+            "Bar chart: North, South. North: highest M13 13, lowest M1 1; South: highest M1 19, lowest M13 7"
+        );
+    }
+
+    /// An email or a web address in a made deck's words links to it (PLAN 2.70, dogfood 2); a word
+    /// with a dot in it that is neither does not.
+    #[test]
+    fn contact_lines_link_their_emails_and_addresses() {
+        assert_eq!(
+            linked("priya@manifest.dev \u{b7} manifest.dev", true),
+            Some(vec![
+                json!({ "text": "priya@manifest.dev", "link": { "href": "mailto:priya@manifest.dev" } }),
+                json!({ "text": " \u{b7} " }),
+                json!({ "text": "manifest.dev", "link": { "href": "https://manifest.dev" } }),
+            ])
+        );
+        assert_eq!(
+            linked("Read the playbook (portalderpower.org/playbook).", true),
+            Some(vec![
+                json!({ "text": "Read the playbook (" }),
+                json!({ "text": "portalderpower.org/playbook", "link": { "href": "https://portalderpower.org/playbook" } }),
+                json!({ "text": ")." }),
+            ])
+        );
+        assert_eq!(
+            linked("See https://example.com/a for more", true),
+            Some(vec![
+                json!({ "text": "See " }),
+                json!({ "text": "https://example.com/a", "link": { "href": "https://example.com/a" } }),
+                json!({ "text": " for more" }),
+            ])
+        );
+        for plain in
+            ["Built on Node.js 3.5, e.g. U.S. ports", "A 4.2% rise", "Ask @team", "Revenue: $4.1M", "Built on ASP.NET"]
+        {
+            assert_eq!(linked(plain, true), None, "{plain}");
+        }
+        // A heading's bare domain names a firm; an address with `www.` or a scheme links anywhere.
+        assert_eq!(linked("Booking.com books more nights", false), None);
+        assert_eq!(linked("Sign up at relay.app", false), None);
+        assert_eq!(
+            linked("Sign up at relay.app", true).unwrap()[1],
+            json!({ "text": "relay.app", "link": { "href": "https://relay.app" } })
+        );
+        assert_eq!(
+            linked("Visit www.relay.app now", false).unwrap()[1],
+            json!({ "text": "www.relay.app", "link": { "href": "https://www.relay.app" } })
+        );
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let mut talk = climate();
+        let last = talk.slides.len() - 1;
+        talk.slides[last].subtitle = "priya@manifest.dev \u{b7} manifest.dev".into();
+        let made = deck(&talk, &theme, &Pictures::new()).unwrap();
+        let runs: Vec<&Value> =
+            made.deck["nodes"].as_object().unwrap().values().filter_map(|n| n["runs"].as_array()).flatten().collect();
+        let hrefs: Vec<&str> = runs.iter().filter_map(|r| r["link"]["href"].as_str()).collect();
+        assert_eq!(hrefs, ["mailto:priya@manifest.dev", "https://manifest.dev"], "{runs:?}");
+        assert!(
+            made.deck["nodes"]
+                .as_object()
+                .unwrap()
+                .values()
+                .all(|n| n.get("runs").is_none() || n.get("text").is_none())
+        );
+    }
+
+    /// A deck in another language keeps no English word of the theme's or the generator's own: no
+    /// lane named "Does", a source said "Fuente" (dogfood 2).
+    #[test]
+    fn a_deck_in_another_language_keeps_no_english_word_of_its_own() {
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let mut talk = climate();
+        talk.brief.language = Some("Spanish".into());
+        talk.slides[4].chart_data.as_mut().unwrap().source_id = Some("NASA GISS".into());
+        let journey = 9;
+        talk.slides[journey].key_bullets.push("Feels the cost first".into());
+        let layouts = BTreeMap::from([(journey, "journey".to_string())]);
+        let made = deck_as(&talk, &theme, &Pictures::new(), &layouts).unwrap();
+        assert_eq!(made.layouts[journey], "journey");
+        assert_eq!(made.deck["meta"]["lang"], "es");
+        let said: Vec<String> = shown(&made.deck, made.deck["states"][journey]["id"].as_str().unwrap())
+            .into_iter()
+            .map(|(_, w)| w)
+            .collect();
+        for english in ["Does", "Thinks", "Feels"] {
+            assert!(!said.iter().any(|w| w == english), "{english} in {said:?}");
+        }
+        for spanish in ["Hace", "Piensa", "Siente"] {
+            assert!(said.iter().any(|w| w == spanish), "{spanish} in {said:?}");
+        }
+        let note = placed(&made.deck, 4, "note")["text"].as_str().unwrap().to_string();
+        assert!(note.ends_with("Fuente: NASA GISS"), "{note}");
+        assert!(placed(&made.deck, 4, "main")["alt"].as_str().unwrap().starts_with("Gráfico de líneas"));
+        // A year's months and a 2×2's axes, in Spanish, never left empty.
+        let mut talk2 = talk.clone();
+        talk2.slides[9].key_bullets = vec!["One".into(), "Two".into()];
+        for (layout, words) in [("year", &["ene", "dic"][..]), ("matrix", &["Más valor", "Menos esfuerzo"][..])] {
+            let layouts = BTreeMap::from([(9, layout.to_string())]);
+            let made = deck_as(&talk2, &theme, &Pictures::new(), &layouts).unwrap();
+            assert_eq!(made.layouts[9], layout);
+            let said: Vec<String> =
+                shown(&made.deck, made.deck["states"][9]["id"].as_str().unwrap()).into_iter().map(|(_, w)| w).collect();
+            for word in words {
+                assert!(said.iter().any(|w| w == word), "{layout}: {word} in {said:?}");
+            }
+        }
+        assert_eq!(label("es", "Jan"), Some("ene"));
+        assert_eq!(label("ja", "Total"), Some("合計"));
+        assert_eq!(label("es", "Something else"), None);
+        assert_eq!(label("en", "Total"), None);
+        // In English, the lanes keep the theme's words, and the source says so.
+        talk.brief.language = None;
+        let made = deck_as(&talk, &theme, &Pictures::new(), &layouts).unwrap();
+        let said: Vec<String> = shown(&made.deck, made.deck["states"][journey]["id"].as_str().unwrap())
+            .into_iter()
+            .map(|(_, w)| w)
+            .collect();
+        assert!(said.iter().any(|w| w == "Does"), "{said:?}");
+        assert!(placed(&made.deck, 4, "note")["text"].as_str().unwrap().ends_with("Source: NASA GISS"));
     }
 
     #[test]
