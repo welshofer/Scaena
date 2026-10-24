@@ -2994,10 +2994,13 @@ impl Slots<'_> {
                     .or_else(|| self.slide.chart_data.as_ref().and_then(latest)),
             ),
             // The takeaway; then, where the layout has no place for it, the chart's source a line
-            // of its own.
+            // of its own. A takeaway that names the headline's first and last figures again says
+            // nothing the room has not just read, and gives way.
             ("line-chart", "note", _) => {
-                let takeaway =
-                    self.item(0).map(|i| if i.figure_first() { sentence(&i.detail) } else { i.whole.clone() });
+                let takeaway = self
+                    .item(0)
+                    .map(|i| if i.figure_first() { sentence(&i.detail) } else { i.whole.clone() })
+                    .filter(|t| !self.title().is_some_and(|h| restates(&h, t)));
                 let source = self.caption().filter(|_| !self.has("source"));
                 text(match (takeaway.filter(|t| !t.is_empty()), source) {
                     (Some(t), Some(c)) => Some(format!("{t}\n{c}")),
@@ -4153,6 +4156,14 @@ fn named_figure(chart: &ChartData, series: Option<&str>, said: [Option<&str>; 2]
             Some(json!({ "kind": "callout", "at": place, "text": grouped(line.values[at], places) }))
         })
     })
+}
+
+/// Whether `note` names the first and last of the figures `headline` writes, two or more: "Outage
+/// hours fell to 2 in 2026, after 286 in the storm year" under "Outage hours fell from 286 to 2".
+fn restates(headline: &str, note: &str) -> bool {
+    let (said, again) = (figures(headline), figures(note));
+    let named = |f: &f64| again.contains(f);
+    said.len() >= 2 && said.first().is_some_and(named) && said.last().is_some_and(named)
 }
 
 /// The figures `text` writes, as numbers: "$1,140" is 1140, "4.9%" is 4.9.
@@ -5444,6 +5455,12 @@ mod tests {
         );
         assert_eq!(said("Outage hours fell to 2 by 2024"), None, "an end is labelled already, a year is no figure");
         assert_eq!(figures("$1,140 and 4.9%, in 2024."), [1140.0, 4.9, 2024.0]);
+        // A takeaway that names the headline's first and last figures again gives way; one that
+        // adds to them, or a headline of one figure, keeps it.
+        let headline = "Outage hours fell from 286 to 2 in three years";
+        assert!(restates(headline, "Outage hours fell to 2 in 2026, after 286 in the storm year"));
+        assert!(!restates(headline, "Outage hours fell to 2 in 2026, the lowest in the county"));
+        assert!(!restates("ARR reached $910K", "ARR reached $910K in September"));
         assert_eq!((grouped(1140.0, 0), grouped(-2.5, 1)), ("1,140".to_string(), "\u{2212}2.5".to_string()));
         let node = chart_node(
             &chart,
