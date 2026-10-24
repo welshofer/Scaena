@@ -300,10 +300,10 @@ public final class DeckEditor {
     /// drawing changed, as the browser's strip draws it (PLAN 2.35).
     public func drawing(_ state: String, width: Int) -> CGImage? {
         guard let digest = try? session.digest(state: state) else { return nil }
-        let drawn = Drawn(state: state, width: width)
-        if let image = kept(drawn, digest) { return image }
+        let key = Drawn(state: state, width: width)
+        if let image = kept(key, digest) { return image }
         guard let image = try? session.pixels(state, width: width).image else { return nil }
-        keep(drawn, digest, image)
+        keep(key, digest, image)
         return image
     }
 
@@ -314,8 +314,8 @@ public final class DeckEditor {
     /// it did when asked. Where the source did not compile to a deck that validates, drawn here.
     public func drawingAway(_ state: String, width: Int, isolation: isolated (any Actor)? = #isolation) async -> CGImage? {
         guard let digest = try? session.digest(state: state) else { return nil }
-        let drawn = Drawn(state: state, width: width)
-        if let image = kept(drawn, digest) { return image }
+        let key = Drawn(state: state, width: width)
+        if let image = kept(key, digest) { return image }
         if drawnFrom.map({ !session.holds($0.held) }) ?? true {
             drawnFrom = session.laying().flatMap { held in session.laying().map { (held: held, drawing: $0) } }
         }
@@ -323,7 +323,7 @@ public final class DeckEditor {
         let format = self.format
         let painted = await drawer.draw { try laying.pixels(format: format, state: state, width: width) }
         guard let image = painted?.image else { return nil }
-        if (try? session.digest(state: state)) == digest { keep(drawn, digest, image) }
+        if (try? session.digest(state: state)) == digest { keep(key, digest, image) }
         return image
     }
 
@@ -331,8 +331,8 @@ public final class DeckEditor {
     /// and made a PNG there too: what a remote is sent (lift-up PERF-2).
     public func pngAway(_ state: String, width: Int, isolation: isolated (any Actor)? = #isolation) async -> Data? {
         guard let image = await drawingAway(state, width: width) else { return nil }
-        let drawn = Unsent(image)
-        return await drawer.draw { Self.png(drawn.value) } ?? nil
+        let held = Unsent(image)
+        return await drawer.draw { Self.png(held.value) } ?? nil
     }
 
     /// `image` as a PNG.
@@ -344,21 +344,21 @@ public final class DeckEditor {
         return CGImageDestinationFinalize(made) ? data as Data : nil
     }
 
-    /// The drawing kept for `drawn`, where it is of the drawing `digest` names: asked for now.
-    private func kept(_ drawn: Drawn, _ digest: String) -> CGImage? {
-        guard let kept = drawings[drawn], kept.digest == digest else { return nil }
-        if let at = asked.firstIndex(of: drawn) { asked.remove(at: at) }
-        asked.append(drawn)
+    /// The drawing kept for `key`, where it is of the drawing `digest` names: asked for now.
+    private func kept(_ key: Drawn, _ digest: String) -> CGImage? {
+        guard let kept = drawings[key], kept.digest == digest else { return nil }
+        if let at = asked.firstIndex(of: key) { asked.remove(at: at) }
+        asked.append(key)
         return kept.image
     }
 
-    /// Keep `image` for `drawn`, of the drawing `digest` names, the least recently asked for let
+    /// Keep `image` for `key`, of the drawing `digest` names, the least recently asked for let
     /// go past `drawingsKept`.
-    private func keep(_ drawn: Drawn, _ digest: String, _ image: CGImage) {
-        if drawings.updateValue((digest, image), forKey: drawn) != nil, let at = asked.firstIndex(of: drawn) {
+    private func keep(_ key: Drawn, _ digest: String, _ image: CGImage) {
+        if drawings.updateValue((digest, image), forKey: key) != nil, let at = asked.firstIndex(of: key) {
             asked.remove(at: at)
         }
-        asked.append(drawn)
+        asked.append(key)
         while asked.count > Self.drawingsKept { drawings[asked.removeFirst()] = nil }
     }
 

@@ -25,7 +25,7 @@ import Testing
     #expect(editor.drawing("goal", width: 160) === away, "drawn here, the drawing kept is taken")
 
     // An edit to the state draws it again; one to another state leaves it.
-    editor.shown = "goal"
+    editor.shown = "cover"
     let typed: JSONValue = [
         "op": "replace_text", "state": "cover", "node": "title", "from": 0, "to": 0, "text": "Edited. ",
     ]
