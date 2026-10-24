@@ -53,6 +53,7 @@ mod graphql;
 mod hcl;
 mod ini;
 mod json;
+mod keyed;
 mod makefile;
 mod markdown;
 mod markup;
@@ -70,6 +71,7 @@ mod yaml;
 use markup::Markup;
 
 pub use detect::{Detected, Hints, JSON_WHOLE, LIKELY, READ_BYTES, READ_LINES, detect, vscode_mode};
+pub use keyed::{Key, Keyed, keyed};
 pub use tidy::{Tidied, tidy};
 
 use std::fmt;

@@ -19,7 +19,7 @@
 //   where the text lives, one step to undo.
 import { type Key, MOD, SHIFT } from "./commands";
 import { listen } from "./life";
-import type { CaretLine, Carets, Edited, LinkTarget, ListMark, Map6, Rect } from "./protocol";
+import type { CaretLine, Carets, CodeKey, Edited, LinkTarget, ListMark, Map6, Rect } from "./protocol";
 import { askWords } from "./notes";
 import type { Stage } from "./stage";
 import { quote, reaching, sentence } from "./words";
@@ -33,6 +33,8 @@ export const typingKeys = (): Key[] => [
   { keys: "Enter", label: "In a list: a new item like it; in an empty item, the list ends", group: "Type" },
   { keys: `Tab, ${SHIFT}Tab`, label: "In a list: the items selected a level in, or out; elsewhere, the paragraph an item a level in", group: "Type" },
   { keys: "Backspace at an item's start", label: "Its marker off, or a level out; again, it joins the paragraph before", group: "Type" },
+  { keys: `Tab, ${SHIFT}Tab`, label: "In code: spaces to the next stop, or the lines selected a stop in; a stop out", group: "Type" },
+  { keys: "Enter", label: "In code: a new line indented as this one, a stop more after an opening bracket", group: "Type" },
   { keys: `${MOD}K`, label: "In a text typed in: link the characters selected to a web address or a slide", group: "Type" },
   { keys: "Escape", label: "Stop typing: the text stays selected", group: "Type" },
 ];
@@ -853,11 +855,90 @@ export function typing(stage: Stage, overlay: HTMLElement, around: Around) {
     else put(next, next, line);
   }
 
+  /** What was pressed in code while the engine answered a key before it (PLAN 2.139): taken in
+   * order once it has, so a burst of keys types as it was pressed. */
+  const queued: ({ key: CodeKey } | { text: string } | { back: boolean } | { done: true })[] = [];
+  /** A code key is with the engine, and what is pressed waits behind it. */
+  let keying = false;
+
+  /** `text` typed in place of the selection, as the field types it. */
+  function insert(text: string) {
+    const [start, end] = [area.selectionStart, area.selectionEnd];
+    const fromEnd = area.value.length - end;
+    bounds = bounds ? { start: Math.min(bounds.start, start), fromEnd: Math.min(bounds.fromEnd, fromEnd) } : { start, fromEnd };
+    area.setRangeText(text, start, end, "end");
+    area.dispatchEvent(new InputEvent("input", { inputType: "insertText", data: text }));
+  }
+
+  /** The selection taken away, or the character before the caret (`back`) or after it. */
+  function erase(back: boolean) {
+    let [start, end] = [area.selectionStart, area.selectionEnd];
+    if (start === end) {
+      // A character as the string holds it: a surrogate pair is one.
+      const pair = (at: number) => /[\uD800-\uDBFF]/.test(area.value[at] ?? "") && /[\uDC00-\uDFFF]/.test(area.value[at + 1] ?? "");
+      if (back) start = Math.max(0, start - (start >= 2 && pair(start - 2) ? 2 : 1));
+      else end = Math.min(area.value.length, end + (pair(end) ? 2 : 1));
+    }
+    if (start === end) return;
+    area.setSelectionRange(start, end);
+    insert("");
+  }
+
+  /** A key in code (PLAN 2.139), as the engine answers it (`code::keyed`): the text and selection
+   * it gives, typed as any change is. */
+  async function codeKey(key: CodeKey, code: { tab: number; language?: string }) {
+    const before = area.value;
+    const [start, end] = [area.selectionStart, area.selectionEnd];
+    const keyed = await stage.keyed(before, start, end, key, code.tab, code.language);
+    if (!keyed || area.value !== before) return;
+    let head = 0;
+    while (head < before.length && head < keyed.text.length && before[head] === keyed.text[head]) head++;
+    let tail = 0;
+    while (
+      tail < before.length - head &&
+      tail < keyed.text.length - head &&
+      before[before.length - 1 - tail] === keyed.text[keyed.text.length - 1 - tail]
+    )
+      tail++;
+    bounds = bounds ? { start: Math.min(bounds.start, head), fromEnd: Math.min(bounds.fromEnd, tail) } : { start: head, fromEnd: tail };
+    area.setRangeText(keyed.text.slice(head, keyed.text.length - tail), head, before.length - tail);
+    area.setSelectionRange(keyed.from, keyed.to);
+    area.dispatchEvent(new InputEvent("input", { inputType: "insertText", data: null }));
+  }
+
+  /** What was queued behind a code key, taken in order. */
+  async function keyOn() {
+    if (keying) return;
+    keying = true;
+    try {
+      for (let next = queued.shift(); next; next = queued.shift()) {
+        if ("key" in next) await codeKey(next.key, carets?.code ?? { tab: 4, language: (open && around.code?.(open.node)) || undefined });
+        else if ("text" in next) insert(next.text);
+        else if ("back" in next) erase(next.back);
+        else {
+          queued.length = 0;
+          leave();
+          around.say("Typing done");
+        }
+      }
+    } finally {
+      keying = false;
+    }
+  }
+
   area.addEventListener("beforeinput", (e) => {
     // The browser's own undo (its Edit menu) is the deck's.
     if (e.inputType === "historyUndo" || e.inputType === "historyRedo") {
       e.preventDefault();
       return history(e.inputType === "historyRedo");
+    }
+    // Behind a code key the engine is answering, what is typed waits its turn.
+    if (keying && !e.isComposing) {
+      e.preventDefault();
+      if (e.inputType === "deleteContentBackward" || e.inputType === "deleteContentForward") {
+        queued.push({ back: e.inputType === "deleteContentBackward" });
+      } else if (e.data) queued.push({ text: e.data });
+      return;
     }
     const [start, end] = [area.selectionStart, area.selectionEnd];
     const fromEnd = area.value.length - end;
@@ -901,8 +982,23 @@ export function typing(stage: Stage, overlay: HTMLElement, around: Around) {
     }
     if (e.key === "Escape") {
       e.preventDefault();
+      // Behind a code key the engine is answering, typing ends once what was pressed is typed.
+      if (keying) return void queued.push({ done: true });
       leave();
       return around.say("Typing done");
+    }
+    // Code (PLAN 2.139): set as written, so no characters of it take a look, a link, or a list's
+    // marks; Tab, Shift+Tab, and Enter are a code editor's, as the engine answers them.
+    const named = open && around.code?.(open.node);
+    const code = carets?.code ?? (named ? { tab: 4, from: 1, language: named } : undefined);
+    if (code && mod && !e.altKey && (["b", "i", "k"].includes(key) || (e.shiftKey && ["Digit8", "Digit7"].includes(e.code)))) {
+      e.preventDefault();
+      return around.say("Code is set as written: none of it takes a look, a link, or a list of its own");
+    }
+    if (code && (e.key === "Tab" || e.key === "Enter") && !mod && !e.altKey && !e.isComposing) {
+      e.preventDefault();
+      queued.push({ key: e.key === "Enter" ? "Return" : e.shiftKey ? "Shift+Tab" : "Tab" });
+      return void keyOn();
     }
     if (mod && key === "b" && !e.shiftKey && !e.altKey) {
       e.preventDefault();
@@ -990,7 +1086,7 @@ export function typing(stage: Stage, overlay: HTMLElement, around: Around) {
      * save waits for, so it holds what was typed. */
     idle,
     /** Whether what was typed is not yet all made. */
-    busy: () => !settled() || finishing !== undefined,
+    busy: () => !settled() || finishing !== undefined || keying,
     style,
     bold,
     italic,
