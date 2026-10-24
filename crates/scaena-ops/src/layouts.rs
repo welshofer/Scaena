@@ -75,7 +75,8 @@ pub fn candidates(
         let slot = props.get("at").and_then(|at| at.get("in")).and_then(Value::as_str);
         slot.is_some_and(|slot| !matches!(slot, "canvas" | "grid"))
     };
-    if !snapshots.iter().any(|s| s.state_id == state && s.nodes.values().any(slotted)) {
+    let Some(shown) = snapshots.iter().find(|s| s.state_id == state) else { return Ok(Vec::new()) };
+    if !shown.nodes.values().any(slotted) {
         return Ok(Vec::new());
     }
     let Some(field) = choices.fields.iter().find(|f| f.prop == "layout") else { return Ok(Vec::new()) };
@@ -101,7 +102,7 @@ pub fn candidates(
             }
         };
         let reach = if current { Vec::new() } else { changed(deck, &made, theme.furniture.as_ref())? };
-        let (empty, recast) = fit(&made, theme, state, layout)?;
+        let (empty, recast) = fit(shown, theme, layout);
         let (errors, warnings, alike) = (0, 0, Vec::new());
         let suggestion =
             Suggestion { layout: layout.clone(), current, errors, warnings, empty, recast, alike, reach, patch };
@@ -117,12 +118,11 @@ fn place(slot: &Slot) -> bool {
     matches!(slot.prompt, Some(Prompt::Words(_) | Prompt::Items(_)))
 }
 
-/// How `state` fits `layout` in `deck`: how many of its places no node of the state stands in, and
-/// how many of the state's texts its slots set in a role other than their own.
-fn fit(deck: &Deck, theme: &Theme, state: &str, layout: &str) -> Result<(usize, usize), OpsError> {
-    let Some(slots) = theme.layouts.get(layout).map(|l| &l.slots) else { return Ok((0, 0)) };
-    let snapshots = scaena_core::resolve_states(deck).context("tracking")?;
-    let Some(snapshot) = snapshots.iter().find(|s| s.state_id == state) else { return Ok((0, 0)) };
+/// How the state `snapshot` resolves to fits `layout`: how many of its places no node of the state
+/// stands in, and how many of the state's texts its slots set in a role other than their own. A
+/// layout chosen moves no node from its slot, so the state as it resolves now serves each.
+fn fit(snapshot: &scaena_core::Snapshot, theme: &Theme, layout: &str) -> (usize, usize) {
+    let Some(slots) = theme.layouts.get(layout).map(|l| &l.slots) else { return (0, 0) };
     let slot_of = |props: &scaena_core::document::Props| {
         props.get("at").and_then(|at| at.get("in")).and_then(Value::as_str).map(str::to_owned)
     };
@@ -136,7 +136,7 @@ fn fit(deck: &Deck, theme: &Theme, state: &str, layout: &str) -> Result<(usize, 
             own.is_some() && set.is_some() && own != set
         })
         .count();
-    Ok((empty, recast))
+    (empty, recast)
 }
 
 /// `suggestion` with what lint finds in `state` counted: `findings`' errors and warnings there.
