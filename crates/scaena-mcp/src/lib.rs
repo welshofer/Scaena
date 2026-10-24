@@ -449,6 +449,15 @@ pub struct DeckCreate {
     /// Data files to attach, as `data_attach` attaches them.
     #[serde(default)]
     pub data: Vec<scaena_ops::create::Attach>,
+    /// Keep a history (`history/deck.loro`, SPEC §8), as the editors' Keep a History does: the
+    /// deck made is its first version, every write after is recorded by its author, and
+    /// `deck_history` lists, compares, and restores them. On unless `false`.
+    #[serde(default = "yes")]
+    pub history: bool,
+}
+
+fn yes() -> bool {
+    true
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -682,7 +691,7 @@ pub struct DataEdit {
 #[serde(deny_unknown_fields)]
 pub struct DeckHistory {
     /// The bundle: a directory, a `.scaena` zip, or a `deck.json`. Its history is
-    /// `history/deck.loro`, which `scaena save --history` begins.
+    /// `history/deck.loro`, which `begin` here, `deck_create`, or `scaena save --history` begins.
     pub bundle: String,
     #[serde(flatten)]
     pub ask: scaena_ops::history::Ask,
@@ -767,6 +776,9 @@ pub struct DeckGenerate {
     /// chosen from the brief.
     #[serde(default)]
     pub arc: Option<String>,
+    /// Keep a history, as `deck_create` does: on unless `false`.
+    #[serde(default = "yes")]
+    pub history: bool,
 }
 
 // --- outputs --------------------------------------------------------------------------
@@ -834,11 +846,15 @@ pub struct DeckGenerated {
 impl Scaena {
     #[tool(description = "Make a bundle: a theme and its fonts, data files, and a deck pointed at them \
         (or one state with nothing on screen). The theme is one that ships, by name (dusk, daybreak, ember, salon), or a \
-        theme file. Checked as `deck_lint` checks a bundle, and written only if it validates.")]
+        theme file. Checked as `deck_lint` checks a bundle, and written only if it validates. It keeps a history \
+        unless `history` is false: the deck made is its first version, and every write after is recorded \
+        (`deck_history`).")]
     async fn deck_create(
         &self,
         Parameters(a): Parameters<DeckCreate>,
+        context: RequestContext<RoleServer>,
     ) -> Result<Json<scaena_ops::create::Created>, String> {
+        let author = author(&context);
         // A new bundle has no folder yet: the theme is read under this server's own.
         let theme = self.theme_readable(&a.theme, &a.bundle).map_err(failure)?;
         let req = scaena_ops::create::Create {
@@ -849,7 +865,15 @@ impl Scaena {
             data: a.data,
             ..Default::default()
         };
-        blocking(move || scaena_ops::create::create(Path::new(&a.bundle), &req)).await.map(Json)
+        blocking(move || {
+            let created = scaena_ops::create::create(Path::new(&a.bundle), &req)?;
+            if created.created && a.history {
+                scaena_ops::history::begin(&open_by(&a.bundle, author)?, "deck_create")?;
+            }
+            Ok(created)
+        })
+        .await
+        .map(Json)
     }
 
     #[tool(description = "The bundle's deck, as `deck.json` holds it, or as `.scn` source; with `files`, the \
@@ -1178,11 +1202,14 @@ impl Scaena {
     }
 
     #[tool(description = "A bundle's versions (SPEC §8): each change its history keeps, by author and time, \
-        oldest first, each named by its number as listed or by its id. With `at`, the deck as it was just after \
+        oldest first, each named by its number as listed or by its id, and told as the editors tell it: what it \
+        did (`said`), by whom (`by`), and, for the last 25 versions, what it changed from the version before, \
+        slide by slide, each object by what it shows (`changed`). With `begin`, a history begun where the bundle \
+        keeps none, the deck as it is its first version. With `at`, the deck as it was just after \
         one (`scn` for source); with `compare`, what changed from one version to another, or, with one, to the \
         deck as it is now: each state added, removed, or changed (its own fields, and its nodes as `deck_diff` \
         says them), the deck's own fields, and the files it is drawn from, data files and the theme, whose bytes \
-        changed; with `restore`, that version made the deck again, with its data files and its theme as they \
+        changed, each with what it was before (`before`); with `restore`, that version made the deck again, with its data files and its theme as they \
         were: one change, refused as a patch is where the deck would not validate in the bundle as it is \
         (`dry_run` writes nothing).")]
     async fn deck_history(
@@ -1296,7 +1323,12 @@ impl Scaena {
         to, its builds, and the fields `deck_health` reads (`media.narrato`), lint's fixes applied. A new bundle at \
         `bundle`, in `theme`, as `deck_create` makes one; a deck in a script the theme's fonts do not draw is \
         refused, since the CLI alone fetches a script's font.")]
-    async fn deck_generate(&self, Parameters(a): Parameters<DeckGenerate>) -> Result<Json<DeckGenerated>, String> {
+    async fn deck_generate(
+        &self,
+        Parameters(a): Parameters<DeckGenerate>,
+        context: RequestContext<RoleServer>,
+    ) -> Result<Json<DeckGenerated>, String> {
+        let author = author(&context);
         let slides = Value::Object(a.slides);
         let summary = slides["executiveSummary"].as_str().unwrap_or_default().to_string();
         let brief = scaena_ops::narrative::Brief {
@@ -1318,6 +1350,9 @@ impl Scaena {
                 brief,
                 a.arc.as_deref(),
             )?;
+            if made.created.created && a.history {
+                scaena_ops::history::begin(&open_by(&a.bundle, author)?, "deck_create")?;
+            }
             Ok(DeckGenerated {
                 created: made.created,
                 arc: made.arc,
