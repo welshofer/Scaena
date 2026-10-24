@@ -427,6 +427,21 @@ fn lint_fix_applies_what_lint_offers_and_lints_again() {
     assert_eq!(std::fs::read(dir.join("deck.json")).unwrap(), before);
 }
 
+/// A beat planned before its slide, in a spine written first, is reported and never fixed away:
+/// `lint --fix` leaves the story a deck is written from (dogfood 3).
+#[test]
+fn a_planned_beat_is_reported_and_lint_fix_keeps_it() {
+    let dir = fixture("planned", "W429", "trigger");
+    let (_, found) = lint(&dir);
+    let w429 = found.iter().find(|f| f["code"] == "W429").unwrap();
+    assert!(w429["fix"].is_null(), "{w429:#}");
+    let before = std::fs::read(dir.join("deck.json")).unwrap();
+    let out = scaena(&["--json", "lint", dir.to_str().unwrap(), "--fix"]);
+    let v: Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert!(v["fixed"].as_array().is_none_or(|f| f.iter().all(|f| f["code"] != "W429")), "{v:#}");
+    assert_eq!(std::fs::read(dir.join("deck.json")).unwrap(), before, "the planned beat is kept");
+}
+
 #[test]
 fn a_state_shown_for_no_time_is_judged_only_where_the_deck_runs_on_its_own() {
     // `b`'s seven words and photograph read in 4 s: four words a second, 2 s a figure.
