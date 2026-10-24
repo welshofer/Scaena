@@ -579,3 +579,32 @@ fn a_balanced_text_keeps_a_hyphenated_word_whole_across_its_lines() {
     });
     assert_eq!(narrow.lines.len(), 2, "{:?}", narrow.lines);
 }
+
+#[test]
+fn tabular_figures_space_the_figures_and_leave_the_words_as_they_are() {
+    // Dogfood: a role that asks tabular figures (`label`, `axis`, `value`, a chart's text) set
+    // "Mid-market" with a hyphen as wide as a figure, since the font's `tnum` spaces its hyphen
+    // too. Tabular spacing is the figures' alone: the words keep their own hyphen.
+    use scaena_engine::theme::Numeric::{ProportionalLining, TabularLining};
+    // Inter, whose `tnum` swaps its hyphen for one wider than a zero, in the shipped themes'
+    // `label` role: the right-to-left fixtures' copy of Dusk carries both.
+    const DUSK: &str = "../../tests/fixtures/rtl";
+    let theme = Theme::from_json(&std::fs::read_to_string(format!("{DUSK}/theme.json")).unwrap()).unwrap();
+    let mut fonts = BundleFonts::new();
+    for file in ["Inter-VF.ttf", "Fraunces-VF.ttf"] {
+        let path = format!("fonts/{file}");
+        fonts.register(&path, std::fs::read(format!("{DUSK}/{path}")).unwrap()).unwrap();
+    }
+    let mut width = |text: &str, numeric| {
+        let mut spec = TextSpec::plain(theme.text_role("label").unwrap(), text);
+        spec.numeric = Some(numeric);
+        TextEngine::new().layout(&mut fonts, &theme, &spec, 4000.0).unwrap().width
+    };
+    for words in ["Mid-market", "How-to", "BASE-RATE NEGLECT"] {
+        assert_eq!(width(words, TabularLining), width(words, ProportionalLining), "{words}");
+    }
+    // The figures, and the marks between them, are still spaced alike.
+    assert_eq!(width("1111", TabularLining), width("8888", TabularLining));
+    assert_ne!(width("1111", TabularLining), width("1111", ProportionalLining));
+    assert_eq!(width("1.1-1", TabularLining), width("8.8-8", TabularLining));
+}
