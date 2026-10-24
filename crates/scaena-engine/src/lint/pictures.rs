@@ -14,17 +14,24 @@ use std::collections::BTreeMap;
 /// Each picture `states` show that `backdrop` cannot draw, by its content id (`sha256:…`), with
 /// the painter's reason: each asked about once.
 pub(super) fn undrawable(states: &[Laid], backdrop: &mut dyn Backdrop) -> BTreeMap<String, String> {
-    let mut tried: BTreeMap<String, Option<String>> = BTreeMap::new();
+    // Built as it goes, never collected: a map collected from an iterator sorts first, and
+    // compiles that sort into the browser's modules (`scaena_core::sort`, PLAN 2.91).
+    let mut tried: Vec<&str> = Vec::new();
+    let mut bad = BTreeMap::new();
     for state in states {
         for node in &state.scene.nodes {
             let Content::Image(image) = &node.content else { continue };
-            let id = &image.info().id;
-            if !tried.contains_key(id) {
-                tried.insert(id.clone(), backdrop.picture(id).err());
+            let id = image.info().id.as_str();
+            if tried.contains(&id) {
+                continue;
+            }
+            tried.push(id);
+            if let Err(why) = backdrop.picture(id) {
+                bad.insert(id.to_string(), why);
             }
         }
     }
-    tried.into_iter().filter_map(|(id, why)| Some((id, why?))).collect()
+    bad
 }
 
 /// E107: each node that shows a picture in `bad`, once, at the first state that shows it, naming
