@@ -720,14 +720,14 @@ mod tests {
     }
 
     /// PLAN 1.19's agent loop, through the tools a page's assistant calls: a headline too
-    /// long for its one-row slot, the E100 lint finds with its fix, the fix, a clean lint,
+    /// long for its slot, the E100 lint finds with its fix, the fix, a clean lint,
     /// and the state rendered.
     #[test]
     fn the_agent_loop_runs_on_the_bundle_in_memory() {
         let mut s = dusk();
-        let long = "Volunteers rebuilt fifty-two miles of trail";
+        let long = "Volunteers rebuilt fifty-two miles of trail across the state park";
         let patch = json!({ "ops": [
-            { "op": "add", "path": "/states/0/layout", "value": "figure" },
+            { "op": "add", "path": "/states/0/layout", "value": "agenda-photo" },
             { "op": "add_node", "id": "headline", "state": "start",
               "node": { "type": "text", "role": "headline", "semantic": "claim", "at": { "in": "header" }, "text": long } },
         ] });
@@ -742,7 +742,7 @@ mod tests {
             (patched.result["added"].as_array().unwrap().iter()).map(|f| f["code"].as_str().unwrap()).collect();
         assert!(added.contains(&"E100"), "{added:?}");
 
-        // The headline needs two lines, and its slot is one row tall.
+        // The headline needs three lines, and its slot holds two: shrunk, it takes two.
         let linted = call(&mut s, "deck_lint", json!({ "severity": "error" }));
         let e100 = &linted.result["findings"].as_array().unwrap()[0];
         assert_eq!((e100["code"].as_str(), e100["node"].as_str()), (Some("E100"), Some("headline")));
@@ -836,7 +836,7 @@ mod tests {
             &mut s,
             "deck_patch",
             json!({ "ops": [
-                { "op": "add", "path": "/states/0/layout", "value": "figure" },
+                { "op": "add", "path": "/states/0/layout", "value": "agenda-photo" },
                 { "op": "add_node", "id": "title", "state": "start",
                   "node": { "type": "text", "role": "headline", "at": { "in": "header" }, "text": "Hello" } },
                 { "op": "add_state", "after": "start", "state": { "id": "next" } },
@@ -871,7 +871,7 @@ mod tests {
     fn health_reads_the_decks_story() {
         let mut s = dusk();
         let patch = json!({ "ops": [
-            { "op": "add", "path": "/states/0/layout", "value": "figure" },
+            { "op": "add", "path": "/states/0/layout", "value": "agenda-photo" },
             { "op": "add_node", "id": "headline", "state": "start",
               "node": { "type": "text", "role": "headline", "semantic": "claim", "at": { "in": "header" }, "text": "The trail" } },
         ] });

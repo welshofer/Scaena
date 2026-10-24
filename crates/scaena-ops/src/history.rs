@@ -12,7 +12,7 @@ use scaena_core::lint::{Delta, delta};
 use scaena_core::validate::validate_bundle;
 use scaena_core::{Deck, Finding};
 use scaena_engine::cascade::with_overrides;
-use scaena_store::crdt::DeckDoc;
+use scaena_store::crdt::{DeckDoc, Edit};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -62,12 +62,126 @@ pub fn rfc3339(secs: i64) -> String {
 fn kept(b: &Bundle) -> Result<DeckDoc, OpsError> {
     b.history()
         .context("reading the bundle's history")?
-        .ok_or_else(|| OpsError::new("the bundle keeps no history: `scaena save --history` begins one (SPEC §8)"))
+        .ok_or_else(|| {
+            OpsError::new("the bundle keeps no history: `deck_history` with `begin`, or `scaena save --history`, begins one (SPEC §8)")
+        })
 }
 
 /// The bundle's versions, oldest first.
 pub fn versions(b: &Bundle) -> Result<Vec<Version>, OpsError> {
     Ok(listed(&kept(b)?))
+}
+
+/// The bundle's history, begun where it keeps none (SPEC §8): its first change, by the bundle's
+/// author, holds the deck and the files it is drawn from as they are, and every write after is
+/// recorded in it. Nothing else of the bundle changes: no file is renamed or subset, as a save
+/// would. `message` says what the first change is: `history begins`, or `deck_create` for a
+/// bundle just made. Whether it was begun here, and the history.
+pub fn begin(b: &Bundle, message: &str) -> Result<(bool, DeckDoc), OpsError> {
+    if let Some(doc) = b.history().context("reading the bundle's history")? {
+        return Ok((false, doc));
+    }
+    let edit = Edit { message: Some(message), ..Edit::by(&b.author) };
+    let doc = DeckDoc::begin(&b.deck, &b.kept_files(&b.deck, &BTreeMap::new()), &edit)
+        .context("beginning the bundle's history")?;
+    let bytes = doc.save().context("writing the bundle's history")?;
+    b.write(&BTreeMap::from([(scaena_store::HISTORY.to_string(), bytes)]))
+        .with_context(|| format!("writing {}", b.root.display()))?;
+    Ok((true, doc))
+}
+
+/// A version as `deck_history` and `scaena history` list it: as the history keeps it, with what
+/// its change did and who made it in a person's words, as the editors say them
+/// (`scaena_core::words::change`, `author`), and what it changed, slide by slide, each object by
+/// what it shows: "Slide 3: “Revenue doubled”".
+#[derive(Debug, Clone, PartialEq, Serialize, JsonSchema)]
+pub struct Told {
+    #[serde(flatten)]
+    pub version: Version,
+    pub said: String,
+    pub by: String,
+    /// What it changed from the version before, as an editor names it: for the last [`TOLD`]
+    /// versions alone, each read by checking two versions out; none for the first, which holds the
+    /// deck whole.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub changed: Vec<String>,
+}
+
+/// At most this many of what a version changed are named.
+const NAMED: usize = 8;
+
+/// The most recent versions whose changes are told: telling one checks it and the one before it
+/// out and compares them, and a listing of 200 versions of B1 so took about 1.9 s (review on #585).
+const TOLD: usize = 25;
+
+/// Each version of `doc`, told: what each change did, by whom, and what it changed from the one
+/// before it.
+pub fn told(doc: &DeckDoc) -> Result<Vec<Told>, OpsError> {
+    let versions = listed(doc);
+    // The version before the first told, its deck the base of the first comparison.
+    let first = versions.len().saturating_sub(TOLD);
+    let mut out = Vec::new();
+    let mut before: Option<Deck> = match first.checked_sub(1) {
+        Some(base) => Some(then(doc, &versions[base])?.0),
+        None => None,
+    };
+    for (i, version) in versions.into_iter().enumerate() {
+        let said = scaena_core::words::change(version.message.as_deref().unwrap_or_default());
+        let by = scaena_core::words::author(version.author.as_deref().unwrap_or_default());
+        let mut changed = Vec::new();
+        if i >= first {
+            let (deck, _) = then(doc, &version)?;
+            if let Some(was) = &before {
+                changed = touched(was, &deck)?;
+            }
+            before = Some(deck);
+        }
+        out.push(Told { version, said, by, changed });
+    }
+    Ok(out)
+}
+
+/// What changed from `was` to `is`, as an editor names it: each slide added or taken away, and
+/// each object changed on a slide, by what it shows there, "Slide 3: “Revenue doubled”"; each once,
+/// [`NAMED`] at most, "and N more" past them.
+fn touched(was: &Deck, is: &Deck) -> Result<Vec<String>, OpsError> {
+    let (states, deck) = compare(was, is)?;
+    let snaps = scaena_core::resolve_states(is).context("tracking the later version")?;
+    let mut said: Vec<String> = Vec::new();
+    let mut push = |what: String| {
+        if !said.contains(&what) {
+            said.push(what);
+        }
+    };
+    for (state, change) in &states {
+        match change {
+            StateChange::Added(_) => push(format!("{} added", scaena_core::words::slide(is, state))),
+            StateChange::Removed(_) => push(format!("{} taken away", scaena_core::words::slide(was, state))),
+            StateChange::Changed(changed) => {
+                let slide = scaena_core::words::slide(is, state);
+                let shown = snaps.iter().find(|s| s.state_id == *state).map(|s| with_overrides(is, s).nodes);
+                if changed.nodes.is_empty() {
+                    push(slide.clone());
+                }
+                for id in changed.nodes.keys() {
+                    let object = match &shown {
+                        Some(shown) if is.nodes.contains_key(id) => scaena_core::words::object_in(is, shown, id),
+                        _ => scaena_core::words::kind(was.nodes.get(id).map(|n| n.node_type)).to_string(),
+                    };
+                    push(format!("{slide}: \u{201c}{object}\u{201d}"));
+                }
+            }
+        }
+    }
+    for field in deck.keys() {
+        push(format!("the deck's {}", scaena_core::words::label(field).to_lowercase()));
+    }
+    if said.len() > NAMED {
+        let more = said.len() - NAMED;
+        said.truncate(NAMED);
+        said.push(format!("and {more} more"));
+    }
+    Ok(said)
 }
 
 /// The version of `versions` that `name` names: its number as listed (`3`, or `#3`), or its id.
@@ -137,7 +251,7 @@ pub enum StateChange {
     /// The earlier version had it, and the later does not.
     Removed(bool),
     /// Both have it, and it shows otherwise.
-    Changed(Changed),
+    Changed(Box<Changed>),
 }
 
 /// What changed in a state both versions have.
@@ -152,6 +266,26 @@ pub struct Changed {
     /// later version has it, and null where it is gone.
     #[serde(skip_serializing_if = "IndexMap::is_empty")]
     pub nodes: IndexMap<String, Change>,
+    /// What each of those was in the earlier version: its own fields that changed, each as the
+    /// earlier version had it, null where it had none; and each node's props that changed or
+    /// left, as it had them, null where it had none.
+    #[serde(skip_serializing_if = "Before::is_empty")]
+    pub before: Before,
+}
+
+/// What the earlier version had of what changed.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, JsonSchema)]
+pub struct Before {
+    #[serde(skip_serializing_if = "IndexMap::is_empty")]
+    pub fields: Fields,
+    #[serde(skip_serializing_if = "IndexMap::is_empty")]
+    pub nodes: IndexMap<String, Props>,
+}
+
+impl Before {
+    pub fn is_empty(&self) -> bool {
+        self.fields.is_empty() && self.nodes.is_empty()
+    }
 }
 
 /// What changed from one version of the deck to another: what `scaena history --diff` prints.
@@ -167,6 +301,9 @@ pub struct Compared {
     /// spine, …), each as the later version has it; null where it is gone. `order` is the
     /// later version's states, where those both have run in another order.
     pub deck: Fields,
+    /// Each of those as the earlier version had it; null where it had none.
+    #[serde(skip_serializing_if = "IndexMap::is_empty")]
+    pub before: Fields,
     /// The files it is drawn from whose bytes changed, data files and the theme, by their
     /// paths.
     pub files: Vec<String>,
@@ -191,12 +328,14 @@ pub fn compare(from: &Deck, to: &Deck) -> Result<(StateChanges, Fields), OpsErro
             states.insert(snap.state_id.clone(), StateChange::Added(true));
             continue;
         };
-        let changed = Changed {
-            fields: changes(&own(from, &then.state_id), &own(to, &snap.state_id)),
-            nodes: nodes(&with_overrides(from, then).nodes, &with_overrides(to, snap).nodes),
-        };
+        let (own_was, own_is) = (own(from, &then.state_id), own(to, &snap.state_id));
+        let (shown_was, shown_is) = (with_overrides(from, then).nodes, with_overrides(to, snap).nodes);
+        let fields = changes(&own_was, &own_is);
+        let nodes = nodes(&shown_was, &shown_is);
+        let before = Before { fields: had(&own_was, fields.keys()), nodes: had_nodes(&shown_was, &nodes) };
+        let changed = Changed { fields, nodes, before };
         if changed != Changed::default() {
-            states.insert(snap.state_id.clone(), StateChange::Changed(changed));
+            states.insert(snap.state_id.clone(), StateChange::Changed(Box::new(changed)));
         }
     }
     for gone in was.iter().filter(|w| !is.iter().any(|s| s.state_id == w.state_id)) {
@@ -217,6 +356,29 @@ pub fn compare(from: &Deck, to: &Deck) -> Result<(StateChanges, Fields), OpsErro
         deck.insert("order".into(), to.states.iter().map(|s| Value::from(s.id.clone())).collect());
     }
     Ok((states, deck))
+}
+
+/// Each of `keys` as `before` has it: null where it has none.
+fn had<'k>(before: &serde_json::Map<String, Value>, keys: impl Iterator<Item = &'k String>) -> Fields {
+    keys.map(|k| (k.clone(), before.get(k).cloned().unwrap_or(Value::Null))).collect()
+}
+
+/// What each node of `changed` had in `before`: the props that changed or left, as it had them,
+/// null where it had none; a node that entered had nothing.
+fn had_nodes(before: &IndexMap<String, Props>, changed: &IndexMap<String, Change>) -> IndexMap<String, Props> {
+    let mut out = IndexMap::new();
+    for (id, change) in changed {
+        let Some(was) = before.get(id) else { continue };
+        let props = match change {
+            Change::Change(delta) => {
+                delta.keys().map(|k| (k.clone(), was.get(k).cloned().unwrap_or(Value::Null))).collect()
+            }
+            Change::Exit(_) => was.clone(),
+            _ => continue,
+        };
+        out.insert(id.clone(), props);
+    }
+    out
 }
 
 /// The keys whose values differ from `before` to `after`, each as `after` has it: null where
@@ -285,7 +447,10 @@ pub fn diff(b: &Bundle, from: &str, to: Option<&str>) -> Result<Compared, OpsErr
     };
     let (states, deck) = compare(&then_deck, &now_deck)?;
     let files = differing((&then_deck, &then_files), (&now_deck, &now_files));
-    Ok(Compared { from: earlier, to: later, states, deck, files })
+    let mut was = then_deck.to_value()?.as_object().cloned().unwrap_or_default();
+    was.insert("order".into(), then_deck.states.iter().map(|s| Value::from(s.id.clone())).collect());
+    let before = had(&was, deck.keys());
+    Ok(Compared { from: earlier, to: later, states, deck, before, files })
 }
 
 /// What restoring a version did, or would do: what `scaena history --restore` prints.
@@ -405,14 +570,21 @@ pub struct Ask {
     /// With `restore`, say what it would change, and write nothing.
     #[serde(default)]
     pub dry_run: bool,
+    /// Begin a history where the bundle keeps none, and list its versions: its first holds the
+    /// deck as it is, and every write after is recorded. A bundle that keeps one lists it.
+    #[serde(default)]
+    pub begin: bool,
 }
 
 /// What a bundle's history answers: its versions, one seen, two compared, or one restored.
 #[derive(Debug, Clone, Default, Serialize, JsonSchema)]
 pub struct History {
-    /// Its versions, oldest first, when nothing else is asked.
+    /// Its versions, oldest first, when nothing else is asked, each told in a person's words.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub versions: Option<Vec<Version>>,
+    pub versions: Option<Vec<Told>>,
+    /// With `begin`, whether the history was begun here: false where the bundle kept one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub begun: Option<bool>,
     /// With `at`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub seen: Option<Seen>,
@@ -426,9 +598,13 @@ pub struct History {
 
 /// What `ask` asks of the bundle's history.
 pub fn history(b: &Bundle, ask: &Ask) -> Result<History, OpsError> {
-    let asked = [ask.at.is_some(), !ask.compare.is_empty(), ask.restore.is_some()];
+    let asked = [ask.at.is_some(), !ask.compare.is_empty(), ask.restore.is_some(), ask.begin];
     if asked.iter().filter(|a| **a).count() > 1 {
-        return Err(OpsError::new("ask one of `at`, `compare`, and `restore` at a time"));
+        return Err(OpsError::new("ask one of `at`, `compare`, `restore`, and `begin` at a time"));
+    }
+    if ask.begin {
+        let (begun, doc) = begin(b, "history begins")?;
+        return Ok(History { versions: Some(told(&doc)?), begun: Some(begun), ..History::default() });
     }
     if let Some(name) = &ask.at {
         return Ok(History { seen: Some(at(b, name, ask.scn)?), ..History::default() });
@@ -437,7 +613,7 @@ pub fn history(b: &Bundle, ask: &Ask) -> Result<History, OpsError> {
         return Ok(History { restored: Some(restore(b, name, ask.dry_run)?), ..History::default() });
     }
     let compared = match ask.compare.as_slice() {
-        [] => return Ok(History { versions: Some(versions(b)?), ..History::default() }),
+        [] => return Ok(History { versions: Some(told(&kept(b)?)?), ..History::default() }),
         [from] => diff(b, from, None)?,
         [from, to] => diff(b, from, Some(to))?,
         _ => return Err(OpsError::new("compare one version with the deck as it is now, or two versions")),

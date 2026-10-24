@@ -868,7 +868,8 @@ fn run(cli: Cli) -> Result<ExitCode> {
         Cmd::Health { bundle } => health(&bundle, cli.json),
         Cmd::Icons { query, fill, limit } => icons(&query.join(" "), fill, limit, cli.json),
         Cmd::History { bundle, at, scn, diff, restore, dry_run } => {
-            let ask = scaena_ops::history::Ask { at, scn, compare: diff.unwrap_or_default(), restore, dry_run };
+            let ask =
+                scaena_ops::history::Ask { at, scn, compare: diff.unwrap_or_default(), restore, dry_run, begin: false };
             history(&bundle, &ask, cli.json)
         }
         Cmd::Find { bundle, text, case, words, replace, dry_run } => {
@@ -1592,9 +1593,13 @@ fn history(bundle: &Path, ask: &scaena_ops::history::Ask, json: bool) -> Result<
         let text = v.to_string();
         if text.chars().count() > 60 { format!("{}…", text.chars().take(59).collect::<String>()) } else { text }
     };
-    for v in h.versions.iter().flatten() {
+    for told in h.versions.iter().flatten() {
+        let v = &told.version;
         let (at, by) = (v.at.as_deref().unwrap_or("-"), v.author.as_deref().unwrap_or("-"));
         println!("{:>4}  {at}  {by:<14}  {}  ({})", v.n, v.message.as_deref().unwrap_or(""), v.id);
+        if !told.changed.is_empty() {
+            println!("        {}", told.changed.join("; "));
+        }
     }
     if let Some(seen) = &h.seen {
         match (&seen.scn, &seen.deck) {
@@ -1692,7 +1697,8 @@ fn print_sheet(sheet: &scaena_ops::data::Sheet) {
 }
 
 /// `scaena find` (PLAN 2.47, 2.83): each of the deck's words the query matches (its texts, each
-/// node's description, each state's notes, and each beat's claim and notes), once for each place
+/// node's description, each state's notes, each beat's claim and notes, the words its charts and
+/// tables draw, and its data's cells), once for each place
 /// they are written, with the states that show them and their matches; with `--replace`, every match replaced in
 /// one patch, reported and written as `patch` reports and writes one, and exiting as it does.
 fn find(
@@ -1724,6 +1730,11 @@ fn find(
                 (Kind::Notes, Some(_)) => format!("beat {beat}'s notes"),
                 (Kind::Notes, None) => format!("{}'s notes", f.state),
                 (Kind::Claim, _) => format!("beat {beat}'s claim"),
+                (Kind::Chart, _) => format!("{node}'s words"),
+                (Kind::Data, _) => match &f.file {
+                    Some(file) => format!("data {} in {file}", f.source.as_deref().unwrap_or_default()),
+                    None => format!("data {}", f.source.as_deref().unwrap_or_default()),
+                },
             };
             let shown = if f.states.is_empty() { "no state".to_string() } else { f.states.join(", ") };
             println!("  {what} in {shown} ({}): {:?} at {}", f.lives, f.text, quoted.join(", "));
@@ -1735,6 +1746,10 @@ fn find(
                 (false, false) => println!("replaced them, {} ops as JSON Patch", p.patch.len()),
             }
             print_delta(&p.added, &p.removed);
+        }
+        for lives in &searched.kept {
+            let why = searched.found.iter().find(|f| &f.lives == lives).and_then(|f| f.kept.as_deref());
+            println!("kept: {lives}, {}", why.unwrap_or_default());
         }
     }
     Ok(match &searched.replaced {

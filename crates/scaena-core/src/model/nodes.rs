@@ -875,6 +875,14 @@ node! {
         /// `particles` [`ParticlesParams`], and `caustics` [`CausticsParams`].
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub params: Option<IndexMap<String, ShaderParam>>,
+        /// A slide's background's record (deck format 0.38, PLAN 2.148): each text it set in a
+        /// color that reads over it, by its id, and the theme color it set. Taking the background
+        /// away, or giving the slide another, takes each such color away where the text still has
+        /// it, so the text reads as its theme sets it again; a color a person chose since stays. A
+        /// text no longer in the deck is passed over.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[schemars(extend("propertyNames" = {"$ref": "#/$defs/Id"}))]
+        pub recolored: Option<IndexMap<String, String>>,
     }
 }
 
