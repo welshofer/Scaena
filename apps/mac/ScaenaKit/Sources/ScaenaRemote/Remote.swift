@@ -260,13 +260,19 @@ public struct RemotePlace: Codable, Sendable, Equatable {
     /// The state at rest, and the one after it, each a PNG; none for a state the show lacks.
     public var slide: Data?
     public var next: Data?
-    /// When the show began, for the time since.
+    /// When the show began, for the time since, from a presenter that sends no `timer`.
     public var began: Date?
+    /// The screen black or white, the slide out of sight (PLAN 2.105); none while the slide shows.
+    public var blank: RemoteScreen?
+    /// Whether the show has passed its last state and says it has ended (PLAN 2.120).
+    public var over: Bool
+    /// The presenter's timer, paused or running, as it stood when the place was sent (PLAN 2.121).
+    public var timer: RemoteTimer?
 
     public init(
         deck: String, showing: Bool, state: String = "", index: Int = 0, count: Int = 0, ms: Double = 0,
         rest: Bool = true, notes: String = "", read: [NoteBlock] = [], slide: Data? = nil, next: Data? = nil,
-        began: Date? = nil
+        began: Date? = nil, blank: RemoteScreen? = nil, over: Bool = false, timer: RemoteTimer? = nil
     ) {
         self.deck = deck
         self.showing = showing
@@ -280,9 +286,14 @@ public struct RemotePlace: Codable, Sendable, Equatable {
         self.slide = slide
         self.next = next
         self.began = began
+        self.blank = blank
+        self.over = over
+        self.timer = timer
     }
 
-    enum CodingKeys: String, CodingKey { case deck, showing, state, index, count, ms, rest, notes, read, slide, next, began }
+    enum CodingKeys: String, CodingKey {
+        case deck, showing, state, index, count, ms, rest, notes, read, slide, next, began, blank, over, timer
+    }
 
     /// A place as a presenter sent it, one that sent no `read` read as lines.
     public init(from decoder: Decoder) throws {
@@ -299,14 +310,46 @@ public struct RemotePlace: Codable, Sendable, Equatable {
         slide = try c.decodeIfPresent(Data.self, forKey: .slide)
         next = try c.decodeIfPresent(Data.self, forKey: .next)
         began = try c.decodeIfPresent(Date.self, forKey: .began)
+        // A presenter from before the remote mirrored the screen and the timer sends none of them.
+        blank = try c.decodeIfPresent(RemoteScreen.self, forKey: .blank)
+        over = try c.decodeIfPresent(Bool.self, forKey: .over) ?? false
+        timer = try c.decodeIfPresent(RemoteTimer.self, forKey: .timer)
     }
 
     /// No show plays.
     public static func waiting(_ deck: String) -> RemotePlace { RemotePlace(deck: deck, showing: false) }
 }
 
+/// The screen as the presenter turned it (PLAN 2.105): black or white, the slide out of sight.
+public enum RemoteScreen: String, Codable, Sendable {
+    case black, white
+}
+
+/// The presenter's timer (PLAN 2.121) as it stood at `at`: what it had counted, s, and whether it
+/// was paused there, so the remote reads what the presenter's view reads, paused where it is.
+public struct RemoteTimer: Codable, Sendable, Equatable {
+    public var elapsed: Double
+    public var paused: Bool
+    public var at: Date
+
+    public init(elapsed: Double, paused: Bool, at: Date) {
+        self.elapsed = elapsed
+        self.paused = paused
+        self.at = at
+    }
+
+    /// What it reads at `now`, as the presenter's view reads it: minutes and seconds.
+    public func reads(at now: Date) -> String {
+        let seconds = max(Int(elapsed + (paused ? 0 : max(now.timeIntervalSince(at), 0))), 0)
+        return String(format: "%ld:%02ld", seconds / 60, seconds % 60)
+    }
+}
+
 /// What a remote asks of the show (PLAN 4.10), as the player's keys and gestures do (PLAN 2.2):
-/// play it from the slide the editor shows, go on, go back, the first and the last state, or end it.
+/// play it from the slide the editor shows, go on, go back, the first and the last state, or end
+/// it; and as the presenter's keys and view do (PLAN 2.105, 2.121, lift-up FUNC-5): a black or a
+/// white screen, or the slide again, and the timer paused or run on, or reset. A slide by its
+/// number goes in a message's `slide`.
 public enum RemoteCommand: String, Codable, Sendable, CaseIterable {
     case play
     case on
@@ -314,12 +357,18 @@ public enum RemoteCommand: String, Codable, Sendable, CaseIterable {
     case first
     case last
     case end
+    case black
+    case white
+    case pauseTimer
+    case resetTimer
 }
 
-/// One message: a place from the presenter, or a command from a remote.
+/// One message: a place from the presenter, or a command or a slide's number from a remote.
 struct RemoteMessage: Codable, Sendable, Equatable {
     var place: RemotePlace?
     var command: RemoteCommand?
+    /// The slide a remote asks for by its number, as the presenter's keys type one (PLAN 2.105).
+    var slide: Int?
 }
 
 extension NWConnection {

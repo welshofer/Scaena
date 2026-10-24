@@ -41,8 +41,10 @@ final class RemoteHost {
     @ObservationIgnored private var deck = ""
     /// The show that plays, if one does.
     @ObservationIgnored private weak var showing: Showing?
-    /// The place last sent, as a key: the state, whether at rest, and the deck's revision.
+    /// The place last sent, as a key: the state, whether at rest, the deck's revision, the screen
+    /// black or white, and whether the show is over; and the presenter's timer as it was sent.
     @ObservationIgnored private var sent: String?
+    @ObservationIgnored private var sentTimer: Stopwatch?
     /// The states drawn for remotes, as PNGs, by the deck's revision.
     @ObservationIgnored private var drawn: [String: Data] = [:]
 
@@ -55,6 +57,7 @@ final class RemoteHost {
         do {
             let server = try RemoteServer(name: name)
             server.command = { [weak self] command in self?.perform(command) }
+            server.slide = { [weak self] number in self?.showing?.go(slide: number) }
             server.joined = { [weak self] count in self?.joined = count }
             server.tried = { [weak self] count in self?.tried = count }
             server.recoded = { [weak self] code in
@@ -105,6 +108,8 @@ final class RemoteHost {
     private func watch(_ showing: Showing) {
         withObservationTracking {
             _ = showing.show
+            // The timer paused, run on, or reset is told as the show is (lift-up FUNC-5).
+            _ = showing.stopwatch
         } onChange: { [weak self, weak showing] in
             Task { @MainActor in
                 guard let self, let showing, self.showing === showing else { return }
@@ -125,17 +130,24 @@ final class RemoteHost {
         let show = showing.show
         let rest = !show.playhead.playing
         let revision = showing.editor.revision
-        let key = "\(show.index)\u{1f}\(rest)\u{1f}\(revision)"
-        guard key != sent else { return }
+        let key = "\(show.index)\u{1f}\(rest)\u{1f}\(revision)\u{1f}\(show.blank?.rawValue ?? "")\u{1f}\(show.over)"
+        guard key != sent || showing.stopwatch != sentTimer else { return }
         sent = key
+        sentTimer = showing.stopwatch
         let ms = show.playhead.ms.isFinite ? max(show.playhead.ms, 0) : 0
         let notes = showing.notes(slot.state)
+        let now = Date()
+        // What the room sees, mirrored (lift-up FUNC-5): a black or white screen, the end, and the
+        // presenter's own timer, paused where it is.
+        let timer = RemoteTimer(
+            elapsed: showing.stopwatch.elapsed(at: now), paused: showing.stopwatch.paused, at: now)
         server.tell(
             RemotePlace(
                 deck: deck, showing: true, state: slot.state, index: show.index, count: show.slots.count,
                 ms: rest ? 0 : ms, rest: rest, notes: notes.text, read: notes.blocks,
                 slide: png(slot.state, showing.editor), next: show.next.flatMap { png($0.state, showing.editor) },
-                began: showing.began))
+                began: showing.began, blank: show.blank.flatMap { RemoteScreen(rawValue: $0.rawValue) },
+                over: show.over, timer: timer))
     }
 
     /// `state` drawn at rest for a remote, as a PNG.
@@ -161,6 +173,10 @@ final class RemoteHost {
             case .first: showing.first()
             case .last: showing.last()
             case .end: showing.ended()
+            case .black: showing.blanking(.black)
+            case .white: showing.blanking(.white)
+            case .pauseTimer: showing.stopwatch.toggle()
+            case .resetTimer: showing.stopwatch.reset()
             case .play: break
             }
         } else if command == .play, let editor, !editor.slots.isEmpty {
