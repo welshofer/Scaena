@@ -11,9 +11,11 @@
 //! print or return what comes back. Wall-clock timings are taken here, outside the render
 //! path, which never reads a clock (SPEC §13).
 
+pub mod arguments;
 pub mod arrange;
 pub mod backgrounds;
 pub mod clipboard;
+pub mod coding;
 pub mod compile;
 pub mod create;
 pub mod data;

@@ -1,0 +1,148 @@
+punctuation «<»
+tag         «template»
+punctuation «>\n  <»
+tag         «div »
+attribute   «class»
+operator    «=»
+string      «"counter" »
+attribute   «:class»
+operator    «=»
+string      «"»
+punctuation «{ »
+plain       «active»
+punctuation «: »
+plain       «count »
+operator    «> »
+number      «0 »
+punctuation «}»
+string      «"»
+punctuation «>\n    <»
+tag         «button »
+attribute   «@click»
+operator    «=»
+string      «"»
+plain       «count»
+operator    «++»
+string      «" »
+attribute   «:disabled»
+operator    «=»
+string      «"»
+plain       «count »
+operator    «>= »
+plain       «max»
+string      «"»
+punctuation «>»
+plain       «Add»
+punctuation «</»
+tag         «button»
+punctuation «>\n    <»
+tag         «p »
+attribute   «v-if»
+operator    «=»
+string      «"»
+plain       «count»
+string      «"»
+punctuation «>{{ »
+plain       «count »
+punctuation «}} »
+plain       «of »
+punctuation «{{ »
+plain       «max »
+punctuation «}}</»
+tag         «p»
+punctuation «>\n    <»
+tag         «li »
+attribute   «v-for»
+operator    «=»
+string      «"»
+plain       «item »
+keyword     «in »
+plain       «items»
+string      «" »
+attribute   «:key»
+operator    «=»
+string      «"»
+plain       «item»
+punctuation «.»
+property    «id»
+string      «"»
+punctuation «>{{ »
+plain       «item»
+punctuation «.»
+property    «name»
+punctuation «.»
+function    «toUpperCase»
+punctuation «() }}</»
+tag         «li»
+punctuation «>\n    <»
+tag         «slot »
+attribute   «#default»
+operator    «=»
+string      «"»
+punctuation «{ »
+plain       «label »
+punctuation «}»
+string      «"»
+punctuation «>»
+plain       «Fallback »
+constant    «&amp; »
+plain       «more»
+punctuation «</»
+tag         «slot»
+punctuation «>\n  </»
+tag         «div»
+punctuation «>\n</»
+tag         «template»
+punctuation «>\n\n<»
+tag         «script »
+attribute   «setup lang»
+operator    «=»
+string      «"ts"»
+punctuation «>\n»
+keyword     «import »
+punctuation «{ »
+plain       «ref »
+punctuation «} »
+keyword     «from »
+string      «"vue"»
+punctuation «;\n»
+keyword     «const »
+plain       «props »
+operator    «= »
+plain       «defineProps»
+operator    «<»
+punctuation «{ »
+plain       «max»
+punctuation «: »
+type        «number »
+punctuation «}»
+operator    «>»
+punctuation «();\n»
+keyword     «const »
+plain       «count »
+operator    «= »
+function    «ref»
+operator    «<»
+type        «number»
+operator    «>»
+punctuation «(»
+number      «0»
+punctuation «);\n</»
+tag         «script»
+punctuation «>\n\n<»
+tag         «style »
+attribute   «scoped lang»
+operator    «=»
+string      «"scss"»
+punctuation «>\n»
+attribute   «.counter »
+punctuation «{ »
+keyword     «&»
+attribute   «.active »
+punctuation «{ »
+property    «color»
+punctuation «: »
+variable    «$accent»
+punctuation «; } }\n</»
+tag         «style»
+punctuation «>\n»
