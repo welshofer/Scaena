@@ -135,6 +135,9 @@ fn a_patch_that_leaves_a_claim_behind_reports_it_restated() {
     );
     let report = serde_json::to_value(&patched).unwrap();
     assert_eq!(report["restated"][0]["beat"], "doubled");
+    // deck_patch's report says it too.
+    let reported = scaena_ops::patch::reported(&b, &typed, true, false).unwrap();
+    assert_eq!(reported.restated, patched.restated);
 
     // The claim set in the same patch: nothing left behind.
     let mut both = typed.as_array().unwrap().clone();
