@@ -198,9 +198,10 @@ try {
   await showState(torture, "shapes");
   await press(torture, [960, 980]);
   check(await paste(torture, { [CLIP]: subtitle.clip }), "the torture deck takes the paste");
-  check(await reads(torture, "subtitle text role:body"), "Dusk's subtitle comes in with `body` for the `title` role its theme lacks");
+  // Dusk's title, 48 cu, is nearest its headline, 64, by the type scale's steps.
+  check(await reads(torture, "subtitle text role:headline"), "Dusk's subtitle comes in with `headline` for the `title` role its theme lacks");
   check(await says(torture, "role `title` is not in the theme"), `the status says what it lacked: ${await status(torture)}`);
-  check((await status(torture)).includes("`body` in its place"), "and what took its place");
+  check((await status(torture)).includes("`headline` in its place"), "and what took its place");
   await press(torture, [1500, 300]);
   check(await paste(torture, { [CLIP]: chart.clip }), "and the chart");
   // Its own declaration: the torture deck's `mx-rev chart` (PLAN 1.31) holds "rev chart" too.
