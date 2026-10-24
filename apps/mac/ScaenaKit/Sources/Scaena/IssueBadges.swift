@@ -12,6 +12,7 @@ enum Issues {
         switch finding.code {
         case "E100": "The text doesn't fit its box."
         case "E101": "It overlaps another object."
+        case "E107": "Its picture's file can't be drawn."
         case "E110", "E111": "It's hard to read against what's behind it."
         case "E120": "Some of its characters aren't in its font."
         case "W202": "It runs to more lines than its style allows."

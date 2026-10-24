@@ -761,6 +761,32 @@ impl Player {
         self.0.code_words(state, node).map_err(js)
     }
 
+    /// The patch Make Code makes of `node`, as JSON (PLAN 2.139): `code` in `language`, else in the
+    /// language its words read as, and the theme's code role, what code does not take taken away.
+    pub fn coding(&self, node: &str, language: Option<String>) -> Result<String, JsError> {
+        serde_json::to_string(&self.0.coding(node, language.as_deref()).map_err(js)?).map_err(js)
+    }
+
+    /// The patch Not Code makes of `node`, as JSON (PLAN 2.139): `code` taken away everywhere it
+    /// is written, the text set in `body` where it was in the code role.
+    pub fn uncoding(&self, node: &str) -> Result<String, JsError> {
+        serde_json::to_string(&self.0.uncoding(node).map_err(js)?).map_err(js)
+    }
+
+    /// The patch Tidy Code makes of `node` as `state` shows it, as JSON (PLAN 2.139): a
+    /// `replace_text` for each run of lines it changes; `[]` where it is tidy.
+    pub fn tidying(&self, state: &str, node: &str) -> Result<String, JsError> {
+        serde_json::to_string(&self.0.tidying(state, node).map_err(js)?).map_err(js)
+    }
+
+    /// `text` with `from` to `to` (UTF-16 code units) selected after `key` in a code text whose
+    /// tab stops are `tab` columns apart, as JSON (PLAN 2.139): `{ text, from, to }`, or `null` for
+    /// a key code does not answer. `language` is the text's `code.language`, so a Makefile's stop
+    /// is a tab.
+    pub fn keyed(text: &str, from: usize, to: usize, key: &str, tab: usize, language: Option<String>) -> String {
+        Session::keyed(text, from, to, key, tab, language.as_deref()).unwrap_or(serde_json::Value::Null).to_string()
+    }
+
     /// What ⌘B gives the characters `from` to `to` (Unicode scalar values) of `node`'s text
     /// in `state`, as JSON: `style_text`'s `look` (PLAN 2.38).
     pub fn bolding(&mut self, state: &str, node: &str, from: usize, to: usize) -> Result<String, JsError> {

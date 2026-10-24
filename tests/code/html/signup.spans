@@ -32,8 +32,14 @@ string      «theme=dusk"»
 punctuation «>\n  <»
 tag         «style»
 punctuation «>\n    »
-plain       «.hero > h1 { color: #fff; }\n  »
-punctuation «</»
+attribute   «.hero »
+operator    «> »
+tag         «h1 »
+punctuation «{ »
+property    «color»
+punctuation «: »
+constant    «#fff»
+punctuation «; }\n  </»
 tag         «style»
 punctuation «>\n</»
 tag         «head»
@@ -138,8 +144,26 @@ attribute   «type»
 operator    «=»
 string      «"module"»
 punctuation «>\n    »
-plain       «if (a < b && c > d) document.body.dataset.state = "<b>sent</b>";\n  »
-punctuation «</»
+keyword     «if »
+punctuation «(»
+plain       «a »
+operator    «< »
+plain       «b »
+operator    «&& »
+plain       «c »
+operator    «> »
+plain       «d»
+punctuation «) »
+plain       «document»
+punctuation «.»
+property    «body»
+punctuation «.»
+property    «dataset»
+punctuation «.»
+property    «state »
+operator    «= »
+string      «"<b>sent</b>"»
+punctuation «;\n  </»
 tag         «script»
 punctuation «>\n</»
 tag         «body»

@@ -432,6 +432,11 @@ impl ImageNode {
         ImageNode { rect, ..self.clone() }
     }
 
+    /// The picture it shows: its content id and size.
+    pub fn info(&self) -> &ImageInfo {
+        &self.info
+    }
+
     /// Whether `other` shows the same picture the same way, perhaps in another box.
     pub fn same_image(&self, other: &ImageNode) -> bool {
         (&self.info, self.fit, self.focal, self.crop, &self.mask)
