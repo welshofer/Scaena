@@ -29,13 +29,14 @@ pub enum Place {
 }
 
 /// A slide built for an open deck: the patch that puts it there, all or none; its states, first
-/// the slide's own; the layout it took; and its beat's id.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+/// the slide's own; the layout it took; its beat's id; and what the change is called.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Written {
     pub patch: Vec<Value>,
     pub states: Vec<String>,
     pub layout: String,
     pub beat: String,
+    pub what: String,
 }
 
 /// `slide` built for the deck `doc`, in `theme`, as the deck's generator builds a slide: its
@@ -83,6 +84,10 @@ pub fn slide_into(
         }
     };
     let replaced = old.map(|i| id_of(slides[i][0]).to_string());
+    let what = match old {
+        Some(_) => format!("Slide written again: {}", slide.slide_title),
+        None => format!("Slide written: {}", slide.slide_title),
+    };
     let old_states: Vec<&str> = old.map(|i| slides[i].iter().map(|k| id_of(*k)).collect()).unwrap_or_default();
     let total = slides.len() + usize::from(old.is_none());
     // The old slide whole, as its last state shows it.
@@ -273,7 +278,7 @@ pub fn slide_into(
     if let Some(old) = replaced {
         patch.push(json!({ "op": "remove_slide", "slide": old }));
     }
-    Ok(Written { patch, states, layout, beat: beat_id })
+    Ok(Written { patch, states, layout, beat: beat_id, what })
 }
 
 /// Each run's link in `value` (a deck's nodes, its overrides, or its states) to one of `from`
@@ -369,13 +374,18 @@ pub fn slide_writing(
     icons: BTreeMap<String, Icon>,
 ) -> Result<(SlideWritten, Option<Write>), OpsError> {
     let theme = crate::theme(b)?;
-    let what = match place {
-        Place::Replace(_) => format!("Slide written again: {}", slide.slide_title),
-        _ => format!("Slide written: {}", slide.slide_title),
-    };
     let doc = b.deck.to_value().context("the deck")?;
     let none = View { base: &b.files, pending: BTreeMap::new() };
     let written = slide_into(&doc, &theme, slide, place, icons, &scaena_core::data::Texts(&none))?;
+    slide_polishing(b, written)
+}
+
+/// `written`, a slide [`slide_into`] built for the bundle's deck, made one patch checked as a
+/// patch is, its set of texts held to one size and set clear and each fix lint offers on its
+/// states taken, as a made deck's are, nothing written: the second half of [`slide_writing`],
+/// which the browser's editor module runs on what its generator's module built (lift-up FUNC-1).
+pub fn slide_polishing(b: &Bundle, written: Written) -> Result<(SlideWritten, Option<Write>), OpsError> {
+    let what = written.what.clone();
     let mut ops = written.patch.clone();
     let (first, write) = patching(b, &Value::Array(ops.clone()), Some(&what))?;
     let Some(write) = write.filter(|_| !first.refused) else {

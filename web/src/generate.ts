@@ -43,6 +43,14 @@ export interface SlidePlace {
   replace?: string;
 }
 
+/** The generator's writer of one slide (lift-up FUNC-1), the bundle's data `files` handed to it:
+ * which the rows of a chart the slide draws are read from. */
+async function writing(files: Iterable<[string, Uint8Array]>) {
+  const w = new (await generator()).SlideWriting();
+  for (const [path, bytes] of files) w.add(path, bytes);
+  return w;
+}
+
 /** What to ask a model for one slide of `deck` at `place`, with the person's `ask` (lift-up
  * FUNC-1), the bundle's data `files` read for the rows of a chart the slide draws: the request's
  * instructions and prompt. */
@@ -52,12 +60,30 @@ export async function oneAsked(
   ask: string,
   files: Iterable<[string, Uint8Array]>,
 ): Promise<{ system: string; prompt: string }> {
-  const asking = new (await generator()).OneAsking();
+  const w = await writing(files);
   try {
-    for (const [path, bytes] of files) asking.add(path, bytes);
-    return JSON.parse(asking.asked(deck, JSON.stringify(place), ask)) as { system: string; prompt: string };
+    return JSON.parse(w.asked(deck, JSON.stringify(place), ask)) as { system: string; prompt: string };
   } finally {
-    asking.free();
+    w.free();
+  }
+}
+
+/** `slide` built for `deck` in `theme` at `place`, as the deck's generator builds a slide, its
+ * icons `found` in the set the page carries and its data `files` the bundle's: what the editor's
+ * module makes one patch of (`Player.slidePolishing`). */
+export async function slideBuilt(
+  deck: string,
+  theme: string,
+  slide: Record<string, unknown>,
+  place: SlidePlace,
+  found: Record<string, { name: string; path: string; view: number[] }>,
+  files: Iterable<[string, Uint8Array]>,
+): Promise<string> {
+  const w = await writing(files);
+  try {
+    return w.built(deck, theme, JSON.stringify(slide), JSON.stringify(place), JSON.stringify(found));
+  } finally {
+    w.free();
   }
 }
 

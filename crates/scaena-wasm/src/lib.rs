@@ -1283,22 +1283,26 @@ impl Player {
         }
     }
 
-    /// `slide_write` (lift-up FUNC-1) with `args` as [`Player::tool`] takes them: one slide
-    /// written as the deck's generator builds them, its set held to one size and set clear and
-    /// lint's fixes on it taken, as the Mac's session writes one. `icons` (JSON
-    /// `{ word: { name, path, view } }`) are those its words name, which the page finds in the set
-    /// beside it, as the generator's module is handed them (`giveIcons`).
+    /// `slide_write`'s second half (lift-up FUNC-1): `written`, the slide the generator's module
+    /// built for this deck (its `slideInto`), made one patch by the session as the Mac's writes
+    /// one, its set held to one size and set clear and lint's fixes on its own states taken,
+    /// written unless `dryRun`, by `author` at `at`. What `slide_write` returns.
     #[cfg(feature = "generate")]
-    #[wasm_bindgen(js_name = slideWrite)]
-    pub fn slide_write(&mut self, args: &str, icons: &str, author: Option<String>, at: Option<String>) -> ToolResult {
+    #[wasm_bindgen(js_name = slidePolishing)]
+    pub fn slide_polishing(
+        &mut self,
+        written: &str,
+        dry_run: bool,
+        author: Option<String>,
+        at: Option<String>,
+    ) -> ToolResult {
         let by = assistant::Caller {
             author: author.as_deref().unwrap_or("agent"),
             at: at.as_deref().and_then(store::seconds),
         };
-        let called = match (serde_json::from_str(args), serde_json::from_str(icons)) {
-            (Ok(args), Ok(icons)) => self.0.slide_write(args, |_: &[String]| icons, by),
-            (Err(e), _) => Err(Error::Ops(format!("slide_write: the arguments are not JSON: {e}"))),
-            (_, Err(e)) => Err(Error::Ops(format!("slide_write: the icons: {e}"))),
+        let called = match serde_json::from_str(written) {
+            Ok(written) => self.0.slide_polishing(written, dry_run, by),
+            Err(e) => Err(Error::Ops(format!("slide_write: the slide built is not JSON: {e}"))),
         };
         match called {
             Ok(c) => {

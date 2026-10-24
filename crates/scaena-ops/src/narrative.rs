@@ -35,7 +35,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 mod one;
-pub use one::{Place, SlideWritten, Written, one_asked, slide_into, slide_write, slide_writing};
+pub use one::{Place, SlideWritten, Written, one_asked, slide_into, slide_polishing, slide_write, slide_writing};
 
 /// The canvas a made deck draws on.
 const CANVAS: [u32; 2] = [1920, 1080];

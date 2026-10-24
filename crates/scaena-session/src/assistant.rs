@@ -30,8 +30,8 @@ use serde_json::{Map, Value, json};
 /// generation (`generate`, the Mac's), and the browser's page from the generator's module, as its
 /// Story tab reads it, since the editor's module carries none of it. `slide_write` writes one
 /// slide as the deck's generator builds them (lift-up FUNC-1): the session where it carries
-/// generation, the browser's editor module among them, the page handing it the icons the slide's
-/// words name ([`Session::slide_write`]).
+/// generation and the icons that ship, the Mac's; the browser's page builds it by the generator's
+/// module, and the session makes it one patch ([`Session::slide_polishing`]).
 pub const TOOLS: &[&str] = &[
     "deck_read",
     "deck_patch",
@@ -571,20 +571,15 @@ impl Session {
                 Ok(Called { edited, ..Called::of(started)? })
             }
             // One slide written as the deck's generator builds them (lift-up FUNC-1), its icons
-            // found in the set this library carries; the browser's page finds them in the set
-            // beside it and calls `slide_write` itself.
-            #[cfg(feature = "generate")]
-            "slide_write" => {
-                #[cfg(feature = "shipped")]
-                let icons = |words: &[String]| scaena_ops::narrative::icons_found(words);
-                #[cfg(not(feature = "shipped"))]
-                let icons = |_: &[String]| Default::default();
-                self.slide_write(a, icons, by)
-            }
-            #[cfg(not(feature = "generate"))]
+            // found in the set this library carries: the Mac's. The browser's page builds the slide
+            // by the generator's module and has the session polish it (`slide_polishing`), so the
+            // editor's module carries none of the deck's slide builder (SPEC §15).
+            #[cfg(all(feature = "generate", feature = "shipped"))]
+            "slide_write" => self.slide_write(a, by),
+            #[cfg(not(all(feature = "generate", feature = "shipped")))]
             "slide_write" => {
                 let _: SlideWrite = args(name, a)?;
-                Err(ops("slide_write: this library carries no generation"))
+                Err(ops("slide_write: the page builds the slide by the generator's module"))
             }
             // A slide's background set to a theme preset, or taken away (PLAN 2.148).
             "background_set" => {
@@ -716,15 +711,11 @@ impl From<OpsError> for Error {
 #[cfg(feature = "generate")]
 impl Session {
     /// `slide_write` (lift-up FUNC-1), as its MCP tool takes it less the bundle, by `by`: one
-    /// slide written into the deck as the deck's generator builds them, its set of texts held to
-    /// one size and set clear, and lint's fixes on it taken, in one patch; each icon its words name
-    /// found by `icons`, which the browser's page answers from the set beside it.
-    pub fn slide_write(
-        &mut self,
-        a: Value,
-        icons: impl FnOnce(&[String]) -> std::collections::BTreeMap<String, scaena_narrato::Icon>,
-        by: Caller,
-    ) -> Result<Called, Error> {
+    /// slide written into the deck as the deck's generator builds them, its icons found in the set
+    /// this library carries, its set of texts held to one size and set clear, and lint's fixes on
+    /// it taken, in one patch.
+    #[cfg(feature = "shipped")]
+    pub fn slide_write(&mut self, a: Value, by: Caller) -> Result<Called, Error> {
         let a: SlideWrite = args("slide_write", a)?;
         let slide: scaena_ops::narrative::Slide =
             serde_json::from_value(Value::Object(a.slide)).map_err(|e| ops(format!("slide_write: the slide: {e}")))?;
@@ -734,12 +725,26 @@ impl Session {
             (None, Some(state)) => scaena_ops::narrative::Place::After(state),
             (None, None) => scaena_ops::narrative::Place::End,
         };
-        let icons = icons(&slide.icons);
+        let icons = scaena_ops::narrative::icons_found(&slide.icons);
         let b = self.bundle();
         let (mut written, write) = scaena_ops::narrative::slide_writing(&b, slide, &place, icons)?;
         written.patched.applied &= !a.dry_run;
         let edited = self.write(write.filter(|_| !a.dry_run), by)?;
         Ok(Called { edited, ..Called::of(written)? })
+    }
+
+    /// `slide_write`'s second half (lift-up FUNC-1), by `by`: `written`, a slide the browser's
+    /// generator module built for this deck (`scaena_ops::narrative::Written`, as JSON), made one
+    /// patch with its set held to one size and set clear and lint's fixes on its own states taken,
+    /// and written unless `dry_run`. What `slide_write` returns.
+    pub fn slide_polishing(&mut self, written: Value, dry_run: bool, by: Caller) -> Result<Called, Error> {
+        let written: scaena_ops::narrative::Written =
+            serde_json::from_value(written).map_err(|e| ops(format!("slide_write: the slide built: {e}")))?;
+        let b = self.bundle();
+        let (mut out, write) = scaena_ops::narrative::slide_polishing(&b, written)?;
+        out.patched.applied &= !dry_run;
+        let edited = self.write(write.filter(|_| !dry_run), by)?;
+        Ok(Called { edited, ..Called::of(out)? })
     }
 }
 
@@ -905,7 +910,7 @@ mod tests {
             "keyBullets": ["Fast: drafts in seconds", "Safe: never sends alone", "Yours: learns your voice"],
             "speakerNotes": "Each reason in a breath.",
         });
-        #[cfg(feature = "generate")]
+        #[cfg(all(feature = "generate", feature = "shipped"))]
         {
             let written = call(&mut s, "slide_write", json!({ "slide": slide, "after": "start" }));
             assert_eq!((written.result["applied"].clone(), written.edited), (json!(true), true), "{}", written.result);
@@ -925,7 +930,7 @@ mod tests {
             let slides = states.iter().filter(|s| s["slide"].is_null()).count();
             assert_eq!(slides, 2, "{ids:?}");
         }
-        #[cfg(not(feature = "generate"))]
+        #[cfg(not(all(feature = "generate", feature = "shipped")))]
         {
             let refused = s.tool("slide_write", json!({ "slide": slide }), AGENT).unwrap_err();
             assert!(
