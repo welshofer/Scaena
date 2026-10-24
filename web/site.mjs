@@ -17,7 +17,7 @@
 import { readdir, readFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { join } from "node:path";
-import { decode, launch, serve } from "./serve.mjs";
+import { decode, launch, serve, tab } from "./serve.mjs";
 
 const root = join(process.cwd(), "target/site");
 const at = "/scaena/demo/";
@@ -118,7 +118,7 @@ try {
   check(zip[0] === 0x50 && zip[1] === 0x4b, `Download loads the subsetter from the site: ${download.suggestedFilename()}, ${zip.length} bytes`);
 
   // And the assistant's code and what it reads, to answer.
-  await editor.click("#tab-assistant");
+  await tab(editor, "assistant");
   await editor.selectOption("#provider", "anthropic");
   await editor.fill("#base", scripted.origin);
   await editor.fill("#key", "site-test-key");

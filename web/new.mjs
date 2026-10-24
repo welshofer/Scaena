@@ -98,6 +98,8 @@ try {
   await ready("field-notes-whats-next");
   const made = await where();
   check(made.where === undefined && !made.dirty, `a new deck is kept nowhere, named for its title: ${JSON.stringify(made)}`);
+  const told = await page.locator("#where").innerText();
+  check(told === "Field notes: what’s next, not saved", `the line under the slide names it by its title, not its slug: ${told}`);
   const source = await page.evaluate(() => window.scaena.source());
   check(source.includes('deck "Field notes: what’s next"') && source.includes('theme:"themes/daybreak.theme.json"'), `its source has its title and its theme: ${source.split("\n")[0]}`);
   check(
@@ -206,16 +208,46 @@ try {
   await page.waitForFunction(() => document.querySelector("#status").textContent.startsWith("Kept in this browser"), null, { timeout: 30000 }).catch(() => {});
   const keptFirst = await page.evaluate(() => window.scaena.where().where?.kind === "opfs");
   const playSaid = await page.evaluate(() => document.querySelector("#status").textContent);
+  // It stays said once lint has read the deck again: what lint finds comes after it, until the
+  // source is edited.
+  const linted = await page.evaluate(() => window.scaena.trips().length);
+  await page.waitForFunction((n) => window.scaena.trips().length > n, linted, { timeout: 30000 }).catch(() => {});
+  const stillSaid = await page.evaluate(() => document.querySelector("#status").textContent);
+  check(stillSaid.startsWith("Kept in this browser to play it"), `and it stays said once lint has run: ${stillSaid}`);
   await played.waitForURL(/index\.html/, { timeout: 30000 }).catch(() => {});
   const playing = await played.waitForFunction(() => window.scaena?.at?.(), null, { timeout: 60000 }).then(() => true, () => false);
   check(keptFirst && playSaid === "Kept in this browser to play it" && playing && played.url().includes("bundle=opfs%3Atyped-over"), `Play keeps a new deck in the browser, says so, and plays it: ${playSaid}, ${played.url()}`);
   await played.close();
 
+  // ⌘Z after the save takes back the typing before it, not the paths the save renamed: the
+  // bundle's files are named so now.
+  const afterSave = await page.evaluate(() => window.scaena.source());
+  const fonts = (s) => [...s.matchAll(/"(fonts\/[^"]+)"/g)].map((m) => m[1]).sort().join(", ");
+  await page.locator("#overlay").focus();
+  await page.keyboard.press("Control+z");
+  await page.waitForFunction(() => !window.scaena.source().includes("Notes from the field"), null, { timeout: 30000 }).catch(() => {});
+  const unsaved = await page.evaluate(() => window.scaena.source());
+  check(!unsaved.includes("Notes from the field") && fonts(unsaved) === fonts(afterSave), `⌘Z after the save takes back the typing and keeps the paths it renamed: ${fonts(unsaved)}`);
+  await page.keyboard.press("Control+Shift+z");
+  await page.waitForFunction((s) => window.scaena.source() === s, afterSave, { timeout: 30000 }).catch(() => {});
+  check((await page.evaluate(() => window.scaena.source())) === afterSave, "and ⌘⇧Z makes the typing again");
+
   // After several New, ⌘Z is the deck open's, once, wherever the page does not take it itself:
   // from its slide focused in the strip, and from a menu in the inspector.
   const opened = await page.evaluate(() => window.scaena.source());
+  // Undone once the editor has taken the undo's compile too, and shows a state it holds: until
+  // then the state it showed can be one the undo took away, and a choice made there changes nothing.
   const undone = async () => {
-    await page.waitForFunction((s) => window.scaena.source() === s, opened, { timeout: 30000, polling: 50 }).catch(() => {});
+    await page
+      .waitForFunction(
+        (s) => {
+          const last = window.scaena.last();
+          return window.scaena.source() === s && last?.valid && !last.error && last.states[window.scaena.shown()] !== undefined;
+        },
+        opened,
+        { timeout: 30000, polling: 50 },
+      )
+      .catch(() => {});
     return (await page.evaluate(() => window.scaena.source())) === opened;
   };
   await page.click("#strip [data-add=step]");

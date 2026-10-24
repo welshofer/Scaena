@@ -8,6 +8,30 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
+/// How long to wait before a request answered for now is made again, the `tried`th time (from
+/// 1): what its `Retry-After` says, in seconds; else what a rate limit's words ask for ("Please
+/// try again in 12s"); else a wait that doubles from two seconds; a minute at most.
+pub(crate) fn wait(after: Option<&str>, body: &str, tried: usize) -> f64 {
+    let said = (after.and_then(|a| a.trim().parse::<f64>().ok()).filter(|s| s.is_finite() && *s >= 0.0))
+        .or_else(|| try_again_in(&body.to_lowercase()));
+    said.unwrap_or((2u32 << tried.saturating_sub(1).min(16)) as f64).min(crate::LONGEST_WAIT)
+}
+
+/// The wait a rate limit's words ask for: "Please try again in 12s", "in 850ms".
+pub(crate) fn try_again_in(text: &str) -> Option<f64> {
+    let rest = &text[text.find("try again in ")? + "try again in ".len()..];
+    let number: String = rest.chars().take_while(|c| c.is_ascii_digit() || *c == '.').collect();
+    let value: f64 = number.parse().ok()?;
+    let unit = &rest[number.len()..];
+    Some(if unit.starts_with("ms") {
+        value / 1000.0
+    } else if unit.starts_with('m') && !unit.starts_with("ms") {
+        value * 60.0
+    } else {
+        value
+    })
+}
+
 /// A provider of models.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -109,6 +133,9 @@ pub enum Shape {
     Fit,
     /// The deck seen as it is drawn, and what to change on it (Scaena's own call, [`crate::look`]).
     Look,
+    /// The outline before the slides: the big idea and each beat's claim (Scaena's own call,
+    /// [`crate::outline`], narrative FUNC-1).
+    Outline,
 }
 
 /// A document the model reads beside the prompt: a PDF, sent as itself (ADR-0026).
@@ -196,12 +223,14 @@ impl Provider {
             Shape::Slides => schema::slides_gemini(),
             Shape::Fit => crate::fit::schema_gemini(),
             Shape::Look => crate::look::schema_gemini(),
+            Shape::Outline => crate::outline::schema_gemini(),
         };
         let name = match call.shape {
             Shape::Arc => "arc",
             Shape::Slides => "deck",
             Shape::Fit => "fit",
             Shape::Look => "look",
+            Shape::Outline => "outline",
         };
         match self {
             Provider::Anthropic => {
@@ -406,7 +435,7 @@ pub(crate) fn at(base: Option<&str>, fallback: &str, path: &str) -> String {
 }
 
 /// `text` as one part of a URL's path.
-fn component(text: &str) -> String {
+pub(crate) fn component(text: &str) -> String {
     let mut out = String::new();
     for b in text.bytes() {
         if b.is_ascii_alphanumeric() || b"-_.~".contains(&b) {

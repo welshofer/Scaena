@@ -157,7 +157,9 @@ enum Cmd {
         state_choices: bool,
         /// The layouts the state may take, best first (PLAN 2.92): each of the theme's layouts
         /// that `--state-choices` offers, with what lint finds in the state laid out in it
-        /// (fewest errors, then fewest warnings, then the theme's order), the states the change
+        /// (fewest errors, then fewest warnings, then the layout it takes now, then those whose
+        /// places it leaves fewest empty, then those that set fewest of its texts in another
+        /// role, then the theme's order), the states the change
         /// reaches, and the `set_state` patch that makes it. Needs `--state`.
         #[arg(long, requires = "state")]
         layouts: bool,
@@ -252,6 +254,11 @@ enum Cmd {
         /// `--features gpu`). Every other export paints with the CPU painter.
         #[arg(long, value_enum, default_value_t = PainterArg::Cpu)]
         painter: PainterArg,
+        /// How a video and the spine pace the timeline: `beats` gives each state with no
+        /// `hold` its share of its beat's `duration`, as the talk is given; `holds` plays each
+        /// state's hold alone, as a player auto-advances.
+        #[arg(long, value_enum, default_value_t = PaceArg::Beats)]
+        pace: PaceArg,
     },
     /// Apply a patch: JSON Patch (RFC 6902) and semantic ops, all or none, and say what
     /// changes in what `validate` and `lint` find. A patch that would make the deck invalid
@@ -379,6 +386,45 @@ enum Cmd {
         /// At most this many.
         #[arg(long, default_value_t = 20)]
         limit: usize,
+    },
+    /// Start a slide after a state's slide, as Add Slide starts one (PLAN 3.30), in one of the
+    /// theme's layouts: a new state in the layout, a text in each of its slots that says what goes
+    /// there, its words to type over, and the slots that wait for a picture or a figure left
+    /// empty; it stays on its slide. One patch, all or none, refused as `patch` refuses one, and
+    /// reported as `patch` reports one, with the new state's id. `inspect --layouts` lists the
+    /// layouts a state may take.
+    Start {
+        bundle: PathBuf,
+        /// The state the slide goes after: after the last step of its slide, in its beat.
+        state: String,
+        /// One of the theme's layouts, by its name in the theme (`bullets`, `big-number`, …). A
+        /// blank slide without it.
+        #[arg(long)]
+        layout: Option<String>,
+        /// Say what would change, and write nothing.
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// A slide's background (PLAN 2.148): with PRESET, one of the theme's shader presets filling
+    /// the canvas behind everything on the state's slide, entering in its first state and kept to
+    /// the slide, each text too faint to read over it set in the theme's color that reads there;
+    /// with `--none`, taken away. One patch, refused as `patch` refuses one. With neither, what
+    /// the slide may take: each preset the theme offers, the one it has, and why backgrounds stay
+    /// off a slide that shows a chart or a table.
+    Background {
+        bundle: PathBuf,
+        /// A state of the slide.
+        state: String,
+        /// The theme's shader preset (`backdrop`, `aurora`, `texture`, `haze`, `lagoon`, `sweep`,
+        /// `dust` in the themes that ship).
+        #[arg(conflicts_with = "none")]
+        preset: Option<String>,
+        /// Take the slide's background away.
+        #[arg(long)]
+        none: bool,
+        /// Say what would change, and write nothing.
+        #[arg(long)]
+        dry_run: bool,
     },
     /// The deck's narrative health (PLAN G.9): Vzestup's measures of a talk, over its slides as
     /// its spine tells them: pacing against the length its brief asked, the points each slide
@@ -508,6 +554,23 @@ impl From<PainterArg> for Painter {
         match painter {
             PainterArg::Cpu => Painter::Cpu,
             PainterArg::Gpu => Painter::Gpu,
+        }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, ValueEnum)]
+enum PaceArg {
+    /// Each state with no `hold` its share of its beat's `duration`.
+    Beats,
+    /// Each state its `hold` alone.
+    Holds,
+}
+
+impl From<PaceArg> for scaena_core::spine::Pace {
+    fn from(pace: PaceArg) -> Self {
+        match pace {
+            PaceArg::Beats => scaena_core::spine::Pace::Beats,
+            PaceArg::Holds => scaena_core::spine::Pace::Holds,
         }
     }
 }
@@ -713,9 +776,9 @@ fn run(cli: Cli) -> Result<ExitCode> {
             }
             Ok(ExitCode::SUCCESS)
         }
-        Cmd::Export { bundle, format, out, states, size, fps, audio, painter } => {
-            let painter = painter.into();
-            let req = scaena_ops::export::Request { format, states, out, size, fps, audio, painter };
+        Cmd::Export { bundle, format, out, states, size, fps, audio, painter, pace } => {
+            let (painter, pace) = (painter.into(), pace.into());
+            let req = scaena_ops::export::Request { format, states, out, size, fps, audio, painter, pace };
             let exported = scaena_ops::export::export(&open(&bundle)?, &req)?;
             if cli.json {
                 println!("{}", serde_json::to_string_pretty(&exported)?);
@@ -788,6 +851,10 @@ fn run(cli: Cli) -> Result<ExitCode> {
                 center: center.map(|v| [v[0], v[1]]),
             };
             map(&a, cli.json)
+        }
+        Cmd::Start { bundle, state, layout, dry_run } => start(&bundle, &state, layout.as_deref(), dry_run, cli.json),
+        Cmd::Background { bundle, state, preset, none, dry_run } => {
+            background(&bundle, &state, preset.as_deref(), none, dry_run, cli.json)
         }
         Cmd::Health { bundle } => health(&bundle, cli.json),
         Cmd::Icons { query, fill, limit } => icons(&query.join(" "), fill, limit, cli.json),
@@ -987,8 +1054,8 @@ fn diagnostic(
 
 /// `scaena theme --apply` (PLAN 1.6): point the deck at another theme, and report the
 /// delta in what `validate` and `lint` find: what the new theme breaks, and what it fixes.
-/// A theme change is a pure re-render (SPEC §2.5), so the deck itself is not touched beyond
-/// its `theme`. A theme that would leave the deck invalid is refused unless `force`, and
+/// A text it leaves too faint is recolored, and one it sets past its box or over another is
+/// refitted, as lint's fixes do; what no fix reaches is said, with the next step. A theme that would leave the deck invalid is refused unless `force`, and
 /// exits 1. Findings after it, if any are errors, exit 1.
 /// `scaena new` (PLAN 2.13): a bundle from a theme and its fonts, as `deck_create` makes one.
 /// Findings that are errors exit 1, and the bundle is not made.
@@ -1033,7 +1100,24 @@ fn theme_apply(bundle: &Path, theme: &Path, dry_run: bool, force: bool, json: bo
                 f.code
             );
         }
+        // Each text the theme set past its box or over another, fitted as lint's fix fits it.
+        for f in &t.refitted {
+            let at = f.state.as_deref().map(|s| format!(" in `{s}`")).unwrap_or_default();
+            let what = if f.code == "E100" { "it fits its box" } else { "it no longer lies over another" };
+            println!("  refitted `{}`{at}: {what} ({})", f.node.as_deref().unwrap_or("?"), f.code);
+        }
         print_delta(&t.added, &t.removed);
+        // What the theme brought that no fix reaches, and where to put it right.
+        let left = t.added.iter().filter(|f| f.severity == Severity::Error).count();
+        if left > 0 {
+            let d = bundle.display();
+            let them = if left == 1 { "it" } else { "them" };
+            println!(
+                "still: {left} error{} the theme brought that no fix reaches; next: scaena serve {d} to move {them}, \
+                 or scaena lint {d} for each one's hint",
+                if left == 1 { "" } else { "s" }
+            );
+        }
     }
     Ok(if t.errors > 0 { ExitCode::from(1) } else { ExitCode::SUCCESS })
 }
@@ -1231,6 +1315,82 @@ fn data(bundle: &Path, source: &str, edits: Option<&Path>, dry_run: bool, json: 
 
 /// `scaena files` (PLAN 2.59): the bundle's images, fonts, and data, and what uses each; or,
 /// with `remove`, those taken out, all or none, which exits 1 where one cannot be.
+/// `scaena start` (PLAN 3.30): a slide started in a layout after a state's slide, as one patch,
+/// reported as `patch` reports one, with the new state's id. Exits 1 where it is refused or
+/// errors remain, as `patch` does.
+fn start(bundle: &Path, state: &str, layout: Option<&str>, dry_run: bool, json: bool) -> Result<ExitCode> {
+    let b = open(bundle)?;
+    let s = scaena_ops::states::start(&b, state, layout, dry_run)?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&s)?);
+    } else {
+        let p = &s.patched;
+        match (p.refused, dry_run) {
+            (true, _) => println!("refused: the slide would make the deck invalid; nothing was written"),
+            (false, true) => println!("would add {} after {state}'s slide, {} ops as JSON Patch", s.id, p.patch.len()),
+            (false, false) => println!("added {} after {state}'s slide, {} ops as JSON Patch", s.id, p.patch.len()),
+        }
+        print_delta(&p.added, &p.removed);
+    }
+    Ok(if s.patched.refused || s.patched.errors > 0 { ExitCode::from(1) } else { ExitCode::SUCCESS })
+}
+
+/// `scaena background` (PLAN 2.148): a slide's background set to one of the theme's presets, or
+/// taken away, as one patch, reported as `patch` reports one; with neither asked, what the slide
+/// may take. Exits 1 where it is refused or errors remain, as `patch` does.
+fn background(
+    bundle: &Path,
+    state: &str,
+    preset: Option<&str>,
+    none: bool,
+    dry_run: bool,
+    json: bool,
+) -> Result<ExitCode> {
+    let b = open(bundle)?;
+    if preset.is_none() && !none {
+        let theme = scaena_ops::theme(&b)?;
+        let files = scaena_ops::lint::View::of(&b);
+        let offered = scaena_ops::backgrounds::offered(&b.deck, &theme, &files, state)?;
+        if json {
+            println!("{}", serde_json::to_string_pretty(&offered)?);
+            return Ok(ExitCode::SUCCESS);
+        }
+        println!("the slide begins at {}", offered.first);
+        if let Some(held) = &offered.held {
+            println!("  {held}");
+        }
+        for o in &offered.options {
+            let now = if o.current { "  (now)" } else { "" };
+            match (&o.preset, &o.said) {
+                (Some(preset), Some(kind)) => println!("  {preset:<12} {}, {kind}{now}", o.label),
+                _ => println!("  {:<12} {}{now}", "--none", o.label),
+            }
+        }
+        return Ok(ExitCode::SUCCESS);
+    }
+    let p = match dry_run {
+        true => {
+            let (mut p, _) = scaena_ops::backgrounds::backgrounding(&b, state, preset)?;
+            p.applied = false;
+            p
+        }
+        false => scaena_ops::backgrounds::background(&b, state, preset)?,
+    };
+    if json {
+        println!("{}", serde_json::to_string_pretty(&p)?);
+    } else {
+        let what =
+            preset.map_or("the background taken away".to_string(), |name| format!("the background set to {name}"));
+        match (p.refused, dry_run) {
+            (true, _) => println!("refused: {what} would make the deck invalid; nothing was written"),
+            (false, true) => println!("would apply {what}, {} ops as JSON Patch", p.patch.len()),
+            (false, false) => println!("applied {what}, {} ops as JSON Patch", p.patch.len()),
+        }
+        print_delta(&p.added, &p.removed);
+    }
+    Ok(if p.refused || p.errors > 0 { ExitCode::from(1) } else { ExitCode::SUCCESS })
+}
+
 fn health(bundle: &Path, json: bool) -> Result<ExitCode> {
     let h = scaena_ops::health::health(&open(bundle)?.deck)?;
     if json {
@@ -1306,7 +1466,7 @@ fn files(bundle: &Path, remove: Option<&[String]>, dry_run: bool, json: bool) ->
         }
         return Ok(code);
     }
-    let listed = scaena_ops::files::Listed { files: scaena_ops::files::files(&b)? };
+    let listed = scaena_ops::files::listed(&b)?;
     if json {
         println!("{}", serde_json::to_string_pretty(&listed)?);
         return Ok(ExitCode::SUCCESS);
@@ -1330,6 +1490,21 @@ fn files(bundle: &Path, remove: Option<&[String]>, dry_run: bool, json: bool) ->
             println!("    named by {}", names.join(", "));
             for used in &f.used {
                 println!("    {} in {}", used.node, used.states.join(", "));
+            }
+        }
+    }
+    // What a deck made from a prompt was grounded in, which is no file of the bundle (FUNC-3).
+    if !listed.sources.is_empty() {
+        println!("grounded in");
+        for s in &listed.sources {
+            let cut = if s.truncated { ", cut short to fit" } else { "" };
+            println!("  {}  {}, {}{cut}", s.name, s.kind, size(s.bytes));
+            if let Some(url) = s.url.as_deref().filter(|u| *u != s.name) {
+                println!("    at {url}");
+            }
+            match s.cited.as_slice() {
+                [] => println!("    no beat cites it"),
+                beats => println!("    cited by {}", beats.join(", ")),
             }
         }
     }
@@ -2024,8 +2199,14 @@ fn num(x: f64) -> String {
 /// the display list if asked for.
 fn render(args: RenderArgs, json: bool) -> Result<ExitCode> {
     let RenderArgs { bundle, state, t, format, size, out, display_list, painter } = args;
-    let req =
-        scaena_ops::render::Request { state: state.clone(), t, format: format.clone(), size, painter: painter.into() };
+    let req = scaena_ops::render::Request {
+        state: state.clone(),
+        t,
+        format: format.clone(),
+        size,
+        scale: None,
+        painter: painter.into(),
+    };
     let r = scaena_ops::render::render(&bundle, &req)?;
     if let Some(path) = &display_list {
         std::fs::write(path, r.display_list.to_golden_json()?)

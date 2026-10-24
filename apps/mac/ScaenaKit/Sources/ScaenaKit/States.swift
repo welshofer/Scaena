@@ -32,6 +32,13 @@ extension ScaenaSession {
         return try call("starting", .object(args))
     }
 
+    /// The patch that makes a new deck's title slide after the slide of `state` (PLAN 3.30): in the
+    /// theme's `title` layout, its words to type over and the theme's backdrop in its picture's
+    /// place, as the theme chooser draws it.
+    public func titling(after state: String) throws -> AddedState {
+        try call("titling", ["state": .string(state)])
+    }
+
     /// The slides a person may start (PLAN 3.31), as a picker lists them before it draws any: one
     /// in each of the theme's layouts, in its order, then a blank one, each with no picture.
     public func starters() throws -> [Starter] {
@@ -278,10 +285,14 @@ public enum Restaging {
 /// A rehearsal (PLAN 2.63, 3.14): the deck played as presented, from its first state, with the
 /// time each state is shown kept. It keeps no clock: each step is told the time. At the end, a
 /// state's cue plays and then its hold, so the hold the time keeps is the time less the cue's
-/// span, to a tenth of a second; a state shown twice keeps both times.
+/// span, to a tenth of a second; a state shown twice keeps both times. It carries each state's
+/// notes as a presenter reads them (SPEC §2.6), shown beside the slide with the next slide's name,
+/// as the presenter's window shows them (lift-up USE-3).
 public struct Rehearsal: Sendable {
     /// The states as the rehearsal began.
     public let slots: [ScaenaSession.Slot]
+    /// Each state's notes, by its place in `slots`; none where the rehearsal was given none.
+    public let notes: [Notes]
     /// The state shown, by its place in `slots`.
     public private(set) var index = 0
     /// How long each state has been shown, ms, less the time since the state shown came up.
@@ -291,8 +302,9 @@ public struct Rehearsal: Sendable {
     public let began: ContinuousClock.Instant
     private var since: ContinuousClock.Instant
 
-    public init(slots: [ScaenaSession.Slot], at now: ContinuousClock.Instant = .now) {
+    public init(slots: [ScaenaSession.Slot], notes: [Notes] = [], at now: ContinuousClock.Instant = .now) {
         self.slots = slots
+        self.notes = notes
         spent = Array(repeating: 0, count: slots.count)
         began = now
         since = now
@@ -301,6 +313,12 @@ public struct Rehearsal: Sendable {
 
     /// The state shown.
     public var state: String? { slots.indices.contains(index) ? slots[index].state : nil }
+
+    /// The notes of the state shown, where the rehearsal was given them.
+    public var current: Notes? { notes.indices.contains(index) ? notes[index] : nil }
+
+    /// The state after the one shown; none from the last.
+    public var next: ScaenaSession.Slot? { slots.indices.contains(index + 1) ? slots[index + 1] : nil }
 
     /// Go on (`by` 1) or back (-1), the time since the state shown came up counted toward it.
     /// Going on from the last state stops; going back from the first stays.

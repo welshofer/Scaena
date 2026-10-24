@@ -5,7 +5,7 @@
 //! the key in its headers and nowhere else. No HTTP: the client makes each call, and reads
 //! each answer back here.
 
-use crate::providers::{Provider, Request, at, with_json};
+use crate::providers::{Provider, Request, at, try_again_in, with_json};
 use crate::{Slide, js};
 use base64::Engine;
 use serde::{Deserialize, Serialize};
@@ -298,6 +298,11 @@ pub fn paints(provider: Provider, model: &str) -> bool {
     }
 }
 
+/// Whether `id` reads as a model's name: letters, digits, `.`, `_`, and `-`.
+pub fn named(id: &str) -> bool {
+    !id.is_empty() && id.bytes().all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b))
+}
+
 /// The image models an answer to [`Provider::models`] lists, best first: OpenAI's GPT Image
 /// models newest first, its minis after them, then DALL·E 3; Gemini's Imagen models, then its
 /// Gemini image models. Anthropic makes none.
@@ -314,7 +319,8 @@ pub fn models(provider: Provider, status: u16, status_text: &str, body: &str) ->
             .collect(),
         Provider::Anthropic => Vec::new(),
     };
-    ids.retain(|id| paints(provider, id));
+    // A name is the URL's path where it is asked, so one that would change the path is no model.
+    ids.retain(|id| named(id) && paints(provider, id));
     // A version from the name: gpt-image-2.5-… is 2.5; dall-e-3 and Gemini's sort after.
     let version = |id: &str| -> f64 {
         let digits: String = id
@@ -371,12 +377,12 @@ pub fn request(settings: &Settings, key: &str, prompt: &str, frame: Frame, plain
             let headers = with_json(BTreeMap::from([("x-goog-api-key".into(), key.to_string())]));
             let (path, body) = if model.starts_with("imagen") {
                 (
-                    format!("/v1beta/models/{model}:predict"),
+                    format!("/v1beta/models/{}:predict", crate::providers::component(model)),
                     json!({ "instances": [{ "prompt": prompt }], "parameters": { "sampleCount": 1, "aspectRatio": frame.aspect() } }),
                 )
             } else {
                 (
-                    format!("/v1beta/models/{model}:generateContent"),
+                    format!("/v1beta/models/{}:generateContent", crate::providers::component(model)),
                     json!({
                         "contents": [{ "role": "user", "parts": [{ "text": prompt }] }],
                         "generationConfig": { "responseModalities": ["IMAGE"], "imageConfig": { "aspectRatio": frame.aspect() } },
@@ -422,21 +428,6 @@ impl std::fmt::Display for Unmade {
 /// The statuses a provider answers with for now, not for good (Vzestup's retry list: a rate
 /// limit, a server's failure, and Cloudflare's edge before OpenAI's).
 const AGAIN: [u16; 8] = [429, 500, 502, 503, 504, 520, 522, 524];
-
-/// The wait a rate limit's words ask for: "Please try again in 12s", "in 850ms".
-fn try_again_in(text: &str) -> Option<f64> {
-    let rest = &text[text.find("try again in ")? + "try again in ".len()..];
-    let number: String = rest.chars().take_while(|c| c.is_ascii_digit() || *c == '.').collect();
-    let value: f64 = number.parse().ok()?;
-    let unit = &rest[number.len()..];
-    Some(if unit.starts_with("ms") {
-        value / 1000.0
-    } else if unit.starts_with('m') && !unit.starts_with("ms") {
-        value * 60.0
-    } else {
-        value
-    })
-}
 
 /// The picture an answer to [`request`] holds, or why there is none. `after` is the answer's
 /// `Retry-After`, where it has one.
@@ -600,6 +591,25 @@ mod tests {
         let body = request(&flash, "g-key", "a glacier", Frame::Square, false).body.unwrap();
         assert_eq!(body["generationConfig"]["responseModalities"][0], "IMAGE");
         assert_eq!(body["generationConfig"]["imageConfig"]["aspectRatio"], "1:1");
+    }
+
+    #[test]
+    fn a_models_name_never_changes_the_path_it_is_asked_at() {
+        let odd = |model: &str| Settings {
+            provider: Provider::Gemini,
+            model: model.into(),
+            base: None,
+            quality: Quality::Medium,
+        };
+        let r = request(&odd("imagen-4/../../files?x=1#"), "g-key", "a glacier", Frame::Square, false);
+        assert!(r.url.ends_with("/v1beta/models/imagen-4%2F..%2F..%2Ffiles%3Fx%3D1%23:predict"), "{}", r.url);
+        let r = request(&odd("gemini-image/../x"), "g-key", "a glacier", Frame::Square, false);
+        assert!(r.url.ends_with("/v1beta/models/gemini-image%2F..%2Fx:generateContent"), "{}", r.url);
+        // A listing's name that would change a path is no model.
+        let listed =
+            json!({ "models": [{ "name": "models/imagen-4/../x" }, { "name": "models/imagen-4.0-generate-001" }] });
+        assert_eq!(models(Provider::Gemini, 200, "OK", &listed.to_string()).unwrap(), ["imagen-4.0-generate-001"]);
+        assert!(named("gpt-image-1.5") && !named("imagen?x") && !named(""));
     }
 
     #[test]

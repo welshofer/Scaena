@@ -54,6 +54,10 @@ pub struct ScaenaFiles(BTreeMap<String, Vec<u8>>);
 /// bundle, then to [adopt](scaena_adopt).
 pub struct ScaenaSaved(scaena_store::Saving);
 
+/// What a save reads of a session, taken in a moment to be saved on another thread while the
+/// session goes on (lift-up PERF-5): [`scaena_snapshot_new`].
+pub struct ScaenaSnapshot(scaena_session::store::Snapshot);
+
 /// Bytes this library made, the caller's to free with [`scaena_bytes_free`]. `data` is null
 /// where there are none, as where a call failed.
 #[repr(C)]
@@ -88,6 +92,22 @@ fn said(message: impl std::fmt::Display) -> Failure {
 }
 
 /// `f`'s result, with a panic caught and said.
+/// The stack a call that lays out and lints a deck takes, at most, and the room left on the
+/// caller's stack below which [`deep`] adds a segment of [`DEEP`] for it (#533). A re-theme lints
+/// the deck before and after: some 350 KB of stack on Linux in debug, and more on Apple's arm64,
+/// where a Swift Testing thread holds 512 KB and the iPad's main thread 1 MB. The Mac's main
+/// thread, 8 MB, never needs one.
+const ROOM: usize = 2 << 20;
+const DEEP: usize = 16 << 20;
+
+/// `f` run on the caller's thread, on a stack segment of [`DEEP`] where less than [`ROOM`] of
+/// the caller's own is left: a call of the session's has the room any deck takes to lay out,
+/// whichever thread Swift calls from, and stays on that thread, so what core keeps per thread
+/// (the theme checked, `validate::CHECKED`) is kept from call to call.
+fn deep<T>(f: impl FnOnce() -> T) -> T {
+    stacker::maybe_grow(ROOM, DEEP, f)
+}
+
 fn guarded<T>(f: impl FnOnce() -> Result<T, Failure>) -> Result<T, Failure> {
     match catch_unwind(AssertUnwindSafe(f)) {
         Ok(result) => result,
@@ -351,6 +371,21 @@ pub unsafe extern "C" fn scaena_lint_laid(
     }))
 }
 
+/// The narrative health of `laying`'s deck (PLAN G.9), as `health` gives the session's:
+/// `{"ok": health}`. Read on the thread that calls it, which touches no session, so the Story
+/// panel's reading of a deck as it is typed leaves the window's thread free (lift-up narrative
+/// PERF-1). It lays nothing out, and may be read before or after [`scaena_laying_lay`].
+///
+/// # Safety
+/// `laying` is a live handle from [`scaena_laying_new`], used by one thread at a time.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn scaena_laying_health(laying: *mut ScaenaLaying) -> *mut c_char {
+    envelope(guarded(|| {
+        let laying = unsafe { handle(laying, "laying") }?;
+        serde_json::to_value(scaena_ops::health::health(laying.0.deck()).map_err(said)?).map_err(said)
+    }))
+}
+
 /// Free a laying.
 ///
 /// # Safety
@@ -436,7 +471,9 @@ pub unsafe extern "C" fn scaena_picture(bytes: *const u8, len: usize) -> *mut c_
 /// `states`, `formats`, `sizes` (`{own, anew}`: the deck's own canvas named by its shape, and the
 /// formats it lays out anew), `setFormat {format?}`, `canvasSize`, `duration {state}`, `timeline`,
 /// `files`, `imageFiles`, `digest {state}`, `reading {state}`, `reads {state}` (each node read,
-/// in turn: its role and its words, PLAN 3.17), `source`, `compiledFrom
+/// in turn: its role and its words, PLAN 3.17), `notes {state}` (what a presenter reads: the
+/// state's own, else its first beat's, SPEC §2.6, `{text, blocks}`, the blocks lines, a list, or
+/// a table), `source`, `compiledFrom
 /// {source}`, `compile {source}`, `lint {state?}`, `fix {patch}`, `inspect {state}`, `boxes
 /// {state}`, `hit {state, x, y}`, `layers {state}`, `carets {state, node}`, `choices {state,
 /// node}`, `stateChoices {state}`, `words {state}` (its objects by what they show, and the
@@ -504,7 +541,9 @@ pub unsafe extern "C" fn scaena_picture(bytes: *const u8, len: usize) -> *mut c_
 /// one, or those `layouts` names, a null the blank one, each `{layout, name, description, group,
 /// width, height}`, painted `height` pixels high, which
 /// [`scaena_starter_pixels`] takes; `starting {state, layout?}`, the patch that starts one after
-/// the slide of `state`, `{id, patch}`; `waiting {state}`, the slots of its layout that wait
+/// the slide of `state`, `{id, patch}`; `titling {state}`, the patch that makes a new deck's
+/// title slide after it, its places for a picture given the theme's example, `{id, patch}`;
+/// `waiting {state}`, the slots of its layout that wait
 /// for what their prompts say goes there, each `{slot, rect, words, typed, role?}`; and
 /// `filling {state, slot}`, the patch that fills one that waits for words as a new slide fills
 /// it, `{id, patch}`; and `prompted {state, node}`, whether a text still reads as its slot's
@@ -529,7 +568,7 @@ pub unsafe extern "C" fn scaena_call(
                 serde_json::from_str(a).map_err(|e| said(format!("{method}: the arguments are not JSON: {e}")))?
             }
         };
-        call(&mut session.0, method, &args)
+        deep(|| call(&mut session.0, method, &args))
     }))
 }
 
@@ -559,7 +598,7 @@ pub unsafe extern "C" fn scaena_tool(
         };
         let author = unsafe { maybe_text(author, "author") }?.unwrap_or("agent");
         let at = unsafe { maybe_text(at, "at") }?.and_then(scaena_session::store::seconds);
-        match session.0.tool(name, args, Caller { author, at }) {
+        match deep(|| session.0.tool(name, args, Caller { author, at })) {
             Ok(called) => {
                 let result: Value = serde_json::from_str(&called.result).map_err(said)?;
                 Ok(json!({ "ok": result, "edited": called.edited }))
@@ -784,6 +823,96 @@ pub unsafe extern "C" fn scaena_save(
     }
 }
 
+/// What a save of `session` reads, taken now to be saved away from the session's thread (lift-up
+/// PERF-5): [`scaena_snapshot_save`] saves it on whatever thread holds it, and
+/// [`scaena_adopt_since`] goes on from the save. Free with [`scaena_snapshot_free`].
+///
+/// # Safety
+/// `session` is a live handle.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn scaena_snapshot_new(session: *mut ScaenaSession) -> *mut ScaenaSnapshot {
+    match guarded(|| Ok(unsafe { handle(session, "session") }?.0.snapshot())) {
+        Ok(snapshot) => Box::into_raw(Box::new(ScaenaSnapshot(snapshot))),
+        Err(_) => std::ptr::null_mut(),
+    }
+}
+
+/// Save `snapshot` at `now` as [`scaena_save`] saves the session: fonts subset if `subset`, and
+/// the edits since the last save recorded, on the thread that calls it, which touches no session.
+/// Null where it cannot be saved, `*error` then saying why.
+///
+/// # Safety
+/// `snapshot` is a live handle from [`scaena_snapshot_new`], used by one thread at a time; `now` a
+/// NUL-terminated string; `error` null or writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn scaena_snapshot_save(
+    snapshot: *mut ScaenaSnapshot,
+    now: *const c_char,
+    subset: bool,
+    error: *mut *mut c_char,
+) -> *mut ScaenaSaved {
+    let saved = guarded(|| {
+        let snapshot = unsafe { handle(snapshot, "snapshot") }?;
+        let now = unsafe { text(now, "now") }?;
+        if subset {
+            let (chars, fonts) = snapshot.0.subsetting().map_err(said)?;
+            let wanted = chars.chars().collect();
+            for font in fonts {
+                let bytes = snapshot.0.file(&font).ok_or_else(|| said(format!("{font} is not in the bundle")))?;
+                let small = scaena_store::subset::subset(bytes, &wanted).map_err(said)?;
+                snapshot.0.add_subset(&font, &chars, small);
+            }
+        }
+        let record = |held: &[u8], changes: &str| scaena_store::crdt::recorded(held, changes);
+        snapshot.0.save(now, subset, Some(&record as &scaena_session::store::Recorder)).map_err(said)
+    });
+    match saved {
+        Ok(saving) => Box::into_raw(Box::new(ScaenaSaved(saving))),
+        Err(failure) => {
+            unsafe { report(error, failure) };
+            std::ptr::null_mut()
+        }
+    }
+}
+
+/// A session of its own on `snapshot`'s deck and files, to run a call that only reads on the thread
+/// that holds it (narrative lift-up PERF-2, [`scaena_chat_run_apart`]): it answers as the session
+/// it was taken from did. Null where it cannot be opened, `*error` then saying why. Free with
+/// [`scaena_session_free`].
+///
+/// # Safety
+/// `snapshot` is a live handle from [`scaena_snapshot_new`]; `error` null or writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn scaena_snapshot_open(
+    snapshot: *const ScaenaSnapshot,
+    error: *mut *mut c_char,
+) -> *mut ScaenaSession {
+    let opened = guarded(|| {
+        // SAFETY: the caller gives a live handle, or null.
+        let snapshot = unsafe { snapshot.as_ref() }.ok_or_else(|| said("snapshot is null"))?;
+        snapshot.0.session().map_err(said)
+    });
+    match opened {
+        Ok(session) => Box::into_raw(Box::new(ScaenaSession(session))),
+        Err(failure) => {
+            unsafe { report(error, failure) };
+            std::ptr::null_mut()
+        }
+    }
+}
+
+/// Let go of a snapshot.
+///
+/// # Safety
+/// `snapshot` is a live handle from [`scaena_snapshot_new`], or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn scaena_snapshot_free(snapshot: *mut ScaenaSnapshot) {
+    if !snapshot.is_null() {
+        // SAFETY: the caller gives a handle this library made and has not freed.
+        drop(unsafe { Box::from_raw(snapshot) });
+    }
+}
+
 /// The saved bundle's files and what the save did, as JSON: `{"files": [path], "replaced":
 /// [path], "summary": …}`. `replaced` are the files of the bundle as it was that the save
 /// renamed or rewrote: one saved in place drops those `files` does not hold.
@@ -855,6 +984,30 @@ pub unsafe extern "C" fn scaena_adopt(session: *mut ScaenaSession, saved: *const
         let saved = unsafe { saved.as_ref() }.ok_or_else(|| said("saved is null"))?;
         session.0.adopt(&saved.0).map_err(said)?;
         Ok(Value::Null)
+    }))
+}
+
+/// Go on from `saved`, a save of `snapshot`, once the caller has written it where it keeps the
+/// bundle, as [`scaena_adopt`] does, where the session is still as `snapshot` was taken (lift-up
+/// PERF-5): its files are taken out of `saved`, which holds none after. Where the session changed
+/// since, it goes on as it is and adopts nothing. `{"ok": {"adopted": bool}}` or `{"error"}`.
+///
+/// # Safety
+/// `session` is a live handle, on its own thread; `snapshot` one from [`scaena_snapshot_new`];
+/// `saved` one from [`scaena_snapshot_save`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn scaena_adopt_since(
+    session: *mut ScaenaSession,
+    snapshot: *const ScaenaSnapshot,
+    saved: *mut ScaenaSaved,
+) -> *mut c_char {
+    envelope(guarded(|| {
+        let session = unsafe { handle(session, "session") }?;
+        // SAFETY: the caller gives live handles, or null.
+        let snapshot = unsafe { snapshot.as_ref() }.ok_or_else(|| said("snapshot is null"))?;
+        let saved = unsafe { saved.as_mut() }.ok_or_else(|| said("saved is null"))?;
+        let adopted = session.0.adopt_since(&snapshot.0, &mut saved.0).map_err(said)?;
+        Ok(json!({ "adopted": adopted }))
     }))
 }
 
@@ -1182,6 +1335,8 @@ pub unsafe extern "C" fn scaena_chat_new(args: *const c_char, error: *mut *mut c
 ///   model's name, at `at` (RFC 3339): `{id, name, error, summary, made, json, png?, edited,
 ///   rewritten}`, `made` whether it did what its words say. A `call` `{id, name, args}` may be
 ///   given in its place.
+/// - `took {index, ran}`: the last answer's call `index`, run apart on a snapshot's session by
+///   [`scaena_chat_run_apart`], taken as `run` takes what it ran: `ran` back.
 /// - `next`: the calls' results handed to the model, every call answered (those not run, as
 ///   stopped): whether it may be asked again, or the question has taken its rounds.
 /// - `use {provider, model, base?}`: another model from the next request on, the conversation
@@ -1211,6 +1366,55 @@ pub unsafe extern "C" fn scaena_chat_call(
             }
         };
         chat.0.call(session, method, &args)
+    }))
+}
+
+/// Whether the call `name` with `args` (JSON, or null) only reads the deck, and may run apart from
+/// the session on a snapshot's ([`scaena_snapshot_open`], [`scaena_chat_run_apart`], narrative
+/// lift-up PERF-2): `deck_render`, `deck_health`, and `deck_lint` without `fix`.
+///
+/// # Safety
+/// `name` is a NUL-terminated string; `args` one, or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn scaena_chat_reads_alone(name: *const c_char, args: *const c_char) -> bool {
+    guarded(|| {
+        let name = unsafe { text(name, "name") }?;
+        let args = match unsafe { maybe_text(args, "args") }? {
+            None => Value::Null,
+            Some(a) => serde_json::from_str(a).map_err(said)?,
+        };
+        Ok(scaena_session::assistant::reads_alone(name, &args))
+    })
+    .unwrap_or(false)
+}
+
+/// Run `call` (`{id, name, args}`, a call of a conversation's last answer) on `session`, a
+/// snapshot's ([`scaena_snapshot_open`]), by `agent:` and `model`, at `at` (RFC 3339, or null), on
+/// the thread that calls it (narrative lift-up PERF-2): `{"ok": ran}`, what the conversation's
+/// `run` gives, for its `took` on the conversation's thread; or `{"error"}`. Only for a call that
+/// reads alone ([`scaena_chat_reads_alone`]).
+///
+/// # Safety
+/// `session` is a live handle, used by this thread alone; `model` and `call` NUL-terminated
+/// strings; `at` one, or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn scaena_chat_run_apart(
+    session: *mut ScaenaSession,
+    model: *const c_char,
+    call: *const c_char,
+    at: *const c_char,
+) -> *mut c_char {
+    envelope(guarded(|| {
+        let session = unsafe { handle(session, "session") }?;
+        let model = unsafe { text(model, "model") }?;
+        let call = unsafe { text(call, "call") }?;
+        let call: scaena_chat::Call =
+            serde_json::from_str(call).map_err(|e| said(format!("run apart: `call` as {{id, name, args}}: {e}")))?;
+        if !scaena_session::assistant::reads_alone(&call.name, &call.args) {
+            return Err(said(format!("run apart: `{}` writes, and runs on the session itself", call.name)));
+        }
+        let at = unsafe { maybe_text(at, "at") }?.and_then(scaena_session::store::seconds);
+        Ok(chat::run_apart(&mut session.0, model, &call, at))
     }))
 }
 
@@ -1446,8 +1650,9 @@ fn call(s: &mut Session, method: &str, args: &Value) -> Result<Value, Failure> {
         "timeline" => s.slots().map_err(said)?,
         "files" => json!(s.files()),
         "imageFiles" => json!(s.image_files()),
-        "digest" => json!(s.frame(arg("state")?, f64::INFINITY).map_err(said)?.digest().map_err(said)?),
+        "digest" => json!(s.digest(arg("state")?).map_err(said)?),
         "reading" => json!(s.reading(arg("state")?).map_err(said)?),
+        "notes" => value(serde_json::to_value(s.notes(arg("state")?).map_err(said)?))?,
         "reads" => value(serde_json::to_value(s.reads(arg("state")?).map_err(said)?))?,
         "source" => json!(s.source()),
         "compiledFrom" => json!(s.compiled_from(arg("source")?)),
@@ -1583,6 +1788,7 @@ fn call(s: &mut Session, method: &str, args: &Value) -> Result<Value, Failure> {
             json!(s.starters_painted(arg("state")?, height, only.as_deref()).map_err(said)?)
         }
         "starting" => value(serde_json::to_value(s.starting(arg("state")?, optional("layout")).map_err(said)?))?,
+        "titling" => value(serde_json::to_value(s.titling(arg("state")?).map_err(said)?))?,
         "waiting" => value(serde_json::to_value(s.waiting(arg("state")?).map_err(said)?))?,
         "filling" => value(serde_json::to_value(s.filling(arg("state")?, arg("slot")?).map_err(said)?))?,
         "prompted" => json!(s.prompted(arg("state")?, arg("node")?).map_err(said)?),

@@ -37,17 +37,19 @@ for file in sorted(os.listdir(src)):
     shutil.copy(os.path.join(src, file), os.path.join(out, name))
 PY
 shopt -s nullglob
+# An array that globbed nothing is empty, and bash 3.2 (macOS's /bin/bash) calls "${a[@]}" of an
+# empty array unbound under `set -u`: each is expanded as ${a[@]+"${a[@]}"}, nothing when empty.
 shots=("$work"/*.png)
-for shot in "${shots[@]}"; do
+for shot in ${shots[@]+"${shots[@]}"}; do
   sips -Z 1600 -s format jpeg -s formatOptions 70 "$shot" --out "${shot%.png}.jpg" >/dev/null
   rm "$shot"
 done
 kept=("$work"/*.jpg "$work"/*.mp4 "$work"/*.txt)
-if [ ${#kept[@]} -eq 0 ]; then
+if [ -z "${kept[*]+set}" ]; then
   echo "nothing kept under $dir"
   exit 0
 fi
-tree=$(for file in "${kept[@]}"; do printf '100644 blob %s\t%s\n' "$(git hash-object -w "$file")" "$(basename "$file")"; done | git mktree)
+tree=$(for file in ${kept[@]+"${kept[@]}"}; do printf '100644 blob %s\t%s\n' "$(git hash-object -w "$file")" "$(basename "$file")"; done | git mktree)
 commit=$(git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
   commit-tree "$tree" -m "Screenshots of ${GITHUB_SHA:-$(git rev-parse HEAD)}")
 git push -q -f origin "$commit:refs/heads/shots/$name"

@@ -130,6 +130,9 @@ struct Inspector: View {
                         }
                     } else {
                         writing("Draft Presenter Notes", "sparkles") { write(.notes, in: state) }
+                        // Whether its words carry its beat's claim, the headline offered rewritten
+                        // to carry it (narrative FUNC-4).
+                        writing("Check the Claim", "checkmark.seal") { write(.claim, in: state) }
                     }
                 } header: {
                     Text("Writing")
@@ -483,7 +486,7 @@ struct Inspector: View {
                         arrange("Send to Back", "square.3.layers.3d.bottom.filled", .order("back"), in: state)
                     }
                     Button("Group", systemImage: "rectangle.3.group") { group(in: state) }
-                        .help("Put them in a group, where they stand (⌘G)")
+                        .help("Put them in a group, where they stand (⌥⌘G)")
                 }
             }
         }

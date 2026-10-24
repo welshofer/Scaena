@@ -1,6 +1,6 @@
 ---
 name: tighten-copy
-description: Tighten the words on a Scaena deck's slides. Aim for one claim per slide in as few words as carry it, headlines that fit their measure, and figures that match the data. Works through the `scaena` CLI or its MCP server. Use when asked to "tighten the copy", "cut words", "make the slides punchier", or "fix the overflow", or after lint reports density, fit, or claim warnings.
+description: Tighten the words on a Scaena deck's slides. Aim for one claim per slide, said in two to five points in as few words as carry them, headlines that fit their measure, and figures that match the data; what is cut goes to the notes. Works through the `scaena` CLI or its MCP server. Use when asked to "tighten the copy", "cut words", "make the slides punchier", or "fix the overflow", or after lint reports density, fit, or claim warnings.
 ---
 
 # tighten-copy
@@ -9,11 +9,12 @@ A slide is read in seconds while someone talks. The theme sets two limits, and l
 - how many words a state may show (`density.maxWordsPerState`, 40 in Dusk);
 - how long a line may run (each role's `measure`).
 
-Cut until each slide says its one thing.
+Cut until each slide says its one thing. Cut words, not points: `scaena health` (`deck_health`, SPEC §7.7) reads a slide with fewer than two points as thin and one with more than five as more than a room takes in, and reads notes under about 30 characters as too few to speak from. So a slide keeps its claim and two to five points, each in the fewest words that carry it, and what comes off the slide goes into its notes, the beat's, where the speaker says it.
 
 | To | CLI | MCP |
 |---|---|---|
 | find what to cut | `scaena lint <bundle> --json` | `deck_lint` |
+| read the story | `scaena health <bundle> --json`: balance says which slides make too few or too many points, and whose notes run short | `deck_health` |
 | read every word in context | `scaena decompile <bundle>` | `deck_read` with `scn` |
 | change text | `scaena patch <bundle> --ops ops.json --dry-run`, with `set_text` | `deck_patch`, with `dry_run` first |
 | change a word wherever it shows | `scaena find <bundle> WORD --replace NEW --dry-run`, then without `--dry-run` | `deck_find` with `replace`, `dry_run` first |
@@ -26,7 +27,7 @@ Cut until each slide says its one thing.
    - With no spine, the claims are the nodes marked `semantic: claim`. W420, W423, and W425 judge beats, so without a spine they find nothing.
    - A label marked as a claim ("Process", "Storm damage") claims nothing. Make it a sentence, or mark it `navigation`.
 2. **Fix what lint finds.** Fix overflow first: an E101 overlap often follows from an E100, text grown out of its box.
-   - **W210, density:** cut words, move detail to the notes (the beat's `notes`, or the state's when there is no spine), or split the slide into a build.
+   - **W210, density:** cut words, move detail to the notes (the beat's `notes`, or the state's when there is no spine), or split the slide into a build. Keep the slide's points: health's balance reads a slide of one point as thin.
    - **E100, text that does not fit:** shorten it first.
      - A role's `measure` caps every line, so a headline that wraps needs fewer words, not a wider box. In Dusk, a headline line holds about 32 characters.
      - `fit: shrink` is the last resort. **W203** means it shrank to its floor and still does not fit.
@@ -59,11 +60,13 @@ Cut until each slide says its one thing.
    - `applied` says whether the deck was written. Exit 1 means it was refused, or errors remain.
 7. **Check.**
    - Lint should be clean of W2xx and W4xx.
+   - `scaena health <bundle> --json` (`deck_health`): balance no lower than before, and no new finding on a slide you changed. A slide whose words now read flatter than the intensity it declares (`intensity`) lost its force with its words: put the verb back.
    - Render each changed state and read it at a glance.
 
 ## Rules
 
-- One claim per slide, said by a node with `semantic: claim`.
+- One claim per slide, said by a node with `semantic: claim`. Tightening never changes what a slide claims: the claim is the beat's, in the spine; change the spine if the claim is wrong.
 - Fewer words beat smaller type: never shrink text to keep words.
+- Fewer words, not fewer points: two to five a slide, the rest in the notes.
 - Do not change a figure without the data that backs it.
 - Keep each node's id: change its `text` with `set_text`, so it stays the same node and morphs between states.

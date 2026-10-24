@@ -91,6 +91,36 @@ final class OpeningTests: XCTestCase {
         XCTAssertFalse(canvas.exists, "Cancel opened a deck: \(app.debugDescription)")
     }
 
+    /// The outline before the slides (narrative FUNC-1): launched with `-sampleOutline YES`, the brief
+    /// shows an outline as one reads, with no call made, as it shows the one the model writes: the
+    /// arc, the big idea, each beat's claim to type over, Add a Beat, Outline Again, and Write the
+    /// Slides. Kept as a screenshot of the step.
+    @MainActor
+    func testTheOutlineIsShownToSettleBeforeTheSlides() {
+        let app = launched(arguments: ["-sampleOutline", "YES"])
+        let canvas = app.descendants(matching: .any).matching(identifier: "canvas").firstMatch
+        if canvas.waitForExistence(timeout: 10) {
+            app.buttons.matching(identifier: "BackButton").firstMatch.tap()
+            XCTAssertTrue(wait(10) { !canvas.exists }, "the deck brought back did not close: \(app.debugDescription)")
+        }
+        let prompting = app.staticTexts.matching(NSPredicate(format: "label == 'New from a Prompt…'")).firstMatch
+        XCTAssertTrue(
+            prompting.waitForExistence(timeout: 30), "the launch screen offers no New from a Prompt…: \(app.debugDescription)")
+        prompting.tap()
+        let write = app.buttons["prompt-write"]
+        XCTAssertTrue(write.waitForExistence(timeout: 10), "the brief shows no outline to write the slides from: \(app.debugDescription)")
+        let claims = app.descendants(matching: .any).matching(identifier: "prompt-beat-claim")
+        XCTAssertTrue(claims.count >= 3, "the outline shows no beats' claims: \(app.debugDescription)")
+        XCTAssertTrue(app.buttons["prompt-add-beat"].exists && app.buttons["prompt-outline-again"].exists, "\(app.debugDescription)")
+        let idea = app.descendants(matching: .any).matching(identifier: "prompt-big-idea").firstMatch
+        XCTAssertTrue(idea.exists, "the outline has no big idea: \(app.debugDescription)")
+        settle()
+        keep(app, as: "prompt-outline")
+        keepElements(app, as: "prompt-outline-elements")
+        app.buttons["prompt-cancel"].tap()
+        XCTAssertTrue(wait(10) { !write.exists }, "Cancel left the outline up: \(app.debugDescription)")
+    }
+
     /// B1 in its window: its forty states down the side, the first shown, and Play.
     @MainActor
     func testB1OpensInItsWindow() throws {
@@ -152,12 +182,9 @@ final class OpeningTests: XCTestCase {
             throw Unseen(description: "the long press offers no Paste: \(app.debugDescription)")
         }
         paste.tap()
-        // The menu's Paste reads what the test put on the pasteboard, which iPadOS guards with its
-        // Allow Paste prompt: the system's, not the app's, whose main thread waits on the answer, so
-        // the app is asked nothing until it is answered.
-        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
-        let allow = springboard.buttons["Allow Paste"]
-        if allow.waitForExistence(timeout: 10) { allow.tap() }
+        // The menu's Paste is the system's own, which reads the pasteboard with no Allow Paste
+        // prompt. A prompt would hold the app's main thread on its answer, and no query of the app
+        // would come back, so the test waits on the chip alone.
         let chip = app.descendants(matching: .any).matching(identifier: "code-chip").firstMatch
         XCTAssertTrue(chip.waitForExistence(timeout: 10), "the code pasted shows no chip: \(app.debugDescription)")
         XCTAssertEqual(chip.value as? String, "Rust", "the chip does not say Rust: \(chip.debugDescription)")

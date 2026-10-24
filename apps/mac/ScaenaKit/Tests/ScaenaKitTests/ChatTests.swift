@@ -1,5 +1,6 @@
 import Foundation
-import ScaenaKit
+@testable import ScaenaKit
+import Security
 import Testing
 
 /// An answer of Anthropic's that says `text` and calls `calls`, each `(id, name, input as JSON)`.
@@ -88,6 +89,62 @@ private actor Answers {
     }
 }
 
+/// A call that only reads runs away from the window (narrative lift-up PERF-2): `deck_lint`
+/// without `fix` and `deck_render` run on a snapshot's session in a task of their own, come to what
+/// they come to on the session, and the conversation takes them back as `run`'s; the assistant
+/// runs them so, and a call that writes on the session itself.
+@MainActor
+@Test func aCallThatOnlyReadsRunsApartAndComesToWhatItDoesOnTheSession() async throws {
+    let lint = ToolCall(id: "t1", name: "deck_lint", args: ["state": "cover"])
+    #expect(ScaenaChat.readsAlone(lint))
+    #expect(ScaenaChat.readsAlone(ToolCall(id: "t2", name: "deck_render", args: ["state": "cover"])))
+    #expect(!ScaenaChat.readsAlone(ToolCall(id: "t3", name: "deck_lint", args: ["fix": true])))
+    #expect(!ScaenaChat.readsAlone(ToolCall(id: "t4", name: "deck_patch", args: ["ops": []])))
+
+    let session = try ScaenaSession(directory: b1)
+    let answer = calling(
+        "Looking.", [("t1", "deck_lint", #"{"state": "cover"}"#), ("t2", "deck_render", #"{"state": "cover"}"#)])
+    let at = Date(timeIntervalSince1970: 1_790_000_000)
+    let here = try ScaenaChat(provider: .anthropic, model: "a-model")
+    try here.ask("Is the cover clean?", on: session)
+    _ = try here.answer(status: 200, body: answer)
+    let want = [try here.run(0, on: session, at: at), try here.run(1, on: session, at: at)]
+
+    let chat = try ScaenaChat(provider: .anthropic, model: "a-model")
+    try chat.ask("Is the cover clean?", on: session)
+    guard case .calls(_, let calls, _) = try chat.answer(status: 200, body: answer) else {
+        Issue.record("the model made calls")
+        return
+    }
+    let snapshot = try session.snapshot()
+    for (index, call) in calls.enumerated() {
+        // On a thread with the stack the editor's own runs them on, as a cooperative thread's is smaller.
+        let ran = try await OffMain(label: "ChatTests").run {
+            try ScaenaChat.runApart(call, model: "a-model", on: try snapshot.opened(), at: at)
+        }
+        let took = try chat.took(index, ran: ran)
+        #expect(took.summary == want[index].summary && took.json == want[index].json, "\(call.name)")
+        #expect(took.png == want[index].png)
+    }
+    #expect(try chat.next())
+
+    // The assistant runs them so, its answer as before.
+    let editor = DeckEditor(session: try ScaenaSession(directory: b1))
+    let answers = Answers([answer, answering("Clean.")])
+    let assistant = Assistant(editor: editor) { request in await answers.answer(request) }
+    assistant.ask("Is the cover clean?", provider: .anthropic, model: "a-model", key: "sk-test")
+    for _ in 0..<500 where assistant.working {
+        try await Task.sleep(for: .milliseconds(10))
+    }
+    #expect(!assistant.working, "the question was answered")
+    let ran = assistant.entries.compactMap { entry -> Ran? in
+        if case .call(_, _, let ran) = entry.kind { return ran }
+        return nil
+    }
+    #expect(ran.count == 2 && ran.allSatisfy { !$0.error }, "\(ran.map(\.summary))")
+    #expect(ran.last?.frame?.starts(with: [0x89, 0x50, 0x4E, 0x47]) == true, "deck_render's frame, drawn apart")
+}
+
 /// The assistant's loop (PLAN 3.6): the question asked, the edit the model calls made on the deck
 /// the window shows and handed to the window's undo, and the answer; the conversation shows each.
 @MainActor
@@ -162,6 +219,33 @@ private func keychainWritable() -> Bool {
     try keychain.set(nil, for: .openai)
     #expect(keychain.key(for: .openai) == nil)
     #expect(keychain.providers.isEmpty)
+}
+
+/// A key is kept to this device, readable only while it is unlocked, in the data-protection
+/// keychain wherever this process may use it: the iPad's always, a Mac's where the app is signed
+/// for it. A test run with no keychain group on a Mac keeps it in the file-based keychain.
+@Test(.enabled(if: keychainWritable())) func aKeyIsKeptToThisDeviceWhileItIsUnlocked() throws {
+    let service = "com.scaena.tests.\(UUID().uuidString)"
+    let keychain = Keychain(service: service)
+    try keychain.set("sk-one", for: .openai)
+    defer { try? keychain.set(nil, for: .openai) }
+    let query: [String: Any] = [
+        kSecClass as String: kSecClassGenericPassword,
+        kSecAttrService as String: service,
+        kSecAttrAccount as String: Provider.openai.rawValue,
+        kSecUseDataProtectionKeychain as String: true,
+        kSecReturnAttributes as String: true,
+        kSecMatchLimit as String: kSecMatchLimitOne,
+    ]
+    var found: CFTypeRef?
+    let status = SecItemCopyMatching(query as CFDictionary, &found)
+    #if os(macOS)
+        guard status == errSecSuccess else { return }
+    #endif
+    #expect(status == errSecSuccess)
+    let accessible = (found as? [String: Any])?[kSecAttrAccessible as String] as? String
+    #expect(accessible == kSecAttrAccessibleWhenUnlockedThisDeviceOnly as String)
+    #expect(keychain.key(for: .openai) == "sk-one")
 }
 
 /// Each tool the MCP server serves (`docs/schema/mcp`) has a person's words for the window (PLAN

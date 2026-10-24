@@ -2,9 +2,10 @@ import Foundation
 
 /// What a person asks a model to write (PLAN 2.101, `scaena_core::writing`): a text's words
 /// proofread, tightened, or rewritten; a slide's notes drafted; an issue explained; a picture
-/// described from itself (PLAN 2.119).
+/// described from itself (PLAN 2.119); a slide's words checked against its beat's claim, its
+/// headline rewritten to carry it (narrative FUNC-4).
 public enum WritingKind: String, Codable, CaseIterable, Sendable {
-    case proofread, tighten, rewrite, notes, explain, describe
+    case proofread, tighten, rewrite, notes, explain, describe, claim
 }
 
 /// A writing tool asked of the deck as it stands: the task, the state shown, and the text it is
@@ -83,5 +84,78 @@ extension ScaenaSession {
     public func taking(_ ask: WritingAsk, answer: String) throws -> [JSONValue]? {
         let ops = try written(ask, answer: answer).patch ?? []
         return ops.isEmpty ? nil : ops
+    }
+}
+
+/// Why the model on the device gave a writing tool no answer where the user's own model may give
+/// one (lift-up STAB-4): more than it takes at once, its guardrails, a language it does not write,
+/// or its model not on the device yet. Any other failure is no reason to ask elsewhere.
+public struct Declined: LocalizedError, Sendable, Equatable {
+    public enum Reason: Sendable, Equatable {
+        case tooLong, guardrails, language, notReady
+    }
+
+    public let reason: Reason
+
+    public init(_ reason: Reason) {
+        self.reason = reason
+    }
+
+    /// It, in a person's words (PLAN 3.18), as the sheet notes it.
+    public var said: String {
+        switch reason {
+        case .tooLong: "Apple Intelligence can't take this much at once"
+        case .guardrails: "Apple Intelligence declined this"
+        case .language: "Apple Intelligence doesn't write this language"
+        case .notReady: "Apple Intelligence isn't ready on this device yet"
+        }
+    }
+
+    public var errorDescription: String? { "\(said)." }
+}
+
+/// Who answers a writing tool where the model on the device is asked first (lift-up STAB-4): its
+/// answer, or, where it declines (`Declined`), the decline, with the user's own model to ask where
+/// a key is kept. Nothing is asked of that model here: the words leave the device only when the
+/// person agrees (`Elsewhere.agreed`). Any other failure is thrown as it came.
+public enum Answering {
+    public enum Outcome: Sendable {
+        case answered(String)
+        /// The device declined; `elsewhere` is the user's own model, none where no key is kept.
+        case declined(Declined, elsewhere: Elsewhere?)
+    }
+
+    /// The user's own model, which a decline offers to ask with their key.
+    public struct Elsewhere: Sendable {
+        public let model: String
+        /// The provider, by its name.
+        public let provider: String
+        let ask: @Sendable () async throws -> String
+
+        public init(model: String, provider: String, ask: @escaping @Sendable () async throws -> String) {
+            self.model = model
+            self.provider = provider
+            self.ask = ask
+        }
+
+        /// The button that asks it, in a person's words (PLAN 3.18).
+        public var offered: String { "Ask \(model) with your \(provider) key" }
+
+        /// Where its answer came from, as the sheet notes it.
+        public var whence: String { "Written by \(model), with your \(provider) key, as you asked." }
+
+        /// Its answer, asked once the person has agreed to send the words off the device.
+        public func agreed() async throws -> String { try await ask() }
+    }
+
+    public static func answer(
+        _ onDevice: @Sendable () async throws -> String,
+        else elsewhere: Elsewhere?
+    ) async throws -> Outcome {
+        do {
+            return .answered(try await onDevice())
+        } catch let declined as Declined {
+            return .declined(declined, elsewhere: elsewhere)
+        }
     }
 }

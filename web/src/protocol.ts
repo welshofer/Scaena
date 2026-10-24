@@ -438,6 +438,10 @@ export interface LayoutSuggestion {
   current?: boolean;
   errors: number;
   warnings: number;
+  /** The layout's places, for words, a picture, or a figure, the state leaves empty in it. */
+  empty: number;
+  /** The state's texts its slots set in a role other than their own. */
+  recast: number;
   /** The layouts that draw the state as this one does, lint judging them alike: left out. */
   alike?: string[];
   reach: string[];
@@ -800,6 +804,19 @@ export interface Rewritten {
 /** One of a bundle's images, fonts, or data files (PLAN 2.59), as `scaena files` lists it: what in
  * the deck or its theme names it (none where nothing does: it may be taken out), and the nodes
  * drawn from it, each with the states that show it so. */
+/** A source a deck made from a prompt was grounded in, with the beats citing it (narrative
+ * FUNC-3, `scaena_core::files::Grounded`). */
+export interface Grounded {
+  name: string;
+  kind: string;
+  url?: string;
+  bytes: number;
+  truncated: boolean;
+  /** The beats citing it, by id, and the first state of each, which a page names as a slide. */
+  cited: string[];
+  states: string[];
+}
+
 export interface BundleFile {
   path: string;
   type: "image" | "font" | "data";
@@ -840,6 +857,8 @@ export interface HealthRead {
   toneRead?: number;
   after?: number;
   standing: "ok" | "bends" | "drifted";
+  /** The sources its beat cites of those the deck was grounded in, by name (narrative FUNC-3). */
+  sources?: string[];
 }
 
 /** Something narrative health asks a person to look at, on one slide: what it says, the question
@@ -961,6 +980,10 @@ export type ToWorker =
    * carries it; the player's answers with an error. */
   | { type: "trap" }
   | { type: "generate"; generate: Generate; engine?: WebAssembly.Module }
+  /** The outline as the person settled it (narrative FUNC-1): the slides are written to it. */
+  | { type: "storySettled"; outline: StoryOutline }
+  /** Another arc for the outline, by name, or the heuristic's where none: outlined again. */
+  | { type: "outlineAgain"; arc?: string }
   /** Paint `state` `t` ms into its cue, or at rest without `t`. */
   | { type: "show"; id: number; state: string; t?: number; format?: string }
   /** The deck's timeline. */
@@ -1071,6 +1094,9 @@ export type ToWorker =
   /** A model's `answer` to `ask` as it is offered, and the patch that takes it (PLAN 2.101). */
   | { type: "written"; id: number; ask: WritingAsk; answer: string }
   | { type: "words"; id: number; state: string }
+  /** The notes a presenter reads for `state` (SPEC §2.6), as written and as the blocks a
+   * speaker reads: what a rehearsal shows. */
+  | { type: "notes"; id: number; state: string }
   /** The layouts `state` may take, best first, each painted at rest `height` pixels high, in the
    * deck the editor's `source` compiles to (PLAN 2.92). */
   | { type: "layoutSuggestions"; id: number; state: string; height: number; format?: string }
@@ -1340,6 +1366,9 @@ export interface Generate {
   /** Whether the model is shown each slide as it is drawn, and may give one another of its
    * layouts and tighten its words (PLAN G.13); yes where it is not given. */
   look?: boolean;
+  /** Whether the outline is shown first (narrative FUNC-1): the arc, the big idea, and each beat's
+   * claim, which the person settles before the slides are written; the slides at once where not. */
+  outline?: boolean;
 }
 
 /** Narrato's brief (`scaena_narrato::Brief`): what the deck is about, in the user's words, and
@@ -1376,7 +1405,13 @@ export type GeneratingEvent =
   | { kind: "researched"; sources: number; cut: boolean }
   | { kind: "choosing" }
   | { kind: "chose"; arc: string; fallback?: string }
+  /** The outline before the slides (narrative FUNC-1): asked, written with this many beats, and
+   * settled by the person with this many. */
+  | { kind: "outlining" }
+  | { kind: "outlined"; beats: number }
+  | { kind: "settled"; beats: number }
   | { kind: "writing"; slides: number }
+  | { kind: "retrying"; seconds: number; tried: number }
   | { kind: "wrote"; slides: number; truncated: boolean }
   | { kind: "painting"; pictures: number; model: string }
   | { kind: "painted"; pictures: number; unmade: string[] }
@@ -1387,6 +1422,19 @@ export type GeneratingEvent =
   | { kind: "fitting"; texts: number }
   | { kind: "fitted"; texts: number }
   | { kind: "unfitted"; why: string };
+
+/** The deck's outline before its slides (narrative FUNC-1): the big idea, and each beat with the
+ * one claim its slides must leave the audience with and the slides it takes. */
+export interface StoryOutline {
+  bigIdea: string;
+  beats: StoryBeat[];
+}
+
+export interface StoryBeat {
+  name: string;
+  claim: string;
+  slides: number;
+}
 
 /** What a deck made from a prompt came to, as `scaena generate --json` says it. */
 export interface Generated {
@@ -1406,7 +1454,7 @@ export interface Generated {
   /** Each sheet given, kept as a data source, or why not. */
   data: { sheet: string; id?: string; rows?: number; why?: string }[];
   /** What each source gave the prompt, and whether it was cut short to fit. */
-  sources: { name: string; kind: string; bytes: number; truncated: boolean }[];
+  sources: { name: string; kind: string; url?: string; bytes: number; truncated: boolean }[];
 }
 
 /** Who answers the assistant's questions: Anthropic, OpenAI (or a server that speaks its Chat
@@ -1435,8 +1483,10 @@ export interface Asking {
 }
 
 /** What a person asks a model to write (PLAN 2.101): a text's words proofread, tightened, or
- * rewritten; a slide's notes drafted; an issue explained; a picture described (PLAN 2.119). */
-export type WritingKind = "proofread" | "tighten" | "rewrite" | "notes" | "explain" | "describe";
+ * rewritten; a slide's notes drafted; an issue explained; a picture described (PLAN 2.119); a
+ * slide's words checked against its beat's claim, its headline rewritten to carry it (narrative
+ * FUNC-4). */
+export type WritingKind = "proofread" | "tighten" | "rewrite" | "notes" | "explain" | "describe" | "claim";
 
 /** A writing tool asked of the deck as it stands: the task, the state shown, and the text it is
  * about, or the finding to explain, as the window says it (`said`). */
@@ -1453,7 +1503,9 @@ export interface WritingAsk {
  * instructions and the prompt; and, for a description, the picture as the slide shows it, a PNG in
  * base64, which the model is shown (PLAN 2.119). */
 export interface Writing {
-  task: { kind: WritingKind; text?: string };
+  /** The task, with the words it works on where it works on a text's, the description a picture
+   * has, or, for a claim check, the headline it may rewrite. */
+  task: { kind: WritingKind; text?: string; headline?: string };
   title: string;
   instructions: string;
   prompt: string;
@@ -1524,6 +1576,29 @@ export type AssistantEvent =
   /** It failed: the provider refused, or the network did. */
   | { kind: "failed"; message: string };
 
+/** A run of words of a state's speaker notes in one look (`scaena_core::notes`). */
+export interface NotesSpan {
+  text: string;
+  bold?: boolean;
+  italic?: boolean;
+  code?: boolean;
+}
+
+/** A block of a state's speaker notes as a presenter reads them (SPEC §2.6): lines as written,
+ * each kept on its own; a list, each item at its level; or a table, its first row headings where
+ * `header`. */
+export type NotesBlock =
+  | { kind: "lines"; lines: NotesSpan[][] }
+  | { kind: "list"; ordered: boolean; items: { level: number; spans: NotesSpan[] }[] }
+  | { kind: "table"; header: boolean; rows: NotesSpan[][][] };
+
+/** A state's speaker notes as a presenter reads them: the words as the deck holds them, and the
+ * blocks they read as. */
+export interface SpeakerNotes {
+  text: string;
+  blocks: NotesBlock[];
+}
+
 /** An open bundle, as the worker reports it. */
 export interface Opened {
   /** The bundle's name: its folder's, or its deck file's without `.deck.json`. */
@@ -1539,8 +1614,9 @@ export interface Opened {
    * lists of that shape is its own canvas, laid out as it is, so an editor offers it once, by
    * that name. */
   own?: string;
-  /** Each state's speaker notes: its own, else its beat's (SPEC §3.11), else empty. */
-  notes: string[];
+  /** Each state's speaker notes, the engine's (SPEC §2.6): its own, else its first beat's,
+   * else empty; as written, and as the blocks a speaker reads. */
+  notes: SpeakerNotes[];
   /** The spine's sections in its order, each with its title (else its first beat's claim)
    * and its states, each with its beat's claim; then the states no beat names, in a section
    * with no title. Empty for a deck without a spine (SPEC §3.11–3.12). */
@@ -1616,6 +1692,9 @@ export interface Themed {
   /** The contrast errors the theme brought, each fixed: a text set in its color that reads
    * where it stands, one for each text (PLAN 2.82). */
   recolored: Finding[];
+  /** The overflows and overlaps the theme brought (E100, E101), each fitted as lint's checked
+   * fix fits it: a text shrunk to fit its box, one for each node. */
+  refitted: Finding[];
 }
 
 /** A section of the spine, as a reader goes through it (PLAN 2.8). */
@@ -1824,6 +1903,9 @@ export type FromWorker =
   | { type: "briefing"; choices: Choices }
   /** How far the deck being made from a prompt has come. */
   | { type: "generating"; event: GeneratingEvent }
+  /** The outline the model wrote (narrative FUNC-1), on `arc`, chosen for `reasoning`: shown for
+   * the person to settle (`settled`) or to outline again on another arc (`outlineAgain`). */
+  | { type: "storyOutlined"; outline: StoryOutline; arc: string; reasoning: string; fallback?: string }
   /** The deck made from a prompt: the bundle's files by their paths, its name, and what it came
    * to. Kept nowhere until it is saved. */
   | { type: "generated"; files: Record<string, ArrayBuffer>; name: string; made: Generated }
@@ -1877,6 +1959,7 @@ export type FromWorker =
   | { type: "writing"; id: number; writing: Writing }
   | { type: "written"; id: number; written: Written }
   | { type: "words"; id: number; words: Lexicon }
+  | { type: "notes"; id: number; notes: SpeakerNotes }
   | { type: "layoutSuggestions"; id: number; suggestions: LayoutSuggestion[] }
   | { type: "backgrounds"; id: number; backgrounds: Backgrounds }
   | { type: "backgroundFrames"; id: number; pixels: ArrayBuffer[] }
@@ -1950,7 +2033,7 @@ export type FromWorker =
   | { type: "cells"; id: number; cells: Cells | null }
   /** The deck's data sources, and source `name` as a sheet, or why it does not read as one. */
   | { type: "sheet"; id: number; sources: DataSource[]; name?: string; sheet?: Sheet; file?: string; why?: string }
-  | { type: "bundleFiles"; id: number; files: BundleFile[] }
+  | { type: "bundleFiles"; id: number; files: BundleFile[]; grounded: Grounded[] }
   | { type: "health"; id: number; health: Health }
   /** A picture made: its bytes, its file's kind (`png`, `jpg`), what it shows, and the model. */
   | { type: "pictureMade"; id: number; bytes: ArrayBuffer; ext: string; alt: string; model: string }

@@ -161,7 +161,7 @@ export interface Editor {
   /** `node`'s `transform` in the state shown, resolved (PLAN 2.51): what its rotate handle turns. */
   transform(node: string): { rotate?: number; anchor?: [number, number] } | undefined;
   /** Take `source`, a patch's, as one change: one step to undo. */
-  apply(source: string, edited: Edited): void;
+  apply(source: string, edited: Edited, said?: string): void;
   /** Take `source` as typed: one step to undo with what was typed just before it (`joins`), or
    * the first of a burst of typing. */
   typed(source: string, edited: Edited, joins: boolean): void;
@@ -2350,10 +2350,11 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     const op = ops[0] as { node?: string; at?: Placement } | undefined;
     editor.say("Placing…");
     try {
-      const { source, edited } = await stage.make(editor.source(), ops, shown.index, editor.format());
-      editor.apply(source, edited);
+      const { source, edited } = await stage.make(editor.source, ops, shown.index, editor.format());
+      const told = done ?? `${op?.node === undefined ? "Placed" : `${Called(op.node)} placed`}: ${placed(op?.at ?? {}, aim?.by, words)}`;
+      editor.apply(source, edited, told);
       await refresh();
-      editor.say(done ?? `${op?.node === undefined ? "Placed" : `${Called(op.node)} placed`}: ${placed(op?.at ?? {}, aim?.by, words)}`);
+      editor.say(told);
     } catch (e) {
       await still(`Not placed: ${said(e)}`);
     }
@@ -2367,8 +2368,8 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     if (!shown) return false;
     editor.say(doing);
     try {
-      const { source, edited } = await stage.make(editor.source(), ops, shown.index, editor.format());
-      editor.apply(source, edited);
+      const { source, edited } = await stage.make(editor.source, ops, shown.index, editor.format());
+      editor.apply(source, edited, done);
       await refresh();
       if (Array.isArray(next)) selectAll(next.filter((n) => box(n) !== undefined));
       else if (next !== undefined) select(next ?? undefined);
@@ -2985,6 +2986,18 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     } catch (e) {
       editor.say(`Not added: ${said(e)}`);
     }
+  }
+  /** Insert › Image… (the QA pass's J3): a PNG or a JPEG picked from the disk lands as one
+   * dropped lands, a smaller copy made of one too large: in the slide's first empty place for a
+   * picture, else where the pointer last pressed. */
+  function insertPicture(file: File) {
+    return inTurn(async () => {
+      const shown = editor.shown();
+      if (!shown) return editor.say(WAITING);
+      const place = (await stage.waits(shown.state, editor.format()).catch((): Waiting[] => [])).find((w) => w.picture);
+      const at: [number, number] = place ? [place.rect[0] + place.rect[2] / 2, place.rect[1] + place.rect[3] / 2] : landing();
+      await joining(at, file, false);
+    });
   }
   /** A data file dropped on the canvas joins the bundle as a source, as `data_attach` declares
    * it, one change; a chart of it goes where it was dropped, as Insert inserts one, another. The
@@ -4348,6 +4361,8 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     waiting: () => waits,
     /** Where a picture made for the slide shown goes, and the place it is framed for (PLAN 2.107). */
     pictureTarget,
+    /** Insert › Image…: a picture picked from the disk, put as one dropped is. */
+    insertPicture,
     mapTarget,
     putMap,
     refreshMap,

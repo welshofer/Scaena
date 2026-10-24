@@ -197,6 +197,42 @@ pub struct Created {
     pub errors: usize,
 }
 
+/// Whether `file`, a font a theme names, is a path under `fonts/` that stays there: no `..`, no
+/// root. A theme is read before it is validated, so a name like `fonts/../../.ssh/id_rsa` must
+/// not reach the disk at all.
+pub(crate) fn fonts_named(file: &str) -> Result<(), OpsError> {
+    let path = Path::new(file);
+    let plain = path.components().all(|c| matches!(c, std::path::Component::Normal(_)));
+    if plain && path.starts_with("fonts") && path.components().count() > 1 {
+        Ok(())
+    } else {
+        Err(OpsError::new(format!("the theme's font `{file}` is not a file under fonts/")))
+    }
+}
+
+/// The font `file` a theme names, from the first of `dirs` that has it, held to that folder: a
+/// link there that leads out of it is refused, so a theme cannot read a file it names a font.
+pub(crate) fn font_in<'a>(dirs: impl IntoIterator<Item = &'a Path>, file: &str) -> Result<Option<PathBuf>, OpsError> {
+    for dir in dirs {
+        let path = dir.join(file);
+        if !path.is_file() {
+            continue;
+        }
+        let held = match (path.canonicalize(), dir.canonicalize()) {
+            (Ok(real), Ok(dir)) => real.starts_with(dir),
+            _ => false,
+        };
+        if !held {
+            return Err(OpsError::new(format!(
+                "the theme's font `{file}` in {} is a link that leads out of that folder; copy the file there in its place",
+                dir.display()
+            )));
+        }
+        return Ok(Some(path));
+    }
+    Ok(None)
+}
+
 /// Make a bundle at `path`, a directory not there yet or empty: the theme and its fonts,
 /// the data files, and the deck, pointed at them. Written only if it validates.
 pub fn create(path: &Path, req: &Create) -> Result<Created, OpsError> {
@@ -211,10 +247,10 @@ pub fn create(path: &Path, req: &Create) -> Result<Created, OpsError> {
                 .with_context(|| format!("reading {}{}", req.theme.display(), or_shipped()))?;
             // A font is beside the theme, or above it: in the bundle the theme belongs to.
             let font = |file: &str| -> Result<Vec<u8>, OpsError> {
-                let found =
-                    req.theme.ancestors().skip(1).map(|dir| dir.join(file)).find(|p| p.is_file()).with_context(
-                        || format!("the theme's font `{file}` is not beside {} or above it", req.theme.display()),
-                    )?;
+                fonts_named(file)?;
+                let found = font_in(req.theme.ancestors().skip(1), file)?.with_context(|| {
+                    format!("the theme's font `{file}` is not beside {} or above it", req.theme.display())
+                })?;
                 Ok(std::fs::read(&found)?)
             };
             creating(req, theme, &font, &data)?
@@ -284,10 +320,9 @@ impl ThemeSource {
                 crate::shipped::font(file).with_context(|| format!("the theme names `{file}`, which does not ship"))?;
             return Ok(bytes.to_vec());
         }
-        let found =
-            self.file.ancestors().skip(1).map(|dir| dir.join(file)).find(|p| p.is_file()).with_context(|| {
-                format!("the theme's font `{file}` is not beside {} or above it", self.file.display())
-            })?;
+        fonts_named(file)?;
+        let found = font_in(self.file.ancestors().skip(1), file)?
+            .with_context(|| format!("the theme's font `{file}` is not beside {} or above it", self.file.display()))?;
         Ok(std::fs::read(&found)?)
     }
 }
@@ -401,4 +436,42 @@ pub fn creating(
     let mut made = Write::new(deck, Why::new("deck_create"));
     made.files = files;
     Ok((created, Some(made)))
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn a_themes_font_stays_under_fonts() {
+        use super::fonts_named;
+        assert!(fonts_named("fonts/Inter.ttf").is_ok() && fonts_named("fonts/inter/Inter-Italic.ttf").is_ok());
+        for bad in ["fonts/../../.ssh/id_rsa", "/etc/passwd", "fonts", "Inter.ttf", "../fonts/x.ttf"] {
+            assert!(fonts_named(bad).is_err(), "{bad}");
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_themes_font_is_not_a_link_out_of_its_folder() {
+        use super::ThemeSource;
+        use std::os::unix::fs::symlink;
+        let root = std::env::temp_dir().join(format!("scaena-font-link-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let (theme, outside) = (root.join("theme"), root.join("outside"));
+        std::fs::create_dir_all(theme.join("fonts")).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::write(outside.join("secret"), b"not a font").unwrap();
+        std::fs::write(theme.join("fonts/Real.ttf"), b"a font").unwrap();
+        symlink(outside.join("secret"), theme.join("fonts/Linked.ttf")).unwrap();
+        std::fs::write(theme.join("theme.json"), "{}").unwrap();
+        let source = ThemeSource::of(&theme.join("theme.json")).unwrap();
+        assert_eq!(source.font("fonts/Real.ttf").unwrap(), b"a font");
+        let refused = source.font("fonts/Linked.ttf").unwrap_err().to_string();
+        assert!(refused.contains("a link that leads out"), "{refused}");
+        // A `fonts` folder that is itself a link out is refused the same.
+        std::fs::remove_dir_all(theme.join("fonts")).unwrap();
+        std::fs::rename(outside.join("secret"), outside.join("Real.ttf")).unwrap();
+        symlink(&outside, theme.join("fonts")).unwrap();
+        assert!(source.font("fonts/Real.ttf").is_err());
+        let _ = std::fs::remove_dir_all(&root);
+    }
 }

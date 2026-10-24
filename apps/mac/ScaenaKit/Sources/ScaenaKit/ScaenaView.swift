@@ -38,8 +38,9 @@ public struct Playhead: Equatable, Sendable {
 /// up to 120 Hz on ProMotion (PLAN 3.2, SPEC §9.3). It shows its playhead (PLAN 3.4): a time
 /// into the state's cue, held, or the cue played on from it by the view's own display link,
 /// then at rest. Once nothing moves, it idles until the state, the playhead, the deck, or the
-/// size changes. SwiftUI shows it through `ScaenaCanvas`. On the iPad it is a `UIView` on the
-/// same layer, painted the same way (PLAN 4.1, SPEC §9.4).
+/// size changes: its display link rests, so an open deck wakes the main thread for no frame it
+/// does not paint (lift-up PERF-2). SwiftUI shows it through `ScaenaCanvas`. On the iPad it is a
+/// `UIView` on the same layer, painted the same way (PLAN 4.1, SPEC §9.4).
 @MainActor
 public final class ScaenaView: PlatformView {
     /// The session whose frames it shows.
@@ -84,8 +85,11 @@ public final class ScaenaView: PlatformView {
     private var told: CFTimeInterval = 0
     /// How long the cue runs, ms: past it, the state is at rest.
     private var cue: Double = 0
-    /// Whether the frame shown is not the playhead's.
-    private var dirty = true
+    /// Whether the frame shown is not the playhead's: a frame is owed, and the display link, resting,
+    /// ticks again.
+    private var dirty = true {
+        didSet { if dirty { link?.isPaused = false } }
+    }
     /// The revision `onPainted` was told last.
     private var reported: Int?
 
@@ -104,7 +108,7 @@ public final class ScaenaView: PlatformView {
 
     public override func makeBackingLayer() -> CALayer {
         let layer = CAMetalLayer()
-        layer.pixelFormat = .bgra8Unorm
+        Self.match(layer)
         return layer
     }
 
@@ -139,7 +143,7 @@ public final class ScaenaView: PlatformView {
     }
 
     private func made() {
-        metalLayer?.pixelFormat = .bgra8Unorm
+        if let metalLayer { Self.match(metalLayer) }
         registerForTraitChanges([UITraitDisplayScale.self]) { (view: ScaenaView, _: UITraitCollection) in
             view.resized()
         }
@@ -162,6 +166,19 @@ public final class ScaenaView: PlatformView {
     #endif
 
     private var metalLayer: CAMetalLayer? { layer as? CAMetalLayer }
+
+    /// The layer takes the painter's pixels as they are, eight bits a channel, and says they are
+    /// sRGB, as the slides' thumbnails, the PNG, and the PDF say theirs are (lift-up ATTR-1): a
+    /// layer with no color space is not matched to the display, and on a P3 display shows the
+    /// theme's colors more saturated than everything else that draws the deck.
+    private static func match(_ layer: CAMetalLayer) {
+        layer.pixelFormat = .bgra8Unorm
+        layer.colorspace = CGColorSpace(name: CGColorSpace.sRGB)
+    }
+
+    /// Whether the view paints (lift-up PERF-2): a frame is owed, the frame shown not the playhead's,
+    /// or the cue plays on. Its display link ticks while this holds, and rests between.
+    public var painting: Bool { dirty || playhead.playing }
 
     /// Paint on `next`'s ticks, asking for 120 Hz, in place of the link it had; none while the
     /// view is in no window.
@@ -205,8 +222,21 @@ public final class ScaenaView: PlatformView {
     }
 
     @objc private func step(_ link: CADisplayLink) {
+        tick(at: link.timestamp)
+    }
+
+    /// A tick of the display link at `now`, on its clock: the frame owed painted, where the frame
+    /// shown is not the playhead's or the cue plays on; else nothing, and the link rests until
+    /// something changes (lift-up PERF-2). What each tick does; called by hand, it paints the frame
+    /// now. Whether a frame was painted: none where none is owed, where the layer had no drawable
+    /// to give (the next tick paints it), or where painting failed (`failure`).
+    @discardableResult
+    public func tick(at now: CFTimeInterval) -> Bool {
         guard dirty || playhead.playing, let session, let state, let layer = metalLayer, bounds.width > 0
-        else { return }
+        else {
+            link?.isPaused = true
+            return false
+        }
         do {
             if surface == nil {
                 let size = layer.drawableSize
@@ -218,26 +248,27 @@ public final class ScaenaView: PlatformView {
             var over = false
             if playhead.playing {
                 let from = playhead.ms.isFinite && playhead.ms < cue ? max(playhead.ms, 0) : 0
-                let start = began ?? link.timestamp - from / 1000
+                let start = began ?? now - from / 1000
                 began = start
-                let ms = (link.timestamp - start) * 1000
+                let ms = (now - start) * 1000
                 over = ms >= cue
                 at = over ? .infinity : ms
             }
             // A layer with no drawable to give skips the frame: the next tick paints it.
-            guard try surface?.paint(session, state: state, at: at) == true else { return }
+            guard try surface?.paint(session, state: state, at: at) == true else { return false }
             failure = nil
             dirty = false
             painted()
-            guard playhead.playing else { return }
+            guard playhead.playing else { return true }
             if over {
                 playhead = .rest
                 began = nil
-                tell(link.timestamp)
+                tell(now)
             } else {
                 playhead.ms = at
-                if link.timestamp - told >= 1.0 / 30 { tell(link.timestamp) }
+                if now - told >= 1.0 / 30 { tell(now) }
             }
+            return true
         } catch {
             failure = error as? ScaenaError ?? ScaenaError(message: "\(error)")
             dirty = false
@@ -245,8 +276,9 @@ public final class ScaenaView: PlatformView {
             if playhead.playing {
                 playhead = .rest
                 began = nil
-                tell(link.timestamp)
+                tell(now)
             }
+            return false
         }
     }
 

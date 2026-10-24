@@ -7,7 +7,7 @@ use anyhow::{Context, Result, anyhow, bail};
 use clap::Args;
 use scaena_narrato::brief::MODALITIES;
 use scaena_narrato::pictures::{self, Look, Quality};
-use scaena_narrato::{Brief, Generation, Provider, Request, Settings};
+use scaena_narrato::{Brief, Generation, Outline, Provider, Request, Settings, Step};
 use scaena_ops::create::ThemeSource;
 use scaena_ops::narrative::{Looking, Painter, Progress, Reply, Transport};
 use std::path::{Path, PathBuf};
@@ -114,6 +114,15 @@ pub struct GenerateArgs {
     /// the look is answered in: taken with no call, as `--slides` gives the slides.
     #[arg(long)]
     look_answer: Option<PathBuf>,
+    /// Show the outline before the slides are written: the arc, the big idea, and one claim for
+    /// each beat, written to FILE as JSON, and no deck made. Edit it (a claim, a beat moved,
+    /// taken out, or added), then `--from-outline FILE` writes the slides to it.
+    #[arg(long, conflicts_with = "slides")]
+    outline: Option<PathBuf>,
+    /// Make the deck from the outline `--outline` wrote, as edited: the slides follow its beats,
+    /// in its order, each carrying its claim.
+    #[arg(long, conflicts_with_all = ["slides", "outline"])]
+    from_outline: Option<PathBuf>,
 }
 
 /// The environment variables a provider's key is read from, in order.
@@ -259,12 +268,22 @@ impl Transport for Client<'_> {
     }
 }
 
+/// Who makes the pictures, as [`painter`] finds out: a provider, its key, and the look; none
+/// asked for; or none to be had, saying why, the deck made without them (narrative REL-4).
+enum Pictures {
+    By(pictures::Settings, String, Look),
+    None,
+    Unlisted(String),
+}
+
 /// Who makes the pictures, as the arguments and the environment say: a provider whose key it
 /// holds, and the model named or the best its key can use; none where `--pictures none`, or no
-/// key for one is held.
-fn painter(a: &GenerateArgs, agent: &ureq::Agent) -> Result<Option<(pictures::Settings, String, Look)>> {
+/// key for one is held. A key whose image models cannot be listed, or that lists none, makes no
+/// picture, saying why, as the browser's generation goes on without them: the deck is what was
+/// paid for, and it stands without a picture.
+fn painter(a: &GenerateArgs, agent: &ureq::Agent) -> Result<Pictures> {
     let provider = match a.pictures.as_deref().map(str::trim) {
-        Some(none) if none.eq_ignore_ascii_case("none") => return Ok(None),
+        Some(none) if none.eq_ignore_ascii_case("none") => return Ok(Pictures::None),
         Some(name) => {
             let p = Provider::named(name).filter(|p| *p != Provider::Anthropic);
             let p = p.ok_or_else(|| anyhow!("`{name}` makes no pictures: openai, gemini, or none"))?;
@@ -275,7 +294,7 @@ fn painter(a: &GenerateArgs, agent: &ureq::Agent) -> Result<Option<(pictures::Se
         }
         None => match [Provider::Openai, Provider::Gemini].into_iter().find(|p| key(*p).is_some()) {
             Some(p) => p,
-            None => return Ok(None),
+            None => return Ok(Pictures::None),
         },
     };
     let key = key(provider).ok_or_else(|| no_key(provider))?;
@@ -284,17 +303,21 @@ fn painter(a: &GenerateArgs, agent: &ureq::Agent) -> Result<Option<(pictures::Se
     let quality = Quality::named(&a.picture_quality)
         .ok_or_else(|| anyhow!("`{}` is no quality: low, medium, or high", a.picture_quality))?;
     let model = match &a.picture_model {
+        Some(m) if !pictures::named(m) => bail!("`{m}` is no model's name: letters, digits, `.`, `_`, and `-`"),
         Some(m) => m.clone(),
         None => {
             let reply = fetch(agent, &provider.models(&key, a.picture_base.as_deref(), false));
-            let listed =
-                pictures::models(provider, reply.status, &reply.status_text, &reply.body).map_err(|e| anyhow!(e))?;
-            listed.into_iter().next().ok_or_else(|| {
-                anyhow!("your {} key lists no image model: --pictures none makes the deck without", provider.name())
-            })?
+            let listed = match pictures::models(provider, reply.status, &reply.status_text, &reply.body) {
+                Ok(listed) => listed,
+                Err(why) => return Ok(Pictures::Unlisted(format!("{}'s image models: {why}", provider.name()))),
+            };
+            match listed.into_iter().next() {
+                Some(model) => model,
+                None => return Ok(Pictures::Unlisted(format!("your {} key lists no image model", provider.name()))),
+            }
         }
     };
-    Ok(Some((pictures::Settings { provider, model, base: a.picture_base.clone(), quality }, key, look)))
+    Ok(Pictures::By(pictures::Settings { provider, model, base: a.picture_base.clone(), quality }, key, look))
 }
 
 /// How far a generation has come, in words.
@@ -304,6 +327,11 @@ fn said(p: &Progress) -> String {
         Progress::Chose { arc, fallback: None } => format!("arc: {arc}"),
         Progress::Chose { arc, fallback: Some(why) } => format!("arc: {arc}, the heuristic's ({why})"),
         Progress::Writing { slides } => format!("writing the slides, at least {slides}…"),
+        Progress::Retrying { wait, tried } => format!(
+            "the provider is busy or did not answer: asking again in {wait:.0} s (try {} of {})…",
+            tried + 1,
+            scaena_narrato::TRIES
+        ),
         Progress::Wrote { slides, truncated: false, .. } => format!("{slides} slides written"),
         Progress::Wrote { slides, truncated: true, .. } => format!("{slides} slides written, the answer cut short"),
         Progress::Fitting { texts } => format!("{texts} texts run past their place: asking for them shorter…"),
@@ -370,6 +398,17 @@ fn research(
         sheets: Vec::new(),
         pdf: None,
     })
+}
+
+/// The wait `generation` asks for before its step is asked again, slept, where its last answer
+/// was for now (narrative REL-1), and said as the slides' is.
+fn waited(generation: &Generation, json: bool) {
+    if let Some(wait) = generation.again() {
+        if !json {
+            eprintln!("{}", said(&Progress::Retrying { wait, tried: generation.tried() }));
+        }
+        std::thread::sleep(Duration::from_secs_f64(wait.clamp(0.0, 120.0)));
+    }
 }
 
 /// Where a run keeps what it has paid for as it arrives, under the bundle's directory.
@@ -459,6 +498,7 @@ impl Kept {
                     args.push("--no-look".into());
                 }
                 flag(&mut args, "look-answer", path(a.look_answer.as_deref()).as_deref());
+                flag(&mut args, "from-outline", path(a.from_outline.as_deref()).as_deref());
             }
         }
         flag(&mut args, "audience", a.audience.as_deref());
@@ -607,7 +647,7 @@ pub fn run(a: GenerateArgs, json: bool) -> Result<ExitCode> {
     // A deck in letters the theme's fonts cannot draw would be blank where its words stand.
     scaena_ops::narrative::writable(a.language.as_deref(), &theme_text, theme.shipped, &font)?;
     if let Some(name) = &a.arc
-        && !scaena_narrato::arcs::arcs().iter().any(|arc| arc.arc.eq_ignore_ascii_case(name))
+        && scaena_narrato::arcs::named(name).is_none()
     {
         let names: Vec<&str> = scaena_narrato::arcs::arcs().iter().map(|arc| arc.arc.as_str()).collect();
         bail!("`{name}` is no arc of Narrato's: {}", names.join(", "));
@@ -680,6 +720,7 @@ pub fn run(a: GenerateArgs, json: bool) -> Result<ExitCode> {
     brief.source_content = grounding.content.clone();
     let settings = Settings { provider, model: model.clone(), base: a.base.clone(), browser: false };
     let mut generation = Generation::new(brief, settings).map_err(|e| anyhow!(e))?;
+    generation.give_sources(scaena_ops::narrative::provenance(&grounding.given));
     match &a.slides {
         Some(path) => {
             generation.choose_arc(a.arc.as_deref());
@@ -689,7 +730,100 @@ pub fn run(a: GenerateArgs, json: bool) -> Result<ExitCode> {
         None if a.arc.is_some() => generation.choose_arc(a.arc.as_deref()),
         None => {}
     }
-    let painting = painter(&a, &agent)?;
+    // The outline before the slides (narrative FUNC-1): asked once the arc is chosen, written to
+    // the file for the person to settle, and nothing more made; or taken from the file they
+    // settled, the slides then written to it.
+    if let Some(path) = &a.outline {
+        let key = key.as_deref().context("the outline asks a model: --slides makes no call")?;
+        while generation.step() == Step::Arc {
+            let request = generation.request(key, &grounding.documents).expect("the arc is asked");
+            if !json {
+                eprintln!("choosing the arc…");
+            }
+            let reply = fetch(&agent, &request);
+            generation
+                .answer(reply.status, &reply.status_text, &reply.body, reply.after.as_deref())
+                .map_err(|e| anyhow!(e))?;
+            waited(&generation, json);
+        }
+        let chosen = generation.arc().cloned().expect("the arc is chosen");
+        if !json {
+            match generation.fallback() {
+                Some(why) => eprintln!("arc: {}, the heuristic's ({why})", chosen.selection),
+                None => eprintln!("arc: {}", chosen.selection),
+            }
+            eprintln!("outlining…");
+        }
+        generation.outline_first().map_err(|e| anyhow!(e))?;
+        // Asked again, as the slides are, where the provider is busy (narrative REL-1).
+        while generation.step() == Step::Outline {
+            let request = generation.request(key, &grounding.documents).expect("the outline is asked");
+            let reply = fetch(&agent, &request);
+            (generation.answer(reply.status, &reply.status_text, &reply.body, reply.after.as_deref()))
+                .map_err(|e| anyhow!("the outline: {e}"))?;
+            waited(&generation, json);
+        }
+        let outline = generation.outline().expect("the outline is written");
+        let written = serde_json::json!({
+            "arc": chosen.selection,
+            "reasoning": chosen.reasoning,
+            "bigIdea": outline.big_idea,
+            "beats": outline.beats,
+        });
+        std::fs::write(path, format!("{}\n", serde_json::to_string_pretty(&written)?))
+            .with_context(|| format!("writing {}", path.display()))?;
+        if json {
+            println!("{}", serde_json::to_string_pretty(&written)?);
+        } else {
+            println!("outline: {}", path.display());
+            println!("  arc: {}", chosen.selection);
+            if !outline.big_idea.is_empty() {
+                println!("  big idea: {}", outline.big_idea);
+            }
+            for (i, beat) in outline.beats.iter().enumerate() {
+                let slides = if beat.slides == 1 { "1 slide".to_string() } else { format!("{} slides", beat.slides) };
+                println!("  {}. {} ({slides}): {}", i + 1, beat.name, beat.claim);
+            }
+            println!(
+                "next: edit {}, then scaena generate {} {:?} --from-outline {}",
+                path.display(),
+                dir.display(),
+                generation.brief().topic,
+                path.display()
+            );
+        }
+        return Ok(ExitCode::SUCCESS);
+    }
+    if let Some(path) = &a.from_outline {
+        let text = std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
+        let value: serde_json::Value = serde_json::from_str(&text)
+            .with_context(|| format!("{}: not the JSON --outline writes", path.display()))?;
+        let outline: Outline = serde_json::from_value(value.clone())
+            .with_context(|| format!("{}: not the outline --outline writes", path.display()))?;
+        let arc = value.get("arc").and_then(serde_json::Value::as_str).filter(|a| !a.is_empty());
+        if let Some(name) = arc
+            && !scaena_narrato::arcs::arcs().iter().any(|a| a.arc == name)
+        {
+            bail!("{}: `{name}` is no arc of Narrato's", path.display());
+        }
+        if generation.step() == Step::Arc {
+            generation.choose_arc(arc.or(a.arc.as_deref()));
+        }
+        generation.settle(&outline).map_err(|e| anyhow!("{}: {e}", path.display()))?;
+        if !json {
+            eprintln!("outline: {} beats from {}", outline.beats.len(), path.display());
+        }
+    }
+    let (painting, unpictured) = match painter(&a, &agent)? {
+        Pictures::By(settings, key, look) => (Some((settings, key, look)), None),
+        Pictures::None => (None, None),
+        Pictures::Unlisted(why) => {
+            if !json {
+                eprintln!("{}", said(&Progress::Painted { pictures: 0, unmade: vec![why.clone()] }));
+            }
+            (None, Some(why))
+        }
+    };
     let painter =
         painting.as_ref().map(|(settings, key, look)| Painter { settings: settings.clone(), key, look: *look });
     if !json && let Some(p) = &painter {
@@ -737,7 +871,8 @@ pub fn run(a: GenerateArgs, json: bool) -> Result<ExitCode> {
         &mut say,
     );
     // A failure after an answer was kept says how to go on from it.
-    let (made, write) = generated.map_err(|e| kept.resumable(e.into(), &a, dir))?;
+    let (mut made, write) = generated.map_err(|e| kept.resumable(e.into(), &a, dir))?;
+    made.unpictured.extend(unpictured);
     let mut sheets = Vec::new();
     if let Some(write) = write {
         // Each sheet given, a data source of the deck's, which a chart can plot.
@@ -785,6 +920,9 @@ pub fn run(a: GenerateArgs, json: bool) -> Result<ExitCode> {
         }
         if made.pictures > 0 {
             println!("  pictures: {}", made.pictures);
+        }
+        for why in &made.unpictured {
+            println!("  picture not made: {why}");
         }
         for g in &grounding.given {
             let cut = if g.truncated { ", cut short to fit" } else { "" };

@@ -1,5 +1,5 @@
 {
-  "scaena": "0.34",
+  "scaena": "0.37",
   "_comment": "I403 clean: code in Python, which a scanner of its own colors, and in `plain`, which colors nothing.",
   "canvas": {"width": 1920, "height": 1080},
   "theme": "theme.json",

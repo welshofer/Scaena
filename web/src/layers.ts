@@ -40,7 +40,7 @@ export interface LayersEditor {
   /** Select `node` on the canvas, as a click on it does. */
   select(node: string): void;
   /** Take `source`, a patch's, as one change: one step to undo. */
-  apply(source: string, edited: Edited): void;
+  apply(source: string, edited: Edited, said?: string): void;
   /** Lock `node`, or with `on` false unlock it, as ⇧⌘L does (PLAN 2.95). */
   lock(node: string, on: boolean): Promise<unknown>;
   say(text: string): void;
@@ -131,8 +131,8 @@ export function layers(stage: Stage, into: HTMLElement, editor: LayersEditor) {
       try {
         const patch = typeof ops === "function" ? await ops() : ops;
         if (!patch.length) return editor.say(none);
-        const { source, edited } = await stage.make(editor.source(), patch, now.index, editor.format());
-        editor.apply(source, edited);
+        const { source, edited } = await stage.make(editor.source, patch, now.index, editor.format());
+        editor.apply(source, edited, done);
         editor.say(done);
       } catch (e) {
         editor.say(`Not changed: ${said(e)}`);

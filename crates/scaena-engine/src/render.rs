@@ -78,7 +78,16 @@ pub fn project<'d>(
             true => "none".to_string(),
             false => listed(),
         };
-        return Err(EngineError::Layout(format!("format `{name}` is not one of the deck's formats ({listed})")));
+        // How to list it, as one JSON Patch op: the list made where the deck has none, else the
+        // format added to the end of it.
+        let op = match deck.formats.is_empty() {
+            true => format!(r#"{{"op": "add", "path": "/formats", "value": ["{name}"]}}"#),
+            false => format!(r#"{{"op": "add", "path": "/formats/-", "value": "{name}"}}"#),
+        };
+        return Err(EngineError::Layout(format!(
+            "format `{name}` is not one of the deck's formats ({listed}): list it to lay the deck out there, \
+             with the patch `[{op}]`; a layout whose theme gives `{name}` no slots of its own keeps its slots there"
+        )));
     }
     let mut projected = deck.clone();
     (projected.canvas.width, projected.canvas.height) = (canvas[0], canvas[1]);
@@ -550,8 +559,8 @@ impl Engine {
         let runs: Vec<Value> = runs
             .into_iter()
             .map(|r| match r.link {
-                Some(href) => serde_json::json!({ "text": r.text, "link": { "href": href } }),
-                None => serde_json::json!({ "text": r.text }),
+                Some(href) => serde_json::json!({ "text": kept(&r.text), "link": { "href": href } }),
+                None => serde_json::json!({ "text": kept(&r.text) }),
             })
             .collect();
         if runs.is_empty() {
@@ -613,8 +622,8 @@ impl Engine {
             .flat_map(|f| &f.credit)
             .filter(|r| !r.text.is_empty())
             .map(|r| match &r.link {
-                Some(href) => serde_json::json!({ "text": r.text, "link": { "href": href } }),
-                None => serde_json::json!({ "text": r.text }),
+                Some(href) => serde_json::json!({ "text": kept(&r.text), "link": { "href": href } }),
+                None => serde_json::json!({ "text": kept(&r.text) }),
             })
             .collect();
         if credit.is_empty() && pin.is_none() {
@@ -943,6 +952,12 @@ impl Engine {
             let (top, bottom) = base.trimmed(trim);
             [base.width, bottom - top]
         });
+        // A shrinking text's own `maxSize`, where it is under its size, is the most it is set at
+        // (deck format 0.36): a set of texts side by side held to one size. A role's is not.
+        let cap = match fit {
+            TextFit::Shrink => number("maxSize").map_or(1.0, |m| (m / spec.role.size).min(1.0)),
+            _ => f32::INFINITY,
+        };
         let (scale, text) = match fit {
             // Code shrinks no further than its `minSize`, else its role's, else 12 pt at
             // presentation size, and never above its own size; worked out, since no line of it
@@ -957,9 +972,9 @@ impl Engine {
                 let floor = number("minSize").or(spec.role.min_size).map_or(0.5, |m| m / spec.role.size).min(1.0);
                 worked_out(&mut lay, &fits, &base, [cell[2], cell[3]], trim, floor)?
             }
-            TextFit::Shrink if !fits(&base) => {
+            TextFit::Shrink if !fits(&base) || cap < 1.0 => {
                 let floor = number("minSize").or(spec.role.min_size).map_or(0.5, |m| m / spec.role.size).min(1.0);
-                largest_fit(&mut lay, &fits, floor, 1.0)?
+                largest_fit(&mut lay, &fits, floor.min(cap), cap)?
             }
             TextFit::Grow if fits(&base) => {
                 let ceiling = number("maxSize").or(spec.role.max_size).map_or(2.0, |m| m / spec.role.size).max(1.0);
@@ -977,6 +992,8 @@ impl Engine {
             }
             _ => (1.0, base),
         };
+        // Code and verse, worked out from one layout, held under the cap the same way.
+        let (scale, text) = if scale > cap { (cap, lay(cap)?) } else { (scale, text) };
         let overflow = !fits_box(&text);
         let clip = (fit == TextFit::Clip).then_some(cell);
         let top = text_top(cell, align_y, &text, trim);
@@ -1280,8 +1297,9 @@ fn tree(deck: &Deck, snap: &Snapshot, placement: &Placement) -> Result<HashMap<S
 const SPANS_KEPT: usize = 4096;
 
 /// A hash of what every state of `deck` is drawn from, which a state's snapshot does not say: the
-/// deck but for its nodes, states, overrides, and spine, the theme, and the data.
-fn drawn_from(deck: &Deck, theme: &Theme, data: &DataFiles) -> u64 {
+/// deck but for its nodes, states, overrides, and spine, the theme, and the data. One part of
+/// [`rest_key`], worked out once for a deck.
+pub fn drawn_from(deck: &Deck, theme: &Theme, data: &DataFiles) -> u64 {
     let mut doc = serde_json::to_value(deck).unwrap_or_default();
     if let Some(doc) = doc.as_object_mut() {
         for key in ["nodes", "states", "overrides", "spine", "comment"] {
@@ -1313,6 +1331,27 @@ fn span_key(drawn: u64, deck: &Deck, snapshots: &[Snapshot], i: usize) -> u64 {
             snap.nodes.keys().map(|id| deck.nodes.get(id).map(|n| n.node_type)).collect();
         serde_json::to_vec(&(&snap.layout, &snap.nodes, &over, &types)).unwrap_or_default().hash(&mut h);
     }
+    h.finish()
+}
+
+/// A hash of everything state `i` at rest is drawn from, at `time` seconds on the global timeline
+/// (its shaders' clock), which a client keeps a memo of its drawing by (lift-up PERF-4): what every
+/// state is drawn from (`drawn`, [`drawn_from`]), what the state shows (each node as the states
+/// write it, the deck's overrides over it, and its type, and its layout), and its slide's number
+/// and whether the slide shows it (ADR-0028). Two states that hash alike draw alike; a state
+/// edited, or one whose slide number or start moved, hashes anew.
+pub fn rest_key(drawn: u64, deck: &Deck, snapshots: &[Snapshot], i: usize, time: f64) -> u64 {
+    let mut h = std::hash::DefaultHasher::new();
+    drawn.hash(&mut h);
+    let snap = &snapshots[i];
+    let over: Vec<Option<&Props>> = snap.nodes.keys().map(|id| deck.overrides.get(id)).collect();
+    let types: Vec<Option<NodeType>> = snap.nodes.keys().map(|id| deck.nodes.get(id).map(|n| n.node_type)).collect();
+    serde_json::to_vec(&(&snap.layout, &snap.nodes, &over, &types)).unwrap_or_default().hash(&mut h);
+    match crate::furniture::slide(deck, &snap.state_id) {
+        Some(slide) => (slide.number, slide.of, slide.shows).hash(&mut h),
+        None => 0u8.hash(&mut h),
+    }
+    time.to_bits().hash(&mut h);
     h.finish()
 }
 
@@ -1535,4 +1574,10 @@ fn typed_prop<T: serde::de::DeserializeOwned>(props: &Props, key: &str) -> Resul
         .map(serde_json::from_value)
         .transpose()
         .map_err(|e| EngineError::Layout(format!("`{key}`: {e}")))
+}
+
+/// A credit's words as they are laid out: the space before each separator ` · ` no break, so a
+/// line breaks after the dot, never before it, and no line of a credit starts with one.
+fn kept(text: &str) -> String {
+    text.replace(" \u{b7} ", "\u{a0}\u{b7} ")
 }

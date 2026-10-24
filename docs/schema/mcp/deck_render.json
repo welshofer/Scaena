@@ -1,6 +1,6 @@
 {
   "name": "deck_render",
-  "description": "Render a state to a PNG, returned as an image: at rest, or `t` ms into its cue. With the display list's digest: one digest, one drawing.",
+  "description": "Render a state to a PNG, returned as an image: at rest, or `t` ms into its cue. At half the canvas's size (960 × 540 for a 1920 × 1080 deck) unless `size` asks for another. With the display list's digest: one digest, one drawing.",
   "inputSchema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "$defs": {
@@ -31,12 +31,16 @@
         "default": null
       },
       "size": {
-        "description": "`WxH` pixels, with the canvas's aspect ratio; the canvas's size without it.",
+        "description": "`WxH` pixels, with the canvas's aspect ratio; half the canvas's size without it.",
         "type": ["string", "null"],
         "default": null
       },
       "painter": { "$ref": "#/$defs/Painter", "default": "cpu" },
-      "out": { "description": "Also write the PNG here.", "type": ["string", "null"], "default": null }
+      "out": {
+        "description": "Also write the PNG here: under the server's working directory or the bundle's folder.",
+        "type": ["string", "null"],
+        "default": null
+      }
     },
     "additionalProperties": false,
     "required": ["bundle", "state"]

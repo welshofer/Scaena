@@ -1,5 +1,5 @@
 {
-  "scaena": "0.34",
+  "scaena": "0.37",
   "_comment": "W300 trigger: a color and a size written out on a node, a shadow written out on another, and a radius in a state.",
   "canvas": {"width": 1920, "height": 1080},
   "theme": "theme.json",

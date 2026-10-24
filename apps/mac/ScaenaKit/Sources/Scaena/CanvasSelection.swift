@@ -63,6 +63,9 @@ struct CanvasSelection: View {
     let clip: (Clipping) -> Void
     /// The Edit menu's Find, and ⌘F on the canvas: the deck's find bar (PLAN 3.16).
     let finding: () -> Void
+    /// Edit › Find Next (`1`) and Find Previous (`-1`), by their keys on the canvas (lift-up
+    /// USE-5); none while the find bar is closed.
+    let stepping: ((Int) -> Void)?
     /// What the Node menu does to the node selected, which a long press offers on the iPad (PLAN 4.3).
     let actions: DeckActions?
     /// Apply what lint found's fix, from the mark on its object (PLAN 3.20): one step to undo.
@@ -85,6 +88,9 @@ struct CanvasSelection: View {
     /// Show another state, a slide or a step: where PageDown and PageUp go (PLAN 4.12). None where
     /// the window shows no other.
     var showing: ((String) -> Void)? = nil
+    /// What a touch holds in a keyboard's place (lift-up FUNC-4): Select, which makes a tap add to
+    /// the selection or take from it, and Only on This Slide, which keeps a gesture to the slide.
+    var touch: TouchHeld? = nil
     /// Make the patch a gesture ended in: one step to undo, named in the Edit menu as the gesture
     /// is where it says more than the patch (a resize), else as the patch says what it does.
     let make: ([JSONValue], String?) -> Void
@@ -279,7 +285,7 @@ struct CanvasSelection: View {
                 #if os(macOS)
                 CanvasKeysHost(
                     typing: typing, canvas: size, shown: zoom.view, command: command, clipping: clip,
-                    finding: { _ in finding() }, pressed: pressed)
+                    finding: { _ in finding() }, pressed: pressed, typeOver: { typeOver() })
                     .allowsHitTesting(false)
                 #else
                 CanvasKeysHost(
@@ -644,7 +650,7 @@ struct CanvasSelection: View {
             if d.fork { return "On this slide only" }
             let others = d.states.filter { $0 != state }.count
             guard others > 0 else { return nil }
-            return "Also moves it on \(others) other slide\(others == 1 ? "" : "s")\(Held.keyboard ? " · ⌥ moves it here only" : "")"
+            return "Also moves it on \(others) other slide\(others == 1 ? "" : "s")\(Held.keyboard ? " · ⌥ moves it here only" : " · a long press offers Only on This Slide")"
         case .handling(let h):
             return holdingTold(h)
         default:
@@ -791,7 +797,7 @@ struct CanvasSelection: View {
                     // A click until it goes further than one.
                     guard h.moved || moved >= Self.still else { break }
                     h.moved = true
-                    h.fork = Held.option
+                    h.fork = forks
                     hold(&h, to: fit.canvas(value.location))
                     press = .handling(h)
                 default:
@@ -817,7 +823,7 @@ struct CanvasSelection: View {
                     typing.focus?()
                 case .handling(var h):
                     if h.moved {
-                        h.fork = Held.option
+                        h.fork = forks
                         hold(&h, to: fit.canvas(value.location))
                     }
                     letGo(h)
@@ -964,7 +970,7 @@ struct CanvasSelection: View {
             return
         }
         pointPicked = nil
-        let fork = Held.option
+        let fork = forks
         edit(Handling.reshaping(o.node, to: kept, in: state, fork: fork))
         said = "Point removed\(fork ? " · on this slide only" : "")"
     }
@@ -1134,30 +1140,50 @@ struct CanvasSelection: View {
         case .keyboardDeleteOrBackspace, .keyboardDeleteForward:
             return command || option || (node == nil && pointPicked == nil) ? false : deleting(everywhere: shift)
         default:
-            return false
+            // A character typed with a text selected types over its words (lift-up FUNC-3), as the
+            // Mac's input system does it (`CanvasKeys.insertText`).
+            guard !command, Typing.printable(key.characters), typeOver() else { return false }
+            typing.insert(key.characters)
+            return true
         }
     }
 
     /// A menu bar key that reached the canvas (PLAN 4.6), as the browser's canvas takes ⌘D itself:
-    /// what its item in the Node menu or the View menu's Find in Deck does. On the iPad a press
-    /// comes to the canvas before the menu bar's keys are matched, and the menu's own keys went
-    /// unheard there. Whether it did anything; what the menu would not do now goes on.
+    /// what its item in the Node, Arrange, or Edit menu does, each key `MenuKey`'s, the Mac's menus'
+    /// (lift-up USE-5). On the iPad a press comes to the canvas before the menu bar's keys are
+    /// matched, and the menu's own keys went unheard there. Whether it did anything; what the menu
+    /// would not do now goes on.
     private func menuKey(_ code: UIKeyboardHIDUsage, shift: Bool, option: Bool) -> Bool {
+        let character: Character
+        switch code {
+        case .keyboardD: character = "d"
+        case .keyboardG: character = "g"
+        case .keyboardL: character = "l"
+        case .keyboardC: character = "c"
+        case .keyboardV: character = "v"
+        case .keyboardF: character = "f"
+        case .keyboardCloseBracket: character = "]"
+        case .keyboardOpenBracket: character = "["
+        default: return false
+        }
+        guard let key = MenuKey.of(character, shift: shift, option: option) else { return false }
         let run: (() -> Void)?
-        switch (code, shift, option) {
-        case (.keyboardD, false, false): run = actions?.duplicate
-        case (.keyboardG, false, false): run = actions?.group
-        case (.keyboardG, true, false): run = actions?.ungroup
-        case (.keyboardL, true, false): run = actions?.lock
-        case (.keyboardC, false, true): run = actions?.copyLook
-        case (.keyboardV, false, true): run = actions?.pasteLook
-        case (.keyboardF, _, false): run = finding
-        case (.keyboardCloseBracket, false, _), (.keyboardOpenBracket, false, _):
-            guard let order = actions?.order else { return false }
-            let up = code == .keyboardCloseBracket
-            order(up ? (option ? "front" : "forward") : (option ? "back" : "backward"))
-            return true
-        default: run = nil
+        switch key {
+        case .duplicate: run = actions?.duplicate
+        case .group: run = actions?.group
+        case .ungroup: run = actions?.ungroup
+        case .lock: run = actions?.lock
+        case .copyLook: run = actions?.copyLook
+        case .pasteLook: run = actions?.pasteLook
+        case .find: run = finding
+        case .findNext: run = stepping.map { step in { step(1) } }
+        case .findPrevious: run = stepping.map { step in { step(-1) } }
+        case .bringForward: run = actions?.order.map { order in { order("forward") } }
+        case .sendBackward: run = actions?.order.map { order in { order("backward") } }
+        case .bringToFront: run = actions?.order.map { order in { order("front") } }
+        case .sendToBack: run = actions?.order.map { order in { order("back") } }
+        // The Format menu's keys are the text typed in's own (`CanvasKeys`).
+        case .bold, .italic, .link: run = nil
         }
         guard let run else { return false }
         run()
@@ -1464,7 +1490,7 @@ struct CanvasSelection: View {
         do {
             let start = try editor.session.turned(state: state, node: selected).rotate
             let now = ((start + by) * 1000).rounded() / 1000
-            edit(Handling.turning(selected, to: now, in: state, fork: Held.option))
+            edit(Handling.turning(selected, to: now, in: state, fork: forks))
             said = "Rotated to \(now.formatted())°"
         } catch {
             said = "\(name(selected, starting: true)) can't be rotated. \(Why.said(error))"
@@ -1536,7 +1562,7 @@ struct CanvasSelection: View {
     private func pick(_ point: CGPoint) {
         let hits = (try? editor.session.hits(state: state, at: point)) ?? []
         let hit = (hits.first { $0.locked == nil }?.node).map(reached)
-        if Held.shift, let hit, node != nil {
+        if extends, let hit, node != nil {
             return toggle(hit)
         }
         node = hit
@@ -1546,6 +1572,13 @@ struct CanvasSelection: View {
         }
     }
 
+    /// Whether a press adds to the selection or takes from it: Shift, or the touch's Select held
+    /// (lift-up FUNC-4).
+    private var extends: Bool { touch?.extends ?? Held.shift }
+
+    /// Whether a gesture is kept to the slide shown: Option, or the touch's Only on This Slide held.
+    private var forks: Bool { touch?.forks ?? Held.option }
+
     /// What a press on `hit` reaches (PLAN 2.108): a shape's words, reached as the shape, which a
     /// click selects, a drag moves, and a right click offers what is done to; anything else as
     /// itself.
@@ -1553,16 +1586,28 @@ struct CanvasSelection: View {
         boxes.reached(hit)
     }
 
+    /// A key pressed with one text, or one shape with words, selected and no text typed in, as a
+    /// presentation app takes it (lift-up FUNC-3): typing begins in it with its words selected, so
+    /// the key replaces them. Whether it did; a locked node, several selected, or a press going on
+    /// leave the key to the canvas.
+    private func typeOver() -> Bool {
+        guard !typing.typing, press == nil, let node, also.isEmpty, boxes.first(where: { $0.node == node })?.locked == nil
+        else { return false }
+        guard typeIn(node, at: nil) else { return false }
+        typing.selectAll()
+        return true
+    }
+
     /// Type in `node` where `point` is (PLAN 3.9), kept to the state with Option; in a shape, in
     /// its words, which it is given first where it holds none, one step to undo (PLAN 2.108).
     @discardableResult
     private func typeIn(_ node: String, at point: CGPoint?) -> Bool {
         guard let shape = boxes.first(where: { $0.node == node }), shape.takesWords == true else {
-            return typing.enter(node, in: state, at: point, fork: Held.option)
+            return typing.enter(node, in: state, at: point, fork: forks)
         }
         if let words = shape.words {
             self.node = words
-            return typing.enter(words, in: state, at: point, fork: Held.option)
+            return typing.enter(words, in: state, at: point, fork: forks)
         }
         do {
             let worded = try editor.session.wording(state: state, shape: node)
@@ -1677,7 +1722,7 @@ struct CanvasSelection: View {
             guard let x0 = xs.min(), let x1 = xs.max(), let y0 = ys.min(), let y1 = ys.max() else { return false }
             return band.contains(CGRect(x: x0, y: y0, width: x1 - x0, height: y1 - y0))
         }.map(\.node)
-        let keep = Held.shift && parent(of: node) == nil ? selection : []
+        let keep = extends && parent(of: node) == nil ? selection : []
         let all = keep + inside.filter { !keep.contains($0) }
         node = all.first
         also = Array(all.dropFirst())
@@ -1767,7 +1812,7 @@ struct CanvasSelection: View {
     private func aim(_ value: DragGesture.Value, scale: CGFloat) {
         guard var d = drag, d.revision == editor.revision else { return }
         d.by = CGVector(dx: value.translation.width / scale, dy: value.translation.height / scale)
-        d.fork = Held.option
+        d.fork = forks
         d.how = d.targets.dragged(at: d.at, resize: d.edge != nil, shift: Held.shift)
         // A picture's corner keeps its proportions, where it lands, as a presentation app scales a
         // picture: no magnet draws one of its edges alone. Shift frees it to the grid's tracks.

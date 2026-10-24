@@ -1,5 +1,5 @@
 {
-  "scaena": "0.34",
+  "scaena": "0.37",
   "meta": {
     "title": "Ridgeline bike-share: expand in 2027"
   },
@@ -240,14 +240,7 @@
       "text": "City council briefing · 2027 expansion",
       "semantic": "context",
       "at": {
-        "col": [
-          1,
-          8
-        ],
-        "row": 1,
-        "align": {
-          "y": "end"
-        }
+        "in": "kicker"
       },
       "style": {
         "color": "onSurface"
@@ -958,7 +951,7 @@
     {
       "id": "cover",
       "mode": "absolute",
-      "layout": "title",
+      "layout": "title-center",
       "transition": "standard",
       "props": {
         "cover-kicker": {},
@@ -1143,7 +1136,7 @@
     {
       "id": "lesson",
       "mode": "absolute",
-      "layout": "title",
+      "layout": "title-center",
       "transition": "fast",
       "props": {
         "lesson-title": {},
@@ -1315,7 +1308,7 @@
     {
       "id": "ask",
       "mode": "absolute",
-      "layout": "title",
+      "layout": "title-center",
       "transition": "fast",
       "props": {
         "ask-title": {},
