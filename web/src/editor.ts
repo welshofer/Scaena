@@ -2268,7 +2268,7 @@ async function edit(source: Source, opened?: Stage) {
     },
     slide: slideOf,
   });
-  /** Redo This Slide… and Add a Slide About… (lift-up FUNC-1): one slide written by the model the
+  /** Write This Slide Again… and Add a Slide About… (lift-up FUNC-1): one slide written by the model the
    * assistant uses, as the deck's generator builds slides; one step to undo. */
   const asking = slideAsker(stage, {
     who: () => assistant.who(),
@@ -2672,7 +2672,7 @@ async function edit(source: Source, opened?: Stage) {
       { label: "Check its claim", where: ["state"], applies: () => now() !== undefined, run: () => write("claim") },
       // Written again, or a new one after it, as the deck's generator writes slides, by the same
       // model (lift-up FUNC-1).
-      { label: "Redo this slide…", where: ["state"], applies: () => now() !== undefined && !assisting, run: () => asking.open("redo") },
+      { label: "Write this slide again…", where: ["state"], applies: () => now() !== undefined && !assisting, run: () => asking.open("redo") },
       { label: "Add a slide about…", where: ["state"], applies: () => now() !== undefined && !assisting, run: () => asking.open("add") },
       { label: "Show the light table", applies: () => now() !== undefined && !table.open(), run: () => table.toggle(true) },
       { label: "Close the light table", applies: () => table.open(), run: () => table.toggle(false) },
@@ -3113,7 +3113,7 @@ async function edit(source: Source, opened?: Stage) {
       assistant,
       /** The writing tools (PLAN 2.101): one asked, and its answer taken, settled. */
       writing,
-      /** Redo This Slide… and Add a Slide About… (lift-up FUNC-1): the dialog opened, and the last
+      /** Write This Slide Again… and Add a Slide About… (lift-up FUNC-1): the dialog opened, and the last
        * slide written, settled. */
       slideAsk: asking,
       /** Make a picture (PLAN 2.107): the dialog opened, and the last picture made and put, settled. */

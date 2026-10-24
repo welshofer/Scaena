@@ -1,4 +1,4 @@
-// Redo This Slide… and Add a Slide About… (lift-up FUNC-1): one slide written by the model the
+// Write This Slide Again… and Add a Slide About… (lift-up FUNC-1): one slide written by the model the
 // assistant uses, with the user's own key, the way the deck's generator builds slides. The
 // generator's module says what to ask, from the deck as it stands: its brief and arc, the part of
 // the talk, the slides either side, and the slide's words where it is written again
@@ -54,7 +54,7 @@ export function slideAsker(stage: Stage, host: SlideAskHost) {
     place = kind === "redo" ? { replace: now.state } : { after: now.state };
     turn++;
     const slide = host.slide(now.state).replace(/, step \d+$/, "");
-    title.textContent = kind === "redo" ? `Redo ${slide}` : `Add a slide after ${slide}`;
+    title.textContent = kind === "redo" ? `Write ${slide} again` : `Add a slide after ${slide}`;
     label.textContent = kind === "redo" ? "What to change (or leave it empty)" : "What the new slide is about";
     ask.value = "";
     ask.required = kind === "add";
