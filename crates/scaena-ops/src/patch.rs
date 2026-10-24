@@ -33,6 +33,11 @@ pub struct Patched {
     /// or whose layout, transition, choreography, hold, notes, or slide number and footer are
     /// not as they were, and each it adds. None when it is refused.
     pub states: Vec<String>,
+    /// Each beat whose claim its slide said before the patch and says no more, with the patch
+    /// that sets the claim to what the slide says now (lift-up FUNC-2). Left out when none; not
+    /// worked out for an edit as it is typed, which an editor asks of the whole burst.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub restated: Vec<scaena_core::claims::Restated>,
     /// Refused: the patch would have added a validation finding (in `added`).
     #[serde(skip)]
     pub refused: bool,
@@ -158,11 +163,15 @@ fn made(
     let refused = !delta(&invalid, &was, &invalid_after, &is, &compiled.renamed).added.is_empty();
     let mut write = None;
     let mut states = Vec::new();
+    let mut restated = Vec::new();
     let (before, after) = if refused {
         (invalid, invalid_after)
     } else {
         let next = Deck::from_json(&text).context("the patched deck")?;
         states = changed(&b.deck, &next, placed(b.theme_json.as_deref(), &b.deck, &next).as_ref())?;
+        if !matches!(judge, Judge::Valid) {
+            restated = between(&b.deck, &next);
+        }
         let (before, after) = match judge {
             Judge::Valid => (invalid, invalid_after),
             Judge::Whole => (lint(b)?.findings, lint_in(&next, &view)?.findings),
@@ -202,9 +211,20 @@ fn made(
         removed: removed.into_iter().cloned().collect(),
         errors: errors(&after),
         states,
+        restated,
         refused,
     };
     Ok((patched, write))
+}
+
+/// Each beat whose claim its slide said in `before` and says no more in `after` (lift-up
+/// FUNC-2): [`scaena_core::claims::restated`], the two decks' states resolved; none where either
+/// does not resolve.
+pub fn between(before: &Deck, after: &Deck) -> Vec<scaena_core::claims::Restated> {
+    match (scaena_core::resolve_states(before), scaena_core::resolve_states(after)) {
+        (Ok(then), Ok(now)) => scaena_core::claims::restated(before, &then, after, &now),
+        _ => Vec::new(),
+    }
 }
 
 /// The states `ops` would change what shows in, by id, as [`Patched::states`] says, with

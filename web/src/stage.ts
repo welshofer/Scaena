@@ -21,6 +21,7 @@ import type {
   Grid,
   Grouped,
   Health,
+  Restated,
   Hit,
   Insert,
   Inspected,
@@ -149,6 +150,7 @@ type Reply = Extract<
       | "put"
       | "bundleFiles"
       | "health"
+      | "restated"
       | "pictureMade"
       | "mapTargeted"
       | "mapFetched"
@@ -608,6 +610,12 @@ export class Stage {
    * time. */
   health(source: string): Promise<Health> {
     return this.request<"health">({ type: "health", id: ++this.asked, source }).then(({ health }) => health);
+  }
+
+  /** The beats whose claim a slide said in the deck `before` compiles to and says no longer in
+   * the deck `source` compiles to, each with its fix (lift-up FUNC-2). */
+  restated(source: string, before: string): Promise<Restated[]> {
+    return this.request<"restated">({ type: "restated", id: ++this.asked, source, before }).then(({ restated }) => restated);
   }
 
   /** A picture made by the user's image model in the deck's theme (PLAN 2.107), by the
@@ -1326,6 +1334,7 @@ export class Stage {
       case "put":
       case "bundleFiles":
       case "health":
+      case "restated":
       case "pictureMade":
       case "mapTargeted":
       case "mapFetched":

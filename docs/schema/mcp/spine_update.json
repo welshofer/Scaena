@@ -117,7 +117,30 @@
         },
         "required": ["code", "severity", "message"]
       },
-      "Severity": { "type": "string", "enum": ["info", "warning", "error"] }
+      "Severity": { "type": "string", "enum": ["info", "warning", "error"] },
+      "Restated": {
+        "description": "A beat whose claim its slide said before an edit and says no more: what it claimed, what the\nslide says now, and the patch that sets the claim to it.",
+        "type": "object",
+        "properties": {
+          "beat": { "description": "The beat, by its id.", "type": "string" },
+          "state": {
+            "description": "The state of the beat's slide whose words `says` are, or, with none, the beat's first.",
+            "type": "string"
+          },
+          "path": { "description": "Where the claim is, as a JSON pointer.", "type": "string" },
+          "claim": { "description": "The claim, as the beat still says it.", "type": "string" },
+          "says": {
+            "description": "What the slide says now: the words of the text that said the claim, in the state it said\nit in, else the last that shows it; none where every such text was taken away.",
+            "type": ["string", "null"]
+          },
+          "fix": {
+            "description": "The patch that sets the claim to what the slide says, where it says something: a `test`\nof the old claim, then a `replace`.",
+            "type": "array",
+            "items": true
+          }
+        },
+        "required": ["beat", "state", "path", "claim"]
+      }
     },
     "required": ["applied", "patch", "added", "removed", "errors", "states"],
     "type": "object",
@@ -146,6 +169,11 @@
         "description": "The states it changes, by id: each whose nodes, resolved with the deck's overrides,\nor whose layout, transition, choreography, hold, notes, or slide number and footer are\nnot as they were, and each it adds. None when it is refused.",
         "type": "array",
         "items": { "type": "string" }
+      },
+      "restated": {
+        "description": "Each beat whose claim its slide said before the patch and says no more, with the patch\nthat sets the claim to what the slide says now (lift-up FUNC-2). Left out when none; not\nworked out for an edit as it is typed, which an editor asks of the whole burst.",
+        "type": "array",
+        "items": { "$ref": "#/$defs/Restated" }
       }
     }
   }

@@ -883,7 +883,9 @@ impl Scaena {
 
     #[tool(description = "Apply a patch: JSON Patch and semantic ops (add_node, rename_node, set_prop, set_text, \
         show_node, hide_node, add_state, …; SPEC §7.3), all or none. A patch that would make the deck invalid is refused. \
-        Reports the patch as JSON Patch, and what lint finds that it did not (`added`) and finds no more (`removed`).")]
+        Reports the patch as JSON Patch, and what lint finds that it did not (`added`) and finds no more (`removed`); \
+        and each beat whose claim a slide said before and says no more (`restated`), with a `fix` that sets the claim to \
+        the slide's words, or none where its headline was taken away: restate the claim, or ask the user.")]
     async fn deck_patch(
         &self,
         Parameters(a): Parameters<DeckPatch>,

@@ -50,6 +50,10 @@ public final class DeckEditor {
     /// The format frames are laid out in (PLAN 2.62, 3.16): one of the deck's `formats`, or none
     /// for its own canvas.
     public private(set) var format: String?
+    /// A beat's claim its slide said before the last edit and says no more (lift-up FUNC-2): what
+    /// the window offers to restate in the slide's words, one step to undo. A patch reports it at
+    /// once, and typing once its burst ends (`restate(since:)`).
+    public private(set) var restating: Restated?
 
     /// Why the deck shows no state, where it shows none: it opened, but its source does not
     /// compile or validate, so it is no deck to show or edit yet. What the window says in place
@@ -123,7 +127,33 @@ public final class DeckEditor {
         let before = made
         let next = try session.source()
         _ = take(next)
+        restate(since: before)
         return before
+    }
+
+    /// Ask, once an edit is made, whether a beat's claim its slide said in the deck `before`
+    /// compiles to is said no more (lift-up FUNC-2): what the window offers then, `restating`.
+    public func restate(since before: String) {
+        restating = (try? session.restated(before: before))?.first
+    }
+
+    /// Put what `restating` offers away, unmade.
+    public func keepClaim() {
+        restating = nil
+    }
+
+    /// `restating` as the window says it (PLAN 2.99): "Slide 4's story still says “…”. Update it to
+    /// “…”?", or, its headline taken away, that the slide no longer says it.
+    public var restatingSaid: String? {
+        guard let restating else { return nil }
+        let slides = slots.reduce(into: [String]()) { seen, slot in if seen.last != slot.slide { seen.append(slot.slide) } }
+        let slide = slots.first { $0.state == restating.state }.flatMap { s in slides.firstIndex(of: s.slide) }
+        let named = slide.map { "Slide \($0 + 1)" } ?? "This slide"
+        let quoted = { (words: String) in "“\(words.count > 60 ? String(words.prefix(59)) + "…" : words)”" }
+        guard let says = restating.says, !restating.fix.isEmpty else {
+            return "\(named)'s story still says \(quoted(restating.claim)), which the slide no longer says: restate it in the Story panel"
+        }
+        return "\(named)'s story still says \(quoted(restating.claim)). Update it to \(quoted(says))?"
     }
 
     /// What lint found in a change refused, as an editor says it (`scaena_core::words`, as the
@@ -330,6 +360,7 @@ public final class DeckEditor {
     /// `lint`, the state shown is linted at once; without, the findings shown wait for `lintEvery`.
     private func take(_ next: String, lint: Bool = true) -> String? {
         source = next
+        restating = nil
         compiled += 1
         linter.latest.store(compiled, ordering: .relaxed)
         guard let compiling = try? session.compile(next) else {
