@@ -640,6 +640,8 @@ export interface Thumb {
   width?: number;
   height?: number;
   pixels?: ArrayBuffer;
+  /** Why it could not be painted, said in words (lift-up STAB-4): no pixels come with it. */
+  failed?: string;
 }
 
 /** A node a patch adds: its id, where it lands, and the patch. */
@@ -867,7 +869,7 @@ export interface HealthFinding {
   state: string;
   slide: number;
   severity: "error" | "warning" | "info";
-  kind: "title" | "empty" | "turn" | "arc" | "intensity" | "tone" | "drift";
+  kind: "title" | "empty" | "turn" | "arc" | "intensity" | "tone" | "drift" | "layout";
   says: string;
   ask: string;
   fix?: { says: string; patch: unknown[] };

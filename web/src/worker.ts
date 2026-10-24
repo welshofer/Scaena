@@ -876,12 +876,19 @@ function icons(): Uint8Array | undefined {
   return fetchedNow(weatherIcons);
 }
 
-/** The bytes at `url`, fetched at once, as a worker may: none where there is no such file. */
+/** How long a fetch made at once may hold the engine's thread (lift-up REL-3): one that never
+ * answers, on a captive or a flaky network, would hold every edit, frame, and lint behind it.
+ * A worker's synchronous request may have a timeout, and one that runs out is none. */
+const WAIT_MS = 10_000;
+
+/** The bytes at `url`, fetched at once, as a worker may: none where there is no such file, or
+ * where it does not come within `WAIT_MS`. */
 function fetchedNow(url: string | undefined): Uint8Array | undefined {
   if (!url) return undefined;
   const request = new XMLHttpRequest();
   request.open("GET", url, false);
   request.responseType = "arraybuffer";
+  request.timeout = WAIT_MS;
   try {
     request.send();
   } catch {
@@ -896,6 +903,7 @@ function syllables(): string | undefined {
   if (!verse) return undefined;
   const request = new XMLHttpRequest();
   request.open("GET", verse, false);
+  request.timeout = WAIT_MS;
   try {
     request.send();
   } catch {
@@ -1531,22 +1539,33 @@ async function thumbnails(height: number, known: Record<string, string>, only?: 
   for (const { state } of slots) {
     if (mine !== thumbing[kind]) break;
     if (only && !only.includes(state)) continue;
+    let digest: string | undefined;
+    let thumb: Thumb;
     try {
-      const digest = player.digest(state);
+      digest = player.digest(state);
       if (known[state] === digest) {
         thumbs.push({ state, digest });
         continue;
       }
       const pixels = player.pixels(state, Infinity, width);
-      const thumb = { state, digest, width, height: pixels.length / 4 / width, pixels: pixels.buffer as ArrayBuffer };
-      if (each) each(thumb);
-      else thumbs.push(thumb);
-    } catch {
-      continue;
+      thumb = { state, digest, width, height: pixels.length / 4 / width, pixels: pixels.buffer as ArrayBuffer };
+    } catch (e) {
+      thumb = unpainted(state, digest, e);
     }
+    if (each) each(thumb);
+    else thumbs.push(thumb);
     await new Promise((go) => setTimeout(go, 0));
   }
   return thumbs;
+}
+
+/** A state whose thumbnail could not be painted (lift-up STAB-4): said to the page, which marks
+ * its tile and keeps its drawing's digest, so it is painted again only once its drawing changes,
+ * and the cause kept in the console. One whose drawing cannot be had is tried again each time. */
+function unpainted(state: string, digest: string | undefined, e: unknown): Thumb {
+  const why = said(e);
+  console.warn(`The thumbnail of ${state} could not be painted: ${why}`);
+  return { state, digest: digest ?? "", failed: why };
 }
 
 /** Each state whose drawing is not the one `known` holds, at rest, `height` pixels high, as the
@@ -1557,15 +1576,16 @@ function redrawn(height: number, known: Record<string, string>): { drawn: Thumb[
   const width = Math.max(1, Math.round((height * w) / h));
   const drawn: Thumb[] = [];
   for (const { state } of slots) {
+    let digest: string | undefined;
     try {
-      const digest = player.digest(state);
+      digest = player.digest(state);
       if (known[state] === digest) continue;
       const pixels = player.pixels(state, Infinity, width);
       drawn.push({ state, digest, width, height: pixels.length / 4 / width, pixels: pixels.buffer as ArrayBuffer });
-      known[state] = digest;
-    } catch {
-      continue;
+    } catch (e) {
+      drawn.push(unpainted(state, digest, e));
     }
+    if (digest !== undefined) known[state] = digest;
   }
   const gone = Object.keys(known).filter((state) => !slots.some((s) => s.state === state));
   for (const state of gone) delete known[state];

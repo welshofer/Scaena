@@ -169,8 +169,8 @@ fn a_deck_is_made_from_a_prompt_as_swift_makes_one_its_pictures_with_it() {
     assert_eq!(kept.len() as u64, wanted, "{files:#}");
     assert!(kept.iter().all(|p| p.ends_with(".jpg")), "a JPEG stays a JPEG: {kept:?}");
     // Its story, as the Mac's Story panel reads it (PLAN G.9): the arc it was written to, each slide
-    // read, coherence by words unscored, and each finding said in words; a fix made by the user, as
-    // the panel makes one, and its finding gone.
+    // read, coherence by words unscored, and each finding said in words; no fix rewrites the plan,
+    // and a moved slide's fix made by the user, as the panel makes one, and its finding gone.
     let health = call(session, "health");
     assert_eq!(health["arc"], "Problem–Solution", "{health:#}");
     assert_eq!(health["slides"].as_array().unwrap().len(), report["layouts"].as_array().unwrap().len());
@@ -178,7 +178,18 @@ fn a_deck_is_made_from_a_prompt_as_swift_makes_one_its_pictures_with_it() {
     assert!(health["slides"].as_array().unwrap().iter().all(|s| s["declared"].is_number()), "{health:#}");
     let findings = health["findings"].as_array().unwrap();
     assert!(findings.iter().all(|f| f["says"].as_str().is_some_and(|s| s.starts_with("Slide "))));
+    // The plan's intensity and tone are the words' to carry: no fix declares what they read.
+    let planned = |f: &&Value| (f["kind"] == "intensity" || f["kind"] == "tone") && f["fix"].is_object();
+    assert!(!findings.iter().any(|f| planned(&f)), "{health:#}");
+    // A slide moved out of its beat's order has drifted, and its fix makes it part of the beat it
+    // now stands in.
+    let moved =
+        tool(session, "deck_patch", json!({ "ops": [{ "op": "move", "from": "/states/1", "path": "/states/2" }] }));
+    assert_eq!(moved["edited"], true, "{moved}");
+    let health = call(session, "health");
+    let findings = health["findings"].as_array().unwrap();
     let fixable = findings.iter().find(|f| f["fix"].is_object()).expect("a finding with a fix");
+    assert_eq!(fixable["kind"], "drift", "{health:#}");
     let applied = tool(session, "deck_patch", json!({ "ops": fixable["fix"]["patch"] }));
     assert_eq!(applied["edited"], true, "{applied}");
     let after = call(session, "health");

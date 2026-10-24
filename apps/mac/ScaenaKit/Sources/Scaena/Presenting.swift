@@ -125,6 +125,7 @@ enum Presenting {
         let tell = stopped
         stopped = nil
         defer { if let reached { tell?(reached) } }
+        showing?.point(nil)
         Pointer.hidden(false)
         showing = nil
         RemoteHost.shared.follow(nil)
@@ -372,6 +373,8 @@ final class Showing {
     /// the pointer is over it or a touch is held on it.
     var laser = false
     var pointer: CGPoint?
+    /// The pointer's rest over the slide, after which it hides until it moves.
+    @ObservationIgnored private var resting: Task<Void, Never>?
     /// What the keys say for a moment where a slide's number is typed: one the deck lacks.
     var said: String?
     @ObservationIgnored private var saying: Task<Void, Never>?
@@ -494,6 +497,15 @@ final class Showing {
         pointer = laser ? at : nil
         #if os(macOS)
         Pointer.hidden(pointer != nil)
+        resting?.cancel()
+        // Over the slide, the pointer hides once it has rested two seconds, as a presentation
+        // app's does, until it moves again (lift-up ATTR-4).
+        guard at != nil, pointer == nil else { return }
+        resting = Task {
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled else { return }
+            NSCursor.setHiddenUntilMouseMoves(true)
+        }
         #endif
     }
 
@@ -1085,7 +1097,12 @@ struct PresenterView: View {
         .onAppear { focused = true }
         .task(id: show.index) {
             notes = show.slot.map { showing.notes($0.state) } ?? .none
-            next = show.next.flatMap { showing.editor.drawing($0.state, width: Int(360 * scale)) }
+            // Drawn away from the stage, so a step plays on while the next is drawn (lift-up PERF-2).
+            if let coming = show.next {
+                next = await showing.editor.drawingAway(coming.state, width: Int(360 * scale))
+            } else {
+                next = nil
+            }
         }
     }
 

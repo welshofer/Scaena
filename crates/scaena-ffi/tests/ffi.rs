@@ -183,6 +183,77 @@ fn the_decks_health_is_read_away_from_the_session_as_its_lint_is_laid_out() {
     unsafe { scaena_session_free(s) };
 }
 
+/// The pixels `painted`, freed: its width, height, and bytes, or why it could not be painted.
+fn pixels_of(painted: ScaenaPixels, error: *mut c_char) -> Result<(u32, u32, Vec<u8>), String> {
+    if painted.bytes.data.is_null() {
+        return Err(took(error));
+    }
+    let bytes = unsafe { std::slice::from_raw_parts(painted.bytes.data, painted.bytes.len) }.to_vec();
+    unsafe { scaena_bytes_free(painted.bytes) };
+    Ok((painted.width, painted.height, bytes))
+}
+
+#[test]
+fn a_state_is_drawn_away_from_the_session_as_the_session_paints_it() {
+    // Lift-up PERF-2: the Mac's thumbnails and a remote's slides are drawn from a laying on a
+    // thread of their own, the session's pixels at rest, in each format, by one engine kept.
+    let s = open(TORTURE);
+    let source = call(s, "source", Value::Null);
+    let compiled = call(s, "compile", json!({ "source": source.as_str().unwrap() }));
+    assert_eq!(compiled["valid"], true, "{compiled}");
+    let states: Vec<String> = serde_json::from_value(call(s, "states", Value::Null)).unwrap();
+    let states: Vec<String> = states.into_iter().step_by(10).collect();
+    let formats = [None, Some("9:16")];
+    let mut on_the_session = Vec::new();
+    for format in formats {
+        call(s, "setFormat", json!({ "format": format }));
+        for state in &states {
+            let (name, mut error) = (c(state), null_mut());
+            let painted = unsafe { scaena_pixels(s, name.as_ptr(), f64::INFINITY, 160, &mut error) };
+            on_the_session.push(pixels_of(painted, error).unwrap());
+        }
+    }
+
+    let laying = Sent(unsafe { scaena_laying_new(s) });
+    assert!(!laying.0.is_null(), "the torture deck compiled to a deck that validates");
+    assert!(unsafe { scaena_laying_holds(s, laying.0) }, "taken from the deck as it stands");
+    let drawn = std::thread::spawn(move || {
+        let laying = laying;
+        let mut drawn = Vec::new();
+        for format in formats {
+            let format = format.map(c);
+            for state in &states {
+                let (name, mut error) = (c(state), null_mut());
+                let at = format.as_ref().map_or(null(), |f| f.as_ptr());
+                let painted = unsafe { scaena_laying_pixels(laying.0, at, name.as_ptr(), 160, &mut error) };
+                drawn.push((state.clone(), pixels_of(painted, error).unwrap()));
+            }
+        }
+        (laying, drawn)
+    });
+    let (laying, drawn) = drawn.join().unwrap();
+    assert_eq!(drawn.len(), on_the_session.len());
+    for ((state, away), session) in drawn.iter().zip(&on_the_session) {
+        assert!(away == session, "{state}: drawn away from the session as the session paints it");
+    }
+
+    // A state the deck lacks is an error that says so; a null laying one too, never a crash.
+    let (name, mut error) = (c("no-such-state"), null_mut());
+    let painted = unsafe { scaena_laying_pixels(laying.0, null(), name.as_ptr(), 160, &mut error) };
+    assert!(pixels_of(painted, error).unwrap_err().contains("no-such-state"));
+    let mut error = null_mut();
+    let painted = unsafe { scaena_laying_pixels(null_mut(), null(), name.as_ptr(), 160, &mut error) };
+    assert!(pixels_of(painted, error).is_err());
+
+    // Once the deck changes, the laying no longer holds it.
+    let edited = format!("{}\n", source.as_str().unwrap());
+    call(s, "compile", json!({ "source": edited }));
+    assert!(!unsafe { scaena_laying_holds(s, laying.0) }, "another source compiled since");
+    assert!(!unsafe { scaena_laying_holds(s, null_mut()) });
+    unsafe { scaena_laying_free(laying.0) };
+    unsafe { scaena_session_free(s) };
+}
+
 #[test]
 fn a_findings_fix_is_one_click_as_in_the_browser() {
     // The editor's loop (PLAN 2.3, 3.4): a choice in the inspector is a patch, the deck's source
