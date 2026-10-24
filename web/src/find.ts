@@ -56,7 +56,8 @@ const utf16 = (text: string, chars: number) => [...text].slice(0, chars).join(""
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 /** Where words `f` are, as the status says it, in a person's words (PLAN 2.99): the text, the
  * description of an object, the story's claim or notes, or the presenter notes. */
-export const where = (f: Found, words?: Lexicon) =>
+export const where = (f: Found, words?: Lexicon) => placed(f, words) + (f.kept ? ", a value of the data, which replacing leaves as it is" : "");
+const placed = (f: Found, words?: Lexicon) =>
   f.kind === "alt"
     ? `the description of ${f.node === undefined ? "an object" : object(words, f.node, true)}`
     : f.kind === "claim"
@@ -65,7 +66,11 @@ export const where = (f: Found, words?: Lexicon) =>
         ? f.beat
           ? "the story's notes"
           : "the presenter notes"
-        : `the ${(f.node === undefined ? undefined : words?.kinds[f.node])?.toLowerCase() ?? "text"}`;
+        : f.kind === "chart"
+          ? `the words of ${f.node === undefined ? "a chart" : object(words, f.node, true)}`
+          : f.kind === "data"
+            ? `the data${f.source ? ` “${f.source}”` : ""}${f.file ? `, in ${f.file}` : ""}`
+            : `the ${(f.node === undefined ? undefined : words?.kinds[f.node])?.toLowerCase() ?? "text"}`;
 
 export function finder(stage: Stage, bar: HTMLElement, editor: FindEditor) {
   const field = bar.querySelector<HTMLInputElement>('input[name="find"]')!;
@@ -116,7 +121,7 @@ export function finder(stage: Stage, bar: HTMLElement, editor: FindEditor) {
     const f = found[i];
     const [from, to] = f.matches[k];
     if (f.kind === "text") await editor.reveal(f.state, f.node, utf16(f.text, from), utf16(f.text, to));
-    else await editor.reveal(f.state, f.kind === "alt" ? f.node : undefined);
+    else await editor.reveal(f.state, f.kind === "alt" || f.kind === "chart" ? f.node : undefined);
     const elsewhere = f.states.length > 1 ? `, and ${plural(f.states.length - 1, "slide")} more that show it so` : "";
     editor.say(`${sentence(where(f, editor.words?.()))} on ${editor.slide?.(f.state) ?? "this slide"}${elsewhere}: “${f.text}”`);
   }

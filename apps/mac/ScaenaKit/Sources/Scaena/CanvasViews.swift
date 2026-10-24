@@ -296,7 +296,7 @@ struct FindBar: View {
     private func show(_ n: Int) {
         guard matches.all.indices.contains(n) else { return }
         let f = found[matches.all[n].text]
-        reveal(f.state, f.kind == "text" || f.kind == "alt" ? f.node : nil)
+        reveal(f.state, ["text", "alt", "chart"].contains(f.kind) ? f.node : nil)
     }
 
     /// The match shown replaced, one step to undo, then the next shown.

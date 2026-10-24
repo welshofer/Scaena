@@ -42,6 +42,8 @@
 //   screen wake lock and leaving it lets it go, one the browser let go while the page was hidden
 //   is asked for again as the page shows, and the presenter view holds one while it is open. The
 //   wake lock API is stood in for, headless Chromium having no screen to keep awake.
+// - Fullscreen, the pointer over the slide hides once it has rested two seconds, from the moment
+//   the show fills the screen, and shows again as it moves (lift-up ATTR-4).
 // - At 2560 × 1440 and twice the density (lift-up ATTR-2), the slide fills the room the bar
 //   leaves, and in fullscreen the screen, painted at the size it is shown in device pixels by
 //   WebGPU, and by the CPU painter at the canvas's own size, scaled up.
@@ -600,6 +602,22 @@ try {
     check(
       Math.abs(centred.top - (centred.room - centred.height) / 2) <= 1 && centred.background === "rgb(0, 0, 0)",
       `in the middle of the screen, on black: ${JSON.stringify(centred)}`,
+    );
+    // The pointer over the slide hides once it has rested two seconds, and shows as it moves
+    // (lift-up ATTR-4).
+    const cursor = () => player.evaluate(() => getComputedStyle(document.querySelector("#stage")).cursor);
+    await player.waitForTimeout(2300);
+    const entered = await cursor();
+    await player.mouse.move(400, 300);
+    await player.mouse.move(420, 310);
+    const moving = await cursor();
+    await player.waitForTimeout(2300);
+    const rested = await cursor();
+    await player.mouse.move(440, 320);
+    const moved = await cursor();
+    check(
+      entered === "none" && moving !== "none" && rested === "none" && moved !== "none",
+      `fullscreen, the pointer hides from the start and over the slide at rest, and shows as it moves: ${entered}, ${moving}, ${rested}, ${moved}`,
     );
     // At the end of the show, going on again keeps it, fullscreen; a click leaves fullscreen, on
     // the last slide (PLAN 2.120).
