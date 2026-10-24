@@ -123,14 +123,21 @@ fn a_patch_that_would_make_the_deck_invalid_is_refused() {
 #[test]
 fn the_delta_shows_what_a_patch_breaks_and_what_fixes_it() {
     let deck = example("delta");
-    // A headline too long for its slot, in both formats; in 9:16 it runs into the chart.
+    // A headline too long for its slot, in both formats, runs into the chart: in 9:16 by its
+    // lines, and in 16:9 by its second line's descenders.
     let long = json!({ "op": "set_text", "node": "title", "state": "mix",
                        "text": "…and the mix shifted toward Pro, quarter after quarter" });
     let (code, v) = patch(&deck, &json!([long]), &["--dry-run"]);
     assert_eq!(code, 1, "an error in the deck it makes exits 1: {v:#}");
     assert_eq!(
         codes(&v["added"]),
-        ["E100 /nodes/title", "E100 [9:16] /nodes/title", "E101 [9:16] /nodes/title", "W202 [9:16] /nodes/title"],
+        [
+            "E100 /nodes/title",
+            "E100 [9:16] /nodes/title",
+            "E101 /nodes/title",
+            "E101 [9:16] /nodes/title",
+            "W202 [9:16] /nodes/title"
+        ],
         "{v:#}"
     );
     let fix = v["added"][0]["fix"].as_array().unwrap().clone();
