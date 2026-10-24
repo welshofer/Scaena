@@ -1,8 +1,8 @@
 // New from a prompt (PLAN G.5, ADR-0026): a deck written by Vzestup's Narrato model from what the
 // user asks, grounded in the files and links they give, with their own key, as `scaena generate`
 // makes one. It is made in an engine's worker of its own, which starts as the dialog opens and
-// loads the generator's module while the brief is written; Cancel stops it, and the deck open is
-// untouched until the new one opens, kept nowhere until it is saved.
+// loads the generator's module while the brief is written; Cancel stops it, asking first while it
+// runs, and the deck open is untouched until the new one opens, kept nowhere until it is saved.
 import { familySections } from "./theme-families";
 import { keep, load, settings, store, verdict } from "./assistant/keys";
 import type { Choices, FromWorker, Generate, Generated, GeneratingEvent, ProviderId, Source, StoryOutline, ToWorker } from "./protocol";
@@ -415,8 +415,16 @@ export function prompting(
     shown();
   };
 
-  // Cancel is no submit button, so Enter in a field generates rather than cancels.
-  $<HTMLButtonElement>("#prompting-cancel").onclick = () => dialog.close("cancel");
+  // Cancel is no submit button, so Enter in a field generates rather than cancels. While a deck
+  // is being made, Cancel and Escape ask first: closing drops what has been made so far, and the
+  // calls already paid for (lift-up 10-24 USE-2).
+  const stopping = () => !running || confirm("Stop making the deck? What has been made so far is lost.");
+  $<HTMLButtonElement>("#prompting-cancel").onclick = () => {
+    if (stopping()) dialog.close("cancel");
+  };
+  dialog.oncancel = (e) => {
+    if (!stopping()) e.preventDefault();
+  };
   // Closed, by Cancel, Escape, or a deck made, the worker stops: what it was making is dropped.
   dialog.onclose = () => {
     worker?.terminate();
