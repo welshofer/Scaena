@@ -17,11 +17,16 @@
 //! W313: a chart squashed below a legible plot.
 //!
 //! W314: a fetched picture's credit that cannot be read (ADR-0030).
+//!
+//! I405: a text set larger than the body whose descenders come within the theme's gutter of
+//! the text under it.
 
 use super::{Cx, Rule};
+use crate::render::PlacedText;
 use crate::sample::{Content, Scene, SceneNode};
 use scaena_core::displaylist::Rect;
 use scaena_core::lint::{Finding, Severity};
+use scaena_core::model::nodes::TextFit;
 use scaena_core::pose;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
@@ -565,6 +570,151 @@ impl Rule for W314Credit {
             })
             .collect()
     }
+}
+
+/// I405: a text set larger than the body whose descenders take its ink within the theme's
+/// gutter of a text under it, on one level, that its baseline stands two gutters or more above: a
+/// big number's tail over its caption, never a title's over its subtitle or its paragraph. What collides is E101's; this is the room short of it. One
+/// finding per pair, at the text above, naming every state. Its fix is the step the generator
+/// takes ([`step`]): a twentieth smaller, as `fit: shrink` under a `maxSize`, stepped again by
+/// `super::verify` until the text comes clear, never under half its size.
+pub struct I405Crowded;
+
+/// A text's last line as set: its baseline and its ink's foot, canvas y, its size as set and its
+/// own, and its ink.
+struct Foot {
+    baseline: f32,
+    ink: Rect,
+    size: f32,
+    own: f32,
+}
+
+/// A text crowding the one under it: the state it first does, by how little room, how far its tail
+/// reaches below its baseline, its size there as set and its own, how it fits, and every state it
+/// does.
+struct Crowd {
+    first: usize,
+    gap: f32,
+    descent: f32,
+    size: f32,
+    own: f32,
+    fit: TextFit,
+    states: Vec<String>,
+}
+
+fn foot(placed: &PlacedText, ink: Rect) -> Option<Foot> {
+    let t = &placed.text;
+    let last = t.lines.len().checked_sub(1)?;
+    let size = t.runs.iter().filter(|r| r.line == last).map(|r| r.size).fold(0.0, f32::max);
+    (size > 0.0).then(|| Foot {
+        baseline: placed.origin[1] + t.lines[last].baseline,
+        ink,
+        size,
+        own: size / placed.scale.max(f32::EPSILON),
+    })
+}
+
+impl Rule for I405Crowded {
+    fn code(&self) -> &'static str {
+        "I405"
+    }
+    fn severity(&self) -> Severity {
+        Severity::Info
+    }
+    fn check(&self, cx: &Cx) -> Vec<Finding> {
+        let Some(body) = cx.theme.typography.roles.get("body").map(|r| r.size as f32) else { return Vec::new() };
+        let gutter = cx.theme.grid.gutter as f32;
+        // Each pair once: where it first crowds, by how little room, its size there, every state.
+        let mut pairs: BTreeMap<(String, String), Crowd> = BTreeMap::new();
+        for state in cx.states {
+            let texts: Vec<(&SceneNode, &PlacedText, Rect)> = (state.scene.nodes.iter())
+                .filter(|n| {
+                    let props = state.snapshot.nodes.get(&n.id);
+                    props.and_then(|p| p.get("semantic")).and_then(Value::as_str) != Some("decoration")
+                })
+                .filter(|n| state.scene.posed(&n.id, true) == IDENTITY)
+                .filter_map(|n| match &n.content {
+                    Content::Text(placed) => Some((n, placed, n.ink()?)),
+                    _ => None,
+                })
+                .collect();
+            for (a, placed, ink) in &texts {
+                let Some(f) = foot(placed, *ink) else { continue };
+                let bottom = f.ink[1] + f.ink[3];
+                if f.size <= body || bottom - f.baseline <= SLACK {
+                    continue;
+                }
+                for (b, _, under) in &texts {
+                    if a.id == b.id || !one_level(a, b) {
+                        continue;
+                    }
+                    let across = (f.ink[0] + f.ink[2]).min(under[0] + under[2]) - f.ink[0].max(under[0]);
+                    let gap = under[1] - bottom;
+                    // Two gutters or more under its baseline, a hero's room, its descenders within one
+                    // of it, and not across it: what collides is E101's. A title's tail over its
+                    // subtitle, or a figure's over its name, a gutter and a half under, is the theme's.
+                    if across <= SLACK || under[1] - f.baseline < 2.0 * gutter || gap >= gutter || gap < -SLACK {
+                        continue;
+                    }
+                    let crowd = pairs.entry((a.id.clone(), b.id.clone())).or_insert_with(|| Crowd {
+                        first: state.index,
+                        gap,
+                        descent: bottom - f.baseline,
+                        size: f.size,
+                        own: f.own,
+                        fit: placed.fit,
+                        states: Vec::new(),
+                    });
+                    crowd.states.push(state.snapshot.state_id.clone());
+                }
+            }
+        }
+        pairs
+            .into_iter()
+            .map(|((a, b), Crowd { first, gap, descent, size, own, fit, states })| {
+                let state = cx.laid(first);
+                // The size that leaves the gutter where its baseline stays as it is set smaller, its
+                // tail shortening with it: a text set on its foot, as a slot's figure is, which the
+                // generator steps to at once. One set from its top rises too, and needs less.
+                let aim = size * (gap + descent - gutter) / descent;
+                let f = cx
+                    .finding(
+                        self.code(),
+                        self.severity(),
+                        state,
+                        format!(
+                            "`{a}`'s descenders come {:.0} cu above `{b}`, under the theme's gutter of {gutter:.0}",
+                            gap.max(0.0)
+                        ),
+                    )
+                    .at(cx.node_path(&a))
+                    .node(a.clone())
+                    .measure(json!({
+                        "nodes": [a, b], "gap": gap, "gutter": gutter, "size": size, "aim": aim, "own": own, "states": states
+                    }))
+                    .hint("Set it smaller, or give the text under it more room.");
+                match step(cx, first, &a, size, own, fit) {
+                    Some(fix) => f.fix(fix),
+                    None => f,
+                }
+            })
+            .collect()
+    }
+}
+
+/// The generator's step for text `id` set at `size` in state `index`, its own size `own`: a
+/// twentieth smaller, on a quarter of a unit, as `fit: shrink` under a `maxSize`, or under a
+/// `maxSize` alone where it grows and stays at its own size or above. None under half its own.
+fn step(cx: &Cx, index: usize, id: &str, size: f32, own: f32, fit: TextFit) -> Option<Vec<Value>> {
+    let next = (f64::from(size) * 0.95 * 4.0).floor() / 4.0;
+    if next < f64::from(own) * 0.5 {
+        return None;
+    }
+    let mut ops = vec![json!({ "op": "add", "path": prop_path(cx, index, id, "maxSize"), "value": next })];
+    if !(fit == TextFit::Shrink || fit == TextFit::Grow && next >= f64::from(own)) {
+        ops.insert(0, json!({ "op": "add", "path": super::text::fit_path(cx, index, id), "value": "shrink" }));
+    }
+    Some(ops)
 }
 
 /// Whether `outer` holds `inner`, within half a unit.

@@ -319,6 +319,22 @@
           "Volunteers rebuilt it in one summer.",
           "Your gift keeps it open."
         ]
+      },
+      {
+        "title": "Port Alder",
+        "states": ["cover", "close"],
+        "formats": [],
+        "theme": "ember",
+        "brief": {
+          "topic": "A fishing town's own microgrid",
+          "audience": "Conference / Public",
+          "goal": "inspire",
+          "length": "11-15 slides",
+          "modality": "In-person \u2014 presenter in the room",
+          "desiredOutcomes": "Three towns ask us how to start.",
+          "voice": "Warm, plain, no jargon"
+        },
+        "claims": ["The lights went out for eleven days.", "The town built its own grid."]
       }
     ],
     "resources": [
@@ -336,6 +352,7 @@
         "house-style",
         "brand-voice"
       ],
+      [],
       [],
       []
     ],
