@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://scaena.dev/schema/spine-0.36.json",
+  "$id": "https://scaena.dev/schema/spine-0.37.json",
   "title": "Scaena spine projection",
   "description": "The spine projection: `export --format spine` writes it; `spine_read` returns it without timing or renders.",
   "type": "object",
@@ -10,7 +10,7 @@
     "scaena": {
       "description": "The format of the deck it was projected from: its `scaena`.",
       "type": "string",
-      "pattern": "^0\\.36(\\.[0-9]+)?$"
+      "pattern": "^0\\.37(\\.[0-9]+)?$"
     },
     "title": { "type": "string" },
     "lang": { "description": "The deck's language (BCP 47), for a voice that reads it.", "type": "string" },
@@ -74,7 +74,7 @@
         "id": { "$ref": "#/$defs/Id" },
         "claim": { "description": "One sentence the audience should leave with.", "type": "string" },
         "evidence": {
-          "description": "@data refs, asset refs, or URLs.",
+          "description": "@data refs, asset refs, URLs, or `source:NAME`, a source the deck was grounded in by the name `meta.narrative.sources` gives it.",
           "type": "array",
           "items": { "type": "string" }
         },
