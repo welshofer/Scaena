@@ -136,7 +136,7 @@ struct ThemePanel: View {
     }
 
     private func retheme(_ picked: String) {
-        var recolored = 0
+        var (recolored, refitted) = (0, 0)
         let made = edits.beside("Theme Change") {
             let session = editor.session
             let themed =
@@ -145,13 +145,18 @@ struct ThemePanel: View {
             guard themed.applied else {
                 throw Refused("not re-themed", themed.refusals, by: editor, otherwise: "the deck would not open in it")
             }
-            recolored = themed.recolored
+            (recolored, refitted) = (themed.recolored, themed.refitted)
             return []
         }
-        // A text the theme left too faint was set in its color that reads where it stands (PLAN 2.82).
-        if made && recolored > 0 {
+        // A text the theme left too faint was set in its color that reads where it stands (PLAN 2.82),
+        // and one it set past its box, or over another, was fitted as lint's fix fits it.
+        if made && recolored + refitted > 0 {
             let name = picked.hasPrefix("ships:") ? Words.phrase(String(picked.dropFirst("ships:".count))) : Words.theme(picked)
-            edits.say("\(recolored) text\(recolored == 1 ? "" : "s") recolored to read in \(name)")
+            let said = [
+                recolored > 0 ? "\(recolored) text\(recolored == 1 ? "" : "s") recolored to read" : nil,
+                refitted > 0 ? "\(refitted) text\(refitted == 1 ? "" : "s") fitted to \(refitted == 1 ? "its box" : "their boxes")" : nil,
+            ]
+            edits.say("\(said.compactMap(\.self).joined(separator: ", ")) in \(name)")
         }
     }
 

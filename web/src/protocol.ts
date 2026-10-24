@@ -1678,6 +1678,9 @@ export interface Themed {
   /** The contrast errors the theme brought, each fixed: a text set in its color that reads
    * where it stands, one for each text (PLAN 2.82). */
   recolored: Finding[];
+  /** The overflows and overlaps the theme brought (E100, E101), each fitted as lint's checked
+   * fix fits it: a text shrunk to fit its box, one for each node. */
+  refitted: Finding[];
 }
 
 /** A section of the spine, as a reader goes through it (PLAN 2.8). */

@@ -102,6 +102,10 @@ fn the_decks_own_shape_is_its_canvas_and_other_formats_must_be_listed() {
     let mut bare = Fx::new(json!([]));
     let err = bare.frame(Some("9:16")).unwrap_err().to_string();
     assert!(err.contains("deck's formats (none)"), "{err}");
+    // And says how to list it: the list made, where the deck has none, or the format added to it.
+    assert!(err.contains(r#"[{"op": "add", "path": "/formats", "value": ["9:16"]}]"#), "{err}");
+    let err = fx.frame(Some("1:1")).unwrap_err().to_string();
+    assert!(err.contains(r#"[{"op": "add", "path": "/formats/-", "value": "1:1"}]"#), "{err}");
 }
 
 #[test]
