@@ -46,6 +46,26 @@ import Testing
     try session.adopt(saved)
 }
 
+/// The Mac's save away from the window (lift-up PERF-5): a snapshot taken on the session's thread
+/// is saved on another, the bytes the session's own save writes, and the session goes on from it;
+/// an edit made while it is written stays, nothing adopted.
+@Test func aSnapshotIsSavedAwayFromTheSessionAndAdoptedOnlyAsItWasTaken() async throws {
+    let session = try ScaenaSession(directory: b1)
+    let snapshot = try session.snapshot()
+    let saved = try await Task.detached { try snapshot.save(subset: true) }.value
+    #expect(saved.files.contains("deck.json"))
+    #expect(Set(saved.files) == Set(try session.save(subset: true).files), "the files the session's save writes")
+    #expect(try session.adopt(saved, since: snapshot), "unchanged since")
+
+    let next = try session.snapshot()
+    let state = try session.states()[0]
+    let op: JSONValue = ["op": "set_state", "id": .string(state), "prop": "notes", "value": "Said while saving."]
+    #expect(try session.tool("deck_patch", ["ops": [op]]).edited)
+    let later = try await Task.detached { try next.save(subset: true) }.value
+    #expect(try !session.adopt(later, since: next), "changed since: nothing adopted")
+    #expect(try session.source().contains("Said while saving."), "the edit is kept")
+}
+
 @Test func whatTheEngineCannotDoIsAnErrorThatSaysWhy() throws {
     let session = try ScaenaSession(directory: b1)
     #expect(throws: ScaenaError.self) { try session.call("nonsense") as JSONValue }

@@ -25,7 +25,7 @@
 //   steps back. In `close`, which the note leaves, the cue's menu offers it By Bullet as it leaves,
 //   and nothing else: one patch, a step after `mix` for each paragraph it lets go, one undo.
 // Exits 1 on any failure.
-import { addAnimation, launch, serve } from "./serve.mjs";
+import { addAnimation, launch, serve, tab } from "./serve.mjs";
 
 const server = await serve();
 const failures = [];
@@ -108,7 +108,8 @@ try {
   );
   check(has("enter", "pop") && has("emphasis", "pop"), "and Pop does both");
   // An exit is named as a Build Out effect is, in the inspector and the cue alike: the entrance
-  // played back.
+  // played back. The builds are the Animate tab's (lift-up ATTR-4).
+  await tab(page, "animate");
   await page.waitForSelector("#look-exit option", { state: "attached", timeout: 30000 }).catch(() => {});
   const exits = await page.evaluate(() => [...document.querySelectorAll("#look-exit option")].map((o) => o.textContent));
   check(
