@@ -438,6 +438,14 @@ impl ImageNode {
             == (&other.info, other.fit, other.focal, other.crop, &other.mask)
     }
 
+    /// The box it hides whole, where it hides all that is under it there: a photo that fills its
+    /// box, unmasked, its corners square, keeping none of its foot for a credit (lift-up ATTR-3).
+    /// Its frame's rings are filled, and its pin and credit drawn over it.
+    pub fn hides(&self) -> Option<Rect> {
+        let whole = self.fit != Fit::Contain && self.mask.is_none() && self.radius <= 0.0 && self.foot <= 0.0;
+        (self.info.photo && whole).then_some(self.rect)
+    }
+
     /// `a` to `b`, `p` of the way: the box, the radius, and the shadow move, where the two
     /// adjust the picture apart `b`'s fades in over `a`'s (PLAN 2.117), and a border that both
     /// draw moves, its paint and its width, as a shape's stroke does, one that only one draws

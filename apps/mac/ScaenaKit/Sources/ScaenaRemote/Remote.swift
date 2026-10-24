@@ -1,6 +1,7 @@
 import CryptoKit
 import Foundation
 import Network
+import ScaenaNotes
 
 /// The presenter remote (PLAN 4.10, SPEC §9.5, ADR-0025): an iPhone or an iPad drives a deck a Mac
 /// or an iPad presents, over the local network, and shows its notes and what comes next. The
@@ -212,8 +213,9 @@ final class Sealed {
 }
 
 /// Where a show is, as a presenter tells its remotes (PLAN 4.10). A place in the deck is a state
-/// and a time into its cue (SPEC §2.4); with the state's notes, and the state and the next drawn at
-/// rest, for a remote that holds no deck.
+/// and a time into its cue (SPEC §2.4); with the state's notes, as written and as the blocks a
+/// speaker reads (`read`, SPEC §2.6), and the state and the next drawn at rest, for a remote that
+/// holds no deck.
 public struct RemotePlace: Codable, Sendable, Equatable {
     /// What the presenter calls the deck.
     public var deck: String
@@ -227,6 +229,9 @@ public struct RemotePlace: Codable, Sendable, Equatable {
     public var ms: Double
     public var rest: Bool
     public var notes: String
+    /// The notes as a speaker reads them, lines, a list, or a table; empty from a presenter that
+    /// sends none, whose `notes` are then read as lines.
+    public var read: [NoteBlock]
     /// The state at rest, and the one after it, each a PNG; none for a state the show lacks.
     public var slide: Data?
     public var next: Data?
@@ -235,7 +240,8 @@ public struct RemotePlace: Codable, Sendable, Equatable {
 
     public init(
         deck: String, showing: Bool, state: String = "", index: Int = 0, count: Int = 0, ms: Double = 0,
-        rest: Bool = true, notes: String = "", slide: Data? = nil, next: Data? = nil, began: Date? = nil
+        rest: Bool = true, notes: String = "", read: [NoteBlock] = [], slide: Data? = nil, next: Data? = nil,
+        began: Date? = nil
     ) {
         self.deck = deck
         self.showing = showing
@@ -245,9 +251,29 @@ public struct RemotePlace: Codable, Sendable, Equatable {
         self.ms = ms
         self.rest = rest
         self.notes = notes
+        self.read = read
         self.slide = slide
         self.next = next
         self.began = began
+    }
+
+    enum CodingKeys: String, CodingKey { case deck, showing, state, index, count, ms, rest, notes, read, slide, next, began }
+
+    /// A place as a presenter sent it, one that sent no `read` read as lines.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        deck = try c.decode(String.self, forKey: .deck)
+        showing = try c.decode(Bool.self, forKey: .showing)
+        state = try c.decode(String.self, forKey: .state)
+        index = try c.decode(Int.self, forKey: .index)
+        count = try c.decode(Int.self, forKey: .count)
+        ms = try c.decode(Double.self, forKey: .ms)
+        rest = try c.decode(Bool.self, forKey: .rest)
+        notes = try c.decode(String.self, forKey: .notes)
+        read = try c.decodeIfPresent([NoteBlock].self, forKey: .read) ?? []
+        slide = try c.decodeIfPresent(Data.self, forKey: .slide)
+        next = try c.decodeIfPresent(Data.self, forKey: .next)
+        began = try c.decodeIfPresent(Date.self, forKey: .began)
     }
 
     /// No show plays.

@@ -259,12 +259,22 @@ impl Transport for Client<'_> {
     }
 }
 
+/// Who makes the pictures, as [`painter`] finds out: a provider, its key, and the look; none
+/// asked for; or none to be had, saying why, the deck made without them (narrative REL-4).
+enum Pictures {
+    By(pictures::Settings, String, Look),
+    None,
+    Unlisted(String),
+}
+
 /// Who makes the pictures, as the arguments and the environment say: a provider whose key it
 /// holds, and the model named or the best its key can use; none where `--pictures none`, or no
-/// key for one is held.
-fn painter(a: &GenerateArgs, agent: &ureq::Agent) -> Result<Option<(pictures::Settings, String, Look)>> {
+/// key for one is held. A key whose image models cannot be listed, or that lists none, makes no
+/// picture, saying why, as the browser's generation goes on without them: the deck is what was
+/// paid for, and it stands without a picture.
+fn painter(a: &GenerateArgs, agent: &ureq::Agent) -> Result<Pictures> {
     let provider = match a.pictures.as_deref().map(str::trim) {
-        Some(none) if none.eq_ignore_ascii_case("none") => return Ok(None),
+        Some(none) if none.eq_ignore_ascii_case("none") => return Ok(Pictures::None),
         Some(name) => {
             let p = Provider::named(name).filter(|p| *p != Provider::Anthropic);
             let p = p.ok_or_else(|| anyhow!("`{name}` makes no pictures: openai, gemini, or none"))?;
@@ -275,7 +285,7 @@ fn painter(a: &GenerateArgs, agent: &ureq::Agent) -> Result<Option<(pictures::Se
         }
         None => match [Provider::Openai, Provider::Gemini].into_iter().find(|p| key(*p).is_some()) {
             Some(p) => p,
-            None => return Ok(None),
+            None => return Ok(Pictures::None),
         },
     };
     let key = key(provider).ok_or_else(|| no_key(provider))?;
@@ -284,17 +294,21 @@ fn painter(a: &GenerateArgs, agent: &ureq::Agent) -> Result<Option<(pictures::Se
     let quality = Quality::named(&a.picture_quality)
         .ok_or_else(|| anyhow!("`{}` is no quality: low, medium, or high", a.picture_quality))?;
     let model = match &a.picture_model {
+        Some(m) if !pictures::named(m) => bail!("`{m}` is no model's name: letters, digits, `.`, `_`, and `-`"),
         Some(m) => m.clone(),
         None => {
             let reply = fetch(agent, &provider.models(&key, a.picture_base.as_deref(), false));
-            let listed =
-                pictures::models(provider, reply.status, &reply.status_text, &reply.body).map_err(|e| anyhow!(e))?;
-            listed.into_iter().next().ok_or_else(|| {
-                anyhow!("your {} key lists no image model: --pictures none makes the deck without", provider.name())
-            })?
+            let listed = match pictures::models(provider, reply.status, &reply.status_text, &reply.body) {
+                Ok(listed) => listed,
+                Err(why) => return Ok(Pictures::Unlisted(format!("{}'s image models: {why}", provider.name()))),
+            };
+            match listed.into_iter().next() {
+                Some(model) => model,
+                None => return Ok(Pictures::Unlisted(format!("your {} key lists no image model", provider.name()))),
+            }
         }
     };
-    Ok(Some((pictures::Settings { provider, model, base: a.picture_base.clone(), quality }, key, look)))
+    Ok(Pictures::By(pictures::Settings { provider, model, base: a.picture_base.clone(), quality }, key, look))
 }
 
 /// How far a generation has come, in words.
@@ -607,7 +621,7 @@ pub fn run(a: GenerateArgs, json: bool) -> Result<ExitCode> {
     // A deck in letters the theme's fonts cannot draw would be blank where its words stand.
     scaena_ops::narrative::writable(a.language.as_deref(), &theme_text, theme.shipped, &font)?;
     if let Some(name) = &a.arc
-        && !scaena_narrato::arcs::arcs().iter().any(|arc| arc.arc.eq_ignore_ascii_case(name))
+        && scaena_narrato::arcs::named(name).is_none()
     {
         let names: Vec<&str> = scaena_narrato::arcs::arcs().iter().map(|arc| arc.arc.as_str()).collect();
         bail!("`{name}` is no arc of Narrato's: {}", names.join(", "));
@@ -689,7 +703,16 @@ pub fn run(a: GenerateArgs, json: bool) -> Result<ExitCode> {
         None if a.arc.is_some() => generation.choose_arc(a.arc.as_deref()),
         None => {}
     }
-    let painting = painter(&a, &agent)?;
+    let (painting, unpictured) = match painter(&a, &agent)? {
+        Pictures::By(settings, key, look) => (Some((settings, key, look)), None),
+        Pictures::None => (None, None),
+        Pictures::Unlisted(why) => {
+            if !json {
+                eprintln!("{}", said(&Progress::Painted { pictures: 0, unmade: vec![why.clone()] }));
+            }
+            (None, Some(why))
+        }
+    };
     let painter =
         painting.as_ref().map(|(settings, key, look)| Painter { settings: settings.clone(), key, look: *look });
     if !json && let Some(p) = &painter {
@@ -737,7 +760,8 @@ pub fn run(a: GenerateArgs, json: bool) -> Result<ExitCode> {
         &mut say,
     );
     // A failure after an answer was kept says how to go on from it.
-    let (made, write) = generated.map_err(|e| kept.resumable(e.into(), &a, dir))?;
+    let (mut made, write) = generated.map_err(|e| kept.resumable(e.into(), &a, dir))?;
+    made.unpictured.extend(unpictured);
     let mut sheets = Vec::new();
     if let Some(write) = write {
         // Each sheet given, a data source of the deck's, which a chart can plot.
@@ -785,6 +809,9 @@ pub fn run(a: GenerateArgs, json: bool) -> Result<ExitCode> {
         }
         if made.pictures > 0 {
             println!("  pictures: {}", made.pictures);
+        }
+        for why in &made.unpictured {
+            println!("  picture not made: {why}");
         }
         for g in &grounding.given {
             let cut = if g.truncated { ", cut short to fit" } else { "" };

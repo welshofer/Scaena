@@ -1071,6 +1071,9 @@ export type ToWorker =
   /** A model's `answer` to `ask` as it is offered, and the patch that takes it (PLAN 2.101). */
   | { type: "written"; id: number; ask: WritingAsk; answer: string }
   | { type: "words"; id: number; state: string }
+  /** The notes a presenter reads for `state` (SPEC §2.6), as written and as the blocks a
+   * speaker reads: what a rehearsal shows. */
+  | { type: "notes"; id: number; state: string }
   /** The layouts `state` may take, best first, each painted at rest `height` pixels high, in the
    * deck the editor's `source` compiles to (PLAN 2.92). */
   | { type: "layoutSuggestions"; id: number; state: string; height: number; format?: string }
@@ -1435,8 +1438,10 @@ export interface Asking {
 }
 
 /** What a person asks a model to write (PLAN 2.101): a text's words proofread, tightened, or
- * rewritten; a slide's notes drafted; an issue explained; a picture described (PLAN 2.119). */
-export type WritingKind = "proofread" | "tighten" | "rewrite" | "notes" | "explain" | "describe";
+ * rewritten; a slide's notes drafted; an issue explained; a picture described (PLAN 2.119); a
+ * slide's words checked against its beat's claim, its headline rewritten to carry it (narrative
+ * FUNC-4). */
+export type WritingKind = "proofread" | "tighten" | "rewrite" | "notes" | "explain" | "describe" | "claim";
 
 /** A writing tool asked of the deck as it stands: the task, the state shown, and the text it is
  * about, or the finding to explain, as the window says it (`said`). */
@@ -1453,7 +1458,9 @@ export interface WritingAsk {
  * instructions and the prompt; and, for a description, the picture as the slide shows it, a PNG in
  * base64, which the model is shown (PLAN 2.119). */
 export interface Writing {
-  task: { kind: WritingKind; text?: string };
+  /** The task, with the words it works on where it works on a text's, the description a picture
+   * has, or, for a claim check, the headline it may rewrite. */
+  task: { kind: WritingKind; text?: string; headline?: string };
   title: string;
   instructions: string;
   prompt: string;
@@ -1524,6 +1531,29 @@ export type AssistantEvent =
   /** It failed: the provider refused, or the network did. */
   | { kind: "failed"; message: string };
 
+/** A run of words of a state's speaker notes in one look (`scaena_core::notes`). */
+export interface NotesSpan {
+  text: string;
+  bold?: boolean;
+  italic?: boolean;
+  code?: boolean;
+}
+
+/** A block of a state's speaker notes as a presenter reads them (SPEC §2.6): lines as written,
+ * each kept on its own; a list, each item at its level; or a table, its first row headings where
+ * `header`. */
+export type NotesBlock =
+  | { kind: "lines"; lines: NotesSpan[][] }
+  | { kind: "list"; ordered: boolean; items: { level: number; spans: NotesSpan[] }[] }
+  | { kind: "table"; header: boolean; rows: NotesSpan[][][] };
+
+/** A state's speaker notes as a presenter reads them: the words as the deck holds them, and the
+ * blocks they read as. */
+export interface SpeakerNotes {
+  text: string;
+  blocks: NotesBlock[];
+}
+
 /** An open bundle, as the worker reports it. */
 export interface Opened {
   /** The bundle's name: its folder's, or its deck file's without `.deck.json`. */
@@ -1539,8 +1569,9 @@ export interface Opened {
    * lists of that shape is its own canvas, laid out as it is, so an editor offers it once, by
    * that name. */
   own?: string;
-  /** Each state's speaker notes: its own, else its beat's (SPEC §3.11), else empty. */
-  notes: string[];
+  /** Each state's speaker notes, the engine's (SPEC §2.6): its own, else its first beat's,
+   * else empty; as written, and as the blocks a speaker reads. */
+  notes: SpeakerNotes[];
   /** The spine's sections in its order, each with its title (else its first beat's claim)
    * and its states, each with its beat's claim; then the states no beat names, in a section
    * with no title. Empty for a deck without a spine (SPEC §3.11–3.12). */
@@ -1877,6 +1908,7 @@ export type FromWorker =
   | { type: "writing"; id: number; writing: Writing }
   | { type: "written"; id: number; written: Written }
   | { type: "words"; id: number; words: Lexicon }
+  | { type: "notes"; id: number; notes: SpeakerNotes }
   | { type: "layoutSuggestions"; id: number; suggestions: LayoutSuggestion[] }
   | { type: "backgrounds"; id: number; backgrounds: Backgrounds }
   | { type: "backgroundFrames"; id: number; pixels: ArrayBuffer[] }
