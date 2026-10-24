@@ -369,7 +369,9 @@ private actor Answers {
     #expect(assistant.usage == Usage(input: 10, output: 2))
 
     // A refusal is said in a person's words (PLAN 3.18), not the provider's or its status, and
-    // the conversation goes on from where it was.
+    // the conversation goes on from where it was. A provider down (5xx) is asked again first
+    // (narrative REL-3), here without the waits between.
+    assistant.waits = [0.01, 0.01, 0.01]
     assistant.ask("Again?", provider: .anthropic, model: "a-model", key: "sk-test")
     for _ in 0..<500 where assistant.working {
         try await Task.sleep(for: .milliseconds(10))
