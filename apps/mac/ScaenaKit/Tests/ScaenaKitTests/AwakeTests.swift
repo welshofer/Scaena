@@ -54,8 +54,8 @@ private func holdsOffDisplaySleep() -> Bool {
     let uikit = Awake.idleTimer
     Awake.idleTimer = { timer.off = $0 }
     defer { Awake.idleTimer = uikit }
-    // Unset reads as on: the switch must have been thrown.
-    let idleTimerOff = { timer.off ?? false }
+    // Unset reads as on: the switch must have been thrown. Sendable, as `#expect` takes what it reads.
+    let idleTimerOff: @MainActor @Sendable () -> Bool? = { timer.off ?? false }
     #endif
     let before = Awake.held
     let show = Awake(reason: "A test presents a deck")
