@@ -427,11 +427,43 @@ fn open(bundle: &str) -> Result<scaena_ops::Bundle, OpsError> {
     scaena_ops::open(Path::new(bundle))
 }
 
-/// The bundle, edited by `author`: what it writes is theirs in its history.
-fn open_by(bundle: &str, author: String) -> Result<scaena_ops::Bundle, OpsError> {
+/// The bundle, edited by `author`: what it writes is theirs in its history. It is held for this
+/// tool alone until what it returns is dropped: agents call tools in parallel, and two writes to
+/// one bundle at once would each read the deck, and the second would write over the first's
+/// change while both said it was made (the 20261024 plan's REL-2). Run where blocking is.
+fn open_by(bundle: &str, author: String) -> Result<Held, OpsError> {
+    let lock = writing(Path::new(bundle)).blocking_lock_owned();
     let mut b = open(bundle)?;
     b.author = author;
-    Ok(b)
+    Ok(Held { bundle: b, _lock: lock })
+}
+
+/// A bundle open for one tool to write, and the lock that keeps it so.
+struct Held {
+    bundle: scaena_ops::Bundle,
+    _lock: tokio::sync::OwnedMutexGuard<()>,
+}
+
+impl std::ops::Deref for Held {
+    type Target = scaena_ops::Bundle;
+    fn deref(&self) -> &scaena_ops::Bundle {
+        &self.bundle
+    }
+}
+
+/// The lock for writing the bundle at `bundle`, one for each bundle on this machine however it
+/// is named: its folder read through its links, a deck file standing for the folder it is in.
+fn writing(bundle: &Path) -> Arc<tokio::sync::Mutex<()>> {
+    static LOCKS: std::sync::LazyLock<Mutex<HashMap<PathBuf, Arc<tokio::sync::Mutex<()>>>>> =
+        std::sync::LazyLock::new(Mutex::default);
+    let real = std::fs::canonicalize(bundle).unwrap_or_else(|_| bundle.to_path_buf());
+    let deck_file = real.is_file() && real.extension().is_some_and(|e| e.eq_ignore_ascii_case("json"));
+    let key = match real.parent() {
+        Some(folder) if deck_file => folder.to_path_buf(),
+        _ => real,
+    };
+    let mut locks = LOCKS.lock().unwrap_or_else(|e| e.into_inner());
+    locks.entry(key).or_default().clone()
 }
 
 // --- inputs ---------------------------------------------------------------------------
@@ -891,7 +923,7 @@ impl Scaena {
     ) -> Result<Json<scaena_ops::patch::Patched>, String> {
         let ops = Value::Array(a.ops.into_iter().map(Value::Object).collect());
         let author = author(&context);
-        blocking(move || scaena_ops::patch::patch(&open_by(&a.bundle, author)?, &ops, a.dry_run)).await.map(Json)
+        blocking(move || scaena_ops::patch::patch(&*open_by(&a.bundle, author)?, &ops, a.dry_run)).await.map(Json)
     }
 
     #[tool(description = "Find text across the deck's words, in every state (PLAN 2.47, 2.83): its texts, each \
@@ -908,7 +940,7 @@ impl Scaena {
         let query = Query { find: a.find, case: a.case, words: a.words };
         let author = author(&context);
         blocking(move || {
-            scaena_ops::find::search(&open_by(&a.bundle, author)?, &query, a.replace.as_deref(), a.dry_run)
+            scaena_ops::find::search(&*open_by(&a.bundle, author)?, &query, a.replace.as_deref(), a.dry_run)
         })
         .await
         .map(Json)
@@ -1121,7 +1153,7 @@ impl Scaena {
         let author = author(&context);
         let (theme, within) = self.theme_readable(&a.theme, &a.bundle).map_err(failure)?;
         blocking(move || {
-            scaena_ops::theme::theme_apply(&open_by(&a.bundle, author)?, &theme, within.as_deref(), a.dry_run, a.force)
+            scaena_ops::theme::theme_apply(&*open_by(&a.bundle, author)?, &theme, within.as_deref(), a.dry_run, a.force)
         })
         .await
         .map(Json)
@@ -1145,7 +1177,7 @@ impl Scaena {
         context: RequestContext<RoleServer>,
     ) -> Result<Json<scaena_ops::theme::ThemeEdited>, String> {
         let author = author(&context);
-        blocking(move || scaena_ops::theme::theme_edit(&open_by(&a.bundle, author)?, &a.edit, a.dry_run))
+        blocking(move || scaena_ops::theme::theme_edit(&*open_by(&a.bundle, author)?, &a.edit, a.dry_run))
             .await
             .map(Json)
     }
@@ -1160,7 +1192,7 @@ impl Scaena {
         let author = author(&context);
         let mut data = a.data;
         data.file = self.readable(&data.file, &a.bundle).map_err(failure)?;
-        blocking(move || scaena_ops::create::attach(&open_by(&a.bundle, author)?, &data)).await.map(Json)
+        blocking(move || scaena_ops::create::attach(&*open_by(&a.bundle, author)?, &data)).await.map(Json)
     }
 
     #[tool(description = "Put a map on a slide (ADR-0030): a picture of `place` (an address, a place, or `lat, lon`) \
@@ -1180,7 +1212,7 @@ impl Scaena {
         let reach = self.reach.0.clone();
         blocking(move || {
             let reach = reach.ok_or_else(|| OpsError::new("this server reaches no service outside this machine"))?;
-            maps::fetch(&open_by(&a.bundle, author)?, &a, reach.as_ref())
+            maps::fetch(&*open_by(&a.bundle, author)?, &a, reach.as_ref())
         })
         .await
         .map(Json)
@@ -1199,7 +1231,7 @@ impl Scaena {
         context: RequestContext<RoleServer>,
     ) -> Result<Json<scaena_ops::data::DataEdited>, String> {
         let author = author(&context);
-        blocking(move || scaena_ops::data::data_edit(&open_by(&a.bundle, author)?, &a.data, a.dry_run)).await.map(Json)
+        blocking(move || scaena_ops::data::data_edit(&*open_by(&a.bundle, author)?, &a.data, a.dry_run)).await.map(Json)
     }
 
     #[tool(description = "A bundle's versions (SPEC §8): each change its history keeps, by author and time, \
@@ -1216,7 +1248,7 @@ impl Scaena {
         context: RequestContext<RoleServer>,
     ) -> Result<Json<scaena_ops::history::History>, String> {
         let author = author(&context);
-        blocking(move || scaena_ops::history::history(&open_by(&a.bundle, author)?, &a.ask)).await.map(Json)
+        blocking(move || scaena_ops::history::history(&*open_by(&a.bundle, author)?, &a.ask)).await.map(Json)
     }
 
     #[tool(description = "The deck's spine (SPEC §2.6, §10): its sections and beats, each beat's claim, evidence, \
@@ -1264,7 +1296,7 @@ impl Scaena {
     ) -> Result<Json<scaena_ops::patch::Patched>, String> {
         let author = author(&context);
         blocking(move || {
-            scaena_ops::read::spine_update(&open_by(&a.bundle, author)?, Value::Object(a.spine), a.dry_run)
+            scaena_ops::read::spine_update(&*open_by(&a.bundle, author)?, Value::Object(a.spine), a.dry_run)
         })
         .await
         .map(Json)
@@ -1284,7 +1316,7 @@ impl Scaena {
         let author = author(&context);
         blocking(move || {
             scaena_ops::states::start(
-                &open_by(&a.bundle, author)?,
+                &*open_by(&a.bundle, author)?,
                 &a.state,
                 a.layout.as_deref(),
                 a.claim.as_deref(),
