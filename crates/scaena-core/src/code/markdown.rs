@@ -88,9 +88,9 @@ pub(super) fn scan<'t>(text: &'t str, out: &mut Spans<'t>, depth: usize) {
                 out.space(i);
             }
             let underline = next < len && setext(b, next);
-            if i < end && heading(b, i, end) {
-                out.push(end, Class::Keyword);
-            } else if !marked && underline {
+            // A heading after a block quote's marker, or a paragraph's line a setext underline
+            // makes one.
+            if (i < end && heading(b, i, end)) || (!marked && underline) {
                 out.push(end, Class::Keyword);
             } else {
                 let pipes = byte(b, i) == b'|' || (next < len && delimiter_row(b, next, line_end(b, next, len)));
