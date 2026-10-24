@@ -75,6 +75,33 @@ private func alike(_ a: CGRect, _ b: CGRect) -> Bool {
 /// in, what shows moves a tenth of itself, or half with Shift, across or down, the slide kept on the
 /// desk, so that at its edge an arrow goes no farther and is still the pan's, and the slide is as
 /// close as it was; fitted, the whole slide shows, and the arrows go on.
+/// A window reopens on the zoom it was closed on (lift-up 10-24b ATTR-5): what it keeps says how
+/// close and what showed in the middle, which a desk of another size shows in its middle again.
+@Test func aWindowReopensAsCloseAsItWasOnWhatShowed() {
+    var zoom = Zoom(canvas: CGSize(width: 1920, height: 1080), desk: CGSize(width: 1016, height: 596))
+    #expect(zoom.kept.isEmpty)
+    zoom.zoom(to: 3, about: CGPoint(x: 200, y: 150))
+    let kept = zoom.kept
+    let middle = CGPoint(x: zoom.shown.midX, y: zoom.shown.midY)
+
+    var reopened = Zoom(canvas: CGSize(width: 1920, height: 1080), desk: CGSize(width: 1016, height: 596))
+    #expect(reopened.restore(kept))
+    #expect(reopened.level == 3)
+    #expect(abs(reopened.shown.midX - middle.x) < 0.5 && abs(reopened.shown.midY - middle.y) < 0.5)
+
+    // In a larger window, what showed in the middle shows there still.
+    var larger = Zoom(canvas: CGSize(width: 1920, height: 1080), desk: CGSize(width: 1400, height: 800))
+    #expect(larger.restore(kept))
+    #expect(abs(larger.shown.midX - middle.x) < 0.5 && abs(larger.shown.midY - middle.y) < 0.5)
+
+    // Nothing kept, fitted, a point that is no number, or no desk yet: as it was.
+    var fitted = Zoom(canvas: CGSize(width: 1920, height: 1080), desk: CGSize(width: 1016, height: 596))
+    #expect(!fitted.restore("") && !fitted.restore("1 960 540") && !fitted.restore("3 nan 540"))
+    #expect(fitted.level == 1)
+    var deskless = Zoom(canvas: CGSize(width: 1920, height: 1080))
+    #expect(!deskless.restore(kept) && deskless.level == 1)
+}
+
 @Test func theArrowsPanATenthOfWhatShowsOrHalfWithShift() {
     var zoom = Zoom(canvas: CGSize(width: 1920, height: 1080), desk: CGSize(width: 1016, height: 596))
     // Each pan made before it is expected: a mutating call in `#expect` would be made on a copy.
