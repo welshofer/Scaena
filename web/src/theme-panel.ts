@@ -41,6 +41,8 @@ type Json = Record<string, unknown>;
 
 /** A bundle file's name, without the folder it is in: `assets/ridge.jpg` is ridge.jpg. */
 const fileName = (path: string) => path.replace(/^.*\//, "");
+/** A file's name that is the SHA-256 of its content, as a save names a file dropped (PLAN 1.4). */
+const HASHED = /^[0-9a-f]{64}\.\w+$/i;
 const object = (v: unknown): Json | undefined => (v && typeof v === "object" && !Array.isArray(v) ? (v as Json) : undefined);
 /** A JSON Pointer to `keys`, each escaped. */
 export const pointer = (...keys: (string | number)[]) => keys.map((k) => `/${String(k).replace(/~/g, "~0").replace(/\//g, "~1")}`).join("");
@@ -138,8 +140,12 @@ export function themePanel(stage: Stage, into: HTMLElement, editor: ThemeEditor)
 
   /** A change made in the panel, which `settled()` waits for. */
   const commit = (ops: unknown[], what: string) => void settle(change(ops, what));
+  /** A photo as a person knows it: by the name of the file they dropped, where this page saw it
+   * dropped; else by its file's name, unless that is the hash of its content a save names it by,
+   * when it is the photo. */
+  const photoSaid = (path: string) => stage.droppedAs(path) ?? (HASHED.test(fileName(path)) ? "the photo" : fileName(path));
   /** The theme given the colors of the image `path` the bundle holds. */
-  const fromPhoto = (path: string) => settle(change([], `colors from ${fileName(path)}`, path));
+  const fromPhoto = (path: string) => settle(change([], `colors from ${photoSaid(path)}`, path));
   /** One of the theme's names of `kind` said (PLAN 2.99): `onSurface` is Text, `title` is Title. */
   const said = (kind: string, name: string) => named(editor.words(), kind, name);
 
@@ -156,9 +162,9 @@ export function themePanel(stage: Stage, into: HTMLElement, editor: ThemeEditor)
     photos.replaceChildren(
       ...files.map((f) => {
         const li = document.createElement("li");
-        const button = Object.assign(document.createElement("button"), { type: "button", textContent: fileName(f.path) });
+        const button = Object.assign(document.createElement("button"), { type: "button", textContent: stage.droppedAs(f.path) ?? fileName(f.path) });
         button.dataset.photo = f.path;
-        button.setAttribute("aria-label", `Take the colors of ${fileName(f.path)}`);
+        button.setAttribute("aria-label", `Take the colors of ${stage.droppedAs(f.path) ?? fileName(f.path)}`);
         button.title = "Give the theme this photo's colors: its hues for the accents, the hue it leans to for the neutrals";
         button.addEventListener("click", () => void fromPhoto(f.path));
         li.append(button);

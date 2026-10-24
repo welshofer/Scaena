@@ -23,13 +23,13 @@ fn a_state_is_offered_each_layout_that_draws_it_otherwise_judged_by_lint_best_fi
         names,
         [
             "figure",
-            "venn",
-            "risk-matrix",
-            "two-figures",
+            "map",
             "bar-chart",
             "line-chart",
-            "metric-trend",
+            "positioning-map",
+            "venn",
             "panorama",
+            "metric-trend",
             "narrow-figure"
         ],
         "{suggested:#?}"
@@ -41,13 +41,15 @@ fn a_state_is_offered_each_layout_that_draws_it_otherwise_judged_by_lint_best_fi
     // Each other is one `set_state`, changes this state alone, and makes the slide's errors.
     // Risk Matrix and Positioning Map set the note beside what the slide holds, alike, and
     // Pictograph sets it under its figures as Two Figures does, and Map sets its headline and
-    // its note where Two Figures does (PLAN O.1e).
-    assert_eq!(suggested[2].alike, ["positioning-map"]);
-    assert_eq!(suggested[3].layout, "two-figures");
-    assert_eq!(suggested[3].alike, ["pictograph", "map"]);
+    // its note where Two Figures does (PLAN O.1e). Of each, the one whose places the slide leaves
+    // fewest empty stands for the rest: Map, and Positioning Map.
+    assert_eq!(suggested[1].layout, "map");
+    assert_eq!(suggested[1].alike, ["two-figures", "pictograph"]);
+    assert_eq!(suggested[4].layout, "positioning-map");
+    assert_eq!(suggested[4].alike, ["risk-matrix"]);
     for other in &suggested[1..] {
         assert!(!other.current && other.errors > 0, "{other:?}");
-        assert!(other.alike.is_empty() || ["risk-matrix", "two-figures"].contains(&other.layout.as_str()), "{other:?}");
+        assert!(other.alike.is_empty() || ["map", "positioning-map"].contains(&other.layout.as_str()), "{other:?}");
         assert_eq!(
             other.patch,
             [json!({ "op": "set_state", "id": "budget", "prop": "layout", "value": other.layout })]
@@ -86,14 +88,14 @@ fn a_clean_layout_that_draws_the_state_otherwise_is_suggested() {
         judged,
         [
             ("full", true, 0, 0),
-            ("two-figures", false, 0, 0),
-            ("metric-trend", false, 0, 0),
             ("narrow-figure", false, 0, 0),
             ("panorama", false, 0, 0),
+            ("map", false, 0, 0),
+            ("metric-trend", false, 0, 0),
             ("venn", false, 0, 1),
             ("bar-chart", false, 1, 0),
             ("line-chart", false, 1, 0),
-            ("risk-matrix", false, 2, 0)
+            ("positioning-map", false, 2, 0)
         ],
         "{suggested:#?}"
     );
@@ -108,16 +110,18 @@ fn the_layouts_that_draw_a_state_alike_fold_into_the_one_it_takes() {
     // `photo-grid-text` does `photo-left`'s, over a map across the slide, and beside an agenda's
     // topics, with a picture or without (PLAN 3.30, 3.31, O.1e). Six more draw it as `full` does
     // but leave places for pictures empty, which lint counts (W304), so each stands apart, after
-    // the layouts lint finds nothing in.
+    // the layouts lint finds nothing in. Of those that draw it alike, the one that leaves fewest
+    // places empty stands for the rest: `four-up` for `timeline-photos`.
     let suggested = suggest(&b, "agenda", None).unwrap();
     let names: Vec<&str> = suggested.iter().map(|s| s.layout.as_str()).collect();
-    let empty = ["bullets-photo", "kpi-dashboard", "timeline-photos", "six-up", "acknowledgments", "logo-wall"];
+    let empty = ["bullets-photo", "kpi-dashboard", "four-up", "six-up", "acknowledgments", "logo-wall"];
     assert_eq!(
         names,
         [&["full", "agenda-photo", "photo-left"][..], &empty, &["map-full", "photo-right", "agenda"]].concat(),
         "{suggested:#?}"
     );
     assert!(suggested[3..9].iter().all(|s| s.errors == 0 && s.warnings > 0));
+    assert!(suggested[5].alike.iter().any(|a| a == "timeline-photos"), "{:?}", suggested[5]);
     assert!(suggested[0].current && suggested[1..].iter().all(|s| !s.current));
     assert_eq!(suggested[2].alike, ["photo-grid-text"]);
     assert!(
@@ -132,7 +136,7 @@ fn the_layouts_that_draw_a_state_alike_fold_into_the_one_it_takes() {
     let names: Vec<(&str, bool)> = cover.iter().map(|s| (s.layout.as_str(), s.current)).collect();
     assert_eq!(
         names,
-        [("title", true), ("photo-title", false), ("title-center", false), ("title-split", false)],
+        [("title", true), ("title-center", false), ("photo-title", false), ("title-split", false)],
         "{cover:#?}"
     );
     assert!(cover.iter().all(|s| s.alike.is_empty()));
@@ -153,4 +157,48 @@ fn inspect_names_the_state_it_suggests_layouts_for() {
     assert!(err.message.contains("name the state"), "{}", err.message);
     let inspected = scaena_ops::inspect::inspect(&b, Some("budget"), views).unwrap();
     assert_eq!(inspected[0].layouts.as_ref().map(Vec::len), Some(9));
+}
+
+#[test]
+fn a_layout_the_state_fills_comes_before_one_that_waits_for_more() {
+    use scaena_ops::create::{Create, create};
+    // A three-figure slide, started in Three Numbers and set in Numbered Cards, whose fourth card
+    // waits for a fourth item: of the layouts lint judges alike, the one it takes now comes first,
+    // then Three Numbers, which it fills, before the theme's order puts those it fills in part.
+    let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join("layouts-filled");
+    let _ = std::fs::remove_dir_all(&dir);
+    let fonts = dir.with_extension("theme");
+    let _ = std::fs::remove_dir_all(&fonts);
+    std::fs::create_dir_all(fonts.join("themes")).unwrap();
+    std::fs::create_dir_all(fonts.join("fonts")).unwrap();
+    for font in std::fs::read_dir("../../docs/examples/fonts").unwrap() {
+        let font = font.unwrap().path();
+        std::fs::copy(&font, fonts.join("fonts").join(font.file_name().unwrap())).unwrap();
+    }
+    let theme = fonts.join("themes/dusk.theme.json");
+    std::fs::copy("../../docs/examples/themes/dusk.theme.json", &theme).unwrap();
+    assert!(create(&dir, &Create { theme, title: Some("Figures".into()), ..Create::default() }).unwrap().created);
+    let mut b = scaena_ops::open(&dir).unwrap();
+    let t = scaena_ops::theme(&b).unwrap();
+    let files = View::of(&b);
+    let first = b.deck.states[0].id.clone();
+    let started = scaena_ops::states::starting(&b.deck, &t, &first, Some("numbers")).unwrap();
+    let state = started.id.clone();
+    let mut patch = started.patch.clone();
+    patch.push(json!({ "op": "set_state", "id": state, "prop": "layout", "value": "numbered-cards" }));
+    let doc = scaena_core::patch::compile(&b.deck.to_value().unwrap(), &patch, &files).unwrap().doc;
+    b.deck = scaena_core::Deck::from_value(&doc).unwrap();
+    let suggested = suggest(&b, &state, None).unwrap();
+    let judged: Vec<_> =
+        suggested.iter().map(|s| (s.layout.as_str(), s.errors, s.warnings, s.empty, s.recast)).collect();
+    assert!(suggested[0].current && suggested[0].layout == "numbered-cards", "{judged:?}");
+    assert!(suggested[0].empty > 0, "Numbered Cards waits for a fourth item: {judged:?}");
+    // Three Numbers, filled, its figures set as figures; then the three-item layouts it fills too,
+    // each setting its figures in another role, in the theme's order.
+    assert_eq!(
+        (suggested[1].layout.as_str(), suggested[1].empty, suggested[1].recast),
+        ("numbers", 0, 0),
+        "{judged:?}"
+    );
+    assert!(suggested[2..].iter().all(|s| (s.empty, s.recast) > (0, 0)), "{judged:?}");
 }
