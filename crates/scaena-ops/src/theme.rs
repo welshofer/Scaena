@@ -15,7 +15,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 mod aliases;
 /// The names the themes that ship answer to besides their own (PLAN T.0d): `scripts/build_themes.py`
@@ -70,7 +70,13 @@ pub struct Themed {
 /// A text the theme leaves too faint to read where it stands, which a contrast error finds (E110,
 /// E111), is set in the theme's color that reads there, as the error's fix offers (PLAN 2.82,
 /// `recolored`), so a deck reads in a theme it takes as it read in its own.
-pub fn theme_apply(b: &Bundle, theme: &Path, dry_run: bool, force: bool) -> Result<Themed, OpsError> {
+pub fn theme_apply(
+    b: &Bundle,
+    theme: &Path,
+    fonts_within: Option<&Path>,
+    dry_run: bool,
+    force: bool,
+) -> Result<Themed, OpsError> {
     #[cfg(feature = "shipped")]
     if !theme.exists()
         && let Some(t) = theme.to_str().and_then(crate::shipped::theme)
@@ -90,7 +96,7 @@ pub fn theme_apply(b: &Bundle, theme: &Path, dry_run: bool, force: bool) -> Resu
     };
     let name = theme.file_name().and_then(|n| n.to_str()).context("the theme has no file name")?;
     let rel = inside.clone().unwrap_or_else(|| format!("themes/{name}"));
-    let fonts = if inside.is_some() { BTreeMap::new() } else { beside(theme, &text) };
+    let fonts = if inside.is_some() { BTreeMap::new() } else { beside(theme, fonts_within, &text) };
     applying(b, &rel, &text, &fonts, inside.is_none(), dry_run, force)
 }
 
@@ -119,8 +125,10 @@ fn applying(
 
 /// The font files `text`, the theme file at `theme`, names, as its own bundle holds them: each
 /// path from the theme's folder, or from the folder above it, a bundle's `themes/` being in its
-/// root. A face found in neither is left to the bundle being themed.
-fn beside(theme: &Path, text: &str) -> BTreeMap<String, Vec<u8>> {
+/// root, and no higher than `within`, taking it in, where one is given (see
+/// [`crate::create::Create::fonts_within`]). A face found in neither is left to the bundle being
+/// themed.
+fn beside(theme: &Path, within: Option<&Path>, text: &str) -> BTreeMap<String, Vec<u8>> {
     let mut fonts = BTreeMap::new();
     let Ok(parsed) = serde_json::from_str::<serde_json::Value>(text) else { return fonts };
     let folder = theme.parent().unwrap_or(Path::new("."));
@@ -133,7 +141,8 @@ fn beside(theme: &Path, text: &str) -> BTreeMap<String, Vec<u8>> {
             }
             // A link out of the folder is passed over as a face not found.
             let dirs = [folder.to_path_buf(), folder.join("..")];
-            let found = crate::create::font_in(dirs.iter().map(|d| d.as_path()), file)
+            let held = |dir: &&PathBuf| within.is_none_or(|w| dir.canonicalize().is_ok_and(|d| d.starts_with(w)));
+            let found = crate::create::font_in(dirs.iter().filter(held).map(|d| d.as_path()), file)
                 .ok()
                 .flatten()
                 .and_then(|p| std::fs::read(p).ok());
