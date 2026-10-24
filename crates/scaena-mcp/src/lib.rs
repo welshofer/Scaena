@@ -130,16 +130,33 @@ impl Scaena {
         self.within(&file.to_string_lossy(), bundle, "reads")
     }
 
+    /// The theme file a tool reads, held as [`Self::readable`] holds a data file. A theme that
+    /// ships, by its name, where no file of that name is, passes as it is: nothing is read from
+    /// the disk for it.
+    fn theme_readable(&self, theme: &str, bundle: &str) -> Result<PathBuf, OpsError> {
+        let asked = Path::new(theme);
+        let there = |p: &Path| std::fs::symlink_metadata(p).is_ok();
+        if !there(asked) && !there(&self.here()?.join(asked)) {
+            return Ok(asked.to_path_buf());
+        }
+        self.readable(asked, bundle)
+    }
+
+    /// This server's working directory, or the folder it was given in its place.
+    fn here(&self) -> Result<PathBuf, OpsError> {
+        match &self.dir {
+            Some(dir) => Ok(dir.clone()),
+            None => std::env::current_dir().map_err(|e| OpsError::new(format!("this server has no folder: {e}"))),
+        }
+    }
+
     /// `out` read through every link, where it is under this server's working directory or the
     /// folder that holds `bundle`, and nothing under that folder it passes through is hidden
     /// (`.ssh`, `.aws`, `.config`, `.git`, a shell's start-up files); else why not, saying where
     /// this server `does` its work. The root of the disk and the home folder are no such folder:
     /// a server started there, or a bundle kept straight in either, would reach all of it.
     fn within(&self, out: &str, bundle: &str, does: &str) -> Result<PathBuf, OpsError> {
-        let here = match &self.dir {
-            Some(dir) => dir.clone(),
-            None => std::env::current_dir().map_err(|e| OpsError::new(format!("this server has no folder: {e}")))?,
-        };
+        let here = self.here()?;
         let home = (self.home.clone()).or_else(|| std::env::var_os("HOME").map(PathBuf::from));
         let home = home.and_then(|h| std::fs::canonicalize(h).ok());
         let beside = std::fs::canonicalize(bundle).ok().and_then(|b| b.parent().map(Path::to_path_buf));
@@ -732,8 +749,10 @@ impl Scaena {
         &self,
         Parameters(a): Parameters<DeckCreate>,
     ) -> Result<Json<scaena_ops::create::Created>, String> {
+        // A new bundle has no folder yet: the theme is read under this server's own.
+        let theme = self.theme_readable(&a.theme, &a.bundle).map_err(failure)?;
         let req = scaena_ops::create::Create {
-            theme: PathBuf::from(a.theme),
+            theme,
             deck: a.deck.map(Value::Object),
             scn: a.scn,
             title: a.title,
@@ -982,11 +1001,10 @@ impl Scaena {
         context: RequestContext<RoleServer>,
     ) -> Result<Json<scaena_ops::theme::Themed>, String> {
         let author = author(&context);
-        blocking(move || {
-            scaena_ops::theme::theme_apply(&open_by(&a.bundle, author)?, Path::new(&a.theme), a.dry_run, a.force)
-        })
-        .await
-        .map(Json)
+        let theme = self.theme_readable(&a.theme, &a.bundle).map_err(failure)?;
+        blocking(move || scaena_ops::theme::theme_apply(&open_by(&a.bundle, author)?, &theme, a.dry_run, a.force))
+            .await
+            .map(Json)
     }
 
     #[tool(description = "Edit the theme the deck names (ADR-0016): its colors, type roles, spacing, and the rest, \
