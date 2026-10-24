@@ -55,12 +55,20 @@ struct StoryPanel: View {
                 Text(why).foregroundStyle(.secondary)
             }
         }
-        .task(id: editor.revision) { read() }
+        .task(id: editor.revision) { await read() }
     }
 
-    private func read() {
+    /// Read at once as the panel shows, and again once edits stop, as every state is linted then
+    /// (PLAN 4.13), away from the window, which answers meanwhile (lift-up narrative PERF-1): an
+    /// edit made before the pause ends cancels this read, and one made while it is read drops it.
+    private func read() async {
+        if health != nil || why != nil {
+            try? await Task.sleep(for: .milliseconds(700))
+        }
+        guard !Task.isCancelled else { return }
         do {
-            health = try editor.session.health()
+            guard let read = try await editor.health(), !Task.isCancelled else { return }
+            health = read
             why = nil
         } catch {
             health = nil
