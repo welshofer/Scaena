@@ -394,12 +394,16 @@ async function play(deck: Source, how: Play, channel: BroadcastChannel) {
     // A link's hand too hides once the pointer rests (lift-up ATTR-4).
     stage.canvas.style.cursor = link && !document.body.classList.contains("idle") ? "pointer" : "";
   };
+  /** What the status says in place of where the deck is, and the state it was said on, until the
+   * deck moves to another state (lift-up 10-24b USE-2): a frame's report does not take it away. */
+  let notice: { words: string; index: number } | undefined;
   /** Say where the deck is: in the controls, to the presenter view, and to the page. */
   const report = (at: At) => {
     // Where the deck is, as a person counts its slides (PLAN 2.99); what paints it is said on a
     // pointer over it.
     const screen = blank ? `${blank} screen` : ended ? "end of the show" : "";
-    const line = [place(slots, at.index), format(), at.playing && !screen ? "playing" : "", screen].filter(Boolean).join(" · ");
+    if (notice && notice.index !== at.index) notice = undefined;
+    const line = notice?.words ?? [place(slots, at.index), format(), at.playing && !screen ? "playing" : "", screen].filter(Boolean).join(" · ");
     // The status is a live region: it changes when the deck's place does, not every frame.
     if (status.textContent !== line) status.textContent = line;
     status.title = stage.opened.painter === "webgpu" ? "Painted by WebGPU" : "Painted by the CPU";
@@ -535,9 +539,10 @@ async function play(deck: Source, how: Play, channel: BroadcastChannel) {
     view = open("", "scaena-presenter", "popup,width=1280,height=800");
     // A blocked pop-up says so, minutes before a talk, rather than nothing at all (lift-up USE-2).
     if (!view) {
-      status.textContent = "The presenter view was blocked: allow pop-ups for this page, then press the button again.";
-      return;
+      notice = { words: "The presenter view was blocked: allow pop-ups for this page, then press the button again.", index: stage.at.index };
+      return report(stage.at);
     }
+    notice = undefined;
     let there = false;
     try {
       there = view.location.href === url.href;
