@@ -159,8 +159,6 @@ export function inserting(words: Lexicon | undefined, insert: Insert): { kind: s
   if (type === "text") return { kind, said: named(words, "text-role", name) };
   if (type === "shape") return { kind, said: words?.shapes[name] ?? name };
   if (type === "shader") return { kind, said: named(words, "shader-preset", name) };
-  // A chart or a table of a few sample rows, where the deck has no data, says so (the QA pass's J3).
-  if ((type === "chart" || type === "table") && insert.sample) return { kind, said: `${kind} (sample data)` };
   if (type === "chart" || type === "table") return { kind, said: sourced(words, name) };
   return { kind, said: name };
 }
