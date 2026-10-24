@@ -139,7 +139,8 @@
                 }
               ]
             }
-          ]
+          ],
+          "stream": true
         }
       },
       "read": {
@@ -158,6 +159,29 @@
           "input": 1200,
           "output": 40
         }
+      },
+      "streamed": {
+        "read": {
+          "text": "The cover is clean.",
+          "calls": [
+            {
+              "id": "toolu_03",
+              "name": "deck_render",
+              "args": {
+                "state": "why"
+              }
+            }
+          ],
+          "stop": "tools",
+          "usage": {
+            "input": 1200,
+            "output": 40
+          }
+        },
+        "said": [
+          "The cover",
+          " is clean."
+        ]
       }
     },
     "models": {
@@ -211,7 +235,8 @@
                 }
               ]
             }
-          ]
+          ],
+          "stream": true
         }
       }
     },
@@ -255,7 +280,8 @@
                 }
               ]
             }
-          ]
+          ],
+          "stream": true
         }
       }
     }
@@ -337,6 +363,10 @@
               "content": "And the next state?"
             }
           ],
+          "stream": true,
+          "stream_options": {
+            "include_usage": true
+          },
           "tools": [
             {
               "type": "function",
@@ -399,6 +429,34 @@
           "input": 1200,
           "output": 40
         }
+      },
+      "streamed": {
+        "read": {
+          "text": "The cover is clean.",
+          "calls": [
+            {
+              "id": "call_03",
+              "name": "deck_render",
+              "args": {
+                "state": "why"
+              }
+            },
+            {
+              "id": "call_04",
+              "name": "deck_lint",
+              "args": "not json"
+            }
+          ],
+          "stop": "tools",
+          "usage": {
+            "input": 1200,
+            "output": 40
+          }
+        },
+        "said": [
+          "The cover",
+          " is clean."
+        ]
       }
     },
     "models": {
@@ -437,7 +495,11 @@
               "role": "user",
               "content": "We have made the decision to expand into three new markets this year"
             }
-          ]
+          ],
+          "stream": true,
+          "stream_options": {
+            "include_usage": true
+          }
         }
       }
     },
@@ -471,7 +533,11 @@
                 }
               ]
             }
-          ]
+          ],
+          "stream": true,
+          "stream_options": {
+            "include_usage": true
+          }
         }
       }
     }
@@ -480,7 +546,7 @@
     "turn": {
       "request": {
         "method": "POST",
-        "url": "https://generativelanguage.googleapis.com/v1beta/models/a-model:generateContent",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/a-model:streamGenerateContent?alt=sse",
         "headers": {
           "content-type": "application/json",
           "x-goog-api-key": "sk-test"
@@ -652,6 +718,47 @@
           "input": 1200,
           "output": 40
         }
+      },
+      "streamed": {
+        "read": {
+          "text": "The cover is clean.",
+          "calls": [
+            {
+              "id": "local-2-deck_render",
+              "name": "deck_render",
+              "args": {
+                "state": "why"
+              }
+            }
+          ],
+          "stop": "tools",
+          "raw": [
+            {
+              "text": "Looking again.",
+              "thought": true
+            },
+            {
+              "text": "The cover is clean."
+            },
+            {
+              "functionCall": {
+                "name": "deck_render",
+                "args": {
+                  "state": "why"
+                }
+              },
+              "thoughtSignature": "c2lnMg=="
+            }
+          ],
+          "usage": {
+            "input": 1200,
+            "output": 40
+          }
+        },
+        "said": [
+          "The cover",
+          " is clean."
+        ]
       }
     },
     "models": {
@@ -674,7 +781,7 @@
     "once": {
       "request": {
         "method": "POST",
-        "url": "https://generativelanguage.googleapis.com/v1beta/models/a-model:generateContent",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/a-model:streamGenerateContent?alt=sse",
         "headers": {
           "content-type": "application/json",
           "x-goog-api-key": "sk-test"
@@ -703,7 +810,7 @@
     "picture": {
       "request": {
         "method": "POST",
-        "url": "https://generativelanguage.googleapis.com/v1beta/models/a-model:generateContent",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/a-model:streamGenerateContent?alt=sse",
         "headers": {
           "content-type": "application/json",
           "x-goog-api-key": "sk-test"

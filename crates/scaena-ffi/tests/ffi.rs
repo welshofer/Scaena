@@ -789,6 +789,61 @@ fn the_assistant_asks_with_the_users_key_and_runs_each_call_on_the_bundle() {
     assert_eq!(last["results"][1]["error"], true);
     assert!(last["results"][1]["json"].as_str().unwrap().contains("the user stopped the assistant"));
 
+    // An answer read as it is written (narrative ATTR-3): each piece fed gives the words it
+    // completes, and `answer` reads the whole body as one sent whole.
+    step(chat, s, "ask", json!({ "text": "Once more." }));
+    step(chat, null_mut(), "request", json!({ "key": "sk-test" }));
+    let events = "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"m\",\"role\":\"assistant\",\"content\":[],\"usage\":{\"input_tokens\":3}}}\n\n\
+                  event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n\
+                  event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"Once \"}}\n\n\
+                  event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"more.\"}}\n\n\
+                  event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":2}}\n\n";
+    let (first, rest) = events.split_at(events.find("more.").unwrap() - 40);
+    let heard = step(chat, null_mut(), "heard", json!({ "chunk": first }));
+    assert_eq!(heard["text"], "Once ", "{heard}");
+    let heard = step(chat, null_mut(), "heard", json!({ "chunk": rest }));
+    assert_eq!(heard["text"], "more.", "{heard}");
+    let next = step(chat, null_mut(), "answer", json!({ "status": 200, "body": events }));
+    assert_eq!(
+        next,
+        json!({ "next": "done", "text": "Once more.", "stop": "end", "usage": { "input": 3, "output": 2 } })
+    );
+
+    // A streamed answer whose call only reads runs that call apart (narrative ATTR-3 with
+    // lift-up PERF-2): the call streamed in pieces, read whole by `answer`, run on a snapshot's
+    // session, and taken back as `run` takes what it runs.
+    step(chat, s, "ask", json!({ "text": "Is it clean?" }));
+    step(chat, null_mut(), "request", json!({ "key": "sk-test" }));
+    let events = "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"m2\",\"role\":\"assistant\",\"content\":[],\"usage\":{\"input_tokens\":3}}}\n\n\
+                  event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"tool_use\",\"id\":\"t7\",\"name\":\"deck_lint\",\"input\":{}}}\n\n\
+                  event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"state\\\": \"}}\n\n\
+                  event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"\\\"cover\\\"}\"}}\n\n\
+                  event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\n\
+                  event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"tool_use\"},\"usage\":{\"output_tokens\":5}}\n\n";
+    let (first, rest) = events.split_at(events.find("cover").unwrap());
+    step(chat, null_mut(), "heard", json!({ "chunk": first }));
+    step(chat, null_mut(), "heard", json!({ "chunk": rest }));
+    let next = step(chat, null_mut(), "answer", json!({ "status": 200, "body": events }));
+    assert_eq!(next["calls"][0]["name"], "deck_lint", "{next}");
+    assert_eq!(next["calls"][0]["args"], json!({ "state": "cover" }), "{next}");
+    let lint = &next["calls"][0];
+    let alone = unsafe { scaena_chat_reads_alone(c("deck_lint").as_ptr(), c(&lint["args"].to_string()).as_ptr()) };
+    assert!(alone);
+    let snapshot = unsafe { scaena_snapshot_new(s) };
+    let mut error = null_mut();
+    let reader = unsafe { scaena_snapshot_open(snapshot, &mut error) };
+    assert!(!reader.is_null(), "opened: {}", took(error));
+    let ran: Value = serde_json::from_str(&took(unsafe {
+        scaena_chat_run_apart(reader, c("a-model").as_ptr(), c(&lint.to_string()).as_ptr(), c(at).as_ptr())
+    }))
+    .unwrap();
+    unsafe { scaena_session_free(reader) };
+    unsafe { scaena_snapshot_free(snapshot) };
+    let taken = step(chat, null_mut(), "took", json!({ "index": 0, "ran": ran["ok"] }));
+    assert_eq!(taken["error"], false, "{taken}");
+    assert_eq!(step(chat, null_mut(), "next", Value::Null), json!(true));
+    let conversation = step(chat, null_mut(), "conversation", Value::Null);
+
     // A provider's refusal is an error, and the conversation is as it was.
     let refused = stepped(
         chat,

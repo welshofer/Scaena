@@ -7,11 +7,14 @@ import type { AssistantEvent, Edited, ProviderId, Rewritten, Seeing, Thumb } fro
 import type { Stage } from "../stage";
 import type { Who } from "../writing";
 import * as keys from "./keys";
+import { render } from "./markdown";
 
 /** The editor, as the panel works with it. */
 export interface Editor {
   /** The source as it stands. */
   source(): string;
+  /** The states the deck has, by id: what an answer may link to (narrative ATTR-4). */
+  states?(): string[];
   /** Take `source`, which the assistant's edit made, and what the worker found compiling,
    * showing, and linting it; and select what the question has changed so far, `touched`, once
    * the canvas stands in it (PLAN 2.52). */
@@ -118,6 +121,9 @@ export function panel(stage: Stage, editor: Editor): Panel {
   const stop = $<HTMLButtonElement>("#stop");
   const usageLine = $("#usage");
   const thinking = $("#thinking");
+  /** How long a turn may go in silence before the provider is asked again (narrative REL-3):
+   * two minutes, or what `?assistant-timeout=` says in ms, for a walk. */
+  const timeoutMs = Number(new URLSearchParams(location.search).get("assistant-timeout")) || undefined;
   const settings = keys.settings();
   const used = { input: 0, output: 0 };
   let working = false;
@@ -266,11 +272,35 @@ export function panel(stage: Stage, editor: Editor): Panel {
    * there were then (PLAN 2.93). */
   let drawn = new Map<string, Drawing>();
   let were = new Set<string>();
+  /** What the model is saying, as it is written: the entry its words go into until they are whole. */
+  let saying: HTMLElement | undefined;
   function hear(event: AssistantEvent) {
     switch (event.kind) {
-      case "text":
-        return void entry("said", event.text);
+      case "saying": {
+        saying ??= entry("said");
+        saying.append(event.text);
+        saying.scrollIntoView({ block: "end" });
+        return;
+      }
+      case "waiting": {
+        // The provider is asked again (narrative REL-3): the words it sent so far go, and the
+        // wait is said where Working… was.
+        saying?.remove();
+        saying = undefined;
+        thinking.textContent = `${event.message} Trying again in ${event.seconds} s (${event.attempt} of ${event.of})…`;
+        return;
+      }
+      case "text": {
+        thinking.textContent = "Working…";
+        // Said whole, as it reads (narrative ATTR-4): its lists, code, emphasis, and links,
+        // a link to a slide showing it; in the words' place, or in a new entry.
+        const li = saying ?? entry("said");
+        saying = undefined;
+        render(event.text, li, { states: editor.states?.(), show: (state) => editor.show(state) });
+        return;
+      }
       case "call": {
+        thinking.textContent = "Working…";
         const li = entry("call");
         // What the call does, in a person's words; the tool and what it was given, opened.
         li.innerHTML = "<details><summary><span class=doing></span> <span class=outcome></span></summary><pre class=args></pre></details>";
@@ -371,6 +401,7 @@ export function panel(stage: Stage, editor: Editor): Panel {
     const seeing = editor.seeing();
     const stopped = (stopping = new AbortController()).signal;
     working = true;
+    thinking.textContent = "Working…";
     thinking.hidden = false;
     editor.lock(true);
     askButton.disabled = true;
@@ -392,7 +423,7 @@ export function panel(stage: Stage, editor: Editor): Panel {
       stopped.addEventListener("abort", () => stage.stop(), { once: true });
       return await stage.ask(
         editor.source(),
-        { provider: which(), model: model.value, key: key.value, base: base.value || undefined, text, seeing, mapKey },
+        { provider: which(), model: model.value, key: key.value, base: base.value || undefined, text, seeing, mapKey, timeoutMs },
         hear,
         { height: drawings.height, known },
       );
