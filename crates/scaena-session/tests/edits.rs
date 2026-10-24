@@ -831,6 +831,17 @@ fn deep_nesting_and_a_forecasts_short_date_are_drawn_or_refused() {
     let source = s.source().replacen("axes:{", &format!("axes:{{deep: {}1{}, ", "[".repeat(deep), "]".repeat(deep)), 1);
     let compiled = s.compile(&source);
     assert!(!compiled.valid);
+    // And one nested just past what deck.json holds, counted from the deck: 124 to 127 deep here
+    // compiled, then panicked the compile, which stops the editor's worker on a keystroke (the
+    // 20261024 plan's STAB-1). Each compiles, its findings said, or is refused at its line.
+    for n in 120..=128 {
+        let mut s = open("revenue", &|_| {});
+        let source = s.source().replacen("axes:{", &format!("axes:{{deep: {}1{}, ", "[".repeat(n), "]".repeat(n)), 1);
+        let compiled = s.compile(&source);
+        let said = serde_json::to_string(&compiled).unwrap();
+        let refused = said.contains("nests more than 127 deep in the deck");
+        assert!(refused == (n >= 123), "{n} deep: {}", &said[..said.len().min(300)]);
+    }
     // A forecast whose first date is too short to be a day, or is cut inside a character, as the
     // assistant's lint reads the deck opened, which validation refuses.
     for first in ["2026", "2026-10-1é", ""] {
