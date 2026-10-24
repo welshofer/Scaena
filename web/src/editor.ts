@@ -3023,6 +3023,8 @@ async function edit(source: Source, opened?: Stage) {
       /** Panic in the engine, for a test (lift-up STAB-2), and how many times it was started again. */
       crash: () => stage.trap(),
       restarts: () => restarts,
+      /** How many patches the page has asked for and not yet had made, for a test. */
+      pendingPatches: () => stage.pending,
       /** The recovery copy kept now, for a test (lift-up REL-4). */
       keepCopy,
       copyKey,

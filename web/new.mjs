@@ -52,6 +52,10 @@ try {
   const context = await browser.newContext({ viewport: { width: 1600, height: 1000 }, deviceScaleFactor: 1 });
   const page = await context.newPage();
   page.on("pageerror", (e) => failures.push(`page: ${e.message}`));
+  /** What the page said to its console, each line with when, for a check that fails. */
+  const consoled = [];
+  const began = Date.now();
+  page.on("console", (m) => consoled.push(`${Date.now() - began} ms ${m.type()}: ${m.text().slice(0, 300)}`));
   page.on("console", (m) => m.type() === "error" && failures.push(`console: ${m.text()}`));
   page.on("dialog", (d) => d.accept());
   /** The editor once it has compiled and linted the bundle named `name`. */
@@ -250,11 +254,48 @@ try {
       .catch(() => {});
     return (await page.evaluate(() => window.scaena.source())) === opened;
   };
+  /** Where the page stands, for a check that fails here: the status line, the strip's states, the
+   * states the deck holds and the one shown, and whether the source is the deck opened, so a
+   * failure on CI says which way it went (a gesture refused, still in flight, or made late). */
+  const standing = () =>
+    page.evaluate((opened) => {
+      const last = window.scaena.last();
+      return JSON.stringify({
+        status: document.querySelector("#status")?.textContent,
+        said: (window.__said ?? []).slice(-3),
+        pending: window.scaena.pendingPatches(),
+        strip: [...document.querySelectorAll("#strip li")].map((li) => li.dataset.state ?? li.textContent.trim().slice(0, 20)),
+        states: last?.states?.map(([id]) => id),
+        shown: window.scaena.shown(),
+        valid: last?.valid,
+        opened: window.scaena.source() === opened,
+      });
+    }, opened);
+  // Each status said from here on, with when, and the strip's slides counted every 5 s while the
+  // step is waited for.
+  await page.evaluate(() => {
+    const at = performance.now();
+    window.__said = [];
+    new MutationObserver(() => window.__said.push(`${Math.round(performance.now() - at)} ms: ${document.querySelector("#status")?.textContent}`)).observe(
+      document.querySelector("#status"),
+      { childList: true, characterData: true, subtree: true },
+    );
+  });
+  const clicked = Date.now();
   await page.click("#strip [data-add=step]");
-  await page.waitForFunction(() => document.querySelectorAll("#strip li").length === 2, null, { timeout: 30000 }).catch(() => {});
+  const counted = [];
+  for (let waited = 0; waited < 30000; waited += 5000) {
+    const n = await page.evaluate(() => ({ items: document.querySelectorAll("#strip li").length, pending: window.scaena.pendingPatches() }));
+    counted.push(`${waited / 1000} s: ${n.items} slides, ${n.pending} patches pending`);
+    if (n.items === 2) break;
+    await page.waitForFunction(() => document.querySelectorAll("#strip li").length === 2, null, { timeout: 5000 }).catch(() => {});
+  }
+  const added = `${Date.now() - clicked} ms after the click (${counted.join("; ")}): ${await standing()}`;
   await page.locator("#strip li").last().focus();
   await page.keyboard.press("Control+z");
-  check(await undone(), "⌘Z with the step added focused in the strip takes it back");
+  const stepUndone = await undone();
+  check(stepUndone, `⌘Z with the step added focused in the strip takes it back (the step: ${added}; after ⌘Z: ${await standing()})`);
+  if (!stepUndone) console.log(`     the page's console, last 20:\n       ${consoled.slice(-20).join("\n       ")}`);
   const titleNode = /^\s*(\S+) text\b.*\bat:in\(title\)/m.exec(opened)?.[1];
   await page.waitForFunction((n) => window.scaena.canvas.boxes().some((b) => b.node === n), titleNode, { timeout: 30000 });
   await page.evaluate((n) => window.scaena.canvas.select(n), titleNode);
@@ -265,7 +306,7 @@ try {
   await page.waitForFunction((s) => window.scaena.source() !== s, opened, { timeout: 30000 }).catch(() => {});
   await page.locator("#look-role").focus();
   await page.keyboard.press("Control+z");
-  check(await undone(), `⌘Z with the inspector's role menu focused takes its change back: ${role} to ${other}`);
+  check(await undone(), `⌘Z with the inspector's role menu focused takes its change back: ${role} to ${other} (after ⌘Z: ${await standing()})`);
 
   const standalone = await readFile("crates/scaena-export/player/standalone.html", "utf8");
   check(!standalone.includes("daybreak.theme.json") && !standalone.includes("Fraunces-VF"), "a single-file export's page carries no themes to make a deck with");

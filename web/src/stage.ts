@@ -238,6 +238,9 @@ export class Stage {
   private dropped = new Map<string, string>();
   /** The patch being made, which the next waits for (`make`). */
   private making: Promise<void> = Promise.resolve();
+  /** How many patches are asked for and not yet made, the one being made among them: what a test
+   * reads to tell a queue held up from a worker slow to answer. */
+  pending = 0;
 
   /** The bundle's files written since the last save, as the page heard of them (lift-up REL-4),
    * each with how many times, and those taken out: what a recovery copy keeps beside the source. A
@@ -556,6 +559,7 @@ export class Stage {
     // when its turn comes, after the last one was taken, and made again on the source as it stands
     // if something else changed it meanwhile (a keystroke, a data edit), so that two panels' edits
     // in flight compose instead of the second overwriting the first.
+    this.pending++;
     const turn = this.making.then(async () => {
       for (let tries = 1; ; tries++) {
         const from = source();
@@ -567,6 +571,8 @@ export class Stage {
     // soon as it is made) before the next reads the source.
     const taken = () => new Promise<void>((settle) => setTimeout(settle));
     this.making = turn.then(taken, taken);
+    const settled = () => void this.pending--;
+    turn.then(settled, settled);
     return turn.then(({ source, edited }) => {
       if (edited.at) {
         this.at = edited.at;
