@@ -131,6 +131,7 @@ final class OpeningTests: XCTestCase {
         XCTAssertTrue(typing.waitForExistence(timeout: 5), "the text inserted is not typed in: \(app.debugDescription)")
         settle()
         keep(app, as: "inserted")
+        leaveB1(in: app)
     }
 
     /// Code pasted on the slide is a code text in its language, its chip saying which (PLAN 2.133).
@@ -160,6 +161,23 @@ final class OpeningTests: XCTestCase {
         XCTAssertEqual(chip.value as? String, "Rust", "the chip does not say Rust: \(chip.debugDescription)")
         settle()
         keep(app, as: "code-pasted")
+        leaveB1(in: app)
+    }
+
+    /// B1 left as it was, each step this test made taken back by the toolbar's Undo (PLAN 4.11)
+    /// until it has none to take back, as it had none when B1 opened. The tests after these open B1
+    /// too, and the app saves an edit by itself: a text left on the cover, over its title, took the
+    /// taps ThemeTests and TouchTests meant for the title and the theme's body role.
+    @MainActor
+    private func leaveB1(in app: XCUIApplication) {
+        let undo = app.navigationBars.buttons.matching(NSPredicate(format: "identifier == 'undo'")).firstMatch
+        XCTAssertTrue(undo.waitForExistence(timeout: 5), "no Undo in the toolbar: \(app.debugDescription)")
+        for _ in 0..<4 where undo.isEnabled {
+            undo.tap()
+            _ = wait(5) { !undo.isEnabled }
+        }
+        XCTAssertFalse(undo.isEnabled, "B1 is not left as it was: \(app.debugDescription)")
+        settle()
     }
 }
 
