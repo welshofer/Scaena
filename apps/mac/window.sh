@@ -21,7 +21,8 @@ swiftc -O -o "$out/holds" "$root/apps/mac/holds.swift" || echo "holds.swift: not
 cp "$root/apps/mac/Scaena/Info.plist" "$app/Contents/Info.plist"
 # Its icon, as `build-app.sh` makes it.
 iconutil -c icns -o "$app/Contents/Resources/AppIcon.icns" "$root/apps/mac/Scaena/AppIcon.iconset" || echo "iconutil: no icon"
-codesign --force --sign - "$app"
+# Signed as it ships, so the walk is the sandboxed app's (apps/mac/sign.sh).
+"$root/apps/mac/sign.sh" "$app"
 /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$app"
 cd "$root"
 cargo run -q -p scaena-cli --locked -- save docs/examples/trails.deck.json --to "$out/trails.scaena"
