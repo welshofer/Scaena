@@ -372,35 +372,6 @@ final class TouchTests: XCTestCase {
         }
     }
 
-    /// Whether `item` comes to show in the edit menu a long press opened, the menu paged on as a
-    /// person pages it. The menu sets its items in one row, a page at a time, and lists none of a
-    /// page it does not show; the arrow to the next page stands just past the row's last item.
-    @MainActor
-    private func paged(to item: XCUIElement, in app: XCUIApplication) -> Bool {
-        // What the menu lists: buttons, or menu items, by the system's version.
-        let kinds = NSPredicate(
-            format: "elementType == %lu OR elementType == %lu",
-            XCUIElement.ElementType.button.rawValue, XCUIElement.ElementType.menuItem.rawValue)
-        let listed = app.descendants(matching: .any).matching(kinds)
-        guard wait(5, { listed.matching(NSPredicate(format: "label == 'Copy'")).firstMatch.isHittable }) else {
-            return false
-        }
-        let row = listed.matching(NSPredicate(format: "label == 'Copy'")).firstMatch.frame.midY
-        for _ in 0..<8 {
-            if item.waitForExistence(timeout: 1), item.isHittable { return true }
-            let shown = listed.allElementsBoundByIndex.filter { abs($0.frame.midY - row) < 6 && $0.frame.width > 0 }
-            guard let last = shown.max(by: { $0.frame.maxX < $1.frame.maxX }) else { return false }
-            // The arrow, where it is listed as an element of its own; else the point just past the
-            // last item, where it stands.
-            let said = last.label.lowercased()
-            let arrow = !said.contains(where: \.isLetter) || ["forward", "next", "more"].contains { said.contains($0) }
-            let x = arrow ? last.frame.midX : last.frame.maxX + 20
-            app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: x, dy: row)).tap()
-            settle(0.5)
-        }
-        return item.exists && item.isHittable
-    }
-
     /// How close the canvas is shown, as it tells VoiceOver: "whole" where nothing is zoomed.
     @MainActor
     private func shown(_ canvas: XCUIElement) -> String {
