@@ -1305,9 +1305,11 @@ pub fn deck_as(
         // section is titled by what its slides say (narrative ATTR-5): its divider's title, else
         // the beat's name as the model wrote it on the run's first slide, else the arc's name for
         // the beat, which reads as a template ("Problem", "Solution") in the PDF's outline, the
-        // player's picker, and the Story tab.
+        // player's picker, and the Story tab. Where the person settled an outline, its beat's name
+        // stands in for the model's: the slides were written to it (narrative FUNC-1).
         if last_beat != Some(beat) {
-            let named = slide.beat_name.as_deref().map(str::trim).filter(|n| !n.is_empty());
+            let named =
+                (slide.beat_name.as_deref().map(str::trim)).filter(|n| !n.is_empty() && narrative.outline.is_none());
             let name = match (divider, named) {
                 (true, _) => slide.slide_title.as_str(),
                 (false, Some(named)) => named,
