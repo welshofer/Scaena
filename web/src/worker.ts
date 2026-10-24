@@ -1150,10 +1150,11 @@ async function generating(job: Generate, engine?: WebAssembly.Module) {
 
 /** A new deck titled `title` (PLAN 2.12), as `deck_create` makes one: the theme that ships as
  * `theme` and the fonts it names. Its one state, with nothing on it, is made a title slide in
- * the theme's `title` layout, its words to type over and the theme's backdrop in its picture's
- * place, as the New dialog draws the theme and the Mac's new deck opens (PLAN 3.30, `titling`):
- * made before the page reads the deck, so no undo goes back to the empty state. A theme with no
- * such layout leaves it. */
+ * the theme's `title` layout, its words to type over and its picture's place waiting, as Add
+ * Slide starts it (PLAN 3.30): made before the page reads the deck, so no undo goes back to the
+ * empty state. A theme with no such layout leaves it. The Mac's new deck opens with the theme's
+ * backdrop in that place (`titling`); here it waits until the CPU painter draws one without
+ * holding up the editor's gestures. */
 async function made(theme: string, title: string): Promise<Player> {
   const { file, text, fonts } = await shipped(theme);
   const created = Player.create(file, text, title, fonts);
@@ -1161,7 +1162,7 @@ async function made(theme: string, title: string): Promise<Player> {
   if (blank === undefined || more.length) return created;
   let started: { id: string; patch: unknown[] };
   try {
-    started = JSON.parse(created.titling(blank)) as { id: string; patch: unknown[] };
+    started = JSON.parse(created.starting(blank, "title")) as { id: string; patch: unknown[] };
   } catch {
     return created;
   }
