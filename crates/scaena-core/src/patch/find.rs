@@ -52,7 +52,8 @@ pub enum Kind {
     /// legend's `title`, an annotation's `text`, a column's `title`, or a value an annotation's
     /// `at` picks out (`x`, `series`), which names a value of the data it is drawn from.
     Chart,
-    /// A cell of a data source written inline in the deck (`data.<name>.source.inline`).
+    /// A cell of a data source: written inline in the deck (`data.<name>.source.inline`), or in a
+    /// file the bundle holds, which `file` names.
     Data,
 }
 
