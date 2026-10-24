@@ -206,6 +206,7 @@ pub const SLOT_SHAPES: &str = "
 - The Ask: `slideTitle` is the request; up to three bullets give its specifics.
 - Bar Chart and Line Chart: the figures go in `chartData`; `keyBullets[0]` is the one takeaway.
 - Icons: where a slide's three to six bullets are parallel features, values, reasons, or parts, each \"label: detail\" (a Bullet List or a Gallery), give `icons`, one word per bullet, in order, naming a plain pictogram of it, a thing or a sign rather than an idea (\"rocket\", \"shield\", \"leaf\", \"users\", \"clock\", \"globe\"); leave `icons` empty on every other slide.
+- Sources: where the request gives sources (`=== SOURCE: name ===`), give each slide whose facts, figures, or quotations come from one a `sourceRef`, that source's name exactly as its header writes it; leave `sourceRef` out where a slide draws on no source.
 ";
 
 /// The arc-selection prompt's half that is the same for every brief: the rubric and the catalog.
