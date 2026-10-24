@@ -20,7 +20,7 @@ fail() {
   echo "$app is not signed as it ships: $1" >&2
   exit 1
 }
-grep -q "flags=.*(runtime)" <<<"$said" || fail "no hardened runtime ($(grep flags= <<<"$said"))"
+grep -Eq "flags=0x[0-9a-f]+\\(([a-z-]+,)*runtime[,)]" <<<"$said" || fail "no hardened runtime ($(grep flags= <<<"$said"))"
 for key in app-sandbox files.user-selected.read-write network.client network.server; do
   grep -q "com.apple.security.$key" <<<"$granted" || fail "no com.apple.security.$key"
 done
