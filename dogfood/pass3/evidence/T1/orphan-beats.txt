@@ -1,0 +1,11 @@
+remove7 (transcripts/T1.jsonl line 35): beats whose states the patch emptied; lint added: [] states: []
+  /spine/sections/0/beats/1/states | claim: One in twelve freight invoices is wrong, and nobody checks | evidence: None | duration: 34.0
+  /spine/sections/1/beats/1/states | claim: Accessorial charges cause most of the overbilling we found | evidence: ['@accessorial-charges-cause-most-of-data'] | duration: 38.0
+  /spine/sections/2/beats/0/states | claim: We knew we were overpaying but couldn’t afford to find out | evidence: None | duration: 43.0
+  /spine/sections/3/beats/0/states | claim: Audit every invoice before it is paid | evidence: None | duration: 18.0
+  /spine/sections/3/beats/2/states | claim: Audit moves from months after payment to seconds before it | evidence: None | duration: 36.0
+  /spine/sections/4/beats/1/states | claim: ARR grew fivefold this year to $910K | evidence: ['@arr-grew-fivefold-this-year-data'] | duration: 37.0
+  /spine/sections/5/beats/3/states | claim: Every freight invoice checked before it is paid | evidence: None | duration: 22.0
+
+scaena lint after: 3 x W210 only (evidence/checks/pitch-T1-after-remove-lint.json); health score 89 -> 91
+spine export of one such deck keeps the beat with no state or time: evidence/T1/orphan-spine-export.json, beats['accessorial-charges-cause-most-of-the-overbilling-we-fou'] = {'section': 'impact'}

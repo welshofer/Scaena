@@ -1,0 +1,3 @@
+pristine pitch: {'type': 'text', 'role': 'lede', 'text': 'priya@manifest.dev · manifest.dev', 'at': {'in': 'support'}}
+after background_set aurora (decks/pitch9): {'type': 'text', 'role': 'lede', 'text': 'priya@manifest.dev · manifest.dev', 'at': {'in': 'support'}, 'style': {'color': 'onSurface'}}
+after `scaena background ... --none` (scratch/bg): {'type': 'text', 'role': 'lede', 'text': 'priya@manifest.dev · manifest.dev', 'at': {'in': 'support'}, 'style': {'color': 'onSurface'}}

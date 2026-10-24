@@ -1,0 +1,549 @@
+{
+  "scaena": "0.35",
+  "title": "Manifest stops shippers paying for freight they never shipped",
+  "canvas": [
+    1920.0,
+    1080.0
+  ],
+  "formats": [],
+  "spine": {
+    "sections": [
+      {
+        "id": "problem",
+        "title": "Problem",
+        "beats": [
+          {
+            "id": "manifest-stops-shippers-paying-for-freight-they-never-sh",
+            "claim": "Manifest stops shippers paying for freight they never shipped",
+            "states": [
+              "manifest-stops-shippers-paying-for"
+            ],
+            "notes": "- Thanks for the time. We’re Manifest, and we audit every freight invoice before it gets paid.\n- We’re raising a $4M seed to take what worked in our pilots to the mid-market.\n- Fifteen minutes: the problem, what it costs, why today’s fixes fail, and what we built.",
+            "duration": 41.0,
+            "media": {
+              "narrato": {
+                "layout": "Title",
+                "beatIndex": 0,
+                "beatName": "Problem",
+                "purpose": "Names the company and the promise in one line",
+                "intent": "Make them curious why freight invoices need auditing",
+                "intensity": 0.3,
+                "valence": 0.1,
+                "visual": "A loading dock at dawn, trucks backed into bays, a single invoice glowing on a tablet in the foreground"
+              }
+            }
+          },
+          {
+            "id": "one-in-twelve-freight-invoices-is-wrong-and-nobody-check",
+            "claim": "One in twelve freight invoices is wrong, and nobody checks",
+            "states": [
+              "one-in-twelve-freight-invoices"
+            ],
+            "notes": "- Here’s the uncomfortable truth we found in every pilot.\n- About 8% of freight invoices carry an error, almost always in the carrier’s favor.\n- A shipper moving 20,000 loads a year can’t read every line, so they don’t.\n- They pay what they’re billed and hope the carrier got it right.",
+            "duration": 34.0,
+            "media": {
+              "narrato": {
+                "layout": "Statement",
+                "beatIndex": 0,
+                "beatName": "Problem",
+                "purpose": "States the core problem as a single hard fact",
+                "intent": "Make them feel the scale of unchecked overbilling",
+                "intensity": 0.6,
+                "valence": -0.4,
+                "visual": "A stack of thousands of invoices on a desk, one highlighted in red, the rest blurring into shadow"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "impact",
+        "title": "Impact",
+        "beats": [
+          {
+            "id": "billing-errors-drain-9-billion-from-us-shippers-every-ye",
+            "claim": "Billing errors drain $9 billion from US shippers every year",
+            "states": [
+              "billing-errors-drain-9-billion"
+            ],
+            "notes": "- We took the error rate from 2.1 million invoices we audited and applied it to US freight spend.\n- That’s $9 billion a year, paid and never recovered.\n- For a typical mid-market shipper, that’s $400K to $1.2M walking out the door.\n- And nobody on their team owns finding it.",
+            "duration": 39.0,
+            "media": {
+              "narrato": {
+                "layout": "Big Number",
+                "beatIndex": 1,
+                "beatName": "Impact",
+                "purpose": "Quantifies the cost of inaction with a single dollar figure",
+                "intent": "Make them feel that ignoring this is itself expensive",
+                "intensity": 0.85,
+                "valence": -0.7,
+                "visual": "A single enormous dollar figure over a highway at night, trucks streaking past as light trails",
+                "fact": "Manifest analysis of 2.1M invoices from 38 pilot shippers, applied to $1.1T US freight spend"
+              }
+            }
+          },
+          {
+            "id": "accessorial-charges-cause-most-of-the-overbilling-we-fou",
+            "claim": "Accessorial charges cause most of the overbilling we found",
+            "evidence": [
+              "@accessorial-charges-cause-most-of-data"
+            ],
+            "notes": "- Accessorials are the extras: liftgates, detention, residential delivery.\n- They’re billed after the fact and rarely match the contract.\n- Duplicates are next: the same load billed twice through two channels.\n- Rate drift is the quiet one: last year’s rate, this year’s invoice.",
+            "duration": 38.0,
+            "media": {
+              "narrato": {
+                "layout": "Bar Chart",
+                "beatIndex": 1,
+                "beatName": "Impact",
+                "purpose": "Shows where the money leaks so the problem feels concrete",
+                "intent": "Make them believe the errors are systematic, not random",
+                "intensity": 0.7,
+                "valence": -0.5
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "existing-approaches",
+        "title": "Existing Approaches",
+        "beats": [
+          {
+            "id": "we-knew-we-were-overpaying-but-couldn-t-afford-to-find-o",
+            "claim": "We knew we were overpaying but couldn’t afford to find out",
+            "states": [
+              "we-knew-we-were-overpaying"
+            ],
+            "notes": "Dana runs logistics for a $600M food distributor. Before Manifest, her team of four sampled two hundred invoices a month out of nine thousand. She knew the money was there; she had no way to get it without hiring an audit firm that would take a third of it.",
+            "duration": 43.0,
+            "media": {
+              "narrato": {
+                "layout": "Quote",
+                "beatIndex": 2,
+                "beatName": "Existing Approaches",
+                "purpose": "Gives the problem a human voice from a real buyer",
+                "intent": "Make them feel the buyer's frustration with the status quo",
+                "intensity": 0.65,
+                "valence": -0.5,
+                "visual": "Portrait of a logistics manager in a warehouse office, invoices pinned to a corkboard behind her"
+              }
+            }
+          },
+          {
+            "id": "audit-firms-recover-money-months-late-and-keep-a-third-o",
+            "claim": "Audit firms recover money months late and keep a third of it",
+            "states": [
+              "audit-firms-recover-money-months"
+            ],
+            "notes": "| | Audit firms | Manifest |\n| --- | --- | --- |\n| Speed | 45–60 days after payment | Before payment |\n| Cost | 30–50% contingency | Flat per-invoice fee |\n| Coverage | Sampled | Every invoice |",
+            "duration": 45.0,
+            "media": {
+              "narrato": {
+                "layout": "VS",
+                "beatIndex": 2,
+                "beatName": "Existing Approaches",
+                "purpose": "Shows why the incumbents cannot fix this",
+                "intent": "Make them see a gap the incumbents structurally cannot close",
+                "intensity": 0.6,
+                "valence": -0.2
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "audit-every-invoice-before-it-is-paid",
+        "title": "Audit every invoice before it is paid",
+        "beats": [
+          {
+            "id": "audit-every-invoice-before-it-is-paid",
+            "claim": "Audit every invoice before it is paid",
+            "states": [
+              "audit-every-invoice-before-it"
+            ],
+            "notes": "- So we built the audit that happens before the money moves.\n- Let me show you how it works.",
+            "duration": 18.0,
+            "media": {
+              "narrato": {
+                "layout": "Section Header",
+                "beatIndex": 3,
+                "beatName": "Solution",
+                "purpose": "Turns the deck from problem to solution",
+                "intent": "Signal that the answer is coming",
+                "intensity": 0.5,
+                "valence": 0.5,
+                "visual": "A single invoice on a dark background, a green check mark drawing itself across it"
+              }
+            }
+          },
+          {
+            "id": "manifest-checks-each-invoice-against-the-contract-in-sec",
+            "claim": "Manifest checks each invoice against the contract in seconds",
+            "states": [
+              "manifest-checks-each-invoice-against"
+            ],
+            "notes": "- Three steps, all automatic.\n- We read every invoice format carriers send, including scanned PDFs.\n- We match each charge to the contract and to what actually happened on the dock.\n- When something’s wrong, we file the dispute with evidence attached.\n- AP only ever sees verified amounts.",
+            "duration": 59.0,
+            "media": {
+              "narrato": {
+                "layout": "How It Works",
+                "beatIndex": 3,
+                "beatName": "Solution",
+                "purpose": "Explains the mechanism so the claim feels credible",
+                "intent": "Make them believe the product is real and simple to adopt",
+                "intensity": 0.6,
+                "valence": 0.5,
+                "visual": "A clean three-panel diagram: an invoice, a contract, and a dispute email connected by glowing lines"
+              }
+            }
+          },
+          {
+            "id": "audit-moves-from-months-after-payment-to-seconds-before",
+            "claim": "Audit moves from months after payment to seconds before it",
+            "states": [
+              "audit-moves-from-months-after"
+            ],
+            "notes": "- This is the shift that matters.\n- Recovery after payment is slow, adversarial, and expensive.\n- Prevention before payment is fast and the carrier usually just reissues the invoice.\n- Our pilots disputed before payment 94% of the time.",
+            "duration": 36.0,
+            "media": {
+              "narrato": {
+                "layout": "Before / After",
+                "beatIndex": 3,
+                "beatName": "Solution",
+                "purpose": "Shows the transformation in one comparison",
+                "intent": "Make them feel how much better prevention is than recovery",
+                "intensity": 0.75,
+                "valence": 0.7
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "proof",
+        "title": "Proof",
+        "beats": [
+          {
+            "id": "pilots-recovered-4-2-of-freight-spend-within-90-days",
+            "claim": "Pilots recovered 4.2% of freight spend within 90 days",
+            "states": [
+              "pilots-recovered-4-2-of-freight"
+            ],
+            "notes": "- These are paid pilots, not free trials.\n- 4.2% of spend recovered is real money: $840K for a shipper spending $20M.\n- We’ve audited 2.1 million invoices, so the error rates aren’t a fluke.\n- Carriers accept 97% of our disputes because we attach the evidence.",
+            "duration": 37.0,
+            "media": {
+              "narrato": {
+                "layout": "Scorecard",
+                "beatIndex": 4,
+                "beatName": "Proof",
+                "purpose": "Proves the product works with hard numbers",
+                "intent": "Make them believe the results are repeatable",
+                "intensity": 0.85,
+                "valence": 0.8
+              }
+            }
+          },
+          {
+            "id": "arr-grew-fivefold-this-year-to-910k",
+            "claim": "ARR grew fivefold this year to $910K",
+            "evidence": [
+              "@arr-grew-fivefold-this-year-data"
+            ],
+            "states": [
+              "arr-grew-fivefold-this-year"
+            ],
+            "notes": "- We converted 31 of 38 pilots to annual contracts.\n- Growth has come entirely from referrals and two logistics conferences.\n- No paid acquisition yet; that’s part of what this round funds.\n- Net revenue retention is 138% because customers add carriers and sites.",
+            "duration": 37.0,
+            "media": {
+              "narrato": {
+                "layout": "Line Chart",
+                "beatIndex": 4,
+                "beatName": "Proof",
+                "purpose": "Shows traction is accelerating",
+                "intent": "Make them feel momentum they want to be part of",
+                "intensity": 0.8,
+                "valence": 0.8
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "call-to-action",
+        "title": "Call to Action",
+        "beats": [
+          {
+            "id": "a-2-4b-market-sits-inside-mid-market-freight-spend",
+            "claim": "A $2.4B market sits inside mid-market freight spend",
+            "states": [
+              "a-2-4b-market-sits-inside"
+            ],
+            "notes": "- We start with mid-market shippers, $10M to $200M in freight spend.\n- They’re too small for the big audit firms and too big to check by hand.\n- 4,200 of them already exchange EDI with the top carriers, so onboarding is days, not months.\n- That’s a $2.4B revenue opportunity before we touch enterprise.",
+            "duration": 46.0,
+            "media": {
+              "narrato": {
+                "layout": "Funnel",
+                "beatIndex": 5,
+                "beatName": "Call to Action",
+                "purpose": "Sizes the opportunity for investors",
+                "intent": "Make them believe the market can support a large company",
+                "intensity": 0.6,
+                "valence": 0.5
+              }
+            }
+          },
+          {
+            "id": "built-by-people-who-ran-freight-audit-at-scale",
+            "claim": "Built by people who ran freight audit at scale",
+            "states": [
+              "built-by-people-who-ran"
+            ],
+            "notes": "- Priya ran audit at Flexport and saw the same errors at every customer.\n- Marcus built Stripe’s reconciliation engine, which is the same matching problem at a different scale.\n- Jen has sold to exactly the buyers we’re selling to.\n- We’ve worked together on and off for eight years.",
+            "duration": 46.0,
+            "media": {
+              "narrato": {
+                "layout": "Team",
+                "beatIndex": 5,
+                "beatName": "Call to Action",
+                "purpose": "Establishes the team's credibility",
+                "intent": "Make them trust this team to execute",
+                "intensity": 0.5,
+                "valence": 0.4
+              }
+            }
+          },
+          {
+            "id": "we-re-raising-4m-to-reach-5m-arr-by-end-of-2027",
+            "claim": "We’re raising $4M to reach $5M ARR by end of 2027",
+            "states": [
+              "we-re-raising-4m-to-reach"
+            ],
+            "notes": "- We’re raising $4M on a $20M post-money SAFE.\n- It gets us 18 months and 120 shippers, which is $5M ARR.\n- Most of it goes to engineering: more carrier formats, more contract types.\n- We have $1.5M committed and want a lead who knows supply chain.",
+            "duration": 40.0,
+            "media": {
+              "narrato": {
+                "layout": "The Ask",
+                "beatIndex": 5,
+                "beatName": "Call to Action",
+                "purpose": "Makes the explicit request with terms",
+                "intent": "Make them want to lead the round",
+                "intensity": 0.9,
+                "valence": 0.7
+              }
+            }
+          },
+          {
+            "id": "every-freight-invoice-checked-before-it-is-paid",
+            "claim": "Every freight invoice checked before it is paid",
+            "states": [
+              "every-freight-invoice-checked-before"
+            ],
+            "notes": "- That’s Manifest: every invoice checked before it’s paid.\n- We’d love to have you in the round.\n- Happy to share the pilot data room after this call.",
+            "duration": 22.0,
+            "media": {
+              "narrato": {
+                "layout": "Closing",
+                "beatIndex": 5,
+                "beatName": "Call to Action",
+                "purpose": "Lands the promise and the contact",
+                "intent": "Make them remember the one-line promise",
+                "intensity": 0.6,
+                "valence": 0.7,
+                "visual": "The loading dock from the cover, now at full daylight, trucks departing"
+              }
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "states": [
+    {
+      "id": "manifest-stops-shippers-paying-for",
+      "slide": "manifest-stops-shippers-paying-for",
+      "start": 0.0,
+      "span": 0.0
+    },
+    {
+      "id": "one-in-twelve-freight-invoices",
+      "slide": "one-in-twelve-freight-invoices",
+      "start": 0.0,
+      "span": 420.0
+    },
+    {
+      "id": "billing-errors-drain-9-billion",
+      "slide": "billing-errors-drain-9-billion",
+      "start": 420.0,
+      "span": 800.0
+    },
+    {
+      "id": "we-knew-we-were-overpaying",
+      "slide": "we-knew-we-were-overpaying",
+      "start": 1220.0,
+      "span": 420.0
+    },
+    {
+      "id": "audit-firms-recover-money-months",
+      "slide": "audit-firms-recover-money-months",
+      "start": 1640.0,
+      "span": 1344.0
+    },
+    {
+      "id": "audit-every-invoice-before-it",
+      "slide": "audit-every-invoice-before-it",
+      "start": 2984.0,
+      "span": 420.0
+    },
+    {
+      "id": "manifest-checks-each-invoice-against",
+      "slide": "manifest-checks-each-invoice-against",
+      "start": 3404.0,
+      "span": 1344.0
+    },
+    {
+      "id": "audit-moves-from-months-after",
+      "slide": "audit-moves-from-months-after",
+      "start": 4748.0,
+      "span": 1092.0
+    },
+    {
+      "id": "pilots-recovered-4-2-of-freight",
+      "slide": "pilots-recovered-4-2-of-freight",
+      "start": 5840.0,
+      "span": 1596.0
+    },
+    {
+      "id": "arr-grew-fivefold-this-year",
+      "slide": "arr-grew-fivefold-this-year",
+      "start": 7436.0,
+      "span": 890.0000000000003
+    },
+    {
+      "id": "a-2-4b-market-sits-inside",
+      "slide": "a-2-4b-market-sits-inside",
+      "start": 8326.0,
+      "span": 1596.0
+    },
+    {
+      "id": "built-by-people-who-ran",
+      "slide": "built-by-people-who-ran",
+      "start": 9922.0,
+      "span": 1344.0
+    },
+    {
+      "id": "we-re-raising-4m-to-reach",
+      "slide": "we-re-raising-4m-to-reach",
+      "start": 11266.0,
+      "span": 1344.0
+    },
+    {
+      "id": "every-freight-invoice-checked-before",
+      "slide": "every-freight-invoice-checked-before",
+      "start": 12610.0,
+      "span": 800.0
+    }
+  ],
+  "beats": {
+    "manifest-stops-shippers-paying-for-freight-they-never-sh": {
+      "section": "problem",
+      "state": "manifest-stops-shippers-paying-for",
+      "start": 0.0,
+      "end": 0.0,
+      "thumbnail": "renders/manifest-stops-shippers-paying-for-freight-they-never-sh.png"
+    },
+    "one-in-twelve-freight-invoices-is-wrong-and-nobody-check": {
+      "section": "problem",
+      "state": "one-in-twelve-freight-invoices",
+      "start": 0.0,
+      "end": 420.0,
+      "thumbnail": "renders/one-in-twelve-freight-invoices-is-wrong-and-nobody-check.png"
+    },
+    "billing-errors-drain-9-billion-from-us-shippers-every-ye": {
+      "section": "impact",
+      "state": "billing-errors-drain-9-billion",
+      "start": 420.0,
+      "end": 1220.0,
+      "thumbnail": "renders/billing-errors-drain-9-billion-from-us-shippers-every-ye.png"
+    },
+    "accessorial-charges-cause-most-of-the-overbilling-we-fou": {
+      "section": "impact"
+    },
+    "we-knew-we-were-overpaying-but-couldn-t-afford-to-find-o": {
+      "section": "existing-approaches",
+      "state": "we-knew-we-were-overpaying",
+      "start": 1220.0,
+      "end": 1640.0,
+      "thumbnail": "renders/we-knew-we-were-overpaying-but-couldn-t-afford-to-find-o.png"
+    },
+    "audit-firms-recover-money-months-late-and-keep-a-third-o": {
+      "section": "existing-approaches",
+      "state": "audit-firms-recover-money-months",
+      "start": 1640.0,
+      "end": 2984.0,
+      "thumbnail": "renders/audit-firms-recover-money-months-late-and-keep-a-third-o.png"
+    },
+    "audit-every-invoice-before-it-is-paid": {
+      "section": "audit-every-invoice-before-it-is-paid",
+      "state": "audit-every-invoice-before-it",
+      "start": 2984.0,
+      "end": 3404.0,
+      "thumbnail": "renders/audit-every-invoice-before-it-is-paid.png"
+    },
+    "manifest-checks-each-invoice-against-the-contract-in-sec": {
+      "section": "audit-every-invoice-before-it-is-paid",
+      "state": "manifest-checks-each-invoice-against",
+      "start": 3404.0,
+      "end": 4748.0,
+      "thumbnail": "renders/manifest-checks-each-invoice-against-the-contract-in-sec.png"
+    },
+    "audit-moves-from-months-after-payment-to-seconds-before": {
+      "section": "audit-every-invoice-before-it-is-paid",
+      "state": "audit-moves-from-months-after",
+      "start": 4748.0,
+      "end": 5840.0,
+      "thumbnail": "renders/audit-moves-from-months-after-payment-to-seconds-before.png"
+    },
+    "pilots-recovered-4-2-of-freight-spend-within-90-days": {
+      "section": "proof",
+      "state": "pilots-recovered-4-2-of-freight",
+      "start": 5840.0,
+      "end": 7436.0,
+      "thumbnail": "renders/pilots-recovered-4-2-of-freight-spend-within-90-days.png"
+    },
+    "arr-grew-fivefold-this-year-to-910k": {
+      "section": "proof",
+      "state": "arr-grew-fivefold-this-year",
+      "start": 7436.0,
+      "end": 8326.0,
+      "thumbnail": "renders/arr-grew-fivefold-this-year-to-910k.png"
+    },
+    "a-2-4b-market-sits-inside-mid-market-freight-spend": {
+      "section": "call-to-action",
+      "state": "a-2-4b-market-sits-inside",
+      "start": 8326.0,
+      "end": 9922.0,
+      "thumbnail": "renders/a-2-4b-market-sits-inside-mid-market-freight-spend.png"
+    },
+    "built-by-people-who-ran-freight-audit-at-scale": {
+      "section": "call-to-action",
+      "state": "built-by-people-who-ran",
+      "start": 9922.0,
+      "end": 11266.0,
+      "thumbnail": "renders/built-by-people-who-ran-freight-audit-at-scale.png"
+    },
+    "we-re-raising-4m-to-reach-5m-arr-by-end-of-2027": {
+      "section": "call-to-action",
+      "state": "we-re-raising-4m-to-reach",
+      "start": 11266.0,
+      "end": 12610.0,
+      "thumbnail": "renders/we-re-raising-4m-to-reach-5m-arr-by-end-of-2027.png"
+    },
+    "every-freight-invoice-checked-before-it-is-paid": {
+      "section": "call-to-action",
+      "state": "every-freight-invoice-checked-before",
+      "start": 12610.0,
+      "end": 13410.0,
+      "thumbnail": "renders/every-freight-invoice-checked-before-it-is-paid.png"
+    }
+  }
+}

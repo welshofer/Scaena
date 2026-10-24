@@ -1,0 +1,4 @@
+== move_slide growth-is-healthy-and-retention after the cover (scratch/move, from pristine/qbr)
+lint after move: W426 added
+health drift fix applied: [{"op": "replace", "path": "/spine/sections/4/beats/2/media/narrato/beatIndex", "value": 0}, {"op": "replace", "path": "/spine/sections/4/beats/2/media/narrato/beatName", "value": "Context"}]
+lint after the drift fix: [('W210', '/states/3'), ('W210', '/states/10'), ('W210', '/states/11'), ('W210', '/states/12'), ('W426', '/spine/sections/4/beats/2')]

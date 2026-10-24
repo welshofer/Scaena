@@ -1,0 +1,8 @@
+== scaena find pristine/qbr "Net new ARR"
+matches 1 [('text', 'enterprise-drove-two-thirds-of-new-takeaway')]
+== scaena find pristine/qbr "Mid-market"
+matches 5 [('notes', None), ('claim', None), ('notes', None), ('text', 'smb-churn-climbed-to-4-9-header'), ('alt', 'smb-churn-climbed-to-4-9-main')]
+== what the deck draws that find skipped:
+y.title: Net new ARR ($M)
+data categories: ['Enterprise', 'Mid-market', 'SMB']
+smb-churn series: ['Mid-market', 'SMB']

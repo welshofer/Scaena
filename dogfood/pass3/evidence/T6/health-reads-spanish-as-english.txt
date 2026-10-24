@@ -1,0 +1,15 @@
+meta.lang = es-ES and meta.narrative.brief.language = Spanish in decks/keynote; health ignores both.
+
+[base] intensity {'score': 75, 'says': '6 slides read far from the intensity they declare.'} tone {'score': 74, 'says': '4 slides read far from the tone they declare.'}
+  per slide (intensity read, tone read): [(0.48, 0.28), (0.44, -0.2), (0.42, -0.08), (0.42, 0), (0.48, 0.21), (0.45, -0.07), (0.54, 0), (0.5, -0.11), (0.49, -0.36), (0.59, 0), (0.45, 0.3), (0.54, 0), (0.56, 0)]
+  10 intensity/tone findings, 10 with a 'Plan its ... as it reads' fix, e.g.:
+    Slide 1 reads hotter than it was written to be. | Calm slide 1's words to the intensity it declares (0.20); they read 0.48. | [{"op": "replace", "path": "/spine/sections/0/beats/0/media/narrato/intensity", "value": 0.48}]
+    Slide 2 reads flatter than it was written to be. | Make slide 2's words carry the intensity its place in the story needs (0.85): sharper verbs, a figure that lands. | [{"op": "replace", "path": "/spine/sections/1/beats/0/media/narrato/intensity", "value": 0.44}]
+    Slide 3 reads flatter than it was written to be. | Make slide 3's words carry the intensity its place in the story needs (0.70): sharper verbs, a figure that lands. | [{"op": "replace", "path": "/spine/sections/1/beats/1/media/narrato/intensity", "value": 0.42}]
+
+[T6-final] intensity {'score': 70, 'says': '8 slides read far from the intensity they declare.'} tone {'score': 72, 'says': '4 slides read far from the tone they declare.'}
+  per slide (intensity read, tone read): [(0.42, 0.11), (0.41, 0), (0.42, 0), (0.42, 0), (0.43, 0), (0.42, 0), (0.42, 0), (0.42, 0), (0.42, 0), (0.46, 0), (0.42, 0.11), (0.4, 0), (0.42, 0)]
+  12 intensity/tone findings, 12 with a 'Plan its ... as it reads' fix, e.g.:
+    Slide 2 reads flatter than it was written to be. | Make slide 2's words carry the intensity its place in the story needs (0.85): sharper verbs, a figure that lands. | [{"op": "replace", "path": "/spine/sections/1/beats/0/media/narrato/intensity", "value": 0.41}]
+    Slide 2 reads neutral, where it was written to sound grave. | Ground slide 2's words in the tone it declares (−0.80); they read +0.00. | [{"op": "replace", "path": "/spine/sections/1/beats/0/media/narrato/valence", "value": 0.0}]
+    Slide 3 reads flatter than it was written to be. | Make slide 3's words carry the intensity its place in the story needs (0.70): sharper verbs, a figure that lands. | [{"op": "replace", "path": "/spine/sections/1/beats/1/media/narrato/intensity", "value": 0.42}]
