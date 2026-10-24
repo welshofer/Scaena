@@ -14,7 +14,7 @@ mod prompt;
 mod providers;
 mod tools;
 
-pub use prompt::{Brief, Characters, Client, Facts, Listed, Seeing, Selected, seen, system, system_of};
+pub use prompt::{Brief, Characters, Client, FACTS, Facts, Listed, Seeing, Selected, seen, stable, system, system_of};
 pub use providers::{Ask, Provider, Request, Stop, Turn, Usage, inlined};
 pub use tools::{RESOURCE_READ, made, resource_read, summary, tools};
 
