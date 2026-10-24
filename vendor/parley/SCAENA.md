@@ -1,7 +1,7 @@
 # parley 0.11.1, patched for Scaena
 
-This is parley 0.11.1 as crates.io publishes it, with one change, carried until parley makes it
-upstream (ADR-0004 finding 21). The workspace takes it through `[patch.crates-io]` and leaves it
+This is parley 0.11.1 as crates.io publishes it, with two changes, carried until parley makes them
+upstream (ADR-0004 findings 21 and 25). The workspace takes it through `[patch.crates-io]` and leaves it
 out of its members, so Scaena's lints, formatting, and tests do not run over it.
 
 **A change of spacing no longer splits a run of text into runs shaped apart.** parley shaped a
@@ -18,6 +18,13 @@ spacing does; each cluster takes the spacing its own style asks for (`LayoutData
 - `layout/mod.rs`, `resolve/mod.rs`: the layout's `Style` keeps the two spacings it resolved.
 
 Text whose spacing does not change within a run of one font lays out exactly as before.
+
+**A no-break space no longer breaks a line it overflows** (finding 25). parley hung an
+overflowing space or no-break space and broke the line after it, so a no-break space, UAX #14's
+glue, held nothing together at a line's end. Now only a space hangs so; a no-break space
+overflows as a letter does, and the line breaks at the last opportunity before it.
+
+- `layout/line_break.rs`: the overflow case that hangs whitespace asks for `Whitespace::Space`.
 
 Its manifest allows `deprecated`: parley 0.11.1 calls a method icu_properties 2.x deprecates, and as
 a path dependency the warning would show in every build.
