@@ -348,8 +348,6 @@ fn show_and_hide_make_a_node_enter_and_leave() {
         json!([
             { "op": "add", "path": "/states/2/remove", "value": ["note"] },
             { "op": "remove", "path": "/states/0/props/subtitle" },
-            // Its entrance there, which would move nothing now, goes with it (W322, dogfood 3).
-            { "op": "remove", "path": "/states/0/choreography/1" },
             { "op": "add", "path": "/states/2/props/subtitle", "value": { "role": "caption" } },
             { "op": "replace", "path": "/states/3/remove", "value": ["note"] },
         ])

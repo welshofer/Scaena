@@ -516,12 +516,6 @@ impl Rule for W322Idle {
     }
 }
 
-/// The motions that move nothing in `deck` (W322), as `snapshots` resolve it: what `hide_node`
-/// takes out with a node it hides (dogfood 3).
-pub(crate) fn idle(deck: &crate::Deck, snapshots: &[crate::tracking::Snapshot]) -> Vec<Finding> {
-    W322Idle.check(&Context { deck, theme: None, snapshots })
-}
-
 /// The patch that takes `id` out of the motion at `pointer` in state `i`'s `choreography`: out of
 /// its targets where it has others, else the motion goes, and a sequence or a parallel it leaves
 /// with none goes with it.
