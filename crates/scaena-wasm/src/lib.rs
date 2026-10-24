@@ -1033,6 +1033,12 @@ impl Player {
         serde_json::to_string(&self.0.starting(state, layout.as_deref()).map_err(js)?).map_err(js)
     }
 
+    /// The patch that makes a new deck's title slide after the slide of `state`, as JSON:
+    /// `{ id, patch }`, its places for a picture given the theme's example (PLAN 3.30).
+    pub fn titling(&self, state: &str) -> Result<String, JsError> {
+        serde_json::to_string(&self.0.titling(state).map_err(js)?).map_err(js)
+    }
+
     /// Whether `node`, as `state` shows it, still reads as its slot's prompt (PLAN 3.30): what the
     /// canvas selects whole as typing begins in it.
     pub fn prompted(&self, state: &str, node: &str) -> Result<bool, JsError> {
@@ -1256,6 +1262,12 @@ impl Player {
     #[wasm_bindgen(js_name = bundleFiles)]
     pub fn bundle_files(&self) -> Result<String, JsError> {
         serde_json::to_string(&self.0.bundle_files().map_err(js)?).map_err(js)
+    }
+
+    /// The sources a deck made from a prompt was grounded in, as JSON (narrative FUNC-3):
+    /// `[{ name, kind, url?, bytes, truncated, cited, states }]`, as `scaena files --json` lists them.
+    pub fn grounded(&self) -> String {
+        serde_json::to_string(&self.0.grounded()).expect("what a deck was grounded in is JSON")
     }
 
     /// `path` taken out of the bundle (PLAN 2.59): one of its images, fonts, or data that nothing
