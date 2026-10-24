@@ -24,7 +24,7 @@
 // Each step is screenshotted into target/edit-deck/, with its time. Exits 1 on any failure.
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { decode, launch, retheme, serve } from "./serve.mjs";
+import { decode, launch, retheme, serve, tab } from "./serve.mjs";
 
 const out = "target/edit-deck";
 await mkdir(out, { recursive: true });
@@ -215,7 +215,7 @@ try {
     await show("miles");
     await page.waitForTimeout(500);
     const was = await painted();
-    await page.click("#tab-data");
+    await tab(page, "data");
     await until("the Data tab's sources", () => [...document.querySelectorAll("#data select[data-source] option")].some((o) => o.value === "miles"));
     await page.selectOption("#data select[data-source]", "miles");
     // The rows, not the table: the table is in the page before the worker's rows come.
@@ -246,7 +246,7 @@ try {
     // "June to September beat the plan": the first word, by the keys.
     await page.keyboard.press("Home");
     for (let i = 0; i < 4; i++) await page.keyboard.press("Shift+ArrowRight");
-    await page.click("#tab-data");
+    await tab(page, "data");
     const cell = page.locator('#data input[data-row="0"][data-col="1"]');
     await cell.click();
     const at = await mark();
@@ -394,13 +394,15 @@ try {
     await presenter.waitForSelector("#on", { timeout: 120000 });
     await presenter.waitForTimeout(1500);
     const was = await player.evaluate(() => window.scaena.at().index);
+    // Where the presenter view says it is, read before the click: once the player has gone on,
+    // the view may already say where it went.
+    const before = await presenter.textContent("#where");
     await presenter.click("#on");
     const went = await player
       .waitForFunction((w) => window.scaena.at().index === w + 1, was, { timeout: 30000 })
       .then(() => true)
       .catch(() => false);
     // The presenter view follows the player to where it went.
-    const before = await presenter.textContent("#where");
     const follows = await presenter
       .waitForFunction((b) => /^Slide \d+ of \d+/.test(document.querySelector("#where").textContent) && document.querySelector("#where").textContent !== b, before, { timeout: 30000 })
       .then(() => true)
