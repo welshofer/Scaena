@@ -214,11 +214,12 @@ function folders<T>(mode: IDBTransactionMode, act: (store: IDBObjectStore) => ID
 /** What the editor has open, to close when it opens another bundle; `say` puts a line in its
  * status that stays, before what lint finds, until the source is edited by hand. `kept` is the
  * name the browser keeps it under, if it does, and `rekeep` renames a bundle the browser keeps, or
- * deletes it, through the bundle's worker, which writes where the page may not (PLAN 2.124). */
+ * deletes it, through the bundle's worker, which writes where the page may not (PLAN 2.124).
+ * `unsaved` says whether closing it loses something: an edit not saved, or a deck kept nowhere. */
 let current:
   | {
       close: () => void;
-      dirty: () => boolean;
+      unsaved: () => boolean;
       say: (text: string) => void;
       models: (provider: ProviderId, key: string, base?: string) => Promise<string[]>;
       kept: () => string | undefined;
@@ -241,7 +242,7 @@ function namedFor(source: Source): string {
  * were asked about already. One that does not open leaves the bundle open as it was, in use, and
  * the status says why, by the file's name. */
 async function open(source: Source, asked = false) {
-  if (!asked && current?.dirty() && !confirm("The bundle has changes not saved. Open another and lose them?")) return;
+  if (!asked && current?.unsaved() && !confirm("The deck open is not saved. Open another and lose what is not saved?")) return;
   $("#status").textContent = "Opening…";
   let stage: Stage;
   try {
@@ -431,7 +432,7 @@ async function controls() {
   prompting(
     worker,
     $("#new-prompt"),
-    () => current?.dirty() ?? false,
+    () => current?.unsaved() ?? false,
     (source) => open(source, true),
     (line) => current?.say(line),
     (provider, key, base) => (current ? current.models(provider, key, base) : Promise.reject(new Error("no deck is open"))),
@@ -536,6 +537,11 @@ async function edit(source: Source, opened?: Stage) {
   let filed = 0;
   let filedSaved = 0;
   const dirty = () => filed !== filedSaved || (savedSource !== undefined && view.state.doc.toString() !== savedSource);
+  /** Whether the deck is kept nowhere yet: made by New, from a prompt, or from files dropped. */
+  const unkept = () => !where && ("create" in source || "files" in source);
+  /** Whether closing the deck would lose something: an edit not saved, or a deck kept nowhere,
+   * which opens with nothing edited and nothing of it kept (lift-up 10-24 REL-1). */
+  const unsaved = () => dirty() || unkept();
   /** The folder on disk the bundle is kept in, where the page has its handle. */
   let folderHandle: FileSystemDirectoryHandle | undefined = "folder" in source ? source.folder : undefined;
   /** How many times the engine has been started again after a panic (lift-up STAB-2). */
@@ -601,7 +607,7 @@ async function edit(source: Source, opened?: Stage) {
     copyTimer = undefined;
     const run = async () => {
       const key = copyKey();
-      if (!dirty()) {
+      if (!unsaved()) {
         copied = new Map();
         return discard(key);
       }
@@ -642,8 +648,6 @@ async function edit(source: Source, opened?: Stage) {
   };
   /** The deck's title, once its source is read: what the tab names. */
   const titled = () => (savedSource === undefined ? undefined : heading());
-  /** Whether the deck is kept nowhere yet: made by New, or from files dropped. */
-  const unkept = () => !where && ("create" in source || "files" in source);
   const tell = () => {
     const kinds = {
       folder: `In the folder ${where?.name}`,
@@ -651,7 +655,7 @@ async function edit(source: Source, opened?: Stage) {
       serve: `In the folder ${where?.name}, served${scnOnDisk ? ", from its deck.scn" : ""}`,
     };
     // A deck kept nowhere yet is named by its title, not the name it would be kept by.
-    const kept = where ? kinds[where.kind] : `${titled() || name}, not saved`;
+    const kept = where ? kinds[where.kind] : `${titled() || name} · Not saved yet`;
     whereLine.textContent = `${kept}${dirty() ? " · edited" : ""}`;
     // The tab names the deck, as a window's title does, and says when it has changes not saved.
     document.title = `${titled() || name}${dirty() ? " — edited" : ""} · Scaena`;
@@ -2913,7 +2917,7 @@ async function edit(source: Source, opened?: Stage) {
     const field = document.activeElement;
     const unsettled =
       board.unsettled() || ((field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement) && $("#look").contains(field) && field.value !== field.defaultValue);
-    if (dirty() || unsettled) e.preventDefault();
+    if (unsaved() || unsettled) e.preventDefault();
   };
   current = {
     close: () => {
@@ -2926,7 +2930,7 @@ async function edit(source: Source, opened?: Stage) {
       // What it listened for on the page goes with it: the bundle opened next hears each key once.
       ended();
     },
-    dirty,
+    unsaved,
     say,
     models: (provider, key, base) => stage.models(provider, key, base),
     kept: () => (where?.kind === "opfs" ? where.name : undefined),

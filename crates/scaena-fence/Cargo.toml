@@ -1,0 +1,11 @@
+[package]
+name = "scaena-fence"
+description = "The deck's words fenced as data in a model's prompt: one fence for the assistant, Narrato, and the writing tools, with no dependency, so each may take it (lift-up SEC-3)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
