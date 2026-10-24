@@ -5,8 +5,7 @@
 //
 // - New, from its dialog: a title and a theme that ships. The deck is the theme and its fonts, as
 //   `deck_create` makes one, on a title slide in the theme's title layout, its words to type over
-//   and the theme's backdrop in its picture's place, as the dialog draws the theme, so no place
-//   waits, which no undo takes back (PLAN 3.30), typing in its title,
+//   and its picture's place outlined, which no undo takes back (PLAN 3.30), typing in its title,
 //   its words selected, so the first keys replace them (PLAN 3.21). It compiles and lints
 //   with no error, kept nowhere, named for its title. Each theme makes one, and the dialog shows
 //   the theme chosen as its title slide, drawn at build (PLAN T.0c); Play on one kept nowhere
@@ -100,7 +99,7 @@ try {
   const made = await where();
   check(made.where === undefined && !made.dirty, `a new deck is kept nowhere, named for its title: ${JSON.stringify(made)}`);
   const told = await page.locator("#where").innerText();
-  check(told === "Field notes: what’s next, not saved", `the line under the slide names it by its title, not its slug: ${told}`);
+  check(told === "Field notes: what’s next · Not saved yet", `the line under the slide names it by its title, not its slug: ${told}`);
   const source = await page.evaluate(() => window.scaena.source());
   check(source.includes('deck "Field notes: what’s next"') && source.includes('theme:"themes/daybreak.theme.json"'), `its source has its title and its theme: ${source.split("\n")[0]}`);
   check(
@@ -112,9 +111,10 @@ try {
     words.join(" · ") === "kicker: Your name · the date · title: The talk's title · subtitle: What it's about, in a line",
     `its words to type over: ${words.join(" · ")}`,
   );
-  const backdrop = /^\s*\S+ shader:\S+ [^\n]*\bpreset:backdrop\b[^\n]*at:in\(art\)/m.test(source);
-  const waits = await page.evaluate(() => window.scaena.canvas.waiting().map((w) => w.slot));
-  check(backdrop && !waits.includes("art"), `the theme's backdrop in its picture's place, which waits no more: ${waits}`);
+  const art = await page
+    .waitForFunction(() => window.scaena.canvas.waiting().find((w) => w.slot === "art"), null, { timeout: 30000 })
+    .then((h) => h.jsonValue(), () => undefined);
+  check(art?.typed === false, `its picture's place outlined: ${art?.words}`);
   // It opens typing in its title, not on New…; Escape leaves the title as it was, and a space
   // then opens no second New.
   const titleOf = /^\s*(\S+) text\b[^\n]*\bat:in\(title\)/m.exec(source)?.[1];

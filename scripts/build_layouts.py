@@ -623,8 +623,10 @@ layout("Numbers", "metric-trend", "One number and the line that led to it: where
     "number": slot((1, 5), (3, 6), "hero", "42%", align={"y": "end"}, fit="shrink"),
     "claim": slot((1, 5), (8, 9), "title", "What the number means"),
     "main": slot((7, 12), (3, 8), prompt="A chart of how it got there", example=chart("line")),
-    "note": slot((7, 12), (9, 10), "caption", "Six months, by month"),
-}, ember={"number": ((1, 5), (4, 8)), "claim": ((1, 5), (10, 12)), "main": ((7, 12), (4, 10)), "note": ((7, 12), (11, 12))})
+    "note": slot((7, 12), (9, 9), "caption", "Six months, by month"),
+    "source": slot((7, 12), (10, 10), "caption", "Its source"),
+}, ember={"number": ((1, 5), (4, 8)), "claim": ((1, 5), (10, 12)), "main": ((7, 12), (4, 10)), "note": ((7, 12), (11, 11)),
+          "source": ((7, 12), (12, 12))})
 
 # Charts ----------------------------------------------------------------------------------------
 
@@ -642,6 +644,7 @@ layout("Charts", "line-chart", "A headline over a line chart, the turn it takes 
     "main": slot((1, 9), (3, 10), prompt="A line chart", example=chart("line")),
     "callout": slot((10, 12), (3, 5), "figure", "+38%", align={"y": "end"}),
     "note": slot((10, 12), (6, 8), "caption", "What changed, and when"),
+    "source": slot((10, 12), (9, 10), "caption", "Its source"),
 })
 
 layout("Charts", "donut-chart", "Shares of a whole: a donut, and the parts that matter most beside it.", {
@@ -1036,6 +1039,7 @@ layout("Charts", "positioning-map", "Each player placed by two measures, a dot a
     "main": slot((1, 8), (3, 10), prompt="A scatter of the players", example=chart("scatter")),
     "takeaway": slot((9, 12), (3, 6), "lede", "Where we stand, in a sentence"),
     "note": slot((9, 12), (7, 8), "caption", "Each dot a player, ours marked"),
+    "source": slot((9, 12), (9, 10), "caption", "Its source"),
 })
 
 # Comparison ------------------------------------------------------------------------------------

@@ -1,5 +1,5 @@
 {
-  "scaena": "0.36",
+  "scaena": "0.37",
   "_comment": "W304 trigger: a slide in a layout that keeps a place for a picture, its headline written and the picture's place left empty.",
   "canvas": {"width": 1920, "height": 1080},
   "theme": "theme.json",

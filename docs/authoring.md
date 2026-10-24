@@ -163,7 +163,7 @@ cd target/site && python3 serve.py      # then open http://localhost:8080/editor
 
 | | |
 |---|---|
-| **New…** | a new deck: a title and a theme (Dusk, Daybreak, Ember, or Salon), with its fonts, on a title slide whose words you type over. It is kept nowhere until you save it. |
+| **New…** | a new deck: a title and a theme (Dusk, Daybreak, Ember, or Salon), with its fonts, on a title slide whose words you type over. It is kept nowhere until you save it, and says "Not saved yet" under the slide: leaving the page, or opening another deck, asks first. |
 | **Open folder…** (Chrome, Edge) | a bundle folder on your disk. **Save** writes back into it. Use this to keep your work as files. |
 | **Open .scaena…** | a `.scaena` file, copied into the browser's storage. |
 | **Kept in this browser…** | the bundles this browser keeps. A deck opened from the site's own folder saves here, under its name. Each is opened by its name, renamed with **Rename…**, or deleted with **Delete…**, which asks first; the deck open is renamed where it is and saves there from then on, and is not deleted. |
@@ -176,7 +176,7 @@ A file dropped on the source joins the bundle, and its path, quoted, goes where 
 
 **Your own deck in the site.** Copy its folder into the site's `decks/`, then open `editor.html?bundle=decks/my-talk/`, or the same address on `index.html` to play it. **Open folder…** shows only where the browser can open one (Chrome and Edge, not Safari or Firefox). Elsewhere, saves stay in the browser until you **Download .scaena**, or until you serve the folder with `scaena serve` instead.
 
-**Start a deck.** **New…** asks for a title and a theme. The deck it makes has the theme and the fonts the theme names, as an assistant's `deck_create` makes one, and opens on a title slide in the theme's `title` layout: its title, the line under it, and its kicker are words to type over, and the place for a picture holds the theme's backdrop, as the dialog shows it. Its first **Save** keeps it in the browser under a name made from its title; **Save as…** puts it in a folder on your disk instead. To start from another deck, open that one and **Save as…** under a new name.
+**Start a deck.** **New…** asks for a title and a theme. The deck it makes has the theme and the fonts the theme names, as an assistant's `deck_create` makes one, and opens on a title slide in the theme's `title` layout: its title, the line under it, and its kicker are words to type over, and the place for a picture is outlined. Its first **Save** keeps it in the browser under a name made from its title; **Save as…** puts it in a folder on your disk instead. To start from another deck, open that one and **Save as…** under a new name.
 
 ## The command line: edit, check, look
 
@@ -457,7 +457,7 @@ Each layout's slots say what goes in them (`prompt`, SPEC §3.6): words to type 
 | `ranking` | `kicker`, `header`, `first-card`, `third-card`, `first-rank`, `second-rank`, `third-rank`, `fourth-rank`, `first`, `second`, `third`, `fourth`, `first-figure`, `second-figure`, `third-figure`, `fourth-figure` | Ranking, in Numbers |
 | `progress` | `kicker`, `header`, `first-track`, `second-track`, `third-track`, `first-bar`, `second-bar`, `third-bar`, `first`, `second`, `third`, `first-figure`, `second-figure`, `third-figure` | Progress, in Numbers |
 | `number-photo` | `art`, `number`, `claim`, `under` | Number and Photo, in Numbers |
-| `metric-trend` | `kicker`, `header`, `number`, `claim`, `main`, `note` | Number and Trend, in Numbers |
+| `metric-trend` | `kicker`, `header`, `number`, `claim`, `main`, `note`, `source` | Number and Trend, in Numbers |
 | `kpi-dashboard` | `kicker`, `header`, `first-figure`, `second-figure`, `third-figure`, `fourth-figure`, `first-title`, `second-title`, `third-title`, `fourth-title`, `first`, `second`, `third`, `fourth`, `first-chart`, `second-chart` | KPI Dashboard, in Numbers |
 | `status-report` | `kicker`, `header`, `first-card`, `third-card`, `stream-label`, `status-label`, `next-label`, `risk-label`, `first-icon`, `second-icon`, `third-icon`, `first`, `second`, `third`, `first-status`, `second-status`, `third-status`, `first-next`, `second-next`, `third-next`, `first-risk`, `second-risk`, `third-risk` | Status Report, in Numbers |
 | `market-size` | `header`, `first-circle`, `second-circle`, `third-circle`, `first-figure`, `second-figure`, `third-figure`, `first-title`, `second-title`, `third-title`, `first`, `second`, `third` | Market Size, in Numbers |
@@ -467,12 +467,12 @@ Each layout's slots say what goes in them (`prompt`, SPEC §3.6): words to type 
 | `split` | `body`, `main` | Chart and Words, in Charts |
 | `figure-numbers` | `kicker`, `header`, `main`, `first-title`, `first`, `second-title`, `second` | Chart and Numbers, in Charts |
 | `bar-chart` | `kicker`, `header`, `main`, `takeaway`, `note` | Bar Chart, in Charts |
-| `line-chart` | `kicker`, `header`, `main`, `callout`, `note` | Line Chart, in Charts |
+| `line-chart` | `kicker`, `header`, `main`, `callout`, `note`, `source` | Line Chart, in Charts |
 | `donut-chart` | `kicker`, `header`, `main`, `first-title`, `first`, `second-title`, `second` | Donut Chart, in Charts |
 | `table` | `kicker`, `header`, `main`, `note` | Table, in Charts |
 | `chart-bullets` | `kicker`, `header`, `main`, `body` | Chart and Bullets, in Charts |
 | `two-charts` | `kicker`, `header`, `first-title`, `second-title`, `first-chart`, `second-chart` | Two Charts, in Charts |
-| `positioning-map` | `kicker`, `header`, `main`, `takeaway`, `note` | Positioning Map, in Charts |
+| `positioning-map` | `kicker`, `header`, `main`, `takeaway`, `note`, `source` | Positioning Map, in Charts |
 | `full` | `kicker`, `header`, `main`, `note` | Full Bleed, in Pictures |
 | `art-left` | `kicker`, `header`, `art`, `body` | Art Left, in Pictures |
 | `art-right` | `kicker`, `header`, `body`, `art` | Art Right, in Pictures |

@@ -1,6 +1,6 @@
 {
   "name": "deck_health",
-  "description": "The deck's narrative health (PLAN G.9): Vzestup's measures of a talk, over its slides as its spine tells them, each 0–100 with what it says: pacing against the length its brief asked, the points each slide makes and what its notes give the speaker, how each slide follows from the one before (by their words, and so unscored), how the intensity each declares follows the curve of the arc it was written to, and whether its words carry the intensity and the tone it declares. Each slide as read: where its arc's curve stands, what it declares, and what its words read. Findings slide by slide, each with what to ask about it and, where one is safe, a patch for `deck_patch`: a slide's declared intensity or tone set to what its words read, or a moved slide made part of the beat it now stands in.",
+  "description": "The deck's narrative health (PLAN G.9): Vzestup's measures of a talk, over its slides as its spine tells them, each 0–100 with what it says: pacing against the length its brief asked, the points each slide makes and what its notes give the speaker, how each slide follows from the one before (by their words, and so unscored), how the intensity each declares follows the curve of the arc it was written to, and whether its words carry the intensity and the tone it declares. Each slide as read: where its arc's curve stands, what it declares, and what its words read. Findings slide by slide, each with what to ask about it and, where one is safe, a patch for `deck_patch`: a moved slide made part of the beat it now stands in. A slide on which lint finds an error comes first. Words far from the intensity or the tone a slide declares are the words' to change, not the plan's.",
   "inputSchema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "required": ["bundle"],
@@ -51,9 +51,14 @@
             "description": "How like the slide before it its words are, 0–1; none for the first.",
             "type": ["number", "null"]
           },
-          "standing": { "$ref": "#/$defs/Standing" }
+          "standing": { "$ref": "#/$defs/Standing" },
+          "sources": {
+            "description": "The sources its beat cites of those the deck was grounded in, by name (narrative FUNC-3).",
+            "type": "array",
+            "items": { "type": "string" }
+          }
         },
-        "required": ["state", "title", "curve", "standing"]
+        "required": ["state", "title", "curve", "standing", "sources"]
       },
       "Standing": {
         "description": "How a slide stands in its arc.",
@@ -99,6 +104,11 @@
             "description": "It stands in another beat than the one it was written for.",
             "type": "string",
             "const": "drift"
+          },
+          {
+            "description": "A state of it has an error lint finds: it does not stand as it is to be read.",
+            "type": "string",
+            "const": "layout"
           }
         ]
       },

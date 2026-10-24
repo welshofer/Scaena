@@ -311,6 +311,13 @@
       #slides .sizing .large { font-size: 20px; }
       #slides li { position: relative; display: grid; grid-template-columns: auto 1fr auto; align-items: baseline; gap: 2px 8px; padding: 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); cursor: pointer; font-size: 12px; }
       #slides canvas { grid-column: 1 / -1; display: block; width: 100%; height: auto; aspect-ratio: var(--aspect, 1.7778); background: var(--line); border-radius: 3px; }
+      /* A slide whose picture could not be painted says so over its blank tile (lift-up STAB-4). */
+      :is(#strip, #slides) .unpainted { position: absolute; display: flex; align-items: center; justify-content: center; padding: 2px 4px; box-sizing: border-box; text-align: center; color: var(--muted); line-height: 1.2; pointer-events: none; }
+      #strip .unpainted { inset: 3px 3px auto; height: 54px; font-size: 10px; }
+      #slides .unpainted { inset: 6px 6px auto; aspect-ratio: var(--aspect, 1.7778); font-size: 12px; }
+      @media (max-height: 760px) {
+        #strip .unpainted { height: 40px; }
+      }
       #slides .n { color: var(--muted); font-variant-numeric: tabular-nums; }
       #slides .id { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       #slides .steps { color: var(--muted); }
@@ -677,6 +684,7 @@
       #prompting .fields > input { flex: 1 1 14em; }
       #prompting .fields > label.button { flex: none; flex-direction: row; color: var(--ink); font-size: 13px; }
       #prompting fieldset { border: 1px solid var(--line); border-radius: 4px; display: flex; flex-direction: column; gap: 8px; }
+      #prompting fieldset[hidden] { display: none; }
       #prompting label.check { flex-direction: row; align-items: center; gap: 6px; color: var(--ink); }
       #prompting details > div { margin-top: 8px; }
       #prompting-sources { margin: 0; padding-left: 1.2em; }
@@ -1021,6 +1029,20 @@
         </details>
         <label class="check"><input id="prompting-show-outline" type="checkbox" checked /> Show the outline first: the big idea and what each beat says, to change before the slides are written</label>
         <p class="note" id="prompting-who"></p>
+        <fieldset id="prompting-key" hidden>
+          <legend>Your key</legend>
+          <div class="fields">
+            <label>Provider <select id="prompting-key-provider">
+              <option value="anthropic">Anthropic</option>
+              <option value="openai">OpenAI</option>
+              <option value="gemini">Gemini</option>
+            </select></label>
+            <label>Key <input id="prompting-key-value" type="password" autocomplete="off" spellcheck="false" placeholder="Paste your API key" aria-describedby="prompting-key-said" /></label>
+            <label>Model <select id="prompting-key-model"></select></label>
+          </div>
+          <label class="check"><input id="prompting-key-keep" type="checkbox" /> Keep it on this device, encrypted, rather than for this tab alone</label>
+          <p class="note" id="prompting-key-said" aria-live="polite"></p>
+        </fieldset>
         <ol id="prompting-progress" aria-live="polite" aria-label="How far it has come"></ol>
         <section id="prompting-outline" hidden aria-labelledby="prompting-outline-title">
           <h3 id="prompting-outline-title">The outline</h3>

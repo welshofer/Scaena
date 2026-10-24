@@ -3289,6 +3289,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "scaena-fence"
+version = "0.1.0"
+
+[[package]]
 name = "scaena-ffi"
 version = "0.1.0"
 dependencies = [

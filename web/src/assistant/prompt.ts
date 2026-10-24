@@ -23,12 +23,16 @@ export interface Deck {
   claims?: string[];
 }
 
-/** The brief a deck was made from, as `meta.narrative.brief` keeps it (ADR-0026). */
+/** The brief a deck was made from, as `meta.narrative.brief` keeps it (ADR-0026), the whole of
+ * it (narrative FUNC-4). */
 export interface Brief {
   topic?: string;
   audience?: string;
   goal?: string;
   length?: string;
+  modality?: string;
+  desiredOutcomes?: string;
+  voice?: string;
 }
 
 /** The deck's story, as the prompt tells it: nothing where the deck has none. */
@@ -39,10 +43,22 @@ function story(deck: Deck): string {
   if (deck.brief?.goal) about.push(`to ${deck.brief.goal}`);
   if (deck.brief?.length) about.push(`in ${deck.brief.length}`);
   if (deck.arc) about.push(`written to the ${deck.arc} arc`);
+  // How it is delivered, what it is to achieve, and its voice, each a sentence of its own.
+  const labelled: [string, string | undefined][] = [
+    ["Delivered", deck.brief?.modality],
+    ["What it is to achieve", deck.brief?.desiredOutcomes],
+    ["Its voice", deck.brief?.voice],
+  ];
+  const said = labelled.flatMap(([label, v]) => (v ? [`${label}: ${v.replace(/\.+$/, "")}.`] : []));
   const claims = deck.claims ?? [];
-  if (!about.length && !claims.length) return "";
+  if (!about.length && !said.length && !claims.length) return "";
   let told = "\n\nIts story";
   if (about.length) told += `: ${about.join(", ")}`;
+  if (said.length) {
+    told += `.${said.map((s) => ` ${s}`).join("")}`;
+    if (claims.length) told += ` Its beats' claims, in order:${claims.map((c, i) => `\n${i + 1}. ${c}`).join("")}`;
+    return told;
+  }
   if (!claims.length) told += ".";
   else told += `${about.length ? ". Its beats' claims, in order:" : ", by its beats' claims, in order:"}${claims.map((c, i) => `\n${i + 1}. ${c}`).join("")}`;
   return told;

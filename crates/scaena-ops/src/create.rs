@@ -182,6 +182,12 @@ pub struct Create {
     #[serde(skip)]
     #[schemars(skip)]
     pub assets: BTreeMap<String, Vec<u8>>,
+    /// The folder the walk up from the theme for its fonts stops at, taking it in: an MCP
+    /// server's own, so a theme there reads no font above it. None walks to the disk's root, as
+    /// the CLI does. Never a tool's argument.
+    #[serde(skip)]
+    #[schemars(skip)]
+    pub fonts_within: Option<PathBuf>,
 }
 
 /// A bundle made.
@@ -233,6 +239,13 @@ pub(crate) fn font_in<'a>(dirs: impl IntoIterator<Item = &'a Path>, file: &str) 
     Ok(None)
 }
 
+/// The folders a theme file's fonts are looked for in: beside it, then each folder above it, up
+/// to `within` and taking it in, where one is given. Held lexically: `theme` and `within` are
+/// both read through their links, or neither is.
+pub(crate) fn above<'a>(theme: &'a Path, within: Option<&'a Path>) -> impl Iterator<Item = &'a Path> {
+    theme.ancestors().skip(1).take_while(move |dir| within.is_none_or(|w| dir.starts_with(w)))
+}
+
 /// Make a bundle at `path`, a directory not there yet or empty: the theme and its fonts,
 /// the data files, and the deck, pointed at them. Written only if it validates.
 pub fn create(path: &Path, req: &Create) -> Result<Created, OpsError> {
@@ -248,7 +261,7 @@ pub fn create(path: &Path, req: &Create) -> Result<Created, OpsError> {
             // A font is beside the theme, or above it: in the bundle the theme belongs to.
             let font = |file: &str| -> Result<Vec<u8>, OpsError> {
                 fonts_named(file)?;
-                let found = font_in(req.theme.ancestors().skip(1), file)?.with_context(|| {
+                let found = font_in(above(&req.theme, req.fonts_within.as_deref()), file)?.with_context(|| {
                     format!("the theme's font `{file}` is not beside {} or above it", req.theme.display())
                 })?;
                 Ok(std::fs::read(&found)?)
@@ -296,6 +309,8 @@ pub struct ThemeSource {
     pub text: String,
     /// Whether it ships, its fonts in the binary with it.
     pub shipped: bool,
+    /// The folder the walk for its fonts stops at (see [`ThemeSource::within`]).
+    pub within: Option<PathBuf>,
 }
 
 impl ThemeSource {
@@ -305,11 +320,18 @@ impl ThemeSource {
         if !theme.exists()
             && let Some(t) = theme.to_str().and_then(crate::shipped::theme)
         {
-            return Ok(ThemeSource { file: t.file.into(), text: t.text.to_string(), shipped: true });
+            return Ok(ThemeSource { file: t.file.into(), text: t.text.to_string(), shipped: true, within: None });
         }
         let text =
             std::fs::read_to_string(theme).with_context(|| format!("reading {}{}", theme.display(), or_shipped()))?;
-        Ok(ThemeSource { file: theme.to_path_buf(), text, shipped: false })
+        Ok(ThemeSource { file: theme.to_path_buf(), text, shipped: false, within: None })
+    }
+
+    /// The same theme, its fonts looked for no higher than `within`, taking it in (see
+    /// [`Create::fonts_within`]).
+    pub fn within(mut self, within: Option<PathBuf>) -> ThemeSource {
+        self.within = within;
+        self
     }
 
     /// A font the theme names, by the path it gives it.
@@ -321,7 +343,7 @@ impl ThemeSource {
             return Ok(bytes.to_vec());
         }
         fonts_named(file)?;
-        let found = font_in(self.file.ancestors().skip(1), file)?
+        let found = font_in(above(&self.file, self.within.as_deref()), file)?
             .with_context(|| format!("the theme's font `{file}` is not beside {} or above it", self.file.display()))?;
         Ok(std::fs::read(&found)?)
     }

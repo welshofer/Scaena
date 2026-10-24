@@ -102,11 +102,13 @@ schema:
     python3 scripts/build_syllables.py --check
     python3 scripts/build_app_icon.py --check
 
-# The scripts' own tests: the bench gate's judgment (PLAN 1.24); and the browser's assistant, held to
-# the exchanges scaena-chat's tests hold the Mac's to (ADR-0022).
+# The scripts' own tests: the bench gate's judgment (PLAN 1.24); the browser's assistant, held to
+# the exchanges scaena-chat's tests hold the Mac's to (ADR-0022); and a source's body read no
+# further than its plan's `most` (the 20261024 plan's SEC-2).
 scripts:
     python3 -m unittest discover -s scripts -p 'test_*.py'
     node --experimental-strip-types web/exchanges.mjs
+    node --experimental-strip-types web/most.mjs
 
 # CI runs these on each runner, and fails a pull request on a bench slower than its base, timed
 # beside it on the same machine, by more than the run's floor every time: 10%, or 2.5 times the
@@ -220,6 +222,7 @@ web-smoke: site
     SCAENA_WEB_PNGS={{justfile_directory()}}/target/web-smoke/player-webgpu:{{justfile_directory()}}/target/web-smoke/player-cpu:{{justfile_directory()}}/target/web-smoke/standalone-cpu cargo test -p scaena-paint --test parity --locked -- --nocapture
     node web/player.mjs
     node web/editor.mjs
+    node web/unkept.mjs
     node web/canvas.mjs
     node web/typing.mjs
     node web/inspector.mjs

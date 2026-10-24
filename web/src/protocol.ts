@@ -640,6 +640,8 @@ export interface Thumb {
   width?: number;
   height?: number;
   pixels?: ArrayBuffer;
+  /** Why it could not be painted, said in words (lift-up STAB-4): no pixels come with it. */
+  failed?: string;
 }
 
 /** A node a patch adds: its id, where it lands, and the patch. */
@@ -804,6 +806,19 @@ export interface Rewritten {
 /** One of a bundle's images, fonts, or data files (PLAN 2.59), as `scaena files` lists it: what in
  * the deck or its theme names it (none where nothing does: it may be taken out), and the nodes
  * drawn from it, each with the states that show it so. */
+/** A source a deck made from a prompt was grounded in, with the beats citing it (narrative
+ * FUNC-3, `scaena_core::files::Grounded`). */
+export interface Grounded {
+  name: string;
+  kind: string;
+  url?: string;
+  bytes: number;
+  truncated: boolean;
+  /** The beats citing it, by id, and the first state of each, which a page names as a slide. */
+  cited: string[];
+  states: string[];
+}
+
 export interface BundleFile {
   path: string;
   type: "image" | "font" | "data";
@@ -844,6 +859,8 @@ export interface HealthRead {
   toneRead?: number;
   after?: number;
   standing: "ok" | "bends" | "drifted";
+  /** The sources its beat cites of those the deck was grounded in, by name (narrative FUNC-3). */
+  sources?: string[];
 }
 
 /** Something narrative health asks a person to look at, on one slide: what it says, the question
@@ -852,7 +869,7 @@ export interface HealthFinding {
   state: string;
   slide: number;
   severity: "error" | "warning" | "info";
-  kind: "title" | "empty" | "turn" | "arc" | "intensity" | "tone" | "drift";
+  kind: "title" | "empty" | "turn" | "arc" | "intensity" | "tone" | "drift" | "layout";
   says: string;
   ask: string;
   fix?: { says: string; patch: unknown[] };
@@ -1439,7 +1456,7 @@ export interface Generated {
   /** Each sheet given, kept as a data source, or why not. */
   data: { sheet: string; id?: string; rows?: number; why?: string }[];
   /** What each source gave the prompt, and whether it was cut short to fit. */
-  sources: { name: string; kind: string; bytes: number; truncated: boolean }[];
+  sources: { name: string; kind: string; url?: string; bytes: number; truncated: boolean }[];
 }
 
 /** Who answers the assistant's questions: Anthropic, OpenAI (or a server that speaks its Chat
@@ -2018,7 +2035,7 @@ export type FromWorker =
   | { type: "cells"; id: number; cells: Cells | null }
   /** The deck's data sources, and source `name` as a sheet, or why it does not read as one. */
   | { type: "sheet"; id: number; sources: DataSource[]; name?: string; sheet?: Sheet; file?: string; why?: string }
-  | { type: "bundleFiles"; id: number; files: BundleFile[] }
+  | { type: "bundleFiles"; id: number; files: BundleFile[]; grounded: Grounded[] }
   | { type: "health"; id: number; health: Health }
   /** A picture made: its bytes, its file's kind (`png`, `jpg`), what it shows, and the model. */
   | { type: "pictureMade"; id: number; bytes: ArrayBuffer; ext: string; alt: string; model: string }
