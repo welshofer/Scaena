@@ -198,6 +198,11 @@ pub struct Section {
     pub beats: Vec<Beat>,
 }
 
+/// How a beat's `evidence` cites a source the deck was grounded in, by its name in
+/// `meta.narrative.sources` (narrative FUNC-3): `source:NAME`, which a file there has where an
+/// address stands for a page.
+pub const SOURCE_CITED: &str = "source:";
+
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Beat {
@@ -205,7 +210,8 @@ pub struct Beat {
     pub id: String,
     /// One sentence the audience should leave with.
     pub claim: String,
-    /// @data refs, asset refs, or URLs.
+    /// @data refs, asset refs, URLs, or `source:NAME`, a source the deck was grounded in by the
+    /// name `meta.narrative.sources` gives it.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub evidence: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
