@@ -574,21 +574,19 @@ pub fn generate_drawn(
 /// `speakerNotes`, `beatIndex`, `beatName`, `intensity`, `tone`, …), as an agent writes them;
 /// `brief` says what the deck is about and for whom, which health reads back (PLAN G.9); `arc`
 /// names one of Narrato's, else the heuristic chooses from the brief. The bundle is made at `dir`,
-/// a directory not there yet or empty, in `theme`, a theme that ships by name or a theme file,
+/// a directory not there yet or empty, in `theme`, a theme that ships or a theme file read,
 /// as [`generate`] makes one: the spine, each slide in the theme's layout its layout comes to,
 /// its builds, and the `media.narrato` fields health reads, lint's fixes applied. A deck in a
 /// script the theme's fonts do not draw is refused here: `scaena generate` fetches the
 /// script's font (PLAN G.22), which no server's tool does.
 pub fn from_slides(
     dir: &Path,
-    theme: &Path,
+    theme: crate::create::ThemeSource,
     slides: &str,
     brief: Brief,
     arc: Option<&str>,
 ) -> Result<Generated, OpsError> {
-    use crate::create::ThemeSource;
     crate::create::vacant(dir)?;
-    let theme = ThemeSource::of(theme)?;
     let font = |file: &str| theme.font(file);
     let language = brief.language.as_deref();
     if let Some(script) = crate::scripts::needed(language, slides, &theme.text, &font)? {
