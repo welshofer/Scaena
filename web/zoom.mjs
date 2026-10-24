@@ -279,8 +279,11 @@ try {
   // input method shows what it composes in under the caret, through the view.
   await page.evaluate(() => window.scaena.canvas.zoom("fit"));
   const [tx, ty, tw, th] = await box("title");
-  await page.evaluate(([x, y]) => window.scaena.canvas.zoom(3, [x, y]), [tx + tw / 2, ty + th / 2]);
-  const [qx, qy] = await client([tx + tw / 2, ty + th / 2]);
+  // Pressed in its first word, a line's height in from where it starts: the headline's words end
+  // short of its box's middle.
+  const [inx, iny] = [tx + Math.min(tw / 2, th), ty + th / 2];
+  await page.evaluate(([x, y]) => window.scaena.canvas.zoom(3, [x, y]), [inx, iny]);
+  const [qx, qy] = await client([inx, iny]);
   await page.mouse.dblclick(qx, qy);
   await page.waitForFunction(() => window.scaena.canvas.typing() === "title", null, { timeout: 10000 }).catch(() => {});
   check((await page.evaluate(() => window.scaena.canvas.typing())) === "title", "a double click types in the title, zoomed in");

@@ -105,6 +105,7 @@ import { scn, scnHighlight } from "./scn";
 import { client, listen, served, status as onDisk } from "./served";
 import { worker } from "./spawn";
 import { Stage } from "./stage";
+import { toolbar } from "./toolbar";
 import { slides as lightTable, slidesKeys } from "./slides";
 import { strip, stripKeys } from "./strip";
 import { type Selected, typingKeys } from "./typing";
@@ -499,6 +500,8 @@ async function edit(source: Source, opened?: Stage) {
   const inspector = $("#inspector");
   const listing = $("#listing");
   const whereLine = $("#where");
+  // The toolbar's icons, its File menu, and its keys (lift-up ATTR-5).
+  toolbar($("#toolbar"));
   const play = $<HTMLAnchorElement>("#play");
   const stage = opened ?? (await Stage.open($<HTMLCanvasElement>("#stage"), source, painter, worker));
   stage.onError = failed;
@@ -1598,7 +1601,8 @@ async function edit(source: Source, opened?: Stage) {
     // slide drawn at build (PLAN T.0c).
     for (const [name, { family }] of Object.entries(themes)) themeChoices.push({ value: `ships:${name}`, label: name, family, current: false });
     const current = themeChoices.find((c) => c.current);
-    themeButton.textContent = current ? `Theme: ${current.label}` : "Theme…";
+    // The words under the toolbar's icon, which the toolbar keeps in its label.
+    (themeButton.querySelector(".label") ?? themeButton).textContent = current ? `Theme: ${current.label}` : "Theme…";
     // The list is built as the dialog opens: built for each deck opened, its thumbnails would load
     // in a dialog no one sees, and each deck opened after would cut the last one's off.
     themesListed = false;
