@@ -952,6 +952,11 @@ fn mark_list(
         (None, Some(_), Some(_)) => return Err("give a `level` with a `kind`, or move items `by` levels".into()),
     };
     let shown = Shown::read(d, node, state, fork, "`list` makes a text node's paragraphs a list")?;
+    if shown.code {
+        return Err(format!(
+            "`{node}` is code: its lines break where it breaks them and are no list's items, so it takes no `list` (PLAN 2.139)"
+        ));
+    }
     let (from, to) = shown.bytes(node, from, to)?;
     let now = crate::lists::marked(shown.list.as_deref().unwrap_or_default(), &shown.written, from..to, marking);
     // No items left: `list` is taken away, unless the node's own would show through.
@@ -1019,6 +1024,11 @@ fn style_text(
         }
     }
     let shown = Shown::read(d, node, state, fork, "`style_text` sets the look of a text node's characters")?;
+    if shown.code {
+        return Err(format!(
+            "`{node}` is code: its words are its `text`, set as written in its role and colored by its language, so no characters of it take a look of their own (PLAN 2.139)"
+        ));
+    }
     if from == to {
         return Err(format!("`from` and `to` select no characters of `{node}`: give the look to one or more"));
     }
@@ -1065,6 +1075,9 @@ struct Shown {
     written: String,
     /// Its paragraphs as list items (ADR-0018), if it has a `list`.
     list: Option<Vec<Option<ListItem>>>,
+    /// Whether it is code (ADR-0029): its words its `text`, set as written, with no runs and no
+    /// list (E106).
+    code: bool,
 }
 
 impl Shown {
@@ -1095,7 +1108,8 @@ impl Shown {
             Some(runs) => runs.iter().filter_map(|r| r.get("text").and_then(Value::as_str)).collect(),
             None => props.get("text").and_then(Value::as_str).unwrap_or_default().to_string(),
         };
-        Ok(Shown { over, runs, written, list })
+        let code = props.get("code").is_some_and(Value::is_object);
+        Ok(Shown { over, runs, written, list, code })
     }
 
     /// The property the text is: `runs`, or `text`.

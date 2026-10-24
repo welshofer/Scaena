@@ -222,6 +222,8 @@ let current:
       close: () => void;
       unsaved: () => boolean;
       say: (text: string) => void;
+      /** The deck's story read: its score (narrative USE-2). */
+      story: () => Promise<number>;
       models: (provider: ProviderId, key: string, base?: string) => Promise<string[]>;
       kept: () => string | undefined;
       rekeep: (from: string, to?: string) => Promise<void>;
@@ -435,6 +437,15 @@ async function controls() {
     $("#new-prompt"),
     () => current?.unsaved() ?? false,
     (source) => open(source, true),
+    async () => {
+      // The Story tab shown reads the deck's health itself; the score goes in the line.
+      $<HTMLButtonElement>("#tab-story").click();
+      try {
+        return await current?.story();
+      } catch {
+        return undefined;
+      }
+    },
     (line) => current?.say(line),
     (provider, key, base) => (current ? current.models(provider, key, base) : Promise.reject(new Error("no deck is open"))),
   );
@@ -2206,6 +2217,7 @@ async function edit(source: Source, opened?: Stage) {
 
   const assistant = panel(stage, {
     source: () => view.state.doc.toString(),
+    states: () => last?.states.map(([id]) => id) ?? [],
     apply: (source, edited, touched, files = []) => {
       touching = touched?.length ? { source, nodes: touched } : undefined;
       // A theme it edited goes in the source's history with the theme's text before and after,
@@ -2410,6 +2422,10 @@ async function edit(source: Source, opened?: Stage) {
   function nodeCommands(): Command[] {
     const any = () => picked().length > 0;
     const one = () => picked().length === 1;
+    /** One text selected, and it is code as the slide shows it (PLAN 2.133, 2.139). */
+    const isCode = () => one() && !!board.boxes().find((b) => b.node === picked()[0])?.code;
+    /** One text selected, and it is prose. */
+    const prose = () => one() && typeOf(picked()[0]) === "text" && !isCode();
     const pressing = (label: string, keys: string, key: string, init: KeyboardEventInit, group: Group, applies = any): Command => ({
       label,
       keys,
@@ -2427,14 +2443,19 @@ async function edit(source: Source, opened?: Stage) {
     return [
       ...annotationCommands(),
       { label: "Type in it", keys: "Enter", group: "Type", where: ["node"], applies: () => one() && typeOf(picked()[0]) === "text", run: () => press("Enter") },
-      { label: "Bulleted list", keys: `${MOD}${SHIFT}8`, group: "Type", where: ["node"], applies: () => one() && typeOf(picked()[0]) === "text", run: () => board.list("bullet") },
-      { label: "Numbered list", keys: `${MOD}${SHIFT}7`, group: "Type", where: ["node"], applies: () => one() && typeOf(picked()[0]) === "text", run: () => board.list("number") },
+      // A list's marks, the writing tools, and the diagram makers are prose's, not code's (PLAN 2.139).
+      { label: "Bulleted list", keys: `${MOD}${SHIFT}8`, group: "Type", where: ["node"], applies: () => prose(), run: () => board.list("bullet") },
+      { label: "Numbered list", keys: `${MOD}${SHIFT}7`, group: "Type", where: ["node"], applies: () => prose(), run: () => board.list("number") },
+      // A text made code, made words again, or tidied (PLAN 2.139): each one patch.
+      { label: "Make Code", group: "Type", where: ["node"], applies: () => prose(), run: () => board.coded(picked()[0], "code") },
+      { label: "Not Code", group: "Type", where: ["node"], applies: () => isCode(), run: () => board.coded(picked()[0], "prose") },
+      { label: "Tidy Code", group: "Type", where: ["node"], applies: () => isCode(), run: () => board.coded(picked()[0], "tidy") },
       // A text's words, by the model the assistant uses, offered to take or leave (PLAN 2.101).
       ...(["proofread", "tighten", "rewrite"] as const).map(
         (kind): Command => ({
           label: TOOLS[kind],
           where: ["node"],
-          applies: () => one() && typeOf(picked()[0]) === "text",
+          applies: () => prose(),
           run: () => write(kind, picked()[0]),
         }),
       ),
@@ -2478,7 +2499,7 @@ async function edit(source: Source, opened?: Stage) {
       { label: "Copy", keys: `${MOD}C`, group: "Edit", where: ["node", "layer"], applies: any, run: () => clip("copy") },
       { label: "Cut", keys: `${MOD}X`, group: "Edit", where: ["node", "layer"], applies: any, run: () => clip("cut") },
       // A code text's words as text, for an editor or a terminal (PLAN 2.133).
-      { label: "Copy Code", where: ["node"], applies: () => one() && !!board.boxes().find((b) => b.node === picked()[0])?.code, run: () => copyCode(picked()[0]) },
+      { label: "Copy Code", where: ["node"], applies: () => isCode(), run: () => copyCode(picked()[0]) },
       // A look copied and pasted (PLAN 2.58): Option makes ⌥C a character, so the key goes by its place.
       pressing("Copy the look", `${MOD_ALT}C`, "c", mod({ altKey: true, code: "KeyC" }), "Edit", one),
       pressing("Paste the look", `${MOD_ALT}V`, "v", mod({ altKey: true, code: "KeyV" }), "Edit", () => any() && board.copiedLook() !== undefined),
@@ -2491,7 +2512,7 @@ async function edit(source: Source, opened?: Stage) {
         label: `Make a ${kind} diagram`,
         group: "Draw and insert",
         where: ["node"],
-        applies: () => one() && typeOf(picked()[0]) === "text",
+        applies: () => prose(),
         run: () => board.diagram(picked()[0], kind),
       })),
       pressing("Group", `${MOD}G`, "g", mod(), "Arrange"),
@@ -2935,6 +2956,7 @@ async function edit(source: Source, opened?: Stage) {
     },
     unsaved,
     say,
+    story: async () => (await stage.health(view.state.doc.toString())).score,
     models: (provider, key, base) => stage.models(provider, key, base),
     kept: () => (where?.kind === "opfs" ? where.name : undefined),
     // New's deck opens typing in its title, its words selected (PLAN 3.21): whether it does.

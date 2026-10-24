@@ -54,29 +54,73 @@ interface Request {
 async function send(request: Request): Promise<{ status: number; statusText: string; body: string; after?: string }> {
   try {
     const body = request.body == null ? undefined : JSON.stringify(request.body);
-    const response = await fetch(request.url, { method: request.method, headers: request.headers, body });
+    const signal = AbortSignal.timeout(ANSWERED_WITHIN);
+    const response = await fetch(request.url, { method: request.method, headers: request.headers, body, signal });
     const after = response.headers.get("retry-after") ?? undefined;
     return { status: response.status, statusText: response.statusText, body: await response.text(), after };
   } catch (e) {
-    return { status: 0, statusText: said(e), body: "" };
+    // A provider that takes the request and never answers is asked again, as a busy one is
+    // (narrative REL-1), and the progress says why (lift-up REL-4).
+    return { status: 0, statusText: late(e) ? LATE : said(e), body: "" };
   }
 }
+
+/** What a request that waited past its deadline is answered. */
+const LATE = "The provider didn't answer in 15 minutes";
+
+/** The providers that write a deck, by name. */
+const WRITERS = { anthropic: "Anthropic", openai: "OpenAI", gemini: "Gemini" } as const;
+
+/** What `take` reads of a provider's `reply`. Where the reply was a refusal, its error is said in
+ * a person's words, as the pictures' are, "Anthropic didn't accept your key. Check it, or replace
+ * it." in place of "401 Unauthorized: invalid x-api-key" (lift-up USE-3); the provider's own words
+ * go to the console. An answer that came but did not read keeps its own words. */
+function read<T>(provider: string, reply: { status: number; statusText: string; body: string }, take: () => T): T {
+  try {
+    return take();
+  } catch (e) {
+    if (reply.status >= 200 && reply.status < 300) throw e;
+    console.warn(`${provider}: ${said(e)}`);
+    const waited = reply.status === 0 && reply.statusText === LATE;
+    throw new Error(waited ? `${provider} didn't answer in 15 minutes. Try again in a moment.` : answered(provider, reply.status, reply.body));
+  }
+}
+
+/** How long a provider has to answer a request: 15 minutes, as the Mac's `URLSession` waits and
+ * near the CLI's 20 (lift-up REL-4). */
+const ANSWERED_WITHIN = 900_000;
+
+/** How long a link's host has to answer a GET. */
+const FETCHED_WITHIN = 60_000;
 
 /** A GET a link's plan asks for: its status, its content type, and its body. A host that lets
  * no other page read it (CORS) fails as a network does, and says so. */
 async function get(asked: { url: string; headers: Record<string, string>; most: number }) {
   let response: Response;
   try {
-    response = await fetch(asked.url, { headers: asked.headers });
-  } catch {
+    response = await fetch(asked.url, { headers: asked.headers, signal: AbortSignal.timeout(FETCHED_WITHIN) });
+  } catch (e) {
     const host = new URL(asked.url).host;
+    if (late(e)) throw new Error(`${host} didn't answer in a minute`);
     throw new Error(
       `${host} could not be read from this page: it is out of reach, or it lets no other page read it. Download what it serves and add the file, or give it to \`scaena generate\` or the Mac app`,
     );
   }
-  const body = await atMost(response, asked.most, asked.url);
+  // The minute holds the body too, read no further than it may be: a host that answers at once
+  // and sends slowly runs out of it here.
+  let body: Uint8Array;
+  try {
+    body = await atMost(response, asked.most, asked.url);
+  } catch (e) {
+    if (!late(e)) throw e;
+    const host = new URL(asked.url).host;
+    throw new Error(`${host} took more than a minute to send ${asked.url}: download it and add the file`);
+  }
   return { status: response.status, kind: response.headers.get("content-type") ?? "", body };
 }
+
+/** Whether `e` is a deadline's abort (`AbortSignal.timeout`). */
+const late = (e: unknown) => e instanceof DOMException && e.name === "TimeoutError";
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -193,6 +237,12 @@ export async function generate(
     }
     if (job.research) await research(g, brief, asking, job, sources, hear);
     const generation = new g.Generation(brief, asking, sources);
+    // What each source gave, said before a call is paid for (narrative USE-5): the sources share
+    // a million bytes, the first given taking it first, and one cut short, or given no room, says
+    // so here, not after the deck is made.
+    for (const given of JSON.parse(generation.given()) as Generated["sources"]) {
+      hear({ kind: "grounded", name: given.name, what: given.kind, kilobytes: Math.ceil(given.bytes / 1024), cut: given.truncated });
+    }
     try {
       const outlining = Boolean(job.outline && settle);
       if (job.arc) generation.chooseArc(job.arc);
@@ -201,7 +251,8 @@ export async function generate(
         const step = generation.step();
         hear(step === "arc" ? { kind: "choosing" } : step === "outline" ? { kind: "outlining" } : { kind: "writing", slides: generation.target() });
         const reply = await send(JSON.parse(asked));
-        const at = JSON.parse(generation.answer(reply.status, reply.statusText, reply.body, reply.after)) as {
+        const answer = read(WRITERS[job.provider], reply, () => generation.answer(reply.status, reply.statusText, reply.body, reply.after));
+        const at = JSON.parse(answer) as {
           arc?: string;
           reasoning?: string | null;
           fallback?: string | null;
@@ -245,8 +296,9 @@ export async function generate(
       const making = new Making(built, theme.file, theme.text, theme.fonts, painted?.bytes ?? new Map());
       try {
         if (painted) making.painted(painted.made, JSON.stringify(painted.unmade));
-        if (job.look !== false) await look(generation, making, job.key, theme, painted?.placed ?? "{}", hear);
-        await fit(generation, making, job.key, hear);
+        const name = WRITERS[job.provider];
+        if (job.look !== false) await look(generation, making, job.key, name, theme, painted?.placed ?? "{}", hear);
+        await fit(generation, making, job.key, name, hear);
         making.keep(sources.tables());
         const made = { ...JSON.parse(making.report()), sources: JSON.parse(generation.given()) } as Generated;
         const files = making.files();
@@ -450,7 +502,8 @@ async function research(
     let doing: string | undefined;
     for (;;) {
       const reply = await send(asked);
-      const next = JSON.parse(researching.answer(job.key, reply.status, reply.statusText, reply.body)) as {
+      const answer = read(WRITERS[job.provider], reply, () => researching.answer(job.key, reply.status, reply.statusText, reply.body));
+      const next = JSON.parse(answer) as {
         send?: Request;
         wait?: number;
         done?: { sources: number; cut: boolean };
@@ -486,6 +539,7 @@ async function look(
   generation: InstanceType<Generator["Generation"]>,
   making: Making,
   key: string,
+  name: string,
   theme: Theme,
   placed: string,
   hear: (event: GeneratingEvent) => void,
@@ -513,7 +567,7 @@ async function look(
       looking = true;
       const reply = await send(JSON.parse(asked));
       try {
-        changes.push(...(JSON.parse(generation.lookAnswer(reply.status, reply.statusText, reply.body, part)) as { slide: number }[]));
+        changes.push(...(JSON.parse(read(name, reply, () => generation.lookAnswer(reply.status, reply.statusText, reply.body, part))) as { slide: number }[]));
       } catch (e) {
         const which = round.length === 1 ? `slide ${round[0].slide}` : `slides ${round[0].slide}\u2013${round[round.length - 1].slide}`;
         const why = `${which} not looked at: ${said(e)}`;
@@ -580,6 +634,7 @@ async function fit(
   generation: InstanceType<Generator["Generation"]>,
   making: Making,
   key: string,
+  name: string,
   hear: (event: GeneratingEvent) => void,
 ) {
   const longs = making.longs();
@@ -590,7 +645,7 @@ async function fit(
   hear({ kind: "fitting", texts });
   const reply = await send(JSON.parse(asked));
   try {
-    const rewrites = generation.fitAnswer(reply.status, reply.statusText, reply.body, longs);
+    const rewrites = read(name, reply, () => generation.fitAnswer(reply.status, reply.statusText, reply.body, longs));
     making.fitted(rewrites);
     hear({ kind: "fitted", texts: (JSON.parse(rewrites) as unknown[]).length });
   } catch (e) {

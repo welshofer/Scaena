@@ -1,0 +1,14 @@
+{
+  "scaena": "0.38",
+  "_comment": "E107 clean: the same slide, its picture one that draws.",
+  "canvas": {"width": 1920, "height": 1080},
+  "theme": "theme.json",
+  "fonts": [{"family": "Roboto Serif", "file": "fonts/RobotoSerif-VF.ttf"}, {"family": "EB Garamond", "file": "fonts/EBGaramond-VF.ttf"}],
+  "nodes": {
+    "h": {"type": "text", "role": "body", "text": "A field", "at": {"in": "header"}},
+    "pic": {"type": "image", "src": "assets/photo.png", "at": {"in": "main"}, "alt": "A blue field."}
+  },
+  "states": [
+    {"id": "a", "layout": "figure", "props": {"h": {}, "pic": {}}}
+  ]
+}

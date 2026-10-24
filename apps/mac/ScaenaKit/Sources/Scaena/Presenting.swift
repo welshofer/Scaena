@@ -565,9 +565,11 @@ final class Showing {
         if rests { rested() }
     }
 
-    /// The state shown at rest: where it holds, it goes on by itself once its hold is over.
+    /// The state shown at rest: where it holds, it goes on by itself once its hold is over. The
+    /// next state's cue is laid out meanwhile, so going on moves at once (lift-up PERF-1).
     private func rested() {
         holding?.cancel()
+        if let next = show.next, next.span > 0 { try? editor.session.prepare(next.state) }
         guard let hold = show.rested() else { return }
         waits(hold)
     }
@@ -919,6 +921,7 @@ struct KeyList: View {
         Row(keys: "W or ,", does: "A white screen, and the slide again"),
         Row(keys: "L", does: laser),
         Row(keys: "Escape", does: "End the show"),
+        Row(keys: "+  −", does: "The notes larger, or smaller, in the presenter's view"),
         Row(keys: "?", does: "These keys"),
     ]
 
@@ -960,6 +963,12 @@ struct PresenterView: View {
     @State private var notes = Notes.none
     @State private var next: CGImage?
     @Environment(\.displayScale) private var scale
+    /// The notes' size, a step up or down, kept for the next show (lift-up USE-4).
+    @AppStorage("presenter.notesSize") private var notesSize = NotesSize.standard
+
+    private func sizeNotes(_ by: Int) {
+        notesSize = NotesSize.stepped(notesSize, by: by)
+    }
 
     var body: some View {
         let show = showing.show
@@ -1064,10 +1073,31 @@ struct PresenterView: View {
                     } else {
                         Text(show.next == nil ? "The end" : "").foregroundStyle(.secondary)
                     }
-                    Text("Notes").font(.headline).foregroundStyle(.secondary).padding(.top, 8)
+                    // What comes, as a person counts it: a slide, or a step of the one shown, as
+                    // the browser's presenter view says it (lift-up USE-4).
+                    if let coming = show.next {
+                        Text(Words.slide(coming.state, in: show.slots))
+                            .foregroundStyle(.secondary)
+                            .accessibilityIdentifier("next-name")
+                    }
+                    HStack(spacing: 6) {
+                        Text("Notes").font(.headline).foregroundStyle(.secondary)
+                        Spacer()
+                        Button("A−") { sizeNotes(-1) }
+                            .disabled(notesSize <= NotesSize.sizes[0])
+                            .accessibilityLabel("Smaller notes")
+                            .accessibilityIdentifier("notes-smaller")
+                            .help("Smaller notes (−)")
+                        Button("A+") { sizeNotes(1) }
+                            .disabled(notesSize >= NotesSize.sizes[NotesSize.sizes.count - 1])
+                            .accessibilityLabel("Larger notes")
+                            .accessibilityIdentifier("notes-larger")
+                            .help("Larger notes (+)")
+                    }
+                    .padding(.top, 8)
                     ScrollView {
                         NotesText(notes.blocks)
-                            .font(.title3)
+                            .font(.system(size: notesSize))
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .textSelection(.enabled)
                             .accessibilityIdentifier("presenter-notes")
@@ -1091,6 +1121,17 @@ struct PresenterView: View {
         .focusable()
         .focusEffectDisabled()
         .focused($focused)
+        // The notes larger or smaller, here alone: the stage has none (lift-up USE-4).
+        .onKeyPress(characters: CharacterSet(charactersIn: "+=")) { press in
+            guard plain(press) else { return .ignored }
+            sizeNotes(1)
+            return .handled
+        }
+        .onKeyPress(characters: CharacterSet(charactersIn: "-")) { press in
+            guard plain(press) else { return .ignored }
+            sizeNotes(-1)
+            return .handled
+        }
         .paces(showing)
         .onAppear { focused = true }
         .task(id: show.index) {

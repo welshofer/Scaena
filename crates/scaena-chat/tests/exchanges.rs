@@ -46,6 +46,27 @@ fn each_adapter_asks_and_reads_as_the_browsers_does() {
         let turn = provider.read_turn(200, "", &body(&conversation["answers"][&id])).unwrap();
         assert_eq!(serde_json::to_value(&turn).unwrap(), kept["turn"]["read"], "{id}: the turn read");
 
+        // The same answer as the provider streams it (narrative ATTR-3): read whole as the one sent
+        // whole is, and fed in pieces that cut its events mid-way, its words out as they come, as
+        // the browser's adapter gave them.
+        let streamed = conversation["streamed"][&id].as_str().unwrap();
+        let read = provider.read_turn(200, "", streamed).unwrap();
+        assert_eq!(
+            serde_json::to_value(&read).unwrap(),
+            kept["turn"]["streamed"]["read"],
+            "{id}: the streamed turn read"
+        );
+        let mut stream = scaena_chat::Stream::new(provider);
+        let mut said = String::new();
+        for piece in streamed.as_bytes().chunks(97) {
+            said.push_str(&stream.feed(std::str::from_utf8(piece).unwrap()));
+        }
+        let heard: Vec<&str> =
+            kept["turn"]["streamed"]["said"].as_array().unwrap().iter().filter_map(Value::as_str).collect();
+        assert_eq!(said, heard.concat(), "{id}: the words as they come");
+        assert_eq!(said, read.text, "{id}: the words come out whole");
+        assert_eq!(provider.read_turn(200, "", &stream.finish().to_string()).unwrap(), read, "{id}: assembled");
+
         let models = serde_json::to_value(provider.models(key, None, true)).unwrap();
         assert_eq!(models, kept["models"]["request"], "{id}: the models' request");
         let listed = provider.read_models(200, "", &body(&conversation["models"][&id])).unwrap();
@@ -84,6 +105,22 @@ fn each_adapter_asks_and_reads_as_the_browsers_does() {
         let said = provider.read_turn(status, "", &body(&failure["body"])).unwrap_err().to_string();
         assert_eq!(json!(said), kept["failure"]["message"], "{id}: the failure said");
     }
+}
+
+/// An error a stream carries mid-way (Anthropic's `event: error` when overloaded) is a refusal
+/// with that error's status, as one that came as a status is (narrative ATTR-3).
+#[test]
+fn an_error_carried_mid_stream_is_a_refusal() {
+    let body = "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"content\":[]}}\n\n\
+                event: error\ndata: {\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"Overloaded\"}}\n\n";
+    let said = Provider::Anthropic.read_turn(200, "OK", body).unwrap_err().to_string();
+    assert_eq!(said, "529 Overloaded: Overloaded");
+    let body = "data: {\"error\":{\"message\":\"The server had an error\",\"type\":\"server_error\"}}\n\n";
+    let said = Provider::Openai.read_turn(200, "OK", body).unwrap_err().to_string();
+    assert_eq!(said, "500 Error: The server had an error");
+    // A body that is not a stream reads as before: an OpenAI-compatible server that does not stream.
+    let whole = r#"{"choices":[{"message":{"role":"assistant","content":"Hi"},"finish_reason":"stop"}]}"#;
+    assert_eq!(Provider::Openai.read_turn(200, "OK", whole).unwrap().text, "Hi");
 }
 
 #[test]

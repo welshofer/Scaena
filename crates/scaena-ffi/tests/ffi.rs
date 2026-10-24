@@ -111,6 +111,10 @@ fn a_bundle_opened_from_its_files_draws_its_goldens() {
     let timeline = call(s, "timeline", Value::Null);
     let first = &timeline[0];
     assert!(first["state"].is_string() && first["slide"].is_string() && first["start"].is_number(), "{first}");
+    // Each state's cue laid out ahead, as a show does while the state before it rests (PERF-1).
+    for slot in timeline.as_array().unwrap() {
+        assert_eq!(call(s, "prepare", json!({ "state": slot["state"] })), Value::Null);
+    }
     unsafe { scaena_session_free(s) };
 }
 
@@ -551,6 +555,10 @@ fn every_misuse_is_an_error_never_a_crash() {
     assert!(
         error(&answer(c("duration").as_ptr(), c(r#"{"state":"no-such-state"}"#).as_ptr())).contains("no-such-state")
     );
+    // A show lays the next cue out ahead (lift-up PERF-1): a state the deck lacks is said.
+    assert!(
+        error(&answer(c("prepare").as_ptr(), c(r#"{"state":"no-such-state"}"#).as_ptr())).contains("no-such-state")
+    );
     let nul: Value =
         serde_json::from_str(&took(unsafe { scaena_call(null_mut(), c("states").as_ptr(), null()) })).unwrap();
     assert!(error(&nul).contains("session is null"));
@@ -861,6 +869,61 @@ fn the_assistant_asks_with_the_users_key_and_runs_each_call_on_the_bundle() {
     assert_eq!(last["results"][1]["error"], true);
     assert!(last["results"][1]["json"].as_str().unwrap().contains("the user stopped the assistant"));
 
+    // An answer read as it is written (narrative ATTR-3): each piece fed gives the words it
+    // completes, and `answer` reads the whole body as one sent whole.
+    step(chat, s, "ask", json!({ "text": "Once more." }));
+    step(chat, null_mut(), "request", json!({ "key": "sk-test" }));
+    let events = "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"m\",\"role\":\"assistant\",\"content\":[],\"usage\":{\"input_tokens\":3}}}\n\n\
+                  event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n\
+                  event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"Once \"}}\n\n\
+                  event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"more.\"}}\n\n\
+                  event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":2}}\n\n";
+    let (first, rest) = events.split_at(events.find("more.").unwrap() - 40);
+    let heard = step(chat, null_mut(), "heard", json!({ "chunk": first }));
+    assert_eq!(heard["text"], "Once ", "{heard}");
+    let heard = step(chat, null_mut(), "heard", json!({ "chunk": rest }));
+    assert_eq!(heard["text"], "more.", "{heard}");
+    let next = step(chat, null_mut(), "answer", json!({ "status": 200, "body": events }));
+    assert_eq!(
+        next,
+        json!({ "next": "done", "text": "Once more.", "stop": "end", "usage": { "input": 3, "output": 2 } })
+    );
+
+    // A streamed answer whose call only reads runs that call apart (narrative ATTR-3 with
+    // lift-up PERF-2): the call streamed in pieces, read whole by `answer`, run on a snapshot's
+    // session, and taken back as `run` takes what it runs.
+    step(chat, s, "ask", json!({ "text": "Is it clean?" }));
+    step(chat, null_mut(), "request", json!({ "key": "sk-test" }));
+    let events = "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"m2\",\"role\":\"assistant\",\"content\":[],\"usage\":{\"input_tokens\":3}}}\n\n\
+                  event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"tool_use\",\"id\":\"t7\",\"name\":\"deck_lint\",\"input\":{}}}\n\n\
+                  event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"state\\\": \"}}\n\n\
+                  event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"\\\"cover\\\"}\"}}\n\n\
+                  event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\n\
+                  event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"tool_use\"},\"usage\":{\"output_tokens\":5}}\n\n";
+    let (first, rest) = events.split_at(events.find("cover").unwrap());
+    step(chat, null_mut(), "heard", json!({ "chunk": first }));
+    step(chat, null_mut(), "heard", json!({ "chunk": rest }));
+    let next = step(chat, null_mut(), "answer", json!({ "status": 200, "body": events }));
+    assert_eq!(next["calls"][0]["name"], "deck_lint", "{next}");
+    assert_eq!(next["calls"][0]["args"], json!({ "state": "cover" }), "{next}");
+    let lint = &next["calls"][0];
+    let alone = unsafe { scaena_chat_reads_alone(c("deck_lint").as_ptr(), c(&lint["args"].to_string()).as_ptr()) };
+    assert!(alone);
+    let snapshot = unsafe { scaena_snapshot_new(s) };
+    let mut error = null_mut();
+    let reader = unsafe { scaena_snapshot_open(snapshot, &mut error) };
+    assert!(!reader.is_null(), "opened: {}", took(error));
+    let ran: Value = serde_json::from_str(&took(unsafe {
+        scaena_chat_run_apart(reader, c("a-model").as_ptr(), c(&lint.to_string()).as_ptr(), c(at).as_ptr())
+    }))
+    .unwrap();
+    unsafe { scaena_session_free(reader) };
+    unsafe { scaena_snapshot_free(snapshot) };
+    let taken = step(chat, null_mut(), "took", json!({ "index": 0, "ran": ran["ok"] }));
+    assert_eq!(taken["error"], false, "{taken}");
+    assert_eq!(step(chat, null_mut(), "next", Value::Null), json!(true));
+    let conversation = step(chat, null_mut(), "conversation", Value::Null);
+
     // A provider's refusal is an error, and the conversation is as it was.
     let refused = stepped(
         chat,
@@ -1014,6 +1077,49 @@ fn text_typed_in_place_is_the_patch_the_browsers_typing_makes() {
         serde_json::from_str(&took(unsafe { scaena_call(s, c("typed").as_ptr(), c("{}").as_ptr()) })).unwrap();
     assert!(missing["error"]["message"].as_str().unwrap().contains("ops"), "{missing}");
     assert_eq!(call(s, "carets", json!({ "state": "cover", "node": "title" }))["text"], "Scaena on the Mac");
+    unsafe { scaena_session_free(s) };
+}
+
+/// Code typed in place (PLAN 2.139), as the browser's typing makes it: Make Code one patch, its
+/// carets saying its tab stops; a key answered as a code editor answers it, `{ text, from, to }`
+/// in UTF-16 code units, which a `replace_text` then makes; Tidy Code nothing where it is tidy;
+/// and Not Code one patch again.
+#[test]
+fn code_keys_and_commands_make_the_browsers_edit() {
+    let s = open(B1);
+    let made = call(s, "coding", json!({ "node": "title", "language": "rust" }));
+    assert_eq!(tool(s, "deck_patch", json!({ "ops": made }))["edited"], true, "{made}");
+    let carets = call(s, "carets", json!({ "state": "cover", "node": "title" }));
+    assert_eq!(carets["code"], json!({ "tab": 4, "from": 1, "language": "rust" }), "{carets}");
+    // Return after the text: a line indented as it, and the change typed as any is.
+    let text = carets["text"].as_str().unwrap().to_string();
+    let end = text.encode_utf16().count();
+    let keyed = call(s, "keyed", json!({ "text": text, "from": end, "to": end, "key": "Return", "tab": 4 }));
+    assert_eq!(keyed["text"], format!("{text}\n"), "{keyed}");
+    assert_eq!((keyed["from"].clone(), keyed["to"].clone()), (json!(end + 1), json!(end + 1)));
+    let chars = text.chars().count();
+    let op = json!({ "op": "replace_text", "node": "title", "state": "cover", "from": chars, "to": chars, "text": "\n    fn" });
+    assert_eq!(call(s, "typed", json!({ "ops": [op] })), true);
+    let typed = call(s, "carets", json!({ "state": "cover", "node": "title" }));
+    let line = typed["text"].as_str().unwrap().rsplit('\n').next().unwrap().to_string();
+    let at = typed["text"].as_str().unwrap().encode_utf16().count();
+    let tab = call(s, "keyed", json!({ "text": line, "from": 0, "to": 0, "key": "Shift+Tab", "tab": 4 }));
+    assert_eq!(tab["text"], "fn", "{tab}");
+    assert_eq!(
+        call(s, "keyed", json!({ "text": "x", "from": at, "to": at, "key": "Tab" })),
+        Value::Null,
+        "off the text"
+    );
+    assert_eq!(call(s, "keyed", json!({ "text": "x", "from": 0, "to": 0, "key": "Escape" })), Value::Null);
+    // A Makefile's stop is a tab, named by the text's language.
+    let make = json!({ "text": "all:\n", "from": 5, "to": 5, "key": "Tab", "language": "makefile" });
+    assert_eq!(call(s, "keyed", make)["text"], "all:\n\t");
+    // Tidy Code where the code is tidy: nothing; Not Code: `code` gone.
+    let tidy = call(s, "tidying", json!({ "state": "cover", "node": "title" }));
+    assert!(tidy.as_array().is_some_and(|ops| ops.iter().all(|op| op["op"] == "replace_text")), "{tidy}");
+    let not = call(s, "uncoding", json!({ "node": "title" }));
+    assert_eq!(tool(s, "deck_patch", json!({ "ops": not }))["edited"], true, "{not}");
+    assert_eq!(call(s, "carets", json!({ "state": "cover", "node": "title" }))["code"], Value::Null);
     unsafe { scaena_session_free(s) };
 }
 

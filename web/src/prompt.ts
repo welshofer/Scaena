@@ -1,8 +1,8 @@
 // New from a prompt (PLAN G.5, ADR-0026): a deck written by Vzestup's Narrato model from what the
 // user asks, grounded in the files and links they give, with their own key, as `scaena generate`
 // makes one. It is made in an engine's worker of its own, which starts as the dialog opens and
-// loads the generator's module while the brief is written; Cancel stops it, and the deck open is
-// untouched until the new one opens, kept nowhere until it is saved.
+// loads the generator's module while the brief is written; Cancel stops it, asking first while it
+// runs, and the deck open is untouched until the new one opens, kept nowhere until it is saved.
 import { familySections } from "./theme-families";
 import { keep, load, settings, store, verdict } from "./assistant/keys";
 import type { Choices, FromWorker, Generate, Generated, GeneratingEvent, ProviderId, Source, StoryOutline, ToWorker } from "./protocol";
@@ -19,6 +19,9 @@ export function said(event: GeneratingEvent): string {
       return `Reading ${event.name}…`;
     case "read":
       return `Read ${event.name} (${event.what})`;
+    case "grounded":
+      if (event.kilobytes === 0) return `No room for ${event.name} (${event.what}): the sources before it took the million bytes they share`;
+      return `Grounded in ${event.name} (${event.what}, ${event.kilobytes} KB${event.cut ? ", cut short to fit" : ""})`;
     case "researching":
       return `Researching ${event.topic}… (minutes)`;
     case "researchingNow":
@@ -78,16 +81,17 @@ export function made(m: Generated): string {
 /** A source given: a file, or a link. */
 type Given = { file: File } | { link: string };
 
-/** Wire the dialog: `opener` opens it, and a deck made opens by `open`, its line by `tell`.
- * `models` lists the models a key can use, as the Assistant tab lists them (lift-up 10-24 USE-1):
- * with no key kept, the dialog takes one in place, checks it, and keeps it as that tab does.
- * Changes not saved are asked about before a deck is made, not as it opens: what a model wrote
- * is never thrown away for them. */
+/** Wire the dialog: `opener` opens it, and a deck made opens by `open`, its story shown by
+ * `story`, which gives its score, and its line by `tell`. `models` lists the models a key can
+ * use, as the Assistant tab lists them (lift-up 10-24 USE-1): with no key kept, the dialog takes
+ * one in place, checks it, and keeps it as that tab does. Changes not saved are asked about
+ * before a deck is made, not as it opens: what a model wrote is never thrown away for them. */
 export function prompting(
   engine: Engine,
   opener: HTMLElement,
   unsaved: () => boolean,
   open: (source: Source) => Promise<void>,
+  story: () => Promise<number | undefined>,
   tell: (line: string) => void,
   models: (provider: ProviderId, key: string, base?: string) => Promise<string[]>,
 ) {
@@ -226,7 +230,10 @@ export function prompting(
   };
 
   const fill = (choices: Choices) => {
-    const options = (select: HTMLSelectElement, values: [string, string][], chosen: string) => {
+    // What was chosen stays chosen where the worker is started again, after a run failed.
+    const options = (select: HTMLSelectElement, values: [string, string][], fallback: string) => {
+      const was = select.value;
+      const chosen = select.options.length && values.some(([value]) => value === was) ? was : fallback;
       select.replaceChildren(...values.map(([value, label]) => new Option(label, value, false, value === chosen)));
     };
     options(goal, choices.goals.map((g) => [g, g]), choices.defaults.goal);
@@ -411,8 +418,16 @@ export function prompting(
     shown();
   };
 
-  // Cancel is no submit button, so Enter in a field generates rather than cancels.
-  $<HTMLButtonElement>("#prompting-cancel").onclick = () => dialog.close("cancel");
+  // Cancel is no submit button, so Enter in a field generates rather than cancels. While a deck
+  // is being made, Cancel and Escape ask first: closing drops what has been made so far, and the
+  // calls already paid for (lift-up 10-24 USE-2).
+  const stopping = () => !running || confirm("Stop making the deck? What has been made so far is lost.");
+  $<HTMLButtonElement>("#prompting-cancel").onclick = () => {
+    if (stopping()) dialog.close("cancel");
+  };
+  dialog.oncancel = (e) => {
+    if (!stopping()) e.preventDefault();
+  };
   // Closed, by Cancel, Escape, or a deck made, the worker stops: what it was making is dropped.
   dialog.onclose = () => {
     worker?.terminate();
@@ -489,7 +504,12 @@ export function prompting(
       const deck = await done;
       dialog.close("generated");
       await open({ files: deck.files, name: deck.name });
+      // What was made is said at once; the deck lands on its story (narrative USE-2): the arc's
+      // curve, the pacing against the brief, and each slide's fix, where Gamma lands on its
+      // outline, its score in the line as soon as the story is read.
       tell(made(deck.made));
+      const score = await story();
+      if (score !== undefined) tell(`${made(deck.made)} · story ${score} of 100`);
     } catch (err) {
       // Closed while it ran, it says nothing more.
       if (worker !== making) return;

@@ -1,6 +1,6 @@
 {
   "name": "deck_patch",
-  "description": "Apply a patch: JSON Patch and semantic ops (add_node, rename_node, set_prop, set_text, show_node, hide_node, add_state, …; SPEC §7.3), all or none. A patch that would make the deck invalid is refused. Reports the patch as JSON Patch, and what lint finds that it did not (`added`) and finds no more (`removed`).",
+  "description": "Apply a patch: JSON Patch and semantic ops (add_node, rename_node, set_prop, set_text, show_node, hide_node, add_state, …; SPEC §7.3), all or none. A patch that would make the deck invalid is refused. Reports the semantic ops given, what changed in the slides and the story (`summary`: slides and beats added, removed, and moved, and beats told otherwise), and what lint finds that it did not (`added`) and finds no more (`removed`); with `verbose`, the patch compiled to JSON Patch too.",
   "inputSchema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "required": ["bundle", "ops"],
@@ -12,13 +12,46 @@
         "type": "array",
         "items": { "type": "object", "additionalProperties": true }
       },
-      "dry_run": { "description": "Say what would change, and write nothing.", "type": "boolean", "default": false }
+      "dry_run": { "description": "Say what would change, and write nothing.", "type": "boolean", "default": false },
+      "verbose": {
+        "description": "The patch compiled to JSON Patch too (`patch`), which a structural op makes long.",
+        "type": "boolean",
+        "default": false
+      }
     },
     "additionalProperties": false
   },
   "outputSchema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "$defs": {
+      "Summary": {
+        "description": "What a patch changed in a deck's slides, each by the id of its first state, and in its\nspine's beats, each by its id: what was added, taken away, moved among the rest, or, a beat,\ntold otherwise (its claim, states, evidence, notes, or time). Each list is in the deck's order,\nand left out when empty.",
+        "type": "object",
+        "properties": {
+          "json_patch": {
+            "description": "How many of the ops given were JSON Patch.",
+            "type": "integer",
+            "minimum": 0
+          },
+          "slides_added": { "type": "array", "items": { "type": "string" } },
+          "slides_removed": { "type": "array", "items": { "type": "string" } },
+          "slides_moved": { "type": "array", "items": { "type": "string" } },
+          "beats_added": { "type": "array", "items": { "type": "string" } },
+          "beats_removed": { "type": "array", "items": { "type": "string" } },
+          "beats_moved": { "type": "array", "items": { "type": "string" } },
+          "beats_changed": { "type": "array", "items": { "type": "string" } }
+        },
+        "required": [
+          "json_patch",
+          "slides_added",
+          "slides_removed",
+          "slides_moved",
+          "beats_added",
+          "beats_removed",
+          "beats_moved",
+          "beats_changed"
+        ]
+      },
       "JsonOp": {
         "description": "RFC 6902's ops.",
         "oneOf": [
@@ -119,16 +152,22 @@
       },
       "Severity": { "type": "string", "enum": ["info", "warning", "error"] }
     },
-    "required": ["applied", "patch", "added", "removed", "errors", "states"],
+    "required": ["applied", "ops", "summary", "added", "removed", "errors", "states"],
     "type": "object",
     "properties": {
       "applied": {
         "description": "Whether the deck was written: not under a dry run, nor when the patch was refused.",
         "type": "boolean"
       },
-      "patch": {
-        "description": "The patch as RFC 6902, in order.",
+      "ops": {
+        "description": "The semantic ops given (SPEC §7.3), in order, as given; JSON Patch ops are counted in\n`summary`.",
         "type": "array",
+        "items": true
+      },
+      "summary": { "description": "What changed in the deck's slides and its story.", "$ref": "#/$defs/Summary" },
+      "patch": {
+        "description": "With `verbose`, the patch as RFC 6902, in order.",
+        "type": ["array", "null"],
         "items": { "$ref": "#/$defs/JsonOp" }
       },
       "added": {
@@ -143,7 +182,7 @@
       },
       "errors": { "description": "The findings that are errors, after.", "type": "integer", "minimum": 0 },
       "states": {
-        "description": "The states it changes, by id: each whose nodes, resolved with the deck's overrides,\nor whose layout, transition, choreography, hold, notes, or slide number and footer are\nnot as they were, and each it adds. None when it is refused.",
+        "description": "The states it changes, by id, as [`Patched`] says them.",
         "type": "array",
         "items": { "type": "string" }
       }

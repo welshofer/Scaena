@@ -13,7 +13,7 @@
 // - What a browser cannot read says so, and where it is read: an SEC filing, and a page whose
 //   site lets no other page read it. A provider that refuses the key says so in the dialog,
 //   which stays open to try again.
-// - Cancel stops the worker making the deck, and the deck open stays open.
+// - Cancel stops the worker making the deck once asked, Escape too, and the deck open stays open.
 // - A deck in a script the theme's fonts do not draw takes the script's font (PLAN G.22), before
 //   the provider is asked anything: Japanese's, which cannot be fetched here, says so; Hindi's is
 //   fetched from where google/fonts serves it, once, and kept by the browser for the next deck.
@@ -142,7 +142,8 @@ try {
   const page = await browser.newPage({ viewport: { width: 1600, height: 1000 }, deviceScaleFactor: 1 });
   page.on("pageerror", (e) => failures.push(`page: ${e.message}`));
   page.on("console", (m) => m.type() === "error" && !/Failed to (load resource|fetch)|CORS/.test(m.text()) && failures.push(`console: ${m.text()}`));
-  page.on("dialog", (d) => d.accept());
+  const accepting = (d) => d.accept();
+  page.on("dialog", accepting);
   await page.goto(`${site.origin}/web/dist/editor.html?painter=cpu&bundle=/docs/examples/revenue.deck.json`);
   await page.waitForFunction(() => window.scaena?.last() && window.scaena.where().name === "revenue", null, { timeout: 120000 });
   // No key kept: the dialog takes one in place, in a page of its own, so what it chose leaves the
@@ -290,7 +291,7 @@ try {
   const hindi = await failed();
   const fetching = (await lines()).find((l) => l.startsWith("Fetching"));
   check(fetching === "Fetching Noto Sans Devanagari, the font a deck in Hindi is set in (0.6 MB)…", `the progress says the font is fetched, and how large: ${fetching}`);
-  check(hindi.includes("invalid x-api-key") && requests.length > 0, `then the provider is asked: ${hindi}`);
+  check(hindi.includes("Anthropic didn't accept your key") && requests.length > 0, `then the provider is asked: ${hindi}`);
   const devanagari = () => fetched.filter((u) => u.includes("NotoSansDevanagari")).length;
   check(devanagari() === 1, `the font is fetched once: ${devanagari()}`);
   // Kept by the browser: the next deck in Hindi fetches nothing.
@@ -302,19 +303,36 @@ try {
   await page.fill("#prompting-language", "");
   await page.click("#prompting details > summary");
 
-  // A provider that refuses the key says so, and Generate is there to try again.
+  // A provider that refuses the key says so in a person's words, as the pictures do (lift-up
+  // USE-3), and Generate is there to try again.
   state.fail = true;
   await page.click("#prompting-go");
   const refused = await failed();
-  check(refused.includes("invalid x-api-key"), `the provider's refusal in its words: ${refused}`);
+  check(refused.includes("Anthropic didn't accept your key. Check it, or replace it."), `the refusal in a person's words: ${refused}`);
+  check(!refused.includes("invalid x-api-key"), `and not the provider's: ${refused}`);
   await page.waitForFunction(() => !document.querySelector("#prompting-go").disabled, null, { timeout: 30000 });
   check(true, "Generate can be pressed again");
+  check((await page.inputValue("#prompting-goal")) === "Persuade", "what was chosen stays chosen after a failed run");
   state.fail = false;
 
-  // Cancel stops it; the deck open stays open.
+  // Cancel stops it, once asked (lift-up 10-24 USE-2): kept making, Cancel and Escape leave it
+  // running; stopped, the deck open stays open.
   state.slow = 4000;
   await page.click("#prompting-go");
   await page.waitForFunction(() => [...document.querySelectorAll("#prompting-progress li")].some((l) => l.textContent.startsWith("Choosing the arc")), null, { timeout: 60000 });
+  page.off("dialog", accepting);
+  const askedFirst = [];
+  const declining = (d) => (askedFirst.push(d.message()), d.dismiss());
+  page.on("dialog", declining);
+  await page.click("#prompting-cancel");
+  await page.locator("#prompting").press("Escape");
+  await page.waitForTimeout(300);
+  check(
+    askedFirst.length === 2 && askedFirst.every((m) => m.startsWith("Stop making the deck?")) && (await page.locator("#prompting").evaluate((d) => d.open)),
+    `Cancel and Escape ask first while it runs, and kept making, it stays open: ${askedFirst.join(" | ")}`,
+  );
+  page.off("dialog", declining);
+  page.on("dialog", accepting);
   await page.click("#prompting-cancel");
   check(!(await page.locator("#prompting").evaluate((d) => d.open)), "Cancel closes the dialog");
   await page.waitForTimeout(5000);
@@ -381,8 +399,13 @@ try {
   check(await page.locator("#prompting").evaluate((d) => !d.open), "the deck made, the dialog closed");
   const made = await page.evaluate(() => window.scaena.where());
   check(made.where === undefined, `the deck made is kept nowhere until it is saved: ${JSON.stringify(made)}`);
+  // The story is read after the deck's first lint: its score comes into the line once it is.
+  await page.waitForFunction(() => / · story \d+ of 100\b/.test(document.querySelector("#status")?.textContent ?? ""), null, { timeout: 30000 }).catch(() => {});
   const status = await page.textContent("#status");
   check(/Made: 5 slides on the arc Problem–Solution, 2 pictures/.test(status), `the status says what was made: ${status}`);
+  // The deck lands on its story (narrative USE-2): the Story tab shown, its score in the line.
+  check(/ · story \d+ of 100\b/.test(status), `the status says the story's score: ${status}`);
+  check((await page.getAttribute("#tab-story", "aria-selected")) === "true", "the Story tab is shown as the deck lands");
   // Two pictures, the cover's and the ending's, by the best image model the key lists.
   check(painted.length === 2, `two pictures asked for: ${painted.length}`);
   check(
@@ -401,6 +424,11 @@ try {
   );
   check(slides?.prompt.includes(`=== SOURCE: ${press}/press.html ===`) && slides.prompt.includes("third route"), "the web page is in the slides' prompt");
   check(slides?.prompt.includes("=== SOURCE: q3.csv ==="), "the CSV is in the slides' prompt");
+  const gave = (await lines()).filter((l) => l.startsWith("Grounded in "));
+  check(
+    gave.length === 3 && gave.some((l) => /^Grounded in notes\.md \(markdown, 1 KB\)$/.test(l)),
+    `what each source gave is said before the arc is asked for: ${gave.join(" · ")}`,
+  );
   const look = requests.find((r) => r.asked === "look");
   const drawn = look?.body.messages[0].content.filter((c) => c.type === "image") ?? [];
   check(
