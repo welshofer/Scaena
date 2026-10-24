@@ -65,8 +65,33 @@ try {
       const older = ask({ type: "bundleFiles", source: after });
       const [stepped] = await Promise.all([stepping, older]);
       const { source: stepSource } = await ask({ type: "source" });
+      // An undo, by the page's versions: the deck compiled at version 1, a patch made on it, and
+      // the patch's source taken as version 2; then ⌘Z puts version 3, the source before the
+      // patch again, and a request with it is posted before its edit. It is newer than the deck
+      // held, so the deck is compiled from it, not answered as it stood before the undo.
+      await ask({ type: "edit", source: stepSource, index, version: 1 });
+      const patched = await ask({ type: "make", source: stepSource, ops: [{ op: "place", node: "tally", at: { col: [1, 9], row: 5 } }], index, version: 1 });
+      await ask({ type: "edit", source: patched.source, index, version: 2 });
+      await ask({ type: "bundleFiles", source: stepSource, version: 3 });
+      const { source: undone } = await ask({ type: "source" });
+      // And a request from before the patch, its version older than the deck held, is answered
+      // from that deck.
+      await ask({ type: "edit", source: patched.source, index, version: 4 });
+      await ask({ type: "bundleFiles", source: stepSource, version: 3 });
+      const { source: kept } = await ask({ type: "source" });
+      // The linter's edit of the source the page had while a patch was made on it, posted in the
+      // same task as the patch (#597's builds.mjs on CI): the deck stays the patch's, and the step
+      // it added reads.
+      const { added: more } = await ask({ type: "addingState", source: kept, state: "containers", what: "step", version: 5 });
+      const adding = ask({ type: "make", source: kept, ops: more.patch, index: index + 1, version: 5 });
+      const linting = ask({ type: "edit", source: kept, index, version: 5 });
+      await Promise.all([adding, linting]);
+      const readOut = await ask({ type: "read", state: more.id });
       worker.terminate();
       return {
+        lintedOver: readOut.type === "error" ? `${more.id}: ${readOut.message}` : "",
+        undoneHeld: undone === stepSource,
+        staleKept: kept === patched.source,
         step: added.id,
         stepped: stepped.type === "error" ? `refused: ${stepped.message}` : stepSource.includes(`state ${added.id}`) ? "made" : "missing",
         was,
@@ -87,6 +112,9 @@ try {
     result.sourceHeld && JSON.stringify(result.now.col) === "[1,10]",
     `and the deck held stays the edit's, not compiled back from the older source: tally at ${JSON.stringify(result.now)}, box ${result.box}, the source ${result.sourceHeld ? "the edit's" : "the older one"}`,
   );
+  check(result.undoneHeld, "a request with an undo's source, newer than the deck, compiles it: the deck is the source before the patch again");
+  check(!result.lintedOver, `the linter's edit of the source before a patch leaves the patch's deck, its step read: ${result.lintedOver || "it reads"}`);
+  check(result.staleKept, "a request older than the deck held is answered from it, the patch kept");
   check(result.stepped === "made", `a step added, with a request of the source before it taken meanwhile, is made: ${result.step} ${result.stepped}`);
 } finally {
   await browser.close();

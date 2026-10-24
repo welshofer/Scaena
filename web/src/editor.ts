@@ -700,6 +700,7 @@ async function edit(source: Source, opened?: Stage) {
   let showings = 0;
   /** The source's version: one more with each change. A lint answers the version it read. */
   let version = 0;
+  stage.sourceVersion = () => version;
   /** A lint of every state, waiting for typing to stop. */
   let pending: ReturnType<typeof setTimeout> | undefined;
   const pause = 500;

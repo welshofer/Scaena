@@ -227,6 +227,9 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
   // A request that carries the editor's source waits out an edit in flight, so nothing compiles
   // over the deck an edit compiled while its frame paints: it lints that deck and no other.
   while (editing && typeof (data as { source?: unknown }).source === "string") await editing;
+  // Taken now: what it carries is read against the deck as it stands.
+  const carried = (data as { version?: unknown }).version;
+  if (typeof carried === "number") asked = carried;
   try {
     switch (data.type) {
       case "open":
@@ -299,10 +302,14 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         return;
       case "source":
         return post({ type: "source", id: data.id, source: player.source() });
-      case "edit":
+      case "edit": {
         latest++;
         shown = { index: data.index, format: data.format };
-        return post({ type: "edited", id: data.id, ...(await edit(data.source, data.index, data.format)) });
+        // An edit no newer than the deck held (the linter's, of the source the page had while a
+        // patch was made on it) is answered from that deck, never compiled back over it.
+        const source = stale(data.source) ? player.source() : data.source;
+        return post({ type: "edited", id: data.id, ...(await edit(source, data.index, data.format)) });
+      }
       case "lint": {
         const start = performance.now();
         const now = Math.floor(Date.now() / 1000);
@@ -1589,16 +1596,32 @@ function current(source: string) {
  * one, which set the deck a track behind the source (#469's canvas red: two arrow presses in a
  * row, and the Theme panel's `bundleFiles` between them). */
 const compiledSources: string[] = [];
+/** The page's version of the source (`version`, which counts every change of it, an undo
+ * included) that the request being answered carries, and the one the deck held was compiled at:
+ * a request no newer than the deck held is answered from it. An undo's source is one of the
+ * eight, but newer: it is compiled, never answered from the deck before the undo. */
+let asked: number | undefined;
+let heldAt: number | undefined;
 function noted(source: string) {
   const was = compiledSources.indexOf(source);
   if (was >= 0) compiledSources.splice(was, 1);
   compiledSources.unshift(source);
   compiledSources.length = Math.min(compiledSources.length, 9);
+  if (asked !== undefined) heldAt = asked;
 }
 /** Whether the deck held answers a request that carries `source`: compiled from it, or from an
- * edit made after it. */
+ * edit made after it, which is one of the eight, and, where the request carries a version, no
+ * newer than the deck's. */
 function held(source: string): boolean {
-  return player.compiledFrom(source) || compiledSources.includes(source);
+  if (player.compiledFrom(source)) return true;
+  if (!compiledSources.includes(source)) return false;
+  return asked === undefined || heldAt === undefined || asked <= heldAt;
+}
+/** Whether a request carrying `source` and a version is older than the deck held: a source
+ * compiled before, at a version no newer than the deck's, and not the deck's own. A source never
+ * compiled (a fix's, which the page edits before it takes it) is newer whatever its version. */
+function stale(source: string): boolean {
+  return asked !== undefined && heldAt !== undefined && asked <= heldAt && !player.compiledFrom(source) && compiledSources.includes(source);
 }
 
 function layOut(next: string | undefined, again = false) {
