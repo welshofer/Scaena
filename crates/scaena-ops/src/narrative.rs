@@ -1105,8 +1105,10 @@ fn alike(doc: &mut Value, view: &View, held: &mut Held) -> Result<bool, OpsError
         let size = if figures { size * 0.9 } else { *size };
         // A quarter of a unit under, so that every one of them fits at it.
         let size = (size * 4.0).floor() / 4.0;
-        // A text that shrinks and took no more than that keeps no cap it does not need.
-        if doc["nodes"][id]["fit"] == "shrink" && reached.get(id).is_some_and(|(r, _)| *r <= size + 0.25) {
+        // A text that shrinks, by its own fit or its slot's, and took no more than that keeps no
+        // cap it does not need.
+        let shrinks = |fit: &TextFit| doc["nodes"][id]["fit"] == "shrink" || *fit == TextFit::Shrink;
+        if reached.get(id).is_some_and(|(r, fit)| shrinks(fit) && *r <= size + 0.25) {
             continue;
         }
         let node = &mut doc["nodes"][id];
@@ -1129,7 +1131,8 @@ fn alike(doc: &mut Value, view: &View, held: &mut Held) -> Result<bool, OpsError
 }
 
 /// Each text of `doc` that grows or shrinks and is one of a set [`alike`] holds to one size:
-/// its set, its state, its id, and its role's size.
+/// its set, its state, its id, and its role's size. A text that says no fit of its own fits as its
+/// slot says, so a set of titles the slot shrinks shrinks together (lift-up dogfood).
 fn growing(doc: &Value, theme: &scaena_engine::theme::Theme) -> Vec<(String, String, String, f64)> {
     let mut members = Vec::new();
     for state in doc["states"].as_array().into_iter().flatten() {
@@ -1137,11 +1140,15 @@ fn growing(doc: &Value, theme: &scaena_engine::theme::Theme) -> Vec<(String, Str
         let layout = state["layout"].as_str().unwrap_or_default();
         for node in shown.keys() {
             let n = &doc["nodes"][node];
-            let (Some("grow" | "shrink"), Some(slot), Some(role)) =
-                (n["fit"].as_str(), n["at"]["in"].as_str(), n["role"].as_str())
-            else {
-                continue;
+            let (Some(slot), Some(role)) = (n["at"]["in"].as_str(), n["role"].as_str()) else { continue };
+            let slotted = || theme.layouts.get(layout).and_then(|l| l.slots.get(slot)).and_then(|s| s.fit);
+            let fits = match n["fit"].as_str() {
+                Some(fit) => matches!(fit, "grow" | "shrink"),
+                None => matches!(slotted(), Some(TextFit::Grow | TextFit::Shrink)),
             };
+            if !fits {
+                continue;
+            }
             let Some(size) = theme.typography.roles.get(role).map(|r| r.size) else { continue };
             let set = match ordinal(slot) {
                 Some((_, part)) => format!("{id}\u{1f}{part}\u{1f}{role}"),
@@ -2466,6 +2473,9 @@ fn layout_for(
         "headline" if pictured => "headline",
         "headline" => "statement",
         "manifesto" => "manifesto",
+        // With no picture to show, the people stand by name, under the headline, with no band
+        // left empty for their faces.
+        "team" if !pictured => "team-names",
         "team" => match n {
             0..=3 => "team",
             4 => "team-four",
@@ -3027,8 +3037,9 @@ impl Slots<'_> {
             (None, "figure") if name == "callout" && self.layout == "line-chart" => at_least("numeral"),
             (None, "caption") if name == "note" && self.layout == "line-chart" => at_least("body"),
             // A journey's cells, a few words each, as large as their places take, up to the lede,
-            // all of a slide's at one size (dogfood pass 5).
-            (None, "caption") if self.layout == "journey" && journey_cell(name) => at_least("lede"),
+            // all of a slide's at one size (dogfood pass 5), set in the body where the theme sets
+            // them so (lift-up dogfood) or in the caption where an older copy does.
+            (None, "caption" | "body") if self.layout == "journey" && journey_cell(name) => at_least("lede"),
             _ => None,
         }
     }
@@ -3197,7 +3208,12 @@ impl Slots<'_> {
             "note" if layout.ends_with("chart") && self.slide.chart_data.is_some() => self.caption(),
             "note" => {
                 let source = self.slide.chart_data.as_ref().and_then(|c| c.source_id.clone()).map(|s| self.sourced(&s));
-                let fallback = if layout == "full" { self.subtitle() } else { None };
+                // What the headline leaves to say, where the layout has no place of its own for it
+                // and the slide is no chart's, whose value axis says it: a source or a fact stays
+                // first, never stacked with it.
+                let placed = ["subtitle", "support", "dek", "follow", "talk", "lede"].iter().any(|n| self.has(n));
+                let chart = self.slide.chart_data.is_some();
+                let fallback = if layout == "full" || (!placed && !chart) { self.subtitle() } else { None };
                 source.or_else(|| self.fact()).or(fallback)
             }
             "story" | "details" => (!self.items.is_empty()).then(|| self.wholes().join("\n")),
@@ -3384,7 +3400,9 @@ impl Slots<'_> {
                 })
             }
             // "Name, role: credit".
-            ("team" | "team-four" | "team-six", _, Some((k, part))) if part != "art" => {
+            ("team" | "team-four" | "team-six" | "team-names", _, Some((k, part)))
+                if part != "art" && part != "card" =>
+            {
                 let item = self.item(k)?;
                 let label = item.label.clone().unwrap_or_else(|| item.whole.clone());
                 let (person, role) =
@@ -5035,7 +5053,7 @@ mod tests {
             "ranking",
             "statement",
             "manifesto",
-            "team-four",
+            "team-names",
             "bio",
             "testimonials",
             "how-it-works",
@@ -5252,6 +5270,46 @@ mod tests {
             ],
         );
         assert_eq!(layout, "milestones");
+    }
+
+    /// A set's titles stay one size (G.12, lift-up dogfood): How It Works' step titles take the
+    /// lines they need at the set's size, every step's words on one row, and one too long for its
+    /// place shrinks its set with it, the slot's own fit held as a text's is.
+    #[test]
+    fn a_steps_titles_wrap_at_one_size_and_shrink_together() {
+        let (summary, slides) = catalog();
+        let made = |bullets: &[&str]| {
+            let mut slide = slides.iter().find(|s| s.layout_suggestion == "How It Works").unwrap().clone();
+            slide.key_bullets = bullets.iter().map(|b| b.to_string()).collect();
+            let n = narrative(&summary, vec![slides[0].clone(), slide, slides[55].clone()]);
+            let (made, write) = generating(&n, Path::new("dusk.theme.json"), dusk(), &font).unwrap();
+            assert!(made.created.created, "{:#?}", made.created.findings);
+            assert_eq!(made.layouts[1], "how-it-works");
+            let deck = write.unwrap().deck.to_value().unwrap();
+            let state = deck["states"][1]["id"].as_str().unwrap().to_string();
+            let caps: Vec<Option<f64>> = ["first", "second", "third"]
+                .iter()
+                .map(|o| deck["nodes"][format!("{state}-{o}-title")]["maxSize"].as_f64())
+                .collect();
+            caps
+        };
+        // Each fits its two lines: none shrinks, each at the role's size.
+        let held = made(&[
+            "Start with how common it is: the base rate",
+            "Multiply by how often the test catches it: sensitivity",
+            "Divide by all the ways to test positive: the true and the false alike",
+        ]);
+        assert!(held.iter().all(Option::is_none), "none shrinks: {held:?}");
+        // One too long for its two lines shrinks, and the others with it, to one size: theirs
+        // capped at the size it reached, which, shrinking to fit, needs no cap of its own.
+        let held = made(&[
+            "Base rate: how common it is",
+            "Sensitivity: how often it catches it",
+            "Divide by every way that anyone at all could test positive: the true and the false alike",
+        ]);
+        let caps: Vec<f64> = held.iter().flatten().copied().collect();
+        assert_eq!(caps.len(), 2, "the two that fit are capped: {held:?}");
+        assert!(caps[0] == caps[1] && caps[0] < 48.0 && held[2].is_none(), "shrunk together: {held:?}");
     }
 
     /// Short words in a large place grow to fill it (dogfood pass 4): each side's list of a
@@ -6141,6 +6199,36 @@ mod tests {
         assert!(node(7, "kicker").is_null() && node(0, "kicker").is_null() && node(24, "kicker").is_null());
     }
 
+    /// A slide's subtitle, where its layout has no place for one, goes in the note at its foot when
+    /// the slide has no source or fact for it there; a fact stays, never stacked with it; and a
+    /// chart's stays on its value axis, out of the note (lift-up dogfood).
+    #[test]
+    fn a_note_takes_the_subtitle_where_the_layout_has_no_place_for_it() {
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let mut n = climate();
+        let i = n.slides.iter().position(|s| s.chart_data.is_none() && s.layout_suggestion != "title").unwrap();
+        n.slides[i].supporting_facts = None;
+        n.slides[i].subtitle = "Ten years of readings, by station".into();
+        let forced = BTreeMap::from([(i, "table".to_string())]);
+        let note = |n: &Narrative, forced: &BTreeMap<usize, String>, at: usize| {
+            let made = deck_as(n, &theme, &Pictures::new(), forced).unwrap();
+            let deck = &made.deck;
+            let props = deck["states"][at]["props"].as_object().unwrap();
+            let id = props.keys().find(|id| deck["nodes"][id.as_str()]["at"]["in"] == "note")?;
+            deck["nodes"][id.as_str()].get("text").cloned()
+        };
+        assert_eq!(note(&n, &forced, i), Some(json!("Ten years of readings, by station")));
+        n.slides[i].supporting_facts = Some("NOAA, 2015\u{2013}2024".into());
+        assert_eq!(note(&n, &forced, i), Some(json!("NOAA, 2015\u{2013}2024")), "the fact stays");
+        // A chart's subtitle is its value axis's, and its note keeps to its source or its fact.
+        let c = n.slides.iter().position(|s| s.chart_data.is_some()).unwrap();
+        n.slides[c].supporting_facts = None;
+        n.slides[c].chart_data.as_mut().unwrap().source_id = None;
+        n.slides[c].subtitle = "Gigatonnes a year".into();
+        let figure = BTreeMap::from([(c, "figure".to_string())]);
+        assert_eq!(note(&n, &figure, c), None, "a chart's note takes no subtitle");
+    }
+
     /// A chart makes its claim (dogfood pass, charts): a line of several series lights the one its
     /// headline names, as a whole word; its value axis says what it plots from the subtitle, with
     /// the unit, where the subtitle is short enough to; its caption says where it comes from, a
@@ -6758,7 +6846,7 @@ mod tests {
         assert!(holds(&theme, "head-to-head", 4) && !holds(&theme, "head-to-head", 5));
         assert!(holds(&theme, "receipt", 5) && !holds(&theme, "receipt", 6));
         let (summary, slides) = catalog();
-        let mut steps = slides.iter().find(|s| s.layout_suggestion == "Steps").unwrap().clone();
+        let mut steps = slides.iter().find(|s| s.layout_suggestion == "How It Works").unwrap().clone();
         steps.key_bullets.extend(["Report: certificates reach the buyer".into(), "Renew: the lane books again".into()]);
         let made =
             deck(&narrative(&summary, vec![slides[0].clone(), steps, slides[55].clone()]), &theme, &Pictures::new())
