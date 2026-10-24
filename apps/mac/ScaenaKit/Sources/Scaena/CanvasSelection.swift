@@ -2120,8 +2120,7 @@ struct DeskHint: View {
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, across)
                 .padding(.vertical, down)
-                .background(.regularMaterial, in: Capsule())
-                .shadow(color: .black.opacity(0.15), radius: 6, y: 2)
+                .floating(in: Capsule(), lifted: true)
                 // What the walk reads to know a text is typed in (PLAN 3.21).
                 .accessibilityIdentifier("hint")
                 .frame(maxWidth: max(desk.width - 24, 1))
