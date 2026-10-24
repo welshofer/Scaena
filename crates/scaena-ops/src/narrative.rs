@@ -1283,6 +1283,8 @@ pub fn deck_as(
     let mut chosen = Vec::with_capacity(count);
     let mut section_number = 0;
     let mut running: Option<String> = None;
+    // Whether the section open is titled by a divider of its own.
+    let mut divided = false;
     let mut previous: Option<(String, &Slide)> = None;
     for (i, (slide, v)) in narrative.slides.iter().zip(&varied).enumerate() {
         let beat = (slide.beat_index.filter(|b| *b < names.len()))
@@ -1315,18 +1317,33 @@ pub fn deck_as(
         };
         let entrance = entrance(&layout, slide, previous.as_ref().map(|(l, s)| (l.as_str(), *s)), i + 1 == count);
         let made = deck.slide(slots, entrance)?;
-        if layout.starts_with("section") && !slide.slide_title.is_empty() {
+        let divider = layout.starts_with("section") && !slide.slide_title.is_empty();
+        if divider {
             running = Some(slide.slide_title.clone());
         }
         previous = Some((layout.clone(), slide));
         chosen.push(layout);
 
-        // The spine: a section for each run of slides in one beat, a beat for each slide.
+        // The spine: a section for each run of slides in one beat, a beat for each slide. A
+        // section is titled by what its slides say (narrative ATTR-5): its divider's title, else
+        // the beat's name as the model wrote it on the run's first slide, else the arc's name for
+        // the beat, which reads as a template ("Problem", "Solution") in the PDF's outline, the
+        // player's picker, and the Story tab.
         if last_beat != Some(beat) {
-            let name = names.get(beat).copied().unwrap_or("Section");
+            let named = slide.beat_name.as_deref().map(str::trim).filter(|n| !n.is_empty());
+            let name = match (divider, named) {
+                (true, _) => slide.slide_title.as_str(),
+                (false, Some(named)) => named,
+                (false, None) => names.get(beat).copied().unwrap_or("Section"),
+            };
             let id = deck.unique(&slug(name, "section"), Taken::Section);
             sections.push(json!({ "id": id, "title": name, "beats": [] }));
+            divided = divider;
             last_beat = Some(beat);
+        } else if divider && !divided {
+            // The run's first divider, after a slide or two: the section takes its title.
+            sections.last_mut().expect("opened above")["title"] = json!(slide.slide_title);
+            divided = true;
         }
         let claim = if slide.slide_title.is_empty() { format!("Slide {}", i + 1) } else { slide.slide_title.clone() };
         let beat_id = deck.unique(&slug(&claim, "beat"), Taken::Beat);
@@ -4205,6 +4222,42 @@ mod tests {
         let zero = Change { slide: 0, title: Some("x".into()), ..Change::default() };
         assert_eq!(kept(vec![zero.clone()], &[0]).len(), 1, "slide 0 names no index");
         assert_eq!(kept(vec![zero, Change { slide: 1, ..Change::default() }], &[0]).len(), 1);
+    }
+
+    /// A section is titled by what its slides say (narrative ATTR-5): its divider's title, where
+    /// the run has one, first or after a slide; else the beat's name as the model wrote it; else
+    /// the arc's name for the beat.
+    #[test]
+    fn a_section_is_titled_by_its_divider_else_the_models_beat_name_else_the_arcs() {
+        let (summary, slides) = catalog();
+        let at = |layout: &str| slides.iter().find(|s| s.layout_suggestion == layout).unwrap().clone();
+        let beat = |mut slide: Slide, index: usize, name: Option<&str>| {
+            slide.beat_index = Some(index);
+            slide.beat_name = name.map(str::to_string);
+            slide
+        };
+        let mut divider = at("Section Header");
+        divider.slide_title = "The problem is the cost of proof".into();
+        let mut later = at("Section Header");
+        later.slide_title = "Where the money goes".into();
+        let picked = vec![
+            beat(at("Title"), 0, Some("  Hook  ")),
+            beat(divider, 1, Some("Stakes")),
+            beat(at("Bullet List"), 1, None),
+            beat(at("Big Number"), 2, None),
+            beat(at("Bullet List"), 3, Some("Ask")),
+            beat(later, 3, None),
+            beat(at("Closing"), 3, None),
+        ];
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let made = deck(&narrative(&summary, picked), &theme, &Pictures::new()).unwrap();
+        let spine = made.deck["spine"]["sections"].as_array().unwrap();
+        let titles: Vec<&str> = spine.iter().map(|s| s["title"].as_str().unwrap()).collect();
+        let names = scaena_narrato::arcs::arc("Problem\u{2013}Solution").beat_names();
+        assert_eq!(titles, ["Hook", "The problem is the cost of proof", names[2], "Where the money goes"]);
+        let beats: Vec<usize> = spine.iter().map(|s| s["beats"].as_array().unwrap().len()).collect();
+        assert_eq!(beats, [1, 2, 1, 3]);
+        assert_eq!(spine[1]["id"], "the-problem-is-the-cost-of-proof");
     }
 
     #[test]
