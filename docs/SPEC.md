@@ -830,6 +830,8 @@ decompile(compile(decompile(document))) == decompile(document)   (the canonical 
 
 and explicitly **not** `decompile(compile(source)) == source`. "Always" means every document the typed model reads, valid or not, so an agent can decompile a broken deck and fix it in the DSL. Whitespace, blank lines, column alignment, the order of declarations, and the choice between shorthand and `key:value` are not preserved. Keys keep the order the source writes them in, and the decompiler keeps the deck's order, because canonical JSON keeps it.
 
+A value's lists and objects nest no deeper in the deck than `deck.json` may, counted from the deck's own object: 127 inside each other, as serde_json reads them. A value written deeper is refused at its source line, so a source never compiles into a deck no reader opens; and a compile that cannot read back what it made says why, never panics.
+
 Comments: `#` starts a comment outside strings. Comment lines, and a line's trailing comment, become the `_comment` of the next deck header, node, override, state, or node line in a state, which is where the format has one. Comments anywhere else are dropped. The decompiler writes a `_comment` back as comment lines. If you want your formatting kept, keep your file and regenerate `deck.json` from it: the compiler is the stable direction.
 
 ### 4.1 Example
