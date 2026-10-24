@@ -11,7 +11,7 @@
 // - A right click on the photo on the canvas offers the same, from the photo that node draws.
 // - axe-core finds nothing against WCAG 2.1 AA with the tab shown.
 // Exits 1 on any failure.
-import { axeInto, launch, serve } from "./serve.mjs";
+import { axeInto, launch, serve, tab } from "./serve.mjs";
 
 const failures = [];
 const check = (ok, what) => {
@@ -44,7 +44,7 @@ try {
   // The storm slide, its photo full bleed.
   await page.selectOption("#state", "storm");
   await page.waitForFunction(() => window.scaena.canvas.boxed() === "storm", null, { timeout: 30000 }).catch(() => {});
-  await page.click("#tab-theming");
+  await tab(page, "theming");
   await page.waitForFunction(() => window.scaena.theme.theme() !== undefined, null, { timeout: 60000 });
   await page.waitForSelector(`#theming [data-photo="${RIDGE}"]`, { timeout: 30000 }).catch(() => {});
   const listed = await page.evaluate(() =>
