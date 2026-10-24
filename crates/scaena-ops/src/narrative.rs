@@ -4753,6 +4753,7 @@ mod tests {
         n.slides[c].subtitle = "Gigatonnes a year".into();
         let figure = BTreeMap::from([(c, "figure".to_string())]);
         assert_eq!(note(&n, &figure, c), None, "a chart's note takes no subtitle");
+    }
 
     /// A slide's foot names its part of the talk only while the talk is in the beat its divider
     /// opened, and a divider stands by the number of the agenda item it opens; a deck with one
