@@ -82,6 +82,13 @@ pub fn busy(status: u16) -> bool {
     matches!(status, 0 | 408 | 429 | 500..=599)
 }
 
+/// How long to wait before asking a busy provider again for a look or a fit (lift-up REL-1),
+/// as the slides and the pictures are asked: `tried` the times it was asked so far, from 0. None
+/// where `status` answers for good, or [`TRIES`] are spent.
+pub fn retry_after(status: u16, body: &str, after: Option<&str>, tried: usize) -> Option<f64> {
+    (busy(status) && tried + 1 < TRIES).then(|| providers::wait(after, body, tried + 1))
+}
+
 /// Who writes the deck: a provider, the model the user picked from those their key lists, and
 /// where its API is.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -318,7 +325,14 @@ impl Generation {
             Step::Done => return Err(NarratoError::Done),
             _ => return Err(NarratoError::Answer("the arc is chosen before the outline is settled".into())),
         }
-        self.outline = Some(outline::settled(outline, self.target()).map_err(NarratoError::Answer)?);
+        let target = self.target();
+        // The counts a person sets are kept within the length's own range; a length that names
+        // none keeps them from its count to a fifth past it.
+        let range = match brief::minimum_slides(&self.brief.length) {
+            Some(least) => (least, brief::maximum_slides(&self.brief.length)),
+            None => (target, Some(target + (target / 5).max(1))),
+        };
+        self.outline = Some(outline::settled(outline, target, range).map_err(NarratoError::Answer)?);
         self.step = Step::Slides;
         Ok(())
     }
