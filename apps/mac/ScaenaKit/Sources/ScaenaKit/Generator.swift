@@ -674,9 +674,11 @@ public final class Generator {
     }
 
     private struct Making: Decodable, Sendable {
+        /// The look's every round, which are asked `atOnce` at a time (lift-up 20261025 PERF-2).
         struct Look: Decodable, Sendable {
-            let request: GeneratorRequest
+            let rounds: [GeneratorRequest]
             let slides: Int
+            let atOnce: Int
         }
 
         let look: Look?
@@ -688,10 +690,8 @@ public final class Generator {
         let texts: Int
     }
 
-    /// One round of the look answered: the next round where one is left (narrative PERF-5), else
-    /// what the look came to and the fit asked for.
+    /// The look's rounds answered: what it came to, and the fit asked for.
     private struct Looking: Decodable, Sendable {
-        let look: Making.Look?
         let looked: Int?
         let unlooked: String?
         let fit: Fit?
@@ -782,6 +782,30 @@ public final class Generator {
             return .none(why: "your \(painter.provider.name) key lists no image model")
         }
         return .model(model)
+    }
+
+    /// `requests` sent `atOnce` at a time, each group's answered before the next is sent, the
+    /// replies in the order the requests came.
+    nonisolated static func asked(_ requests: [GeneratorRequest], atOnce: Int, send: @escaping Send) async -> [GeneratorReply] {
+        var replies = [GeneratorReply?](repeating: nil, count: requests.count)
+        let step = max(1, atOnce)
+        for start in stride(from: 0, to: requests.count, by: step) {
+            let some = Array(requests.enumerated())[start..<min(start + step, requests.count)]
+            let got = await withTaskGroup(of: (Int, GeneratorReply).self) { group in
+                for (i, request) in some {
+                    group.addTask { (i, await send(request)) }
+                }
+                var got: [(Int, GeneratorReply)] = []
+                for await answer in group {
+                    got.append(answer)
+                }
+                return got
+            }
+            for (i, reply) in got {
+                replies[i] = reply
+            }
+        }
+        return replies.map { $0 ?? GeneratorReply(status: 0, body: Data("no answer".utf8)) }
     }
 
     /// The pictures asked for made by `painter`, every one at once, a busy provider asked again
@@ -961,24 +985,23 @@ public final class Generator {
         var fit = making.fit
         // The deck shown to the model as it is drawn (PLAN G.13), each slide's change kept where
         // lint finds the slide no worse; then the fit, asked after it.
-        // The look goes a dozen slides a round (narrative PERF-5): each answer asks the next
-        // round, until the engine says what the look came to.
-        var seeing = making.look
-        if let first = seeing { hear(.looking(slides: first.slides)) }
-        while let round = seeing {
-            let reply = await send(round.request)
-            let looking: Looking = try await stepAway(
-                "looked",
-                [
+        // The look goes a dozen slides a round (narrative PERF-5), the rounds asked a few at a
+        // time, as the CLI and the browser ask them (lift-up 20261025 PERF-2), and every answer
+        // handed back in the rounds' order.
+        if let look = making.look {
+            hear(.looking(slides: look.slides))
+            let replies = await Self.asked(look.rounds, atOnce: look.atOnce, send: send)
+            let answers: [JSONValue] = replies.map { reply in
+                .object([
                     "status": .number(Double(reply.status)),
                     "statusText": .string(reply.status == 0 ? reply.text : HTTPURLResponse.localizedString(forStatusCode: reply.status)),
                     "body": .string(reply.status == 0 ? "" : reply.text),
-                    "key": .string(key),
                 ])
-            seeing = looking.look
-            if seeing != nil { continue }
+            }
+            let looking: Looking = try await stepAway("looked", ["replies": .array(answers), "key": .string(key)])
             if let why = looking.unlooked {
-                hear(.unlooked(unanswered(why, provider, reply)))
+                let refused = replies.first { !(200..<300).contains($0.status) } ?? replies[0]
+                hear(.unlooked(unanswered(why, provider, refused)))
             } else {
                 hear(.looked(slides: looking.looked ?? 0))
             }

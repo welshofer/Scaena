@@ -126,8 +126,11 @@ fn a_deck_is_made_from_a_prompt_as_swift_makes_one_its_pictures_with_it() {
     // after what is said of it.
     let making = step(g, "make", json!({ "theme": "dusk", "key": "sk-writer" }), &[]);
     let look = &making["look"];
-    assert_eq!(look["request"]["headers"]["x-api-key"], "sk-writer");
-    let body: Value = serde_json::from_str(look["request"]["body"].as_str().unwrap()).unwrap();
+    assert_eq!(look["rounds"].as_array().unwrap().len(), 1, "a short deck's look is one round");
+    assert_eq!(look["atOnce"], 3);
+    let round = &look["rounds"][0];
+    assert_eq!(round["headers"]["x-api-key"], "sk-writer");
+    let body: Value = serde_json::from_str(round["body"].as_str().unwrap()).unwrap();
     let content = body["messages"][0]["content"].as_array().unwrap();
     let drawn: Vec<&Value> = content.iter().filter(|c| c["type"] == "image").collect();
     assert_eq!(drawn.len() as u64, look["slides"].as_u64().unwrap());
@@ -140,8 +143,8 @@ fn a_deck_is_made_from_a_prompt_as_swift_makes_one_its_pictures_with_it() {
         &json!({ "slides": [{ "slide": 1, "layout": "", "title": "Carbon-negative cargo, ready to scale", "subtitle": "", "bullets": [], "why": "One idea, one line." }] })
             .to_string(),
     );
-    let looked =
-        step(g, "looked", json!({ "status": 200, "statusText": "OK", "body": tightened, "key": "sk-writer" }), &[]);
+    let answered = json!([{ "status": 200, "statusText": "OK", "body": tightened }]);
+    let looked = step(g, "looked", json!({ "replies": answered, "key": "sk-writer" }), &[]);
     assert_eq!(looked["looked"], 1, "{looked}");
     // Each rewrite asked for answered with none: asked once more, no more, then said (STAB-4).
     let (mut fit, mut rounds) = (looked["fit"].clone(), 0);
@@ -366,5 +369,49 @@ fn a_step_out_of_order_is_an_error_that_says_why() {
     let mut error = null_mut();
     assert!(unsafe { scaena_generator_open(g, &mut error) }.is_null());
     assert!(took(error).contains("no deck is made"));
+    unsafe { scaena_generator_free(g) };
+}
+
+/// A long deck's look is asked in every round at once (lift-up 20261025 PERF-2): `make` hands
+/// over each round's request, which ScaenaKit sends three at a time as the CLI and the browser
+/// do, and `looked` takes every answer back in the rounds' order, a round not answered losing
+/// its own slides' changes alone.
+#[test]
+fn a_long_decks_look_hands_over_every_round_at_once() {
+    let slides = std::fs::read_to_string(format!("{ANSWERS}/catalog.json")).unwrap();
+    let g = scaena_generator_new();
+    let brief = json!({ "topic": "Tidewater's Series A", "audience": "Investors" });
+    step(g, "begin", json!({ "brief": brief, "provider": "anthropic", "model": "a-model" }), &[]);
+    step(g, "chooseArc", json!({}), &[]);
+    step(g, "written", json!({ "text": slides }), &[]);
+    let making = step(g, "make", json!({ "theme": "dusk", "key": "sk-writer" }), &[]);
+    let look = &making["look"];
+    let rounds = look["rounds"].as_array().unwrap();
+    let slides = look["slides"].as_u64().unwrap() as usize;
+    assert_eq!(rounds.len(), scaena_ops::narrative::look_rounds(slides).count(), "{slides} slides");
+    assert!(rounds.len() > 1, "{} rounds", rounds.len());
+    // Each round shows its own slides, in order.
+    let first = |r: &Value| {
+        let body: Value = serde_json::from_str(r["body"].as_str().unwrap()).unwrap();
+        body["messages"][0]["content"][0]["text"].as_str().unwrap().to_string()
+    };
+    assert!(first(&rounds[0]).starts_with("Slide 1 of "), "{}", first(&rounds[0]));
+    assert!(!first(&rounds[1]).starts_with("Slide 1 of "), "{}", first(&rounds[1]));
+    // Too few answers is refused; the first round answered with a change, the second refused.
+    let refused = answered(g, "looked", &json!({ "replies": [], "key": "sk-writer" }), &[]);
+    assert!(refused["error"]["message"].as_str().unwrap().contains("answer each round, in order"), "{refused}");
+    let tightened = anthropic(
+        &json!({ "slides": [{ "slide": 1, "layout": "", "title": "Freight that pulls carbon", "subtitle": "", "bullets": [], "why": "Shorter." }] })
+            .to_string(),
+    );
+    let mut replies = vec![json!({ "status": 200, "statusText": "OK", "body": tightened })];
+    replies.push(json!({ "status": 529, "statusText": "Overloaded", "body": r#"{"error":{"message":"busy"}}"# }));
+    for _ in 2..rounds.len() {
+        replies.push(json!({ "status": 200, "statusText": "OK", "body": anthropic(r#"{"slides": []}"#) }));
+    }
+    let looked = step(g, "looked", json!({ "replies": replies }), &[]);
+    assert_eq!(looked["looked"], 1, "{looked}");
+    let unlooked = looked["unlooked"].as_str().unwrap();
+    assert!(unlooked.starts_with("slides ") && unlooked.contains("not looked at"), "{unlooked}");
     unsafe { scaena_generator_free(g) };
 }

@@ -395,3 +395,37 @@ private final class Endless: URLProtocol {
     let whole = await GeneratorReply.made(request, by: session)
     #expect(whole.status == 200 && whole.body.count == 8 << 16)
 }
+
+/// How many requests are in flight at once, and the most there were.
+private actor Flight {
+    private(set) var now = 0
+    private(set) var most = 0
+
+    func start() {
+        now += 1
+        most = max(most, now)
+    }
+
+    func end() {
+        now -= 1
+    }
+}
+
+/// The look's rounds asked a few at a time, as the CLI and the browser ask them (lift-up 20261025
+/// PERF-2): never more than three in flight, and every reply in its request's place.
+@Test func theLooksRoundsAreAskedThreeAtATime() async throws {
+    let requests = try (0..<7).map { i in
+        try JSONDecoder().decode(
+            GeneratorRequest.self, from: Data(#"{"method": "POST", "url": "https://example.com/\#(i)", "headers": {}}"#.utf8))
+    }
+    let flight = Flight()
+    let replies = await Generator.asked(requests, atOnce: 3) { request in
+        await flight.start()
+        try? await Task.sleep(nanoseconds: 50_000_000)
+        await flight.end()
+        return GeneratorReply(status: 200, body: Data(request.url.utf8))
+    }
+    #expect(replies.map { String(decoding: $0.body, as: UTF8.self) } == requests.map(\.url))
+    let most = await flight.most
+    #expect(most > 1 && most <= 3, "\(most) in flight at once")
+}
