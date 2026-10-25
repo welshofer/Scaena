@@ -410,6 +410,20 @@ fn listed(words: &str, items: &[Option<ListItem>], say: &dyn Fn(Range<usize>) ->
     out
 }
 
+/// What heads a state: the words of its first text that makes its claim or is set in a heading's
+/// role (`display`, `headline`, `title`), on one line; none where no text heads it. What an
+/// exported SVG is titled by, and a slide list's row is read by (lift-up 10-24b USE-4).
+pub fn headline(deck: &Deck, snap: &Snapshot) -> Option<String> {
+    (snap.nodes.iter())
+        .filter(|(id, _)| deck.nodes.get(id.as_str()).is_some_and(|n| n.node_type == NodeType::Text))
+        .find(|(_, p)| {
+            p.get("semantic").and_then(Value::as_str) == Some("claim")
+                || matches!(p.get("role").and_then(Value::as_str), Some("display" | "headline" | "title"))
+        })
+        .map(|(_, p)| words(p).split_whitespace().collect::<Vec<_>>().join(" "))
+        .filter(|h| !h.is_empty())
+}
+
 /// A text node's words: its `text`, or its runs' texts in turn.
 pub fn words(props: &Props) -> String {
     stretches(props).into_iter().map(|(w, _)| w).collect()

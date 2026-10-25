@@ -27,3 +27,26 @@ import Testing
     #expect(zipped.range(of: Data("B1 - Slide 1.png".utf8)) != nil, "its first slide, by its number")
     #expect(throws: ScaenaError.self) { try session.slides(width: 0, name: "B1") }
 }
+
+/// An export is made away from the window, on a snapshot's session of its own, byte for byte what
+/// the session makes; an edit after the snapshot is not in it, and a task cancelled meanwhile
+/// throws, its bytes dropped (lift-up PERF-3).
+@Test func anExportIsMadeAwayFromTheWindowAsTheSessionMakesIt() async throws {
+    let session = try ScaenaSession(directory: b1)
+    let snapshot = try session.snapshot()
+    #expect(try await snapshot.exported(.pdf) == session.pdf())
+    #expect(try await snapshot.exported(.notes) == session.pdf(notes: true))
+    #expect(try await snapshot.exported(.png(state: "cover", width: 320)) == session.png("cover", width: 320))
+    #expect(try await snapshot.exported(.slides(width: 160, name: "B1")) == session.slides(width: 160, name: "B1"))
+    let state = try session.states()[0]
+    let inspected: JSONValue = try session.call("inspect", ["state": .string(state)])
+    let node = try #require(inspected["looks"]?.object?.keys.sorted().first)
+    let op: JSONValue = [
+        "op": "replace_text", "state": .string(state), "node": .string(node), "from": 0, "to": 0, "text": "Later. ",
+    ]
+    #expect(try session.tool("deck_patch", ["ops": [op]]).edited)
+    #expect(try await snapshot.exported(.png(state: state, width: 320)) != session.png(state, width: 320))
+    let cancelled = Task { try await snapshot.exported(.pdf) }
+    cancelled.cancel()
+    await #expect(throws: CancellationError.self) { try await cancelled.value }
+}

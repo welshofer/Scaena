@@ -911,14 +911,18 @@ fn serve(bundle: &Path, port: u16, json: bool) -> Result<ExitCode> {
         return Ok(fail(json, 3, message, Some("2.11")));
     }
     let shown = bundle.display().to_string();
-    let started = |addr: std::net::SocketAddr| {
+    // Each address carries the launch's token, which the pages send with each write: another
+    // account on this machine reaches 127.0.0.1 too, but not what this one prints (lift-up 10-24b
+    // SEC-5).
+    let started = |addr: std::net::SocketAddr, token: &str| {
         let url = format!("http://localhost:{}/", addr.port());
+        let (player, editor) = (format!("{url}?serve={token}"), format!("{url}edit?serve={token}"));
         if json {
-            let v = serde_json::json!({ "bundle": shown, "player": url, "editor": format!("{url}edit") });
+            let v = serde_json::json!({ "bundle": shown, "player": player, "editor": editor });
             println!("{}", serde_json::to_string_pretty(&v).expect("JSON"));
         } else {
             eprintln!(
-                "Serving {shown} on this machine only.\n  The player: {url}\n  The editor: {url}edit\nCtrl-C stops it."
+                "Serving {shown} on this machine only.\n  The player: {player}\n  The editor: {editor}\nCtrl-C stops it."
             );
         }
     };

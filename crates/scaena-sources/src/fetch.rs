@@ -156,8 +156,10 @@ pub fn public(url: &str) -> Result<(), SourceError> {
     Ok(())
 }
 
-/// Whether the public internet reaches `ip`.
-fn reached(ip: std::net::IpAddr) -> bool {
+/// Whether the public internet reaches `ip`: not a loopback, private, link-local, shared, or
+/// other reserved address. A client that resolves a web source's host holds each address it
+/// connects to to this (lift-up 10-24b SEC-3), since a public name may resolve to any of them.
+pub fn reached(ip: std::net::IpAddr) -> bool {
     use std::net::IpAddr;
     match ip {
         IpAddr::V4(v4) => {

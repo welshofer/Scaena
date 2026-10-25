@@ -34,27 +34,34 @@ enum Exporting {
         }
     }
 
-    /// The export's bytes.
-    static func bytes(_ kind: Kind, of editor: DeckEditor) throws -> Data {
+    /// What the engine makes for `kind`, read on the window's thread: the deck's title names the
+    /// slides in their zip.
+    static func export(_ kind: Kind, of editor: DeckEditor) -> Export {
         switch kind {
-        case .pdf:
-            return try editor.session.pdf()
-        case .notes:
-            return try editor.session.pdf(notes: true)
-        case .png(let state, let width):
-            return try editor.session.png(state, width: width)
-        case .slides(let width):
-            return try editor.session.slides(width: width, name: title(of: editor))
+        case .pdf: .pdf
+        case .notes: .notes
+        case .png(let state, let width): .png(state: state, width: width)
+        case .slides(let width): .slides(width: width, name: title(of: editor))
         }
     }
 
-    /// The export written into a folder of its own, named for the deck: what the Share sheet and
+    /// What the window says while `kind` is made (lift-up PERF-3).
+    static func making(_ kind: Kind) -> String {
+        switch kind {
+        case .pdf: "Making the PDF…"
+        case .notes: "Making the PDF with the notes…"
+        case .png: "Making the PNG…"
+        case .slides: "Making a PNG of every slide…"
+        }
+    }
+
+    /// An export's bytes written into a folder of its own as `name`: what the Share sheet and
     /// Quick Look are given.
-    static func file(_ kind: Kind, of editor: DeckEditor) throws -> URL {
+    static func file(_ data: Data, named name: String) throws -> URL {
         let folder = FileManager.default.temporaryDirectory.appending(path: "Scaena-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        let url = folder.appending(path: name(kind, of: editor))
-        try bytes(kind, of: editor).write(to: url)
+        let url = folder.appending(path: name)
+        try data.write(to: url)
         return url
     }
 

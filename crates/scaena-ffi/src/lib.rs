@@ -371,7 +371,8 @@ pub unsafe extern "C" fn scaena_lint_laid(
     }))
 }
 
-/// The narrative health of `laying`'s deck (PLAN G.9), as `health` gives the session's:
+/// The narrative health of `laying`'s deck (PLAN G.9), as `health` gives the session's, beside
+/// what the session's last lint found, a slide lint finds broken first (lift-up 10-24b STAB-1):
 /// `{"ok": health}`. Read on the thread that calls it, which touches no session, so the Story
 /// panel's reading of a deck as it is typed leaves the window's thread free (lift-up narrative
 /// PERF-1). It lays nothing out, and may be read before or after [`scaena_laying_lay`].
@@ -382,7 +383,8 @@ pub unsafe extern "C" fn scaena_lint_laid(
 pub unsafe extern "C" fn scaena_laying_health(laying: *mut ScaenaLaying) -> *mut c_char {
     envelope(guarded(|| {
         let laying = unsafe { handle(laying, "laying") }?;
-        serde_json::to_value(scaena_ops::health::health(laying.0.deck()).map_err(said)?).map_err(said)
+        let health = scaena_ops::health::health_in(laying.0.deck(), laying.0.findings()).map_err(said)?;
+        serde_json::to_value(health).map_err(said)
     }))
 }
 
@@ -1994,8 +1996,9 @@ fn call(s: &mut Session, method: &str, args: &Value) -> Result<Value, Failure> {
         // The bundle's files (PLAN 2.59): each with what names it and the nodes drawn from it; and
         // one nothing names taken out, which `dataUndo` puts back.
         "bundleFiles" => value(serde_json::to_value(s.bundle_files().map_err(said)?))?,
-        // The deck's narrative health (PLAN G.9), as `scaena health --json` gives it.
-        "health" => value(serde_json::to_value(scaena_ops::health::health(s.deck()).map_err(said)?))?,
+        // The deck's narrative health (PLAN G.9), as `scaena health --json` gives it, beside
+        // what the last lint found (lift-up 10-24b STAB-1).
+        "health" => value(serde_json::to_value(scaena_ops::health::health_in(s.deck(), s.findings()).map_err(said)?))?,
         "removeFile" => {
             s.remove_file(arg("path")?).map_err(said)?;
             Value::Null

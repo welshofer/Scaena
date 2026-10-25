@@ -630,19 +630,7 @@ fn slide_names(deck: &scaena_core::Deck) -> Result<HashMap<String, (String, Stri
             1 => format!("Slide {number:0digits$}"),
             n => format!("Slide {number:0digits$}, step {step:0w$}", w = n.to_string().len()),
         };
-        let headline = (snap.nodes.iter())
-            .filter(|(id, _)| {
-                deck.nodes.get(id.as_str()).is_some_and(|n| n.node_type == scaena_core::document::NodeType::Text)
-            })
-            .find(|(_, p)| {
-                p.get("semantic").and_then(serde_json::Value::as_str) == Some("claim")
-                    || matches!(
-                        p.get("role").and_then(serde_json::Value::as_str),
-                        Some("display" | "headline" | "title")
-                    )
-            })
-            .map(|(_, p)| scaena_core::reading::words(p).split_whitespace().collect::<Vec<_>>().join(" "))
-            .filter(|h| !h.is_empty());
+        let headline = scaena_core::reading::headline(deck, snap);
         out.insert(state.id.clone(), (name, headline.unwrap_or_else(|| format!("Slide {number}"))));
     }
     Ok(out)

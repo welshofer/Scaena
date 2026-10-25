@@ -102,7 +102,7 @@ import { counted as many, findings as why, inserting, moving, named, numbered, o
 import { prompting } from "./prompt";
 import { rehearsal, rehearsalKeys } from "./rehearse";
 import { scn, scnHighlight } from "./scn";
-import { client, listen, served, status as onDisk } from "./served";
+import { client, listen, served, serving, status as onDisk, token } from "./served";
 import { worker } from "./spawn";
 import { Stage } from "./stage";
 import { toolbar } from "./toolbar";
@@ -457,7 +457,7 @@ async function first(): Promise<Source> {
   const bundle = params.get("bundle");
   if (!bundle?.startsWith("folder:")) {
     const source = sourceOf(bundle, fallback);
-    return served && "url" in source ? { ...source, serve: client } : source;
+    return served && "url" in source ? { ...source, serve: serving } : source;
   }
   const name = bundle.slice("folder:".length);
   const handle = await folders<FileSystemDirectoryHandle | undefined>("readonly", (store) => store.get(name));
@@ -676,7 +676,7 @@ async function edit(source: Source, opened?: Stage) {
     // The player opens a bundle by its address or from the browser's storage, not a folder.
     const playing =
       where?.kind === "serve"
-        ? new URLSearchParams({ bundle: params.get("bundle") ?? "/bundle/", serve: "" })
+        ? new URLSearchParams({ bundle: params.get("bundle") ?? "/bundle/", serve: token })
         : new URLSearchParams({ bundle: where ? `${where.kind}:${where.name}` : (params.get("bundle") ?? fallback) });
     if (params.has("painter")) playing.set("painter", painter);
     play.href = `index.html?${playing}`;
@@ -718,6 +718,7 @@ async function edit(source: Source, opened?: Stage) {
   let showings = 0;
   /** The source's version: one more with each change. A lint answers the version it read. */
   let version = 0;
+  stage.sourceVersion = () => version;
   /** A lint of every state, waiting for typing to stop. */
   let pending: ReturnType<typeof setTimeout> | undefined;
   const pause = 500;
@@ -2106,7 +2107,7 @@ async function edit(source: Source, opened?: Stage) {
     // The folder keeps the deck's source too: it is what the editor shows, renamed as the save
     // renamed files.
     if (scnOnDisk) {
-      const headers = { "X-Scaena-Client": client };
+      const headers = { "X-Scaena-Client": client, "X-Scaena-Token": token };
       const response = await fetch(scnOnDisk, { method: "PUT", body: view.state.doc.toString(), headers });
       if (!response.ok) throw new Error(`deck.scn: ${(await response.text()).trim() || response.status}`);
     }
