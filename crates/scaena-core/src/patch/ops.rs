@@ -444,23 +444,30 @@ fn unbuilt(
     ops
 }
 
-/// Why `id` names no `what` (`node`, `state`) of `known`, with the id meant where one is near it:
-/// within three edits, or one holding it or held in it (`title` for `cover-title`), the nearest
-/// first; else the first few of `known` (`whats`), so an agent mends a guessed id without a
-/// round of `deck_inspect` (lift-up 10-24b USE-5).
+/// Why `id` names no `what` (`node`, `state`) of `known`, with the id meant where one is near it
+/// ([`nearest`]), so an agent mends a guessed id without a round of `deck_inspect` (lift-up 10-24b
+/// USE-5).
 fn missing<'k>(what: &str, whats: &str, id: &str, known: impl Iterator<Item = &'k str>) -> String {
+    format!("no {what} `{id}`{}", nearest(whats, id, known))
+}
+
+/// What follows a word that `id` names none of `known`, the deck's `whats` (`states`): the id meant
+/// where one is near it, within three edits or one holding it or held in it (`title` for
+/// `cover-title`), the nearest first, as "; did you mean `cover-title`?"; else the first few of
+/// them; else that the deck has none (lift-up 10-24b USE-5, 10-25b USE-5).
+pub fn nearest<'k>(whats: &str, id: &str, known: impl Iterator<Item = &'k str>) -> String {
     let known: Vec<&str> = known.collect();
     let near = (known.iter())
         .map(|k| (crate::model::check::distance(id, k), *k))
         .filter(|(d, k)| *d <= 3.min(id.chars().count().saturating_sub(1)).max(1) || k.contains(id) || id.contains(k))
         .min();
     match near {
-        Some((_, k)) => format!("no {what} `{id}`; did you mean `{k}`?"),
-        None if known.is_empty() => format!("no {what} `{id}`: the deck has no {whats}"),
+        Some((_, k)) => format!("; did you mean `{k}`?"),
+        None if known.is_empty() => format!(": the deck has no {whats}"),
         None => {
             let some: Vec<String> = known.iter().take(5).map(|k| format!("`{k}`")).collect();
             let more = if known.len() > 5 { format!(", … ({} in all)", known.len()) } else { String::new() };
-            format!("no {what} `{id}`; the deck's {whats} include {}{more}", some.join(", "))
+            format!("; the deck's {whats} include {}{more}", some.join(", "))
         }
     }
 }
