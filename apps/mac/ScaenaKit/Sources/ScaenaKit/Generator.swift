@@ -701,11 +701,18 @@ public final class Generator {
             let atOnce: Int
         }
 
+        /// A round of the speaker's notes: its request, and how many slides it writes for (lift-up
+        /// 10-25 ATTR-2).
+        struct Noted: Decodable, Sendable {
+            let request: GeneratorRequest
+            let slides: Int
+        }
+
         let look: Look?
         let fit: Fit?
         /// The first round of each slide's speaker notes, written for the talk, where they are
         /// asked once the look is done or none is (lift-up 10-25 ATTR-2).
-        let notes: Look?
+        let notes: Noted?
         /// Each slide as drawn for the model, a JPEG in base64 (lift-up ATTR-1).
         let drawn: [String]?
     }
@@ -730,14 +737,14 @@ public final class Generator {
         let wait: Double?
         let tried: Int?
         /// The first round of the speaker notes, where they are asked once the look is done.
-        let notes: Making.Look?
+        let notes: Making.Noted?
     }
 
     /// One round of the speaker notes answered (lift-up 10-25 ATTR-2): the next round where one
     /// is left, or the same again after `wait` from a busy provider; else what the notes came to
     /// and the fit asked for.
     private struct Noting: Decodable, Sendable {
-        let notes: Making.Look?
+        let notes: Making.Noted?
         let noted: Int?
         let unnoted: String?
         let fit: Fit?
