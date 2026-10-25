@@ -855,6 +855,16 @@ struct DeckView: View {
                 document.startsNew = false
                 // Its title slide's empty places outlined, as on a slide made here.
                 fresh.formUnion(editor.slots.map(\.state))
+                // Made in another theme than Dusk, which made none: said once, and the themes
+                // offered once it is read, as an alert and a sheet are not shown together
+                // (lift-up STAB-3).
+                if let fellBack = document.fellBack {
+                    document.fellBack = nil
+                    failure = fellBack
+                    while failure != nil, !Task.isCancelled {
+                        try? await Task.sleep(for: .milliseconds(100))
+                    }
+                }
                 try? await Task.sleep(for: .milliseconds(250))
                 offeredThemes = (try? editor.session.shippedThemes()) ?? []
             }
