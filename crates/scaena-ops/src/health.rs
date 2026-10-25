@@ -150,6 +150,9 @@ pub enum Kind {
     /// The deck runs past the range of slides its brief asked for; this slide turns least from
     /// the one before, and is the first to cut.
     Pacing,
+    /// A made deck links an address whose host neither its brief nor its sources name: where it
+    /// sends the room was the model's word alone (lift-up 20261025 SEC-4).
+    Link,
 }
 
 /// Something to look at on one slide: what it says, what to ask the assistant, and, where one
@@ -543,6 +546,18 @@ fn bridges(before: &SlideForHealth, next: &SlideForHealth) -> bool {
     let carried: Vec<String> = words(before).difference(&words(next)).cloned().collect();
     let opened = health::coherence::keywords(opening(&next.notes));
     carried.iter().any(|w| opened.contains(w))
+}
+
+/// The host an address goes to, as a person would name it: an email's domain, or a web address's
+/// host without `www.`, in lower case.
+fn host(href: &str) -> Option<String> {
+    let rest = match href.strip_prefix("mailto:") {
+        Some(email) => email.rsplit_once('@')?.1,
+        None => href.strip_prefix("https://").or_else(|| href.strip_prefix("http://"))?,
+    };
+    let host = rest.split(['/', '?', '#', ':']).next()?.to_lowercase();
+    let host = host.strip_prefix("www.").unwrap_or(&host).to_string();
+    (!host.is_empty()).then_some(host)
 }
 
 /// The narrative health of `deck`, as its words and its plan read: [`health_in`] with nothing
@@ -1212,6 +1227,33 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
             }
         }
     }
+    // An address a made deck links that neither its brief nor its sources name (lift-up 20261025
+    // SEC-4). A deck no narrative made is the person's own, its links theirs.
+    if let Some(narrative) = narrative {
+        let named = (narrative.get("brief").map(Value::to_string).into_iter())
+            .chain(narrative.get("sources").map(Value::to_string))
+            .collect::<String>()
+            .to_lowercase();
+        for link in crate::narrative::links(deck) {
+            let Some(host) = host(&link.href) else { continue };
+            let Some(slide) = read.get(link.slide - 1) else { continue };
+            if named.contains(&host) {
+                continue;
+            }
+            let k = link.slide;
+            let shown = link.href.trim_start_matches("mailto:").trim_start_matches("https://");
+            find(
+                &slide.id,
+                Severity::Warning,
+                Kind::Link,
+                format!("Slide {k} links {shown}, which neither the brief nor the sources name."),
+                format!(
+                    "Check where slide {k}'s link to {shown} goes, and keep it only if it is the address you mean."
+                ),
+                None,
+            );
+        }
+    }
     // A slide lint finds an error on: what the first says, and how many more there are.
     for (i, slide) in slides.iter().enumerate() {
         let k = i + 1;
@@ -1312,6 +1354,55 @@ mod tests {
 
     fn of(deck: &Value) -> Health {
         health(&Deck::from_value(deck).unwrap()).unwrap()
+    }
+
+    /// A made deck that links an address neither its brief nor its sources name is warned of it,
+    /// on the slide that shows it; one its brief or its sources name is not, nor a deck no
+    /// narrative made (lift-up 20261025 SEC-4).
+    #[test]
+    fn a_link_neither_the_brief_nor_the_sources_name_is_a_warning() {
+        let mut deck = climate();
+        let states = deck["states"].as_array().unwrap();
+        let k = states.len();
+        let last = states[k - 1]["props"].as_object().unwrap().keys().cloned().collect::<Vec<_>>();
+        let id = last.iter().find(|id| deck["nodes"][id.as_str()]["text"].is_string()).unwrap().clone();
+        let node = deck["nodes"][id.as_str()].as_object_mut().unwrap();
+        node.remove("text");
+        node.insert(
+            "runs".into(),
+            json!([
+                { "text": "Read " },
+                { "text": "portalderpower.org/playbook", "link": { "href": "https://portalderpower.org/playbook" } },
+                { "text": " or write to " },
+                { "text": "team@Tidewater.io", "link": { "href": "mailto:team@Tidewater.io" } },
+            ]),
+        );
+        let said = |deck: &Value| -> Vec<(usize, String)> {
+            (of(deck).findings.into_iter()).filter(|f| f.kind == Kind::Link).map(|f| (f.slide, f.says)).collect()
+        };
+        let n = of(&deck).slides.len();
+        assert_eq!(
+            said(&deck),
+            [
+                (
+                    n,
+                    format!(
+                        "Slide {n} links portalderpower.org/playbook, which neither the brief nor the sources name."
+                    )
+                ),
+                (n, format!("Slide {n} links team@Tidewater.io, which neither the brief nor the sources name.")),
+            ]
+        );
+        // Named in the brief, or among the sources, an address is the person's own.
+        deck["meta"]["narrative"]["brief"]["topic"] = json!("Climate, with the playbook at www.PortalDerPower.org");
+        deck["meta"]["narrative"]["sources"] = json!([{ "name": "notes.md", "kind": "markdown", "url": "https://tidewater.io/notes", "bytes": 1, "truncated": false }]);
+        assert_eq!(said(&deck), []);
+        deck["meta"]["narrative"]["brief"]["topic"] = json!("Climate");
+        deck["meta"].as_object_mut().unwrap().remove("narrative");
+        assert_eq!(said(&deck), []);
+        assert_eq!(host("https://www.Example.org:8443/a?b"), Some("example.org".into()));
+        assert_eq!(host("mailto:a@b.io"), Some("b.io".into()));
+        assert_eq!(host("ftp://x"), None);
     }
 
     /// The first slide past the cover whose words read an intensity, the lexicons not silent on

@@ -101,6 +101,47 @@ pub struct Generated {
     /// Why the model did not look at the deck drawn, or what it asked was not kept.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub unlooked: Option<String>,
+    /// Each address the deck links, with the slide that shows it, so a client says where the
+    /// deck sends its audience (lift-up 20261025 SEC-4).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub links: Vec<Linked>,
+}
+
+/// An address a made deck links: the slide that first shows it, from 1, and where it goes.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Linked {
+    pub slide: usize,
+    pub href: String,
+}
+
+/// Each web address and email `deck` links in its texts, once for each slide that first shows
+/// it, in the order the slides stand; a link to a state of the deck is none (lift-up 20261025
+/// SEC-4).
+pub fn links(deck: &Deck) -> Vec<Linked> {
+    let Ok(doc) = deck.to_value() else { return Vec::new() };
+    let mut out: Vec<Linked> = Vec::new();
+    let mut seen: BTreeSet<(String, String)> = BTreeSet::new();
+    let hrefs = |props: &Value| -> Vec<String> {
+        (props["runs"].as_array().into_iter().flatten())
+            .filter_map(|r| r["link"]["href"].as_str())
+            .map(str::to_string)
+            .collect()
+    };
+    for (k, states) in deck.slides().into_iter().enumerate() {
+        for &i in &states {
+            let Some(shown) = doc["states"][i]["props"].as_object() else { continue };
+            for (id, delta) in shown {
+                for href in hrefs(&doc["nodes"][id]).into_iter().chain(hrefs(delta)) {
+                    if seen.insert((id.clone(), href.clone()))
+                        && !out.iter().any(|l| l.href == href && l.slide == k + 1)
+                    {
+                        out.push(Linked { slide: k + 1, href });
+                    }
+                }
+            }
+        }
+    }
+    out
 }
 
 fn is_zero(n: &usize) -> bool {
@@ -786,6 +827,7 @@ pub fn fitted(made: &mut Generated, mut write: Write, rewrites: Vec<(String, Str
     made.created.errors = errors(&settled.findings);
     made.created.findings = settled.findings;
     write.deck = settled.deck;
+    made.links = links(&write.deck);
     Ok(write)
 }
 
@@ -1615,6 +1657,7 @@ pub fn making(
         unpictured: Vec::new(),
         looked: Vec::new(),
         unlooked: None,
+        links: Vec::new(),
     };
     let Some(mut write) = write else { return Ok((made, None)) };
     let nothing = scaena_store::Files::Zip(Default::default());
@@ -1659,6 +1702,7 @@ pub fn making(
     made.created.errors = errors(&settled.findings);
     made.created.findings = settled.findings;
     write.deck = settled.deck;
+    made.links = links(&write.deck);
     Ok((made, Some(write)))
 }
 
@@ -5334,8 +5378,9 @@ fn href(word: &str, bare: bool) -> Option<String> {
             && labels.iter().all(|l| !l.is_empty() && l.chars().all(|c| c.is_ascii_alphanumeric() || c == '-'))
             && TOP.contains(&labels[labels.len() - 1].to_ascii_lowercase().as_str())
     };
+    // A web address over `https:`, whatever the model wrote (lift-up 20261025 SEC-4).
     if let Some(rest) = word.strip_prefix("https://").or_else(|| word.strip_prefix("http://")) {
-        return host(rest).then(|| word.to_string());
+        return host(rest).then(|| format!("https://{rest}"));
     }
     if let Some((user, domain)) = word.split_once('@') {
         let user = !user.is_empty() && user.chars().all(|c| c.is_ascii_alphanumeric() || "._%+-".contains(c));
@@ -8727,6 +8772,26 @@ mod tests {
                 .values()
                 .all(|n| n.get("runs").is_none() || n.get("text").is_none())
         );
+    }
+
+    /// A web address written over `http:` links over `https:`, and a made deck says each address it
+    /// links with the slide that shows it (lift-up 20261025 SEC-4).
+    #[test]
+    fn a_made_deck_says_where_it_links_over_https() {
+        assert_eq!(
+            linked("Read http://example.com/a now", true).unwrap()[1],
+            json!({ "text": "http://example.com/a", "link": { "href": "https://example.com/a" } })
+        );
+        let mut talk = climate();
+        let last = talk.slides.len() - 1;
+        talk.slides[last].subtitle = "priya@manifest.dev \u{b7} portalderpower.org/playbook".into();
+        let (made, write) = generating(&talk, Path::new("dusk.theme.json"), dusk(), &font).unwrap();
+        let deck = write.unwrap().deck;
+        let n = deck.slides().len();
+        let at = |href: &str| Linked { slide: n, href: href.into() };
+        assert_eq!(made.links, [at("mailto:priya@manifest.dev"), at("https://portalderpower.org/playbook")]);
+        assert_eq!(links(&deck), made.links);
+        assert!(serde_json::to_value(&made).unwrap()["links"].is_array());
     }
 
     /// A deck in another language keeps no English word of the theme's or the generator's own: no

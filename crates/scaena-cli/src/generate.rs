@@ -963,6 +963,12 @@ pub fn run(a: GenerateArgs, json: bool) -> Result<ExitCode> {
             (Some(why), false) => println!("  {why}"),
             (None, _) => {}
         }
+        // Where the deck sends its audience, so nobody is left not knowing it links anywhere
+        // (lift-up 20261025 SEC-4).
+        for l in &made.links {
+            let shown = l.href.trim_start_matches("mailto:").trim_start_matches("https://");
+            println!("  linked: {shown} on slide {}", l.slide);
+        }
         if made.pictures > 0 {
             println!("  pictures: {}", made.pictures);
         }

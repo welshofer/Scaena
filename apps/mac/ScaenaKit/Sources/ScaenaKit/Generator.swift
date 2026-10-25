@@ -221,6 +221,14 @@ public struct Generated: Decodable, Sendable {
     /// What the model changed on the deck it saw drawn (PLAN G.13), slide by slide, or why not.
     public let looked: [Looked]?
     public let unlooked: String?
+    /// Each address the deck links, with the slide that first shows it (lift-up 20261025 SEC-4).
+    public let links: [Linked]?
+
+    /// An address the deck links: the slide that first shows it, and where it goes.
+    public struct Linked: Decodable, Sendable {
+        public let slide: Int
+        public let href: String
+    }
 
     /// A slide the model changed: its number, the layout it gave it, and why.
     public struct Looked: Decodable, Sendable {
@@ -234,7 +242,13 @@ public struct Generated: Decodable, Sendable {
         let errors = created.errors == 0 ? "" : ", \(created.errors) \(created.errors == 1 ? "error" : "errors") to look at"
         let made = pictures.map { $0 == 0 ? "" : ", \($0) \($0 == 1 ? "picture" : "pictures")" } ?? ""
         let seen = (looked?.count).map { $0 == 0 ? "" : ", \($0) changed by what the model saw" } ?? ""
-        return "Made \(layouts.count) slides on the arc \(arc)\(made)\(seen)\(errors)"
+        let linked = (links ?? []).map { link in
+            let shown = link.href.replacingOccurrences(of: "mailto:", with: "")
+                .replacingOccurrences(of: "https://", with: "")
+            return "\(shown) on slide \(link.slide)"
+        }
+        let said = linked.isEmpty ? "" : ". Linked: " + linked.joined(separator: "; ")
+        return "Made \(layouts.count) slides on the arc \(arc)\(made)\(seen)\(errors)\(said)"
     }
 }
 

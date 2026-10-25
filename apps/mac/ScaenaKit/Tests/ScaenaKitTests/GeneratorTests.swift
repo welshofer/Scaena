@@ -404,3 +404,18 @@ private final class Endless: URLProtocol {
     let whole = await GeneratorReply.made(request, by: session)
     #expect(whole.status == 200 && whole.body.count == 8 << 16)
 }
+
+/// What was made says where the deck sends its audience, each address with its slide, as the
+/// browser's line and `scaena generate` say it (lift-up 20261025 SEC-4).
+@Test func whatWasMadeSaysWhereTheDeckLinks() throws {
+    let json = #"""
+        {"created": {"created": true, "errors": 0}, "arc": "Hero's Journey", "layouts": ["title", "closing"],
+         "links": [{"slide": 2, "href": "https://portalderpower.org/playbook"},
+                   {"slide": 2, "href": "mailto:team@tidewater.io"}]}
+        """#
+    let made = try JSONDecoder().decode(Generated.self, from: Data(json.utf8))
+    #expect(made.words.hasSuffix(". Linked: portalderpower.org/playbook on slide 2; team@tidewater.io on slide 2"))
+    let none = try JSONDecoder().decode(
+        Generated.self, from: Data(#"{"created": {"created": true, "errors": 0}, "arc": "A", "layouts": []}"#.utf8))
+    #expect(!none.words.contains("Linked"))
+}

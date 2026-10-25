@@ -902,7 +902,7 @@ export interface HealthFinding {
   state: string;
   slide: number;
   severity: "error" | "warning" | "info";
-  kind: "title" | "empty" | "turn" | "arc" | "intensity" | "tone" | "drift" | "layout" | "claim" | "bigIdea" | "story" | "dense" | "notes" | "pacing";
+  kind: "title" | "empty" | "turn" | "arc" | "intensity" | "tone" | "drift" | "layout" | "claim" | "bigIdea" | "story" | "dense" | "notes" | "pacing" | "link";
   says: string;
   ask: string;
   fix?: { says: string; patch: unknown[] };
@@ -1548,6 +1548,8 @@ export interface Generated {
   /** What the model changed on the deck it saw drawn, slide by slide (PLAN G.13), or why not. */
   looked?: { slide: number; layout?: string; title?: string; subtitle?: string; bullets?: string[]; why: string }[];
   unlooked?: string;
+  /** Each address the deck links, with the slide that first shows it (lift-up 20261025 SEC-4). */
+  links?: { slide: number; href: string }[];
   /** Each sheet given, kept as a data source, or why not. */
   data: { sheet: string; id?: string; rows?: number; why?: string }[];
   /** What each source gave the prompt, and whether it was cut short to fit. */
