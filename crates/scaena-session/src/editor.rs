@@ -1368,6 +1368,7 @@ mod tests {
     #[test]
     fn a_cue_laid_out_away_from_the_session_is_the_one_its_frames_sample() {
         let mut s = revenue();
+        assert!(s.compile(&s.source()).valid);
         let slots = s.slots().unwrap();
         let cued = (slots.as_array().unwrap().iter())
             .filter(|slot| slot["span"].as_f64().unwrap() > 0.0)
@@ -1396,6 +1397,7 @@ mod tests {
 
         // Another source compiled since, or another format: not taken.
         let mut fresh = revenue();
+        assert!(fresh.compile(&fresh.source()).valid);
         let stale = fresh.laying().unwrap().cue(None, &cued).unwrap();
         assert!(fresh.compile(&fresh.source().replace("\"Revenue doubled\"", "\"Revenue grew\"")).valid);
         assert!(!fresh.cue_laid(stale), "another source");
