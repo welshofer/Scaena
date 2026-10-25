@@ -910,6 +910,7 @@
         </div>
         <p class="statusline">
           <span id="status" role="status">Loading…</span>
+          <button type="button" id="restate" hidden title="Set the story's claim for this slide to what its headline says now, one step to undo">Update</button>
           <span id="where"></span>
           <span id="offline" class="offline" hidden title="The site keeps every file it needs in this browser: it opens, plays, and edits with no network">Works offline</span>
           <button type="button" id="update" hidden title="A newer version of the site is kept in this browser: reload to use it; every open page of the site reloads too, each asking about unsaved changes">A new version is ready: reload</button>
@@ -1094,6 +1095,11 @@
             <option value="illustration">Illustrations in the theme's colors</option>
             <option value="photo">Photographs</option>
           </select></label>
+          <label>Quality <select id="prompting-quality" name="quality">
+            <option value="low">Low, the least each costs</option>
+            <option value="medium" selected>Medium</option>
+            <option value="high">High, the most each costs</option>
+          </select></label>
         </div>
         <p class="note" id="prompting-painter"></p>
         <details>
@@ -1104,10 +1110,12 @@
             <label>What it should achieve <input id="prompting-outcome" name="outcome" autocomplete="off" /></label>
             <label>Language <input id="prompting-language" name="language" placeholder="English" autocomplete="off" /></label>
             <label>Voice <input id="prompting-voice" name="voice" placeholder="Plain, confident, no jargon" autocomplete="off" /></label>
+            <label>Speak to them as <select id="prompting-persona" name="persona"></select></label>
             <label>GitHub token, for a private repository <input id="prompting-github" type="password" autocomplete="off" /></label>
           </div>
         </details>
         <label class="check"><input id="prompting-show-outline" type="checkbox" checked /> Show the outline first: the big idea and what each beat says, to change before the slides are written</label>
+        <label class="check"><input id="prompting-see" type="checkbox" checked /> Let the model see the slides once they are drawn, and tighten them: another call to your provider</label>
         <p class="note" id="prompting-who"></p>
         <fieldset id="prompting-key" hidden>
           <legend>Your key</legend>
