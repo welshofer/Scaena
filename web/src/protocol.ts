@@ -883,6 +883,8 @@ export interface Measure {
 export interface HealthRead {
   state: string;
   beat?: string;
+  /** The beat of the arc it was written for, by its place in `Health.beats` (lift-up ATTR-4). */
+  part?: number;
   title: string;
   curve: number;
   declared?: number;
