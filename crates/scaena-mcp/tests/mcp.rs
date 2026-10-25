@@ -601,6 +601,59 @@ async fn an_agent_starts_a_slide_sets_a_background_and_builds_from_written_slide
     )
     .await;
     assert!(text(&unknown).contains("no beat `nowhere`"), "{}", text(&unknown));
+    // A slide in other words than Narrato's is refused, naming what it gave (lift-up 10-25b FUNC-5).
+    let titled = call(
+        &client,
+        "slide_write",
+        json!({ "bundle": path(&planned), "slide": { "title": "Tidewater", "intensity": 0.8, "tone": 0.2 } }),
+    )
+    .await;
+    let said = text(&titled);
+    assert!(
+        said.contains("none of `slideTitle`, `keyBullets`, or `layoutSuggestion`") && said.contains("`title`"),
+        "{said}"
+    );
+    // Slides in the names an agent reaches for keep what they declare, by slide_write and by
+    // deck_generate alike (lift-up 10-25b FUNC-5): `intensity` and `tone`, clamped.
+    let natural = |k: usize| {
+        let mut slide = slides["slides"][k].clone();
+        let fields = slide.as_object_mut().unwrap();
+        fields.remove("expectedIntensity");
+        fields.remove("expectedValence");
+        fields.insert("intensity".into(), json!(0.9));
+        fields.insert("tone".into(), json!(-1.5));
+        slide
+    };
+    let told = ok(&client, "slide_write", json!({ "bundle": path(&planned), "slide": natural(2) })).await;
+    let d = read(&planned);
+    let beat = beats(&d).into_iter().find(|b| b["id"] == told["beat"]).unwrap();
+    assert_eq!(
+        (beat["media"]["narrato"]["intensity"].clone(), beat["media"]["narrato"]["valence"].clone()),
+        (json!(0.9), json!(-1.0)),
+        "{beat:#}"
+    );
+    let generated = scratch("editors-ops").join("natural");
+    let all: Vec<Value> = (0..slides["slides"].as_array().unwrap().len()).map(natural).collect();
+    let written = json!({ "executiveSummary": "Tidewater", "slides": all });
+    ok(&client, "deck_generate", json!({ "bundle": path(&generated), "slides": written, "theme": "ember" })).await;
+    for beat in beats(&read(&generated)) {
+        let narrato = &beat["media"]["narrato"];
+        assert_eq!((narrato["intensity"].clone(), narrato["valence"].clone()), (json!(0.9), json!(-1.0)), "{beat:#}");
+    }
+    // A word for a number is refused by both, naming the field (and the slide, of several).
+    let mut worded = natural(2);
+    worded["tone"] = json!("hopeful");
+    let one = call(&client, "slide_write", json!({ "bundle": path(&planned), "slide": worded })).await;
+    assert!(text(&one).contains("`tone` is a number from"), "{}", text(&one));
+    let mut all = written.clone();
+    all["slides"][3] = worded;
+    let many = call(
+        &client,
+        "deck_generate",
+        json!({ "bundle": path(&scratch("editors-ops").join("worded")), "slides": all, "theme": "ember" }),
+    )
+    .await;
+    assert!(text(&many).contains("slide 4: the slide's `tone` is a number from"), "{}", text(&many));
     client.cancel().await.unwrap();
 }
 

@@ -732,8 +732,8 @@ impl Session {
     #[cfg(feature = "shipped")]
     pub fn slide_write(&mut self, a: Value, by: Caller) -> Result<Called, Error> {
         let a: SlideWrite = args("slide_write", a)?;
-        let slide: scaena_ops::narrative::Slide =
-            serde_json::from_value(Value::Object(a.slide)).map_err(|e| ops(format!("slide_write: the slide: {e}")))?;
+        let slide = scaena_ops::narrative::slide_from(&Value::Object(a.slide))
+            .map_err(|e| ops(format!("slide_write: the slide: {}", e.message)))?;
         let place = match (a.replace, a.after) {
             (Some(_), Some(_)) => return Err(ops("slide_write: give `after` or `replace`, not both")),
             (Some(state), None) => scaena_ops::narrative::Place::Replace(state),
