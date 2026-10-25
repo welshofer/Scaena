@@ -1387,7 +1387,9 @@ mod tests {
         let arcs: Vec<&Finding> = h.findings.iter().filter(|f| f.kind == Kind::Arc).collect();
         let run = arcs.iter().find(|f| f.says.starts_with("Slides 2\u{2013}")).expect("the run, found once");
         assert_eq!(run.slide, 2);
-        assert!(run.says.contains(" were planned hotter than their places in the talk (1.00, where "), "{}", run.says);
+        // The plans as a range up to the 1.00 set here, a neighbour already bending joining it.
+        assert!(run.says.contains(" were planned hotter than their places in the talk ("), "{}", run.says);
+        assert!(run.says.contains("1.00, where "), "{}", run.says);
         assert!(run.says.contains("it peaks at slide 2 (1.00)"), "{}", run.says);
         assert!(run.ask.starts_with("Plan slides 2\u{2013}"), "{}", run.ask);
         let end: usize = run.says["Slides 2\u{2013}".len()..].split(' ').next().unwrap().parse().unwrap();
@@ -1583,7 +1585,8 @@ mod tests {
         assert!(h.slides[0].after.is_none() && h.slides[1].after.is_some());
         // Every finding is on a slide, in order, and says what to ask.
         assert!(h.findings.windows(2).all(|w| w[0].slide <= w[1].slide), "{:#?}", h.findings);
-        assert!(h.findings.iter().all(|f| !f.ask.is_empty() && f.says.starts_with("Slide ")), "{:#?}", h.findings);
+        // A finding names its slide, or the run of slides it folds ("Slides 2–7").
+        assert!(h.findings.iter().all(|f| !f.ask.is_empty() && f.says.starts_with("Slide")), "{:#?}", h.findings);
     }
 
     /// Each slide names the sources its beat cites of those the deck was grounded in (narrative
