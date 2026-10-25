@@ -7,18 +7,24 @@ import ScaenaNotes
 /// or an iPad presents, over the local network, and shows its notes and what comes next. The
 /// presenter offers the deck by Bonjour under its device's name; a remote joins it with the code the
 /// presenter's editor shows, by which both ends pair (`Pairing`, lift-up SEC-5): a key exchange the
-/// code authenticates, from which a recorded join tells nothing of the code, and a wrong code is one
-/// try, online, of the few the presenter allows before it makes the code anew. Every message after
+/// code authenticates, from which a recorded join tells nothing of the code (`Pairing`), and a
+/// wrong code is one try, online, of the few the presenter allows before it makes the code anew. Every message after
 /// is sealed under the keys the pairing made (`Sealed`), so no one on the network reads what passes.
 /// Each message is JSON, its length before it. This module holds no engine: a remote draws what the
 /// presenter sends it.
 public enum Remote {
     /// The Bonjour service a presenter offers its deck under.
     public static let service = "_scaena-remote._tcp"
-    /// The most a message may hold: a place, its two pictures at a remote's size, and its notes.
+    /// The most a message may hold: a place, its two pictures at a remote's size, and its notes,
+    /// which only a remote reads, from a presenter it has paired with.
     static let largest = 16 << 20
+    /// The most a presenter reads in a message: a hello is some 90 bytes, a proof some 55, and a
+    /// sealed command some 45, so no one in range makes it hold more before pairing.
+    static let small = 1 << 10
+    /// How many hellos a presenter works out a second: the rest are let go unanswered.
+    static let hellos = 10
     /// The pairing's version, which each hello says: ends of other versions do not pair.
-    static let version = 2
+    static let version = 3
     /// How many wrong codes a presenter takes before it makes its code anew.
     public static let tries = 5
     /// How many remotes may be pairing at once: more are refused until one is done.
@@ -53,13 +59,15 @@ public enum Remote {
 }
 
 /// How a remote and a presenter pair by the code (lift-up SEC-5): a password-authenticated key
-/// exchange, SPEKE on Curve25519. The code is hashed to a point of the curve; each end raises it to
-/// a secret of its own and sends the result, a point that is random whatever the code, and raises
-/// the other's to its secret: the same key at both ends, never sent. So a join recorded on the
-/// network tells nothing of the code, however many are tried against it offline. Each end then
-/// proves it holds the key, and so the code, by a tag the other checks: a wrong code is one try,
-/// online, which the presenter counts. The channel's keys, one each way, come from the key and both
-/// ends' nonces.
+/// exchange, SPEKE on P-256. The code is hashed to a point of the curve (`base`); each end raises it
+/// to a secret of its own and sends the result, a point that is random whatever the code, and
+/// raises the other's to its secret: the same key at both ends, never sent. So a join recorded on
+/// the network tells nothing of the code, however many are tried against it offline: every code's
+/// point is on the curve, whose order is prime, so no point a hello carries says anything of which
+/// code made it. Each end then proves it holds the key, and so the code, by a tag the other checks:
+/// a wrong code is one try, online, which the presenter counts. The channel's keys, one each way,
+/// come from the key and both ends' nonces. A point goes as its x alone: a peer's is the point
+/// CryptoKit makes of it, either of the two with that x, which raise to the same x.
 struct Pairing {
     /// Which end this is: the remote sends its hello first and proves itself first.
     enum Side: String {
@@ -81,7 +89,7 @@ struct Pairing {
 
     /// Why a hello or a proof is refused.
     enum Trouble: Error {
-        /// Another version, no point of the curve, or a point of low order.
+        /// Another version, a key or a nonce of another length, or an x of no point of the curve.
         case hello
         /// A message that was not sealed under the channel's key, or not the next one.
         case sealed
@@ -95,10 +103,11 @@ struct Pairing {
         /// Both hellos, the remote's first.
         private let transcript: Data
 
-        fileprivate init(bytes: Data, transcript: Data) {
-            remoteToPresenter = SymmetricKey(data: bytes.prefix(32))
-            presenterToRemote = SymmetricKey(data: bytes.dropFirst(32).prefix(32))
-            proof = SymmetricKey(data: bytes.dropFirst(64).prefix(32))
+        /// The three keys from `bytes`, read where they lie, never copied into bytes of their own.
+        fileprivate init(bytes: UnsafeRawBufferPointer, transcript: Data) {
+            remoteToPresenter = SymmetricKey(data: UnsafeRawBufferPointer(rebasing: bytes[0..<32]))
+            presenterToRemote = SymmetricKey(data: UnsafeRawBufferPointer(rebasing: bytes[32..<64]))
+            proof = SymmetricKey(data: UnsafeRawBufferPointer(rebasing: bytes[64..<96]))
             self.transcript = transcript
         }
 
@@ -116,22 +125,28 @@ struct Pairing {
     let side: Side
     /// This end's hello: its point, and its nonce.
     let hello: Hello
-    private let secret: Curve25519.KeyAgreement.PrivateKey
+    private let secret: P256.KeyAgreement.PrivateKey
 
-    /// Begin pairing on `side` with `code`.
+    /// Begin pairing on `side` with `code`, its point worked out now: a remote's.
     init(side: Side, code: String) throws {
-        self.side = side
-        secret = Curve25519.KeyAgreement.PrivateKey()
-        let point = try Curve25519.KeyAgreement.PublicKey(rawRepresentation: Self.point(code))
-        let raised = try Self.raised(secret, point)
-        hello = Hello(version: Remote.version, key: raised, nonce: Self.nonce())
+        try self.init(side: side, base: Self.base(code))
     }
 
-    /// The keys, from the other end's `hello`; `Trouble.hello` where it is of another version, no
-    /// point of the curve, or one of low order, whose key anyone could make.
+    /// Begin pairing on `side` from the code's point, `base`: a presenter's, worked out when it made
+    /// the code, so nothing a joining device can time depends on the code.
+    init(side: Side, base: P256.KeyAgreement.PublicKey) throws {
+        self.side = side
+        secret = P256.KeyAgreement.PrivateKey()
+        hello = Hello(version: Remote.version, key: try Self.raised(secret, base), nonce: Self.nonce())
+    }
+
+    /// The keys, from the other end's `hello`; `Trouble.hello` where it is of another version, of
+    /// another length, or an x of no point of the curve. P-256's order is prime: every point but
+    /// the identity, which an x cannot name, generates it all, so there is no cofactor to clear and
+    /// no point of low order to refuse.
     func keys(from peer: Hello) throws -> Keys {
         guard peer.version == Remote.version, peer.key.count == 32, peer.nonce.count == 16 else { throw Trouble.hello }
-        let theirs = try Curve25519.KeyAgreement.PublicKey(rawRepresentation: peer.key)
+        guard let theirs = try? P256.KeyAgreement.PublicKey(compactRepresentation: peer.key) else { throw Trouble.hello }
         let shared = try secret.sharedSecretFromKeyAgreement(with: theirs)
         guard shared.withUnsafeBytes({ bytes in bytes.contains { $0 != 0 } }) else { throw Trouble.hello }
         let (remote, presenter) = side == .remote ? (hello, peer) : (peer, hello)
@@ -139,24 +154,34 @@ struct Pairing {
         let derived = shared.hkdfDerivedSymmetricKey(
             using: SHA256.self, salt: remote.nonce + presenter.nonce,
             sharedInfo: Data("Scaena Remote keys \(Remote.version)".utf8) + transcript, outputByteCount: 96)
-        return Keys(bytes: derived.withUnsafeBytes { Data($0) }, transcript: transcript)
+        return derived.withUnsafeBytes { Keys(bytes: $0, transcript: transcript) }
     }
 
-    /// The code hashed to a point of the curve, as its u-coordinate: the base both ends raise.
-    static func point(_ code: String) -> Data {
-        var u = Data(SHA256.hash(data: Data("Scaena Remote pairing \(Remote.version)\n\(code)".utf8)))
-        u[u.startIndex + 31] &= 0x7f
-        return u
+    /// What the code's point is hashed from, before the code and a counter.
+    static let label = Data("scaena-remote-speke-v1".utf8)
+
+    /// The code hashed to a point of the curve: the base both ends raise. The first x that
+    /// SHA-256(`label` ‖ code ‖ counter) gives, from a counter of 0, that is a point's, the point
+    /// CryptoKit makes of it; no code of four digits needs more than 16 tries. `Trouble.hello` past
+    /// 255, which no code reaches.
+    static func base(_ code: String) throws -> P256.KeyAgreement.PublicKey {
+        for counter in UInt8.min...UInt8.max {
+            let x = Data(SHA256.hash(data: label + Data(code.utf8) + Data([counter])))
+            if let point = try? P256.KeyAgreement.PublicKey(compactRepresentation: x) { return point }
+        }
+        throw Trouble.hello
     }
 
-    /// `point` raised to `secret`: a point of the curve, 32 bytes; `Trouble.hello` where it is of
-    /// low order, which no code hashes to in practice.
-    private static func raised(_ secret: Curve25519.KeyAgreement.PrivateKey, _ point: Curve25519.KeyAgreement.PublicKey)
-        throws -> Data
+    /// `point`'s x, 32 bytes: what a hello carries.
+    static func x(_ point: P256.KeyAgreement.PublicKey) -> Data {
+        Data(point.x963Representation.dropFirst().prefix(32))
+    }
+
+    /// `point` raised to `secret`, as its x.
+    private static func raised(_ secret: P256.KeyAgreement.PrivateKey, _ point: P256.KeyAgreement.PublicKey) throws
+        -> Data
     {
-        let raised = try secret.sharedSecretFromKeyAgreement(with: point).withUnsafeBytes { Data($0) }
-        guard raised.contains(where: { $0 != 0 }) else { throw Trouble.hello }
-        return raised
+        try secret.sharedSecretFromKeyAgreement(with: point).withUnsafeBytes { Data($0) }
     }
 
     /// Sixteen random bytes.
@@ -235,13 +260,19 @@ public struct RemotePlace: Codable, Sendable, Equatable {
     /// The state at rest, and the one after it, each a PNG; none for a state the show lacks.
     public var slide: Data?
     public var next: Data?
-    /// When the show began, for the time since.
+    /// When the show began, for the time since, from a presenter that sends no `timer`.
     public var began: Date?
+    /// The screen black or white, the slide out of sight (PLAN 2.105); none while the slide shows.
+    public var blank: RemoteScreen?
+    /// Whether the show has passed its last state and says it has ended (PLAN 2.120).
+    public var over: Bool
+    /// The presenter's timer, paused or running, as it stood when the place was sent (PLAN 2.121).
+    public var timer: RemoteTimer?
 
     public init(
         deck: String, showing: Bool, state: String = "", index: Int = 0, count: Int = 0, ms: Double = 0,
         rest: Bool = true, notes: String = "", read: [NoteBlock] = [], slide: Data? = nil, next: Data? = nil,
-        began: Date? = nil
+        began: Date? = nil, blank: RemoteScreen? = nil, over: Bool = false, timer: RemoteTimer? = nil
     ) {
         self.deck = deck
         self.showing = showing
@@ -255,9 +286,14 @@ public struct RemotePlace: Codable, Sendable, Equatable {
         self.slide = slide
         self.next = next
         self.began = began
+        self.blank = blank
+        self.over = over
+        self.timer = timer
     }
 
-    enum CodingKeys: String, CodingKey { case deck, showing, state, index, count, ms, rest, notes, read, slide, next, began }
+    enum CodingKeys: String, CodingKey {
+        case deck, showing, state, index, count, ms, rest, notes, read, slide, next, began, blank, over, timer
+    }
 
     /// A place as a presenter sent it, one that sent no `read` read as lines.
     public init(from decoder: Decoder) throws {
@@ -274,14 +310,55 @@ public struct RemotePlace: Codable, Sendable, Equatable {
         slide = try c.decodeIfPresent(Data.self, forKey: .slide)
         next = try c.decodeIfPresent(Data.self, forKey: .next)
         began = try c.decodeIfPresent(Date.self, forKey: .began)
+        // A presenter from before the remote mirrored the screen and the timer sends none of them.
+        blank = try c.decodeIfPresent(RemoteScreen.self, forKey: .blank)
+        over = try c.decodeIfPresent(Bool.self, forKey: .over) ?? false
+        timer = try c.decodeIfPresent(RemoteTimer.self, forKey: .timer)
     }
 
     /// No show plays.
     public static func waiting(_ deck: String) -> RemotePlace { RemotePlace(deck: deck, showing: false) }
+
+    /// The place as a remote takes it at `now`: its timer stamped with the remote's own clock as it
+    /// arrives, so a remote whose clock is off from the presenter's still reads the presenter's
+    /// time, off by no more than the moment the place took to arrive.
+    public func received(at now: Date = Date()) -> RemotePlace {
+        var place = self
+        place.timer?.at = now
+        return place
+    }
+}
+
+/// The screen as the presenter turned it (PLAN 2.105): black or white, the slide out of sight.
+public enum RemoteScreen: String, Codable, Sendable {
+    case black, white
+}
+
+/// The presenter's timer (PLAN 2.121) as it stood at `at`: what it had counted, s, and whether it
+/// was paused there, so the remote reads what the presenter's view reads, paused where it is.
+public struct RemoteTimer: Codable, Sendable, Equatable {
+    public var elapsed: Double
+    public var paused: Bool
+    public var at: Date
+
+    public init(elapsed: Double, paused: Bool, at: Date) {
+        self.elapsed = elapsed
+        self.paused = paused
+        self.at = at
+    }
+
+    /// What it reads at `now`, as the presenter's view reads it: minutes and seconds.
+    public func reads(at now: Date) -> String {
+        let seconds = max(Int(elapsed + (paused ? 0 : max(now.timeIntervalSince(at), 0))), 0)
+        return String(format: "%ld:%02ld", seconds / 60, seconds % 60)
+    }
 }
 
 /// What a remote asks of the show (PLAN 4.10), as the player's keys and gestures do (PLAN 2.2):
-/// play it from the slide the editor shows, go on, go back, the first and the last state, or end it.
+/// play it from the slide the editor shows, go on, go back, the first and the last state, or end
+/// it; and as the presenter's keys and view do (PLAN 2.105, 2.121, lift-up FUNC-5): a black or a
+/// white screen, or the slide again, and the timer paused or run on, or reset. A slide by its
+/// number goes in a message's `slide`.
 public enum RemoteCommand: String, Codable, Sendable, CaseIterable {
     case play
     case on
@@ -289,12 +366,18 @@ public enum RemoteCommand: String, Codable, Sendable, CaseIterable {
     case first
     case last
     case end
+    case black
+    case white
+    case pauseTimer
+    case resetTimer
 }
 
-/// One message: a place from the presenter, or a command from a remote.
+/// One message: a place from the presenter, or a command or a slide's number from a remote.
 struct RemoteMessage: Codable, Sendable, Equatable {
     var place: RemotePlace?
     var command: RemoteCommand?
+    /// The slide a remote asks for by its number, as the presenter's keys type one (PLAN 2.105).
+    var slide: Int?
 }
 
 extension NWConnection {
@@ -311,13 +394,13 @@ extension NWConnection {
         header.prefix(4).reduce(0) { $0 << 8 | Int($1) }
     }
 
-    /// The next frame's body, on the main queue; nil where none can come, and the frame is not
-    /// taken up again after.
-    func receiveFrame(_ take: @escaping (Data?) -> Void) {
+    /// The next frame's body, on the main queue; nil where none can come or it says it is longer
+    /// than `largest`, and the frame is not taken up again after.
+    func receiveFrame(largest: Int, _ take: @escaping (Data?) -> Void) {
         receive(minimumIncompleteLength: 4, maximumLength: 4) { [weak self] header, _, _, error in
             guard let self, let header, header.count == 4, error == nil else { return take(nil) }
             let length = Self.length(header)
-            guard length > 0, length <= Remote.largest else { return take(nil) }
+            guard length > 0, length <= largest else { return take(nil) }
             self.receive(minimumIncompleteLength: length, maximumLength: length) { body, _, _, error in
                 guard let body, body.count == length, error == nil else { return take(nil) }
                 take(body)

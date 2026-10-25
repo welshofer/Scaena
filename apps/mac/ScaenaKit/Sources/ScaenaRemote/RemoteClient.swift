@@ -4,7 +4,7 @@ import Observation
 
 /// A presenter offering its deck on the local network (PLAN 4.10), as a remote finds it.
 public struct RemotePresenter: Identifiable, Hashable, Sendable {
-    /// What the presenter calls itself: its device, and the deck.
+    /// What the presenter calls itself: its device's name.
     public let name: String
     public let endpoint: NWEndpoint
 
@@ -107,7 +107,18 @@ public final class RemoteClient {
 
     /// Ask the show for `command`.
     public func send(_ command: RemoteCommand) {
-        guard status == .joined, let sealed, let body = try? JSONEncoder().encode(RemoteMessage(command: command)),
+        send(RemoteMessage(command: command))
+    }
+
+    /// Ask the show for the slide numbered `number`, as typing its number on the presenter's keys
+    /// does (PLAN 2.105, lift-up FUNC-5).
+    public func go(slide number: Int) {
+        guard number > 0 else { return }
+        send(RemoteMessage(slide: number))
+    }
+
+    private func send(_ message: RemoteMessage) {
+        guard status == .joined, let sealed, let body = try? JSONEncoder().encode(message),
             let frame = try? sealed.seal(body)
         else { return }
         connection.send(frame: frame)
@@ -141,7 +152,7 @@ public final class RemoteClient {
             return
         }
         connection.send(frame: body)
-        connection.receiveFrame { [weak self] body in
+        connection.receiveFrame(largest: Remote.small) { [weak self] body in
             MainActor.assumeIsolated { self?.answered(body) }
         }
     }
@@ -158,7 +169,7 @@ public final class RemoteClient {
         self.pairing = nil
         proving = true
         connection.send(frame: proof)
-        connection.receiveFrame { [weak self] body in
+        connection.receiveFrame(largest: Remote.small) { [weak self] body in
             MainActor.assumeIsolated { self?.proved(body) }
         }
     }
@@ -180,7 +191,7 @@ public final class RemoteClient {
 
     /// Each place the presenter sends, sealed, in turn; lost at the first that is not.
     private func hearPlaces() {
-        connection.receiveFrame { [weak self] frame in
+        connection.receiveFrame(largest: Remote.largest) { [weak self] frame in
             MainActor.assumeIsolated {
                 guard let self else { return }
                 guard let frame, let sealed = self.sealed, let body = try? sealed.open(frame),
@@ -189,7 +200,7 @@ public final class RemoteClient {
                     self.lose("The presenter went.")
                     return
                 }
-                if let place = message.place { self.place = place }
+                if let place = message.place { self.place = place.received() }
                 self.hearPlaces()
             }
         }

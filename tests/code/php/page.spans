@@ -1,0 +1,133 @@
+meta        «<?php\n»
+keyword     «declare»
+punctuation «(»
+plain       «strict_types»
+operator    «=»
+number      «1»
+punctuation «);\n\n»
+keyword     «namespace »
+type        «App»
+operator    «\\»
+type        «Http»
+punctuation «;\n\n»
+keyword     «use »
+type        «App»
+operator    «\\»
+type        «Models»
+operator    «\\»
+type        «Trail»
+punctuation «;\n\n»
+attribute   «#[Route»
+punctuation «(»
+string      «'/trails'»
+punctuation «)]\n»
+keyword     «final class »
+type        «TrailController »
+keyword     «extends »
+type        «Controller\n»
+punctuation «{\n    »
+keyword     «private const »
+constant    «PER_PAGE »
+operator    «= »
+number      «20»
+punctuation «;\n\n    »
+keyword     «public function »
+function    «index»
+punctuation «(»
+type        «Request »
+variable    «$request»
+punctuation «): »
+type        «array\n    »
+punctuation «{\n        »
+variable    «$trails »
+operator    «= »
+type        «Trail»
+punctuation «::»
+function    «where»
+punctuation «(»
+string      «'open'»
+punctuation «, »
+constant    «true»
+punctuation «)»
+operator    «->»
+function    «get»
+punctuation «();\n        »
+variable    «$name »
+operator    «= »
+variable    «$request»
+operator    «?->»
+function    «user»
+punctuation «()»
+operator    «->»
+property    «name »
+operator    «?? »
+string      «'guest'»
+punctuation «;\n        »
+comment     «# Count them once.\n        »
+keyword     «echo »
+string      «"Hello »
+variable    «$name»
+string      «, »
+punctuation «{»
+variable    «$trails»
+operator    «->»
+function    «count»
+punctuation «()}»
+string      « trails\\n"»
+punctuation «;\n        »
+keyword     «return »
+punctuation «[\n            »
+string      «'items' »
+operator    «=> »
+variable    «$trails»
+punctuation «,\n            »
+string      «'html' »
+operator    «=> »
+string      «<<<HTML\n                <p>Welcome, »
+variable    «$name»
+string      «</p>\n                HTML»
+punctuation «,\n            »
+string      «'raw' »
+operator    «=> »
+string      «<<<'TXT'\n                No $interpolation here\n                TXT»
+punctuation «,\n        ];\n    }\n}\n»
+meta        «?>\n<!DOCTYPE html>\n»
+punctuation «<»
+tag         «ul »
+attribute   «class»
+operator    «=»
+string      «"»
+meta        «<?= »
+variable    «$class »
+meta        «?>»
+string      «"»
+punctuation «>\n  »
+meta        «<?php »
+keyword     «foreach »
+punctuation «(»
+variable    «$trails »
+keyword     «as »
+variable    «$trail»
+punctuation «): »
+meta        «?>\n    »
+punctuation «<»
+tag         «li»
+punctuation «>»
+meta        «<?= »
+function    «htmlspecialchars»
+punctuation «(»
+variable    «$trail»
+operator    «->»
+property    «name»
+punctuation «) »
+meta        «?>»
+punctuation «</»
+tag         «li»
+punctuation «>\n  »
+meta        «<?php »
+keyword     «endforeach»
+punctuation «; »
+meta        «?>\n»
+punctuation «</»
+tag         «ul»
+punctuation «>\n»

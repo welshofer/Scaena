@@ -11,12 +11,25 @@
 // Exits 1 on any failure. Node reads the adapters' TypeScript as it stands, its types stripped.
 import { readFile, writeFile } from "node:fs/promises";
 import { isDeepStrictEqual } from "node:util";
-import { seen, system } from "./src/assistant/prompt.ts";
+import { RULE, fenced, seen, system } from "./src/assistant/prompt.ts";
 import { providers } from "./src/assistant/providers.ts";
 
 const write = process.argv.includes("--write");
 const conversation = JSON.parse(await readFile("tests/assistant/conversation.json", "utf8"));
 const recordPath = "tests/assistant/exchanges.json";
+
+/** `text` as a body that arrives in pieces of 97 bytes, each cut wherever it falls. */
+function pieces(text) {
+  const bytes = new TextEncoder().encode(text);
+  let at = 0;
+  return new ReadableStream({
+    pull(controller) {
+      if (at >= bytes.length) return controller.close();
+      controller.enqueue(bytes.slice(at, at + 97));
+      at += 97;
+    },
+  });
+}
 
 /** Each request `run` makes, and the answer `reply` gives it, by a `fetch` that calls nothing. */
 async function asking(reply, run) {
@@ -30,7 +43,7 @@ async function asking(reply, run) {
       body: init.body === undefined ? null : JSON.parse(init.body),
     });
     const { status, body } = reply;
-    return new Response(typeof body === "string" ? body : JSON.stringify(body), { status, statusText: "" });
+    return new Response(typeof body === "string" || body instanceof ReadableStream ? body : JSON.stringify(body), { status, statusText: "" });
   };
   try {
     return { asked, result: await run().then((value) => ({ value }), (e) => ({ error: e.message })) };
@@ -49,6 +62,10 @@ for (const [id, provider] of Object.entries(providers)) {
     messages: conversation.messages,
   };
   const turn = await asking({ status: 200, body: conversation.answers[id] }, () => provider.turn(ask));
+  // The same answer as the provider streams it (narrative ATTR-3), the body handed over in
+  // pieces that cut its events mid-way: read as the whole one is, its words out as they come.
+  const said = [];
+  const streamed = await asking({ status: 200, body: pieces(conversation.streamed[id]) }, () => provider.turn({ ...ask, onText: (text) => said.push(text) }));
   const models = await asking({ status: 200, body: conversation.models[id] }, () => provider.models(conversation.key));
   const failure = await asking(conversation.failures[id], () => provider.turn(ask));
   // A question asked once, with nothing to call: a writing tool's (PLAN 2.101).
@@ -59,7 +76,7 @@ for (const [id, provider] of Object.entries(providers)) {
   const pictured = { ...once, system: picture.system, messages: [{ role: "user", text: picture.prompt, png: picture.png }] };
   const shown = await asking({ status: 200, body: conversation.answers[id] }, () => provider.turn(pictured));
   record[id] = {
-    turn: { request: turn.asked[0], read: turn.result.value },
+    turn: { request: turn.asked[0], read: turn.result.value, streamed: { read: streamed.result.value, said } },
     models: { request: models.asked[0], read: models.result.value },
     failure: { message: failure.result.error },
     once: { request: asked.asked[0] },
@@ -71,6 +88,8 @@ const told = conversation.prompt;
 record.prompt = {
   system: told.decks.map((deck, i) => system(deck, told.resources, told.bundleSkills[i], told.authorDeck)),
   seen: told.seeings.map((seeing) => seen(seeing ?? undefined)),
+  // The fence, as scaena-fence writes it (lift-up SEC-3): the rule, and each text fenced.
+  fence: { rule: RULE, fenced: (told.fenced ?? []).map(([label, text]) => fenced(label, text)) },
 };
 
 const failures = [];
@@ -88,8 +107,9 @@ if (write) {
       check(isDeepStrictEqual(record[id][part], kept[id][part]), `${id}: the ${part} the adapter makes is the one recorded`);
     }
   }
-  for (const part of ["system", "seen"]) {
-    check(isDeepStrictEqual(record.prompt[part], kept.prompt?.[part]), `the ${part === "system" ? "system prompt" : "line saying what the editor shows"} is the one recorded`);
+  for (const part of ["system", "seen", "fence"]) {
+    const what = { system: "system prompt", seen: "line saying what the editor shows", fence: "fence" }[part];
+    check(isDeepStrictEqual(record.prompt[part], kept.prompt?.[part]), `the ${what} is the one recorded`);
   }
 }
 if (failures.length) {

@@ -106,8 +106,11 @@ thread_local! {
 }
 
 /// The files the tables `lang` is colored by are in: none for plain text, the generic scanner, and
-/// the scanners that read no table of words (JSON, YAML, TOML, a diff, INI, HTML, and XML). A
+/// the scanners that read no table of words (JSON, YAML, TOML, a diff, INI, and XML). A
 /// Dockerfile reads its commands as Shell or PowerShell, and a Makefile its recipes as Shell.
+/// HTML, PHP, Vue, and Svelte read their scripts and expressions by the C family's tables and
+/// their styles by CSS's, and Markdown a fenced block in any language, so it is handed them all
+/// (PLAN 2.145).
 pub fn files(lang: Lang) -> &'static [&'static str] {
     match lang {
         Lang::Plain | Lang::Generic => &[],
@@ -125,7 +128,9 @@ pub fn files(lang: Lang) -> &'static [&'static str] {
             Scan::Hcl => &["hcl"],
             Scan::GraphQl => &["graphql"],
             Scan::Css | Scan::Scss => &["css"],
-            Scan::Yaml | Scan::Toml | Scan::Diff | Scan::Ini | Scan::Html | Scan::Xml => &[],
+            Scan::Html | Scan::Php | Scan::Vue | Scan::Svelte => &["clike", "css"],
+            Scan::Markdown => &FILES,
+            Scan::Yaml | Scan::Toml | Scan::Diff | Scan::Ini | Scan::Xml => &[],
         },
     }
 }

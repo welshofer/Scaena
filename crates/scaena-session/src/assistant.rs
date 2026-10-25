@@ -164,6 +164,8 @@ struct DeckRead {
     scn: bool,
     #[serde(default)]
     files: bool,
+    #[serde(default)]
+    theme: bool,
 }
 
 #[derive(Deserialize)]
@@ -172,6 +174,8 @@ struct DeckPatch {
     ops: Vec<Map<String, Value>>,
     #[serde(default)]
     dry_run: bool,
+    #[serde(default)]
+    verbose: bool,
 }
 
 #[derive(Deserialize)]
@@ -344,6 +348,10 @@ struct StateStart {
     #[serde(default)]
     layout: Option<String>,
     #[serde(default)]
+    claim: Option<String>,
+    #[serde(default)]
+    id: Option<String>,
+    #[serde(default)]
     dry_run: bool,
 }
 
@@ -379,8 +387,12 @@ struct Rendered {
 
 fn args<T: DeserializeOwned>(tool: &str, args: Value) -> Result<T, Error> {
     // A tool called with no arguments may be sent `null`.
-    let args = if args.is_null() { json!({}) } else { args };
-    serde_json::from_value(args).map_err(|e| ops(format!("{tool}: {e}")))
+    let args = match args {
+        Value::Null => Map::new(),
+        Value::Object(args) => args,
+        _ => return Err(ops(format!("{tool}: its arguments are an object of them, by name"))),
+    };
+    scaena_ops::arguments::read(args).map_err(|e| ops(format!("{tool}: {e}")))
 }
 
 impl Session {
@@ -391,7 +403,7 @@ impl Session {
         match name {
             "deck_read" => {
                 let a: DeckRead = args(name, a)?;
-                Called::of(scaena_ops::read::read(&b, a.scn, a.files)?)
+                Called::of(scaena_ops::read::read(&b, a.scn, a.files, a.theme)?)
             }
             "deck_patch" => {
                 let a: DeckPatch = args(name, a)?;
@@ -404,8 +416,10 @@ impl Session {
                 };
                 let (mut patched, deck) = scaena_ops::patch::editing(&b, &ops, None, validated, judge)?;
                 patched.applied &= !a.dry_run;
+                let made = deck.as_ref().map(|w| &w.deck);
+                let reported = scaena_ops::patch::Reported::of(&b.deck, made, &ops, patched, a.verbose);
                 let edited = self.write(deck.filter(|_| !a.dry_run), by)?;
-                Ok(Called { edited, ..Called::of(patched)? })
+                Ok(Called { edited, ..Called::of(reported)? })
             }
             "deck_find" => {
                 let a: DeckFind = args(name, a)?;
@@ -494,11 +508,13 @@ impl Session {
                 Called::of(scaena_ops::read::spine(&b))
             }
             // The deck's story, as `scaena health` reads it (PLAN G.9): where this library
-            // carries generation. The browser's page reads it by the generator's module.
+            // carries generation. The browser's page reads it by the generator's module. Read
+            // beside what lint finds, as the CLI and the MCP server read it, so a slide lint
+            // finds broken comes first (lift-up 10-24b STAB-1).
             #[cfg(feature = "generate")]
             "deck_health" => {
                 let _: DeckHealth = args(name, a)?;
-                Called::of(scaena_ops::health::health(self.deck())?)
+                Called::of(scaena_ops::health::health_in(self.deck(), &scaena_ops::lint::lint(&b)?.findings)?)
             }
             #[cfg(not(feature = "generate"))]
             "deck_health" => {
@@ -515,7 +531,16 @@ impl Session {
             // A slide started as Add Slide starts one (PLAN 3.30), linted as an edit is.
             "state_start" => {
                 let a: StateStart = args(name, a)?;
-                let added = scaena_ops::states::starting(&b.deck, &self.theme, &a.state, a.layout.as_deref())?;
+                let mut added = scaena_ops::states::starting_as(
+                    &b.deck,
+                    &self.theme,
+                    &a.state,
+                    a.layout.as_deref(),
+                    a.id.as_deref(),
+                )?;
+                if let Some(claim) = a.claim.as_deref() {
+                    added = scaena_ops::states::claimed(&b.deck, added, claim)?;
+                }
                 let what = scaena_ops::states::said(&self.theme, a.layout.as_deref());
                 let validated = self.validated.clone();
                 let judge = |deck: &Deck, theme: &Theme, states: &[&str]| {
@@ -525,7 +550,9 @@ impl Session {
                 let (mut patched, deck) = scaena_ops::patch::editing(&b, &ops, Some(&what), validated, judge)?;
                 patched.applied &= !a.dry_run;
                 let edited = self.write(deck.filter(|_| !a.dry_run), by)?;
-                Ok(Called { edited, ..Called::of(scaena_ops::states::Started { id: added.id, patched })? })
+                let started =
+                    scaena_ops::states::Started { id: added.id, filled: added.filled, empty: added.empty, patched };
+                Ok(Called { edited, ..Called::of(started)? })
             }
             // A slide's background set to a theme preset, or taken away (PLAN 2.148).
             "background_set" => {
@@ -692,6 +719,43 @@ mod tests {
     fn call(s: &mut Session, name: &str, a: Value) -> Got {
         let c = s.tool(name, a, AGENT).unwrap_or_else(|e| panic!("{name}: {}", failure(&e)));
         Got { result: serde_json::from_str(&c.result).unwrap(), frame: c.frame, edited: c.edited }
+    }
+
+    /// The story read beside lint (lift-up 10-24b STAB-1): a headline too long for its slot, an
+    /// E100, puts its slide first in `deck_health`, as `scaena health` does, and the session and
+    /// a laying taken from it hold that E100 for the editors' Story panels to read beside the deck.
+    #[cfg(feature = "generate")]
+    #[test]
+    fn deck_health_puts_the_slide_lint_finds_broken_first() {
+        let mut s = dusk();
+        let long = "Volunteers rebuilt fifty-two miles of trail across the state park";
+        call(
+            &mut s,
+            "deck_patch",
+            json!({ "ops": [
+            { "op": "add", "path": "/states/0/layout", "value": "agenda-photo" },
+            { "op": "add_node", "id": "headline", "state": "start",
+              "node": { "type": "text", "role": "headline", "semantic": "claim", "at": { "in": "header" }, "text": long } },
+        ] }),
+        );
+        let health = call(&mut s, "deck_health", json!({}));
+        let first = &health.result["findings"][0];
+        assert_eq!((first["kind"].as_str(), first["slide"].as_u64()), (Some("layout"), Some(1)), "{}", health.result);
+        assert!(first["says"].as_str().unwrap().contains("does not stand as it is to be read"), "{first}");
+        assert!(!health.edited);
+
+        let source = s.source();
+        s.compile(&source);
+        s.lint(None, None).unwrap();
+        assert!(s.findings().iter().any(|f| f.code == "E100"), "{:?}", s.findings());
+        let laying = s.laying().unwrap();
+        let read = scaena_ops::health::health_in(laying.deck(), laying.findings()).unwrap();
+        assert_eq!(
+            read.findings.first().map(|f| f.kind),
+            Some(scaena_ops::health::Kind::Layout),
+            "{:?}",
+            read.findings
+        );
     }
 
     /// PLAN 1.19's agent loop, through the tools a page's assistant calls: a headline too

@@ -822,16 +822,30 @@ struct DeckView: View {
                 }
             }
             // A deck New made: the themes that ship offered first, once its window is up. A deck
-            // made from a prompt says what it came to.
+            // made from a prompt says what it came to, and lands on its story (narrative USE-2):
+            // the Document tab's Story panel, with the arc's curve and each slide's fix.
             .task {
                 if let opening = document.opening {
                     document.opening = nil
                     said = opening
+                    showsInspector = true
+                    tab = .document
+                    documentPanel = .story
                 }
                 guard document.startsNew else { return }
                 document.startsNew = false
                 // Its title slide's empty places outlined, as on a slide made here.
                 fresh.formUnion(editor.slots.map(\.state))
+                // Made in another theme than Dusk, which made none: said once, and the themes
+                // offered once it is read, as an alert and a sheet are not shown together
+                // (lift-up STAB-3).
+                if let fellBack = document.fellBack {
+                    document.fellBack = nil
+                    failure = fellBack
+                    while failure != nil, !Task.isCancelled {
+                        try? await Task.sleep(for: .milliseconds(100))
+                    }
+                }
                 try? await Task.sleep(for: .milliseconds(250))
                 offeredThemes = (try? editor.session.shippedThemes()) ?? []
             }

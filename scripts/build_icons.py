@@ -18,6 +18,7 @@ a picture's `pin` draws, and a forecast's eleven in their regular weight, ADR-00
     python3 scripts/build_icons.py            # fetch the package, write the icons, then check
     python3 scripts/build_icons.py --cache ~/.cache/scaena-icons
     python3 scripts/build_icons.py --weather  # write the icons the engine compiles in from the set, no network
+    python3 scripts/build_icons.py --toolbar  # write the editor's toolbar icons from the set, no network
     python3 scripts/build_icons.py --check
 """
 
@@ -45,6 +46,39 @@ WEATHER_FILE = ROOT / "crates/scaena-engine/icons/weather.txt"
 COMPILED_ICONS = [("MAP_PIN", "map-pin", "fill")]
 # A forecast's icons (ADR-0030, PLAN O.2b): each sky's, by day and by night, a drop, and the wind,
 # in their regular weight, by their names as `scaena_core::weather` names them.
+# The editor's toolbar icons (lift-up ATTR-5), each button's by its name, in the regular weight:
+# written to a module the page compiles in, so the toolbar draws them before the set is fetched.
+TOOLBAR_FILE = ROOT / "web/src/toolbar-icons.ts"
+TOOLBAR_ICONS = [
+    "file",
+    "file-plus",
+    "sparkle",
+    "folder-open",
+    "file-archive",
+    "bookmarks",
+    "floppy-disk",
+    "floppy-disk-back",
+    "download-simple",
+    "export",
+    "play",
+    "code",
+    "squares-four",
+    "device-mobile",
+    "grid-four",
+    "bounding-box",
+    "layout",
+    "timer",
+    "magnifying-glass",
+    "command",
+    "keyboard",
+    "magnifying-glass-minus",
+    "magnifying-glass-plus",
+    "corners-in",
+    "palette",
+    "plus-circle",
+    "slideshow",
+    "frame-corners",
+]
 WEATHER_ICONS = [
     "sun",
     "cloud-sun",
@@ -361,6 +395,7 @@ def build(cache: Path | None) -> None:
     LICENSE.write_text(read("LICENSE"), encoding="utf-8")
     COMPILED.write_text(compiled(doc), encoding="utf-8")
     WEATHER_FILE.write_text(weather_file(doc), encoding="utf-8")
+    TOOLBAR_FILE.write_text(toolbar_file(doc), encoding="utf-8")
     print(f"wrote {len(icons)} icons to {OUT.relative_to(ROOT)} ({OUT.stat().st_size // 1024} KB)")
 
 
@@ -391,6 +426,27 @@ def weather_file(doc: dict) -> str:
     """A forecast's icons, a line each: `name path`, in their regular weight."""
     by_name = {icon["name"]: icon for icon in doc["icons"]}
     return "".join(f"{name} {by_name[name]['regular']}\n" for name in WEATHER_ICONS)
+
+
+def toolbar_file(doc: dict) -> str:
+    """The editor's toolbar icons as a TypeScript module: each by its name, its regular path."""
+    by_name = {icon["name"]: icon for icon in doc["icons"]}
+    lines = [
+        f"// The editor's toolbar icons (lift-up ATTR-5): Phosphor Icons {VERSION} (MIT,",
+        "// docs/icons/LICENSE-phosphor.txt) in their regular weight, each path on the icons' 256 by 256",
+        "// view, as the set that ships draws them (docs/icons/phosphor.json). Written by",
+        "// scripts/build_icons.py --toolbar, which its `--check` holds this file to.",
+        "",
+        "/** The icons' view: `[x, y, width, height]`. */",
+        f"export const VIEW: [number, number, number, number] = {json.dumps(doc['view'])};",
+        "",
+        "/** Each icon's path, by its name. */",
+        "export const TOOLBAR_ICONS: Record<string, string> = {",
+    ]
+    for name in TOOLBAR_ICONS:
+        lines.append(f'  "{name}": "{by_name[name]["regular"]}",')
+    lines.append("};")
+    return "\n".join(lines) + "\n"
 
 
 WRITTEN = re.compile(r"(?:M-?[\d.]+,-?[\d.]+|L-?[\d.]+,-?[\d.]+|C(?:-?[\d.]+,){5}-?[\d.]+|Z)+")
@@ -433,6 +489,8 @@ def check() -> bool:
         problems.append(f"{COMPILED.relative_to(ROOT)} is not the set's: run scripts/build_icons.py --weather")
     if not WEATHER_FILE.exists() or WEATHER_FILE.read_text(encoding="utf-8") != weather_file(doc):
         problems.append(f"{WEATHER_FILE.relative_to(ROOT)} is not the set's: run scripts/build_icons.py --weather")
+    if not TOOLBAR_FILE.exists() or TOOLBAR_FILE.read_text(encoding="utf-8") != toolbar_file(doc):
+        problems.append(f"{TOOLBAR_FILE.relative_to(ROOT)} is not the set's: run scripts/build_icons.py --toolbar")
     for p in problems[:20]:
         print(f"FAIL {p}")
     if not problems:
@@ -445,8 +503,12 @@ def main() -> None:
     ap.add_argument("--check", action="store_true", help="check only; no network, no writes")
     ap.add_argument("--cache", type=Path, help="directory of upstream files keyed by sha256 (read, then filled)")
     ap.add_argument("--weather", action="store_true", help="write the icons the engine compiles in from the set; no network")
+    ap.add_argument("--toolbar", action="store_true", help="write the editor's toolbar icons from the set; no network")
     args = ap.parse_args()
-    if args.weather:
+    if args.toolbar:
+        doc = json.loads(OUT.read_text(encoding="utf-8"))
+        TOOLBAR_FILE.write_text(toolbar_file(doc), encoding="utf-8")
+    elif args.weather:
         doc = json.loads(OUT.read_text(encoding="utf-8"))
         COMPILED.write_text(compiled(doc), encoding="utf-8")
         WEATHER_FILE.parent.mkdir(exist_ok=True)

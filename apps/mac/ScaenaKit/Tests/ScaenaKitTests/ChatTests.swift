@@ -64,6 +64,243 @@ private func answering(_ text: String) -> String {
     #expect(try chat.conversation() == .array([]))
 }
 
+/// Anthropic's answer `text`, as it streams it: each word its own event, so a window shows them
+/// as they are written (narrative ATTR-3).
+private func streaming(_ text: String) -> [String] {
+    var events = [
+        #"event: message_start\#ndata: {"type": "message_start", "message": {"id": "msg_1", "type": "message", "role": "assistant", "content": [], "usage": {"input_tokens": 10, "output_tokens": 0}}}\#n\#n"#,
+        #"event: content_block_start\#ndata: {"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": ""}}\#n\#n"#,
+    ]
+    for word in text.split(separator: " ", omittingEmptySubsequences: false).enumerated() {
+        let piece = (word.offset == 0 ? "" : " ") + word.element
+        events.append(#"event: content_block_delta\#ndata: {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "\#(piece)"}}\#n\#n"#)
+    }
+    events += [
+        #"event: content_block_stop\#ndata: {"type": "content_block_stop", "index": 0}\#n\#n"#,
+        #"event: message_delta\#ndata: {"type": "message_delta", "delta": {"stop_reason": "end_turn"}, "usage": {"output_tokens": 2}}\#n\#n"#,
+        #"event: message_stop\#ndata: {"type": "message_stop"}\#n\#n"#,
+    ]
+    return events
+}
+
+/// An answer streamed is read as one sent whole (narrative ATTR-3): the words each piece
+/// completes come out as it is fed, and `answer` reads the body assembled.
+@Test func aStreamedAnswerReadsAsOneSentWhole() throws {
+    let session = try ScaenaSession(directory: b1)
+    let chat = try ScaenaChat(provider: .anthropic, model: "a-model")
+    try chat.ask("Is it clean?", on: session)
+    _ = try chat.request(key: "sk-test")
+    let events = streaming("The cover is clean.")
+    var heard: [String] = []
+    // Fed in pieces that cut events mid-way: a line, then the rest.
+    let body = events.joined()
+    let cut = body.index(body.startIndex, offsetBy: 200)
+    heard.append(try chat.heard(String(body[..<cut])))
+    heard.append(try chat.heard(String(body[cut...])))
+    #expect(heard.joined() == "The cover is clean.", "\(heard)")
+    guard case .done(let said, let stop, let usage) = try chat.answer(status: 200, body: body) else {
+        Issue.record("the model answered")
+        return
+    }
+    #expect(said == "The cover is clean." && stop == "end")
+    #expect(usage == Usage(input: 10, output: 2))
+}
+
+/// The assistant shows the answer's words as they arrive (narrative ATTR-3): with the stream
+/// held after its first words, the conversation shows them before the answer is whole, and the
+/// whole answer stands in their place at the end.
+@MainActor
+@Test func theAssistantShowsTheAnswerAsItIsWritten() async throws {
+    let editor = DeckEditor(session: try ScaenaSession(directory: b1))
+    let events = streaming("The cover is clean.")
+    let seen = Seen()
+    let shown = Shown()
+    let assistant = Assistant(editor: editor, send: { _ in (Data(), 0) }) { _, heard in
+        var whole = ""
+        for (i, event) in events.enumerated() {
+            whole += event
+            await heard(event)
+            // After the first word, what the window shows meanwhile.
+            if i == 2 { await seen.keep(await MainActor.run { shown.assistant.map(said) ?? [] }) }
+        }
+        return (Data(whole.utf8), 200)
+    }
+    shown.assistant = assistant
+    assistant.ask("Is the cover clean?", provider: .anthropic, model: "a-model", key: "sk-test")
+    for _ in 0..<500 where assistant.working {
+        try await Task.sleep(for: .milliseconds(10))
+    }
+    #expect(!assistant.working)
+    #expect(await seen.kept == ["The"], "the first word shows before the rest is written")
+    #expect(said(assistant) == ["The cover is clean."], "the answer whole, in its place")
+    #expect(assistant.usage == Usage(input: 10, output: 2))
+}
+
+/// A busy provider is asked again (narrative REL-3): two 429s, each waited out with the wait
+/// said, then the answer; a provider that stays busy is given up on in a person's words; and a
+/// key not taken is never asked again.
+@MainActor
+@Test func theAssistantAsksABusyProviderAgain() async throws {
+    let editor = DeckEditor(session: try ScaenaSession(directory: b1))
+    let busy = #"{"error": {"type": "rate_limit_error", "message": "Rate limited"}}"#
+    let answers = Answers([(busy, 429), (busy, 429), (answering("Clean."), 200)])
+    let seen = Seen()
+    let assistant = Assistant(editor: editor) { request in await answers.answer(request) }
+    assistant.waits = [0.05, 0.05, 0.05]
+    assistant.ask("Is it clean?", provider: .anthropic, model: "a-model", key: "sk-test")
+    for _ in 0..<500 where assistant.working {
+        if let waiting = assistant.waiting { await seen.keep([waiting]) }
+        try await Task.sleep(for: .milliseconds(5))
+    }
+    #expect(!assistant.working)
+    #expect(await answers.asked.count == 3, "asked again after each 429")
+    let kept = await seen.kept
+    #expect(kept.first?.hasPrefix("Anthropic is busy. Trying again in 0 s (") == true, "\(kept)")
+    #expect(assistant.waiting == nil)
+    #expect(said(assistant) == ["Clean."])
+    guard case .done("end") = assistant.entries.last?.kind else {
+        Issue.record("the answer came: \(assistant.entries)")
+        return
+    }
+
+    // Busy past its waits: given up on, in a person's words.
+    let stays = Answers([(busy, 429), (busy, 429), (busy, 429), (busy, 429)])
+    let given = Assistant(editor: editor) { request in await stays.answer(request) }
+    given.waits = [0.01, 0.01, 0.01]
+    given.ask("Again?", provider: .anthropic, model: "a-model", key: "sk-test")
+    for _ in 0..<500 where given.working {
+        try await Task.sleep(for: .milliseconds(5))
+    }
+    #expect(await stays.asked.count == 4)
+    guard case .failed(let why) = given.entries.last?.kind else {
+        Issue.record("given up on: \(given.entries)")
+        return
+    }
+    #expect(why == "Anthropic is busy. Try again in a moment.")
+
+    // A key not taken is asked once.
+    let refused = Answers([(#"{"error": {"message": "invalid x-api-key"}}"#, 401)])
+    let once = Assistant(editor: editor) { request in await refused.answer(request) }
+    once.ask("Again?", provider: .anthropic, model: "a-model", key: "sk-test")
+    for _ in 0..<500 where once.working {
+        try await Task.sleep(for: .milliseconds(5))
+    }
+    #expect(await refused.asked.count == 1)
+    guard case .failed(let notAccepted) = once.entries.last?.kind else {
+        Issue.record("refused: \(once.entries)")
+        return
+    }
+    #expect(notAccepted == "Anthropic didn't accept your key. Check it, or replace it.")
+}
+
+/// A provider that goes quiet is given up on at the deadline and asked again (narrative REL-3).
+@MainActor
+@Test func theAssistantAsksASilentProviderAgain() async throws {
+    let editor = DeckEditor(session: try ScaenaSession(directory: b1))
+    let quiet = Answers([(answering("Clean."), 200)])
+    let count = Seen()
+    let assistant = Assistant(editor: editor) { request in
+        // The first ask times out, as URLSession says it; the next answers.
+        if await count.kept.isEmpty {
+            await count.keep(["timed out"])
+            throw URLError(.timedOut)
+        }
+        return await quiet.answer(request)
+    }
+    assistant.waits = [0.05]
+    assistant.ask("Is it clean?", provider: .anthropic, model: "a-model", key: "sk-test")
+    for _ in 0..<500 where assistant.working {
+        try await Task.sleep(for: .milliseconds(5))
+    }
+    #expect(await quiet.asked.count == 1 && said(assistant) == ["Clean."])
+}
+
+/// A provider that thinks for longer than the silence deadline before its answer begins is
+/// waited for, not asked again (narrative REL-3): the deadline counts only once the answer has begun.
+@MainActor
+@Test func aProviderThatThinksBeforeItAnswersIsWaitedFor() async throws {
+    let editor = DeckEditor(session: try ScaenaSession(directory: b1))
+    let events = streaming("The cover is clean.")
+    let asked = Seen()
+    let assistant = Assistant(editor: editor, send: { _ in (Data(), 0) }) { _, heard in
+        await asked.keep(await asked.kept + ["asked"])
+        try await Task.sleep(for: .seconds(4))
+        var whole = ""
+        for event in events {
+            whole += event
+            await heard(event)
+        }
+        return (Data(whole.utf8), 200)
+    }
+    // Each piece is shown on the main actor, which every test on it shares: a deadline of 2 s
+    // is one a busy runner does not reach between two pieces.
+    assistant.silence = 2
+    assistant.waits = [0.05]
+    assistant.ask("Is the cover clean?", provider: .anthropic, model: "a-model", key: "sk-test")
+    for _ in 0..<3000 where assistant.working {
+        try await Task.sleep(for: .milliseconds(10))
+    }
+    #expect(!assistant.working)
+    #expect(await asked.kept.count == 1, "asked once")
+    #expect(said(assistant) == ["The cover is clean."])
+}
+
+/// An answer that stops in the middle for longer than the silence deadline is given up on and
+/// asked again (narrative REL-3), the words it had said taken back.
+@MainActor
+@Test func anAnswerThatStopsInTheMiddleIsAskedAgain() async throws {
+    let editor = DeckEditor(session: try ScaenaSession(directory: b1))
+    let events = streaming("The cover is clean.")
+    let asked = Seen()
+    let assistant = Assistant(editor: editor, send: { _ in (Data(), 0) }) { _, heard in
+        let first = await asked.kept.isEmpty
+        await asked.keep(await asked.kept + ["asked"])
+        var whole = ""
+        for (i, event) in events.enumerated() {
+            whole += event
+            await heard(event)
+            // The first ask stops after its first word, as a stalled connection does.
+            if first && i == 2 { try await Task.sleep(for: .seconds(30)) }
+        }
+        return (Data(whole.utf8), 200)
+    }
+    // Each piece is shown on the main actor, which every test on it shares: a deadline of 2 s
+    // is one a busy runner does not reach between two pieces.
+    assistant.silence = 2
+    assistant.waits = [0.05]
+    assistant.ask("Is the cover clean?", provider: .anthropic, model: "a-model", key: "sk-test")
+    for _ in 0..<3000 where assistant.working {
+        try await Task.sleep(for: .milliseconds(10))
+    }
+    #expect(!assistant.working)
+    #expect(await asked.kept.count == 2, "asked again once the answer stopped")
+    #expect(said(assistant) == ["The cover is clean."], "the words of the stalled answer taken back")
+}
+
+/// What the conversation shows the model as having said.
+@MainActor
+private func said(_ assistant: Assistant) -> [String] {
+    assistant.entries.compactMap { entry in
+        if case .said(let text) = entry.kind { text } else { nil }
+    }
+}
+
+/// The assistant whose window a stream's closure reads, set once the assistant is made: the
+/// closure cannot name the assistant it is handed to.
+@MainActor
+private final class Shown {
+    var assistant: Assistant?
+}
+
+/// What a test saw at one moment.
+private actor Seen {
+    private(set) var kept: [String] = []
+
+    func keep(_ seen: [String]) {
+        kept = seen
+    }
+}
+
 /// The models a key can use: the request, and the list its answer gives.
 @Test func aKeyListsItsModels() throws {
     let request = try Provider.openai.modelsRequest(key: "sk-test")
@@ -73,19 +310,25 @@ private func answering(_ text: String) -> String {
     #expect(throws: ScaenaError.self) { try Provider.gemini.models(status: 403, body: "{}") }
 }
 
-/// What a stand-in for the network answers, in order, and the requests it was asked.
+/// What a stand-in for the network answers, in order, each with its status, and the requests it
+/// was asked.
 private actor Answers {
-    private var bodies: [String]
+    private var bodies: [(String, Int)]
     private(set) var asked: [URLRequest] = []
 
     init(_ bodies: [String]) {
-        self.bodies = bodies
+        self.bodies = bodies.map { ($0, 200) }
+    }
+
+    init(_ answers: [(String, Int)]) {
+        self.bodies = answers
     }
 
     func answer(_ request: URLRequest) -> (Data, Int) {
         asked.append(request)
         guard !bodies.isEmpty else { return (Data(#"{"error": {"message": "no more"}}"#.utf8), 500) }
-        return (Data(bodies.removeFirst().utf8), 200)
+        let (body, status) = bodies.removeFirst()
+        return (Data(body.utf8), status)
     }
 }
 
@@ -94,7 +337,7 @@ private actor Answers {
 /// they come to on the session, and the conversation takes them back as `run`'s; the assistant
 /// runs them so, and a call that writes on the session itself.
 @MainActor
-@Test func aCallThatOnlyReadsRunsApartAndComesToWhatItDoesOnTheSession() async throws {
+@Test(.timeLimit(.minutes(2))) func aCallThatOnlyReadsRunsApartAndComesToWhatItDoesOnTheSession() async throws {
     let lint = ToolCall(id: "t1", name: "deck_lint", args: ["state": "cover"])
     #expect(ScaenaChat.readsAlone(lint))
     #expect(ScaenaChat.readsAlone(ToolCall(id: "t2", name: "deck_render", args: ["state": "cover"])))
@@ -133,9 +376,8 @@ private actor Answers {
     let answers = Answers([answer, answering("Clean.")])
     let assistant = Assistant(editor: editor) { request in await answers.answer(request) }
     assistant.ask("Is the cover clean?", provider: .anthropic, model: "a-model", key: "sk-test")
-    for _ in 0..<500 where assistant.working {
-        try await Task.sleep(for: .milliseconds(10))
-    }
+    // Awaited, not timed: a slow simulator answers late, and a hang meets the test's time limit.
+    await assistant.asking?.value
     #expect(!assistant.working, "the question was answered")
     let ran = assistant.entries.compactMap { entry -> Ran? in
         if case .call(_, _, let ran) = entry.kind { return ran }
@@ -148,7 +390,7 @@ private actor Answers {
 /// The assistant's loop (PLAN 3.6): the question asked, the edit the model calls made on the deck
 /// the window shows and handed to the window's undo, and the answer; the conversation shows each.
 @MainActor
-@Test func theAssistantMakesTheModelsEditsAsTheWindowsOwn() async throws {
+@Test(.timeLimit(.minutes(2))) func theAssistantMakesTheModelsEditsAsTheWindowsOwn() async throws {
     let editor = DeckEditor(session: try ScaenaSession(directory: b1))
     let patch = #"{"ops": [{"op": "replace_text", "state": "cover", "node": "title", "from": 0, "to": 0, "text": "Loudly: "}]}"#
     let answers = Answers([calling("Making it louder.", [("t1", "deck_patch", patch)]), answering("Done.")])
@@ -160,9 +402,8 @@ private actor Answers {
     assistant.ask(
         "Say it louder.", provider: .anthropic, model: "a-model", key: "sk-test", seeing: Seeing(state: "cover"))
     #expect(assistant.working)
-    for _ in 0..<500 where assistant.working {
-        try await Task.sleep(for: .milliseconds(10))
-    }
+    // Awaited, not timed: a slow simulator answers late, and a hang meets the test's time limit.
+    await assistant.asking?.value
     #expect(!assistant.working, "the question was answered")
     #expect(editor.source.contains("Loudly: "), "the window's deck took the edit")
     #expect(undone == [was], "the window's undo was handed the source it replaced")
@@ -186,11 +427,12 @@ private actor Answers {
     #expect(assistant.usage == Usage(input: 10, output: 2))
 
     // A refusal is said in a person's words (PLAN 3.18), not the provider's or its status, and
-    // the conversation goes on from where it was.
+    // the conversation goes on from where it was. A provider down (5xx) is asked again first
+    // (narrative REL-3), here without the waits between.
+    assistant.waits = [0.01, 0.01, 0.01]
     assistant.ask("Again?", provider: .anthropic, model: "a-model", key: "sk-test")
-    for _ in 0..<500 where assistant.working {
-        try await Task.sleep(for: .milliseconds(10))
-    }
+    // Awaited, not timed: a slow simulator answers late, and a hang meets the test's time limit.
+    await assistant.asking?.value
     guard case .failed(let why) = assistant.entries.last?.kind else {
         Issue.record("the refusal is said")
         return
@@ -246,6 +488,13 @@ private func keychainWritable() -> Bool {
     let accessible = (found as? [String: Any])?[kSecAttrAccessible as String] as? String
     #expect(accessible == kSecAttrAccessibleWhenUnlockedThisDeviceOnly as String)
     #expect(keychain.key(for: .openai) == "sk-one")
+    // Replaced in place, never taken away first (lift-up 10-24b REL-5): the same item, still kept
+    // to this device, holds the new key.
+    try keychain.set("sk-two", for: .openai)
+    #expect(keychain.key(for: .openai) == "sk-two")
+    var again: CFTypeRef?
+    #expect(SecItemCopyMatching(query as CFDictionary, &again) == errSecSuccess)
+    #expect((again as? [String: Any])?[kSecAttrAccessible as String] as? String == accessible)
 }
 
 /// Each tool the MCP server serves (`docs/schema/mcp`) has a person's words for the window (PLAN

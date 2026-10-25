@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://scaena.dev/schema/patch-0.36.json",
+  "$id": "https://scaena.dev/schema/patch-0.38.json",
   "title": "Scaena patch",
   "description": "A patch (SPEC §7.3): RFC 6902 ops and semantic ops, applied in order, all or none.",
   "type": "array",
@@ -132,6 +132,18 @@
             "node": { "$ref": "#/$defs/Id" },
             "state": { "$ref": "#/$defs/Id" },
             "op": { "type": "string", "const": "hide_node" }
+          }
+        },
+        {
+          "description": "`node` deleted from `state` as the editors' Delete deletes it (PLAN 2.34, dogfood 3), with each node it holds there: each leaves there and in the states after it, as `hide_node` takes it, and one that no state shows then goes from the deck, as `remove_node` takes it, so a node added and deleted leaves nothing behind. A connector to it goes with it. With `everywhere`, it goes from the deck, with each node it holds in any state.",
+          "type": "object",
+          "required": ["op", "node", "state"],
+          "additionalProperties": false,
+          "properties": {
+            "node": { "$ref": "#/$defs/Id" },
+            "state": { "$ref": "#/$defs/Id" },
+            "everywhere": { "type": "boolean" },
+            "op": { "type": "string", "const": "delete_node" }
           }
         },
         {
@@ -1176,6 +1188,12 @@
           "description": "Typed per kind (SPEC §3.8): `mesh` takes `MeshParams`, `gradient` `GradientParams`, `noise` `NoiseParams`, `grain` `GrainParams`, `particles` `ParticlesParams`, and `caustics` `CausticsParams`.",
           "type": "object",
           "additionalProperties": { "$ref": "#/$defs/ShaderParam" }
+        },
+        "recolored": {
+          "description": "A slide's background's record (deck format 0.38, PLAN 2.148): each text it set in a color that reads over it, by its id, and the theme color it set. Taking the background away, or giving the slide another, takes each such color away where the text still has it, so the text reads as its theme sets it again; a color a person chose since stays. A text no longer in the deck is passed over.",
+          "type": "object",
+          "propertyNames": { "$ref": "#/$defs/Id" },
+          "additionalProperties": { "type": "string" }
         }
       },
       "allOf": [
@@ -2396,6 +2414,16 @@
             {
               "additionalProperties": { "anyOf": [{ "$ref": "#/$defs/ShaderParam" }, { "type": "null" }] },
               "type": "object"
+            },
+            { "type": "null" }
+          ]
+        },
+        "recolored": {
+          "anyOf": [
+            {
+              "additionalProperties": { "type": ["string", "null"] },
+              "type": "object",
+              "propertyNames": { "$ref": "#/$defs/Id" }
             },
             { "type": "null" }
           ]

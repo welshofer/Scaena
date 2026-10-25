@@ -34,6 +34,28 @@ pub struct AddedState {
     pub id: String,
     /// One `add_state`.
     pub patch: Vec<Value>,
+    /// A slide started in a layout ([`starting`]): each slot a node fills, and the node.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub filled: Vec<SlotFilled>,
+    /// A slide started in a layout: each slot left empty for a picture or a figure, and what its
+    /// prompt says goes there.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub empty: Vec<SlotEmpty>,
+}
+
+/// A slot of a new slide's layout, and the node put in it (dogfood 3).
+#[derive(Debug, Clone, PartialEq, Serialize, JsonSchema)]
+pub struct SlotFilled {
+    pub slot: String,
+    pub node: String,
+}
+
+/// A slot of a new slide's layout left empty, and what its prompt says goes there: a picture
+/// or a figure, for `add_node` with `at: { in: slot }` to put (dogfood 3).
+#[derive(Debug, Clone, PartialEq, Serialize, JsonSchema)]
+pub struct SlotEmpty {
+    pub slot: String,
+    pub waits: String,
 }
 
 /// The patch that adds a state after `shown` (PLAN 2.35). A step is named after the state it
@@ -62,7 +84,7 @@ pub fn adding(deck: &Deck, shown: &str, what: Adding) -> Result<AddedState, OpsE
             (id, i + steps, state)
         }
     };
-    Ok(AddedState { id, patch: vec![added(deck, after, state)] })
+    Ok(AddedState { id, patch: vec![added(deck, after, state)], filled: Vec::new(), empty: Vec::new() })
 }
 
 /// `add_state` for `state`, after the `after`th state, in that state's beat.
@@ -112,6 +134,23 @@ pub fn also_called(layout: &str) -> &'static [&'static str] {
 /// leaves empty. With no layout, the slide is
 /// `slide`, blank.
 pub fn starting(deck: &Deck, theme: &Theme, shown: &str, layout: Option<&str>) -> Result<AddedState, OpsError> {
+    starting_as(deck, theme, shown, layout, None)
+}
+
+/// [`starting`], the state named `id` where one is given, and its nodes after it (`id-header`),
+/// refused where a state has the name already (`state_start`'s `id`, dogfood 3).
+pub fn starting_as(
+    deck: &Deck,
+    theme: &Theme,
+    shown: &str,
+    layout: Option<&str>,
+    id: Option<&str>,
+) -> Result<AddedState, OpsError> {
+    if let Some(id) = id
+        && deck.states.iter().any(|s| s.id == id)
+    {
+        return Err(OpsError::new(format!("a state is named `{id}` already")));
+    }
     let i = deck
         .states
         .iter()
@@ -125,7 +164,10 @@ pub fn starting(deck: &Deck, theme: &Theme, shown: &str, layout: Option<&str>) -
     };
     let slide = deck.states[i].slide.clone().unwrap_or_else(|| shown.to_string());
     let after = i + deck.states[i + 1..].iter().take_while(|s| s.slide.as_deref() == Some(slide.as_str())).count();
-    let id = fresh(deck, &layout.map_or_else(|| "slide".to_string(), |name| slug(name, "slide")));
+    let id = match id {
+        Some(id) => id.to_string(),
+        None => fresh(deck, &layout.map_or_else(|| "slide".to_string(), |name| slug(name, "slide"))),
+    };
     let mut state = json!({ "id": id, "mode": "absolute" });
     if let Some(layout) = layout {
         state["layout"] = json!(layout);
@@ -133,10 +175,19 @@ pub fn starting(deck: &Deck, theme: &Theme, shown: &str, layout: Option<&str>) -
     let mut patch = vec![added(deck, after, state.clone())];
     let mut ids: Vec<String> = Vec::new();
     let mut nodes = Vec::new();
+    let (mut filled, mut empty) = (Vec::new(), Vec::new());
+    let mut claimed = false;
     for (slot, s) in template.into_iter().flat_map(|t| &t.slots) {
         // Words that say what goes in a slot with no role, a picture or a figure: it waits.
-        let Some(node) = slot_node(slot, s, scaena_core::direction::mirrored(deck)) else { continue };
+        let Some(mut node) = slot_node(slot, s, scaena_core::direction::mirrored(deck)) else {
+            if let (None, Some((waits, _))) = (&s.role, s.prompt.as_ref().and_then(Prompt::text)) {
+                empty.push(SlotEmpty { slot: slot.clone(), waits });
+            }
+            continue;
+        };
+        told(slot, s, layout.unwrap_or_default(), theme, &mut node, &mut claimed);
         let node_id = named(deck, &format!("{id}-{}", slug(slot, "slot")), &ids);
+        filled.push(SlotFilled { slot: slot.clone(), node: node_id.clone() });
         nodes.push((node_id.clone(), serde_json::from_value(node.clone()).context("a slot's node")?));
         patch.push(json!({ "op": "add_node", "id": node_id, "node": node, "state": id }));
         ids.push(node_id);
@@ -147,7 +198,58 @@ pub fn starting(deck: &Deck, theme: &Theme, shown: &str, layout: Option<&str>) -
     for op in crate::inspect::leaving(&made, &id, &nodes) {
         patch.push(serde_json::to_value(op).context("a patch")?);
     }
-    Ok(AddedState { id, patch })
+    Ok(AddedState { id, patch, filled, empty })
+}
+
+/// A new slide's text in `slot` set as a made deck sets it (dogfood 3, `narrative`): its first
+/// headline the slide's claim, shrunk to fit as it is typed over; and its one list, its `body`,
+/// grown to fill its place, up to the theme's lede (an agenda's to its titles).
+fn told(slot: &str, s: &Slot, layout: &str, theme: &Theme, node: &mut Value, claimed: &mut bool) {
+    const HEADS: [&str; 8] = ["header", "headline", "title", "claim", "statement", "question", "ask", "point"];
+    let Some(role) = s.role.as_deref() else { return };
+    if !*claimed && HEADS.contains(&slot) && matches!(role, "headline" | "title" | "display") {
+        *claimed = true;
+        node["semantic"] = json!("claim");
+        node["fit"] = json!("shrink");
+    }
+    let most = if layout.starts_with("agenda") { "title" } else { "lede" };
+    if slot == "body"
+        && node.get("list").is_some()
+        && let Some(most) = theme.typography.roles.get(most).map(|r| r.size)
+    {
+        node["fit"] = json!("grow");
+        node["maxSize"] = json!(most);
+    }
+}
+
+/// `added`, a slide [`starting`] made, telling `claim` in a beat of its own (dogfood 3): the beat
+/// just after the one that tells the state the slide follows, in that section, else last; and
+/// not in that beat, which would then make two claims. Refused in a deck with no spine.
+pub fn claimed(deck: &Deck, mut added: AddedState, claim: &str) -> Result<AddedState, OpsError> {
+    let spine = deck.spine.as_ref().filter(|s| !s.sections.is_empty()).ok_or_else(|| {
+        OpsError::new(
+            "the deck has no spine to tell the claim in: start the slide with no claim, or give the deck a spine first",
+        )
+    })?;
+    let first =
+        added.patch.first_mut().and_then(Value::as_object_mut).ok_or_else(|| OpsError::new("no slide added"))?;
+    first.remove("beat");
+    let after = first.get("after").and_then(Value::as_str).unwrap_or_default().to_string();
+    let told = spine
+        .sections
+        .iter()
+        .enumerate()
+        .find_map(|(s, section)| section.beats.iter().position(|b| b.states.contains(&after)).map(|b| (s, b + 1)));
+    let last = spine.sections.len() - 1;
+    let (s, b) = told.unwrap_or((last, spine.sections[last].beats.len()));
+    let taken = |id: &str| spine.sections.iter().flat_map(|s| &s.beats).any(|b| b.id == id);
+    let id = (1..)
+        .map(|n| if n == 1 { added.id.clone() } else { format!("{}-{n}", added.id) })
+        .find(|id| !taken(id))
+        .expect("some number is free");
+    let beat = json!({ "id": id, "claim": claim, "states": [added.id] });
+    added.patch.push(json!({ "op": "add", "path": format!("/spine/sections/{s}/beats/{b}"), "value": beat }));
+    Ok(added)
 }
 
 /// A slide started and written into the bundle (`state_start`, `scaena start`): the new state's
@@ -157,6 +259,10 @@ pub struct Started {
     /// The id of the state added: named after its layout (`bullets`, `bullets-2`, …), or
     /// `slide` with none.
     pub id: String,
+    /// Each slot a node fills, and the node, to put words in with `replace_text` or `set_text`.
+    pub filled: Vec<SlotFilled>,
+    /// Each slot left empty for a picture or a figure, and what goes there.
+    pub empty: Vec<SlotEmpty>,
     #[serde(flatten)]
     pub patched: Patched,
 }
@@ -172,20 +278,37 @@ pub fn said(theme: &Theme, layout: Option<&str>) -> String {
 /// [`start`] with nothing written: [`starting`]'s patch checked as a patch is (refused where it
 /// would leave the deck invalid), and the bundle it writes, for a client that keeps its bundle in
 /// memory.
-pub fn started(b: &Bundle, shown: &str, layout: Option<&str>) -> Result<(Started, Option<Write>), OpsError> {
+pub fn started(
+    b: &Bundle,
+    shown: &str,
+    layout: Option<&str>,
+    claim: Option<&str>,
+    id: Option<&str>,
+) -> Result<(Started, Option<Write>), OpsError> {
     let theme = crate::theme(b)?;
-    let added = starting(&b.deck, &theme, shown, layout)?;
+    let mut added = starting_as(&b.deck, &theme, shown, layout, id)?;
+    if let Some(claim) = claim {
+        added = claimed(&b.deck, added, claim)?;
+    }
     let (patched, write) = crate::patch::patching(b, &Value::Array(added.patch), Some(&said(&theme, layout)))?;
-    Ok((Started { id: added.id, patched }, write))
+    Ok((Started { id: added.id, filled: added.filled, empty: added.empty, patched }, write))
 }
 
 /// A slide started in `layout`, one of the theme's, after `shown`'s slide, as Add Slide starts one
 /// (PLAN 3.30), written into the bundle as one change: [`starting`]'s patch, applied as
 /// `deck_patch` applies one, all or none, refused where it would leave the deck invalid. A dry
 /// run says what it would do and writes nothing. The theme's layouts are its `layouts`, which
-/// `inspect --layouts` lists for a state, each by the name a person calls it.
-pub fn start(b: &Bundle, shown: &str, layout: Option<&str>, dry_run: bool) -> Result<Started, OpsError> {
-    let (mut started, write) = started(b, shown, layout)?;
+/// `inspect --layouts` lists for a state, each by the name a person calls it. With `claim`, the
+/// slide tells it in a beat of its own ([`claimed`]); with `id`, the state is named so.
+pub fn start(
+    b: &Bundle,
+    shown: &str,
+    layout: Option<&str>,
+    claim: Option<&str>,
+    id: Option<&str>,
+    dry_run: bool,
+) -> Result<Started, OpsError> {
+    let (mut started, write) = started(b, shown, layout, claim, id)?;
     match write {
         Some(write) if !dry_run => crate::lint::write(b, write)?,
         _ => started.patched.applied &= !dry_run,
@@ -679,10 +802,11 @@ mod tests {
             [
                 json!({ "op": "add_state", "state": { "id": "bullets", "mode": "absolute", "layout": "bullets" }, "after": "mix", "beat": "doubled" }),
                 json!({ "op": "add_node", "id": "bullets-header", "state": "bullets", "node": {
-                    "type": "text", "role": "headline", "text": "What this slide says", "at": { "in": "header" } } }),
+                    "type": "text", "role": "headline", "text": "What this slide says", "at": { "in": "header" },
+                    "semantic": "claim", "fit": "shrink" } }),
                 json!({ "op": "add_node", "id": "bullets-body", "state": "bullets", "node": {
                     "type": "text", "role": "lede", "text": "The first point\nThe second point\nThe third point",
-                    "at": { "in": "body" }, "list": [bullet, bullet, bullet] } }),
+                    "at": { "in": "body" }, "list": [bullet, bullet, bullet], "fit": "grow", "maxSize": 40.0 } }),
                 // `close` tracks from the state before it, now the new slide: they leave there.
                 json!({ "op": "hide_node", "node": "bullets-header", "state": "close" }),
                 json!({ "op": "hide_node", "node": "bullets-body", "state": "close" }),
@@ -701,6 +825,74 @@ mod tests {
         );
         assert!(starting(&deck, &theme, "revenue", Some("nowhere")).is_err());
         assert!(starting(&deck, &theme, "nowhere", Some("bullets")).is_err());
+    }
+
+    /// A slide started as an agent starts one is set as a made deck's is (dogfood 3): its headline
+    /// the slide's claim, shrunk to fit, its list grown to fill its place; named as asked; and it
+    /// says each slot it filled, with the node, and each it left for a picture.
+    #[test]
+    fn a_slide_started_is_set_as_a_made_one_and_says_its_slots() {
+        let deck = revenue();
+        let theme =
+            scaena_engine::theme::Theme::from_json(include_str!("../../../docs/examples/themes/dusk.theme.json"))
+                .unwrap();
+        let started = starting_as(&deck, &theme, "revenue", Some("bullets"), Some("pricing")).unwrap();
+        assert_eq!(started.id, "pricing");
+        let node = |id: &str| {
+            started
+                .patch
+                .iter()
+                .find(|op| op["op"] == "add_node" && op["id"] == id)
+                .map(|op| op["node"].clone())
+                .unwrap()
+        };
+        let header = node("pricing-header");
+        assert_eq!((header["semantic"].as_str(), header["fit"].as_str()), (Some("claim"), Some("shrink")));
+        let body = node("pricing-body");
+        assert_eq!(body["fit"], "grow");
+        assert_eq!(body["maxSize"], json!(theme.typography.roles["lede"].size));
+        assert!(body.get("semantic").is_none());
+        let slots: Vec<(&str, &str)> = started.filled.iter().map(|f| (f.slot.as_str(), f.node.as_str())).collect();
+        assert!(
+            slots.contains(&("header", "pricing-header")) && slots.contains(&("body", "pricing-body")),
+            "{slots:?}"
+        );
+        assert!(started.empty.is_empty());
+        assert!(starting_as(&deck, &theme, "revenue", Some("bullets"), Some("revenue")).is_err());
+
+        let pictured = starting(&deck, &theme, "revenue", Some("art-left")).unwrap();
+        assert_eq!(pictured.empty.len(), 1, "{:?}", pictured.empty);
+        assert!(!pictured.filled.iter().any(|f| f.slot == pictured.empty[0].slot));
+    }
+
+    /// A slide started with a claim tells it in a beat of its own, just after the beat of the
+    /// state it follows, not in that beat, which would then make two claims (dogfood 3, T3).
+    #[test]
+    fn a_slide_started_with_a_claim_tells_it_in_a_beat_of_its_own() {
+        let deck = revenue();
+        let theme =
+            scaena_engine::theme::Theme::from_json(include_str!("../../../docs/examples/themes/dusk.theme.json"))
+                .unwrap();
+        let started = starting(&deck, &theme, "revenue", Some("bullets")).unwrap();
+        let started = claimed(&deck, started, "Pro will lead next year.").unwrap();
+        assert!(started.patch[0].get("beat").is_none(), "{}", started.patch[0]);
+        let doc = scaena_core::patch::compile(&deck.to_value().unwrap(), &started.patch, &NoFiles).unwrap().doc;
+        let beats: Vec<(&str, &Value)> = doc["spine"]["sections"][1]["beats"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|b| (b["id"].as_str().unwrap(), &b["states"]))
+            .collect();
+        assert_eq!(beats, [("doubled", &json!(["revenue", "mix"])), ("bullets", &json!(["bullets"]))]);
+        assert_eq!(doc["spine"]["sections"][1]["beats"][1]["claim"], "Pro will lead next year.");
+        let d = Deck::from_value(&doc).unwrap();
+        let found = scaena_core::lint::check(&d, None);
+        assert!(!found.iter().any(|f| f.code == "W426" || f.code == "W429"), "{found:#?}");
+        // A deck with no spine has nowhere to tell a claim.
+        let mut bare = revenue();
+        bare.spine = None;
+        let started = starting(&bare, &theme, "revenue", Some("bullets")).unwrap();
+        assert!(claimed(&bare, started, "Pro will lead.").is_err());
     }
 
     /// What waits on a slide (PLAN 3.30): a slide started in `art-left` waits for its picture,

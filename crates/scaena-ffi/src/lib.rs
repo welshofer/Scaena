@@ -371,7 +371,8 @@ pub unsafe extern "C" fn scaena_lint_laid(
     }))
 }
 
-/// The narrative health of `laying`'s deck (PLAN G.9), as `health` gives the session's:
+/// The narrative health of `laying`'s deck (PLAN G.9), as `health` gives the session's, beside
+/// what the session's last lint found, a slide lint finds broken first (lift-up 10-24b STAB-1):
 /// `{"ok": health}`. Read on the thread that calls it, which touches no session, so the Story
 /// panel's reading of a deck as it is typed leaves the window's thread free (lift-up narrative
 /// PERF-1). It lays nothing out, and may be read before or after [`scaena_laying_lay`].
@@ -382,8 +383,59 @@ pub unsafe extern "C" fn scaena_lint_laid(
 pub unsafe extern "C" fn scaena_laying_health(laying: *mut ScaenaLaying) -> *mut c_char {
     envelope(guarded(|| {
         let laying = unsafe { handle(laying, "laying") }?;
-        serde_json::to_value(scaena_ops::health::health(laying.0.deck()).map_err(said)?).map_err(said)
+        let health = scaena_ops::health::health_in(laying.0.deck(), laying.0.findings()).map_err(said)?;
+        serde_json::to_value(health).map_err(said)
     }))
+}
+
+/// `state` at rest in `format`, one of the deck's formats, or its own canvas where null, from
+/// `laying`'s deck, painted by the CPU painter `width` pixels wide, the height keeping the canvas's
+/// aspect: the pixels [`scaena_pixels`] gives at rest, with nothing dragged or previewed, drawn
+/// on the thread that calls it, which touches no session, so the Mac's thumbnails and a remote's
+/// slides are drawn while the window answers (lift-up PERF-2). The engine it draws with is
+/// built at the first and kept for the next. Null bytes where it cannot be painted, `*error`
+/// then saying why.
+///
+/// # Safety
+/// `laying` is a live handle from [`scaena_laying_new`], used by one thread at a time; `format`
+/// null or a NUL-terminated string; `state` one; `error` null or writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn scaena_laying_pixels(
+    laying: *mut ScaenaLaying,
+    format: *const c_char,
+    state: *const c_char,
+    width: u32,
+    error: *mut *mut c_char,
+) -> ScaenaPixels {
+    let painted = guarded(|| {
+        let laying = unsafe { handle(laying, "laying") }?;
+        let format = unsafe { maybe_text(format, "format") }?;
+        let state = unsafe { text(state, "state") }?;
+        deep(|| laying.0.pixels(format, state, width)).map_err(said)
+    });
+    match painted {
+        Ok(raster) => ScaenaPixels { bytes: ScaenaBytes::of(raster.rgba), width: raster.width, height: raster.height },
+        Err(failure) => {
+            unsafe { report(error, failure) };
+            ScaenaPixels { bytes: ScaenaBytes::NONE, width: 0, height: 0 }
+        }
+    }
+}
+
+/// Whether `laying` was taken from the deck `session` holds as it stands: false once another
+/// source compiled, a file was handed over, or the theme was edited, so what it draws is of an
+/// older deck.
+///
+/// # Safety
+/// `session` and `laying` are live handles, on the session's thread.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn scaena_laying_holds(session: *mut ScaenaSession, laying: *mut ScaenaLaying) -> bool {
+    guarded(|| {
+        let session = unsafe { handle(session, "session") }?;
+        let laying = unsafe { handle(laying, "laying") }?;
+        Ok(session.0.holds(&laying.0))
+    })
+    .unwrap_or(false)
 }
 
 /// Free a laying.
@@ -1647,6 +1699,10 @@ fn call(s: &mut Session, method: &str, args: &Value) -> Result<Value, Failure> {
         }
         "canvasSize" => json!(s.canvas_size().map_err(said)?),
         "duration" => json!(s.duration(arg("state")?).map_err(said)?),
+        "prepare" => {
+            s.prepare(arg("state")?).map_err(said)?;
+            Value::Null
+        }
         "timeline" => s.slots().map_err(said)?,
         "files" => json!(s.files()),
         "imageFiles" => json!(s.image_files()),
@@ -1688,6 +1744,18 @@ fn call(s: &mut Session, method: &str, args: &Value) -> Result<Value, Failure> {
         "codeWords" => json!(s.code_words(arg("state")?, arg("node")?).map_err(said)?),
         // Code pasted into code, tidied as a paste of code is (PLAN 2.133).
         "tidied" => json!(s.tidied(arg("text")?, arg("language")?)),
+        // Make Code, Not Code, and Tidy Code (PLAN 2.139): each a patch to make.
+        "coding" => json!(s.coding(arg("node")?, optional("language")).map_err(said)?),
+        "uncoding" => json!(s.uncoding(arg("node")?).map_err(said)?),
+        "tidying" => json!(s.tidying(arg("state")?, arg("node")?).map_err(said)?),
+        // A key in a code text, as a code editor answers it (PLAN 2.139): `{ text, from, to }`,
+        // offsets in UTF-16 code units, or null for a key code does not answer; `language`, if
+        // given, the text's, so a Makefile's stop is a tab.
+        "keyed" => {
+            let (from, to) = (number("from")? as usize, number("to")? as usize);
+            let tab = args.get("tab").and_then(Value::as_u64).unwrap_or(4) as usize;
+            Session::keyed(arg("text")?, from, to, arg("key")?, tab, optional("language")).unwrap_or(Value::Null)
+        }
         // What ⌘B and ⌘I give the characters `from` to `to` (Unicode scalar values): `style_text`'s
         // `look` (PLAN 2.38, 2.40).
         "bolding" | "italicizing" => {
@@ -1925,8 +1993,9 @@ fn call(s: &mut Session, method: &str, args: &Value) -> Result<Value, Failure> {
         // The bundle's files (PLAN 2.59): each with what names it and the nodes drawn from it; and
         // one nothing names taken out, which `dataUndo` puts back.
         "bundleFiles" => value(serde_json::to_value(s.bundle_files().map_err(said)?))?,
-        // The deck's narrative health (PLAN G.9), as `scaena health --json` gives it.
-        "health" => value(serde_json::to_value(scaena_ops::health::health(s.deck()).map_err(said)?))?,
+        // The deck's narrative health (PLAN G.9), as `scaena health --json` gives it, beside
+        // what the last lint found (lift-up 10-24b STAB-1).
+        "health" => value(serde_json::to_value(scaena_ops::health::health_in(s.deck(), s.findings()).map_err(said)?))?,
         "removeFile" => {
             s.remove_file(arg("path")?).map_err(said)?;
             Value::Null

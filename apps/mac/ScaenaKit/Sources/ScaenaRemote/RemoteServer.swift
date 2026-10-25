@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import Network
 
@@ -17,6 +18,8 @@ public final class RemoteServer {
     public private(set) var port: UInt16?
     /// What a remote asks.
     public var command: (RemoteCommand) -> Void = { _ in }
+    /// The slide a remote asks for by its number (lift-up FUNC-5).
+    public var slide: (Int) -> Void = { _ in }
     /// How many remotes are joined, as it changes.
     public var joined: (Int) -> Void = { _ in }
     /// Why it stopped listening, where it did.
@@ -26,9 +29,14 @@ public final class RemoteServer {
     /// How many wrong codes have been tried since the code was made, as it changes.
     public var tried: (Int) -> Void = { _ in }
 
+    /// The code's point, worked out as the code is made: what each hello raises (`Pairing.base`).
+    private var base: P256.KeyAgreement.PublicKey
     private let listener: NWListener
     /// Each remote by its connection: pairing, then paired, its channel sealed.
-    private var remotes: [ObjectIdentifier: Joining] = [:]
+    private var remotes: [Int: Joining] = [:]
+    /// The last remote's number: each connection is keyed by one of its own, never reused, as an
+    /// object's address may be once it is freed while a receive is still on its way.
+    private var numbered = 0
     private var place: RemotePlace?
     /// Wrong codes tried since the code was made.
     private var wrong = 0
@@ -36,7 +44,10 @@ public final class RemoteServer {
     /// goes on doubles.
     private var rotations = 0
     /// No remote pairs until then, after the code was made anew.
-    private var cooling: Date?
+    private var cooling: ContinuousClock.Instant?
+    /// When the hellos of the last second came: no more than `Remote.hellos` are worked out a
+    /// second, so no one in range keeps the main actor raising points before any pairs.
+    private var hellos: [ContinuousClock.Instant] = []
     /// The first such wait, seconds.
     private let cooldown: Double
 
@@ -46,6 +57,7 @@ public final class RemoteServer {
     /// and so on up to five minutes.
     public init(name: String?, code: String = Remote.code(), loopback: Bool = false, cooldown: Double = 5) throws {
         self.code = code
+        base = try Pairing.base(code)
         self.cooldown = cooldown
         listener = try NWListener(using: Remote.parameters(loopback: loopback))
         if let name { listener.service = NWListener.Service(name: name, type: Remote.service) }
@@ -106,7 +118,7 @@ public final class RemoteServer {
 
     private func join(_ connection: NWConnection) {
         // No pairing while the code was just made anew, and no more than a few at once.
-        if let cooling, Date() < cooling {
+        if let cooling, ContinuousClock.now < cooling {
             connection.cancel()
             return
         }
@@ -114,7 +126,8 @@ public final class RemoteServer {
             connection.cancel()
             return
         }
-        let id = ObjectIdentifier(connection)
+        numbered += 1
+        let id = numbered
         let joining = Joining(connection)
         remotes[id] = joining
         connection.stateUpdateHandler = { [weak self] state in
@@ -142,18 +155,26 @@ public final class RemoteServer {
     }
 
     /// The remote's hello: answer it with this end's, and hear its proof.
-    private func hear(_ id: ObjectIdentifier) {
+    private func hear(_ id: Int) {
         guard let joining = remotes[id] else { return }
-        joining.connection.receiveFrame { [weak self] body in
+        joining.connection.receiveFrame(largest: Remote.small) { [weak self] body in
             MainActor.assumeIsolated { self?.heard(id, hello: body) }
         }
     }
 
-    private func heard(_ id: ObjectIdentifier, hello body: Data?) {
+    private func heard(_ id: Int, hello body: Data?) {
         guard let joining = remotes[id] else { return }
+        // Past the hellos a second it works out, one is let go unanswered, and is no try.
+        let now = ContinuousClock.now
+        hellos.removeAll { now - $0 > .seconds(1) }
+        guard hellos.count < Remote.hellos else {
+            joining.connection.cancel()
+            return
+        }
+        hellos.append(now)
         // No hello of this version is no try at the code.
         guard let body, let hello = try? JSONDecoder().decode(Pairing.Hello.self, from: body),
-            let pairing = try? Pairing(side: .presenter, code: code), let keys = try? pairing.keys(from: hello),
+            let pairing = try? Pairing(side: .presenter, base: base), let keys = try? pairing.keys(from: hello),
             let answer = try? JSONEncoder().encode(pairing.hello)
         else {
             joining.connection.cancel()
@@ -161,15 +182,16 @@ public final class RemoteServer {
         }
         joining.keys = keys
         joining.connection.send(frame: answer)
-        joining.connection.receiveFrame { [weak self] body in
+        joining.connection.receiveFrame(largest: Remote.small) { [weak self] body in
             MainActor.assumeIsolated { self?.heard(id, proof: body) }
         }
     }
 
     /// A pairing whose hellos have passed with `keys`, as `heard(_:hello:)` leaves one: what a test
     /// hands proofs to in the order it chooses, which the loopback cannot pin.
-    func pairing(_ connection: NWConnection, keys: Pairing.Keys) -> ObjectIdentifier {
-        let id = ObjectIdentifier(connection)
+    func pairing(_ connection: NWConnection, keys: Pairing.Keys) -> Int {
+        numbered += 1
+        let id = numbered
         let joining = Joining(connection)
         joining.keys = keys
         remotes[id] = joining
@@ -179,7 +201,7 @@ public final class RemoteServer {
     /// The remotes paired, joined or not yet.
     var paired: Int { remotes.values.filter(\.paired).count }
 
-    func heard(_ id: ObjectIdentifier, proof body: Data?) {
+    func heard(_ id: Int, proof body: Data?) {
         guard let joining = remotes[id], let keys = joining.keys else { return }
         guard let body, let proof = try? JSONDecoder().decode(Pairing.Proof.self, from: body) else {
             joining.connection.cancel()
@@ -198,7 +220,8 @@ public final class RemoteServer {
         joining.sealed = Sealed(keys: keys, side: .presenter)
         joining.timeout?.cancel()
         joining.keys = nil
-        wrong = 0
+        // A join leaves the wrong codes counted: they are counted since the code was made, so a
+        // join, or a connection made to join and dropped, buys no more tries at it.
         rotations = 0
         cooling = nil
         joined(count)
@@ -217,23 +240,31 @@ public final class RemoteServer {
         if wrong >= Remote.tries {
             wrong = 0
             rotations += 1
-            cooling = Date().addingTimeInterval(min(cooldown * pow(2, Double(rotations - 1)), 300))
+            cooling = .now + .seconds(min(cooldown * pow(2, Double(rotations - 1)), 300))
             for (id, remote) in remotes where !remote.paired {
                 remote.keys = nil
                 remote.timeout?.cancel()
                 remotes[id] = nil
                 remote.connection.cancel()
             }
-            code = Remote.code()
+            // The new code's point, worked out now rather than as a remote joins: every code has one.
+            var next = Remote.code()
+            var made = try? Pairing.base(next)
+            while made == nil {
+                next = Remote.code()
+                made = try? Pairing.base(next)
+            }
+            code = next
+            if let made { base = made }
             recoded(code)
         }
         tried(wrong)
     }
 
     /// Each command the remote sends, sealed, in turn; let go at the first that is not.
-    private func hearCommands(_ id: ObjectIdentifier) {
+    private func hearCommands(_ id: Int) {
         guard let joining = remotes[id] else { return }
-        joining.connection.receiveFrame { [weak self] frame in
+        joining.connection.receiveFrame(largest: Remote.small) { [weak self] frame in
             MainActor.assumeIsolated {
                 guard let self, let joining = self.remotes[id] else { return }
                 guard let frame, let sealed = joining.sealed, let body = try? sealed.open(frame),
@@ -243,6 +274,7 @@ public final class RemoteServer {
                     return
                 }
                 if let command = message.command { self.command(command) }
+                if let number = message.slide, number > 0 { self.slide(number) }
                 self.hearCommands(id)
             }
         }

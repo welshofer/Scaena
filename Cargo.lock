@@ -3198,6 +3198,7 @@ dependencies = [
 name = "scaena-chat"
 version = "0.1.0"
 dependencies = [
+ "scaena-fence",
  "scaena-resources",
  "serde",
  "serde_json",
@@ -3287,6 +3288,10 @@ dependencies = [
  "skrifa 0.44.0",
  "thiserror 2.0.21",
 ]
+
+[[package]]
+name = "scaena-fence"
+version = "0.1.0"
 
 [[package]]
 name = "scaena-ffi"

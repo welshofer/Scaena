@@ -82,7 +82,7 @@ try {
   check(themes.join() === "Dusk,Daybreak,Ember,Salon", `New offers the themes that ship: ${themes}`);
   const families = await page.locator("#making-theme optgroup").evaluateAll((gs) => gs.map((g) => g.label));
   check(families.join() === "Stage,Executive,Analyst,Editorial", `New offers them by family, each a section: ${families}`);
-  await page.click("#new-deck");
+  await page.click("#file-open").then(() => page.click("#new-deck"));
   await page.fill("#making-name", "Field notes: what’s next");
   await page.selectOption("#making-theme", "Daybreak");
   // The theme chosen shown as its title slide, drawn at build by the CPU painter (PLAN T.0c).
@@ -100,7 +100,7 @@ try {
   const made = await where();
   check(made.where === undefined && !made.dirty, `a new deck is kept nowhere, named for its title: ${JSON.stringify(made)}`);
   const told = await page.locator("#where").innerText();
-  check(told === "Field notes: what’s next, not saved", `the line under the slide names it by its title, not its slug: ${told}`);
+  check(told === "Field notes: what’s next · Not saved yet", `the line under the slide names it by its title, not its slug: ${told}`);
   const source = await page.evaluate(() => window.scaena.source());
   check(source.includes('deck "Field notes: what’s next"') && source.includes('theme:"themes/daybreak.theme.json"'), `its source has its title and its theme: ${source.split("\n")[0]}`);
   check(
@@ -152,14 +152,14 @@ try {
   check(await page.locator("#play").isVisible(), "Play plays it now");
 
   // Save as, from its dialog: another name in the browser.
-  await page.click("#save-as");
+  await page.click("#file-open").then(() => page.click("#save-as"));
   check((await page.inputValue("#saving-as-name")) === "field-notes-whats-next", "Save as starts from its name");
   await page.fill("#saving-as-name", "season copy");
   await page.click("#saving-as-opfs");
   await page.waitForFunction(() => window.scaena.where().where?.name === "season copy" && !window.scaena.where().dirty, null, { timeout: 60000 });
   check((await listing(page, "bundles/season copy")).includes("deck.json"), "Save as keeps a copy in the browser under the new name");
   check(new URL(page.url()).searchParams.get("bundle") === "opfs:season copy", `the address names the copy: ${page.url()}`);
-  await page.click("#kept");
+  await page.click("#file-open").then(() => page.click("#kept"));
   await page.waitForFunction(() => document.querySelectorAll("#keeping li").length > 1, null, { timeout: 10000 }).catch(() => {});
   const kinds = await page.locator("#keeping li").evaluateAll((rows) => rows.map((li) => li.dataset.name));
   check(kinds.includes("season copy") && kinds.includes("field-notes-whats-next"), `the browser keeps both: ${kinds}`);
@@ -191,7 +191,7 @@ try {
   }
 
   // New, then typing: the first keys take the place of the title's words.
-  await page.click("#new-deck");
+  await page.click("#file-open").then(() => page.click("#new-deck"));
   await page.fill("#making-name", "Typed over");
   await page.click("#making-create");
   await ready("typed-over");
@@ -216,7 +216,7 @@ try {
   check(stillSaid.startsWith("Kept in this browser to play it"), `and it stays said once lint has run: ${stillSaid}`);
   await played.waitForURL(/index\.html/, { timeout: 30000 }).catch(() => {});
   const playing = await played.waitForFunction(() => window.scaena?.at?.(), null, { timeout: 60000 }).then(() => true, () => false);
-  check(keptFirst && playSaid === "Kept in this browser to play it" && playing && played.url().includes("bundle=opfs%3Atyped-over"), `Play keeps a new deck in the browser, says so, and plays it: ${playSaid}, ${played.url()}`);
+  check(keptFirst && playSaid.startsWith("Kept in this browser to play it") && playing && played.url().includes("bundle=opfs%3Atyped-over"), `Play keeps a new deck in the browser, says so, and plays it: ${playSaid}, ${played.url()}`);
   await played.close();
 
   // ⌘Z after the save takes back the typing before it, not the paths the save renamed: the

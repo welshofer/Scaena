@@ -3,7 +3,7 @@
 //! the command says which to set, before any call is made; and with sources, a provider on this
 //! machine answers as a provider would, and the requests it is sent show what grounds the deck.
 
-use serde_json::Value;
+use serde_json::{Value, json};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
@@ -66,6 +66,49 @@ fn slides_written_elsewhere_make_a_bundle_with_no_call() {
     // A place taken is refused before anything is made.
     let again = json(&scaena(&["--json", "generate", bundle, "again", "--slides", &catalog()]));
     assert!(again["error"]["message"].as_str().unwrap().contains("not an empty directory"));
+}
+
+/// The sources a deck is grounded in are kept beside its brief, each beat cites the one its slide
+/// names, lint finds nothing in the citations, and `scaena files` lists each with the beats
+/// citing it (narrative FUNC-3).
+#[test]
+fn each_beat_cites_the_source_its_slide_names() {
+    let dir = place("cited");
+    let bundle = dir.to_str().unwrap();
+    let notes = place("cited-notes").with_extension("md");
+    std::fs::write(&notes, "# Tidewater field notes\n\nPort calls doubled in Q3.").unwrap();
+    let name = notes.file_name().unwrap().to_str().unwrap().to_string();
+    let text = std::fs::read_to_string(catalog()).unwrap();
+    let mut written: Value = serde_json::from_str(&text).unwrap();
+    for slide in written["slides"].as_array_mut().unwrap().iter_mut().skip(1).take(3) {
+        slide["sourceRef"] = json!(name);
+    }
+    written["slides"][4]["sourceRef"] = json!("elsewhere.pdf");
+    let slides = place("cited-slides").with_extension("json");
+    std::fs::write(&slides, written.to_string()).unwrap();
+    let (slides, notes) = (slides.to_str().unwrap(), notes.to_str().unwrap());
+    let out = scaena(&["--json", "generate", bundle, "Tidewater's Series A", "--slides", slides, "--source", notes]);
+    assert_eq!(out.status.code(), Some(0), "{}", String::from_utf8_lossy(&out.stdout));
+    let deck: Value = serde_json::from_str(&std::fs::read_to_string(dir.join("deck.json")).unwrap()).unwrap();
+    let kept = &deck["meta"]["narrative"]["sources"];
+    assert_eq!(kept[0]["name"], json!(name), "{kept}");
+    assert_eq!((kept[0]["kind"].as_str(), kept[0].get("url")), (Some("markdown"), None));
+    let cited = format!("source:{name}");
+    let beats: Vec<&Value> =
+        (deck["spine"]["sections"].as_array().unwrap().iter()).flat_map(|s| s["beats"].as_array().unwrap()).collect();
+    let citing: Vec<&str> = (beats.iter())
+        .filter(|b| b["evidence"].as_array().is_some_and(|e| e.contains(&json!(cited))))
+        .map(|b| b["id"].as_str().unwrap())
+        .collect();
+    assert_eq!(citing.len(), 3, "{citing:?}");
+    assert!(!beats.iter().any(|b| b["evidence"].to_string().contains("elsewhere.pdf")), "not grounded in it");
+    let lint = json(&scaena(&["--json", "lint", bundle]));
+    assert!(!lint.to_string().contains("W423"), "{lint}");
+    let files = json(&scaena(&["--json", "files", bundle]));
+    assert_eq!(files["sources"][0]["name"], json!(name));
+    assert_eq!(files["sources"][0]["cited"], json!(citing));
+    let said = String::from_utf8(scaena(&["files", bundle]).stdout).unwrap();
+    assert!(said.contains("grounded in") && said.contains(&format!("cited by {}", citing.join(", "))), "{said}");
 }
 
 /// A deck in Ukrainian is written in Ukrainian, which the shipped fonts draw, and one with a
@@ -871,4 +914,68 @@ fn a_failed_run_keeps_the_research_and_the_slides_and_says_how_to_go_on() {
     assert!(made.get("resume").is_none(), "{made:#}");
     assert!(!kept.exists(), "the kept folder is gone once the deck is made");
     assert_eq!(scaena(&["validate", bundle]).status.code(), Some(0));
+}
+
+/// What each source gave is said before a call is paid for (narrative USE-5): the sources share
+/// a million bytes, the first given taking it first, so one given after a source that took them
+/// all is refused before the arc is asked for, and `--allow-cut` makes the deck without it, each
+/// source's room said as the run goes.
+#[test]
+fn a_source_with_no_room_is_refused_before_any_call_unless_cut_is_allowed() {
+    let (base, asked) = serve(narrato);
+    let given = place("unroomed-sources");
+    std::fs::create_dir_all(&given).unwrap();
+    let big = "Four ports run on our barges, and the fifth is next. ".repeat(21_000);
+    assert!(big.len() > 1_000_000);
+    std::fs::write(given.join("big.txt"), &big).unwrap();
+    std::fs::write(given.join("notes.md"), "# Tidewater\nRevenue tripled to $4.1M in four ports.").unwrap();
+    let source = |f: &str| given.join(f).to_string_lossy().into_owned();
+    let run = |dir: &str, more: &[&str]| {
+        let mut c = Command::new(env!("CARGO_BIN_EXE_scaena"));
+        for k in KEYS.into_iter().chain(PROXIES).chain(["SCAENA_MODEL"]) {
+            c.env_remove(k);
+        }
+        c.env("ANTHROPIC_API_KEY", "sk-test")
+            .args(["--json", "generate", dir, "Tidewater's Series A"])
+            .args(["--source", &source("big.txt"), "--source", &source("notes.md")])
+            .args(["--provider", "anthropic", "--model", "a-model", "--base", &base])
+            .args(more)
+            .output()
+            .unwrap()
+    };
+    let out = run(place("unroomed").to_str().unwrap(), &[]);
+    assert_eq!(out.status.code(), Some(2), "{}", String::from_utf8_lossy(&out.stderr));
+    let message = json(&out)["error"]["message"].as_str().unwrap().to_string();
+    assert!(
+        message.starts_with("no room for ") && message.contains("notes.md") && message.contains("--allow-cut"),
+        "{message}"
+    );
+    assert_eq!(asked.lock().unwrap().len(), 0, "refused before any call");
+    // Allowed, the deck is made without it, and each source's room is said before the arc is asked for.
+    let dir = place("unroomed-cut");
+    let out = run(dir.to_str().unwrap(), &["--allow-cut"]);
+    let said = String::from_utf8_lossy(&out.stderr).into_owned();
+    assert_eq!(out.status.code(), Some(0), "{said}{}", String::from_utf8_lossy(&out.stdout));
+    let made = json(&out);
+    assert_eq!(made["sources"][0]["truncated"], true);
+    assert_eq!(
+        (made["sources"][1]["bytes"].as_u64(), made["sources"][1]["truncated"].as_bool()),
+        (Some(0), Some(true))
+    );
+    // Said in the plain run too, before the arc: the stderr's lines in order.
+    let out = Command::new(env!("CARGO_BIN_EXE_scaena"))
+        .env("ANTHROPIC_API_KEY", "sk-test")
+        .args(["generate", place("unroomed-said").to_str().unwrap(), "Tidewater's Series A", "--allow-cut"])
+        .args(["--source", &source("big.txt"), "--source", &source("notes.md")])
+        .args(["--provider", "anthropic", "--model", "a-model", "--base", &base])
+        .output()
+        .unwrap();
+    let said = String::from_utf8_lossy(&out.stderr).into_owned();
+    let line =
+        |start: &str| said.lines().position(|l| l.starts_with(start)).unwrap_or_else(|| panic!("{start}: {said}"));
+    assert!(
+        line("grounded in big.txt (text, 977 KB, cut short to fit)") < line("no room for notes.md (markdown)"),
+        "{said}"
+    );
+    assert!(line("no room for notes.md") < line("choosing the arc"), "{said}");
 }

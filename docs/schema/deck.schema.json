@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://scaena.dev/schema/deck-0.36.json",
+  "$id": "https://scaena.dev/schema/deck-0.38.json",
   "title": "Scaena deck document",
   "description": "Canonical deck.json. A deck is a scene graph (nodes) plus an ordered cue list (states) over a narrative spine, rendered against a theme. See docs/SPEC.md §3.",
   "type": "object",
@@ -10,7 +10,7 @@
     "scaena": {
       "description": "Format version (semver, major.minor[.patch]).",
       "type": "string",
-      "pattern": "^0\\.36(\\.[0-9]+)?$"
+      "pattern": "^0\\.38(\\.[0-9]+)?$"
     },
     "meta": { "$ref": "#/$defs/Meta" },
     "canvas": { "$ref": "#/$defs/Canvas" },
@@ -525,7 +525,7 @@
         "id": { "$ref": "#/$defs/Id" },
         "claim": { "description": "One sentence the audience should leave with.", "type": "string" },
         "evidence": {
-          "description": "@data refs, asset refs, or URLs.",
+          "description": "@data refs, asset refs, URLs, or `source:NAME`, a source the deck was grounded in by the name `meta.narrative.sources` gives it.",
           "type": "array",
           "items": { "type": "string" }
         },
@@ -840,6 +840,12 @@
           "description": "Typed per kind (SPEC §3.8): `mesh` takes `MeshParams`, `gradient` `GradientParams`, `noise` `NoiseParams`, `grain` `GrainParams`, `particles` `ParticlesParams`, and `caustics` `CausticsParams`.",
           "type": "object",
           "additionalProperties": { "$ref": "#/$defs/ShaderParam" }
+        },
+        "recolored": {
+          "description": "A slide's background's record (deck format 0.38, PLAN 2.148): each text it set in a color that reads over it, by its id, and the theme color it set. Taking the background away, or giving the slide another, takes each such color away where the text still has it, so the text reads as its theme sets it again; a color a person chose since stays. A text no longer in the deck is passed over.",
+          "type": "object",
+          "propertyNames": { "$ref": "#/$defs/Id" },
+          "additionalProperties": { "type": "string" }
         }
       },
       "allOf": [
@@ -2060,6 +2066,16 @@
             {
               "additionalProperties": { "anyOf": [{ "$ref": "#/$defs/ShaderParam" }, { "type": "null" }] },
               "type": "object"
+            },
+            { "type": "null" }
+          ]
+        },
+        "recolored": {
+          "anyOf": [
+            {
+              "additionalProperties": { "type": ["string", "null"] },
+              "type": "object",
+              "propertyNames": { "$ref": "#/$defs/Id" }
             },
             { "type": "null" }
           ]

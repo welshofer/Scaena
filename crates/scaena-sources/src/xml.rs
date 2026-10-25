@@ -93,6 +93,11 @@ pub struct XmlError {
     pub why: &'static str,
 }
 
+/// How deep elements may nest in a part, at most. Office writes a few dozen; a part nested
+/// deeper is refused, so that what walks the tree read (its readers, and dropping it) never
+/// recurses past this, whatever a crafted file holds (the 20261024 plan's STAB-2).
+pub const MAX_DEPTH: usize = 256;
+
 /// The document element of `text`.
 pub fn parse(text: &str) -> Result<Element, XmlError> {
     let mut p = Parser { s: text.as_bytes(), text, i: 0 };
@@ -149,6 +154,10 @@ pub fn parse(text: &str) -> Result<Element, XmlError> {
                     }
                     Some(b'>') => {
                         p.i += 1;
+                        // The stack holds the root this function reads into, then each element open.
+                        if stack.len() > MAX_DEPTH {
+                            return Err(XmlError { at: p.i, why: "elements nested more than 256 deep" });
+                        }
                         stack.push(Element { name, attrs, children: Vec::new() });
                         break;
                     }
@@ -302,5 +311,20 @@ mod tests {
         assert_eq!(ts[0].attr("space"), Some("preserve"));
         assert!(parse("<a><b></a>").is_err());
         assert_eq!(parse("<a><![CDATA[<b> & c]]></a>").unwrap().text(), "<b> & c");
+    }
+
+    /// Elements nested past [`MAX_DEPTH`] are refused, however deep, so nothing that walks a part
+    /// read recurses past it; at it, the part reads (the 20261024 plan's STAB-2).
+    #[test]
+    fn a_part_nested_too_deep_is_refused() {
+        let nested = |n: usize| format!("{}x{}", "<w:r>".repeat(n), "</w:r>".repeat(n));
+        let deepest = parse(&nested(MAX_DEPTH)).unwrap();
+        let mut found = Vec::new();
+        deepest.descendants("r", &mut found);
+        assert_eq!(found.len(), MAX_DEPTH - 1);
+        for n in [MAX_DEPTH + 1, 1_000_000] {
+            let refused = parse(&nested(n)).unwrap_err();
+            assert_eq!(refused.why, "elements nested more than 256 deep", "{n}");
+        }
     }
 }

@@ -55,8 +55,10 @@ struct LightTable: View {
                         ForEach(Array(slides.enumerated()), id: \.element.id) { n, slide in
                             SlideCell(
                                 editor: editor, slide: slide, number: n + 1, picked: picked.contains(slide.id),
-                                revision: editor.revision, width: cell
+                                revision: editor.revision, width: cell,
+                                headline: editor.slots.first { $0.state == slide.last }?.headline
                             )
+                            .accessibilityActions { actions(slide, in: slides) }
                             .onTapGesture(count: 2) { show(slide.states.first ?? slide.id) }
                             .onTapGesture { click(slide.id, in: slides) }
                             .draggable(slide.id)
@@ -159,6 +161,28 @@ struct LightTable: View {
         anchor = ids[at + by]
     }
 
+    /// What VoiceOver offers on a slide (lift-up 10-24b USE-4), each what its key does to it alone:
+    /// moved a place, copied, taken out, or shown on the canvas.
+    @ViewBuilder private func actions(_ slide: Slide, in slides: [Slide]) -> some View {
+        let ids = slides.map(\.id)
+        if let i = ids.firstIndex(of: slide.id) {
+            if i > 0 {
+                Button("Move Before") { make(Restaging.moveSlides([slide.id], before: true, ids[i - 1]), [slide.id]) }
+            }
+            if i + 1 < ids.count {
+                Button("Move After") { make(Restaging.moveSlides([slide.id], before: false, ids[i + 1]), [slide.id]) }
+            }
+        }
+        Button("Duplicate Slide") { make(Restaging.duplicateSlides([slide.id]), [slide.id]) }
+        if ids.count > 1 {
+            Button("Delete Slide") {
+                let after = ids.drop { $0 != slide.id }.dropFirst().first ?? ids.last { $0 != slide.id }
+                make(Restaging.removeSlides([slide.id]), after.map { [$0] } ?? [])
+            }
+        }
+        Button("Show on the Canvas") { show(slide.states.first ?? slide.id) }
+    }
+
     /// The slides selected, in the deck's order.
     private func selected(in slides: [Slide]) -> [String] {
         slides.map(\.id).filter(picked.contains)
@@ -209,6 +233,8 @@ private struct SlideCell: View {
     let revision: Int
     /// How wide it stands, in points.
     let width: CGFloat
+    /// The words that head it as it is drawn, which VoiceOver reads it by (lift-up 10-24b USE-4).
+    let headline: String?
     @State private var drawing: CGImage?
     @Environment(\.displayScale) private var scale
 
@@ -245,11 +271,12 @@ private struct SlideCell: View {
         }
         .contentShape(Rectangle())
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(slide.states.count > 1 ? "Slide \(number), \(slide.states.count) steps" : "Slide \(number)")
+        .accessibilityLabel(SlideReading.cell(number: number, headline: headline))
+        .accessibilityValue(SlideReading.steps(slide.states.count))
         .accessibilityIdentifier("slide-\(slide.id)")
         .accessibilityAddTraits(picked ? .isSelected : [])
         .task(id: "\(slide.last)\u{1f}\(revision)\u{1f}\(drawn)") {
-            drawing = editor.drawing(slide.last, width: drawn)
+            drawing = await editor.drawingAway(slide.last, width: drawn)
         }
     }
 }

@@ -92,9 +92,14 @@ fn compiled(_: &str) -> Option<&'static [u8]> {
 /// What gives a trie that is not compiled in: given a language's code, its file's bytes.
 type Loader = Box<dyn Fn(&str) -> Option<Vec<u8>>>;
 
+/// A language's trie as handed over, or why it could not be had.
+type Had = Result<Rc<[u8]>, String>;
+
 thread_local! {
-    /// The tries handed over, by language.
-    static HANDED: RefCell<BTreeMap<&'static str, Rc<[u8]>>> = RefCell::default();
+    /// The tries handed over, by language, and why each the loader could not give was not had:
+    /// asked again only once another loader is set (lift-up PERF-5), so a language whose patterns
+    /// cannot be had costs one request, not one for each word.
+    static HANDED: RefCell<BTreeMap<&'static str, Had>> = RefCell::default();
     static LOADER: RefCell<Option<Loader>> = RefCell::default();
 }
 
@@ -103,6 +108,7 @@ thread_local! {
 /// file (`hyphenation/de.bin`), or none. What it gives is held to the file's SHA-256.
 pub fn set_loader(loader: impl Fn(&str) -> Option<Vec<u8>> + 'static) {
     LOADER.with(|l| *l.borrow_mut() = Some(Box::new(loader)));
+    HANDED.with(|h| h.borrow_mut().retain(|_, had| had.is_ok()));
 }
 
 /// `bytes` as language `lang`'s trie: refused unless they are its file, byte for byte.
@@ -175,17 +181,18 @@ pub(crate) fn trie(lang: &'static Language) -> Result<Trie, EngineError> {
 }
 
 /// Language `lang`'s trie as this thread's loader hands it over: the first time, held to its
-/// digest, and kept.
+/// digest, and kept, or the reason it could not be had, kept too.
 fn handed(lang: &'static Language) -> Result<Rc<[u8]>, EngineError> {
-    if let Some(bytes) = HANDED.with(|h| h.borrow().get(lang.code).cloned()) {
-        return Ok(bytes);
+    if let Some(had) = HANDED.with(|h| h.borrow().get(lang.code).cloned()) {
+        return had.map_err(EngineError::Hyphenation);
     }
     let loaded = LOADER.with(|l| l.borrow().as_ref().map(|load| load(lang.code)));
-    let bytes = match loaded {
-        Some(Some(bytes)) => checked(lang, bytes)?,
-        Some(None) => {
-            return Err(EngineError::Hyphenation(format!("`{}`: its patterns could not be loaded", lang.code)));
-        }
+    let had = match loaded {
+        Some(Some(bytes)) => checked(lang, bytes).map_err(|e| match e {
+            EngineError::Hyphenation(why) => why,
+            e => e.to_string(),
+        }),
+        Some(None) => Err(format!("`{}`: its patterns could not be loaded", lang.code)),
         None => {
             return Err(EngineError::Hyphenation(format!(
                 "`{}`: this engine has no patterns compiled in, and none were handed over",
@@ -193,8 +200,8 @@ fn handed(lang: &'static Language) -> Result<Rc<[u8]>, EngineError> {
             )));
         }
     };
-    HANDED.with(|h| h.borrow_mut().insert(lang.code, Rc::clone(&bytes)));
-    Ok(bytes)
+    HANDED.with(|h| h.borrow_mut().insert(lang.code, had.clone()));
+    had.map_err(EngineError::Hyphenation)
 }
 
 /// The word in lower case, between dots. A character whose lower case is another length in
@@ -419,6 +426,19 @@ mod tests {
         set_loader(|_| Some(b"<!doctype html>".to_vec()));
         let wrong = handed(fi).err().unwrap().to_string();
         assert!(wrong.contains("`fi`") && wrong.contains("15 bytes"), "{wrong}");
+        // What could not be had is not asked for again until another loader is set.
+        let asked = Rc::new(RefCell::new(0));
+        let count = Rc::clone(&asked);
+        set_loader(move |_| {
+            *count.borrow_mut() += 1;
+            None
+        });
+        for _ in 0..3 {
+            assert!(handed(fi).is_err());
+        }
+        assert_eq!(*asked.borrow(), 1);
+        set_loader(file);
+        assert!(handed(fi).is_ok());
         // Each language's file is its trie.
         for lang in &LANGUAGES {
             assert!(checked(lang, file(lang.code).unwrap()).is_ok(), "{}", lang.code);

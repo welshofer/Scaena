@@ -420,6 +420,10 @@ jobs:
       - run: node web/standalone.mjs
       - run: node web/player.mjs
       - run: node web/editor.mjs
+      # The worker alone: a request with a source older than the latest edit's never sets the deck back.
+      - run: node web/worker.mjs
+      # A deck kept nowhere, New's or a prompt's, is not saved: kept in the copy, asked about (lift-up 10-24 REL-1).
+      - run: node web/unkept.mjs
       # The preview as a canvas: select, drag, resize, and the keys, each a patch to undo (PLAN 2.31).
       - run: node web/canvas.mjs
       - run: node web/typing.mjs
@@ -677,3 +681,5 @@ jobs:
         with:
           node-version: 22
       - run: node --experimental-strip-types web/exchanges.mjs
+      # The assistant's answers render as they read (narrative ATTR-4): the blocks and elements.
+      - run: node --experimental-strip-types web/markdown.mjs

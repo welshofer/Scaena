@@ -133,7 +133,7 @@ const still = () => {
   return motion === "reduce" || (motion !== "full" && reduced.matches);
 };
 
-type Acting = "on" | "back" | "first" | "last" | "full" | "present" | "black" | "white" | "laser" | "leave";
+type Acting = "on" | "back" | "first" | "last" | "full" | "present" | "black" | "white" | "laser" | "leave" | "larger" | "smaller";
 /** What the keys do on a page: each its action, where the page has it, and a slide by its number. */
 type Act = Partial<Record<Acting, () => void>> & { slide?: (number: number) => void };
 
@@ -148,6 +148,8 @@ function keys(act: Act) {
     b: "black", B: "black", ".": "black", w: "white", W: "white", ",": "white", l: "laser", L: "laser",
     // Escape leaves the show at its end (PLAN 2.120).
     Escape: "leave",
+    // The presenter's notes larger or smaller, as a presentation app's A↑ and A↓ (lift-up USE-4).
+    "+": "larger", "=": "larger", "-": "smaller",
   };
   const list = keyList(act);
   const number = numbering(act.slide);
@@ -213,6 +215,26 @@ function numbering(go?: (number: number) => void) {
   };
 }
 
+/** The sizes the presenter's notes step through, px, and the one they start at (lift-up USE-4):
+ * the Mac's and the iPad's presenter step through the same. */
+const NOTES_SIZES = [12, 14, 16, 18, 20, 24, 28, 32, 40, 48];
+const NOTES_SIZE = "scaena.presenter.notesSize";
+/** The size a step `by` from `size` reaches, held to the list's ends. */
+const stepped = (size: number, by: number) => {
+  const at = NOTES_SIZES.findIndex((s) => s >= size);
+  const from = at < 0 ? NOTES_SIZES.length - 1 : at;
+  return NOTES_SIZES[Math.min(NOTES_SIZES.length - 1, Math.max(0, from + by))];
+};
+/** The notes' size this browser kept, else 20 px. */
+const kept = () => {
+  try {
+    const size = Number(localStorage.getItem(NOTES_SIZE));
+    return NOTES_SIZES.includes(size) ? size : 20;
+  } catch {
+    return 20;
+  }
+};
+
 /** What a slide's number typed says where the deck has no such slide (PLAN 2.105). */
 const noSlide = (slots: Slot[], number: number) => {
   const count = new Set(slots.map((s) => s.slide ?? s.state)).size;
@@ -233,6 +255,7 @@ function keyList(act: Act) {
     ["<kbd>F</kbd>", "Fullscreen", act.full],
     ["<kbd>P</kbd>", "The presenter view, in a window of its own", act.present],
     ["<kbd>Escape</kbd>", "At the end of the show, leave it", act.leave],
+    ["<kbd>+</kbd> <kbd>−</kbd>", "The notes larger, or smaller", act.larger],
     ["<kbd>?</kbd>", "These keys", true],
   ];
   const dialog = document.createElement("dialog");
@@ -298,8 +321,17 @@ const fullscreen = () =>
   );
 
 /** The player: the deck, its controls, and its clock. */
+/** What no handler caught, said in `status` rather than lost, so a talk never freezes on a slide
+ * with nothing said (lift-up STAB-5). */
+function saysRejections(status: HTMLElement) {
+  addEventListener("unhandledrejection", (e) => {
+    status.textContent = `Error: ${said(e.reason)}`;
+  });
+}
+
 async function play(deck: Source, how: Play, channel: BroadcastChannel) {
   const status = $("#status");
+  saysRejections(status);
   const statesPicker = $<HTMLSelectElement>("#state");
   const formatPicker = $<HTMLSelectElement>("#format");
   const scrub = $<HTMLInputElement>("#scrub");
@@ -368,7 +400,8 @@ async function play(deck: Source, how: Play, channel: BroadcastChannel) {
     } finally {
       asking = false;
     }
-    stage.canvas.style.cursor = link ? "pointer" : "";
+    // A link's hand too hides once the pointer rests (lift-up ATTR-4).
+    stage.canvas.style.cursor = link && !document.body.classList.contains("idle") ? "pointer" : "";
   };
   /** Say where the deck is: in the controls, to the presenter view, and to the page. */
   const report = (at: At) => {
@@ -564,14 +597,30 @@ async function play(deck: Source, how: Play, channel: BroadcastChannel) {
     const r = stage.canvas.getBoundingClientRect();
     return [(e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height];
   };
+  // Fullscreen, the pointer over the slide hides once it has rested two seconds, as a presentation
+  // app's does, from the moment the show fills the screen, and shows again as it moves (lift-up
+  // ATTR-4).
+  let idling: ReturnType<typeof setTimeout> | undefined;
+  const rest = (moving: boolean) => {
+    clearTimeout(idling);
+    document.body.classList.remove("idle");
+    if (moving && document.fullscreenElement)
+      idling = setTimeout(() => {
+        document.body.classList.add("idle");
+        void hover();
+      }, 2000);
+  };
+  document.addEventListener("fullscreenchange", () => rest(true));
   stage.canvas.addEventListener("pointermove", (e) => {
     pointer = over(e);
     if (laser) pointAt(pointer);
+    rest(true);
     void hover();
   });
   stage.canvas.addEventListener("pointerleave", () => {
     pointer = undefined;
     if (laser) pointAt(undefined);
+    rest(false);
     void hover();
   });
   addEventListener("resize", drawDot);
@@ -588,8 +637,14 @@ async function play(deck: Source, how: Play, channel: BroadcastChannel) {
   reduced.onchange = () => {
     if (stage.at.playing) stage.run(stage.at.index, stage.at.t, format(), still());
   };
+  // A format the deck no longer lays out in says so, and the slide shown stays (lift-up STAB-5).
   formatPicker.onchange = async () => {
-    slots = await stage.timeline(format());
+    try {
+      slots = await stage.timeline(format());
+    } catch (e) {
+      status.textContent = `Error: ${said(e)}`;
+      return;
+    }
     go(Math.min(stage.at.index, slots.length - 1));
   };
   scrub.max = String(slots.length);
@@ -769,11 +824,13 @@ async function presentView(deck: Source, how: Play, channel: BroadcastChannel) {
       <div class="next"><canvas id="upnext"></canvas><p id="nextName"></p></div>
       <div class="clock"><span id="clock" title="The time since the timer began">0:00</span><button id="pause" type="button" title="Pause the timer">Pause</button><button id="reset" type="button" title="Put the timer back to 0:00">Reset</button><span id="now" title="The time of day"></span></div>
       <p id="where"></p>
+      <p class="notesize"><span>Notes</span><button id="smaller" type="button" aria-label="Smaller notes" title="Smaller notes (−)">A−</button><button id="larger" type="button" aria-label="Larger notes" title="Larger notes (+)">A+</button></p>
       <div id="notes" class="notes"></div>
       <p class="buttons"><button id="back" aria-label="Back" disabled><span aria-hidden="true">◀</span> Back</button><button id="on" aria-label="Next" disabled><span aria-hidden="true">▶</span> Next</button></p>
       <p id="status" role="status">Loading…</p>
     </aside>`;
   const status = $("#status");
+  saysRejections(status);
   const [now, upNext] = await Promise.all([
     Stage.open($("#stage"), deck, how.painter, how.engine),
     Stage.open($("#upnext"), deck, how.painter, how.engine),
@@ -809,7 +866,33 @@ async function presentView(deck: Source, how: Play, channel: BroadcastChannel) {
     laser: () => steer({ type: "laser" }),
     // A number the deck has no slide for is said here, where the presenter typed it.
     slide: (number) => (numbered(slots, String(number)) ? steer({ type: "slide", number }) : typing.say(noSlide(slots, number))),
+    larger: () => sizeNotes(1),
+    smaller: () => sizeNotes(-1),
   });
+  // The notes' size (lift-up USE-4): a step up or down the sizes a speaker reads at, kept in this
+  // browser for the next show.
+  const sizeNotes = (by: number) => {
+    notesSize = stepped(notesSize, by);
+    shownSize();
+    try {
+      localStorage.setItem(NOTES_SIZE, String(notesSize));
+    } catch {
+      // Storage refused, as a private window may: the size holds for this view alone.
+    }
+  };
+  const shownSize = () => {
+    document.body.style.setProperty("--notes", `${notesSize}px`);
+    $<HTMLButtonElement>("#smaller").disabled = notesSize === NOTES_SIZES[0];
+    $<HTMLButtonElement>("#larger").disabled = notesSize === NOTES_SIZES[NOTES_SIZES.length - 1];
+  };
+  let notesSize = kept();
+  shownSize();
+  for (const [id, by] of [["#smaller", -1], ["#larger", 1]] as const) {
+    const button = $<HTMLButtonElement>(id);
+    // A press leaves the keys where they were, as the timer's buttons do.
+    button.onmousedown = (e) => e.preventDefault();
+    button.onclick = () => sizeNotes(by);
+  }
   $("#on").onclick = () => steer({ type: "on" });
   $("#back").onclick = () => steer({ type: "back" });
   // Without a player to follow, this view says so, and how to have one: none answered its hello,
@@ -974,13 +1057,17 @@ async function presentView(deck: Source, how: Play, channel: BroadcastChannel) {
     listen({
       changed: (paths) => {
         if (!paths.some((path) => path !== "deck.scn")) return;
-        void Promise.all([now.reload(), upNext.reload()]).then(async () => {
-          ({ states, notes } = now.opened);
-          title();
-          slots = await now.timeline();
-          next = "";
-          steer({ type: "hello" });
-        });
+        void Promise.all([now.reload(), upNext.reload()])
+          .then(async () => {
+            ({ states, notes } = now.opened);
+            title();
+            slots = await now.timeline();
+            next = "";
+            steer({ type: "hello" });
+          })
+          // A save that breaks the deck mid-talk says so here, where the presenter looks
+          // (lift-up STAB-5).
+          .catch((e) => (status.textContent = `Error: ${said(e)}`));
       },
     });
   hello("The player is not open.", "Open it", 2000);

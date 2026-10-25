@@ -125,6 +125,7 @@ enum Presenting {
         let tell = stopped
         stopped = nil
         defer { if let reached { tell?(reached) } }
+        showing?.point(nil)
         Pointer.hidden(false)
         showing = nil
         RemoteHost.shared.follow(nil)
@@ -372,6 +373,8 @@ final class Showing {
     /// the pointer is over it or a touch is held on it.
     var laser = false
     var pointer: CGPoint?
+    /// The pointer's rest over the slide, after which it hides until it moves.
+    @ObservationIgnored private var resting: Task<Void, Never>?
     /// What the keys say for a moment where a slide's number is typed: one the deck lacks.
     var said: String?
     @ObservationIgnored private var saying: Task<Void, Never>?
@@ -456,6 +459,15 @@ final class Showing {
         }
     }
 
+    /// The slide numbered `number`, as typing its number then Return goes there (PLAN 2.105): what
+    /// a remote's Go to Slide asks (lift-up FUNC-5).
+    func go(slide number: Int) {
+        guard number > 0 else { return }
+        show.untype(all: true)
+        for digit in String(number) { show.type(digit.wholeNumberValue ?? 0) }
+        enter()
+    }
+
     /// Delete: the last digit typed taken back; with none typed, back.
     func delete() {
         if show.typed.isEmpty { back() } else { show.untype() }
@@ -494,6 +506,15 @@ final class Showing {
         pointer = laser ? at : nil
         #if os(macOS)
         Pointer.hidden(pointer != nil)
+        resting?.cancel()
+        // Over the slide, the pointer hides once it has rested two seconds, as a presentation
+        // app's does, until it moves again (lift-up ATTR-4).
+        guard at != nil, pointer == nil else { return }
+        resting = Task {
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled else { return }
+            NSCursor.setHiddenUntilMouseMoves(true)
+        }
         #endif
     }
 
@@ -553,9 +574,11 @@ final class Showing {
         if rests { rested() }
     }
 
-    /// The state shown at rest: where it holds, it goes on by itself once its hold is over.
+    /// The state shown at rest: where it holds, it goes on by itself once its hold is over. The
+    /// next state's cue is laid out meanwhile, so going on moves at once (lift-up PERF-1).
     private func rested() {
         holding?.cancel()
+        if let next = show.next, next.span > 0 { try? editor.session.prepare(next.state) }
         guard let hold = show.rested() else { return }
         waits(hold)
     }
@@ -907,6 +930,7 @@ struct KeyList: View {
         Row(keys: "W or ,", does: "A white screen, and the slide again"),
         Row(keys: "L", does: laser),
         Row(keys: "Escape", does: "End the show"),
+        Row(keys: "+  −", does: "The notes larger, or smaller, in the presenter's view"),
         Row(keys: "?", does: "These keys"),
     ]
 
@@ -925,7 +949,7 @@ struct KeyList: View {
         }
         .font(.title3)
         .padding(24)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
+        .floating(in: RoundedRectangle(cornerRadius: 14))
         .environment(\.colorScheme, .dark)
         .frame(maxWidth: 640)
         .accessibilityElement(children: .contain)
@@ -948,6 +972,12 @@ struct PresenterView: View {
     @State private var notes = Notes.none
     @State private var next: CGImage?
     @Environment(\.displayScale) private var scale
+    /// The notes' size, a step up or down, kept for the next show (lift-up USE-4).
+    @AppStorage("presenter.notesSize") private var notesSize = NotesSize.standard
+
+    private func sizeNotes(_ by: Int) {
+        notesSize = NotesSize.stepped(notesSize, by: by)
+    }
 
     var body: some View {
         let show = showing.show
@@ -1052,10 +1082,31 @@ struct PresenterView: View {
                     } else {
                         Text(show.next == nil ? "The end" : "").foregroundStyle(.secondary)
                     }
-                    Text("Notes").font(.headline).foregroundStyle(.secondary).padding(.top, 8)
+                    // What comes, as a person counts it: a slide, or a step of the one shown, as
+                    // the browser's presenter view says it (lift-up USE-4).
+                    if let coming = show.next {
+                        Text(Words.slide(coming.state, in: show.slots))
+                            .foregroundStyle(.secondary)
+                            .accessibilityIdentifier("next-name")
+                    }
+                    HStack(spacing: 6) {
+                        Text("Notes").font(.headline).foregroundStyle(.secondary)
+                        Spacer()
+                        Button("A−") { sizeNotes(-1) }
+                            .disabled(notesSize <= NotesSize.sizes[0])
+                            .accessibilityLabel("Smaller notes")
+                            .accessibilityIdentifier("notes-smaller")
+                            .help("Smaller notes (−)")
+                        Button("A+") { sizeNotes(1) }
+                            .disabled(notesSize >= NotesSize.sizes[NotesSize.sizes.count - 1])
+                            .accessibilityLabel("Larger notes")
+                            .accessibilityIdentifier("notes-larger")
+                            .help("Larger notes (+)")
+                    }
+                    .padding(.top, 8)
                     ScrollView {
                         NotesText(notes.blocks)
-                            .font(.title3)
+                            .font(.system(size: notesSize))
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .textSelection(.enabled)
                             .accessibilityIdentifier("presenter-notes")
@@ -1079,11 +1130,27 @@ struct PresenterView: View {
         .focusable()
         .focusEffectDisabled()
         .focused($focused)
+        // The notes larger or smaller, here alone: the stage has none (lift-up USE-4).
+        .onKeyPress(characters: CharacterSet(charactersIn: "+=")) { press in
+            guard plain(press) else { return .ignored }
+            sizeNotes(1)
+            return .handled
+        }
+        .onKeyPress(characters: CharacterSet(charactersIn: "-")) { press in
+            guard plain(press) else { return .ignored }
+            sizeNotes(-1)
+            return .handled
+        }
         .paces(showing)
         .onAppear { focused = true }
         .task(id: show.index) {
             notes = show.slot.map { showing.notes($0.state) } ?? .none
-            next = show.next.flatMap { showing.editor.drawing($0.state, width: Int(360 * scale)) }
+            // Drawn away from the stage, so a step plays on while the next is drawn (lift-up PERF-2).
+            if let coming = show.next {
+                next = await showing.editor.drawingAway(coming.state, width: Int(360 * scale))
+            } else {
+                next = nil
+            }
         }
     }
 

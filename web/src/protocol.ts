@@ -138,10 +138,19 @@ export interface Query {
  * states that show it from there. `matches` are `[from, to]` in characters (Unicode scalar
  * values), as `replace_text` counts them. */
 export interface Found {
-  /** What the words are (PLAN 2.83): a text, a node's description, notes, or a beat's claim. */
-  kind: "text" | "alt" | "notes" | "claim";
-  /** The text's node, or the node the description describes; none for notes or a claim. */
+  /** What the words are (PLAN 2.83): a text, a node's description, notes, a beat's claim, the
+   * words a chart or a table draws, or a data source's cell. */
+  kind: "text" | "alt" | "notes" | "claim" | "chart" | "data";
+  /** The text's node, the node the description describes, or the chart or table; none for notes,
+   * a claim, or a cell. */
   node?: string;
+  /** The data source, for a cell. */
+  source?: string;
+  /** The file a cell is in. */
+  file?: string;
+  /** Why a replacement leaves these words as they are: a value of the data, which a filter, a
+   * quote, or a highlight may name. */
+  kept?: string;
   /** The beat, for its claim or its notes. */
   beat?: string;
   /** The first state that shows it, where a replacement is made. */
@@ -274,6 +283,19 @@ export interface Carets {
   /** Its words still as its slot's prompt put them (PLAN 3.30): typing begins with them all
    * selected, so it replaces them. Asked as typing begins, not after each change. */
   prompt?: boolean;
+  /** Where it is code (PLAN 2.139): the columns between its tab stops, the number its first line
+   * goes by, and its language, which its keys are given; none for prose. */
+  code?: { tab: number; from: number; language: string } | null;
+}
+
+/** A key a code text answers as a code editor does (PLAN 2.139, `code::keyed`). */
+export type CodeKey = "Tab" | "Shift+Tab" | "Return";
+
+/** A text and its selection after a code key, offsets in UTF-16 code units. */
+export interface Keyed {
+  text: string;
+  from: number;
+  to: number;
 }
 
 /** Where a link goes (PLAN 2.70): a web address, or a state of the deck. */
@@ -640,6 +662,8 @@ export interface Thumb {
   width?: number;
   height?: number;
   pixels?: ArrayBuffer;
+  /** Why it could not be painted, said in words (lift-up STAB-4): no pixels come with it. */
+  failed?: string;
 }
 
 /** A node a patch adds: its id, where it lands, and the patch. */
@@ -804,6 +828,19 @@ export interface Rewritten {
 /** One of a bundle's images, fonts, or data files (PLAN 2.59), as `scaena files` lists it: what in
  * the deck or its theme names it (none where nothing does: it may be taken out), and the nodes
  * drawn from it, each with the states that show it so. */
+/** A source a deck made from a prompt was grounded in, with the beats citing it (narrative
+ * FUNC-3, `scaena_core::files::Grounded`). */
+export interface Grounded {
+  name: string;
+  kind: string;
+  url?: string;
+  bytes: number;
+  truncated: boolean;
+  /** The beats citing it, by id, and the first state of each, which a page names as a slide. */
+  cited: string[];
+  states: string[];
+}
+
 export interface BundleFile {
   path: string;
   type: "image" | "font" | "data";
@@ -844,6 +881,8 @@ export interface HealthRead {
   toneRead?: number;
   after?: number;
   standing: "ok" | "bends" | "drifted";
+  /** The sources its beat cites of those the deck was grounded in, by name (narrative FUNC-3). */
+  sources?: string[];
 }
 
 /** Something narrative health asks a person to look at, on one slide: what it says, the question
@@ -852,7 +891,7 @@ export interface HealthFinding {
   state: string;
   slide: number;
   severity: "error" | "warning" | "info";
-  kind: "title" | "empty" | "turn" | "arc" | "intensity" | "tone" | "drift";
+  kind: "title" | "empty" | "turn" | "arc" | "intensity" | "tone" | "drift" | "layout";
   says: string;
   ask: string;
   fix?: { says: string; patch: unknown[] };
@@ -1114,6 +1153,15 @@ export type ToWorker =
   | { type: "codeWords"; id: number; source: string; state: string; node: string; format?: string }
   /** `text` tidied as a paste of code in `language` is (PLAN 2.133). */
   | { type: "tidied"; id: number; text: string; language: string }
+  /** `text` with `from` to `to` selected after `key` in code whose tab stops are `tab` apart
+   * (PLAN 2.139). */
+  | { type: "keyed"; id: number; text: string; from: number; to: number; key: CodeKey; tab: number; language?: string }
+  /** Make Code's patch of `node`, in `language` or the one its words read as (PLAN 2.139). */
+  | { type: "coding"; id: number; source: string; node: string; language?: string }
+  /** Not Code's patch of `node` (PLAN 2.139). */
+  | { type: "uncoding"; id: number; source: string; node: string }
+  /** Tidy Code's patch of `node` as `state` shows it (PLAN 2.139). */
+  | { type: "tidying"; id: number; source: string; state: string; node: string }
   | { type: "italicizing"; id: number; source: string; state: string; node: string; from: number; to: number; format?: string }
   /** The theme the deck names, and the theme files the bundle holds (PLAN 2.39). */
   | { type: "themes"; id: number }
@@ -1385,6 +1433,7 @@ export type GeneratingEvent =
   | { kind: "fetchingFont"; family: string; language: string; megabytes: number }
   | { kind: "reading"; name: string }
   | { kind: "read"; name: string; what: string }
+  | { kind: "grounded"; name: string; what: string; kilobytes: number; cut: boolean }
   | { kind: "researching"; topic: string }
   | { kind: "researchingNow"; doing: string }
   | { kind: "researched"; sources: number; cut: boolean }
@@ -1439,7 +1488,7 @@ export interface Generated {
   /** Each sheet given, kept as a data source, or why not. */
   data: { sheet: string; id?: string; rows?: number; why?: string }[];
   /** What each source gave the prompt, and whether it was cut short to fit. */
-  sources: { name: string; kind: string; bytes: number; truncated: boolean }[];
+  sources: { name: string; kind: string; url?: string; bytes: number; truncated: boolean }[];
 }
 
 /** Who answers the assistant's questions: Anthropic, OpenAI (or a server that speaks its Chat
@@ -1465,6 +1514,9 @@ export interface Asking {
   seeing?: Seeing;
   /** The Geoapify key kept, which `map_fetch` fetches a map with (ADR-0030). */
   mapKey?: string;
+  /** How long one turn may go without a word from the provider before it is asked again
+   * (narrative REL-3); two minutes without it. */
+  timeoutMs?: number;
 }
 
 /** What a person asks a model to write (PLAN 2.101): a text's words proofread, tightened, or
@@ -1529,6 +1581,12 @@ export interface Seeing {
 
 /** What the page hears as the assistant works. */
 export type AssistantEvent =
+  /** The model is saying `text`: more of the answer it is writing, which `text` then gives
+   * whole (narrative ATTR-3). */
+  | { kind: "saying"; text: string }
+  /** The provider was busy, down, or silent, and the same turn is asked again after `seconds`
+   * (narrative REL-3): `message` says so in a person's words, the `attempt`th of `of`. */
+  | { kind: "waiting"; message: string; seconds: number; attempt: number; of: number }
   /** The model said `text`. */
   | { kind: "text"; text: string }
   /** It calls tool `name`. */
@@ -1956,6 +2014,8 @@ export type FromWorker =
   | { type: "bolding"; id: number; look: Record<string, unknown> }
   | { type: "codeWords"; id: number; words: string }
   | { type: "tidied"; id: number; text: string }
+  | { type: "keyed"; id: number; keyed: Keyed | null }
+  | { type: "coding" | "uncoding" | "tidying"; id: number; patch: unknown[] }
   | { type: "italicizing"; id: number; look: Record<string, unknown> }
   | { type: "themes"; id: number; themes: Themes }
   /** A theme chosen: what it did, as `theme --apply` says it, and unless it was refused, the
@@ -2018,7 +2078,7 @@ export type FromWorker =
   | { type: "cells"; id: number; cells: Cells | null }
   /** The deck's data sources, and source `name` as a sheet, or why it does not read as one. */
   | { type: "sheet"; id: number; sources: DataSource[]; name?: string; sheet?: Sheet; file?: string; why?: string }
-  | { type: "bundleFiles"; id: number; files: BundleFile[] }
+  | { type: "bundleFiles"; id: number; files: BundleFile[]; grounded: Grounded[] }
   | { type: "health"; id: number; health: Health }
   /** A picture made: its bytes, its file's kind (`png`, `jpg`), what it shows, and the model. */
   | { type: "pictureMade"; id: number; bytes: ArrayBuffer; ext: string; alt: string; model: string }

@@ -1,5 +1,5 @@
 {
-  "scaena": "0.36",
+  "scaena": "0.38",
   "_comment": "I403 trigger: code in COBOL, which no scanner of its own colors, and in `pyhton`, a slip for Python, which lint names.",
   "canvas": {"width": 1920, "height": 1080},
   "theme": "theme.json",

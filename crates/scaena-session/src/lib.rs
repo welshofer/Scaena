@@ -108,6 +108,9 @@ pub struct Session {
     timeline: Option<Timeline>,
     /// The transition last sampled, so the frames of one transition lay out once.
     transition: Option<(String, Transition)>,
+    /// The transition into the state a show goes on to, laid out while the one shown rests
+    /// ([`Session::prepare`], lift-up PERF-1), which its first frame takes.
+    prepared: Option<(String, Transition)>,
     /// The state last asked what stands where, laid out at rest, so a pointer's every move
     /// lays out nothing (ADR-0013).
     rest: Option<(String, scaena_engine::sample::Scene)>,
@@ -361,6 +364,7 @@ impl Session {
             timed: scaena_engine::Timed::default(),
             timeline: None,
             transition: None,
+            prepared: None,
             rest: None,
             digests: HashMap::new(),
             drawn: None,
@@ -602,6 +606,7 @@ impl Session {
     fn forget_shown(&mut self) {
         self.timeline = None;
         self.transition = None;
+        self.prepared = None;
         self.rest = None;
         self.drawn = None;
         self.targets.clear();
@@ -699,9 +704,10 @@ impl Session {
     }
 
     /// The deck's states end to end, as a client lists them: `[{ "state", "slide", "said",
-    /// "start", "span", "hold" }]`, ms (SPEC §2.4), `slide` the slide each builds on and `said` the
-    /// state as a person counts it, `Slide 3, step 2` (PLAN 2.99). What a player auto-advances by,
-    /// and a video samples.
+    /// "headline", "start", "span", "hold" }]`, ms (SPEC §2.4), `slide` the slide each builds on,
+    /// `said` the state as a person counts it, `Slide 3, step 2` (PLAN 2.99), and `headline` the
+    /// words that head it, where a text does (`reading::headline`), which a slide list reads its
+    /// rows by (lift-up 10-24b USE-4). What a player auto-advances by, and a video samples.
     pub fn slots(&mut self) -> Result<serde_json::Value, Error> {
         let timeline = self.timeline()?;
         let deck = &self.deck;
@@ -709,11 +715,16 @@ impl Session {
         // Each as a person counts it (PLAN 2.99): `Slide 3, step 2`.
         let said = scaena_core::words::slides(deck);
         let said = |id: &str| deck.states.iter().position(|s| s.id == id).and_then(|i| said.get(i)).cloned();
+        // A deck whose states do not resolve heads none of them: its slots are listed all the same.
+        let snaps = scaena_core::tracking::resolve_states(deck).unwrap_or_default();
+        let headline =
+            |id: &str| (snaps.iter()).find(|s| s.state_id == id).and_then(|s| scaena_core::reading::headline(deck, s));
         let slots: Vec<serde_json::Value> = (timeline.slots.iter())
             .map(|s| {
                 let slide = slide(&s.state);
                 let said = said(&s.state);
-                serde_json::json!({ "state": s.state, "slide": slide, "said": said, "start": s.start, "span": s.span, "hold": s.hold })
+                let headline = headline(&s.state);
+                serde_json::json!({ "state": s.state, "slide": slide, "said": said, "headline": headline, "start": s.start, "span": s.span, "hold": s.hold })
             })
             .collect();
         Ok(serde_json::Value::Array(slots))
@@ -733,12 +744,12 @@ impl Session {
     pub fn frame(&mut self, state: &str, t_ms: f64) -> Result<DisplayList, Error> {
         let slot = self.kept_timeline()?.slot(state).ok_or_else(|| EngineError::UnknownState(state.to_string()))?;
         let (start, span) = (slot.start, slot.span);
-        // The engine is built by now: the timeline took it.
-        let format = self.format.as_deref();
         if t_ms.is_nan() || t_ms >= span {
             #[cfg(feature = "editor")]
             if let Some(deck) = &self.previewing {
+                // The engine is built by now: the timeline took it.
                 let engine = self.engine.as_mut().expect("built for the timeline");
+                let format = self.format.as_deref();
                 let req = FrameRequest { deck, theme: &self.theme, data: &self.data, state, t_ms, format };
                 return Ok(engine.frame(&req)?.display_list);
             }
@@ -751,14 +762,37 @@ impl Session {
                 None => scene.draw_at(time),
             });
         }
-        let engine = self.engine.as_mut().expect("built for the timeline");
         let cached = self.transition.as_ref().is_some_and(|(s, _)| s == state);
         if !cached {
-            let (deck, theme) = project(&self.deck, &self.theme, format)?;
-            let transition = engine.transition(&deck, &theme, &self.data, state)?;
+            let transition = match self.prepared.take() {
+                Some((s, transition)) if s == state => transition,
+                _ => self.laid_into(state)?,
+            };
             self.transition = Some((state.to_string(), transition));
         }
         Ok(self.transition.as_ref().expect("set above").1.frame(t_ms))
+    }
+
+    /// Lay out the cue into `state` ahead, in the format shown, while another rests: the state a
+    /// show goes on to, whose first frame then lays out nothing (lift-up PERF-1). A state with no
+    /// cue, or the one whose cue is kept already, needs nothing; an edit lets it go.
+    pub fn prepare(&mut self, state: &str) -> Result<(), Error> {
+        let slot = self.kept_timeline()?.slot(state).ok_or_else(|| EngineError::UnknownState(state.to_string()))?;
+        let kept = |kept: &Option<(String, Transition)>| kept.as_ref().is_some_and(|(s, _)| s == state);
+        if slot.span <= 0.0 || kept(&self.transition) || kept(&self.prepared) {
+            return Ok(());
+        }
+        let transition = self.laid_into(state)?;
+        self.prepared = Some((state.to_string(), transition));
+        Ok(())
+    }
+
+    /// The cue into `state`, its two snapshots laid out, in the format shown. The engine is
+    /// built by now: the timeline took it.
+    fn laid_into(&mut self, state: &str) -> Result<Transition, Error> {
+        let engine = self.engine.as_mut().expect("built for the timeline");
+        let (deck, theme) = project(&self.deck, &self.theme, self.format.as_deref())?;
+        Ok(engine.transition(&deck, &theme, &self.data, state)?)
     }
 
     /// `state` at rest in the format shown, laid out once and kept until the deck, its
@@ -1007,6 +1041,60 @@ impl Session {
             (true, Some(serde_json::Value::String(text))) => Ok(text.clone()),
             _ => Err(Error::Ops(format!("`{node}` is no code in `{state}`"))),
         }
+    }
+
+    /// The patch Make Code makes of `node` (PLAN 2.139, `scaena_ops::coding`): `code` in
+    /// `language`, else in the language its words read as, else plain text, and the theme's code
+    /// role; its runs folded into its `text`, and what a code text does not take (E106) taken away
+    /// wherever the node's are written. One patch, one step to undo.
+    #[cfg(feature = "editor")]
+    pub fn coding(&self, node: &str, language: Option<&str>) -> Result<Vec<serde_json::Value>, Error> {
+        scaena_ops::coding::coding(&self.deck, &self.theme, node, language).map_err(|e| Error::Ops(e.to_string()))
+    }
+
+    /// The patch Not Code makes of `node` (PLAN 2.139): `code` taken away from it, from every delta,
+    /// and from the overrides, and the text set in `body` where it was set in the code role.
+    #[cfg(feature = "editor")]
+    pub fn uncoding(&self, node: &str) -> Result<Vec<serde_json::Value>, Error> {
+        scaena_ops::coding::uncoding(&self.deck, &self.theme, node).map_err(|e| Error::Ops(e.to_string()))
+    }
+
+    /// The patch Tidy Code makes of `node` as `state` shows it (PLAN 2.139): a `replace_text` for
+    /// each run of lines tidying changes, written where the text lives. Empty where it is tidy.
+    #[cfg(feature = "editor")]
+    pub fn tidying(&self, state: &str, node: &str) -> Result<Vec<serde_json::Value>, Error> {
+        scaena_ops::coding::tidying(&self.deck, &self.theme, state, node).map_err(|e| Error::Ops(e.to_string()))
+    }
+
+    /// `text` with `from` to `to` selected after `key` in a code text, as a code editor answers it
+    /// (PLAN 2.139, `scaena_core::code::keyed`): `{ "text", "from", "to" }`, which an editor makes a
+    /// `replace_text` of as of what is typed. `key` is `Tab`, `Shift+Tab`, or `Return`; `tab` the
+    /// columns between the text's tab stops, its carets' `code.tab`; and the offsets UTF-16 code
+    /// units, as a page and Swift count a string; `language` the text's `code.language`, so a
+    /// Makefile's stop is a tab. None for a key code does not answer, or a selection off the
+    /// text's characters.
+    pub fn keyed(
+        text: &str,
+        from: usize,
+        to: usize,
+        key: &str,
+        tab: usize,
+        language: Option<&str>,
+    ) -> Option<serde_json::Value> {
+        let key = scaena_core::code::Key::named(key)?;
+        let byte = |units: usize| {
+            let mut counted = 0;
+            for (b, c) in text.char_indices() {
+                if counted >= units {
+                    return (counted == units).then_some(b);
+                }
+                counted += c.len_utf16();
+            }
+            (counted == units).then_some(text.len())
+        };
+        let keyed = scaena_core::code::keyed(text, byte(from)?, byte(to)?, key, tab, language)?;
+        let units = utf16(&keyed.text);
+        Some(serde_json::json!({ "text": keyed.text, "from": units(keyed.from), "to": units(keyed.to) }))
     }
 
     /// [`Session::hit`] as a client lists them (ADR-0013): `[{ "node", "rect", "containers",
@@ -1387,11 +1475,10 @@ impl Session {
     }
 
     /// Each text of the deck that `query` matches, once for each place it is written, with
-    /// the states that show it from there (PLAN 2.47).
+    /// the states that show it from there (PLAN 2.47), and each cell of its data files.
     #[cfg(feature = "editor")]
     pub fn find(&self, query: &scaena_core::patch::Query) -> Result<Vec<scaena_core::patch::Found>, Error> {
-        let doc = self.deck.to_value().map_err(|e| Error::Deck(e.to_string()))?;
-        scaena_core::patch::find(&doc, query).map_err(Error::Ops)
+        scaena_ops::find::find(&self.bundle(), query).map_err(|e| Error::Ops(e.to_string()))
     }
 
     /// The patch that replaces what `query` matches with `with` (PLAN 2.47): every match, a
@@ -1459,10 +1546,11 @@ impl Session {
     /// [`Session::carets`] as a page and the Mac take it (PLAN 2.32, 3.6): `{ "text", "lines":
     /// [{ "top", "bottom", "x", "start", "end", "broken", "chars": [[offset, lead, trail]] }],
     /// "items": [{ "kind", "level", "marker" } | null], "links": [[from, to, { "href" } | {
-    /// "state" }]] }`, canvas units, its offsets in UTF-16 code units, as JavaScript and Swift
-    /// count a string; `items` each paragraph as a list's item (ADR-0018), and `links` each
-    /// stretch of it a link goes from (PLAN 2.70), which ⌘K shows. Null for a node that is no
-    /// text there.
+    /// "state" }]], "code": { "tab", "from" } | null }`, canvas units, its offsets in UTF-16 code
+    /// units, as JavaScript and Swift count a string; `items` each paragraph as a list's item
+    /// (ADR-0018), `links` each stretch of it a link goes from (PLAN 2.70), which ⌘K shows, and
+    /// `code`, where it is code, its tab stops and its first line's number, which its keys read
+    /// (PLAN 2.139). Null for a node that is no text there.
     pub fn carets_json(&mut self, state: &str, node: &str) -> Result<serde_json::Value, Error> {
         let Some(c) = self.carets(state, node)? else { return Ok(serde_json::Value::Null) };
         let units = utf16(&c.text);
@@ -1484,7 +1572,7 @@ impl Session {
             }
             start = look.end;
         }
-        Ok(serde_json::json!({ "text": c.text, "lines": lines, "items": c.items, "links": links }))
+        Ok(serde_json::json!({ "text": c.text, "lines": lines, "items": c.items, "links": links, "code": c.code }))
     }
 
     /// What an inspector offers for `node` as `state` shows it (ADR-0013, PLAN 2.33): each
@@ -2705,6 +2793,47 @@ mod tests {
         s
     }
 
+    /// The cue a show goes on to, laid out while the state shown rests, is the one its frames
+    /// sample: its first frame lays nothing out, and draws as it would have. An edit lets it go
+    /// (lift-up PERF-1).
+    #[test]
+    fn the_cue_laid_out_ahead_is_the_one_its_frames_sample() {
+        let mut s = torture();
+        let slots = s.slots().unwrap();
+        let cued: Vec<String> = (slots.as_array().unwrap().iter())
+            .filter(|slot| slot["span"].as_f64().unwrap() > 0.0)
+            .map(|slot| slot["state"].as_str().unwrap().to_string())
+            .collect();
+        let (next, later) = (&cued[1], &cued[2]);
+        let half = |s: &mut Session, state: &str| {
+            let span = s.kept_timeline().unwrap().slot(state).unwrap().span;
+            s.frame(state, span / 2.0).unwrap()
+        };
+        let drawn = half(&mut torture(), next);
+        s.frame(&cued[0], f64::INFINITY).unwrap();
+        s.prepare(next).unwrap();
+        assert!(s.prepared.as_ref().is_some_and(|(state, _)| state == next), "laid out ahead");
+        assert_eq!(half(&mut s, next), drawn);
+        assert!(s.prepared.is_none() && s.transition.as_ref().is_some_and(|(state, _)| state == next), "taken");
+        // The cue shown is kept, and one with none needs nothing laid out.
+        s.prepare(next).unwrap();
+        assert!(s.prepared.is_none());
+        let still = (slots.as_array().unwrap().iter())
+            .find(|slot| slot["span"].as_f64().unwrap() == 0.0)
+            .map(|slot| slot["state"].as_str().unwrap().to_string());
+        if let Some(still) = still {
+            s.prepare(&still).unwrap();
+            assert!(s.prepared.is_none(), "{still} has no cue");
+        }
+        // An edit lets go of what was laid out ahead.
+        s.prepare(later).unwrap();
+        assert!(s.prepared.is_some());
+        let deck = s.deck.clone();
+        s.set_deck(deck);
+        assert!(s.prepared.is_none() && s.transition.is_none());
+        assert!(s.prepare("nowhere").is_err(), "a state the deck has not");
+    }
+
     /// A PNG header for a picture of `w` × `h`: all an image reads of one before it is drawn.
     fn png(w: u32, h: u32) -> Vec<u8> {
         let mut b = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR".to_vec();
@@ -3167,6 +3296,20 @@ mod tests {
         // A way that does not place a node is no target, and a node not on screen is an error.
         assert!(s.snap("containers", "stat-a", SnapMode::Move, cell, false).unwrap().is_none());
         assert!(s.targets("containers", "title").is_err());
+    }
+
+    /// Each slot says the words that head its state, which a slide list reads its row by (lift-up
+    /// 10-24b USE-4): the cover by its display line, the agenda by its headline.
+    #[test]
+    fn each_slot_says_its_headline() {
+        let mut s = trails();
+        let slots = s.slots().unwrap();
+        let headline = |state: &str| {
+            let slot = slots.as_array().unwrap().iter().find(|s| s["state"] == state).unwrap();
+            slot["headline"].clone()
+        };
+        assert_eq!(headline("cover"), "High Country Trails");
+        assert_eq!(headline("agenda"), "Tonight");
     }
 
     /// The trails example, the site's demo deck, its files handed over as a page hands them.
@@ -4386,8 +4529,115 @@ mod tests {
         s
     }
 
+    /// The code commands (PLAN 2.139), each one patch the deck takes: Make Code on prose with runs,
+    /// a list, `fit: wrap`, and a delta on a later step gives a valid code text in the code role,
+    /// its carets saying its tab stops; the looks, lists, and writing tools that code does not take
+    /// are refused on it; Tidy Code tidies it, a second time nothing; and Not Code, from its own
+    /// props and from a later step's delta, takes `code` away everywhere, the text in `body` again.
+    #[cfg(feature = "editor")]
+    #[test]
+    fn code_commands_make_and_take_code_and_tidy_it() {
+        use serde_json::json;
+        let by = || assistant::Caller { author: "user", at: None };
+        let mut s = revenue();
+        let taken = |s: &mut Session, patch: &[serde_json::Value]| {
+            let called = s.tool("deck_patch", json!({ "ops": patch }), by());
+            assert!(called.as_ref().is_ok_and(|c| c.edited), "{patch:?}: {:?}", called.map(|c| c.result));
+        };
+        // Prose with runs, a list, `fit: wrap`, and what a later step writes that code does not take.
+        let look = s.bolding("revenue", "note", 0, 7).unwrap();
+        taken(&mut s, &[json!({ "op": "style_text", "node": "note", "from": 0, "to": 7, "look": look })]);
+        taken(&mut s, &[json!({ "op": "list", "node": "note", "from": 0, "to": 1, "kind": "bullet" })]);
+        taken(
+            &mut s,
+            &[
+                json!({ "op": "add", "path": "/nodes/note/fit", "value": "wrap" }),
+                json!({ "op": "add", "path": "/states/1/props/note/hyphenate", "value": false }),
+            ],
+        );
+        assert!(s.deck.nodes["note"].props.contains_key("runs"));
+        let made = s.coding("note", Some("plain")).unwrap();
+        taken(&mut s, &made);
+        let note = &s.deck.nodes["note"].props;
+        assert_eq!(note.get("code"), Some(&json!({ "language": "plain" })));
+        assert_eq!(note.get("role"), Some(&json!("code")));
+        assert_eq!(note.get("text"), Some(&json!("Revenue in $M. Enterprise recognized on delivery.")));
+        for gone in ["runs", "list", "fit"] {
+            assert!(!note.contains_key(gone), "{gone} stays: {note:?}");
+        }
+        assert!(!s.deck.states[1].props["note"].contains_key("hyphenate"));
+        assert!(s.coding("note", None).is_err(), "code already");
+        // Its carets say its tab stops, its first line's number, and its language.
+        let carets = s.carets("revenue", "note").unwrap().unwrap();
+        assert_eq!(carets.code, Some(scaena_engine::carets::CaretCode { tab: 4, from: 1, language: "plain".into() }));
+        assert_eq!(
+            s.carets_json("revenue", "note").unwrap()["code"],
+            json!({ "tab": 4, "from": 1, "language": "plain" })
+        );
+        assert_eq!(s.carets_json("revenue", "title").unwrap()["code"], json!(null), "prose");
+        // What code does not take: a look of its own for some characters, a list, the writing tools.
+        for refused in [
+            json!({ "op": "style_text", "node": "note", "from": 0, "to": 3, "look": { "style/weight": 700 } }),
+            json!({ "op": "list", "node": "note", "from": 0, "to": 1, "kind": "number" }),
+        ] {
+            let called = s.tool("deck_patch", json!({ "ops": [refused.clone()] }), by());
+            assert!(called.is_err() || called.as_ref().is_ok_and(|c| !c.edited), "{refused}: taken");
+        }
+        let ask = writing::Ask {
+            kind: "proofread".into(),
+            state: "revenue".into(),
+            node: Some("note".into()),
+            finding: None,
+        };
+        assert!(s.writing(&ask).is_err(), "proofread on code");
+        // Tidy Code: its tabs to spaces, the white space after its lines and the indentation they
+        // share taken off; then nothing more.
+        taken(&mut s, &[json!({ "op": "replace", "path": "/nodes/note/text", "value": "\tx = 1   \n\t\ty = 2\n" })]);
+        let tidy = s.tidying("revenue", "note").unwrap();
+        assert!(!tidy.is_empty() && tidy.iter().all(|op| op["op"] == "replace_text"), "{tidy:?}");
+        taken(&mut s, &tidy);
+        assert_eq!(s.code_words("revenue", "note").unwrap(), s.tidied("\tx = 1   \n\t\ty = 2\n", "plain"));
+        assert!(s.tidying("revenue", "note").unwrap().is_empty(), "tidy again");
+        // Not Code, from its own props: no `code` anywhere, its role `body`.
+        let not = s.uncoding("note").unwrap();
+        taken(&mut s, &not);
+        assert!(!s.deck.nodes["note"].props.contains_key("code"));
+        assert_eq!(s.deck.nodes["note"].props.get("role"), Some(&json!("body")));
+        assert!(s.uncoding("note").is_err(), "no code");
+        // And from a later step's delta alone.
+        taken(&mut s, &[json!({ "op": "add", "path": "/states/1/props/note/code", "value": { "language": "rust" } })]);
+        assert!(s.carets("revenue", "note").unwrap().unwrap().code.is_some());
+        let not = s.uncoding("note").unwrap();
+        taken(&mut s, &not);
+        assert!(s.deck.states.iter().all(|st| st.props.get("note").is_none_or(|p| !p.contains_key("code"))));
+        assert!(s.carets("revenue", "note").unwrap().unwrap().code.is_none());
+    }
+
+    /// A key in a code text (PLAN 2.139), by its UTF-16 offsets as a page and Swift count them.
+    #[test]
+    fn a_code_key_counts_utf16_as_a_page_does() {
+        use serde_json::json;
+        assert_eq!(Session::keyed("é", 1, 1, "Tab", 4, None), Some(json!({ "text": "é   ", "from": 4, "to": 4 })));
+        // 𝑥 is two code units: the caret after it is at 2, and Return keeps the line's indentation.
+        assert_eq!(
+            Session::keyed("  𝑥", 4, 4, "Return", 4, None),
+            Some(json!({ "text": "  𝑥\n  ", "from": 7, "to": 7 }))
+        );
+        assert_eq!(Session::keyed("𝑥", 1, 1, "Tab", 4, None), None, "inside a character");
+        assert_eq!(Session::keyed("x", 0, 0, "Escape", 4, None), None, "no key code answers");
+        // The text's language: a Makefile's stop is a tab, a Go text indented with tabs keeps them.
+        assert_eq!(
+            Session::keyed("all:\n", 5, 5, "Tab", 4, Some("makefile")),
+            Some(json!({ "text": "all:\n\t", "from": 6, "to": 6 }))
+        );
+        assert_eq!(
+            Session::keyed("{\n\tx", 4, 4, "Tab", 4, Some("go")),
+            Some(json!({ "text": "{\n\tx\t", "from": 5, "to": 5 }))
+        );
+    }
+
     /// Find and replace across the deck's words (PLAN 2.47, 2.83): each text, and the beat's
-    /// claim and the chart's description, once for each place it is written; one match replaced
+    /// claim and the chart's description and axis title, once for each place it is written; one match replaced
     /// alone, where its text lives; and every match by the assistant's `deck_find`, one patch.
     #[cfg(feature = "editor")]
     #[test]
@@ -4405,9 +4655,11 @@ mod tests {
                 ("", "/spine/sections/1/beats/0/claim", 1),
                 ("title", "/states/1/props/title/text", 1),
                 ("rev", "/nodes/rev/alt", 1),
+                ("rev", "/nodes/rev/y/title", 1),
                 ("note", "/nodes/note/text", 1),
             ],
-            "Review, the claim's Revenue, Revenue doubled, the description's revenue, and Revenue in $M"
+            "Review, the claim's Revenue, Revenue doubled, the description's revenue, the axis's Revenue ($M), and \
+             Revenue in $M"
         );
         // One match, alone: the third place's first.
         let one = s.replacing(&query, "Inc", Some([2, 0])).unwrap();
@@ -4426,7 +4678,7 @@ mod tests {
         let called = s.tool("deck_find", serde_json::json!({ "find": "rev", "replace": "REV" }), by).unwrap();
         let result: serde_json::Value = serde_json::from_str(&called.result).unwrap();
         assert!(called.edited, "{result}");
-        assert_eq!(result["matches"], 4, "{result}");
+        assert_eq!(result["matches"], 5, "{result}");
         assert_eq!(result["replaced"]["applied"], true, "{result}");
         assert!(s.source().contains("Q3 REView"), "{}", s.source());
         assert!(

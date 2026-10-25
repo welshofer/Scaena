@@ -1,11 +1,11 @@
 // New from a prompt (PLAN G.5, ADR-0026): a deck written by Vzestup's Narrato model from what the
 // user asks, grounded in the files and links they give, with their own key, as `scaena generate`
 // makes one. It is made in an engine's worker of its own, which starts as the dialog opens and
-// loads the generator's module while the brief is written; Cancel stops it, and the deck open is
-// untouched until the new one opens, kept nowhere until it is saved.
+// loads the generator's module while the brief is written; Cancel stops it, asking first while it
+// runs, and the deck open is untouched until the new one opens, kept nowhere until it is saved.
 import { familySections } from "./theme-families";
-import { load, settings } from "./assistant/keys";
-import type { Choices, FromWorker, Generate, Generated, GeneratingEvent, Source, StoryOutline, ToWorker } from "./protocol";
+import { keep, load, settings, store, verdict } from "./assistant/keys";
+import type { Choices, FromWorker, Generate, Generated, GeneratingEvent, ProviderId, Source, StoryOutline, ToWorker } from "./protocol";
 import type { Engine } from "./stage";
 
 const $ = <T extends HTMLElement>(selector: string) => document.querySelector<T>(selector)!;
@@ -19,6 +19,9 @@ export function said(event: GeneratingEvent): string {
       return `Reading ${event.name}…`;
     case "read":
       return `Read ${event.name} (${event.what})`;
+    case "grounded":
+      if (event.kilobytes === 0) return `No room for ${event.name} (${event.what}): the sources before it took the million bytes they share`;
+      return `Grounded in ${event.name} (${event.what}, ${event.kilobytes} KB${event.cut ? ", cut short to fit" : ""})`;
     case "researching":
       return `Researching ${event.topic}… (minutes)`;
     case "researchingNow":
@@ -78,15 +81,19 @@ export function made(m: Generated): string {
 /** A source given: a file, or a link. */
 type Given = { file: File } | { link: string };
 
-/** Wire the dialog: `opener` opens it, and a deck made opens by `open`, its line by `tell`.
- * Changes not saved are asked about before a deck is made, not as it opens: what a model wrote
- * is never thrown away for them. */
+/** Wire the dialog: `opener` opens it, and a deck made opens by `open`, its story shown by
+ * `story`, which gives its score, and its line by `tell`. `models` lists the models a key can
+ * use, as the Assistant tab lists them (lift-up 10-24 USE-1): with no key kept, the dialog takes
+ * one in place, checks it, and keeps it as that tab does. Changes not saved are asked about
+ * before a deck is made, not as it opens: what a model wrote is never thrown away for them. */
 export function prompting(
   engine: Engine,
   opener: HTMLElement,
-  dirty: () => boolean,
+  unsaved: () => boolean,
   open: (source: Source) => Promise<void>,
+  story: () => Promise<number | undefined>,
   tell: (line: string) => void,
+  models: (provider: ProviderId, key: string, base?: string) => Promise<string[]>,
 ) {
   const dialog = $<HTMLDialogElement>("#prompting");
   const form = dialog.querySelector("form")!;
@@ -111,6 +118,12 @@ export function prompting(
   const who = $<HTMLParagraphElement>("#prompting-who");
   const progress = $<HTMLOListElement>("#prompting-progress");
   const go = $<HTMLButtonElement>("#prompting-go");
+  const keying = $<HTMLFieldSetElement>("#prompting-key");
+  const keyProvider = $<HTMLSelectElement>("#prompting-key-provider");
+  const keyValue = $<HTMLInputElement>("#prompting-key-value");
+  const keyModel = $<HTMLSelectElement>("#prompting-key-model");
+  const keyKeep = $<HTMLInputElement>("#prompting-key-keep");
+  const keySaid = $<HTMLParagraphElement>("#prompting-key-said");
   const showOutline = $<HTMLInputElement>("#prompting-show-outline");
   theme.replaceChildren(...familySections());
   // The outline before the slides (narrative FUNC-1): the arc, the big idea, and each beat's claim,
@@ -217,7 +230,10 @@ export function prompting(
   };
 
   const fill = (choices: Choices) => {
-    const options = (select: HTMLSelectElement, values: [string, string][], chosen: string) => {
+    // What was chosen stays chosen where the worker is started again, after a run failed.
+    const options = (select: HTMLSelectElement, values: [string, string][], fallback: string) => {
+      const was = select.value;
+      const chosen = select.options.length && values.some(([value]) => value === was) ? was : fallback;
       select.replaceChildren(...values.map(([value, label]) => new Option(label, value, false, value === chosen)));
     };
     options(goal, choices.goals.map((g) => [g, g]), choices.defaults.goal);
@@ -263,11 +279,70 @@ export function prompting(
     asking = { provider: s.provider, model: s.models[s.provider] ?? "", base: s.bases[s.provider], key: kept?.key };
     const names = { anthropic: "Anthropic", openai: "OpenAI", gemini: "Gemini" };
     if (!asking.key || !asking.model) {
-      who.textContent = `Narrato writes the deck with your own key: choose a provider, a model, and a key in the Assistant tab first.`;
+      who.textContent = `Narrato writes the deck with your own key: paste one below, and choose the model that writes it.`;
     } else {
       who.textContent = `Written by ${names[asking.provider]}'s ${asking.model}, with your key, which goes to ${names[asking.provider]} alone.`;
     }
     go.disabled = running || !asking.key || !asking.model;
+  };
+
+  // A key taken in place (lift-up 10-24 USE-1), where none is kept for the assistant's provider:
+  // checked by listing its models, as the Assistant tab checks one, then kept as that tab keeps it,
+  // for this tab or on this device, and the provider and model chosen become the assistant's.
+  const names: Record<ProviderId, string> = { anthropic: "Anthropic", openai: "OpenAI", gemini: "Gemini" };
+  let listing = 0;
+  const checked = async () => {
+    const asked = ++listing;
+    const p = keyProvider.value as ProviderId;
+    const key = keyValue.value.trim();
+    keyModel.replaceChildren();
+    if (!key) {
+      keySaid.textContent = `Paste ${names[p]}'s key: it goes from this page to ${names[p]} alone.`;
+      return whoWrites();
+    }
+    keySaid.textContent = `Checking the key with ${names[p]}…`;
+    let listed: string[] | Error;
+    try {
+      listed = await models(p, key, settings().bases[p]);
+    } catch (e) {
+      listed = e instanceof Error ? e : new Error(String(e));
+    }
+    if (asked !== listing) return;
+    keySaid.textContent = verdict(p, listed).said;
+    if (listed instanceof Error || !listed.length) return whoWrites();
+    keyModel.replaceChildren(...listed.map((m) => new Option(m, m)));
+    const picked = settings().models[p];
+    if (picked && listed.includes(picked)) keyModel.value = picked;
+    await store(p, key, keyKeep.checked);
+    chosen();
+    await whoWrites();
+  };
+  /** The provider and model chosen here, the assistant's from now on, as its tab keeps them. */
+  const chosen = () => {
+    const s = settings();
+    const p = keyProvider.value as ProviderId;
+    s.provider = p;
+    if (keyModel.value) s.models[p] = keyModel.value;
+    keep(s);
+  };
+  let typing: ReturnType<typeof setTimeout> | undefined;
+  keyValue.oninput = () => {
+    clearTimeout(typing);
+    typing = setTimeout(() => void checked(), 400);
+  };
+  keyProvider.onchange = async () => {
+    const kept = await load(keyProvider.value as ProviderId).catch(() => undefined);
+    keyValue.value = kept?.key ?? "";
+    keyKeep.checked = kept?.kept ?? false;
+    await checked();
+  };
+  keyModel.onchange = () => {
+    chosen();
+    void whoWrites();
+  };
+  keyKeep.onchange = () => {
+    const key = keyValue.value.trim();
+    if (key && keyModel.options.length) void store(keyProvider.value as ProviderId, key, keyKeep.checked);
   };
 
   const start = () => {
@@ -306,7 +381,13 @@ export function prompting(
     dialog.showModal();
     topic.focus();
     start();
-    void whoWrites();
+    // With no key kept for the assistant's provider, or no model chosen, the dialog asks for one.
+    void whoWrites().then(() => {
+      keying.hidden = Boolean(asking?.key && asking.model);
+      if (keying.hidden) return;
+      keyProvider.value = settings().provider;
+      void keyProvider.onchange?.(new Event("change"));
+    });
   };
   files.onchange = () => {
     given.push(...[...(files.files ?? [])].map((file) => ({ file })));
@@ -337,8 +418,16 @@ export function prompting(
     shown();
   };
 
-  // Cancel is no submit button, so Enter in a field generates rather than cancels.
-  $<HTMLButtonElement>("#prompting-cancel").onclick = () => dialog.close("cancel");
+  // Cancel is no submit button, so Enter in a field generates rather than cancels. While a deck
+  // is being made, Cancel and Escape ask first: closing drops what has been made so far, and the
+  // calls already paid for (lift-up 10-24 USE-2).
+  const stopping = () => !running || confirm("Stop making the deck? What has been made so far is lost.");
+  $<HTMLButtonElement>("#prompting-cancel").onclick = () => {
+    if (stopping()) dialog.close("cancel");
+  };
+  dialog.oncancel = (e) => {
+    if (!stopping()) e.preventDefault();
+  };
   // Closed, by Cancel, Escape, or a deck made, the worker stops: what it was making is dropped.
   dialog.onclose = () => {
     worker?.terminate();
@@ -353,7 +442,7 @@ export function prompting(
     if (running || !worker) return;
     await whoWrites();
     if (!asking?.key || !asking.model) return;
-    if (dirty() && !confirm("The bundle has changes not saved. Make a new deck, and lose them when it opens?")) return;
+    if (unsaved() && !confirm("The deck open is not saved. Make a new deck, and lose what is not saved when it opens?")) return;
     const job: Generate = {
       brief: {
         topic: topic.value.trim(),
@@ -415,7 +504,12 @@ export function prompting(
       const deck = await done;
       dialog.close("generated");
       await open({ files: deck.files, name: deck.name });
+      // What was made is said at once; the deck lands on its story (narrative USE-2): the arc's
+      // curve, the pacing against the brief, and each slide's fix, where Gamma lands on its
+      // outline, its score in the line as soon as the story is read.
       tell(made(deck.made));
+      const score = await story();
+      if (score !== undefined) tell(`${made(deck.made)} · story ${score} of 100`);
     } catch (err) {
       // Closed while it ran, it says nothing more.
       if (worker !== making) return;

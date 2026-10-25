@@ -25,6 +25,7 @@ members = [
   "crates/scaena-sources",
   "crates/scaena-objects",
   "crates/scaena-generator",
+  "crates/scaena-fence",
 ]
 default-members = [
   "crates/scaena-core",
@@ -51,6 +52,8 @@ authors = ["Jay Welshofer"]
 # 2.132): the engine's `code-tables` asks for them where the hyphenation patterns are asked for.
 scaena-core   = { path = "crates/scaena-core", default-features = false }
 scaena-pixels = { path = "crates/scaena-pixels" }
+# The deck's words fenced as data in a model's prompt, one fence for every prompt (lift-up SEC-3).
+scaena-fence  = { path = "crates/scaena-fence" }
 # Without its hyphenation patterns, which the editor's module leaves out (ADR-0015): a crate
 # that lays out natively asks for them.
 scaena-engine = { path = "crates/scaena-engine", default-features = false }

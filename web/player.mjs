@@ -24,6 +24,8 @@
 // - The end of the show (PLAN 2.120): going on past the last state turns the screen black and says
 //   the show has ended, the status too; ← shows the last slide again, going on again keeps it,
 //   and a click or Escape leaves it, back on the last slide, and in fullscreen out of it.
+// - A format the deck does not lay out in, and a promise no handler caught, are said in the
+//   player's status, the slide shown staying (lift-up STAB-5).
 // - The presenter view follows the player, shows the state's notes (its beat's, where it has
 //   none), and steers it: on, back, and with End and Home to the last and the first; and its own
 //   presenter's keys steer the room's screen, its laser pointed from the slide it shows, and drawn
@@ -32,7 +34,8 @@
 //   over its slide. Its timer pauses, runs on, and resets to 0:00, and the time of day stands
 //   beside it (PLAN 2.121); after a press on Resume, Space goes on and presses it no more. P again
 //   brings it to the front as it is, its timer running. Its notes scroll, long or short, the next
-//   state's from their top, and its buttons and its timer's stay in its window. With no player
+//   state's from their top, A+, A−, +, and - grow and shrink them, the size kept for the next view
+//   (lift-up USE-4), and its buttons and its timer's stay in its window. With no player
 //   open, or once the player closes, even as the view opens, it says so, every word of it, and
 //   its buttons wait until one is.
 // - A link at rest shows a hand under the pointer.
@@ -42,6 +45,8 @@
 //   screen wake lock and leaving it lets it go, one the browser let go while the page was hidden
 //   is asked for again as the page shows, and the presenter view holds one while it is open. The
 //   wake lock API is stood in for, headless Chromium having no screen to keep awake.
+// - Fullscreen, the pointer over the slide hides once it has rested two seconds, from the moment
+//   the show fills the screen, and shows again as it moves (lift-up ATTR-4).
 // - At 2560 × 1440 and twice the density (lift-up ATTR-2), the slide fills the room the bar
 //   leaves, and in fullscreen the screen, painted at the size it is shown in device pixels by
 //   WebGPU, and by the CPU painter at the canvas's own size, scaled up.
@@ -90,8 +95,10 @@ try {
   });
   const open = async (address) => {
     const page = await context.newPage();
-    page.on("pageerror", (e) => failures.push(`${address}: ${e.message}`));
-    page.on("console", (m) => m.type() === "error" && failures.push(`${address}: console: ${m.text()}`));
+    // The one promise left uncaught on purpose, to be said in the status (lift-up STAB-5).
+    const meant = (text) => text.includes("a promise no one caught");
+    page.on("pageerror", (e) => meant(e.message) || failures.push(`${address}: ${e.message}`));
+    page.on("console", (m) => m.type() === "error" && !meant(m.text()) && failures.push(`${address}: console: ${m.text()}`));
     await page.goto(address);
     await page.waitForFunction(() => window.scaena || document.querySelector("#status")?.textContent.startsWith("Error"), null, {
       timeout: 120000,
@@ -388,6 +395,20 @@ try {
   check((await wake(presenter)).held === 1, `the presenter view holds a screen wake lock while it is open: ${JSON.stringify(await wake(presenter))}`);
   check((await presenter.textContent("#notes")) === notes(1), `it shows ${states[1]}'s notes, its beat's`);
   check((await presenter.textContent("#nextName")) === `Next: ${slots[2].said}`, `it shows ${states[2]} next, by its slide's number: ${await presenter.textContent("#nextName")}`);
+  // The notes' size (lift-up USE-4): 20 px to start, A+ and + a step up, A− and - a step down,
+  // kept in this browser for the next presenter view; the player answers neither key.
+  const notesPx = (page) => page.evaluate(() => parseFloat(getComputedStyle(document.querySelector("#notes")).fontSize));
+  const startSize = await notesPx(presenter);
+  await presenter.click("#larger");
+  const clicked = await notesPx(presenter);
+  await presenter.keyboard.press("+");
+  const keyed = await notesPx(presenter);
+  await presenter.keyboard.press("-");
+  const back = await notesPx(presenter);
+  check(startSize === 20 && clicked === 24 && keyed === 28 && back === 24, `A+ and + make the notes larger, and - smaller: ${startSize}, ${clicked}, ${keyed}, then ${back} px`);
+  const atPlayer = (await player.evaluate(() => window.scaena.at())).index;
+  await player.keyboard.press("+");
+  check((await player.evaluate(() => window.scaena.at())).index === atPlayer, "the player itself answers no notes key");
   // Its timer (PLAN 2.121): Pause stops it where it stands, Reset puts it back to 0:00, paused as it
   // was, and Resume runs it on from there; the time of day stands beside it.
   const timer = () => presenter.evaluate(() => window.scaena.timer());
@@ -486,6 +507,29 @@ try {
   await turnTo("");
   const wide = await upright(false);
   check(tall && wide, `it paints the next state in the format the player shows, 9:16 and its own: ${tall}, ${wide}`);
+  // A format the deck does not lay out in, and a promise no handler caught (lift-up STAB-5): each is
+  // said in the player's status, the slide shown staying, and the player goes on.
+  const before = await player.evaluate(() => window.scaena.at().index);
+  await player.evaluate(() => {
+    const picker = document.querySelector("#format");
+    picker.add(new Option("1:1", "1:1"));
+    picker.value = "1:1";
+    picker.dispatchEvent(new Event("change"));
+  });
+  const refused = await player
+    .waitForFunction(() => document.querySelector("#status").textContent.startsWith("Error:"), null, { timeout: 15000 })
+    .then(() => player.evaluate(() => document.querySelector("#status").textContent), () => null);
+  check(refused?.includes("1:1") && (await player.evaluate(() => window.scaena.at().index)) === before, `a format the deck does not lay out in is said, the slide staying: ${refused}`);
+  await player.evaluate(() => {
+    const picker = document.querySelector("#format");
+    picker.remove(picker.options.length - 1);
+    void Promise.reject(new Error("a promise no one caught"));
+  });
+  const lost = await player
+    .waitForFunction(() => document.querySelector("#status").textContent === "Error: a promise no one caught", null, { timeout: 5000 })
+    .then(() => true, () => false);
+  check(lost, "a promise no handler caught is said in the status");
+  await turnTo("");
   // Its presenter's keys steer the player's screen (PLAN 2.105): B turns the room's black, and the
   // view says so; a key brings the slide back.
   await presenter.keyboard.press("b");
@@ -565,6 +609,7 @@ try {
     return m * 60 + s >= least && m * 60 + s;
   };
   await popup.waitForFunction(() => window.scaena?.follows?.(), null, { timeout: 120000 });
+  check((await notesPx(popup)) === 24, `a presenter view opened again keeps the notes' size: ${await notesPx(popup)} px`);
   await popup.waitForFunction(seconds, 2, { timeout: 15000, polling: 100 }).catch(() => {});
   let loads = 0;
   popup.on("framenavigated", (frame) => frame === popup.mainFrame() && loads++);
@@ -600,6 +645,22 @@ try {
     check(
       Math.abs(centred.top - (centred.room - centred.height) / 2) <= 1 && centred.background === "rgb(0, 0, 0)",
       `in the middle of the screen, on black: ${JSON.stringify(centred)}`,
+    );
+    // The pointer over the slide hides once it has rested two seconds, and shows as it moves
+    // (lift-up ATTR-4).
+    const cursor = () => player.evaluate(() => getComputedStyle(document.querySelector("#stage")).cursor);
+    await player.waitForTimeout(2300);
+    const entered = await cursor();
+    await player.mouse.move(400, 300);
+    await player.mouse.move(420, 310);
+    const moving = await cursor();
+    await player.waitForTimeout(2300);
+    const rested = await cursor();
+    await player.mouse.move(440, 320);
+    const moved = await cursor();
+    check(
+      entered === "none" && moving !== "none" && rested === "none" && moved !== "none",
+      `fullscreen, the pointer hides from the start and over the slide at rest, and shows as it moves: ${entered}, ${moving}, ${rested}, ${moved}`,
     );
     // At the end of the show, going on again keeps it, fullscreen; a click leaves fullscreen, on
     // the last slide (PLAN 2.120).
