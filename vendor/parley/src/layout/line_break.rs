@@ -597,6 +597,13 @@ impl<'a, B: Brush> BreakLines<'a, B> {
                         && text_wrap_mode == TextWrapMode::Wrap
                         // If we're at the start of the line, this particular cluster will never fit, so it's not a valid emergency break opportunity.
                         && self.state.line.x != 0.0
+                        // Scaena (ADR-0004 finding 26): no line starts with what may not start
+                        // one, nor ends with what may not end one (kinsoku shori).
+                        && !kinsoku::starts_no_line(cluster.info().source_char())
+                        && !(self.state.cluster_idx > cluster_start
+                            && run
+                                .get(self.state.cluster_idx - cluster_start - 1)
+                                .is_some_and(|before| kinsoku::ends_no_line(before.info().source_char())))
                         {
                             self.state.mark_emergency_break_opportunity();
                         }
@@ -1348,5 +1355,29 @@ fn reorder_line_items(runs: &mut [LineItemData]) {
             }
             i += 1;
         }
+    }
+}
+
+/// What may not stand at a line's edge, by Japanese line breaking's first rules (JIS X 4051's
+/// kinsoku shori, W3C's JLREQ): where an emergency break would put one there, it is passed over
+/// (Scaena, ADR-0004 finding 26). UAX #14 already keeps a line break off them; an emergency break,
+/// which `overflow-wrap: anywhere` allows before any cluster, did not.
+mod kinsoku {
+    /// A mark that closes or follows: a comma, a stop, a closing bracket, the prolonged sound
+    /// mark, the iteration mark, or a small kana. No line starts with one.
+    pub(super) fn starts_no_line(c: char) -> bool {
+        matches!(
+            c,
+            '、' | '。' | '，' | '．' | '・' | '：' | '；' | '？' | '！' | '」' | '』' | '）' | '］' | '｝' | '】'
+                | '〕' | '〉' | '》' | '〙' | '〗' | '〟' | '’' | '”' | 'ー' | '々' | '〻' | 'ゝ' | 'ゞ' | 'ヽ' | 'ヾ'
+                | 'ぁ' | 'ぃ' | 'ぅ' | 'ぇ' | 'ぉ' | 'っ' | 'ゃ' | 'ゅ' | 'ょ' | 'ゎ' | 'ゕ' | 'ゖ'
+                | 'ァ' | 'ィ' | 'ゥ' | 'ェ' | 'ォ' | 'ッ' | 'ャ' | 'ュ' | 'ョ' | 'ヮ' | 'ヵ' | 'ヶ'
+                | ',' | '.' | ':' | ';' | '?' | '!' | ')' | ']' | '}'
+        ) || matches!(u32::from(c), 0x31F0..=0x31FF)
+    }
+
+    /// An opening bracket or quotation mark. No line ends with one.
+    pub(super) fn ends_no_line(c: char) -> bool {
+        matches!(c, '「' | '『' | '（' | '［' | '｛' | '【' | '〔' | '〈' | '《' | '〘' | '〖' | '〝' | '‘' | '“' | '(' | '[' | '{')
     }
 }
