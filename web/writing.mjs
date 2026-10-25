@@ -63,6 +63,9 @@ const SILENT = "Q3 Review";
 /** Anthropic's Messages API, scripted, on a port of its own: each request it took. */
 async function provider() {
   const requests = [];
+  /** `hold`: how long each answer waits before it is sent; `aborted`: the requests the page gave
+   * up on before their answer was sent (lift-up PERF-4). */
+  const state = { hold: 0, aborted: 0 };
   const server = createServer(async (req, res) => {
     const cors = {
       "access-control-allow-origin": req.headers.origin ?? "*",
@@ -83,10 +86,20 @@ async function provider() {
     // The model answers nothing for the title's words, as one that refuses or runs out of room does.
     const silent = asked === SILENT || asked.startsWith(`The text:\n${SILENT}\n`);
     const answer = system.startsWith("You rewrite") && silent ? "" : (ANSWERS.find(([starts]) => system.startsWith(starts))?.[1] ?? "I do not know that task.");
+    if (state.hold) {
+      const gone = await new Promise((ok) => {
+        const timer = setTimeout(() => ok(false), state.hold);
+        res.once("close", () => {
+          clearTimeout(timer);
+          ok(!res.writableEnded);
+        });
+      });
+      if (gone) return void state.aborted++;
+    }
     reply(200, { content: [{ type: "text", text: answer }], stop_reason: "end_turn", usage: { input_tokens: 120, output_tokens: 20 } });
   }).listen(0, "127.0.0.1");
   await new Promise((ok) => server.once("listening", ok));
-  return { origin: `http://127.0.0.1:${server.address().port}`, requests, close: () => server.close() };
+  return { origin: `http://127.0.0.1:${server.address().port}`, requests, state, close: () => server.close() };
 }
 
 const site = await serve();
@@ -190,6 +203,20 @@ try {
   await page.click("#writing-leave");
   await page.evaluate(() => window.scaena.writing.settled());
   check((await source()) === original && !(await dialog()).open, "Leave it changes nothing");
+
+  // 3a. A question whose dialog closes before its answer comes is stopped (lift-up PERF-4): the
+  // provider's request is given up, not run to its end and paid for.
+  scripted.state.hold = 20000;
+  const held = scripted.requests.length;
+  await tool("tighten", "subtitle");
+  await page.waitForFunction(() => /^Asking /.test(document.querySelector("#writing-thinking").textContent), null, { timeout: 30000 });
+  for (let i = 0; i < 100 && scripted.requests.length === held; i++) await new Promise((ok) => setTimeout(ok, 50));
+  await page.click("#writing-leave");
+  for (let i = 0; i < 100 && scripted.state.aborted === 0; i++) await new Promise((ok) => setTimeout(ok, 50));
+  scripted.state.hold = 0;
+  check(scripted.requests.length > held && scripted.state.aborted === 1, `the dialog closed stops its request: ${scripted.state.aborted} stopped`);
+  await page.evaluate(() => window.scaena.writing.settled());
+  check((await source()) === original && !(await dialog()).open, "and changes nothing");
 
   // 4a. A rewrite in the person's own words (lift-up FUNC-3): the field asks again, Return as the
   // button, with the claim of the slide's beat beside it. Tighten offers no such field.

@@ -1360,6 +1360,9 @@ export type ToWorker =
   | { type: "models"; id: number; provider: ProviderId; key: string; base?: string }
   /** Ask a model once, with the user's key and nothing to call (PLAN 2.101): its words. */
   | { type: "write"; id: number; call: WritingCall }
+  /** Stop the `write` asked as `id`, its dialog closed (lift-up PERF-4): the provider's request is
+   * aborted, so a long answer no one will read is not run to its end and paid for. */
+  | { type: "stopWrite"; id: number }
   /** What to ask a model for one slide at `place`, with the person's `ask` (lift-up FUNC-1). */
   | { type: "slideAsk"; id: number; place: SlidePlace; ask: string }
   /** The slide a model's `answer` holds, written at `place` by `author` as the deck's generator

@@ -930,8 +930,15 @@ export class Stage {
     }));
   }
 
-  write(call: WritingCall): Promise<{ text: string; usage?: { input: number; output: number } }> {
-    return this.request<"wrote">({ type: "write", id: ++this.asked, call }).then(({ text, usage }) => ({ text, usage }));
+  /** Ask a model once, with the user's key and nothing to call (PLAN 2.101): its words. `signal`,
+   * aborted, stops the request in the worker (lift-up PERF-4). */
+  write(call: WritingCall, signal?: AbortSignal): Promise<{ text: string; usage?: { input: number; output: number } }> {
+    const id = ++this.asked;
+    const stop = () => this.send({ type: "stopWrite", id });
+    signal?.addEventListener("abort", stop, { once: true });
+    return this.request<"wrote">({ type: "write", id, call })
+      .then(({ text, usage }) => ({ text, usage }))
+      .finally(() => signal?.removeEventListener("abort", stop));
   }
 
   /** The words an editor shows for `state` (PLAN 2.99): each object it shows named by what it
