@@ -650,7 +650,9 @@ async function look(
   hear: (event: GeneratingEvent) => void,
 ) {
   const layouts = JSON.stringify((JSON.parse(making.report()) as { layouts: string[] }).layouts);
-  const seen = generation.seeing(theme.text, placed, layouts);
+  // Each title's room, measured by the engine's module, so a topic may become its claim (lift-up
+  // FUNC-2).
+  const seen = generation.seeing(theme.text, placed, layouts, making.rooms());
   // A slide that would not draw for the model to see, as a deck the model asked for that cannot be
   // made again, leaves the deck as it was, saying why (narrative STAB-3): the look is a polish.
   try {
