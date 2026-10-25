@@ -517,6 +517,13 @@ private func keychainWritable() -> Bool {
     let accessible = (found as? [String: Any])?[kSecAttrAccessible as String] as? String
     #expect(accessible == kSecAttrAccessibleWhenUnlockedThisDeviceOnly as String)
     #expect(keychain.key(for: .openai) == "sk-one")
+    // Replaced in place, never taken away first (lift-up 10-24b REL-5): the same item, still kept
+    // to this device, holds the new key.
+    try keychain.set("sk-two", for: .openai)
+    #expect(keychain.key(for: .openai) == "sk-two")
+    var again: CFTypeRef?
+    #expect(SecItemCopyMatching(query as CFDictionary, &again) == errSecSuccess)
+    #expect((again as? [String: Any])?[kSecAttrAccessible as String] as? String == accessible)
 }
 
 /// Each tool the MCP server serves (`docs/schema/mcp`) has a person's words for the window (PLAN
