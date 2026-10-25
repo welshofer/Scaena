@@ -594,6 +594,9 @@ jobs:
       - run: node web/generate.mjs
       # The Story tab leads with what to do first and folds the rest, counted by kind (lift-up S1).
       - run: node web/story.mjs
+      # A claim a headline typed on the canvas leaves behind is offered restated beside the status,
+      # standing over what the status says next until the source changes (lift-up FUNC-2).
+      - run: node web/restate.mjs
       # A first deck as a person makes one, from New to a deck that plays, exports, and opens
       # again, by the editor's buttons, menus, keys, and drops alone (PLAN 2.76).
       - run: node web/first-deck.mjs
