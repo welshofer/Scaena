@@ -26,7 +26,19 @@ use serde_json::Value;
 pub fn look_props(node_type: NodeType) -> &'static [&'static str] {
     match node_type {
         NodeType::Text => {
-            &["role", "style/family", "style/weight", "style/italic", "style/size", "style/color", "style/case"]
+            &[
+                "role",
+                "style/family",
+                "style/weight",
+                "style/italic",
+                "style/size",
+                "style/color",
+                "style/case",
+                // Code's card and numbers (PLAN 2.136), which a code text alone is offered.
+                "code/numbers",
+                "code/start",
+                "code/card",
+            ]
         }
         NodeType::Shape => &["fill", "stroke/paint", "stroke/width", "radius", "shadow"],
         NodeType::Image => &[

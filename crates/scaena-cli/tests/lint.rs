@@ -221,8 +221,9 @@ fn chart_text_is_judged_in_its_color_over_what_the_chart_paints() {
 /// the node's own.
 #[test]
 fn code_is_judged_at_the_colors_it_is_drawn_in() {
+    // Code on no card: its colors are held to the surface (PLAN 2.136).
     let code = serde_json::json!({
-        "type": "text", "role": "body", "code": { "language": "rust" },
+        "type": "text", "role": "body", "code": { "language": "rust", "card": false },
         "text": "fn main() {\n    let greeting = \"hello\"; // says hi\n}", "at": { "in": "main" }
     });
     let keywords_in_line =
@@ -236,7 +237,15 @@ fn code_is_judged_at_the_colors_it_is_drawn_in() {
     let bad = contrast(&found);
     assert!(!bad.is_empty() && bad.iter().all(|f| f["path"] == "/nodes/n"), "{found:#?}");
     assert!(bad[0]["hint"].as_str().unwrap().contains("theme's code colors"), "{:#?}", bad[0]);
-    assert!(bad[0].get("fix").is_none(), "{:#?}", bad[0]);
+    // Its fix is its card, which its colors are held to read on (PLAN 2.136).
+    let fix = bad[0]["fix"].as_array().unwrap_or_else(|| panic!("{:#?}", bad[0]));
+    assert!(fix.iter().any(|op| op["path"] == "/nodes/n/code/card" && op["value"] == true), "{fix:#?}");
+    // On its card, it reads over the light shape, which the card lies over.
+    let mut carded = code.clone();
+    carded["code"]["card"] = true.into();
+    let over = deck(serde_json::json!({}), serde_json::json!({ "under": light, "n": carded }));
+    let (_, found) = lint(&bundle("code-carded", &over, keywords_in_line));
+    assert!(contrast(&found).is_empty(), "{found:#?}");
 }
 
 #[test]

@@ -543,3 +543,17 @@ fn a_deck_saved_before_code_stood_on_a_card_draws_as_it_did() {
     assert_eq!(old.nodes["n"].props["code"]["card"], json!(false));
     assert!(placed(&old, "n").frame.is_none());
 }
+
+#[test]
+fn code_on_a_card_collides_by_its_card() {
+    // PLAN 2.136: what E101 judges code on a card by is its card, which its words stand inside.
+    let at = json!({ "rect": [100, 100, 1200, 600] });
+    let carded = framed("let x = 1;", at.clone(), json!({}));
+    let card = placed(&deck(json!({ "n": carded.clone() })), "n").frame.unwrap().card.unwrap().rect;
+    // A label over the card's right edge, clear of its words by most of the inset.
+    let label = json!({ "type": "text", "role": "body", "text": "Note", "at": { "rect": [card[0] + card[2] - 12.0, card[1] + 8.0, 300, 80] } });
+    let collides =
+        |n: Value| lint(&deck(json!({ "n": n, "label": label.clone() }))).iter().any(|(c, _, _)| c == "E101");
+    assert!(collides(carded), "the label stands on the card");
+    assert!(!collides(code("let x = 1;", at)), "with no card, it is clear of the words");
+}
