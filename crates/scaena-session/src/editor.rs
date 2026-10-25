@@ -352,6 +352,15 @@ impl Session {
         Compiling { error: None, findings, states, valid }
     }
 
+    /// The beats whose claim a slide said in the deck `before` compiles to and says no longer in
+    /// the deck now, each with the `replace` that restates it in the slide's words (lift-up
+    /// FUNC-2): what an editor asks once a burst of typing ends, `before` the source as it began,
+    /// since typing is validated but not linted. None where `before` does not make a deck.
+    pub fn restated(&self, before: &str) -> Vec<scaena_core::claims::Restated> {
+        let before = compile_renamed(before, &Handed(&self.files), &self.renamed).ok().and_then(|c| c.deck());
+        before.map_or_else(Vec::new, |before| scaena_ops::patch::between(&before, &self.deck))
+    }
+
     /// Lint the deck compiled last: validation, the document rules, and the layout rules in
     /// every format, laid out by the session's engine. With `only`, the layout rules lay out
     /// that state alone, the one being edited, so the answer comes at once (PLAN 2.3); the
@@ -1026,8 +1035,8 @@ mod tests {
         let before = s.pixels("revenue", f64::INFINITY, 160).unwrap();
         let listed = s.starters_painted("revenue", 90, None).unwrap();
         let layouts: Vec<&str> = listed.iter().map(|one| one["layout"].as_str().unwrap_or("blank")).collect();
-        assert_eq!(layouts.len(), 176, "Dusk's 175 layouts, then a blank slide: {layouts:?}");
-        assert_eq!((layouts[0], layouts[175]), ("title", "blank"));
+        assert_eq!(layouts.len(), 177, "Dusk's 176 layouts, then a blank slide: {layouts:?}");
+        assert_eq!((layouts[0], layouts[176]), ("title", "blank"));
         let bullets = &listed[layouts.iter().position(|l| *l == "bullets").unwrap()];
         assert_eq!(bullets["description"], "A headline, and the points that make its case.");
         assert_eq!((bullets["name"].as_str(), bullets["group"].as_str()), (Some("Bullets"), Some("Lists")));
@@ -1039,7 +1048,7 @@ mod tests {
         let fine = &listed[layouts.iter().position(|l| *l == "fine-print").unwrap()];
         assert_eq!(fine["also"], serde_json::json!(["Disclosures"]), "Fine Print, by Disclosures (PLAN S.3)");
         assert!(
-            listed[175]["name"].is_null() && listed[175]["description"].is_null() && listed[175]["group"].is_null()
+            listed[176]["name"].is_null() && listed[176]["description"].is_null() && listed[176]["group"].is_null()
         );
         let mut pictures: Vec<scaena_paint::Raster> = Vec::new();
         for (i, one) in listed.iter().enumerate() {

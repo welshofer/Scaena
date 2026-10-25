@@ -385,6 +385,41 @@ pub fn held(color: [u8; 3], ground: [u8; 3], ratio: f64) -> [u8; 3] {
     bytes(Lch { l, ..start })
 }
 
+/// The ratio a line of code out of focus is held to (ADR-0029, call 3; SPEC §7.5): set back on
+/// purpose by a walkthrough, it reads at 3:1, WCAG's ratio for large text, and lint holds it so.
+pub const SET_BACK: f64 = LARGE;
+
+/// How far a walkthrough sets back the lines out of focus where the theme says not (ADR-0029):
+/// each token's color 0.55 of the way toward its ground.
+pub const DIM: f64 = 0.55;
+
+/// `color` set back toward `ground` by `dim`, 0 to 1, as a walkthrough sets back the lines out of
+/// focus (PLAN 2.140, ADR-0029): its Oklch lightness and chroma moved that far toward the
+/// ground's, its hue kept, so a keyword stays a keyword's color, only fainter. It goes no further
+/// than [`SET_BACK`]:1 on `ground`: where the whole way would go under, as far as it can and read
+/// so, bisected as [`held`] bisects. A color already under it is as it is.
+pub fn dimmed(color: [u8; 3], ground: [u8; 3], dim: f64) -> [u8; 3] {
+    let lin = linear();
+    if contrast(&lin, color, ground) <= SET_BACK || dim <= 0.0 {
+        return color;
+    }
+    let (from, to) = (lch_of(color), lch_of(ground));
+    let at = |t: f64| bytes(Lch { l: from.l + t * (to.l - from.l), c: from.c + t * (to.c - from.c), h: from.h });
+    let dim = dim.min(1.0);
+    if contrast(&lin, at(dim), ground) >= SET_BACK {
+        return at(dim);
+    }
+    let (mut near, mut far) = (0.0, dim);
+    for _ in 0..32 {
+        let mid = (near + far) / 2.0;
+        match contrast(&lin, at(mid), ground) >= SET_BACK {
+            true => near = mid,
+            false => far = mid,
+        }
+    }
+    at(near)
+}
+
 /// [`held`] at [`STRONG`] where `ground` allows it, else at [`READS`].
 pub fn held_strong(color: [u8; 3], ground: [u8; 3]) -> [u8; 3] {
     let strong = held(color, ground, STRONG);
@@ -688,6 +723,42 @@ mod tests {
         let (was, now) = (lch_of(rgb(accent.was.as_str().unwrap())), lch_of(rgb(accent.now.as_str().unwrap())));
         assert!(now.l < was.l - 0.05, "darker: {was:?} → {now:?}");
         assert!(apart(now.h, read.hues[0].degrees) < 3.0, "the photo's hue: {now:?}");
+    }
+
+    /// A line out of focus is set back toward its ground (PLAN 2.140, ADR-0029): fainter, its hue
+    /// kept, never under 3:1; the whole way where that reads so, else as far as it can and still
+    /// read; and a color already under 3:1 as it is.
+    #[test]
+    fn a_line_out_of_focus_is_set_back_never_under_three_to_one() {
+        let mut seed = 0x9E37_79B9_7F4A_7C15u64;
+        let mut byte = || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            (seed >> 32) as u8
+        };
+        for ground in [rgb("#101014"), rgb("#FBFAF6"), rgb("#29292E"), rgb("#DFDDD5")] {
+            for _ in 0..300 {
+                let color = held([byte(), byte(), byte()], ground, READS);
+                let set = dimmed(color, ground, DIM);
+                let was = ratio(color, ground);
+                if was <= SET_BACK {
+                    assert_eq!(set, color);
+                    continue;
+                }
+                assert!(ratio(set, ground) >= SET_BACK, "{color:?} on {ground:?}: {set:?}");
+                assert!(ratio(set, ground) < was, "{color:?} on {ground:?} is set back: {set:?}");
+                let (from, to) = (lch_of(color), lch_of(set));
+                if from.c > 0.05 && to.c > 0.02 {
+                    assert!(apart(from.h, to.h) < 6.0, "{color:?} keeps its hue: {set:?}");
+                }
+            }
+            // No dim, no change; a full dim stops at 3:1.
+            let text = held(rgb("#C0C0C0"), ground, STRONG);
+            assert_eq!(dimmed(text, ground, 0.0), text);
+            let all = dimmed(text, ground, 1.0);
+            assert!(ratio(all, ground) >= SET_BACK && ratio(all, ground) < SET_BACK + 0.25, "{all:?}");
+        }
     }
 
     /// A color code is drawn in is held to read on its ground by the least step of lightness

@@ -101,6 +101,19 @@ pub struct Generated {
     /// Why the model did not look at the deck drawn, or what it asked was not kept.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub unlooked: Option<String>,
+    /// Each change the model asked that lint found its slide worse for, not kept (lift-up USE-4).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub refused: Vec<Refused>,
+}
+
+/// A change the model asked on a slide it saw, which lint found the slide worse for and which was
+/// not kept (lift-up USE-4): the slide's number, what was asked, and what lint found, each said
+/// in a person's words. The deck keeps them (`meta.narrative.refused`), and its Story says them.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Refused {
+    pub slide: usize,
+    pub what: String,
+    pub why: String,
 }
 
 fn is_zero(n: &usize) -> bool {
@@ -420,11 +433,21 @@ pub fn provenance(given: &[Given]) -> Vec<Provenance> {
 /// slide names a source the deck was not grounded in. A name is matched as written, then with
 /// case and spaces set aside, then as the source's address.
 fn cited(sources: &[Provenance], named: &str) -> Option<String> {
-    let loose = |s: &str| s.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase();
-    let source = (sources.iter().find(|s| s.name == named))
-        .or_else(|| sources.iter().find(|s| loose(&s.name) == loose(named)))
-        .or_else(|| sources.iter().find(|s| s.url.as_deref() == Some(named)))?;
+    let source = source_named(sources, named)?;
     Some(source.url.clone().unwrap_or_else(|| format!("{}{}", scaena_core::document::SOURCE_CITED, source.name)))
+}
+
+/// The source a slide names, of those the deck was grounded in: matched as written, then with
+/// case and spaces set aside, then as the source's address.
+fn source_named<'a>(sources: &'a [Provenance], named: &str) -> Option<&'a Provenance> {
+    (sources.iter().find(|s| s.name == named))
+        .or_else(|| sources.iter().find(|s| loose(&s.name) == loose(named)))
+        .or_else(|| sources.iter().find(|s| s.url.as_deref() == Some(named)))
+}
+
+/// `s` with its runs of spaces one and its letters small, to match a name as a person means it.
+fn loose(s: &str) -> String {
+    s.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase()
 }
 
 /// A data source kept from a sheet, or why it was not.
@@ -981,9 +1004,16 @@ pub fn looked(
     let Some(after) = make(&changes)? else { return unchanged(before, invalid) };
     let refused = worse((&before.0, &before.1), (&after.0, &after.1));
     if refused.is_empty() {
-        return Ok(adopt(before.0, after, changes, &[]));
+        return Ok(adopt(before.0, after, changes, Vec::new()));
     }
+    // Each change let go, said with what lint found (lift-up USE-4).
+    let said = refusals(&changes, &refused, (&before.0, &before.1), (&after.0, &after.1));
     let kept = kept(changes, &refused);
+    let unchanged = |before: (Generated, Write), why: &str| {
+        let (mut made, mut write) = unchanged(before, why)?;
+        refuse(&mut made, &mut write, said.clone());
+        Ok((made, write))
+    };
     if kept.is_empty() {
         return unchanged(before, &unkept(refused.len()));
     }
@@ -991,7 +1021,7 @@ pub fn looked(
     if !worse((&before.0, &before.1), (&again.0, &again.1)).is_empty() {
         return unchanged(before, "lint found a slide the model changed worse for it");
     }
-    Ok(adopt(before.0, again, kept, &refused))
+    Ok(adopt(before.0, again, kept, said))
 }
 
 /// What lint finds wrong with each slide of a made deck, in all its states: its errors, and its
@@ -1022,6 +1052,78 @@ pub fn worse(before: (&Generated, &Write), after: (&Generated, &Write)) -> Vec<u
     (0..was.len().min(now.len())).filter(|i| now[*i].0 > was[*i].0 || now[*i].1 > was[*i].1).collect()
 }
 
+/// What `change` asked, in a person's words: "the layout Two Columns and the title “Ready to
+/// scale”".
+pub fn asked(change: &Change) -> String {
+    let mut parts = Vec::new();
+    if let Some(layout) = change.layout.as_deref().filter(|l| !l.is_empty()) {
+        parts.push(format!("the layout {layout}"));
+    }
+    if let Some(title) = &change.title {
+        parts.push(format!("the title \u{201c}{title}\u{201d}"));
+    }
+    if let Some(subtitle) = &change.subtitle {
+        parts.push(format!("the subtitle \u{201c}{subtitle}\u{201d}"));
+    }
+    if change.bullets.is_some() {
+        parts.push("new points".into());
+    }
+    match parts.as_slice() {
+        [] => "a change".into(),
+        [one] => one.clone(),
+        [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
+    }
+}
+
+/// The changes on the slides `refused` names by index, which lint found worse in `after` than in
+/// `before` ([`worse`]), each with what it asked and the first thing lint found on the slide that
+/// it did not before, errors first (lift-up USE-4).
+pub fn refusals(
+    changes: &[Change],
+    refused: &[usize],
+    before: (&Generated, &Write),
+    after: (&Generated, &Write),
+) -> Vec<Refused> {
+    use scaena_core::Severity;
+    let on = |made: &Generated, write: &Write, index: usize| -> Vec<Finding> {
+        let slides = write.deck.slides();
+        let Some(states) = slides.get(index) else { return Vec::new() };
+        let ids: Vec<&str> = states.iter().map(|k| write.deck.states[*k].id.as_str()).collect();
+        (made.created.findings.iter())
+            .filter(|f| f.severity != Severity::Info && f.state.as_deref().is_some_and(|s| ids.contains(&s)))
+            .cloned()
+            .collect()
+    };
+    (refused.iter())
+        .map(|&index| {
+            let was = on(before.0, before.1, index);
+            let mut new: Vec<Finding> = (on(after.0, after.1, index).into_iter())
+                .filter(|f| !was.iter().any(|w| w.code == f.code && w.node == f.node))
+                .collect();
+            scaena_core::sort::by_key(&mut new, |f| f.severity != Severity::Error);
+            let why = (new.first())
+                .map(|f| scaena_core::words::said(&f.code, f.measure.as_ref()).unwrap_or_else(|| f.message.clone()))
+                .unwrap_or_else(|| "lint found the slide worse for it".into());
+            let what = (changes.iter()).find(|c| c.slide == index + 1).map(asked).unwrap_or_else(|| "a change".into());
+            Refused { slide: index + 1, what, why }
+        })
+        .collect()
+}
+
+/// `refused` kept as the report says them and as the deck keeps them, in `meta.narrative.refused`,
+/// which its Story reads (lift-up USE-4).
+pub fn refuse(made: &mut Generated, write: &mut Write, refused: Vec<Refused>) {
+    if refused.is_empty() {
+        return;
+    }
+    let meta = write.deck.meta.get_or_insert_with(Default::default);
+    let narrative = meta.extra.entry("narrative".to_string()).or_insert_with(|| json!({}));
+    if let Some(narrative) = narrative.as_object_mut() {
+        narrative.insert("refused".into(), json!(refused));
+    }
+    made.refused = refused;
+}
+
 /// `changes` less those on the slides `refused` names by index.
 pub fn kept(mut changes: Vec<Change>, refused: &[usize]) -> Vec<Change> {
     changes.retain(|c| !c.slide.checked_sub(1).is_some_and(|index| refused.contains(&index)));
@@ -1050,16 +1152,23 @@ pub fn unkept(n: usize) -> String {
 }
 
 /// The deck `after` made with the model's `kept` changes, standing for `before`'s: the arc's
-/// fallback and the pictures carried over, and `refused` said.
-pub fn adopt(before: Generated, after: (Generated, Write), kept: Vec<Change>, refused: &[usize]) -> (Generated, Write) {
-    let (mut made, write) = after;
+/// fallback and the pictures carried over, and the changes `refused` said and kept with it.
+pub fn adopt(
+    before: Generated,
+    after: (Generated, Write),
+    kept: Vec<Change>,
+    refused: Vec<Refused>,
+) -> (Generated, Write) {
+    let (mut made, mut write) = after;
     made.fallback = before.fallback;
     made.pictures = before.pictures;
     made.unpictured = before.unpictured;
     made.looked = kept;
     if !refused.is_empty() {
-        made.unlooked = Some(as_made(refused));
+        let slides: Vec<usize> = refused.iter().map(|r| r.slide - 1).collect();
+        made.unlooked = Some(as_made(&slides));
     }
+    refuse(&mut made, &mut write, refused);
     (made, write)
 }
 
@@ -1615,6 +1724,7 @@ pub fn making(
         unpictured: Vec::new(),
         looked: Vec::new(),
         unlooked: None,
+        refused: Vec::new(),
     };
     let Some(mut write) = write else { return Ok((made, None)) };
     let nothing = scaena_store::Files::Zip(Default::default());
@@ -1985,6 +2095,10 @@ fn assemble(
             idea: (narrative.outline.as_ref()).map(|o| o.big_idea.trim()).filter(|i| !i.is_empty()),
             icons,
             lang: lang.unwrap_or("en"),
+            grounded: (slide.source_ref.as_deref())
+                .and_then(|named| source_named(&narrative.sources, named))
+                .map(|s| if s.name.trim().is_empty() { s.url.as_deref().unwrap_or_default() } else { s.name.as_str() })
+                .filter(|n| !n.trim().is_empty()),
         };
         let last = first + i + 1 == total;
         let peak = peaked == Some(i);
@@ -2954,7 +3068,15 @@ fn layout_for(
         "quadrant" => "quadrants",
         // A system's parts in tiers, each joined to what it calls (dogfood pass 7).
         "architecture" if tiers(items).is_some() => "architecture",
-        // A decision put to the room: its items the brief's parts, else what they are.
+        // A decision put to the room: its items the brief's parts, else what they are. With no
+        // bottom line (`supportingFacts`), its band under the headline would stand empty: its four
+        // parts go on four cards, each titled by its label (dogfood 8a F2).
+        "decision-brief"
+            if briefed(items) && slide.supporting_facts.as_deref().is_some_and(|f| !f.trim().is_empty()) =>
+        {
+            "decision-brief"
+        }
+        "decision-brief" if briefed(items) && n == 4 && theme.layouts.contains_key("four-cards") => "four-cards",
         "decision-brief" if briefed(items) => "decision-brief",
         // Questions each with its answer are an FAQ's; one question with answers to choose from,
         // a quiz.
@@ -3021,6 +3143,8 @@ fn layout_for(
         "manifesto" => "manifesto",
         // With no picture to show, the people stand by name, under the headline, with no band
         // left empty for their faces.
+        // Three or fewer by name, each on a card down the slide; more, three by two.
+        "team" if !pictured && n <= 3 => "team-names-three",
         "team" if !pictured => "team-names",
         "team" => match n {
             0..=3 => "team",
@@ -3780,6 +3904,9 @@ struct Slots<'a> {
     icons: Option<Vec<&'a Icon>>,
     /// The deck's language (BCP 47).
     lang: &'a str,
+    /// The name of the source the slide was grounded in, where it names one the deck was given:
+    /// its title, else its address (lift-up 20261025 FUNC-3).
+    grounded: Option<&'a str>,
 }
 
 /// What one slide added beyond its nodes: the data source its chart reads, and the steps its
@@ -4040,8 +4167,24 @@ impl Slots<'_> {
     /// A chart's caption: its source, else the slide's supporting fact. What it shows is its
     /// value axis's title, which a caption never says again.
     fn caption(&self) -> Option<String> {
-        let chart = self.slide.chart_data.as_ref()?;
-        (chart.source_id.as_deref().filter(|s| !s.trim().is_empty())).map(|s| self.sourced(s)).or_else(|| self.fact())
+        self.slide.chart_data.as_ref()?;
+        self.credit().or_else(|| self.fact())
+    }
+
+    /// "Source: …": the source the model wrote for the slide's chart, the one the slide was
+    /// grounded in, or both where they differ, the model's words first (lift-up 20261025 FUNC-3).
+    fn credit(&self) -> Option<String> {
+        let wrote = (self.slide.chart_data.as_ref())
+            .and_then(|c| c.source_id.as_deref())
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
+        let said = match (wrote, self.grounded) {
+            (Some(w), Some(g)) if !loose(w).contains(&loose(g)) => format!("{w} \u{b7} {g}"),
+            (Some(w), _) => w.to_string(),
+            (None, Some(g)) => g.to_string(),
+            (None, None) => return None,
+        };
+        Some(self.sourced(&said))
     }
 
     fn fact(&self) -> Option<String> {
@@ -4135,6 +4278,11 @@ impl Slots<'_> {
             (Some((_, "title" | "criterion")), "label") => at_least("body"),
             // A journey's phases and lanes, over and beside its cells, likewise.
             (Some((_, "phase" | "lane")), "label") if self.layout == "journey" => at_least("body"),
+            // A team's names, as large as their cards take, toward three-quarters of the
+            // headline, so four names never outshout the slide's title; the set held to one.
+            (Some((_, "title")), "title") if self.layout.starts_with("team-names") => {
+                self.under_headline().filter(|most| size(role).is_some_and(|own| *most > own))
+            }
             // A checklist's states are what it is for: as large as their places take, toward the
             // lede, never left the smallest words on the slide (dogfood pass 7).
             (Some((_, "state")), "label") if self.layout == "checklist" => at_least("lede"),
@@ -4341,23 +4489,30 @@ impl Slots<'_> {
             }
             "under" | "detail" => self.fact().or_else(|| self.item(1).map(|i| i.whole.clone())),
             // A chart's source, in a place of its own beside its note (dogfood pass 4).
-            "source" => self.caption(),
+            "source" => self.caption().or_else(|| self.credit()),
             // A note beside a place for the source: the slide's fact where the source took none of it.
             "note" if self.has("source") && self.slide.chart_data.is_some() => {
-                let sourced = (self.slide.chart_data.as_ref().and_then(|c| c.source_id.as_deref()))
-                    .is_some_and(|s| !s.trim().is_empty());
-                if sourced { self.fact() } else { None }
+                if self.credit().is_some() {
+                    self.fact()
+                } else {
+                    None
+                }
             }
             "note" if layout.ends_with("chart") && self.slide.chart_data.is_some() => self.caption(),
             "note" => {
-                let source = self.slide.chart_data.as_ref().and_then(|c| c.source_id.clone()).map(|s| self.sourced(&s));
                 // What the headline leaves to say, where the layout has no place of its own for it
                 // and the slide is no chart's, whose value axis says it: a source or a fact stays
                 // first, never stacked with it.
                 let placed = ["subtitle", "support", "dek", "follow", "talk", "lede"].iter().any(|n| self.has(n));
                 let chart = self.slide.chart_data.is_some();
                 let fallback = if layout == "full" || (!placed && !chart) { self.subtitle() } else { None };
-                source.or_else(|| self.fact()).or(fallback)
+                // A chart's source first, as its caption says it; on a slide with no chart, the
+                // source it was grounded in only where none of the writer's words takes the place
+                // (lift-up 20261025 FUNC-3).
+                match chart {
+                    true => self.credit().or_else(|| self.fact()).or(fallback),
+                    false => self.fact().or(fallback).or_else(|| self.credit()),
+                }
             }
             "story" | "details" => (!self.items.is_empty()).then(|| self.wholes().join("\n")),
             "body" | "needs" | "method" => {
@@ -4656,7 +4811,7 @@ impl Slots<'_> {
                 })
             }
             // "Name, role: credit".
-            ("team" | "team-four" | "team-six" | "team-names", _, Some((k, part)))
+            ("team" | "team-four" | "team-six" | "team-names" | "team-names-three", _, Some((k, part)))
                 if part != "art" && part != "card" =>
             {
                 let item = self.item(k)?;
@@ -4982,7 +5137,10 @@ impl Builder {
                             // A few short lines of words alone in a large place, a card's own words
                             // or a term's meaning, grow toward three-quarters of the headline, never
                             // past it, as a short list does (dogfood pass 4).
-                            let own = (matches!(ordinal(name), Some((_, ""))) && !s.figured(name))
+                            // What a team's person does stays a step under their name: to the lede.
+                            let own = (matches!(ordinal(name), Some((_, "")))
+                                && !s.figured(name)
+                                && !s.layout.starts_with("team-names"))
                                 || s.alone(name, role).is_some();
                             let most = match own && words_role(role) && short(&text) {
                                 true => s.under_headline().map_or(most, |h| h.max(most)),
@@ -7084,6 +7242,60 @@ mod tests {
         assert!(caps[0] == caps[1] && caps[0] < 48.0 && held[2].is_none(), "shrunk together: {held:?}");
     }
 
+    /// A team by name fills its place: its names grow toward three-quarters of the headline and
+    /// what each person does to the lede, each set held to one size; a team of three or fewer
+    /// takes Small Team by Name, each card down the slide, so it never sits in the slide's top
+    /// half. Six stand three by two.
+    #[test]
+    fn a_team_by_name_grows_and_a_small_one_takes_cards_down_the_slide() {
+        let people = [
+            "Maya Chen, CEO: ran Gulf operations at a top-three carrier",
+            "Ade Okafor, CTO: built direct air capture at scale",
+            "Luis Ortega, COO: scaled ports across three continents",
+            "Priya Nair, CFO: took two climate funds public",
+            "Tom Becker, VP Sales: sold freight to the Fortune 100",
+            "Ana Silva, Head of Science: led the ocean storage trials",
+        ];
+        let (summary, slides) = catalog();
+        for file in ["dusk", "ember"] {
+            let theme: Theme = serde_json::from_str(
+                &std::fs::read_to_string(root().join(format!("docs/examples/themes/{file}.theme.json"))).unwrap(),
+            )
+            .unwrap();
+            let size = |r: &str| theme.typography.roles[r].size;
+            for n in [2, 3, 6] {
+                let mut slide = slides.iter().find(|s| s.layout_suggestion == "Team").unwrap().clone();
+                slide.key_bullets = people[..n].iter().map(|p| p.to_string()).collect();
+                let made = deck(
+                    &narrative(&summary, vec![slides[0].clone(), slide, slides[55].clone()]),
+                    &theme,
+                    &Pictures::new(),
+                )
+                .unwrap();
+                let layout = if n <= 3 { "team-names-three" } else { "team-names" };
+                assert_eq!(made.layouts[1], layout, "{file}, {n}");
+                let state = made.deck["states"][1]["id"].as_str().unwrap();
+                let node = |slot: &str| made.deck["nodes"][format!("{state}-{slot}")].clone();
+                let (name, does) = (node("first-title"), node("first"));
+                // Each in its slot, as health, tracking, and the inspectors read it.
+                assert_eq!(name["at"], json!({ "in": "first-title" }), "{file}, {n}");
+                assert_eq!(does["at"], json!({ "in": "first" }), "{file}, {n}");
+                // A name grows only where the theme sets it under three-quarters of the headline.
+                let grows = (size("headline") * 0.75 > size("title")).then_some(size("headline") * 0.75);
+                assert_eq!(name["maxSize"].as_f64(), grows, "{file}, {n}: {name:#}");
+                assert_eq!(does["maxSize"].as_f64(), Some(size("lede").min(size("title"))), "{file}, {n}: {does:#}");
+            }
+            // The small team's cards run down both of Team by Name's rows of cards, the name over
+            // the split its rows of cards make and what they do under it.
+            let rows = |layout: &str, slot: &str| json!(theme.layouts[layout].slots[slot].row);
+            let span = |slot: &str| serde_json::from_value::<[u32; 2]>(rows("team-names", slot)).unwrap();
+            let ([top, upper], [lower, foot]) = (span("first-card"), span("fourth-card"));
+            assert_eq!(rows("team-names-three", "first-card"), json!([top, foot]), "{file}");
+            assert_eq!(rows("team-names-three", "first-title"), json!([top, upper]), "{file}");
+            assert_eq!(rows("team-names-three", "first"), json!([lower, foot]), "{file}");
+        }
+    }
+
     /// Short words in a large place grow to fill it (dogfood pass 4): each side's list of a
     /// pros and cons, each month's of a roadmap, as one set; a slide's one short list past the
     /// lede, under its headline still. Prices each with a tier go on a pricing slide, the tier
@@ -7854,21 +8066,28 @@ mod tests {
         has(&said, "client-second", "iOS app");
         has(&said, "service-second", "Billing");
         has(&said, "second-call", "shape");
-        // A decision brief: each card titled by its label, the bottom line the slide's fact.
-        let (layout, said) = made(
-            serde_json::json!({ "slideTitle": "We keep the cache in-process, not in Redis", "layoutSuggestion": "Decision Brief",
-                "keyBullets": ["Decision: keep hot prices in each pod's memory for 30 seconds",
-                    "Why: one network hop fewer, and no new cluster to run",
-                    "Trade-off: a price change can take up to 30 seconds to reach every pod",
-                    "Ask: approve 30 s as the standard staleness for pricing"] }),
-            "en",
-        );
-        assert_eq!(layout, "decision-brief");
+        // A decision brief with no bottom line would leave the band under its headline empty: its
+        // four parts go on four cards instead, each titled by its label (dogfood 8a F2).
+        let briefless = serde_json::json!({ "slideTitle": "We keep the cache in-process, not in Redis",
+            "layoutSuggestion": "Decision Brief",
+            "keyBullets": ["Decision: keep hot prices in each pod's memory for 30 seconds",
+                "Why: one network hop fewer, and no new cluster to run",
+                "Trade-off: a price change can take up to 30 seconds to reach every pod",
+                "Ask: approve 30 s as the standard staleness for pricing"] });
+        let (layout, said) = made(briefless.clone(), "en");
+        assert_eq!(layout, "four-cards");
         has(&said, "first-title", "Decision");
         has(&said, "first", "Keep hot prices in each pod\u{2019}s memory for 30 seconds");
         has(&said, "fourth-title", "Ask");
-        lacks(&said, "bottom");
-        lacks(&said, "bottom-card");
+        // With its bottom line, it is a decision brief: each card titled by its label, the bottom
+        // line the slide's fact.
+        let mut bottomed = briefless;
+        bottomed["supportingFacts"] = serde_json::json!("Thirty seconds of staleness, for one hop and no cluster.");
+        let (layout, said) = made(bottomed, "en");
+        assert_eq!(layout, "decision-brief");
+        has(&said, "first-title", "Decision");
+        has(&said, "fourth-title", "Ask");
+        has(&said, "bottom", "Thirty seconds of staleness, for one hop and no cluster.");
         // The theme's mark over the third card marks a recommendation, which "Trade-off" is not.
         lacks(&said, "mark");
         let (_, said) = made(
@@ -9199,6 +9418,39 @@ mod tests {
         after.created.findings.push(long);
         assert_eq!(worse((&made, &write), (&after, &write)), vec![3]);
         assert_eq!(kept(made.looked.clone(), &[13]).len(), 1);
+        // The change let go is said with what lint found, and kept by the deck, whose Story says
+        // it (lift-up USE-4).
+        let asked_for = Change {
+            slide: 4,
+            layout: Some("Two Columns".into()),
+            title: Some("Heat, mapped".into()),
+            bullets: Some(vec!["Hotter".into()]),
+            why: "Two sides.".into(),
+            ..Change::default()
+        };
+        assert_eq!(asked(&asked_for), "the layout Two Columns, the title \u{201c}Heat, mapped\u{201d} and new points");
+        let said = refusals(&[asked_for], &[3], (&made, &write), (&after, &write));
+        let why = scaena_core::words::said("W203", None).unwrap();
+        assert_eq!(
+            said,
+            [Refused {
+                slide: 4,
+                what: "the layout Two Columns, the title \u{201c}Heat, mapped\u{201d} and new points".into(),
+                why: why.clone(),
+            }]
+        );
+        let (mut kept_made, mut kept_write) = (made.clone(), write.clone());
+        refuse(&mut kept_made, &mut kept_write, said.clone());
+        assert_eq!(kept_made.refused, said);
+        let meta = &kept_write.deck.meta.as_ref().unwrap().extra["narrative"];
+        assert_eq!(meta["refused"][0]["slide"], 4);
+        assert_eq!(meta["arc"], deck["meta"]["narrative"]["arc"], "the rest of the narrative stands");
+        let story = crate::health::health(&kept_write.deck).unwrap();
+        let look: Vec<_> = story.findings.iter().filter(|f| f.kind == crate::health::Kind::Look).collect();
+        assert_eq!(look.len(), 1);
+        assert_eq!((look[0].slide, look[0].severity), (4, scaena_core::Severity::Info));
+        assert!(look[0].says.starts_with("Slide 4 was kept as made: the model asked for the layout Two Columns"));
+        assert!(look[0].says.ends_with(&why), "{}", look[0].says);
     }
 
     /// A long deck is shown to the model a dozen slides at a time (narrative PERF-5): each round
@@ -9847,6 +10099,46 @@ mod tests {
         assert!(write.unwrap().deck.to_value().unwrap()["meta"]["narrative"].get("sources").is_none());
     }
 
+    /// A chart's slide grounded in a source the deck was given credits it where it shows its
+    /// source: the source's name where the model gave none, after the model's words where both
+    /// differ, once where they agree. A slide with no chart keeps its writer's words in its place
+    /// (lift-up 20261025 FUNC-3).
+    #[test]
+    fn a_slide_credits_the_source_it_was_grounded_in() {
+        let notes = source("notes.md", Kind::Markdown, "# Tidewater\nShipping emits about 3% of CO2.");
+        let g = grounding(&[notes], Provider::Anthropic).unwrap();
+        let (summary, mut slides) = catalog();
+        slides.truncate(8);
+        let made = |slides: Vec<Slide>| -> Vec<String> {
+            let mut n = narrative(&summary, slides);
+            n.sources = provenance(&g.given);
+            let (_, write) = generating(&n, Path::new("dusk.theme.json"), dusk(), &font).unwrap();
+            let deck = write.unwrap().deck.to_value().unwrap();
+            let mut said: Vec<String> = deck["nodes"].as_object().unwrap().values().map(words).collect();
+            said.retain(|w| !w.is_empty());
+            said.sort();
+            said
+        };
+        let plain = made(slides.clone());
+        let credits = |said: &[String]| -> Vec<String> {
+            said.iter().filter(|w| w.starts_with("Source: ")).cloned().collect::<Vec<_>>()
+        };
+        assert_eq!(credits(&plain), ["Source: Ecosystem Marketplace", "Source: ITF Transport Outlook"]);
+        for i in [3, 6, 7] {
+            slides[i].source_ref = Some("notes.md".into());
+        }
+        // The model's source dropped on one chart, and kept on the other.
+        slides[6].chart_data.as_mut().unwrap().source_id = None;
+        let grounded = made(slides.clone());
+        assert_eq!(credits(&grounded), ["Source: ITF Transport Outlook \u{b7} notes.md", "Source: notes.md"]);
+        // The slide with no chart says what its writer wrote, as it did.
+        let fact = plain.iter().find(|w| w.starts_with("International Maritime Organization")).unwrap();
+        assert!(grounded.contains(fact), "{grounded:?}");
+        // Where the model's words already name the source, it is said once.
+        slides[7].chart_data.as_mut().unwrap().source_id = Some("Notes.md, Tidewater".into());
+        assert!(credits(&made(slides)).contains(&"Source: Notes.md, Tidewater".to_string()));
+    }
+
     #[test]
     fn each_sheet_given_is_kept_as_a_data_source_of_the_deck() {
         let (summary, slides) = catalog();
@@ -10102,6 +10394,7 @@ mod tests {
             &theme,
             slides[20].clone(),
             &Place::After(before[1].clone()),
+            None,
             BTreeMap::new(),
             &no_files(),
         )
@@ -10130,7 +10423,8 @@ mod tests {
         let story: Vec<_> = found.iter().filter(|f| matches!(f.code.as_str(), "W426" | "W429")).collect();
         assert!(story.is_empty(), "{story:#?}");
         // At the end, it goes after every slide, in the last section.
-        let end = slide_into(&doc, &theme, slides[20].clone(), &Place::End, BTreeMap::new(), &no_files()).unwrap();
+        let end =
+            slide_into(&doc, &theme, slides[20].clone(), &Place::End, None, BTreeMap::new(), &no_files()).unwrap();
         let after = patched(&doc, &end.patch);
         assert_eq!(firsts(&after).last(), Some(&end.states[0]));
     }
@@ -10154,6 +10448,7 @@ mod tests {
             &theme,
             slides[8].clone(),
             &Place::Replace(before[1].clone()),
+            None,
             BTreeMap::new(),
             &no_files(),
         )
@@ -10221,7 +10516,8 @@ mod tests {
         let (_, slides) = catalog();
         let first = doc["states"][0]["id"].as_str().unwrap().to_string();
         let written =
-            slide_into(&doc, &theme, slides[8].clone(), &Place::After(first), BTreeMap::new(), &no_files()).unwrap();
+            slide_into(&doc, &theme, slides[8].clone(), &Place::After(first), None, BTreeMap::new(), &no_files())
+                .unwrap();
         let files = scaena_store::Files::Dir(root().join("docs/examples"));
         let view = View { base: &files, pending: BTreeMap::new() };
         let after = scaena_core::patch::compile(&doc, &written.patch, &view).unwrap().doc;
@@ -10239,9 +10535,16 @@ mod tests {
         let (doc, files) = deck_at("tests/bench/b3.scaena/deck.json");
         let theme: Theme = serde_json::from_str(&dusk()).unwrap();
         let (_, slides) = catalog();
-        let written =
-            slide_into(&doc, &theme, slides[8].clone(), &Place::Replace("s1".into()), BTreeMap::new(), &no_files())
-                .unwrap();
+        let written = slide_into(
+            &doc,
+            &theme,
+            slides[8].clone(),
+            &Place::Replace("s1".into()),
+            None,
+            BTreeMap::new(),
+            &no_files(),
+        )
+        .unwrap();
         let after = patched_in(&doc, &written.patch, &files);
         others_kept(&doc, &after, &["s1"]);
         for id in ["grain", "kicker", "quote"] {
@@ -10249,16 +10552,30 @@ mod tests {
         }
         // The charts example's later slides keep the note the first shows them.
         let (doc, files) = deck_at("docs/examples/charts.deck.json");
-        let written =
-            slide_into(&doc, &theme, slides[20].clone(), &Place::Replace("bars".into()), BTreeMap::new(), &no_files())
-                .unwrap();
+        let written = slide_into(
+            &doc,
+            &theme,
+            slides[20].clone(),
+            &Place::Replace("bars".into()),
+            None,
+            BTreeMap::new(),
+            &no_files(),
+        )
+        .unwrap();
         let after = patched_in(&doc, &written.patch, &files);
         others_kept(&doc, &after, &["bars"]);
         assert!(after["nodes"].get("note").is_some());
         // And one written after a slide changes none of the rest.
-        let written =
-            slide_into(&doc, &theme, slides[20].clone(), &Place::After("stack".into()), BTreeMap::new(), &no_files())
-                .unwrap();
+        let written = slide_into(
+            &doc,
+            &theme,
+            slides[20].clone(),
+            &Place::After("stack".into()),
+            None,
+            BTreeMap::new(),
+            &no_files(),
+        )
+        .unwrap();
         others_kept(&doc, &patched_in(&doc, &written.patch, &files), &[]);
     }
 
@@ -10277,7 +10594,7 @@ mod tests {
         slide.chart_data = None;
         let read = read_by(&files);
         let written =
-            slide_into(&doc, &theme, slide, &Place::Replace("revenue".into()), BTreeMap::new(), &read).unwrap();
+            slide_into(&doc, &theme, slide, &Place::Replace("revenue".into()), None, BTreeMap::new(), &read).unwrap();
         let after = patched_in(&doc, &written.patch, &files);
         let first = &written.states[0];
         // Every other slide shows what it showed, the link now to the slide written.
@@ -10313,6 +10630,7 @@ mod tests {
             &theme,
             slides[20].clone(),
             &Place::After(before[1].clone()),
+            None,
             BTreeMap::new(),
             &no_files(),
         )
@@ -10322,17 +10640,165 @@ mod tests {
         assert!(state.get("transition").is_some(), "it enters after the slide before it: {state:#}");
     }
 
+    /// A deck made by hand with slides and no spine keeps none; the slide's notes, which a beat
+    /// would hold, go on its first state, so none are dropped (lift-up M1, changed from #637's
+    /// "makes none" with no notes kept).
     #[test]
-    fn a_slide_added_to_a_deck_with_no_spine_makes_none() {
+    fn a_slide_added_to_a_hand_made_deck_with_no_spine_makes_none_and_keeps_its_notes() {
         let (doc, files) = deck_at("docs/examples/charts.deck.json");
         let theme: Theme = serde_json::from_str(&dusk()).unwrap();
         let (_, slides) = catalog();
+        let slide = slides[20].clone();
+        assert!(!slide.speaker_notes.is_empty());
         let written =
-            slide_into(&doc, &theme, slides[20].clone(), &Place::After("bars".into()), BTreeMap::new(), &no_files())
+            slide_into(&doc, &theme, slide.clone(), &Place::After("bars".into()), None, BTreeMap::new(), &no_files())
                 .unwrap();
         let after = patched_in(&doc, &written.patch, &files);
         assert!(after.get("spine").is_none());
         assert_eq!(written.beat, "");
+        let first = after["states"].as_array().unwrap().iter().find(|s| s["id"] == written.states[0].as_str()).unwrap();
+        assert_eq!(first["notes"], json!(slide.speaker_notes));
+    }
+
+    /// `deck_create`'s deck, as an agent over MCP starts one: its blank slide, and no spine.
+    fn blank(doc: &Value) -> Value {
+        let mut blank = doc.clone();
+        let fields = blank.as_object_mut().unwrap();
+        fields.remove("spine");
+        fields.remove("data");
+        fields.insert("nodes".into(), json!({}));
+        fields.insert("states".into(), json!([{ "id": "start" }]));
+        blank
+    }
+
+    /// A deck written slide by slide over MCP has its story (lift-up M1): the first slide takes the
+    /// place of `deck_create`'s blank one and begins the spine, a section holding its beat, with
+    /// its claim and its notes; the next slide's beat follows it there.
+    #[test]
+    fn a_slide_written_into_a_blank_deck_takes_its_place_and_begins_the_spine() {
+        let (doc, theme, slides) = made_of(&[0]);
+        let doc = blank(&doc);
+        let written =
+            slide_into(&doc, &theme, slides[0].clone(), &Place::End, None, BTreeMap::new(), &no_files()).unwrap();
+        let after = patched(&doc, &written.patch);
+        assert_eq!(firsts(&after), [written.states[0].clone()], "the blank slide is gone");
+        let beats = after["spine"]["sections"][0]["beats"].as_array().unwrap();
+        assert_eq!(beats.len(), 1);
+        assert_eq!(beats[0]["id"], json!(written.beat));
+        assert_eq!(beats[0]["states"], json!(written.states));
+        assert_eq!(beats[0]["notes"], json!(slides[0].speaker_notes));
+        assert!(beats[0]["media"]["narrato"].is_object(), "what health reads: {:#}", beats[0]);
+        // The next one at the end gets a beat after it, in the spine begun.
+        let next =
+            slide_into(&after, &theme, slides[8].clone(), &Place::End, None, BTreeMap::new(), &no_files()).unwrap();
+        let after = patched(&after, &next.patch);
+        let ids: Vec<&str> = (after["spine"]["sections"].as_array().unwrap().iter())
+            .flat_map(|s| s["beats"].as_array().unwrap())
+            .map(|b| b["id"].as_str().unwrap())
+            .collect();
+        assert_eq!(ids, [written.beat.as_str(), next.beat.as_str()]);
+        assert_eq!(firsts(&after).len(), 2);
+    }
+
+    /// A slide told in a beat the spine planned joins it (lift-up M1): the beat keeps its claim
+    /// and what else it says, and takes the slide's notes and Narrato's fields where it has none;
+    /// no beat of the slide's own is added. A beat the spine lacks, or one with `replace`, refuses.
+    #[test]
+    fn a_slide_written_in_a_planned_beat_joins_it() {
+        let (doc, theme, slides) = made_of(&[0]);
+        let mut doc = blank(&doc);
+        doc["spine"] = json!({ "sections": [{ "id": "why", "title": "Why", "beats": [
+            { "id": "stakes", "claim": "The stakes are higher than they look", "states": [] },
+            { "id": "answer", "claim": "One change answers it", "states": [], "evidence": ["the audit"] },
+        ] }] });
+        let written =
+            slide_into(&doc, &theme, slides[8].clone(), &Place::End, Some("answer"), BTreeMap::new(), &no_files())
+                .unwrap();
+        assert_eq!(written.beat, "answer");
+        let after = patched(&doc, &written.patch);
+        let beats = after["spine"]["sections"][0]["beats"].as_array().unwrap();
+        assert_eq!(beats.len(), 2, "no beat of its own: {beats:#?}");
+        let answer = &beats[1];
+        assert_eq!(answer["claim"], "One change answers it");
+        assert_eq!(answer["evidence"], json!(["the audit"]));
+        assert_eq!(answer["states"], json!(written.states));
+        assert_eq!(answer["notes"], json!(slides[8].speaker_notes));
+        assert!(answer["media"]["narrato"].is_object());
+        assert_eq!(beats[0]["states"], json!([]), "the other beat is as it was");
+        assert_eq!(firsts(&after), [written.states[0].clone()], "it takes the blank slide's place");
+        let refused = |place: &Place, beat: &str| {
+            slide_into(&doc, &theme, slides[8].clone(), place, Some(beat), BTreeMap::new(), &no_files()).unwrap_err()
+        };
+        assert!(refused(&Place::End, "nowhere").to_string().contains("no beat `nowhere`"));
+        assert!(refused(&Place::Replace("start".into()), "answer").to_string().contains("not both"));
+        // A spine planned with the blank slide in its first beat, as `spine_update` sees the deck
+        // `deck_create` made: the blank leaves the beat as it leaves the deck, the slide takes its
+        // place there, and the beat names no state the deck lacks.
+        doc["spine"]["sections"][0]["beats"][0]["states"] = json!(["start"]);
+        let written =
+            slide_into(&doc, &theme, slides[0].clone(), &Place::End, Some("stakes"), BTreeMap::new(), &no_files())
+                .unwrap();
+        // The beat as the patch writes it, before `remove_slide` runs, already lists the slide's
+        // states and not the blank's (the review of #741).
+        let op = written.patch.iter().find(|op| op["path"] == "/spine/sections/0/beats/0").unwrap();
+        assert_eq!(op["value"]["states"], json!(written.states), "{op:#}");
+        let after = patched(&doc, &written.patch);
+        assert_eq!(after["spine"]["sections"][0]["beats"][0]["states"], json!(written.states));
+        assert_eq!(firsts(&after), [written.states[0].clone()]);
+    }
+
+    /// A slide written for a grounded deck is asked with the deck's one idea, the claim its
+    /// outline settled for the slide's beat (not the spine's, the old headline), the sources it
+    /// credits, named only, and the rows of the data it keeps, told apart (lift-up 10-25b FUNC-1).
+    #[test]
+    fn a_slide_for_a_grounded_deck_is_asked_with_its_idea_its_settled_claim_and_its_sources() {
+        let (mut doc, files) = deck_at("docs/examples/revenue.deck.json");
+        // A deck made by hand credits no source, and its data's rows are given all the same.
+        let plain = one_asked(&doc, &Place::Replace("revenue".into()), "", &read_by(&files)).unwrap();
+        assert_eq!(plain.big_idea, None);
+        let rows = plain.sources.unwrap();
+        assert!(rows.starts_with("The data the deck keeps, its rows given:\n`q3`: quarter, product"), "{rows}");
+        doc["meta"]["narrative"] = json!({
+            "sources": [{ "name": "Q3 board pack", "kind": "file", "url": "https://example.com/q3", "bytes": 10, "truncated": false }],
+            "outline": { "bigIdea": "Pro carries the business now.", "beats": [
+                { "name": "Open", "claim": "The quarter changed us", "slides": 1 },
+                { "name": "Growth", "claim": "Pro tripled while Core held", "slides": 2 },
+            ] },
+        });
+        let asked = one_asked(&doc, &Place::Replace("revenue".into()), "", &read_by(&files)).unwrap();
+        assert_eq!(asked.big_idea.as_deref(), Some("Pro carries the business now."));
+        assert_eq!(asked.claim.as_deref(), Some("Pro tripled while Core held"), "the outline's, by its section");
+        let sources = asked.sources.unwrap();
+        // The credited sources, named only, then the data the deck keeps, told apart.
+        assert!(
+            sources.starts_with(
+                "The sources the deck credits, named only (their text is not given here):\n- Q3 board pack (https://example.com/q3)"
+            ),
+            "{sources}"
+        );
+        assert!(
+            sources
+                .contains("\n\nThe data the deck keeps, its rows given:\n`q3`: quarter, product, revenue, customers")
+        );
+        // By the beat's index into the outline, where Narrato's fields keep one.
+        doc["spine"]["sections"][1]["beats"][0]["media"]["narrato"] = json!({ "beatIndex": 0 });
+        let indexed = one_asked(&doc, &Place::Replace("revenue".into()), "", &read_by(&files)).unwrap();
+        assert_eq!(indexed.claim.as_deref(), Some("The quarter changed us"));
+    }
+
+    /// A slide written into a grounded deck cites the source its `sourceRef` names in its beat's
+    /// evidence, as a made deck's slides do (lift-up 10-25b FUNC-1).
+    #[test]
+    fn a_slide_written_into_a_grounded_deck_cites_its_source() {
+        let (mut doc, theme, slides) = made_of(&[0, 8]);
+        doc["meta"]["narrative"]["sources"] = json!([{ "name": "Q3 board pack", "kind": "file", "url": "https://example.com/q3", "bytes": 10, "truncated": false }]);
+        let mut slide = slides[12].clone();
+        slide.source_ref = Some("Q3 board pack".into());
+        let written = slide_into(&doc, &theme, slide, &Place::End, None, BTreeMap::new(), &no_files()).unwrap();
+        let after = patched(&doc, &written.patch);
+        let (s, b, _) = beat_of(&after, &written.states[0]);
+        let evidence = &after["spine"]["sections"][s]["beats"][b]["evidence"];
+        assert!(evidence.as_array().unwrap().iter().any(|e| e == "https://example.com/q3"), "{evidence}");
     }
 
     #[test]

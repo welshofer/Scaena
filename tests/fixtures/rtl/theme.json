@@ -1,5 +1,5 @@
 {
-  "scaena-theme": "0.27",
+  "scaena-theme": "0.28",
   "name": "Dusk, right to left",
   "description": "Dusk with Noto Sans Arabic and Noto Sans Hebrew last in its text families' fallbacks, its italics left out, and the layouts its decks use: the PLAN T.5a fixtures' theme. Written by scripts/build_rtl_decks.py.",
   "tokens": {
@@ -392,7 +392,10 @@
         "wrap": "greedy",
         "box": "line",
         "measure": 72,
-        "minSize": 24
+        "minSize": 24,
+        "features": {
+          "calt": false
+        }
       }
     }
   },
@@ -1603,6 +1606,14 @@
   },
   "density": {
     "maxWordsPerState": 40
+  },
+  "code": {
+    "card": {
+      "shadow": "soft"
+    },
+    "focus": {
+      "dim": 0.55
+    }
   },
   "pictures": {
     "frame": "none"

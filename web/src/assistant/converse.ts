@@ -194,7 +194,12 @@ export async function converse(o: Options): Promise<void> {
         continue;
       }
       o.emit({ kind: "call", id: call.id, name: call.name, args: call.args });
-      const { result, summary, made } = await o.call(call);
+      // A call that throws is answered as failed, saying why: a call left with no answer makes the
+      // provider refuse every turn after it (lift-up 10-25b STAB-3).
+      const { result, summary, made } = await o.call(call).catch((e: unknown) => {
+        const message = e instanceof Error ? e.message : String(e);
+        return { result: { id: call.id, name: call.name, json: JSON.stringify({ message }), error: true } as Result, summary: `Stopped: ${message}`, made: false };
+      });
       results.push(result);
       o.emit({ kind: "result", id: call.id, name: call.name, error: result.error, summary, made, json: result.json, png: result.png });
     }
