@@ -249,6 +249,17 @@ fn the_skills_and_the_server_send_an_agent_to_the_story() {
     );
     // The paths to a deck, best first (lift-up M1): a whole deck generated from slides written,
     // one slide into a deck in the beat it tells, a deck by hand.
+    // The tools and ops an agent needs, each named where it learns the product (lift-up 10-25b USE-4).
+    for tool in ["slide_write", "state_start", "deck_history", "image_add", "deck_find", "theme_edit", "data_edit"] {
+        assert!(author.contains(&format!("`{tool}`")), "author-deck names {tool}");
+    }
+    for tool in ["slide_write", "state_start", "deck_history"] {
+        assert!(scaena_mcp::INSTRUCTIONS.contains(tool), "the server's instructions name {tool}");
+    }
+    assert!(author.contains("`verbose: true` returns the JSON Patch"), "author-deck says what deck_patch returns");
+    for op in ["move_slide", "remove_slide", "duplicate_slide", "set_state", "place", "choose", "replace_text"] {
+        assert!(author.contains(&format!("`{op}`")), "author-deck names the op {op}");
+    }
     let procedure = &author[author.find("## Procedure").unwrap()..];
     for said in [scaena_mcp::INSTRUCTIONS, procedure] {
         let at = |tool: &str| said.find(tool).unwrap_or_else(|| panic!("{tool} is named"));
