@@ -318,6 +318,22 @@ private func anthropic(_ text: String) -> Data {
 }
 
 /// What a brief may ask is Narrato's: its goals, lengths, arcs, and defaults.
+/// A source's host is held to where it resolves, not its name alone (lift-up 10-24b SEC-3): an
+/// address on this machine or its network is refused however a name reaches it.
+@Test func aSourceIsHeldToWhereItsHostResolves() {
+    for host in [
+        "localhost", "127.0.0.1", "10.0.0.1", "172.16.0.1", "192.168.1.1", "169.254.169.254", "100.64.0.1", "0.0.0.0",
+        "::1", "[::1]", "fd00::1", "::ffff:127.0.0.1",
+    ] {
+        #expect(!GeneratorReply.resolvesPublic(host), "\(host)")
+    }
+    // Public addresses, written as such, so no network is asked.
+    for host in ["1.1.1.1", "8.8.8.8", "2606:4700:4700::1111"] {
+        #expect(GeneratorReply.resolvesPublic(host), "\(host)")
+    }
+    #expect(GeneratorReply.reached(v4: [172, 32, 0, 1]) && !GeneratorReply.reached(v4: [172, 31, 255, 255]))
+}
+
 /// A redirect is followed only to a public https address by name: a page a source names cannot
 /// send the app on to this machine or its network (lift-up SEC-2).
 @Test func aRedirectIsFollowedOnlyToAPublicAddress() throws {
