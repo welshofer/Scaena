@@ -577,7 +577,7 @@ public final class Generator {
         return .read(name: read.name, kind: read.kind)
     }
 
-    /// [`add(name:data:)`], the file at `url` read away from the main actor too.
+    /// ``add(name:data:)``, the file at `url` read away from the main actor too.
     @discardableResult
     public func add(contentsOf url: URL) async throws -> GeneratingStep {
         let data = try await Task.detached(priority: .userInitiated) { try Data(contentsOf: url) }.value
