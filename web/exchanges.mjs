@@ -12,7 +12,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { isDeepStrictEqual } from "node:util";
 import { RULE, fenced, seen, system } from "./src/assistant/prompt.ts";
-import { providers } from "./src/assistant/providers.ts";
+import { providers, refusedBase } from "./src/assistant/providers.ts";
 
 const write = process.argv.includes("--write");
 const conversation = JSON.parse(await readFile("tests/assistant/conversation.json", "utf8"));
@@ -112,6 +112,11 @@ if (write) {
     check(isDeepStrictEqual(record.prompt[part], kept.prompt?.[part]), `the ${what} is the one recorded`);
   }
 }
+// The API addresses a key may go to, held to the cases scaena-narrato's and scaena-chat's
+// `checked_base` are (lift-up 20261025 SEC-2).
+const bases = JSON.parse(await readFile("tests/assistant/bases.json", "utf8"));
+for (const good of bases.good) check(refusedBase(good) === undefined, `a key may go to ${JSON.stringify(good)}`);
+for (const bad of bases.bad) check(refusedBase(bad) !== undefined, `a key never goes to ${JSON.stringify(bad)}`);
 if (failures.length) {
   console.log(`\n${failures.length} failed: the browser's assistant no longer says what is recorded. If the change is meant, write it again (--write), and hold scaena-chat to it.`);
   process.exit(1);

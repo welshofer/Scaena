@@ -212,15 +212,16 @@ pub fn checked_base(base: &str) -> Result<&str, String> {
             return Ok(base);
         }
     } else if let Some(rest) = lower.strip_prefix("http://") {
+        // The whole host, matched strictly, as the browser's `refusedBase` matches it: this
+        // machine's name, then at most a port of digits, and nothing else, so no userinfo or
+        // other text after the name reads as this machine (`http://[::1]@evil.example`).
         let host = host(rest);
-        let name = match host.strip_prefix('[') {
-            Some(v6) => v6.split(']').next().unwrap_or_default(),
-            None => host.split(':').next().unwrap_or_default(),
-        };
-        let port = host.rsplit_once(']').map_or(host.split_once(':').map(|p| p.1), |(_, p)| p.strip_prefix(':'));
-        if ["localhost", "127.0.0.1", "::1"].contains(&name)
-            && port.is_none_or(|p| p.bytes().all(|b| b.is_ascii_digit()))
-        {
+        let local = ["localhost", "127.0.0.1", "[::1]"].iter().any(|name| {
+            host.strip_prefix(name).is_some_and(|port| {
+                port.is_empty() || port.strip_prefix(':').is_some_and(|d| d.bytes().all(|b| b.is_ascii_digit()))
+            })
+        });
+        if local {
             return Ok(base);
         }
     }
@@ -614,26 +615,13 @@ mod tests {
     /// address but `https://` is refused, and one refused is never asked.
     #[test]
     fn a_key_never_goes_over_plain_http_off_this_machine() {
-        for good in [
-            "https://api.example.com",
-            "HTTPS://proxy.example.com:8443/v1/",
-            "http://localhost:8080",
-            "http://127.0.0.1",
-            "http://[::1]:9000/",
-            "http://LOCALHOST/proxy",
-        ] {
+        // The cases the browser's `refusedBase` is held to as well (`web/exchanges.mjs`).
+        let cases: serde_json::Value =
+            serde_json::from_str(include_str!("../../../tests/assistant/bases.json")).expect("the cases");
+        for good in cases["good"].as_array().unwrap().iter().map(|g| g.as_str().unwrap()) {
             assert_eq!(checked_base(good), Ok(good), "{good}");
         }
-        for bad in [
-            "http://api.example.com",
-            "http://localhost.evil.example",
-            "http://127.0.0.1.evil.example",
-            "http://localhost:80@evil.example",
-            "https://",
-            "https://user@evil.example",
-            "ftp://example.com",
-            "api.example.com",
-        ] {
+        for bad in cases["bad"].as_array().unwrap().iter().map(|b| b.as_str().unwrap()) {
             let why = checked_base(bad).unwrap_err();
             assert!(why.contains("https://"), "{bad}: {why}");
         }
