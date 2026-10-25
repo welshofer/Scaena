@@ -723,20 +723,25 @@ pub fn seeing(narrative: &Narrative, theme: &Theme, pictures: &Pictures, layouts
     let varied = varied(narrative);
     let count = narrative.slides.len();
     // What each slide must leave the audience with (lift-up ATTR-2): its beat's claim in the
-    // outline the person settled, by the beat the deck's sections give it, else its purpose.
+    // outline the person settled, by the beat the deck's sections give it. A slide that names its
+    // part takes none, so its title stays the part's name: a divider is numbered by its title
+    // naming an agenda item, and the spine's sections are titled by the dividers.
     let claim = |i: usize, slide: &Slide| {
         let outlined = narrative.outline.as_ref().and_then(|o| {
             let beat = (slide.beat_index.filter(|b| *b < o.beats.len()))
                 .unwrap_or_else(|| scaena_narrato::beats::beat_of(i, count, o.beats.len()));
             o.beats.get(beat).map(|b| b.claim.clone())
         });
-        outlined.filter(|c| !c.trim().is_empty()).or_else(|| slide.purpose.clone()).unwrap_or_default()
+        outlined.filter(|c| !c.trim().is_empty()).unwrap_or_default()
     };
     (narrative.slides.iter().zip(&varied).zip(layouts).enumerate())
         .map(|(i, ((slide, v), own))| {
             let items = items(slide, v);
             let iconed = icons_of(narrative, slide, &items).is_some();
             let options = others(v.layout.identity(), slide, &items, theme, pictures.contains_key(&i), iconed, own);
+            // The cover, a divider (a Q&A's among them, by its structural layout), the agenda,
+            // and the close.
+            let framing = matches!(v.layout.layout, "title" | "section" | "agenda" | "closing");
             Seen {
                 slide: i + 1,
                 layout: choice(own),
@@ -744,7 +749,9 @@ pub fn seeing(narrative: &Narrative, theme: &Theme, pictures: &Pictures, layouts
                 title: slide.slide_title.clone(),
                 subtitle: slide.subtitle.clone(),
                 bullets: slide.key_bullets.clone(),
-                claim: claim(i, slide),
+                claim: if framing { String::new() } else { claim(i, slide) },
+                // What it does, said as that where no claim is known.
+                purpose: if framing { String::new() } else { slide.purpose.clone().unwrap_or_default() },
             }
         })
         .collect()
@@ -7015,6 +7022,42 @@ mod tests {
             texts.push(json!({ "id": id, "text": cut }));
         }
         json!({ "texts": texts }).to_string()
+    }
+
+    /// A content slide is shown its beat's claim as what it must leave the audience with, and,
+    /// where no outline was settled, its purpose as what it does; a slide that names its part
+    /// (the cover, a divider, a Q&A, the agenda, the close) is shown neither, so nothing pushes
+    /// a takeaway into its title (lift-up ATTR-2).
+    #[test]
+    fn a_content_slide_is_shown_its_claim_and_one_that_names_its_part_none() {
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let mut narrative = climate();
+        let pictures = Pictures::new();
+        let layouts = deck(&narrative, &theme, &pictures).unwrap().layouts;
+        let framing = |k: usize| [0, 1, 2, 7, 11, 15, 21, 23, 24].contains(&k);
+        let captions = |n: &Narrative| -> Vec<String> {
+            seeing(n, &theme, &pictures, &layouts).iter().map(|s| scaena_narrato::look::caption(s, 25)).collect()
+        };
+        // No outline: each content slide's purpose, said as what it does, never as a takeaway.
+        for (k, c) in captions(&narrative).iter().enumerate() {
+            assert!(!c.contains("leave the audience"), "slide {}: {c}", k + 1);
+            assert_eq!(!framing(k), c.contains("\nWhat it does in the talk: "), "slide {}: {c}", k + 1);
+        }
+        assert!(captions(&narrative)[3].ends_with("\nWhat it does in the talk: Evidence"));
+        // An outline settled: each content slide's beat's claim, and no purpose beside it.
+        let beats = (0..5)
+            .map(|b| scaena_narrato::outline::Beat {
+                name: format!("Beat {b}"),
+                claim: format!("Claim {b}"),
+                slides: 5,
+            })
+            .collect();
+        narrative.outline = Some(scaena_narrato::outline::Outline { big_idea: "We can halve it".into(), beats });
+        for (k, c) in captions(&narrative).iter().enumerate() {
+            assert!(!c.contains("What it does in the talk"), "slide {}: {c}", k + 1);
+            assert_eq!(!framing(k), c.contains("\nIt must leave the audience with: Claim "), "slide {}: {c}", k + 1);
+        }
+        assert!(captions(&narrative)[8].ends_with("\nIt must leave the audience with: Claim 2"));
     }
 
     #[test]

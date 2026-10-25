@@ -33,10 +33,15 @@ pub struct Seen {
     pub title: String,
     pub subtitle: String,
     pub bullets: Vec<String>,
-    /// Its beat's claim, from the outline where the person settled one, else what the slide does
-    /// for the arc.
+    /// Its beat's claim, from the outline where the person settled one: what it must leave the
+    /// audience with. None on a slide that names its part (a cover, a divider, the agenda, the
+    /// close).
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub claim: String,
+    /// What the slide does in the talk, as the writer said it, where no claim is known: a role,
+    /// never a takeaway to write into its title.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub purpose: String,
 }
 
 /// What the model asks to change on a slide: another of its layouts, and its words tightened,
@@ -91,6 +96,8 @@ pub fn caption(seen: &Seen, count: usize) -> String {
     }
     if !seen.claim.trim().is_empty() {
         out.push_str(&format!("\nIt must leave the audience with: {}", seen.claim.trim()));
+    } else if !seen.purpose.trim().is_empty() {
+        out.push_str(&format!("\nWhat it does in the talk: {}", seen.purpose.trim()));
     }
     out
 }
@@ -129,7 +136,7 @@ pub fn prompt(
          - Much of a slide left empty, or its words crowded into one part of it: one of its other layouts that fills it.\n\
          - Three or more slides in a row drawn alike: give one of them another of its layouts.\n\
          - A title that runs past two lines: tighten it to one idea, the one the slide must leave the audience with.\n\
-         - A title that names a topic rather than the slide's takeaway: rewrite it to state its claim as a sentence, within the same length.\n\
+         - A content slide's title that names a topic rather than the slide's takeaway: rewrite it to state its claim as a sentence, within the same length; never the cover's, a divider's, the agenda's, or the close's, which name their part.\n\
          - Items of one slide said in unlike forms (one with a detail, the others none; one a sentence, the others a word): rewrite them in one form.\n\
          Keep every figure, name, date, and claim a slide makes, and add none. A bullet written \u{201c}Label: detail\u{201d} stays so written, its label first. Keep a slide's bullets as many as they are, in their order, none longer than it was by more than a few characters. Leave alone each slide that reads well: most should. List only the slides you change.",
     );
@@ -243,6 +250,7 @@ mod tests {
                 subtitle: "What the data says".into(),
                 bullets: Vec::new(),
                 claim: String::new(),
+                purpose: String::new(),
             },
             Seen {
                 slide: 2,
@@ -260,6 +268,7 @@ mod tests {
                     "Remove the rest: forests, soils, direct capture".into(),
                 ],
                 claim: "Net zero is four jobs, and all four have begun".into(),
+                purpose: "Turns the deck from problem to solution".into(),
             },
         ]
     }
@@ -276,7 +285,13 @@ mod tests {
             c.ends_with("\nIt must leave the audience with: Net zero is four jobs, and all four have begun"),
             "{c}"
         );
+        assert!(!c.contains("What it does in the talk"), "a claim known, its purpose is not said");
         assert!(!caption(&s[0], 25).contains("leave the audience"));
+        // A purpose says what the slide does, labelled so, never as its takeaway.
+        let purposed = Seen { claim: String::new(), ..s[1].clone() };
+        let c = caption(&purposed, 25);
+        assert!(c.ends_with("\nWhat it does in the talk: Turns the deck from problem to solution"), "{c}");
+        assert!(!c.contains("leave the audience"), "{c}");
         let p = prompt(
             "Climate change",
             "colleagues",
@@ -291,7 +306,8 @@ mod tests {
             ),
             "{p}"
         );
-        assert!(p.contains("rewrite it to state its claim as a sentence"));
+        assert!(p.contains("A content slide's title that names a topic"));
+        assert!(p.contains("never the cover's, a divider's, the agenda's, or the close's, which name their part"));
         assert!(
             p.starts_with("You have seen the 25 slides of a deck on \u{201c}Climate change\u{201d}, for colleagues")
         );
