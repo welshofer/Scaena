@@ -427,26 +427,68 @@ fn pacing(count: usize, asked: Option<(usize, Option<usize>)>, m: &LocalHealthMe
     Measure { score: Some(100u32.saturating_sub(5 * outside as u32)), says }
 }
 
-/// How long the talk runs, by its beats (lift-up FUNC-1): each beat its `duration`, or the holds
-/// of its states where they come to more, as a video paces it; and each beat's seconds by the
-/// index of the first slide it tells. None where a slide has neither, as a deck written by hand
-/// with no spine.
-fn talk(deck: &Deck, slides: &[Slide]) -> Option<(f64, Vec<(usize, f64)>)> {
-    let hold = |id: &str| deck.states.iter().find(|s| s.id == id).and_then(|s| s.hold);
-    let mut told: Vec<((usize, usize), usize, f64)> = Vec::new();
+/// How fast a talk is spoken: about 140 words a minute, a presenter's pace with its pauses; and
+/// in a script set without spaces between its words (Chinese, Japanese, Korean), about 300 of its
+/// characters a minute (lift-up FUNC-1).
+const WORDS_A_MINUTE: f64 = 140.0;
+const CHARACTERS_A_MINUTE: f64 = 300.0;
+
+/// Whether `c` is a letter of a script read by the character: kana, Han, and Hangul.
+fn by_character(c: char) -> bool {
+    matches!(c as u32, 0x3040..=0x30FF | 0x3400..=0x4DBF | 0x4E00..=0x9FFF | 0xAC00..=0xD7AF | 0xF900..=0xFAFF)
+}
+
+/// The seconds `notes` take to say aloud: each word at [`WORDS_A_MINUTE`], and each letter of a
+/// script read by the character at [`CHARACTERS_A_MINUTE`].
+fn spoken(notes: &str) -> f64 {
+    let (mut words, mut characters) = (0usize, 0usize);
+    for word in notes.split_whitespace() {
+        match word.chars().filter(|&c| by_character(c)).count() {
+            0 => words += 1,
+            n => characters += n,
+        }
+    }
+    60.0 * (words as f64 / WORDS_A_MINUTE + characters as f64 / CHARACTERS_A_MINUTE)
+}
+
+/// What gives a beat its time: the `duration` it is given, its states' holds, or its notes said
+/// aloud, whichever comes to most.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Timed {
+    Given,
+    Held,
+    Noted,
+}
+
+/// How long the talk runs, by its beats (lift-up FUNC-1): each beat the most of its `duration`,
+/// the holds of its states, as a video paces it, and its notes and its states' own said aloud,
+/// so that notes deepened lengthen the talk; and each beat's seconds, and what gives them, by the
+/// index of the first slide it tells. None where a beat has neither a `duration` nor a hold on
+/// every state, or a slide neither a beat nor holds, as a deck written by hand with no spine.
+fn talk(deck: &Deck, slides: &[Slide]) -> Option<(f64, Vec<(usize, f64, Timed)>)> {
+    let state = |id: &str| deck.states.iter().find(|s| s.id == id);
+    let mut told: Vec<((usize, usize), usize, f64, Timed)> = Vec::new();
     let mut seconds = 0.0;
     for (k, slide) in slides.iter().enumerate() {
         match slide.beat {
             Some((i, j, _)) if told.iter().any(|(at, ..)| *at == (i, j)) => {}
             Some((i, j, beat)) => {
-                let holds: Vec<Option<f64>> = beat.states.iter().map(|s| hold(s)).collect();
+                let holds: Vec<Option<f64>> = beat.states.iter().map(|s| state(s).and_then(|s| s.hold)).collect();
                 let held = holds.iter().flatten().sum::<f64>() / 1000.0;
-                let own = match beat.duration {
-                    Some(d) => d.max(held),
-                    None if holds.iter().all(Option::is_some) => held,
+                let given = match beat.duration {
+                    Some(d) => d,
+                    None if holds.iter().all(Option::is_some) => 0.0,
                     None => return None,
                 };
-                told.push(((i, j), k, own));
+                let noted = spoken(beat.notes.as_deref().unwrap_or_default())
+                    + (beat.states.iter())
+                        .filter_map(|s| state(s).and_then(|s| s.notes.as_deref()))
+                        .map(spoken)
+                        .sum::<f64>();
+                let (own, by) = [(held, Timed::Held), (noted, Timed::Noted)]
+                    .into_iter()
+                    .fold((given, Timed::Given), |most, (t, by)| if t > most.0 { (t, by) } else { most });
+                told.push(((i, j), k, own, by));
                 seconds += own;
             }
             None => {
@@ -455,7 +497,7 @@ fn talk(deck: &Deck, slides: &[Slide]) -> Option<(f64, Vec<(usize, f64)>)> {
             }
         }
     }
-    (!told.is_empty()).then(|| (seconds, told.into_iter().map(|(_, k, s)| (k, s)).collect()))
+    (!told.is_empty()).then(|| (seconds, told.into_iter().map(|(_, k, s, by)| (k, s, by)).collect()))
 }
 
 /// A talk's minutes, rounded, as a person says them: "about 8 minutes", "under a minute".
@@ -1031,13 +1073,13 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         let said = (seconds / 60.0).round() as u32;
         let under = said < *lo;
         if under || hi.is_some_and(|hi| said > hi) {
-            let mut by: Vec<(usize, f64)> = beats.clone();
-            scaena_core::sort::by_key(&mut by, |&(_, s)| (s * 1000.0) as i64);
-            let ((short, shortest), (long, longest)) = (by[0], by[by.len() - 1]);
+            let mut by: Vec<(usize, f64, Timed)> = beats.clone();
+            scaena_core::sort::by_key(&mut by, |&(_, s, _)| (s * 1000.0) as i64);
+            let ((short, shortest, _), (long, longest, timed)) = (by[0], by[by.len() - 1]);
             if !under {
                 by.reverse();
             }
-            let mut first: Vec<usize> = by.iter().take(3).map(|&(k, _)| k).collect();
+            let mut first: Vec<usize> = by.iter().take(3).map(|&(k, ..)| k).collect();
             scaena_core::sort::by_key(&mut first, |&k| k);
             let (named, many) = slides_named(&first);
             let given = slot((*lo, *hi));
@@ -1062,17 +1104,21 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
                 (
                     long,
                     format!(
-                        "The talk runs {}, past {given} for {count} slides. Its longest beat, slide {}'s, runs {}; its shortest, slide {}'s, {}.",
+                        "The talk runs {}, past {given} for {count} slides. Its longest beat, slide {}'s, runs {} {}; its shortest, slide {}'s, {}.",
                         minutes(*seconds),
                         long + 1,
                         span(longest),
+                        match timed {
+                            Timed::Given => "by the time it is given",
+                            Timed::Held => "by its holds",
+                            Timed::Noted => "by its notes",
+                        },
                         short + 1,
                         span(shortest)
                     ),
                     format!(
-                        "Bring the talk within {given}, the longest {} first: tighten the notes of {named}, or cut what {} twice.",
-                        if many { "beats" } else { "beat" },
-                        if many { "they say" } else { "it says" }
+                        "Bring the talk within {given}, the longest {} first: tighten or cut {named}.",
+                        if many { "beats" } else { "beat" }
                     ),
                 )
             };
@@ -1190,21 +1236,26 @@ mod tests {
     #[test]
     fn health_paces_a_talk_by_its_time() {
         let mut deck = climate();
+        // What the notes take to say is counted too: here, at first, none.
+        for section in deck["spine"]["sections"].as_array_mut().unwrap() {
+            for beat in section["beats"].as_array_mut().unwrap() {
+                beat.as_object_mut().unwrap().remove("notes");
+            }
+        }
+        for state in deck["states"].as_array_mut().unwrap() {
+            state.as_object_mut().unwrap().remove("notes");
+        }
         let n = of(&deck).slides.len();
         assert!((16..=25).contains(&n), "{n}");
         let timing =
             |h: &Health| h.findings.iter().filter(|f| f.says.starts_with("The talk runs")).cloned().collect::<Vec<_>>();
+        let slot =
+            |m: usize| format!(" About {m} minutes of talk, where 16\u{2013}25 slides is a 31\u{2013}45 minute slot.");
 
         // In the slot: said, and nothing found.
         timed(&mut deck, 38.0 * 60.0 / n as f64);
         let h = of(&deck);
-        assert!(
-            h.pacing
-                .says
-                .ends_with(" About 38 minutes of talk, where 16\u{2013}25 slides is a 31\u{2013}45 minute slot."),
-            "{}",
-            h.pacing.says
-        );
+        assert!(h.pacing.says.ends_with(&slot(38)), "{}", h.pacing.says);
         assert!(timing(&h).is_empty(), "{:?}", h.findings);
         let score = (h.score, h.pacing.score);
 
@@ -1224,8 +1275,34 @@ mod tests {
             found[0].ask
         );
 
+        // Doing what it asks clears it: the shortest beat's notes deepened, 3,000 words at 140 a
+        // minute, lift the talk into the slot, and the line's minutes with it.
+        let words = |n: usize| "word ".repeat(n).trim_end().to_string();
+        deck.pointer_mut(&short).unwrap()["notes"] = json!(words(3000));
+        let h = of(&deck);
+        assert!(timing(&h).is_empty(), "{:?}", h.findings);
+        let m = ((30.0 * (n - 1) as f64 + 3000.0 * 60.0 / WORDS_A_MINUTE) / 60.0).round() as usize;
+        assert!(h.pacing.says.ends_with(&slot(m)), "{} for {m}", h.pacing.says);
+        assert_eq!((h.score, h.pacing.score), score, "the score is Vzestup's");
+
+        // A beat long by its notes alone: past the slot, found on it, by its notes.
+        deck.pointer_mut(&short).unwrap()["notes"] = json!(words(7000));
+        let h = of(&deck);
+        let found = timing(&h);
+        assert_eq!(found.len(), 1, "{:?}", h.findings);
+        assert_eq!(found[0].slide, 5);
+        assert!(found[0].says.contains(", past a 31\u{2013}45 minute slot for 16\u{2013}25 slides. Its longest beat, slide 5's, runs about 50 minutes by its notes;"), "{}", found[0].says);
+        assert!(
+            found[0].ask.starts_with(
+                "Bring the talk within a 31\u{2013}45 minute slot, the longest beats first: tighten or cut slides "
+            ),
+            "{}",
+            found[0].ask
+        );
+        deck.pointer_mut(&short).unwrap().as_object_mut().unwrap().remove("notes");
+
         // A hold that comes to more wins, as a video paces it: past the slot, found on the
-        // longest beat.
+        // longest beat, by its holds.
         let state = h.slides[2].state.clone();
         let at = deck["states"].as_array().unwrap().iter().position(|s| s["id"] == state).unwrap();
         deck["states"][at]["hold"] = json!(50.0 * 60_000.0);
@@ -1233,8 +1310,7 @@ mod tests {
         let found = timing(&h);
         assert_eq!(found.len(), 1, "{:?}", h.findings);
         assert_eq!(found[0].slide, 3);
-        assert!(found[0].says.contains(", past a 31\u{2013}45 minute slot for 16\u{2013}25 slides. Its longest beat, slide 3's, runs about 50 minutes;"), "{}", found[0].says);
-        assert!(found[0].ask.starts_with("Bring the talk within a 31\u{2013}45 minute slot, the longest beats first: tighten the notes of slides "), "{}", found[0].ask);
+        assert!(found[0].says.contains(", past a 31\u{2013}45 minute slot for 16\u{2013}25 slides. Its longest beat, slide 3's, runs about 50 minutes by its holds;"), "{}", found[0].says);
 
         // A beat with no time of its own: the talk's time is not known, and nothing is said.
         let beat = beat_of(&deck, &h.slides[0].state);
@@ -1242,6 +1318,11 @@ mod tests {
         let h = of(&deck);
         assert!(!h.pacing.says.contains("of talk"), "{}", h.pacing.says);
         assert!(timing(&h).is_empty());
+
+        // Notes are said a word at a time, and a script without spaces a character at a time.
+        assert_eq!(spoken("one two  three\nfour"), 4.0 * 60.0 / WORDS_A_MINUTE);
+        assert_eq!(spoken("ありがとうございます"), 10.0 * 60.0 / CHARACTERS_A_MINUTE);
+        assert_eq!(spoken("감사합니다 여러분"), 8.0 * 60.0 / CHARACTERS_A_MINUTE);
     }
 
     /// The spine's beat that tells the state `id`: its place, as a JSON pointer.
