@@ -396,7 +396,7 @@ impl Generation {
     }
 
     /// The request the step asks for, `key` in its headers, `documents` (PDFs) beside the
-    /// slides' prompt; none once the narrative is written. Arc selection sees the sources' first
+    /// outline's prompt and the slides'; none once the narrative is written. Arc selection sees the sources' first
     /// 500 characters, never their documents.
     pub fn request(&self, key: &str, documents: &[Document]) -> Option<Request> {
         use providers::Shape;
@@ -417,7 +417,8 @@ impl Generation {
                 let arc = arcs::arc(&chosen.selection);
                 let plan = beats::plan(arc, self.target());
                 let text = outline::prompt(&self.brief, arc, &chosen.reasoning, &plan);
-                (outline::OUTLINE_SYSTEM, text, Shape::Outline, room(outline::OUTLINE_MAX_TOKENS), 0.3, &[][..])
+                // The documents beside it, as the slides have them (lift-up FUNC-3).
+                (outline::OUTLINE_SYSTEM, text, Shape::Outline, room(outline::OUTLINE_MAX_TOKENS), 0.3, documents)
             }
             Step::Slides => {
                 let arc = arcs::arc(&self.arc.as_ref()?.selection);
@@ -491,8 +492,9 @@ impl Generation {
         let brief = &narrative.brief;
         let shown = (slides[0].slide, slides[slides.len() - 1].slide);
         let big_idea = narrative.outline.as_ref().map(|o| o.big_idea.as_str());
-        let mut prompt = look::prompt(&brief.topic, &brief.audience, count, brief.language.as_deref(), shown, big_idea);
-        prompt.push_str(&look::edges(edges));
+        let around = look::edges(edges);
+        let prompt =
+            look::prompt(&brief.topic, &brief.audience, count, brief.language.as_deref(), shown, big_idea, &around);
         let max_tokens = if s.provider == Provider::Gemini { GEMINI_MAX_TOKENS } else { LOOK_MAX_TOKENS };
         Some(s.provider.structured(&providers::Call {
             model: &s.model,

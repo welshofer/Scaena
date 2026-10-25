@@ -1,5 +1,5 @@
 {
-  "scaena": "0.38",
+  "scaena": "0.39",
   "meta": {
     "title": "Typography torture deck",
     "author": "Scaena",
@@ -5472,7 +5472,8 @@
       "type": "text",
       "role": "code",
       "code": {
-        "language": "typescript"
+        "language": "typescript",
+        "numbers": true
       },
       "text": "\"use strict\";\n\n// Rank talks by votes; ties go by title.\ntype Talk = {\n\ttitle: string;\t// as printed\n\tvotes: number;\t// one per seat\n};\n\nexport function rank(talks: Talk[]): string[] {\n\treturn [...talks]\n\t\t.sort((a, b) => b.votes - a.votes\n\t\t\t|| a.title.localeCompare(b.title))\n\t\t.map((talk) => talk.title);\n}\n\nconsole.log(rank(await loadTalks()).join(\"\\n\"));",
       "at": {

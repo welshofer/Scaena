@@ -5,7 +5,7 @@ Built by `scripts/build_scripts.py` (fontTools 4.66.1) from [google/fonts](https
 | File | Upstream path | sha256 | What |
 |---|---|---|---|
 | `NotoSansDevanagari-VF.ttf` | `ofl/notosansdevanagari/NotoSansDevanagari[wdth,wght].ttf` | `14ec4af41f27482216d1c2229f417ff9b1425e1babb014e57d1d40d03229853e` | whole, the upstream bytes |
-| `NotoSansJP-subset.ttf` | `ofl/notosansjp/NotoSansJP[wght].ttf` | `d7e11751fea936504e31627ccc8d67ba6afdf0dcbed6661b998d675893911e90` | subset to `japanese.json`, CJK punctuation, and full-width forms |
+| `NotoSansJP-subset.ttf` | `ofl/notosansjp/NotoSansJP[wght].ttf` | `e41ec229b2ebe3f62e36f91617604d20757fc517b7ff08fafd6db6b0d1199cb7` | subset to `japanese.json`, the engine tests' Japanese, CJK punctuation, and full-width forms |
 
 `japanese.json` and `hindi.json` are slides in Narrato's form, written in Japanese and Hindi, which the tests make decks of.
 

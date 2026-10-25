@@ -112,6 +112,16 @@ private func slots() throws -> [ScaenaSession.Slot] {
     show.type(3)
     show.untype(all: true)
     #expect(show.typed.isEmpty)
+
+    // The presenter's navigator goes to a slide as its number does (lift-up 10-24b USE-1): the
+    // screen back, its cue played; a state the deck lacks goes nowhere.
+    show.blanking(.white)
+    show.type(1)
+    let navigated = show.go(toSlide: "end")
+    #expect(navigated && show.slot?.state == "end" && show.playhead == Playhead() && show.blank == nil)
+    #expect(show.typed.isEmpty)
+    let lacked = show.go(toSlide: "nowhere")
+    #expect(!lacked && show.slot?.state == "end")
 }
 
 /// A hold runs as the browser's player runs one (PLAN 2.105): the screen black or white stops it

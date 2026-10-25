@@ -24,6 +24,9 @@ use crate::layout::{
 #[derive(Clone)]
 pub struct Layout<B: Brush> {
     pub(crate) data: LayoutData<B>,
+    /// Where an emergency break is preferred over the last one that fits (Scaena, ADR-0004
+    /// finding 27).
+    pub(crate) preferred_breaks: Option<fn(crate::LineBreakContext) -> bool>,
 }
 
 impl<B: Brush> fmt::Debug for Layout<B> {
@@ -47,6 +50,14 @@ impl<B: Brush> Layout<B> {
     /// Creates an empty layout.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Sets where an emergency break is preferred (Scaena, ADR-0004 finding 27): where a run too
+    /// wide for its line must break inside it, it breaks at the last such place that fits, before
+    /// any other, and only where none fits at the last cluster that does. `None`, the default,
+    /// breaks at the last cluster that fits, as parley does.
+    pub fn set_preferred_breaks(&mut self, preferred: Option<fn(crate::LineBreakContext) -> bool>) {
+        self.preferred_breaks = preferred;
     }
 
     /// Returns the scale factor provided when creating the layout.
@@ -229,6 +240,7 @@ impl<B: Brush> Default for Layout<B> {
     fn default() -> Self {
         Self {
             data: LayoutData::default(),
+            preferred_breaks: None,
         }
     }
 }

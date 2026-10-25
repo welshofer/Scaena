@@ -1025,6 +1025,52 @@ pub struct CodeLook {
     /// Each kind of token's look, by the kind's name.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub syntax: Option<Syntax>,
+    /// The card a code text stands on (PLAN 2.136, theme format 0.26): where unset, `surface-2`
+    /// stepped from the surface to 1.3:1, square, 32 cu in.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub card: Option<CodeCard>,
+    /// How a code text's line numbers are set: their color and the room between them and the
+    /// code (PLAN 2.136, theme format 0.26).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub numbers: Option<CodeNumbers>,
+}
+
+/// The card a code text stands on (ADR-0029): a rect that hugs the code and its gutter, `inset`
+/// in from its edges.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CodeCard {
+    /// Its color, a color token or role: `surface-2` stepped from the surface to 1.3:1 where
+    /// unset, so it shows on a projector.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fill: Option<String>,
+    /// Its corners' radius, a step of the theme's radius scale or canvas units: square where unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub radius: Option<super::values::Length>,
+    /// The room between its edges and the code, canvas units: 32 where unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(range(min = 0.0, max = 512.0))]
+    pub inset: Option<f64>,
+    /// Its outline's color, a color token or role: none where unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stroke: Option<String>,
+    /// The shadow it casts, one of the theme's `tokens.shadow`: none where unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shadow: Option<String>,
+}
+
+/// How a code text's line numbers are set (ADR-0029).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CodeNumbers {
+    /// Their color, a color token or role: the muted text color where unset. Held to read on
+    /// the card, as the code's colors are.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
+    /// The room between the numbers and the code, in ems of the code's size: 1 where unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(range(min = 0.0, max = 8.0))]
+    pub gap: Option<f64>,
 }
 
 /// Each kind of token's look in code (ADR-0029), by the kind's name: the 16 kinds the scanners
