@@ -130,6 +130,11 @@ struct PromptView: View {
     @AppStorage("generate.pictures") private var pictures = "openai"
     /// How they look: `illustration` or `photo`.
     @AppStorage("generate.look") private var look = "illustration"
+    /// How much care each picture is made with: `low`, `medium`, or `high` (lift-up FUNC-5).
+    @AppStorage("generate.quality") private var quality = "medium"
+    /// Whether the model is shown the slides once drawn, and may tighten them (PLAN G.13): another
+    /// call to the provider (lift-up FUNC-5).
+    @AppStorage("generate.see") private var see = true
     @AppStorage("generate.theme") private var theme = "dusk"
     /// Whether the outline is shown first (narrative FUNC-1): the arc, the big idea, and each beat's
     /// claim, settled before the slides are written.
@@ -146,6 +151,8 @@ struct PromptView: View {
     @State private var outcome = ""
     @State private var language = ""
     @State private var voice = ""
+    /// The persona the deck speaks to, by its id; none for the one the audience names.
+    @State private var persona = ""
     @State private var token = ""
     @State private var research = false
     @State private var given: [Given] = []
@@ -315,6 +322,12 @@ struct PromptView: View {
                             Text("Illustrations").tag("illustration")
                             Text("Photos").tag("photo")
                         }
+                        Picker("Quality", selection: $quality) {
+                            Text("Low, the least each costs").tag("low")
+                            Text("Medium").tag("medium")
+                            Text("High, the most each costs").tag("high")
+                        }
+                        .accessibilityIdentifier("prompt-quality")
                         Text(paintedBy).font(.caption).foregroundStyle(.secondary)
                     }
                 }
@@ -346,8 +359,12 @@ struct PromptView: View {
                 Section {
                     Toggle("Show the outline first", isOn: $showOutline)
                         .accessibilityIdentifier("prompt-show-outline")
+                    Toggle("Let the model see the slides", isOn: $see)
+                        .accessibilityIdentifier("prompt-see")
                 } footer: {
-                    Text("The arc, the big idea, and what each beat says, to change before the slides are written.")
+                    Text(
+                        "The arc, the big idea, and what each beat says, to change before the slides are written; then the slides, once drawn, shown to the model to tighten, another call."
+                    )
                 }
                 Section {
                     DisclosureGroup("More") {
@@ -361,6 +378,11 @@ struct PromptView: View {
                         TextField("What it should achieve", text: $outcome)
                         field("Language", text: $language, prompt: "English")
                         field("Voice", text: $voice, prompt: "Plain, confident, no jargon")
+                        Picker("Speak to Them As", selection: $persona) {
+                            Text("As the audience suggests").tag("")
+                            ForEach(choices?.personas ?? [], id: \.id) { Text($0.name).tag($0.id) }
+                        }
+                        .accessibilityIdentifier("prompt-persona")
                         field("Your email, for SEC", text: $secContact, prompt: "SEC asks each request to name who makes it")
                         field("GitHub token", text: $token, prompt: "For a private repository", secure: true)
                     }
@@ -679,14 +701,15 @@ struct PromptView: View {
             audience: audience.isEmpty ? nil : audience, goal: goal.isEmpty ? nil : goal,
             length: length.isEmpty ? nil : length, modality: modality.isEmpty ? nil : modality,
             desiredOutcomes: outcome.isEmpty ? nil : outcome, language: language.isEmpty ? nil : language,
-            voice: voice.isEmpty ? nil : voice)
+            voice: voice.isEmpty ? nil : voice, personaId: persona.isEmpty ? nil : persona)
         let paint = painter.flatMap { made in
-            keychain.key(for: made).map { Generator.Painter(provider: made, key: $0, look: look) }
+            keychain.key(for: made).map { Generator.Painter(provider: made, key: $0, look: look, quality: quality) }
         }
         let (provider, model, theme, arc, given) = (
             self.provider, self.model.wrappedValue, self.theme, self.arc, self.given
         )
         let (research, contact, token) = (self.research && self.provider != .openai, self.secContact, self.token)
+        let see = self.see
         // The outline shown to settle (narrative FUNC-1), the generation waiting on what is decided
         // of it; none where the slides are to come at once.
         let settle: Generator.Settle?
@@ -740,7 +763,7 @@ struct PromptView: View {
                 }
                 let (session, made) = try await generator.generate(
                     brief: brief, arc: arc.isEmpty ? nil : arc, provider: provider, model: model, key: key,
-                    theme: theme, painter: paint, outline: settle
+                    theme: theme, painter: paint, look: see, outline: settle
                 ) { say($0.words) }
                 try Task.checkCancellation()
                 #if os(macOS)

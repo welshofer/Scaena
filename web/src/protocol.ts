@@ -1414,7 +1414,15 @@ export interface Generate {
   research: boolean;
   /** Who makes the slides' pictures (PLAN G.10): an image model the key lists, best first,
    * made as illustrations in the theme's colors or as photographs; none where it is not given. */
-  pictures?: { provider: "openai" | "gemini"; key: string; base?: string; look: "illustration" | "photo" };
+  pictures?: {
+    provider: "openai" | "gemini";
+    key: string;
+    base?: string;
+    look: "illustration" | "photo";
+    /** How much care each picture is made with, and what it costs (lift-up FUNC-5); medium where
+     * it is not given. */
+    quality?: "low" | "medium" | "high";
+  };
   /** Whether the model is shown each slide as it is drawn, and may give one another of its
    * layouts and tighten its words (PLAN G.13); yes where it is not given. */
   look?: boolean;
@@ -1433,16 +1441,20 @@ export interface Brief {
   modality?: string;
   desiredOutcomes?: string;
   language?: string;
+  /** The persona it speaks to, by its id, where the audience is in the user's own words; else
+   * the one the audience names, if any (lift-up FUNC-5). */
+  personaId?: string;
   voice?: string;
 }
 
 /** What a brief may ask, as Narrato knows it: its goals, lengths, and ways a deck is delivered,
- * the audiences its personas name, its arcs, and the defaults. */
+ * the audiences its personas name, each persona by its id, its arcs, and the defaults. */
 export interface Choices {
   goals: string[];
   lengths: string[];
   modalities: { id: string; label: string }[];
   audiences: string[];
+  personas: { id: string; name: string }[];
   arcs: string[];
   defaults: { audience: string; goal: string; length: string };
 }
