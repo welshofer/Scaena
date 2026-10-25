@@ -1,3 +1,3 @@
 # D2 sheets (not for merging)
 
-Before (main a33cc543) and after (fix/end-descenders): each theme's contact sheet, and every slide of the six dogfood decks that changed, before at left and after at right, drawn at 1280.
+Before: main 7cd41e1b. After: fix/end-descenders on it. Each theme's contact sheet; every slide of the six dogfood decks that draws otherwise, before at left and after at right, at 1280; and a Title and a Poster whose headline fills its box (fills-title-poster.png).
