@@ -36,6 +36,12 @@ pub fn speaking(deck: &Deck) -> Result<Vec<Spoken>, OpsError> {
         .collect();
     let budgets = notes::budgets(notes::minutes(length(deck)), &timed);
     let titles: Vec<&str> = slides.iter().map(|t| t.slide.title.trim()).collect();
+    // The slide before is said whole, its words after its headline, so its notes may open on a
+    // figure or a phrase of it this slide does not use (health's turn, H4).
+    let before = |b: usize| {
+        let shown: Vec<&str> = slides[b].slide.body.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
+        if shown.is_empty() { titles[b].to_string() } else { format!("{} \u{2014} {}", titles[b], shown.join("; ")) }
+    };
     Ok((slides.iter().zip(budgets).enumerate())
         .map(|(i, (t, budget))| Spoken {
             slide: i + 1,
@@ -44,7 +50,7 @@ pub fn speaking(deck: &Deck) -> Result<Vec<Spoken>, OpsError> {
             claim: String::new(),
             draft: t.slide.notes.trim().to_string(),
             budget,
-            before: i.checked_sub(1).map(|b| titles[b].to_string()).unwrap_or_default(),
+            before: i.checked_sub(1).map(before).unwrap_or_default(),
             after: titles.get(i + 1).map(|a| a.to_string()).unwrap_or_default(),
         })
         .collect())

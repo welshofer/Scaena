@@ -30,7 +30,7 @@ pub struct Spoken {
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub draft: String,
     pub budget: usize,
-    /// The slide before's headline; empty for the first slide.
+    /// The slide before's headline, then its words as shown; empty for the first slide.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub before: String,
     /// The slide after's headline; empty for the last slide.
@@ -129,7 +129,7 @@ pub fn prompt(spoken: &[Spoken], count: usize, talk: &Talk) -> String {
     };
     out.push_str(&format!(
         " that runs about {} minutes, spoken at about {} words a minute. Each slide's notes are what the speaker says while it is shown, in the order said:\n\
-         - Open by picking up from the slide before, in a phrase or a sentence, so the talk runs on; the first slide opens the talk instead.\n\
+         - Open with one sentence that picks up from the slide before by naming something particular it showed, a figure, a name, or a phrase of its own that this slide does not use, never the talk's subject alone, so the talk runs on; the first slide opens the talk instead.\n\
          - Carry this slide's claim, its headline or what it must leave the audience with, in spoken words: say why it matters, with the slide's own figures and names.\n\
          - End with one line that hands over to the slide after, toward its headline without reading it; the last slide closes the talk instead.\n\
          - Run to about the words given for the slide: no fewer than nine tenths of them, and no more than a fifth over.\n\
@@ -295,7 +295,10 @@ mod tests {
         assert!(!caption(&s[0], 12).contains("The slide before"));
         let p = prompt(&s, 12, &talk());
         assert!(p.starts_with("Write the speaker notes for slides 1\u{2013}2 of the 12 slides of a talk that runs about 23 minutes, spoken at about 145 words a minute."), "{p}");
-        assert!(p.contains("Open by picking up from the slide before") && p.contains("hands over to the slide after"));
+        assert!(
+            p.contains("Open with one sentence that picks up from the slide before")
+                && p.contains("hands over to the slide after")
+        );
         assert!(p.ends_with(
             "The talk's brief:\n<data label=\"brief\">\nTopic: Climate change\nAudience: Colleagues\nGiven: In person\n\
              Voice: plain, unhurried\nIts one idea: We can still halve emissions by 2030\n</data>"
