@@ -157,3 +157,37 @@ fn a_theme_edit_is_a_version_compared_and_restored() {
     let last = log.last().map(|c| (c.0.as_str(), c.1.as_str()));
     assert_eq!(last, Some(("fs", "themes/dusk.theme.json changed outside Scaena")), "{log:?}");
 }
+
+/// An agent's undo (lift-up 20261025c FUNC-5): `-1` names the version before the latest, and
+/// restoring it takes the last change back; `last` lists the latest versions alone, each by its
+/// number in the whole history.
+#[test]
+fn minus_one_is_the_undo_and_last_lists_the_latest() {
+    let dir = scratch("undo");
+    keeping_history(&dir);
+    let rename = |to: &str, from: &str| {
+        let b = scaena_ops::open(&dir).unwrap();
+        let ops = json!([{ "op": "rename_node", "id": from, "to": to }]);
+        assert!(scaena_ops::patch::patch(&b, &ops, false).unwrap().applied);
+    };
+    rename("headline", "title");
+    rename("lede", "headline");
+    let deck = || std::fs::read_to_string(dir.join("deck.json")).unwrap();
+    assert!(deck().contains("\"lede\""));
+    let b = scaena_ops::open(&dir).unwrap();
+    let versions = scaena_ops::history::versions(&b).unwrap();
+    assert_eq!(versions.len(), 3);
+    assert_eq!(scaena_ops::history::named(&versions, "-1").unwrap().n, 2);
+    assert_eq!(scaena_ops::history::named(&versions, "~2").unwrap().n, 1);
+    let too_far = scaena_ops::history::named(&versions, "-3").unwrap_err().to_string();
+    assert!(too_far.contains("`-2` is the furthest back"), "{too_far}");
+    // Restored, the version before the latest takes the last change back.
+    let restored = scaena_ops::history::restore(&b, "-1", false).unwrap();
+    assert!(restored.applied, "{restored:?}");
+    assert!(deck().contains("\"headline\"") && !deck().contains("\"lede\""));
+    // The last two versions alone, by their numbers in the whole history.
+    let ask = scaena_ops::history::Ask { last: Some(2), ..Default::default() };
+    let listed = scaena_ops::history::history(&scaena_ops::open(&dir).unwrap(), &ask).unwrap();
+    let numbers: Vec<usize> = listed.versions.unwrap().iter().map(|t| t.version.n).collect();
+    assert_eq!(numbers, [3, 4]);
+}

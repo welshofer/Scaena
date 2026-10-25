@@ -1405,7 +1405,9 @@ impl Scaena {
         says them), the deck's own fields, and the files it is drawn from, data files and the theme, whose bytes \
         changed, each with what it was before (`before`); with `restore`, that version made the deck again, with its data files and its theme as they \
         were: one change, refused as a patch is where the deck would not validate in the bundle as it is \
-        (`dry_run` writes nothing).")]
+        (`dry_run` writes nothing). A version is named by its number, its id, or how far back from the latest it is: \
+        `restore: \"-1\"`, the version before the latest, undoes the last change. With `last`, only the last that \
+        many versions are listed.")]
     async fn deck_history(
         &self,
         Parameters(a): Parameters<DeckHistory>,
@@ -1618,7 +1620,8 @@ pub const INSTRUCTIONS: &str = "Scaena decks are states over one scene graph: no
     figures. To add one slide to a deck that exists, slide_write it, in the beat it tells (`beat`). To write a \
     deck by hand, deck_create it (a theme that ships, dusk, daybreak, ember, or salon, needs no file) and edit \
     with deck_patch. Attach data with data_attach, check with deck_lint, read the story again with deck_health, \
-    and look with deck_render. The resources hold the schemas, the lint \
+    and look with deck_render; deck_history with `restore: \"-1\"` undoes the last change, so try a better \
+    version of a slide and take it back where it reads worse. The resources hold the schemas, the lint \
     catalog, the specification by section (scaena://spec is its index), the skills (procedures to follow: \
     scaena://skills/author-deck first), and examples.";
 

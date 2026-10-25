@@ -184,8 +184,21 @@ fn touched(was: &Deck, is: &Deck) -> Result<Vec<String>, OpsError> {
     Ok(said)
 }
 
-/// The version of `versions` that `name` names: its number as listed (`3`, or `#3`), or its id.
+/// The version of `versions` that `name` names: its number as listed (`3`, or `#3`), its id, or
+/// how far back from the latest it is (`-1`, or `~1`, the one before the latest, which restored
+/// undoes the last change; lift-up 20261025c FUNC-5).
 pub fn named<'a>(versions: &'a [Version], name: &str) -> Result<&'a Version, OpsError> {
+    let back = name.strip_prefix('-').or_else(|| name.strip_prefix('~')).and_then(|n| n.parse::<usize>().ok());
+    if let Some(back) = back.filter(|&n| n > 0) {
+        let latest = versions.iter().map(|v| v.n).max().unwrap_or(0);
+        let n = latest.checked_sub(back).filter(|&n| n >= 1);
+        return n.and_then(|n| versions.iter().find(|v| v.n == n)).ok_or_else(|| {
+            OpsError::new(format!(
+                "no version `{name}`: the history holds {latest}, so `-{}` is the furthest back",
+                latest.saturating_sub(1)
+            ))
+        });
+    }
     let n = name.strip_prefix('#').unwrap_or(name).parse::<usize>().ok();
     versions.iter().find(|v| Some(v.n) == n || v.id == name).ok_or_else(|| {
         OpsError::new(format!(
@@ -574,6 +587,9 @@ pub struct Ask {
     /// deck as it is, and every write after is recorded. A bundle that keeps one lists it.
     #[serde(default)]
     pub begin: bool,
+    /// Listing the versions, only the last this many, each by its number in the whole history.
+    #[serde(default)]
+    pub last: Option<usize>,
 }
 
 /// What a bundle's history answers: its versions, one seen, two compared, or one restored.
@@ -613,7 +629,14 @@ pub fn history(b: &Bundle, ask: &Ask) -> Result<History, OpsError> {
         return Ok(History { restored: Some(restore(b, name, ask.dry_run)?), ..History::default() });
     }
     let compared = match ask.compare.as_slice() {
-        [] => return Ok(History { versions: Some(told(&kept(b)?)?), ..History::default() }),
+        [] => {
+            // Only the last `last`, each by its number in the whole history (FUNC-5).
+            let mut versions = told(&kept(b)?)?;
+            if let Some(last) = ask.last {
+                versions.drain(..versions.len().saturating_sub(last));
+            }
+            return Ok(History { versions: Some(versions), ..History::default() });
+        }
         [from] => diff(b, from, None)?,
         [from, to] => diff(b, from, Some(to))?,
         _ => return Err(OpsError::new("compare one version with the deck as it is now, or two versions")),
