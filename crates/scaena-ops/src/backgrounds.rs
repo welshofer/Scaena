@@ -68,7 +68,7 @@ pub struct Background {
 
 /// The state `state`'s slide begins with: where its background enters.
 fn first_of(deck: &Deck, state: &str) -> Result<usize, OpsError> {
-    let s = deck.state_index(state).ok_or_else(|| OpsError::new(format!("unknown state `{state}`")))?;
+    let s = deck.state_index(state).ok_or_else(|| OpsError::unknown_state(deck, state))?;
     let slide = deck.slide_of(&deck.states[s]);
     Ok(deck.states.iter().position(|st| deck.slide_of(st) == slide).unwrap_or(s))
 }

@@ -740,6 +740,14 @@ async fn a_tool_writes_only_under_its_folder_or_beside_the_bundle() {
     assert_eq!(read.is_error, Some(true));
     assert!(text(&read).contains("is outside where this server reads"), "{}", text(&read));
     assert!(!here.join("q3/data/credentials").exists());
+    // Nor by deck_create, which makes no bundle of it (lift-up 20261025b SEC-1).
+    let attached = json!([{ "id": "keys", "file": path(&elsewhere.join("credentials")) }]);
+    let made =
+        call(&client, "deck_create", json!({ "bundle": path(&here.join("q4")), "theme": "dusk", "data": attached }))
+            .await;
+    assert_eq!(made.is_error, Some(true));
+    assert!(text(&made).contains("is outside where this server reads"), "{}", text(&made));
+    assert!(!here.join("q4").exists());
     // Under its folder, nothing hidden: no key, no cloud credentials, no git hook.
     std::fs::create_dir_all(here.join(".ssh")).unwrap();
     std::fs::create_dir_all(here.join(".aws")).unwrap();
@@ -753,6 +761,13 @@ async fn a_tool_writes_only_under_its_folder_or_beside_the_bundle() {
     let read = call(&client, "data_attach", hidden).await;
     assert_eq!(read.is_error, Some(true));
     assert!(text(&read).contains("is outside where this server reads"), "{}", text(&read));
+    let hidden = json!([{ "id": "aws", "file": path(&here.join(".aws/credentials.csv")) }]);
+    let made =
+        call(&client, "deck_create", json!({ "bundle": path(&here.join("q5")), "theme": "dusk", "data": hidden }))
+            .await;
+    assert_eq!(made.is_error, Some(true));
+    assert!(text(&made).contains("is outside where this server reads"), "{}", text(&made));
+    assert!(!here.join("q5").exists());
     // And only what the tool writes, by its name: no notes, no shell's start-up file.
     let notes = call(&client, "deck_render", json!({ "bundle": deck, "state": "revenue", "out": "notes.txt" })).await;
     assert_eq!(notes.is_error, Some(true));
