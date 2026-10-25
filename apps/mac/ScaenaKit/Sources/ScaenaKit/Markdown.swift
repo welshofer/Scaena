@@ -146,10 +146,10 @@ extension MarkdownBlocks {
         var out = AttributedString()
         for (link, range) in text.runs[\.link] {
             out.append(text[range])
-            guard let link, let host = host(of: link),
-                !String(text[range].characters).lowercased().contains(host)
+            guard let link, let going = Self.host(of: link),
+                !String(text[range].characters).lowercased().contains(going)
             else { continue }
-            var said = AttributedString(" (\(host))")
+            var said = AttributedString(" (\(going))")
             said.link = link
             out.append(said)
         }
