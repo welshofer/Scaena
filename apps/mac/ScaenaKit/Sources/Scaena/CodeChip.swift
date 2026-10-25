@@ -29,7 +29,7 @@ struct CodeChip: View {
                 .font(.caption.weight(.medium))
                 .padding(.horizontal, 8)
                 .padding(.vertical, 3)
-                .background(.regularMaterial, in: Capsule())
+                .floating(in: Capsule())
         }
         .menuStyle(.button)
         .buttonStyle(.plain)
