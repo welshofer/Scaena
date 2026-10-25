@@ -197,7 +197,10 @@ pub fn putting(
         }
         let c = choices(deck, theme, state, node, files)?;
         let own = look_props(c.node_type);
-        let takes: Vec<&Part> = look.props.iter().filter(|p| own.contains(&p.prop.as_str())).collect();
+        // Code's card and numbers (PLAN 2.136) go to code alone, which alone is offered them.
+        let offered = |prop: &str| !prop.starts_with("code/") || c.fields.iter().any(|f| f.prop == prop);
+        let takes: Vec<&Part> =
+            look.props.iter().filter(|p| own.contains(&p.prop.as_str()) && offered(&p.prop)).collect();
         if takes.is_empty() {
             let why = format!("a {} takes none of a {}'s look", kind(c.node_type), kind(look.node_type));
             put.refused.push(Refused { node: node.clone(), why });
