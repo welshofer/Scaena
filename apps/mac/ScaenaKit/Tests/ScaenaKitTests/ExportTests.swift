@@ -8,6 +8,9 @@ import Testing
     let session = try ScaenaSession(directory: b1)
     let pdf = try session.pdf()
     #expect(pdf.starts(with: Array("%PDF-".utf8)), "a PDF")
+    // With the presenter's notes: each slide smaller with its notes under it, other pages.
+    let noted = try session.pdf(notes: true)
+    #expect(noted.starts(with: Array("%PDF-".utf8)) && noted != pdf, "a PDF with notes")
     let png = try session.png("cover", width: 640)
     #expect(png.starts(with: [0x89, 0x50, 0x4E, 0x47]), "a PNG")
     let width = png[16..<20].reduce(0) { $0 << 8 | Int($1) }
@@ -58,6 +61,7 @@ import Testing
     let session = try ScaenaSession(directory: b1)
     let snapshot = try session.snapshot()
     #expect(try await snapshot.exported(.pdf) == session.pdf())
+    #expect(try await snapshot.exported(.notes) == session.pdf(notes: true))
     #expect(try await snapshot.exported(.png(state: "cover", width: 320)) == session.png("cover", width: 320))
     #expect(try await snapshot.exported(.slides(width: 160, name: "B1")) == session.slides(width: 160, name: "B1"))
     let state = try session.states()[0]

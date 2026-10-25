@@ -971,10 +971,9 @@ async function presentView(deck: Source, how: Play, channel: BroadcastChannel) {
     <section id="reading" class="reading" aria-live="polite" aria-label="The slide"></section>`;
   const status = $("#status");
   saysRejections(status);
-  const [now, upNext] = await Promise.all([
-    Stage.open($("#stage"), deck, how.painter, how.engine),
-    Stage.open($("#upnext"), deck, how.painter, how.engine),
-  ]);
+  // One stage, the slide shown: the next is a still it draws at rest, so presenting runs no
+  // engine of its own for it (lift-up PERF-3).
+  const now = await Stage.open($("#stage"), deck, how.painter, how.engine);
   // The slide as large as fits beside the notes, as sharp as the screen (lift-up ATTR-2).
   if (how.fit !== "own") {
     const main = $("main");
@@ -1013,12 +1012,12 @@ async function presentView(deck: Source, how: Play, channel: BroadcastChannel) {
     smaller: () => sizeNotes(-1),
     navigate: () => heard && void navigating.toggle(),
   });
-  // Every slide, to go to one (lift-up 10-24b USE-1): drawn small by the next state's stage, the
-  // one the room sees marked, and the one chosen gone to as its number typed goes.
+  // Every slide, to go to one (lift-up 10-24b USE-1): drawn small by the stage, the one the room
+  // sees marked, and the one chosen gone to as its number typed goes.
   /** The state the player shows, and the format it shows it in. */
   let shownAt = 0;
   let shownFormat: string | undefined;
-  const navigating = slideNavigator(upNext, () => slots, () => [shownAt, shownFormat], (number) => steer({ type: "slide", number }));
+  const navigating = slideNavigator(now, () => slots, () => [shownAt, shownFormat], (number) => steer({ type: "slide", number }));
   $("#navigate").onclick = () => void navigating.toggle();
   // The notes' size (lift-up USE-4): a step up or down the sizes a speaker reads at, kept in this
   // browser for the next show.
@@ -1151,6 +1150,18 @@ async function presentView(deck: Source, how: Play, channel: BroadcastChannel) {
   /** The state and the format the next state was painted for, and the size it was painted at. */
   let next = "";
   let nextSize: [number, number] | null = null;
+  /** `state` at rest, in `format`, drawn by the stage as a still into the next slide's canvas, as
+   * wide as it shows and in the shape of the slide `size` says; the size it is drawn at. */
+  const upNext = $<HTMLCanvasElement>("#upnext");
+  const still = async (state: string, format: string | undefined, [w, h]: [number, number]): Promise<[number, number] | null> => {
+    const wide = Math.max(1, Math.round((upNext.clientWidth || 320) * devicePixelRatio));
+    const [drawn] = await now.thumbnails(Math.max(1, Math.round((wide * h) / Math.max(1, w))), {}, format, [state]);
+    if (!drawn?.pixels || !drawn.width || !drawn.height) return null;
+    upNext.width = drawn.width;
+    upNext.height = drawn.height;
+    upNext.getContext("2d")?.putImageData(new ImageData(new Uint8ClampedArray(drawn.pixels), drawn.width), 0, 0);
+    return [drawn.width, drawn.height];
+  };
   const follow = async () => {
     if (painting) return;
     painting = true;
@@ -1158,7 +1169,7 @@ async function presentView(deck: Source, how: Play, channel: BroadcastChannel) {
       while (latest) {
         const at: Follow = latest;
         latest = undefined;
-        await now.show(states[at.index], at.t, at.format);
+        const shown = await now.show(states[at.index], at.t, at.format);
         $("#where").textContent = place(slots, at.index);
         void read(states[at.index], at.format);
         // Other notes start at their top, however far the last were scrolled; a step that keeps its
@@ -1178,7 +1189,7 @@ async function presentView(deck: Source, how: Play, channel: BroadcastChannel) {
           $("#nextName").textContent = coming ? `Next: ${slots[at.index + 1]?.said ?? coming}` : "The end of the deck.";
           // After the last state nothing comes: no slide stands where the next would.
           $("#upnext").hidden = !coming;
-          nextSize = coming ? (await upNext.show(coming, undefined, at.format)).size : null;
+          nextSize = coming ? await still(coming, at.format, shown.size) : null;
         }
         // A frame painted once the player has gone leaves what this view says of it.
         if (heard) status.textContent = "";
@@ -1223,7 +1234,8 @@ async function presentView(deck: Source, how: Play, channel: BroadcastChannel) {
     listen({
       changed: (paths) => {
         if (!paths.some((path) => path !== "deck.scn")) return;
-        void Promise.all([now.reload(), upNext.reload()])
+        void now
+          .reload()
           .then(async () => {
             ({ states, notes } = now.opened);
             title();
