@@ -1,6 +1,6 @@
 {
   "name": "deck_history",
-  "description": "A bundle's versions (SPEC §8): each change its history keeps, by author and time, oldest first, each named by its number as listed or by its id, and told as the editors tell it: what it did (`said`), by whom (`by`), and, for the last 25 versions, what it changed from the version before, slide by slide, each object by what it shows (`changed`). With `begin`, a history begun where the bundle keeps none, the deck as it is its first version. With `at`, the deck as it was just after one (`scn` for source); with `compare`, what changed from one version to another, or, with one, to the deck as it is now: each state added, removed, or changed (its own fields, and its nodes as `deck_diff` says them), the deck's own fields, and the files it is drawn from, data files and the theme, whose bytes changed, each with what it was before (`before`); with `restore`, that version made the deck again, with its data files and its theme as they were: one change, refused as a patch is where the deck would not validate in the bundle as it is (`dry_run` writes nothing).",
+  "description": "A bundle's versions (SPEC §8): each change its history keeps, by author and time, oldest first, each named by its number as listed or by its id, and told as the editors tell it: what it did (`said`), by whom (`by`), and, for the last 25 versions, what it changed from the version before, slide by slide, each object by what it shows (`changed`). With `begin`, a history begun where the bundle keeps none, the deck as it is its first version. With `at`, the deck as it was just after one (`scn` for source); with `compare`, what changed from one version to another, or, with one, to the deck as it is now: each state added, removed, or changed (its own fields, and its nodes as `deck_diff` says them), the deck's own fields, and the files it is drawn from, data files and the theme, whose bytes changed, each with what it was before (`before`); with `restore`, that version made the deck again, with its data files and its theme as they were: one change, refused as a patch is where the deck would not validate in the bundle as it is (`dry_run` writes nothing). A version is named by its number, its id, or how far back from the latest it is: `restore: \"-1\"`, the version before the latest, undoes the last change. With `last`, only the last that many versions are listed.",
   "inputSchema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "required": ["bundle"],
@@ -37,6 +37,12 @@
         "description": "Begin a history where the bundle keeps none, and list its versions: its first holds the\ndeck as it is, and every write after is recorded. A bundle that keeps one lists it.",
         "type": "boolean",
         "default": false
+      },
+      "last": {
+        "description": "Listing the versions, only the last this many, each by its number in the whole history.",
+        "type": ["integer", "null"],
+        "minimum": 0,
+        "default": null
       }
     }
   },
