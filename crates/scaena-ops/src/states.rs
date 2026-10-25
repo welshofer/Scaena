@@ -323,7 +323,8 @@ pub fn titled(deck: &Deck, theme: &Theme, shown: &str) -> Result<AddedState, Ops
 /// [`starting`] makes, and in each slot that waits with an `example`, what it says: a picture
 /// drawn by the theme's shader preset, under the cards and the words over it, each picture on the
 /// slide with a seed of its own; a map's place, that picture with a pin and a label over it (PLAN
-/// O.1e); or a chart or a table of a few rows made up for it, written inline. An editor draws it, so a
+/// O.1e); a chart or a table of a few rows made up for it, written inline; or code, set in the text
+/// the slot starts with (theme format 0.29). An editor draws it, so a
 /// layout's picture shows what each slot is for, and never saves it.
 pub fn example(deck: &Deck, theme: &Theme, shown: &str, layout: &str) -> Result<AddedState, OpsError> {
     let mut started = starting(deck, theme, shown, Some(layout))?;
@@ -374,6 +375,23 @@ pub fn example(deck: &Deck, theme: &Theme, shown: &str, layout: &str) -> Result<
                 started.patch.push(json!({ "op": "add_node", "id": label, "node": labeled, "state": started.id }));
                 ids.push(label);
                 json!({ "type": "shader", "kind": p.kind, "preset": preset, "seed": seed, "at": { "in": slot }, "z": -2 })
+            }
+            Example::Code(code) => {
+                // The text the slot starts with, set to the code: a code slot's is its prompt's
+                // words as Plain Text (`coded`).
+                let started_in = started
+                    .patch
+                    .iter_mut()
+                    .find(|op| op["op"] == "add_node" && op["node"]["at"]["in"] == slot.as_str());
+                let node = json!({ "type": "text", "text": code.text, "code": { "language": code.language }, "at": { "in": slot } });
+                match started_in {
+                    Some(op) => {
+                        op["node"]["text"] = json!(code.text);
+                        op["node"]["code"] = json!({ "language": code.language });
+                        continue;
+                    }
+                    None => node,
+                }
             }
             Example::Table(columns) => {
                 let rows = example_table(*columns);

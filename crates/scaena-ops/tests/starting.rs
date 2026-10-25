@@ -100,7 +100,9 @@ fn every_shipped_layout_draws_its_example_in_each_slot_that_waits() {
                     .values()
                     .map(|n| serde_json::to_value(n).unwrap())
                     .find(|n| {
-                        n["at"]["in"] == *slot && ["shader", "chart", "table"].contains(&n["type"].as_str().unwrap())
+                        n["at"]["in"] == *slot
+                            && (["shader", "chart", "table"].contains(&n["type"].as_str().unwrap())
+                                || matches!(example, Example::Code(_)) && n.get("code").is_some())
                     })
                     .unwrap_or_else(|| panic!("{name}'s {layout}: nothing in `{slot}`"));
                 match example {
@@ -117,6 +119,20 @@ fn every_shipped_layout_draws_its_example_in_each_slot_that_waits() {
                         assert_eq!(node["kind"], serde_json::to_value(kind).unwrap());
                     }
                     Example::Table(_) => assert_eq!(node["type"], "table"),
+                    // The text the code slot starts with, set to the code, and nothing more in it
+                    // (PLAN 2.138).
+                    Example::Code(code) => {
+                        assert_eq!(
+                            (&node["text"], &node["code"]["language"]),
+                            (&serde_json::json!(code.text), &serde_json::json!(code.language))
+                        );
+                        let held = deck
+                            .nodes
+                            .values()
+                            .filter(|n| serde_json::to_value(n).unwrap()["at"]["in"] == *slot)
+                            .count();
+                        assert_eq!(held, 1, "{name}'s {layout}: one text in `{slot}`");
+                    }
                     Example::Map(preset) => {
                         // A map's place: the picture, then a pin and a label over it (PLAN O.1e).
                         assert_eq!(
