@@ -190,7 +190,7 @@ fn brief(args: &Value) -> Result<Brief, Failure> {
 fn asked(args: &Value) -> Result<(Provider, String, Option<String>), Failure> {
     let name = args.get("provider").and_then(Value::as_str).ok_or_else(|| said("`provider` is a string it needs"))?;
     let model = args.get("model").and_then(Value::as_str).unwrap_or_default().to_string();
-    let base = args.get("base").and_then(Value::as_str).filter(|b| !b.is_empty()).map(str::to_string);
+    let base = crate::base(args)?.map(str::to_string);
     Ok((provider(name)?, model, base))
 }
 
@@ -292,7 +292,7 @@ impl Generating {
                 let script =
                     scaena_ops::scripts::needed(language, "", shipped.text, &|file| shipped_font(&shipped, file))
                         .map_err(said)?;
-                let base = args.get("base").and_then(Value::as_str).filter(|b| !b.is_empty());
+                let base = crate::base(args)?;
                 json!({ "script": script.map(|s| json!({
                     "key": s.key, "family": s.family, "language": s.language, "url": s.url(base),
                     "sha256": s.sha256, "bytes": s.bytes,
@@ -383,7 +383,7 @@ impl Generating {
             }
             "imageModels" => {
                 let provider = provider(arg("provider")?)?;
-                let base = args.get("base").and_then(Value::as_str).filter(|b| !b.is_empty());
+                let base = crate::base(args)?;
                 json!({ "request": request(provider.models(arg("key")?, base, false)) })
             }
             "imageModelsRead" => {
@@ -407,7 +407,7 @@ impl Generating {
                 let settings = scaena_narrato::pictures::Settings {
                     provider: provider(arg("provider")?)?,
                     model: arg("model")?.to_string(),
-                    base: args.get("base").and_then(Value::as_str).filter(|b| !b.is_empty()).map(str::to_string),
+                    base: crate::base(args)?.map(str::to_string),
                     quality: (args.get("quality").and_then(Value::as_str))
                         .and_then(scaena_narrato::pictures::Quality::named)
                         .unwrap_or_default(),
@@ -468,7 +468,7 @@ impl Generating {
                 let settings = scaena_narrato::pictures::Settings {
                     provider: provider(arg("provider")?)?,
                     model: arg("model")?.to_string(),
-                    base: args.get("base").and_then(Value::as_str).filter(|b| !b.is_empty()).map(str::to_string),
+                    base: crate::base(args)?.map(str::to_string),
                     quality: (args.get("quality").and_then(Value::as_str))
                         .and_then(scaena_narrato::pictures::Quality::named)
                         .unwrap_or_default(),
@@ -574,7 +574,9 @@ impl Generating {
                 let key = args.get("key").and_then(Value::as_str);
                 let looking = key.filter(|_| args.get("look").and_then(Value::as_bool) != Some(false));
                 if let Some(key) = looking {
-                    let seen = scaena_ops::narrative::seeing(narrative, &model, &placed, making.layouts());
+                    let mut seen = scaena_ops::narrative::seeing(narrative, &model, &placed, making.layouts());
+                    // Each title's room, so a topic may become its claim (lift-up FUNC-2).
+                    scaena_ops::narrative::roomed(&mut seen, &making.rooms());
                     // A slide that would not draw for the model to see leaves the deck as made,
                     // saying why (narrative STAB-3): the look is a polish, never the deck.
                     // The first batch of rounds drawn and asked, the next drawn while it is out
