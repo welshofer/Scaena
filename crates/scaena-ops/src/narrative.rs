@@ -420,11 +420,21 @@ pub fn provenance(given: &[Given]) -> Vec<Provenance> {
 /// slide names a source the deck was not grounded in. A name is matched as written, then with
 /// case and spaces set aside, then as the source's address.
 fn cited(sources: &[Provenance], named: &str) -> Option<String> {
-    let loose = |s: &str| s.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase();
-    let source = (sources.iter().find(|s| s.name == named))
-        .or_else(|| sources.iter().find(|s| loose(&s.name) == loose(named)))
-        .or_else(|| sources.iter().find(|s| s.url.as_deref() == Some(named)))?;
+    let source = source_named(sources, named)?;
     Some(source.url.clone().unwrap_or_else(|| format!("{}{}", scaena_core::document::SOURCE_CITED, source.name)))
+}
+
+/// The source a slide names, of those the deck was grounded in: matched as written, then with
+/// case and spaces set aside, then as the source's address.
+fn source_named<'a>(sources: &'a [Provenance], named: &str) -> Option<&'a Provenance> {
+    (sources.iter().find(|s| s.name == named))
+        .or_else(|| sources.iter().find(|s| loose(&s.name) == loose(named)))
+        .or_else(|| sources.iter().find(|s| s.url.as_deref() == Some(named)))
+}
+
+/// `s` with its runs of spaces one and its letters small, to match a name as a person means it.
+fn loose(s: &str) -> String {
+    s.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase()
 }
 
 /// A data source kept from a sheet, or why it was not.
@@ -1985,6 +1995,10 @@ fn assemble(
             idea: (narrative.outline.as_ref()).map(|o| o.big_idea.trim()).filter(|i| !i.is_empty()),
             icons,
             lang: lang.unwrap_or("en"),
+            grounded: (slide.source_ref.as_deref())
+                .and_then(|named| source_named(&narrative.sources, named))
+                .map(|s| if s.name.trim().is_empty() { s.url.as_deref().unwrap_or_default() } else { s.name.as_str() })
+                .filter(|n| !n.trim().is_empty()),
         };
         let last = first + i + 1 == total;
         let peak = peaked == Some(i);
@@ -3785,6 +3799,9 @@ struct Slots<'a> {
     icons: Option<Vec<&'a Icon>>,
     /// The deck's language (BCP 47).
     lang: &'a str,
+    /// The name of the source the slide was grounded in, where it names one the deck was given:
+    /// its title, else its address (lift-up 20261025 FUNC-3).
+    grounded: Option<&'a str>,
 }
 
 /// What one slide added beyond its nodes: the data source its chart reads, and the steps its
@@ -4045,8 +4062,24 @@ impl Slots<'_> {
     /// A chart's caption: its source, else the slide's supporting fact. What it shows is its
     /// value axis's title, which a caption never says again.
     fn caption(&self) -> Option<String> {
-        let chart = self.slide.chart_data.as_ref()?;
-        (chart.source_id.as_deref().filter(|s| !s.trim().is_empty())).map(|s| self.sourced(s)).or_else(|| self.fact())
+        self.slide.chart_data.as_ref()?;
+        self.credit().or_else(|| self.fact())
+    }
+
+    /// "Source: …": the source the model wrote for the slide's chart, the one the slide was
+    /// grounded in, or both where they differ, the model's words first (lift-up 20261025 FUNC-3).
+    fn credit(&self) -> Option<String> {
+        let wrote = (self.slide.chart_data.as_ref())
+            .and_then(|c| c.source_id.as_deref())
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
+        let said = match (wrote, self.grounded) {
+            (Some(w), Some(g)) if !loose(w).contains(&loose(g)) => format!("{w} \u{b7} {g}"),
+            (Some(w), _) => w.to_string(),
+            (None, Some(g)) => g.to_string(),
+            (None, None) => return None,
+        };
+        Some(self.sourced(&said))
     }
 
     fn fact(&self) -> Option<String> {
@@ -4351,23 +4384,30 @@ impl Slots<'_> {
             }
             "under" | "detail" => self.fact().or_else(|| self.item(1).map(|i| i.whole.clone())),
             // A chart's source, in a place of its own beside its note (dogfood pass 4).
-            "source" => self.caption(),
+            "source" => self.caption().or_else(|| self.credit()),
             // A note beside a place for the source: the slide's fact where the source took none of it.
             "note" if self.has("source") && self.slide.chart_data.is_some() => {
-                let sourced = (self.slide.chart_data.as_ref().and_then(|c| c.source_id.as_deref()))
-                    .is_some_and(|s| !s.trim().is_empty());
-                if sourced { self.fact() } else { None }
+                if self.credit().is_some() {
+                    self.fact()
+                } else {
+                    None
+                }
             }
             "note" if layout.ends_with("chart") && self.slide.chart_data.is_some() => self.caption(),
             "note" => {
-                let source = self.slide.chart_data.as_ref().and_then(|c| c.source_id.clone()).map(|s| self.sourced(&s));
                 // What the headline leaves to say, where the layout has no place of its own for it
                 // and the slide is no chart's, whose value axis says it: a source or a fact stays
                 // first, never stacked with it.
                 let placed = ["subtitle", "support", "dek", "follow", "talk", "lede"].iter().any(|n| self.has(n));
                 let chart = self.slide.chart_data.is_some();
                 let fallback = if layout == "full" || (!placed && !chart) { self.subtitle() } else { None };
-                source.or_else(|| self.fact()).or(fallback)
+                // A chart's source first, as its caption says it; on a slide with no chart, the
+                // source it was grounded in only where none of the writer's words takes the place
+                // (lift-up 20261025 FUNC-3).
+                match chart {
+                    true => self.credit().or_else(|| self.fact()).or(fallback),
+                    false => self.fact().or(fallback).or_else(|| self.credit()),
+                }
             }
             "story" | "details" => (!self.items.is_empty()).then(|| self.wholes().join("\n")),
             "body" | "needs" | "method" => {
@@ -9900,6 +9940,46 @@ mod tests {
             generating(&narrative(&summary, slides[..2].to_vec()), Path::new("dusk.theme.json"), dusk(), &font)
                 .unwrap();
         assert!(write.unwrap().deck.to_value().unwrap()["meta"]["narrative"].get("sources").is_none());
+    }
+
+    /// A chart's slide grounded in a source the deck was given credits it where it shows its
+    /// source: the source's name where the model gave none, after the model's words where both
+    /// differ, once where they agree. A slide with no chart keeps its writer's words in its place
+    /// (lift-up 20261025 FUNC-3).
+    #[test]
+    fn a_slide_credits_the_source_it_was_grounded_in() {
+        let notes = source("notes.md", Kind::Markdown, "# Tidewater\nShipping emits about 3% of CO2.");
+        let g = grounding(&[notes], Provider::Anthropic).unwrap();
+        let (summary, mut slides) = catalog();
+        slides.truncate(8);
+        let made = |slides: Vec<Slide>| -> Vec<String> {
+            let mut n = narrative(&summary, slides);
+            n.sources = provenance(&g.given);
+            let (_, write) = generating(&n, Path::new("dusk.theme.json"), dusk(), &font).unwrap();
+            let deck = write.unwrap().deck.to_value().unwrap();
+            let mut said: Vec<String> = deck["nodes"].as_object().unwrap().values().map(words).collect();
+            said.retain(|w| !w.is_empty());
+            said.sort();
+            said
+        };
+        let plain = made(slides.clone());
+        let credits = |said: &[String]| -> Vec<String> {
+            said.iter().filter(|w| w.starts_with("Source: ")).cloned().collect::<Vec<_>>()
+        };
+        assert_eq!(credits(&plain), ["Source: Ecosystem Marketplace", "Source: ITF Transport Outlook"]);
+        for i in [3, 6, 7] {
+            slides[i].source_ref = Some("notes.md".into());
+        }
+        // The model's source dropped on one chart, and kept on the other.
+        slides[6].chart_data.as_mut().unwrap().source_id = None;
+        let grounded = made(slides.clone());
+        assert_eq!(credits(&grounded), ["Source: ITF Transport Outlook \u{b7} notes.md", "Source: notes.md"]);
+        // The slide with no chart says what its writer wrote, as it did.
+        let fact = plain.iter().find(|w| w.starts_with("International Maritime Organization")).unwrap();
+        assert!(grounded.contains(fact), "{grounded:?}");
+        // Where the model's words already name the source, it is said once.
+        slides[7].chart_data.as_mut().unwrap().source_id = Some("Notes.md, Tidewater".into());
+        assert!(credits(&made(slides)).contains(&"Source: Notes.md, Tidewater".to_string()));
     }
 
     #[test]
