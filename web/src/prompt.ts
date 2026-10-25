@@ -40,6 +40,10 @@ export function said(event: GeneratingEvent): string {
       return `Outline settled: ${event.beats} beats`;
     case "writing":
       return `Writing the slides, at least ${event.slides}…`;
+    case "continuing":
+      return `The answer was cut short after ${event.written} slides: asking for the rest of ${event.slides}…`;
+    case "unrested":
+      return `The rest of the slides did not come back: ${event.why}`;
     case "retrying":
       return `The provider is busy or did not answer: asking again in ${Math.round(event.seconds)} s (try ${event.tried + 1} of 6)…`;
     case "wrote":

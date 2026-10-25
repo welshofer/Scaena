@@ -308,10 +308,22 @@ export async function generate(
       if (job.arc && outlining) generation.outlineFirst();
       for (let asked = generation.request(job.key); asked; asked = generation.request(job.key)) {
         const step = generation.step();
-        hear(step === "arc" ? { kind: "choosing" } : step === "outline" ? { kind: "outlining" } : { kind: "writing", slides: generation.target() });
+        // The rest of slides cut short (lift-up REL-2), written on from those in.
+        const partial = step === "rest" ? ((JSON.parse(generation.standing()) as { partial?: number | null }).partial ?? 0) : 0;
+        hear(
+          step === "arc"
+            ? { kind: "choosing" }
+            : step === "outline"
+              ? { kind: "outlining" }
+              : step === "rest"
+                ? { kind: "continuing", written: partial, slides: generation.target() }
+                : { kind: "writing", slides: generation.target() },
+        );
         const reply = await send(JSON.parse(asked));
         const answer = read(WRITERS[job.provider], reply, () => generation.answer(reply.status, reply.statusText, reply.body, reply.after));
         const at = JSON.parse(answer) as {
+          step?: string;
+          unrested?: string | null;
           arc?: string;
           reasoning?: string | null;
           fallback?: string | null;
@@ -346,7 +358,10 @@ export async function generate(
             const chosen = JSON.parse(generation.standing()) as { arc?: string };
             hear({ kind: "chose", arc: chosen.arc ?? decided.arc ?? "" });
           }
-        } else hear({ kind: "wrote", slides: at.written ?? 0, truncated: at.truncated ?? false });
+        } else if (at.step !== "rest") {
+          if (at.unrested) hear({ kind: "unrested", why: at.unrested });
+          hear({ kind: "wrote", slides: at.written ?? 0, truncated: at.truncated ?? false });
+        }
       }
       await giveIcons(generation, hear);
       const painted = job.pictures ? await paint(g, generation, job.pictures, theme, hear) : undefined;

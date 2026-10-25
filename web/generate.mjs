@@ -80,7 +80,7 @@ const PAGE = "<h1>Tidewater in the press</h1><p>The Gulf's first carbon-negative
 /** Anthropic, scripted: what each request asks, and the state the walk sets (`slow`, `fail`, and
  * the `slides` it answers with, the recorded ones where none is set). */
 const requests = [];
-const state = { slow: 0, fail: false, slides: undefined, looking: 0 };
+const state = { slow: 0, fail: false, slides: undefined, rest: undefined, looking: 0 };
 const provider = createServer(async (req, res) => {
   const cors = {
     "access-control-allow-origin": req.headers.origin ?? "*",
@@ -125,6 +125,8 @@ const provider = createServer(async (req, res) => {
     const beats = [1, 2, 3, 4, 5, 6].map((beat) => ({ beat, claim: `Claim ${beat}: what this beat's slides leave behind.` }));
     return reply(200, { content: [{ type: "text", text: JSON.stringify({ bigIdea: "Cargo can pay for its carbon.", beats }) }], stop_reason: "end_turn" });
   }
+  // The rest of slides cut short (lift-up REL-2), asked with the slides' own prompt.
+  if (asked === "slides" && state.rest && prompt.includes("CONTINUATION")) return reply(200, state.rest);
   if (asked === "slides") return reply(200, state.slides ?? SLIDES);
   if (asked === "look") {
     const look = { slides: [{ slide: 1, layout: "", title: "Carbon-negative cargo, ready to scale", subtitle: "", bullets: [], why: "One idea, one line." }] };
@@ -669,6 +671,33 @@ try {
   check(!dashed.includes("alt:Acorn") && !dashed.includes("alt:Lightning"), "the dashed list keeps its words, under no icon");
   state.slides = undefined;
 
+  // Slides cut short of the length asked are asked for the rest, written on from them (lift-up
+  // REL-2): the deck is the two answers as one, and the progress says so.
+  {
+    const written = JSON.parse(JSON.parse(SLIDES).content.find((c) => c.type === "text").text);
+    const first = JSON.stringify({ executiveSummary: written.executiveSummary, slides: written.slides.slice(0, 3) });
+    const cut = `${first.slice(0, -2)}, {"slideTitle": "Cut`;
+    state.slides = JSON.stringify({ content: [{ type: "text", text: cut }], stop_reason: "max_tokens" });
+    state.rest = JSON.stringify({
+      content: [{ type: "text", text: JSON.stringify({ executiveSummary: "", slides: written.slides.slice(3) }) }],
+      stop_reason: "end_turn",
+    });
+  }
+  requests.length = 0;
+  await opened();
+  await page.uncheck("#prompting-show-outline");
+  await page.click("#prompting-go");
+  await page
+    .waitForFunction((was) => window.scaena.source() !== was && window.scaena.last(), dashed, { timeout: 180000 })
+    .catch(() => {});
+  const rested = await page.evaluate(() => window.scaena.source());
+  check((rested.match(/^state /gm) ?? []).length === 5, `the deck is both answers' slides: ${(rested.match(/^state /gm) ?? []).length}`);
+  const continued = requests.filter((r) => r.asked === "slides");
+  check(continued.length === 2 && continued[1].prompt.includes("cut off after slide 3 of"), `the rest is asked once, after the three written: ${continued.length}`);
+  const restLines = await lines();
+  check(restLines.some((l) => l.startsWith("The answer was cut short after 3 slides: asking for the rest of")), `the progress says the rest is asked for: ${restLines.join(" | ")}`);
+  check(restLines.some((l) => l === "5 slides written"), `and the slides written whole: ${restLines.join(" | ")}`);
+  state.slides = state.rest = undefined;
   // The brief's other controls, as `scaena generate` takes them (lift-up FUNC-5): a persona chosen
   // for an audience in the person's own words, pictures made with high care, and the slides not
   // shown to the model.

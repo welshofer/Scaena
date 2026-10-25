@@ -28,11 +28,11 @@ private final class Away: @unchecked Sendable {
     var steps: [(step: String, main: Bool, stack: Int)] { lock.withLock { taken } }
 }
 
-/// An Anthropic answer whose text is `text`.
-private func anthropic(_ text: String) -> Data {
+/// An Anthropic answer whose text is `text`, stopped where `cut` says it ran out of room.
+private func anthropic(_ text: String, cut: Bool = false) -> Data {
     let answer: JSONValue = .object([
         "content": .array([.object(["type": .string("text"), "text": .string(text)])]),
-        "stop_reason": .string("end_turn"),
+        "stop_reason": .string(cut ? "max_tokens" : "end_turn"),
     ])
     return (try? JSONEncoder().encode(answer)) ?? Data()
 }
@@ -245,6 +245,41 @@ private func anthropic(_ text: String) -> Data {
         ) { _ in }
     }
     #expect(refused?.message == "Anthropic didn't accept your key. Check it, or replace it.", "\(String(describing: refused))")
+}
+
+/// Slides cut short of the length asked are asked for the rest, written on from them (lift-up
+/// REL-2), as the CLI and the browser ask: the deck is the two answers as one, and the rest is heard.
+@MainActor
+@Test func slidesCutShortAreAskedForTheRest() async throws {
+    let arc = try Data(contentsOf: answers.appending(path: "anthropic-arc.json"))
+    let slide = { (n: Int) in
+        #"{"slideTitle": "Slide \#(n)", "layoutSuggestion": "Bullet List", "keyBullets": ["Point \#(n)"], "beatName": "Problem"}"#
+    }
+    let first = #"{"executiveSummary": "Cargo pays for its carbon.", "slides": ["# + (1...5).map(slide).joined(separator: ", ")
+        + #", {"slideTitle": "Cut"#
+    let rest = #"{"executiveSummary": "", "slides": ["# + (6...8).map(slide).joined(separator: ", ") + "]}"
+    let asked = Asked()
+    let generator = Generator { request in
+        await asked.add(request)
+        let body = request.body ?? ""
+        if body.contains("=== CATALOG ===") { return GeneratorReply(status: 200, body: arc) }
+        if body.contains("runs past its place") { return GeneratorReply(status: 200, body: anthropic(#"{"texts": []}"#)) }
+        if body.contains("CONTINUATION") { return GeneratorReply(status: 200, body: anthropic(rest)) }
+        return GeneratorReply(status: 200, body: anthropic(first, cut: true))
+    }
+    var heard: [GeneratingStep] = []
+    let (session, made) = try await generator.generate(
+        brief: Brief(topic: "Carbon-negative cargo is ready to scale", audience: "Investors"),
+        provider: .anthropic, model: "a-model", key: "sk-writer", theme: "dusk", look: false
+    ) { heard.append($0) }
+    #expect(made.created.created)
+    #expect(try session.states().count == 8)
+    let continued = heard.contains { if case .continuing(5, _) = $0 { true } else { false } }
+    #expect(continued, "\(heard)")
+    let wrote = heard.contains { if case .wrote(8, false) = $0 { true } else { false } }
+    #expect(wrote, "\(heard)")
+    let requests = await asked.requests
+    #expect(requests.contains { ($0.body ?? "").contains("cut off after slide 5 of") })
 }
 
 /// A pictures key whose image models cannot be listed loses the pictures, not the deck

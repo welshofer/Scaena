@@ -308,6 +308,11 @@ pub enum Progress {
     Chose { arc: String, fallback: Option<String> },
     /// The slides are asked, at least this many.
     Writing { slides: usize },
+    /// The answer was cut short after `written` slides of `slides`: the rest is asked for
+    /// (lift-up REL-2).
+    Continuing { written: usize, slides: usize },
+    /// The rest did not come back, and why: the deck is made of the slides written before it.
+    Unrested { why: String },
     /// The provider was busy, failed for now, or did not answer: the same step is asked again
     /// after `wait` seconds, `tried` times so far (narrative REL-1).
     Retrying { wait: f64, tried: usize },
@@ -586,7 +591,11 @@ pub fn generate_drawn(
 ) -> Result<(Generated, Option<Write>), OpsError> {
     while let Some(request) = key.and_then(|key| generation.request(key, documents)) {
         let step = generation.step();
-        say(if step == Step::Arc { Progress::Choosing } else { Progress::Writing { slides: generation.target() } });
+        say(match (step, generation.partial()) {
+            (Step::Arc, _) => Progress::Choosing,
+            (Step::Rest, Some(written)) => Progress::Continuing { written, slides: generation.target() },
+            _ => Progress::Writing { slides: generation.target() },
+        });
         let reply = transport.send(&request);
         (generation.answer(reply.status, &reply.status_text, &reply.body, reply.after.as_deref()))
             .map_err(|e| OpsError::new(e.to_string()))?;
@@ -605,6 +614,9 @@ pub fn generate_drawn(
     generation.give_icons(icons_found(&generation.icon_words()));
     let narrative = (generation.narrative().cloned())
         .ok_or_else(|| OpsError::new("the narrative is not written: a key asks the model for it"))?;
+    if let Some(why) = generation.unrested() {
+        say(Progress::Unrested { why: why.to_string() });
+    }
     let text = generation.written_text().unwrap_or_default().to_string();
     say(Progress::Wrote { slides: narrative.slides.len(), truncated: narrative.truncated, text });
     let model: Theme = serde_json::from_str(&theme).context("the theme")?;
@@ -9266,6 +9278,70 @@ mod tests {
         .unwrap_err();
         assert_eq!(err.message, "the request did not complete: connection reset (asked 6 times)");
         assert_eq!((transport.asked, transport.paused), (6, vec![2.0, 4.0, 8.0, 16.0, 32.0]));
+    }
+
+    /// Slides cut short of the length asked are asked for the rest, written on from them, and the
+    /// deck is the two answers as one (lift-up REL-2); the progress says so.
+    #[test]
+    fn slides_cut_short_are_asked_for_the_rest() {
+        use scaena_narrato::{Generation, Provider, Settings};
+        struct Scripted {
+            replies: Vec<Reply>,
+            asked: Vec<String>,
+        }
+        impl Transport for Scripted {
+            fn send(&mut self, request: &Request) -> Reply {
+                self.asked.push(request.body.as_ref().map(|b| b.to_string()).unwrap_or_default());
+                self.replies.remove(0)
+            }
+            fn pause(&mut self, _: f64) {}
+        }
+        let whole: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(root().join("crates/scaena-narrato/tests/answers/anthropic-slides.json")).unwrap(),
+        )
+        .unwrap();
+        let text: serde_json::Value = serde_json::from_str(whole["content"][1]["text"].as_str().unwrap()).unwrap();
+        let slides = text["slides"].as_array().unwrap();
+        let answered = |text: String, stop: &str| Reply {
+            status: 200,
+            status_text: "OK".into(),
+            body: json!({ "content": [{ "type": "text", "text": text }], "stop_reason": stop }).to_string(),
+            after: None,
+        };
+        // Three slides close, the fourth cut inside.
+        let first = json!({ "executiveSummary": text["executiveSummary"], "slides": slides[..3] }).to_string();
+        let cut = format!("{}, {{\"slideTitle\": \"Cut", &first[..first.len() - 2]);
+        let rest = json!({ "executiveSummary": "", "slides": slides[3..] }).to_string();
+        let mut g = Generation::new(
+            narrative("", Vec::new()).brief,
+            Settings { provider: Provider::Anthropic, model: "a-model".into(), base: None, browser: false },
+        )
+        .unwrap();
+        g.choose_arc(Some("Problem\u{2013}Solution"));
+        let target = g.target();
+        let mut transport =
+            Scripted { replies: vec![answered(cut, "max_tokens"), answered(rest, "end_turn")], asked: Vec::new() };
+        let mut heard = Vec::new();
+        let mut say = |p: Progress| heard.push(p);
+        let (made, write) = generate(
+            g,
+            Some("sk-test"),
+            &[],
+            None,
+            Looking::No,
+            Path::new("dusk.theme.json"),
+            dusk(),
+            &font,
+            &mut transport,
+            &mut say,
+        )
+        .unwrap();
+        assert_eq!(transport.asked.len(), 2);
+        assert!(transport.asked[1].contains("cut off after slide 3 of"), "{}", transport.asked[1]);
+        assert!(heard.contains(&Progress::Continuing { written: 3, slides: target }), "{heard:?}");
+        assert!(heard.iter().any(|p| matches!(p, Progress::Wrote { slides: 5, truncated: false, .. })), "{heard:?}");
+        assert!(made.created.created && made.created.errors == 0, "{:#?}", made.created.findings);
+        assert_eq!(write.unwrap().deck.states.len(), 5);
     }
 
     /// An Anthropic answer whose text is `text`.

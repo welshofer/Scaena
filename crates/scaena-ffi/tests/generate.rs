@@ -444,6 +444,47 @@ fn a_step_out_of_order_is_an_error_that_says_why() {
     unsafe { scaena_generator_free(g) };
 }
 
+/// Slides cut short are asked for the rest (lift-up 10-25 REL-2), as Swift asks it: the request
+/// for the rest says how many are written, which the window says, and the deck is both answers.
+#[test]
+fn slides_cut_short_ask_for_the_rest_saying_how_many_are_written() {
+    let arc = std::fs::read_to_string(format!("{ANSWERS}/anthropic-arc.json")).unwrap();
+    let slide = |n: usize| json!({ "slideTitle": format!("Slide {n}"), "layoutSuggestion": "Bullet List", "keyBullets": [format!("Point {n}")] });
+    let first =
+        json!({ "executiveSummary": "Cargo pays for its carbon.", "slides": (1..=5).map(slide).collect::<Vec<_>>() })
+            .to_string();
+    let cut = json!({
+        "content": [{ "type": "text", "text": format!("{}, {{\"slideTitle\": \"Cut", &first[..first.len() - 2]) }],
+        "stop_reason": "max_tokens",
+    })
+    .to_string();
+    let rest =
+        anthropic(&json!({ "executiveSummary": "", "slides": (6..=8).map(slide).collect::<Vec<_>>() }).to_string());
+    let g = scaena_generator_new();
+    let brief = json!({ "topic": "Carbon-negative cargo is ready to scale", "audience": "Investors" });
+    step(g, "begin", json!({ "brief": brief, "provider": "anthropic", "model": "a-model" }), &[]);
+    let mut stood = Vec::new();
+    loop {
+        let standing = step(g, "request", json!({ "key": "sk-writer" }), &[]);
+        let Some(request) = standing.get("request").cloned() else { break };
+        let body = request["body"].as_str().unwrap();
+        let answer = if body.contains("=== CATALOG ===") {
+            &arc
+        } else if body.contains("CONTINUATION") {
+            &rest
+        } else {
+            &cut
+        };
+        stood.push((standing["step"].clone(), standing["partial"].clone()));
+        step(g, "answer", json!({ "status": 200, "statusText": "OK", "body": answer }), &[]);
+    }
+    assert_eq!(stood, [(json!("arc"), json!(null)), (json!("slides"), json!(null)), (json!("rest"), json!(5))]);
+    step(g, "make", json!({ "theme": "dusk" }), &[]);
+    let report = step(g, "report", json!({}), &[]);
+    assert_eq!(report["layouts"].as_array().unwrap().len(), 8, "{report:#}");
+    unsafe { scaena_generator_free(g) };
+}
+
 /// A long deck's look is asked in every round at once (lift-up 20261025 PERF-2): `make` hands
 /// over each round's request, which ScaenaKit sends three at a time as the CLI and the browser
 /// do, and `looked` takes every answer back in the rounds' order, a round not answered losing
