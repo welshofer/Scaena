@@ -547,6 +547,18 @@ struct PromptView: View {
                                 .accessibilityIdentifier("prompt-beat-name")
                             Spacer()
                             Text(beat.takes).font(.caption).foregroundStyle(.secondary)
+                            // Up and down a place, as the browser's arrows move a beat: no drag
+                            // needed, by the keyboard and VoiceOver too (lift-up USE-5).
+                            Button { move(beat.id, by: -1) } label: { Image(systemName: "chevron.up") }
+                                .buttonStyle(.borderless)
+                                .disabled(beats.first?.id == beat.id)
+                                .help("Move the beat up")
+                                .accessibilityLabel("Move the beat up")
+                            Button { move(beat.id, by: 1) } label: { Image(systemName: "chevron.down") }
+                                .buttonStyle(.borderless)
+                                .disabled(beats.last?.id == beat.id)
+                                .help("Move the beat down")
+                                .accessibilityLabel("Move the beat down")
                             Button("Remove") { beats.removeAll { $0.id == beat.id } }
                                 .buttonStyle(.borderless)
                                 .font(.caption)
@@ -556,6 +568,8 @@ struct PromptView: View {
                             .lineLimit(1...3)
                             .accessibilityIdentifier("prompt-beat-claim")
                     }
+                    .accessibilityAction(named: "Move Up") { move(beat.id, by: -1) }
+                    .accessibilityAction(named: "Move Down") { move(beat.id, by: 1) }
                 }
                 .onMove { from, to in beats.move(fromOffsets: from, toOffset: to) }
                 .onDelete { at in beats.remove(atOffsets: at) }
@@ -566,7 +580,8 @@ struct PromptView: View {
                 Button("Add a Beat") { beats.append(EditedBeat()) }
                     .accessibilityIdentifier("prompt-add-beat")
                 #if !os(macOS)
-                // A beat is moved in the list's edit mode on the iPad; the Mac drags a row.
+                // Beside each beat's arrows, its row moves in the list's edit mode on the iPad; the
+                // Mac drags a row.
                 EditButton()
                 #endif
                 Spacer()
@@ -590,6 +605,12 @@ struct PromptView: View {
         // A container of its own, so its fields and buttons keep their own identifiers.
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("prompt-outline")
+    }
+
+    /// The beat `id` moved `step` places, up for a negative step: where that stays in the list.
+    private func move(_ id: EditedBeat.ID, by step: Int) {
+        guard let at = beats.firstIndex(where: { $0.id == id }), beats.indices.contains(at + step) else { return }
+        beats.swapAt(at, at + step)
     }
 
     /// `outlined` shown, its beats to edit.
