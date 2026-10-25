@@ -311,6 +311,23 @@ layout("Lists", "icon-grid", "Six features in two rows of three, each its icon b
 
 # Comparison ------------------------------------------------------------------------------------
 
+# Four things side by side, as Three Columns and Cards set three (dogfood pass 3, T8): a slide of
+# four items was offered no comparison.
+layout("Comparison", "four-columns", "Four things side by side, each named and said in a sentence or two.", {
+    "kicker": KICKER,
+    "header": header(),
+    **{f"{o}-title": slot(c, (3, 4), "title", w) for o, c, w in zip(ORDINALS, QUARTERS, ["First", "Second", "Third", "Fourth"])},
+    **{o: slot(c, (5, 10), "body", "What it is, in a sentence or two.") for o, c in zip(ORDINALS, QUARTERS)},
+})
+
+layout("Comparison", "four-cards", "Four things side by side, each on a card of its own, named and said in a sentence or two.", {
+    "kicker": KICKER,
+    "header": header(),
+    **{f"{o}-card": card(c, (3, 10)) for o, c in zip(ORDINALS, QUARTERS)},
+    **{f"{o}-title": slot(c, (3, 4), "title", w, inset=32) for o, c, w in zip(ORDINALS, QUARTERS, ["First", "Second", "Third", "Fourth"])},
+    **{o: slot(c, (5, 10), "body", "What it is, in a sentence or two.", inset=32) for o, c in zip(ORDINALS, QUARTERS)},
+})
+
 layout("Comparison", "before-after", "How it was and how it is: two pictures, an arrow between them, each named.", {
     "kicker": KICKER,
     "header": header(),
@@ -698,8 +715,8 @@ layout("Pictures", "panorama", "A picture across the width of the slide, its hea
 
 layout("Pictures", "photo-quote", "A picture across the whole slide, and someone's words over it.", {
     "art": picture((1, 12), (1, 12), "A picture, edge to edge", bleed=True),
-    "quote": slot((2, 9), (4, 8), "quote", "“The words someone said.”"),
-    "who": slot((2, 9), (9, 10), "caption", "Who said it"),
+    "quote": slot((2, 9), (4, 8), "quote", "“The words someone said.”", align={"x": "start", "y": "end"}),
+    "who": slot((2, 9), (9, 10), "body", "Who said it"),
 }, ember={"quote": ((2, 9), (4, 9)), "who": ((2, 9), (10, 11))})
 
 layout("Pictures", "four-in-a-row", "Four pictures in a row, each with its caption: a gallery.", {
@@ -1557,8 +1574,10 @@ OLD_SLOTS = {
     # sets its own, not in the body's size, which leaves three of them in the top of the slot.
     "bullets": {"body": {"role": "lede"}},
     # The words stand on who said them, or on what supports them, a gutter apart, whatever lines
-    # they take: the two read as one piece.
-    "quote": {"quote": {"align": {"x": "start", "y": "end"}}},
+    # they take: the two read as one piece. Who said them is set in the body's size, read from the
+    # back of the room as a pull quote's credit is, not in a caption's (dogfood pass 4).
+    "quote": {"quote": {"align": {"x": "start", "y": "end"}}, "who": {"role": "body"}},
+    "quote-portrait": {"quote": {"align": {"x": "start", "y": "end"}}, "who": {"role": "body"}},
     "statement": {"statement": {"align": {"x": "start", "y": "end"}}},
     "numbered": {"body": {"role": "lede"}},
 }
@@ -1583,7 +1602,12 @@ TITLE_KICKER = {"kicker": {"col": [1, 8], "row": [11, 12], "align": {"y": "end"}
 # By geometry family.
 OLD_SLOTS_IN = {
     "dusk": {"stat": {"number": {"row": [3, 7]}}, "timeline": timeline_rows(3), "title": TITLE_KICKER},
-    "ember": {"timeline": timeline_rows(4, last=12)},
+    "ember": {
+        "timeline": timeline_rows(4, last=12),
+        # Who said them on the row under the words, as in the other themes, not a row further down.
+        "quote": {"who": {"row": [9, 10]}},
+        "quote-portrait": {"who": {"row": [9, 10]}},
+    },
 }
 
 OLD_EXAMPLES = {
@@ -1629,7 +1653,8 @@ NAMES = {
     "icon-cards": "Icon Cards", "icon-rows": "Icon Rows", "icon-grid": "Icon Grid",
     # Comparison
     "two-columns": "Two Columns", "comparison": "Comparison", "pros-cons": "Pros and Cons",
-    "three-columns": "Three Columns", "cards": "Cards", "before-after": "Before and After",
+    "three-columns": "Three Columns", "cards": "Cards", "four-columns": "Four Columns", "four-cards": "Four Cards",
+    "before-after": "Before and After",
     "head-to-head": "Head to Head", "scenarios": "Scenarios", "myth-fact": "Myth and Fact", "pricing": "Pricing",
     # Frameworks
     "quadrants": "Quadrants", "funnel": "Funnel", "pyramid": "Pyramid", "matrix": "Two-by-Two Matrix",

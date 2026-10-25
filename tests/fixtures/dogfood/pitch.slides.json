@@ -1,0 +1,310 @@
+{
+ "executiveSummary": "Manifest audits every freight invoice before it is paid. Mid-market shippers lose 4% of freight spend to billing errors that today's audit firms find months late and charge a third to recover. Our 38 paid pilots recovered 4.2% of spend and ARR grew fivefold this year to $910K. We are raising a $4M seed to reach 120 shippers and $5M ARR.",
+ "slides": [
+  {
+   "slideTitle": "Manifest stops shippers paying for freight they never shipped",
+   "subtitle": "Seed round · $4M · Automated freight invoice audit for mid-market shippers",
+   "layoutSuggestion": "Title",
+   "keyBullets": [],
+   "visualDescription": "A loading dock at dawn, trucks backed into bays, a single invoice glowing on a tablet in the foreground",
+   "speakerNotes": "- Thanks for the time. We're Manifest, and we audit every freight invoice before it gets paid.\n- We're raising a $4M seed to take what worked in our pilots to the mid-market.\n- Fifteen minutes: the problem, what it costs, why today's fixes fail, and what we built.",
+   "beatIndex": 0,
+   "beatName": "Problem",
+   "purpose": "Names the company and the promise in one line",
+   "intent": "Make them curious why freight invoices need auditing",
+   "expectedIntensity": 0.3,
+   "expectedValence": 0.1
+  },
+  {
+   "slideTitle": "One in twelve freight invoices is wrong, and nobody checks",
+   "subtitle": "Mid-market shippers pay carriers on trust because auditing by hand doesn't scale",
+   "layoutSuggestion": "Statement",
+   "keyBullets": [],
+   "visualDescription": "A stack of thousands of invoices on a desk, one highlighted in red, the rest blurring into shadow",
+   "speakerNotes": "- Here's the uncomfortable truth we found in every pilot.\n- About 8% of freight invoices carry an error, almost always in the carrier's favor.\n- A shipper moving 20,000 loads a year can't read every line, so they don't.\n- They pay what they're billed and hope the carrier got it right.",
+   "beatIndex": 0,
+   "beatName": "Problem",
+   "purpose": "States the core problem as a single hard fact",
+   "intent": "Make them feel the scale of unchecked overbilling",
+   "expectedIntensity": 0.6,
+   "expectedValence": -0.4
+  },
+  {
+   "slideTitle": "Billing errors drain $9 billion from US shippers every year",
+   "subtitle": "Duplicate charges, wrong accessorials, and rate drift add up",
+   "layoutSuggestion": "Big Number",
+   "keyBullets": [
+    "$9B",
+    "Lost each year by US shippers to freight invoice errors"
+   ],
+   "visualDescription": "A single enormous dollar figure over a highway at night, trucks streaking past as light trails",
+   "speakerNotes": "- We took the error rate from 2.1 million invoices we audited and applied it to US freight spend.\n- That's $9 billion a year, paid and never recovered.\n- For a typical mid-market shipper, that's $400K to $1.2M walking out the door.\n- And nobody on their team owns finding it.",
+   "beatIndex": 1,
+   "beatName": "Impact",
+   "purpose": "Quantifies the cost of inaction with a single dollar figure",
+   "intent": "Make them feel that ignoring this is itself expensive",
+   "expectedIntensity": 0.85,
+   "expectedValence": -0.7,
+   "supportingFacts": "Manifest analysis of 2.1M invoices from 38 pilot shippers, applied to $1.1T US freight spend"
+  },
+  {
+   "slideTitle": "Accessorial charges cause most of the overbilling we found",
+   "subtitle": "Share of overbilled dollars by error type, 38 pilot shippers",
+   "layoutSuggestion": "Bar Chart",
+   "keyBullets": [
+    "Accessorials alone are 41% of every overbilled dollar"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "- Accessorials are the extras: liftgates, detention, residential delivery.\n- They're billed after the fact and rarely match the contract.\n- Duplicates are next: the same load billed twice through two channels.\n- Rate drift is the quiet one: last year's rate, this year's invoice.",
+   "beatIndex": 1,
+   "beatName": "Impact",
+   "purpose": "Shows where the money leaks so the problem feels concrete",
+   "intent": "Make them believe the errors are systematic, not random",
+   "expectedIntensity": 0.7,
+   "expectedValence": -0.5,
+   "chartData": {
+    "categories": [
+     "Accessorials",
+     "Duplicate invoices",
+     "Rate drift",
+     "Fuel surcharge",
+     "Weight reclass"
+    ],
+    "series": [
+     {
+      "name": "Share of overbilled dollars",
+      "values": [
+       41,
+       22,
+       18,
+       11,
+       8
+      ]
+     }
+    ],
+    "unit": "%",
+    "sourceId": "Manifest pilot data, Q1–Q3 2026"
+   }
+  },
+  {
+   "slideTitle": "We knew we were overpaying but couldn't afford to find out",
+   "subtitle": "",
+   "layoutSuggestion": "Quote",
+   "keyBullets": [
+    "We knew we were overpaying. We just couldn't afford to find out by how much.",
+    "Dana Whitfield, VP Logistics, Corvane Foods"
+   ],
+   "visualDescription": "Portrait of a logistics manager in a warehouse office, invoices pinned to a corkboard behind her",
+   "speakerNotes": "Dana runs logistics for a $600M food distributor. Before Manifest, her team of four sampled two hundred invoices a month out of nine thousand. She knew the money was there; she had no way to get it without hiring an audit firm that would take a third of it.",
+   "beatIndex": 2,
+   "beatName": "Existing Approaches",
+   "purpose": "Gives the problem a human voice from a real buyer",
+   "intent": "Make them feel the buyer's frustration with the status quo",
+   "expectedIntensity": 0.65,
+   "expectedValence": -0.5
+  },
+  {
+   "slideTitle": "Audit firms recover money months late and keep a third of it",
+   "subtitle": "Why today's options fall short",
+   "layoutSuggestion": "VS",
+   "keyBullets": [
+    "Audit firms: Manifest",
+    "Speed: 45–60 days after payment | Before the invoice is paid",
+    "Cost: 30–50% of what they recover | A flat fee per invoice",
+    "Coverage: A sample of top carriers | Every invoice, every carrier"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "| | Audit firms | Manifest |\n| --- | --- | --- |\n| Speed | 45–60 days after payment | Before payment |\n| Cost | 30–50% contingency | Flat per-invoice fee |\n| Coverage | Sampled | Every invoice |",
+   "beatIndex": 2,
+   "beatName": "Existing Approaches",
+   "purpose": "Shows why the incumbents cannot fix this",
+   "intent": "Make them see a gap the incumbents structurally cannot close",
+   "expectedIntensity": 0.6,
+   "expectedValence": -0.2
+  },
+  {
+   "slideTitle": "Audit every invoice before it is paid",
+   "subtitle": "Introducing Manifest",
+   "layoutSuggestion": "Section Header",
+   "keyBullets": [],
+   "visualDescription": "A single invoice on a dark background, a green check mark drawing itself across it",
+   "speakerNotes": "- So we built the audit that happens before the money moves.\n- Let me show you how it works.",
+   "beatIndex": 3,
+   "beatName": "Solution",
+   "purpose": "Turns the deck from problem to solution",
+   "intent": "Signal that the answer is coming",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.5
+  },
+  {
+   "slideTitle": "Manifest checks each invoice against the contract in seconds",
+   "subtitle": "",
+   "layoutSuggestion": "How It Works",
+   "keyBullets": [
+    "Read: invoices arrive by EDI, email, or carrier portal and are parsed line by line",
+    "Match: each charge is checked against the shipment, the contract rate, and proof of delivery",
+    "Dispute: anything that doesn't match is disputed with the carrier before AP pays"
+   ],
+   "visualDescription": "A clean three-panel diagram: an invoice, a contract, and a dispute email connected by glowing lines",
+   "speakerNotes": "- Three steps, all automatic.\n- We read every invoice format carriers send, including scanned PDFs.\n- We match each charge to the contract and to what actually happened on the dock.\n- When something's wrong, we file the dispute with evidence attached.\n- AP only ever sees verified amounts.",
+   "beatIndex": 3,
+   "beatName": "Solution",
+   "purpose": "Explains the mechanism so the claim feels credible",
+   "intent": "Make them believe the product is real and simple to adopt",
+   "expectedIntensity": 0.6,
+   "expectedValence": 0.5
+  },
+  {
+   "slideTitle": "Audit moves from months after payment to seconds before it",
+   "subtitle": "",
+   "layoutSuggestion": "Before / After",
+   "keyBullets": [
+    "Before: 60 days to find an error, and a 30% fee to recover it",
+    "After: errors caught in 4 seconds and disputed before payment"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "- This is the shift that matters.\n- Recovery after payment is slow, adversarial, and expensive.\n- Prevention before payment is fast and the carrier usually just reissues the invoice.\n- Our pilots disputed before payment 94% of the time.",
+   "beatIndex": 3,
+   "beatName": "Solution",
+   "purpose": "Shows the transformation in one comparison",
+   "intent": "Make them feel how much better prevention is than recovery",
+   "expectedIntensity": 0.75,
+   "expectedValence": 0.7
+  },
+  {
+   "slideTitle": "Pilots recovered 4.2% of freight spend within 90 days",
+   "subtitle": "Results from 38 paid pilots, January–September 2026",
+   "layoutSuggestion": "Scorecard",
+   "keyBullets": [
+    "4.2%: of freight spend recovered",
+    "38: shippers in paid pilots",
+    "2.1M: invoices audited",
+    "97%: of disputes won"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "- These are paid pilots, not free trials.\n- 4.2% of spend recovered is real money: $840K for a shipper spending $20M.\n- We've audited 2.1 million invoices, so the error rates aren't a fluke.\n- Carriers accept 97% of our disputes because we attach the evidence.",
+   "beatIndex": 4,
+   "beatName": "Proof",
+   "purpose": "Proves the product works with hard numbers",
+   "intent": "Make them believe the results are repeatable",
+   "expectedIntensity": 0.85,
+   "expectedValence": 0.8
+  },
+  {
+   "slideTitle": "ARR grew fivefold this year to $910K",
+   "subtitle": "Annual recurring revenue by month, 2026, $K",
+   "layoutSuggestion": "Line Chart",
+   "keyBullets": [
+    "ARR reached $910K in September, up 5× since January"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "- We converted 31 of 38 pilots to annual contracts.\n- Growth has come entirely from referrals and two logistics conferences.\n- No paid acquisition yet; that's part of what this round funds.\n- Net revenue retention is 138% because customers add carriers and sites.",
+   "beatIndex": 4,
+   "beatName": "Proof",
+   "purpose": "Shows traction is accelerating",
+   "intent": "Make them feel momentum they want to be part of",
+   "expectedIntensity": 0.8,
+   "expectedValence": 0.8,
+   "chartData": {
+    "categories": [
+     "Jan",
+     "Feb",
+     "Mar",
+     "Apr",
+     "May",
+     "Jun",
+     "Jul",
+     "Aug",
+     "Sep"
+    ],
+    "series": [
+     {
+      "name": "ARR",
+      "values": [
+       180,
+       220,
+       270,
+       340,
+       420,
+       510,
+       620,
+       760,
+       910
+      ]
+     }
+    ],
+    "unit": "$K",
+    "sourceId": "Manifest billing system"
+   }
+  },
+  {
+   "slideTitle": "A $2.4B market sits inside mid-market freight spend",
+   "subtitle": "From all US freight to the shippers we can reach today",
+   "layoutSuggestion": "Funnel",
+   "keyBullets": [
+    "US freight spend: $1.1T a year",
+    "Mid-market shippers: $180B of it, 14,000 companies",
+    "On EDI with top carriers: $60B, 4,200 companies",
+    "Our audit fee: $2.4B a year at 4% of recovered value"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "- We start with mid-market shippers, $10M to $200M in freight spend.\n- They're too small for the big audit firms and too big to check by hand.\n- 4,200 of them already exchange EDI with the top carriers, so onboarding is days, not months.\n- That's a $2.4B revenue opportunity before we touch enterprise.",
+   "beatIndex": 5,
+   "beatName": "Call to Action",
+   "purpose": "Sizes the opportunity for investors",
+   "intent": "Make them believe the market can support a large company",
+   "expectedIntensity": 0.6,
+   "expectedValence": 0.5
+  },
+  {
+   "slideTitle": "Built by people who ran freight audit at scale",
+   "subtitle": "",
+   "layoutSuggestion": "Team",
+   "keyBullets": [
+    "Priya Raman, CEO: ex-Flexport, built its invoice audit team from 0 to 40",
+    "Marcus Hale, CTO: ex-Stripe, led reconciliation infrastructure for 6 years",
+    "Jen Okafor, Head of Sales: sold freight software to 200 shippers at project44"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "- Priya ran audit at Flexport and saw the same errors at every customer.\n- Marcus built Stripe's reconciliation engine, which is the same matching problem at a different scale.\n- Jen has sold to exactly the buyers we're selling to.\n- We've worked together on and off for eight years.",
+   "beatIndex": 5,
+   "beatName": "Call to Action",
+   "purpose": "Establishes the team's credibility",
+   "intent": "Make them trust this team to execute",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.4
+  },
+  {
+   "slideTitle": "We're raising $4M to reach $5M ARR by end of 2027",
+   "subtitle": "",
+   "layoutSuggestion": "The Ask",
+   "keyBullets": [
+    "$4M seed on a $20M post-money cap",
+    "18 months of runway to reach 120 shippers",
+    "60% engineering, 30% go-to-market, 10% carrier integrations"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "- We're raising $4M on a $20M post-money SAFE.\n- It gets us 18 months and 120 shippers, which is $5M ARR.\n- Most of it goes to engineering: more carrier formats, more contract types.\n- We have $1.5M committed and want a lead who knows supply chain.",
+   "beatIndex": 5,
+   "beatName": "Call to Action",
+   "purpose": "Makes the explicit request with terms",
+   "intent": "Make them want to lead the round",
+   "expectedIntensity": 0.9,
+   "expectedValence": 0.7
+  },
+  {
+   "slideTitle": "Every freight invoice checked before it is paid",
+   "subtitle": "priya@manifest.dev · manifest.dev",
+   "layoutSuggestion": "Closing",
+   "keyBullets": [],
+   "visualDescription": "The loading dock from the cover, now at full daylight, trucks departing",
+   "speakerNotes": "- That's Manifest: every invoice checked before it's paid.\n- We'd love to have you in the round.\n- Happy to share the pilot data room after this call.",
+   "beatIndex": 5,
+   "beatName": "Call to Action",
+   "purpose": "Lands the promise and the contact",
+   "intent": "Make them remember the one-line promise",
+   "expectedIntensity": 0.6,
+   "expectedValence": 0.7
+  }
+ ]
+}

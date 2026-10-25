@@ -82,6 +82,13 @@ pub fn busy(status: u16) -> bool {
     matches!(status, 0 | 408 | 429 | 500..=599)
 }
 
+/// How long to wait before asking a busy provider again for a look or a fit (lift-up REL-1),
+/// as the slides and the pictures are asked: `tried` the times it was asked so far, from 0. None
+/// where `status` answers for good, or [`TRIES`] are spent.
+pub fn retry_after(status: u16, body: &str, after: Option<&str>, tried: usize) -> Option<f64> {
+    (busy(status) && tried + 1 < TRIES).then(|| providers::wait(after, body, tried + 1))
+}
+
 /// Who writes the deck: a provider, the model the user picked from those their key lists, and
 /// where its API is.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -318,7 +325,14 @@ impl Generation {
             Step::Done => return Err(NarratoError::Done),
             _ => return Err(NarratoError::Answer("the arc is chosen before the outline is settled".into())),
         }
-        self.outline = Some(outline::settled(outline, self.target()).map_err(NarratoError::Answer)?);
+        let target = self.target();
+        // The counts a person sets are kept within the length's own range; a length that names
+        // none keeps them from its count to a fifth past it.
+        let range = match brief::minimum_slides(&self.brief.length) {
+            Some(least) => (least, brief::maximum_slides(&self.brief.length)),
+            None => (target, Some(target + (target / 5).max(1))),
+        };
+        self.outline = Some(outline::settled(outline, target, range).map_err(NarratoError::Answer)?);
         self.step = Step::Slides;
         Ok(())
     }
@@ -389,7 +403,7 @@ impl Generation {
     }
 
     /// The request the step asks for, `key` in its headers, `documents` (PDFs) beside the
-    /// slides' prompt; none once the narrative is written. Arc selection sees the sources' first
+    /// outline's prompt and the slides'; none once the narrative is written. Arc selection sees the sources' first
     /// 500 characters, never their documents.
     pub fn request(&self, key: &str, documents: &[Document]) -> Option<Request> {
         use providers::Shape;
@@ -410,7 +424,8 @@ impl Generation {
                 let arc = arcs::arc(&chosen.selection);
                 let plan = beats::plan(arc, self.target());
                 let text = outline::prompt(&self.brief, arc, &chosen.reasoning, &plan);
-                (outline::OUTLINE_SYSTEM, text, Shape::Outline, room(outline::OUTLINE_MAX_TOKENS), 0.3, &[][..])
+                // The documents beside it, as the slides have them (lift-up FUNC-3).
+                (outline::OUTLINE_SYSTEM, text, Shape::Outline, room(outline::OUTLINE_MAX_TOKENS), 0.3, documents)
             }
             Step::Slides => {
                 let arc = arcs::arc(&self.arc.as_ref()?.selection);
@@ -484,8 +499,9 @@ impl Generation {
         let brief = &narrative.brief;
         let shown = (slides[0].slide, slides[slides.len() - 1].slide);
         let big_idea = narrative.outline.as_ref().map(|o| o.big_idea.as_str());
-        let mut prompt = look::prompt(&brief.topic, &brief.audience, count, brief.language.as_deref(), shown, big_idea);
-        prompt.push_str(&look::edges(edges));
+        let around = look::edges(edges);
+        let prompt =
+            look::prompt(&brief.topic, &brief.audience, count, brief.language.as_deref(), shown, big_idea, &around);
         let max_tokens = if s.provider == Provider::Gemini { GEMINI_MAX_TOKENS } else { LOOK_MAX_TOKENS };
         Some(s.provider.structured(&providers::Call {
             model: &s.model,

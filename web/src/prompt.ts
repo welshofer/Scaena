@@ -44,6 +44,8 @@ export function said(event: GeneratingEvent): string {
       return `The provider is busy or did not answer: asking again in ${Math.round(event.seconds)} s (try ${event.tried + 1} of 6)…`;
     case "wrote":
       return `${event.slides} slides written${event.truncated ? ", the answer cut short" : ""}`;
+    case "unIconed":
+      return `The slides that name icons are set without them: ${event.why}`;
     case "painting":
       return `Making ${event.pictures} pictures with ${event.model}… (a minute or two)`;
     case "painted":
@@ -85,7 +87,9 @@ type Given = { file: File } | { link: string };
  * `story`, which gives its score, and its line by `tell`. `models` lists the models a key can
  * use, as the Assistant tab lists them (lift-up 10-24 USE-1): with no key kept, the dialog takes
  * one in place, checks it, and keeps it as that tab does. Changes not saved are asked about
- * before a deck is made, not as it opens: what a model wrote is never thrown away for them. */
+ * before a deck is made, not as it opens: what a model wrote is never thrown away for them.
+ * `running` says whether a deck is being made, which leaving the page asks about first (lift-up
+ * 10-25 REL-4). */
 export function prompting(
   engine: Engine,
   opener: HTMLElement,
@@ -136,18 +140,22 @@ export function prompting(
   /** The outline pane's own fields, which stay live while the deck is made. */
   const outlining = (field: Element) => field.closest("#prompting-outline") !== null;
 
-  /** A beat as a row: its name, its claim to type over, the slides it takes, and Up, Down, and
-   * Remove. */
+  /** A beat as a row: its name, its claim to type over, the slides it takes, a number to set
+   * (lift-up FUNC-4), and Up, Down, and Remove. */
   const beatRow = (beat: { name: string; claim: string; slides: number }): HTMLLIElement => {
     const li = document.createElement("li");
-    li.dataset.slides = String(beat.slides);
     const name = document.createElement("input");
     name.className = "name";
     name.value = beat.name;
     name.setAttribute("aria-label", "The beat's name");
-    const slides = document.createElement("span");
+    const slides = document.createElement("input");
     slides.className = "slides";
-    slides.textContent = beat.slides === 0 ? "no slides" : beat.slides === 1 ? "1 slide" : `${beat.slides} slides`;
+    slides.type = "number";
+    slides.min = "0";
+    slides.max = "60";
+    slides.step = "1";
+    slides.value = String(beat.slides);
+    slides.setAttribute("aria-label", "The slides the beat takes");
     const claim = document.createElement("textarea");
     claim.className = "claim";
     claim.rows = 2;
@@ -177,7 +185,7 @@ export function prompting(
     beats: [...beats.querySelectorAll("li")].map((li) => ({
       name: li.querySelector<HTMLInputElement>(".name")!.value,
       claim: li.querySelector<HTMLTextAreaElement>(".claim")!.value,
-      slides: Number(li.dataset.slides ?? 0),
+      slides: Math.max(0, Math.round(Number(li.querySelector<HTMLInputElement>(".slides")!.value) || 0)),
     })),
   });
 
@@ -519,4 +527,5 @@ export function prompting(
       start();
     }
   };
+  return { running: () => running };
 }

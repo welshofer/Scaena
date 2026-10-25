@@ -105,7 +105,7 @@ import { rehearsal, rehearsalKeys } from "./rehearse";
 import { scn, scnHighlight } from "./scn";
 import { client, listen, served, serving, status as onDisk, token } from "./served";
 import { worker } from "./spawn";
-import { Stage } from "./stage";
+import { EngineStopped, PROBE, Stage } from "./stage";
 import { toolbar } from "./toolbar";
 import { slides as lightTable, slidesKeys } from "./slides";
 import { strip, stripKeys } from "./strip";
@@ -121,6 +121,13 @@ const fallback = import.meta.env.VITE_BUNDLE ?? "../../docs/examples/revenue.dec
 
 const $ = <T extends HTMLElement>(selector: string) => document.querySelector<T>(selector)!;
 const said = (e: unknown) => (e instanceof Error ? e.message : String(e));
+
+// What waited on the engine when it stopped is refused, and the restart says so: a request fired
+// and forgotten has nothing more to say. Heard once, for every deck the page opens.
+addEventListener("unhandledrejection", (e) => {
+  if (e.reason instanceof EngineStopped) e.preventDefault();
+});
+
 /** A theme file's name as a person reads it (PLAN 2.99): `themes/dusk.theme.json` is Dusk. */
 const themeName = (path: string) => sentence(path.replace(/^.*\//, "").replace(/\.theme\.json$|\.json$/, ""));
 /** What an edit did to what lint finds, said: 2 new issues, 1 gone; or no new issues. */
@@ -212,6 +219,9 @@ function folders<T>(mode: IDBTransactionMode, act: (store: IDBObjectStore) => ID
     };
   });
 }
+
+/** The dialog that makes a deck from a prompt, once wired: whether one is being made. */
+let generating: { running: () => boolean } | undefined;
 
 /** What the editor has open, to close when it opens another bundle; `say` puts a line in its
  * status that stays, before what lint finds, until the source is edited by hand. `kept` is the
@@ -438,7 +448,7 @@ async function controls() {
       .catch(failed);
   };
   // From a prompt (PLAN G.5): a deck Narrato writes, made in a worker of its own.
-  prompting(
+  generating = prompting(
     worker,
     $("#new-prompt"),
     () => current?.unsaved() ?? false,
@@ -571,7 +581,12 @@ async function edit(source: Source, opened?: Stage) {
   // stands here, kept where the bundle is kept, so Save still works; the state shown is shown
   // again, and the person is told in plain words.
   stage.onCrashed = (crash) => void restarted(crash);
-  async function restarted(crash: { message: string; files: Record<string, ArrayBuffer> }) {
+  // A worker that died outside a message, as one out of memory does, hands nothing over (lift-up
+  // 10-24b STAB-2): the stage is started again from the deck as last kept, or as it came, with the
+  // source as it stands here, and the files written since the save, which went with it, are named.
+  stage.onDied = (death) => void restarted(death);
+  stage.onStalled = (message) => say(`The engine stopped answering after an error (${message}): waiting up to ${PROBE / 1000} seconds for it before starting it again…`);
+  async function restarted(crash: { message: string; files?: Record<string, ArrayBuffer>; lost?: string[] }) {
     const why = crash.message ? ` (${crash.message})` : "";
     say(`The engine stopped on an error${why}: starting it again…`);
     const kept =
@@ -583,7 +598,7 @@ async function edit(source: Source, opened?: Stage) {
             ? { url: source.url, serve: source.serve }
             : undefined;
     try {
-      await stage.restart({ recovered: crash.files, name, kept });
+      await stage.restart(crash.files ? { recovered: crash.files, name, kept } : (kept ?? source));
     } catch (e) {
       say(`The engine stopped on an error${why}, and could not be started again: ${said(e)}. Download the deck to keep what you changed.`);
       return;
@@ -600,6 +615,11 @@ async function edit(source: Source, opened?: Stage) {
     const found = await lint(view);
     if (view.state.doc === doc) view.dispatch(setDiagnostics(view.state, found));
     states.reformat();
+    if (!crash.files) {
+      const lost = crash.lost?.length ? ` These files were not saved, and are lost: ${crash.lost.join(", ")}.` : "";
+      say(`The engine stopped on an error${why}, and was started again from the deck as last ${where ? "saved" : "opened"}, with the source as it stands.${lost} Save when you can.`);
+      return;
+    }
     say(`The engine stopped on an error${why}, and was started again from the deck as it stands: nothing is lost. Save when you can.`);
   }
 
@@ -2979,7 +2999,9 @@ async function edit(source: Source, opened?: Stage) {
     const field = document.activeElement;
     const unsettled =
       board.unsettled() || ((field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement) && $("#look").contains(field) && field.value !== field.defaultValue);
-    if (unsaved() || unsettled) e.preventDefault();
+    // And a deck being made from a prompt, whose calls are paid for and lost with the page (lift-up
+    // 10-25 REL-4).
+    if (unsaved() || unsettled || generating?.running()) e.preventDefault();
   };
   current = {
     close: () => {
@@ -3094,6 +3116,9 @@ async function edit(source: Source, opened?: Stage) {
       where: () => ({ name, where, dirty: dirty() }),
       /** Panic in the engine, for a test (lift-up STAB-2), and how many times it was started again. */
       crash: () => stage.trap(),
+      /** The worker dies outside a message, or fails and is busy `busy` ms, for a test (lift-up
+       * 10-24b STAB-2). */
+      die: (busy?: number) => stage.die(busy),
       restarts: () => restarts,
       /** The recovery copy kept now, for a test (lift-up REL-4). */
       keepCopy,
