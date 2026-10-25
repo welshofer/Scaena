@@ -42,6 +42,8 @@ export async function health(deck: string, lint?: string): Promise<Health> {
 export interface SlidePlace {
   after?: string;
   replace?: string;
+  /** The beat of the spine the slide tells, which its states join (lift-up M1). */
+  beat?: string;
 }
 
 /** The generator's writer of one slide (lift-up FUNC-1), the bundle's data `files` handed to it:

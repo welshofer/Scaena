@@ -777,6 +777,14 @@ layout("People", "team-names", "Up to six people, three by two, each on a card w
     **{o: slot(c, (r[0] + 2, r[1]), "body", "What they do", inset=24, fit="shrink") for o, (c, r) in zip(ORDINALS, TEAM_NAMES)},
 })
 
+layout("People", "team-names-three", "Up to three people, each on a card that runs down the slide, their name over its middle and what they do under it: a small team with no pictures of them.", {
+    "kicker": KICKER,
+    "header": header(),
+    **{f"{o}-card": card(c, (3, 10)) for o, c in zip(ORDINALS, THIRDS)},
+    **{f"{o}-title": slot(c, (3, 6), "title", "A name", inset=24, align={"y": "end"}) for o, c in zip(ORDINALS, THIRDS)},
+    **{o: slot(c, (7, 10), "body", "What they do", inset=24, fit="shrink") for o, c in zip(ORDINALS, THIRDS)},
+})
+
 ORG = [(1, 4), (5, 8), (9, 12)]
 layout("People", "org-chart", "Who reports to whom: one at the top, and three under them.", {
     "kicker": KICKER,
@@ -1683,7 +1691,7 @@ NAMES = {
     "callout": "Callouts", "photo-grid-text": "Photo Grid and Words",
     # People
     "team": "Team", "testimonials": "Testimonials", "quote-portrait": "Quote and Portrait", "bio": "Bio",
-    "team-four": "Team of Four", "team-six": "Team of Six", "team-names": "Team by Name", "org-chart": "Org Chart", "speaker": "Speaker",
+    "team-four": "Team of Four", "team-six": "Team of Six", "team-names": "Team by Name", "team-names-three": "Small Team by Name", "org-chart": "Org Chart", "speaker": "Speaker",
     "two-quotes": "Two Quotes",
     # Editorial
     "definition": "Definition", "letter": "Letter", "memo": "Memo", "receipt": "Receipt",

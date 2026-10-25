@@ -83,7 +83,7 @@ fn lint_with(bundle: &Path, args: &[&str]) -> (i32, Vec<Value>) {
 }
 
 /// Each rule's trigger, and where in the deck it finds what it finds.
-const RULES: [(&str, &[&str]); 49] = [
+const RULES: [(&str, &[&str]); 50] = [
     ("E100", &["/nodes/t"]),
     ("E101", &["/nodes/b", "/nodes/note", "/nodes/src"]),
     ("E107", &["/nodes/pic"]),
@@ -94,6 +94,7 @@ const RULES: [(&str, &[&str]); 49] = [
     ("W201", &["/nodes/t"]),
     ("W202", &["/nodes/t"]),
     ("W203", &["/nodes/t", "/nodes/code"]),
+    ("W204", &["/states/1/props/code/code/focus"]),
     ("W205", &["/nodes/code"]),
     ("W210", &["/states/0"]),
     ("W220", &["/states/0"]),
@@ -167,7 +168,7 @@ fn deck(data: Value, nodes: Value) -> Value {
     let props: serde_json::Map<String, Value> =
         nodes.as_object().unwrap().keys().map(|k| (k.clone(), serde_json::json!({}))).collect();
     serde_json::json!({
-        "scaena": "0.39",
+        "scaena": "0.40",
         "canvas": { "width": 1920, "height": 1080 },
         "theme": "theme.json",
         "fonts": [
@@ -212,6 +213,90 @@ fn chart_text_is_judged_in_its_color_over_what_the_chart_paints() {
     // In the accent, the default, it reads; so do the chart's other texts over its bars.
     let dir = bundle("chart-note-clean", &deck(sales(), chart), |_| {});
     let (_, found) = lint(&dir);
+    assert!(contrast(&found).is_empty(), "{found:#?}");
+}
+
+/// W204's fix holds a code text's lines in focus to the lines it has (PLAN 2.140): lines 2 to 6 of
+/// four become 2 to 4, written where the focus lives.
+#[test]
+fn w204s_fix_holds_the_focus_to_the_lines_the_text_has() {
+    let (_, found) = lint(&fixture("w204-fix", "W204", "trigger"));
+    let w204 = found.iter().find(|f| f["code"] == "W204").expect("W204");
+    assert_eq!(w204["measure"]["line"], 6);
+    assert_eq!(w204["measure"]["lines"], 4);
+    assert_eq!(
+        w204["fix"],
+        serde_json::json!([{ "op": "replace", "path": "/states/1/props/code/code/focus", "value": [[2, 4]] }])
+    );
+}
+
+/// A form feed ends a line of code as the engine draws it, as GNU sources and Python's page their
+/// code (PLAN 2.140): W204 counts it, so this text's four lines (the form feed's own line ends at
+/// it, and the next starts after it) take a focus on the fourth.
+#[test]
+fn w204_counts_a_form_feed_as_a_line() {
+    let code = serde_json::json!({
+        "type": "text", "role": "body", "code": { "language": "python", "focus": [4] },
+        "text": "import os\n\u{c}\ndef main():", "at": { "in": "main" }
+    });
+    let paged = deck(serde_json::json!({}), serde_json::json!({ "n": code.clone() }));
+    let (_, found) = lint(&bundle("w204-ff", &paged, |_| {}));
+    assert!(!found.iter().any(|f| f["code"] == "W204"), "{found:#?}");
+    let mut past = code;
+    past["code"]["focus"] = serde_json::json!([5]);
+    let past = deck(serde_json::json!({}), serde_json::json!({ "n": past }));
+    let (_, found) = lint(&bundle("w204-ff-past", &past, |_| {}));
+    let w204 = found.iter().find(|f| f["code"] == "W204").expect("W204");
+    assert_eq!((w204["measure"]["line"].clone(), w204["measure"]["lines"].clone()), (5.into(), 4.into()));
+}
+
+/// W204's fix is written where the focus lives, so every state that reads it there sizes it: a
+/// focus on the node that a later state's longer text draws whole is held to that state's lines,
+/// and one every line of which some state draws is cut by no fix at all (PLAN 2.140).
+#[test]
+fn w204s_fix_is_sized_by_every_state_that_reads_the_focus() {
+    let code = |focus: Value| {
+        serde_json::json!({
+            "type": "text", "role": "body", "code": { "language": "rust", "focus": focus },
+            "text": "a\nb", "at": { "in": "main" }
+        })
+    };
+    let walked = |focus: Value| {
+        let mut d = deck(serde_json::json!({}), serde_json::json!({ "n": code(focus) }));
+        d["states"]
+            .as_array_mut()
+            .unwrap()
+            .push(serde_json::json!({ "id": "b", "props": { "n": { "text": "a\nb\nc\nd" } } }));
+        d
+    };
+    // Lines 2 to 6 in focus: state a draws 2 lines and b 4, so the fix holds them to 4.
+    let (_, found) = lint(&bundle("w204-most", &walked(serde_json::json!([[2, 6]])), |_| {}));
+    let w204 = found.iter().find(|f| f["code"] == "W204").expect("W204");
+    assert_eq!(
+        (w204["measure"]["line"].clone(), w204["measure"]["states"].clone()),
+        (6.into(), serde_json::json!(["a", "b"]))
+    );
+    assert_eq!(w204["fix"], serde_json::json!([{ "op": "replace", "path": "/nodes/n/code/focus", "value": [[2, 4]] }]));
+    // Lines 3 and 4 in focus: past a's last, but b draws them, so no fix cuts them.
+    let (_, found) = lint(&bundle("w204-short", &walked(serde_json::json!([[3, 4]])), |_| {}));
+    let w204 = found.iter().find(|f| f["code"] == "W204").expect("W204");
+    assert_eq!(w204["measure"]["states"], serde_json::json!(["a"]));
+    assert!(w204.get("fix").is_none_or(Value::is_null), "{w204:#}");
+}
+
+/// The lines a walkthrough sets back out of focus (PLAN 2.140) read at 3:1 at any size, SPEC
+/// §7.5's exception for text set back on purpose (ADR-0029, call 3): code at 18 cu, body text by
+/// WCAG's measure, whose lines out of focus read under 4.5:1, passes; its lines in focus are still
+/// held to 4.5:1, which they read at.
+#[test]
+fn the_lines_a_walkthrough_sets_back_read_at_3_to_1() {
+    let code = serde_json::json!({
+        "type": "text", "role": "body", "code": { "language": "rust", "numbers": true, "focus": [2] },
+        "text": "fn main() {\n    let greeting = \"hello\"; // says hi\n    run(greeting);\n}",
+        "style": { "size": 18 }, "minSize": 12, "at": { "in": "main" }
+    });
+    let walked = deck(serde_json::json!({}), serde_json::json!({ "n": code }));
+    let (_, found) = lint(&bundle("code-walked", &walked, |_| {}));
     assert!(contrast(&found).is_empty(), "{found:#?}");
 }
 

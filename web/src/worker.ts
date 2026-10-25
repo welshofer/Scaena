@@ -1384,7 +1384,7 @@ async function exporting(what: Export): Promise<Uint8Array> {
     }
     case "html":
       await subsetFonts();
-      return new TextEncoder().encode(player.standalone(what.page, what.name));
+      return new TextEncoder().encode(player.standalone(what.page, what.name, what.notes));
   }
 }
 
