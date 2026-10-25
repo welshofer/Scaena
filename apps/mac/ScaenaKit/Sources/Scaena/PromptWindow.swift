@@ -771,8 +771,14 @@ struct PromptView: View {
                     try Task.checkCancellation()
                 }
                 if research {
-                    try await generator.research(brief: brief, provider: provider, model: model, key: key) {
-                        say($0.words)
+                    do {
+                        try await generator.research(brief: brief, provider: provider, model: model, key: key) {
+                            say($0.words)
+                        }
+                    } catch where !given.isEmpty && !Task.isCancelled && !(error is CancellationError) {
+                        // A research that fails goes on from the files and links given, where there
+                        // are any (lift-up 10-25b REL-4); with none, it stops the deck.
+                        say(GeneratingStep.unresearched(Why.said(error)).words)
                     }
                     try Task.checkCancellation()
                 }

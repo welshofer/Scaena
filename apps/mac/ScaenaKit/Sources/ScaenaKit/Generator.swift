@@ -131,6 +131,8 @@ public enum GeneratingStep: Equatable, Sendable {
     case researching(String)
     case researchingNow(String)
     case researched(sources: Int, cut: Bool)
+    /// A research that failed, the deck going on from the sources given (lift-up 10-25b REL-4).
+    case unresearched(String)
     case choosing
     case chose(arc: String, fallback: String?)
     /// The outline before the slides (narrative FUNC-1): asked, written with this many beats, and
@@ -165,6 +167,8 @@ public enum GeneratingStep: Equatable, Sendable {
         case .researching(let topic): "Researching \(topic)… (minutes)"
         case .researchingNow(let doing): doing
         case .researched(let sources, let cut): "Researched: \(sources) sources\(cut ? ", cut short" : "")"
+        case .unresearched(let why):
+            "Research stopped: \(why.hasSuffix(".") ? String(why.dropLast()) : why). The deck is grounded in what you gave."
         case .choosing: "Choosing the arc…"
         case .chose(let arc, let fallback):
             fallback.map { "Arc: \(arc), the heuristic's (\($0))" } ?? "Arc: \(arc)"

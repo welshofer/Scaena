@@ -1467,6 +1467,7 @@ export type GeneratingEvent =
   | { kind: "researching"; topic: string }
   | { kind: "researchingNow"; doing: string }
   | { kind: "researched"; sources: number; cut: boolean }
+  | { kind: "unresearched"; why: string }
   | { kind: "choosing" }
   | { kind: "chose"; arc: string; fallback?: string }
   /** The outline before the slides (narrative FUNC-1): asked, written with this many beats, and

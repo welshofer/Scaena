@@ -28,6 +28,8 @@ export function said(event: GeneratingEvent): string {
       return event.doing;
     case "researched":
       return `Researched: ${event.sources} sources${event.cut ? ", cut short" : ""}`;
+    case "unresearched":
+      return `Research stopped: ${event.why.replace(/\.$/, "")}. The deck is grounded in what you gave.`;
     case "choosing":
       return "Choosing the arc…";
     case "chose":
