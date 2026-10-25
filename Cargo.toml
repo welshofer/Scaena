@@ -156,6 +156,9 @@ ureq           = { version = "3.4", default-features = false, features = ["rustl
 hyper-util     = { version = "0.1.21", default-features = false, features = ["tokio"] }
 http-body-util = "0.1.5"
 bytes          = "1.12"
+# `scaena serve`'s token for the pages it opens (lift-up 10-24b SEC-5): the OS's randomness, one
+# version already in the tree.
+getrandom      = "0.3"
 
 # benchmarks (SPEC §15, PLAN 1.24): no plots, no rayon; `cargo bench` runs them
 criterion = { version = "0.8.2", default-features = false, features = ["cargo_bench_support"] }

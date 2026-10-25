@@ -62,6 +62,7 @@ import { picturer } from "./picturing";
 import { sourceOf } from "./bundle";
 import { canvas, canvasKeys, placed } from "./canvas";
 import { markName, noteName } from "./notes";
+import { slideAsker } from "./slide-ask";
 import { type Command, type Group, type Key, keyOf, MOD, MOD_ALT, menu, opens, palette, SHIFT, sheet } from "./commands";
 import { cue, cueKeys } from "./cue";
 import { dataKeys, sheets } from "./data";
@@ -102,7 +103,7 @@ import { counted as many, findings as why, inserting, moving, named, numbered, o
 import { prompting } from "./prompt";
 import { rehearsal, rehearsalKeys } from "./rehearse";
 import { scn, scnHighlight } from "./scn";
-import { client, listen, served, status as onDisk } from "./served";
+import { client, listen, served, serving, status as onDisk, token } from "./served";
 import { worker } from "./spawn";
 import { EngineStopped, Stage } from "./stage";
 import { toolbar } from "./toolbar";
@@ -457,7 +458,7 @@ async function first(): Promise<Source> {
   const bundle = params.get("bundle");
   if (!bundle?.startsWith("folder:")) {
     const source = sourceOf(bundle, fallback);
-    return served && "url" in source ? { ...source, serve: client } : source;
+    return served && "url" in source ? { ...source, serve: serving } : source;
   }
   const name = bundle.slice("folder:".length);
   const handle = await folders<FileSystemDirectoryHandle | undefined>("readonly", (store) => store.get(name));
@@ -690,7 +691,7 @@ async function edit(source: Source, opened?: Stage) {
     // The player opens a bundle by its address or from the browser's storage, not a folder.
     const playing =
       where?.kind === "serve"
-        ? new URLSearchParams({ bundle: params.get("bundle") ?? "/bundle/", serve: "" })
+        ? new URLSearchParams({ bundle: params.get("bundle") ?? "/bundle/", serve: token })
         : new URLSearchParams({ bundle: where ? `${where.kind}:${where.name}` : (params.get("bundle") ?? fallback) });
     if (params.has("painter")) playing.set("painter", painter);
     play.href = `index.html?${playing}`;
@@ -2121,7 +2122,7 @@ async function edit(source: Source, opened?: Stage) {
     // The folder keeps the deck's source too: it is what the editor shows, renamed as the save
     // renamed files.
     if (scnOnDisk) {
-      const headers = { "X-Scaena-Client": client };
+      const headers = { "X-Scaena-Client": client, "X-Scaena-Token": token };
       const response = await fetch(scnOnDisk, { method: "PUT", body: view.state.doc.toString(), headers });
       if (!response.ok) throw new Error(`deck.scn: ${(await response.text()).trim() || response.status}`);
     }
@@ -2275,6 +2276,24 @@ async function edit(source: Source, opened?: Stage) {
     format,
     source: () => view.state.doc.toString(),
     apply: made,
+    say,
+    keys: () => {
+      tab("assistant");
+      $("#key").focus();
+    },
+    slide: slideOf,
+  });
+  /** Write This Slide Again… and Add a Slide About… (lift-up FUNC-1): one slide written by the model the
+   * assistant uses, as the deck's generator builds slides; one step to undo. */
+  const asking = slideAsker(stage, {
+    who: () => assistant.who(),
+    shown: showing,
+    format,
+    apply: made,
+    show: (id) => {
+      const k = last?.states.findIndex(([state]) => state === id) ?? -1;
+      if (k >= 0) goTo(k);
+    },
     say,
     keys: () => {
       tab("assistant");
@@ -2666,6 +2685,10 @@ async function edit(source: Source, opened?: Stage) {
       // Whether its words carry its beat's claim, judged by the same model, which offers the
       // headline rewritten to carry it (narrative FUNC-4).
       { label: "Check its claim", where: ["state"], applies: () => now() !== undefined, run: () => write("claim") },
+      // Written again, or a new one after it, as the deck's generator writes slides, by the same
+      // model (lift-up FUNC-1).
+      { label: "Write this slide again…", where: ["state"], applies: () => now() !== undefined && !assisting, run: () => asking.open("redo") },
+      { label: "Add a slide about…", where: ["state"], applies: () => now() !== undefined && !assisting, run: () => asking.open("add") },
       { label: "Show the light table", applies: () => now() !== undefined && !table.open(), run: () => table.toggle(true) },
       { label: "Close the light table", applies: () => table.open(), run: () => table.toggle(false) },
       // Page Down and Page Up on the slide (PLAN 2.126).
@@ -3108,6 +3131,9 @@ async function edit(source: Source, opened?: Stage) {
       assistant,
       /** The writing tools (PLAN 2.101): one asked, and its answer taken, settled. */
       writing,
+      /** Write This Slide Again… and Add a Slide About… (lift-up FUNC-1): the dialog opened, and the last
+       * slide written, settled. */
+      slideAsk: asking,
       /** Make a picture (PLAN 2.107): the dialog opened, and the last picture made and put, settled. */
       picturing,
       /** Insert › Map… (PLAN O.1c): the sheet opened, and the last map fetched and put, settled. */

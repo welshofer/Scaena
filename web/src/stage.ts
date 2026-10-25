@@ -82,6 +82,8 @@ import type {
   WritingAsk,
   WritingCall,
   Written,
+  SlidePlace,
+  SlideWritten,
   PictureJob,
   MapAsk,
   MapPlace,
@@ -145,6 +147,8 @@ type Reply = Extract<
       | "writing"
       | "written"
       | "wrote"
+      | "slideAsked"
+      | "slideWritten"
       | "words"
       | "notes"
       | "look"
@@ -982,6 +986,21 @@ export class Stage {
   }
 
   /** Ask a model once, with the user's key and nothing to call (PLAN 2.101): its words. */
+  /** What to ask a model for one slide at `place`, with the person's `ask` (lift-up FUNC-1). */
+  slideAsk(place: SlidePlace, ask: string): Promise<{ system: string; prompt: string }> {
+    return this.request<"slideAsked">({ type: "slideAsk", id: ++this.asked, place, ask }).then(({ asked }) => asked);
+  }
+
+  /** The slide a model's `answer` holds, written at `place` by `author` (lift-up FUNC-1): what it
+   * did, the deck's source now, and what the edit came to for state `index` in `format`. */
+  slideWrite(place: SlidePlace, answer: string, author: string, index: number, format?: string): Promise<{ written: SlideWritten; source: string; edited: Edited }> {
+    return this.request<"slideWritten">({ type: "slideWrite", id: ++this.asked, place, answer, author, index, format }).then(({ written, source, edited }) => ({
+      written,
+      source,
+      edited,
+    }));
+  }
+
   write(call: WritingCall): Promise<{ text: string; usage?: { input: number; output: number } }> {
     return this.request<"wrote">({ type: "write", id: ++this.asked, call }).then(({ text, usage }) => ({ text, usage }));
   }
@@ -1443,6 +1462,8 @@ export class Stage {
       case "writing":
       case "written":
       case "wrote":
+      case "slideAsked":
+      case "slideWritten":
       case "words":
       case "notes":
       case "look":

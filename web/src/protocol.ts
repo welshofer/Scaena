@@ -7,7 +7,7 @@ export type Source =
   /** A deck file at a URL, whose directory is the bundle: it reads the files the deck names,
    * and every file its manifest lists. `serve`, on a page `scaena serve` serves (PLAN 2.11):
    * the page's id, which its writes carry, for the bundle is kept there, and saves back to it. */
-  | { url: string; serve?: string }
+  | { url: string; serve?: Serving }
   /** A bundle kept in the browser's own storage (the origin-private file system), by its
    * name there. */
   | { opfs: string }
@@ -30,7 +30,14 @@ export type Source =
 
 /** Where a recovered bundle is kept: the browser's storage by name, a folder on disk by its handle,
  * or the folder `scaena serve` serves it from, by the deck's URL and the page's id. */
-export type Kept = { opfs: string } | { folder: FileSystemDirectoryHandle } | { url: string; serve: string };
+export type Kept = { opfs: string } | { folder: FileSystemDirectoryHandle } | { url: string; serve: Serving };
+
+/** What a page `scaena serve` opened writes the folder with (PLAN 2.11): its own id, so it does not
+ * hear its own saves, and the token the address it was opened at carries (lift-up 10-24b SEC-5). */
+export interface Serving {
+  client: string;
+  token: string;
+}
 
 /** Where Save as puts a bundle (PLAN 2.12): a folder on disk the page was given, or the
  * browser's storage under a name (`name-2`, … where that is taken). */
@@ -891,7 +898,7 @@ export interface HealthFinding {
   state: string;
   slide: number;
   severity: "error" | "warning" | "info";
-  kind: "title" | "empty" | "turn" | "arc" | "intensity" | "tone" | "drift" | "layout";
+  kind: "title" | "empty" | "turn" | "arc" | "intensity" | "tone" | "drift" | "layout" | "claim" | "bigIdea";
   says: string;
   ask: string;
   fix?: { says: string; patch: unknown[] };
@@ -910,6 +917,9 @@ export interface Health {
   tone: Measure;
   slides: HealthRead[];
   findings: HealthFinding[];
+  /** The big idea the settled outline names, the one sentence the audience should remember
+   * (lift-up 10-24b FUNC-1). */
+  bigIdea?: string;
 }
 
 /** A picture a person asks for in the editor (PLAN 2.107): what it shows, in their words; made as
@@ -1354,6 +1364,12 @@ export type ToWorker =
   | { type: "models"; id: number; provider: ProviderId; key: string; base?: string }
   /** Ask a model once, with the user's key and nothing to call (PLAN 2.101): its words. */
   | { type: "write"; id: number; call: WritingCall }
+  /** What to ask a model for one slide at `place`, with the person's `ask` (lift-up FUNC-1). */
+  | { type: "slideAsk"; id: number; place: SlidePlace; ask: string }
+  /** The slide a model's `answer` holds, written at `place` by `author` as the deck's generator
+   * builds slides, one patch and lint's fixes on it (lift-up FUNC-1); then the deck's source, and
+   * what the edit came to, laid out for state `index` in `format`. */
+  | { type: "slideWrite"; id: number; place: SlidePlace; answer: string; author: string; index: number; format?: string }
   /** The workers `helpers` asked for: a port to each (PLAN 2.28). */
   | { type: "helpers"; ports: MessagePort[] }
   /** Paint the state shown in each of `besides`' formats beside the canvas, on its own canvas,
@@ -1540,6 +1556,8 @@ export interface WritingAsk {
   state?: string;
   node?: string;
   finding?: { code: string; severity: string; message: string; said?: string; hint?: string; node?: string };
+  /** For a rewrite, how the person wants it rewritten, in their own words (lift-up FUNC-3). */
+  instruction?: string;
 }
 
 /** What a model is asked for a writing tool (`scaena_core::writing`): the task, with the words it
@@ -1554,6 +1572,25 @@ export interface Writing {
   instructions: string;
   prompt: string;
   picture?: string;
+}
+
+/** Where a slide goes in an open deck (lift-up FUNC-1): after the slide that holds a state, in
+ * place of it, or, with neither, at the end. */
+export interface SlidePlace {
+  after?: string;
+  replace?: string;
+}
+
+/** What `slide_write` did, as the MCP tool reports it: the patch's report, the slide's states,
+ * the layout it took, its beat, the fixes taken, and what no fix mends. */
+export interface SlideWritten {
+  applied: boolean;
+  errors: number;
+  slide: string[];
+  layout: string;
+  beat: string;
+  fixed: unknown[];
+  left: { code?: string; message?: string }[];
 }
 
 /** An answer as it is offered, and the patch that takes it: null for one that is only read. */
@@ -2008,6 +2045,8 @@ export type FromWorker =
   | { type: "stateChoices"; id: number; choices: StateChoices }
   | { type: "writing"; id: number; writing: Writing }
   | { type: "written"; id: number; written: Written }
+  | { type: "slideAsked"; id: number; asked: { system: string; prompt: string } }
+  | { type: "slideWritten"; id: number; written: SlideWritten; source: string; edited: Edited }
   | { type: "words"; id: number; words: Lexicon }
   | { type: "notes"; id: number; notes: SpeakerNotes }
   | { type: "layoutSuggestions"; id: number; suggestions: LayoutSuggestion[] }
