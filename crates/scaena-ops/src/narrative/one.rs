@@ -578,24 +578,31 @@ fn sources_of(doc: &Value) -> Vec<scaena_narrato::Provenance> {
     doc.pointer("/meta/narrative/sources").cloned().and_then(|s| serde_json::from_value(s).ok()).unwrap_or_default()
 }
 
-/// What a deck is grounded in, for a model writing one of its slides (lift-up 10-25b FUNC-1):
-/// each source by its name and address, then each data source the deck keeps, its columns and
-/// its first rows as a table reads them, from `files`. None for a deck grounded in nothing.
+/// What a deck is grounded in, for a model writing one of its slides (lift-up 10-25b FUNC-1), in
+/// two parts told apart: the sources it credits, named only, since the deck keeps none of their
+/// text; then each data source it keeps, its columns and its first rows as a table reads them,
+/// from `files`, the only figures a model is given. None where the deck credits no source and
+/// keeps no data.
 fn grounding(doc: &Value, deck: &Deck, files: &dyn SourceFiles) -> Option<String> {
-    let mut out: Vec<String> = sources_of(doc)
+    let mut parts: Vec<String> = Vec::new();
+    let credited: Vec<String> = sources_of(doc)
         .iter()
         .map(|s| match &s.url {
-            Some(url) => format!("Source: {} ({url})", s.name),
-            None => format!("Source: {}", s.name),
+            Some(url) => format!("- {} ({url})", s.name),
+            None => format!("- {}", s.name),
         })
         .collect();
-    if out.is_empty() {
-        return None;
+    if !credited.is_empty() {
+        parts.push(format!(
+            "The sources the deck credits, named only (their text is not given here):\n{}",
+            credited.join("\n")
+        ));
     }
+    let mut kept: Vec<String> = Vec::new();
     for id in doc["data"].as_object().into_iter().flat_map(|m| m.keys()) {
         let props = scaena_core::document::Props::from_iter([("data".to_string(), json!(format!("@{id}")))]);
         let Ok(table) = scaena_core::data::read(deck, files, &props) else { continue };
-        let mut rows = format!("Data `{id}`: {}", table.columns.join(", "));
+        let mut rows = format!("`{id}`: {}", table.columns.join(", "));
         for row in table.rows.iter().take(ROWS_SHOWN) {
             rows.push('\n');
             rows.push_str(&row.iter().map(Datum::label).collect::<Vec<_>>().join(", "));
@@ -603,9 +610,12 @@ fn grounding(doc: &Value, deck: &Deck, files: &dyn SourceFiles) -> Option<String
         if table.rows.len() > ROWS_SHOWN {
             rows.push_str(&format!("\n… and {} rows more", table.rows.len() - ROWS_SHOWN));
         }
-        out.push(rows);
+        kept.push(rows);
     }
-    Some(out.join("\n\n"))
+    if !kept.is_empty() {
+        parts.push(format!("The data the deck keeps, its rows given:\n{}", kept.join("\n\n")));
+    }
+    (!parts.is_empty()).then(|| parts.join("\n\n"))
 }
 
 /// The ops that put `beat` after the beat at `after` (a section's index and a beat's in it), in

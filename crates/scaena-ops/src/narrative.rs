@@ -10143,14 +10143,16 @@ mod tests {
     }
 
     /// A slide written for a grounded deck is asked with the deck's one idea, the claim its
-    /// outline settled for the slide's beat (not the spine's, the old headline), and its sources
-    /// with the rows of the data it keeps (lift-up 10-25b FUNC-1); a deck grounded in nothing
-    /// is asked as before.
+    /// outline settled for the slide's beat (not the spine's, the old headline), the sources it
+    /// credits, named only, and the rows of the data it keeps, told apart (lift-up 10-25b FUNC-1).
     #[test]
     fn a_slide_for_a_grounded_deck_is_asked_with_its_idea_its_settled_claim_and_its_sources() {
         let (mut doc, files) = deck_at("docs/examples/revenue.deck.json");
+        // A deck made by hand credits no source, and its data's rows are given all the same.
         let plain = one_asked(&doc, &Place::Replace("revenue".into()), "", &read_by(&files)).unwrap();
-        assert_eq!((plain.big_idea, plain.sources), (None, None));
+        assert_eq!(plain.big_idea, None);
+        let rows = plain.sources.unwrap();
+        assert!(rows.starts_with("The data the deck keeps, its rows given:\n`q3`: quarter, product"), "{rows}");
         doc["meta"]["narrative"] = json!({
             "sources": [{ "name": "Q3 board pack", "kind": "file", "url": "https://example.com/q3", "bytes": 10, "truncated": false }],
             "outline": { "bigIdea": "Pro carries the business now.", "beats": [
@@ -10162,8 +10164,17 @@ mod tests {
         assert_eq!(asked.big_idea.as_deref(), Some("Pro carries the business now."));
         assert_eq!(asked.claim.as_deref(), Some("Pro tripled while Core held"), "the outline's, by its section");
         let sources = asked.sources.unwrap();
-        assert!(sources.starts_with("Source: Q3 board pack (https://example.com/q3)"), "{sources}");
-        assert!(sources.contains("Data `q3`: quarter, product, revenue, customers"), "{sources}");
+        // The credited sources, named only, then the data the deck keeps, told apart.
+        assert!(
+            sources.starts_with(
+                "The sources the deck credits, named only (their text is not given here):\n- Q3 board pack (https://example.com/q3)"
+            ),
+            "{sources}"
+        );
+        assert!(
+            sources
+                .contains("\n\nThe data the deck keeps, its rows given:\n`q3`: quarter, product, revenue, customers")
+        );
         // By the beat's index into the outline, where Narrato's fields keep one.
         doc["spine"]["sections"][1]["beats"][0]["media"]["narrato"] = json!({ "beatIndex": 0 });
         let indexed = one_asked(&doc, &Place::Replace("revenue".into()), "", &read_by(&files)).unwrap();
