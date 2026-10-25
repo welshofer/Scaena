@@ -507,6 +507,7 @@ Each layout's slots say what goes in them (`prompt`, SPEC §3.6): words to type 
 | `team-four` | `kicker`, `header`, `first-art`, `second-art`, `third-art`, `fourth-art`, `first-title`, `second-title`, `third-title`, `fourth-title`, `first`, `second`, `third`, `fourth` | Team of Four, in People |
 | `team-six` | `kicker`, `header`, `first-art`, `second-art`, `third-art`, `fourth-art`, `fifth-art`, `sixth-art`, `first-title`, `second-title`, `third-title`, `fourth-title`, `fifth-title`, `sixth-title`, `first`, `second`, `third`, `fourth`, `fifth`, `sixth` | Team of Six, in People |
 | `team-names` | `kicker`, `header`, `first-card`, `second-card`, `third-card`, `fourth-card`, `fifth-card`, `sixth-card`, `first-title`, `second-title`, `third-title`, `fourth-title`, `fifth-title`, `sixth-title`, `first`, `second`, `third`, `fourth`, `fifth`, `sixth` | Team by Name, in People |
+| `team-names-three` | `kicker`, `header`, `first-card`, `second-card`, `third-card`, `first-title`, `second-title`, `third-title`, `first`, `second`, `third` | Small Team by Name, in People |
 | `org-chart` | `kicker`, `header`, `top-card`, `first-card`, `second-card`, `third-card`, `trunk`, `branch`, `first-drop`, `second-drop`, `third-drop`, `top`, `first`, `second`, `third` | Org Chart, in People |
 | `speaker` | `art`, `name`, `role`, `talk` | Speaker, in People |
 | `two-quotes` | `kicker`, `header`, `first-card`, `second-card`, `first`, `second`, `first-note`, `second-note` | Two Quotes, in People |
