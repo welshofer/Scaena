@@ -49,7 +49,13 @@ pub struct Written {
 ///   `place` names, or at the end, every state of the deck showing what it showed (a slide after
 ///   it that tracked from the one before it written again to show it still);
 /// - gives it a beat after that slide's beat, in its section, its claim the slide's title and its
-///   notes the slide's, where the deck has a spine;
+///   notes the slide's, where the deck has a spine; or puts it in `beat`, a beat of the spine
+///   whose claim the slide tells, which keeps what it says, the slide's beat giving only what it
+///   lacks (lift-up M1);
+/// - begins a spine, a section holding the slide's beat, in a deck with no slide yet but
+///   `deck_create`'s blank one, which the slide takes the place of, so a deck written slide by
+///   slide has its story; a deck made by hand with no spine keeps none, the slide's notes on its
+///   first state;
 /// - for [`Place::Replace`], puts it in the old slide's beat, which keeps its id, its claim, its
 ///   evidence, its notes, its time, and what else it holds; gives it the old slide's transition,
 ///   hold, furniture, and notes, and every link to the old slide; and takes the old slide away
@@ -61,6 +67,7 @@ pub fn slide_into(
     theme: &Theme,
     slide: Slide,
     place: &Place,
+    beat_named: Option<&str>,
     icons: BTreeMap<String, Icon>,
     files: &dyn SourceFiles,
 ) -> Result<Written, OpsError> {
@@ -68,6 +75,36 @@ pub fn slide_into(
     let snaps = resolve_states(&deck).map_err(|e| OpsError::new(format!("the deck: {e}")))?;
     let slides = deck.slides();
     let id_of = |k: usize| deck.states[k].id.as_str();
+    let sections = doc.pointer("/spine/sections").and_then(Value::as_array).cloned().unwrap_or_default();
+    // The beat named, by its section's index and its own.
+    let planned = match beat_named {
+        Some(_) if matches!(place, Place::Replace(_)) => {
+            return Err(OpsError::new("give `beat` or `replace`, not both: a slide written again keeps its beat"));
+        }
+        Some(id) => Some(
+            (sections.iter().enumerate())
+                .find_map(|(s, section)| {
+                    let beats = section["beats"].as_array()?;
+                    beats.iter().position(|b| b["id"] == id).map(|b| (s, b))
+                })
+                .ok_or_else(|| OpsError::new(format!("no beat `{id}` in the spine")))?,
+        ),
+        None => None,
+    };
+    // `deck_create`'s blank slide, the deck's only one, which shows nothing: a slide written at
+    // the end takes its place, whether the spine is planned yet or not.
+    let blank = (slides.len() == 1 && slides[0].len() == 1 && snaps[0].nodes.is_empty())
+        .then(|| id_of(slides[0][0]).to_string());
+    let replacing;
+    let place = match (place, &blank) {
+        (Place::End, Some(state)) => {
+            replacing = Place::Replace(state.clone());
+            &replacing
+        }
+        _ => place,
+    };
+    // A deck with no slide but a blank one begins its spine with this slide's beat.
+    let begins = sections.is_empty() && (slides.is_empty() || blank.is_some());
     let holding = |state: &str| slides.iter().position(|s| s.iter().any(|k| id_of(*k) == state));
     let found = |state: &str| holding(state).ok_or_else(|| OpsError::new(format!("no state `{state}` in the deck")));
     // Where it goes among the slides, and among the states; the slide it takes the place of; and
@@ -150,6 +187,7 @@ pub fn slide_into(
     let layout = made.layouts.first().cloned().unwrap_or_default();
     let mut new_states: Vec<Value> = built.states[states_before..].to_vec();
     let states: Vec<String> = new_states.iter().filter_map(|s| s["id"].as_str().map(str::to_string)).collect();
+    let begun = made.deck.pointer("/spine/sections/0").cloned();
     let mut beat = made
         .deck
         .pointer("/spine/sections/0/beats/0")
@@ -164,6 +202,16 @@ pub fn slide_into(
                 first[key] = value.clone();
             }
         }
+    }
+
+    // A deck made by hand with no spine keeps none: the slide's notes go on its first state, so
+    // none are dropped.
+    if sections.is_empty()
+        && !begins
+        && let (Some(first), Some(notes)) = (new_states.first_mut(), beat.get("notes").cloned())
+        && first.get("notes").is_none_or(|n| n.is_null() || n == "")
+    {
+        first["notes"] = notes;
     }
 
     let mut patch = Vec::new();
@@ -210,9 +258,9 @@ pub fn slide_into(
     }
     patch.push(json!({ "op": "replace", "path": "/states", "value": kept }));
 
-    // Its beat: the old slide's, where it takes one's place; else one after the beat of the slide
-    // it follows, or the last, in that beat's section. None where the deck has no spine.
-    let sections = doc.pointer("/spine/sections").and_then(Value::as_array).cloned().unwrap_or_default();
+    // Its beat: the old slide's, where it takes one's place; the beat named, where one is; else
+    // one after the beat of the slide it follows, or the last, in that beat's section. A spine
+    // begun where the deck has none yet; else none.
     let beat_holding = |state: &str| {
         sections.iter().enumerate().find_map(|(s, section)| {
             section["beats"].as_array().and_then(|beats| {
@@ -225,26 +273,42 @@ pub fn slide_into(
     };
     // The beat of any of a slide's states, the last's first.
     let slide_beat = |i: usize| slides[i].iter().rev().find_map(|k| beat_holding(id_of(*k)));
-    let beat_id = if sections.is_empty() {
+    // What a beat says stays; what it does not say, the new slide's beat does.
+    let merge = |was: &Value, listed: Vec<Value>, beat: &Value| {
+        let mut merged = was.clone();
+        merged["states"] = json!(listed);
+        for (key, value) in beat.as_object().into_iter().flatten() {
+            if key != "id" && merged.get(key).is_none_or(|v| v.is_null() || v == "") {
+                merged[key] = value.clone();
+            }
+        }
+        merged
+    };
+    let beat_id = if let Some((s, b)) = planned {
+        let was = &sections[s]["beats"][b];
+        let listed: Vec<Value> =
+            (was["states"].as_array().into_iter().flatten()).cloned().chain(states.iter().map(|s| json!(s))).collect();
+        let merged = merge(was, listed, &beat);
+        patch.push(json!({ "op": "replace", "path": format!("/spine/sections/{s}/beats/{b}"), "value": merged }));
+        was["id"].as_str().unwrap_or_default().to_string()
+    } else if begins {
+        let mut section = begun.ok_or_else(|| OpsError::new("the slide was built with no section"))?;
+        section["beats"] = json!([beat]);
+        patch.push(json!({ "op": "add", "path": "/spine", "value": { "sections": [section] } }));
+        beat["id"].as_str().unwrap_or_default().to_string()
+    } else if sections.is_empty() {
         String::new()
     } else {
         match old.and_then(slide_beat) {
             Some((s, b)) if old.is_some() => {
                 let was = &sections[s]["beats"][b];
-                let mut merged = was.clone();
                 // The old slide's states leave the beat with `remove_slide`; any other the beat
                 // holds stays, after the new slide's.
                 let others = (was["states"].as_array().into_iter().flatten())
                     .filter(|x| x.as_str().is_some_and(|x| !old_states.contains(&x)))
                     .cloned();
                 let listed: Vec<Value> = states.iter().map(|s| json!(s)).chain(others).collect();
-                merged["states"] = json!(listed);
-                // What the old beat says stays; what it does not say, the new slide's beat does.
-                for (key, value) in beat.as_object().into_iter().flatten() {
-                    if key != "id" && merged.get(key).is_none_or(|v| v.is_null() || v == "") {
-                        merged[key] = value.clone();
-                    }
-                }
+                let merged = merge(was, listed, &beat);
                 patch.push(
                     json!({ "op": "replace", "path": format!("/spine/sections/{s}/beats/{b}"), "value": merged }),
                 );
@@ -371,12 +435,13 @@ pub fn slide_writing(
     b: &Bundle,
     slide: Slide,
     place: &Place,
+    beat: Option<&str>,
     icons: BTreeMap<String, Icon>,
 ) -> Result<(SlideWritten, Option<Write>), OpsError> {
     let theme = crate::theme(b)?;
     let doc = b.deck.to_value().context("the deck")?;
     let none = View { base: &b.files, pending: BTreeMap::new() };
-    let written = slide_into(&doc, &theme, slide, place, icons, &scaena_core::data::Texts(&none))?;
+    let written = slide_into(&doc, &theme, slide, place, beat, icons, &scaena_core::data::Texts(&none))?;
     slide_polishing(b, written)
 }
 
@@ -440,16 +505,18 @@ pub fn slide_polishing(b: &Bundle, written: Written) -> Result<(SlideWritten, Op
     Ok((out, write))
 }
 
-/// `slide` written into the bundle's deck where `place` says, as the deck's generator builds a
-/// slide (lift-up FUNC-1), unless `dry_run`; refused, and nothing written, as a patch is.
+/// `slide` written into the bundle's deck where `place` says, in `beat` where one is named, as the
+/// deck's generator builds a slide (lift-up FUNC-1, M1), unless `dry_run`; refused, and nothing
+/// written, as a patch is.
 pub fn slide_write(
     b: &Bundle,
     slide: Slide,
     place: &Place,
+    beat: Option<&str>,
     icons: BTreeMap<String, Icon>,
     dry_run: bool,
 ) -> Result<SlideWritten, OpsError> {
-    let (mut out, write) = slide_writing(b, slide, place, icons)?;
+    let (mut out, write) = slide_writing(b, slide, place, beat, icons)?;
     match write {
         Some(write) if !dry_run => crate::lint::write(b, write)?,
         _ => out.patched.applied &= !dry_run,

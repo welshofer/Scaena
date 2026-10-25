@@ -247,6 +247,14 @@ fn the_skills_and_the_server_send_an_agent_to_the_story() {
         scaena_mcp::INSTRUCTIONS.find("spine_read") < scaena_mcp::INSTRUCTIONS.find("deck_patch"),
         "the spine comes before the tools that edit"
     );
+    // The paths to a deck, best first (lift-up M1): a whole deck generated from slides written,
+    // one slide into a deck in the beat it tells, a deck by hand.
+    let procedure = &author[author.find("## Procedure").unwrap()..];
+    for said in [scaena_mcp::INSTRUCTIONS, procedure] {
+        let at = |tool: &str| said.find(tool).unwrap_or_else(|| panic!("{tool} is named"));
+        assert!(at("deck_generate") < at("slide_write") && at("slide_write") < at("deck_create"), "{said}");
+        assert!(said.contains("`beat`"), "slide_write's beat is named");
+    }
 }
 
 #[test]
