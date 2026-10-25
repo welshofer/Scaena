@@ -256,3 +256,103 @@ fn a_brief_that_does_not_read_is_refused_before_any_call() {
     let err = Generation::new(Brief::default(), settings(Provider::Anthropic)).unwrap_err();
     assert_eq!(err.to_string(), "Add a prompt describing what the deck is about.");
 }
+
+/// Anthropic's answer of `text`, stopped where `cut` says it ran out of room.
+fn anthropic(text: &str, cut: bool) -> String {
+    serde_json::json!({
+        "type": "message",
+        "content": [{ "type": "text", "text": text }],
+        "stop_reason": if cut { "max_tokens" } else { "end_turn" },
+    })
+    .to_string()
+}
+
+fn slides(from: usize, to: usize) -> Vec<serde_json::Value> {
+    (from..=to).map(|n| serde_json::json!({ "slideTitle": format!("Slide {n}"), "beatName": "Problem" })).collect()
+}
+
+/// An answer cut short of the length asked (lift-up REL-2): the rest is asked for with the
+/// slides' own prompt and those written so far after it, and the narrative is the two answers
+/// as one, whole, which `--slides` reads again.
+#[test]
+fn slides_cut_short_ask_for_the_rest() {
+    let mut g = Generation::new(brief(), settings(Provider::Anthropic)).unwrap();
+    g.choose_arc(Some("Problem\u{2013}Solution"));
+    let first =
+        serde_json::json!({ "executiveSummary": "Cargo, carbon-negative.", "slides": slides(1, 5) }).to_string();
+    // Cut inside the sixth slide: five close.
+    let cut = format!("{}, {{\"slideTitle\": \"Slide 6\", \"keyB", &first[..first.len() - 2]);
+    assert_eq!(g.answer(200, "OK", &anthropic(&cut, true), None).unwrap(), Step::Rest);
+    assert_eq!(g.partial(), Some(5));
+    assert!(g.narrative().is_none());
+
+    let body = g.request("sk-test", &[]).unwrap().body.unwrap();
+    let prompt = body["messages"][0]["content"][0]["text"].as_str().unwrap();
+    assert!(prompt.contains("**Slot shapes (Scaena)**"), "the slides' own prompt");
+    assert!(prompt.contains("cut off after slide 5 of 8"));
+    assert!(prompt.contains("5. Slide 5 (beat: Problem)\n"));
+    assert!(prompt.contains("Write ONLY the remaining slides, 6 through 8"));
+
+    // More than the length asks for is held to it.
+    let rest = serde_json::json!({ "executiveSummary": "", "slides": slides(6, 10) }).to_string();
+    assert_eq!(g.answer(200, "OK", &anthropic(&rest, false), None).unwrap(), Step::Done);
+    let narrative = g.narrative().unwrap().clone();
+    assert_eq!(narrative.slides.len(), 8);
+    assert_eq!(
+        (narrative.slides[5].slide_title.as_str(), narrative.slides[7].slide_title.as_str()),
+        ("Slide 6", "Slide 8")
+    );
+    assert_eq!(narrative.executive_summary, "Cargo, carbon-negative.");
+    assert!(!narrative.truncated, "the rest came back whole");
+
+    let mut again = Generation::new(brief(), settings(Provider::Anthropic)).unwrap();
+    again.choose_arc(Some("Problem\u{2013}Solution"));
+    again.written(g.written_text().unwrap(), false).unwrap();
+    assert_eq!(again.narrative().unwrap().slides, narrative.slides);
+}
+
+/// A rest cut short again is asked for once more, then the deck stands as far as it was written;
+/// a rest that fails leaves it so, saying why, and slides written elsewhere ask for no rest.
+#[test]
+fn the_rest_is_asked_twice_at_most_and_a_failure_keeps_what_was_written() {
+    let start = |g: &mut Generation| {
+        g.choose_arc(Some("Problem\u{2013}Solution"));
+        let text = serde_json::json!({ "slides": slides(1, 5) }).to_string();
+        g.answer(200, "OK", &anthropic(&text, true), None).unwrap()
+    };
+    let mut g = Generation::new(brief(), settings(Provider::Anthropic)).unwrap();
+    assert_eq!(start(&mut g), Step::Rest);
+    let some = |from, to| anthropic(&serde_json::json!({ "slides": slides(from, to) }).to_string(), true);
+    assert_eq!(g.answer(200, "OK", &some(6, 6), None).unwrap(), Step::Rest);
+    assert!(g.request("sk", &[]).unwrap().body.unwrap().to_string().contains("cut off after slide 6 of 8"));
+    assert_eq!(g.answer(200, "OK", &some(7, 7), None).unwrap(), Step::Done);
+    assert_eq!(g.narrative().unwrap().slides.len(), 7);
+    assert!(g.narrative().unwrap().truncated);
+    assert_eq!(g.unrested(), None);
+
+    let mut g = Generation::new(brief(), settings(Provider::Anthropic)).unwrap();
+    start(&mut g);
+    let refused = r#"{"type":"error","error":{"type":"invalid_request_error","message":"too long"}}"#;
+    assert_eq!(g.answer(400, "Bad Request", refused, None).unwrap(), Step::Done);
+    assert_eq!(g.narrative().unwrap().slides.len(), 5);
+    assert!(g.narrative().unwrap().truncated);
+    assert!(g.unrested().unwrap().contains("too long"), "{:?}", g.unrested());
+
+    let mut g = Generation::new(brief(), settings(Provider::Anthropic)).unwrap();
+    g.choose_arc(Some("Problem\u{2013}Solution"));
+    let cut = serde_json::json!({ "slides": slides(1, 5) }).to_string();
+    assert_eq!(g.written(&cut, true).unwrap(), Step::Done, "slides written elsewhere ask for no rest");
+}
+
+/// A deck the rest leaves too short for its length is refused, and the slides are asked again.
+#[test]
+fn a_rest_too_short_for_the_length_asks_the_slides_again() {
+    let mut g =
+        Generation::new(Brief { length: "11-15 slides".into(), ..brief() }, settings(Provider::Anthropic)).unwrap();
+    g.choose_arc(Some("Problem\u{2013}Solution"));
+    let text = serde_json::json!({ "slides": slides(1, 4) }).to_string();
+    assert_eq!(g.answer(200, "OK", &anthropic(&text, true), None).unwrap(), Step::Rest);
+    let failed = g.answer(400, "Bad Request", r#"{"error":{"message":"no"}}"#, None);
+    assert!(matches!(failed, Err(NarratoError::Incomplete { delivered: 4, minimum: 11 })), "{failed:?}");
+    assert_eq!(g.step(), Step::Slides);
+}

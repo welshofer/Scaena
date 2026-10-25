@@ -322,12 +322,14 @@ impl Generation {
     }
 
     /// Where it stands, as `answer` says it, with no answer read: JSON `{ step, slides, arc?,
-    /// reasoning?, fallback?, written?, truncated?, outline? }`.
+    /// reasoning?, fallback?, written?, truncated?, outline?, partial?, unrested? }`, `partial`
+    /// the slides written so far where the rest is asked for (lift-up REL-2), and `unrested` why
+    /// it did not come back.
     pub fn standing(&self) -> String {
         self.said()
     }
 
-    /// Where it stands: `arc`, `outline`, `slides`, or `done`.
+    /// Where it stands: `arc`, `outline`, `slides`, `rest`, or `done`.
     pub fn step(&self) -> String {
         serde_json::to_value(self.inner.step()).ok().and_then(|v| v.as_str().map(str::to_string)).unwrap_or_default()
     }
@@ -376,6 +378,8 @@ impl Generation {
             "fallback": self.inner.fallback(),
             "written": narrative.map(|n| n.slides.len()),
             "truncated": narrative.map(|n| n.truncated),
+            "partial": self.inner.partial(),
+            "unrested": self.inner.unrested(),
             "outline": self.inner.outline(),
             "wait": self.inner.again(),
             "tried": self.inner.tried(),

@@ -1464,6 +1464,8 @@ export type GeneratingEvent =
   | { kind: "outlined"; beats: number }
   | { kind: "settled"; beats: number }
   | { kind: "writing"; slides: number }
+  | { kind: "continuing"; written: number; slides: number }
+  | { kind: "unrested"; why: string }
   | { kind: "retrying"; seconds: number; tried: number }
   | { kind: "wrote"; slides: number; truncated: boolean }
   | { kind: "painting"; pictures: number; model: string }

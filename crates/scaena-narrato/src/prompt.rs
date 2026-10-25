@@ -274,6 +274,28 @@ pub fn generation_outlined(
     prompt
 }
 
+/// What follows the slides' prompt where the answer to it was cut short (lift-up REL-2): the
+/// slides already written, by number, title, and beat, and the rest asked for in the same shape,
+/// numbered on from them.
+pub fn rest(written: &[crate::Slide], target: usize) -> String {
+    let n = written.len();
+    let mut block = format!(
+        "\n\n**CONTINUATION \u{2014} THE REST OF THE DECK**\nYour previous answer was cut off after slide {n} of {target}. These are the slides already written, in order:\n"
+    );
+    for (i, slide) in written.iter().enumerate() {
+        block.push_str(&format!("{}. {}", i + 1, slide.slide_title));
+        if let Some(beat) = &slide.beat_name {
+            block.push_str(&format!(" (beat: {beat})"));
+        }
+        block.push('\n');
+    }
+    block.push_str(&format!(
+        "\nWrite ONLY the remaining slides, {} through {target}, going on from where the deck stopped: the same arc, its beats taken up where the slides above leave them. Do not repeat or rewrite a slide already written. Answer with the same JSON object; its executiveSummary may be empty, and its slides array holds the remaining slides alone.\n",
+        n + 1
+    ));
+    block
+}
+
 /// The generation prompt as Narrato writes it, without Scaena's block.
 pub fn narrato_generation(brief: &Brief, arc: &NarrativeArc, target: usize) -> String {
     let persona = arcs::persona(brief.persona_id.as_deref(), &brief.audience);
