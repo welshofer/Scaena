@@ -1464,7 +1464,7 @@ impl Scaena {
     ) -> Result<Json<scaena_ops::history::History>, String> {
         let author = author(&context);
         let writes = a.ask.begin || a.ask.restore.is_some();
-        blocking(move || scaena_ops::history::history(&held_if(writes, &a.bundle, author)?, &a.ask)).await.map(Json)
+        blocking(move || scaena_ops::history::history(&*held_if(writes, &a.bundle, author)?, &a.ask)).await.map(Json)
     }
 
     #[tool(description = "The deck's spine (SPEC §2.6, §10): its sections and beats, each beat's claim, evidence, \

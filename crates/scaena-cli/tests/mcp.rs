@@ -129,7 +129,7 @@ async fn deck_lint_scoped_to_a_state_and_health_reading_what_it_found() {
             .collect()
     };
     let whole = ok(&client, "deck_lint", json!({ "bundle": bundle, "severity": "error" })).await;
-    eprintln!("whole: {:?}", overflows(&whole));
+    assert!(overflows(&whole).iter().any(|s| s == "start"), "{whole:#}");
     let health = ok(&client, "deck_health", json!({ "bundle": bundle })).await;
     assert_eq!(health["findings"][0]["kind"], "layout", "{health:#}");
     // Scoped to `two`, laid out alone: the overflow that holds there from `start`, said at it.
@@ -138,12 +138,8 @@ async fn deck_lint_scoped_to_a_state_and_health_reading_what_it_found() {
     assert!(two["findings"].as_array().unwrap().iter().all(|f| f["state"] == "two"), "{two:#}");
 
     // A fix scoped to a state, its date judged too, fixes only what it finds there.
-    let fixed = ok(
-        &client,
-        "deck_lint",
-        json!({ "bundle": bundle, "fix": true, "state": "start", "now": "2026-10-15" }),
-    )
-    .await;
+    let fixed =
+        ok(&client, "deck_lint", json!({ "bundle": bundle, "fix": true, "state": "start", "now": "2026-10-15" })).await;
     let fixed_in: Vec<&str> = fixed["fixed"].as_array().unwrap().iter().filter_map(|f| f["state"].as_str()).collect();
     assert!(!fixed_in.is_empty() && fixed_in.iter().all(|s| *s == "start"), "{fixed:#}");
     assert_eq!(fixed["errors"], 0, "{fixed:#}");
@@ -165,7 +161,6 @@ async fn deck_lint_scoped_to_a_state_and_health_reading_what_it_found() {
     std::fs::write(Path::new(&bundle).join(file), "quarter,revenue\nQ1,ten\nQ2,12\n").unwrap();
     let after = ok(&client, "deck_lint", json!({ "bundle": bundle })).await;
     assert_eq!(std::fs::read(Path::new(&bundle).join("deck.json")).unwrap(), deck);
-    eprintln!("before: {before:#}\nafter: {after:#}");
     assert_ne!(after["findings"], before["findings"], "{after:#}");
 
     client.cancel().await.unwrap();
