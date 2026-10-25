@@ -18,6 +18,8 @@ public final class RemoteServer {
     public private(set) var port: UInt16?
     /// What a remote asks.
     public var command: (RemoteCommand) -> Void = { _ in }
+    /// The slide a remote asks for by its number (lift-up FUNC-5).
+    public var slide: (Int) -> Void = { _ in }
     /// How many remotes are joined, as it changes.
     public var joined: (Int) -> Void = { _ in }
     /// Why it stopped listening, where it did.
@@ -272,6 +274,7 @@ public final class RemoteServer {
                     return
                 }
                 if let command = message.command { self.command(command) }
+                if let number = message.slide, number > 0 { self.slide(number) }
                 self.hearCommands(id)
             }
         }

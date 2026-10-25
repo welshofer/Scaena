@@ -287,6 +287,7 @@ fn definition(b: &[u8], out: &mut Spans, at: usize, end: usize) -> bool {
 /// spans, emphasis, links, autolinks, escapes, and a table's `|` where `pipes` is set; links
 /// where `links` is set, as no link stands in a link's text.
 fn inline(b: &[u8], out: &mut Spans, at: usize, to: usize, pipes: bool, links: bool) {
+    let pairs = Pairs::of(b, at, if links { to } else { at });
     let mut i = at;
     while i < to {
         let c = b[i];
@@ -309,11 +310,11 @@ fn inline(b: &[u8], out: &mut Spans, at: usize, to: usize, pipes: bool, links: b
             }
             b'*' | b'_' => emphasis(b, out, i, to),
             // An image: its `![` one mark.
-            b'!' if next == b'[' && links => link(b, out, i + 1, to, pipes).unwrap_or_else(|| {
+            b'!' if next == b'[' && links => link(b, out, i + 1, to, pipes, &pairs).unwrap_or_else(|| {
                 out.push(i + 1, Class::Plain);
                 i + 1
             }),
-            b'[' if links => link(b, out, i, to, pipes).unwrap_or_else(|| {
+            b'[' if links => link(b, out, i, to, pipes, &pairs).unwrap_or_else(|| {
                 out.push(i + 1, Class::Plain);
                 i + 1
             }),
@@ -384,12 +385,12 @@ fn emphasis(b: &[u8], out: &mut Spans, at: usize, to: usize) -> usize {
 /// "title")`, or `[label]`. Its brackets and parentheses punctuation, its text read as a
 /// paragraph's, what the parentheses hold a string, and a label a property. Where it ends, or none
 /// where no link stands here.
-fn link(b: &[u8], out: &mut Spans, at: usize, to: usize, pipes: bool) -> Option<usize> {
-    let close = bracket_end(b, at, to)?;
+fn link(b: &[u8], out: &mut Spans, at: usize, to: usize, pipes: bool, pairs: &Pairs) -> Option<usize> {
+    let close = pairs.brackets.end(b, at, to)?;
     let after = byte(b, close + 1);
     let target = match after {
-        b'(' => paren_end(b, close + 1, to)?,
-        b'[' => bracket_end(b, close + 1, to)?,
+        b'(' => pairs.parens.end(b, close + 1, to)?,
+        b'[' => pairs.brackets.end(b, close + 1, to)?,
         _ => return None,
     };
     out.push(at + 1, Class::Punctuation);
@@ -428,15 +429,69 @@ fn angle(b: &[u8], out: &mut Spans, at: usize, to: usize) -> usize {
     at + 1
 }
 
+/// Where each bracket and parenthesis from `at` to `to` closes, paired in one pass of the line, so
+/// a run of openers that never close is read once, not again from each opener for [`LOOK`] bytes.
+struct Pairs {
+    brackets: Paired,
+    parens: Paired,
+}
+
+impl Pairs {
+    fn of(b: &[u8], at: usize, to: usize) -> Pairs {
+        Pairs { brackets: Paired::of(b, at, to, b'[', b']'), parens: Paired::of(b, at, to, b'(', b')') }
+    }
+}
+
+/// The openers of one kind on a line, in order, and where each closes (`usize::MAX` where none
+/// does): a stack's pairing, which is where [`close_of`] from each would stop, past the openers
+/// inside it and escaped ones, since an opener is no backslash and so escapes read alike after it
+/// from the line's start or from it.
+struct Paired {
+    open: u8,
+    close: u8,
+    opens: Vec<usize>,
+    closes: Vec<usize>,
+}
+
+impl Paired {
+    fn of(b: &[u8], at: usize, to: usize, open: u8, close: u8) -> Paired {
+        let mut paired = Paired { open, close, opens: Vec::new(), closes: Vec::new() };
+        let mut stack = Vec::new();
+        let mut k = at;
+        while k < to {
+            match b[k] {
+                b'\\' => k += 1,
+                c if c == open => {
+                    stack.push(paired.opens.len());
+                    paired.opens.push(k);
+                    paired.closes.push(usize::MAX);
+                }
+                c if c == close => {
+                    if let Some(i) = stack.pop() {
+                        paired.closes[i] = k;
+                    }
+                }
+                _ => {}
+            }
+            k += 1;
+        }
+        paired
+    }
+
+    /// Where the opener at `at` closes before `to` and within [`LOOK`] bytes, as [`close_of`]
+    /// finds it; found by a scan where the pass did not take `at` for an opener.
+    fn end(&self, b: &[u8], at: usize, to: usize) -> Option<usize> {
+        match self.opens.binary_search(&at) {
+            Ok(i) => Some(self.closes[i]).filter(|&k| k < to.min(at + LOOK)),
+            Err(_) => close_of(b, at, to, self.open, self.close),
+        }
+    }
+}
+
 /// Where the brackets that open at `at` close, on the line before `to` and within [`LOOK`] bytes,
 /// past the brackets inside them and escaped ones: at the `]`.
 fn bracket_end(b: &[u8], at: usize, to: usize) -> Option<usize> {
     close_of(b, at, to, b'[', b']')
-}
-
-/// Where the parentheses that open at `at` close, as [`bracket_end`] finds a `]`.
-fn paren_end(b: &[u8], at: usize, to: usize) -> Option<usize> {
-    close_of(b, at, to, b'(', b')')
 }
 
 fn close_of(b: &[u8], at: usize, to: usize, open: u8, close: u8) -> Option<usize> {
@@ -493,4 +548,42 @@ fn find(b: &[u8], at: usize, what: &[u8]) -> Option<usize> {
         i += 1;
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every opener's close, from the line's one pass, is where a scan from it stops: on lines of
+    /// brackets, parentheses, escapes, and words, each within its window or past it.
+    #[test]
+    fn a_lines_pairs_close_where_a_scan_from_each_opener_does() {
+        let mut seed = 0x2545_f491_4f6c_dd1du64;
+        let mut next = || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed
+        };
+        for _ in 0..2000 {
+            let len = (next() % 600) as usize;
+            let b: Vec<u8> = (0..len).map(|_| b"[[]]()(\\\\a "[(next() % 11) as usize]).collect();
+            let to = (next() as usize % (len + 1)).max(len / 2);
+            let pairs = Pairs::of(&b, 0, to);
+            for at in 0..to {
+                for (paired, open, close) in [(&pairs.brackets, b'[', b']'), (&pairs.parens, b'(', b')')] {
+                    if b[at] == open {
+                        for end in [to, to.saturating_sub(7).max(at + 1)] {
+                            assert_eq!(
+                                paired.end(&b, at, end),
+                                close_of(&b, at, end, open, close),
+                                "{:?} at {at} to {end}",
+                                String::from_utf8_lossy(&b)
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
