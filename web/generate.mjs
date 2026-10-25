@@ -202,6 +202,12 @@ try {
 
   /** The dialog, open, with Narrato's choices in it. */
   const opened = async () => {
+    // The deck the walk edited before may be offered back from its recovery copy (lift-up REL-4),
+    // as soon as its timer kept one: declined, so the dialog it opens stands over nothing.
+    await page.evaluate(() => {
+      const offered = document.querySelector("#recovering");
+      if (offered?.open) offered.close("discard");
+    });
     await page.click("#new-prompt");
     await page.waitForFunction(() => document.querySelector("#prompting-goal").options.length > 0, null, { timeout: 60000 });
   };
@@ -610,12 +616,6 @@ try {
   // An outline that never reads (lift-up REL-3): asked twice, then the dialog says why and offers to
   // write the slides without one, on the arc already chosen, which makes the deck.
   state.unreadable = true;
-  // The deck the walk edited before may be offered back from its recovery copy (lift-up REL-4),
-  // as soon as its timer kept one: declined, so the dialog it opens stands over nothing.
-  await page.evaluate(() => {
-    const offered = document.querySelector("#recovering");
-    if (offered?.open) offered.close("discard");
-  });
   await opened();
   await page.check("#prompting-show-outline");
   const unreadFrom = requests.length;
