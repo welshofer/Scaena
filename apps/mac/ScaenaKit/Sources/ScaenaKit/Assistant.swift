@@ -467,6 +467,7 @@ public enum ToolWords {
         "deck_render": ("Looking at a slide…", "Looked at a slide", "Didn't look at a slide"),
         "icon_find": ("Finding an icon…", "Found an icon", "Didn't find an icon"),
         "map_fetch": ("Fetching a map…", "Put a map on the slide", "Didn't fetch a map"),
+        "slide_write": ("Writing a slide…", "Wrote a slide", "Didn't write a slide"),
         "spine_read": ("Reading the outline…", "Went through the outline", "Didn't go through the outline"),
         "spine_update": ("Changing the outline…", "Changed the outline", "Didn't change the outline"),
         "state_start": ("Adding a slide…", "Added a slide", "Didn't add a slide"),
