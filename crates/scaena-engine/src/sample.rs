@@ -3048,7 +3048,7 @@ fn item_ops(dl: &mut DisplayList, text: &TextLayout) -> Vec<Op> {
 }
 
 /// A text's runs as glyph ops, each with the text it sets (SPEC §6).
-fn text_ops(dl: &mut DisplayList, text: &TextLayout) -> Vec<Op> {
+pub(crate) fn text_ops(dl: &mut DisplayList, text: &TextLayout) -> Vec<Op> {
     let mut ops = glyph_ops(dl, &text.text, &text.cluster_starts(), &text.runs);
     ops.extend(text.underlines.iter().flat_map(underline_ops));
     ops

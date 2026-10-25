@@ -1359,7 +1359,7 @@ async function exporting(what: Export): Promise<Uint8Array> {
       layOut(what.format);
       return player.slidesPng(what.width, what.name);
     case "pdf": {
-      const laid = player.pdfLaidOut();
+      const laid = player.pdfLaidOut(what.notes ?? false);
       const module = await import("@scaena/pdf");
       await module.default();
       try {

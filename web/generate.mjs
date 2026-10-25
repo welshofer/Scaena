@@ -77,7 +77,7 @@ const PAGE = "<h1>Tidewater in the press</h1><p>The Gulf's first carbon-negative
 /** Anthropic, scripted: what each request asks, and the state the walk sets (`slow`, `fail`, and
  * the `slides` it answers with, the recorded ones where none is set). */
 const requests = [];
-const state = { slow: 0, fail: false, slides: undefined, unreadable: false };
+const state = { slow: 0, fail: false, slides: undefined, unreadable: false, looking: 0 };
 const provider = createServer(async (req, res) => {
   const cors = {
     "access-control-allow-origin": req.headers.origin ?? "*",
@@ -113,6 +113,7 @@ const provider = createServer(async (req, res) => {
           : "slides";
   requests.push({ headers: req.headers, body, prompt, asked });
   if (state.slow) await new Promise((ok) => setTimeout(ok, state.slow));
+  if (asked === "look" && state.looking) await new Promise((ok) => setTimeout(ok, state.looking));
   if (state.fail) return reply(401, { type: "error", error: { type: "authentication_error", message: "invalid x-api-key" } });
   if (asked === "arc") return reply(200, ARC);
   // The outline before the slides (narrative FUNC-1): the big idea and a claim for each of the
@@ -403,7 +404,13 @@ try {
   await page.locator("#prompting-beats li").first().locator(".slides").fill("3");
   await mkdir("target/web-generate", { recursive: true });
   await page.locator("#prompting").screenshot({ path: "target/web-generate/outline.png" });
+  // The look answered slowly, so the strip of slides drawn for it can be seen while it waits
+  // (lift-up ATTR-1).
+  state.looking = 4000;
   await page.click("#prompting-write");
+  await page.waitForFunction(() => document.querySelectorAll("#prompting-film li.drawn").length === 5, null, { timeout: 180000 }).catch(() => {});
+  await page.locator("#prompting").screenshot({ path: "target/web-generate/drawn.png" });
+  state.looking = 0;
   await page.waitForFunction(() => window.scaena.where().name !== "revenue" && window.scaena.last(), null, { timeout: 180000 });
   const outlined = requests.filter((r) => r.asked === "outline");
   check(outlined.length === 1 && outlined[0].prompt.includes("Beat 1 \"Problem: Define core challenge and stakes\" → 1 slide"), `the outline was asked once, each beat with its slides: ${outlined[0]?.prompt.slice(0, 120)}`);
@@ -454,6 +461,12 @@ try {
     `each slide shown to the model as a JPEG: ${drawn.length}`,
   );
   check(look?.prompt.startsWith("Slide 1 of 5, drawn as"), "each after what is said of it");
+  // The person sees each slide as it is drawn for the model (lift-up ATTR-1).
+  const film = await page.locator("#prompting-film li.drawn img").evaluateAll((pictures) => pictures.map((p) => p.src));
+  check(
+    film.length === 5 && film.every((src) => src.startsWith("data:image/jpeg;base64,/9j/")),
+    `the dialog shows each slide as drawn: ${film.length}`,
+  );
   const source = await page.evaluate(() => window.scaena.source());
   const states = (source.match(/^state /gm) ?? []).length;
   check(states === 5, `the deck has the recorded answer's five slides: ${states}`);
