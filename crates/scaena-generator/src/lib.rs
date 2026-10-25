@@ -61,11 +61,17 @@ pub fn choices() -> String {
 }
 
 /// A deck's narrative health (PLAN G.9, SPEC §7.7), as `scaena health --json` gives it: `deck`, as
-/// `deck.json` holds it, read as its slides and the beats that tell them.
+/// `deck.json` holds it, read as its slides and the beats that tell them, beside `lint`, the
+/// findings the editor's last lint gave as JSON, so a slide lint finds broken comes first
+/// (lift-up 10-24b STAB-1).
 #[wasm_bindgen]
-pub fn health(deck: &str) -> Result<String, JsError> {
+pub fn health(deck: &str, lint: Option<String>) -> Result<String, JsError> {
     let deck = scaena_core::Deck::from_json(deck).map_err(error)?;
-    let health = scaena_ops::health::health(&deck).map_err(error)?;
+    let lint: Vec<scaena_core::Finding> = match lint {
+        Some(lint) => serde_json::from_str(&lint).map_err(error)?,
+        None => Vec::new(),
+    };
+    let health = scaena_ops::health::health_in(&deck, &lint).map_err(error)?;
     serde_json::to_string(&health).map_err(error)
 }
 

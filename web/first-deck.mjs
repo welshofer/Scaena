@@ -8,7 +8,7 @@
 // - The editor opens with the canvas first, the source folded away; Source opens it beside the
 //   canvas, and ⌘\\ folds it again (PLAN 2.80).
 // - New, from its dialog: a deck in Dusk that opens on a title slide in the theme's title layout,
-//   its words to type over and its picture's place outlined (PLAN 3.30).
+//   its words to type over and the theme's backdrop in its picture's place (PLAN 3.30).
 // - Its title and the line under it typed over where they stand.
 // - + Slide, and Blank from its gallery of the theme's layouts (PLAN 3.30). With no data in the deck,
 //   Insert's chart is of sample rows, which come with it and go with one undo. Then a body text
@@ -187,10 +187,8 @@ try {
       /^state \S+ .*layout:title/m.test(text) && Boolean(title) && Boolean(subtitle),
       `New opens on a title slide, its words to type over: ${title}, ${subtitle}`,
     );
-    const art = await page
-      .waitForFunction(() => window.scaena.canvas.waiting().find((w) => w.slot === "art"), null, { timeout: 30000 })
-      .then((h) => h.jsonValue(), () => undefined);
-    check(art?.typed === false, `and its picture's place outlined: ${art?.words}`);
+    const backdrop = /^\s*\S+ shader:\S+ [^\n]*\bpreset:backdrop\b[^\n]*at:in\(art\)/m.test(text);
+    check(backdrop, `and the theme's backdrop in its picture's place: ${text.match(/^.*at:in\(art\).*$/m)?.[0]}`);
   });
 
   await step("type-title", async () => {
