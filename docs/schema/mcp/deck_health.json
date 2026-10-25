@@ -136,7 +136,7 @@
             "const": "notes"
           },
           {
-            "description": "The deck runs past the range of slides its brief asked for; this slide turns least from\nthe one before, and is the first to cut.",
+            "description": "The deck runs past the range of slides its brief asked for; this slide turns least from\nthe one before, and is the first to cut. Or its beats' time runs short of, or past, the\nslot its brief's slides are given; this slide's beat runs shortest, or longest.",
             "type": "string",
             "const": "pacing"
           },
