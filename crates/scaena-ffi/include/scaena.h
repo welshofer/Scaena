@@ -540,7 +540,8 @@ void scaena_surface_free(struct ScaenaSurface *surface);
 
 // The deck exported as `format` (PLAN 3.8), the bytes `scaena export` writes for it: `pdf`, a page
 // for each slide at its last state, as the browser's PDF module draws it from the pages the
-// session lays out; or `png`, `args` `{state, width}`, the state at rest painted by the CPU
+// session lays out, and with `args` `{notes: true}` each with the presenter's notes under it, as
+// `export --format pdf --notes` prints them; or `png`, `args` `{state, width}`, the state at rest painted by the CPU
 // painter that wide, as the editor's PNG export paints it; or `slides`, `args` `{width, name}`,
 // every slide once its steps have played, as PNGs that wide in one zip, each `{name} - Slide
 // 3.png` (PLAN 2.122); or `version`, the same as `png` of the version `viewVersion` shows (PLAN
@@ -583,7 +584,9 @@ struct ScaenaChat *scaena_chat_new(const char *args, char **error);
 // - `next`: the calls' results handed to the model, every call answered (those not run, as
 //   stopped): whether it may be asked again, or the question has taken its rounds.
 // - `use {provider, model, base?}`: another model from the next request on, the conversation
-//   kept. `forget`: the next question is the first. `conversation`: the conversation as kept.
+//   kept. `shorter`: the provider found the conversation too long; whether to ask again with
+//   half as much of tools' results, once a question (lift-up PERF-3). `forget`: the next
+//   question is the first. `conversation`: the conversation as kept.
 //
 // `session` may be null for a step that runs nothing on it: all but `ask` and `run`.
 //

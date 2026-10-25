@@ -610,6 +610,10 @@ struct DeckView: View {
             Button("Share as PDF…") { export(.pdf, sharing: true) }
             Button("Quick Look the PDF") { export(.pdf, sharing: false) }
             Button("Save as PDF…") { save(.pdf) }
+            // Each slide with the presenter's notes under it, as Keynote's "Include presenter
+            // notes" prints it.
+            Button("Share as PDF with Notes…") { export(.notes, sharing: true) }
+            Button("Save as PDF with Notes…") { save(.notes) }
             if let shown {
                 Divider()
                 Button("Share This Slide as PNG…") { export(png(shown), sharing: true) }
@@ -623,7 +627,7 @@ struct DeckView: View {
             Label("Share", systemImage: "square.and.arrow.up")
         }
         .accessibilityLabel("Share")
-        .help("The deck as a PDF, this slide as a picture, or every slide as pictures")
+        .help("The deck as a PDF, with or without your notes, this slide as a picture, or every slide as pictures")
         .disabled(editor.slots.isEmpty)
     }
 

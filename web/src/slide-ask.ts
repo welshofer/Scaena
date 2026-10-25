@@ -46,6 +46,8 @@ export function slideAsker(stage: Stage, host: SlideAskHost) {
   let turn = 0;
   /** The last slide asked for, settled: what a test waits for. */
   let settled: Promise<void> = Promise.resolve();
+  /** What stops the request of the slide being asked for (lift-up PERF-4). */
+  let stopping: AbortController | undefined;
 
   /** Open the dialog: the slide shown written again, or a new one after it. */
   function open(kind: "redo" | "add") {
@@ -92,7 +94,12 @@ export function slideAsker(stage: Stage, host: SlideAskHost) {
     }
     let text: string;
     try {
-      ({ text } = await stage.write({ provider: who.provider, model: who.model, key: who.key, base: who.base, instructions: asked.system, prompt: asked.prompt }));
+      stopping?.abort();
+      stopping = new AbortController();
+      ({ text } = await stage.write(
+        { provider: who.provider, model: who.model, key: who.key, base: who.base, instructions: asked.system, prompt: asked.prompt },
+        stopping.signal,
+      ));
     } catch (e) {
       if (mine === turn) {
         thinking.textContent = unasked(who.name, e);
@@ -131,6 +138,9 @@ export function slideAsker(stage: Stage, host: SlideAskHost) {
   dialog.addEventListener("close", () => {
     turn++;
     place = undefined;
+    // The request of a slide still on its way is stopped (lift-up PERF-4).
+    stopping?.abort();
+    stopping = undefined;
   });
 
   return {
