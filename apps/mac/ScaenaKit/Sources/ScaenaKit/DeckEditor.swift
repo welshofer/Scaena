@@ -31,6 +31,9 @@ public final class DeckEditor {
     public var redraws: Int { revision &+ drawn }
     /// The deck's states on its timeline, each step named by its slide.
     public private(set) var slots: [ScaenaSession.Slot] = []
+    /// Why the last undo or redo could not be made, said once by the window and cleared (lift-up
+    /// 10-25b STAB-4).
+    public var undoFailed: String?
     /// The source as the source pane shows it: the deck's, or what is typed.
     public private(set) var source = ""
     /// Why the source does not compile, where it does not.

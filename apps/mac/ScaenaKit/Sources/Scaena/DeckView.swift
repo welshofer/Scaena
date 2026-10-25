@@ -917,6 +917,12 @@ struct DeckView: View {
                 choosingFirst = !offeredThemes.isEmpty
                 document.startsNew = false
             }
+            // An undo or a redo that could not be made says why here (lift-up 10-25b STAB-4).
+            .onChange(of: editor.undoFailed) { _, why in
+                guard let why else { return }
+                failure = why
+                editor.undoFailed = nil
+            }
             .alert("Couldn’t Make That Change", isPresented: failing, presenting: failure) { _ in
                 Button("OK") { failure = nil }
             } message: { said in

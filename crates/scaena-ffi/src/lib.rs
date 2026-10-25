@@ -1696,6 +1696,7 @@ fn call(s: &mut Session, method: &str, args: &Value) -> Result<Value, Failure> {
     };
     Ok(match method {
         "states" => json!(s.states()),
+        "title" => json!(s.title()),
         "formats" => json!(s.formats()),
         "sizes" => json!(s.sizes()),
         "setFormat" => {

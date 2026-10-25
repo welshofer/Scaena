@@ -1118,6 +1118,8 @@ struct PresenterView: View {
                             .help("Larger notes (+)")
                     }
                     .padding(.top, 8)
+                    // A scroll view of each slide's own, so its notes open at their top however far
+                    // the last were scrolled, as the browser's do (lift-up 10-25b ATTR-2).
                     ScrollView {
                         NotesText(notes.blocks)
                             .font(.system(size: notesSize))
@@ -1125,6 +1127,7 @@ struct PresenterView: View {
                             .textSelection(.enabled)
                             .accessibilityIdentifier("presenter-notes")
                     }
+                    .id(show.index)
                 }
                 .frame(width: wide ? 360 : nil)
             }
@@ -1171,6 +1174,9 @@ struct PresenterView: View {
         .onAppear { focused = true }
         .task(id: show.index) {
             notes = show.slot.map { showing.notes($0.state) } ?? .none
+            // The slide before's picture is not the next's: none stands there until the next is
+            // drawn, its name said meanwhile (lift-up 10-25b ATTR-2).
+            next = nil
             // Drawn away from the stage, so a step plays on while the next is drawn (lift-up PERF-2).
             if let coming = show.next {
                 next = await showing.editor.drawingAway(coming.state, width: Int(360 * scale))
