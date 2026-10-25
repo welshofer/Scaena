@@ -13,13 +13,15 @@ private let keysLog = Logger(subsystem: "com.welshofer.Scaena", category: "keys"
 
 /// Undo and Redo, held on the canvas while the assistant is at work on the deck (lift-up STAB-5),
 /// as the Mac's `UndoHold` holds the Edit menu's: ⌘Z and ⇧⌘Z, which reach the canvas before the
-/// menu bar matches them, and the `undo:` and `redo:` the menu bar's items and the system's
-/// three-finger swipes send up the chain to the canvas, which has the keyboard.
+/// menu bar matches them; the `undo:` and `redo:` the menu bar's items send up the chain to the
+/// canvas, which has the keyboard; and the system's three-finger swipes, which ask the canvas for
+/// its `undoManager` and find none while the deck is held.
 enum HeldUndo {
-    /// Whether `key` is ⌘Z or ⇧⌘Z.
+    /// Whether `key` is ⌘Z or ⇧⌘Z, by the letter it types, as the menu bar matches it: on a QWERTZ
+    /// keyboard the key labelled Z is the one in Y's place.
     static func undoes(_ key: UIKey) -> Bool {
         let flags = key.modifierFlags.intersection([.command, .shift, .alternate, .control])
-        return key.keyCode == .keyboardZ && (flags == .command || flags == [.command, .shift])
+        return key.charactersIgnoringModifiers.lowercased() == "z" && (flags == .command || flags == [.command, .shift])
     }
 
     /// Whether `action` is the menu bar's Undo or Redo.
@@ -317,6 +319,12 @@ public final class CanvasKeys: UIView {
         default:
             return super.canPerformAction(action, withSender: sender)
         }
+    }
+
+    /// None while the assistant is at work on the deck, so the system's three-finger swipes find
+    /// nothing to take back; else the window's, as before.
+    public override var undoManager: UndoManager? {
+        typing.editor.assisting ? nil : super.undoManager
     }
 
     /// The menu bar's Undo while the assistant is at work on the deck: held, saying so.
@@ -1146,6 +1154,12 @@ public final class CanvasPresses: UIView {
     /// Whether the assistant is at work on the deck the canvas this view's keys are for shows.
     private var assisting: Bool {
         (superview as? CanvasKeys)?.typing.editor.assisting == true
+    }
+
+    /// None while the assistant is at work on the deck, so the system's three-finger swipes find
+    /// nothing to take back; else the window's, as before.
+    public override var undoManager: UndoManager? {
+        assisting ? nil : super.undoManager
     }
 
     /// The menu bar's Undo while the assistant is at work on the deck: held, saying so.
