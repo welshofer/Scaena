@@ -1493,6 +1493,20 @@ struct WordPair {
     b: Word,
     /// Whether both draw the same glyphs the same way, colors aside.
     same: bool,
+    /// For a pair that is the same drawing but whose runs break in other places (PLAN 2.140):
+    /// `b` cut wherever either side's runs break, each piece with the run of `a` it was in, made
+    /// once, so a frame only mixes their colors.
+    cut: Option<(Word, Vec<usize>)>,
+}
+
+impl WordPair {
+    fn new(a: Word, b: Word) -> WordPair {
+        let same = same_glyphs(&a, &b);
+        let lined =
+            a.runs.len() == b.runs.len() && a.runs.iter().zip(&b.runs).all(|(x, y)| x.glyphs.len() == y.glyphs.len());
+        let cut = (same && !lined).then(|| cut(&a, &b));
+        WordPair { a, b, same, cut }
+    }
 }
 
 impl WordPlan {
@@ -1553,7 +1567,7 @@ impl WordPlan {
         while i < n || j < m {
             if i < n && j < m && wa[i].0 == wb[j].0 {
                 let (a, b) = (wa[i].1.clone(), wb[j].1.clone());
-                plan.pairs.push(WordPair { same: same_glyphs(&a, &b), a, b });
+                plan.pairs.push(WordPair::new(a, b));
                 (i, j) = (i + 1, j + 1);
             } else if j < m && (i == n || lcs[i * w + j + 1] >= lcs[(i + 1) * w + j]) {
                 plan.came.push(wb[j].1.clone());
@@ -1573,11 +1587,7 @@ impl WordPlan {
     fn by_ends(wa: &[(String, Word)], wb: &[(String, Word)]) -> WordPlan {
         let head = wa.iter().zip(wb).take_while(|(x, y)| x.0 == y.0).count();
         let tail = (wa[head..].iter().rev()).zip(wb[head..].iter().rev()).take_while(|(x, y)| x.0 == y.0).count();
-        let pair = |(x, y): (&(String, Word), &(String, Word))| WordPair {
-            same: same_glyphs(&x.1, &y.1),
-            a: x.1.clone(),
-            b: y.1.clone(),
-        };
+        let pair = |(x, y): (&(String, Word), &(String, Word))| WordPair::new(x.1.clone(), y.1.clone());
         let (n, m) = (wa.len(), wb.len());
         WordPlan {
             pairs: (wa[..head].iter().zip(&wb[..head]))
@@ -1621,9 +1631,26 @@ impl WordPlan {
             let end = [to[0] + rb[0], to[1] + rb[1], rb[2], rb[3]];
             let now = [0, 1, 2, 3].map(|k| lerp(start[k], end[k], geo));
             if pair.same {
-                let (runs, said) = blended(&pair.a, &pair.b, p);
-                let cut = Word { runs: runs.clone(), said, rect: rb };
-                ops.push(word(dl, &runs, &cut, shift([now[0] - rb[0], now[1] - rb[1]]), 1.0));
+                let moved = shift([now[0] - rb[0], now[1] - rb[1]]);
+                match &pair.cut {
+                    // Its runs break where they did: each glides from one color to the other.
+                    None => {
+                        let runs: Vec<GlyphRun> = (pair.a.runs.iter().zip(&pair.b.runs))
+                            .map(|(x, y)| GlyphRun { color: mix(x.color, y.color, p), ..y.clone() })
+                            .collect();
+                        ops.push(word(dl, &runs, &pair.b, moved, 1.0));
+                    }
+                    // Cut where either side's runs break, each piece from the color it had.
+                    Some((cut, from)) => {
+                        let runs: Vec<GlyphRun> = (cut.runs.iter().zip(from))
+                            .map(|(y, &k)| GlyphRun {
+                                color: pair.a.runs.get(k).map_or(y.color, |x| mix(x.color, y.color, p)),
+                                ..y.clone()
+                            })
+                            .collect();
+                        ops.push(word(dl, &runs, cut, moved, 1.0));
+                    }
+                }
             } else {
                 // Each drawing scaled from its own box onto the box between.
                 let onto = |r: Rect| {
@@ -1661,14 +1688,14 @@ fn each_glyph(w: &Word) -> impl Iterator<Item = (&GlyphRun, usize)> {
     w.runs.iter().flat_map(|r| (0..r.glyphs.len()).map(move |g| (r, g)))
 }
 
-/// Two words that draw the same glyphs ([`same_glyphs`]) as `b` draws them, `p` of the way from
-/// `a`'s colors to `b`'s: `b`'s runs cut wherever either side's runs break, each piece in the mix
-/// of the colors either side draws it in, with what it says.
-fn blended(a: &Word, b: &Word, p: f32) -> (Vec<GlyphRun>, Vec<(String, Vec<u32>)>) {
+/// `b`, a word that draws the same glyphs as `a` ([`same_glyphs`]), cut wherever either side's runs
+/// break, each piece in `b`'s color, with what it says, and the run of `a` each piece was in:
+/// what a frame mixes the colors of.
+fn cut(a: &Word, b: &Word) -> (Word, Vec<usize>) {
     // Which run of `a` each glyph is in, in order.
     let from: Vec<usize> =
         (a.runs.iter().enumerate()).flat_map(|(k, r)| std::iter::repeat_n(k, r.glyphs.len())).collect();
-    let (mut runs, mut said) = (Vec::new(), Vec::new());
+    let (mut runs, mut said, mut sources) = (Vec::new(), Vec::new(), Vec::new());
     let mut at = 0;
     for (k, run) in b.runs.iter().enumerate() {
         let mut start = 0;
@@ -1678,20 +1705,19 @@ fn blended(a: &Word, b: &Word, p: f32) -> (Vec<GlyphRun>, Vec<(String, Vec<u32>)
             while end < run.glyphs.len() && from.get(at + end).copied().unwrap_or_default() == source {
                 end += 1;
             }
-            let color = a.runs.get(source).map_or(run.color, |x| mix(x.color, run.color, p));
             runs.push(GlyphRun {
-                color,
                 glyphs: run.glyphs[start..end].to_vec(),
                 clusters: run.clusters[start..end].to_vec(),
                 advances: run.advances[start..end].to_vec(),
                 ..run.clone()
             });
             said.push(b.said.get(k).map_or_else(Default::default, |s| cut_said(s, start..end)));
+            sources.push(source);
             start = end;
         }
         at += run.glyphs.len();
     }
-    (runs, said)
+    (Word { runs, said, rect: b.rect }, sources)
 }
 
 /// What glyphs `range` of a run say, from what the whole run says: the text from the first
