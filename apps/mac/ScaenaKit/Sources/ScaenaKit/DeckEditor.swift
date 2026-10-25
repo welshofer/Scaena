@@ -56,6 +56,13 @@ public final class DeckEditor {
     /// deck it left. Its `Assistant` sets it.
     public internal(set) var assisting = false
 
+    /// The deck held as the assistant holds it while it works, no question asked: what the iPad's
+    /// UI tests launch with `-assistantAtWorkAfter N` to hold it once N edits are made, and see Undo
+    /// and Redo held (lift-up STAB-5).
+    public func holdForTests() {
+        assisting = true
+    }
+
     /// Why an edit is refused while the assistant is at work, as the browser says it.
     public static let busy = "the assistant is at work on the deck"
     /// What the window says of an undo, or a redo, refused while it is.

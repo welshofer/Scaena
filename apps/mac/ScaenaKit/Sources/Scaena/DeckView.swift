@@ -38,6 +38,9 @@ struct DeckView: View {
     @State private var pointed: CGPoint?
     /// What the canvas says of an edit its keys or the Node menu made.
     @State private var said: String?
+    /// The edits made since the window opened, where the iPad's UI tests hold the deck after so
+    /// many as the assistant holds it (`-assistantAtWorkAfter`, lift-up STAB-5).
+    @State private var editsMade = 0
     /// What the deck may have inserted, read again after each edit.
     @State private var inserts: [Insert] = []
     /// The deck's data sources and their files: what Insert names a chart's or a table's data by.
@@ -816,6 +819,14 @@ struct DeckView: View {
             // back, as the browser's do (lift-up STAB-5).
             .background(UndoGuard(locked: editor.assisting) { said = DeckEditor.atWork })
             #endif
+            .onChange(of: editor.revision) {
+                // Launched with `-assistantAtWorkAfter N`, as the iPad's UI tests launch it, the deck
+                // is held as the assistant holds it once N edits are made (lift-up STAB-5).
+                let after = UserDefaults.standard.integer(forKey: "assistantAtWorkAfter")
+                guard after > 0 else { return }
+                editsMade += 1
+                if editsMade >= after { editor.holdForTests() }
+            }
     }
 
     /// What the canvas says, taken away as this window's undo takes a step back or makes it again.
