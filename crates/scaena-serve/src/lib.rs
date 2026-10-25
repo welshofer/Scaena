@@ -11,7 +11,10 @@
 //!
 //! It listens on 127.0.0.1 alone, and answers only requests that name that host or
 //! `localhost`, so no other site's page can reach it through a name of its own. It writes only
-//! for a page of its own: a write from any other origin is refused.
+//! for a page of its own: a write from any other origin is refused. Each launch makes a token
+//! that the address it prints carries (`?serve=TOKEN`): a write, and a read of the bundle, of
+//! where it stands, or of its changes, is answered only with it, so another account on this
+//! machine reaches the server but not the deck (lift-up 10-24b SEC-5, R1).
 
 mod pages;
 mod watch;
@@ -195,11 +198,18 @@ impl Shared {
         }
         let method = request.method().clone();
         let path = request.uri().path().to_string();
+        // The bundle, where it stands, and its changes are read only with the launch's token, as
+        // a write is made: another account on this machine reaches the server, but not the
+        // address it printed. A page's fetches send it as a header, and its `EventSource`, which
+        // sends none, in the address (`?serve=TOKEN`), as the page's own address carries it.
+        let keyed = self.carries_token(request.headers()) || self.is_token(served(request.uri().query()).as_bytes());
+        let unkeyed = "scaena serve reads only for the pages it opened: open the address it printed";
         if let Some(rel) = path.strip_prefix("/bundle/") {
             let Some(rel) = bundle_path(rel) else {
                 return refused(request, StatusCode::BAD_REQUEST, "not a path inside the bundle").await;
             };
             return match method {
+                Method::GET | Method::HEAD if !keyed => refused(request, StatusCode::FORBIDDEN, unkeyed).await,
                 Method::GET | Method::HEAD => self.read(&rel, method == Method::HEAD).await,
                 Method::PUT | Method::DELETE => {
                     if !self.ours(request.headers(), header::ORIGIN, "http://") {
@@ -234,6 +244,7 @@ impl Shared {
         match path.as_str() {
             "/" => moved(&format!("/index.html?bundle=/bundle/&serve{}", carried(request.uri().query()))),
             "/edit" => moved(&format!("/editor.html?bundle=/bundle/&serve{}", carried(request.uri().query()))),
+            "/scaena/events" | "/scaena/state" if !keyed => said(StatusCode::FORBIDDEN, unkeyed),
             "/scaena/events" => self.events(),
             "/scaena/state" => {
                 let json = Bytes::from(self.status().to_string());
@@ -255,8 +266,13 @@ impl Shared {
     /// Whether a write carries this launch's token, compared in time that does not say how much
     /// of it was right.
     fn carries_token(&self, headers: &HeaderMap) -> bool {
-        let Some(given) = headers.get("x-scaena-token") else { return false };
-        let (given, ours) = (given.as_bytes(), self.token.as_bytes());
+        headers.get("x-scaena-token").is_some_and(|given| self.is_token(given.as_bytes()))
+    }
+
+    /// Whether `given` is this launch's token, compared in time that does not say how much of it
+    /// was right.
+    fn is_token(&self, given: &[u8]) -> bool {
+        let ours = self.token.as_bytes();
         given.len() == ours.len() && given.iter().zip(ours).fold(0u8, |d, (a, b)| d | (a ^ b)) == 0
     }
 
@@ -470,10 +486,18 @@ fn moved(to: &str) -> Response<Body> {
 /// the server makes it, else none. The server never puts its own in an answer: a page has it only
 /// from the address it was opened at.
 fn carried(query: Option<&str>) -> String {
+    match served(query) {
+        "" => String::new(),
+        t => format!("={t}"),
+    }
+}
+
+/// The token `query` carries as `serve=TOKEN`: only hex, as the server makes it, else none.
+fn served(query: Option<&str>) -> &str {
     let token = query.into_iter().flat_map(|q| q.split('&')).find_map(|pair| pair.strip_prefix("serve="));
     match token {
-        Some(t) if !t.is_empty() && t.len() <= 64 && t.bytes().all(|b| b.is_ascii_hexdigit()) => format!("={t}"),
-        _ => String::new(),
+        Some(t) if t.len() <= 64 && t.bytes().all(|b| b.is_ascii_hexdigit()) => t,
+        _ => "",
     }
 }
 
