@@ -1,0 +1,290 @@
+{
+ "executiveSummary": "Checkout p99 latency doubled as traffic grew because every cart line item made its own call to pricing. Batching the calls and caching hot prices in-process for 30 seconds cut p99 by 60%, from 1.84 s to 0.74 s at peak, cut database CPU by 38%, and lifted conversion 2.1%. The talk shows the trace, the one-loop change, the rollout, and the decision to accept 30 seconds of staleness.",
+ "slides": [
+  {
+   "slideTitle": "How we cut p99 checkout latency by 60%",
+   "subtitle": "Payments platform · Engineering all-hands, Q3 2026",
+   "layoutSuggestion": "Title",
+   "keyBullets": [],
+   "visualDescription": "A server rack in a dark room, one row of green status lights",
+   "speakerNotes": "- This is the story of eleven weeks on checkout.\n- The number in the title is real, and it held through peak.",
+   "beatIndex": 0,
+   "beatName": "Problem",
+   "purpose": "Opens on the result the team earned",
+   "intent": "Make engineers want the story behind the number",
+   "expectedIntensity": 0.3,
+   "expectedValence": 0.4
+  },
+  {
+   "slideTitle": "What we'll cover",
+   "subtitle": "",
+   "layoutSuggestion": "Agenda",
+   "keyBullets": [
+    "The problem: checkout slowed at peak",
+    "What we measured, and what surprised us",
+    "The fix: batch pricing, cache in-process",
+    "The results, and the cost",
+    "What we'd do again"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "- Five parts, twenty minutes, then questions.",
+   "beatIndex": 0,
+   "beatName": "Problem",
+   "purpose": "Orients the room",
+   "intent": "Make the room settle in for a technical talk",
+   "expectedIntensity": 0.2,
+   "expectedValence": 0.2
+  },
+  {
+   "slideTitle": "At last year's peak, one checkout in a hundred took almost two seconds",
+   "subtitle": "",
+   "layoutSuggestion": "Big Number",
+   "keyBullets": [
+    "1.84 s",
+    "p99 checkout latency at the Black Friday peak, 2025"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "- 1.84 seconds at p99.\n- At that latency, carts abandon at twice the normal rate.",
+   "beatIndex": 0,
+   "beatName": "Problem",
+   "purpose": "States the problem as one number",
+   "intent": "Make the cost of the slowness felt",
+   "expectedIntensity": 0.6,
+   "expectedValence": -0.5,
+   "supportingFacts": [
+    "Payments SLO dashboard, 28 Nov 2025"
+   ]
+  },
+  {
+   "slideTitle": "Latency climbed every week as traffic grew",
+   "subtitle": "p99 checkout latency, ms",
+   "layoutSuggestion": "Line Chart",
+   "keyBullets": [
+    "p99 doubled in eight weeks, from 910 ms to 1,840 ms"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "- The trend lines up with traffic, week for week.",
+   "beatIndex": 0,
+   "beatName": "Problem",
+   "purpose": "Shows the trend that forced the work",
+   "intent": "Make them see it was getting worse, not a blip",
+   "expectedIntensity": 0.6,
+   "expectedValence": -0.4,
+   "chartData": {
+    "categories": [
+     "W36",
+     "W38",
+     "W40",
+     "W42",
+     "W44",
+     "W46",
+     "W48"
+    ],
+    "series": [
+     {
+      "name": "p99",
+      "values": [
+       910,
+       1020,
+       1150,
+       1310,
+       1480,
+       1660,
+       1840
+      ]
+     }
+    ],
+    "unit": "ms",
+    "sourceId": "Payments SLO dashboard"
+   }
+  },
+  {
+   "slideTitle": "Every line item made its own call to pricing",
+   "subtitle": "How a checkout request flows today",
+   "layoutSuggestion": "Architecture",
+   "keyBullets": [
+    "Edge: CDN and API gateway",
+    "Checkout service: Go, 40 pods",
+    "Pricing service: one synchronous call per line item",
+    "Postgres: one primary, two read replicas"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "- A cart of twelve items makes twelve calls to pricing.\n- Each call is fast. Twelve in a row is not.",
+   "beatIndex": 1,
+   "beatName": "Action",
+   "purpose": "Shows where the time goes",
+   "intent": "Make the bottleneck obvious from the picture",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.0
+  },
+  {
+   "slideTitle": "We changed one loop",
+   "subtitle": "checkout/price.go",
+   "layoutSuggestion": "Before / After",
+   "keyBullets": [
+    "Before: for _, item := range cart.Items { p, err := pricing.Get(ctx, item.SKU) }",
+    "After: prices, err := pricing.GetMany(ctx, cart.SKUs())"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "- Before: N calls. After: one.\n- The pricing service already had a batch endpoint. Nobody used it.",
+   "beatIndex": 1,
+   "beatName": "Action",
+   "purpose": "Shows the fix in code",
+   "intent": "Make engineers see how small the change was",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.4
+  },
+  {
+   "slideTitle": "Four steps took it from idea to production",
+   "subtitle": "",
+   "layoutSuggestion": "Steps",
+   "keyBullets": [
+    "Measure: trace every checkout for a week",
+    "Batch: one pricing call per cart",
+    "Cache: keep hot prices in-process for 30 s",
+    "Roll out: 1%, 10%, 50%, 100% over nine days"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "- Each step shipped on its own.\n- The rollout took nine days because we watched error rates at each step.",
+   "beatIndex": 1,
+   "beatName": "Action",
+   "purpose": "Shows the method",
+   "intent": "Make it feel repeatable",
+   "expectedIntensity": 0.4,
+   "expectedValence": 0.3
+  },
+  {
+   "slideTitle": "Pricing went from most of the request to a sliver",
+   "subtitle": "Time per stage at p99, ms",
+   "layoutSuggestion": "Bar Chart",
+   "keyBullets": [
+    "Pricing fell from 1,210 ms to 140 ms at p99"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "- Database and network barely moved.\n- Pricing was the whole story.",
+   "beatIndex": 2,
+   "beatName": "Result",
+   "purpose": "Compares where the time went before and after",
+   "intent": "Make the drop visible",
+   "expectedIntensity": 0.6,
+   "expectedValence": 0.6,
+   "chartData": {
+    "categories": [
+     "Gateway",
+     "Checkout",
+     "Pricing",
+     "Database"
+    ],
+    "series": [
+     {
+      "name": "Before",
+      "values": [
+       90,
+       310,
+       1210,
+       230
+      ]
+     },
+     {
+      "name": "After",
+      "values": [
+       90,
+       290,
+       140,
+       215
+      ]
+     }
+    ],
+    "unit": "ms",
+    "sourceId": "Distributed traces, W2 vs W12"
+   }
+  },
+  {
+   "slideTitle": "Faster checkout, cheaper database, more orders",
+   "subtitle": "",
+   "layoutSuggestion": "Scorecard",
+   "keyBullets": [
+    "−60%: p99 checkout latency",
+    "0.74 s: p99 at this year's peak",
+    "−38%: database CPU",
+    "+2.1%: checkout conversion"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "- The conversion lift alone pays for the quarter.",
+   "beatIndex": 2,
+   "beatName": "Result",
+   "purpose": "Sums up the results",
+   "intent": "Make the payoff concrete",
+   "expectedIntensity": 0.7,
+   "expectedValence": 0.8
+  },
+  {
+   "slideTitle": "We keep the cache in-process, not in Redis",
+   "subtitle": "Decision brief · Platform council, 14 Oct",
+   "layoutSuggestion": "Decision Brief",
+   "keyBullets": [
+    "Decision: keep hot prices in each pod's memory for 30 seconds",
+    "Why: one network hop fewer, and no new cluster to run",
+    "Trade-off: a price change can take up to 30 seconds to reach every pod",
+    "Ask: approve 30 s as the standard staleness for pricing"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "- Redis would have added a hop and a cluster.\n- The cost is staleness, and finance agreed 30 seconds is fine.",
+   "beatIndex": 3,
+   "beatName": "Learning",
+   "purpose": "Records the decision and its cost",
+   "intent": "Make the council approve the trade-off",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.2
+  },
+  {
+   "slideTitle": "“The pager stayed quiet all of Black Friday”",
+   "subtitle": "",
+   "layoutSuggestion": "Quote",
+   "keyBullets": [
+    "The pager stayed quiet all of Black Friday. That has never happened before.",
+    "Dana Okafor, payments on-call lead"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "- Dana was on call for peak.\n- This is the quote I'm proudest of.",
+   "beatIndex": 2,
+   "beatName": "Result",
+   "purpose": "Puts a human voice on the result",
+   "intent": "Make the team feel the win",
+   "expectedIntensity": 0.7,
+   "expectedValence": 0.9
+  },
+  {
+   "slideTitle": "Three things we'd do again",
+   "subtitle": "",
+   "layoutSuggestion": "Numbered",
+   "keyBullets": [
+    "Trace before you tune: the traces found the loop in a day",
+    "Use the endpoint you already have: the batch API was two years old",
+    "Roll out in steps you can watch: four stages caught two bugs"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "- None of these are new. All of them are easy to skip.",
+   "beatIndex": 3,
+   "beatName": "Learning",
+   "purpose": "Draws the lessons",
+   "intent": "Make other teams copy the method",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.6
+  },
+  {
+   "slideTitle": "Questions?",
+   "subtitle": "Slides and traces: go/checkout-p99",
+   "layoutSuggestion": "Closing",
+   "keyBullets": [],
+   "visualDescription": "",
+   "speakerNotes": "- Thank you. The traces are linked from the wiki page.",
+   "beatIndex": 3,
+   "beatName": "Learning",
+   "purpose": "Closes and opens questions",
+   "intent": "Make it easy to follow up",
+   "expectedIntensity": 0.3,
+   "expectedValence": 0.6
+  }
+ ]
+}

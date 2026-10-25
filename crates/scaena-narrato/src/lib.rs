@@ -340,7 +340,14 @@ impl Generation {
             Step::Done => return Err(NarratoError::Done),
             _ => return Err(NarratoError::Answer("the arc is chosen before the outline is settled".into())),
         }
-        self.outline = Some(outline::settled(outline, self.target()).map_err(NarratoError::Answer)?);
+        let target = self.target();
+        // The counts a person sets are kept within the length's own range; a length that names
+        // none keeps them from its count to a fifth past it.
+        let range = match brief::minimum_slides(&self.brief.length) {
+            Some(least) => (least, brief::maximum_slides(&self.brief.length)),
+            None => (target, Some(target + (target / 5).max(1))),
+        };
+        self.outline = Some(outline::settled(outline, target, range).map_err(NarratoError::Answer)?);
         self.step = Step::Slides;
         Ok(())
     }

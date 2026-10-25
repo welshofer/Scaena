@@ -35,7 +35,12 @@ async function dir(key: string, create: boolean): Promise<FileSystemDirectoryHan
 
 /** `key` as a name in the store: its SHA-256, in hex. */
 async function hashed(key: string): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(key));
+  return sha256(new TextEncoder().encode(key));
+}
+
+/** `bytes`' SHA-256, in hex: what tells a deck kept nowhere from another of its name. */
+export async function sha256(bytes: ArrayBuffer | Uint8Array<ArrayBuffer>): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
