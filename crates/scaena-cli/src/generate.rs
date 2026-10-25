@@ -969,6 +969,10 @@ pub fn run(a: GenerateArgs, json: bool) -> Result<ExitCode> {
             let shown = l.href.trim_start_matches("mailto:").trim_start_matches("https://");
             println!("  linked: {shown} on slide {}", l.slide);
         }
+        // Each change let go, and what lint found (lift-up USE-4).
+        for r in &made.refused {
+            println!("  slide {} kept as made: the model asked for {}. {}", r.slide, r.what, r.why);
+        }
         if made.pictures > 0 {
             println!("  pictures: {}", made.pictures);
         }

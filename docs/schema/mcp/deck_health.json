@@ -136,7 +136,7 @@
             "const": "notes"
           },
           {
-            "description": "The deck runs past the range of slides its brief asked for; this slide turns least from\nthe one before, and is the first to cut.",
+            "description": "The deck runs past the range of slides its brief asked for; this slide turns least from\nthe one before, and is the first to cut. Or its beats' time runs short of, or past, the\nslot its brief's slides are given; this slide's beat runs shortest, or longest.",
             "type": "string",
             "const": "pacing"
           },
@@ -144,6 +144,11 @@
             "description": "A made deck links an address whose host neither its brief nor its sources name: where it\nsends the room was the model's word alone (lift-up 20261025 SEC-4).",
             "type": "string",
             "const": "link"
+          },
+          {
+            "description": "A change the model asked once it saw the slide drawn was not kept, lint having found the\nslide worse for it (`meta.narrative.refused`, lift-up USE-4).",
+            "type": "string",
+            "const": "look"
           }
         ]
       },

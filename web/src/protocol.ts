@@ -83,9 +83,21 @@ export interface Slot {
   /** The words that head it, where a text does: what the presenter's navigator names its slide by
    * (lift-up 10-24b USE-1, USE-4). */
   headline?: string;
+  /** Its place in the talk, where a beat names it (lift-up FUNC-2). */
+  story?: StoryPlace;
   start: number;
   span: number;
   hold: number;
+}
+
+/** A state's place in the talk (lift-up FUNC-2, `Session::story_place`): its section's title, its
+ * beat's claim, the seconds the beat is planned to take, and the seconds planned before the state
+ * comes up, the deck paced by its beats. */
+export interface StoryPlace {
+  section?: string;
+  claim: string;
+  planned?: number;
+  before: number;
 }
 
 /** A box, canvas units: `[x, y, width, height]`. */
@@ -1516,6 +1528,7 @@ export type GeneratingEvent =
   | { kind: "looking"; slides: number }
   | { kind: "looked"; slides: number }
   | { kind: "unlooked"; why: string }
+  | { kind: "refused"; slide: number; what: string; why: string }
   | { kind: "fitting"; texts: number }
   | { kind: "fitted"; texts: number }
   | { kind: "unfitted"; why: string };
@@ -1550,6 +1563,8 @@ export interface Generated {
   unlooked?: string;
   /** Each address the deck links, with the slide that first shows it (lift-up 20261025 SEC-4). */
   links?: { slide: number; href: string }[];
+  /** Each change the model asked that lint found its slide worse for, let go (lift-up USE-4). */
+  refused?: { slide: number; what: string; why: string }[];
   /** Each sheet given, kept as a data source, or why not. */
   data: { sheet: string; id?: string; rows?: number; why?: string }[];
   /** What each source gave the prompt, and whether it was cut short to fit. */

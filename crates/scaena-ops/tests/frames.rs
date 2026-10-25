@@ -151,9 +151,15 @@ fn an_image_export_says_what_it_needs() {
     let wrong = Request { size: Some("1000x1000".into()), ..png(Some(scratch("png-square"))) };
     assert!(ask(wrong).contains("aspect ratio"));
     let fps = Request { fps: Some(30), ..png(Some(scratch("png-fps"))) };
-    assert!(ask(fps).contains("--fps"));
+    // Each names its field, as an MCP client writes it, and its flag (lift-up 10-25b USE-5).
+    assert!(ask(fps).contains("`fps` (--fps)"));
     let pdf = Request { format: "pdf".into(), size: Some("960x540".into()), ..png(Some(scratch("pdf-size"))) };
-    assert!(ask(pdf).contains("--size"));
+    assert!(ask(pdf).contains("`size` (--size)"));
+    let nowhere = Request { format: "pdf".into(), out: None, ..png(None) };
+    assert!(ask(nowhere).contains("give it `out`, a file's path (--out FILE)"));
+    let guessed = Request { states: Some(vec!["revenu".into()]), ..png(Some(scratch("png-guessed"))) };
+    let said = ask(guessed);
+    assert!(said.contains("`states` (--states) names `revenu`, which is not a state of the deck; "), "{said}");
 }
 
 /// An image of each state is named by where it stands among the slides, as the editor's zip of
