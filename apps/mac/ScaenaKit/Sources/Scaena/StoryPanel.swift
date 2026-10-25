@@ -2,11 +2,11 @@ import ScaenaKit
 import SwiftUI
 
 /// The deck's story (PLAN G.9, as the browser's Story tab): how well it tells it, as Vzestup measures
-/// a talk. Its score, and each measure with what it says; the arc, its curve, the intensity each
-/// slide declares on it, and what its words read, a click on a slide's place showing it; and what to
-/// look at, a row for each slide in the order they stand, its headline beside it: what health finds
-/// there, each fix one step to undo, and its questions, which the assistant takes into its box. Read
-/// again as the deck changes.
+/// a talk. Its score, and each measure with what it says; the big idea the settled outline names;
+/// the arc, its curve, the intensity each slide declares on it, and what its words read, a click on
+/// a slide's place showing it; and what to look at, a row for each slide in the order they stand,
+/// its headline beside it: what health finds there, each fix one step to undo, and its questions,
+/// which the assistant takes into its box. Read again as the deck changes.
 struct StoryPanel: View {
     let editor: DeckEditor
     let edits: PanelEdits
@@ -39,6 +39,16 @@ struct StoryPanel: View {
                     }
                 }
                 Section("The Arc") {
+                    // The one sentence the outline settled, above the curve it is to land on
+                    // (lift-up 10-24b FUNC-1).
+                    if let idea = health.bigIdea {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("The big idea").font(.caption).foregroundStyle(.secondary)
+                            Text("\u{201C}\(idea)\u{201D}").italic()
+                        }
+                        .accessibilityElement(children: .combine)
+                        .accessibilityIdentifier("story-big-idea")
+                    }
                     ArcGraph(slides: health.slides) { edits.go($0) }
                         .frame(height: 110)
                     ArcLegend()
