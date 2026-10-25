@@ -189,9 +189,10 @@ impl Session {
     /// The deck's pages laid out for its PDF (PLAN 2.54): each at rest on the deck's canvas, as
     /// `scaena export --format pdf` orders them, with the fonts and images the frames name, as
     /// bytes the PDF's own module (`scaena-pdf`) draws. This module carries no PDF writer: only
-    /// an export draws one (SPEC §15).
-    pub fn pdf_laid_out(&self) -> Result<Vec<u8>, Error> {
-        let (laid, _) = scaena_ops::export::pdf_laid_out(&self.bundle(), None, &Progress::default())
+    /// an export draws one (SPEC §15). With `notes`, each slide with the presenter's notes under
+    /// it, as `export --format pdf --notes` prints them.
+    pub fn pdf_laid_out(&self, notes: bool) -> Result<Vec<u8>, Error> {
+        let (laid, _) = scaena_ops::export::pdf_laid_out(&self.bundle(), None, notes, &Progress::default())
             .map_err(|e| Error::Ops(e.to_string()))?;
         laid.to_bytes().map_err(|e| Error::Ops(e.to_string()))
     }
@@ -756,8 +757,13 @@ pub(crate) mod tests {
         assert!(s.png(&state, 960).unwrap() == cli, "{state}: the PNG differs from the CLI's");
         assert!(s.png("nowhere", 960).is_err());
 
-        let (laid, _) = scaena_ops::export::pdf_laid_out(&disk, None, &Progress::default()).unwrap();
-        assert!(s.pdf_laid_out().unwrap() == laid.to_bytes().unwrap(), "the PDF's pages differ from the CLI's");
+        let (laid, _) = scaena_ops::export::pdf_laid_out(&disk, None, false, &Progress::default()).unwrap();
+        assert!(s.pdf_laid_out(false).unwrap() == laid.to_bytes().unwrap(), "the PDF's pages differ from the CLI's");
+        let (noted, _) = scaena_ops::export::pdf_laid_out(&disk, None, true, &Progress::default()).unwrap();
+        assert!(
+            s.pdf_laid_out(true).unwrap() == noted.to_bytes().unwrap(),
+            "the PDF's notes pages differ from the CLI's"
+        );
 
         let page = r#"<html lang="__SCAENA_LANG__"><title>__SCAENA_TITLE__</title><body><!--__SCAENA_DECK__--></body>"#;
         let unsubset = s.standalone(page, "b1").unwrap_err().to_string();

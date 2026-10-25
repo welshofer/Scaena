@@ -242,6 +242,30 @@ fn a_pdf_reads_by_the_spine() {
     );
 }
 
+/// A bookmark says what the deck says, never an id (lift-up ATTR-5): a section with no title and
+/// no claim, by its first page's headline; and the pages no beat names, each by its headline.
+#[test]
+fn a_pdf_bookmarks_what_a_slide_says_never_an_id() {
+    let mut bundle = scaena_ops::open(Path::new("../../docs/examples/trails.deck.json")).unwrap();
+    let spine = bundle.deck.spine.as_mut().expect("the trails deck has a spine");
+    let opening = &mut spine.sections[0];
+    opening.title = None;
+    opening.beats.iter_mut().for_each(|b| b.claim = String::new());
+    let dropped = spine.sections.pop().expect("a last section");
+    let (bytes, _) = exported(&bundle, None, &format!("{}", line!()));
+    let marks = outline(&bytes);
+    let ids: Vec<&str> =
+        std::iter::once(dropped.id.as_str()).chain(bundle.deck.states.iter().map(|s| s.id.as_str())).collect();
+    for mark in &marks {
+        assert!(!ids.contains(&mark.as_str()), "no bookmark is an id: {marks:?}");
+    }
+    // The opening, by the cover's headline; the dropped section's pages after the rest, each by
+    // its own.
+    assert!(marks[0].starts_with("High Country Trails"), "{marks:?}");
+    assert_eq!(&marks[1..5], ["The season in numbers", "Where the work went", "What it cost", "How we work"]);
+    assert!(marks.len() > 5, "the pages no beat names are bookmarked: {marks:?}");
+}
+
 #[test]
 fn a_table_reads_a_cell_for_every_column_of_every_row() {
     use scaena_ops::create::{Attach, Create, create};
@@ -509,6 +533,78 @@ fn a_forecast_is_a_table_then_its_credit_a_paragraph() {
     uris.sort();
     uris.dedup();
     assert_eq!(uris, ["https://creativecommons.org/licenses/by/4.0/", "https://open-meteo.com/"]);
+}
+
+/// A PDF with the presenter's notes (dogfood pass 2), as Keynote's "Include presenter notes"
+/// prints one: each slide at its last state drawn smaller at the head of an upright page, the notes
+/// a presenter reads for it set under it by the engine, a paragraph after the slide's figure, and
+/// notes too long for the page going on to pages of their own. A slide with none keeps its page,
+/// and a PDF without notes is as it was.
+#[test]
+fn a_pdf_with_notes_prints_each_slide_with_its_notes_under_it() {
+    use scaena_core::displaylist::Op;
+    use scaena_ops::export::{Progress, pdf_laid_out};
+    let mut bundle = scaena_ops::open(Path::new("../../docs/examples/revenue.deck.json")).unwrap();
+    let (_, slides) = exported(&bundle, None, "notes-plain");
+    // The first slide's notes run long, past a page; `close` has none.
+    let long: String = (1..=120).map(|n| format!("Line {n}: what the presenter says here.\n")).collect();
+    bundle.deck.states.iter_mut().find(|s| s.id == "intro").unwrap().notes = Some(long);
+    let out = Path::new(env!("CARGO_TARGET_TMPDIR")).join("export-notes.pdf");
+    let req = Export { format: "pdf".into(), out: Some(out.clone()), notes: true, ..Export::default() };
+    let pages = export(&bundle, &req).unwrap().pages.expect("a pdf says its pages");
+    // A page a slide, in the plain PDF's order, and the first slide's notes on pages after it.
+    let mut each = pages.clone();
+    each.dedup();
+    assert_eq!(each, slides);
+    let overflow = pages.iter().filter(|p| *p == "intro").count();
+    assert!(overflow >= 2, "the long notes go on past the first page: {pages:?}");
+    assert_eq!(pages.len(), slides.len() + overflow - 1);
+
+    // What each page draws: the page upright, the slide on its first, and the notes' words.
+    let (laid, _) = pdf_laid_out(&bundle, None, true, &Progress::default()).unwrap();
+    assert_eq!(laid.pages.len(), pages.len());
+    let said = |list: &scaena_core::displaylist::DisplayList| -> String {
+        let mut words = String::new();
+        for op in &list.ops {
+            if let Op::Layer { node: Some(node), ops, .. } = op
+                && node == scaena_engine::notes::NOTES
+            {
+                for op in ops {
+                    if let Op::Glyphs { text, .. } = op {
+                        words.push_str(text);
+                    }
+                }
+            }
+        }
+        words
+    };
+    for page in &laid.pages {
+        assert!(page.list.viewport[1] > page.list.viewport[0], "{}: an upright page", page.state);
+    }
+    let intro: Vec<String> = laid.pages.iter().filter(|p| p.state == "intro").map(|p| said(&p.list)).collect();
+    assert!(intro[0].contains("Line 1:") && !intro[0].contains("Line 120:"), "{:?}", intro[0]);
+    assert!(intro.last().unwrap().contains("Line 120:"), "the last line on the last page");
+    let mix = laid.pages.iter().find(|p| p.state == "mix").unwrap();
+    assert!(said(&mix.list).contains("Pro is the orange band"), "a beat's or a state's notes: {}", said(&mix.list));
+    let close = laid.pages.iter().find(|p| p.state == "close").unwrap();
+    assert_eq!(said(&close.list), "", "a slide with no notes still has its page, with none");
+
+    // Read as the slide, then its notes a paragraph: every page that says notes holds a P of them.
+    let bytes = std::fs::read(&out).unwrap();
+    let lines = structure(&bytes);
+    let notes = lines.iter().filter(|l| l.trim() == "P").count();
+    let (plain, _) =
+        exported(&scaena_ops::open(Path::new("../../docs/examples/revenue.deck.json")).unwrap(), None, "notes-p");
+    let before = structure(&plain).iter().filter(|l| l.trim() == "P").count();
+    assert_eq!(notes, before + laid.pages.iter().filter(|p| !said(&p.list).is_empty()).count(), "{lines:#?}");
+
+    // It says what the deck says of itself, as the PDF without notes does (#674).
+    let title = bundle.deck.meta.as_ref().and_then(|m| m.title.clone()).expect("the revenue deck has a title");
+    assert!(String::from_utf8_lossy(&bytes).contains(&title), "the PDF with notes says the deck's title, {title:?}");
+
+    // Only a PDF prints notes.
+    let req = Export { format: "png".into(), out: Some(out.with_extension("d")), notes: true, ..Export::default() };
+    assert!(export(&bundle, &req).unwrap_err().to_string().contains("--notes"));
 }
 
 /// A PDF says what the deck says of itself (lift-up 10-24b ATTR-4): its title, its author, its
