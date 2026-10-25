@@ -152,7 +152,7 @@ try {
   check(saved?.where.kind === "opfs" && saved.where.name === "revenue", `the save goes into the browser's storage: ${JSON.stringify(saved?.where)}`);
   check(loaded(), "and loads the history's module");
   const status = await page.locator("#status").textContent();
-  check(saved?.recorded === true && status.endsWith("and the changes kept in its history"), `the page says it recorded the save: ${status}`);
+  check(saved?.recorded === true && status.startsWith("Saved") && status.includes("and the changes kept in its history"), `the page says it recorded the save: ${status}`);
   const files = await kept(page, "bundles/revenue");
   const history = log(Buffer.from(files["history/deck.loro"] ?? "", "base64"));
   const ours = history.slice(begun.length);

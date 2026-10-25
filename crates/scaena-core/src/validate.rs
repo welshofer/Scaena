@@ -309,6 +309,7 @@ pub fn validate_bundle(deck_json: &str, files: &dyn BundleFiles) -> Result<Vec<F
         if let Some(theme) = &theme {
             out.extend(theme.undefined_names());
             out.extend(theme.upright_italics());
+            out.extend(theme.grid_fit(&deck));
             out.extend(theme_names(&deck, snapshots.as_deref(), theme));
             out.extend(shader_presets(&deck, snapshots.as_deref().unwrap_or_default(), theme));
         }
@@ -423,6 +424,32 @@ impl LoadedTheme {
             Some(file) => finding.file(file.clone()),
             None => finding,
         }
+    }
+
+    /// E106: a grid that cannot be laid out on the deck's canvas, or on a format's it lists: more
+    /// than [`Grid::MOST_TRACKS`] columns or rows, or margins and gutters that leave a track no
+    /// room (lift-up 10-24b STAB-3). Said here, so a deck never reaches the engine with one.
+    fn grid_fit(&self, deck: &Deck) -> Vec<Finding> {
+        let own = [deck.canvas.width, deck.canvas.height];
+        let t = &self.theme;
+        let mut grids: Vec<(String, Option<Format>, &Grid, [f64; 2])> = vec![("/grid".into(), None, &t.grid, own)];
+        for format in deck.formats.iter().filter_map(|f| Format::parse(f)) {
+            let canvas = format.canvas(own);
+            let there = t.formats.as_ref().and_then(|f| f.get(&format)).and_then(|f| f.grid.as_ref());
+            match there {
+                Some(grid) => grids.push((format!("/formats/{}/grid", esc(format.name())), Some(format), grid, canvas)),
+                None if canvas != own => grids.push(("/grid".into(), Some(format), &t.grid, canvas)),
+                None => {}
+            }
+        }
+        let mut out = Vec::new();
+        for (path, format, grid, canvas) in grids {
+            if let Some((key, why)) = grid.unfit(canvas) {
+                let there = format.map(|f| format!(" in `{}`", f.name())).unwrap_or_default();
+                out.push(self.finding("E106", format!("the theme's grid{there}: {why}"), &format!("{path}/{key}")));
+            }
+        }
+        out
     }
 
     /// E106: a family upright by design that names an italic all the same (ADR-0031, call 6).

@@ -618,20 +618,32 @@ pub fn generate_drawn(
     if let Some(why) = unanswered {
         made.unlooked = Some(made.unlooked.map_or(why.clone(), |was| format!("{was}; {why}")));
     }
-    let longs = overflowing(&write.deck, &made.created.findings)?;
-    let (Some(key), false) = (key, longs.is_empty()) else { return Ok((made, Some(write))) };
-    let Some(request) = generation.fit_request(key, &longs) else { return Ok((made, Some(write))) };
-    say(Progress::Fitting { texts: longs.len() });
-    let reply = transport.send(&request);
-    let rewrites = match generation.fit_answer(reply.status, &reply.status_text, &reply.body, &longs) {
-        Ok(rewrites) => rewrites,
-        Err(why) => {
-            made.unfitted = Some(why.to_string());
-            return Ok((made, Some(write)));
+    let Some(key) = key else { return Ok((made, Some(write))) };
+    // Asked again for what the first rewrite still left too long, then said (STAB-4).
+    for round in 1..=scaena_narrato::fit::ROUNDS {
+        let longs = overflowing(&write.deck, &made.created.findings)?;
+        if longs.is_empty() {
+            break;
         }
-    };
-    say(Progress::Fitted { texts: rewrites.len() });
-    let write = fitted(&mut made, write, rewrites)?;
+        let Some(request) = generation.fit_request(key, &longs) else { break };
+        say(Progress::Fitting { texts: longs.len() });
+        let reply = transport.send(&request);
+        let rewrites = match generation.fit_answer(reply.status, &reply.status_text, &reply.body, &longs) {
+            Ok(rewrites) => rewrites,
+            Err(why) => {
+                made.unfitted = Some(why.to_string());
+                return Ok((made, Some(write)));
+            }
+        };
+        say(Progress::Fitted { texts: rewrites.len() });
+        write = fitted(&mut made, write, rewrites)?;
+        if round == scaena_narrato::fit::ROUNDS {
+            let longs = overflowing(&write.deck, &made.created.findings)?;
+            if !longs.is_empty() {
+                made.unfitted = Some(scaena_narrato::fit::still(&longs));
+            }
+        }
+    }
     Ok((made, Some(write)))
 }
 
@@ -712,7 +724,11 @@ pub fn fitted(made: &mut Generated, mut write: Write, rewrites: Vec<(String, Str
     let found = lint_in(&deck, &view)?.findings;
     let settled = settle(doc, found, &view)?;
     made.fixed.extend(settled.fixed);
-    made.fitted = rewrites.into_iter().map(|(id, _)| id).collect();
+    for (id, _) in rewrites {
+        if !made.fitted.contains(&id) {
+            made.fitted.push(id);
+        }
+    }
     made.created.errors = errors(&settled.findings);
     made.created.findings = settled.findings;
     write.deck = settled.deck;
@@ -2992,16 +3008,44 @@ fn holds(theme: &Theme, layout: &str, n: usize) -> bool {
 
 /// `text` as a sentence begins: its first word capitalized where it is all lower case, as the
 /// detail after a label begins ("cuts emissions 80%"); a word that has a capital of its own
-/// ("iPhone") left as it is.
+/// ("iPhone"), and code or an identifier ("prices, err :=", "p99", "k8s"), left as written
+/// (DF7-2).
 fn sentence(text: &str) -> String {
     let word = text.split_whitespace().next().unwrap_or_default();
     let mut chars = text.chars();
     match chars.next() {
-        Some(first) if first.is_lowercase() && word.chars().all(|c| !c.is_uppercase()) => {
+        Some(first)
+            if first.is_lowercase()
+                && word.chars().all(|c| !c.is_uppercase())
+                && !identifier(word)
+                && !reads_as_code(text) =>
+        {
             first.to_uppercase().chain(chars).collect()
         }
         _ => text.to_string(),
     }
+}
+
+/// Whether `word` is an identifier, not a word of a sentence: it holds an underscore, a dot
+/// inside it, a bracket, a backtick, or a digit ("snake_case", "pricing.GetMany", "p99", "k8s").
+fn identifier(word: &str) -> bool {
+    let word = word.trim_end_matches([',', ';', ':', '.', '!', '?']);
+    word.contains(['_', '(', ')', '[', ']', '`']) || word.contains('.') || word.chars().any(|c| c.is_ascii_digit())
+}
+
+/// Whether `text` reads as code rather than prose: it holds a backtick, a brace, an angle
+/// bracket a letter, `/`, or `=` follows ("<div>", "Vec<T>", "<="), or one of code's operators
+/// (`:=`, `=>`, `->`, `==`, `!=`, `()`, `::`), or it ends in a semicolon. A comparison of figures,
+/// "<100 ms" or "> 5%", is prose. Its case and its marks are kept as written (DF7-2).
+fn reads_as_code(text: &str) -> bool {
+    let tagged = text
+        .char_indices()
+        .filter(|(_, c)| matches!(c, '<' | '>'))
+        .any(|(i, _)| text[i + 1..].chars().next().is_some_and(|n| n.is_alphabetic() || n == '/' || n == '='));
+    tagged
+        || text.contains(['`', '{', '}'])
+        || [":=", "=>", "->", "==", "!=", "()", "::"].iter().any(|op| text.contains(op))
+        || text.trim_end().ends_with(';')
 }
 
 /// A slide as the deck plans it before any is built: its beat, its items, the icons they stand
@@ -3301,7 +3345,13 @@ fn at_places(value: f64, places: usize, unit: Option<&str>, lang: &str) -> Strin
         Some(u) if u.starts_with(['%', '\u{b0}', '/', '\u{d7}']) => format!("{n}{u}"),
         // A unit written in a script set without spaces sits against its figure: "2時間", "340ドル".
         Some(u) if u.chars().next().is_some_and(unspaced) => format!("{n}{u}"),
-        Some(u) => format!("{n} {u}"),
+        // Held to its figure by a space no line breaks at, as the typesetter holds one (DF7-2):
+        // "1,840\u{a0}ms", "48,6\u{a0}Mio.\u{a0}\u{20ac}"; "2 hours" as it is.
+        Some(u) => {
+            let spaced: Vec<char> = format!("{n} {u}").chars().collect();
+            let space = if joined(&spaced, n.chars().count()) { '\u{a0}' } else { ' ' };
+            format!("{n}{space}{u}")
+        }
     }
 }
 
@@ -4758,7 +4808,8 @@ fn typeset_all(narrative: &Narrative) -> Narrative {
 /// one reads as an apostrophe. A short parenthetical, "P(E | H)", is kept on one line, its spaces
 /// ones no line breaks at (U+00A0).
 fn typeset(text: &str, lang: &str) -> String {
-    if text.contains(['`', '{', '}', '<', '>']) {
+    // An angle bracket anywhere keeps a text as it is, as it did before [`reads_as_code`].
+    if text.contains(['<', '>']) || reads_as_code(text) {
         return text.to_string();
     }
     let marks = Marks::of(lang);
@@ -4800,11 +4851,13 @@ fn typeset(text: &str, lang: &str) -> String {
                 i += 3;
                 continue;
             }
-            '-' if (i > 0 && digit(i - 1) && digit(i + 1) && !chained(&chars, i))
+            '-' if (i > 0 && digit(i - 1) && digit(i + 1) && !chained(&chars, i) && !dialed(&chars, i))
                 || (before == Some(' ') && after == Some(' ')) =>
             {
                 out.push('\u{2013}')
             }
+            // A figure and its unit, and a day and its month, stay on one line (DF7-2).
+            ' ' if joined(&chars, i) => out.push('\u{a0}'),
             '(' => match short_parenthetical(&chars[i..]) {
                 Some(len) => {
                     out.extend(chars[i..i + len].iter().map(|c| if *c == ' ' { '\u{a0}' } else { *c }));
@@ -4828,6 +4881,73 @@ fn short_parenthetical(chars: &[char]) -> Option<usize> {
     let inside = &chars[1..close];
     (inside.len() <= 12 && inside.contains(&' ') && !inside.contains(&'(')).then_some(close + 1)
 }
+
+/// Whether the hyphen at `at` is a phone number's or a postcode's, which no range is (DF7-2): three
+/// digits then four, "(555) 014-2200" or "555-0142", unless both end in 0 and the four do not
+/// begin with one, as a deck's round ranges do ("500-1000"); five then four, a ZIP+4; or digits
+/// after a `+`, "+49 30 1234-5678".
+fn dialed(chars: &[char], at: usize) -> bool {
+    let start = chars[..at].iter().rposition(|c| !c.is_ascii_digit()).map_or(0, |p| p + 1);
+    let end = chars[at + 1..].iter().position(|c| !c.is_ascii_digit()).map_or(chars.len(), |p| at + 1 + p);
+    let (before, after) = (at - start, end - at - 1);
+    // Back over the number's digits, spaces, and brackets, to a `+` that opens it.
+    let opened = chars[..start]
+        .iter()
+        .rev()
+        .find(|c| !(c.is_ascii_digit() || matches!(c, ' ' | '(' | ')' | '.' | '-')))
+        .is_some_and(|c| *c == '+');
+    let round = chars[at - 1] == '0' && chars[end - 1] == '0' && chars[at + 1] != '0';
+    ((before, after) == (3, 4) && !round) || (before, after) == (5, 4) || opened
+}
+
+/// Whether the space at `at` joins a figure to its unit ("140 ms", "+18 %", "48,6 Mio. €"), or a
+/// day to its month ("12. November"), so that no line breaks between them (DF7-2).
+fn joined(chars: &[char], at: usize) -> bool {
+    let word_start = chars[..at].iter().rposition(|c| c.is_whitespace()).map_or(0, |p| p + 1);
+    let word_end = chars[at + 1..].iter().position(|c| c.is_whitespace()).map_or(chars.len(), |p| at + 1 + p);
+    let before: String = chars[word_start..at].iter().collect();
+    let after: String = chars[at + 1..word_end].iter().collect();
+    let bare = after.trim_end_matches([',', ';', ':', ')', '!', '?']);
+    let unit = |w: &str| UNITS.contains(&w) || UNITS.contains(&w.trim_end_matches('.'));
+    let figure = before.chars().last().is_some_and(|c| c.is_ascii_digit());
+    let scale = SCALES.contains(&before.as_str());
+    let day =
+        before.len() <= 3 && before.ends_with('.') && before.trim_end_matches('.').bytes().all(|b| b.is_ascii_digit());
+    (figure && unit(bare))
+        || (scale && SCALED_CURRENCIES.contains(&bare))
+        || (day && !before.trim_end_matches('.').is_empty() && MONTHS.contains(&bare))
+}
+
+/// The units a figure is written before, with a space, which no line breaks at (DF7-2).
+const UNITS: &[&str] = &[
+    "%", "\u{2030}", "\u{b0}", "\u{b0}C", "\u{b0}F", "ms", "\u{b5}s", "ns", "s", "min", "h", "hrs", "km", "m", "cm",
+    "mm", "kg", "g", "t", "kWh", "MWh", "GWh", "TWh", "kW", "MW", "GW", "Hz", "kHz", "MHz", "GHz", "KB", "MB", "GB",
+    "TB", "PB", "Mbps", "Gbps", "rps", "qps", "fps", "px", "ppm", "mph", "km/h", "\u{20ac}", "$", "\u{a3}", "\u{a5}",
+    "EUR", "USD", "GBP", "CHF", "Mio", "Mrd", "Tsd", "bn", "mn",
+];
+
+/// The scale words a currency follows, "Mio. €", with a space no line breaks at (DF7-2).
+const SCALES: &[&str] = &["Mio.", "Mrd.", "Tsd.", "Mio", "Mrd", "bn", "mn"];
+
+/// The currencies written after a figure or its scale.
+const SCALED_CURRENCIES: &[&str] = &["\u{20ac}", "$", "\u{a3}", "\u{a5}", "EUR", "USD", "GBP", "CHF"];
+
+/// The months a day is written before, "12. November", as German writes a date.
+const MONTHS: &[&str] = &[
+    "Januar",
+    "J\u{e4}nner",
+    "Februar",
+    "M\u{e4}rz",
+    "April",
+    "Mai",
+    "Juni",
+    "Juli",
+    "August",
+    "September",
+    "Oktober",
+    "November",
+    "Dezember",
+];
 
 /// Whether the hyphen at `at` joins one of several runs of digits, as a date's do: 2024-10-12.
 fn chained(chars: &[char], at: usize) -> bool {
@@ -5377,6 +5497,68 @@ mod tests {
         assert_eq!(item("- Measure our travel").whole, "Measure our travel");
     }
 
+    /// A detail that is code or an identifier keeps its case (DF7-2, deepdive 6): Go stays Go,
+    /// and "p99" and "k8s" stay as written; a sentence's first word is still capitalized.
+    #[test]
+    fn code_and_identifiers_are_never_capitalized() {
+        assert_eq!(
+            sentence("for _, item := range cart.Items { total += item.Price }"),
+            "for _, item := range cart.Items { total += item.Price }"
+        );
+        assert_eq!(sentence("prices, err := pricing.GetMany(ctx, ids)"), "prices, err := pricing.GetMany(ctx, ids)");
+        assert_eq!(sentence("p99 fell from 1,840 ms to 740 ms"), "p99 fell from 1,840 ms to 740 ms");
+        assert_eq!(sentence("k8s autoscaling held"), "k8s autoscaling held");
+        assert_eq!(sentence("cart_items is read once"), "cart_items is read once");
+        assert_eq!(sentence("`fetch` runs once per cart"), "`fetch` runs once per cart");
+        assert_eq!(sentence("iPhone sales held"), "iPhone sales held");
+        assert_eq!(sentence("cuts emissions 80%"), "Cuts emissions 80%");
+        // A comparison of figures is prose; a tag or a type's brackets are code.
+        assert_eq!(sentence("reduced latency to <100 ms"), "Reduced latency to <100 ms");
+        assert_eq!(sentence("churn >5% in EMEA"), "Churn >5% in EMEA");
+        assert_eq!(sentence("churn > 5% in EMEA"), "Churn > 5% in EMEA");
+        assert_eq!(sentence("returns Vec<Price> once"), "returns Vec<Price> once");
+        assert_eq!(sentence("wrap it in <div> tags"), "wrap it in <div> tags");
+        // Code keeps its marks, as it keeps its case.
+        assert_eq!(typeset_en("prices, err := pricing.GetMany(\"a\")"), "prices, err := pricing.GetMany(\"a\")");
+    }
+
+    /// A phone number's hyphen, and a ZIP+4's, are no range (DF7-2, appeal 11).
+    #[test]
+    fn a_phone_number_keeps_its_hyphens() {
+        assert_eq!(
+            typeset_en("harborhouse.org/winter \u{b7} (555) 014-2200"),
+            "harborhouse.org/winter \u{b7} (555) 014-2200"
+        );
+        assert_eq!(typeset_en("Call 555-0142"), "Call 555-0142");
+        assert_eq!(typeset_en("Portland, ME 04101-3102"), "Portland, ME 04101-3102");
+        assert_eq!(typeset_en("+49 30 1234-5678"), "+49 30 1234-5678");
+        // A range of figures is still a range, a round one of three digits then four too.
+        assert_eq!(typeset_en("2021-2024, 70-90%"), "2021\u{2013}2024, 70\u{2013}90%");
+        assert_eq!(typeset_en("500-1000 employees"), "500\u{2013}1000 employees");
+        assert_eq!(typeset_en("250-1000 ms"), "250\u{2013}1000\u{a0}ms");
+        assert_eq!(typeset_en("Call 555-1234 or 555-0140"), "Call 555-1234 or 555-0140");
+    }
+
+    /// A figure never parts from its unit, nor a scale from its currency, nor a German day from its
+    /// month (DF7-2, deepdive 8, board-de 1 and 9): the spaces between are ones no line breaks at,
+    /// and every other space is as written.
+    #[test]
+    fn a_figure_keeps_its_unit_and_a_date_its_month() {
+        assert_eq!(typeset_en("to 140 ms at p99"), "to 140\u{a0}ms at p99");
+        assert_eq!(typeset("60 Mio. \u{20ac} Quartalsumsatz", "de"), "60\u{a0}Mio.\u{a0}\u{20ac} Quartalsumsatz");
+        assert_eq!(
+            typeset("1,2 Mio. \u{20ac}: EBITDA, +18 %", "de"),
+            "1,2\u{a0}Mio.\u{a0}\u{20ac}: EBITDA, +18\u{a0}%"
+        );
+        assert_eq!(typeset("am 12. November 2026", "de"), "am 12.\u{a0}November 2026");
+        // Words after a figure that are no unit, and a sentence's full stop before a month, keep their space.
+        assert_eq!(typeset_en("3 teams in 2 weeks"), "3 teams in 2 weeks");
+        assert_eq!(typeset("Ende 2026. November war gut", "de"), "Ende 2026. November war gut");
+        // Set once, words stay as they are.
+        let once = typeset("1,2 Mio. \u{20ac} am 12. November", "de");
+        assert_eq!(typeset(&once, "de"), once);
+    }
+
     /// A quotation is marked as the deck's language marks one, a model's curled marks too, and set
     /// once it stays (dogfood pass 6, V2).
     #[test]
@@ -5564,11 +5746,12 @@ mod tests {
             made.deck["nodes"][node]["text"].as_str().unwrap_or_default().to_string()
         };
         assert_eq!(said("appeal", "she-is-one-of-many-number"), "1 in 7");
-        assert_eq!(said("board-de", "ein-starkes-quartal-in-vier-first-figure"), "48,6 Mio. \u{20ac}");
-        assert_eq!(said("board-de", "ein-starkes-quartal-in-vier-second-figure"), "1,2 Mio. \u{20ac}");
-        // A figure the builder writes is written as its chart's labels write it, in the deck's language.
-        assert_eq!(said("board-de", "der-umsatz-w-chst-seit-f-nf-callout"), "48,6 Mio. \u{20ac}");
-        assert_eq!(said("deepdive", "latency-climbed-every-week-as-callout"), "1,840 ms");
+        assert_eq!(said("board-de", "ein-starkes-quartal-in-vier-first-figure"), "48,6\u{a0}Mio.\u{a0}\u{20ac}");
+        assert_eq!(said("board-de", "ein-starkes-quartal-in-vier-second-figure"), "1,2\u{a0}Mio.\u{a0}\u{20ac}");
+        // A figure the builder writes is written as its chart's labels write it, in the deck's language,
+        // its unit held to it by a space that never breaks, as the typesetter sets it (DF7-2).
+        assert_eq!(said("board-de", "der-umsatz-w-chst-seit-f-nf-callout"), "48,6\u{a0}Mio.\u{a0}\u{20ac}");
+        assert_eq!(said("deepdive", "latency-climbed-every-week-as-callout"), "1,840\u{a0}ms");
     }
 
     #[test]
@@ -5595,8 +5778,8 @@ mod tests {
     #[test]
     fn a_figure_the_builder_writes_is_written_as_the_charts_write_it() {
         // Thousands set apart as the axis sets them, in the deck's language (DF7-1).
-        assert_eq!(at_places(1840.0, 0, Some("ms"), "en"), "1,840 ms");
-        assert_eq!(at_places(48.6, 1, Some("Mio. \u{20ac}"), "de"), "48,6 Mio. \u{20ac}");
+        assert_eq!(at_places(1840.0, 0, Some("ms"), "en"), "1,840\u{a0}ms");
+        assert_eq!(at_places(48.6, 1, Some("Mio.\u{a0}\u{20ac}"), "de"), "48,6\u{a0}Mio.\u{a0}\u{20ac}");
         assert_eq!(at_places(1234.5, 1, None, "de"), "1.234,5");
         assert_eq!(at_places(27.0, 0, Some("%"), "fr"), "27\u{a0}%");
         assert_eq!(at_places(2.0, 1, Some("$T"), "en"), "$2.0T");
@@ -6355,6 +6538,12 @@ mod tests {
         assert!(!section.iter().any(|(slot, _)| slot == "number"), "{section:?}");
         assert_eq!(sentence("iPhone sales"), "iPhone sales");
         assert_eq!(sentence("cuts emissions 80%"), "Cuts emissions 80%");
+        // A comparison of figures is prose; a tag or a type's brackets are code.
+        assert_eq!(sentence("reduced latency to <100 ms"), "Reduced latency to <100 ms");
+        assert_eq!(sentence("churn >5% in EMEA"), "Churn >5% in EMEA");
+        assert_eq!(sentence("churn > 5% in EMEA"), "Churn > 5% in EMEA");
+        assert_eq!(sentence("returns Vec<Price> once"), "returns Vec<Price> once");
+        assert_eq!(sentence("wrap it in <div> tags"), "wrap it in <div> tags");
     }
 
     /// A talk on climate change for colleagues, 25 slides as Narrato writes them.
@@ -7142,8 +7331,8 @@ mod tests {
         has(&hottest, "under", "WMO State of the Global Climate 2024");
         // A line chart's callout is its latest figure, and its takeaway stands under it.
         let co2 = said(5);
-        has(&co2, "callout", "424 ppm");
-        has(&co2, "note", "From 280 ppm before industry to 424 ppm in 2024");
+        has(&co2, "callout", "424\u{a0}ppm");
+        has(&co2, "note", "From 280\u{a0}ppm before industry to 424\u{a0}ppm in 2024");
         has(&said(4), "callout", "1.55\u{b0}C");
         // A line along years runs on time, 2010 to 2024 as long as fourteen years are (G.18); bars
         // of years stay a step apart.
@@ -7673,7 +7862,9 @@ mod tests {
             let (id, rest) = block.split_once('\n').unwrap();
             let most: usize =
                 rest.split_once(" characters").unwrap().0.trim_start_matches("at most: ").parse().unwrap();
-            let words = rest.split_once("text:\n").unwrap().1.trim();
+            // Its words, read back from their fence (lift-up W1).
+            let fenced = rest.split_once("text:\n<data label=\"text\">\n").unwrap().1;
+            let words = fenced.split_once("\n</data>").unwrap().0.trim();
             let mut cut = String::new();
             for word in words.split(' ') {
                 if cut.chars().count() + word.chars().count() + 1 > most {
@@ -7705,7 +7896,7 @@ mod tests {
             assert!(!c.contains("leave the audience"), "slide {}: {c}", k + 1);
             assert_eq!(!framing(k), c.contains("\nWhat it does in the talk: "), "slide {}: {c}", k + 1);
         }
-        assert!(captions(&narrative)[3].ends_with("\nWhat it does in the talk: Evidence"));
+        assert!(captions(&narrative)[3].ends_with("\nWhat it does in the talk: Evidence\n</data>"));
         // An outline settled: each content slide's beat's claim, and no purpose beside it.
         let beats = (0..5)
             .map(|b| scaena_narrato::outline::Beat {
@@ -7719,7 +7910,7 @@ mod tests {
             assert!(!c.contains("What it does in the talk"), "slide {}: {c}", k + 1);
             assert_eq!(!framing(k), c.contains("\nIt must leave the audience with: Claim "), "slide {}: {c}", k + 1);
         }
-        assert!(captions(&narrative)[8].ends_with("\nIt must leave the audience with: Claim 2"));
+        assert!(captions(&narrative)[8].ends_with("\nIt must leave the audience with: Claim 2\n</data>"));
     }
 
     #[test]
@@ -8087,6 +8278,84 @@ mod tests {
         assert!(matches!(heard[0], Progress::Choosing));
         assert!(heard.iter().any(|p| matches!(p, Progress::Fitting { texts: 1 })));
         assert!(heard.iter().any(|p| matches!(p, Progress::Fitted { texts: 1 })));
+    }
+
+    /// A rewrite still too long for its place is not kept, and the model is asked once more for
+    /// what still runs over; what the second round leaves too long, the deck made says (STAB-4).
+    #[test]
+    fn a_rewrite_still_too_long_is_asked_again_once_then_said() {
+        use scaena_narrato::{Provider, Settings};
+        let (summary, slides) = catalog();
+        let mut agenda = slides[1].clone();
+        agenda.slide_title = "What we will cover today across the whole Gulf Coast and every port beyond it".into();
+        let picked = [slides[0].clone(), agenda, slides[4].clone(), slides[54].clone(), slides[55].clone()];
+        let written = json!({ "executiveSummary": summary, "slides": picked }).to_string();
+        let arc =
+            std::fs::read_to_string(root().join("crates/scaena-narrato/tests/answers/anthropic-arc.json")).unwrap();
+        // Each rewrite only its last word shorter: shorter than it was, still far too long.
+        let barely = |prompt: &str| {
+            let texts: Vec<Value> = (prompt.split("id: ").skip(1))
+                .map(|block| {
+                    let (id, rest) = block.split_once('\n').unwrap();
+                    // Its words, read back from their fence (lift-up W1).
+                    let fenced = rest.split_once("text:\n<data label=\"text\">\n").unwrap().1;
+                    let words = fenced.split_once("\n</data>").unwrap().0.trim();
+                    json!({ "id": id, "text": words.rsplit_once(' ').unwrap().0 })
+                })
+                .collect();
+            json!({ "texts": texts }).to_string()
+        };
+        let run = |too_long: usize| {
+            let mut fits = 0;
+            let mut send = |r: &Request| {
+                let body = r.body.as_ref().unwrap();
+                let content = body["messages"][0]["content"].as_array().unwrap();
+                let prompt = content.last().unwrap()["text"].as_str().unwrap().to_string();
+                let reply = if prompt.contains("=== CATALOG ===") {
+                    arc.clone()
+                } else if prompt.contains("runs past its place") {
+                    fits += 1;
+                    anthropic(&if fits <= too_long { barely(&prompt) } else { shortened(&prompt) })
+                } else {
+                    anthropic(&written)
+                };
+                Reply { status: 200, status_text: "OK".into(), body: reply, after: None }
+            };
+            let mut heard = Vec::new();
+            let settings =
+                Settings { provider: Provider::Anthropic, model: "a-model".into(), base: None, browser: false };
+            let g = Generation::new(narrative("", Vec::new()).brief, settings).unwrap();
+            let (made, _) = generate(
+                g,
+                Some("sk-test"),
+                &[],
+                None,
+                Looking::No,
+                Path::new("dusk.theme.json"),
+                dusk(),
+                &font,
+                &mut send,
+                &mut |p| heard.push(p),
+            )
+            .unwrap();
+            (made, heard, fits)
+        };
+        let fitting = |heard: &[Progress]| heard.iter().filter(|p| matches!(p, Progress::Fitting { .. })).count();
+        // The first rewrite too long, the second fits.
+        let (made, heard, fits) = run(1);
+        assert_eq!((fits, fitting(&heard)), (2, 2));
+        assert!(heard.contains(&Progress::Fitted { texts: 0 }) && heard.contains(&Progress::Fitted { texts: 1 }));
+        assert_eq!(made.fitted.len(), 1, "{:?}", made.fitted);
+        assert_eq!(made.unfitted, None);
+        // Both too long: asked twice, no more, and said.
+        let (made, heard, fits) = run(2);
+        assert_eq!((fits, fitting(&heard)), (2, 2));
+        assert!(made.fitted.is_empty());
+        let said = made.unfitted.expect("what still runs over said");
+        assert!(
+            said.starts_with("1 text still runs past its place: \u{201c}What we will cover today\u{2026}"),
+            "{said}"
+        );
     }
 
     /// A generated slide whose one item is a short list in the bullets layout builds it by

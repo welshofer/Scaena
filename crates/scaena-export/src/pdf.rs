@@ -296,11 +296,39 @@ fn write(deck: &Deck, pages: &[Page], assets: &Assets, settings: &PdfSettings) -
     if let Some(title) = meta.and_then(|m| m.title.clone()) {
         metadata = metadata.title(title);
     }
+    // Who wrote it, what it is about, and when it was made, from the deck and never the clock,
+    // so the bytes stay the deck's own and the browser's PDF stays the CLI's (lift-up 10-24b
+    // ATTR-4). krilla writes the one date as both the made and the modified date.
+    if let Some(author) = meta.and_then(|m| m.author.clone()).filter(|a| !a.trim().is_empty()) {
+        metadata = metadata.authors(vec![author]);
+    }
+    if let Some(description) = meta.and_then(|m| m.description.clone()).filter(|d| !d.trim().is_empty()) {
+        metadata = metadata.description(description);
+    }
+    if let Some(made) = meta.and_then(|m| m.created.as_deref()).and_then(date) {
+        metadata = metadata.creation_date(made);
+    }
     if let Some(lang) = lang {
         metadata = metadata.language(lang);
     }
     document.set_metadata(metadata);
     document.finish().map_err(|e| ExportError::Pdf(format!("{e:?}")))
+}
+
+/// `text`, an ISO 8601 date and time as a deck writes `meta.created`, as a PDF's date: in UTC
+/// where it ends in `Z`, as written where it names no zone. One with another offset, or none a
+/// PDF can hold, is left out rather than guessed.
+fn date(text: &str) -> Option<krilla::metadata::DateTime> {
+    let utc = text.trim().ends_with('Z');
+    let at = scaena_core::format::read_iso(text).ok()?.civil();
+    let year = u16::try_from(at.year).ok()?;
+    let d = krilla::metadata::DateTime::new(year)
+        .month(at.month as u8)
+        .day(at.day as u8)
+        .hour(at.hour as u8)
+        .minute(at.minute as u8)
+        .second(at.second as u8);
+    Some(if utc { d.utc_offset_hour(0).utc_offset_minute(0) } else { d })
 }
 
 /// The page that shows `state`: its slide's (PLAN 2.70). None where no page shows that slide.

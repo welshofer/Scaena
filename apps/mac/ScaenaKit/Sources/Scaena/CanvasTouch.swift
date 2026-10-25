@@ -187,8 +187,14 @@ struct CanvasMenu: UIViewRepresentable {
         held.around = around
         guard let asked, asked.count != held.shown else { return }
         held.shown = asked.count
-        view.take()
-        held.menus?.presentEditMenu(with: UIEditMenuConfiguration(identifier: nil, sourcePoint: asked.at))
+        // Shown on the next turn of the main queue, once the update that carries what the press
+        // selected has reached `held.deck`: the menu is built from it as it shows, so shown in this
+        // update, a press that selects as it asks would offer what is done to nothing selected.
+        DispatchQueue.main.async { [weak view, weak held] in
+            guard let view, let held, view.window != nil else { return }
+            view.take()
+            held.menus?.presentEditMenu(with: UIEditMenuConfiguration(identifier: nil, sourcePoint: asked.at))
+        }
     }
 
     /// The view the menu stands on. While the menu shows, it has the keyboard and answers the

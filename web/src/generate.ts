@@ -698,8 +698,13 @@ async function jpeg(pixels: ImageData): Promise<{ mediaType: string; data: strin
   return { mediaType: "image/jpeg", data: btoa(binary) };
 }
 
+/** How many times the model is asked to rewrite what runs past its place, as
+ * `scaena_narrato::fit::ROUNDS`: once, then once more for what its rewrite left too long. */
+const FIT_ROUNDS = 2;
+
 /** Each text that still runs past its place, rewritten by the model to the length the engine
- * measured for it; a rewrite that fails leaves the deck as it was, saying why. */
+ * measured for it, and asked again once for what the rewrite left too long; a rewrite that fails
+ * leaves the deck as it was, saying why, and what still runs over is said (STAB-4). */
 async function fit(
   generation: InstanceType<Generator["Generation"]>,
   making: Making,
@@ -707,19 +712,23 @@ async function fit(
   name: string,
   hear: (event: GeneratingEvent) => void,
 ) {
-  const longs = making.longs();
-  const texts = (JSON.parse(longs) as unknown[]).length;
-  if (!texts) return;
-  const asked = generation.fitRequest(key, longs);
-  if (!asked) return;
-  hear({ kind: "fitting", texts });
-  const reply = await send(JSON.parse(asked));
-  try {
-    const rewrites = read(name, reply, () => generation.fitAnswer(reply.status, reply.statusText, reply.body, longs));
-    making.fitted(rewrites);
-    hear({ kind: "fitted", texts: (JSON.parse(rewrites) as unknown[]).length });
-  } catch (e) {
-    making.unfitted(said(e));
-    hear({ kind: "unfitted", why: said(e) });
+  for (let round = 1; round <= FIT_ROUNDS; round++) {
+    const longs = making.longs();
+    const texts = (JSON.parse(longs) as unknown[]).length;
+    if (!texts) return;
+    const asked = generation.fitRequest(key, longs);
+    if (!asked) return;
+    hear({ kind: "fitting", texts });
+    const reply = await send(JSON.parse(asked));
+    try {
+      const rewrites = read(name, reply, () => generation.fitAnswer(reply.status, reply.statusText, reply.body, longs));
+      making.fitted(rewrites);
+      hear({ kind: "fitted", texts: (JSON.parse(rewrites) as unknown[]).length });
+    } catch (e) {
+      making.unfitted(said(e));
+      hear({ kind: "unfitted", why: said(e) });
+      return;
+    }
   }
+  making.stillLong();
 }
