@@ -77,7 +77,7 @@ import { pointer } from "./theme-panel";
 import * as notes from "./notes";
 import { annotate, askWords, markName, noteName } from "./notes";
 import type { Stage } from "./stage";
-import { covered, paragraphs, type Selected, typing } from "./typing";
+import { covered, paragraphs, type Selected, touched, typing } from "./typing";
 import { an, findings, fractions, inserting as insertSaid, named, object, reaching, sentence, source as sourceSaid } from "./words";
 
 /** `text` as SVG holds it, as text or in a quoted attribute: the words of a slot's prompt (PLAN 3.30), and
@@ -2765,6 +2765,70 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     });
   }
 
+  /** Code text `node`'s lines in focus in the state shown, those `asked` names in its gutter's
+   * numbers, "2–4, 7"; nothing shows every line (PLAN 2.140): Lines in Focus and Clear Focus. One
+   * patch, one step to undo, the states after it as they were. */
+  function focusLines(node: string, asked: string) {
+    if (locks([node], "has its lines in focus set")) return Promise.resolve();
+    return inTurn(async () => {
+      const shown = editor.shown();
+      if (!shown) return editor.say(WAITING);
+      const name = Called(node);
+      const words = asked.trim();
+      try {
+        const patch = await stage.focusing(editor.source(), shown.state, node, words);
+        if (!patch.length) return editor.say(words ? `${name} has lines ${words} in focus already` : `${name} shows every line already`);
+        await change(patch, "Setting the lines in focus…", words ? `${name}: lines ${words} in focus` : `${name}: every line shown`, node);
+      } catch (e) {
+        editor.say(`Lines not set: ${said(e)}`);
+      }
+    });
+  }
+
+  /** Focus on These Lines (PLAN 2.140): code text `node`'s lines in focus, those the caret or the
+   * selection in it touches, or touched as typing in it last stopped in the state shown, as Lines
+   * in Focus sets them. Nothing where it has not been typed in. */
+  async function focusTouched(node: string) {
+    const shown = editor.shown();
+    const now = text.now() ?? (text.last()?.state === shown?.state ? text.last() : undefined);
+    if (!now || now.node !== node || !shown) return editor.say(`Type in ${called(node)} first: the lines the caret is on go in focus`);
+    const c = await stage.carets(editor.source(), shown.state, node, editor.format()).catch(() => null);
+    const from = c?.code?.from ?? 1;
+    const [a, b] = touched(now.value, now.from, now.to).map((k) => k + from);
+    return focusLines(node, a === b ? String(a) : `${a}–${b}`);
+  }
+
+  /** Walk Through Lines… on code text `node` (PLAN 2.140, ADR-0029 decision 6): the lines each step
+   * shows, asked over the text, apart by semicolons and from the whole block to the whole block;
+   * then one patch, the state shown the first and a step after it for each of the rest. */
+  function walk(node: string) {
+    if (locks([node], "is walked through")) return Promise.resolve();
+    return inTurn(async () => {
+      const shown = editor.shown();
+      const found = box(node);
+      if (!shown || !found) return editor.say(WAITING);
+      const name = Called(node);
+      const c = await stage.carets(editor.source(), shown.state, node, editor.format()).catch(() => null);
+      if (!c?.code) return editor.say(`${name} is no code`);
+      const all = `${c.code.from}–${c.code.from + paragraphs(c.text).length - 1}`;
+      const [x, y, w] = found.rect;
+      const top = onScreen([x + w / 2, y]);
+      const r = overlay.getBoundingClientRect();
+      const words = await askWords([top[0], Math.max(top[1], r.top + 32)], `${all}; ${all}`, `The lines each step of ${called(node)} shows`, {
+        caption: `Each step's lines, apart by semicolons: ${all}; 2–4; 7; ${all}`,
+      });
+      const steps = (words ?? "").split(";").map((s) => s.trim());
+      if (words === undefined || !steps.some((s) => s)) return editor.say(`${name} is not walked through`);
+      try {
+        const patch = await stage.walking(editor.source(), shown.state, node, steps);
+        const added = patch.filter((op) => (op as { op?: string }).op === "add_state").length;
+        await change(patch, "Walking through the lines…", `${name} walked through: ${added} ${added === 1 ? "step" : "steps"} added`, node);
+      } catch (e) {
+        editor.say(`Not walked through: ${said(e)}`);
+      }
+    });
+  }
+
   /** What is selected in a new group where it stands (PLAN 2.43): one patch, the group selected. */
   function group() {
     return inTurn(async () => {
@@ -4498,6 +4562,13 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     /** Draw a text's lines as a diagram in its place (PLAN 2.110). */
     diagram,
     coded,
+    /** A code text's lines in focus, the lines the caret touches, and a walkthrough (PLAN 2.140). */
+    focusLines,
+    focusTouched,
+    /** Whether code text `node` is typed in, or was last, in the state shown: what Focus on These
+     * Lines reads. */
+    caretIn: (node: string) => text.node() === node || (text.last()?.node === node && text.last()?.state === editor.shown()?.state),
+    walk,
     /** Pick the focal point of the image selected with the next press on it, as the inspector's
      * Pick does; and a file dropped on the canvas: a picture on an image, put in its place (PLAN
      * 2.45), else inserted there, and data attached as a source with a chart of it there. */

@@ -538,7 +538,10 @@ export type Takes =
   | { kind: "text" }
   /** Fractions of an image, 0 to 1, one for each name: a point's `x` and `y`, a part's `x`, `y`,
    * `w`, and `h` (PLAN 2.45). */
-  | { kind: "fractions"; names: string[] };
+  | { kind: "fractions"; names: string[] }
+  /** A code text's lines, numbered `first` to `last` as its gutter numbers them: its lines in focus,
+   * typed as those numbers, "2–4, 7" (PLAN 2.140). The value is said under `words.said` by its JSON. */
+  | { kind: "lines"; first: number; last: number };
 
 /** Where a value a state shows lives: the deck's overrides, a state's delta, or the node. */
 export type Lives = "overrides" | "node" | { state: string };
@@ -1195,6 +1198,12 @@ export type ToWorker =
   | { type: "uncoding"; id: number; source: string; node: string }
   /** Tidy Code's patch of `node` as `state` shows it (PLAN 2.139). */
   | { type: "tidying"; id: number; source: string; state: string; node: string }
+  /** The patch that sets code text `node`'s lines in focus in `state` to those `said` names, in
+   * its gutter's numbers; nothing said clears it (PLAN 2.140). */
+  | { type: "focusing"; id: number; source: string; state: string; node: string; said: string }
+  /** Walk Through Lines…'s patch of code text `node` from `state`: the lines each step shows, in
+   * the gutter's numbers (PLAN 2.140). */
+  | { type: "walking"; id: number; source: string; state: string; node: string; steps: string[] }
   | { type: "italicizing"; id: number; source: string; state: string; node: string; from: number; to: number; format?: string }
   /** The theme the deck names, and the theme files the bundle holds (PLAN 2.39). */
   | { type: "themes"; id: number }
@@ -2101,7 +2110,7 @@ export type FromWorker =
   | { type: "codeWords"; id: number; words: string }
   | { type: "tidied"; id: number; text: string }
   | { type: "keyed"; id: number; keyed: Keyed | null }
-  | { type: "coding" | "uncoding" | "tidying"; id: number; patch: unknown[] }
+  | { type: "coding" | "uncoding" | "tidying" | "focusing" | "walking"; id: number; patch: unknown[] }
   | { type: "italicizing"; id: number; look: Record<string, unknown> }
   | { type: "themes"; id: number; themes: Themes }
   /** A theme chosen: what it did, as `theme --apply` says it, and unless it was refused, the

@@ -756,6 +756,16 @@
               "kind": { "type": "string", "const": "fractions" }
             },
             "required": ["kind", "names"]
+          },
+          {
+            "description": "A code text's lines, numbered from `first` to `last` as its gutter numbers them: its lines\nin focus, typed as those numbers (\"2–4, 7\", `code::focus::read`), each one as written\ncounted from 1 (PLAN 2.140).",
+            "type": "object",
+            "properties": {
+              "first": { "type": "integer", "minimum": 0 },
+              "last": { "type": "integer", "minimum": 0 },
+              "kind": { "type": "string", "const": "lines" }
+            },
+            "required": ["kind", "first", "last"]
           }
         ]
       },
