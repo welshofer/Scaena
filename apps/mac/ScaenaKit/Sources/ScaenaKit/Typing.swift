@@ -59,9 +59,9 @@ public final class Typing {
     @ObservationIgnored private var on: Int?
     /// Where up and down aim, canvas x: the caret's x when they began.
     @ObservationIgnored private var goal: Double?
-    /// When the last change was typed, and the revision of the deck it left: a key typed within a
+    /// When the last change was typed, and the edits of the deck it left: a key typed within a
     /// burst of it, nothing else edited since, joins it.
-    @ObservationIgnored private var last: (at: ContinuousClock.Instant, revision: Int)?
+    @ObservationIgnored private var last: (at: ContinuousClock.Instant, edits: Int)?
     /// Where typing goes, as the status says it once a change is typed.
     @ObservationIgnored private var whereTold: String?
     /// The source as the burst of typing began, and the wait for the burst to end: a claim typing
@@ -144,10 +144,13 @@ public final class Typing {
             }
     }
 
-    /// A burst of typing ended: whether it left a beat's claim its slide no longer says.
-    private func ended() {
+    /// A burst of typing ended: the deck compiled again, once for the burst (lift-up 10-25b
+    /// PERF-2), and whether it left a beat's claim its slide no longer says. Not `settling` where
+    /// the key that ended it begins another, which is compiled as that one ends.
+    private func ended(settling: Bool = true) {
         ending?.cancel()
         ending = nil
+        if settling { editor.settled() }
         guard let begun else { return }
         self.begun = nil
         editor.restate(since: begun)
@@ -184,7 +187,7 @@ public final class Typing {
         guard let node, let state else { return }
         guard shown == state else { return leave() }
         // The text's own change: read already.
-        if let last, last.revision == editor.revision { return }
+        if let last, last.edits == editor.edits { return }
         guard let found = try? editor.session.carets(state: state, node: node) else { return leave() }
         box = try? editor.session.boxes(state: state).first { $0.node == node }
         if found != carets {
@@ -301,13 +304,13 @@ public final class Typing {
         ]
         if fork { op["fork"] = true }
         let now = ContinuousClock.now
-        let joins = last.map { now - $0.at < burst && $0.revision == editor.revision } ?? false
+        let joins = last.map { now - $0.at < burst && $0.edits == editor.edits } ?? false
         do {
             let before = try editor.typed([.object(op)])
-            last = (now, editor.revision)
+            last = (now, editor.edits)
             told = whereTold
             edited?(before, joins)
-            if !joins { ended() }
+            if !joins { ended(settling: false) }
             begun = begun ?? before
             ending?.cancel()
             ending = Task { [weak self, burst] in
@@ -590,6 +593,7 @@ public final class Typing {
         do {
             let before = try editor.typed([.object(op)])
             last = nil
+            editor.settled()
             edited?(before, false)
         } catch {
             say("Not styled. \(Why.said(error))")
@@ -710,6 +714,7 @@ public final class Typing {
         do {
             let before = try editor.typed([.object(op)])
             last = nil
+            editor.settled()
             edited?(before, false)
         } catch {
             say("Not made a list. \(Why.said(error))")
@@ -836,6 +841,19 @@ extension ScaenaSession {
     /// Whether the deck changed.
     public func typed(_ ops: [JSONValue], at date: Date = Date()) throws -> Bool {
         try call("typed", ["ops": .array(ops), "at": .string(date.formatted(.iso8601))])
+    }
+
+    /// Make `ops` typed in place, as `typed` makes them, and give the deck's source and timeline
+    /// after, the source written out but not compiled (lift-up 10-25b PERF-2): none where the deck
+    /// did not change.
+    public func typing(_ ops: [JSONValue], at date: Date = Date()) throws -> Typed? {
+        try call("typing", ["ops": .array(ops), "at": .string(date.formatted(.iso8601))])
+    }
+
+    /// What `typing` made: the deck's source after it, not compiled, and its states end to end.
+    public struct Typed: Decodable, Sendable {
+        public let source: String
+        public let timeline: [Slot]
     }
 
     /// The look ⌘B gives `node`'s characters `from` to `to` (Unicode scalar values) in `state`

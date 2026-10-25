@@ -176,7 +176,7 @@ try {
   await step("new", async () => {
     await page.click("#file-open").then(() => page.click("#new-deck"));
     await page.fill("#making-name", "Trail report");
-    await page.selectOption("#making-theme", "Dusk");
+    await page.click("#making-themes .tile:has(input[value=Dusk])");
     await page.click("#making-create");
     await page.waitForFunction(() => window.scaena.where().name === "trail-report" && window.scaena.last(), null, { timeout: 120000 });
     const text = await source();

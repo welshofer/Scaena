@@ -131,6 +131,37 @@ public final class Laying: @unchecked Sendable {
         let rgba = try ScaenaSession.take(painted.bytes, error)
         return ScaenaSession.Pixels(rgba: rgba, width: Int(painted.width), height: Int(painted.height))
     }
+
+    /// The cue into `state` in `format`, or on the deck's own canvas where none, laid out ahead as
+    /// the session's `prepare` lays it out, on the thread that calls it: a show's next cue laid out
+    /// while the state shown rests, away from the window, then handed to the session's
+    /// `cue(laid:)` (lift-up 10-25b PERF-5).
+    public func cue(format: String?, state: String) throws -> LaidCue {
+        var error: UnsafeMutablePointer<CChar>?
+        // A format by its name, or none: the C string made only where there is one.
+        let laid: OpaquePointer?
+        if let format {
+            laid = scaena_laying_cue(handle, format, state, &error)
+        } else {
+            laid = scaena_laying_cue(handle, nil, state, &error)
+        }
+        guard let laid else { throw ScaenaError.taking(error) }
+        return LaidCue(handle: laid)
+    }
+}
+
+/// A cue laid out ahead on a `Laying`, away from the session, until the session takes it (lift-up
+/// 10-25b PERF-5). Sendable: it is laid out on one thread and handed to the session's after.
+public final class LaidCue: @unchecked Sendable {
+    let handle: OpaquePointer
+
+    init(handle: OpaquePointer) {
+        self.handle = handle
+    }
+
+    deinit {
+        scaena_cue_free(handle)
+    }
 }
 
 /// What an inspector offers (PLAN 2.33, 2.36): each property of a node in a state, or of the
@@ -535,6 +566,14 @@ extension ScaenaSession {
     /// file was handed over, or the theme was edited, when what it draws is an older deck's.
     public func holds(_ laying: Laying) -> Bool {
         scaena_laying_holds(handle, laying.handle)
+    }
+
+    /// Take `laid`, a cue laid out ahead away from the session (`Laying.cue`), as the one the next
+    /// frames into its state sample, laying nothing out: false where the deck shown or its format
+    /// changed since, or that cue is kept already (lift-up 10-25b PERF-5).
+    @discardableResult
+    public func cue(laid: LaidCue) -> Bool {
+        scaena_cue_laid(handle, laid.handle)
     }
 
     /// What lint finds on every state, as `lint()` says it, from what `laid` found once laid out,

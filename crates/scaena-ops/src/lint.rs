@@ -109,6 +109,36 @@ pub fn dated(mut linted: Linted, deck: &Deck, now: Option<i64>) -> Linted {
     linted
 }
 
+/// What `lint` finds in a bundle at `now`, as [`lint_at`] finds it, the layout rules laying out
+/// `state` alone where one is given, as [`lint_state_in`] does: what `deck_lint` answers with a
+/// `state` without laying out every other (lift-up 20261025b PERF-3).
+pub fn lint_scoped_at(b: &Bundle, state: Option<&str>, now: Option<i64>) -> Result<Linted, OpsError> {
+    Ok(dated(lint_scoped(&b.deck, &View::of(b), state)?, &b.deck, now))
+}
+
+/// What lint reads of a bundle, as one SHA-256: its deck, its theme, and every file in it but its
+/// history. Two bundles with one digest lint alike, so a client may keep what lint found by it,
+/// and read it again for `deck_health` rather than lay the deck out again (lift-up 20261025b
+/// PERF-3).
+pub fn digest(b: &Bundle) -> Result<String, OpsError> {
+    use sha2::{Digest, Sha256};
+    let mut hash = Sha256::new();
+    let mut part = |bytes: &[u8]| {
+        hash.update((bytes.len() as u64).to_le_bytes());
+        hash.update(bytes);
+    };
+    part(b.deck.to_json()?.as_bytes());
+    part(b.theme_json.as_deref().unwrap_or_default().as_bytes());
+    for path in b.files.list().context("the bundle's files")? {
+        if path.starts_with("history/") {
+            continue;
+        }
+        part(path.as_bytes());
+        part(&b.files.read(&path).context("a file of the bundle")?);
+    }
+    Ok(format!("{:x}", hash.finalize()))
+}
+
 /// What `lint` finds in `deck` with the files `files`.
 pub fn lint_in(deck: &Deck, files: &View) -> Result<Linted, OpsError> {
     lint_scoped(deck, files, None)
@@ -222,7 +252,14 @@ pub struct Fixed {
 /// Apply every fix lint offers, each checked by laying its state out again with it and
 /// never a change of content; write the deck canonically if any applied; lint again.
 pub fn lint_fix(b: &Bundle) -> Result<Fixed, OpsError> {
-    let (fixed, deck) = fixing(b)?;
+    lint_fix_at(b, None, None)
+}
+
+/// [`lint_fix`] on `state` alone where one is given, laying out no other, and judging dates at
+/// `now` (W428): the fixes of what lint finds there, and what it finds there after (lift-up
+/// 20261025b PERF-3).
+pub fn lint_fix_at(b: &Bundle, state: Option<&str>, now: Option<i64>) -> Result<Fixed, OpsError> {
+    let (fixed, deck) = fixing_at(b, state, now)?;
     if let Some(deck) = deck {
         write(b, deck)?;
     }
@@ -233,10 +270,16 @@ pub fn lint_fix(b: &Bundle) -> Result<Fixed, OpsError> {
 /// if any fix applied. A client that keeps its bundle in memory writes it there (the web
 /// page's assistant, PLAN 2.6).
 pub fn fixing(b: &Bundle) -> Result<(Fixed, Option<Write>), OpsError> {
-    let found = lint(b)?.findings;
+    fixing_at(b, None, None)
+}
+
+/// [`lint_fix_at`] with nothing written, as [`fixing`] is [`lint_fix`]'s.
+pub fn fixing_at(b: &Bundle, state: Option<&str>, now: Option<i64>) -> Result<(Fixed, Option<Write>), OpsError> {
+    let ours = |f: &Finding| state.is_none_or(|s| f.state.as_deref() == Some(s));
+    let found = lint_scoped_at(b, state, now)?.findings;
     let mut doc = b.deck.to_value()?;
     let mut fixed = Vec::new();
-    for f in found.into_iter().filter(|f| f.fix.is_some()) {
+    for f in found.into_iter().filter(|f| f.fix.is_some() && ours(f)) {
         // Two findings can carry one fix (the same text in two states); it applies once.
         let patch = f.fix.as_deref().unwrap_or_default();
         let mut next = doc.clone();
@@ -246,7 +289,7 @@ pub fn fixing(b: &Bundle) -> Result<(Fixed, Option<Write>), OpsError> {
         }
     }
     let deck = Deck::from_json(&doc.to_string()).context("the fixed deck")?;
-    let findings = lint_in(&deck, &View::of(b))?.findings;
+    let findings = dated(lint_scoped(&deck, &View::of(b), state)?, &deck, now).findings;
     let write = (!fixed.is_empty()).then(|| {
         let mut codes: Vec<&str> = fixed.iter().map(|f| f.code.as_str()).collect();
         codes.dedup();
@@ -305,8 +348,9 @@ pub fn write_deck(b: &Bundle, deck: &Deck, mut files: BTreeMap<String, Vec<u8>>,
         renamed_nodes: &why.renamed_nodes,
         renamed_states: &why.renamed_states,
     };
-    if let Some(history) = b.record(deck, &files, &edit).context("recording the change in the bundle's history")? {
-        files.insert(scaena_store::HISTORY.into(), history);
+    // With a history that did not load kept aside, and the history begun again (REL-1).
+    if let Some(recording) = b.record(deck, &files, &edit).context("recording the change in the bundle's history")? {
+        files.extend(recording.files());
     }
     b.write(&files).with_context(|| format!("writing {}", b.root.display()))
 }
