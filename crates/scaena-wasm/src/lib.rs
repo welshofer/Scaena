@@ -1145,6 +1145,13 @@ impl Player {
         let ops: serde_json::Value = serde_json::from_str(ops).map_err(js)?;
         self.0.typed(&ops, at.as_deref().and_then(store::seconds)).map_err(js)
     }
+
+    /// The beats whose claim a slide said in the deck `before` compiles to (the source as a
+    /// burst of typing began) and says no longer in the deck now, each with the `replace` that
+    /// restates it (lift-up FUNC-2), as JSON.
+    pub fn restated(&self, before: &str) -> Result<String, JsError> {
+        serde_json::to_string(&self.0.restated(before)).map_err(js)
+    }
 }
 
 /// The bundle a page opens, edits, and saves (PLAN 2.4, SPEC §9.2).

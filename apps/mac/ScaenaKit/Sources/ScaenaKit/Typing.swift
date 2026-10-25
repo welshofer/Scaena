@@ -62,10 +62,12 @@ public final class Typing {
     /// When the last change was typed, and the edits of the deck it left: a key typed within a
     /// burst of it, nothing else edited since, joins it.
     @ObservationIgnored private var last: (at: ContinuousClock.Instant, edits: Int)?
-    /// The deck compiled again a burst after the last change typed (lift-up 10-25b PERF-2).
-    @ObservationIgnored private var settling: Task<Void, Never>?
     /// Where typing goes, as the status says it once a change is typed.
     @ObservationIgnored private var whereTold: String?
+    /// The source as the burst of typing began, and the wait for the burst to end: a claim typing
+    /// left behind is told once it does, as the browser tells it (lift-up FUNC-2).
+    @ObservationIgnored private var begun: String?
+    @ObservationIgnored private var ending: Task<Void, Never>?
 
     public init(editor: DeckEditor) {
         self.editor = editor
@@ -142,8 +144,21 @@ public final class Typing {
             }
     }
 
+    /// A burst of typing ended: the deck compiled again, once for the burst (lift-up 10-25b
+    /// PERF-2), and whether it left a beat's claim its slide no longer says. Not `settling` where
+    /// the key that ended it begins another, which is compiled as that one ends.
+    private func ended(settling: Bool = true) {
+        ending?.cancel()
+        ending = nil
+        if settling { editor.settled() }
+        guard let begun else { return }
+        self.begun = nil
+        editor.restate(since: begun)
+    }
+
     /// Stop typing; the node stays selected.
     public func leave() {
+        ended()
         node = nil
         state = nil
         carets = nil
@@ -154,8 +169,6 @@ public final class Typing {
         on = nil
         goal = nil
         last = nil
-        settling?.cancel()
-        editor.settled()
     }
 
     /// Whether `point`, canvas units where it is drawn, is in the text typed in: in its box, or
@@ -295,9 +308,16 @@ public final class Typing {
         do {
             let before = try editor.typed([.object(op)])
             last = (now, editor.edits)
-            settleLater()
             told = whereTold
             edited?(before, joins)
+            if !joins { ended(settling: false) }
+            begun = begun ?? before
+            ending?.cancel()
+            ending = Task { [weak self, burst] in
+                try? await Task.sleep(for: burst)
+                guard !Task.isCancelled else { return }
+                self?.ended()
+            }
         } catch {
             told = "Not typed. \(Why.said(error))"
             return false
@@ -573,7 +593,7 @@ public final class Typing {
         do {
             let before = try editor.typed([.object(op)])
             last = nil
-            settleLater()
+            editor.settled()
             edited?(before, false)
         } catch {
             say("Not styled. \(Why.said(error))")
@@ -694,7 +714,7 @@ public final class Typing {
         do {
             let before = try editor.typed([.object(op)])
             last = nil
-            settleLater()
+            editor.settled()
             edited?(before, false)
         } catch {
             say("Not made a list. \(Why.said(error))")
@@ -726,19 +746,6 @@ public final class Typing {
         carets = found
         box = try? editor.session.boxes(state: state).first { $0.node == node }
         return true
-    }
-
-    /// Compile the deck again once typing pauses for a burst: what was typed is made at once and
-    /// drawn, and compiled once for the burst, where the inspector, the slides, and lint read it
-    /// (lift-up 10-25b PERF-2).
-    private func settleLater() {
-        settling?.cancel()
-        let wait = burst
-        settling = Task { [weak self] in
-            try? await Task.sleep(for: wait)
-            guard !Task.isCancelled, let self else { return }
-            self.editor.settled()
-        }
     }
 
     /// End a composition the input method did not end: what it composed stays as typed.
@@ -824,6 +831,12 @@ extension ScaenaSession {
         try call("carets", ["state": .string(state), "node": .string(node)])
     }
 
+    /// The beats whose claim a slide said in the deck `before` compiles to and says no longer in
+    /// the deck now, each with the patch that restates it (lift-up FUNC-2).
+    public func restated(before: String) throws -> [Restated] {
+        try call("restated", ["before": .string(before)])
+    }
+
     /// Make `ops` typed in place, by the user at `date` (PLAN 3.9): validated, not linted.
     /// Whether the deck changed.
     public func typed(_ ops: [JSONValue], at date: Date = Date()) throws -> Bool {
@@ -867,6 +880,30 @@ extension ScaenaSession {
     /// goes. None off every link.
     public func link(state: String, at point: CGPoint) throws -> LinkTarget? {
         try call("linkAt", ["state": .string(state), "x": .number(Double(point.x)), "y": .number(Double(point.y))])
+    }
+}
+
+/// A beat whose claim its slide said before an edit and says no more (lift-up FUNC-2,
+/// `scaena_core::claims::Restated`): the slide's state whose words it says now, the claim, those
+/// words (none where its headline was taken away), and the patch that sets the claim to them.
+public struct Restated: Decodable, Equatable, Sendable {
+    public let beat: String
+    public let state: String
+    public let path: String
+    public let claim: String
+    public let says: String?
+    public let fix: [JSONValue]
+
+    private enum Keys: String, CodingKey { case beat, state, path, claim, says, fix }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: Keys.self)
+        beat = try c.decode(String.self, forKey: .beat)
+        state = try c.decode(String.self, forKey: .state)
+        path = try c.decode(String.self, forKey: .path)
+        claim = try c.decode(String.self, forKey: .claim)
+        says = try c.decodeIfPresent(String.self, forKey: .says)
+        fix = try c.decodeIfPresent([JSONValue].self, forKey: .fix) ?? []
     }
 }
 
