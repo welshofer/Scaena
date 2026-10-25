@@ -537,7 +537,8 @@ pub unsafe extern "C" fn scaena_picture(bytes: *const u8, len: usize) -> *mut c_
 /// moved in frames at rest, laying nothing out; `preview {ops?}`, frames at rest drawn as a
 /// patch would make them; and `reach {ops}`, the states a patch changes. Text typed in place
 /// (PLAN 3.9): `typed {ops, at?}`, `replace_text`, `style_text`, and `list` ops by the user,
-/// validated but not linted, and whether the deck changed; and `bolding` and `italicizing
+/// validated but not linted, and whether the deck changed; `restated {before}`, the beats whose
+/// claim a slide said in the source as typing began and says no longer, once a burst ends; and `bolding` and `italicizing
 /// {state, node, from, to}`, the look ⌘B and ⌘I give characters; and `codeWords {state, node}`,
 /// a code text's words as the state shows them, which Copy Code copies, and `tidied {text,
 /// language}`, code pasted into code, tidied (PLAN 2.133). A text's
@@ -1745,6 +1746,9 @@ fn call(s: &mut Session, method: &str, args: &Value) -> Result<Value, Failure> {
             let at = optional("at").and_then(scaena_session::store::seconds);
             json!(s.typed(&Value::Array(ops), at).map_err(said)?)
         }
+        // The beats whose claim a slide said in the deck `before` (the source as a burst of
+        // typing began) compiles to and says no longer now, each with its fix (lift-up FUNC-2).
+        "restated" => value(serde_json::to_value(s.restated(arg("before")?)))?,
         // The words of a code text as a state shows them, which Copy Code copies (PLAN 2.133).
         "codeWords" => json!(s.code_words(arg("state")?, arg("node")?).map_err(said)?),
         // Code pasted into code, tidied as a paste of code is (PLAN 2.133).

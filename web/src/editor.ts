@@ -89,6 +89,7 @@ import type {
   Linted,
   Painter,
   ProviderId,
+  Restated,
   Rewritten,
   SaveTo,
   Seeing,
@@ -1024,14 +1025,74 @@ async function edit(source: Source, opened?: Stage) {
   /** The words for the state shown (PLAN 2.99): its objects by what they show, the theme's names
    * said. Asked for each time the state shown is inspected. */
   let lexicon: Lexicon | undefined;
+  /** A beat's claim its slide said before an edit and says no more (lift-up FUNC-2): the status
+   * says so in a person's words and Update, beside it, restates the claim in the slide's words, a
+   * patch by the user, one step to undo. A headline taken away has no words to restate it in. */
+  const restate = $<HTMLButtonElement>("#restate");
+  let restating: { said: string; fix: unknown[] } | undefined;
+  const quoted = (words: string) => `“${words.length > 60 ? `${words.slice(0, 59)}…` : words}”`;
+  /** `kept`: the status the edit's own gesture said goes first, so what it did is still said. */
+  async function restated(before: string, after: string, kept = false) {
+    const found = await stage.restated(after, before).catch(() => [] as Restated[]);
+    const one = found[0];
+    if (!one || view.state.doc.toString() !== after) return;
+    const slide = slideOf(one.state).replace(/, step \d+$/, "");
+    const offer =
+      one.says !== undefined && one.fix?.length
+        ? `${slide}'s story still says ${quoted(one.claim)}. Update it to ${quoted(one.says)}?`
+        : `${slide}'s story still says ${quoted(one.claim)}, which the slide no longer says: restate it in the Story tab`;
+    const gesture = kept ? status.textContent?.trim() : "";
+    const said = gesture ? `${gesture} · ${offer}` : offer;
+    say(said);
+    restating = one.fix?.length ? { said, fix: one.fix } : undefined;
+    restate.hidden = restating === undefined;
+  }
+  /** The status says something else: what Update would restate goes with it. */
+  observing(new MutationObserver(() => {
+    if (restating && status.textContent !== restating.said) [restating, restate.hidden] = [undefined, true];
+  })).observe(status, { childList: true, characterData: true, subtree: true });
+  restate.addEventListener("click", async () => {
+    const now = showing();
+    const ask = restating;
+    if (!now || !ask) return;
+    [restating, restate.hidden] = [undefined, true];
+    try {
+      const { source, edited } = await stage.make(() => view.state.doc.toString(), ask.fix, now.index, format());
+      made(source, edited, "the story's claim");
+      say("The story says what the slide says");
+    } catch (e) {
+      say(`Not updated: ${said(e)}`);
+    }
+  });
+  /** The source as a burst of typing on the canvas began, asked about once the burst ends: typing
+   * is validated but not linted, so its end is where a claim it left behind is told (FUNC-2). */
+  let burst: { from: string; timer?: ReturnType<typeof setTimeout> } | undefined;
+  const BURST = 1000;
+  const typedAway = (joins: boolean) => {
+    const before = view.state.doc.toString();
+    if (burst && !joins) {
+      clearTimeout(burst.timer);
+      void restated(burst.from, before);
+      burst = undefined;
+    }
+    burst ??= { from: before };
+    clearTimeout(burst.timer);
+    const was = burst;
+    was.timer = setTimeout(() => {
+      if (burst === was) burst = undefined;
+      void restated(was.from, view.state.doc.toString());
+    }, BURST);
+  };
   /** Take `source`, a patch made on the canvas or in the inspector: one change, one step to undo,
    * which `said`, the change in a person's words, names when it is undone (lift-up USE-4). */
   const made = (source: string, edited: Edited, said?: string) => {
     taken = { source, edited, showings };
     anchor();
-    const changes = change(view.state.doc.toString(), source);
+    const before = view.state.doc.toString();
+    const changes = change(before, source);
     const effects = said ? [described.of(describing(said))] : [];
     view.dispatch({ changes, effects, userEvent: "input.canvas", annotations: isolateHistory.of("full") });
+    void restated(before, source, true);
   };
   /** The node selected, its look chosen from the theme in the inspector (PLAN 2.33): each choice a
    * patch, as each gesture on the canvas is. */
@@ -1104,6 +1165,7 @@ async function edit(source: Source, opened?: Stage) {
     typed: (source, edited, joins) => {
       taken = { source, edited, showings };
       if (!joins) anchor();
+      typedAway(joins);
       const changes = change(view.state.doc.toString(), source);
       // A burst of typing is one step to undo. CodeMirror's history joins a change to the one
       // before it when both are `input.type.compose`; the burst's first starts a step of its own.

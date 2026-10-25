@@ -526,6 +526,29 @@ fn closing(deck: &Deck, slides: &[Slide], read: &[SlideForHealth]) -> Vec<String
     (0..n).rev().take_while(|&i| closes(i)).map(|i| read[i].id.clone()).collect()
 }
 
+/// The opening of a slide's notes: their first line or item, cut at its first sentence's end, a
+/// stop that white space or the line's end follows, so a figure's point ("3.5%") ends nothing.
+fn opening(notes: &str) -> &str {
+    let first = notes.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or_default();
+    let mut chars = first.char_indices().peekable();
+    while let Some((at, c)) = chars.next() {
+        if matches!(c, '.' | '!' | '?') && chars.peek().is_none_or(|&(_, next)| next.is_whitespace()) {
+            return &first[..at + c.len_utf8()];
+        }
+    }
+    first
+}
+
+/// Whether `next`'s notes open by carrying `before` across (narrative dogfood H4): a word of
+/// `before`'s headline and body that `next`'s do not use, as coherence reads words, in the
+/// opening of `next`'s notes. A word both slides use, a product's name, carries nothing over.
+fn bridges(before: &SlideForHealth, next: &SlideForHealth) -> bool {
+    let words = |s: &SlideForHealth| health::coherence::keywords(&format!("{} {}", s.title, s.body));
+    let carried: Vec<String> = words(before).difference(&words(next)).cloned().collect();
+    let opened = health::coherence::keywords(opening(&next.notes));
+    carried.iter().any(|w| opened.contains(w))
+}
+
 /// The narrative health of `deck`, as its words and its plan read: [`health_in`] with nothing
 /// lint found.
 pub fn health(deck: &Deck) -> Result<Health, OpsError> {
@@ -626,6 +649,11 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
             }
         },
     };
+    // A turn the next slide's notes open by carrying the slide before it across is bridged: the
+    // speaker says what the slides' words do not (narrative dogfood H4).
+    let bridged: Vec<&String> = (m.coherence.weak_transitions.iter())
+        .filter(|id| read.iter().position(|s| &s.id == *id).is_some_and(|i| i > 0 && bridges(&read[i - 1], &read[i])))
+        .collect();
     let hard = m.coherence.breaks.iter().filter(|b| b.severity == health::coherence::Severity::Hard).count();
     let soft = m.coherence.breaks.len() - hard;
     // By words alone, neighbouring slides share few even where one follows from the other: no
@@ -638,9 +666,13 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         says: match (hard, soft) {
             (0, 0) => "No slide breaks from the one before it, read by their words.".into(),
             _ => format!(
-                "Read by their words: {} where the talk turns sharply, {} at a beat's turn.",
+                "Read by their words: {} where the talk turns sharply, {} at a beat's turn{}.",
                 counted(hard, "slide"),
-                soft
+                soft,
+                match bridged.len() {
+                    0 => String::new(),
+                    n => format!("; the notes bridge {n} of them"),
+                }
             ),
         },
     };
@@ -799,7 +831,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
             );
         }
     }
-    for id in &m.coherence.weak_transitions {
+    for id in m.coherence.weak_transitions.iter().filter(|id| !bridged.contains(id)) {
         let Some(&i) = place.get(id.as_str()) else { continue };
         let (k, before) = (i + 1, i);
         find(
@@ -807,9 +839,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
             Severity::Warning,
             Kind::Turn,
             format!("Slide {k} shares little with slide {before}: the turn between them may lose the room."),
-            format!(
-                "Write the line that carries the talk from slide {before} to slide {k}, and put it in slide {k}'s notes."
-            ),
+            format!("Open slide {k}'s notes with the line that carries the talk from slide {before}."),
             None,
         );
     }
@@ -817,7 +847,91 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
     // so its plan, or its place, is what moves it, never its words, which the gap below judges
     // (ADR-0032, item 4). How far each slide's plan is from what its place calls for.
     let bent: HashMap<&str, f64> = bends.iter().map(|d| (d.slide_id.as_str(), d.delta)).collect();
-    for d in &bends {
+    // Three or more neighbouring slides planned off the curve the same way are one pattern, found
+    // once on the first of them (narrative dogfood H5): each slide's plan and what its place calls
+    // for, as ranges, and where the talk peaks against where the arc does. The graph still marks
+    // each slide that bends.
+    let planned_at = |i: usize| {
+        read[i]
+            .narrative_meta
+            .as_ref()
+            .and_then(|n| n.expected_intensity)
+            .filter(|v| v.is_finite())
+            .map(|v| v.clamp(0.0, 1.0))
+    };
+    let mut placed: Vec<(usize, f64)> =
+        bends.iter().filter_map(|d| place.get(d.slide_id.as_str()).map(|&i| (i, d.delta))).collect();
+    scaena_core::sort::by_key(&mut placed, |&(i, _)| i);
+    let mut runs: Vec<Vec<(usize, f64)>> = Vec::new();
+    for (i, delta) in placed {
+        match runs.last_mut() {
+            Some(run) if run.last().is_some_and(|&(j, d)| j + 1 == i && (d > 0.0) == (delta > 0.0)) => {
+                run.push((i, delta))
+            }
+            _ => runs.push(vec![(i, delta)]),
+        }
+    }
+    let runs: Vec<Vec<(usize, f64)>> =
+        runs.into_iter().filter(|run| run.len() >= 3 && run.iter().all(|&(i, _)| planned_at(i).is_some())).collect();
+    let folded: Vec<&str> = runs.iter().flatten().map(|&(i, _)| read[i].id.as_str()).collect();
+    // The first slide the talk is planned most intense at, and the first the arc's curve peaks at.
+    let peak_of = |values: &[Option<f64>]| {
+        (values.iter().enumerate()).filter_map(|(i, v)| v.map(|v| (i, v))).fold(
+            None,
+            |most: Option<(usize, f64)>, (i, v)| match most {
+                Some((_, m)) if m >= v => most,
+                _ => Some((i, v)),
+            },
+        )
+    };
+    let talk_peak = peak_of(&(0..read.len()).map(planned_at).collect::<Vec<_>>());
+    let arc_peak = peak_of(&curve.iter().map(|&c| Some(c)).collect::<Vec<_>>()).map(|(i, _)| i);
+    for run in &runs {
+        let (first, last) = (run[0].0, run[run.len() - 1].0);
+        let hotter = run[0].1 > 0.0;
+        let span = |values: Vec<f64>| {
+            let lo = values.iter().copied().fold(f64::INFINITY, f64::min);
+            let hi = values.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+            if level(lo) == level(hi) { level(lo) } else { format!("{}\u{2013}{}", level(lo), level(hi)) }
+        };
+        let plans: Vec<f64> = run.iter().filter_map(|&(i, _)| planned_at(i)).collect();
+        let calls: Vec<f64> = run.iter().filter_map(|&(i, d)| planned_at(i).map(|p| p - d)).collect();
+        let slides = format!("Slides {}\u{2013}{}", first + 1, last + 1);
+        let builds = match arc_peak {
+            Some(p) if p + 1 == read.len() => format!("where {curve_of} builds to its end"),
+            Some(p) => format!("where {curve_of} peaks at slide {}", p + 1),
+            None => format!("against {curve_of}"),
+        };
+        let peaks = match talk_peak {
+            Some((p, v)) => format!("it peaks at slide {} ({}), {builds}", p + 1, level(v)),
+            None => builds,
+        };
+        let says = format!(
+            "{slides} were planned {} than their places in the talk ({}, where {} is called for): {peaks}.",
+            if hotter { "hotter" } else { "cooler" },
+            span(plans),
+            span(calls)
+        );
+        let later = match (talk_peak, arc_peak) {
+            (Some((t, _)), Some(a)) if a > t => ", or move its peak later",
+            (Some((t, _)), Some(a)) if a < t => ", or move its peak earlier",
+            _ => "",
+        };
+        let ask = match hotter {
+            true => format!(
+                "Plan slides {}\u{2013}{} calmer, so the talk builds as its arc does{later}.",
+                first + 1,
+                last + 1
+            ),
+            false => format!(
+                "Plan slides {}\u{2013}{} more intense, so the talk carries what their places call for{later}.",
+                first + 1,
+                last + 1
+            ),
+        };
+        find(&read[first].id, Severity::Info, Kind::Arc, says, ask, None);
+    }
+    for d in bends.iter().filter(|d| !folded.contains(&d.slide_id.as_str())) {
         let Some(&i) = place.get(d.slide_id.as_str()) else { continue };
         let k = i + 1;
         let planned = read[i].narrative_meta.as_ref().and_then(|n| n.expected_intensity).filter(|v| v.is_finite());
@@ -1221,6 +1335,88 @@ mod tests {
         *deck.pointer_mut(&format!("{beat}/media/narrato/intensity")).unwrap() = json!(intensity);
     }
 
+    /// A turn the notes bridge is not found (narrative dogfood H4): coherence reads a slide's
+    /// headline and body, so the finding asks for the line that carries the talk over in the
+    /// next slide's notes, and notes that open by carrying a word of the slide before across,
+    /// one the next slide's words do not use, answer it. A word further in, or one both slides
+    /// use, does not. No figure moves.
+    #[test]
+    fn a_turn_the_notes_bridge_is_not_found() {
+        let mut deck = climate();
+        let before = of(&deck);
+        let turn = before.findings.iter().find(|f| f.kind == Kind::Turn).expect("a turn its words do not make").clone();
+        let k = turn.slide;
+        assert_eq!(
+            turn.ask,
+            format!("Open slide {k}'s notes with the line that carries the talk from slide {}.", k - 1)
+        );
+        let d = Deck::from_value(&deck).unwrap();
+        let read = readings(&d, &slides(&d)).unwrap().0;
+        let words = |s: &SlideForHealth| health::coherence::keywords(&format!("{} {}", s.title, s.body));
+        let (was, next) = (words(&read[k - 2]), words(&read[k - 1]));
+        let carried = was.difference(&next).next().cloned().expect("a word of the slide before");
+        let shared = was.intersection(&next).next().cloned();
+        let beat = beat_of(&deck, &turn.state);
+        let at = deck["states"].as_array().unwrap().iter().position(|s| s["id"] == turn.state.as_str()).unwrap();
+        let noted = |deck: &mut Value, notes: String| {
+            deck.pointer_mut(&beat).unwrap()["notes"] = json!(notes);
+            deck["states"][at].as_object_mut().unwrap().remove("notes");
+            of(deck)
+        };
+        let found = |h: &Health| h.findings.iter().any(|f| f.kind == Kind::Turn && f.state == turn.state);
+
+        let h = noted(&mut deck, format!("From {carried} we turn to what comes next.\nThen the rest."));
+        assert!(!found(&h), "{:#?}", h.findings);
+        assert!(h.coherence.says.contains("; the notes bridge "), "{}", h.coherence.says);
+        assert_eq!(h.coherence.score, before.coherence.score, "no figure moves");
+        // A figure's point ends no sentence: the opening runs on past "3.5" to the word carried.
+        let h = noted(&mut deck, format!("Retention rose 3.5% since {carried}. Then the rest."));
+        assert!(!found(&h), "{:#?}", h.findings);
+        assert_eq!(opening("Rose 3.5% since then. Later."), "Rose 3.5% since then.");
+        assert_eq!(opening("\n  - Up 2.1x!\nMore"), "- Up 2.1x!");
+        let h = noted(&mut deck, format!("We turn to what comes next. Later, {carried}."));
+        assert!(found(&h), "a word past the notes' opening carries nothing over");
+        if let Some(shared) = shared {
+            let h = noted(&mut deck, format!("{shared} again, and onward."));
+            assert!(found(&h), "a word both slides use carries nothing over");
+        }
+    }
+
+    /// One pattern, one finding (narrative dogfood H5): three or more neighbouring slides planned
+    /// hotter than their places are found once, on the first, saying the run, its plans and what
+    /// its places call for, and where the talk peaks against the arc; the graph still marks each
+    /// slide that bends, and two in a row stay a finding each.
+    #[test]
+    fn a_run_of_bends_is_one_finding() {
+        let mut deck = climate();
+        let ids: Vec<String> = of(&deck).slides.iter().map(|s| s.state.clone()).collect();
+        let plan = |deck: &mut Value, i: usize, v: f64| {
+            let beat = beat_of(deck, &ids[i]);
+            *deck.pointer_mut(&format!("{beat}/media/narrato/intensity")).unwrap() = json!(v);
+        };
+        for i in 1..=4 {
+            plan(&mut deck, i, 1.0);
+        }
+        let h = of(&deck);
+        let arcs: Vec<&Finding> = h.findings.iter().filter(|f| f.kind == Kind::Arc).collect();
+        let run = arcs.iter().find(|f| f.says.starts_with("Slides 2\u{2013}")).expect("the run, found once");
+        assert_eq!(run.slide, 2);
+        // The plans as a range up to the 1.00 set here, a neighbour already bending joining it.
+        assert!(run.says.contains(" were planned hotter than their places in the talk ("), "{}", run.says);
+        assert!(run.says.contains("1.00, where "), "{}", run.says);
+        assert!(run.says.contains("it peaks at slide 2 (1.00)"), "{}", run.says);
+        assert!(run.ask.starts_with("Plan slides 2\u{2013}"), "{}", run.ask);
+        let end: usize = run.says["Slides 2\u{2013}".len()..].split(' ').next().unwrap().parse().unwrap();
+        assert!(end >= 4, "{}", run.says);
+        for k in 2..=end {
+            assert!(
+                !arcs.iter().any(|f| f.says.starts_with(&format!("Slide {k} "))),
+                "slide {k} is the run's: {arcs:#?}"
+            );
+            assert_eq!(h.slides[k - 1].standing, Standing::Bends, "the graph marks slide {k}");
+        }
+    }
+
     /// The spine's beat that tells the state `id`: its place, as a JSON pointer.
     fn beat_of(deck: &Value, id: &str) -> String {
         for (i, section) in deck["spine"]["sections"].as_array().unwrap().iter().enumerate() {
@@ -1407,7 +1603,8 @@ mod tests {
         assert!(h.slides[0].after.is_none() && h.slides[1].after.is_some());
         // Every finding is on a slide, in order, and says what to ask.
         assert!(h.findings.windows(2).all(|w| w[0].slide <= w[1].slide), "{:#?}", h.findings);
-        assert!(h.findings.iter().all(|f| !f.ask.is_empty() && f.says.starts_with("Slide ")), "{:#?}", h.findings);
+        // A finding names its slide, or the run of slides it folds ("Slides 2–7").
+        assert!(h.findings.iter().all(|f| !f.ask.is_empty() && f.says.starts_with("Slide")), "{:#?}", h.findings);
     }
 
     /// Each slide names the sources its beat cites of those the deck was grounded in (narrative
