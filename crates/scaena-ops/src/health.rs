@@ -614,7 +614,7 @@ const FRAMING: [&str; 10] = [
 /// from being found, which errs toward saying nothing.
 const VERBS: &str = "\
     add added adding adds allow allowed allowing allows am appear appeared appearing appears are aren't ask asked \
-    asking asks be beat beated beaten beating beats became become becomes becoming been began begin beginning \
+    asking asks be beat beaten beating beats became become becomes becoming been began begin beginning \
     begins begun being believe believed believes believing boost boosted boosting boosts bought break breaking \
     breaks bring bringing brings broke broken brought build building builds built buy buying buys call called \
     calling calls came can can't cannot change changed changes changing check checked checking checks choose \
@@ -631,17 +631,17 @@ const VERBS: &str = "\
     forgetting forgot forgotten found gain gained gaining gains gave get gets getting give given gives giving go \
     goes going gone got gotten grew grow growing grown grows had hadn't halve halved halves halving happen \
     happened happening happens has hasn't have haven't having held help helped helping helps here's hid hidden \
-    hide hides hiding hit hits hitted hitting hold holding holds i'm improve improved improves improving include \
+    hide hides hiding hit hits hitting hold holding holds i'm improve improved improves improving include \
     included includes including increase increased increases increasing is isn't it's jump jumped jumping jumps \
     keep keeping keeps kept knew know knowing known knows lag lagged lagging lags last lasted lasting lasts \
-    launch launched launches launching lead leaded leading leads learn learned learning learns leave leaves \
+    launch launched launches launching lead leading leads learn learned learning learns leave leaves \
     leaving led left let let's lets letting lift lifted lifting lifts like liked likes liking live lived lives \
-    living look looked looking looks lose loses losing lost love loved loves loving lower lowerred lowerring \
+    living look looked looking looks lose loses losing lost love loved loves loving lower lowered lowering \
     lowers made make makes making matter mattered mattering matters may mean meaning means meant meet meeting \
     meets met might miss missed misses missing move moved moves moving must mustn't need needed needing needs \
-    offer offered offering offers open opened opening opens outgrew outgrow outgrowed outgrowing outgrown \
+    offer offered offering offers open opened opening opens outgrew outgrow outgrowing outgrown \
     outgrows outpace outpaced outpaces outpacing outperform outperformed outperforming outperforms outsell \
-    outselled outselling outsells overtake overtaken overtakes overtaking overtook own owned owning owns paid \
+    outselling outsells outsold overtake overtaken overtakes overtaking overtook own owned owning owns paid \
     pass passed passes passing pay paying pays peak peaked peaking peaks plan planned planning plans play played \
     playing plays plunge plunged plunges plunging point pointed pointing points prove proved proves proving pull \
     pulled pulling pulls push pushed pushes pushing put puts putting raise raised raises raising ran reach \
@@ -651,8 +651,8 @@ const VERBS: &str = "\
     returned returning returns rise risen rises rising rose run running runs said sank sat save saved saves \
     saving saw say saying says see seeing seem seemed seeming seems seen sees sell selling sells send sending \
     sends sent serve served serves serving set sets setting shall shift shifted shifting shifts ship shipped \
-    shipping ships should shouldn't show showed showing shown shows shrank shrink shrinked shrinking shrinks \
-    shrunk sink sinking sinks sit sits sitting slide slided slides sliding slip slipped slipping slips slow \
+    shipping ships should shouldn't show showed showing shown shows shrank shrink shrinking shrinks \
+    shrunk sink sinking sinks sit sits sitting slid slide slides sliding slip slipped slipping slips slow \
     slowed slowing slows slump slumped slumping slumps soar soared soaring soars sold solve solved solves solving \
     speak speaking speaks spend spending spends spent spike spiked spikes spiking spoke spoken spread spreading \
     spreads stall stalled stalling stalls stand standing stands start started starting starts stay stayed staying \
@@ -667,7 +667,8 @@ const VERBS: &str = "\
     worries worry worrying would wouldn't write writes writing written wrote you'll you're you've";
 
 /// Whether `headline` names a topic rather than stating a point (lift-up 10-25b FUNC-4): three
-/// to six words, no question, and none of [`VERBS`]. "Q3 by product" names one; "Revenue grew
+/// to six words, no question, none of [`VERBS`], and no word of five letters or more in "-ed".
+/// "Q3 by product" names one; "Revenue grew
 /// every quarter" states one. A verb inside a clause ("What families tell us") reads as stated,
 /// so such a label is missed rather than a point found wanting.
 fn labels(headline: &str) -> bool {
@@ -679,7 +680,11 @@ fn labels(headline: &str) -> bool {
         .map(|w| w.replace('\u{2019}', "'").trim_matches(|c: char| !c.is_alphanumeric() && c != '\'').to_lowercase())
         .filter(|w| !w.is_empty())
         .collect();
-    (3..=6).contains(&words.len()) && !words.iter().any(|w| VERBS.split_ascii_whitespace().any(|v| v == w))
+    // A word of five letters or more in "-ed" is a verb's past or participle, as a point is stated
+    // in ("Margins expanded"); "-ing" is not, a gerund naming many a topic ("Pricing by region").
+    let verb =
+        |w: &String| (w.chars().count() >= 5 && w.ends_with("ed")) || VERBS.split_ascii_whitespace().any(|v| v == w);
+    (3..=6).contains(&words.len()) && !words.iter().any(verb)
 }
 
 /// The layouts a talk closes in (ADR-0032 item 6).
@@ -1841,6 +1846,19 @@ mod tests {
         assert!(!labels("A wet start to the week, then sun"));
         // A documented miss: a verb inside a clause reads as a point stated.
         assert!(!labels("What families tell us"));
+        // Points stated in a past the list need not spell out, or an irregular one it does.
+        for stated in [
+            "Margins expanded in every region",
+            "Gap widened every year",
+            "Prices lowered across regions",
+            "Rivals outsold us twice",
+            "Share slid in Q3",
+            "Churn collapsed after onboarding",
+        ] {
+            assert!(!labels(stated), "{stated}");
+        }
+        // A gerund names a topic.
+        assert!(labels("Pricing by region"));
 
         let deck = climate();
         let h = of(&deck);
