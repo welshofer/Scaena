@@ -616,12 +616,16 @@ try {
   // is set under the set's first icon.
   state.slides = DASHED;
   check(DASHED !== ICONED, "the dashed answer differs from the iconed one");
+  // The deck made just now keeps a copy of itself, as it would a few seconds on: the next deck
+  // made, of the same title, is another deck, and is offered nothing of it.
+  await page.evaluate(() => window.scaena.keepCopy());
   await opened();
   await page.uncheck("#prompting-show-outline");
   await page.click("#prompting-go");
   await page
     .waitForFunction((was) => window.scaena.source() !== was && window.scaena.source().includes("alt:Compass") && window.scaena.last(), iconed, { timeout: 180000 })
     .catch(() => {});
+  check(!(await page.locator("#recovering").evaluate((d) => d.open)), "a second deck made of the same title is offered no copy of the first");
   const dashed = await page.evaluate(() => window.scaena.source());
   check(dashed.includes("alt:Compass"), "the other list is still set under its icons");
   check(!dashed.includes("alt:Acorn") && !dashed.includes("alt:Lightning"), "the dashed list keeps its words, under no icon");

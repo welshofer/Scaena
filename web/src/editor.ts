@@ -70,7 +70,7 @@ import { filesPanel } from "./files";
 import { storyPanel } from "./story";
 import { finder, findKeys } from "./find";
 import { deleteKept, keptBundle, keptNames, persist, persisted, renameKept } from "./folders";
-import { discard, find, keep, savedAt, type Copy } from "./recovery";
+import { discard, find, keep, savedAt, sha256, type Copy } from "./recovery";
 import { formatsRow } from "./formats";
 import { layerKeys, layers } from "./layers";
 import { ended, listen as heed, observing } from "./life";
@@ -227,10 +227,11 @@ let generating: { running: () => boolean } | undefined;
  * status that stays, before what lint finds, until the source is edited by hand. `kept` is the
  * name the browser keeps it under, if it does, and `rekeep` renames a bundle the browser keeps, or
  * deletes it, through the bundle's worker, which writes where the page may not (PLAN 2.124).
- * `unsaved` says whether closing it loses something: an edit not saved, or a deck kept nowhere. */
+ * `unsaved` says whether closing it loses something: an edit not saved, or a deck kept nowhere.
+ * `close` with `lost` takes its recovery copy away, its changes lost as the person agreed. */
 let current:
   | {
-      close: () => void;
+      close: (lost?: boolean) => Promise<void> | void;
       unsaved: () => boolean;
       say: (text: string) => void;
       /** The deck's story read: its score (narrative USE-2). */
@@ -256,7 +257,10 @@ function namedFor(source: Source): string {
  * were asked about already. One that does not open leaves the bundle open as it was, in use, and
  * the status says why, by the file's name. */
 async function open(source: Source, asked = false) {
-  if (!asked && current?.unsaved() && !confirm("The deck open is not saved. Open another and lose what is not saved?")) return;
+  // Changes not saved, lost as the person agreed, asked here or before: no copy keeps them, so none
+  // is offered onto another deck that is named alike.
+  const lost = current?.unsaved() ?? false;
+  if (lost && !asked && !confirm("The deck open is not saved. Open another and lose what is not saved?")) return;
   $("#status").textContent = "Opening…";
   let stage: Stage;
   try {
@@ -267,8 +271,10 @@ async function open(source: Source, asked = false) {
     else $("#status").textContent = why;
     return;
   }
-  current?.close();
+  const closed = current?.close(lost);
   current = undefined;
+  // The copy taken away before the deck opens looks for its own.
+  await closed;
   await edit(source, stage);
 }
 
@@ -518,6 +524,9 @@ const describes = invertedEffects.of((tr) => tr.effects.filter((e) => e.is(descr
 const describing = (words: string) => words.replace(/\s*·\s*⌘Z undoes it$/, "");
 
 async function edit(source: Source, opened?: Stage) {
+  // The deck of files as it opened, by its digest: what keys its recovery copy.
+  const files = "files" in source ? source.files : "recovered" in source ? source.recovered : undefined;
+  const openedAs = files?.["deck.json"] ? await sha256(files["deck.json"]) : undefined;
   const status = $("#status");
   // A status too long for its two lines says the rest in its title.
   observing(new MutationObserver(() => (status.title = status.textContent ?? ""))).observe(status, { childList: true, characterData: true, subtree: true });
@@ -626,12 +635,15 @@ async function edit(source: Source, opened?: Stage) {
   // The recovery copy (lift-up REL-4): what is not saved, the source and the files written since
   // the save, kept in this browser a few seconds after each change and when the page is hidden,
   // taken away by a save, and offered when the deck opens again (`recovery.ts`).
-  /** What names the deck's copy: where it is kept, else where it came from. */
+  /** What names the deck's copy: where it is kept, else where it came from. A new deck's is its
+   * title, so the copy is offered when a deck of that title is made again. A deck of files, a
+   * made deck's or a single file's, is its name and its deck as it opened: another deck of the
+   * name, made or opened anew, is offered nothing of this one. */
   const copyKey = () => {
     if (where) return `${where.kind}:${where.name}`;
     if ("url" in source) return `url:${new URL(source.url, location.href).href}`;
     if ("create" in source) return `new:${source.create.title}`;
-    return `files:${name}`;
+    return `files:${name}:${openedAs ?? ""}`;
   };
   /** How long after a change the copy is written, ms. */
   const COPY_AFTER = 2000;
@@ -3004,15 +3016,22 @@ async function edit(source: Source, opened?: Stage) {
     if (unsaved() || unsettled || generating?.running()) e.preventDefault();
   };
   current = {
-    close: () => {
+    close: (lost) => {
       clearTimeout(pending);
-      if (copyTimer) void keepCopy();
+      let gone: Promise<void> | undefined;
+      if (lost) {
+        clearTimeout(copyTimer);
+        copyTimer = undefined;
+        const key = copyKey();
+        gone = copying.then(() => discard(key)).catch(() => {});
+      } else if (copyTimer) void keepCopy();
       hearing?.close();
       board.close();
       view.destroy();
       stage.close();
       // What it listened for on the page goes with it: the bundle opened next hears each key once.
       ended();
+      return gone;
     },
     unsaved,
     say,
