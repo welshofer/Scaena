@@ -10142,6 +10142,49 @@ mod tests {
         assert_eq!(written.beat, "");
     }
 
+    /// A slide written for a grounded deck is asked with the deck's one idea, the claim its
+    /// outline settled for the slide's beat (not the spine's, the old headline), and its sources
+    /// with the rows of the data it keeps (lift-up 10-25b FUNC-1); a deck grounded in nothing
+    /// is asked as before.
+    #[test]
+    fn a_slide_for_a_grounded_deck_is_asked_with_its_idea_its_settled_claim_and_its_sources() {
+        let (mut doc, files) = deck_at("docs/examples/revenue.deck.json");
+        let plain = one_asked(&doc, &Place::Replace("revenue".into()), "", &read_by(&files)).unwrap();
+        assert_eq!((plain.big_idea, plain.sources), (None, None));
+        doc["meta"]["narrative"] = json!({
+            "sources": [{ "name": "Q3 board pack", "kind": "file", "url": "https://example.com/q3", "bytes": 10, "truncated": false }],
+            "outline": { "bigIdea": "Pro carries the business now.", "beats": [
+                { "name": "Open", "claim": "The quarter changed us", "slides": 1 },
+                { "name": "Growth", "claim": "Pro tripled while Core held", "slides": 2 },
+            ] },
+        });
+        let asked = one_asked(&doc, &Place::Replace("revenue".into()), "", &read_by(&files)).unwrap();
+        assert_eq!(asked.big_idea.as_deref(), Some("Pro carries the business now."));
+        assert_eq!(asked.claim.as_deref(), Some("Pro tripled while Core held"), "the outline's, by its section");
+        let sources = asked.sources.unwrap();
+        assert!(sources.starts_with("Source: Q3 board pack (https://example.com/q3)"), "{sources}");
+        assert!(sources.contains("Data `q3`: quarter, product, revenue, customers"), "{sources}");
+        // By the beat's index into the outline, where Narrato's fields keep one.
+        doc["spine"]["sections"][1]["beats"][0]["media"]["narrato"] = json!({ "beatIndex": 0 });
+        let indexed = one_asked(&doc, &Place::Replace("revenue".into()), "", &read_by(&files)).unwrap();
+        assert_eq!(indexed.claim.as_deref(), Some("The quarter changed us"));
+    }
+
+    /// A slide written into a grounded deck cites the source its `sourceRef` names in its beat's
+    /// evidence, as a made deck's slides do (lift-up 10-25b FUNC-1).
+    #[test]
+    fn a_slide_written_into_a_grounded_deck_cites_its_source() {
+        let (mut doc, theme, slides) = made_of(&[0, 8]);
+        doc["meta"]["narrative"]["sources"] = json!([{ "name": "Q3 board pack", "kind": "file", "url": "https://example.com/q3", "bytes": 10, "truncated": false }]);
+        let mut slide = slides[12].clone();
+        slide.source_ref = Some("Q3 board pack".into());
+        let written = slide_into(&doc, &theme, slide, &Place::End, BTreeMap::new(), &no_files()).unwrap();
+        let after = patched(&doc, &written.patch);
+        let (s, b, _) = beat_of(&after, &written.states[0]);
+        let evidence = &after["spine"]["sections"][s]["beats"][b]["evidence"];
+        assert!(evidence.as_array().unwrap().iter().any(|e| e == "https://example.com/q3"), "{evidence}");
+    }
+
     #[test]
     fn a_model_is_shown_the_slide_as_it_shows_with_its_charts_rows() {
         // Review of #637, finding 7: the revenue slide's words as it resolves, not the cover's.
