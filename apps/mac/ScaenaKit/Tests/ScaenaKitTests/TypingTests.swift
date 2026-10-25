@@ -558,3 +558,107 @@ private func carets(_ json: String) throws -> Carets {
     typing.leave()
     #endif
 }
+
+/// Code takes none of the looks words take (PLAN 2.139): ⌘B, ⌘I, and the list keys change nothing
+/// in it and say why, no step to undo; and on the iPad, while code is typed in, the keyboard types
+/// what is pressed, with no smart quotes or dashes, correction, capitals, or spelling, where words
+/// keep the system's own.
+@MainActor
+@Test func codeTakesNoLookNoListAndAPlainKeyboard() throws {
+    let editor = DeckEditor(session: try ScaenaSession(directory: tortureDeck))
+    editor.shown = "code"
+    let typing = Typing(editor: editor)
+    var steps = 0
+    typing.edited = { _, joins in
+        if !joins { steps += 1 }
+    }
+    #expect(typing.enter("code-block", in: "code", at: nil))
+    #expect(typing.inCode)
+    let written = typing.carets?.text
+    typing.selectAll()
+    typing.bold()
+    #expect(typing.told == "Code is set in its theme's colors, not in bold")
+    typing.italic()
+    #expect(typing.told == "Code is set in its theme's colors, not in italic")
+    typing.toggle("bullet")
+    #expect(typing.told == "Code keeps its lines as written, in no list")
+    #expect(steps == 0 && typing.carets?.text == written, "nothing changed, nothing to undo")
+    #if os(iOS)
+    let view = CanvasKeys(typing: typing)
+    #expect(view.autocorrectionType == .no && view.spellCheckingType == .no && view.autocapitalizationType == .none)
+    #expect(view.smartQuotesType == .no && view.smartDashesType == .no && view.smartInsertDeleteType == .no)
+    #expect(view.inlinePredictionType == .no)
+    #endif
+    typing.leave()
+
+    // Words are not code, and keep the system's keyboard.
+    let words = DeckEditor(session: try ScaenaSession(directory: b1))
+    words.shown = "cover"
+    let prose = Typing(editor: words)
+    #expect(prose.enter("subtitle", in: "cover", at: nil))
+    #expect(!prose.inCode)
+    #if os(iOS)
+    let plain = CanvasKeys(typing: prose)
+    #expect(plain.autocorrectionType == .default && plain.smartQuotesType == .default)
+    #expect(plain.autocapitalizationType == .sentences)
+    #endif
+    prose.leave()
+}
+
+/// A code editor's keys in code (PLAN 2.139): Tab indents to the next stop and Shift+Tab takes it
+/// away, Return breaks the line a stop further in after an opening brace, each typed as typing
+/// is, the burst one step to undo; in words, the keys go on as before, and Tab leaves the text.
+@MainActor
+@Test func codeKeysAreACodeEditorsAndTabOutsideCodeLeaves() throws {
+    let editor = DeckEditor(session: try ScaenaSession(directory: tortureDeck))
+    editor.shown = "code"
+    let typing = Typing(editor: editor)
+    var steps = 0
+    typing.edited = { _, joins in
+        if !joins { steps += 1 }
+    }
+    #expect(typing.enter("code-block", in: "code", at: nil))
+    _ = try #require(typing.carets?.code?.tab, "code says its stops")
+    #expect(typing.carets?.code?.from == 1)
+    #expect(typing.carets?.code?.language != nil, "code says its language")
+    // A Makefile's stop is a tab, named by its language; another's, spaces.
+    let make = try editor.session.keyed(text: "all:\n", from: 5, to: 5, key: "Tab", tab: 4, language: "makefile")
+    #expect(make?.text == "all:\n\t")
+    let spaced = try editor.session.keyed(text: "x\n", from: 2, to: 2, key: "Tab", tab: 4, language: "python")
+    #expect(spaced?.text == "x\n    ")
+    let written = try #require(typing.carets?.text)
+
+    typing.move(.text(start: true))
+    #expect(typing.codeKey("Tab"))
+    // The torture deck's code indents with tabs, so a stop the keys add is a tab (PLAN 2.139).
+    #expect(written.contains("\n\ttitle"), "the code indents with tabs")
+    #expect(typing.carets?.text == "\t" + written, "a stop in")
+    #expect(typing.from == 1 && typing.to == 1)
+    #expect(typing.codeKey("Shift+Tab"))
+    #expect(typing.carets?.text == written, "and out again")
+
+    // Return after an opening brace: the line broken a stop further in, the caret there.
+    let brace = (written as NSString).range(of: "type Talk = {")
+    let at = NSMaxRange(brace)
+    #expect(typing.replace(NSRange(location: at, length: 0), with: ""))
+    #expect(typing.from == at)
+    #expect(typing.codeKey("Return"))
+    let after = try #require(typing.carets?.text) as NSString
+    let indent = typing.from - at - 1
+    #expect(indent > 0 && after.substring(with: NSRange(location: at, length: 1)) == "\n")
+    #expect(after.substring(with: NSRange(location: at + 1, length: indent)).allSatisfy { $0 == " " || $0 == "\t" })
+    #expect(steps == 1, "one burst of typing, one step to undo")
+    typing.leave()
+
+    // In words, code answers nothing, and Tab leaves the text as before (PLAN 3.10).
+    let words = DeckEditor(session: try ScaenaSession(directory: b1))
+    words.shown = "cover"
+    let prose = Typing(editor: words)
+    #expect(prose.enter("subtitle", in: "cover", at: nil))
+    #expect(!prose.codeKey("Tab") && !prose.codeKey("Return"))
+    #if os(iOS)
+    let view = CanvasKeys(typing: prose)
+    view.key("\t")
+    #expect(!prose.typing, "Tab outside code leaves the text")
+    #endif
+}

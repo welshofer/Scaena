@@ -767,6 +767,20 @@ pub struct DataAttach {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
+pub struct ImageAdd {
+    /// The bundle: a directory, a `.scaena` zip, or a `deck.json`.
+    pub bundle: String,
+    /// The picture: a PNG or a JPEG file.
+    pub file: PathBuf,
+    #[serde(flatten)]
+    pub picture: scaena_ops::pictures::Picture,
+    /// Say what it would put where, and write nothing.
+    #[serde(default)]
+    pub dry_run: bool,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct DataEdit {
     /// The bundle: a directory, a `.scaena` zip, or a `deck.json`.
     pub bundle: String,
@@ -1292,6 +1306,34 @@ impl Scaena {
         let mut data = a.data;
         data.file = self.readable(&data.file, &a.bundle).map_err(failure)?;
         blocking(move || scaena_ops::create::attach(&*open_by(&a.bundle, author)?, &data)).await.map(Json)
+    }
+
+    #[tool(description = "Put a picture the user hands you on a slide: a PNG or JPEG `file` (a logo, a product \
+        shot, a chart drawn elsewhere), copied into the bundle's `assets/` named by its content, one past 8192 px a \
+        side made smaller first. It goes in the image `into` names, in place of what it showed; else in the state's \
+        first empty place for a picture; else as a new image at `at` ([x, y, width, height], canvas units), kept to its \
+        slide. `alt` says what it shows for someone who cannot see it. One patch, refused as a patch is; `dry_run` \
+        writes nothing.")]
+    async fn image_add(
+        &self,
+        Parameters(a): Parameters<ImageAdd>,
+        context: RequestContext<RoleServer>,
+    ) -> Result<Json<scaena_ops::pictures::Added>, String> {
+        let author = author(&context);
+        let file = self.readable(&a.file, &a.bundle).map_err(failure)?;
+        blocking(move || {
+            let bytes = scaena_ops::pictures::read(&file)?;
+            let bytes = scaena_ops::pictures::smaller(bytes)?;
+            let b = &*open_by(&a.bundle, author)?;
+            if a.dry_run {
+                let (mut added, _) = scaena_ops::pictures::adding(b, &bytes, &a.picture)?;
+                added.patched.applied = false;
+                return Ok(added);
+            }
+            scaena_ops::pictures::add(b, &bytes, &a.picture)
+        })
+        .await
+        .map(Json)
     }
 
     #[tool(description = "Put a map on a slide (ADR-0030): a picture of `place` (an address, a place, or `lat, lon`) \
