@@ -288,7 +288,8 @@ pub fn export_watched(b: &Bundle, req: &Request, progress: &Progress) -> Result<
                     "2.5",
                 )
             })?;
-            let (html, pages) = standalone(b, states, page, if req.notes { Notes::Keep } else { Notes::Drop }, progress)?;
+            let (html, pages) =
+                standalone(b, states, page, if req.notes { Notes::Keep } else { Notes::Drop }, progress)?;
             write(out, html.as_bytes())?;
             Ok(Exported {
                 format: format_name,
