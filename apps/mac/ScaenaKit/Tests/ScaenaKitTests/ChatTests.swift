@@ -310,8 +310,6 @@ private actor Seen {
     #expect(throws: ScaenaError.self) { try Provider.gemini.models(status: 403, body: "{}") }
 }
 
-/// What a stand-in for the network answers, in order, each with its status, and the requests it
-/// was asked.
 /// A provider's `Retry-After` is waited (lift-up REL-5): the longer of it and the assistant's own
 /// wait, said, and a minute at most; a date as the header may give one is read too.
 @MainActor
@@ -350,6 +348,8 @@ private actor Seen {
     #expect(Assistant.Answered.seconds(later, now: now.addingTimeInterval(1e8)) == 0, "a date gone by asks for none")
 }
 
+/// What a stand-in for the network answers, in order, each with its status, and the requests it
+/// was asked.
 private actor Answers {
     private var bodies: [(String, Int)]
     private(set) var asked: [URLRequest] = []
