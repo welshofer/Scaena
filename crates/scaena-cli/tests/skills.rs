@@ -456,3 +456,46 @@ fn the_guides_theme_names_are_the_shipped_themes() {
         assert_eq!(grid, (Some(12), Some(12)), "{path}: the guide's 12 × 12 grid");
     }
 }
+
+/// The skills ask only what the code does (lift-up 10-25c USE-3): motion-pass times a state with
+/// `set_state` and a motion with `time_motion`, JSON Patch kept for choreography alone;
+/// tighten-copy reads and changes the spine where it lives, in `deck.json`; and author-deck gives
+/// a deck that exists an arc by a patch, which `scaena generate`, making a new deck, cannot.
+#[test]
+fn the_skills_ask_only_what_the_code_does() {
+    let skills = skills();
+    let text = |name: &str| skills.iter().find(|(n, _)| n == name).map(|(_, t)| t.clone()).unwrap();
+    let motion = text("motion-pass");
+    assert!(motion.contains("`set_state`") && motion.contains("`time_motion`"), "motion-pass names the ops");
+    assert!(!motion.contains("No semantic op sets a state's `transition`"), "set_state sets it");
+    let tighten = text("tighten-copy");
+    assert!(!tighten.contains("spine.json") && tighten.contains("`spine_update`"), "the spine is deck.json's");
+    let author = text("author-deck");
+    assert!(!author.contains("Give it an arc with `scaena generate --slides`"), "generate makes a new deck");
+
+    // Each patch the skills write applies to a deck that exists: the arc author-deck gives, and
+    // motion-pass's state ops on the deck's own state; health then reads the arc.
+    let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join("skills-patches");
+    let _ = std::fs::remove_dir_all(&dir);
+    let bundle = dir.to_str().unwrap();
+    let made = Command::new(env!("CARGO_BIN_EXE_scaena")).args(["new", bundle]).output().unwrap();
+    assert_eq!(made.status.code(), Some(0), "{}", String::from_utf8_lossy(&made.stderr));
+    let deck: Value = serde_json::from_str(&std::fs::read_to_string(dir.join("deck.json")).unwrap()).unwrap();
+    let state = deck["states"][0]["id"].as_str().unwrap();
+    let arc = author.split("Give it an arc with a patch, `").nth(1).and_then(|t| t.split('`').next()).unwrap();
+    let mut ops = vec![serde_json::from_str::<Value>(arc).unwrap()];
+    let timed = fenced(&motion, "json").into_iter().find(|b| b.contains("\"set_state\"")).expect("set_state's block");
+    for mut op in serde_json::from_str::<Vec<Value>>(&timed).unwrap() {
+        op["id"] = Value::String(state.into());
+        ops.push(op);
+    }
+    let file = dir.join("ops.json");
+    std::fs::write(&file, Value::Array(ops).to_string()).unwrap();
+    let out = scaena(&dir, &["--json", "patch", ".", "--ops", file.to_str().unwrap()]);
+    assert_eq!(out.status.code(), Some(0), "{}", String::from_utf8_lossy(&out.stdout));
+    let health: Value = serde_json::from_slice(&scaena(&dir, &["--json", "health", "."]).stdout).unwrap();
+    assert_eq!(health["arc"], "Problem\u{2013}Solution", "{health:#}");
+    let deck: Value = serde_json::from_str(&std::fs::read_to_string(dir.join("deck.json")).unwrap()).unwrap();
+    let state = &deck["states"][0];
+    assert_eq!((state["transition"].as_str(), state["hold"].as_f64()), (Some("fast"), Some(4000.0)), "{state:#}");
+}
