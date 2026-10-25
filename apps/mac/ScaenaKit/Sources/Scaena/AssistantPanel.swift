@@ -165,7 +165,7 @@ struct AssistantPanel: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .onChange(of: assistant.entries.count) {
-                if let last = assistant.entries.last { scroll.scrollTo(last.id, anchor: .bottom) }
+                if following, let last = assistant.entries.last { scroll.scrollTo(last.id, anchor: .bottom) }
             }
             // The answer followed as it is written (lift-up 10-25c ATTR-3), as the browser's
             // panel follows it, unless the person has scrolled up from the end to read.
@@ -228,6 +228,8 @@ struct AssistantPanel: View {
             keyless = true
             return
         }
+        // The person's own question comes into view, and what answers it is followed from there.
+        following = true
         assistant.ask(text, provider: provider, model: model.wrappedValue, key: key, seeing: seeing())
         question = ""
     }
