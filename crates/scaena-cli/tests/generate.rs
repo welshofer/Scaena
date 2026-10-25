@@ -598,6 +598,29 @@ fn an_outline_is_written_first_and_the_slides_follow_the_edited_one() {
     assert_eq!(scaena(&["validate", dir.to_str().unwrap()]).status.code(), Some(0));
 }
 
+/// A key goes over plain http to this machine alone (lift-up 20261025 SEC-2): `--base` or
+/// `--picture-base` at plain http elsewhere is refused before any call.
+#[test]
+fn an_api_address_over_plain_http_is_refused_before_any_call() {
+    for flag in ["--base", "--picture-base"] {
+        let dir = place("plain-http");
+        let mut c = Command::new(env!("CARGO_BIN_EXE_scaena"));
+        for k in KEYS.into_iter().chain(PROXIES) {
+            c.env_remove(k);
+        }
+        let out = c
+            .env("ANTHROPIC_API_KEY", "sk-test")
+            .args(["--json", "generate", dir.to_str().unwrap(), "Tidewater's Series A"])
+            .args(["--provider", "anthropic", "--model", "a-model", flag, "http://proxy.example.com"])
+            .output()
+            .unwrap();
+        let out = json(&out);
+        let message = out["error"]["message"].as_str().unwrap_or_default();
+        assert!(message.starts_with("http://proxy.example.com: an API address takes https://"), "{flag}: {out:#}");
+        assert!(!dir.exists());
+    }
+}
+
 #[test]
 fn a_web_source_on_this_machine_is_refused_before_any_call() {
     // A web source is a public https address: a page on this machine, its network, or plain
