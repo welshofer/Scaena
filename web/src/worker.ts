@@ -223,8 +223,9 @@ const READS = new Set<ToWorker["type"]>([
 self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
   const id = "id" in data ? data.id : undefined;
   const reads = READS.has(data.type);
-  if (!reads) worded = undefined;
+  // A probe answers and changes nothing, the words kept among it.
   if (data.type === "ping") return post({ type: "pong", id: data.id });
+  if (!reads) worded = undefined;
   if (stopped !== undefined) {
     if (id !== undefined) post({ type: "error", id, message: `the engine stopped: ${stopped}` });
     return;

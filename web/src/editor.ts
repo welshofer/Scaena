@@ -121,6 +121,13 @@ const fallback = import.meta.env.VITE_BUNDLE ?? "../../docs/examples/revenue.dec
 
 const $ = <T extends HTMLElement>(selector: string) => document.querySelector<T>(selector)!;
 const said = (e: unknown) => (e instanceof Error ? e.message : String(e));
+
+// What waited on the engine when it stopped is refused, and the restart says so: a request fired
+// and forgotten has nothing more to say. Heard once, for every deck the page opens.
+addEventListener("unhandledrejection", (e) => {
+  if (e.reason instanceof EngineStopped) e.preventDefault();
+});
+
 /** A theme file's name as a person reads it (PLAN 2.99): `themes/dusk.theme.json` is Dusk. */
 const themeName = (path: string) => sentence(path.replace(/^.*\//, "").replace(/\.theme\.json$|\.json$/, ""));
 /** What an edit did to what lint finds, said: 2 new issues, 1 gone; or no new issues. */
@@ -571,11 +578,6 @@ async function edit(source: Source, opened?: Stage) {
   // source as it stands here, and the files written since the save, which went with it, are named.
   stage.onDied = (death) => void restarted(death);
   stage.onStalled = (message) => say(`The engine stopped answering after an error (${message}): waiting up to ${PROBE / 1000} seconds for it before starting it again…`);
-  // What waited on the engine when it stopped is refused, and the restart says so: a request
-  // fired and forgotten has nothing more to say.
-  addEventListener("unhandledrejection", (e) => {
-    if (e.reason instanceof EngineStopped) e.preventDefault();
-  });
   async function restarted(crash: { message: string; files?: Record<string, ArrayBuffer>; lost?: string[] }) {
     const why = crash.message ? ` (${crash.message})` : "";
     say(`The engine stopped on an error${why}: starting it again…`);
