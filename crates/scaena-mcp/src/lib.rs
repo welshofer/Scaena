@@ -923,9 +923,50 @@ pub struct DeckGenerate {
     /// chosen from the brief.
     #[serde(default)]
     pub arc: Option<String>,
+    /// The big idea and each beat's claim the slides were written to, in the beats' order: the
+    /// deck's sections are its beats, a slide's `beatIndex` counting them from 0, and health
+    /// holds each slide to its beat's claim and the closing to the big idea.
+    #[serde(default)]
+    pub outline: Option<GivenOutline>,
+    /// The voice its words take: tone, vocabulary, posture.
+    #[serde(default)]
+    pub voice: Option<String>,
+    /// What it should achieve, in the user's words.
+    #[serde(default, rename = "desiredOutcomes")]
+    pub desired_outcomes: Option<String>,
+    /// How it is delivered: `in-person`, `virtual-live`, `hybrid-live`, `keynote`, `webinar`,
+    /// `recorded-video`, or `asynchronous`.
+    #[serde(default)]
+    pub modality: Option<String>,
+    /// One of Narrato's personas, by its id, for an audience in the user's own words.
+    #[serde(default)]
+    pub persona: Option<String>,
     /// Keep a history, as `deck_create` does: on unless `false`.
     #[serde(default = "yes")]
     pub history: bool,
+}
+
+/// An outline written beside the slides (lift-up 10-25c FUNC-1).
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct GivenOutline {
+    /// The one sentence the audience should remember.
+    pub big_idea: String,
+    /// The beats, in order.
+    pub beats: Vec<GivenBeat>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct GivenBeat {
+    /// Its name ("Problem", "The ask"); `Beat N` without it.
+    #[serde(default)]
+    pub name: String,
+    /// The one sentence its slides leave the audience believing. A beat with none is passed over.
+    pub claim: String,
+    /// The slides it takes; spread from the length without it.
+    #[serde(default)]
+    pub slides: usize,
 }
 
 // --- outputs --------------------------------------------------------------------------
@@ -1562,8 +1603,9 @@ impl Scaena {
     #[tool(description = "Make a deck from slides written in the JSON Narrato writes them in (`scaena generate \
         --slides`, ADR-0026), with no model called: the spine, a section for each run of slides in one beat of the \
         arc and a beat for each slide, each slide an absolute state in the theme layout its `layoutSuggestion` comes \
-        to, its builds, and the fields `deck_health` reads (`media.narrato`), lint's fixes applied. A new bundle at \
-        `bundle`, in `theme`, as `deck_create` makes one; a deck in a script the theme's fonts do not draw is \
+        to, its builds, and the fields `deck_health` reads (`media.narrato`), lint's fixes applied. With `outline`, \
+        the big idea and each beat's claim the slides were written to, the sections are its beats and health holds \
+        the deck to its claims. A new bundle at `bundle`, in `theme`, as `deck_create` makes one; a deck in a script the theme's fonts do not draw is \
         refused, since the CLI alone fetches a script's font.")]
     async fn deck_generate(
         &self,
@@ -1579,16 +1621,32 @@ impl Scaena {
             goal: a.goal.unwrap_or_default(),
             length: a.length.unwrap_or_default(),
             language: a.language,
+            modality: a.modality.as_deref().map(scaena_ops::narrative::modality).transpose()?,
+            desired_outcomes: a.desired_outcomes,
+            persona_id: a.persona,
+            voice: a.voice,
             ..scaena_ops::narrative::Brief::default()
         };
+        let outline = a.outline.map(|o| scaena_ops::narrative::Outline {
+            big_idea: o.big_idea,
+            beats: (o.beats.into_iter())
+                .map(|b| scaena_ops::narrative::OutlineBeat { name: b.name, claim: b.claim, slides: b.slides })
+                .collect(),
+        });
         // A new bundle has no folder yet: the theme is read under this server's own, as
         // deck_create reads one.
         let bundle = self.new_bundle(&a.bundle).map_err(failure)?;
         let (theme, within) = self.theme_readable(a.theme.as_deref().unwrap_or("dusk"), &a.bundle).map_err(failure)?;
         blocking(move || {
             let theme = scaena_ops::create::ThemeSource::of(&theme)?.within(within);
-            let made =
-                scaena_ops::narrative::from_slides(&bundle, theme, &slides.to_string(), brief, a.arc.as_deref())?;
+            let made = scaena_ops::narrative::from_slides(
+                &bundle,
+                theme,
+                &slides.to_string(),
+                brief,
+                a.arc.as_deref(),
+                outline.as_ref(),
+            )?;
             if made.created.created && a.history {
                 scaena_ops::history::begin(&made_by(&bundle, author)?, "deck_create")?;
             }
