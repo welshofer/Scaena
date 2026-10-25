@@ -700,6 +700,10 @@ public final class Generator {
         /// The slides the model's kept changes touched, drawn again, each by its index, a JPEG in
         /// base64; none where nothing changed (lift-up ATTR-1).
         let drawn: [Redrawn]?
+        /// Seconds to wait before `look`, the same round, is asked again, and how many times it
+        /// was asked so far (lift-up REL-1).
+        let wait: Double?
+        let tried: Int?
     }
 
     private struct Redrawn: Decodable, Sendable {
@@ -712,7 +716,12 @@ public final class Generator {
     private struct Fitting: Decodable, Sendable {
         let fitted: Int?
         let unfitted: String?
+        /// The next round's request, where the rewrite left a text too long (STAB-4); or, with
+        /// `wait`, the same fit asked again after that many seconds, `tried` times so far (lift-up
+        /// REL-1).
         let fit: Fit?
+        let wait: Double?
+        let tried: Int?
     }
 
     /// Who makes a deck's pictures (PLAN G.10): an image provider, the user's key for it, where
@@ -984,14 +993,20 @@ public final class Generator {
         if let first = seeing { hear(.looking(slides: first.slides)) }
         while let round = seeing {
             let reply = await send(round.request)
-            let looking: Looking = try await stepAway(
-                "looked",
-                [
-                    "status": .number(Double(reply.status)),
-                    "statusText": .string(reply.status == 0 ? reply.text : HTTPURLResponse.localizedString(forStatusCode: reply.status)),
-                    "body": .string(reply.status == 0 ? "" : reply.text),
-                    "key": .string(key),
-                ])
+            var answered: [String: JSONValue] = [
+                "status": .number(Double(reply.status)),
+                "statusText": .string(reply.status == 0 ? reply.text : HTTPURLResponse.localizedString(forStatusCode: reply.status)),
+                "body": .string(reply.status == 0 ? "" : reply.text),
+                "key": .string(key),
+            ]
+            if let after = reply.after { answered["after"] = .string(after) }
+            let looking: Looking = try await stepAway("looked", answered)
+            // A busy provider: the same round asked again after the wait the engine says, as the
+            // slides are (lift-up REL-1).
+            if let wait = looking.wait {
+                hear(.retrying(seconds: wait, tried: looking.tried ?? 0))
+                try await Task.sleep(for: .seconds(wait))
+            }
             seeing = looking.look
             if seeing != nil { continue }
             for again in looking.drawn ?? [] {
@@ -1004,18 +1019,28 @@ public final class Generator {
             }
             fit = looking.fit
         }
-        // Each answer may ask once more for what the rewrite left too long (STAB-4).
+        // Each answer may ask once more for what the rewrite left too long (STAB-4), or, from a
+        // busy provider, the same fit again after the wait the engine says (lift-up REL-1).
+        var retrying = false
         while let asked = fit {
-            hear(.fitting(texts: asked.texts))
+            if !retrying { hear(.fitting(texts: asked.texts)) }
+            retrying = false
             let reply = await send(asked.request)
-            let fitting: Fitting = try await stepAway(
-                "fitted",
-                [
-                    "status": .number(Double(reply.status)),
-                    "statusText": .string(HTTPURLResponse.localizedString(forStatusCode: reply.status)),
-                    "body": .string(reply.text),
-                    "key": .string(key),
-                ])
+            var answered: [String: JSONValue] = [
+                "status": .number(Double(reply.status)),
+                "statusText": .string(HTTPURLResponse.localizedString(forStatusCode: reply.status)),
+                "body": .string(reply.text),
+                "key": .string(key),
+            ]
+            if let after = reply.after { answered["after"] = .string(after) }
+            let fitting: Fitting = try await stepAway("fitted", answered)
+            if let wait = fitting.wait, let again = fitting.fit {
+                hear(.retrying(seconds: wait, tried: fitting.tried ?? 0))
+                try await Task.sleep(for: .seconds(wait))
+                fit = again
+                retrying = true
+                continue
+            }
             if let n = fitting.fitted { hear(.fitted(texts: n)) }
             if let why = fitting.unfitted { hear(.unfitted(unanswered(why, provider, reply))) }
             fit = fitting.fit
