@@ -1436,6 +1436,7 @@ export type GeneratingEvent =
   | { kind: "fetchingFont"; family: string; language: string; megabytes: number }
   | { kind: "reading"; name: string }
   | { kind: "read"; name: string; what: string }
+  | { kind: "grounded"; name: string; what: string; kilobytes: number; cut: boolean }
   | { kind: "researching"; topic: string }
   | { kind: "researchingNow"; doing: string }
   | { kind: "researched"; sources: number; cut: boolean }

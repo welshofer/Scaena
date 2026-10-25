@@ -466,6 +466,15 @@ final class Showing {
         if show.go(toSlide: state) { holding?.cancel() }
     }
 
+    /// The slide numbered `number`, as typing its number then Return goes there (PLAN 2.105): what
+    /// a remote's Go to Slide asks (lift-up FUNC-5).
+    func go(slide number: Int) {
+        guard number > 0 else { return }
+        show.untype(all: true)
+        for digit in String(number) { show.type(digit.wholeNumberValue ?? 0) }
+        enter()
+    }
+
     /// Delete: the last digit typed taken back; with none typed, back.
     func delete() {
         if show.typed.isEmpty { back() } else { show.untype() }
@@ -948,7 +957,7 @@ struct KeyList: View {
         }
         .font(.title3)
         .padding(24)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
+        .floating(in: RoundedRectangle(cornerRadius: 14))
         .environment(\.colorScheme, .dark)
         .frame(maxWidth: 640)
         .accessibilityElement(children: .contain)
