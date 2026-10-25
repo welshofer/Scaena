@@ -136,7 +136,7 @@ public final class Laying: @unchecked Sendable {
     /// the session's `prepare` lays it out, on the thread that calls it: a show's next cue laid out
     /// while the state shown rests, away from the window, then handed to the session's
     /// `cue(laid:)` (lift-up 10-25b PERF-5).
-    public func cue(format: String?, state: String) throws -> Cue {
+    public func cue(format: String?, state: String) throws -> LaidCue {
         var error: UnsafeMutablePointer<CChar>?
         // A format by its name, or none: the C string made only where there is one.
         let laid: OpaquePointer?
@@ -146,13 +146,13 @@ public final class Laying: @unchecked Sendable {
             laid = scaena_laying_cue(handle, nil, state, &error)
         }
         guard let laid else { throw ScaenaError.taking(error) }
-        return Cue(handle: laid)
+        return LaidCue(handle: laid)
     }
 }
 
 /// A cue laid out ahead on a `Laying`, away from the session, until the session takes it (lift-up
 /// 10-25b PERF-5). Sendable: it is laid out on one thread and handed to the session's after.
-public final class Cue: @unchecked Sendable {
+public final class LaidCue: @unchecked Sendable {
     let handle: OpaquePointer
 
     init(handle: OpaquePointer) {
@@ -572,7 +572,7 @@ extension ScaenaSession {
     /// frames into its state sample, laying nothing out: false where the deck shown or its format
     /// changed since, or that cue is kept already (lift-up 10-25b PERF-5).
     @discardableResult
-    public func cue(laid: Cue) -> Bool {
+    public func cue(laid: LaidCue) -> Bool {
         scaena_cue_laid(handle, laid.handle)
     }
 
