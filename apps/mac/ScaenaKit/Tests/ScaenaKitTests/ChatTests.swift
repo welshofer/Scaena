@@ -567,7 +567,9 @@ private func keychainWritable() -> Bool {
     // A rewrite in the person's own words is asked in them (lift-up FUNC-3).
     let rewrite = try session.writing(
         WritingAsk(kind: .rewrite, state: "cover", node: "subtitle", instruction: "Shorter, for executives"))
-    #expect(rewrite.prompt.hasPrefix("The text:\n\(words)\nHow to rewrite it: Shorter, for executives\n"))
+    // The deck's words fenced, the person's own after the fence (lift-up W1).
+    #expect(rewrite.prompt.hasPrefix("<data label=\"text\">\nThe text:\n\(words)\n"))
+    #expect(rewrite.prompt.hasSuffix("</data>\nHow to rewrite it: Shorter, for executives"))
     let drafted = try session.written(WritingAsk(kind: .notes, state: "cover"), answer: "Open on the name.")
     #expect(drafted.patch?.first?["op"]?.string == "set_state")
 
