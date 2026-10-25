@@ -84,7 +84,8 @@ public final class CanvasKeys: UIView {
         Task { @MainActor [weak self] in
             guard let self, self.window != nil else { return }
             if self.typing.typing {
-                if !self.isFirstResponder { self.becomeFirstResponder() }
+                // The keyboard read again for the text now typed in: plain for code (PLAN 2.139).
+                if !self.isFirstResponder { self.becomeFirstResponder() } else { self.reloadInputViews() }
             } else if !self.presses.isFirstResponder {
                 self.presses.becomeFirstResponder()
             }
@@ -196,6 +197,8 @@ public final class CanvasKeys: UIView {
     /// Tab and Shift+Tab: in a list, the items selected a level in, or out; elsewhere a text's
     /// field gives Tab to what is next, as the browser's does: typing stops.
     private func tab(back: Bool) {
+        // In code, a stop in or out (PLAN 2.139).
+        if typing.codeKey(back ? "Shift+Tab" : "Tab") { return }
         if typing.inList {
             typing.list(by: back ? -1 : 1, done: back ? "A level out" : "A level in")
         } else {
@@ -452,12 +455,48 @@ public final class CanvasKeys: UIView {
     }
 }
 
+/// While code is typed in, the keyboard types what is pressed (PLAN 2.139): no smart quotes or
+/// dashes, no smart insert and delete, no correction, capitals, spelling, or prediction. In words,
+/// the system's own.
+extension CanvasKeys {
+    @objc public var autocapitalizationType: UITextAutocapitalizationType {
+        get { typing.inCode ? .none : .sentences }
+        set {}
+    }
+    @objc public var autocorrectionType: UITextAutocorrectionType {
+        get { typing.inCode ? .no : .default }
+        set {}
+    }
+    @objc public var spellCheckingType: UITextSpellCheckingType {
+        get { typing.inCode ? .no : .default }
+        set {}
+    }
+    @objc public var smartQuotesType: UITextSmartQuotesType {
+        get { typing.inCode ? .no : .default }
+        set {}
+    }
+    @objc public var smartDashesType: UITextSmartDashesType {
+        get { typing.inCode ? .no : .default }
+        set {}
+    }
+    @objc public var smartInsertDeleteType: UITextSmartInsertDeleteType {
+        get { typing.inCode ? .no : .default }
+        set {}
+    }
+    @objc public var inlinePredictionType: UITextInlinePredictionType {
+        get { typing.inCode ? .no : .default }
+        set {}
+    }
+}
+
 extension CanvasKeys: UITextInput {
     public var hasText: Bool { !(typing.carets?.text.isEmpty ?? true) }
 
     public func insertText(_ text: String) {
         guard typing.typing else { return }
         inputting {
+            // In code, a code editor's Return (PLAN 2.139).
+            if text == "\n", typing.marked == nil, typing.codeKey("Return") { return }
             switch text {
             case "\n" where typing.marked == nil && typing.endsList:
                 // In an empty item, the list ends there (ADR-0018); else a new paragraph, an item
