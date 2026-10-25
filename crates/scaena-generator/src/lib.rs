@@ -61,11 +61,17 @@ pub fn choices() -> String {
 }
 
 /// A deck's narrative health (PLAN G.9, SPEC §7.7), as `scaena health --json` gives it: `deck`, as
-/// `deck.json` holds it, read as its slides and the beats that tell them.
+/// `deck.json` holds it, read as its slides and the beats that tell them, beside `lint`, the
+/// findings the editor's last lint gave as JSON, so a slide lint finds broken comes first
+/// (lift-up 10-24b STAB-1).
 #[wasm_bindgen]
-pub fn health(deck: &str) -> Result<String, JsError> {
+pub fn health(deck: &str, lint: Option<String>) -> Result<String, JsError> {
     let deck = scaena_core::Deck::from_json(deck).map_err(error)?;
-    let health = scaena_ops::health::health(&deck).map_err(error)?;
+    let lint: Vec<scaena_core::Finding> = match lint {
+        Some(lint) => serde_json::from_str(&lint).map_err(error)?,
+        None => Vec::new(),
+    };
+    let health = scaena_ops::health::health_in(&deck, &lint).map_err(error)?;
     serde_json::to_string(&health).map_err(error)
 }
 
@@ -442,15 +448,18 @@ impl Generation {
 
     /// The request that shows the model `seen` (as `seeing` gives it), each slide drawn as
     /// `drawn` holds it (JSON `[{ mediaType, data }]`, its bytes in base64), and asks what it
-    /// would change (PLAN G.13); none before the narrative is written.
+    /// would change (PLAN G.13); none before the narrative is written. `edges` is the slides just
+    /// before and after them, as `seeing` gives each, or null (JSON `[before, after]`, lift-up
+    /// PERF-1).
     #[wasm_bindgen(js_name = lookRequest)]
-    pub fn look_request(&self, key: &str, seen: &str, drawn: &str) -> Result<Option<String>, JsError> {
+    pub fn look_request(&self, key: &str, seen: &str, drawn: &str, edges: &str) -> Result<Option<String>, JsError> {
         let seen: Vec<scaena_narrato::look::Seen> = serde_json::from_str(seen).map_err(error)?;
+        let [before, after]: [Option<scaena_narrato::look::Seen>; 2] = serde_json::from_str(edges).map_err(error)?;
         let drawn: Vec<Drawn> = serde_json::from_str(drawn).map_err(error)?;
         let pictures: Vec<scaena_narrato::Picture> = (drawn.into_iter())
             .map(|d| scaena_narrato::Picture { caption: String::new(), media_type: d.media_type, data: d.data })
             .collect();
-        let request = self.inner.look_request(key, &seen, &pictures);
+        let request = self.inner.look_request(key, &seen, &pictures, [before.as_ref(), after.as_ref()]);
         Ok(request.map(|r| serde_json::to_string(&r).expect("a request is JSON")))
     }
 

@@ -435,6 +435,12 @@ impl Player {
         serde_json::to_string(&self.0.lint(state.as_deref(), now).map_err(js)?).map_err(js)
     }
 
+    /// What the last lint found in the deck compiled last, as JSON findings: what its narrative
+    /// health reads beside it (the generator's `health`, lift-up 10-24b STAB-1).
+    pub fn findings(&self) -> Result<String, JsError> {
+        serde_json::to_string(self.0.findings()).map_err(js)
+    }
+
     /// The source compiled last with `patch` (JSON: a finding's `fix`) applied.
     pub fn fix(&self, patch: &str) -> Result<String, JsError> {
         let patch: Vec<serde_json::Value> = serde_json::from_str(patch).map_err(js)?;
