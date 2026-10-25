@@ -39,6 +39,10 @@ jobs:
   changes:
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    # The pull request's draft state is read from the API (below).
+    permissions:
+      contents: read
+      pull-requests: read
     outputs:
       code: ${{ steps.diff.outputs.code }}
       full: ${{ steps.diff.outputs.full }}
@@ -54,6 +58,8 @@ jobs:
         env:
           EVENT: ${{ github.event_name }}
           DRAFT: ${{ github.event.pull_request.draft }}
+          PR: ${{ github.event.pull_request.number }}
+          GH_TOKEN: ${{ github.token }}
           LABELED: ${{ contains(github.event.pull_request.labels.*.name, 'apple') }}
           TAG: ${{ startsWith(github.ref, 'refs/tags/') }}
         run: |
@@ -71,6 +77,13 @@ jobs:
                 *) code=true ;;
               esac
             done
+          fi
+          # Whether the pull request is a draft now, not as the event that started this run said: a
+          # push and Ready for review made together start two runs, and the later cancels the
+          # earlier, so the push's run, whose event says draft, could leave a ready pull request
+          # with the fast checks alone (#623, #628). The event's word stands where the API fails.
+          if [ "$EVENT" = pull_request ] && now=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR" --jq .draft 2>/dev/null); then
+            DRAFT=$now
           fi
           # Everything on Linux, but for a draft.
           full=true
@@ -420,6 +433,8 @@ jobs:
       - run: node web/standalone.mjs
       - run: node web/player.mjs
       - run: node web/editor.mjs
+      # The worker alone: a request with a source older than the latest edit's never sets the deck back.
+      - run: node web/worker.mjs
       # A deck kept nowhere, New's or a prompt's, is not saved: kept in the copy, asked about (lift-up 10-24 REL-1).
       - run: node web/unkept.mjs
       # The preview as a canvas: select, drag, resize, and the keys, each a patch to undo (PLAN 2.31).
@@ -679,3 +694,5 @@ jobs:
         with:
           node-version: 22
       - run: node --experimental-strip-types web/exchanges.mjs
+      # The assistant's answers render as they read (narrative ATTR-4): the blocks and elements.
+      - run: node --experimental-strip-types web/markdown.mjs

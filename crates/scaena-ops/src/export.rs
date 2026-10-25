@@ -6,11 +6,10 @@ use crate::lint::data_files;
 use crate::render::scale_for;
 use crate::{Bundle, OpsError};
 use scaena_core::timeline::Slot;
-use scaena_engine::data::DataFiles;
+use scaena_engine::Engine;
 use scaena_engine::fonts::BundleFonts;
 use scaena_engine::images::BundleImages;
 use scaena_engine::theme::Theme;
-use scaena_engine::{Engine, FrameRequest};
 use scaena_export::Format;
 use scaena_export::html::Standalone;
 use scaena_export::pdf::{Page, Prepared, prepared};
@@ -316,12 +315,12 @@ pub fn standalone_with(
     let (mut engine, _) = engine(b, &theme)?;
     let snapshots = scaena_core::resolve_states(&b.deck)?;
     let mut read = Vec::with_capacity(pages.len());
-    for state in &pages {
-        let list = at_rest(&mut engine, b, &theme, &data, state)?;
-        let snap = snapshots.iter().find(|s| &s.state_id == state).expect("`named` checked the state");
-        read.push((state.clone(), scaena_core::reading::html(&b.deck, snap, &list)));
+    engine.frames_at_rest(&b.deck, &theme, &data, None, &pages, |state, list| {
+        let snap = snapshots.iter().find(|s| s.state_id == state).expect("`named` checked the state");
+        read.push((state.to_string(), scaena_core::reading::html(&b.deck, snap, &list)));
         progress.step();
-    }
+        Ok::<(), OpsError>(())
+    })?;
     let mut files = saved()?;
     files.retain(|path, _| path != "manifest.json" && !path.starts_with("history/"));
     let standalone = Standalone { deck: &b.deck, name, files: &files, states: &read };
@@ -423,27 +422,31 @@ fn spine(
             file_named(beat, "the beat")?;
         }
     }
+    // Each beat that names a state drawn at rest on the deck's canvas, then in each other format,
+    // each format's states laid out in one pass (lift-up 10-24b PERF-4).
+    let told: Vec<(String, String)> =
+        (projection.beats.iter()).filter_map(|(beat, e)| e.state.clone().map(|s| (beat.clone(), s))).collect();
+    let states: Vec<String> = told.iter().map(|(_, state)| state.clone()).collect();
     let mut pixels = None;
-    progress.start(projection.beats.values().filter(|entry| entry.state.is_some()).count());
-    for (beat, entry) in &mut projection.beats {
-        let Some(state) = entry.state.clone() else { continue };
-        let list = at_rest(&mut engine, b, &theme, &data, &state)?;
+    progress.start(told.len() * (1 + others.len()));
+    let mut beats = told.iter().map(|(beat, _)| beat);
+    engine.frames_at_rest(&b.deck, &theme, &data, None, &states, |_, list| {
+        let beat = beats.next().expect("a beat for each state drawn");
         pixels = Some(list.viewport.map(|v| (v * scale).round() as u32));
-        entry.thumbnail = Some(draw(&list, scale, format!("renders/{beat}.png"))?);
-        for format in &others {
-            let req = FrameRequest {
-                deck: &b.deck,
-                theme: &theme,
-                data: &data,
-                state: &state,
-                t_ms: f64::INFINITY,
-                format: Some(format),
-            };
-            let list = engine.frame(&req)?.display_list;
-            let name = format!("renders/{beat}@{}.png", format.replace(':', "x"));
-            entry.formats.insert(format.clone(), draw(&list, 1.0, name)?);
-        }
+        let drawn = draw(&list, scale, format!("renders/{beat}.png"))?;
+        projection.beats[beat].thumbnail = Some(drawn);
         progress.step();
+        Ok::<(), OpsError>(())
+    })?;
+    for format in &others {
+        let mut beats = told.iter().map(|(beat, _)| beat);
+        engine.frames_at_rest(&b.deck, &theme, &data, Some(format), &states, |_, list| {
+            let beat = beats.next().expect("a beat for each state drawn");
+            let drawn = draw(&list, 1.0, format!("renders/{beat}@{}.png", format.replace(':', "x")))?;
+            projection.beats[beat].formats.insert(format.clone(), drawn);
+            progress.step();
+            Ok::<(), OpsError>(())
+        })?;
     }
     let text = serde_json::to_string_pretty(&projection)? + "\n";
     write(out, text.as_bytes())?;
@@ -524,18 +527,6 @@ fn engine_files(b: &Bundle, theme: &Theme) -> Result<(Engine, Named), OpsError> 
     Ok((Engine::new(fonts).with_images(images), named))
 }
 
-/// A state at rest, laid out on the deck's canvas.
-fn at_rest(
-    engine: &mut Engine,
-    b: &Bundle,
-    theme: &Theme,
-    data: &DataFiles,
-    state: &str,
-) -> Result<scaena_core::displaylist::DisplayList, OpsError> {
-    let req = FrameRequest { deck: &b.deck, theme, data, state, t_ms: f64::INFINITY, format: None };
-    Ok(engine.frame(&req)?.display_list)
-}
-
 /// The deck as a PDF, and the state each page draws, written as `settings` say: `export`
 /// takes [`PdfSettings::default`].
 pub fn pdf_document(
@@ -572,10 +563,11 @@ pub fn pdf_laid_out(
     let data = data_files(b)?;
     let (mut engine, named) = engine_files(b, &theme)?;
     let mut drawn = Vec::with_capacity(pages.len());
-    for state in &pages {
-        drawn.push(Page { state: state.clone(), list: at_rest(&mut engine, b, &theme, &data, state)? });
+    engine.frames_at_rest(&b.deck, &theme, &data, None, &pages, |state, list| {
+        drawn.push(Page { state: state.to_string(), list });
         progress.step();
-    }
+        Ok::<(), OpsError>(())
+    })?;
     let laid = Prepared { deck: b.deck.clone(), pages: drawn, fonts: named.fonts, images: named.images };
     Ok((laid, pages))
 }
@@ -608,19 +600,7 @@ fn slide_names(deck: &scaena_core::Deck) -> Result<HashMap<String, (String, Stri
             1 => format!("Slide {number:0digits$}"),
             n => format!("Slide {number:0digits$}, step {step:0w$}", w = n.to_string().len()),
         };
-        let headline = (snap.nodes.iter())
-            .filter(|(id, _)| {
-                deck.nodes.get(id.as_str()).is_some_and(|n| n.node_type == scaena_core::document::NodeType::Text)
-            })
-            .find(|(_, p)| {
-                p.get("semantic").and_then(serde_json::Value::as_str) == Some("claim")
-                    || matches!(
-                        p.get("role").and_then(serde_json::Value::as_str),
-                        Some("display" | "headline" | "title")
-                    )
-            })
-            .map(|(_, p)| scaena_core::reading::words(p).split_whitespace().collect::<Vec<_>>().join(" "))
-            .filter(|h| !h.is_empty());
+        let headline = scaena_core::reading::headline(deck, snap);
         out.insert(state.id.clone(), (name, headline.unwrap_or_else(|| format!("Slide {number}"))));
     }
     Ok(out)
@@ -658,9 +638,8 @@ fn images(
     let (ext, svg_format) = if format == Format::Svg { ("svg", true) } else { ("png", false) };
     let (mut files, mut total, mut pixels) = (Vec::new(), 0_u64, [0, 0]);
     let mut painter = CpuPainter::default();
-    for state in &pages {
-        let (name, title) = names.get(state).cloned().unwrap_or_else(|| (state.clone(), state.clone()));
-        let list = at_rest(&mut engine, b, &theme, &data, state)?;
+    engine.frames_at_rest(&b.deck, &theme, &data, None, &pages, |state, list| {
+        let (name, title) = names.get(state).cloned().unwrap_or_else(|| (state.to_string(), state.to_string()));
         let scale = match size {
             Some(size) => scale_for(size, list.viewport)?,
             None => 1.0,
@@ -679,7 +658,8 @@ fn images(
         total += bytes.len() as u64;
         files.push(file.display().to_string());
         progress.step();
-    }
+        Ok::<(), OpsError>(())
+    })?;
     Ok(Exported {
         format: ext.into(),
         pages: Some(pages),
@@ -688,6 +668,30 @@ fn images(
         bytes: Some(total),
         ..Exported::default()
     })
+}
+
+/// Why a video of `plays` would run past a day, or for ever: the state that runs longest, and
+/// what makes it, its own `hold` or its beat's `duration`, where `deck` says which.
+fn too_long(plays: &[Slot], deck: Option<&scaena_core::Deck>) -> String {
+    let longest = plays.iter().max_by(|a, b| (a.span + a.hold).total_cmp(&(b.span + b.hold)));
+    let Some(slot) = longest else { return "the timeline runs past a day".into() };
+    // A number as a person reads it: whole under a billion, else in powers of ten (`1e300`).
+    let shown =
+        |v: f64| if v.abs() < 1e9 { format!("{}", v.round()) } else { format!("{v:.3e}").replace(".000e", "e") };
+    let held = |ms: f64| if ms.is_finite() { format!("{} hours", shown(ms / 3_600_000.0)) } else { "for ever".into() };
+    let state = deck.and_then(|d| d.states.iter().find(|s| s.id == slot.state));
+    let beat = deck
+        .and_then(|d| d.spine.as_ref())
+        .and_then(|spine| spine.sections.iter().flat_map(|s| &s.beats).find(|b| b.states.contains(&slot.state)));
+    let what = match (state.and_then(|s| s.hold), beat.and_then(|b| b.duration.map(|d| (b, d)))) {
+        (Some(hold), _) => format!("state `{}`'s `hold` of {} ms", slot.state, shown(hold)),
+        (None, Some((beat, duration))) => format!("beat `{}`'s `duration` of {} ms", beat.id, shown(duration)),
+        _ => format!("state `{}`, which holds {}", slot.state, held(slot.span + slot.hold)),
+    };
+    format!(
+        "a video plays at most 24 hours, and this one would play {}: {what} makes it; give it a shorter one",
+        held(plays.iter().map(|s| s.span + s.hold).sum())
+    )
 }
 
 /// Where a video's frames fall on the deck's global timeline (SPEC §2.4): the states it
@@ -702,6 +706,10 @@ pub struct Reel {
     pub fps: u32,
 }
 
+/// The longest a video plays, ms: a day (lift-up 10-24b STAB-3). A `hold` of 1e300 would
+/// otherwise export for ever.
+pub const MOST_VIDEO_MS: f64 = 24.0 * 60.0 * 60.0 * 1000.0;
+
 impl Reel {
     /// The states `states` names, in that order, or the whole timeline; `fps` frames a
     /// second, enough to cover it.
@@ -709,6 +717,26 @@ impl Reel {
         timeline: &scaena_core::timeline::Timeline,
         states: Option<&[String]>,
         fps: u32,
+    ) -> Result<Reel, OpsError> {
+        Reel::made(timeline, states, fps, None)
+    }
+
+    /// [`Reel::new`] for `deck`'s timeline: a video that would run past a day says which state's
+    /// `hold`, or which beat's `duration`, makes it.
+    pub fn of(
+        deck: &scaena_core::Deck,
+        timeline: &scaena_core::timeline::Timeline,
+        states: Option<&[String]>,
+        fps: u32,
+    ) -> Result<Reel, OpsError> {
+        Reel::made(timeline, states, fps, Some(deck))
+    }
+
+    fn made(
+        timeline: &scaena_core::timeline::Timeline,
+        states: Option<&[String]>,
+        fps: u32,
+        deck: Option<&scaena_core::Deck>,
     ) -> Result<Reel, OpsError> {
         if fps == 0 || fps > scaena_export::video::MAX_FPS {
             return Err(OpsError::new(format!(
@@ -731,6 +759,9 @@ impl Reel {
         for slot in &plays {
             starts.push(length);
             length += slot.span + slot.hold;
+        }
+        if !length.is_finite() || length > MOST_VIDEO_MS {
+            return Err(OpsError::new(too_long(&plays, deck)));
         }
         if length <= 0.0 {
             return Err(OpsError::new(
@@ -809,7 +840,7 @@ fn export_video(
     let data = data_files(b)?;
     let (mut engine, assets) = engine(b, &theme)?;
     let timeline = engine.timeline(&b.deck, &theme, &data)?;
-    let reel = Reel::new(&scaena_core::spine::paced(&b.deck, &timeline, req.pace), states, fps)?;
+    let reel = Reel::of(&b.deck, &scaena_core::spine::paced(&b.deck, &timeline, req.pace), states, fps)?;
     let canvas = [b.deck.canvas.width as f32, b.deck.canvas.height as f32];
     let scale = match size {
         Some(size) => scale_for(size, canvas)?,
@@ -827,6 +858,8 @@ fn export_video(
         fps,
         audio: audio.map(Path::to_path_buf),
         chapters: chapters.clone(),
+        title: b.deck.meta.as_ref().and_then(|m| m.title.clone()),
+        comment: b.deck.meta.as_ref().and_then(|m| m.description.clone()),
         ..VideoSettings::default()
     };
     // Each state's cue is laid out once, when its first frame comes; frames only sample it.
@@ -874,7 +907,7 @@ fn export_video(
 mod tests {
     use super::{Reel, pdf_pages};
     use scaena_core::timeline::Timeline;
-    use serde_json::json;
+    use serde_json::{Value, json};
 
     #[test]
     fn a_reel_plays_each_state_then_its_hold_and_passes_over_empty_ones() {
@@ -895,6 +928,42 @@ mod tests {
         assert!(err(Some(&["b".to_string()]), 30).contains("0 ms long"));
         assert!(err(Some(&["z".to_string()]), 30).contains("`z`"));
         assert!(err(None, 0).contains("1 to 240"));
+    }
+
+    /// A video that would run past a day, or for ever, is refused, naming the state's `hold` or
+    /// the beat's `duration` that makes it (lift-up 10-24b STAB-3); one of a day plays.
+    #[test]
+    fn a_video_past_a_day_says_which_hold_makes_it() {
+        let deck = |hold: Value, duration: Value| -> scaena_core::Deck {
+            serde_json::from_value(json!({
+                "scaena": scaena_core::FORMAT_VERSION, "canvas": { "width": 1920, "height": 1080 }, "nodes": {},
+                "states": [{ "id": "open", "hold": 1000 }, { "id": "long", "hold": hold }],
+                "spine": { "sections": [{ "id": "s", "title": "S", "beats": [
+                    { "id": "b", "claim": "C", "states": ["long"], "duration": duration }
+                ] }] }
+            }))
+            .unwrap()
+        };
+        let refused = |deck: &scaena_core::Deck, long: f64| {
+            let timeline = Timeline::new([("open".into(), 0.0, 1000.0), ("long".into(), 0.0, long)]);
+            Reel::of(deck, &timeline, None, 30).unwrap_err().to_string()
+        };
+        let said = refused(&deck(json!(1e300), Value::Null), 1e300);
+        assert!(said.contains("state `long`'s `hold` of 1e300 ms") && said.contains("24 hours"), "{said}");
+        assert!(said.len() < 200, "said briefly: {said}");
+        let said = refused(&deck(Value::Null, json!(1e12)), 1e12);
+        assert!(
+            said.contains("beat `b`'s `duration` of 1e12 ms") && said.contains("would play 277778 hours"),
+            "{said}"
+        );
+        // Not finite, by a pace or a sum that overflows: refused, not played for ever.
+        let said = refused(&deck(json!(1e300), Value::Null), f64::INFINITY);
+        assert!(said.contains("for ever"), "{said}");
+        let day = Timeline::new([("open".into(), 0.0, super::MOST_VIDEO_MS)]);
+        assert!(Reel::new(&day, None, 1).is_ok(), "a day plays");
+        // Without the deck, the state alone.
+        let said = Reel::new(&Timeline::new([("long".into(), 0.0, 1e300)]), None, 30).unwrap_err().to_string();
+        assert!(said.contains("state `long`"), "{said}");
     }
 
     #[test]

@@ -41,6 +41,9 @@ pub const LABELS: &[(&str, &str)] = &[
     ("wrap", "Line Breaks"),
     ("maxLines", "Most Lines"),
     ("code/language", "Language"),
+    ("code/numbers", "Line Numbers"),
+    ("code/start", "First Line Number"),
+    ("code/card", "Card"),
     ("opacity", "Opacity"),
     ("transform/rotate", "Rotation"),
     ("enter", "Build In"),
@@ -706,6 +709,7 @@ pub fn shape(kind: &str) -> String {
 pub const MARKED: &[(&str, &str)] = &[
     ("E100", "The text doesn't fit its box."),
     ("E101", "It overlaps another object."),
+    ("E107", "Its picture's file can't be drawn."),
     ("E110", "It's hard to read against what's behind it."),
     ("E111", "It's hard to read against what's behind it."),
     ("E120", "Some of its characters aren't in its font."),

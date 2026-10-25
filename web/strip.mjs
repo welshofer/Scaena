@@ -13,7 +13,7 @@
 //   it back, its slide shown and named in the picker, and a slide picked there straight after the
 //   undo is the one shown.
 // - + Slide opens Dusk's layouts by their sections (PLAN 3.30, 3.31, S.1, S.2): the 16 down the side as
-//   tabs, 172 layouts in all, Titles first, each drawn as it is used and named as a person calls it;
+//   tabs, 175 layouts in all, Titles first, each drawn as it is used and named as a person calls it;
 //   a tab clicked or the down arrow shows another, and the field finds a layout in any section, and
 //   by another name people call it (Kanban finds Roadmap, ADR-0031).
 //   Among the layouts, → goes to the next and ↓ to the one below, as they stand in the grid.
@@ -29,15 +29,15 @@
 //   undo that puts it back. Blank adds an empty slide after `mix`. Alt with an arrow key moves it,
 //   and so does a drag; Delete removes it, and the source is as it was.
 // - A deck whose bundle took Dusk before its library grew, 11 layouts in no section, opens with the
-//   library Dusk ships now (PLAN 3.31): + Slide offers the 16 sections and 172 layouts.
+//   library Dusk ships now (PLAN 3.31): + Slide offers the 16 sections and 175 layouts.
 // - Each is named as a person counts it (PLAN 2.99): Slide 2, Step 2; no id names one. A state
 //   another builds on is not removed, and the status says why.
 // - The state shown, taken away, leaves no error on the page, and ⌘Z and ⇧⌘Z with the strip
 //   focused undo and redo (PLAN 2.77). An undo says what it took back, and a redo what it made
 //   again, in the words the change was made in (lift-up USE-4).
 // On the trails example, the strip draws each thumbnail as it is painted, the first before every
-// state is linted. A slide whose thumbnail cannot be painted is marked so on its tile, said once in
-// the console, and not painted again until its drawing changes (lift-up STAB-4).
+// state is linted. A slide whose photo cannot be drawn (E107) is painted with the photo's box empty,
+// its tile unmarked, and the deck lints whole, so an edit paints the strip again.
 // Exits 1 on any failure.
 import { readFile } from "node:fs/promises";
 import { crc32 } from "node:zlib";
@@ -161,6 +161,10 @@ try {
   // A state shown just after an edit on the canvas stays shown once the editor lints the source.
   // The lint takes the patch's own result, which names the state shown when it was made: a click
   // on another state between the two is a move, as it is while the worker compiles.
+  // Each state's tile stays across an edit, its canvas the same element (lift-up 10-24b PERF-5).
+  await page.evaluate(() => {
+    for (const c of document.querySelectorAll("#strip li[data-state] canvas")) c.kept = c.closest("li").dataset.state;
+  });
   await item("revenue").click();
   await shows(1);
   await page.waitForFunction(() => window.scaena.canvas.boxes().some((b) => b.node === "note"), null, { timeout: 30000 });
@@ -192,6 +196,8 @@ try {
   check(then === 2 && linted === 2 && (await selected()) === "mix", `mix, clicked just after a Delete on revenue, stays shown once the source is linted: ${then} then ${linted}`);
   await undo();
   check(await back(original), "one undo takes the Delete back");
+  const kept = await page.evaluate(() => [...document.querySelectorAll("#strip li[data-state] canvas")].map((c) => c.kept === c.closest("li").dataset.state));
+  check(kept.length === 4 && kept.every(Boolean), `each tile, its canvas too, is the one it was before the Delete and its undo: ${kept}`);
 
   // + Step after revenue: in its slide, showing what it shows.
   await item("revenue").click();
@@ -292,7 +298,7 @@ try {
   }));
   const sections = "Titles,Statements,Lists,Comparison,Frameworks,Process,Time,Numbers,Charts,Pictures,People,Editorial,Diagrams,Briefing,Classroom,Closing";
   check(offered.sections.join() === sections, `the sections down the side: ${offered.sections.join(", ")}`);
-  check(offered.counted === 172 && offered.selected === "Titles", `172 layouts, Titles shown first: ${offered.counted}, ${offered.selected}`);
+  check(offered.counted === 175 && offered.selected === "Titles", `175 layouts, Titles shown first: ${offered.counted}, ${offered.selected}`);
   const titles = await drawn();
   const want = "Title,Section,Title over Photo,Title Only,Centered Title,Title beside Photo,Section and Photo,Section Number,Paper Title";
   check(titles.join() === want, `each drawn, by its name: ${titles.join(", ")}`);
@@ -523,7 +529,7 @@ try {
       counted: [...document.querySelectorAll("#starting [role=tab] .count")].reduce((n, c) => n + Number(c.textContent), 0),
     }));
     check(served > 0, `the bundle's theme is the older Dusk, served ${served} time(s)`);
-    check(brought.sections.join() === sections && brought.counted === 172, `an older Dusk opens with its library: ${brought.sections.length} sections, ${brought.counted} layouts`);
+    check(brought.sections.join() === sections && brought.counted === 175, `an older Dusk opens with its library: ${brought.sections.length} sections, ${brought.counted} layouts`);
     await fresh.close();
   }
 
@@ -565,10 +571,10 @@ try {
   );
   check(first.painted > 0 && first.linted === 0, `the first thumbnails are drawn before every state is linted: ${JSON.stringify(first)}`);
 
-  // A slide whose thumbnail cannot be painted (lift-up STAB-4): the storm slide's photo, its
-  // header whole and its pixels' stream damaged, lays out and draws no pixels. Its tile says so,
-  // the cause goes to the console once, and it is not painted again until its drawing changes,
-  // however often the strip paints.
+  // A slide whose photo cannot be drawn (E107): the storm slide's photo, its header whole and
+  // its pixels' stream damaged. Its thumbnail is painted all the same, the photo's box empty, and
+  // no tile says it couldn't be drawn (lift-up STAB-4's mark is for a slide that paints nothing).
+  // The deck lints whole, so an edit paints the strip again.
   const photo = await readFile("docs/examples/assets/trails-ridge.png");
   const damaged = Buffer.from(photo);
   const idat = damaged.indexOf("IDAT");
@@ -577,33 +583,31 @@ try {
   damaged.writeUInt32BE(crc32(damaged.subarray(idat, idat + 4 + length)), idat + 4 + length);
   const broken = await browser.newContext({ viewport: { width: 1920, height: 1200 }, deviceScaleFactor: 1 });
   await broken.route("**/assets/trails-ridge.png", (r) => r.fulfill({ contentType: "image/png", body: damaged }));
-  const unpaintable = await broken.newPage();
-  unpaintable.on("pageerror", (e) => failures.push(`unpaintable: ${e.message}`));
+  const undrawn = await broken.newPage();
+  undrawn.on("pageerror", (e) => failures.push(`undrawn: ${e.message}`));
   const warned = [];
-  unpaintable.on("console", (m) => m.type() === "warning" && m.text().includes("could not be painted") && warned.push(m.text()));
-  await unpaintable.goto(url("/docs/examples/trails.deck.json"));
-  const states = await unpaintable.evaluate(() => window.scaena.slots().length).catch(() => 15);
-  const settled = () =>
-    unpaintable.waitForFunction((n) => Object.keys(window.scaena?.strip?.digests() ?? {}).length >= n, states, { timeout: 120000 }).then(
-      () => true,
-      () => false,
-    );
-  check(await settled(), "every slide's thumbnail is painted or marked");
-  const stormTile = () =>
-    unpaintable.evaluate(() => {
-      const li = document.querySelector('#strip li[data-state="storm"]');
-      const canvas = document.querySelector('#strip li[data-state="cover"] canvas');
-      return { said: li?.querySelector(".unpainted")?.textContent ?? null, others: canvas ? canvas.width > 0 : false };
-    });
-  const stormMarked = await stormTile();
-  check(stormMarked.said === "This slide couldn’t be drawn", `the storm slide's tile says it couldn't be drawn: ${JSON.stringify(stormMarked)}`);
-  check(stormMarked.others, "and the slides around it are painted");
-  check(warned.length === 1 && warned[0].includes("storm"), `the cause is in the console once: ${JSON.stringify(warned)}`);
-  // The strip painted again, three times over: the storm slide is not tried again. (An edit would
-  // paint the strip once every state is linted, which this deck's damaged photo stops.)
-  for (let i = 0; i < 3; i++) await unpaintable.evaluate(() => window.scaena.strip.painted());
-  check(warned.length === 1, `and the storm slide is not painted again, however often the strip paints: ${warned.length} warnings`);
-  check((await stormTile()).said === "This slide couldn’t be drawn", "its tile still says so");
+  undrawn.on("console", (m) => m.type() === "warning" && m.text().includes("could not be painted") && warned.push(m.text()));
+  await undrawn.goto(url("/docs/examples/trails.deck.json"));
+  check(
+    await undrawn
+      .waitForFunction(() => window.scaena?.last()?.whole && window.scaena.strip.digests().storm, null, { timeout: 120000 })
+      .then(() => true, () => false),
+    "a deck with a photo that cannot be drawn lints whole, and the photo's slide is painted",
+  );
+  const stormTile = await undrawn.evaluate(() => {
+    const li = document.querySelector('#strip li[data-state="storm"]');
+    return { mark: li?.querySelector(".unpainted")?.textContent ?? null, painted: (li?.querySelector("canvas")?.width ?? 0) > 0 };
+  });
+  check(stormTile.painted && stormTile.mark === null && warned.length === 0, `its tile is painted, with no mark: ${JSON.stringify({ ...stormTile, warned })}`);
+  const trailsSource = await undrawn.evaluate(() => window.scaena.source());
+  const before = (await undrawn.evaluate(() => window.scaena.strip.digests())).cover;
+  await undrawn.evaluate((s) => window.scaena.type(s), trailsSource.replaceAll("High Country Trails", "High Country Paths"));
+  check(
+    await undrawn
+      .waitForFunction((was) => window.scaena.strip.digests().cover !== was, before, { timeout: 60000 })
+      .then(() => true, () => false),
+    "and an edit paints the slide it changed again",
+  );
   await broken.close();
 } finally {
   await browser.close();

@@ -527,6 +527,8 @@
       #story dt { color: var(--muted); }
       #story dd { margin: 0; }
       #story dd b { display: inline-block; min-width: 2.2em; }
+      #story [data-big-idea] { margin: 6px 0; font-style: italic; }
+      #story [data-big-idea] span { font-style: normal; color: var(--muted); margin-right: 4px; }
       #story [data-arc] svg { display: block; width: 100%; height: auto; border: 1px solid var(--line); border-radius: 4px; }
       #story .curve { fill: none; stroke: var(--muted); stroke-dasharray: 3 3; }
       #story .declared { fill: none; stroke: var(--info); stroke-width: 1.5; }
@@ -628,6 +630,18 @@
       #transcript .call pre { white-space: pre-wrap; max-height: 12em; overflow: auto; background: var(--panel); padding: 4px 6px; margin: 4px 0; }
       #transcript img { display: block; max-width: 100%; margin-top: 4px; border: 1px solid var(--line); }
       #transcript .failed { color: var(--error); }
+      /* An answer as it reads (narrative ATTR-4): its blocks laid out, the words wrapping as prose. */
+      #transcript .said { white-space: normal; }
+      #transcript .said p, #transcript .said ul, #transcript .said ol, #transcript .said h4, #transcript .said h5, #transcript .said h6 { margin: 0 0 6px; }
+      #transcript .said > :last-child { margin-bottom: 0; }
+      #transcript .said p { white-space: pre-wrap; }
+      #transcript .said ul, #transcript .said ol { padding-left: 1.4em; }
+      #transcript .said ul ul, #transcript .said ol ol, #transcript .said ul ol, #transcript .said ol ul { margin: 2px 0 0; }
+      #transcript .said h4, #transcript .said h5, #transcript .said h6 { font-size: 13px; font-weight: 600; margin-top: 4px; }
+      #transcript .said code { font-family: ui-monospace, Menlo, monospace; font-size: 12px; background: var(--panel); padding: 0 3px; border-radius: 3px; }
+      #transcript .said pre { white-space: pre-wrap; overflow: auto; background: var(--panel); padding: 4px 6px; margin: 0 0 6px; }
+      #transcript .said pre code { background: none; padding: 0; }
+      #transcript .said a.state { color: var(--ink); text-decoration: underline dotted; }
       /* Under a call that changed what states draw, each before and after (PLAN 2.93). */
       #transcript .changed { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin-top: 4px; white-space: normal; }
       #transcript .change { display: inline-flex; align-items: center; gap: 4px; padding: 3px; font-size: 11px; color: var(--muted); }
@@ -985,6 +999,7 @@
           <section id="story" role="tabpanel" aria-labelledby="tab-story" hidden>
             <p data-score aria-live="polite"></p>
             <dl data-measures></dl>
+            <p data-big-idea hidden></p>
             <div data-arc></div>
             <p data-legend><i class="declared"></i>as written <i class="read"></i>as its words read <i class="curve"></i>the arc's curve <i class="bends"></i>off it; higher is more intense</p>
             <ol data-findings aria-label="What to look at, slide by slide"></ol>
@@ -1176,7 +1191,7 @@
         <ul aria-labelledby="keeping-title"></ul>
         <p class="note" data-none hidden>This browser keeps no deck yet: Save keeps the deck open here.</p>
         <p class="note" data-said aria-live="polite"></p>
-        <p class="note">Kept in this browser's own storage, on this device alone.</p>
+        <p class="note">Kept in this browser's own storage, on this device alone. <span data-persisted></span></p>
         <menu>
           <button value="cancel">Close</button>
         </menu>
@@ -1233,6 +1248,10 @@
       <form method="dialog">
         <h2 id="writing-title">Writing</h2>
         <p class="note" id="writing-was" hidden></p>
+        <p class="fields" id="writing-how-row" hidden>
+          <label>How to rewrite it <input id="writing-how" type="text" placeholder="More formal; shorter, for executives" /></label>
+          <button type="button" id="writing-again" title="Ask again in these words">Rewrite again</button>
+        </p>
         <p id="writing-thinking" aria-live="polite"></p>
         <textarea id="writing-answer" rows="6" aria-labelledby="writing-title" hidden></textarea>
         <p id="writing-said" aria-live="polite" hidden></p>
@@ -1241,6 +1260,19 @@
           <button type="button" id="writing-key" hidden>Add a key…</button>
           <button value="cancel" id="writing-leave" formnovalidate>Leave it</button>
           <button value="use" id="writing-use" hidden>Use it</button>
+        </menu>
+      </form>
+    </dialog>
+    <dialog id="slide-ask" aria-labelledby="slide-ask-title">
+      <form method="dialog">
+        <h2 id="slide-ask-title">Write a slide</h2>
+        <label><span id="slide-ask-label">What the new slide is about</span> <textarea id="slide-ask-text" name="ask" rows="3"></textarea></label>
+        <p id="slide-ask-thinking" aria-live="polite"></p>
+        <p class="note" id="slide-ask-by"></p>
+        <menu>
+          <button type="button" id="slide-ask-key" hidden>Add a key…</button>
+          <button value="cancel" formnovalidate>Cancel</button>
+          <button type="button" id="slide-ask-go">Write the slide</button>
         </menu>
       </form>
     </dialog>

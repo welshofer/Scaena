@@ -62,13 +62,14 @@ import { picturer } from "./picturing";
 import { sourceOf } from "./bundle";
 import { canvas, canvasKeys, placed } from "./canvas";
 import { markName, noteName } from "./notes";
+import { slideAsker } from "./slide-ask";
 import { type Command, type Group, type Key, keyOf, MOD, MOD_ALT, menu, opens, palette, SHIFT, sheet } from "./commands";
 import { cue, cueKeys } from "./cue";
 import { dataKeys, sheets } from "./data";
 import { filesPanel } from "./files";
 import { storyPanel } from "./story";
 import { finder, findKeys } from "./find";
-import { deleteKept, keptBundle, keptNames, renameKept } from "./folders";
+import { deleteKept, keptBundle, keptNames, persist, persisted, renameKept } from "./folders";
 import { discard, find, keep, savedAt, type Copy } from "./recovery";
 import { formatsRow } from "./formats";
 import { layerKeys, layers } from "./layers";
@@ -103,7 +104,7 @@ import { counted as many, findings as why, inserting, moving, named, numbered, o
 import { prompting } from "./prompt";
 import { rehearsal, rehearsalKeys } from "./rehearse";
 import { scn, scnHighlight } from "./scn";
-import { client, listen, served, status as onDisk } from "./served";
+import { client, listen, served, serving, status as onDisk, token } from "./served";
 import { worker } from "./spawn";
 import { Stage } from "./stage";
 import { toolbar } from "./toolbar";
@@ -308,6 +309,11 @@ async function listKept() {
   };
   $("#keeping ul").replaceChildren(...names.map(row));
   $("#keeping [data-none]").hidden = names.length > 0;
+  // Whether the browser keeps them for good, or may clear them when short of room (lift-up
+  // 10-24b REL-4).
+  $("#keeping [data-persisted]").textContent = (await persisted())
+    ? "This browser keeps them until you delete them."
+    : "This browser may clear them when it runs short of room: Download keeps a copy of your own.";
 }
 
 /** Say `text` in Kept in this browser, over the page, and in the status under it. */
@@ -458,7 +464,7 @@ async function first(): Promise<Source> {
   const bundle = params.get("bundle");
   if (!bundle?.startsWith("folder:")) {
     const source = sourceOf(bundle, fallback);
-    return served && "url" in source ? { ...source, serve: client } : source;
+    return served && "url" in source ? { ...source, serve: serving } : source;
   }
   const name = bundle.slice("folder:".length);
   const handle = await folders<FileSystemDirectoryHandle | undefined>("readonly", (store) => store.get(name));
@@ -519,7 +525,7 @@ async function edit(source: Source, opened?: Stage) {
   stage.onError = failed;
   /** On a served page, the deck's source on disk, where the folder keeps one (PLAN 2.11). */
   const scnOnDisk = "url" in source && source.serve && (await onDisk()).source ? new URL("deck.scn", source.url) : undefined;
-  const fromDisk = async () => (await fetch(scnOnDisk!, { cache: "no-store" })).text();
+  const fromDisk = async () => (await fetch(scnOnDisk!, { cache: "no-store", headers: { "X-Scaena-Token": token } })).text();
   /** The deck's own size, named by its shape where a format is it (`16:9`); a format it lists of
    * that shape is its own canvas, offered once. An edit of the canvas renames it. */
   let ownSize = stage.opened.own;
@@ -677,7 +683,7 @@ async function edit(source: Source, opened?: Stage) {
     // The player opens a bundle by its address or from the browser's storage, not a folder.
     const playing =
       where?.kind === "serve"
-        ? new URLSearchParams({ bundle: params.get("bundle") ?? "/bundle/", serve: "" })
+        ? new URLSearchParams({ bundle: params.get("bundle") ?? "/bundle/", serve: token })
         : new URLSearchParams({ bundle: where ? `${where.kind}:${where.name}` : (params.get("bundle") ?? fallback) });
     if (params.has("painter")) playing.set("painter", painter);
     play.href = `index.html?${playing}`;
@@ -719,6 +725,7 @@ async function edit(source: Source, opened?: Stage) {
   let showings = 0;
   /** The source's version: one more with each change. A lint answers the version it read. */
   let version = 0;
+  stage.sourceVersion = () => version;
   /** A lint of every state, waiting for typing to stop. */
   let pending: ReturnType<typeof setTimeout> | undefined;
   const pause = 500;
@@ -2165,7 +2172,7 @@ async function edit(source: Source, opened?: Stage) {
     // The folder keeps the deck's source too: it is what the editor shows, renamed as the save
     // renamed files.
     if (scnOnDisk) {
-      const headers = { "X-Scaena-Client": client };
+      const headers = { "X-Scaena-Client": client, "X-Scaena-Token": token };
       const response = await fetch(scnOnDisk, { method: "PUT", body: view.state.doc.toString(), headers });
       if (!response.ok) throw new Error(`deck.scn: ${(await response.text()).trim() || response.status}`);
     }
@@ -2177,7 +2184,16 @@ async function edit(source: Source, opened?: Stage) {
     void listKept();
     // The save recorded the edits since the last: they are versions now.
     void versioning.refresh();
-    say(`Saved, ${many(done.files, "file")}${done.recorded ? ", and the changes kept in its history" : ""}`);
+    const saved = `Saved, ${many(done.files, "file")}${done.recorded ? ", and the changes kept in its history" : ""}`;
+    say(saved);
+    // Kept in this browser: the browser is asked to keep it for good (lift-up 10-24b REL-4), and a
+    // refusal is said after whatever the status says by then (what was saved, or what Play said of
+    // keeping the deck to play it), never in its place.
+    if (done.where.kind === "opfs")
+      void persist((refused) => {
+        const now = status.textContent ?? "";
+        if (!now.includes(refused)) say(now ? `${now}. ${refused}` : refused);
+      });
     return done;
   }
 
@@ -2276,6 +2292,7 @@ async function edit(source: Source, opened?: Stage) {
 
   const assistant = panel(stage, {
     source: () => view.state.doc.toString(),
+    states: () => last?.states.map(([id]) => id) ?? [],
     apply: (source, edited, touched, files = []) => {
       touching = touched?.length ? { source, nodes: touched } : undefined;
       // A theme it edited goes in the source's history with the theme's text before and after,
@@ -2318,6 +2335,24 @@ async function edit(source: Source, opened?: Stage) {
     format,
     source: () => view.state.doc.toString(),
     apply: made,
+    say,
+    keys: () => {
+      tab("assistant");
+      $("#key").focus();
+    },
+    slide: slideOf,
+  });
+  /** Write This Slide Again… and Add a Slide About… (lift-up FUNC-1): one slide written by the model the
+   * assistant uses, as the deck's generator builds slides; one step to undo. */
+  const asking = slideAsker(stage, {
+    who: () => assistant.who(),
+    shown: showing,
+    format,
+    apply: made,
+    show: (id) => {
+      const k = last?.states.findIndex(([state]) => state === id) ?? -1;
+      if (k >= 0) goTo(k);
+    },
     say,
     keys: () => {
       tab("assistant");
@@ -2480,6 +2515,10 @@ async function edit(source: Source, opened?: Stage) {
   function nodeCommands(): Command[] {
     const any = () => picked().length > 0;
     const one = () => picked().length === 1;
+    /** One text selected, and it is code as the slide shows it (PLAN 2.133, 2.139). */
+    const isCode = () => one() && !!board.boxes().find((b) => b.node === picked()[0])?.code;
+    /** One text selected, and it is prose. */
+    const prose = () => one() && typeOf(picked()[0]) === "text" && !isCode();
     const pressing = (label: string, keys: string, key: string, init: KeyboardEventInit, group: Group, applies = any): Command => ({
       label,
       keys,
@@ -2497,14 +2536,19 @@ async function edit(source: Source, opened?: Stage) {
     return [
       ...annotationCommands(),
       { label: "Type in it", keys: "Enter", group: "Type", where: ["node"], applies: () => one() && typeOf(picked()[0]) === "text", run: () => press("Enter") },
-      { label: "Bulleted list", keys: `${MOD}${SHIFT}8`, group: "Type", where: ["node"], applies: () => one() && typeOf(picked()[0]) === "text", run: () => board.list("bullet") },
-      { label: "Numbered list", keys: `${MOD}${SHIFT}7`, group: "Type", where: ["node"], applies: () => one() && typeOf(picked()[0]) === "text", run: () => board.list("number") },
+      // A list's marks, the writing tools, and the diagram makers are prose's, not code's (PLAN 2.139).
+      { label: "Bulleted list", keys: `${MOD}${SHIFT}8`, group: "Type", where: ["node"], applies: () => prose(), run: () => board.list("bullet") },
+      { label: "Numbered list", keys: `${MOD}${SHIFT}7`, group: "Type", where: ["node"], applies: () => prose(), run: () => board.list("number") },
+      // A text made code, made words again, or tidied (PLAN 2.139): each one patch.
+      { label: "Make Code", group: "Type", where: ["node"], applies: () => prose(), run: () => board.coded(picked()[0], "code") },
+      { label: "Not Code", group: "Type", where: ["node"], applies: () => isCode(), run: () => board.coded(picked()[0], "prose") },
+      { label: "Tidy Code", group: "Type", where: ["node"], applies: () => isCode(), run: () => board.coded(picked()[0], "tidy") },
       // A text's words, by the model the assistant uses, offered to take or leave (PLAN 2.101).
       ...(["proofread", "tighten", "rewrite"] as const).map(
         (kind): Command => ({
           label: TOOLS[kind],
           where: ["node"],
-          applies: () => one() && typeOf(picked()[0]) === "text",
+          applies: () => prose(),
           run: () => write(kind, picked()[0]),
         }),
       ),
@@ -2548,7 +2592,7 @@ async function edit(source: Source, opened?: Stage) {
       { label: "Copy", keys: `${MOD}C`, group: "Edit", where: ["node", "layer"], applies: any, run: () => clip("copy") },
       { label: "Cut", keys: `${MOD}X`, group: "Edit", where: ["node", "layer"], applies: any, run: () => clip("cut") },
       // A code text's words as text, for an editor or a terminal (PLAN 2.133).
-      { label: "Copy Code", where: ["node"], applies: () => one() && !!board.boxes().find((b) => b.node === picked()[0])?.code, run: () => copyCode(picked()[0]) },
+      { label: "Copy Code", where: ["node"], applies: () => isCode(), run: () => copyCode(picked()[0]) },
       // A look copied and pasted (PLAN 2.58): Option makes ⌥C a character, so the key goes by its place.
       pressing("Copy the look", `${MOD_ALT}C`, "c", mod({ altKey: true, code: "KeyC" }), "Edit", one),
       pressing("Paste the look", `${MOD_ALT}V`, "v", mod({ altKey: true, code: "KeyV" }), "Edit", () => any() && board.copiedLook() !== undefined),
@@ -2561,7 +2605,7 @@ async function edit(source: Source, opened?: Stage) {
         label: `Make a ${kind} diagram`,
         group: "Draw and insert",
         where: ["node"],
-        applies: () => one() && typeOf(picked()[0]) === "text",
+        applies: () => prose(),
         run: () => board.diagram(picked()[0], kind),
       })),
       pressing("Group", `${MOD}G`, "g", mod(), "Arrange"),
@@ -2700,6 +2744,10 @@ async function edit(source: Source, opened?: Stage) {
       // Whether its words carry its beat's claim, judged by the same model, which offers the
       // headline rewritten to carry it (narrative FUNC-4).
       { label: "Check its claim", where: ["state"], applies: () => now() !== undefined, run: () => write("claim") },
+      // Written again, or a new one after it, as the deck's generator writes slides, by the same
+      // model (lift-up FUNC-1).
+      { label: "Write this slide again…", where: ["state"], applies: () => now() !== undefined && !assisting, run: () => asking.open("redo") },
+      { label: "Add a slide about…", where: ["state"], applies: () => now() !== undefined && !assisting, run: () => asking.open("add") },
       { label: "Show the light table", applies: () => now() !== undefined && !table.open(), run: () => table.toggle(true) },
       { label: "Close the light table", applies: () => table.open(), run: () => table.toggle(false) },
       // Page Down and Page Up on the slide (PLAN 2.126).
@@ -3139,6 +3187,9 @@ async function edit(source: Source, opened?: Stage) {
       assistant,
       /** The writing tools (PLAN 2.101): one asked, and its answer taken, settled. */
       writing,
+      /** Write This Slide Again… and Add a Slide About… (lift-up FUNC-1): the dialog opened, and the last
+       * slide written, settled. */
+      slideAsk: asking,
       /** Make a picture (PLAN 2.107): the dialog opened, and the last picture made and put, settled. */
       picturing,
       /** Insert › Map… (PLAN O.1c): the sheet opened, and the last map fetched and put, settled. */

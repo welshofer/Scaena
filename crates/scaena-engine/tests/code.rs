@@ -31,7 +31,8 @@ fn deck(nodes: Value) -> Deck {
     d["nodes"] = nodes;
     d["states"] = json!([{ "id": "t", "layout": "specimen", "props": props }]);
     d["data"] = json!({});
-    serde_json::from_value(d).unwrap()
+    // As a bundle reads it: the torture deck's format, from before code stood on a card.
+    Deck::from_json(&d.to_string()).unwrap()
 }
 
 fn fonts(deck: &Deck) -> BundleFonts {
@@ -52,9 +53,20 @@ fn placed(deck: &Deck, node: &str) -> PlacedText {
     Engine::new(fonts(deck)).text_layout(&req, node).unwrap()
 }
 
-/// A code text in the torture theme's `body` role (40 cu, leading 1.35), placed `at`.
+/// A code text in the torture theme's `body` role (40 cu, leading 1.35), placed `at`, with no
+/// card: the code's own fit and look ([`framed`] gives it a card and numbers).
 fn code(text: &str, at: Value) -> Value {
-    json!({ "type": "text", "role": "body", "code": { "language": "rust" }, "text": text, "at": at })
+    json!({ "type": "text", "role": "body", "code": { "language": "rust", "card": false }, "text": text, "at": at })
+}
+
+/// A code text as [`code`] makes it, its `code` with `framing` too: a card where it says none.
+fn framed(text: &str, at: Value, framing: Value) -> Value {
+    let mut node = code(text, at);
+    node["code"].as_object_mut().unwrap().remove("card");
+    for (k, v) in framing.as_object().unwrap() {
+        node["code"][k] = v.clone();
+    }
+    node
 }
 
 /// `text` as code in `body`, laid out across `width` at `scale`: what the engine lays out for
@@ -62,7 +74,8 @@ fn code(text: &str, at: Value) -> Value {
 fn set(text: &str, width: f32, scale: f32) -> TextLayout {
     let (theme, deck) = (theme(), deck(json!({})));
     let mut spec = TextSpec::plain(theme.text_role("body").unwrap(), text);
-    spec.code = Some(CodeSpec { language: "rust".into(), tab: 4, least: 24.0 / 40.0, looks: None });
+    spec.code =
+        Some(CodeSpec { language: "rust".into(), tab: 4, least: 24.0 / 40.0, looks: None, card: None, numbers: None });
     TextEngine::new().layout(&mut fonts(&deck), &theme, &spec.scaled(scale), width).unwrap()
 }
 
@@ -347,7 +360,7 @@ fn a_code_text_is_colored_by_its_language_in_the_themes_colors() {
     // monospaced face, each glyph stands where it stood uncolored.
     let lay = |looks: Option<Box<Looks>>| {
         let mut spec = TextSpec::plain(theme.text_role("code").unwrap(), RUST);
-        spec.code = Some(CodeSpec { language: "rust".into(), tab: 4, least: 1.0, looks });
+        spec.code = Some(CodeSpec { language: "rust".into(), tab: 4, least: 1.0, looks, card: None, numbers: None });
         TextEngine::new().layout(&mut fonts(&d), &theme, &spec, 2000.0).unwrap()
     };
     let (plain, colored) = (lay(None), lay(Some(Box::new(looks))));
@@ -420,7 +433,14 @@ fn color_alone_keeps_shaping_whole() {
     let body = theme.text_role("body").unwrap();
     let lay = |looks: Option<Looks>| {
         let mut spec = TextSpec::plain(body.clone(), text);
-        spec.code = Some(CodeSpec { language: "rust".into(), tab: 4, least: 1.0, looks: looks.map(Box::new) });
+        spec.code = Some(CodeSpec {
+            language: "rust".into(),
+            tab: 4,
+            least: 1.0,
+            looks: looks.map(Box::new),
+            card: None,
+            numbers: None,
+        });
         TextEngine::new().layout(&mut fonts(&d), &theme, &spec, 4000.0).unwrap()
     };
     let width = |s: &str| {
@@ -444,4 +464,96 @@ fn color_alone_keeps_shaping_whole() {
     assert!(colors.len() >= 2, "drawn in more than one color: {colors:?}");
     let tokens = highlight(text, lang("rust"));
     assert!(tokens.len() >= 2 && tokens[0].class != tokens[1].class, "{tokens:?}");
+}
+
+#[test]
+fn code_stands_on_a_card_that_hugs_it_and_its_numbered_lines() {
+    // PLAN 2.136: a card that hugs the code and its gutter, 32 cu in where the theme says
+    // nothing, and the line numbers beside each line, from `start`.
+    let lines = "fn main() {\n    run();\n}";
+    let at = json!({ "rect": [100, 100, 1200, 600] });
+    let d = deck(json!({ "n": framed(lines, at.clone(), json!({ "numbers": true, "start": 41 })) }));
+    let p = placed(&d, "n");
+    let frame = p.frame.as_ref().expect("a card and numbers");
+    let card = frame.card.as_ref().expect("a card").rect;
+    let (beside, gutter) = frame.gutter.as_ref().expect("numbers");
+    let said: Vec<&str> = gutter.lines.iter().map(|l| gutter.text[l.text.clone()].trim()).collect();
+    assert_eq!(said, ["41", "42", "43"]);
+    for (number, line) in gutter.lines.iter().zip(&p.text.lines) {
+        assert!((beside[1] + number.baseline - (p.origin[1] + line.baseline)).abs() < 1e-3, "on its line's baseline");
+    }
+    assert!(beside[0] + gutter.width < p.origin[0], "the numbers stand left of the code");
+    // No caret, unit, word, or reader takes them: they are not the text's.
+    assert!(!p.text.text.contains("41"));
+    // The card hugs the gutter and the code, 32 cu in, at the box's top left.
+    assert_eq!([card[0], card[1]], [100.0, 100.0]);
+    assert!((beside[0] - card[0] - 32.0).abs() < 1e-3);
+    assert!((card[0] + card[2] - (p.origin[0] + p.text.width) - 32.0).abs() < 1e-3);
+    assert!(card[2] < 1200.0, "it hugs, never fills its box");
+    // `align` places it in its box.
+    let mut centered = framed(lines, at, json!({}));
+    centered["align"] = json!({ "x": "center", "y": "center" });
+    let p = placed(&deck(json!({ "n": centered })), "n");
+    let card = p.frame.as_ref().and_then(|f| f.card.as_ref()).expect("a card").rect;
+    assert!((card[0] + card[2] / 2.0 - 700.0).abs() < 1e-3 && (card[1] + card[3] / 2.0 - 400.0).abs() < 1e-3);
+    assert!(p.frame.as_ref().unwrap().gutter.is_none(), "numbers are off where it says none");
+}
+
+#[test]
+fn a_line_number_near_its_most_counts_on() {
+    let d = deck(
+        json!({ "n": framed("a\nb\nc", json!({ "rect": [100, 100, 1200, 600] }), json!({ "numbers": true, "start": 999_999 })) }),
+    );
+    let p = placed(&d, "n");
+    let (_, gutter) = p.frame.as_ref().unwrap().gutter.as_ref().unwrap();
+    let said: Vec<&str> = gutter.lines.iter().map(|l| gutter.text[l.text.clone()].trim()).collect();
+    assert_eq!(said, ["999999", "1000000", "1000001"]);
+}
+
+#[test]
+fn a_theme_with_no_card_gets_one_that_shows_and_code_reads_on_it() {
+    // The torture theme names no card: `surface-2` stepped from the surface to 1.3:1.
+    let theme = theme();
+    let card = theme.code_card().unwrap().fill;
+    let [r, g, b, _] = theme.color("surface").unwrap().0;
+    let on = ratio([card[0], card[1], card[2]], [r, g, b]);
+    assert!((1.3..1.32).contains(&on), "{on}");
+    // Every color its code is drawn in reads on the card, not just on the surface.
+    let d = deck(
+        json!({ "n": framed("let x = 1; // one", json!({ "rect": [100, 100, 1200, 600] }), json!({ "numbers": true })) }),
+    );
+    let p = placed(&d, "n");
+    let (_, gutter) = p.frame.as_ref().unwrap().gutter.as_ref().unwrap();
+    for run in p.text.runs.iter().chain(&gutter.runs) {
+        let [r, g, b, _] = run.color.0;
+        assert!(ratio([r, g, b], [card[0], card[1], card[2]]) >= READS, "{:?} on {card:?}", run.color);
+    }
+}
+
+#[test]
+fn a_deck_saved_before_code_stood_on_a_card_draws_as_it_did() {
+    let mut d: Value = serde_json::from_str(
+        &deck(json!({ "n": framed("let x = 1;", json!({ "rect": [100, 100, 1200, 600] }), json!({})) }))
+            .to_json()
+            .unwrap(),
+    )
+    .unwrap();
+    d["scaena"] = json!("0.38");
+    let old = Deck::from_json(&d.to_string()).unwrap();
+    assert_eq!(old.nodes["n"].props["code"]["card"], json!(false));
+    assert!(placed(&old, "n").frame.is_none());
+}
+
+#[test]
+fn code_on_a_card_collides_by_its_card() {
+    // PLAN 2.136: what E101 judges code on a card by is its card, which its words stand inside.
+    let at = json!({ "rect": [100, 100, 1200, 600] });
+    let carded = framed("let x = 1;", at.clone(), json!({}));
+    let card = placed(&deck(json!({ "n": carded.clone() })), "n").frame.unwrap().card.unwrap().rect;
+    // A label over the card's right edge, clear of its words by most of the inset.
+    let label = json!({ "type": "text", "role": "body", "text": "Note", "at": { "rect": [card[0] + card[2] - 12.0, card[1] + 8.0, 300, 80] } });
+    let collides =
+        |n: Value| lint(&deck(json!({ "n": n, "label": label.clone() }))).iter().any(|(c, _, _)| c == "E101");
+    assert!(collides(carded), "the label stands on the card");
+    assert!(!collides(code("let x = 1;", at)), "with no card, it is clear of the words");
 }

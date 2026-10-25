@@ -83,9 +83,10 @@ fn lint_with(bundle: &Path, args: &[&str]) -> (i32, Vec<Value>) {
 }
 
 /// Each rule's trigger, and where in the deck it finds what it finds.
-const RULES: [(&str, &[&str]); 48] = [
+const RULES: [(&str, &[&str]); 49] = [
     ("E100", &["/nodes/t"]),
     ("E101", &["/nodes/b", "/nodes/note", "/nodes/src"]),
+    ("E107", &["/nodes/pic"]),
     ("E110", &["/nodes/t"]),
     ("E111", &["/nodes/t"]),
     ("E120", &["/nodes/t"]),
@@ -166,7 +167,7 @@ fn deck(data: Value, nodes: Value) -> Value {
     let props: serde_json::Map<String, Value> =
         nodes.as_object().unwrap().keys().map(|k| (k.clone(), serde_json::json!({}))).collect();
     serde_json::json!({
-        "scaena": "0.38",
+        "scaena": "0.39",
         "canvas": { "width": 1920, "height": 1080 },
         "theme": "theme.json",
         "fonts": [
@@ -220,8 +221,9 @@ fn chart_text_is_judged_in_its_color_over_what_the_chart_paints() {
 /// the node's own.
 #[test]
 fn code_is_judged_at_the_colors_it_is_drawn_in() {
+    // Code on no card: its colors are held to the surface (PLAN 2.136).
     let code = serde_json::json!({
-        "type": "text", "role": "body", "code": { "language": "rust" },
+        "type": "text", "role": "body", "code": { "language": "rust", "card": false },
         "text": "fn main() {\n    let greeting = \"hello\"; // says hi\n}", "at": { "in": "main" }
     });
     let keywords_in_line =
@@ -235,7 +237,15 @@ fn code_is_judged_at_the_colors_it_is_drawn_in() {
     let bad = contrast(&found);
     assert!(!bad.is_empty() && bad.iter().all(|f| f["path"] == "/nodes/n"), "{found:#?}");
     assert!(bad[0]["hint"].as_str().unwrap().contains("theme's code colors"), "{:#?}", bad[0]);
-    assert!(bad[0].get("fix").is_none(), "{:#?}", bad[0]);
+    // Its fix is its card, which its colors are held to read on (PLAN 2.136).
+    let fix = bad[0]["fix"].as_array().unwrap_or_else(|| panic!("{:#?}", bad[0]));
+    assert!(fix.iter().any(|op| op["path"] == "/nodes/n/code/card" && op["value"] == true), "{fix:#?}");
+    // On its card, it reads over the light shape, which the card lies over.
+    let mut carded = code.clone();
+    carded["code"]["card"] = true.into();
+    let over = deck(serde_json::json!({}), serde_json::json!({ "under": light, "n": carded }));
+    let (_, found) = lint(&bundle("code-carded", &over, keywords_in_line));
+    assert!(contrast(&found).is_empty(), "{found:#?}");
 }
 
 #[test]
@@ -426,6 +436,43 @@ fn lint_fix_applies_what_lint_offers_and_lints_again() {
     assert_eq!(out.status.code(), Some(0));
     assert!(String::from_utf8_lossy(&out.stdout).contains("nothing to fix"));
     assert_eq!(std::fs::read(dir.join("deck.json")).unwrap(), before);
+}
+
+/// A text set larger than the body whose descenders alone reach down into the text under it is
+/// E101 with I405's step: set smaller, found clear at the size it offers, and `lint --fix` leaves
+/// nothing over the other. One that half its size would not clear, and body text over body text,
+/// the rule's trigger, are offered no fix.
+#[test]
+fn a_large_texts_tail_over_the_text_under_it_is_fitted_and_nothing_else_is() {
+    // A figure standing on its box's foot, and a caption from `y` down under it.
+    let under = |y: u32| {
+        let nodes = serde_json::json!({
+            "big": { "type": "text", "role": "numeral", "text": "Typography",
+                     "at": { "rect": [96, 96, 1728, 160] }, "align": { "y": "end" } },
+            "under": { "type": "text", "role": "caption", "text": "What the figure counts",
+                       "at": { "rect": [96, y, 1728, 40] } }
+        });
+        deck(serde_json::json!({}), nodes)
+    };
+    let (_, found) = lint(&bundle("tail-deep", &under(256), |_| {}));
+    let e101 = found.iter().find(|f| f["code"] == "E101").unwrap();
+    assert!(e101.get("fix").is_none(), "half its size would not clear it: {e101:#}");
+
+    let dir = bundle("tail", &under(266), |_| {});
+    let (_, found) = lint(&dir);
+    let e101 = found.iter().find(|f| f["code"] == "E101").unwrap();
+    assert_eq!(e101["node"], "big", "found at the text its fix sets smaller: {e101:#}");
+    let fix = e101["fix"].as_array().unwrap();
+    let most = fix.iter().find(|op| op["path"] == "/nodes/big/maxSize").unwrap()["value"].as_f64().unwrap();
+    assert!((80.0..160.0).contains(&most), "smaller, never under half its size: {e101:#}");
+    let out = scaena(&["--json", "lint", dir.to_str().unwrap(), "--fix"]);
+    let v: Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert!(v["fixed"].as_array().unwrap().iter().any(|f| f["code"] == "E101"), "{v:#}");
+    assert!(v["findings"].as_array().unwrap().iter().all(|f| f["code"] != "E101"), "{v:#}");
+
+    let (_, found) = lint(&fixture("tail-body", "E101", "trigger"));
+    let unfixed: Vec<&Value> = found.iter().filter(|f| f["code"] == "E101").collect();
+    assert!(!unfixed.is_empty() && unfixed.iter().all(|f| f.get("fix").is_none()), "{unfixed:#?}");
 }
 
 /// A beat planned before its slide, in a spine written first, is reported and never fixed away:

@@ -135,7 +135,8 @@ bool scaena_laying_lay(struct ScaenaLaying *laying);
 // string, or null.
 char *scaena_lint_laid(struct ScaenaSession *session, struct ScaenaLaying *laying, const char *now);
 
-// The narrative health of `laying`'s deck (PLAN G.9), as `health` gives the session's:
+// The narrative health of `laying`'s deck (PLAN G.9), as `health` gives the session's, beside
+// what the session's last lint found, a slide lint finds broken first (lift-up 10-24b STAB-1):
 // `{"ok": health}`. Read on the thread that calls it, which touches no session, so the Story
 // panel's reading of a deck as it is typed leaves the window's thread free (lift-up narrative
 // PERF-1). It lays nothing out, and may be read before or after [`scaena_laying_lay`].

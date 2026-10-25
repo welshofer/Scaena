@@ -13,7 +13,7 @@
 // - What a browser cannot read says so, and where it is read: an SEC filing, and a page whose
 //   site lets no other page read it. A provider that refuses the key says so in the dialog,
 //   which stays open to try again.
-// - Cancel stops the worker making the deck, and the deck open stays open.
+// - Cancel stops the worker making the deck once asked, Escape too, and the deck open stays open.
 // - A deck in a script the theme's fonts do not draw takes the script's font (PLAN G.22), before
 //   the provider is asked anything: Japanese's, which cannot be fetched here, says so; Hindi's is
 //   fetched from where google/fonts serves it, once, and kept by the browser for the next deck.
@@ -126,8 +126,8 @@ const provider = createServer(async (req, res) => {
     const look = { slides: [{ slide: 1, layout: "", title: "Carbon-negative cargo, ready to scale", subtitle: "", bullets: [], why: "One idea, one line." }] };
     return reply(200, { content: [{ type: "text", text: JSON.stringify(look) }], stop_reason: "end_turn" });
   }
-  // Each text asked for shorter, cut to the most characters it may have.
-  const texts = [...prompt.matchAll(/id: (.+)\nat most: (\d+) characters\ntext:\n([^\n]*)/g)].map(([, id, most, said]) => ({
+  // Each text asked for shorter, its words read back from their fence, cut to the most characters it may have.
+  const texts = [...prompt.matchAll(/id: (.+)\nat most: (\d+) characters\ntext:\n<data label="text">\n([^\n]*)/g)].map(([, id, most, said]) => ({
     id,
     text: said.slice(0, Math.max(1, Number(most) - 1)).trim(),
   }));
@@ -142,7 +142,8 @@ try {
   const page = await browser.newPage({ viewport: { width: 1600, height: 1000 }, deviceScaleFactor: 1 });
   page.on("pageerror", (e) => failures.push(`page: ${e.message}`));
   page.on("console", (m) => m.type() === "error" && !/Failed to (load resource|fetch)|CORS/.test(m.text()) && failures.push(`console: ${m.text()}`));
-  page.on("dialog", (d) => d.accept());
+  const accepting = (d) => d.accept();
+  page.on("dialog", accepting);
   await page.goto(`${site.origin}/web/dist/editor.html?painter=cpu&bundle=/docs/examples/revenue.deck.json`);
   await page.waitForFunction(() => window.scaena?.last() && window.scaena.where().name === "revenue", null, { timeout: 120000 });
   // No key kept: the dialog takes one in place, in a page of its own, so what it chose leaves the
@@ -290,7 +291,7 @@ try {
   const hindi = await failed();
   const fetching = (await lines()).find((l) => l.startsWith("Fetching"));
   check(fetching === "Fetching Noto Sans Devanagari, the font a deck in Hindi is set in (0.6 MB)…", `the progress says the font is fetched, and how large: ${fetching}`);
-  check(hindi.includes("invalid x-api-key") && requests.length > 0, `then the provider is asked: ${hindi}`);
+  check(hindi.includes("Anthropic didn't accept your key") && requests.length > 0, `then the provider is asked: ${hindi}`);
   const devanagari = () => fetched.filter((u) => u.includes("NotoSansDevanagari")).length;
   check(devanagari() === 1, `the font is fetched once: ${devanagari()}`);
   // Kept by the browser: the next deck in Hindi fetches nothing.
@@ -302,20 +303,36 @@ try {
   await page.fill("#prompting-language", "");
   await page.click("#prompting details > summary");
 
-  // A provider that refuses the key says so, and Generate is there to try again.
+  // A provider that refuses the key says so in a person's words, as the pictures do (lift-up
+  // USE-3), and Generate is there to try again.
   state.fail = true;
   await page.click("#prompting-go");
   const refused = await failed();
-  check(refused.includes("invalid x-api-key"), `the provider's refusal in its words: ${refused}`);
+  check(refused.includes("Anthropic didn't accept your key. Check it, or replace it."), `the refusal in a person's words: ${refused}`);
+  check(!refused.includes("invalid x-api-key"), `and not the provider's: ${refused}`);
   await page.waitForFunction(() => !document.querySelector("#prompting-go").disabled, null, { timeout: 30000 });
   check(true, "Generate can be pressed again");
   check((await page.inputValue("#prompting-goal")) === "Persuade", "what was chosen stays chosen after a failed run");
   state.fail = false;
 
-  // Cancel stops it; the deck open stays open.
+  // Cancel stops it, once asked (lift-up 10-24 USE-2): kept making, Cancel and Escape leave it
+  // running; stopped, the deck open stays open.
   state.slow = 4000;
   await page.click("#prompting-go");
   await page.waitForFunction(() => [...document.querySelectorAll("#prompting-progress li")].some((l) => l.textContent.startsWith("Choosing the arc")), null, { timeout: 60000 });
+  page.off("dialog", accepting);
+  const askedFirst = [];
+  const declining = (d) => (askedFirst.push(d.message()), d.dismiss());
+  page.on("dialog", declining);
+  await page.click("#prompting-cancel");
+  await page.locator("#prompting").press("Escape");
+  await page.waitForTimeout(300);
+  check(
+    askedFirst.length === 2 && askedFirst.every((m) => m.startsWith("Stop making the deck?")) && (await page.locator("#prompting").evaluate((d) => d.open)),
+    `Cancel and Escape ask first while it runs, and kept making, it stays open: ${askedFirst.join(" | ")}`,
+  );
+  page.off("dialog", declining);
+  page.on("dialog", accepting);
   await page.click("#prompting-cancel");
   check(!(await page.locator("#prompting").evaluate((d) => d.open)), "Cancel closes the dialog");
   await page.waitForTimeout(5000);
@@ -407,6 +424,11 @@ try {
   );
   check(slides?.prompt.includes(`=== SOURCE: ${press}/press.html ===`) && slides.prompt.includes("third route"), "the web page is in the slides' prompt");
   check(slides?.prompt.includes("=== SOURCE: q3.csv ==="), "the CSV is in the slides' prompt");
+  const gave = (await lines()).filter((l) => l.startsWith("Grounded in "));
+  check(
+    gave.length === 3 && gave.some((l) => /^Grounded in notes\.md \(markdown, 1 KB\)$/.test(l)),
+    `what each source gave is said before the arc is asked for: ${gave.join(" · ")}`,
+  );
   const look = requests.find((r) => r.asked === "look");
   const drawn = look?.body.messages[0].content.filter((c) => c.type === "image") ?? [];
   check(
@@ -493,15 +515,24 @@ try {
   ).catch(() => {});
   const back = await page.evaluate(() => window.scaena.story.health()?.findings.map((f) => `${f.slide} ${f.kind}`));
   check(back.includes(`${slide} ${kind}`), `undone, the finding is back: ${back}`);
-  // A row's questions are asked together.
+  // A row's questions are asked together, with the slide they are about shown, whichever was
+  // (lift-up USE-5): another slide is shown first.
   const asked = page.locator("#story [data-findings] li [data-ask]").first();
-  const question = await page.evaluate(() => {
+  const { question, about } = await page.evaluate(() => {
     const { findings } = window.scaena.story.health();
-    return findings.filter((f) => f.slide === findings[0].slide).map((f) => f.ask).join(" ");
+    const run = findings.filter((f) => f.slide === findings[0].slide);
+    return { question: run.map((f) => f.ask).join(" "), about: window.scaena.last().states.findIndex(([id]) => id === run[0].state) };
   });
+  const other = await page.evaluate((i) => (i === 0 ? window.scaena.last().states.length - 1 : 0), about);
+  const elsewhere = await page.evaluate((i) => window.scaena.last().states[i][1], other);
+  await page.evaluate((offset) => window.scaena.cursor(offset), elsewhere);
+  await page.waitForFunction((i) => window.scaena.shown() === i, other, { timeout: 30000 }).catch(() => {});
   await asked.click();
+  await page.waitForFunction((q) => document.querySelector("#question")?.value === q, question, { timeout: 30000 }).catch(() => {});
   check((await page.getAttribute("#tab-assistant", "aria-selected")) === "true", "a question opens the assistant's tab");
   check((await page.inputValue("#question")) === question, `the question is in its box: ${question}`);
+  const shown = await page.evaluate(() => window.scaena.shown());
+  check(shown === about && about !== other, `with the slide it is about shown, not the one that was: ${shown} (about ${about}, was ${other})`);
   // The slide moved goes back, so what follows reads the deck as made.
   await page.locator("#overlay").focus();
   await page.keyboard.press("Control+z");

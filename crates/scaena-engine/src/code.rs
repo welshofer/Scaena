@@ -45,6 +45,48 @@ pub struct TokenLook {
 /// the 16 kinds in `Class::KINDS`' order.
 pub type Looks = [TokenLook; 17];
 
+/// The room between a code card's edges and the code, canvas units, where the theme says none.
+pub const INSET: f32 = 32.0;
+
+/// How far a code card stands off the surface where the theme names it no fill: `surface-2`,
+/// stepped by the least lightness to read so on a projector (ADR-0029).
+pub const CARD_STEP: f64 = 1.3;
+
+/// The room between a code text's line numbers and its code, in ems of its size, where the theme
+/// says none.
+pub const GAP: f32 = 1.0;
+
+/// The card a code text stands on (PLAN 2.136, ADR-0029), as the theme draws it: its fill, opaque,
+/// which is the ground its colors are held to, and its corners, inset, outline, and shadow, as a
+/// rect shape's are written.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CardLook {
+    pub fill: [u8; 4],
+    pub radius: Option<Value>,
+    pub inset: f32,
+    pub stroke: Option<String>,
+    pub shadow: Option<String>,
+}
+
+/// A code text's line numbers (PLAN 2.136): the number its first line goes by, their color, held
+/// to read on its ground, and the room between them and the code, in ems of its size.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Numbers {
+    pub start: u32,
+    pub color: [u8; 4],
+    pub gap: f32,
+}
+
+/// What a code text's `code` says of its card and numbers: whether it stands on a card (on where
+/// unset), and the number its first line goes by where its lines are numbered.
+pub fn framed(props: &Props) -> (bool, Option<u32>) {
+    let code = props.get("code");
+    let card = code.and_then(|c| c.get("card")).and_then(Value::as_bool).unwrap_or(true);
+    let numbered = code.and_then(|c| c.get("numbers")).and_then(Value::as_bool).unwrap_or(false);
+    let start = code.and_then(|c| c.get("start")).and_then(Value::as_u64).map_or(1, |n| n.clamp(1, 999_999) as u32);
+    (card, numbered.then_some(start))
+}
+
 /// A code text's settings, as the cascade reads them.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CodeSpec {
@@ -58,6 +100,10 @@ pub struct CodeSpec {
     /// How each class of its tokens is drawn ([`Looks`]): none draws every token as its plain
     /// words.
     pub looks: Option<Box<Looks>>,
+    /// The card it stands on, where it stands on one.
+    pub card: Option<CardLook>,
+    /// Its line numbers, where its lines are numbered.
+    pub numbers: Option<Numbers>,
 }
 
 impl CodeSpec {
@@ -70,7 +116,14 @@ impl CodeSpec {
         let language = code.get("language").and_then(Value::as_str).unwrap_or("plain");
         let own = props.get("minSize").and_then(Value::as_f64).map(|m| m as f32);
         let least = own.or(min).unwrap_or(floor(canvas)) / size;
-        Some(CodeSpec { language: language.to_string(), tab: TAB, least: least.min(1.0), looks: None })
+        Some(CodeSpec {
+            language: language.to_string(),
+            tab: TAB,
+            least: least.min(1.0),
+            looks: None,
+            card: None,
+            numbers: None,
+        })
     }
 
     /// The runs of `written`, its words as written, that its tokens draw in another look than its
@@ -110,7 +163,7 @@ impl CodeSpec {
 /// The SHA-256 of each file of the tables the scanners read (`scaena_core::code::tables`, in
 /// `crates/scaena-core/code/`), in hex: what one handed over is held to.
 pub const TABLES: [(&str, &str); 11] = [
-    ("clike", "8e61a3d34f8c08a4fb8bc12ebbaeaf5070d209624def3d49a67dee2b74f78112"),
+    ("clike", "8c87ffd411a530756888b9512a8ab397f81afbf22fd2fb1655ec92ddaa652463"),
     ("css", "085c66feb5ee53507e0875db5d35e71bc9d6785ad36bc377e3f696141ff096ca"),
     ("dockerfile", "1a3268dea51c84dfe3f27782000e86b8e74d6bee771226f9cfc2e02b47837dce"),
     ("graphql", "97ce256e18c0e12d03e1a63c372a3c675c7952c9ee27a1b7afbf28883d1a17d2"),

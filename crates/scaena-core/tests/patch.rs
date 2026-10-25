@@ -454,7 +454,7 @@ fn an_op_that_would_not_do_what_it_says_is_refused() {
 #[test]
 fn set_text_takes_runs_away_and_null_takes_a_property_away() {
     let doc = json!({
-        "scaena": "0.38", "canvas": { "width": 1920, "height": 1080 },
+        "scaena": "0.39", "canvas": { "width": 1920, "height": 1080 },
         "nodes": { "t": { "type": "text", "runs": [{ "text": "Hello" }], "fit": "shrink", "at": { "in": "canvas" } } },
         "states": [{ "id": "a", "props": { "t": {} } }, { "id": "b" }],
     });
@@ -594,7 +594,7 @@ fn place_forks_a_placement_into_its_state() {
         .unwrap_err();
     assert!(e.to_string().contains("`fork`"), "{e}");
     let doc = json!({
-        "scaena": "0.38", "canvas": { "width": 1920, "height": 1080 },
+        "scaena": "0.39", "canvas": { "width": 1920, "height": 1080 },
         "nodes": { "u": { "type": "text", "text": "Yo", "at": { "col": [1, 4] } } },
         "overrides": { "u": { "at": { "rect": [10, 10, 300, 100] } } },
         "states": [{ "id": "a", "props": { "u": {} } }],
@@ -607,7 +607,7 @@ fn place_forks_a_placement_into_its_state() {
 #[test]
 fn place_follows_a_node_out_and_back_and_into_its_overrides() {
     let doc = json!({
-        "scaena": "0.38", "canvas": { "width": 1920, "height": 1080 },
+        "scaena": "0.39", "canvas": { "width": 1920, "height": 1080 },
         "nodes": {
             "t": { "type": "text", "text": "Hi", "at": { "in": "grid", "align": "center" } },
             "u": { "type": "text", "text": "Yo", "at": { "col": [1, 4] } },
@@ -655,7 +655,7 @@ fn place_follows_a_node_out_and_back_and_into_its_overrides() {
 #[test]
 fn place_says_what_places_a_node() {
     let doc = json!({
-        "scaena": "0.38", "canvas": { "width": 1920, "height": 1080 },
+        "scaena": "0.39", "canvas": { "width": 1920, "height": 1080 },
         "nodes": {
             "row": { "type": "stack", "axis": "x", "at": { "in": "grid" } },
             "a": { "type": "text", "text": "A", "at": { "parent": "row" } },
@@ -705,7 +705,7 @@ fn place_says_what_places_a_node() {
 #[test]
 fn place_moves_a_node_into_another_container_or_onto_the_canvas() {
     let doc = json!({
-        "scaena": "0.38", "canvas": { "width": 1920, "height": 1080 },
+        "scaena": "0.39", "canvas": { "width": 1920, "height": 1080 },
         "nodes": {
             "row": { "type": "stack", "axis": "x", "at": { "col": [1, 6], "row": [1, 3] } },
             "a": { "type": "text", "text": "A", "at": { "parent": "row" } },
@@ -921,7 +921,7 @@ fn style_text_gives_characters_a_look_where_the_text_lives() {
 
     // A role, a color the theme names, and emphasis; characters, not bytes, counted.
     let doc = json!({
-        "scaena": "0.38", "canvas": { "width": 1920, "height": 1080 },
+        "scaena": "0.39", "canvas": { "width": 1920, "height": 1080 },
         "nodes": {
             "t": { "type": "text", "role": "body", "at": { "in": "title" },
                    "runs": [{ "text": "Hello " }, { "text": "wörld", "emphasis": "high" }, { "text": "!" }] },
@@ -1039,7 +1039,7 @@ fn style_text_gives_characters_features_and_axes_of_their_own() {
 #[test]
 fn replace_text_keeps_runs_and_their_looks() {
     let doc = json!({
-        "scaena": "0.38", "canvas": { "width": 1920, "height": 1080 },
+        "scaena": "0.39", "canvas": { "width": 1920, "height": 1080 },
         "nodes": {
             "t": { "type": "text", "at": { "in": "title" },
                    "runs": [{ "text": "Hello " }, { "text": "wörld", "emphasis": "strong" }, { "text": "!" }] },
@@ -1099,7 +1099,7 @@ fn replace_text_keeps_runs_and_their_looks() {
 #[test]
 fn replace_text_over_a_run_keeps_its_look() {
     let doc = json!({
-        "scaena": "0.38", "canvas": { "width": 1920, "height": 1080 },
+        "scaena": "0.39", "canvas": { "width": 1920, "height": 1080 },
         "nodes": {
             "t": { "type": "text", "at": { "in": "title" },
                    "runs": [{ "text": "This quarter " }, { "text": "chnaged", "emphasis": "high" }, { "text": " the shape." }] },
@@ -1840,7 +1840,7 @@ fn annotate_writes_a_charts_annotations_where_they_live() {
 fn list_marks_a_texts_paragraphs_and_replace_text_keeps_them_in_step() {
     // ADR-0018, PLAN 2.69: `t`'s three paragraphs, its list on the node; `b` forks its text.
     let doc = json!({
-        "scaena": "0.38", "canvas": { "width": 1920, "height": 1080 },
+        "scaena": "0.39", "canvas": { "width": 1920, "height": 1080 },
         "nodes": {
             "t": { "type": "text", "role": "body", "text": "One\nTwo\nThree", "at": { "in": "body" } },
         },
@@ -2314,4 +2314,25 @@ fn typing_in_a_list_built_by_bullet_keeps_its_steps_in_step() {
     .doc;
     assert_eq!(more["nodes"]["list"]["text"], json!("Plants\nLeaves\n\nChlorophyll\nWater is split"));
     assert_eq!(drawn(&more), drawn(&typed));
+}
+
+/// A node or a state the deck does not have is refused with the id meant, where one is near it:
+/// within a few edits, or one holding the name asked; else with the first few the deck has
+/// (lift-up 10-24b USE-5).
+#[test]
+fn an_id_the_deck_has_not_is_refused_with_the_one_meant() {
+    let refused = |ops: Value| patch(&example(), ops).unwrap_err().message;
+    let typo = refused(json!([{ "op": "set_text", "node": "titel", "text": "Q3" }]));
+    assert!(typo.ends_with("no node `titel`; did you mean `title`?"), "{typo}");
+    let held = refused(json!([{ "op": "set_text", "node": "sub", "text": "Q3" }]));
+    assert!(held.ends_with("no node `sub`; did you mean `subtitle`?"), "{held}");
+    let state = refused(json!([{ "op": "set_state", "id": "revnue", "prop": "hold", "value": 1 }]));
+    assert!(state.ends_with("no state `revnue`; did you mean `revenue`?"), "{state}");
+    let far = refused(json!([{ "op": "set_text", "node": "zzzzzz", "text": "Q3" }]));
+    assert!(
+        far.ends_with("no node `zzzzzz`; the deck's nodes include `bg`, `title`, `subtitle`, `rev`, `note`"),
+        "{far}"
+    );
+    let moved = refused(json!([{ "op": "move_state", "id": "mix", "after": "clsoe" }]));
+    assert!(moved.ends_with("no state `clsoe`; did you mean `close`?"), "{moved}");
 }

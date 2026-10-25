@@ -176,7 +176,7 @@ A file dropped on the source joins the bundle, and its path, quoted, goes where 
 
 **Your own deck in the site.** Copy its folder into the site's `decks/`, then open `editor.html?bundle=decks/my-talk/`, or the same address on `index.html` to play it. **Open folder…** shows only where the browser can open one (Chrome and Edge, not Safari or Firefox). Elsewhere, saves stay in the browser until you **Download .scaena**, or until you serve the folder with `scaena serve` instead.
 
-**Start a deck.** **New…** asks for a title and a theme. The deck it makes has the theme and the fonts the theme names, as an assistant's `deck_create` makes one, and opens on a title slide in the theme's `title` layout: its title, the line under it, and its kicker are words to type over, and the place for a picture is outlined. Its first **Save** keeps it in the browser under a name made from its title; **Save as…** puts it in a folder on your disk instead. To start from another deck, open that one and **Save as…** under a new name.
+**Start a deck.** **New…** asks for a title and a theme. The deck it makes has the theme and the fonts the theme names, as an assistant's `deck_create` makes one, and opens on a title slide in the theme's `title` layout: its title, the line under it, and its kicker are words to type over, and the place for a picture holds the theme's backdrop, as the dialog shows it. Its first **Save** keeps it in the browser under a name made from its title; **Save as…** puts it in a folder on your disk instead. To start from another deck, open that one and **Save as…** under a new name.
 
 ## The command line: edit, check, look
 
@@ -409,6 +409,8 @@ Each layout's slots say what goes in them (`prompt`, SPEC §3.6): words to type 
 | `pros-cons` | `kicker`, `header`, `first-title`, `first`, `second-title`, `second` | Pros and Cons, in Comparison |
 | `three-columns` | `kicker`, `header`, `first-title`, `second-title`, `third-title`, `first`, `second`, `third` | Three Columns, in Comparison |
 | `cards` | `kicker`, `header`, `first-card`, `second-card`, `third-card`, `first-title`, `second-title`, `third-title`, `first`, `second`, `third` | Cards, in Comparison |
+| `four-columns` | `kicker`, `header`, `first-title`, `second-title`, `third-title`, `fourth-title`, `first`, `second`, `third`, `fourth` | Four Columns, in Comparison |
+| `four-cards` | `kicker`, `header`, `first-card`, `second-card`, `third-card`, `fourth-card`, `first-title`, `second-title`, `third-title`, `fourth-title`, `first`, `second`, `third`, `fourth` | Four Cards, in Comparison |
 | `before-after` | `kicker`, `header`, `first-art`, `arrow`, `second-art`, `first`, `second` | Before and After, in Comparison |
 | `head-to-head` | `kicker`, `header`, `middle-card`, `first-title`, `second-title`, `first-criterion`, `second-criterion`, `third-criterion`, `first-left`, `second-left`, `third-left`, `first-right`, `second-right`, `third-right` | Head to Head, in Comparison |
 | `scenarios` | `kicker`, `header`, `first-card`, `second-card`, `third-card`, `first-title`, `second-title`, `third-title`, `first-figure`, `second-figure`, `third-figure`, `first`, `second`, `third` | Scenarios, in Comparison |
@@ -503,6 +505,7 @@ Each layout's slots say what goes in them (`prompt`, SPEC §3.6): words to type 
 | `bio` | `kicker`, `art`, `name`, `role`, `story` | Bio, in People |
 | `team-four` | `kicker`, `header`, `first-art`, `second-art`, `third-art`, `fourth-art`, `first-title`, `second-title`, `third-title`, `fourth-title`, `first`, `second`, `third`, `fourth` | Team of Four, in People |
 | `team-six` | `kicker`, `header`, `first-art`, `second-art`, `third-art`, `fourth-art`, `fifth-art`, `sixth-art`, `first-title`, `second-title`, `third-title`, `fourth-title`, `fifth-title`, `sixth-title`, `first`, `second`, `third`, `fourth`, `fifth`, `sixth` | Team of Six, in People |
+| `team-names` | `kicker`, `header`, `first-card`, `second-card`, `third-card`, `fourth-card`, `fifth-card`, `sixth-card`, `first-title`, `second-title`, `third-title`, `fourth-title`, `fifth-title`, `sixth-title`, `first`, `second`, `third`, `fourth`, `fifth`, `sixth` | Team by Name, in People |
 | `org-chart` | `kicker`, `header`, `top-card`, `first-card`, `second-card`, `third-card`, `trunk`, `branch`, `first-drop`, `second-drop`, `third-drop`, `top`, `first`, `second`, `third` | Org Chart, in People |
 | `speaker` | `art`, `name`, `role`, `talk` | Speaker, in People |
 | `two-quotes` | `kicker`, `header`, `first-card`, `second-card`, `first`, `second`, `first-note`, `second-note` | Two Quotes, in People |

@@ -6,7 +6,7 @@
 
 use crate::{Failure, guarded, said};
 use base64::Engine;
-use scaena_chat::{Call, Chat, Client, Facts, Message, Provider, RESOURCE_READ, Request, Seeing, ToolResult};
+use scaena_chat::{Call, Chat, Client, Facts, Message, Provider, RESOURCE_READ, Request, Seeing, Stream, ToolResult};
 use scaena_session::Session;
 use scaena_session::assistant::{Caller, TOOLS, failure};
 use serde_json::{Value, json};
@@ -18,6 +18,8 @@ const STOPPED: &str = "the user stopped the assistant";
 pub struct Asking {
     chat: Chat,
     ran: Vec<ToolResult>,
+    /// The answer being read as it is written (narrative ATTR-3): what `heard` has been fed.
+    heard: Option<Stream>,
 }
 
 impl Asking {
@@ -30,7 +32,7 @@ impl Asking {
         let tools = scaena_chat::tools(TOOLS).map_err(said)?;
         let mut chat = Chat::new(provider, model, String::new(), tools);
         chat.base = args.get("base").and_then(Value::as_str).filter(|b| !b.is_empty()).map(str::to_string);
-        Ok(Asking { chat, ran: Vec::new() })
+        Ok(Asking { chat, ran: Vec::new(), heard: None })
     }
 
     /// One step of the conversation, by its name.
@@ -55,8 +57,19 @@ impl Asking {
                 self.ran.clear();
                 Value::Null
             }
-            "request" => request(self.chat.request(arg("key")?)),
+            "request" => {
+                self.heard = None;
+                request(self.chat.request(arg("key")?))
+            }
+            // The answer as it is written (narrative ATTR-3): `chunk`, the next piece of the
+            // body the client reads, in whatever pieces the network hands it; the words it
+            // completes, for the window to show. `answer` then reads the body whole.
+            "heard" => {
+                let stream = self.heard.get_or_insert_with(|| Stream::new(self.chat.provider));
+                json!({ "text": stream.feed(arg("chunk")?) })
+            }
             "answer" => {
+                self.heard = None;
                 let status = (args.get("status").and_then(Value::as_u64))
                     .and_then(|s| u16::try_from(s).ok())
                     .ok_or_else(|| said("answer: `status` is an HTTP status it needs"))?;
@@ -245,7 +258,7 @@ fn facts(s: &Session) -> Result<Facts, Failure> {
 fn skills(s: &Session) -> Vec<String> {
     (s.files().iter())
         .filter_map(|path| path.strip_prefix("skills/")?.strip_suffix("/SKILL.md"))
-        .filter(|name| !name.is_empty() && !name.contains('/'))
+        .filter(|name| scaena_chat::skill_name(name))
         .map(str::to_string)
         .collect()
 }
@@ -300,7 +313,7 @@ fn read(s: &Session, args: &Value) -> (String, bool) {
     let Some(uri) = args.get("uri").and_then(Value::as_str) else {
         return (json!({ "message": "resource_read takes `uri`, a string" }).to_string(), true);
     };
-    let skill = uri.strip_prefix("bundle://skills/").filter(|name| !name.is_empty() && !name.contains('/'));
+    let skill = uri.strip_prefix("bundle://skills/").filter(|name| scaena_chat::skill_name(name));
     if uri == "bundle://theme" {
         // The theme the deck is drawn in, as theme_edit edits it (PLAN 2.61).
         if let Some(text) = s.theme_text().and_then(|held| held["text"].as_str().map(str::to_string)) {

@@ -122,3 +122,27 @@ fn a_shadow_goes_down_with_a_look() {
     assert_eq!(put.took, ["pane"]);
     assert_eq!(made["nodes"]["pane"]["shadow"], "raised");
 }
+
+#[test]
+fn code_carries_its_numbers_and_card_to_code_alone() {
+    let mut doc: Value = serde_json::from_str(EXAMPLE).unwrap();
+    // Two code texts on `revenue` (PLAN 2.136): one numbered from 41 on no card.
+    let code = |at: i64, own: Value| json!({ "type": "text", "role": "body", "text": "let x = 1;", "code": own, "at": { "col": [1, 6], "row": [at, at] } });
+    doc["nodes"]["listing"] = code(10, json!({ "language": "rust", "numbers": true, "start": 41, "card": false }));
+    doc["nodes"]["other"] = code(11, json!({ "language": "rust" }));
+    for node in ["listing", "other"] {
+        doc["states"][1]["props"][node] = json!({});
+    }
+    let listing = picked(&doc, "revenue", "listing");
+    for (prop, value) in [("code/numbers", json!(true)), ("code/start", json!(41)), ("code/card", json!(false))] {
+        assert!(listing.props.contains(&Part { prop: prop.into(), value: Some(value) }), "{:?}", listing.props);
+    }
+    let (put, made) = put_on(&doc, "revenue", &listing, &["other", "note"]);
+    assert_eq!(put.took, ["other", "note"]);
+    assert_eq!(
+        made["nodes"]["other"]["code"],
+        json!({ "language": "rust", "numbers": true, "start": 41, "card": false })
+    );
+    // Prose takes the text's look, and none of code's.
+    assert!(made["nodes"]["note"].get("code").is_none(), "{:#}", made["nodes"]["note"]);
+}

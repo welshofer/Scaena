@@ -109,6 +109,16 @@
             "description": "A state of it has an error lint finds: it does not stand as it is to be read.",
             "type": "string",
             "const": "layout"
+          },
+          {
+            "description": "The beat of the settled outline it opens says nothing of the claim the person settled for\nit (`meta.narrative.outline`).",
+            "type": "string",
+            "const": "claim"
+          },
+          {
+            "description": "The closing it opens never lands the big idea the outline settled.",
+            "type": "string",
+            "const": "bigIdea"
           }
         ]
       },
@@ -170,6 +180,10 @@
         "description": "What to look at, slide by slide.",
         "type": "array",
         "items": { "$ref": "#/$defs/Finding" }
+      },
+      "bigIdea": {
+        "description": "The big idea the deck's settled outline names (`meta.narrative.outline`): the one sentence\nthe audience should remember, which the editors show above the curve.",
+        "type": ["string", "null"]
       }
     }
   }

@@ -17,6 +17,11 @@
 //! - **Data, config, and markup** (PLAN 2.135): YAML, TOML, INI, HCL, and GraphQL; a Dockerfile,
 //!   which reads its commands as Shell or PowerShell, and a Makefile, which reads its recipes as
 //!   Shell; a diff; HTML and XML, by one scanner; and CSS and SCSS, by one.
+//! - **Embedded languages** (PLAN 2.145): HTML's `<script>` and `<style>` read as JavaScript and
+//!   CSS, or as their `type` and `lang` say; Markdown, each fenced block in its own language; PHP,
+//!   its code between `<?php` and `?>` and HTML around it; and Vue's and Svelte's components,
+//!   each part in its language and each expression as JavaScript. A part in another language is
+//!   colored as that language colors it alone ([`embed`]), at most [`MAX_NESTING`] deep.
 //! - **The generic scanner**, for a language Scaena has no scanner for: its strings, numbers,
 //!   comments, and brackets.
 //!
@@ -28,8 +33,9 @@
 //!   scanner neither panics nor runs on. What never closes runs to the end in its class; a string
 //!   that cannot run past its line ends at the line's end.
 //! - **Bounded.** At most [`MAX_NESTING`] interpolations, JSX elements, and JSX expressions stand
-//!   open inside one another, and as many heredocs wait for their bodies; the lines past the first
-//!   [`MAX_LINES`] are one plain token.
+//!   open inside one another, and as many heredocs wait for their bodies; as many parts in another
+//!   language stand inside one another, the next one in its container's text; the lines past the
+//!   first [`MAX_LINES`] are one plain token.
 //! - **Few tokens.** Neighbors of one class are one token, and whitespace goes to the token before
 //!   it.
 //!
@@ -47,7 +53,9 @@ mod graphql;
 mod hcl;
 mod ini;
 mod json;
+mod keyed;
 mod makefile;
+mod markdown;
 mod markup;
 mod powershell;
 mod python;
@@ -60,7 +68,10 @@ mod tidy;
 mod toml;
 mod yaml;
 
+use markup::Markup;
+
 pub use detect::{Detected, Hints, JSON_WHOLE, LIKELY, READ_BYTES, READ_LINES, detect, vscode_mode};
+pub use keyed::{Key, Keyed, keyed};
 pub use tidy::{Tidied, tidy};
 
 use std::fmt;
@@ -245,6 +256,14 @@ pub(crate) enum Scan {
     Css,
     /// SCSS's.
     Scss,
+    /// Markdown's, which reads each fenced block in its own language.
+    Markdown,
+    /// PHP's: its code between `<?php` and `?>`, HTML around it.
+    Php,
+    /// A Vue component's: HTML, its `{{ }}` and directives JavaScript.
+    Vue,
+    /// A Svelte component's: HTML, its `{ }` JavaScript.
+    Svelte,
 }
 
 /// How a code text's language colors it.
@@ -453,6 +472,15 @@ pub static LANGUAGES: &[Language] = &[
         scan: Scan::Makefile,
     },
     Language {
+        name: "markdown",
+        aliases: &["gfm", "md", "mdown", "mkd"],
+        said: "Markdown",
+        extensions: &["markdown", "md", "mdown", "mkd"],
+        files: &[],
+        interpreters: &[],
+        scan: Scan::Markdown,
+    },
+    Language {
         name: "objc",
         aliases: &["obj-c", "objective-c", "objectivec"],
         said: "Objective-C",
@@ -460,6 +488,15 @@ pub static LANGUAGES: &[Language] = &[
         files: &[],
         interpreters: &[],
         scan: Scan::CLike(&clike::OBJC),
+    },
+    Language {
+        name: "php",
+        aliases: &[],
+        said: "PHP",
+        extensions: &["php", "phtml"],
+        files: &[],
+        interpreters: &["php"],
+        scan: Scan::Php,
     },
     Language {
         name: "plain",
@@ -552,6 +589,15 @@ pub static LANGUAGES: &[Language] = &[
         scan: Scan::Sql,
     },
     Language {
+        name: "svelte",
+        aliases: &[],
+        said: "Svelte",
+        extensions: &["svelte"],
+        files: &[],
+        interpreters: &[],
+        scan: Scan::Svelte,
+    },
+    Language {
         name: "swift",
         aliases: &[],
         said: "Swift",
@@ -586,6 +632,15 @@ pub static LANGUAGES: &[Language] = &[
         files: &[],
         interpreters: &["deno", "ts-node"],
         scan: Scan::CLike(&clike::TYPESCRIPT),
+    },
+    Language {
+        name: "vue",
+        aliases: &[],
+        said: "Vue",
+        extensions: &["vue"],
+        files: &[],
+        interpreters: &[],
+        scan: Scan::Vue,
     },
     Language {
         name: "xml",
@@ -640,30 +695,7 @@ pub fn lang(name: &str) -> Lang {
 pub fn highlight(text: &str, lang: Lang) -> Vec<Token> {
     let head = text.get(..scan::cut(text, MAX_LINES)).unwrap_or(text);
     let mut out = scan::Spans::new(head);
-    match lang {
-        Lang::Plain | Lang::Known(Language { scan: Scan::Plain, .. }) => {}
-        Lang::Generic => generic::scan(head, &mut out),
-        Lang::Known(Language { scan: Scan::CLike(spec), .. }) => clike::scan(head, spec, &mut out),
-        Lang::Known(Language { scan: Scan::Json, .. }) => json::scan(head, &mut out),
-        Lang::Known(Language { scan: Scan::Python, .. }) => python::scan(head, &mut out),
-        Lang::Known(Language { scan: Scan::Ruby, .. }) => ruby::scan(head, &mut out),
-        Lang::Known(Language { scan: Scan::Shell, .. }) => shell::scan(head, &mut out),
-        Lang::Known(Language { scan: Scan::Console, .. }) => console::scan(head, &mut out),
-        Lang::Known(Language { scan: Scan::PowerShell, .. }) => powershell::scan(head, &mut out),
-        Lang::Known(Language { scan: Scan::Sql, .. }) => sql::scan(head, &mut out),
-        Lang::Known(Language { scan: Scan::Yaml, .. }) => yaml::scan(head, &mut out),
-        Lang::Known(Language { scan: Scan::Toml, .. }) => toml::scan(head, &mut out),
-        Lang::Known(Language { scan: Scan::Dockerfile, .. }) => dockerfile::scan(head, &mut out),
-        Lang::Known(Language { scan: Scan::Diff, .. }) => diff::scan(head, &mut out),
-        Lang::Known(Language { scan: Scan::Ini, .. }) => ini::scan(head, &mut out),
-        Lang::Known(Language { scan: Scan::Hcl, .. }) => hcl::scan(head, &mut out),
-        Lang::Known(Language { scan: Scan::GraphQl, .. }) => graphql::scan(head, &mut out),
-        Lang::Known(Language { scan: Scan::Makefile, .. }) => makefile::scan(head, &mut out),
-        Lang::Known(Language { scan: Scan::Html, .. }) => markup::scan(head, &mut out, true),
-        Lang::Known(Language { scan: Scan::Xml, .. }) => markup::scan(head, &mut out, false),
-        Lang::Known(Language { scan: Scan::Css, .. }) => css::scan(head, &mut out, false),
-        Lang::Known(Language { scan: Scan::Scss, .. }) => css::scan(head, &mut out, true),
-    }
+    color(head, lang, 0, &mut out);
     let mut tokens = out.finish();
     if head.len() < text.len() {
         match tokens.last_mut() {
@@ -672,4 +704,68 @@ pub fn highlight(text: &str, lang: Lang) -> Vec<Token> {
         }
     }
     tokens
+}
+
+/// Writes the tokens of `text[from..to]`, a part of `text` in another language, as `lang` colors
+/// that part alone: a `<script>`'s JavaScript, a fenced block's Rust. `depth` is how many parts
+/// in another language stand around this one; at [`MAX_NESTING`], the part is its container's
+/// text, plain.
+fn embed<'t>(text: &'t str, from: usize, to: usize, lang: Lang, depth: usize, out: &mut scan::Spans<'t>) {
+    embed_with(text, from, to, depth, out, |part, inner, depth| color(part, lang, depth, inner));
+}
+
+/// Writes the tokens of `text[from..to]` as `read` writes the part's alone, given the part, its
+/// tokens, and how many parts in another language stand around it with it; plain at
+/// [`MAX_NESTING`]. White space the part's scanner leaves plain at its start goes to the token
+/// before it, as white space does anywhere.
+fn embed_with<'t>(
+    text: &'t str,
+    from: usize,
+    to: usize,
+    depth: usize,
+    out: &mut scan::Spans<'t>,
+    read: impl for<'p> FnOnce(&'p str, &mut scan::Spans<'p>, usize),
+) {
+    let part = match text.get(from..to) {
+        Some(part) if depth < MAX_NESTING => part,
+        _ => return out.push(to, Class::Plain),
+    };
+    let mut inner = scan::Spans::new(part);
+    read(part, &mut inner, depth + 1);
+    out.space(from + part.bytes().take_while(|&c| scan::is_space(c)).count());
+    for token in inner.finish() {
+        out.push(from + token.end, token.class);
+    }
+}
+
+/// Writes `text`'s tokens in `lang`, `depth` parts in another language deep.
+fn color<'t>(head: &'t str, lang: Lang, depth: usize, out: &mut scan::Spans<'t>) {
+    match lang {
+        Lang::Plain | Lang::Known(Language { scan: Scan::Plain, .. }) => {}
+        Lang::Generic => generic::scan(head, out),
+        Lang::Known(Language { scan: Scan::CLike(spec), .. }) => clike::scan(head, spec, out),
+        Lang::Known(Language { scan: Scan::Json, .. }) => json::scan(head, out),
+        Lang::Known(Language { scan: Scan::Python, .. }) => python::scan(head, out),
+        Lang::Known(Language { scan: Scan::Ruby, .. }) => ruby::scan(head, out),
+        Lang::Known(Language { scan: Scan::Shell, .. }) => shell::scan(head, out),
+        Lang::Known(Language { scan: Scan::Console, .. }) => console::scan(head, out),
+        Lang::Known(Language { scan: Scan::PowerShell, .. }) => powershell::scan(head, out),
+        Lang::Known(Language { scan: Scan::Sql, .. }) => sql::scan(head, out),
+        Lang::Known(Language { scan: Scan::Yaml, .. }) => yaml::scan(head, out),
+        Lang::Known(Language { scan: Scan::Toml, .. }) => toml::scan(head, out),
+        Lang::Known(Language { scan: Scan::Dockerfile, .. }) => dockerfile::scan(head, out),
+        Lang::Known(Language { scan: Scan::Diff, .. }) => diff::scan(head, out),
+        Lang::Known(Language { scan: Scan::Ini, .. }) => ini::scan(head, out),
+        Lang::Known(Language { scan: Scan::Hcl, .. }) => hcl::scan(head, out),
+        Lang::Known(Language { scan: Scan::GraphQl, .. }) => graphql::scan(head, out),
+        Lang::Known(Language { scan: Scan::Makefile, .. }) => makefile::scan(head, out),
+        Lang::Known(Language { scan: Scan::Html, .. }) => markup::scan(head, out, Markup::Html, depth),
+        Lang::Known(Language { scan: Scan::Xml, .. }) => markup::scan(head, out, Markup::Xml, depth),
+        Lang::Known(Language { scan: Scan::Php, .. }) => markup::scan(head, out, Markup::Php, depth),
+        Lang::Known(Language { scan: Scan::Vue, .. }) => markup::scan(head, out, Markup::Vue, depth),
+        Lang::Known(Language { scan: Scan::Svelte, .. }) => markup::scan(head, out, Markup::Svelte, depth),
+        Lang::Known(Language { scan: Scan::Css, .. }) => css::scan(head, out, false),
+        Lang::Known(Language { scan: Scan::Scss, .. }) => css::scan(head, out, true),
+        Lang::Known(Language { scan: Scan::Markdown, .. }) => markdown::scan(head, out, depth),
+    }
 }

@@ -1,5 +1,8 @@
 import CScaena
 import Foundation
+import os
+
+private let generatingLog = Logger(subsystem: "com.welshofer.Scaena", category: "generating")
 
 /// What a brief may ask, as Narrato knows it (PLAN G.6): its goals, lengths, and ways a deck is
 /// delivered, the audiences its personas name, its arcs, and the defaults a field left empty takes.
@@ -124,6 +127,7 @@ public enum GeneratingStep: Equatable, Sendable {
     case fetchingFont(family: String, language: String, megabytes: Double)
     case reading(String)
     case read(name: String, kind: String)
+    case grounded(name: String, kind: String, kilobytes: Int, cut: Bool)
     case researching(String)
     case researchingNow(String)
     case researched(sources: Int, cut: Bool)
@@ -154,6 +158,10 @@ public enum GeneratingStep: Equatable, Sendable {
             "Fetching \(family), the font a deck in \(language) is set in (\(String(format: "%.1f", megabytes)) MB)…"
         case .reading(let name): "Reading \(name)…"
         case .read(let name, let kind): "Read \(name) (\(kind))"
+        case .grounded(let name, let kind, 0, _):
+            "No room for \(name) (\(kind)): the sources before it took the million bytes they share"
+        case .grounded(let name, let kind, let kilobytes, let cut):
+            "Grounded in \(name) (\(kind), \(kilobytes) KB\(cut ? ", cut short to fit" : ""))"
         case .researching(let topic): "Researching \(topic)… (minutes)"
         case .researchingNow(let doing): doing
         case .researched(let sources, let cut): "Researched: \(sources) sources\(cut ? ", cut short" : "")"
@@ -306,6 +314,60 @@ public struct GeneratorReply: Sendable {
         let numbers = last.allSatisfy(\.isNumber) || last.hasPrefix("0x") || host.contains(":")
         return host.contains(".") && !numbers && host != "localhost" && !host.hasSuffix(".localhost")
     }
+
+    /// Whether `host` resolves only to addresses the public internet reaches, as
+    /// `scaena_sources::fetch::reached` holds them (lift-up 10-24b SEC-3): a public name may
+    /// resolve to this machine or its network (`127.0.0.1.nip.io`). A host that does not resolve
+    /// passes: its request fails on its own. It blocks while the name is looked up.
+    public static func resolvesPublic(_ host: String) -> Bool {
+        var hints = addrinfo()
+        hints.ai_socktype = SOCK_STREAM
+        var found: UnsafeMutablePointer<addrinfo>?
+        let bare = host.trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
+        guard getaddrinfo(bare, nil, &hints, &found) == 0, let first = found else { return true }
+        defer { freeaddrinfo(first) }
+        var each: UnsafeMutablePointer<addrinfo>? = first
+        while let node = each {
+            if let address = node.pointee.ai_addr, !reached(address) { return false }
+            each = node.pointee.ai_next
+        }
+        return true
+    }
+
+    /// Whether the public internet reaches `address`, an IPv4 or IPv6 one.
+    private static func reached(_ address: UnsafeMutablePointer<sockaddr>) -> Bool {
+        switch Int32(address.pointee.sa_family) {
+        case AF_INET:
+            let v4 = address.withMemoryRebound(to: sockaddr_in.self, capacity: 1) { $0.pointee.sin_addr }
+            return reached(v4: withUnsafeBytes(of: v4) { Array($0) })
+        case AF_INET6:
+            let b = address.withMemoryRebound(to: sockaddr_in6.self, capacity: 1) { p in
+                withUnsafeBytes(of: p.pointee.sin6_addr) { Array($0) }
+            }
+            // An IPv4 address mapped into IPv6 is that address.
+            if b[0..<10].allSatisfy({ $0 == 0 }) && b[10] == 0xff && b[11] == 0xff { return reached(v4: Array(b[12...])) }
+            let loopback = b[0..<15].allSatisfy { $0 == 0 } && b[15] == 1
+            let unspecified = b.allSatisfy { $0 == 0 }
+            let multicast = b[0] == 0xff
+            let local = (b[0] & 0xfe) == 0xfc || (b[0] == 0xfe && (b[1] & 0xc0) == 0x80)
+            return !(loopback || unspecified || multicast || local)
+        default:
+            return false
+        }
+    }
+
+    /// Whether the public internet reaches the IPv4 address of bytes `b`, in order.
+    static func reached(v4 b: [UInt8]) -> Bool {
+        let isPrivate = b[0] == 10 || (b[0] == 172 && (16...31).contains(b[1])) || (b[0] == 192 && b[1] == 168)
+        let documentation =
+            (b[0] == 192 && b[1] == 0 && b[2] == 2) || (b[0] == 198 && b[1] == 51 && b[2] == 100)
+            || (b[0] == 203 && b[1] == 0 && b[2] == 113)
+        let shared = b[0] == 100 && (64..<128).contains(b[1])
+        let reserved =
+            b[0] == 0 || b[0] == 127 || (b[0] == 169 && b[1] == 254) || (224...239).contains(b[0])
+            || b == [255, 255, 255, 255]
+        return !(isPrivate || documentation || shared || reserved)
+    }
 }
 
 /// Holds each redirect a request meets to ``GeneratorReply/follows(_:)``.
@@ -314,7 +376,9 @@ private final class Redirects: NSObject, URLSessionTaskDelegate, Sendable {
         _ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
         newRequest request: URLRequest
     ) async -> URLRequest? {
-        guard let url = request.url, GeneratorReply.follows(url) else { return nil }
+        guard let url = request.url, GeneratorReply.follows(url), let host = url.host(percentEncoded: false),
+            GeneratorReply.resolvesPublic(host)
+        else { return nil }
         return request
     }
 }
@@ -395,6 +459,27 @@ public final class Generator {
             thread.qualityOfService = .userInitiated
             thread.start()
         }
+    }
+
+    /// What `read` makes of `provider`'s `reply`. Where the reply was a refusal, its error is said
+    /// in a person's words, as the pictures' are, "Anthropic didn't accept your key. Check it, or
+    /// replace it." in place of "401 Unauthorized: invalid x-api-key" (lift-up USE-3); the
+    /// provider's own words go to the log. An answer that came but did not read keeps its own.
+    func reading<T>(_ provider: Provider, _ reply: GeneratorReply, _ read: () throws -> T) throws -> T {
+        do {
+            return try read()
+        } catch {
+            guard !(200..<300).contains(reply.status) else { throw error }
+            generatingLog.notice("\(provider.name, privacy: .public): \(String(describing: error), privacy: .public)")
+            throw ScaenaError(message: Why.answered(provider, status: reply.status, body: reply.text))
+        }
+    }
+
+    /// Why a look or a fit was not taken, said in a person's words where `reply` was a refusal.
+    func unanswered(_ why: String, _ provider: Provider, _ reply: GeneratorReply) -> String {
+        guard !(200..<300).contains(reply.status) else { return why }
+        generatingLog.notice("\(provider.name, privacy: .public): \(why, privacy: .public)")
+        return Why.answered(provider, status: reply.status, body: reply.text)
     }
 
     func step<T: Decodable>(_ method: String, _ args: [String: JSONValue] = [:], bytes: Data? = nil) throws -> T {
@@ -493,6 +578,13 @@ public final class Generator {
         if let token { args["token"] = .string(token) }
         var next: Fetched = try step("fetch", args)
         while let get = next.get {
+            // Where the host resolves, off the main actor: never this machine or its network.
+            if let host = URL(string: get.url)?.host(percentEncoded: false),
+                !(await Task.detached { GeneratorReply.resolvesPublic(host) }.value)
+            {
+                throw ScaenaError(
+                    message: "\(get.url): \(host) resolves to this machine or its network: a web source is a public address")
+            }
             let reply = await send(get)
             if reply.status == 0 { throw ScaenaError(message: "\(get.url) could not be reached: \(reply.text)") }
             next = try step("fetched", ["status": .number(Double(reply.status)), "kind": .string(reply.kind)], bytes: reply.body)
@@ -527,13 +619,15 @@ public final class Generator {
         while let request = next.send {
             if let wait = next.wait { try await Task.sleep(nanoseconds: UInt64(wait) * 1_000_000) }
             let reply = await send(request)
-            next = try step(
-                "researched",
-                [
-                    "key": .string(key), "status": .number(Double(reply.status)),
-                    "statusText": .string(HTTPURLResponse.localizedString(forStatusCode: reply.status)),
-                    "body": .string(reply.text),
-                ])
+            next = try reading(provider, reply) {
+                try step(
+                    "researched",
+                    [
+                        "key": .string(key), "status": .number(Double(reply.status)),
+                        "statusText": .string(HTTPURLResponse.localizedString(forStatusCode: reply.status)),
+                        "body": .string(reply.text),
+                    ])
+            }
             if let progress = next.progress, progress != doing {
                 doing = progress
                 hear(.researchingNow(progress))
@@ -549,6 +643,17 @@ public final class Generator {
         ]
         if let base { args["base"] = .string(base) }
         return args
+    }
+
+    /// What each source gave the deck, as `begin` says it.
+    private struct Begun: Decodable {
+        struct Given: Decodable {
+            let name: String
+            let kind: String
+            let bytes: Int
+            let truncated: Bool
+        }
+        let given: [Given]
     }
 
     private struct Standing: Decodable {
@@ -592,9 +697,12 @@ public final class Generator {
         let fit: Fit?
     }
 
+    /// A rewrite answered: what it came to, and the next round's request where the rewrite left
+    /// a text too long (STAB-4).
     private struct Fitting: Decodable, Sendable {
         let fitted: Int?
         let unfitted: String?
+        let fit: Fit?
     }
 
     /// Who makes a deck's pictures (PLAN G.10): an image provider, the user's key for it, where
@@ -791,7 +899,11 @@ public final class Generator {
         try await prepare(language: brief.language, theme: theme, hear: hear)
         var args = try asking(brief: brief, provider: provider, model: model, base: base)
         if let arc { args["arc"] = .string(arc) }
-        let _: JSONValue = try step("begin", args)
+        let begun: Begun = try step("begin", args)
+        // What each source gave, said before a call is paid for (narrative USE-5).
+        for given in begun.given {
+            hear(.grounded(name: given.name, kind: given.kind, kilobytes: (given.bytes + 1023) / 1024, cut: given.truncated))
+        }
         if arc != nil, outline != nil { let _: Standing = try step("outline") }
         while true {
             let standing: Standing = try step("request", ["key": .string(key)])
@@ -804,7 +916,7 @@ public final class Generator {
                 "body": .string(reply.status == 0 ? "" : reply.text),
             ]
             if let after = reply.after { answered["after"] = .string(after) }
-            let now: Standing = try step("answer", answered)
+            let now: Standing = try reading(provider, reply) { try step("answer", answered) }
             // An answer for now (busy, a server's failure, none): the same step asked again after
             // the wait the engine says, up to six times (narrative REL-1); a cancellation ends the
             // wait.
@@ -865,21 +977,28 @@ public final class Generator {
                 ])
             seeing = looking.look
             if seeing != nil { continue }
-            if let why = looking.unlooked { hear(.unlooked(why)) } else { hear(.looked(slides: looking.looked ?? 0)) }
+            if let why = looking.unlooked {
+                hear(.unlooked(unanswered(why, provider, reply)))
+            } else {
+                hear(.looked(slides: looking.looked ?? 0))
+            }
             fit = looking.fit
         }
-        if let fit {
-            hear(.fitting(texts: fit.texts))
-            let reply = await send(fit.request)
+        // Each answer may ask once more for what the rewrite left too long (STAB-4).
+        while let asked = fit {
+            hear(.fitting(texts: asked.texts))
+            let reply = await send(asked.request)
             let fitting: Fitting = try await stepAway(
                 "fitted",
                 [
                     "status": .number(Double(reply.status)),
                     "statusText": .string(HTTPURLResponse.localizedString(forStatusCode: reply.status)),
                     "body": .string(reply.text),
+                    "key": .string(key),
                 ])
             if let n = fitting.fitted { hear(.fitted(texts: n)) }
-            if let why = fitting.unfitted { hear(.unfitted(why)) }
+            if let why = fitting.unfitted { hear(.unfitted(unanswered(why, provider, reply))) }
+            fit = fitting.fit
         }
         let generated: Generated = try step("report")
         var error: UnsafeMutablePointer<CChar>?
