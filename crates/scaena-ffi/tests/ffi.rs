@@ -2001,7 +2001,11 @@ fn a_writing_tool_asks_once_and_its_answer_is_one_patch() {
     assert!(words.starts_with("Why this exists"), "{writing}");
     // Asked with the point its slide makes (lift-up FUNC-3).
     let claim = "Scaena is the tool we would build if the slide had never been invented.";
-    assert_eq!(writing["prompt"], format!("The text:\n{words}\nThe point its slide makes: {claim}"));
+    // The deck's words fenced as data (lift-up W1).
+    assert_eq!(
+        writing["prompt"],
+        format!("<data label=\"text\">\nThe text:\n{words}\nThe point its slide makes: {claim}\n</data>")
+    );
 
     let request = providers(
         "once",
@@ -2030,7 +2034,7 @@ fn a_writing_tool_asks_once_and_its_answer_is_one_patch() {
     assert!(
         call(s, "writing", notes.clone())["prompt"]
             .as_str()
-            .is_some_and(|p| p.starts_with("The slide reads:\nTitle: Scaena"))
+            .is_some_and(|p| p.starts_with("The slide reads:\n<data label=\"slide\">\nTitle: Scaena"))
     );
     let drafted = call(s, "written", json!({ "ask": notes, "answer": "Open on the name." }));
     assert_eq!(

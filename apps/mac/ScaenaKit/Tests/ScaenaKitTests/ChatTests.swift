@@ -543,10 +543,13 @@ private func keychainWritable() -> Bool {
     #expect(words.hasPrefix("Why this exists"))
     // Asked with the point its slide makes (lift-up FUNC-3).
     let claim = "Scaena is the tool we would build if the slide had never been invented."
-    #expect(writing.title == "Tightened" && writing.prompt == "The text:\n\(words)\nThe point its slide makes: \(claim)")
+    // The deck's words fenced as data (lift-up W1).
+    #expect(
+        writing.title == "Tightened"
+            && writing.prompt == "<data label=\"text\">\nThe text:\n\(words)\nThe point its slide makes: \(claim)\n</data>")
     #expect(writing.instructions.hasPrefix("You tighten the words of one text on a slide"))
     let notes = try session.writing(WritingAsk(kind: .notes, state: "cover"))
-    #expect(notes.prompt.hasPrefix("The slide reads:\nTitle: Scaena"))
+    #expect(notes.prompt.hasPrefix("The slide reads:\n<data label=\"slide\">\nTitle: Scaena"))
 
     let request = try Provider.anthropic.onceRequest(
         model: "a-model", key: "sk-test", instructions: writing.instructions, prompt: writing.prompt)
