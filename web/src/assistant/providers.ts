@@ -304,7 +304,8 @@ export const openai: Provider = {
     return {
       text: typeof message.content === "string" ? message.content : "",
       calls,
-      stop: calls.length ? "tools" : reason === "stop" ? "end" : reason === "length" ? "length" : "other",
+      // An answer that ran out of room says so, its calls or not: the last may be cut off (REL-1).
+      stop: reason === "length" ? "length" : calls.length ? "tools" : reason === "stop" ? "end" : "other",
       usage: answered.usage && { input: answered.usage.prompt_tokens ?? 0, output: answered.usage.completion_tokens ?? 0 },
     };
   },
@@ -383,7 +384,7 @@ export const gemini: Provider = {
     return {
       text: parts.flatMap((p) => (p.text && !p.thought ? [p.text] : [])).join(""),
       calls,
-      stop: calls.length ? "tools" : reason === "STOP" ? "end" : reason === "MAX_TOKENS" ? "length" : "other",
+      stop: reason === "MAX_TOKENS" ? "length" : calls.length ? "tools" : reason === "STOP" ? "end" : "other",
       raw: parts,
       usage: answered.usageMetadata && { input: answered.usageMetadata.promptTokenCount ?? 0, output: answered.usageMetadata.candidatesTokenCount ?? 0 },
     };

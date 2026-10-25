@@ -26,7 +26,19 @@ use serde_json::Value;
 pub fn look_props(node_type: NodeType) -> &'static [&'static str] {
     match node_type {
         NodeType::Text => {
-            &["role", "style/family", "style/weight", "style/italic", "style/size", "style/color", "style/case"]
+            &[
+                "role",
+                "style/family",
+                "style/weight",
+                "style/italic",
+                "style/size",
+                "style/color",
+                "style/case",
+                // Code's card and numbers (PLAN 2.136), which a code text alone is offered.
+                "code/numbers",
+                "code/start",
+                "code/card",
+            ]
         }
         NodeType::Shape => &["fill", "stroke/paint", "stroke/width", "radius", "shadow"],
         NodeType::Image => &[
@@ -185,7 +197,10 @@ pub fn putting(
         }
         let c = choices(deck, theme, state, node, files)?;
         let own = look_props(c.node_type);
-        let takes: Vec<&Part> = look.props.iter().filter(|p| own.contains(&p.prop.as_str())).collect();
+        // Code's card and numbers (PLAN 2.136) go to code alone, which alone is offered them.
+        let offered = |prop: &str| !prop.starts_with("code/") || c.fields.iter().any(|f| f.prop == prop);
+        let takes: Vec<&Part> =
+            look.props.iter().filter(|p| own.contains(&p.prop.as_str()) && offered(&p.prop)).collect();
         if takes.is_empty() {
             let why = format!("a {} takes none of a {}'s look", kind(c.node_type), kind(look.node_type));
             put.refused.push(Refused { node: node.clone(), why });

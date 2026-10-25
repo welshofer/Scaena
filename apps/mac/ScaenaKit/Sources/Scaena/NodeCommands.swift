@@ -49,6 +49,10 @@ struct DeckActions {
     var drawing = false
     /// Copy the words of the code selected as text (PLAN 2.133).
     var copyCode: (() -> Void)? = nil
+    /// Make the text selected code, make the code selected words again, or tidy it (PLAN 2.139).
+    var makeCode: (() -> Void)? = nil
+    var notCode: (() -> Void)? = nil
+    var tidyCode: (() -> Void)? = nil
     /// Hold Only on This Slide, or let it go (lift-up FUNC-4): each gesture kept to the slide shown,
     /// as Option keeps one; and whether it is held. A long press offers it where there is no key.
     var keepToSlide: (() -> Void)? = nil
@@ -161,6 +165,12 @@ struct NodeCommands: Commands {
                 .disabled(deck?.pasteAsText == nil)
             Button("Copy Code") { deck?.copyCode?() }
                 .disabled(deck?.copyCode == nil)
+            Button("Make Code") { deck?.makeCode?() }
+                .disabled(deck?.makeCode == nil)
+            Button("Not Code") { deck?.notCode?() }
+                .disabled(deck?.notCode == nil)
+            Button("Tidy Code") { deck?.tidyCode?() }
+                .disabled(deck?.tidyCode == nil)
             Divider()
             Button("Duplicate") { deck?.duplicate?() }
                 .keyboardShortcut(MenuKey.duplicate.key, modifiers: MenuKey.duplicate.modifiers)

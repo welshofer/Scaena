@@ -509,6 +509,14 @@ impl Generation {
         Ok(request.map(|r| serde_json::to_string(&r).expect("a request is JSON")))
     }
 
+    /// How many seconds to wait before asking a busy provider again for a look or a fit, the
+    /// request asked `tried` times so far (from 0); none where the answer is for good or the tries
+    /// are spent (lift-up REL-1). `after` is the reply's `Retry-After`, where it had one.
+    #[wasm_bindgen(js_name = retryAfter)]
+    pub fn retry_after(&self, status: u16, body: &str, after: Option<String>, tried: usize) -> Option<f64> {
+        scaena_narrato::retry_after(status, body, after.as_deref(), tried)
+    }
+
     /// The rewrites an answer to `fitRequest` gives, JSON `[[id, text]]`, each shorter than the
     /// text it rewrites: what `Making.fitted` takes.
     #[wasm_bindgen(js_name = fitAnswer)]
