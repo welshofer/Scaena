@@ -280,9 +280,10 @@ struct SelectButton: View {
 /// Undo and Redo held while the assistant is at work on the deck (lift-up STAB-5), as the browser
 /// holds them: the model's next call reads the deck it left, never one taken back under it. The
 /// Edit menu's Undo and Redo, and ⌘Z and ⇧⌘Z, go up the responder chain to the window, which takes
-/// back a step of its undo; while `locked`, a responder put between the window's content and the
-/// window takes them first, and says why instead. Unlocked, it answers neither, so the window's
-/// own undo is as it was, its steps named as the Edit menu names them (PLAN 3.28). It takes no press.
+/// back a step of its undo; while `locked`, ScaenaKit's `UndoHold`, put between the window's
+/// content and the window, takes them first and says why instead. Unlocked, it answers neither,
+/// so the window's own undo is as it was, its steps named as the Edit menu names them (PLAN 3.28).
+/// It takes no press.
 struct UndoGuard: NSViewRepresentable {
     let locked: Bool
     /// Told of an undo or a redo refused while `locked`.
@@ -297,48 +298,24 @@ struct UndoGuard: NSViewRepresentable {
     func updateNSView(_ view: GuardView, context: Context) {
         view.holding.locked = locked
         view.holding.refused = refused
-        view.hold()
+        if let window = view.window { view.holding.hold(in: window) }
     }
 
     final class GuardView: NSView {
-        let holding = Holding()
+        let holding = UndoHold()
 
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
         override func viewWillMove(toWindow newWindow: NSWindow?) {
-            // Out of the chain of the window it leaves.
-            if let content = window?.contentView, content.nextResponder === holding {
-                content.nextResponder = holding.nextResponder
-            }
+            // Out of the chain of the window it leaves, wherever in it the hold stands.
+            if let window { holding.release(from: window) }
             super.viewWillMove(toWindow: newWindow)
         }
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
-            hold()
+            if let window { holding.hold(in: window) }
         }
-
-        /// The responder put after the window's content, where it is not already.
-        func hold() {
-            guard let content = window?.contentView, content.nextResponder !== holding else { return }
-            holding.nextResponder = content.nextResponder
-            content.nextResponder = holding
-        }
-    }
-
-    /// What takes Undo and Redo while the assistant is at work, and nothing else.
-    final class Holding: NSResponder {
-        var locked = false
-        var refused: () -> Void = {}
-
-        override func responds(to selector: Selector!) -> Bool {
-            if selector == #selector(undo(_:)) || selector == #selector(redo(_:)) { return locked }
-            return super.responds(to: selector)
-        }
-
-        @objc func undo(_ sender: Any?) { refused() }
-
-        @objc func redo(_ sender: Any?) { refused() }
     }
 }
 #endif
