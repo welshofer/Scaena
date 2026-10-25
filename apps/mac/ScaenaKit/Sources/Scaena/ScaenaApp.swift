@@ -54,7 +54,9 @@ struct ScaenaApp: App {
     #if !os(macOS)
     /// B1 in the app's Documents, which the document browser shows, made again from the copy
     /// `apps/ipad/app-test.sh` keeps in its Library, which the browser does not show. Without
-    /// that copy, nothing changes.
+    /// that copy, nothing changes. The copy is made beside the volume's other replacements first,
+    /// then put in B1's place in one step, so the browser, listing the folder as the app starts,
+    /// never finds B1 gone or half copied, and keeps it as the item it was.
     private static func putBackB1() {
         let files = FileManager.default
         guard let library = files.urls(for: .libraryDirectory, in: .userDomainMask).first,
@@ -64,8 +66,16 @@ struct ScaenaApp: App {
         let b1 = documents.appendingPathComponent("b1.scaena")
         guard files.fileExists(atPath: shipped.path) else { return }
         do {
-            if files.fileExists(atPath: b1.path) { try files.removeItem(at: b1) }
-            try files.copyItem(at: shipped, to: b1)
+            let beside = try files.url(
+                for: .itemReplacementDirectory, in: .userDomainMask, appropriateFor: b1, create: true)
+            defer { try? files.removeItem(at: beside) }
+            let copy = beside.appendingPathComponent("b1.scaena")
+            try files.copyItem(at: shipped, to: copy)
+            if files.fileExists(atPath: b1.path) {
+                _ = try files.replaceItemAt(b1, withItemAt: copy)
+            } else {
+                try files.moveItem(at: copy, to: b1)
+            }
         } catch {
             openingLog.debug("B1 not put back: \(String(describing: error), privacy: .public)")
         }
