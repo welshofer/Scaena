@@ -589,13 +589,19 @@ try {
   // An outline that never reads (lift-up REL-3): asked twice, then the dialog says why and offers to
   // write the slides without one, on the arc already chosen, which makes the deck.
   state.unreadable = true;
+  // The deck the walk edited before may be offered back from its recovery copy (lift-up REL-4),
+  // as soon as its timer kept one: declined, so the dialog it opens stands over nothing.
+  await page.evaluate(() => {
+    const offered = document.querySelector("#recovering");
+    if (offered?.open) offered.close("discard");
+  });
   await opened();
   await page.check("#prompting-show-outline");
   const before = requests.length;
   await page.click("#prompting-go");
   await page.waitForSelector("#prompting-unread:not([hidden])", { timeout: 120000 }).catch(() => {});
   const unreadSaid = (await page.textContent("#prompting-unread-why")) ?? "";
-  check(unreadSaid.includes("asked twice") && unreadSaid.includes("Problem–Solution"), `the dialog says why, and the arc kept: ${unreadSaid}`);
+  check(unreadSaid.includes("asked twice") && !unreadSaid.includes("asked 2 times") && unreadSaid.includes("Problem–Solution"), `the dialog says why, the count once, and the arc kept: ${unreadSaid}`);
   const since = requests.slice(before);
   check(since.filter((r) => r.asked === "outline").length === 2 && since.filter((r) => r.asked === "arc").length === 1, `the outline was asked twice, the arc once: ${since.map((r) => r.asked)}`);
   check(await page.isHidden("#prompting-outline"), "no outline is shown to settle");

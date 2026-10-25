@@ -190,7 +190,9 @@ export function prompting(
    * not read, why, to write without one or stop. */
   const showOutlined = (outlined: { outline: StoryOutline; arc: string; reasoning: string; fallback?: string; unread?: string }) => {
     if (outlined.unread) {
-      unreadWhy.textContent = `It was asked twice, and ${outlined.unread.replace(/^./, (c) => c.toLowerCase())}. Write the slides without one, on the ${outlined.arc} arc already chosen, or stop.`;
+      // The count said once, by the sentence: the reason's own "(asked 2 times)" is the CLI's.
+      const why = outlined.unread.replace(/ \(asked \d+ times\)$/, "").replace(/^./, (c) => c.toLowerCase());
+      unreadWhy.textContent = `It was asked twice, and ${why}. Write the slides without one, on the ${outlined.arc} arc already chosen, or stop.`;
       unreadPane.hidden = false;
       for (const button of unreadPane.querySelectorAll("button")) button.disabled = false;
       $<HTMLButtonElement>("#prompting-without").focus();

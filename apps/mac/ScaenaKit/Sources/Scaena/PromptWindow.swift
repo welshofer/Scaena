@@ -521,9 +521,11 @@ struct PromptView: View {
     /// The outline that did not read, once asked twice (lift-up REL-3): why, and the choice to write
     /// the slides without one, on the arc already chosen, or to stop.
     private func unreadView(_ why: String, arc: String) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+        // The count said once, by the sentence: the reason's own "(asked 2 times)" is the CLI's.
+        let bare = why.range(of: #" \(asked \d+ times\)$"#, options: .regularExpression).map { String(why[..<$0.lowerBound]) } ?? why
+        return VStack(alignment: .leading, spacing: 8) {
             Text("The outline didn't come back readable").font(.headline)
-            Text("It was asked twice, and \(why.prefix(1).lowercased() + why.dropFirst()). Write the slides without one, on the \(arc) arc already chosen, or stop.")
+            Text("It was asked twice, and \(bare.prefix(1).lowercased() + bare.dropFirst()). Write the slides without one, on the \(arc) arc already chosen, or stop.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
             HStack {
