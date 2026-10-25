@@ -36,17 +36,17 @@ export const served = new URLSearchParams(location.search).has("serve");
 /** This page's id, which its writes carry, so it does not hear its own saves as changes. */
 export const client = served ? crypto.randomUUID() : "";
 
-/** The token the address `scaena serve` printed carries (`?serve=TOKEN`), which each write sends:
- * another account on this machine reaches the server too, but not the address (lift-up 10-24b
- * SEC-5). */
+/** The token the address `scaena serve` printed carries (`?serve=TOKEN`), which each read and
+ * write sends: another account on this machine reaches the server too, but not the address
+ * (lift-up 10-24b SEC-5, R1). */
 export const token = served ? (new URLSearchParams(location.search).get("serve") ?? "") : "";
 
-/** What this page's writes carry: its id and the token. */
+/** What this page's reads and writes carry: its id and the token. */
 export const serving: Serving = { client, token };
 
 /** Where the bundle on disk stands now. */
 export async function status(): Promise<Status> {
-  const response = await fetch("/scaena/state", { cache: "no-store" });
+  const response = await fetch("/scaena/state", { cache: "no-store", headers: { "X-Scaena-Token": token } });
   if (!response.ok) throw new Error(`scaena serve: ${response.status}`);
   return response.json() as Promise<Status>;
 }
@@ -59,7 +59,9 @@ export function listen(on: {
   broke?: (failed: Failed) => void;
   status?: (failed: Failed | null) => void;
 }): EventSource {
-  const events = new EventSource("/scaena/events");
+  // An `EventSource` sends no header of its own: the token goes in the address, as the page's own
+  // address carries it, and no answer sends a `Referer` with it.
+  const events = new EventSource(`/scaena/events?${new URLSearchParams({ serve: token })}`);
   const data = <T>(e: Event) => JSON.parse((e as MessageEvent<string>).data) as T;
   events.addEventListener("hello", (e) => on.status?.(data<Status>(e).failed));
   events.addEventListener("failed", (e) => {
