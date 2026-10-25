@@ -587,10 +587,14 @@ fn a_text_the_theme_sets_past_its_box_is_fitted_to_it() {
         assert!(left.is_empty(), "{theme}: the theme left {left:#?}");
         assert_eq!(t["errors"], 0, "{theme}: {t:#}");
 
-        // Each shrunk to fit its box, on the node, where its fit lives.
-        let after = deck(&dir);
+        // Each fitted on the node, where its fit lives: shrunk to fit its box, or, grown, kept
+        // growing under a smaller `maxSize` than it had before the re-theme (E101's step).
+        let (before, after) = (deck(&made), deck(&dir));
         for node in refitted {
-            assert_eq!(after["nodes"][node]["fit"], "shrink", "{theme}: {node}: {:#}", after["nodes"][node]);
+            let (was, now) = (&before["nodes"][node], &after["nodes"][node]);
+            let stepped = now["fit"] == "grow"
+                && now["maxSize"].as_f64().is_some_and(|most| was["maxSize"].as_f64().is_none_or(|had| most < had));
+            assert!(now["fit"] == "shrink" || stepped, "{theme}: {node}: {was:#} became {now:#}");
         }
     }
 }
