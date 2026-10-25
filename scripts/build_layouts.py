@@ -609,6 +609,14 @@ layout("Numbers", "scorecard", "Four measures in a row, each its number and how 
     **{o: slot(c, (9, 10), "caption", "Up on last year") for o, c in zip(ORDINALS, QUARTERS)},
 })
 
+layout("Numbers", "scorecard-plain", "Four measures in a row, each its number over a rule and its name under it, with no note on how it moved.", {
+    "kicker": KICKER,
+    "header": header(),
+    "rule": rule((1, 12), (7, 7)),
+    **{f"{o}-figure": slot(c, (4, 6), "figure", w, align={"y": "end"}) for o, c, w in zip(ORDINALS, QUARTERS, ["$4.2M", "38%", "12k", "2.1%"])},
+    **{f"{o}-title": slot(c, (8, 10), "label", w) for o, c, w in zip(ORDINALS, QUARTERS, ["Revenue", "Margin", "Users", "Churn"])},
+})
+
 layout("Numbers", "ranking", "The top four, in order, each with its number.", {
     "kicker": KICKER,
     "header": header(),
@@ -1676,7 +1684,7 @@ NAMES = {
     "gantt": "Gantt Chart", "year": "Year at a Glance", "timeline-photos": "Timeline with Photos",
     # Numbers
     "stat": "Stat", "big-number": "Big Number", "two-numbers": "Two Numbers", "numbers": "Three Numbers",
-    "number-grid": "Six Numbers", "two-figures": "Two Figures", "four-numbers": "Four Numbers", "scorecard": "Scorecard", "ranking": "Ranking", "progress": "Progress",
+    "number-grid": "Six Numbers", "two-figures": "Two Figures", "four-numbers": "Four Numbers", "scorecard": "Scorecard", "scorecard-plain": "Plain Scorecard", "ranking": "Ranking", "progress": "Progress",
     "number-photo": "Number and Photo", "metric-trend": "Number and Trend",
     # Charts
     "figure": "Chart", "narrow-figure": "Narrow Chart", "split": "Chart and Words",

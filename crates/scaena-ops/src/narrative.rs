@@ -2578,6 +2578,13 @@ fn layout_for(
             // Four figures too wide for a quarter of the slide, or named at length: a square of
             // them, each as large as its quarter takes (G.16).
             4 if square(items) && theme.layouts.contains_key("four-numbers") => "four-numbers",
+            // Four with nothing said of how each moved: the figures and their names fill the
+            // slide, with no row left for notes (dogfood pass 7).
+            4 if items.iter().all(|i| i.figure_first() && change(&i.detail).1.is_empty())
+                && theme.layouts.contains_key("scorecard-plain") =>
+            {
+                "scorecard-plain"
+            }
             4 => "scorecard",
             _ => "number-grid",
         },
@@ -3757,6 +3764,11 @@ impl Slots<'_> {
             // under it, as words read from the room (G.19).
             (None, "figure") if name == "callout" && self.layout == "line-chart" => at_least("numeral"),
             (None, "caption") if name == "note" && self.layout == "line-chart" => at_least("body"),
+            // A bar chart's takeaway beside it, as large as its place takes, toward three-quarters
+            // of the headline, under it still (dogfood pass 7).
+            (None, "lede") if name == "takeaway" && self.layout == "bar-chart" => {
+                self.under_headline().filter(|most| size(role).is_some_and(|own| *most > own))
+            }
             // A journey's cells, a few words each, as large as their places take, up to the lede,
             // all of a slide's at one size (dogfood pass 5), set in the body where the theme sets
             // them so (lift-up dogfood) or in the caption where an older copy does.
@@ -4652,9 +4664,12 @@ impl Builder {
                     // grows (dogfood pass 4). An agenda's short lines up to the size of its titles.
                     let size = |r: &str| s.theme.typography.roles.get(r).map(|r| r.size);
                     let short = entries.len() <= 5 && entries.iter().all(|e| e.chars().count() <= 60);
+                    // A numbered list of four items or fewer fills its place however long each is,
+                    // its lines wrapping as it grows, never under the lede (dogfood pass 7).
+                    let few = entries.len() <= 4 && kind == "number";
                     let most = match () {
                         _ if s.layout.starts_with("agenda") => size("title"),
-                        _ if short => size("headline").map(|h| (h * 0.75).max(size("lede").unwrap_or(0.0))),
+                        _ if short || few => size("headline").map(|h| (h * 0.75).max(size("lede").unwrap_or(0.0))),
                         _ => size("lede"),
                     };
                     if name == "body"
@@ -6037,6 +6052,9 @@ mod tests {
         assert_eq!(in_unit(2.0, Some("hours")), "2 hours");
         // A short parenthetical is kept on one line; a long one may still wrap.
         assert_eq!(typeset("P(H | E) = P(E | H)", "en"), "P(H\u{a0}|\u{a0}E) = P(E\u{a0}|\u{a0}H)");
+        // A figure and its percent or degree sign stay on one line.
+        assert_eq!(typeset("Speicher liegt mit +41 % vorn", "de"), "Speicher liegt mit +41\u{a0}% vorn");
+        assert_eq!(typeset("Up 12 \u{b0}C, not 12 of them", "en"), "Up 12\u{a0}\u{b0}C, not 12 of them");
         let long = "the posterior (what we believe after the test)";
         assert_eq!(typeset(long, "en"), long);
         assert_eq!(typeset("(2024)", "en"), "(2024)");
@@ -6368,6 +6386,57 @@ mod tests {
         assert!(caps[0] == caps[1] && caps[0] < 48.0 && held[2].is_none(), "shrunk together: {held:?}");
     }
 
+    /// Slides the layout's places left half empty fill them (dogfood pass 7): a numbered list of
+    /// four items or fewer grows toward three-quarters of the headline however long its items, a
+    /// bar chart's takeaway likewise, and four figures with nothing said of how each moved take
+    /// Plain Scorecard, their names where the notes would stand.
+    #[test]
+    fn half_empty_slides_fill_their_places() {
+        let (summary, slides) = catalog();
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let size = |r: &str| theme.typography.roles[r].size;
+        let made = |name: &str, bullets: &[&str]| {
+            let mut slide = slides.iter().find(|s| s.layout_suggestion == name).unwrap().clone();
+            slide.key_bullets = bullets.iter().map(|b| b.to_string()).collect();
+            let made = deck(
+                &narrative(&summary, vec![slides[0].clone(), slide, slides[55].clone()]),
+                &theme,
+                &Pictures::new(),
+            )
+            .unwrap();
+            let state = made.deck["states"][1]["id"].as_str().unwrap().to_string();
+            (made.layouts[1].clone(), made.deck.clone(), state)
+        };
+        let node = |deck: &Value, state: &str, slot: &str| deck["nodes"][format!("{state}-{slot}")].clone();
+        let most = size("headline") * 0.75;
+        // Three numbered items, each past 60 characters, grow toward three-quarters of the
+        // headline, never under the lede.
+        let long = [
+            "Trace before you tune: the traces found the loop in a day",
+            "Use the endpoint you already have: the batch API was two years old",
+            "Roll out in steps you can watch: four stages caught two bugs",
+        ];
+        let (layout, deck, state) = made("Numbered", &long);
+        assert_eq!(layout, "numbered");
+        assert_eq!(node(&deck, &state, "body")["maxSize"].as_f64(), Some(most.max(size("lede"))));
+        // A bar chart's takeaway grows toward three-quarters of the headline.
+        let (layout, deck, state) = made("Bar Chart", &["Pricing fell from 1,210 ms to 140 ms at p99"]);
+        assert_eq!(layout, "bar-chart");
+        let takeaway = node(&deck, &state, "takeaway");
+        assert_eq!((takeaway["fit"].as_str(), takeaway["maxSize"].as_f64()), (Some("grow"), Some(most)));
+        // Four figures with no note of how each moved: Plain Scorecard, each in its slot, the
+        // figures still held as a set.
+        let plain = ["−60%: p99 checkout latency", "0.74 s: p99 at peak", "−38%: database CPU", "+2.1%: conversion"];
+        let (layout, deck, state) = made("Scorecard", &plain);
+        assert_eq!(layout, "scorecard-plain");
+        assert_eq!(node(&deck, &state, "first-figure")["at"], json!({ "in": "first-figure" }));
+        assert_eq!(node(&deck, &state, "fourth-title")["at"], json!({ "in": "fourth-title" }));
+        assert_eq!(node(&deck, &state, "first-figure")["fit"], "grow");
+        // One that says how one moved keeps Scorecard and its notes.
+        let moved = ["$4.2M: Revenue, up 12%", "38%: Margin", "12k: Users", "2.1%: Churn"];
+        assert_eq!(made("Scorecard", &moved).0, "scorecard");
+    }
+
     /// A team by name fills its place: its names grow toward three-quarters of the headline and
     /// what each person does to the lede, each set held to one size; a team of three or fewer
     /// takes Small Team by Name, each card down the slide, so it never sits in the slide's top
@@ -6507,14 +6576,17 @@ mod tests {
         );
         assert_eq!(layout, "numbered");
         assert_eq!(node(&deck, &state, "body")["maxSize"].as_f64(), Some(size("headline") * 0.75));
-        let (_, deck, state) = made(
-            "Numbered",
-            &[
-                "How common is the condition in people like me, counted over the last ten years of screening?",
-                "How often does the test catch it?",
-                "How often does it raise a false alarm?",
-            ],
-        );
+        // A long one of four items or fewer grows as far (dogfood pass 7); a long one of more
+        // keeps the lede.
+        let long = [
+            "How common is the condition in people like me, counted over the last ten years of screening?",
+            "How often does the test catch it?",
+            "How often does it raise a false alarm?",
+        ];
+        let (_, deck, state) = made("Numbered", &long);
+        assert_eq!(node(&deck, &state, "body")["maxSize"].as_f64(), Some(size("headline") * 0.75));
+        let five = [long[0], long[1], long[2], "Of all the positives, what share are real?", "What next?"];
+        let (_, deck, state) = made("Numbered", &five);
         assert_eq!(node(&deck, &state, "body")["maxSize"].as_f64(), Some(size("lede")));
         // Prices each with its tier: the tier titles the card, the price is its figure.
         let (layout, deck, state) = made(
