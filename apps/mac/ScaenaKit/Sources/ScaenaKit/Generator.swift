@@ -5,8 +5,15 @@ import os
 private let generatingLog = Logger(subsystem: "com.welshofer.Scaena", category: "generating")
 
 /// What a brief may ask, as Narrato knows it (PLAN G.6): its goals, lengths, and ways a deck is
-/// delivered, the audiences its personas name, its arcs, and the defaults a field left empty takes.
+/// delivered, the audiences its personas name, each persona by its id, its arcs, and the defaults a
+/// field left empty takes.
 public struct BriefChoices: Decodable, Sendable {
+    /// A persona a brief may speak to, by its id (lift-up FUNC-5).
+    public struct Persona: Decodable, Sendable, Hashable {
+        public let id: String
+        public let name: String
+    }
+
     public struct Modality: Decodable, Sendable, Hashable {
         public let id: String
         public let label: String
@@ -22,6 +29,7 @@ public struct BriefChoices: Decodable, Sendable {
     public let lengths: [String]
     public let modalities: [Modality]
     public let audiences: [String]
+    public let personas: [Persona]
     public let arcs: [String]
     public let defaults: Defaults
     /// The themes that ship, to make the deck in, each with its family (PLAN T.0d).
@@ -39,10 +47,13 @@ public struct Brief: Encodable, Sendable {
     public var desiredOutcomes: String?
     public var language: String?
     public var voice: String?
+    /// The persona it speaks to, by its id, where the audience is in the user's own words; else the
+    /// one the audience names, if any (lift-up FUNC-5).
+    public var personaId: String?
 
     public init(
         topic: String, audience: String? = nil, goal: String? = nil, length: String? = nil, modality: String? = nil,
-        desiredOutcomes: String? = nil, language: String? = nil, voice: String? = nil
+        desiredOutcomes: String? = nil, language: String? = nil, voice: String? = nil, personaId: String? = nil
     ) {
         self.topic = topic
         self.audience = audience
@@ -52,6 +63,7 @@ public struct Brief: Encodable, Sendable {
         self.desiredOutcomes = desiredOutcomes
         self.language = language
         self.voice = voice
+        self.personaId = personaId
     }
 }
 
@@ -681,6 +693,8 @@ public final class Generator {
 
         let look: Look?
         let fit: Fit?
+        /// Each slide as drawn for the model, a JPEG in base64 (lift-up ATTR-1).
+        let drawn: [String]?
     }
 
     private struct Fit: Decodable, Sendable {
@@ -695,10 +709,18 @@ public final class Generator {
         let looked: Int?
         let unlooked: String?
         let fit: Fit?
+        /// The slides the model's kept changes touched, drawn again, each by its index, a JPEG in
+        /// base64; none where nothing changed (lift-up ATTR-1).
+        let drawn: [Redrawn]?
         /// Seconds to wait before `look`, the same round, is asked again, and how many times it
         /// was asked so far (lift-up REL-1).
         let wait: Double?
         let tried: Int?
+    }
+
+    private struct Redrawn: Decodable, Sendable {
+        let slide: Int
+        let jpeg: String
     }
 
     /// A rewrite answered: what it came to, and the next round's request where the rewrite left
@@ -721,12 +743,18 @@ public final class Generator {
         public let key: String
         public let base: String?
         public let look: String
+        /// How much care each picture is made with, and what it costs: `low`, `medium`, or `high`
+        /// (lift-up FUNC-5).
+        public let quality: String
 
-        public init(provider: Provider, key: String, base: String? = nil, look: String = "illustration") {
+        public init(
+            provider: Provider, key: String, base: String? = nil, look: String = "illustration", quality: String = "medium"
+        ) {
             self.provider = provider
             self.key = key
             self.base = base
             self.look = look
+            self.quality = quality
         }
     }
 
@@ -841,7 +869,7 @@ public final class Generator {
         }
         var asking: [String: JSONValue] = [
             "theme": .string(theme), "look": .string(painter.look), "provider": .string(painter.provider.rawValue),
-            "model": .string(model),
+            "model": .string(model), "quality": .string(painter.quality),
         ]
         if let base = painter.base { asking["base"] = .string(base) }
         let asked: Asked = try step("pictures", asking)
@@ -900,9 +928,12 @@ public final class Generator {
     /// says not (PLAN G.13): the bundle made, opened, and what it came to. `hear` hears how far it
     /// has come. With `outline`, the outline is written first and shown by it, and the slides
     /// follow what the person decided of it (narrative FUNC-1); without, the slides come at once.
+    /// `drawn` sees each slide as drawn for the model, by its index, a JPEG, and each the model's
+    /// kept changes touched once more, drawn again (lift-up ATTR-1).
     public func generate(
         brief: Brief, arc: String? = nil, provider: Provider, model: String, base: String? = nil, key: String,
         theme: String, painter: Painter? = nil, look: Bool = true, outline: Settle? = nil,
+        drawn: (Int, Data) -> Void = { _, _ in },
         hear: (GeneratingStep) -> Void
     ) async throws -> (ScaenaSession, Generated) {
         try await prepare(language: brief.language, theme: theme, hear: hear)
@@ -968,6 +999,10 @@ public final class Generator {
         let making: Making = try await stepAway(
             "make", ["theme": .string(theme), "key": .string(key), "look": .bool(look)])
         var fit = making.fit
+        // Each slide as drawn for the model, shown while it looks (lift-up ATTR-1).
+        for (slide, jpeg) in (making.drawn ?? []).enumerated() {
+            if let data = Data(base64Encoded: jpeg) { drawn(slide, data) }
+        }
         // The deck shown to the model as it is drawn (PLAN G.13), each slide's change kept where
         // lint finds the slide no worse; then the fit, asked after it.
         // The look goes a dozen slides a round (narrative PERF-5): each answer asks the next
@@ -992,6 +1027,9 @@ public final class Generator {
             }
             seeing = looking.look
             if seeing != nil { continue }
+            for again in looking.drawn ?? [] {
+                if let data = Data(base64Encoded: again.jpeg) { drawn(again.slide, data) }
+            }
             if let why = looking.unlooked {
                 hear(.unlooked(unanswered(why, provider, reply)))
             } else {

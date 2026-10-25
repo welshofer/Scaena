@@ -224,6 +224,27 @@ class Gate(unittest.TestCase):
         self.gate("suspects", "--run", self.write("now.json", slower), "--base", base, "--out", out)
         self.assertEqual(out.read_text(), "".join(f"render_cold/b{i}\n" for i in range(1, 5)))
 
+    # #701's fonts benches: B2 +10.4%, then +14.6%, +17.3%, and +10.6% timed again, while B1 and B3,
+    # which run the same code, ran faster every time. One deck alone is where its code landed.
+    FONTS = 0.0452
+
+    def fonts(self, b1: float, b2: float, b3: float) -> dict:
+        return run(fonts__b1=self.FONTS * b1, fonts__b2=self.FONTS * b2, fonts__b3=self.FONTS * b3)
+
+    def test_a_fonts_bench_is_judged_with_its_group(self):
+        base = self.fonts(1, 1, 1)
+        turns = [self.fonts(0.807, 1.146, 0.904), self.fonts(0.855, 1.173, 0.998), self.fonts(0.933, 1.106, 0.867)]
+        code, report = self.turns(self.fonts(0.807, 1.104, 0.904), base, turns, [base] * 3)
+        self.assertEqual(code, 0, report)
+        self.assertEqual(self.verdicts(report)["fonts/b2"], "ok: its group is not slower")
+        self.assertNotIn("regressed", report)
+        # Every deck slower, every time it was timed: the group regresses.
+        slower = self.fonts(1.12, 1.12, 1.12)
+        code, report = self.turns(slower, base, [slower] * 3, [base] * 3)
+        self.assertEqual(code, 1, report)
+        self.assertEqual(set(self.verdicts(report).values()), {"**slower** (its group)"})
+        self.assertIn("::error title=bench regression::fonts/b2", report)
+
     def test_collect_keeps_each_bench_at_its_fastest(self):
         def criterion(home: str, bench: str, ms: float):
             d = self.dir / home / bench.replace("/", "_") / "new"
