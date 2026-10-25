@@ -1167,8 +1167,9 @@ impl Scaena {
             audio: a.audio.clone().map(Into::into),
             painter: a.painter,
             pace: a.pace,
-            // An agent's single file is the presenter's copy, notes kept, as the CLI's is by default.
-            notes: scaena_ops::export::Notes::Keep,
+            // An agent's single file is the room's, the speaker notes left out, as the CLI's is
+            // by default (Jay's call, 2026-10-25).
+            notes: scaena_ops::export::Notes::Drop,
         };
         let bundle = a.bundle.clone();
         let b = blocking(move || open(&bundle)).await?;

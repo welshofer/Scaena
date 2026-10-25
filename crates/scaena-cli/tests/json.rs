@@ -133,6 +133,8 @@ fn a_command_that_stops_prints_an_error_object() {
         // So is a single-file page; a scaena built without the web player stops with 3
         // (scaena-ops' tests/html.rs).
         (vec!["export", EXAMPLE, "--format", "html"], 2, None),
+        // The speaker notes are a single file's to keep or leave out (lift-up 20261025 SEC-3).
+        (vec!["export", EXAMPLE, "--format", "pdf", "--notes", "keep"], 2, None),
         // The GPU paints only a video's frames,
         (vec!["export", EXAMPLE, "--format", "png", "--painter", "gpu"], 2, None),
         // and only in a scaena built with it; one that has it stops at the missing `--out`.

@@ -53,6 +53,9 @@ export interface Play {
    * read from it (`?fit=own`); else as large as fits the room, at the screen's density (lift-up
    * ATTR-2). */
   fit?: "own" | null;
+  /** A single file exported without the speaker notes (lift-up 20261025 SEC-3; Jay's call,
+   * 2026-10-25): its presenter view says so, rather than an empty pane as if they were lost. */
+  unnoted?: boolean;
 }
 
 /** Paint `stage`'s frames at the size its slide fills `room` at, in device pixels, keeping its
@@ -1139,7 +1142,15 @@ async function presentView(deck: Source, how: Play, channel: BroadcastChannel) {
         // slide's notes keeps them where they stood. They are drawn as a speaker reads them
         // (SPEC §2.6): lines, a list, or a table, never a `- ` or a `|`.
         const written = notes[at.index];
-        if (pane.dataset.notes !== written.text) {
+        if (how.unnoted) {
+          if (pane.dataset.notes !== "unnoted") {
+            pane.dataset.notes = "unnoted";
+            const said = document.createElement("p");
+            said.className = "unnoted";
+            said.textContent = "This file was exported without the speaker notes. Export it again with them to read them here.";
+            pane.replaceChildren(said);
+          }
+        } else if (pane.dataset.notes !== written.text) {
           pane.dataset.notes = written.text;
           renderNotes(pane, written.blocks);
           pane.scrollTop = 0;

@@ -55,18 +55,20 @@ pub struct Request {
     /// How a video and the spine pace the timeline (SPEC §2.4, §10): by the beats' durations
     /// where a state has no hold (the default), or by the holds alone.
     pub pace: scaena_core::spine::Pace,
-    /// What a single-file HTML carries of the presenter's own words: kept (the default), or
-    /// dropped, for a file sent to the room (lift-up 20261025 SEC-3).
+    /// What a single-file HTML carries of the presenter's own words: dropped (the default), for a
+    /// file sent to the room, or kept, for the presenter's own (lift-up 20261025 SEC-3). Every
+    /// other export carries no notes, and reads none of this.
     pub notes: Notes,
 }
 
 /// What a single-file HTML export does with the presenter's words: each state's and beat's
 /// `notes`, each beat's `evidence`, and what Narrato planned for each beat (`media.narrato`).
-/// Kept, the file plays as the presenter's copy; dropped, as the room's, which plays the same.
+/// Dropped by default, the file is the room's, which plays the same and whose presenter view says
+/// it carries no notes; kept, it is the presenter's own copy (Jay's call, 2026-10-25).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum Notes {
-    #[default]
     Keep,
+    #[default]
     Drop,
 }
 
@@ -224,9 +226,6 @@ pub fn export_watched(b: &Bundle, req: &Request, progress: &Progress) -> Result<
             "--painter gpu paints a video's frames: mp4, webm, or prores; every other export paints with the CPU painter",
         ));
     }
-    if req.notes == Notes::Drop && !matches!(format, Format::Html) {
-        return Err(OpsError::new("--notes drop leaves the presenter's words out of a single file: html"));
-    }
     if req.painter == crate::render::Painter::Gpu && cfg!(not(feature = "gpu")) {
         return Err(OpsError::not_built("`--painter gpu` needs a build with `--features gpu` (PLAN 2.22)", "2.22"));
     }
@@ -349,7 +348,7 @@ pub fn standalone_with(
     {
         *deck = unnoted(deck)?;
     }
-    let standalone = Standalone { deck: &b.deck, name, files: &files, states: &read };
+    let standalone = Standalone { deck: &b.deck, name, files: &files, states: &read, notes: notes == Notes::Keep };
     let html = scaena_export::html::html(page, &standalone).map_err(|e| OpsError::new(e.to_string()))?;
     Ok((html, pages))
 }
@@ -951,7 +950,7 @@ fn export_video(
 
 #[cfg(test)]
 mod tests {
-    use super::{Notes, Reel, Request, export, pdf_pages, unnoted};
+    use super::{Notes, Reel, Request, pdf_pages, unnoted};
     use scaena_core::timeline::Timeline;
     use serde_json::{Value, json};
 
@@ -982,11 +981,8 @@ mod tests {
         assert_eq!(beats[0]["media"], json!({ "podcast": { "script": "Revenue doubled." } }));
         assert_eq!((beats[0]["claim"].as_str(), beats[1].get("media")), (Some("Revenue doubled."), None));
         assert_eq!(left["states"][0].get("notes"), None);
-        // Dropped from a single file alone: any other export refuses it.
-        let bundle = crate::open(std::path::Path::new("../../docs/examples/revenue.deck.json")).unwrap();
-        let req = Request { format: "pdf".into(), notes: Notes::Drop, ..Request::default() };
-        let refused = export(&bundle, &req).unwrap_err().to_string();
-        assert!(refused.contains("--notes drop"), "{refused}");
+        // Dropped unless they are asked for (Jay's call, 2026-10-25).
+        assert_eq!(Request::default().notes, Notes::Drop);
     }
 
     #[test]

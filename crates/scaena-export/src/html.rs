@@ -50,6 +50,9 @@ pub struct Standalone<'a> {
     pub files: &'a BTreeMap<String, Vec<u8>>,
     /// The states it plays, in order, each with how it reads ([`reading`]).
     pub states: &'a [(String, String)],
+    /// Whether its deck carries the speaker notes. A file without them says so, and its
+    /// presenter view says it plainly (lift-up 20261025 SEC-3).
+    pub notes: bool,
 }
 
 /// Where the page takes what the export fills in.
@@ -72,7 +75,10 @@ pub fn html(page: &str, standalone: &Standalone) -> Result<String, ExportError> 
 
     let mut deck = String::new();
     let states: Vec<&str> = standalone.states.iter().map(|(id, _)| id.as_str()).collect();
-    let config = serde_json::json!({ "name": standalone.name, "states": states });
+    let mut config = serde_json::json!({ "name": standalone.name, "states": states });
+    if !standalone.notes {
+        config["notes"] = false.into();
+    }
     // `<` written as an escape: nothing in it ends the script.
     let config = serde_json::to_string(&config).map_err(|e| ExportError::Html(e.to_string()))?.replace('<', "\\u003c");
     let _ = write!(deck, r#"<script type="application/json" id="scaena-deck">{config}</script>"#);
@@ -160,7 +166,7 @@ mod tests {
             ("fonts/a \"b\".ttf".to_string(), vec![0, 1, 2, 255]),
         ]);
         let states = [("one".to_string(), "<h1 data-node=\"t\">Hi</h1>".to_string())];
-        let made = html(page, &Standalone { deck: &deck, name: "q3</script>", files: &files, states: &states })
+        let made = html(page, &Standalone { deck: &deck, name: "q3</script>", files: &files, states: &states, notes: true })
             .expect("a page");
         assert!(made.starts_with(r#"<html lang="en-US"><title>Q3 &lt;Review&gt;</title>"#), "{made}");
         assert!(
@@ -184,9 +190,13 @@ mod tests {
         // The same bundle, the same bytes.
         assert_eq!(
             made,
-            html(page, &Standalone { deck: &deck, name: "q3</script>", files: &files, states: &states }).unwrap()
+            html(page, &Standalone { deck: &deck, name: "q3</script>", files: &files, states: &states, notes: true }).unwrap()
         );
-        let wrong = html("<html>", &Standalone { deck: &deck, name: "q3", files: &files, states: &states });
+        let wrong = html("<html>", &Standalone { deck: &deck, name: "q3", files: &files, states: &states, notes: true });
         assert!(wrong.unwrap_err().to_string().contains("just web"));
+        // A file without the speaker notes says so, for its presenter view to say (lift-up
+        // 20261025 SEC-3).
+        let unnoted = html(page, &Standalone { deck: &deck, name: "q3", files: &files, states: &states, notes: false });
+        assert!(unnoted.unwrap().contains(r#"id="scaena-deck">{"name":"q3","states":["one"],"notes":false}</script>"#));
     }
 }

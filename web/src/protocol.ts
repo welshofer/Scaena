@@ -56,7 +56,7 @@ export type Export =
   | { kind: "png"; state: string; width: number; format?: string }
   | { kind: "slides"; width: number; format?: string; name: string }
   | { kind: "pdf" }
-  | { kind: "html"; page: string; name: string; /** The presenter's words kept, or left out of a file sent to the room (lift-up 20261025 SEC-3). */ notes: boolean };
+  | { kind: "html"; page: string; name: string; /** The presenter's words kept, or left out of a file sent to the room, as they are by default (lift-up 20261025 SEC-3). */ notes: boolean };
 
 /** Where an open bundle is kept, and saves to: a folder on disk, the browser's storage, or the
  * folder `scaena serve` serves it from (PLAN 2.11), by name. A bundle read from any other URL is

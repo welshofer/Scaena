@@ -189,23 +189,29 @@ try {
   check(JSON.stringify(plays) === '["intro","revenue","mix","close"]', `the file plays offline: ${JSON.stringify(plays)}`);
   await offline.close();
 
-  // For the room, the same file without the presenter's words: the CLI's `--notes drop`
-  // (lift-up 20261025 SEC-3).
+  // The file above is the room's: the speaker notes left out unless asked for, as the CLI leaves
+  // them out by default (lift-up 20261025 SEC-3; Jay's call, 2026-10-25). Asked for, they are
+  // the CLI's --notes keep.
   await page.click("#export");
   await page.check("#exporting input[name=as][value=html]");
-  const notesOffered = await page.locator("#exporting-notes").isVisible();
-  await page.uncheck("#exporting-keep-notes");
+  const notesOffered = (await page.locator("#exporting-notes").isVisible()) && !(await page.isChecked("#exporting-keep-notes"));
   const roomNote = await page.evaluate(() => document.querySelector("#exporting-note").textContent);
-  const room = await downloaded(() => page.click("#exporting-go"));
-  scaena("export", bundle, "--format", "html", "--notes", "drop", "--out", join(out, "room.html"));
-  const cliRoom = readFileSync(join(out, "room.html"));
+  await page.check("#exporting-keep-notes");
+  const keptNote = await page.evaluate(() => document.querySelector("#exporting-note").textContent);
+  const kept = await downloaded(() => page.click("#exporting-go"));
+  scaena("export", bundle, "--format", "html", "--notes", "keep", "--out", join(out, "kept.html"));
+  const cliKept = readFileSync(join(out, "kept.html"));
   check(
-    notesOffered && roomNote.includes("without the speaker notes") && room.bytes.equals(cliRoom) && !room.bytes.equals(cliHtml),
-    `without the notes, it is the CLI's --notes drop byte for byte (${room.bytes.length} B), and not the presenter's (${cliHtml.length} B)`,
+    notesOffered && roomNote.includes("without the speaker notes") && keptNote.includes("with the speaker notes"),
+    `Export… offers the speaker notes, left out until asked for: ${roomNote} / ${keptNote}`,
+  );
+  check(
+    kept.bytes.equals(cliKept) && !kept.bytes.equals(cliHtml),
+    `with the notes, it is the CLI's --notes keep byte for byte (${kept.bytes.length} B), and not the room's (${cliHtml.length} B)`,
   );
   await page.click("#export");
   await page.check("#exporting input[name=as][value=html]");
-  await page.check("#exporting-keep-notes");
+  await page.uncheck("#exporting-keep-notes");
   await page.check("#exporting input[name=as][value=png]");
   const notesGone = await page.locator("#exporting-notes").isHidden();
   await page.keyboard.press("Escape");

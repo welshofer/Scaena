@@ -2151,7 +2151,7 @@ async function edit(source: Source, opened?: Stage) {
    * (PLAN 2.122); `pdf`, each slide at its last state; `html`, the deck as one file that plays
    * offline, the single-file player's page beside this one filled in. Each is made in the worker:
    * nothing is sent anywhere. */
-  async function exportAs(as: "png" | "slides" | "pdf" | "html", width?: number, notes = true): Promise<{ file: string; bytes: ArrayBuffer } | undefined> {
+  async function exportAs(as: "png" | "slides" | "pdf" | "html", width?: number, notes = false): Promise<{ file: string; bytes: ArrayBuffer } | undefined> {
     await settled();
     let what: Export;
     let file: string;
@@ -2866,8 +2866,8 @@ async function edit(source: Source, opened?: Stage) {
     const as = chosenExport();
     const sized = as === "png" || as === "slides";
     $("#exporting-size").hidden = !sized;
-    // A single file carries the presenter's notes unless they are left out, for one sent to the
-    // room (lift-up 20261025 SEC-3).
+    // A single file leaves the speaker notes out unless they are asked for: it is what a speaker
+    // sends the room (lift-up 20261025 SEC-3; Jay's call, 2026-10-25).
     $("#exporting-notes").hidden = as !== "html";
     exportWidth.disabled = !sized;
     const [w, h] = board.size();
@@ -2887,7 +2887,9 @@ async function edit(source: Source, opened?: Stage) {
         : "A width in whole pixels: the height keeps the canvas's aspect.",
       pdf: "A page for each slide at its last state: vector paths, text in subset fonts that copies and searches as the deck reads, tagged for a screen reader.",
       html: `The player and the deck in one file that plays in a browser with no network, its fonts subset to what the deck draws${
-        exportNotes.checked ? ", with the speaker notes" : ", without the speaker notes, the sources each beat cites, or what was planned for it"
+        exportNotes.checked
+          ? ", with the speaker notes, the sources each beat cites, and what was planned for it"
+          : ", without the speaker notes, the sources each beat cites, or what was planned for it"
       }.`,
     }[as];
   };
