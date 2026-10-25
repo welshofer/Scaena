@@ -353,7 +353,7 @@ pub(crate) struct Told<'d> {
 }
 
 /// Each slide of `deck` as its talk speaks it.
-pub(crate) fn spoken(deck: &Deck) -> Result<Vec<Told<'_>>, OpsError> {
+pub(crate) fn told(deck: &Deck) -> Result<Vec<Told<'_>>, OpsError> {
     let slides = slides(deck);
     let (read, _) = readings(deck, &slides)?;
     let told = slides.iter().filter(|s| !s.states.is_empty()).map(|s| s.beat);

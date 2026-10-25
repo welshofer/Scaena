@@ -21,7 +21,7 @@ fn length(deck: &Deck) -> &str {
 /// ([`notes::minutes`]), shared among the slides as their beats' durations are, each less its
 /// change and its own words, so the talk reads as the slot's middle by the measure it is timed by.
 pub fn speaking(deck: &Deck) -> Result<Vec<Spoken>, OpsError> {
-    let slides = crate::health::spoken(deck)?;
+    let slides = crate::health::told(deck)?;
     let timed: Vec<Timed> = (slides.iter())
         .map(|t| {
             let beat = t.beat.map(|(.., b)| b);
@@ -64,7 +64,7 @@ pub fn noted(made: &mut Generated, mut write: Write, written: Vec<(usize, String
     if written.is_empty() {
         return Ok(write);
     }
-    let places = crate::health::spoken(&write.deck)?;
+    let places = crate::health::told(&write.deck)?;
     let mut doc = write.deck.to_value()?;
     let mut taken = Vec::new();
     for (slide, text) in written {
