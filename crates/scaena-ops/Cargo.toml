@@ -20,8 +20,13 @@ shipped = ["dep:flate2"]
 # Decks made from a narrative Narrato writes (ADR-0026, PLAN G.1). Off in the browser's editor
 # module, which loads generation as a module of its own (PLAN G.5).
 narrato = ["dep:scaena-narrato", "dep:scaena-sources"]
+# A picture past the largest side an image may have made smaller for an agent's `image_add`
+# (lift-up 10-24b FUNC-5), as the browser and the Mac make one themselves: native clients only,
+# so the browser's module carries no image codec of its own.
+smaller = ["dep:image"]
 
 [dependencies]
+image = { workspace = true, optional = true }
 scaena-core.workspace = true
 scaena-engine.workspace = true
 scaena-paint.workspace = true
