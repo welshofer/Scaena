@@ -143,14 +143,24 @@ fn a_deck_is_made_from_a_prompt_as_swift_makes_one_its_pictures_with_it() {
     let looked =
         step(g, "looked", json!({ "status": 200, "statusText": "OK", "body": tightened, "key": "sk-writer" }), &[]);
     assert_eq!(looked["looked"], 1, "{looked}");
-    if let Some(fit) = looked["fit"].as_object() {
-        assert_eq!(fit["request"]["headers"]["x-api-key"], "sk-writer");
+    // Each rewrite asked for answered with none: asked once more, no more, then said (STAB-4).
+    let (mut fit, mut rounds) = (looked["fit"].clone(), 0);
+    while let Some(asked) = fit.as_object() {
+        assert_eq!(asked["request"]["headers"]["x-api-key"], "sk-writer");
+        rounds += 1;
         let none = anthropic(r#"{"texts": []}"#);
-        step(g, "fitted", json!({ "status": 200, "statusText": "OK", "body": none }), &[]);
+        let fitted =
+            step(g, "fitted", json!({ "status": 200, "statusText": "OK", "body": none, "key": "sk-writer" }), &[]);
+        assert_eq!(fitted["fitted"], 0, "{fitted}");
+        fit = fitted["fit"].clone();
     }
+    assert!(rounds <= 2, "{rounds} rounds");
     let report = step(g, "report", json!({}), &[]);
     assert_eq!(report["created"]["created"], true, "{report:#}");
     assert_eq!(report["created"]["errors"], 0, "{report:#}");
+    if rounds == 2 {
+        assert!(report["unfitted"].as_str().unwrap().contains("still run"), "{report:#}");
+    }
     assert_eq!(report["pictures"].as_u64(), Some(wanted), "{report:#}");
     assert_eq!(report["arc"], "Problem–Solution");
     assert_eq!(report["sources"][0]["name"], "notes.md");

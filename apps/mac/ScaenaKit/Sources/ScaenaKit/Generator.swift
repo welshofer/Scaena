@@ -701,10 +701,14 @@ public final class Generator {
         let tried: Int?
     }
 
+    /// A rewrite answered: what it came to, and the next round's request where the rewrite left
+    /// a text too long (STAB-4).
     private struct Fitting: Decodable, Sendable {
         let fitted: Int?
         let unfitted: String?
-        /// The fit asked again after `wait` seconds, `tried` times so far (lift-up REL-1).
+        /// The next round's request, where the rewrite left a text too long (STAB-4); or, with
+        /// `wait`, the same fit asked again after that many seconds, `tried` times so far (lift-up
+        /// REL-1).
         let fit: Fit?
         let wait: Double?
         let tried: Int?
@@ -995,29 +999,31 @@ public final class Generator {
             }
             fit = looking.fit
         }
-        if let fit {
-            hear(.fitting(texts: fit.texts))
-            var asking: Fit? = fit
-            while let now = asking {
-                let reply = await send(now.request)
-                var answered: [String: JSONValue] = [
-                    "status": .number(Double(reply.status)),
-                    "statusText": .string(HTTPURLResponse.localizedString(forStatusCode: reply.status)),
-                    "body": .string(reply.text),
-                ]
-                if let after = reply.after { answered["after"] = .string(after) }
-                let fitting: Fitting = try await stepAway("fitted", answered)
-                asking = nil
-                // A busy provider: the fit asked again after the wait the engine says (lift-up REL-1).
-                if let wait = fitting.wait, let again = fitting.fit {
-                    hear(.retrying(seconds: wait, tried: fitting.tried ?? 0))
-                    try await Task.sleep(for: .seconds(wait))
-                    asking = again
-                    continue
-                }
-                if let n = fitting.fitted { hear(.fitted(texts: n)) }
-                if let why = fitting.unfitted { hear(.unfitted(unanswered(why, provider, reply))) }
+        // Each answer may ask once more for what the rewrite left too long (STAB-4), or, from a
+        // busy provider, the same fit again after the wait the engine says (lift-up REL-1).
+        var retrying = false
+        while let asked = fit {
+            if !retrying { hear(.fitting(texts: asked.texts)) }
+            retrying = false
+            let reply = await send(asked.request)
+            var answered: [String: JSONValue] = [
+                "status": .number(Double(reply.status)),
+                "statusText": .string(HTTPURLResponse.localizedString(forStatusCode: reply.status)),
+                "body": .string(reply.text),
+                "key": .string(key),
+            ]
+            if let after = reply.after { answered["after"] = .string(after) }
+            let fitting: Fitting = try await stepAway("fitted", answered)
+            if let wait = fitting.wait, let again = fitting.fit {
+                hear(.retrying(seconds: wait, tried: fitting.tried ?? 0))
+                try await Task.sleep(for: .seconds(wait))
+                fit = again
+                retrying = true
+                continue
             }
+            if let n = fitting.fitted { hear(.fitted(texts: n)) }
+            if let why = fitting.unfitted { hear(.unfitted(unanswered(why, provider, reply))) }
+            fit = fitting.fit
         }
         let generated: Generated = try step("report")
         var error: UnsafeMutablePointer<CChar>?

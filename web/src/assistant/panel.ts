@@ -56,6 +56,7 @@ const PROVIDERS: Record<ProviderId, { name: string; base: string; keys: string }
  * conversation, as ScaenaKit's `ToolWords` says them on the Mac. */
 const TOOL_WORDS: Record<string, [doing: string, done: string, not: string]> = {
   background_set: ["Setting a background…", "Set a background", "Didn't set a background"],
+  slide_write: ["Writing a slide…", "Wrote a slide", "Didn't write a slide"],
   data_attach: ["Adding data…", "Added data", "Didn't add data"],
   data_edit: ["Changing the data…", "Changed the data", "Didn't change the data"],
   deck_create: ["Making a deck…", "Made a deck", "Didn't make a deck"],
