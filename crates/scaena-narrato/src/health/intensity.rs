@@ -324,6 +324,10 @@ struct Weights {
     sigmoid_slope: f64,
 }
 
+/// What prose with no mark of intensity reads at, the lexicons silent and no structure to count:
+/// moderate, not flat.
+pub const NEUTRAL: f64 = 0.42;
+
 const W: Weights = Weights {
     lex_arousal_per_tok: 4.0,
     lex_dampener_per_tok: 3.5,
@@ -334,7 +338,7 @@ const W: Weights = Weights {
     second_person: 1.2,
     superlative: 1.6,
     magnitude: 2.0,
-    baseline: 0.42,
+    baseline: NEUTRAL,
     sigmoid_slope: 3.2,
 };
 

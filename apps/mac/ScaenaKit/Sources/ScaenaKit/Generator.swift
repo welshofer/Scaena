@@ -5,8 +5,15 @@ import os
 private let generatingLog = Logger(subsystem: "com.welshofer.Scaena", category: "generating")
 
 /// What a brief may ask, as Narrato knows it (PLAN G.6): its goals, lengths, and ways a deck is
-/// delivered, the audiences its personas name, its arcs, and the defaults a field left empty takes.
+/// delivered, the audiences its personas name, each persona by its id, its arcs, and the defaults a
+/// field left empty takes.
 public struct BriefChoices: Decodable, Sendable {
+    /// A persona a brief may speak to, by its id (lift-up FUNC-5).
+    public struct Persona: Decodable, Sendable, Hashable {
+        public let id: String
+        public let name: String
+    }
+
     public struct Modality: Decodable, Sendable, Hashable {
         public let id: String
         public let label: String
@@ -22,6 +29,7 @@ public struct BriefChoices: Decodable, Sendable {
     public let lengths: [String]
     public let modalities: [Modality]
     public let audiences: [String]
+    public let personas: [Persona]
     public let arcs: [String]
     public let defaults: Defaults
     /// The themes that ship, to make the deck in, each with its family (PLAN T.0d).
@@ -39,10 +47,13 @@ public struct Brief: Encodable, Sendable {
     public var desiredOutcomes: String?
     public var language: String?
     public var voice: String?
+    /// The persona it speaks to, by its id, where the audience is in the user's own words; else the
+    /// one the audience names, if any (lift-up FUNC-5).
+    public var personaId: String?
 
     public init(
         topic: String, audience: String? = nil, goal: String? = nil, length: String? = nil, modality: String? = nil,
-        desiredOutcomes: String? = nil, language: String? = nil, voice: String? = nil
+        desiredOutcomes: String? = nil, language: String? = nil, voice: String? = nil, personaId: String? = nil
     ) {
         self.topic = topic
         self.audience = audience
@@ -52,6 +63,7 @@ public struct Brief: Encodable, Sendable {
         self.desiredOutcomes = desiredOutcomes
         self.language = language
         self.voice = voice
+        self.personaId = personaId
     }
 }
 
@@ -742,12 +754,18 @@ public final class Generator {
         public let key: String
         public let base: String?
         public let look: String
+        /// How much care each picture is made with, and what it costs: `low`, `medium`, or `high`
+        /// (lift-up FUNC-5).
+        public let quality: String
 
-        public init(provider: Provider, key: String, base: String? = nil, look: String = "illustration") {
+        public init(
+            provider: Provider, key: String, base: String? = nil, look: String = "illustration", quality: String = "medium"
+        ) {
             self.provider = provider
             self.key = key
             self.base = base
             self.look = look
+            self.quality = quality
         }
     }
 
@@ -862,7 +880,7 @@ public final class Generator {
         }
         var asking: [String: JSONValue] = [
             "theme": .string(theme), "look": .string(painter.look), "provider": .string(painter.provider.rawValue),
-            "model": .string(model),
+            "model": .string(model), "quality": .string(painter.quality),
         ]
         if let base = painter.base { asking["base"] = .string(base) }
         let asked: Asked = try step("pictures", asking)

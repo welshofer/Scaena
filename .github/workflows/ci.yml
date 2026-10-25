@@ -592,6 +592,8 @@ jobs:
       # A deck made from a prompt, grounded in files and a page, Narrato played by a scripted
       # server: the generator's own module, and the deck opened in the editor (PLAN G.5).
       - run: node web/generate.mjs
+      # The Story tab leads with what to do first and folds the rest, counted by kind (lift-up S1).
+      - run: node web/story.mjs
       # A first deck as a person makes one, from New to a deck that plays, exports, and opens
       # again, by the editor's buttons, menus, keys, and drops alone (PLAN 2.76).
       - run: node web/first-deck.mjs
