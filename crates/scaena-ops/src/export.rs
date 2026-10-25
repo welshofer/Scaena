@@ -992,7 +992,7 @@ fn export_video(
 
 #[cfg(test)]
 mod tests {
-    use super::{Notes, Reel, Request, pdf_pages, unnoted};
+    use super::{Reel, Request, pdf_pages, unnoted};
     use scaena_core::timeline::Timeline;
     use serde_json::{Value, json};
 
