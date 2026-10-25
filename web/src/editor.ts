@@ -62,6 +62,7 @@ import { picturer } from "./picturing";
 import { sourceOf } from "./bundle";
 import { canvas, canvasKeys, placed } from "./canvas";
 import { markName, noteName } from "./notes";
+import { slideAsker } from "./slide-ask";
 import { type Command, type Group, type Key, keyOf, MOD, MOD_ALT, menu, opens, palette, SHIFT, sheet } from "./commands";
 import { cue, cueKeys } from "./cue";
 import { dataKeys, sheets } from "./data";
@@ -2268,6 +2269,24 @@ async function edit(source: Source, opened?: Stage) {
     },
     slide: slideOf,
   });
+  /** Write This Slide Again… and Add a Slide About… (lift-up FUNC-1): one slide written by the model the
+   * assistant uses, as the deck's generator builds slides; one step to undo. */
+  const asking = slideAsker(stage, {
+    who: () => assistant.who(),
+    shown: showing,
+    format,
+    apply: made,
+    show: (id) => {
+      const k = last?.states.findIndex(([state]) => state === id) ?? -1;
+      if (k >= 0) goTo(k);
+    },
+    say,
+    keys: () => {
+      tab("assistant");
+      $("#key").focus();
+    },
+    slide: slideOf,
+  });
   /** Make a picture (PLAN 2.107): of what the user says, by the image model their OpenAI or Gemini
    * key lists, in the theme's palette, for the image selected, the slide's empty place for a
    * picture, or where they last pressed; one patch, one step to undo. */
@@ -2652,6 +2671,10 @@ async function edit(source: Source, opened?: Stage) {
       // Whether its words carry its beat's claim, judged by the same model, which offers the
       // headline rewritten to carry it (narrative FUNC-4).
       { label: "Check its claim", where: ["state"], applies: () => now() !== undefined, run: () => write("claim") },
+      // Written again, or a new one after it, as the deck's generator writes slides, by the same
+      // model (lift-up FUNC-1).
+      { label: "Write this slide again…", where: ["state"], applies: () => now() !== undefined && !assisting, run: () => asking.open("redo") },
+      { label: "Add a slide about…", where: ["state"], applies: () => now() !== undefined && !assisting, run: () => asking.open("add") },
       { label: "Show the light table", applies: () => now() !== undefined && !table.open(), run: () => table.toggle(true) },
       { label: "Close the light table", applies: () => table.open(), run: () => table.toggle(false) },
       // Page Down and Page Up on the slide (PLAN 2.126).
@@ -3091,6 +3114,9 @@ async function edit(source: Source, opened?: Stage) {
       assistant,
       /** The writing tools (PLAN 2.101): one asked, and its answer taken, settled. */
       writing,
+      /** Write This Slide Again… and Add a Slide About… (lift-up FUNC-1): the dialog opened, and the last
+       * slide written, settled. */
+      slideAsk: asking,
       /** Make a picture (PLAN 2.107): the dialog opened, and the last picture made and put, settled. */
       picturing,
       /** Insert › Map… (PLAN O.1c): the sheet opened, and the last map fetched and put, settled. */

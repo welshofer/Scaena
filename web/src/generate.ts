@@ -37,6 +37,62 @@ export async function health(deck: string, lint?: string): Promise<Health> {
   return JSON.parse((await generator()).health(deck, lint)) as Health;
 }
 
+/** Where a slide goes in an open deck (lift-up FUNC-1): after the slide that holds a state, in
+ * place of it, or, with neither, at the end. */
+export interface SlidePlace {
+  after?: string;
+  replace?: string;
+}
+
+/** The generator's writer of one slide (lift-up FUNC-1), the bundle's data `files` handed to it:
+ * which the rows of a chart the slide draws are read from. */
+async function writing(files: Iterable<[string, Uint8Array]>) {
+  const w = new (await generator()).SlideWriting();
+  for (const [path, bytes] of files) w.add(path, bytes);
+  return w;
+}
+
+/** What to ask a model for one slide of `deck` at `place`, with the person's `ask` (lift-up
+ * FUNC-1), the bundle's data `files` read for the rows of a chart the slide draws: the request's
+ * instructions and prompt. */
+export async function oneAsked(
+  deck: string,
+  place: SlidePlace,
+  ask: string,
+  files: Iterable<[string, Uint8Array]>,
+): Promise<{ system: string; prompt: string }> {
+  const w = await writing(files);
+  try {
+    return JSON.parse(w.asked(deck, JSON.stringify(place), ask)) as { system: string; prompt: string };
+  } finally {
+    w.free();
+  }
+}
+
+/** `slide` built for `deck` in `theme` at `place`, as the deck's generator builds a slide, its
+ * icons `found` in the set the page carries and its data `files` the bundle's: what the editor's
+ * module makes one patch of (`Player.slidePolishing`). */
+export async function slideBuilt(
+  deck: string,
+  theme: string,
+  slide: Record<string, unknown>,
+  place: SlidePlace,
+  found: Record<string, { name: string; path: string; view: number[] }>,
+  files: Iterable<[string, Uint8Array]>,
+): Promise<string> {
+  const w = await writing(files);
+  try {
+    return w.built(deck, theme, JSON.stringify(slide), JSON.stringify(place), JSON.stringify(found));
+  } finally {
+    w.free();
+  }
+}
+
+/** The one slide a model's `answer` holds, as Narrato writes a slide. */
+export async function oneAnswered(answer: string): Promise<Record<string, unknown>> {
+  return JSON.parse((await generator()).oneAnswered(answer)) as Record<string, unknown>;
+}
+
 /** What a brief may ask, as Narrato knows it. */
 export async function choices(): Promise<Choices> {
   return JSON.parse((await generator()).choices()) as Choices;

@@ -378,11 +378,20 @@ fn diff(from: &Props, to: &Props) -> Props {
 /// state than it did, or whose `from` is gone or no longer before it, has its delta written
 /// again, without `from`, to resolve as it did from the state before it; where it takes its
 /// layout from that state, it sets its own. A state new to `deck` stays as it is, and `like`
-/// names the state of `deck` each resolves as. The states are resolved after to prove it: one
-/// that would show otherwise is an error that says which.
+/// names the state of `deck` each resolves as; one `like` does not name shows what it shows in
+/// the new order, where a state after it may track from it (lift-up FUNC-1). The states are
+/// resolved after to prove it: one that would show otherwise is an error that says which.
 pub fn keep_looks(deck: &Deck, mut states: Vec<State>, like: &[(String, String)]) -> Result<Vec<State>, String> {
     let before = resolve_states(deck).map_err(|e| e.to_string())?;
+    let new = |id: &str| deck.state_index(id).is_none() && !like.iter().any(|(n, _)| n == id);
+    let fresh = match states.iter().any(|s| new(&s.id)) {
+        true => resolve_states(&Deck { states: states.clone(), ..deck.clone() }).map_err(|e| e.to_string())?,
+        false => Vec::new(),
+    };
     let looked = |id: &str| -> Option<&Snapshot> {
+        if new(id) {
+            return fresh.iter().find(|s| s.state_id == id);
+        }
         let id = like.iter().find(|(new, _)| new == id).map_or(id, |(_, old)| old.as_str());
         before.iter().find(|s| s.state_id == id)
     };
