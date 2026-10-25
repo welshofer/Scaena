@@ -43,7 +43,17 @@ impl Asking {
     fn read(asking: &str) -> Result<(Asking, Provider), JsError> {
         let asking: Asking = serde_json::from_str(asking).map_err(|e| error(format!("who is asked: {e}")))?;
         let provider = provider(&asking.provider)?;
+        checked(asking.base.as_deref())?;
         Ok((asking, provider))
+    }
+}
+
+/// `base`, where it is given, as an address the key may go to: plain `http` off this machine is
+/// refused (lift-up 20261025 SEC-2).
+fn checked(base: Option<&str>) -> Result<(), JsError> {
+    match base.filter(|b| !b.is_empty()) {
+        Some(b) => scaena_narrato::providers::checked_base(b).map(drop).map_err(error),
+        None => Ok(()),
     }
 }
 
@@ -433,16 +443,23 @@ impl Generation {
 
     /// What the model is shown of the deck the narrative made in `theme` (the theme's JSON) with
     /// `pictures` (as `deck` takes them), each slide in the layout `layouts` (JSON `[id]`, as
-    /// `Making.report` says them) gives it (PLAN G.13): JSON `[{ slide, layout, options, title,
-    /// subtitle, bullets }]`, which `lookRequest` and `lookAnswer` take.
-    pub fn seeing(&self, theme: &str, pictures: &str, layouts: &str) -> Result<String, JsError> {
+    /// `Making.report` says them) gives it (PLAN G.13), each title's place holding what `rooms`
+    /// says (JSON `[n | null]`, as `Making.rooms` measures them, lift-up FUNC-2): JSON `[{ slide,
+    /// layout, options, title, subtitle, bullets, room? }]`, which `lookRequest` and `lookAnswer`
+    /// take.
+    pub fn seeing(&self, theme: &str, pictures: &str, layouts: &str, rooms: Option<String>) -> Result<String, JsError> {
         let narrative = self.inner.narrative().ok_or_else(|| error("the narrative is not written yet"))?;
         let model: scaena_core::model::theme::Theme =
             serde_json::from_str(theme).map_err(|e| error(format!("the theme: {e}")))?;
         let pictures: scaena_ops::narrative::Pictures =
             serde_json::from_str(pictures).map_err(|e| error(format!("the pictures: {e}")))?;
         let layouts: Vec<String> = serde_json::from_str(layouts).map_err(|e| error(format!("the layouts: {e}")))?;
-        let seen = scaena_ops::narrative::seeing(narrative, &model, &pictures, &layouts);
+        let mut seen = scaena_ops::narrative::seeing(narrative, &model, &pictures, &layouts);
+        if let Some(rooms) = rooms {
+            let rooms: Vec<Option<usize>> =
+                serde_json::from_str(&rooms).map_err(|e| error(format!("the rooms: {e}")))?;
+            scaena_ops::narrative::roomed(&mut seen, &rooms);
+        }
         Ok(serde_json::to_string(&seen).expect("what the model sees is JSON"))
     }
 
@@ -538,6 +555,7 @@ pub fn picture_asked(theme: &str, subject: &str, look: &str, width: f64, height:
 #[wasm_bindgen(js_name = pictureModelsRequest)]
 pub fn picture_models_request(provider: &str, key: &str, base: Option<String>) -> Result<String, JsError> {
     let provider = Provider::named(provider).ok_or_else(|| error(format!("`{provider}` is no provider")))?;
+    checked(base.as_deref())?;
     Ok(serde_json::to_string(&provider.models(key, base.as_deref(), true)).expect("a request is JSON"))
 }
 
@@ -566,6 +584,7 @@ impl Painting {
     pub fn new(asked: &str, settings: &str) -> Result<Painting, JsError> {
         let asked: Vec<scaena_ops::narrative::Asked> = serde_json::from_str(asked).map_err(error)?;
         let settings: scaena_narrato::pictures::Settings = serde_json::from_str(settings).map_err(error)?;
+        checked(settings.base.as_deref())?;
         Ok(Painting { inner: scaena_ops::narrative::Painting::new(asked, settings), replies: Vec::new() })
     }
 
