@@ -235,7 +235,15 @@ async function run(
     return answer(JSON.stringify({ message: e instanceof Error ? e.message : String(e) }), true);
   }
   if (frame) out.result.png = await png(frame.pixels, frame.width, frame.height);
-  if (changed || files.length) await edited(session.source(), files);
+  // The editor's taking of the edit failing is this call's answer, so the model hears it and the
+  // conversation goes on (lift-up 10-25b STAB-3).
+  if (changed || files.length) {
+    const why = await edited(session.source(), files).then(
+      () => undefined,
+      (e: unknown) => (e instanceof Error ? e.message : String(e)),
+    );
+    if (why !== undefined) return answer(JSON.stringify({ message: `the deck was edited, but the editor could not take the edit: ${why}` }), true);
+  }
   return out;
 }
 
