@@ -792,7 +792,7 @@ fn the_assistant_asks_with_the_users_key_and_runs_each_call_on_the_bundle() {
     let question = body["messages"][0]["content"][0]["text"].as_str().unwrap();
     assert_eq!(question, "[In the window: state cover shown; selected: title (text).]\n\nIs the cover clean?");
     let tools: Vec<&str> = body["tools"].as_array().unwrap().iter().map(|t| t["name"].as_str().unwrap()).collect();
-    assert_eq!(tools.len(), 18, "the page's seventeen and resource_read: {tools:?}");
+    assert_eq!(tools.len(), 19, "the page's eighteen and resource_read: {tools:?}");
     assert_eq!(tools.last(), Some(&"resource_read"));
 
     // The model calls three tools: each runs on the bundle, as the browser runs it.
@@ -2001,7 +2001,11 @@ fn a_writing_tool_asks_once_and_its_answer_is_one_patch() {
     assert!(words.starts_with("Why this exists"), "{writing}");
     // Asked with the point its slide makes (lift-up FUNC-3).
     let claim = "Scaena is the tool we would build if the slide had never been invented.";
-    assert_eq!(writing["prompt"], format!("The text:\n{words}\nThe point its slide makes: {claim}"));
+    // The deck's words fenced as data (lift-up W1).
+    assert_eq!(
+        writing["prompt"],
+        format!("<data label=\"text\">\nThe text:\n{words}\nThe point its slide makes: {claim}\n</data>")
+    );
 
     let request = providers(
         "once",
@@ -2030,7 +2034,7 @@ fn a_writing_tool_asks_once_and_its_answer_is_one_patch() {
     assert!(
         call(s, "writing", notes.clone())["prompt"]
             .as_str()
-            .is_some_and(|p| p.starts_with("The slide reads:\nTitle: Scaena"))
+            .is_some_and(|p| p.starts_with("The slide reads:\n<data label=\"slide\">\nTitle: Scaena"))
     );
     let drafted = call(s, "written", json!({ "ask": notes, "answer": "Open on the name." }));
     assert_eq!(
@@ -2041,7 +2045,11 @@ fn a_writing_tool_asks_once_and_its_answer_is_one_patch() {
     let finding = json!({ "code": "E100", "severity": "error", "message": "text `title` overflows", "node": "title" });
     let explain = json!({ "kind": "explain", "state": "cover", "finding": finding });
     let asked = call(s, "writing", explain.clone());
-    assert_eq!(asked["prompt"], "Finding E100 (error): text `title` overflows\nIts words: Scaena", "{asked}");
+    assert_eq!(
+        asked["prompt"],
+        "Finding E100 (error): text `title` overflows\nIts words:\n<data label=\"words\">\nScaena\n</data>",
+        "{asked}"
+    );
     assert_eq!(
         call(s, "written", json!({ "ask": explain, "answer": "It runs out of its box." }))["patch"],
         Value::Null

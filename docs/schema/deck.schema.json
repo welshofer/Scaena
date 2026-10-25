@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://scaena.dev/schema/deck-0.38.json",
+  "$id": "https://scaena.dev/schema/deck-0.39.json",
   "title": "Scaena deck document",
   "description": "Canonical deck.json. A deck is a scene graph (nodes) plus an ordered cue list (states) over a narrative spine, rendered against a theme. See docs/SPEC.md §3.",
   "type": "object",
@@ -10,7 +10,7 @@
     "scaena": {
       "description": "Format version (semver, major.minor[.patch]).",
       "type": "string",
-      "pattern": "^0\\.38(\\.[0-9]+)?$"
+      "pattern": "^0\\.39(\\.[0-9]+)?$"
     },
     "meta": { "$ref": "#/$defs/Meta" },
     "canvas": { "$ref": "#/$defs/Canvas" },
@@ -1409,6 +1409,20 @@
           "description": "The language its words are written in, a lowercase name: one Scaena knows, by its name or an alias (`rust`, `rs`, `c++`), `plain` for none, or any other, which the generic scanner colors (`scaena_core::code`).",
           "type": "string",
           "pattern": "^[a-z0-9][a-z0-9+#._-]{0,31}$"
+        },
+        "numbers": {
+          "description": "Whether its lines are numbered, each in a gutter beside it that no caret, word, or reader takes (PLAN 2.136, deck format 0.39): off where unset.",
+          "type": "boolean"
+        },
+        "start": {
+          "description": "The number its first line goes by in the gutter, 1 to 999,999: 1 where unset. It only labels the gutter; a line is named by its place, counted from 1, everywhere else.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 999999
+        },
+        "card": {
+          "description": "Whether it stands on a card that hugs it and its gutter, in the theme's `code.card`: on where unset. A deck saved before 0.39 reads with it off, and draws as it did.",
+          "type": "boolean"
         }
       }
     },
@@ -2261,7 +2275,10 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "language": { "anyOf": [{ "pattern": "^[a-z0-9][a-z0-9+#._-]{0,31}$", "type": "string" }, { "type": "null" }] }
+        "language": { "anyOf": [{ "pattern": "^[a-z0-9][a-z0-9+#._-]{0,31}$", "type": "string" }, { "type": "null" }] },
+        "numbers": { "type": ["boolean", "null"] },
+        "start": { "anyOf": [{ "maximum": 999999, "type": "integer", "minimum": 1 }, { "type": "null" }] },
+        "card": { "type": ["boolean", "null"] }
       }
     },
     "ConnectDelta": {

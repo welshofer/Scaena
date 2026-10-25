@@ -62,13 +62,14 @@ import { picturer } from "./picturing";
 import { sourceOf } from "./bundle";
 import { canvas, canvasKeys, placed } from "./canvas";
 import { markName, noteName } from "./notes";
+import { slideAsker } from "./slide-ask";
 import { type Command, type Group, type Key, keyOf, MOD, MOD_ALT, menu, opens, palette, SHIFT, sheet } from "./commands";
 import { cue, cueKeys } from "./cue";
 import { dataKeys, sheets } from "./data";
 import { filesPanel } from "./files";
 import { storyPanel } from "./story";
 import { finder, findKeys } from "./find";
-import { deleteKept, keptBundle, keptNames, renameKept } from "./folders";
+import { deleteKept, keptBundle, keptNames, persist, persisted, renameKept } from "./folders";
 import { discard, find, keep, savedAt, type Copy } from "./recovery";
 import { formatsRow } from "./formats";
 import { layerKeys, layers } from "./layers";
@@ -104,7 +105,7 @@ import { rehearsal, rehearsalKeys } from "./rehearse";
 import { scn, scnHighlight } from "./scn";
 import { client, listen, served, serving, status as onDisk, token } from "./served";
 import { worker } from "./spawn";
-import { Stage } from "./stage";
+import { EngineStopped, PROBE, Stage } from "./stage";
 import { toolbar } from "./toolbar";
 import { slides as lightTable, slidesKeys } from "./slides";
 import { strip, stripKeys } from "./strip";
@@ -120,6 +121,13 @@ const fallback = import.meta.env.VITE_BUNDLE ?? "../../docs/examples/revenue.dec
 
 const $ = <T extends HTMLElement>(selector: string) => document.querySelector<T>(selector)!;
 const said = (e: unknown) => (e instanceof Error ? e.message : String(e));
+
+// What waited on the engine when it stopped is refused, and the restart says so: a request fired
+// and forgotten has nothing more to say. Heard once, for every deck the page opens.
+addEventListener("unhandledrejection", (e) => {
+  if (e.reason instanceof EngineStopped) e.preventDefault();
+});
+
 /** A theme file's name as a person reads it (PLAN 2.99): `themes/dusk.theme.json` is Dusk. */
 const themeName = (path: string) => sentence(path.replace(/^.*\//, "").replace(/\.theme\.json$|\.json$/, ""));
 /** What an edit did to what lint finds, said: 2 new issues, 1 gone; or no new issues. */
@@ -307,6 +315,11 @@ async function listKept() {
   };
   $("#keeping ul").replaceChildren(...names.map(row));
   $("#keeping [data-none]").hidden = names.length > 0;
+  // Whether the browser keeps them for good, or may clear them when short of room (lift-up
+  // 10-24b REL-4).
+  $("#keeping [data-persisted]").textContent = (await persisted())
+    ? "This browser keeps them until you delete them."
+    : "This browser may clear them when it runs short of room: Download keeps a copy of your own.";
 }
 
 /** Say `text` in Kept in this browser, over the page, and in the status under it. */
@@ -518,7 +531,7 @@ async function edit(source: Source, opened?: Stage) {
   stage.onError = failed;
   /** On a served page, the deck's source on disk, where the folder keeps one (PLAN 2.11). */
   const scnOnDisk = "url" in source && source.serve && (await onDisk()).source ? new URL("deck.scn", source.url) : undefined;
-  const fromDisk = async () => (await fetch(scnOnDisk!, { cache: "no-store" })).text();
+  const fromDisk = async () => (await fetch(scnOnDisk!, { cache: "no-store", headers: { "X-Scaena-Token": token } })).text();
   /** The deck's own size, named by its shape where a format is it (`16:9`); a format it lists of
    * that shape is its own canvas, offered once. An edit of the canvas renames it. */
   let ownSize = stage.opened.own;
@@ -565,7 +578,12 @@ async function edit(source: Source, opened?: Stage) {
   // stands here, kept where the bundle is kept, so Save still works; the state shown is shown
   // again, and the person is told in plain words.
   stage.onCrashed = (crash) => void restarted(crash);
-  async function restarted(crash: { message: string; files: Record<string, ArrayBuffer> }) {
+  // A worker that died outside a message, as one out of memory does, hands nothing over (lift-up
+  // 10-24b STAB-2): the stage is started again from the deck as last kept, or as it came, with the
+  // source as it stands here, and the files written since the save, which went with it, are named.
+  stage.onDied = (death) => void restarted(death);
+  stage.onStalled = (message) => say(`The engine stopped answering after an error (${message}): waiting up to ${PROBE / 1000} seconds for it before starting it again…`);
+  async function restarted(crash: { message: string; files?: Record<string, ArrayBuffer>; lost?: string[] }) {
     const why = crash.message ? ` (${crash.message})` : "";
     say(`The engine stopped on an error${why}: starting it again…`);
     const kept =
@@ -577,7 +595,7 @@ async function edit(source: Source, opened?: Stage) {
             ? { url: source.url, serve: source.serve }
             : undefined;
     try {
-      await stage.restart({ recovered: crash.files, name, kept });
+      await stage.restart(crash.files ? { recovered: crash.files, name, kept } : (kept ?? source));
     } catch (e) {
       say(`The engine stopped on an error${why}, and could not be started again: ${said(e)}. Download the deck to keep what you changed.`);
       return;
@@ -594,6 +612,11 @@ async function edit(source: Source, opened?: Stage) {
     const found = await lint(view);
     if (view.state.doc === doc) view.dispatch(setDiagnostics(view.state, found));
     states.reformat();
+    if (!crash.files) {
+      const lost = crash.lost?.length ? ` These files were not saved, and are lost: ${crash.lost.join(", ")}.` : "";
+      say(`The engine stopped on an error${why}, and was started again from the deck as last ${where ? "saved" : "opened"}, with the source as it stands.${lost} Save when you can.`);
+      return;
+    }
     say(`The engine stopped on an error${why}, and was started again from the deck as it stands: nothing is lost. Save when you can.`);
   }
 
@@ -2119,7 +2142,16 @@ async function edit(source: Source, opened?: Stage) {
     void listKept();
     // The save recorded the edits since the last: they are versions now.
     void versioning.refresh();
-    say(`Saved, ${many(done.files, "file")}${done.recorded ? ", and the changes kept in its history" : ""}`);
+    const saved = `Saved, ${many(done.files, "file")}${done.recorded ? ", and the changes kept in its history" : ""}`;
+    say(saved);
+    // Kept in this browser: the browser is asked to keep it for good (lift-up 10-24b REL-4), and a
+    // refusal is said after whatever the status says by then (what was saved, or what Play said of
+    // keeping the deck to play it), never in its place.
+    if (done.where.kind === "opfs")
+      void persist((refused) => {
+        const now = status.textContent ?? "";
+        if (!now.includes(refused)) say(now ? `${now}. ${refused}` : refused);
+      });
     return done;
   }
 
@@ -2261,6 +2293,24 @@ async function edit(source: Source, opened?: Stage) {
     format,
     source: () => view.state.doc.toString(),
     apply: made,
+    say,
+    keys: () => {
+      tab("assistant");
+      $("#key").focus();
+    },
+    slide: slideOf,
+  });
+  /** Write This Slide Again… and Add a Slide About… (lift-up FUNC-1): one slide written by the model the
+   * assistant uses, as the deck's generator builds slides; one step to undo. */
+  const asking = slideAsker(stage, {
+    who: () => assistant.who(),
+    shown: showing,
+    format,
+    apply: made,
+    show: (id) => {
+      const k = last?.states.findIndex(([state]) => state === id) ?? -1;
+      if (k >= 0) goTo(k);
+    },
     say,
     keys: () => {
       tab("assistant");
@@ -2652,6 +2702,10 @@ async function edit(source: Source, opened?: Stage) {
       // Whether its words carry its beat's claim, judged by the same model, which offers the
       // headline rewritten to carry it (narrative FUNC-4).
       { label: "Check its claim", where: ["state"], applies: () => now() !== undefined, run: () => write("claim") },
+      // Written again, or a new one after it, as the deck's generator writes slides, by the same
+      // model (lift-up FUNC-1).
+      { label: "Write this slide again…", where: ["state"], applies: () => now() !== undefined && !assisting, run: () => asking.open("redo") },
+      { label: "Add a slide about…", where: ["state"], applies: () => now() !== undefined && !assisting, run: () => asking.open("add") },
       { label: "Show the light table", applies: () => now() !== undefined && !table.open(), run: () => table.toggle(true) },
       { label: "Close the light table", applies: () => table.open(), run: () => table.toggle(false) },
       // Page Down and Page Up on the slide (PLAN 2.126).
@@ -3057,6 +3111,9 @@ async function edit(source: Source, opened?: Stage) {
       where: () => ({ name, where, dirty: dirty() }),
       /** Panic in the engine, for a test (lift-up STAB-2), and how many times it was started again. */
       crash: () => stage.trap(),
+      /** The worker dies outside a message, or fails and is busy `busy` ms, for a test (lift-up
+       * 10-24b STAB-2). */
+      die: (busy?: number) => stage.die(busy),
       restarts: () => restarts,
       /** The recovery copy kept now, for a test (lift-up REL-4). */
       keepCopy,
@@ -3091,6 +3148,9 @@ async function edit(source: Source, opened?: Stage) {
       assistant,
       /** The writing tools (PLAN 2.101): one asked, and its answer taken, settled. */
       writing,
+      /** Write This Slide Again… and Add a Slide About… (lift-up FUNC-1): the dialog opened, and the last
+       * slide written, settled. */
+      slideAsk: asking,
       /** Make a picture (PLAN 2.107): the dialog opened, and the last picture made and put, settled. */
       picturing,
       /** Insert › Map… (PLAN O.1c): the sheet opened, and the last map fetched and put, settled. */

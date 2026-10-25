@@ -202,6 +202,33 @@ impl Engine {
         Ok(Frame { display_list, duration_ms: slot.span })
     }
 
+    /// Each of `states` at rest, as [`Engine::frame`] draws one at `t_ms` infinite, handed to
+    /// `each` in order: the deck projected into `format`, its states resolved, and its timeline
+    /// worked out once for them all, where a frame apiece does each again for every state, so an
+    /// export of every state is linear in its states (lift-up 10-24b PERF-4).
+    pub fn frames_at_rest<E: From<EngineError>>(
+        &mut self,
+        deck: &Deck,
+        theme: &Theme,
+        data: &DataFiles,
+        format: Option<&str>,
+        states: &[String],
+        mut each: impl FnMut(&str, DisplayList) -> Result<(), E>,
+    ) -> Result<(), E> {
+        let (deck, theme) = project(deck, theme, format)?;
+        let (deck, theme) = (deck.as_ref(), theme.as_ref());
+        let snapshots = scaena_core::resolve_states(deck).map_err(EngineError::from)?;
+        let at = states.iter().map(|s| state_index(&snapshots, s)).collect::<Result<Vec<_>, _>>()?;
+        let Some(&last) = at.iter().max() else { return Ok(()) };
+        let timeline = self.timeline_to(deck, theme, data, last)?;
+        for (state, &i) in states.iter().zip(&at) {
+            let slot = &timeline.slots[i];
+            let list = self.scene(deck, theme, data, &snapshots[i])?.draw_at((slot.start + slot.span) / 1000.0);
+            each(state, list)?;
+        }
+        Ok(())
+    }
+
     /// The cue of `state`: the transition into it from the state before it in the cue
     /// list (what was on screen), each laid out once, and its motions. Its frames
     /// ([`Transition::frame`]) then sample any time without layout.
@@ -263,7 +290,7 @@ impl Engine {
         data: &DataFiles,
         last: usize,
     ) -> Result<Timeline, EngineError> {
-        let key = fingerprint(deck, theme, data);
+        let key = fingerprint(deck, theme, data)?;
         let mut states = match self.timeline.take() {
             Some((k, states)) if k == key => states,
             _ => Vec::new(),
@@ -817,6 +844,7 @@ impl Engine {
             fit: TextFit::Wrap,
             natural: None,
             code: None,
+            frame: None,
         };
         Ok(SceneNode {
             id: id.into(),
@@ -892,6 +920,58 @@ impl Engine {
         containers::place(deck, theme, grid, &self.images, snap, &mut measure)
     }
 
+    /// `label`, a code text's line number, as its gutter sets it (PLAN 2.136): in the code's
+    /// role at its size, its figures tabular, in the numbers' color, laid out in `width`.
+    fn gutter(
+        &mut self,
+        theme: &Theme,
+        code: &TextSpec,
+        numbers: &crate::code::Numbers,
+        label: &str,
+        width: f32,
+    ) -> Result<TextLayout, EngineError> {
+        let [r, g, b, _] = numbers.color;
+        let mut role = code.role.clone();
+        role.color = Some(format!("#{r:02x}{g:02x}{b:02x}"));
+        let mut spec = TextSpec::plain(role, label);
+        spec.features.insert("tnum".into(), 1);
+        spec.wrap = Some(Wrap::None);
+        spec.align = TextAlign::End;
+        spec.lang = code.lang.clone();
+        self.text.layout(&mut self.fonts, theme, &spec, width)
+    }
+
+    /// The line numbers of `text`, a code text laid out in `code`, as its gutter sets them (PLAN
+    /// 2.136): one for each of its lines, from `numbers.start`, counting in saturating arithmetic,
+    /// right-aligned, each moved onto its line's baseline.
+    fn numbered(
+        &mut self,
+        theme: &Theme,
+        code: &TextSpec,
+        numbers: &crate::code::Numbers,
+        text: &TextLayout,
+    ) -> Result<TextLayout, EngineError> {
+        let count = u32::try_from(text.lines.len()).unwrap_or(u32::MAX);
+        let labels: Vec<String> = (0..count.max(1)).map(|k| numbers.start.saturating_add(k).to_string()).collect();
+        let joined = labels.join("\n");
+        let widest = self.gutter(theme, code, numbers, &joined, f32::MAX)?.width;
+        let mut gutter = self.gutter(theme, code, numbers, &joined, widest)?;
+        // Each number on its line's baseline, whatever a fallback face makes a line of code.
+        let shift: Vec<f32> = (gutter.lines.iter().enumerate())
+            .map(|(k, l)| text.lines.get(k).map_or(0.0, |code| code.baseline - l.baseline))
+            .collect();
+        for run in &mut gutter.runs {
+            let dy = shift.get(run.line).copied().unwrap_or(0.0);
+            for glyph in &mut run.glyphs {
+                glyph.y += dy;
+            }
+        }
+        for (line, dy) in gutter.lines.iter_mut().zip(&shift) {
+            line.baseline += dy;
+        }
+        Ok(gutter)
+    }
+
     fn layout_text_node(
         &mut self,
         deck: &Deck,
@@ -938,9 +1018,45 @@ impl Engine {
             .and_then(Value::as_u64)
             .map(|n| n as usize)
             .or(spec.role.max_lines.map(|n| n as usize));
+        // Code on a card, or with its lines numbered, is a block the card hugs, `inset` in, with
+        // its numbers a gutter at its left (PLAN 2.136): what fits is the whole frame. Code never
+        // breaks a line again, so its width and height go as its size, and its gutter's with
+        // them: the scale a layout is set at is its height over the height at its own size.
+        let framed = spec
+            .code
+            .as_ref()
+            .filter(|c| c.card.is_some() || c.numbers.is_some())
+            .map(|c| (c.card.as_ref().map_or(0.0, |card| card.inset), c.numbers.clone()));
+        let gutter_at_one = match framed.as_ref().and_then(|(_, n)| n.as_ref()) {
+            Some(numbers) => {
+                spec.align = TextAlign::Start;
+                let last = numbers.start.saturating_add(written_lines(&spec).saturating_sub(1));
+                let widest =
+                    self.gutter(theme, &spec, numbers, &last.to_string(), f32::MAX).map_err(|e| in_node(id, e))?;
+                widest.width + numbers.gap * spec.role.size
+            }
+            None => {
+                if framed.is_some() {
+                    spec.align = TextAlign::Start;
+                }
+                0.0
+            }
+        };
+        let inset = framed.as_ref().map_or(0.0, |(inset, _)| *inset);
+        let tall_at_one = std::cell::Cell::new(0.0_f32);
+        let scale_of = |t: &TextLayout| {
+            let (top, bottom) = t.trimmed(trim);
+            let one = tall_at_one.get();
+            if one > 0.0 { (bottom - top) / one } else { 1.0 }
+        };
         let fits_box = |t: &TextLayout| {
             let (top, bottom) = t.trimmed(trim);
-            bottom - top <= cell[3] + FIT_EPSILON && t.lines.iter().all(|l| l.width <= cell[2] + FIT_EPSILON)
+            let (across, down) = match framed {
+                Some(_) => (gutter_at_one * scale_of(t) + 2.0 * inset, 2.0 * inset),
+                None => (0.0, 0.0),
+            };
+            bottom - top + down <= cell[3] + FIT_EPSILON
+                && t.lines.iter().all(|l| l.width + across <= cell[2] + FIT_EPSILON)
         };
         // Code's lines are its own at any size, and verse's: a size fits its box or it does not.
         let fits = |t: &TextLayout| fits_box(t) && (code || unbroken || max_lines.is_none_or(|m| t.lines.len() <= m));
@@ -948,10 +1064,18 @@ impl Engine {
             self.text.layout(&mut self.fonts, theme, &spec.scaled(scale), cell[2]).map_err(|e| in_node(id, e))
         };
         let base = lay(1.0)?;
-        // Code's size at its own, which its box grows to hold first (`Engine::grown`).
+        tall_at_one.set({
+            let (top, bottom) = base.trimmed(trim);
+            bottom - top
+        });
+        // Code's size at its own, which its box grows to hold first (`Engine::grown`): with its
+        // card and its gutter, where it has them.
         let natural = code.then(|| {
             let (top, bottom) = base.trimmed(trim);
-            [base.width, bottom - top]
+            match framed {
+                Some(_) => [base.width + gutter_at_one + 2.0 * inset, bottom - top + 2.0 * inset],
+                None => [base.width, bottom - top],
+            }
         });
         // A shrinking text's own `maxSize`, where it is under its size, is the most it is set at
         // (deck format 0.36): a set of texts side by side held to one size. A role's is not.
@@ -1012,7 +1136,51 @@ impl Engine {
             from: (props.get("code").and_then(|c| c.get("start")).and_then(Value::as_u64)).map_or(1, |n| n as usize),
             language: c.language.clone(),
         });
-        Ok(PlacedText { cell, origin, text, scale, overflow, clip, fit, natural, code })
+        let Some((inset, numbers)) = framed else {
+            return Ok(PlacedText { cell, origin, text, scale, overflow, clip, fit, natural, code, frame: None });
+        };
+        // The frame: the gutter's numbers, then the card that hugs them and the code, placed in
+        // the box by `align` as one block.
+        let gutter = match &numbers {
+            Some(n) => Some(self.numbered(theme, &spec.scaled(scale), n, &text).map_err(|e| in_node(id, e))?),
+            None => None,
+        };
+        let beside =
+            gutter.as_ref().zip(numbers.as_ref()).map_or(0.0, |(g, n)| g.width + n.gap * spec.role.size * scale);
+        let (top, bottom) = text.trimmed(trim);
+        let size = [beside + text.width + 2.0 * inset, bottom - top + 2.0 * inset];
+        let x = match align_x {
+            AlignX::Start | AlignX::Stretch => cell[0],
+            AlignX::Center => cell[0] + 0.5 * (cell[2] - size[0]),
+            AlignX::End => cell[0] + cell[2] - size[0],
+        };
+        let y = match align_y {
+            AlignY::Center => cell[1] + 0.5 * (cell[3] - size[1]),
+            AlignY::End | AlignY::Baseline => cell[1] + cell[3] - size[1],
+            _ => cell[1],
+        };
+        let origin = [x + inset + beside, y + inset - top];
+        let card = match spec.code.as_ref().and_then(|c| c.card.as_ref()) {
+            Some(look) => {
+                let [r, g, b, _] = look.fill;
+                let mut shape = serde_json::json!({ "kind": "rect", "fill": format!("#{r:02x}{g:02x}{b:02x}") });
+                if let Some(radius) = &look.radius {
+                    shape["radius"] = radius.clone();
+                }
+                if let Some(stroke) = &look.stroke {
+                    shape["stroke"] = serde_json::json!({ "paint": stroke });
+                }
+                if let Some(shadow) = &look.shadow {
+                    shape["shadow"] = shadow.clone().into();
+                }
+                let props: Props = serde_json::from_value(shape).map_err(|e| EngineError::Theme(e.to_string()))?;
+                Some(ShapeNode::resolve(&props, theme, [x, y, size[0], size[1]]).map_err(|e| in_node(id, e))?)
+            }
+            None => None,
+        };
+        let gutter = gutter.map(|g| ([x + inset, origin[1]], g));
+        let frame = Some(Box::new(CodeFrame { card, gutter }));
+        Ok(PlacedText { cell, origin, text, scale, overflow, clip, fit, natural, code, frame })
     }
 }
 
@@ -1071,6 +1239,12 @@ fn worked_out(
     Ok((scale, laid))
 }
 
+/// How many lines a code text writes: its lines as broken where it breaks them, a CRLF once.
+fn written_lines(spec: &TextSpec) -> u32 {
+    let text: String = spec.spans.iter().map(|s| s.text.as_str()).collect();
+    u32::try_from(text.split('\n').count()).unwrap_or(u32::MAX)
+}
+
 /// The largest scale in `lo..=hi` at which the text fits, by bisection, and its layout.
 /// `lo` is used when nothing fits; `hi` when everything does.
 fn largest_fit(
@@ -1121,12 +1295,33 @@ pub struct PlacedText {
     /// for a shape's words and for code, else `wrap`. What lint and the editors read.
     pub fit: TextFit,
     /// A code text's size at its own, before it shrinks or grows, `[width, height]` as its `box`
-    /// trims it: what its box grows to hold first, at the size its width lets it
-    /// ([`Engine::grown`]). `None` for any other text.
+    /// trims it, with its card and gutter where it has them: what its box grows to hold first, at
+    /// the size its width lets it ([`Engine::grown`]). `None` for any other text.
     pub natural: Option<[f32; 2]>,
     /// Where it is code, what its keys read (PLAN 2.139): its tab stops and its first line's
     /// number.
     pub code: Option<crate::carets::CaretCode>,
+    /// Where it is code on a card or with its lines numbered, the card and the gutter (PLAN
+    /// 2.136): drawn under it, the card first.
+    pub frame: Option<Box<CodeFrame>>,
+}
+
+/// What a code text stands on and beside (PLAN 2.136, ADR-0029): the card that hugs it and its
+/// gutter, `inset` in, a rect shape on the canvas; and its line numbers, laid out right-aligned
+/// in the gutter, each on its line's baseline, and where their layout's top-left lands, canvas
+/// units. No caret, unit, word, or reader takes the numbers: they are not its text.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CodeFrame {
+    pub card: Option<ShapeNode>,
+    pub gutter: Option<([f32; 2], TextLayout)>,
+}
+
+impl CodeFrame {
+    /// The box the frame takes on the canvas: its card's, where it has one. What E101 and an
+    /// insert judge a code text on a card by.
+    pub fn extent(&self) -> Option<Rect> {
+        self.card.as_ref().map(|card| card.rect)
+    }
 }
 
 /// Canvas y of the paragraph top, so the text's anchor sits where its alignment says
@@ -1390,12 +1585,18 @@ fn rejoin(theme: &Theme, snap: &Snapshot, placement: &mut Placement, tree: &mut 
 }
 
 /// A hash of everything the global timeline is worked out from.
-fn fingerprint(deck: &Deck, theme: &Theme, data: &DataFiles) -> u64 {
+/// What a timeline is kept for: the deck, the theme, and the data it was worked out from. One
+/// that does not serialize is an error, never the fingerprint of nothing, which two such decks
+/// would share (lift-up 10-24b PERF-4).
+fn fingerprint(deck: &Deck, theme: &Theme, data: &DataFiles) -> Result<u64, EngineError> {
+    let bytes = |what: &str, r: serde_json::Result<Vec<u8>>| {
+        r.map_err(|e| EngineError::Layout(format!("the {what} does not serialize: {e}")))
+    };
     let mut h = std::hash::DefaultHasher::new();
-    serde_json::to_vec(deck).unwrap_or_default().hash(&mut h);
-    serde_json::to_vec(&**theme).unwrap_or_default().hash(&mut h);
+    bytes("deck", serde_json::to_vec(deck))?.hash(&mut h);
+    bytes("theme", serde_json::to_vec(&**theme))?.hash(&mut h);
     data.hash(&mut h);
-    h.finish()
+    Ok(h.finish())
 }
 
 fn in_node(id: &str, e: EngineError) -> EngineError {
@@ -1430,15 +1631,22 @@ fn text_spec(deck: &Deck, theme: &Theme, props: &Props, slot_role: Option<&str>)
     let str_prop = |key: &str| props.get(key).and_then(Value::as_str);
     let mut role = cascade::node_role(theme, props, slot_role)?;
     // Code is set as written (ADR-0029): no case, no measure, no hyphens, nothing hung. It is
-    // colored by its language in the theme's colors, each held to read on its ground: the
-    // surface, which it is drawn on (PLAN 2.132).
+    // colored by its language in the theme's colors, each held to read on its ground: its card,
+    // where it stands on one (PLAN 2.136), else the surface (PLAN 2.132). Its line numbers are
+    // held to the same ground.
     let mut code = crate::code::CodeSpec::of(props, role.size, role.min_size, canvas(deck));
     if let Some(code) = &mut code {
         role.case = None;
         let look = theme.code.as_ref();
         code.tab = look.and_then(|c| c.tab).map_or(crate::code::TAB, usize::from);
-        let [r, g, b, _] = theme_color(theme, "surface")?.0;
+        let (carded, numbered) = crate::code::framed(props);
+        code.card = carded.then(|| theme.code_card()).transpose()?;
+        let [r, g, b, _] = match &code.card {
+            Some(card) => card.fill,
+            None => theme_color(theme, "surface")?.0,
+        };
         code.looks = Some(Box::new(theme.code_looks([r, g, b], &role)?));
+        code.numbers = numbered.map(|start| theme.code_numbers([r, g, b], start)).transpose()?;
     }
     let (role_measure, hanging, optical, hyphenate) =
         (role.measure, role.hanging_punctuation, role.optical_margins, role.hyphenate);

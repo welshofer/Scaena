@@ -508,6 +508,59 @@ pub enum Margin {
     Sides(#[schemars(length(min = 2, max = 4))] Vec<NonNegative>),
 }
 
+impl Margin {
+    /// Top, right, bottom, and left, as CSS's shorthand reads one value, two (vertical and
+    /// horizontal), three (top, horizontal, bottom), or four; `None` for any other count.
+    pub fn sides(&self) -> Option<[f64; 4]> {
+        match self {
+            Margin::All(all) => Some([*all; 4]),
+            Margin::Sides(sides) => match sides[..] {
+                [NonNegative(v), NonNegative(h)] => Some([v, h, v, h]),
+                [NonNegative(t), NonNegative(h), NonNegative(b)] => Some([t, h, b, h]),
+                [NonNegative(t), NonNegative(r), NonNegative(b), NonNegative(l)] => Some([t, r, b, l]),
+                _ => None,
+            },
+        }
+    }
+}
+
+impl Grid {
+    /// The most columns, or rows, a grid lays out (lift-up 10-24b STAB-3): a bound on what laying
+    /// one out may cost, as `MAX_PIXELS` bounds a raster, where `columns: 4000000000` would run the
+    /// engine out of memory. Far past any grid a slide draws, a 16 px placement grid on a 1920
+    /// canvas (120 columns) among them, so it narrows no theme that drew; a thousand tracks lay
+    /// out in microseconds.
+    pub const MOST_TRACKS: u32 = 1000;
+
+    /// Why this grid cannot be laid out on `canvas`: the field (`columns`, `rows`, `margin`, or
+    /// `gutter`) and what is wrong with it. `None` where it can. Columns and rows are 1 to
+    /// [`Grid::MOST_TRACKS`], and the margins and gutters leave each track some room.
+    pub fn unfit(&self, canvas: [f64; 2]) -> Option<(&'static str, String)> {
+        let rows = self.rows.unwrap_or(6);
+        for (key, n) in [("columns", self.columns), ("rows", rows)] {
+            if n == 0 || n > Grid::MOST_TRACKS {
+                return Some((key, format!("{n} {key}: a grid has 1 to {} of them", Grid::MOST_TRACKS)));
+            }
+        }
+        let Some([top, right, bottom, left]) = self.margin.sides() else {
+            return Some(("margin", "a margin takes 1 to 4 values".into()));
+        };
+        let tracks = [
+            ("columns", self.columns, canvas[0], left + right, "wide"),
+            ("rows", rows, canvas[1], top + bottom, "high"),
+        ];
+        for (key, n, extent, margins, way) in tracks {
+            let size = (extent - margins - self.gutter * f64::from(n - 1)) / f64::from(n);
+            if size.is_nan() || size <= 0.0 {
+                let (field, what) =
+                    if margins >= extent { ("margin", "margins") } else { ("gutter", "margins and gutters") };
+                return Some((field, format!("its {what} leave its {key} no room on a canvas {extent} {way}")));
+            }
+        }
+        None
+    }
+}
+
 /// A layout template: named slots on the grid.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -972,6 +1025,52 @@ pub struct CodeLook {
     /// Each kind of token's look, by the kind's name.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub syntax: Option<Syntax>,
+    /// The card a code text stands on (PLAN 2.136, theme format 0.26): where unset, `surface-2`
+    /// stepped from the surface to 1.3:1, square, 32 cu in.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub card: Option<CodeCard>,
+    /// How a code text's line numbers are set: their color and the room between them and the
+    /// code (PLAN 2.136, theme format 0.26).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub numbers: Option<CodeNumbers>,
+}
+
+/// The card a code text stands on (ADR-0029): a rect that hugs the code and its gutter, `inset`
+/// in from its edges.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CodeCard {
+    /// Its color, a color token or role: `surface-2` stepped from the surface to 1.3:1 where
+    /// unset, so it shows on a projector.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fill: Option<String>,
+    /// Its corners' radius, a step of the theme's radius scale or canvas units: square where unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub radius: Option<super::values::Length>,
+    /// The room between its edges and the code, canvas units: 32 where unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(range(min = 0.0, max = 512.0))]
+    pub inset: Option<f64>,
+    /// Its outline's color, a color token or role: none where unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stroke: Option<String>,
+    /// The shadow it casts, one of the theme's `tokens.shadow`: none where unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shadow: Option<String>,
+}
+
+/// How a code text's line numbers are set (ADR-0029).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CodeNumbers {
+    /// Their color, a color token or role: the muted text color where unset. Held to read on
+    /// the card, as the code's colors are.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
+    /// The room between the numbers and the code, in ems of the code's size: 1 where unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(range(min = 0.0, max = 8.0))]
+    pub gap: Option<f64>,
 }
 
 /// Each kind of token's look in code (ADR-0029), by the kind's name: the 16 kinds the scanners

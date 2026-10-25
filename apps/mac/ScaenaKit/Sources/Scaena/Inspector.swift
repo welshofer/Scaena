@@ -114,7 +114,9 @@ struct Inspector: View {
             // Writing is offered for a text, a picture, or the slide, as the browser offers it: a
             // shape, a chart, a table, or a group has no words to write.
             let picture = choices?.type == "image"
-            let writes = (choices?.writes ?? true) && (picture ? Writer.describes : Writer.available)
+            // Code is not proofread, tightened, or rewritten: its words are a program's (PLAN 2.139).
+            let code = choices?.fields.contains { $0.prop == "code/language" } ?? false
+            let writes = (choices?.writes ?? true) && !code && (picture ? Writer.describes : Writer.available)
             if writes, tab == .format, characters == nil, also.isEmpty {
                 Section {
                     if let node = choices?.node {
