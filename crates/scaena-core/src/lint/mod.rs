@@ -236,6 +236,11 @@ pub fn sort(findings: &mut [Finding]) {
 pub trait Backdrop {
     /// `dl` painted at `scale` pixels per canvas unit.
     fn paint(&mut self, dl: &DisplayList, scale: f32) -> Result<Pixels, String>;
+    /// Whether the picture `asset` names (`sha256:…`) can be drawn: its pixels decode (E107).
+    /// A painter leaves out one that cannot, its box empty, and draws the rest.
+    fn picture(&mut self, _asset: &str) -> Result<(), String> {
+        Ok(())
+    }
 }
 
 /// Straight-alpha sRGB RGBA8 pixels, row by row.

@@ -46,7 +46,10 @@ impl Look {
     fn round(&mut self, generation: &Generation, key: &str) -> Option<Value> {
         while let Some(round) = look_rounds(self.seen.len()).find(|r| r.start == self.next) {
             self.next = round.end;
-            if let Some(asked) = generation.look_request(key, &self.seen[round.clone()], &self.drawn[round.clone()]) {
+            let edges = [round.start.checked_sub(1).and_then(|b| self.seen.get(b)), self.seen.get(round.end)];
+            if let Some(asked) =
+                generation.look_request(key, &self.seen[round.clone()], &self.drawn[round.clone()], edges)
+            {
                 self.current = round;
                 return Some(json!({ "request": request(asked), "slides": self.seen.len() }));
             }
