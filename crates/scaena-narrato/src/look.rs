@@ -209,7 +209,7 @@ fn labelled(bullet: &str) -> bool {
 /// The changes an answer asks for, each kept where it names a slide shown, changes something,
 /// and keeps to what the slide may take: one of its other layouts; words no longer than they
 /// were by more than [`longest`] allows; as many bullets, each labelled where it was. The first
-/// change a slide is given stands.
+/// change a slide is given stands. Words or bullets that change a figure are not taken (REL-2).
 pub fn read(text: &str, seen: &[Seen]) -> Result<Vec<Change>, String> {
     let start = text.find('{').ok_or("the answer holds no JSON object")?;
     let end = text.rfind('}').ok_or("the answer holds no JSON object")?;
@@ -226,7 +226,8 @@ pub fn read(text: &str, seen: &[Seen]) -> Result<Vec<Change>, String> {
         let said = |key: &str| asked.get(key).and_then(Value::as_str).map(str::trim).unwrap_or_default().to_string();
         let words = |key: &str, was: &str| {
             let now = said(key);
-            (!now.is_empty() && now != was && now.chars().count() <= longest(was)).then_some(now)
+            (!now.is_empty() && now != was && now.chars().count() <= longest(was) && crate::same_figures(was, &now))
+                .then_some(now)
         };
         let layout = Some(said("layout")).filter(|l| s.options.iter().any(|o| &o.id == l));
         let bullets = asked
@@ -237,7 +238,10 @@ pub fn read(text: &str, seen: &[Seen]) -> Result<Vec<Change>, String> {
                 now.len() == s.bullets.len()
                     && now != &s.bullets
                     && now.iter().zip(&s.bullets).all(|(now, was)| {
-                        !now.is_empty() && now.chars().count() <= longest(was) && labelled(now) == labelled(was)
+                        !now.is_empty()
+                            && now.chars().count() <= longest(was)
+                            && labelled(now) == labelled(was)
+                            && crate::same_figures(was, now)
                     })
             });
         let change = Change {
@@ -392,7 +396,7 @@ mod tests {
     fn bullets_are_kept_as_many_labelled_where_they_were_and_hardly_longer() {
         let s = seen();
         let tightened = vec![
-            "Clean the grid: triple renewables".to_string(),
+            "Clean the grid: triple renewables by 2030".to_string(),
             "Electrify: cars, heat, industry".to_string(),
             "Cut methane: 75% from fossil fuels".to_string(),
             "Remove the rest: forests, soils, capture".to_string(),
@@ -410,6 +414,10 @@ mod tests {
         let mut longer = tightened.clone();
         longer[0] = "Clean the grid: triple renewables by 2030 and double storage, worldwide, every year".into();
         assert!(read(&answer(&longer), &s).unwrap().is_empty());
+        // A figure rounded, or dropped, is not the slide's evidence tightened (REL-2).
+        let mut rounded = tightened.clone();
+        rounded[2] = "Cut methane: about 70% from fossil fuels".into();
+        assert!(read(&answer(&rounded), &s).unwrap().is_empty());
         // A subtitle where the slide has none is not one to tighten.
         let given = json!({ "slides": [{ "slide": 2, "layout": "", "title": "", "subtitle": "New words", "bullets": [], "why": "" }] });
         assert!(read(&given.to_string(), &s).unwrap().is_empty());

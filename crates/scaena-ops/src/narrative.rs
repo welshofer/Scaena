@@ -19,6 +19,7 @@ use scaena_core::model::theme::{Example, Prompt, PromptItems, PromptShapeKind, S
 use scaena_core::model::values::Range;
 use scaena_core::{Deck, Finding};
 pub use scaena_narrato::brief::Brief;
+use scaena_narrato::figures;
 use scaena_narrato::fit::Long;
 use scaena_narrato::layouts::{self, Varied};
 use scaena_narrato::look::{Change, Choice, Seen};
@@ -4735,15 +4736,6 @@ fn restates(headline: &str, note: &str) -> bool {
     let (said, again) = (figures(headline), figures(note));
     let named = |f: &f64| again.contains(f);
     said.len() >= 2 && said.first().is_some_and(named) && said.last().is_some_and(named)
-}
-
-/// The figures `text` writes, as numbers: "$1,140" is 1140, "4.9%" is 4.9.
-fn figures(text: &str) -> Vec<f64> {
-    text.split(|c: char| !(c.is_ascii_digit() || c == '.' || c == ','))
-        .map(|w| w.trim_matches(['.', ',']).replace(',', ""))
-        .filter(|w| !w.is_empty())
-        .filter_map(|w| w.parse().ok())
-        .collect()
 }
 
 /// `value` with `places` decimals and its thousands grouped, as the chart's own labels write it.
