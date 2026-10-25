@@ -538,10 +538,8 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
                 if declared == 1 { "One slide declares".to_string() } else { format!("{declared} slides declare") }
             ),
         },
-        (0, _) => Measure {
-            score: Some(r.score as u32),
-            says: format!("No slide declares {what}: a deck made from a prompt does."),
-        },
+        // Nothing measured, nothing scored: a full mark would read as praise (lift-up STAB-4).
+        (0, _) => Measure { score: None, says: format!("No slide declares {what}: a deck made from a prompt does.") },
         (_, 0) => {
             Measure { score: Some(r.score as u32), says: format!("The words carry the {what} each slide declares.") }
         }
@@ -1226,8 +1224,10 @@ mod tests {
         assert!(!h.slides.is_empty());
         // No length asked: paced against the 18 slides of a talk of no length.
         assert!(h.pacing.says.contains("about 18"), "{}", h.pacing.says);
-        // Nothing declared, nothing to hold the words to.
+        // Nothing declared, nothing to hold the words to, and no number for what was not measured.
         assert!(h.intensity.says.starts_with("No slide declares intensity"), "{}", h.intensity.says);
+        assert!(h.tone.says.starts_with("No slide declares tone"), "{}", h.tone.says);
+        assert_eq!((h.intensity.score, h.tone.score), (None, None));
         assert!(!h.findings.iter().any(|f| f.fix.is_some()), "{:#?}", h.findings);
     }
 
