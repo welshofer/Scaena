@@ -1,6 +1,6 @@
 {
   "name": "slide_write",
-  "description": "Write one slide into the deck as its generator builds slides (lift-up FUNC-1), from a slide in the JSON Narrato writes (`deck_generate`'s `slides`): its layout chosen for its items, each place filled, its figures, builds, and icons, in the deck's theme and the brief it keeps. After the slide that holds `after`, in place of the slide that holds `replace` (its beat kept, its picture shown again, the nodes no other slide shows taken away with it), or at the end. Its set of texts held to one size and lint's fixes taken, as a made deck's are; what no fix mends is in `left`, a text past its place first. One patch, refused as `deck_patch` refuses one, reported as `deck_patch` reports one, with the slide's states, layout, and beat.",
+  "description": "Write one slide into the deck as its generator builds slides (lift-up FUNC-1), from a slide in the JSON Narrato writes (`deck_generate`'s `slides`): its layout chosen for its items, each place filled, its figures, builds, and icons, in the deck's theme and the brief it keeps. After the slide that holds `after`, in place of the slide that holds `replace` (its beat kept, its picture shown again, the nodes no other slide shows taken away with it), or at the end. Its states join `beat`, a beat of the spine whose claim it tells (plan the spine with `spine_update` first), which keeps what it says; with none, it gets a beat of its own, and a deck with no spine yet begins one, the slide taking the place of `deck_create`'s blank slide. Its set of texts held to one size and lint's fixes taken, as a made deck's are; what no fix mends is in `left`, a text past its place first. One patch, refused as `deck_patch` refuses one, reported as `deck_patch` reports one, with the slide's states, layout, and beat.",
   "inputSchema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "required": ["bundle", "slide"],
@@ -19,6 +19,11 @@
       },
       "replace": {
         "description": "The slide is written in place of the slide that holds this state, with all its steps, in\nits beat. Without it or `after`, the slide goes after every slide.",
+        "type": ["string", "null"],
+        "default": null
+      },
+      "beat": {
+        "description": "The id of a beat of the spine whose claim this slide tells, as `spine_update` planned it:\nthe slide's states join it, and it keeps what it says, the slide giving only what it lacks\n(its notes, Narrato's fields). Without it, the slide gets a beat of its own after the slide\nbefore it, and a deck with no spine yet begins one. Not with `replace`, which keeps the\nbeat of the slide it takes the place of.",
         "type": ["string", "null"],
         "default": null
       },
@@ -127,7 +132,30 @@
         },
         "required": ["code", "severity", "message"]
       },
-      "Severity": { "type": "string", "enum": ["info", "warning", "error"] }
+      "Severity": { "type": "string", "enum": ["info", "warning", "error"] },
+      "Restated": {
+        "description": "A beat whose claim its slide said before an edit and says no more: what it claimed, what the\nslide says now, and the patch that sets the claim to it.",
+        "type": "object",
+        "properties": {
+          "beat": { "description": "The beat, by its id.", "type": "string" },
+          "state": {
+            "description": "The state of the beat's slide whose words `says` are, or, with none, the beat's first.",
+            "type": "string"
+          },
+          "path": { "description": "Where the claim is, as a JSON pointer.", "type": "string" },
+          "claim": { "description": "The claim, as the beat still says it.", "type": "string" },
+          "says": {
+            "description": "What the slide says now: the words of the text that said the claim, in the state it said\nit in, else the last that shows it; none where every such text was taken away.",
+            "type": ["string", "null"]
+          },
+          "fix": {
+            "description": "The patch that sets the claim to what the slide says, where it says something: a `test`\nof the old claim, then a `replace`.",
+            "type": "array",
+            "items": true
+          }
+        },
+        "required": ["beat", "state", "path", "claim"]
+      }
     },
     "required": [
       "applied",
@@ -168,6 +196,11 @@
         "description": "The states it changes, by id: each whose nodes, resolved with the deck's overrides,\nor whose layout, transition, choreography, hold, notes, or slide number and footer are\nnot as they were, and each it adds. None when it is refused.",
         "type": "array",
         "items": { "type": "string" }
+      },
+      "restated": {
+        "description": "Each beat whose claim its slide said before the patch and says no more, with the patch\nthat sets the claim to what the slide says now (lift-up FUNC-2). Left out when none; not\nworked out for an edit as it is typed, which an editor asks of the whole burst.",
+        "type": "array",
+        "items": { "$ref": "#/$defs/Restated" }
       },
       "slide": { "type": "array", "items": { "type": "string" } },
       "layout": { "type": "string" },

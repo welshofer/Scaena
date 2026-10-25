@@ -259,6 +259,10 @@ enum Cmd {
         /// state's hold alone, as a player auto-advances.
         #[arg(long, value_enum, default_value_t = PaceArg::Beats)]
         pace: PaceArg,
+        /// A PDF with the presenter's notes: each slide drawn smaller at the head of a page, the
+        /// notes a presenter reads for it under it, as Keynote's "Include presenter notes".
+        #[arg(long)]
+        notes: bool,
     },
     /// Apply a patch: JSON Patch (RFC 6902) and semantic ops, all or none, and say what
     /// changes in what `validate` and `lint` find. A patch that would make the deck invalid
@@ -795,9 +799,9 @@ fn run(cli: Cli) -> Result<ExitCode> {
             }
             Ok(ExitCode::SUCCESS)
         }
-        Cmd::Export { bundle, format, out, states, size, fps, audio, painter, pace } => {
+        Cmd::Export { bundle, format, out, states, size, fps, audio, painter, pace, notes } => {
             let (painter, pace) = (painter.into(), pace.into());
-            let req = scaena_ops::export::Request { format, states, out, size, fps, audio, painter, pace };
+            let req = scaena_ops::export::Request { format, states, out, size, fps, audio, painter, pace, notes };
             let exported = scaena_ops::export::export(&open(&bundle)?, &req)?;
             if cli.json {
                 println!("{}", serde_json::to_string_pretty(&exported)?);

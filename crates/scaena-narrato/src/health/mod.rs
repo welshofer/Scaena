@@ -46,6 +46,15 @@ pub struct SlideForHealth {
     /// What its words embed as, for coherence; where any pair lacks one, their words are read.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub embedding: Option<Vec<f64>>,
+    /// A slide whose layout makes one point by design (a big number, a quote, a statement):
+    /// Scaena's, not Vzestup's (ADR-0032 item 3, Jay's call, 2026-10-25). It is left out of the
+    /// points a slide makes on average; every other measure reads it.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub one_idea: bool,
+    /// A slide that draws a picture, a chart, or a table: it shows something, whatever its words
+    /// (Scaena's, not Vzestup's; ADR-0032, Jay's call, 2026-10-25).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub drawn: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub narrative_meta: Option<NarrativeMeta>,
 }
@@ -199,9 +208,10 @@ pub struct ContentBalance {
     pub score: f64,
     /// To a tenth.
     pub avg_bullets_per_slide: f64,
-    /// In UTF-16 units, as JavaScript counts a string's length.
+    /// In UTF-16 units, as JavaScript counts a string's length, a CJK character two ([`units`]).
     pub avg_speaker_notes_length: f64,
-    /// The share of slides with an embedding or a body of more than 30 units, to a hundredth.
+    /// The share of slides with an embedding or a body of more than 30 units ([`units`]), to a
+    /// hundredth.
     pub visual_coverage: f64,
     pub message: String,
 }
@@ -392,6 +402,34 @@ fn signed(v: f64) -> String {
     format!("{}{}", if v >= 0.0 { "+" } else { "\u{2212}" }, js::to_fixed(v.abs(), 2))
 }
 
+/// How long `text` reads: its UTF-16 units, as JavaScript counts a string's length, but a
+/// character of Han, kana, or Hangul two, since it says about as much as two letters of a
+/// language written in an alphabet (Scaena's, not Vzestup's: ADR-0032 item 5, Jay's call,
+/// 2026-10-25). A text in an alphabet counts as Vzestup counts it.
+fn units(text: &str) -> usize {
+    text.chars().map(|c| if cjk(c) { 2 } else { c.len_utf16() }).sum()
+}
+
+/// A character of a script written without spaces for its words, or with syllables for letters:
+/// Han, kana, Hangul, and their marks, punctuation, and full-width forms.
+fn cjk(c: char) -> bool {
+    matches!(c as u32,
+        0x1100..=0x11FF       // Hangul Jamo
+        | 0x2E80..=0x2FDF     // CJK radicals, Kangxi radicals
+        | 0x3000..=0x303F     // CJK symbols and punctuation
+        | 0x3040..=0x30FF     // Hiragana, Katakana
+        | 0x3130..=0x318F     // Hangul compatibility Jamo
+        | 0x31F0..=0x31FF     // Katakana phonetic extensions
+        | 0x3400..=0x4DBF     // CJK extension A
+        | 0x4E00..=0x9FFF     // CJK unified ideographs
+        | 0xA960..=0xA97F     // Hangul Jamo extended A
+        | 0xAC00..=0xD7FF     // Hangul syllables, Jamo extended B
+        | 0xF900..=0xFAFF     // CJK compatibility ideographs
+        | 0xFF00..=0xFFEF     // Half-width and full-width forms
+        | 0x20000..=0x3FFFF   // CJK extensions B on
+    )
+}
+
 /// The narrative health of `slides`, a talk of `length_minutes` (`localHealthMetrics`): the
 /// slides hidden or left out of evaluation are not read.
 pub fn metrics(slides: &[SlideForHealth], length_minutes: Option<u32>) -> LocalHealthMetrics {
@@ -418,14 +456,16 @@ pub fn metrics(slides: &[SlideForHealth], length_minutes: Option<u32>) -> LocalH
     };
 
     // Content balance.
-    let units = |text: &str| text.encode_utf16().count();
-    let bullets: usize = (visible.iter())
+    // The points made on average, over the slides made to make several.
+    let pointed: Vec<&SlideForHealth> = visible.iter().filter(|s| !s.one_idea).collect();
+    let bullets: usize = (pointed.iter())
         .map(|s| s.body.split('\n').map(js::trim).filter(|l| l.starts_with('\u{2022}') || l.starts_with('-')).count())
         .sum();
     let per_slide = |total: usize| if count > 0 { total as f64 / count as f64 } else { 0.0 };
-    let avg_bullets = per_slide(bullets);
+    let avg_bullets = if pointed.is_empty() { 0.0 } else { bullets as f64 / pointed.len() as f64 };
     let avg_notes = per_slide(visible.iter().map(|s| units(&s.notes)).sum());
-    let visual_coverage = per_slide(visible.iter().filter(|s| s.embedding.is_some() || units(&s.body) > 30).count());
+    let visual_coverage =
+        per_slide(visible.iter().filter(|s| s.drawn || s.embedding.is_some() || units(&s.body) > 30).count());
     let bullet_score =
         if (2.0..=5.0).contains(&avg_bullets) { 100.0 } else { js::max(0.0, 100.0 - (avg_bullets - 3.5).abs() * 20.0) };
     let notes_score = if avg_notes >= 60.0 { 100.0 } else { (avg_notes / 60.0) * 100.0 };
@@ -813,6 +853,53 @@ mod tests {
         let m = metrics(&slides, Some(15));
         assert!(m.alerts.iter().any(|a| a.level == Level::Warning && a.slide_id.as_deref() == Some("b0")));
         assert!(m.coherence.weak_transitions.iter().any(|id| id == "b0"));
+    }
+
+    /// A character of Han, kana, or Hangul says about as much as two letters, so a slide in
+    /// Japanese shows something at half the characters of one in English (ADR-0032 item 5).
+    #[test]
+    fn a_cjk_character_weighs_two_letters() {
+        assert_eq!(
+            (units("microgrid"), units("マイクログリッド"), units("微電網"), units("마이크로그리드")),
+            (9, 16, 6, 14)
+        );
+        assert_eq!(units("11日間の停電"), 2 + 2 * 5);
+        assert_eq!(units("😀"), 2);
+        // 19 characters of Japanese read past 30 units; 16 of English do not.
+        let ja =
+            SlideForHealth { body: "停電のあと町は自分たちの電力網を築いた".into(), ..slide("ja") };
+        let en = SlideForHealth { body: "the town rebuilt".into(), ..slide("en") };
+        assert_eq!(metrics(&[ja], Some(15)).content_balance.visual_coverage, 1.0);
+        assert_eq!(metrics(&[en], Some(15)).content_balance.visual_coverage, 0.0);
+    }
+
+    /// A one-idea slide makes the point it is made for, and is left out of the points a slide
+    /// makes on average; a deck with none reads as Vzestup reads it (ADR-0032 item 3).
+    #[test]
+    fn a_one_idea_slide_is_not_counted_thin() {
+        let listed = |i: usize| SlideForHealth {
+            body: "\u{2022} one\n\u{2022} two\n\u{2022} three".into(),
+            ..slide(&format!("l{i}"))
+        };
+        let big = |i: usize| SlideForHealth { body: "41%".into(), one_idea: true, ..slide(&format!("n{i}")) };
+        let flat: Vec<SlideForHealth> =
+            (0..4).map(listed).chain((0..2).map(|i| SlideForHealth { one_idea: false, ..big(i) })).collect();
+        assert_eq!(metrics(&flat, Some(15)).content_balance.avg_bullets_per_slide, 2.0);
+        let marked: Vec<SlideForHealth> = (0..4).map(listed).chain((0..2).map(big)).collect();
+        assert_eq!(metrics(&marked, Some(15)).content_balance.avg_bullets_per_slide, 3.0);
+        // Every slide one idea: no points to average.
+        let only: Vec<SlideForHealth> = (0..3).map(big).collect();
+        assert_eq!(metrics(&only, Some(15)).content_balance.avg_bullets_per_slide, 0.0);
+    }
+
+    /// A slide that draws a picture, a chart, or a table shows something, however few its words
+    /// (ADR-0032).
+    #[test]
+    fn a_slide_that_draws_a_figure_shows_something() {
+        let slides: Vec<SlideForHealth> = (0..4)
+            .map(|i| SlideForHealth { body: "tiny".into(), drawn: i % 2 == 0, ..slide(&format!("d{i}")) })
+            .collect();
+        assert_eq!(metrics(&slides, Some(15)).content_balance.visual_coverage, 0.5);
     }
 
     #[test]

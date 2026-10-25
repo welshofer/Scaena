@@ -66,25 +66,28 @@ impl Look {
     }
 
     /// The slides of `round` drawn for the model, where they are not yet.
-    fn draw(&mut self, making: &Making, round: std::ops::Range<usize>) -> Result<(), String> {
+    /// Each newly drawn by its index, for the window (lift-up ATTR-1); none where all were.
+    fn draw(&mut self, making: &Making, round: std::ops::Range<usize>) -> Result<Vec<Value>, String> {
         if self.drawn.len() < self.seen.len() {
             self.drawn.resize(self.seen.len(), None);
         }
         if self.drawn[round.clone()].iter().all(Option::is_some) {
-            return Ok(());
+            return Ok(Vec::new());
         }
         let pictures = making.drawn_in(scaena_ops::narrative::LOOK_WIDTH, round.clone()).map_err(|e| e.to_string())?;
-        for (slot, picture) in self.drawn[round].iter_mut().zip(pictures) {
+        let mut drawn = Vec::new();
+        for ((slide, slot), picture) in self.drawn[round.clone()].iter_mut().enumerate().zip(pictures) {
+            drawn.push(json!({ "slide": round.start + slide, "jpeg": picture.data }));
             *slot = Some(picture);
         }
-        Ok(())
+        Ok(drawn)
     }
 
     /// The round after the one asked drawn, while that one is out (lift-up 10-25 PERF-5).
-    fn draw_ahead(&mut self, making: &Making) -> Result<(), String> {
+    fn draw_ahead(&mut self, making: &Making) -> Result<Vec<Value>, String> {
         match look_rounds(self.seen.len()).find(|r| r.start == self.next) {
             Some(round) => self.draw(making, round),
-            None => Ok(()),
+            None => Ok(Vec::new()),
         }
     }
 
@@ -576,9 +579,13 @@ impl Generating {
                     let mut look = Look { seen, ..Look::default() };
                     match look.round(&w.generation, key, &making) {
                         Ok(Some(round)) => {
+                            // Each slide of the first round as drawn, which the window shows while
+                            // the model looks, by its index from the first (lift-up ATTR-1); each
+                            // later round's come with its `drawAhead`.
+                            let shown: Vec<String> = look.drawn.iter().flatten().map(|p| p.data.clone()).collect();
                             self.look = look;
                             self.making = Some((making, Vec::new()));
-                            return Ok(json!({ "look": round }));
+                            return Ok(json!({ "look": round, "drawn": shown }));
                         }
                         Ok(None) => {}
                         Err(why) => making.unlooked(format!("the slides could not be drawn for the model: {why}")),
@@ -588,12 +595,13 @@ impl Generating {
                 json!({ "fit": fit })
             }
             // The look's next round drawn while the one asked is out (lift-up 10-25 PERF-5):
-            // `{}`, or why a slide would not draw, which the round's `looked` says again.
+            // `{drawn}`, each slide it drew by its index for the window (lift-up ATTR-1), or why a
+            // slide would not draw, which the round's `looked` says again.
             "drawAhead" => {
                 let (making, _) = self.making.as_ref().ok_or_else(|| said("drawAhead: no deck is made"))?;
                 let making: &Making = making;
                 match self.look.draw_ahead(making) {
-                    Ok(()) => json!({}),
+                    Ok(drawn) => json!({ "drawn": drawn }),
                     Err(why) => json!({ "unlooked": why }),
                 }
             }
@@ -663,8 +671,20 @@ impl Generating {
                     making.unlooked(was.map_or(why.clone(), |was| format!("{was}; {why}")));
                 }
                 let report = making.report();
+                let looked = report["looked"].as_array().map_or(0, Vec::len);
+                // The slides the model changed, and those alone, drawn again for the window, each
+                // by its index (lift-up ATTR-1); none that would not draw.
+                let changed = report["looked"].as_array().into_iter().flatten();
+                let drawn: Vec<Value> = changed
+                    .filter_map(|c| c["slide"].as_u64()?.checked_sub(1))
+                    .filter_map(|slide| {
+                        let r = making.pixels(slide as usize, scaena_ops::narrative::LOOK_WIDTH).ok()?;
+                        let jpeg = scaena_export::pdf::jpeg(&r.rgba, r.width, r.height, 82)?;
+                        Some(json!({ "slide": slide, "jpeg": base64::engine::general_purpose::STANDARD.encode(jpeg) }))
+                    })
+                    .collect();
                 let fit = self.fitting(making, key)?;
-                json!({ "looked": report["looked"].as_array().map_or(0, Vec::len), "unlooked": report["unlooked"], "fit": fit })
+                json!({ "looked": looked, "unlooked": report["unlooked"], "fit": fit, "drawn": drawn })
             }
             "fitted" => {
                 // A busy provider: the fit asked again, after the wait Swift is told (lift-up

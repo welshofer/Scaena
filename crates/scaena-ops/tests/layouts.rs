@@ -24,6 +24,7 @@ fn a_state_is_offered_each_layout_that_draws_it_otherwise_judged_by_lint_best_fi
         [
             "figure",
             "map",
+            "pictograph",
             "bar-chart",
             "venn",
             "line-chart",
@@ -39,14 +40,15 @@ fn a_state_is_offered_each_layout_that_draws_it_otherwise_judged_by_lint_best_fi
     assert!(now.current && now.patch.is_empty() && now.reach.is_empty(), "{now:?}");
     assert_eq!(now.alike, ["poster", "table", "full", "photo-caption"]);
     // Each other is one `set_state`, changes this state alone, and makes the slide's errors.
-    // Risk Matrix and Positioning Map set the note beside what the slide holds, alike, and
-    // Pictograph sets it under its figures as Two Figures does, and Map sets its headline and
-    // its note where Two Figures does (PLAN O.1e). Of each, the one whose places the slide leaves
-    // fewest empty stands for the rest: Map, and Positioning Map.
+    // Risk Matrix and Positioning Map set the note beside what the slide holds, alike, and Map
+    // sets its headline and its note where Two Figures does (PLAN O.1e). Of each, the one whose
+    // places the slide leaves fewest empty stands for the rest: Map, and Positioning Map.
+    // Pictograph sets the note under its figures a descent lower, clear of the figures over it
+    // (D2), so it stands apart.
     assert_eq!(suggested[1].layout, "map");
-    assert_eq!(suggested[1].alike, ["two-figures", "pictograph"]);
-    assert_eq!(suggested[5].layout, "positioning-map");
-    assert_eq!(suggested[5].alike, ["risk-matrix"]);
+    assert_eq!(suggested[1].alike, ["two-figures"]);
+    assert_eq!(suggested[6].layout, "positioning-map");
+    assert_eq!(suggested[6].alike, ["risk-matrix"]);
     for other in &suggested[1..] {
         assert!(!other.current && other.errors > 0, "{other:?}");
         assert!(other.alike.is_empty() || ["map", "positioning-map"].contains(&other.layout.as_str()), "{other:?}");
@@ -79,9 +81,9 @@ fn a_state_is_offered_each_layout_that_draws_it_otherwise_judged_by_lint_best_fi
 fn a_clean_layout_that_draws_the_state_otherwise_is_suggested() {
     let b = scaena_ops::open(Path::new(TRAILS)).unwrap();
     // The storm slide's caption is its one node in a slot: five layouts set it at the foot of the
-    // photo, alike, and the rest elsewhere: five where lint finds nothing, two-figures under its
-    // figures, narrow-figure higher up and to the right, and venn's among them, then those it
-    // finds something in.
+    // photo, alike, and the rest elsewhere: six where lint finds nothing, two-figures under its
+    // figures, pictograph a descent lower under its own (D2), narrow-figure higher up and to the
+    // right, and venn's among them, then those it finds something in.
     let suggested = suggest(&b, "storm", None).unwrap();
     let judged: Vec<_> = suggested.iter().map(|s| (s.layout.as_str(), s.current, s.errors, s.warnings)).collect();
     assert_eq!(
@@ -91,6 +93,7 @@ fn a_clean_layout_that_draws_the_state_otherwise_is_suggested() {
             ("narrow-figure", false, 0, 0),
             ("panorama", false, 0, 0),
             ("map", false, 0, 0),
+            ("pictograph", false, 0, 0),
             ("venn", false, 0, 0),
             ("metric-trend", false, 0, 0),
             ("bar-chart", false, 1, 0),
@@ -158,7 +161,7 @@ fn inspect_names_the_state_it_suggests_layouts_for() {
     let err = scaena_ops::inspect::inspect(&b, None, views.clone()).unwrap_err();
     assert!(err.message.contains("name the state"), "{}", err.message);
     let inspected = scaena_ops::inspect::inspect(&b, Some("budget"), views).unwrap();
-    assert_eq!(inspected[0].layouts.as_ref().map(Vec::len), Some(9));
+    assert_eq!(inspected[0].layouts.as_ref().map(Vec::len), Some(10));
 }
 
 #[test]

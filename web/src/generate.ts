@@ -42,6 +42,8 @@ export async function health(deck: string, lint?: string): Promise<Health> {
 export interface SlidePlace {
   after?: string;
   replace?: string;
+  /** The beat of the spine the slide tells, which its states join (lift-up M1). */
+  beat?: string;
 }
 
 /** The generator's writer of one slide (lift-up FUNC-1), the bundle's data `files` handed to it:
@@ -422,7 +424,7 @@ async function paint(
 async function painting(
   g: Generator,
   asked: string,
-  pictures: { provider: "openai" | "gemini"; key: string; base?: string },
+  pictures: { provider: "openai" | "gemini"; key: string; base?: string; quality?: "low" | "medium" | "high" },
   hear: (event: GeneratingEvent) => void,
   heard?: (reply: { status: number; body: string }) => void,
 ): Promise<{ placed: string; bytes: Map<string, Uint8Array>; made: number; unmade: string[]; model: string } | undefined> {
@@ -448,7 +450,7 @@ async function painting(
     return undefined;
   }
   hear({ kind: "painting", pictures: wanted, model });
-  const settings = JSON.stringify({ provider: pictures.provider, model, base: pictures.base, quality: "medium" });
+  const settings = JSON.stringify({ provider: pictures.provider, model, base: pictures.base, quality: pictures.quality ?? "medium" });
   const painting = new g.Painting(asked, settings);
   let finished: ReturnType<typeof painting.finish> | undefined;
   try {
@@ -664,7 +666,12 @@ async function look(
     for (let start = 0; start < slides.length; start += LOOK_BATCH) {
       const round = slides.slice(start, start + LOOK_BATCH);
       const drawn = [];
-      for (let i = start; i < Math.min(start + LOOK_BATCH, making.count); i++) drawn.push(await jpeg(making.pixels(i, LOOK_WIDTH)));
+      for (let i = start; i < Math.min(start + LOOK_BATCH, making.count); i++) {
+        // Each slide shown to the person as it is drawn, round by round (lift-up ATTR-1).
+        const picture = await jpeg(making.pixels(i, LOOK_WIDTH));
+        drawn.push(picture);
+        hear({ kind: "drawn", slide: i, of: making.count, jpeg: picture.data });
+      }
       const part = JSON.stringify(round);
       const edges = JSON.stringify([slides[start - 1] ?? null, slides[start + LOOK_BATCH] ?? null]);
       const asked = generation.lookRequest(key, part, JSON.stringify(drawn), edges);
@@ -700,6 +707,7 @@ async function look(
     ) as "kept" | { worse: number[] };
     if (tried === "kept") {
       if (unanswered) making.unlooked(unanswered);
+      await drawing(making, hear, changes);
       return hear({ kind: "looked", slides: changes.length });
     }
     const kept = changes.filter((c) => !tried.worse.includes(c.slide - 1));
@@ -719,6 +727,7 @@ async function look(
     ) as "kept" | { worse: number[] };
     if (again === "kept") {
       if (unanswered) making.unlooked(unanswered);
+      await drawing(making, hear, kept);
       return hear({ kind: "looked", slides: kept.length });
     }
     making.unlooked("lint found a slide the model changed worse for it");
@@ -727,6 +736,21 @@ async function look(
     making.unlooked(said(e));
     hear({ kind: "unlooked", why: said(e) });
   }
+}
+
+/** Each slide of the deck made, drawn for the model to see, and shown to the person as it is
+ * drawn, so the wait shows the deck coming together (lift-up ATTR-1). With `only`, the model's
+ * kept changes, just the slides they touched are drawn again (each `slide` counted from 1). */
+async function drawing(making: Making, hear: (event: GeneratingEvent) => void, only?: { slide: number }[]) {
+  const drawn = [];
+  const of = making.count;
+  const which = only ? [...new Set(only.map((c) => c.slide - 1))].filter((i) => i >= 0 && i < of) : [...Array(of).keys()];
+  for (const i of which) {
+    const picture = await jpeg(making.pixels(i, LOOK_WIDTH));
+    drawn.push(picture);
+    hear({ kind: "drawn", slide: i, of, jpeg: picture.data });
+  }
+  return drawn;
 }
 
 /** `pixels`, a slide drawn, as a JPEG the model is shown: its media type and its bytes in
