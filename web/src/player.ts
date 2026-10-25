@@ -1116,7 +1116,7 @@ async function presentView(deck: Source, how: Play, channel: BroadcastChannel) {
   const elapsed = () => counted + (since === undefined ? 0 : performance.now() - since);
   const minutes = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
   /** The state the room sees, by its index. */
-  let shown = 0;
+  let up = 0;
   /** Whether the deck plans its beats' times (lift-up FUNC-2): with none, it is never behind. */
   const planned = () => slots.some((s) => s.story?.planned !== undefined);
   const clock = () => {
@@ -1124,7 +1124,7 @@ async function presentView(deck: Source, how: Play, channel: BroadcastChannel) {
     $("#clock").textContent = minutes(s);
     // Ahead or behind the plan: the time run beside the time planned before the state up, once
     // the show has begun; within a few seconds of it, on plan.
-    const story = slots[shown]?.story;
+    const story = slots[up]?.story;
     const off = story && begun && planned() ? Math.round(elapsed() / 1000 - story.before) : undefined;
     $("#pace").textContent =
       off === undefined ? "" : Math.abs(off) < 5 ? "On plan" : `${minutes(Math.abs(off))} ${off > 0 ? "behind" : "ahead"}`;
@@ -1184,7 +1184,7 @@ async function presentView(deck: Source, how: Play, channel: BroadcastChannel) {
         const shown = await now.show(states[at.index], at.t, at.format);
         $("#where").textContent = place(slots, at.index);
         // Where the talk is (lift-up FUNC-2): the section and the beat's claim, as the spine says.
-        shown = at.index;
+        up = at.index;
         const story = slots[at.index]?.story;
         const told = [story?.section, story?.claim].filter(Boolean).join(" \u00b7 ");
         $("#story").textContent = told;
