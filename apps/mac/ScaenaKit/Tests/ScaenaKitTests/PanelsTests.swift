@@ -53,6 +53,31 @@ private let torture = repository.appending(path: "tests/fixtures/torture.scaena"
     }
 }
 
+/// New falls back to the next theme that ships where one makes no deck, and says which made none
+/// and why, rather than ending the app (lift-up STAB-3); it starts with Dusk, which makes one, and
+/// a list none of which makes a deck gives no session and every reason. Every theme New may fall
+/// back to makes a deck by its name, and they are the themes that ship: the app stops only where
+/// all of them fail, which is a broken build, and this stops that build before it ships.
+@Test func newFallsBackToTheNextThemeThatShipsAndSaysWhy() throws {
+    #expect(ScaenaSession.newThemes.first == "dusk")
+    for theme in ScaenaSession.newThemes {
+        let made = try ScaenaSession.create(theme: theme, title: "Untitled")
+        #expect(try made.themes().current == "themes/\(theme).theme.json", "\(theme) makes a deck")
+    }
+    let shipped = try ScaenaSession.create(theme: "dusk", title: "Themes").shippedThemes().map(\.name)
+    #expect(Set(ScaenaSession.newThemes) == Set(shipped), "New falls back through every theme that ships")
+    let made = ScaenaSession.create(title: "Untitled")
+    #expect(made.session != nil && made.failed.isEmpty)
+    #expect(try made.session?.themes().current == "themes/dusk.theme.json")
+    let fell = ScaenaSession.create(first: ["no-such-theme", "daybreak"], title: "Untitled")
+    #expect(fell.failed.map { $0.theme } == ["no-such-theme"])
+    let reason = try #require(fell.failed.first)
+    #expect(!Why.said(reason.error).isEmpty)
+    #expect(try fell.session?.themes().current == "themes/daybreak.theme.json")
+    let none = ScaenaSession.create(first: ["no-such-theme", "nor-this"], title: "Untitled")
+    #expect(none.session == nil && none.failed.map { $0.theme } == ["no-such-theme", "nor-this"])
+}
+
 /// Code's colors in the theme panel (PLAN 2.144): each kind as it is drawn, derived where the theme
 /// names none; one named is one theme edit, the objects it goes in added, which writing the theme
 /// back undoes; and From the Accent takes the name away.
