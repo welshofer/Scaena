@@ -14,6 +14,9 @@ struct ThemeChooser: View {
     let chosen: (String?) -> Void
     @State private var drawn: [String: CGImage] = [:]
     @State private var selected: String?
+    /// The chooser holds the focus while it shows, so Return and Escape come to it, never to a
+    /// canvas or a source pane under it (lift-up ATTR-5).
+    @FocusState private var focused: Bool
     @Environment(\.displayScale) private var scale
 
     /// How wide a theme's slide is shown, points.
@@ -55,6 +58,19 @@ struct ThemeChooser: View {
         }
         .padding(24)
         .frame(minWidth: 480, idealWidth: 760)
+        .focusable()
+        .focusEffectDisabled()
+        .focused($focused)
+        .onKeyPress(.return) {
+            guard let selected else { return .ignored }
+            chosen(selected)
+            return .handled
+        }
+        .onKeyPress(.escape) {
+            chosen(nil)
+            return .handled
+        }
+        .onAppear { focused = true }
         // Drawn again, and the first selected, once the themes are given (they may come after the
         // chooser shows).
         .task(id: themes.map(\.name)) {

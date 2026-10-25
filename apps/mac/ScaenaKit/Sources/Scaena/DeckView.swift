@@ -141,10 +141,17 @@ struct DeckView: View {
     // The window's parts, each its own expression: one modifier chain over all of them is more
     // than the compiler type-checks in reasonable time.
     var body: some View {
-        presented(watched(undoing(window)))
-            .focusedSceneValue(\.deck, actions)
-            .focusedSceneValue(\.canvasActions, canvasActions)
+        // While the themes are offered, the window waits on them as it waited on a sheet: its
+        // toolbar, its canvas and panes, and the menus' deck commands take nothing (lift-up ATTR-5).
+        presented(watched(undoing(window.disabled(choosingTheme))))
+            .focusedSceneValue(\.deck, choosingTheme ? nil : actions)
+            .focusedSceneValue(\.canvasActions, choosingTheme ? nil : canvasActions)
             .focusedSceneValue(\.panes, panes)
+    }
+
+    /// Whether a new deck's themes are offered over the window, before one is chosen.
+    private var choosingTheme: Bool {
+        document.startsNew || choosingFirst
     }
 
     /// The states down the side; beside them the canvas and the rest; and the toolbar.
@@ -822,7 +829,7 @@ struct DeckView: View {
             // no deck shows before one is chosen, as a presentation app's theme chooser opens
             // (lift-up ATTR-5).
             .overlay {
-                if document.startsNew || choosingFirst {
+                if choosingTheme {
                     ThemeChooser(themes: offeredThemes) { name in
                         choosingFirst = false
                         offeredThemes = []
