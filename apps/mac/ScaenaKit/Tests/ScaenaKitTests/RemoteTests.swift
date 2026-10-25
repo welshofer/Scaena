@@ -425,3 +425,23 @@ private func tried(_ endpoint: NWEndpoint, _ parameters: NWParameters, _ seconds
         #expect(code.count == 4 && code.allSatisfy(\.isNumber), "\(code)")
     }
 }
+
+/// The remote counts the room's slides, not the show's states (lift-up USE-2): a step after a
+/// slide's first is that slide's step, and a presenter that counts no slides is read as before.
+@Test func aRemoteCountsSlidesAndTheirSteps() throws {
+    // Three slides, the second of three steps: the states a, b, b, b, c.
+    let of = ["a", "b", "b", "b", "c"]
+    let counts = (0..<5).compactMap { RemotePlace.counted(of, at: $0) }.map { [$0.number, $0.slides, $0.step] }
+    #expect(counts == [[1, 3, 1], [2, 3, 1], [2, 3, 2], [2, 3, 3], [3, 3, 1]])
+    #expect(RemotePlace.counted(of, at: 5) == nil, "no slide past the last state")
+    let step = RemotePlace(deck: "B1", showing: true, state: "b2", index: 2, count: 5, number: 2, slides: 3, step: 2)
+    #expect(step.said == "Slide 2 of 3, step 2")
+    let first = RemotePlace(deck: "B1", showing: true, state: "c", index: 4, count: 5, number: 3, slides: 3, step: 1)
+    #expect(first.said == "Slide 3 of 3")
+    let back = try JSONDecoder().decode(RemotePlace.self, from: JSONEncoder().encode(step))
+    #expect(back == step && back.said == "Slide 2 of 3, step 2", "a place sent says its slide and step")
+    // A presenter from before sends neither: the remote counts the states, as it did.
+    let older = #"{"deck":"B1","showing":true,"state":"goal","index":6,"count":19,"ms":0,"rest":true,"notes":""}"#
+    let place = try JSONDecoder().decode(RemotePlace.self, from: Data(older.utf8))
+    #expect(place.number == nil && place.said == "7 of 19")
+}

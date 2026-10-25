@@ -444,23 +444,30 @@ fn unbuilt(
     ops
 }
 
-/// Why `id` names no `what` (`node`, `state`) of `known`, with the id meant where one is near it:
-/// within three edits, or one holding it or held in it (`title` for `cover-title`), the nearest
-/// first; else the first few of `known` (`whats`), so an agent mends a guessed id without a
-/// round of `deck_inspect` (lift-up 10-24b USE-5).
+/// Why `id` names no `what` (`node`, `state`) of `known`, with the id meant where one is near it
+/// ([`nearest`]), so an agent mends a guessed id without a round of `deck_inspect` (lift-up 10-24b
+/// USE-5).
 fn missing<'k>(what: &str, whats: &str, id: &str, known: impl Iterator<Item = &'k str>) -> String {
+    format!("no {what} `{id}`{}", nearest(whats, id, known))
+}
+
+/// What follows a word that `id` names none of `known`, the deck's `whats` (`states`): the id meant
+/// where one is near it, within three edits or one holding it or held in it (`title` for
+/// `cover-title`), the nearest first, as "; did you mean `cover-title`?"; else the first few of
+/// them; else that the deck has none (lift-up 10-24b USE-5, 10-25b USE-5).
+pub fn nearest<'k>(whats: &str, id: &str, known: impl Iterator<Item = &'k str>) -> String {
     let known: Vec<&str> = known.collect();
     let near = (known.iter())
         .map(|k| (crate::model::check::distance(id, k), *k))
         .filter(|(d, k)| *d <= 3.min(id.chars().count().saturating_sub(1)).max(1) || k.contains(id) || id.contains(k))
         .min();
     match near {
-        Some((_, k)) => format!("no {what} `{id}`; did you mean `{k}`?"),
-        None if known.is_empty() => format!("no {what} `{id}`: the deck has no {whats}"),
+        Some((_, k)) => format!("; did you mean `{k}`?"),
+        None if known.is_empty() => format!(": the deck has no {whats}"),
         None => {
             let some: Vec<String> = known.iter().take(5).map(|k| format!("`{k}`")).collect();
             let more = if known.len() > 5 { format!(", … ({} in all)", known.len()) } else { String::new() };
-            format!("no {what} `{id}`; the deck's {whats} include {}{more}", some.join(", "))
+            format!("; the deck's {whats} include {}{more}", some.join(", "))
         }
     }
 }
@@ -913,7 +920,14 @@ fn drawing_in_step(
     let drawn = |state: &Value| {
         state.get("props").and_then(|p| p.get(node)).and_then(|p| p.get("paragraphs")).filter(|p| !p.is_null()).cloned()
     };
-    if !d.states().iter().any(|s| drawn(s).is_some()) {
+    // A code text's lines in focus (PLAN 2.140), as a state's delta writes them, and as its node
+    // does.
+    let focus = |props: Option<&Value>| {
+        props.and_then(|p| p.get("code")).and_then(|c| c.get("focus")).filter(|f| !f.is_null()).cloned()
+    };
+    let focused = |state: &Value| focus(state.get("props").and_then(|p| p.get(node)));
+    let own = focus(d.0.get("nodes").and_then(|n| n.get(node)));
+    if !d.states().iter().any(|s| drawn(s).is_some() || focused(s).is_some()) && own.is_none() {
         return Vec::new();
     }
     let now = format!("{}{text}{}", &written[..range.start], &written[range.end..]);
@@ -928,15 +942,36 @@ fn drawing_in_step(
     };
     let mut out = Vec::new();
     for (i, state) in d.states().iter().enumerate() {
-        let Some(was) = drawn(state) else { continue };
         if !says(&before, i, written) || !says(&edited, i, &now) {
             continue;
         }
-        if let Some(value) = crate::lists::redrawn(&was, written, range.clone(), text)
+        if let Some(was) = drawn(state)
+            && let Some(value) = crate::lists::redrawn(&was, written, range.clone(), text)
             && value != was
         {
             out.push(JsonOp::Replace { path: format!("/states/{i}/props/{}/paragraphs", esc(node)), value });
         }
+        if let Some(was) = focused(state)
+            && let Some(value) = crate::lists::refocused(&was, written, range.clone(), text)
+            && value != was
+        {
+            out.push(JsonOp::Replace { path: format!("/states/{i}/props/{}/code/focus", esc(node)), value });
+        }
+    }
+    // The node's own focus, where the edit is written in the node's own text.
+    let base = format!("/nodes/{}/", esc(node));
+    let in_node = ops.iter().any(|op| {
+        let path = match op {
+            JsonOp::Add { path, .. } | JsonOp::Replace { path, .. } => path,
+            _ => return false,
+        };
+        path.strip_prefix(&base).is_some_and(|rest| rest == "text" || rest == "runs" || rest.starts_with("runs/"))
+    });
+    if let Some(was) = own.filter(|_| in_node)
+        && let Some(value) = crate::lists::refocused(&was, written, range.clone(), text)
+        && value != was
+    {
+        out.push(JsonOp::Replace { path: format!("/nodes/{}/code/focus", esc(node)), value });
     }
     out
 }
