@@ -2722,10 +2722,16 @@ fn identifier(word: &str) -> bool {
 }
 
 /// Whether `text` reads as code rather than prose: it holds a backtick, a brace, an angle
-/// bracket, or one of code's operators (`:=`, `=>`, `->`, `==`, `!=`, `()`, `::`), or it ends in
-/// a semicolon. Its case and its marks are kept as written (DF7-2).
+/// bracket a letter, `/`, or `=` follows ("<div>", "Vec<T>", "<="), or one of code's operators
+/// (`:=`, `=>`, `->`, `==`, `!=`, `()`, `::`), or it ends in a semicolon. A comparison of figures,
+/// "<100 ms" or "> 5%", is prose. Its case and its marks are kept as written (DF7-2).
 fn reads_as_code(text: &str) -> bool {
-    text.contains(['`', '{', '}', '<', '>'])
+    let tagged = text
+        .char_indices()
+        .filter(|(_, c)| matches!(c, '<' | '>'))
+        .any(|(i, _)| text[i + 1..].chars().next().is_some_and(|n| n.is_alphabetic() || n == '/' || n == '='));
+    tagged
+        || text.contains(['`', '{', '}'])
         || [":=", "=>", "->", "==", "!=", "()", "::"].iter().any(|op| text.contains(op))
         || text.trim_end().ends_with(';')
 }
@@ -4487,7 +4493,8 @@ fn typeset_all(narrative: &Narrative) -> Narrative {
 /// one reads as an apostrophe. A short parenthetical, "P(E | H)", is kept on one line, its spaces
 /// ones no line breaks at (U+00A0).
 fn typeset(text: &str, lang: &str) -> String {
-    if reads_as_code(text) {
+    // An angle bracket anywhere keeps a text as it is, as it did before [`reads_as_code`].
+    if text.contains(['<', '>']) || reads_as_code(text) {
         return text.to_string();
     }
     let marks = Marks::of(lang);
@@ -4561,8 +4568,9 @@ fn short_parenthetical(chars: &[char]) -> Option<usize> {
 }
 
 /// Whether the hyphen at `at` is a phone number's or a postcode's, which no range is (DF7-2): three
-/// digits then four, "(555) 014-2200" or "555-0142"; five then four, a ZIP+4; or digits after a
-/// `+`, "+49 30 1234-5678".
+/// digits then four, "(555) 014-2200" or "555-0142", unless both end in 0 and the four do not
+/// begin with one, as a deck's round ranges do ("500-1000"); five then four, a ZIP+4; or digits
+/// after a `+`, "+49 30 1234-5678".
 fn dialed(chars: &[char], at: usize) -> bool {
     let start = chars[..at].iter().rposition(|c| !c.is_ascii_digit()).map_or(0, |p| p + 1);
     let end = chars[at + 1..].iter().position(|c| !c.is_ascii_digit()).map_or(chars.len(), |p| at + 1 + p);
@@ -4573,7 +4581,8 @@ fn dialed(chars: &[char], at: usize) -> bool {
         .rev()
         .find(|c| !(c.is_ascii_digit() || matches!(c, ' ' | '(' | ')' | '.' | '-')))
         .is_some_and(|c| *c == '+');
-    matches!((before, after), (3, 4) | (5, 4)) || opened
+    let round = chars[at - 1] == '0' && chars[end - 1] == '0' && chars[at + 1] != '0';
+    ((before, after) == (3, 4) && !round) || (before, after) == (5, 4) || opened
 }
 
 /// Whether the space at `at` joins a figure to its unit ("140 ms", "+18 %", "48,6 Mio. €"), or a
@@ -5201,6 +5210,12 @@ mod tests {
         assert_eq!(sentence("`fetch` runs once per cart"), "`fetch` runs once per cart");
         assert_eq!(sentence("iPhone sales held"), "iPhone sales held");
         assert_eq!(sentence("cuts emissions 80%"), "Cuts emissions 80%");
+        // A comparison of figures is prose; a tag or a type's brackets are code.
+        assert_eq!(sentence("reduced latency to <100 ms"), "Reduced latency to <100 ms");
+        assert_eq!(sentence("churn >5% in EMEA"), "Churn >5% in EMEA");
+        assert_eq!(sentence("churn > 5% in EMEA"), "Churn > 5% in EMEA");
+        assert_eq!(sentence("returns Vec<Price> once"), "returns Vec<Price> once");
+        assert_eq!(sentence("wrap it in <div> tags"), "wrap it in <div> tags");
         // Code keeps its marks, as it keeps its case.
         assert_eq!(typeset_en("prices, err := pricing.GetMany(\"a\")"), "prices, err := pricing.GetMany(\"a\")");
     }
@@ -5215,8 +5230,11 @@ mod tests {
         assert_eq!(typeset_en("Call 555-0142"), "Call 555-0142");
         assert_eq!(typeset_en("Portland, ME 04101-3102"), "Portland, ME 04101-3102");
         assert_eq!(typeset_en("+49 30 1234-5678"), "+49 30 1234-5678");
-        // A range of figures is still a range.
+        // A range of figures is still a range, a round one of three digits then four too.
         assert_eq!(typeset_en("2021-2024, 70-90%"), "2021\u{2013}2024, 70\u{2013}90%");
+        assert_eq!(typeset_en("500-1000 employees"), "500\u{2013}1000 employees");
+        assert_eq!(typeset_en("250-1000 ms"), "250\u{2013}1000\u{a0}ms");
+        assert_eq!(typeset_en("Call 555-1234 or 555-0140"), "Call 555-1234 or 555-0140");
     }
 
     /// A figure never parts from its unit, nor a scale from its currency, nor a German day from its
@@ -6046,6 +6064,12 @@ mod tests {
         assert!(!section.iter().any(|(slot, _)| slot == "number"), "{section:?}");
         assert_eq!(sentence("iPhone sales"), "iPhone sales");
         assert_eq!(sentence("cuts emissions 80%"), "Cuts emissions 80%");
+        // A comparison of figures is prose; a tag or a type's brackets are code.
+        assert_eq!(sentence("reduced latency to <100 ms"), "Reduced latency to <100 ms");
+        assert_eq!(sentence("churn >5% in EMEA"), "Churn >5% in EMEA");
+        assert_eq!(sentence("churn > 5% in EMEA"), "Churn > 5% in EMEA");
+        assert_eq!(sentence("returns Vec<Price> once"), "returns Vec<Price> once");
+        assert_eq!(sentence("wrap it in <div> tags"), "wrap it in <div> tags");
     }
 
     /// A talk on climate change for colleagues, 25 slides as Narrato writes them.
