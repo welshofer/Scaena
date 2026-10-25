@@ -1130,10 +1130,13 @@ struct DeckView: View {
             }
         }
         if let typing, typing.typing {
-            made.bold = { typing.bold() }
-            made.italic = { typing.italic() }
             made.link = { typing.askLink() }
-            made.list = { kind in typing.toggle(kind) }
+            // Code takes no bold, italic, or list: its theme colors it, its lines as written (PLAN 2.139).
+            if !typing.inCode {
+                made.bold = { typing.bold() }
+                made.italic = { typing.italic() }
+                made.list = { kind in typing.toggle(kind) }
+            }
         }
         return made
     }
@@ -1263,13 +1266,23 @@ struct DeckView: View {
         made.draw = { takePen() }
         made.drawing = pen != nil
         if selection.count == 2 { made.connect = { arrow in connect(arrow, in: shown) } }
-        if one && texted { made.diagram = { kind in diagram(kind, in: shown) } }
+        // A diagram is drawn from words, never from code (PLAN 2.139).
+        if one && texted, !(node.map(codes.contains) ?? false) { made.diagram = { kind in diagram(kind, in: shown) } }
         made.deletesElsewhere = elsewhere
         // A gesture kept to the slide shown without Option, from a long press (lift-up FUNC-4).
         made.keepToSlide = { touch.onlyThisSlide.toggle() }
         made.keptToSlide = touch.onlyThisSlide
         // Code selected copies as text, and words paste as words (PLAN 2.133).
         if one, let node, codes.contains(node) { made.copyCode = { copyCode(node, in: shown) } }
+        // A text made code, code made words again, and code tidied (PLAN 2.139).
+        if one, let node, texted {
+            if codes.contains(node) {
+                made.notCode = { notCode(node) }
+                made.tidyCode = { tidyCode(node, in: shown) }
+            } else {
+                made.makeCode = { makeCode(node) }
+            }
+        }
         made.pasteAsText = { pasteAsText() }
         // In another of the deck's formats, a node given a layout of its own there (PLAN 2.85).
         if one, let node, let format = editor.format {
@@ -1365,6 +1378,40 @@ struct DeckView: View {
             let words = try editor.session.codeWords(state: state, node: node)
             Pasteboard.write(words: words)
             said = "The code copied as text: \(words.split(separator: "\n", omittingEmptySubsequences: false).count) lines"
+        }
+    }
+
+    /// Make Code (PLAN 2.139): the text selected made code in the language it reads as, set in the
+    /// theme's code role, as written; one step of undo.
+    private func makeCode(_ node: String) {
+        perform {
+            let patch = try editor.session.coding(node: node)
+            try document.make(patch, undo: undo, named: "Make Code")
+            said = "Made code"
+        }
+    }
+
+    /// Not Code (PLAN 2.139): the code selected made words again, in the body's role, on every
+    /// slide that shows it; one step of undo.
+    private func notCode(_ node: String) {
+        perform {
+            let patch = try editor.session.uncoding(node: node)
+            try document.make(patch, undo: undo, named: "Not Code")
+            said = "Made words again"
+        }
+    }
+
+    /// Tidy Code (PLAN 2.139): the code selected tidied as a paste of code is, as the slide shows
+    /// it; one step of undo, or nothing where it is tidy.
+    private func tidyCode(_ node: String, in state: String) {
+        perform {
+            let patch = try editor.session.tidying(state: state, node: node)
+            guard !patch.isEmpty else {
+                said = "The code is tidy already"
+                return
+            }
+            try document.make(patch, undo: undo, named: "Tidy Code")
+            said = "The code tidied"
         }
     }
 

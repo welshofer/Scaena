@@ -311,6 +311,23 @@ layout("Lists", "icon-grid", "Six features in two rows of three, each its icon b
 
 # Comparison ------------------------------------------------------------------------------------
 
+# Four things side by side, as Three Columns and Cards set three (dogfood pass 3, T8): a slide of
+# four items was offered no comparison.
+layout("Comparison", "four-columns", "Four things side by side, each named and said in a sentence or two.", {
+    "kicker": KICKER,
+    "header": header(),
+    **{f"{o}-title": slot(c, (3, 4), "title", w) for o, c, w in zip(ORDINALS, QUARTERS, ["First", "Second", "Third", "Fourth"])},
+    **{o: slot(c, (5, 10), "body", "What it is, in a sentence or two.") for o, c in zip(ORDINALS, QUARTERS)},
+})
+
+layout("Comparison", "four-cards", "Four things side by side, each on a card of its own, named and said in a sentence or two.", {
+    "kicker": KICKER,
+    "header": header(),
+    **{f"{o}-card": card(c, (3, 10)) for o, c in zip(ORDINALS, QUARTERS)},
+    **{f"{o}-title": slot(c, (3, 4), "title", w, inset=32) for o, c, w in zip(ORDINALS, QUARTERS, ["First", "Second", "Third", "Fourth"])},
+    **{o: slot(c, (5, 10), "body", "What it is, in a sentence or two.", inset=32) for o, c in zip(ORDINALS, QUARTERS)},
+})
+
 layout("Comparison", "before-after", "How it was and how it is: two pictures, an arrow between them, each named.", {
     "kicker": KICKER,
     "header": header(),
@@ -1644,7 +1661,8 @@ NAMES = {
     "icon-cards": "Icon Cards", "icon-rows": "Icon Rows", "icon-grid": "Icon Grid",
     # Comparison
     "two-columns": "Two Columns", "comparison": "Comparison", "pros-cons": "Pros and Cons",
-    "three-columns": "Three Columns", "cards": "Cards", "before-after": "Before and After",
+    "three-columns": "Three Columns", "cards": "Cards", "four-columns": "Four Columns", "four-cards": "Four Cards",
+    "before-after": "Before and After",
     "head-to-head": "Head to Head", "scenarios": "Scenarios", "myth-fact": "Myth and Fact", "pricing": "Pricing",
     # Frameworks
     "quadrants": "Quadrants", "funnel": "Funnel", "pyramid": "Pyramid", "matrix": "Two-by-Two Matrix",
