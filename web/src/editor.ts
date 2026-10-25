@@ -518,7 +518,7 @@ async function edit(source: Source, opened?: Stage) {
   stage.onError = failed;
   /** On a served page, the deck's source on disk, where the folder keeps one (PLAN 2.11). */
   const scnOnDisk = "url" in source && source.serve && (await onDisk()).source ? new URL("deck.scn", source.url) : undefined;
-  const fromDisk = async () => (await fetch(scnOnDisk!, { cache: "no-store" })).text();
+  const fromDisk = async () => (await fetch(scnOnDisk!, { cache: "no-store", headers: { "X-Scaena-Token": token } })).text();
   /** The deck's own size, named by its shape where a format is it (`16:9`); a format it lists of
    * that shape is its own canvas, offered once. An edit of the canvas renames it. */
   let ownSize = stage.opened.own;
