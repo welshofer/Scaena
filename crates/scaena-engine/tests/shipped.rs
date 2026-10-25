@@ -44,3 +44,33 @@ fn every_shipped_theme_sets_back_the_lines_out_of_focus_far_enough_to_show() {
         }
     }
 }
+
+/// The shipped code look (PLAN 2.137, on ADR-0029's defaults, which Jay may veto): each card stands
+/// 1.3:1 or more off the slide with the theme's `soft` shadow, a light theme's a step darker than
+/// its slide; keywords and plain text read 7:1 or more on it, every other kind 4.5:1; and the code
+/// role turns ligatures off, so `->` and `!=` draw as typed.
+#[test]
+fn every_shipped_theme_reads_every_kind_on_its_card() {
+    for path in THEMES {
+        let theme = Theme::from_json(&std::fs::read_to_string(path).unwrap()).unwrap();
+        let card = theme.code_card().unwrap();
+        let [r, g, b, _] = card.fill;
+        let fill = [r, g, b];
+        let [sr, sg, sb, _] = theme.color("surface").unwrap().0;
+        let surface = [sr, sg, sb];
+        assert!(ratio(fill, surface) >= 1.3 * 0.99, "{path}: the card {:.2}:1 off the slide", ratio(fill, surface));
+        assert_eq!(card.shadow.as_deref(), Some("soft"), "{path}");
+        let light = path.contains("daybreak") || path.contains("salon");
+        let lum = |c: [u8; 3]| c.iter().map(|&v| v as u32).sum::<u32>();
+        assert_eq!(lum(fill) < lum(surface), light, "{path}: a light theme's card is darker than its slide");
+        let role = theme.text_role(theme.code_role().unwrap_or("body")).unwrap();
+        for (k, look) in theme.code_looks(fill, &role).unwrap().iter().enumerate() {
+            let reads = ratio([look.color[0], look.color[1], look.color[2]], fill);
+            let least = if k == Class::Plain as usize || k == Class::Keyword as usize { 7.0 } else { 4.5 };
+            assert!(reads >= least * 0.99, "{path}: kind {k} reads {reads:.2}:1 on its card");
+        }
+        let json: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        let code = theme.code_role().unwrap_or("code");
+        assert_eq!(json["type"]["roles"][code]["features"], serde_json::json!({ "calt": false }), "{path}");
+    }
+}

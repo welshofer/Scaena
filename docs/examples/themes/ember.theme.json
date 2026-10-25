@@ -387,7 +387,10 @@
         "wrap": "greedy",
         "box": "line",
         "measure": 72,
-        "minSize": 24
+        "minSize": 24,
+        "features": {
+          "calt": false
+        }
       }
     }
   },
@@ -1136,6 +1139,9 @@
     "maxWordsPerState": 40
   },
   "code": {
+    "card": {
+      "shadow": "soft"
+    },
     "focus": {
       "dim": 0.55
     }

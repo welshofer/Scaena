@@ -2353,8 +2353,11 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       const { source, edited } = await stage.make(editor.source, ops, shown.index, editor.format());
       const told = done ?? `${op?.node === undefined ? "Placed" : `${Called(op.node)} placed`}: ${placed(op?.at ?? {}, aim?.by, words)}`;
       editor.apply(source, edited, told);
+      const applied = editor.version();
       await refresh();
-      editor.say(told);
+      // An undo, or another edit, made while the canvas caught up is newer: this one's words
+      // are not said over it.
+      if (editor.version() === applied) editor.say(told);
     } catch (e) {
       await still(`Not placed: ${said(e)}`);
     }
@@ -2370,7 +2373,13 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     try {
       const { source, edited } = await stage.make(editor.source, ops, shown.index, editor.format());
       editor.apply(source, edited, done);
+      const applied = editor.version();
       await refresh();
+      // An undo, or another edit, made while the canvas caught up is newer: what this one would
+      // select is not taken back over it, nor its words said over the undo's, or over a gesture's
+      // after it (Escape on a drag begun meanwhile), and what a caller does next with the change
+      // (words typed in, a stroke joined) does not go on.
+      if (editor.version() !== applied) return false;
       if (Array.isArray(next)) selectAll(next.filter((n) => box(n) !== undefined));
       else if (next !== undefined) select(next ?? undefined);
       editor.say(done);
