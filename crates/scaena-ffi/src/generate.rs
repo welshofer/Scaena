@@ -27,73 +27,75 @@ use std::collections::BTreeMap;
 /// A deck being made from a prompt: the sources read so far, the link being fetched, the
 /// research under way, the narrative being written, and the bundle being made of it.
 /// A look at the deck made, in rounds (PLAN G.13, narrative PERF-5): each slide as the model
-/// is shown it and as drawn, the round asked next, the changes answered so far, and why a round
-/// was not answered.
+/// is shown it and as drawn, and the rounds asked, every one at once, which the client sends
+/// `LOOKS_AT_ONCE` at a time, as the CLI and the browser do (lift-up 20261025 PERF-2).
 #[derive(Default)]
 struct Look {
     seen: Vec<Seen>,
     /// Each slide as drawn for the model, once its round is (lift-up 10-25 PERF-5).
     drawn: Vec<Option<Picture>>,
-    /// The index the next round starts at, and the round last asked.
+    /// The key each round is asked with, kept so the next batch is built as it is drawn.
+    key: String,
+    /// Where the next round to draw starts (lift-up 10-25 PERF-5).
     next: usize,
-    current: std::ops::Range<usize>,
+    /// Each round asked: its slides, its request as Swift is handed it, and how many times a busy
+    /// provider has answered it for now (lift-up REL-1).
+    asked: Vec<(std::ops::Range<usize>, Value, usize)>,
+    /// The rounds still to be answered, by their place in `asked`, in the order Swift is handed
+    /// them; and those drawn ahead, to be handed once these are answered (lift-up 10-25 PERF-5).
+    pending: Vec<usize>,
+    ready: Vec<usize>,
     changes: Vec<Change>,
     unanswered: Option<String>,
-    /// The round last asked, as Swift was handed it, and how many times a busy provider has
-    /// answered it for now: asked again, as the slides are (lift-up REL-1).
-    last: Option<Value>,
-    tried: usize,
 }
 
 impl Look {
-    /// The next round's request, with how many slides the look shows in all, its slides drawn
-    /// where they are not yet; none once every round is asked.
-    fn round(&mut self, generation: &Generation, key: &str, making: &Making) -> Result<Option<Value>, String> {
-        while let Some(round) = look_rounds(self.seen.len()).find(|r| r.start == self.next) {
-            self.next = round.end;
-            self.draw(making, round.clone())?;
-            let drawn: Vec<Picture> = self.drawn[round.clone()].iter().flatten().cloned().collect();
-            let edges = [round.start.checked_sub(1).and_then(|b| self.seen.get(b)), self.seen.get(round.end)];
-            if let Some(asked) = generation.look_request(key, &self.seen[round.clone()], &drawn, edges) {
-                self.current = round;
-                self.tried = 0;
-                let next = json!({ "request": request(asked), "slides": self.seen.len() });
-                self.last = Some(next.clone());
-                return Ok(Some(next));
-            }
-        }
-        Ok(None)
-    }
-
-    /// The slides of `round` drawn for the model, where they are not yet.
-    /// Each newly drawn by its index, for the window (lift-up ATTR-1); none where all were.
-    fn draw(&mut self, making: &Making, round: std::ops::Range<usize>) -> Result<Vec<Value>, String> {
+    /// The next batch of rounds drawn and built, a client's worth at once
+    /// ([`scaena_ops::narrative::LOOKS_AT_ONCE`]), kept ready to hand over: each slide drawn by its
+    /// index for the window (lift-up ATTR-1). The batch after the one handed is drawn while that
+    /// one is out (lift-up 10-25 PERF-5); a round that asks nothing is passed over.
+    fn draw_batch(&mut self, generation: &Generation, making: &Making) -> Result<Vec<Value>, String> {
         if self.drawn.len() < self.seen.len() {
             self.drawn.resize(self.seen.len(), None);
         }
-        if self.drawn[round.clone()].iter().all(Option::is_some) {
-            return Ok(Vec::new());
+        let mut shown = Vec::new();
+        let mut built = 0;
+        while built < scaena_ops::narrative::LOOKS_AT_ONCE
+            && let Some(round) = look_rounds(self.seen.len()).find(|r| r.start == self.next)
+        {
+            // Past the round only once it draws, so a slide that will not draw is said again.
+            let pictures =
+                making.drawn_in(scaena_ops::narrative::LOOK_WIDTH, round.clone()).map_err(|e| e.to_string())?;
+            self.next = round.end;
+            for ((slide, slot), picture) in self.drawn[round.clone()].iter_mut().enumerate().zip(pictures) {
+                shown.push(json!({ "slide": round.start + slide, "jpeg": picture.data }));
+                *slot = Some(picture);
+            }
+            let drawn: Vec<Picture> = self.drawn[round.clone()].iter().flatten().cloned().collect();
+            let edges = [round.start.checked_sub(1).and_then(|b| self.seen.get(b)), self.seen.get(round.end)];
+            if let Some(asked) = generation.look_request(&self.key, &self.seen[round.clone()], &drawn, edges) {
+                self.ready.push(self.asked.len());
+                self.asked.push((round, request(asked), 0));
+                built += 1;
+            }
         }
-        let pictures = making.drawn_in(scaena_ops::narrative::LOOK_WIDTH, round.clone()).map_err(|e| e.to_string())?;
-        let mut drawn = Vec::new();
-        for ((slide, slot), picture) in self.drawn[round.clone()].iter_mut().enumerate().zip(pictures) {
-            drawn.push(json!({ "slide": round.start + slide, "jpeg": picture.data }));
-            *slot = Some(picture);
-        }
-        Ok(drawn)
+        Ok(shown)
     }
 
-    /// The round after the one asked drawn, while that one is out (lift-up 10-25 PERF-5).
-    fn draw_ahead(&mut self, making: &Making) -> Result<Vec<Value>, String> {
-        match look_rounds(self.seen.len()).find(|r| r.start == self.next) {
-            Some(round) => self.draw(making, round),
-            None => Ok(Vec::new()),
+    /// The rounds drawn ahead handed over, drawn now where none were; none once every round is.
+    fn hand_next(&mut self, generation: &Generation, making: &Making) -> Result<(Option<Value>, Vec<Value>), String> {
+        let mut shown = Vec::new();
+        if self.ready.is_empty() {
+            shown = self.draw_batch(generation, making)?;
         }
+        self.pending = std::mem::take(&mut self.ready);
+        Ok(((!self.pending.is_empty()).then(|| self.handed()), shown))
     }
 
-    /// The slides the round last asked showed.
-    fn asked(&self) -> Vec<Seen> {
-        self.seen[self.current.clone()].to_vec()
+    /// The rounds still to be answered, as Swift is handed them.
+    fn handed(&self) -> Value {
+        let rounds: Vec<&Value> = self.pending.iter().map(|&i| &self.asked[i].1).collect();
+        json!({ "rounds": rounds, "slides": self.seen.len(), "atOnce": scaena_ops::narrative::LOOKS_AT_ONCE })
     }
 }
 
@@ -575,19 +577,18 @@ impl Generating {
                     let seen = scaena_ops::narrative::seeing(narrative, &model, &placed, making.layouts());
                     // A slide that would not draw for the model to see leaves the deck as made,
                     // saying why (narrative STAB-3): the look is a polish, never the deck.
-                    // The first round drawn alone, and asked while the next is (lift-up 10-25 PERF-5).
-                    let mut look = Look { seen, ..Look::default() };
-                    match look.round(&w.generation, key, &making) {
-                        Ok(Some(round)) => {
-                            // Each slide of the first round as drawn, which the window shows while
-                            // the model looks, by its index from the first (lift-up ATTR-1); each
-                            // later round's come with its `drawAhead`.
-                            let shown: Vec<String> = look.drawn.iter().flatten().map(|p| p.data.clone()).collect();
+                    // The first batch of rounds drawn and asked, the next drawn while it is out
+                    // (lift-up 10-25 PERF-5); each slide as drawn, which the window shows while the
+                    // model looks, by its index (lift-up ATTR-1).
+                    let mut look = Look { seen, key: key.to_string(), ..Look::default() };
+                    match look.hand_next(&w.generation, &making) {
+                        Ok((Some(rounds), shown)) => {
+                            let shown: Vec<&Value> = shown.iter().map(|d| &d["jpeg"]).collect();
                             self.look = look;
                             self.making = Some((making, Vec::new()));
-                            return Ok(json!({ "look": round, "drawn": shown }));
+                            return Ok(json!({ "look": rounds, "drawn": shown }));
                         }
-                        Ok(None) => {}
+                        Ok((None, _)) => {}
                         Err(why) => making.unlooked(format!("the slides could not be drawn for the model: {why}")),
                     }
                 }
@@ -600,73 +601,98 @@ impl Generating {
             "drawAhead" => {
                 let (making, _) = self.making.as_ref().ok_or_else(|| said("drawAhead: no deck is made"))?;
                 let making: &Making = making;
-                match self.look.draw_ahead(making) {
+                let w = self.generation.as_ref().ok_or_else(|| said("drawAhead: no narrative is written"))?;
+                let ready = self.look.ready.is_empty() && self.look.next < self.look.seen.len();
+                match if ready { self.look.draw_batch(&w.generation, making) } else { Ok(Vec::new()) } {
                     Ok(drawn) => json!({ "drawn": drawn }),
                     Err(why) => json!({ "unlooked": why }),
                 }
             }
             "looked" => {
-                // The model's answer to one round of the look (narrative PERF-5): the next round's
-                // request where one is left, `{look}`; else each slide's change kept where lint
-                // finds the slide no worse, then the fit asked for, as `make` asks it:
-                // `{looked, unlooked, fit}`. A round not answered loses its own slides' changes
-                // alone, said beside the rest.
-                // A busy provider: the same round asked again, after the wait Swift is told
-                // (lift-up REL-1), `{look, wait, tried}`.
-                let after = args.get("after").and_then(Value::as_str);
-                if let Some(wait) = scaena_narrato::retry_after(status(), arg("body")?, after, self.look.tried)
-                    && let Some(again) = self.look.last.clone()
-                {
-                    self.look.tried += 1;
-                    return Ok(json!({ "look": again, "wait": wait, "tried": self.look.tried }));
-                }
+                // The model's answers to the rounds of the look still to be answered (narrative
+                // PERF-5), in the order they were handed over: `replies`, each `{status,
+                // statusText, body, after?}` (lift-up 20261025 PERF-2). A round a busy provider
+                // answered for now is handed over again after the wait Swift is told, alone,
+                // until its tries are spent (lift-up REL-1): `{look, wait, tried}`. Once every
+                // round is answered, each slide's change is kept where lint finds the slide no
+                // worse, then the fit asked for, as `make` asks it: `{looked, unlooked, fit}`. A
+                // round not answered loses its own slides' changes alone, said beside the rest.
                 let w = self.generation.as_ref().ok_or_else(|| said("looked: no narrative is written"))?;
                 let key = args.get("key").and_then(Value::as_str);
-                let round = self.look.asked();
-                match w.generation.look_answer(status(), &status_text(), arg("body")?, &round) {
-                    Ok(changes) => self.look.changes.extend(changes),
-                    Err(why) => {
-                        let (first, last) = (round[0].slide, round[round.len() - 1].slide);
-                        let why = match round.len() {
-                            1 => format!("slide {first} not looked at: {why}"),
-                            _ => format!("slides {first}\u{2013}{last} not looked at: {why}"),
-                        };
-                        let was = self.look.unanswered.take();
-                        self.look.unanswered = Some(was.map_or(why.clone(), |was| format!("{was}; {why}")));
-                    }
+                let replies = (args.get("replies").and_then(Value::as_array))
+                    .ok_or_else(|| said("looked: `replies`, the answer to each round, is an array it needs"))?;
+                if replies.len() != self.look.pending.len() {
+                    return Err(said(format!(
+                        "looked: {} replies to {} rounds: answer each round handed over, in order",
+                        replies.len(),
+                        self.look.pending.len()
+                    )));
                 }
-                let (mut making, longs) = self.making.take().ok_or_else(|| said("looked: no deck is made"))?;
-                if let Some(key) = key {
-                    match self.look.round(&w.generation, key, &making) {
-                        Ok(Some(next)) => {
-                            self.making = Some((making, longs));
-                            return Ok(json!({ "look": next }));
-                        }
-                        Ok(None) => {}
-                        // A slide that would not draw for the model to see: the deck stands as
-                        // made (narrative STAB-3).
+                let mut again = Vec::new();
+                let mut wait: f64 = 0.0;
+                for (&i, reply) in std::mem::take(&mut self.look.pending).iter().zip(replies) {
+                    let status =
+                        reply.get("status").and_then(Value::as_u64).and_then(|s| u16::try_from(s).ok()).unwrap_or(0);
+                    let status_text = reply.get("statusText").and_then(Value::as_str).unwrap_or_default();
+                    let body = reply.get("body").and_then(Value::as_str).unwrap_or_default();
+                    let after = reply.get("after").and_then(Value::as_str);
+                    let (round, _, tried) = &mut self.look.asked[i];
+                    if let Some(seconds) = scaena_narrato::retry_after(status, body, after, *tried) {
+                        *tried += 1;
+                        wait = wait.max(seconds);
+                        again.push(i);
+                        continue;
+                    }
+                    let shown = &self.look.seen[round.clone()];
+                    match w.generation.look_answer(status, status_text, body, shown) {
+                        Ok(made) => self.look.changes.extend(made),
                         Err(why) => {
-                            self.look = Look::default();
-                            making.unlooked(format!("the slides could not be drawn for the model: {why}"));
-                            let fit = self.fitting(making, Some(key))?;
-                            return Ok(
-                                json!({ "unlooked": format!("the slides could not be drawn for the model: {why}"), "fit": fit }),
-                            );
+                            let (first, last) = (shown[0].slide, shown[shown.len() - 1].slide);
+                            let why = match shown.len() {
+                                1 => format!("slide {first} not looked at: {why}"),
+                                _ => format!("slides {first}\u{2013}{last} not looked at: {why}"),
+                            };
+                            let was = self.look.unanswered.take();
+                            self.look.unanswered = Some(was.map_or(why.clone(), |was| format!("{was}; {why}")));
                         }
                     }
                 }
+                if !again.is_empty() {
+                    let tried = again.iter().map(|&i| self.look.asked[i].2).max().unwrap_or(0);
+                    self.look.pending = again;
+                    return Ok(json!({ "look": self.look.handed(), "wait": wait, "tried": tried }));
+                }
+                // The batch drawn while this one was out handed over next, drawn now where it was
+                // not (lift-up 10-25 PERF-5), each slide it drew shown by its index.
+                {
+                    let (making, _) = self.making.as_ref().ok_or_else(|| said("looked: no deck is made"))?;
+                    match self.look.hand_next(&w.generation, making) {
+                        Ok((Some(next), shown)) => return Ok(json!({ "look": next, "drawn": shown })),
+                        Ok((None, _)) => {}
+                        // A slide that would not draw for the model to see: what was answered
+                        // stands, the rest said (narrative STAB-3).
+                        Err(why) => {
+                            let why = format!("the slides could not be drawn for the model: {why}");
+                            let was = self.look.unanswered.take();
+                            self.look.unanswered = Some(was.map_or(why.clone(), |was| format!("{was}; {why}")));
+                        }
+                    }
+                }
+                let changes = std::mem::take(&mut self.look.changes);
+                let unanswered = self.look.unanswered.take();
+                let (mut making, _) = self.making.take().ok_or_else(|| said("looked: no deck is made"))?;
                 let narrative = w.generation.narrative().ok_or_else(|| said("looked: no narrative is written"))?;
-                let look = std::mem::take(&mut self.look);
-                if !look.changes.is_empty() {
+                self.look = Look::default();
+                if !changes.is_empty() {
                     let shipped = shipped(&self.theme)?;
                     let model: scaena_core::model::theme::Theme =
                         serde_json::from_str(shipped.text).map_err(|e| said(format!("the theme: {e}")))?;
                     let (placed, assets, _) = self.painted.clone().unwrap_or_default();
                     let shown =
                         scaena_ops::narrative::Shown { narrative, theme: &model, pictures: &placed, assets: &assets };
-                    making.look(shown, look.changes).map_err(said)?;
+                    making.look(shown, changes).map_err(said)?;
                 }
-                if let Some(why) = look.unanswered {
+                if let Some(why) = unanswered {
                     let was = making.report()["unlooked"].as_str().map(str::to_string);
                     making.unlooked(was.map_or(why.clone(), |was| format!("{was}; {why}")));
                 }

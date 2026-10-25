@@ -163,7 +163,7 @@ private struct RemoteShow: View {
     private func playing(_ place: RemotePlace) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text("\(place.index + 1) of \(place.count)")
+                Text(place.said)
                 Spacer()
                 // The presenter's timer, as their view reads it, paused where it is; from a presenter
                 // that sends none, the time since the show began.
@@ -283,7 +283,7 @@ private struct RemoteShow: View {
 
     /// What VoiceOver hears of the screen: where the show is, and what the room sees there.
     private func seen(_ place: RemotePlace) -> String {
-        let at = "Slide \(place.index + 1) of \(place.count)"
+        let at = place.said
         if place.over { return "\(at), end of the show" }
         return place.blank.map { "\(at), \($0.rawValue) screen" } ?? at
     }

@@ -686,9 +686,11 @@ public final class Generator {
     }
 
     private struct Making: Decodable, Sendable {
+        /// The look's every round, which are asked `atOnce` at a time (lift-up 20261025 PERF-2).
         struct Look: Decodable, Sendable {
-            let request: GeneratorRequest
+            let rounds: [GeneratorRequest]
             let slides: Int
+            let atOnce: Int
         }
 
         let look: Look?
@@ -702,16 +704,17 @@ public final class Generator {
         let texts: Int
     }
 
-    /// One round of the look answered: the next round where one is left (narrative PERF-5), else
-    /// what the look came to and the fit asked for.
-    /// The look's next round drawn: each slide it drew, by its index, for the window (lift-up
+    /// The look's next batch drawn: each slide it drew, by its index, for the window (lift-up
     /// ATTR-1), or why a slide would not draw, where one would not.
     private struct Ahead: Decodable, Sendable {
         let drawn: [Redrawn]?
         let unlooked: String?
     }
 
+    /// The look's rounds answered: the next batch where one is left (lift-up 10-25 PERF-5), else
+    /// what it came to, and the fit asked for.
     private struct Looking: Decodable, Sendable {
+        /// The rounds a busy provider answered for now, handed back to be asked again.
         let look: Making.Look?
         let looked: Int?
         let unlooked: String?
@@ -826,6 +829,30 @@ public final class Generator {
             return .none(why: "your \(painter.provider.name) key lists no image model")
         }
         return .model(model)
+    }
+
+    /// `requests` sent `atOnce` at a time, each group's answered before the next is sent, the
+    /// replies in the order the requests came.
+    nonisolated static func asked(_ requests: [GeneratorRequest], atOnce: Int, send: @escaping Send) async -> [GeneratorReply] {
+        var replies = [GeneratorReply?](repeating: nil, count: requests.count)
+        let step = max(1, atOnce)
+        for start in stride(from: 0, to: requests.count, by: step) {
+            let some = Array(requests.enumerated())[start..<min(start + step, requests.count)]
+            let got = await withTaskGroup(of: (Int, GeneratorReply).self) { group in
+                for (i, request) in some {
+                    group.addTask { (i, await send(request)) }
+                }
+                var got: [(Int, GeneratorReply)] = []
+                for await answer in group {
+                    got.append(answer)
+                }
+                return got
+            }
+            for (i, reply) in got {
+                replies[i] = reply
+            }
+        }
+        return replies.map { $0 ?? GeneratorReply(status: 0, body: Data("no answer".utf8)) }
     }
 
     /// The pictures asked for made by `painter`, every one at once, a busy provider asked again
@@ -1012,42 +1039,47 @@ public final class Generator {
         }
         // The deck shown to the model as it is drawn (PLAN G.13), each slide's change kept where
         // lint finds the slide no worse; then the fit, asked after it.
-        // The look goes a dozen slides a round (narrative PERF-5): each answer asks the next
-        // round, until the engine says what the look came to.
+        // The look goes a dozen slides a round (narrative PERF-5), the rounds asked a few at a
+        // time, as the CLI and the browser ask them (lift-up 20261025 PERF-2), and every answer
+        // handed back in the rounds' order. A round a busy provider answered for now is handed
+        // back alone, asked again after the wait the engine says (lift-up REL-1).
         var seeing = making.look
         if let first = seeing { hear(.looking(slides: first.slides)) }
+        var refused: GeneratorReply?
         while let round = seeing {
-            // The round asked, and the next drawn while it is out (lift-up 10-25 PERF-5); a slide
-            // that will not draw is said by the round's `looked`.
+            // The batch asked, a few rounds at a time, and the next batch drawn while it is out
+            // (lift-up 10-25 PERF-5); a slide that will not draw is said by `looked`.
             let send = self.send
-            let request = round.request
-            async let replied = send(request)
+            async let asking = Self.asked(round.rounds, atOnce: round.atOnce, send: send)
             let ahead: Ahead = try await stepAway("drawAhead")
             for next in ahead.drawn ?? [] {
                 if let data = Data(base64Encoded: next.jpeg) { drawn(next.slide, data) }
             }
-            let reply = await replied
-            var answered: [String: JSONValue] = [
-                "status": .number(Double(reply.status)),
-                "statusText": .string(reply.status == 0 ? reply.text : HTTPURLResponse.localizedString(forStatusCode: reply.status)),
-                "body": .string(reply.status == 0 ? "" : reply.text),
-                "key": .string(key),
-            ]
-            if let after = reply.after { answered["after"] = .string(after) }
-            let looking: Looking = try await stepAway("looked", answered)
-            // A busy provider: the same round asked again after the wait the engine says, as the
-            // slides are (lift-up REL-1).
+            let replies = await asking
+            refused = replies.last { !(200..<300).contains($0.status) } ?? refused
+            let answers: [JSONValue] = replies.map { reply -> JSONValue in
+                var answered: [String: JSONValue] = [
+                    "status": .number(Double(reply.status)),
+                    "statusText": .string(reply.status == 0 ? reply.text : HTTPURLResponse.localizedString(forStatusCode: reply.status)),
+                    "body": .string(reply.status == 0 ? "" : reply.text),
+                ]
+                if let after = reply.after { answered["after"] = .string(after) }
+                return .object(answered)
+            }
+            let looking: Looking = try await stepAway("looked", ["replies": .array(answers), "key": .string(key)])
             if let wait = looking.wait {
                 hear(.retrying(seconds: wait, tried: looking.tried ?? 0))
                 try await Task.sleep(for: .seconds(wait))
             }
             seeing = looking.look
-            if seeing != nil { continue }
+            // The slides the next batch drew, where none was drawn ahead, or once the look is done,
+            // those its kept changes touched, drawn again (lift-up ATTR-1).
             for again in looking.drawn ?? [] {
                 if let data = Data(base64Encoded: again.jpeg) { drawn(again.slide, data) }
             }
+            if seeing != nil { continue }
             if let why = looking.unlooked {
-                hear(.unlooked(unanswered(why, provider, reply)))
+                hear(.unlooked(unanswered(why, provider, refused ?? replies[0])))
             } else {
                 hear(.looked(slides: looking.looked ?? 0))
             }
