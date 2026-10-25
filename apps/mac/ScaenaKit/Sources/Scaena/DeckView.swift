@@ -808,6 +808,10 @@ struct DeckView: View {
     private func presented(_ view: some View) -> some View {
         view
             .quickLookPreview($looking)
+            // An export seen in Quick Look, its folder taken away once it is closed (lift-up REL-5).
+            .onChange(of: looking) { seen, now in
+                if let seen, seen != now { ExportFolders.remove(seen) }
+            }
             // An export being made: what it is, and Cancel, which drops it (lift-up PERF-3).
             .sheet(item: $making) { made in
                 VStack(spacing: 16) {

@@ -27,6 +27,12 @@ struct ScaenaApp: App {
                 openingLog.debug("no GPU: \(String(describing: error), privacy: .public)")
             }
         }
+        // What exports a quit or a crash left in the temporary folder, older than a day, swept
+        // away (lift-up REL-5).
+        DispatchQueue.global(qos: .utility).async {
+            let swept = ExportFolders.sweep()
+            if swept > 0 { openingLog.debug("swept \(swept) export folders left behind") }
+        }
     }
 
     #if os(macOS)
