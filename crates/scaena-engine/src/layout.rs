@@ -357,17 +357,19 @@ mod tests {
         };
         let err = |grid: Value| laid(grid).map(|_| ()).unwrap_err().to_string();
         assert!(
-            err(json!({"columns": 4_000_000_000u32})).contains("grid.columns: 4000000000 columns: a grid has 1 to 96")
+            err(json!({"columns": 4_000_000_000u32}))
+                .contains("grid.columns: 4000000000 columns: a grid has 1 to 1000")
         );
-        assert!(err(json!({"rows": 97})).contains("grid.rows: 97 rows"));
+        assert!(err(json!({"rows": 1001})).contains("grid.rows: 1001 rows"));
         assert!(err(json!({"margin": 1000})).contains("grid.margin: its margins leave its columns no room"));
         let gutters = err(json!({"gutter": 200}));
         assert!(
             gutters.contains("grid.gutter: its margins and gutters leave its columns no room on a canvas 1920 wide"),
             "{gutters}"
         );
-        // 96 tracks lay out.
-        assert_eq!(laid(json!({"columns": 96, "gutter": 0})).unwrap().cols.len(), 96);
+        // A 16 px placement grid on a 1920 canvas lays out, and so do a thousand tracks.
+        assert_eq!(laid(json!({"columns": 120, "gutter": 0})).unwrap().cols.len(), 120);
+        assert_eq!(laid(json!({"columns": 1000, "gutter": 0, "margin": 0})).unwrap().cols.len(), 1000);
     }
 
     #[test]

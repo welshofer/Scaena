@@ -525,10 +525,12 @@ impl Margin {
 }
 
 impl Grid {
-    /// The most columns, or rows, a grid lays out (lift-up 10-24b STAB-3): far more than a
-    /// slide uses, and few enough that laying one out stays cheap, where `columns: 4000000000`
-    /// would run the engine out of memory.
-    pub const MOST_TRACKS: u32 = 96;
+    /// The most columns, or rows, a grid lays out (lift-up 10-24b STAB-3): a bound on what laying
+    /// one out may cost, as `MAX_PIXELS` bounds a raster, where `columns: 4000000000` would run the
+    /// engine out of memory. Far past any grid a slide draws, a 16 px placement grid on a 1920
+    /// canvas (120 columns) among them, so it narrows no theme that drew; a thousand tracks lay
+    /// out in microseconds.
+    pub const MOST_TRACKS: u32 = 1000;
 
     /// Why this grid cannot be laid out on `canvas`: the field (`columns`, `rows`, `margin`, or
     /// `gutter`) and what is wrong with it. `None` where it can. Columns and rows are 1 to

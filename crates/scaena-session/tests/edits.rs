@@ -904,7 +904,7 @@ fn a_grid_that_cannot_be_laid_out_says_why_wherever_the_deck_is_used() {
     let state = revenue.deck["states"][0]["id"].as_str().unwrap().to_string();
     let by = || Caller { author: "agent:test", at: None };
     for (key, value, said) in [
-        ("columns", json!(4_000_000_000u32), "4000000000 columns: a grid has 1 to 96 of them"),
+        ("columns", json!(4_000_000_000u32), "4000000000 columns: a grid has 1 to 1000 of them"),
         ("margin", json!(1200), "margins leave its columns no room"),
     ] {
         let mut theme: Value = serde_json::from_str(&revenue.theme).unwrap();
