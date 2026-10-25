@@ -16,10 +16,26 @@ use serde::{Deserialize, Serialize};
 pub enum Task {
     /// A text's spelling, grammar, and punctuation put right, and nothing else changed.
     Proofread { text: String },
-    /// A text in fewer words, its meaning kept.
-    Tighten { text: String },
-    /// A text said more clearly and directly.
-    Rewrite { text: String },
+    /// A text in fewer words, its meaning kept: in the deck's voice, and still making the point
+    /// its slide's beat claims, where the deck says them (lift-up FUNC-3).
+    Tighten {
+        text: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        claim: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        voice: Option<String>,
+    },
+    /// A text said more clearly and directly, or as the person asks (`ask`: "more formal",
+    /// "shorter, for executives"), in the deck's voice and making its beat's point (lift-up FUNC-3).
+    Rewrite {
+        text: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        ask: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        claim: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        voice: Option<String>,
+    },
     /// Notes for the speaker of a slide: from its words as it reads, a line for each part, and
     /// the point its beat makes, where the spine gives one.
     Notes {
@@ -134,7 +150,7 @@ impl Task {
     /// has; for a claim check, the headline it may rewrite.
     pub fn text(&self) -> Option<&str> {
         match self {
-            Task::Proofread { text } | Task::Tighten { text } | Task::Rewrite { text } => Some(text),
+            Task::Proofread { text } | Task::Tighten { text, .. } | Task::Rewrite { text, .. } => Some(text),
             Task::Describe { text, .. } => text.as_deref(),
             Task::Claim { headline, .. } => headline.as_deref(),
             _ => None,
@@ -165,15 +181,19 @@ impl Task {
             Task::Tighten { .. } => {
                 "You tighten the words of one text on a slide: fewer words, the same meaning, in the \
                  same language and tone. Keep every number and name exactly as written, and keep one \
-                 line for each line you are given. Write only the tightened text, with no quotes and \
-                 no comment."
+                 line for each line you are given. Where you are told the point its slide makes, keep \
+                 the text making it; where you are told the deck's voice, keep to it. Write only the \
+                 tightened text, with no quotes and no comment."
             }
             Task::Rewrite { .. } => {
                 "You rewrite the words of one text on a slide so that it reads clearly and directly, \
                  as a skilled presentation writer would: the point first, concrete words, active \
                  verbs. Keep its meaning, its language, and about its length. Keep every number and \
-                 name exactly as written, and keep one line for each line you are given. Write only \
-                 the rewritten text, with no quotes and no comment."
+                 name exactly as written, and keep one line for each line you are given. Where you are \
+                 told the point its slide makes, keep the text making it; where you are told the deck's \
+                 voice, write in it; where you are told how the person wants it rewritten, rewrite it \
+                 so, its length and tone included, keeping its numbers and names. Write only the \
+                 rewritten text, with no quotes and no comment."
             }
             Task::Notes { .. } => {
                 "You draft speaker notes for one slide of a talk: what the speaker says while it \
@@ -209,7 +229,11 @@ impl Task {
     /// What the model is asked.
     pub fn prompt(&self) -> String {
         match self {
-            Task::Proofread { text } | Task::Tighten { text } | Task::Rewrite { text } => text.clone(),
+            Task::Proofread { text } => text.clone(),
+            Task::Tighten { text, claim, voice } => framed(text, None, claim.as_deref(), voice.as_deref()),
+            Task::Rewrite { text, ask, claim, voice } => {
+                framed(text, ask.as_deref(), claim.as_deref(), voice.as_deref())
+            }
             Task::Notes { slide, claim } => {
                 let mut out = format!("The slide reads:\n{slide}");
                 if let Some(claim) = claim.as_deref().filter(|c| !c.trim().is_empty()) {
@@ -258,6 +282,32 @@ impl Task {
         }
         out.to_string()
     }
+}
+
+/// A text to tighten or rewrite as the model is asked it: the text alone where nothing else is
+/// said, else the text and, each on its own line, how the person wants it rewritten, the point
+/// its slide makes, and the deck's voice (lift-up FUNC-3).
+fn framed(text: &str, ask: Option<&str>, claim: Option<&str>, voice: Option<&str>) -> String {
+    let (ask, claim, voice) = (said(ask), said(claim), said(voice));
+    if ask.is_none() && claim.is_none() && voice.is_none() {
+        return text.to_string();
+    }
+    let mut out = format!("The text:\n{text}");
+    if let Some(ask) = ask {
+        out.push_str(&format!("\nHow to rewrite it: {ask}"));
+    }
+    if let Some(claim) = claim {
+        out.push_str(&format!("\nThe point its slide makes: {claim}"));
+    }
+    if let Some(voice) = voice {
+        out.push_str(&format!("\nThe deck's voice: {voice}"));
+    }
+    out
+}
+
+/// `v` trimmed, none where it has no words.
+fn said(v: Option<&str>) -> Option<&str> {
+    v.map(str::trim).filter(|v| !v.is_empty())
 }
 
 /// The slide's parts as the notes' prompt reads them: a line for each, what it is and its words.
@@ -473,13 +523,47 @@ mod tests {
 
     #[test]
     fn an_answer_in_quotes_is_taken_without_them_where_the_text_had_none() {
-        let tighten = Task::Tighten { text: "A long headline".into() };
+        let tighten = Task::Tighten { text: "A long headline".into(), claim: None, voice: None };
         assert_eq!(tighten.taken("  “A headline”\n"), "A headline");
         assert_eq!(tighten.taken("\"A headline\""), "A headline");
         let quoted = Task::Proofread { text: "“Ship it,” she said".into() };
         assert_eq!(quoted.taken("“Ship it,” she said."), "“Ship it,” she said.");
         let notes = Task::Notes { slide: "Title: Q3".into(), claim: None };
         assert_eq!(notes.taken("\"Q3 was good.\"\r\nThanks."), "\"Q3 was good.\"\nThanks.");
+    }
+
+    /// A rewrite takes the person's own words for how, and a rewrite or a tightening the point its
+    /// slide makes and the deck's voice, each on its own line after the text (lift-up FUNC-3); with
+    /// none of them, the text alone is asked, as before.
+    #[test]
+    fn a_rewrite_takes_the_persons_ask_the_slides_claim_and_the_decks_voice() {
+        let plain = Task::Rewrite { text: "Sales went up a lot.".into(), ask: None, claim: None, voice: None };
+        assert_eq!(plain.prompt(), "Sales went up a lot.");
+        let asked = Task::Rewrite {
+            text: "Sales went up a lot.".into(),
+            ask: Some("More formal, for the board".into()),
+            claim: Some("Revenue doubled, and Pro drove it.".into()),
+            voice: Some("Plain, confident".into()),
+        };
+        assert_eq!(
+            asked.prompt(),
+            "The text:\nSales went up a lot.\nHow to rewrite it: More formal, for the board\nThe point its slide makes: Revenue doubled, and Pro drove it.\nThe deck's voice: Plain, confident"
+        );
+        assert!(asked.instructions().contains("how the person wants it rewritten"));
+        assert_eq!(asked.text(), Some("Sales went up a lot."));
+        assert_eq!(asked.taken("“Revenue rose sharply.”"), "Revenue rose sharply.");
+        let tighten =
+            Task::Tighten { text: "A long headline".into(), claim: Some(" ".into()), voice: Some("Dry".into()) };
+        assert_eq!(tighten.prompt(), "The text:\nA long headline\nThe deck's voice: Dry");
+        assert!(tighten.instructions().contains("the deck's voice"));
+        let json = serde_json::to_value(&asked).unwrap();
+        assert_eq!(json["kind"], "rewrite");
+        assert_eq!(json["ask"], "More formal, for the board");
+        assert_eq!(serde_json::from_value::<Task>(json).unwrap(), asked);
+        assert_eq!(
+            serde_json::to_value(&plain).unwrap(),
+            serde_json::json!({ "kind": "rewrite", "text": "Sales went up a lot." })
+        );
     }
 
     /// A picture is described from itself and the slide's words, and its answer taken without
