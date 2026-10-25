@@ -62,6 +62,12 @@ export function said(event: GeneratingEvent): string {
         : "The model saw nothing to change";
     case "unlooked":
       return `Not changed by what the model saw: ${event.why}`;
+    case "noting":
+      return `Writing the ${event.slides} slides' notes for the talk…`;
+    case "noted":
+      return `${event.slides} ${event.slides === 1 ? "slide's" : "slides'"} notes written for the talk`;
+    case "unnoted":
+      return `Notes not written for the talk: ${event.why}`;
     case "fitting":
       return `${event.texts} ${event.texts === 1 ? "text runs" : "texts run"} past ${event.texts === 1 ? "its place" : "their places"}: asking for them shorter…`;
     case "fitted":

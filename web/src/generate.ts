@@ -355,6 +355,7 @@ export async function generate(
         if (painted) making.painted(painted.made, JSON.stringify(painted.unmade));
         const name = WRITERS[job.provider];
         if (job.look !== false) await look(generation, making, job.key, name, theme, painted?.placed ?? "{}", hear);
+        if (job.notes !== false) await speak(generation, making, job.key, name, hear);
         await fit(generation, making, job.key, name, hear);
         making.keep(sources.tables());
         const made = { ...JSON.parse(making.report()), sources: JSON.parse(generation.given()) } as Generated;
@@ -739,6 +740,54 @@ async function jpeg(pixels: ImageData): Promise<{ mediaType: string; data: strin
 /** How many times the model is asked to rewrite what runs past its place, as
  * `scaena_narrato::fit::ROUNDS`: once, then once more for what its rewrite left too long. */
 const FIT_ROUNDS = 2;
+
+/** Each slide's speaker notes written for the talk (lift-up 10-25 ATTR-2), as
+ * `scaena_ops::narrative::speak` writes them: a dozen slides a round, a few rounds at once, a busy
+ * provider asked again, each slide's notes picking up from the one before, carrying its claim,
+ * handing over to the next, and running to its share of the minutes the brief's slot gives the
+ * talk. A round not answered keeps its slides' notes as Narrato wrote them, said in the report. */
+async function speak(
+  generation: InstanceType<Generator["Generation"]>,
+  making: Making,
+  key: string,
+  name: string,
+  hear: (event: GeneratingEvent) => void,
+) {
+  try {
+    const spoken = JSON.parse(making.speaking()) as { slide: number }[];
+    const rounds: { part: string; first: number; last: number; asked: string }[] = [];
+    for (let start = 0; start < spoken.length; start += LOOK_BATCH) {
+      const round = spoken.slice(start, start + LOOK_BATCH);
+      const part = JSON.stringify(round);
+      const asked = generation.notesRequest(key, part);
+      if (asked) rounds.push({ part, first: round[0].slide, last: round[round.length - 1].slide, asked });
+    }
+    if (!rounds.length) return;
+    hear({ kind: "noting", slides: spoken.length });
+    const replies = await askedAgain(generation, rounds.map((r) => JSON.parse(r.asked) as Request), hear);
+    const written: [number, string][] = [];
+    let unanswered: string | undefined;
+    for (const [i, { part, first, last }] of rounds.entries()) {
+      const reply = replies[i];
+      try {
+        written.push(...(JSON.parse(read(name, reply, () => generation.notesAnswer(reply.status, reply.statusText, reply.body, part))) as [number, string][]));
+      } catch (e) {
+        const which = first === last ? `slide ${first}'s notes` : `slides ${first}\u2013${last}'s notes`;
+        const why = `${which} not written: ${said(e)}`;
+        unanswered = unanswered ? `${unanswered}; ${why}` : why;
+      }
+    }
+    making.noted(JSON.stringify(written));
+    if (unanswered) {
+      making.unnoted(unanswered);
+      hear({ kind: "unnoted", why: unanswered });
+    }
+    hear({ kind: "noted", slides: written.length });
+  } catch (e) {
+    making.unnoted(said(e));
+    hear({ kind: "unnoted", why: said(e) });
+  }
+}
 
 /** Each text that still runs past its place, rewritten by the model to the length the engine
  * measured for it, and asked again once for what the rewrite left too long; a rewrite that fails

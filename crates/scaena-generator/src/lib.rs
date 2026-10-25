@@ -507,6 +507,25 @@ impl Generation {
         scaena_narrato::retry_after(status, body, after.as_deref(), tried)
     }
 
+    /// The request that has each slide of `spoken` (JSON, as `Making.speaking` gives it) given
+    /// speaker notes written for the talk (lift-up 10-25 ATTR-2); none before the narrative is
+    /// written, or for no slide.
+    #[wasm_bindgen(js_name = notesRequest)]
+    pub fn notes_request(&self, key: &str, spoken: &str) -> Result<Option<String>, JsError> {
+        let spoken: Vec<scaena_narrato::notes::Spoken> = serde_json::from_str(spoken).map_err(error)?;
+        let request = self.inner.notes_request(key, &spoken);
+        Ok(request.map(|r| serde_json::to_string(&r).expect("a request is JSON")))
+    }
+
+    /// The notes an answer to `notesRequest` gives, JSON `[[slide, notes]]`: what `Making.noted`
+    /// takes.
+    #[wasm_bindgen(js_name = notesAnswer)]
+    pub fn notes_answer(&self, status: u16, status_text: &str, body: &str, spoken: &str) -> Result<String, JsError> {
+        let spoken: Vec<scaena_narrato::notes::Spoken> = serde_json::from_str(spoken).map_err(error)?;
+        let notes = self.inner.notes_answer(status, status_text, body, &spoken).map_err(error)?;
+        Ok(serde_json::to_string(&notes).expect("notes are JSON"))
+    }
+
     /// The rewrites an answer to `fitRequest` gives, JSON `[[id, text]]`, each shorter than the
     /// text it rewrites: what `Making.fitted` takes.
     #[wasm_bindgen(js_name = fitAnswer)]

@@ -104,7 +104,9 @@ const provider = createServer(async (req, res) => {
   const system = (body.system ?? []).map((s) => s.text).join("\n");
   const asked = system.includes("tightening the words")
     ? "fit"
-    : system.includes("art director")
+    : system.includes("speechwriter")
+      ? "notes"
+      : system.includes("art director")
       ? "look"
       : system.includes("planning a presentation before its slides")
         ? "outline"
@@ -122,6 +124,12 @@ const provider = createServer(async (req, res) => {
     return reply(200, { content: [{ type: "text", text: JSON.stringify({ bigIdea: "Cargo can pay for its carbon.", beats }) }], stop_reason: "end_turn" });
   }
   if (asked === "slides") return reply(200, state.slides ?? SLIDES);
+  // Each slide's notes for the talk (lift-up 10-25 ATTR-2): the first slide's, at the words asked.
+  if (asked === "notes") {
+    const words = Number(/Slide 1 of \d+: about (\d+) words\./.exec(prompt)?.[1] ?? 0);
+    const notes = words ? [{ slide: 1, notes: Array(words).fill("cargo").join(" ") }] : [];
+    return reply(200, { content: [{ type: "text", text: JSON.stringify({ notes }) }], stop_reason: "end_turn" });
+  }
   if (asked === "look") {
     const look = { slides: [{ slide: 1, layout: "", title: "Carbon-negative cargo, ready to scale", subtitle: "", bullets: [], why: "One idea, one line." }] };
     return reply(200, { content: [{ type: "text", text: JSON.stringify(look) }], stop_reason: "end_turn" });
@@ -436,6 +444,11 @@ try {
     `each slide shown to the model as a JPEG: ${drawn.length}`,
   );
   check(look?.prompt.startsWith("Slide 1 of 5, drawn as"), "each after what is said of it");
+  // Then each slide's notes written for the talk, after the look (lift-up 10-25 ATTR-2).
+  const noted = requests.find((r) => r.asked === "notes");
+  check(noted?.prompt.startsWith("Write the speaker notes for the 5 slides of a talk"), `the notes are asked for the talk: ${noted?.prompt.slice(0, 80)}`);
+  check(requests.findIndex((r) => r.asked === "notes") > requests.findIndex((r) => r.asked === "look"), "after the look");
+  check((await lines()).some((l) => l === "1 slide's notes written for the talk"), `the progress says the notes were written: ${(await lines()).at(-3)}`);
   const source = await page.evaluate(() => window.scaena.source());
   const states = (source.match(/^state /gm) ?? []).length;
   check(states === 5, `the deck has the recorded answer's five slides: ${states}`);

@@ -320,6 +320,22 @@ fn readings(deck: &Deck, slides: &[Slide]) -> Result<(Vec<SlideForHealth>, Vec<u
     Ok((out, most))
 }
 
+/// A slide of a deck as its talk speaks it (lift-up 10-25 ATTR-2): its headline, the words it
+/// shows, and its notes, as health reads them; and the beat that tells it, by its place in the
+/// spine (section, beat), where one does.
+pub(crate) struct Told<'d> {
+    pub slide: SlideForHealth,
+    pub beat: Option<(usize, usize, &'d Beat)>,
+}
+
+/// Each slide of `deck` as its talk speaks it.
+pub(crate) fn spoken(deck: &Deck) -> Result<Vec<Told<'_>>, OpsError> {
+    let slides = slides(deck);
+    let (read, _) = readings(deck, &slides)?;
+    let told = slides.iter().filter(|s| !s.states.is_empty()).map(|s| s.beat);
+    Ok(read.into_iter().zip(told).map(|(slide, beat)| Told { slide, beat }).collect())
+}
+
 /// The slides whose beat breaks the order the deck's beats run in: each outside the longest run
 /// of slides, in the deck's order, whose beats never go back, with the beat it was written for and
 /// the beat it now stands in, the run's slide before it, else after it. A deck as Narrato writes
@@ -672,7 +688,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
             Kind::Turn,
             format!("Slide {k} shares little with slide {before}: the turn between them may lose the room."),
             format!(
-                "Write the line that carries the talk from slide {before} to slide {k}, and put it in slide {k}'s notes."
+                "Let slide {k}'s own words carry the turn: its headline or its first line picking up from slide {before}."
             ),
             None,
         );

@@ -143,8 +143,35 @@ fn a_deck_is_made_from_a_prompt_as_swift_makes_one_its_pictures_with_it() {
     let looked =
         step(g, "looked", json!({ "status": 200, "statusText": "OK", "body": tightened, "key": "sk-writer" }), &[]);
     assert_eq!(looked["looked"], 1, "{looked}");
+    // Then each slide's notes written for the talk (lift-up 10-25 ATTR-2), a dozen slides a round,
+    // the cover's given in the first: its slides each with the words its notes run to.
+    let mut notes = looked["notes"].clone();
+    let mut noted = Value::Null;
+    let mut first = true;
+    while let Some(asked) = notes.as_object() {
+        assert_eq!(asked["request"]["headers"]["x-api-key"], "sk-writer");
+        let body: Value = serde_json::from_str(asked["request"]["body"].as_str().unwrap()).unwrap();
+        assert!(body["system"][0]["text"].as_str().unwrap().contains("speechwriter"), "{body}");
+        let prompt = body["messages"][0]["content"][0]["text"].as_str().unwrap();
+        assert!(prompt.contains("Slide 1 of ") || !first, "{prompt}");
+        let spoken = vec!["cargo"; 150].join(" ");
+        let said = if first {
+            format!(r#"{{"notes": [{{"slide": 1, "notes": "{spoken}"}}]}}"#)
+        } else {
+            r#"{"notes": []}"#.into()
+        };
+        first = false;
+        noted = step(
+            g,
+            "noted",
+            json!({ "status": 200, "statusText": "OK", "body": anthropic(&said), "key": "sk-writer" }),
+            &[],
+        );
+        notes = noted["notes"].clone();
+    }
+    assert_eq!(noted["noted"], 1, "{noted}");
     // Each rewrite asked for answered with none: asked once more, no more, then said (STAB-4).
-    let (mut fit, mut rounds) = (looked["fit"].clone(), 0);
+    let (mut fit, mut rounds) = (noted["fit"].clone(), 0);
     while let Some(asked) = fit.as_object() {
         assert_eq!(asked["request"]["headers"]["x-api-key"], "sk-writer");
         rounds += 1;
@@ -165,6 +192,7 @@ fn a_deck_is_made_from_a_prompt_as_swift_makes_one_its_pictures_with_it() {
     assert_eq!(report["arc"], "Problem–Solution");
     assert_eq!(report["sources"][0]["name"], "notes.md");
     assert_eq!(report["looked"][0]["title"], "Carbon-negative cargo, ready to scale", "{report:#}");
+    assert_eq!(report["noted"], json!([1]), "{report:#}");
 
     let mut error = null_mut();
     let session = unsafe { scaena_generator_open(g, &mut error) };
@@ -234,7 +262,7 @@ fn a_deck_is_made_from_a_prompt_as_swift_makes_one_its_pictures_with_it() {
 /// request handed back with the wait to sleep and the tries so far, and a refusal after it left
 /// as it is (lift-up REL-1).
 #[test]
-fn a_busy_look_or_fit_is_handed_back_to_ask_again_as_swift_asks_it() {
+fn a_busy_look_notes_or_fit_is_handed_back_to_ask_again_as_swift_asks_it() {
     let arc = std::fs::read_to_string(format!("{ANSWERS}/anthropic-arc.json")).unwrap();
     // The slides as recorded, the second's title made far too long for its place, so that the
     // deck made asks for the fit.
@@ -280,9 +308,24 @@ fn a_busy_look_or_fit_is_handed_back_to_ask_again_as_swift_asks_it() {
     assert!(ended["unlooked"].as_str().is_some_and(|w| w.contains("not looked at")), "{ended}");
     assert!(ended.get("wait").is_none(), "a refusal is not asked again: {ended}");
 
+    // The notes (lift-up 10-25 ATTR-2): busy, then the same round handed back; answered with
+    // none, they stand as Narrato wrote them, and the fit is asked.
+    let notes = ended["notes"]["request"].clone();
+    assert!(notes.is_object(), "the notes are asked after the look: {ended}");
+    let again = step(g, "noted", at_529.clone(), &[]);
+    assert_eq!((again["wait"].as_f64(), again["tried"].as_u64()), (Some(1.0), Some(1)), "{again}");
+    assert_eq!(again["notes"]["request"], notes, "the round first handed out");
+    let none = anthropic(r#"{"notes": []}"#);
+    let mut noted =
+        step(g, "noted", json!({ "status": 200, "statusText": "OK", "body": none, "key": "sk-writer" }), &[]);
+    while noted["notes"].is_object() {
+        noted = step(g, "noted", json!({ "status": 200, "statusText": "OK", "body": none, "key": "sk-writer" }), &[]);
+    }
+    assert_eq!(noted["noted"], 0, "{noted}");
+
     // The fit: busy, then the same request handed back; answered, the text fits.
-    let fit = ended["fit"]["request"].clone();
-    assert!(fit.is_object(), "the long title asks for the fit: {ended}");
+    let fit = noted["fit"]["request"].clone();
+    assert!(fit.is_object(), "the long title asks for the fit: {noted}");
     let again = step(g, "fitted", at_529, &[]);
     assert_eq!((again["wait"].as_f64(), again["tried"].as_u64()), (Some(1.0), Some(1)), "{again}");
     assert_eq!(again["fit"]["request"], fit, "the fit first handed out");

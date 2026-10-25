@@ -68,6 +68,10 @@ private func anthropic(_ text: String) -> Data {
                 let look = #"{"slides": [{"slide": 1, "layout": "", "title": "Carbon-negative cargo, ready to scale", "subtitle": "", "bullets": [], "why": "One idea, one line."}]}"#
                 return GeneratorReply(status: 200, body: anthropic(look))
             }
+            if body.contains("speechwriter") {
+                let spoken = Array(repeating: "cargo", count: 150).joined(separator: " ")
+                return GeneratorReply(status: 200, body: anthropic(#"{"notes": [{"slide": 1, "notes": "\#(spoken)"}]}"#))
+            }
             return GeneratorReply(status: 200, body: slides)
         }
     }
@@ -107,6 +111,9 @@ private func anthropic(_ text: String) -> Data {
     #expect(heard.contains(.making))
     #expect(heard.contains(.looking(slides: made.layouts.count)))
     #expect(heard.contains(.looked(slides: 1)))
+    // Then each slide's notes written for the talk, the cover's taken (lift-up 10-25 ATTR-2).
+    #expect(heard.contains(.noting(slides: made.layouts.count)))
+    #expect(heard.contains(.noted(slides: 1)))
     #expect(made.looked?.first?.slide == 1)
     let looked = await asked.requests.filter { ($0.body ?? "").contains("art director") }
     #expect(looked.count == 1)
@@ -115,7 +122,7 @@ private func anthropic(_ text: String) -> Data {
     // Built and drawn, then drawn again as the model's look changed it; fitted where a text ran on.
     let slow = away.steps.map(\.step)
     #expect(Array(slow.prefix(2)) == ["make", "looked"], "the slow steps: \(slow)")
-    #expect(Set(slow).isSubset(of: ["make", "looked", "fitted"]), "the slow steps: \(slow)")
+    #expect(Set(slow).isSubset(of: ["make", "looked", "noted", "fitted"]), "the slow steps: \(slow)")
     #expect(away.steps.allSatisfy { !$0.main }, "a slow step was made on the main thread: \(away.steps)")
     // On a stack that holds a deck being built: a dispatch queue's 512 KB worker overflows it.
     #expect(away.steps.allSatisfy { $0.stack >= Generator.stack }, "a slow step's stack: \(away.steps)")

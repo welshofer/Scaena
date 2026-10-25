@@ -21,6 +21,7 @@ pub mod heuristic;
 mod js;
 pub mod layouts;
 pub mod look;
+pub mod notes;
 pub mod one;
 pub mod outline;
 pub mod pictures;
@@ -48,6 +49,8 @@ pub const GEMINI_MAX_TOKENS: u32 = 65_536;
 pub const FIT_MAX_TOKENS: u32 = 16_000;
 /// Room for what the model would change on the deck it sees, thinking included.
 pub const LOOK_MAX_TOKENS: u32 = 16_000;
+/// Room for a dozen slides' notes, each a few hundred words, in any language.
+pub const NOTES_MAX_TOKENS: u32 = 16_000;
 
 /// How many times a step is asked while its provider is busy or does not answer (narrative
 /// REL-1): the pictures' six, so that one busy answer on the dearest call ends no run.
@@ -510,6 +513,60 @@ impl Generation {
             documents: &[],
             pictures: &pictures,
         }))
+    }
+
+    /// The request that asks for `spoken`'s speaker notes, written for the talk ([`notes`]):
+    /// Scaena's own call, made once the narrative is written; none before, or for no slide.
+    /// `spoken` may be a part of the deck, a dozen at a time, each slide numbered as it stands in
+    /// it, and carrying the headlines either side of it.
+    pub fn notes_request(&self, key: &str, spoken: &[notes::Spoken]) -> Option<Request> {
+        let narrative = self.narrative.as_ref()?;
+        if spoken.is_empty() {
+            return None;
+        }
+        let s = &self.settings;
+        let brief = &narrative.brief;
+        let talk = notes::Talk {
+            topic: &brief.topic,
+            audience: &brief.audience,
+            modality: brief.modality.as_deref(),
+            minutes: notes::minutes(&brief.length),
+            language: brief.language.as_deref(),
+            voice: brief.voice.as_deref(),
+            big_idea: narrative.outline.as_ref().map(|o| o.big_idea.as_str()),
+        };
+        let prompt = notes::prompt(spoken, narrative.slides.len(), &talk);
+        let max_tokens = if s.provider == Provider::Gemini { GEMINI_MAX_TOKENS } else { NOTES_MAX_TOKENS };
+        Some(s.provider.structured(&providers::Call {
+            model: &s.model,
+            key,
+            base: s.base.as_deref(),
+            browser: s.browser,
+            system: notes::NOTES_SYSTEM,
+            prompt: &prompt,
+            shape: providers::Shape::Notes,
+            anthropic_schema: true,
+            max_tokens,
+            temperature: Some(0.5),
+            documents: &[],
+            pictures: &[],
+        }))
+    }
+
+    /// The notes the response to [`Generation::notes_request`] gives, each a slide of `spoken`'s
+    /// and its words.
+    pub fn notes_answer(
+        &self,
+        status: u16,
+        status_text: &str,
+        body: &str,
+        spoken: &[notes::Spoken],
+    ) -> Result<Vec<(usize, String)>, NarratoError> {
+        if status == 0 {
+            return Err(NarratoError::Provider(format!("the request did not complete: {status_text}")));
+        }
+        let read = self.settings.provider.read_answer(status, status_text, body).map_err(NarratoError::Provider)?;
+        notes::read(&read.text, spoken).map_err(NarratoError::Answer)
     }
 
     /// The changes the response to [`Generation::look_request`] asks for, each one `slides`

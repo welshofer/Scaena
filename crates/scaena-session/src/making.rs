@@ -187,6 +187,27 @@ impl Making {
         self.made.unfitted = Some(why);
     }
 
+    /// Each slide as the model is asked to speak it, with the words its notes are to run to
+    /// (lift-up 10-25 ATTR-2): what `Generation::notes_request` takes; none where the deck would
+    /// not validate.
+    pub fn speaking(&self) -> Result<Vec<scaena_narrato::notes::Spoken>, Error> {
+        let Some(write) = &self.write else { return Ok(Vec::new()) };
+        scaena_ops::narrative::speaking(&write.deck).map_err(ops)
+    }
+
+    /// The notes the model wrote for the talk, each a slide's number from 1 and its words, set as
+    /// its beat's notes, the beat's time counted again from them.
+    pub fn noted(&mut self, written: Vec<(usize, String)>) -> Result<(), Error> {
+        let Some(write) = self.write.take() else { return Ok(()) };
+        self.write = Some(scaena_ops::narrative::noted(&mut self.made, write, written).map_err(ops)?);
+        Ok(())
+    }
+
+    /// The notes were not written for the talk, or some slides' not: why, which the report says.
+    pub fn unnoted(&mut self, why: String) {
+        self.made.unnoted = Some(why);
+    }
+
     /// What still runs past its place once the last rewrite is set, which the deck made says
     /// (STAB-4): nothing where all of it fits.
     pub fn still_long(&mut self) -> Result<(), Error> {
