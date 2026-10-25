@@ -37,6 +37,62 @@ export async function health(deck: string, lint?: string): Promise<Health> {
   return JSON.parse((await generator()).health(deck, lint)) as Health;
 }
 
+/** Where a slide goes in an open deck (lift-up FUNC-1): after the slide that holds a state, in
+ * place of it, or, with neither, at the end. */
+export interface SlidePlace {
+  after?: string;
+  replace?: string;
+}
+
+/** The generator's writer of one slide (lift-up FUNC-1), the bundle's data `files` handed to it:
+ * which the rows of a chart the slide draws are read from. */
+async function writing(files: Iterable<[string, Uint8Array]>) {
+  const w = new (await generator()).SlideWriting();
+  for (const [path, bytes] of files) w.add(path, bytes);
+  return w;
+}
+
+/** What to ask a model for one slide of `deck` at `place`, with the person's `ask` (lift-up
+ * FUNC-1), the bundle's data `files` read for the rows of a chart the slide draws: the request's
+ * instructions and prompt. */
+export async function oneAsked(
+  deck: string,
+  place: SlidePlace,
+  ask: string,
+  files: Iterable<[string, Uint8Array]>,
+): Promise<{ system: string; prompt: string }> {
+  const w = await writing(files);
+  try {
+    return JSON.parse(w.asked(deck, JSON.stringify(place), ask)) as { system: string; prompt: string };
+  } finally {
+    w.free();
+  }
+}
+
+/** `slide` built for `deck` in `theme` at `place`, as the deck's generator builds a slide, its
+ * icons `found` in the set the page carries and its data `files` the bundle's: what the editor's
+ * module makes one patch of (`Player.slidePolishing`). */
+export async function slideBuilt(
+  deck: string,
+  theme: string,
+  slide: Record<string, unknown>,
+  place: SlidePlace,
+  found: Record<string, { name: string; path: string; view: number[] }>,
+  files: Iterable<[string, Uint8Array]>,
+): Promise<string> {
+  const w = await writing(files);
+  try {
+    return w.built(deck, theme, JSON.stringify(slide), JSON.stringify(place), JSON.stringify(found));
+  } finally {
+    w.free();
+  }
+}
+
+/** The one slide a model's `answer` holds, as Narrato writes a slide. */
+export async function oneAnswered(answer: string): Promise<Record<string, unknown>> {
+  return JSON.parse((await generator()).oneAnswered(answer)) as Record<string, unknown>;
+}
+
 /** What a brief may ask, as Narrato knows it. */
 export async function choices(): Promise<Choices> {
   return JSON.parse((await generator()).choices()) as Choices;
@@ -642,8 +698,13 @@ async function jpeg(pixels: ImageData): Promise<{ mediaType: string; data: strin
   return { mediaType: "image/jpeg", data: btoa(binary) };
 }
 
+/** How many times the model is asked to rewrite what runs past its place, as
+ * `scaena_narrato::fit::ROUNDS`: once, then once more for what its rewrite left too long. */
+const FIT_ROUNDS = 2;
+
 /** Each text that still runs past its place, rewritten by the model to the length the engine
- * measured for it; a rewrite that fails leaves the deck as it was, saying why. */
+ * measured for it, and asked again once for what the rewrite left too long; a rewrite that fails
+ * leaves the deck as it was, saying why, and what still runs over is said (STAB-4). */
 async function fit(
   generation: InstanceType<Generator["Generation"]>,
   making: Making,
@@ -651,19 +712,23 @@ async function fit(
   name: string,
   hear: (event: GeneratingEvent) => void,
 ) {
-  const longs = making.longs();
-  const texts = (JSON.parse(longs) as unknown[]).length;
-  if (!texts) return;
-  const asked = generation.fitRequest(key, longs);
-  if (!asked) return;
-  hear({ kind: "fitting", texts });
-  const reply = await send(JSON.parse(asked));
-  try {
-    const rewrites = read(name, reply, () => generation.fitAnswer(reply.status, reply.statusText, reply.body, longs));
-    making.fitted(rewrites);
-    hear({ kind: "fitted", texts: (JSON.parse(rewrites) as unknown[]).length });
-  } catch (e) {
-    making.unfitted(said(e));
-    hear({ kind: "unfitted", why: said(e) });
+  for (let round = 1; round <= FIT_ROUNDS; round++) {
+    const longs = making.longs();
+    const texts = (JSON.parse(longs) as unknown[]).length;
+    if (!texts) return;
+    const asked = generation.fitRequest(key, longs);
+    if (!asked) return;
+    hear({ kind: "fitting", texts });
+    const reply = await send(JSON.parse(asked));
+    try {
+      const rewrites = read(name, reply, () => generation.fitAnswer(reply.status, reply.statusText, reply.body, longs));
+      making.fitted(rewrites);
+      hear({ kind: "fitted", texts: (JSON.parse(rewrites) as unknown[]).length });
+    } catch (e) {
+      making.unfitted(said(e));
+      hear({ kind: "unfitted", why: said(e) });
+      return;
+    }
   }
+  making.stillLong();
 }

@@ -38,7 +38,8 @@ public struct Health: Decodable, Sendable {
         public let slide: Int
         /// `error`, `warning`, or `info`.
         public let severity: String
-        /// `title`, `empty`, `turn`, `arc`, `intensity`, `tone`, or `drift`.
+        /// `title`, `empty`, `turn`, `arc`, `intensity`, `tone`, `drift`, `layout`, `claim` (a beat of
+        /// the settled outline its slides do not carry), or `bigIdea` (a close that never lands it).
         public let kind: String
         public let says: String
         public let ask: String
@@ -56,6 +57,9 @@ public struct Health: Decodable, Sendable {
     public let tone: Measure
     public let slides: [Read]
     public let findings: [Finding]
+    /// The big idea the settled outline names, the one sentence the audience should remember,
+    /// where it names one (lift-up 10-24b FUNC-1).
+    public let bigIdea: String?
 }
 
 extension ScaenaSession {

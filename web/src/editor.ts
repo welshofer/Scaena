@@ -62,13 +62,14 @@ import { picturer } from "./picturing";
 import { sourceOf } from "./bundle";
 import { canvas, canvasKeys, placed } from "./canvas";
 import { markName, noteName } from "./notes";
+import { slideAsker } from "./slide-ask";
 import { type Command, type Group, type Key, keyOf, MOD, MOD_ALT, menu, opens, palette, SHIFT, sheet } from "./commands";
 import { cue, cueKeys } from "./cue";
 import { dataKeys, sheets } from "./data";
 import { filesPanel } from "./files";
 import { storyPanel } from "./story";
 import { finder, findKeys } from "./find";
-import { deleteKept, keptBundle, keptNames, renameKept } from "./folders";
+import { deleteKept, keptBundle, keptNames, persist, persisted, renameKept } from "./folders";
 import { discard, find, keep, savedAt, type Copy } from "./recovery";
 import { formatsRow } from "./formats";
 import { layerKeys, layers } from "./layers";
@@ -307,6 +308,11 @@ async function listKept() {
   };
   $("#keeping ul").replaceChildren(...names.map(row));
   $("#keeping [data-none]").hidden = names.length > 0;
+  // Whether the browser keeps them for good, or may clear them when short of room (lift-up
+  // 10-24b REL-4).
+  $("#keeping [data-persisted]").textContent = (await persisted())
+    ? "This browser keeps them until you delete them."
+    : "This browser may clear them when it runs short of room: Download keeps a copy of your own.";
 }
 
 /** Say `text` in Kept in this browser, over the page, and in the status under it. */
@@ -518,7 +524,7 @@ async function edit(source: Source, opened?: Stage) {
   stage.onError = failed;
   /** On a served page, the deck's source on disk, where the folder keeps one (PLAN 2.11). */
   const scnOnDisk = "url" in source && source.serve && (await onDisk()).source ? new URL("deck.scn", source.url) : undefined;
-  const fromDisk = async () => (await fetch(scnOnDisk!, { cache: "no-store" })).text();
+  const fromDisk = async () => (await fetch(scnOnDisk!, { cache: "no-store", headers: { "X-Scaena-Token": token } })).text();
   /** The deck's own size, named by its shape where a format is it (`16:9`); a format it lists of
    * that shape is its own canvas, offered once. An edit of the canvas renames it. */
   let ownSize = stage.opened.own;
@@ -2119,7 +2125,16 @@ async function edit(source: Source, opened?: Stage) {
     void listKept();
     // The save recorded the edits since the last: they are versions now.
     void versioning.refresh();
-    say(`Saved, ${many(done.files, "file")}${done.recorded ? ", and the changes kept in its history" : ""}`);
+    const saved = `Saved, ${many(done.files, "file")}${done.recorded ? ", and the changes kept in its history" : ""}`;
+    say(saved);
+    // Kept in this browser: the browser is asked to keep it for good (lift-up 10-24b REL-4), and a
+    // refusal is said after whatever the status says by then (what was saved, or what Play said of
+    // keeping the deck to play it), never in its place.
+    if (done.where.kind === "opfs")
+      void persist((refused) => {
+        const now = status.textContent ?? "";
+        if (!now.includes(refused)) say(now ? `${now}. ${refused}` : refused);
+      });
     return done;
   }
 
@@ -2261,6 +2276,24 @@ async function edit(source: Source, opened?: Stage) {
     format,
     source: () => view.state.doc.toString(),
     apply: made,
+    say,
+    keys: () => {
+      tab("assistant");
+      $("#key").focus();
+    },
+    slide: slideOf,
+  });
+  /** Write This Slide Again… and Add a Slide About… (lift-up FUNC-1): one slide written by the model the
+   * assistant uses, as the deck's generator builds slides; one step to undo. */
+  const asking = slideAsker(stage, {
+    who: () => assistant.who(),
+    shown: showing,
+    format,
+    apply: made,
+    show: (id) => {
+      const k = last?.states.findIndex(([state]) => state === id) ?? -1;
+      if (k >= 0) goTo(k);
+    },
     say,
     keys: () => {
       tab("assistant");
@@ -2652,6 +2685,10 @@ async function edit(source: Source, opened?: Stage) {
       // Whether its words carry its beat's claim, judged by the same model, which offers the
       // headline rewritten to carry it (narrative FUNC-4).
       { label: "Check its claim", where: ["state"], applies: () => now() !== undefined, run: () => write("claim") },
+      // Written again, or a new one after it, as the deck's generator writes slides, by the same
+      // model (lift-up FUNC-1).
+      { label: "Write this slide again…", where: ["state"], applies: () => now() !== undefined && !assisting, run: () => asking.open("redo") },
+      { label: "Add a slide about…", where: ["state"], applies: () => now() !== undefined && !assisting, run: () => asking.open("add") },
       { label: "Show the light table", applies: () => now() !== undefined && !table.open(), run: () => table.toggle(true) },
       { label: "Close the light table", applies: () => table.open(), run: () => table.toggle(false) },
       // Page Down and Page Up on the slide (PLAN 2.126).
@@ -3091,6 +3128,9 @@ async function edit(source: Source, opened?: Stage) {
       assistant,
       /** The writing tools (PLAN 2.101): one asked, and its answer taken, settled. */
       writing,
+      /** Write This Slide Again… and Add a Slide About… (lift-up FUNC-1): the dialog opened, and the last
+       * slide written, settled. */
+      slideAsk: asking,
       /** Make a picture (PLAN 2.107): the dialog opened, and the last picture made and put, settled. */
       picturing,
       /** Insert › Map… (PLAN O.1c): the sheet opened, and the last map fetched and put, settled. */

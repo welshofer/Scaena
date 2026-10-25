@@ -71,6 +71,7 @@ body.presenter { display: grid; grid-template-columns: 2fr 1fr; grid-template-ro
 /* With no player to steer, they wait. */
 .presenter .buttons button:disabled { opacity: 0.45; cursor: default; }
 .presenter .buttons button:focus-visible { outline: 3px solid #8ab4f8; outline-offset: 2px; }
+.presenter .buttons #navigate { grid-column: 1 / -1; font-size: 16px; padding: 8px 14px; }
 .presenter #on { background: #3a5f8f; border-color: #4f78ad; }
 .presenter #on:hover:enabled { background: #46709f; }
 /* How the state shown reads, for a screen reader (PLAN 2.5): there, and not seen. */
@@ -94,6 +95,15 @@ body.presenter { display: grid; grid-template-columns: 2fr 1fr; grid-template-ro
 .typed { position: fixed; z-index: 35; left: 50%; bottom: calc(var(--bar) + 24px); transform: translateX(-50%); padding: 10px 18px; border-radius: 10px; background: rgba(24, 23, 21, 0.9); color: #fff; font-size: 22px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 :fullscreen .typed, .presenter .typed { bottom: 24px; }
 /* The keys, listed: ? shows them. */
+.navigator { width: min(960px, calc(100vw - 48px)); max-height: calc(100vh - 48px); box-sizing: border-box; padding: 18px 20px; border: 1px solid #555; border-radius: 12px; background: #262522; color: #eee; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5); }
+.navigator::backdrop { background: rgba(0, 0, 0, 0.5); }
+.navigator h2 { margin: 0 0 12px; font-size: 18px; }
+.navigator ol { display: grid; grid-template-columns: repeat(auto-fill, minmax(176px, 1fr)); gap: 14px; margin: 0; padding: 4px; list-style: none; max-height: calc(100vh - 140px); overflow: auto; outline: none; }
+.navigator li { display: flex; flex-direction: column; gap: 6px; padding: 6px; border-radius: 8px; cursor: pointer; }
+.navigator li canvas { width: 100%; height: auto; aspect-ratio: 16 / 9; border-radius: 4px; background: #33312d; }
+.navigator li span { font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.navigator li:hover { background: #33312d; }
+.navigator li[aria-selected="true"] { outline: 3px solid #8ab4f8; outline-offset: -1px; }
 .keylist { position: fixed; z-index: 50; top: 50%; left: 50%; transform: translate(-50%, -50%); margin: 0; max-width: min(640px, calc(100vw - 32px)); max-height: calc(100vh - 32px); overflow: auto; box-sizing: border-box; padding: 20px 24px; border: 1px solid #555; border-radius: 12px; background: #262522; color: #eee; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5); }
 .keylist h2 { margin: 0 0 12px; font-size: 18px; }
 .keylist dl { display: grid; grid-template-columns: auto 1fr; gap: 8px 20px; margin: 0; }

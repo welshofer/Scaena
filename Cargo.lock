@@ -3366,6 +3366,7 @@ version = "0.1.0"
 dependencies = [
  "base64 0.23.1",
  "regex-lite",
+ "scaena-fence",
  "serde",
  "serde_json",
  "thiserror 2.0.21",

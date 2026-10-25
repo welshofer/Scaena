@@ -470,6 +470,7 @@ public enum ToolWords {
             "Putting a picture on the slide…", "Put a picture on the slide", "Didn't put a picture on the slide"
         ),
         "map_fetch": ("Fetching a map…", "Put a map on the slide", "Didn't fetch a map"),
+        "slide_write": ("Writing a slide…", "Wrote a slide", "Didn't write a slide"),
         "spine_read": ("Reading the outline…", "Went through the outline", "Didn't go through the outline"),
         "spine_update": ("Changing the outline…", "Changed the outline", "Didn't change the outline"),
         "state_start": ("Adding a slide…", "Added a slide", "Didn't add a slide"),
