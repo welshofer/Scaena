@@ -232,8 +232,12 @@ fn own(node_type: NodeType) -> &'static [(&'static str, Source)] {
             ("fit", Schema(false)),
             ("wrap", Schema(false)),
             ("maxLines", Schema(false)),
-            // The language a code text is written in (PLAN 2.133): a code text's alone.
+            // The language a code text is written in (PLAN 2.133), and whether it numbers its
+            // lines, from what number, and stands on its card (PLAN 2.136): a code text's alone.
             ("code/language", Languages),
+            ("code/numbers", Schema(false)),
+            ("code/start", Schema(false)),
+            ("code/card", Schema(false)),
         ],
         NodeType::Shape => &[
             ("fill", Names(V::Color, true)),
@@ -378,7 +382,7 @@ pub fn choices(
         // A code text's language (PLAN 2.133); and code is set as written, so it takes no `wrap`
         // and no case (E106).
         let code = shown.get("code").is_some_and(Value::is_object);
-        if (prop == "code/language" && !code) || (code && matches!(prop, "wrap" | "style/case")) {
+        if (prop.starts_with("code/") && !code) || (code && matches!(prop, "wrap" | "style/case")) {
             return None;
         }
         // A connector goes where what it joins goes (PLAN 2.109): it turns with neither.
@@ -461,6 +465,7 @@ pub fn choices(
                 .or_else(|| fit_gives(theme, layout, &shown, in_shape, prop))
                 .or_else(|| words.then(|| Value::from("center")))
                 .or_else(|| aligned(theme, layout, &shown, prop))
+                .or_else(|| coded(prop))
         };
         let theme = match node_type {
             NodeType::Text => gives(),
@@ -570,6 +575,17 @@ fn fit_gives(theme: &Theme, layout: Option<&str>, shown: &Props, in_shape: bool,
         return None;
     }
     serde_json::to_value(TextFit::effective(None, slot, in_shape, code)).ok()
+}
+
+/// What a code text's card and numbers are where nothing in the deck says (PLAN 2.136): on its
+/// card, its lines unnumbered, the first going by 1. None for any other property.
+fn coded(prop: &str) -> Option<Value> {
+    match prop {
+        "code/card" => Some(Value::Bool(true)),
+        "code/numbers" => Some(Value::Bool(false)),
+        "code/start" => Some(Value::from(1)),
+        _ => None,
+    }
 }
 
 /// Where a text's lines stand across its box where nothing in the deck says (`align/x`), as the

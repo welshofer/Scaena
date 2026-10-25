@@ -20,10 +20,15 @@ xcodebuild build-for-testing -quiet -project Scaena.xcodeproj -scheme ScaenaApp 
 # Installed before the tests run, so that B1 can go in its folder: the tests install it again
 # over itself, which keeps what the folder holds.
 xcrun simctl install "$udid" "$built/Build/Products/Debug-iphonesimulator/ScaenaApp.app"
-documents="$(xcrun simctl get_app_container "$udid" com.welshofer.Scaena data)/Documents"
-mkdir -p "$documents"
-rm -rf "$documents/b1.scaena"
+container=$(xcrun simctl get_app_container "$udid" com.welshofer.Scaena data)
+documents="$container/Documents"
+mkdir -p "$documents" "$container/Library"
+rm -rf "$documents/b1.scaena" "$container/Library/b1-shipped.scaena"
 cp -R "$root/tests/bench/b1.scaena" "$documents/b1.scaena"
+# B1 as shipped, kept where the document browser does not show it: each test launches the app with
+# `-b1AsShipped YES`, which puts B1 back from it before any window opens, so no test sees what the
+# one before it left (ScaenaApp's `putBackB1`).
+cp -R "$root/tests/bench/b1.scaena" "$container/Library/b1-shipped.scaena"
 results="$root/target/ipad/Scaena.xcresult"
 rm -rf "$results"
 # What the app says at the debug level while the tests run, kept beside the screenshots: where

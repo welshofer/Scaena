@@ -389,7 +389,7 @@ impl Generation {
     }
 
     /// The request the step asks for, `key` in its headers, `documents` (PDFs) beside the
-    /// slides' prompt; none once the narrative is written. Arc selection sees the sources' first
+    /// outline's prompt and the slides'; none once the narrative is written. Arc selection sees the sources' first
     /// 500 characters, never their documents.
     pub fn request(&self, key: &str, documents: &[Document]) -> Option<Request> {
         use providers::Shape;
@@ -410,7 +410,8 @@ impl Generation {
                 let arc = arcs::arc(&chosen.selection);
                 let plan = beats::plan(arc, self.target());
                 let text = outline::prompt(&self.brief, arc, &chosen.reasoning, &plan);
-                (outline::OUTLINE_SYSTEM, text, Shape::Outline, room(outline::OUTLINE_MAX_TOKENS), 0.3, &[][..])
+                // The documents beside it, as the slides have them (lift-up FUNC-3).
+                (outline::OUTLINE_SYSTEM, text, Shape::Outline, room(outline::OUTLINE_MAX_TOKENS), 0.3, documents)
             }
             Step::Slides => {
                 let arc = arcs::arc(&self.arc.as_ref()?.selection);
