@@ -82,6 +82,13 @@ pub fn busy(status: u16) -> bool {
     matches!(status, 0 | 408 | 429 | 500..=599)
 }
 
+/// How long to wait before asking a busy provider again for a look or a fit (lift-up REL-1),
+/// as the slides and the pictures are asked: `tried` the times it was asked so far, from 0. None
+/// where `status` answers for good, or [`TRIES`] are spent.
+pub fn retry_after(status: u16, body: &str, after: Option<&str>, tried: usize) -> Option<f64> {
+    (busy(status) && tried + 1 < TRIES).then(|| providers::wait(after, body, tried + 1))
+}
+
 /// Who writes the deck: a provider, the model the user picked from those their key lists, and
 /// where its API is.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -389,7 +396,7 @@ impl Generation {
     }
 
     /// The request the step asks for, `key` in its headers, `documents` (PDFs) beside the
-    /// slides' prompt; none once the narrative is written. Arc selection sees the sources' first
+    /// outline's prompt and the slides'; none once the narrative is written. Arc selection sees the sources' first
     /// 500 characters, never their documents.
     pub fn request(&self, key: &str, documents: &[Document]) -> Option<Request> {
         use providers::Shape;
@@ -410,7 +417,8 @@ impl Generation {
                 let arc = arcs::arc(&chosen.selection);
                 let plan = beats::plan(arc, self.target());
                 let text = outline::prompt(&self.brief, arc, &chosen.reasoning, &plan);
-                (outline::OUTLINE_SYSTEM, text, Shape::Outline, room(outline::OUTLINE_MAX_TOKENS), 0.3, &[][..])
+                // The documents beside it, as the slides have them (lift-up FUNC-3).
+                (outline::OUTLINE_SYSTEM, text, Shape::Outline, room(outline::OUTLINE_MAX_TOKENS), 0.3, documents)
             }
             Step::Slides => {
                 let arc = arcs::arc(&self.arc.as_ref()?.selection);
