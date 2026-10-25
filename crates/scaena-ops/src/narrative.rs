@@ -1165,6 +1165,19 @@ fn alike(doc: &mut Value, view: &View, held: &mut Held) -> Result<bool, OpsError
     Ok(changed)
 }
 
+/// The slot a made node stands in, in a state of `layout`: its `at.in`, or, for a small team's
+/// card that [`Slots::spread`] placed down both rows, the first card's place for its part, by
+/// the role it is set in (a name in `title`, what the person does in `body`), which is what a set
+/// is held by.
+fn slot_in<'a>(node: &'a Value, layout: &str) -> Option<&'a str> {
+    match (node["at"]["in"].as_str(), layout, node["role"].as_str()) {
+        (Some(slot), _, _) => Some(slot),
+        (None, "team-names", Some("title")) if node["at"]["row"].is_array() => Some("first-title"),
+        (None, "team-names", Some("body")) if node["at"]["row"].is_array() => Some("first"),
+        _ => None,
+    }
+}
+
 /// Each text of `doc` that grows or shrinks and is one of a set [`alike`] holds to one size:
 /// its set, its state, its id, and its role's size. A text that says no fit of its own fits as its
 /// slot says, so a set of titles the slot shrinks shrinks together (lift-up dogfood).
@@ -1175,7 +1188,7 @@ fn growing(doc: &Value, theme: &scaena_engine::theme::Theme) -> Vec<(String, Str
         let layout = state["layout"].as_str().unwrap_or_default();
         for node in shown.keys() {
             let n = &doc["nodes"][node];
-            let (Some(slot), Some(role)) = (n["at"]["in"].as_str(), n["role"].as_str()) else { continue };
+            let (Some(slot), Some(role)) = (slot_in(n, layout), n["role"].as_str()) else { continue };
             let slotted = || theme.layouts.get(layout).and_then(|l| l.slots.get(slot)).and_then(|s| s.fit);
             let fits = match n["fit"].as_str() {
                 Some(fit) => matches!(fit, "grow" | "shrink"),
@@ -1397,7 +1410,7 @@ fn tight(doc: &Value, deck: &Deck, view: &View, theme: &scaena_engine::theme::Th
                 let n = &doc["nodes"][node.as_str()];
                 n["type"] == "text"
                     && n["fit"] == "grow"
-                    && n["at"]["in"].as_str().is_some_and(|slot| {
+                    && slot_in(n, state["layout"].as_str().unwrap_or_default()).is_some_and(|slot| {
                         matches!(ordinal(slot), Some((_, ""))) || matches!(slot, "meaning" | "example")
                     })
             })
@@ -3147,6 +3160,11 @@ impl Slots<'_> {
             (Some((_, "title" | "criterion")), "label") => at_least("body"),
             // A journey's phases and lanes, over and beside its cells, likewise.
             (Some((_, "phase" | "lane")), "label") if self.layout == "journey" => at_least("body"),
+            // A team's names, as large as their cards take, toward three-quarters of the
+            // headline, so four names never outshout the slide's title; the set held to one.
+            (Some((_, "title")), "title") if self.layout == "team-names" => {
+                self.under_headline().filter(|most| size(role).is_some_and(|own| *most > own))
+            }
             (Some((_, "figure")), "figure") => at_least("numeral"),
             // A tier's price is its card's point: as large as its place takes, up to the hero's
             // size, the set's held to one (dogfood pass 4).
@@ -3181,6 +3199,41 @@ impl Slots<'_> {
             (None, "caption" | "body") if self.layout == "journey" && journey_cell(name) => at_least("lede"),
             _ => None,
         }
+    }
+
+    /// Where a team of three or fewer stands in Team by Name: each card down both of the layout's
+    /// rows of cards, its name over the split and what the person does under it, so a small
+    /// team fills the slide rather than its top half. The slot's `at`, with its inset as the
+    /// theme's space step and its alignment; none for another layout, a larger team, or a
+    /// slot that is not a card's.
+    fn spread(&self, name: &str, slot: &Slot) -> Option<Value> {
+        if self.layout != "team-names" || self.items.len() > 3 {
+            return None;
+        }
+        let row = |slot: &str| match self.template()?.slots.get(slot)?.row {
+            Some(Range::Span(span)) => Some(span),
+            _ => None,
+        };
+        let (k, part) = ordinal(name)?;
+        // The name in the rows of the card's own row of cards, what they do in the next's: split
+        // where the layout splits, which a theme's grid may not set at the middle.
+        let ([top, upper], [lower, foot]) =
+            (row(&format!("{}-card", ORDINALS[k]))?, row(&format!("{}-card", ORDINALS[k + 3]))?);
+        let rows = match part {
+            "card" => [top, foot],
+            "title" => [top, upper],
+            "" => [lower, foot],
+            _ => return None,
+        };
+        let mut at = json!({ "col": slot.col.as_ref()?, "row": rows });
+        if let Some(inset) = slot.inset {
+            let step = self.theme.tokens.space.scale.iter().position(|s| s.0 == inset)?;
+            at["inset"] = json!(format!("space.{step}"));
+        }
+        if let Some(align) = &slot.align {
+            at["align"] = json!(align);
+        }
+        Some(at)
     }
 
     /// Three-quarters of the theme's headline: as large as words under a heading grow.
@@ -3830,7 +3883,7 @@ impl Builder {
         for (name, slot) in read_order(&template.slots, |name, slot| name == "kicker" && s.foot(slot)) {
             let Some(fill) = s.fill(name, slot) else { continue };
             let id = self.unique(&format!("{}-{}", s.state, slug(name, "slot")), Taken::Node);
-            let at = json!({ "in": name });
+            let at = s.spread(name, slot).unwrap_or_else(|| json!({ "in": name }));
             let mut node = match fill {
                 Fill::Text(text) => {
                     let Some(role) = &slot.role else { continue };
@@ -3854,7 +3907,10 @@ impl Builder {
                             // A few short lines of words alone in a large place, a card's own words
                             // or a term's meaning, grow toward three-quarters of the headline, never
                             // past it, as a short list does (dogfood pass 4).
-                            let own = (matches!(ordinal(name), Some((_, ""))) && !s.figured(name))
+                            // What a team's person does stays a step under their name: to the lede.
+                            let own = (matches!(ordinal(name), Some((_, "")))
+                                && !s.figured(name)
+                                && s.layout != "team-names")
                                 || s.alone(name, role).is_some();
                             let most = match own && words_role(role) && short(&text) {
                                 true => s.under_headline().map_or(most, |h| h.max(most)),
@@ -3914,6 +3970,13 @@ impl Builder {
                         }
                         _ if name == "kicker" && s.foot(slot) => node["align"] = json!({ "y": "end" }),
                         _ => {}
+                    }
+                    // Placed by its cells, it fits as its slot says where it says nothing itself.
+                    if node["fit"].is_null()
+                        && node["at"]["in"].is_null()
+                        && let Some(fit) = slot.fit
+                    {
+                        node["fit"] = json!(fit);
                     }
                     match s.semantic(name, &text) {
                         Some("claim") if claimed => {}
@@ -5452,6 +5515,64 @@ mod tests {
         let caps: Vec<f64> = held.iter().flatten().copied().collect();
         assert_eq!(caps.len(), 2, "the two that fit are capped: {held:?}");
         assert!(caps[0] == caps[1] && caps[0] < 48.0 && held[2].is_none(), "shrunk together: {held:?}");
+    }
+
+    /// A team by name fills its place: its names grow toward three-quarters of the headline and
+    /// what each person does to the lede, each set held to one size; a team of three or fewer
+    /// stands down both rows of cards, the name over the layout's split and the rest under it,
+    /// so it never sits in the slide's top half. Six keep their places.
+    #[test]
+    fn a_team_by_name_grows_and_a_small_one_stands_down_both_rows() {
+        let people = [
+            "Maya Chen, CEO: ran Gulf operations at a top-three carrier",
+            "Ade Okafor, CTO: built direct air capture at scale",
+            "Luis Ortega, COO: scaled ports across three continents",
+            "Priya Nair, CFO: took two climate funds public",
+            "Tom Becker, VP Sales: sold freight to the Fortune 100",
+            "Ana Silva, Head of Science: led the ocean storage trials",
+        ];
+        let (summary, slides) = catalog();
+        for file in ["dusk", "ember"] {
+            let theme: Theme = serde_json::from_str(
+                &std::fs::read_to_string(root().join(format!("docs/examples/themes/{file}.theme.json"))).unwrap(),
+            )
+            .unwrap();
+            let size = |r: &str| theme.typography.roles[r].size;
+            let slots = &theme.layouts["team-names"].slots;
+            let rows = |slot: &str| json!(slots[slot].row);
+            for n in [2, 3, 6] {
+                let mut slide = slides.iter().find(|s| s.layout_suggestion == "Team").unwrap().clone();
+                slide.key_bullets = people[..n].iter().map(|p| p.to_string()).collect();
+                let made = deck(
+                    &narrative(&summary, vec![slides[0].clone(), slide, slides[55].clone()]),
+                    &theme,
+                    &Pictures::new(),
+                )
+                .unwrap();
+                assert_eq!(made.layouts[1], "team-names", "{file}, {n}");
+                let state = made.deck["states"][1]["id"].as_str().unwrap();
+                let node = |slot: &str| made.deck["nodes"][format!("{state}-{slot}")].clone();
+                let (name, does) = (node("first-title"), node("first"));
+                // A name grows only where the theme sets it under three-quarters of the headline.
+                let grows = (size("headline") * 0.75 > size("title")).then_some(size("headline") * 0.75);
+                assert_eq!(name["maxSize"].as_f64(), grows, "{file}, {n}: {name:#}");
+                assert_eq!(does["maxSize"].as_f64(), Some(size("lede").min(size("title"))), "{file}, {n}: {does:#}");
+                if n > 3 {
+                    assert_eq!(name["at"], json!({ "in": "first-title" }), "{file}, {n}");
+                    continue;
+                }
+                let [top, upper] = serde_json::from_value::<[u32; 2]>(rows("first-card")).unwrap();
+                let [lower, foot] = serde_json::from_value::<[u32; 2]>(rows("fourth-card")).unwrap();
+                assert_eq!(node("first-card")["at"]["row"], json!([top, foot]), "{file}, {n}");
+                assert_eq!(name["at"]["row"], json!([top, upper]), "{file}, {n}");
+                assert_eq!(name["at"]["align"], json!({ "y": "end" }), "{file}, {n}");
+                assert_eq!(does["at"]["row"], json!([lower, foot]), "{file}, {n}");
+                for at in [&name["at"], &does["at"]] {
+                    assert_eq!(at["inset"], "space.4", "the slot's inset, as the theme's space step: {at}");
+                    assert!(at.get("in").is_none(), "{at}");
+                }
+            }
+        }
     }
 
     /// Short words in a large place grow to fill it (dogfood pass 4): each side's list of a
