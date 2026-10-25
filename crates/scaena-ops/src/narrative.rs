@@ -13,6 +13,7 @@ use crate::create::{Attach, Create, Created, attaching, creating};
 use crate::lint::{View, Write, lint_in};
 use crate::{Context, OpsError};
 use base64::Engine;
+use scaena_core::document::NodeType;
 use scaena_core::inserts::slug;
 use scaena_core::model::nodes::TextFit;
 use scaena_core::model::theme::{Example, Prompt, PromptItems, PromptShapeKind, Slot, Theme};
@@ -1555,6 +1556,7 @@ pub fn making(
     theme: String,
     font: &dyn Fn(&str) -> Result<Vec<u8>, OpsError>,
 ) -> Result<(Generated, Option<Write>), OpsError> {
+    let model: Theme = serde_json::from_str(&theme).context("the theme")?;
     let req =
         Create { theme: PathBuf::from(theme_file), deck: Some(made.deck), assets: made.assets, ..Create::default() };
     let none = |path: &Path| -> Result<Vec<u8>, OpsError> {
@@ -1599,6 +1601,12 @@ pub fn making(
         let deck = Deck::from_json(&doc.to_string()).context("the deck set clear")?;
         created.findings = lint_in(&deck, &view)?.findings;
     }
+    // The cover and the close, where no picture was made for them, on the theme's backdrop.
+    if let Some(grounded) = grounded(&doc, &model, &view)? {
+        doc = grounded;
+        let deck = Deck::from_json(&doc.to_string()).context("the deck on its backdrop")?;
+        created.findings = lint_in(&deck, &view)?.findings;
+    }
     // Then each fix lint offers, each checked by laying its state out again with it; a fix that
     // makes a text of a set shrink, the set held to one size again.
     let mut settled = settle(doc, created.findings, &view)?;
@@ -1612,6 +1620,52 @@ pub fn making(
     made.created.findings = settled.findings;
     write.deck = settled.deck;
     Ok((made, Some(write)))
+}
+
+/// The theme's shader preset a made deck's cover and close stand on where no picture was made for
+/// them (Jay's call, 2026-10-25).
+const GROUND: &str = "backdrop";
+
+/// `doc` with its cover and its closing slide each on the theme's [`GROUND`], as a person sets a
+/// slide's background ([`crate::backgrounds::setting`]), the texts it would leave too faint to read
+/// set in the theme's color that reads over it; none where neither takes it (lift-up 10-24 ATTR-1,
+/// Jay's call, 2026-10-25). A slide with a picture made for it keeps its picture, and one that
+/// shows a chart or a table its plain surface (W311); no slide between them changes. A background
+/// is not a stand-in for a picture (PLAN G.10): a slide that waits for one still waits.
+fn grounded(doc: &Value, theme: &Theme, view: &View) -> Result<Option<Value>, OpsError> {
+    if !theme.shaders.as_ref().and_then(|s| s.presets.as_ref()).is_some_and(|p| p.contains_key(GROUND)) {
+        return Ok(None);
+    }
+    let mut doc = doc.clone();
+    let mut changed = false;
+    let ends: Vec<String> = {
+        let deck = Deck::from_json(&doc.to_string()).context("the deck")?;
+        let slides = deck.slides();
+        let first = |states: &Vec<usize>| deck.states[states[0]].id.clone();
+        let mut ends: Vec<String> = slides.first().map(first).into_iter().collect();
+        ends.extend(slides.last().filter(|_| slides.len() > 1).map(first));
+        ends
+    };
+    for state in ends {
+        let deck = Deck::from_json(&doc.to_string()).context("the deck")?;
+        let snaps = scaena_core::resolve_states(&deck).context("tracking")?;
+        let slide = deck.state_index(&state).map(|i| deck.slide_of(&deck.states[i]).to_string());
+        let shown = |types: &[NodeType]| {
+            (deck.states.iter().zip(&snaps)).any(|(st, snap)| {
+                Some(deck.slide_of(st)) == slide.as_deref()
+                    && snap.nodes.keys().any(|id| deck.nodes.get(id).is_some_and(|n| types.contains(&n.node_type)))
+            })
+        };
+        if shown(&[NodeType::Image, NodeType::Shader, NodeType::Chart, NodeType::Table]) {
+            continue;
+        }
+        let patch = crate::backgrounds::setting(&deck, theme, view, &state, Some(GROUND))?;
+        let after = scaena_core::patch::compile(&doc, &patch, view)
+            .map_err(|e| OpsError::new(format!("the {GROUND} behind `{state}`: {e}")))?;
+        doc = after.doc;
+        changed = true;
+    }
+    Ok(changed.then_some(doc))
 }
 
 /// `doc` with the characters an E120 finding names written as plain text writes them, where the
@@ -6953,11 +7007,32 @@ mod tests {
         has(&invest, "note", "Global energy investment in 2024, trillions of dollars");
         assert!(placed(&made.deck, 18, "first-figure").get("style").is_none());
         assert_eq!(placed(&made.deck, 18, "second-figure")["style"], json!({ "color": "onSurfaceMuted" }));
-        // With no picture made, a slide waits for none: no theme art stands in for one.
+        // With no picture made, a slide waits for none: no theme art stands in for one, and a
+        // layout chosen for a picture is none of them.
         assert!(
             made.deck["nodes"].as_object().unwrap().values().all(|n| n["type"] != "shader" && n["type"] != "image")
         );
         assert_eq!((made.layouts[0].as_str(), made.layouts[20].as_str()), ("title-center", "myth-fact"));
+        // Made a bundle, its cover and its close stand on the theme's backdrop, and no other slide
+        // does (lift-up 10-24 ATTR-1, Jay's call, 2026-10-25): a background, not a stand-in for a
+        // picture (PLAN G.10), so the layouts stay as chosen and the bundle holds no picture.
+        let layouts = made.layouts.clone();
+        let again = deck(&climate(), &theme, &Pictures::new()).unwrap();
+        let (bundled, write) = making(again, "Data Storytelling", Path::new("dusk.theme.json"), dusk(), &font).unwrap();
+        let deck = write.unwrap().deck;
+        assert_eq!(bundled.layouts, layouts);
+        assert!(bundled.created.errors == 0, "{:#?}", bundled.created.findings);
+        let grounds: Vec<(&str, &str)> = (deck.nodes.iter())
+            .filter(|(_, n)| n.node_type == NodeType::Shader)
+            .map(|(id, n)| (id.as_str(), n.props.get("preset").and_then(Value::as_str).unwrap_or_default()))
+            .collect();
+        let first = deck.states.first().unwrap().id.clone();
+        let last = deck.slides().last().map(|s| deck.states[s[0]].id.clone()).unwrap();
+        assert_eq!(
+            grounds,
+            [(format!("{first}-background").as_str(), "backdrop"), (format!("{last}-background").as_str(), "backdrop")]
+        );
+        assert!(deck.nodes.values().all(|n| n.node_type != NodeType::Image));
         // Four next steps written as labelled items are numbered cards; a Q&A stays one.
         assert_eq!((made.layouts[22].as_str(), made.layouts[23].as_str()), ("numbered-cards", "qa"));
         assert_eq!(made.layouts[19], "numbered-cards");
