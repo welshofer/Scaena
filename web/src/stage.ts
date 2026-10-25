@@ -223,6 +223,11 @@ export interface Engine {
   module?: WebAssembly.Module;
 }
 
+/** What a request waiting on a worker that stopped is refused with, a panic or a death (lift-up
+ * STAB-2): the page that starts the engine again says so, so a caller that does not catch it
+ * leaves nothing to say. */
+export class EngineStopped extends Error {}
+
 /** Whether `listen` hears anything within `within` ms: `listen` is handed what to call on each
  * thing heard (lift-up 10-24b STAB-2). */
 export function lives(within: number, listen: (heard: () => void) => void): Promise<boolean> {
@@ -299,7 +304,11 @@ export class Stage {
       if (worker === this.worker) this.heard?.();
       this.listen(data);
     };
-    worker.onerror = (e) => void this.failed(worker, e.message || "the worker failed");
+    worker.onerror = (e) => {
+      // Heard here, and said or recovered from: not the page's uncaught error.
+      e.preventDefault();
+      void this.failed(worker, e.message || "the worker failed");
+    };
     // A message that could not be read leaves the request it answered waiting: each waiting is
     // refused, and the worker, which still answers, is kept.
     worker.onmessageerror = () => this.refuse(new Error("the engine's answer could not be read"));
@@ -317,7 +326,7 @@ export class Stage {
     const lost = [...this.writtenSince.keys()].map((path) => this.dropped.get(path) ?? path);
     // They went with it: none is there to keep beside the source or to save.
     this.writtenSince.clear();
-    this.halt(new Error(`the engine stopped: ${message}`));
+    this.halt(new EngineStopped(`the engine stopped: ${message}`));
     this.onDied({ message, lost });
   }
 
@@ -348,7 +357,7 @@ export class Stage {
    * STAB-2): a fresh worker of its own, painting into a fresh canvas in this one's place; the
    * requests waiting on the old one are refused. The bundle as the fresh worker opened it. */
   async restart(source: Source): Promise<Opened> {
-    this.halt(new Error("the engine stopped"));
+    this.halt(new EngineStopped("the engine stopped"));
     const started = await Stage.start(this.canvas, source, this.painter, this.engine);
     this.canvas = started.canvas;
     this.worker = started.worker;
@@ -1515,7 +1524,7 @@ export class Stage {
         return;
       }
       case "crashed": {
-        this.halt(new Error(`the engine stopped: ${data.message}`));
+        this.halt(new EngineStopped(`the engine stopped: ${data.message}`));
         this.onCrashed({ message: data.message, name: data.name, files: data.files });
         return;
       }
