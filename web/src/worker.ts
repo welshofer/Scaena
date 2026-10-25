@@ -245,11 +245,14 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         return player.trap();
       case "die": {
         // An error outside the message, then one task that answers nothing, for good or `busy` ms.
-        setTimeout(() => {
+        // Microtasks, not timers: each runs before the next message is read, so a message sent
+        // after this one waits out the hold however busy the worker was when it came (a timer and
+        // a message already waiting may run in either order, which panic.mjs found).
+        queueMicrotask(() => {
           throw new Error(`the worker ${data.busy === undefined ? "died" : "failed"}, as asked, to test the editor's recovery`);
         });
         const until = data.busy;
-        setTimeout(() => {
+        queueMicrotask(() => {
           for (const end = performance.now() + (until ?? Number.POSITIVE_INFINITY); performance.now() < end; );
         });
         return;

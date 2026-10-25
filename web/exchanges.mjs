@@ -13,7 +13,8 @@ import { readFile, writeFile } from "node:fs/promises";
 import { isDeepStrictEqual } from "node:util";
 import { RULE, fenced, seen, system } from "./src/assistant/prompt.ts";
 import { CUT, owing } from "./src/assistant/cut.ts";
-import { providers } from "./src/assistant/providers.ts";
+import { providers, refusedBase } from "./src/assistant/providers.ts";
+import { MOST_BLOCKS, Stream } from "./src/assistant/stream.ts";
 
 const write = process.argv.includes("--write");
 const conversation = JSON.parse(await readFile("tests/assistant/conversation.json", "utf8"));
@@ -113,6 +114,11 @@ if (write) {
     check(isDeepStrictEqual(record.prompt[part], kept.prompt?.[part]), `the ${what} is the one recorded`);
   }
 }
+// The API addresses a key may go to, held to the cases scaena-narrato's and scaena-chat's
+// `checked_base` are (lift-up 20261025 SEC-2).
+const bases = JSON.parse(await readFile("tests/assistant/bases.json", "utf8"));
+for (const good of bases.good) check(refusedBase(good) === undefined, `a key may go to ${JSON.stringify(good)}`);
+for (const bad of bases.bad) check(refusedBase(bad) !== undefined, `a key never goes to ${JSON.stringify(bad)}`);
 // A call the answer's token limit cut off is answered, not run (lift-up REL-1), as scaena-chat's
 // `Chat::answer` answers it: the browser's rule, which converse.ts takes.
 {
@@ -126,6 +132,21 @@ if (write) {
   const render = { id: "toolu_3", name: "deck_render", args: {} };
   check(owing([render], "tools").run.length === 1, "a call with no arguments in a whole answer runs");
   check(owing([render, lint], "length").owed.length === 0, "a last call with its arguments whole runs");
+}
+{
+  // A block or a call numbered past MOST_BLOCKS is no answer: it ends as an error, the slots
+  // before it never filled, as scaena-chat's stream.rs ends it (lift-up 20261025b SEC-3).
+  const huge = 'event: content_block_start\ndata: {"type":"content_block_start","index":4000000000,"content_block":{"type":"text","text":"x"}}\n\n';
+  const called = 'data: {"choices":[{"delta":{"tool_calls":[{"index":1e300,"id":"c","function":{"name":"f","arguments":"{}"}}]}}]}\n\n';
+  for (const [provider, body] of [["anthropic", huge], ["openai", called]]) {
+    const stream = new Stream(provider);
+    stream.feed(body);
+    const answer = stream.finish();
+    check(answer?.error?.message === "the provider's answer did not read", `${provider}: an index past ${MOST_BLOCKS} ends unread: ${JSON.stringify(answer).slice(0, 200)}`);
+  }
+  const last = new Stream("anthropic");
+  last.feed(huge.replace("4000000000", String(MOST_BLOCKS - 1)));
+  check(last.finish()?.content?.length === MOST_BLOCKS, "the last block a provider may send still reads");
 }
 if (failures.length) {
   console.log(`\n${failures.length} failed: the browser's assistant no longer says what is recorded. If the change is meant, write it again (--write), and hold scaena-chat to it.`);

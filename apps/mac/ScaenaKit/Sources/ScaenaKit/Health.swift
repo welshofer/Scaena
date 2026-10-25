@@ -10,15 +10,21 @@ public struct Health: Decodable, Sendable {
         public let says: String
     }
 
-    /// A slide as health reads it: its first state, its headline, where its arc's curve stands at
-    /// its place, the intensity it declares and that its words read, and how it stands: `ok`,
+    /// A slide as health reads it: its first state, the arc's beat it was written for, its
+    /// headline, where its arc's curve stands at its place, the intensity and the tone it declares
+    /// and that its words read, and how it stands: `ok`,
     /// `bends` (its intensity strays from the curve), or `drifted` (written for another beat).
     public struct Read: Decodable, Equatable, Sendable {
         public let state: String
+        /// The beat of the arc it was written for, by its place in `beats` (lift-up ATTR-4).
+        public let part: Int?
         public let title: String
         public let curve: Double
         public let declared: Double?
         public let read: Double?
+        /// The tone it declares, −1 grave to +1 hopeful, and the tone its words read.
+        public let tone: Double?
+        public let toneRead: Double?
         public let standing: String
     }
 
@@ -40,8 +46,9 @@ public struct Health: Decodable, Sendable {
         public let severity: String
         /// `title`, `empty`, `turn`, `arc`, `intensity`, `tone`, `drift`, `layout`, `claim` (a beat of
         /// the settled outline its slides do not carry), `bigIdea` (a close that never lands it),
-        /// `story` (a narrative warning lint finds), `dense`, `notes` (none to speak from), or
-        /// `pacing` (the first slide to cut where the deck runs past its brief).
+        /// `story` (a narrative warning lint finds), `dense`, `notes` (none to speak from),
+        /// `pacing` (the first slide to cut where the deck runs past its brief), or `look` (a change
+        /// the model asked once it saw the slide, let go: lint found it worse).
         public let kind: String
         public let says: String
         public let ask: String
@@ -51,6 +58,9 @@ public struct Health: Decodable, Sendable {
     public let score: Int
     /// The arc the deck was written to, where it names one.
     public let arc: String?
+    /// The arc's beats, by name, in order; none for an arc the catalog does not name, or where
+    /// the answer names none.
+    public let beats: [String]?
     public let pacing: Measure
     public let balance: Measure
     public let coherence: Measure

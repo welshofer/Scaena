@@ -40,6 +40,13 @@ use std::path::{Path, PathBuf};
 
 mod one;
 pub use one::{Place, SlideWritten, Written, one_asked, slide_into, slide_polishing, slide_write, slide_writing};
+
+/// One slide an agent hands over, as `slide_write` takes it: normalized as a model's slides are,
+/// or refused where it gives none of the fields Narrato's slides are written in (lift-up 10-25b
+/// FUNC-5, `scaena_narrato::answer::one`).
+pub fn slide_from(raw: &Value) -> Result<Slide, OpsError> {
+    scaena_narrato::answer::one(raw).map_err(OpsError::new)
+}
 mod quoting;
 
 /// The canvas a made deck draws on.
@@ -101,6 +108,19 @@ pub struct Generated {
     /// Why the model did not look at the deck drawn, or what it asked was not kept.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub unlooked: Option<String>,
+    /// Each change the model asked that lint found its slide worse for, not kept (lift-up USE-4).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub refused: Vec<Refused>,
+}
+
+/// A change the model asked on a slide it saw, which lint found the slide worse for and which was
+/// not kept (lift-up USE-4): the slide's number, what was asked, and what lint found, each said
+/// in a person's words. The deck keeps them (`meta.narrative.refused`), and its Story says them.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Refused {
+    pub slide: usize,
+    pub what: String,
+    pub why: String,
 }
 
 fn is_zero(n: &usize) -> bool {
@@ -420,11 +440,21 @@ pub fn provenance(given: &[Given]) -> Vec<Provenance> {
 /// slide names a source the deck was not grounded in. A name is matched as written, then with
 /// case and spaces set aside, then as the source's address.
 fn cited(sources: &[Provenance], named: &str) -> Option<String> {
-    let loose = |s: &str| s.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase();
-    let source = (sources.iter().find(|s| s.name == named))
-        .or_else(|| sources.iter().find(|s| loose(&s.name) == loose(named)))
-        .or_else(|| sources.iter().find(|s| s.url.as_deref() == Some(named)))?;
+    let source = source_named(sources, named)?;
     Some(source.url.clone().unwrap_or_else(|| format!("{}{}", scaena_core::document::SOURCE_CITED, source.name)))
+}
+
+/// The source a slide names, of those the deck was grounded in: matched as written, then with
+/// case and spaces set aside, then as the source's address.
+fn source_named<'a>(sources: &'a [Provenance], named: &str) -> Option<&'a Provenance> {
+    (sources.iter().find(|s| s.name == named))
+        .or_else(|| sources.iter().find(|s| loose(&s.name) == loose(named)))
+        .or_else(|| sources.iter().find(|s| s.url.as_deref() == Some(named)))
+}
+
+/// `s` with its runs of spaces one and its letters small, to match a name as a person means it.
+fn loose(s: &str) -> String {
+    s.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase()
 }
 
 /// A data source kept from a sheet, or why it was not.
@@ -604,7 +634,10 @@ pub fn generate_drawn(
     let Some(mut write) = write else { return Ok((made, None)) };
     // The deck seen as it is drawn (PLAN G.13): what the model would change, each slide's change
     // kept where lint finds the slide no worse for it.
-    let seen = seeing(&narrative, &model, &pictures, &made.layouts);
+    let mut seen = seeing(&narrative, &model, &pictures, &made.layouts);
+    // Each title's room, so a topic may become the claim the look asks it to state (lift-up
+    // FUNC-2).
+    roomed(&mut seen, &rooms(&write));
     // A round that is not answered loses its own slides' changes alone, said beside the rest.
     let mut unanswered: Option<String> = None;
     let changes = match (looking, key) {
@@ -720,6 +753,20 @@ pub fn from_slides(
     arc: Option<&str>,
 ) -> Result<Generated, OpsError> {
     crate::create::vacant(dir)?;
+    // Each slide in the names an agent reaches for read as Narrato's (lift-up 10-25b FUNC-5):
+    // `intensity`, `tone`, and `valence` where `expectedIntensity` and `expectedValence` are not.
+    // A word for a number is refused, naming the slide and the field.
+    let mut aliased = None;
+    if let Ok(mut written) = serde_json::from_str::<Value>(slides)
+        && let Some(list) = written.get_mut("slides").and_then(Value::as_array_mut)
+    {
+        for (i, slide) in list.iter_mut().enumerate() {
+            scaena_narrato::answer::numbered(slide).map_err(|e| OpsError::new(format!("slide {}: {e}", i + 1)))?;
+            *slide = scaena_narrato::answer::aliased(slide);
+        }
+        aliased = Some(written.to_string());
+    }
+    let slides = aliased.as_deref().unwrap_or(slides);
     let font = |file: &str| theme.font(file);
     let language = brief.language.as_deref();
     if let Some(script) = crate::scripts::needed(language, slides, &theme.text, &font)? {
@@ -843,9 +890,68 @@ pub fn seeing(narrative: &Narrative, theme: &Theme, pictures: &Pictures, layouts
                 claim: if framing { String::new() } else { claim(i, slide) },
                 // What it does, said as that where no claim is known.
                 purpose: if framing { String::new() } else { slide.purpose.clone().unwrap_or_default() },
+                // Measured once the deck is laid out ([`rooms`]).
+                room: None,
             }
         })
         .collect()
+}
+
+/// How many characters each slide's title place holds at its role's size, as the deck `write`
+/// makes lays it out (lift-up FUNC-2): what the look lets a topic title grow to as it states its
+/// claim. Measured from the title as set: its characters' mean advance, its lines' height, each
+/// taken back to the role's size where the text shrank, over its box, two lines at most, as the
+/// look asks a title to keep, and a tenth under, so a line that wraps otherwise still fits. None
+/// for a slide whose title place is not found or does not lay out.
+pub fn rooms(write: &Write) -> Vec<Option<usize>> {
+    let measured = || -> Result<Vec<Option<usize>>, OpsError> {
+        let nothing = scaena_store::Files::Zip(Default::default());
+        let view = View { base: &nothing, pending: write.files.clone() };
+        let deck = &write.deck;
+        let Some(theme) = view.theme(deck)? else { return Ok(Vec::new()) };
+        let theme = scaena_engine::theme::Theme::from_json(&theme)?;
+        let mut engine = crate::lint::engine_in(deck, &view, &theme, None)?;
+        let data = crate::lint::data_in(deck, &view)?;
+        Ok((deck.slides().iter())
+            .map(|states| {
+                let state = &deck.states[states[0]].id;
+                // The place the slide's title is set in, by the slot that takes it.
+                let id = ["header", "title", "headline", "statement", "claim"]
+                    .iter()
+                    .map(|slot| format!("{state}-{slot}"))
+                    .find(|id| deck.nodes.contains_key(id))?;
+                let req = scaena_engine::FrameRequest {
+                    deck,
+                    theme: &theme,
+                    data: &data,
+                    state,
+                    t_ms: f64::INFINITY,
+                    format: None,
+                };
+                let placed = engine.text_layouts(&req, &[id.as_str()]).ok()?.pop()?;
+                let n = placed.text.written.chars().count();
+                let lines = placed.text.lines.len();
+                let scale = placed.scale.max(f32::EPSILON);
+                let set: f32 = placed.text.lines.iter().map(|l| l.width).sum();
+                if n == 0 || lines == 0 || set <= 0.0 {
+                    return None;
+                }
+                let advance = set / n as f32 / scale;
+                let leading = placed.text.height / lines as f32 / scale;
+                let per_line = (placed.cell[2] / advance).floor();
+                let held = (placed.cell[3] / leading).floor().clamp(1.0, 2.0);
+                Some((per_line * held * 0.9).floor() as usize)
+            })
+            .collect())
+    };
+    measured().unwrap_or_default()
+}
+
+/// `seen` given each slide's title room, as [`rooms`] measures them, by slide.
+pub fn roomed(seen: &mut [Seen], rooms: &[Option<usize>]) {
+    for s in seen {
+        s.room = s.slide.checked_sub(1).and_then(|i| rooms.get(i).copied().flatten());
+    }
 }
 
 /// The layouts a slide may take in place of `own`, the one it took (PLAN G.13): for a slide of
@@ -981,9 +1087,16 @@ pub fn looked(
     let Some(after) = make(&changes)? else { return unchanged(before, invalid) };
     let refused = worse((&before.0, &before.1), (&after.0, &after.1));
     if refused.is_empty() {
-        return Ok(adopt(before.0, after, changes, &[]));
+        return Ok(adopt(before.0, after, changes, Vec::new()));
     }
+    // Each change let go, said with what lint found (lift-up USE-4).
+    let said = refusals(&changes, &refused, (&before.0, &before.1), (&after.0, &after.1));
     let kept = kept(changes, &refused);
+    let unchanged = |before: (Generated, Write), why: &str| {
+        let (mut made, mut write) = unchanged(before, why)?;
+        refuse(&mut made, &mut write, said.clone());
+        Ok((made, write))
+    };
     if kept.is_empty() {
         return unchanged(before, &unkept(refused.len()));
     }
@@ -991,7 +1104,7 @@ pub fn looked(
     if !worse((&before.0, &before.1), (&again.0, &again.1)).is_empty() {
         return unchanged(before, "lint found a slide the model changed worse for it");
     }
-    Ok(adopt(before.0, again, kept, &refused))
+    Ok(adopt(before.0, again, kept, said))
 }
 
 /// What lint finds wrong with each slide of a made deck, in all its states: its errors, and its
@@ -1022,6 +1135,78 @@ pub fn worse(before: (&Generated, &Write), after: (&Generated, &Write)) -> Vec<u
     (0..was.len().min(now.len())).filter(|i| now[*i].0 > was[*i].0 || now[*i].1 > was[*i].1).collect()
 }
 
+/// What `change` asked, in a person's words: "the layout Two Columns and the title “Ready to
+/// scale”".
+pub fn asked(change: &Change) -> String {
+    let mut parts = Vec::new();
+    if let Some(layout) = change.layout.as_deref().filter(|l| !l.is_empty()) {
+        parts.push(format!("the layout {layout}"));
+    }
+    if let Some(title) = &change.title {
+        parts.push(format!("the title \u{201c}{title}\u{201d}"));
+    }
+    if let Some(subtitle) = &change.subtitle {
+        parts.push(format!("the subtitle \u{201c}{subtitle}\u{201d}"));
+    }
+    if change.bullets.is_some() {
+        parts.push("new points".into());
+    }
+    match parts.as_slice() {
+        [] => "a change".into(),
+        [one] => one.clone(),
+        [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
+    }
+}
+
+/// The changes on the slides `refused` names by index, which lint found worse in `after` than in
+/// `before` ([`worse`]), each with what it asked and the first thing lint found on the slide that
+/// it did not before, errors first (lift-up USE-4).
+pub fn refusals(
+    changes: &[Change],
+    refused: &[usize],
+    before: (&Generated, &Write),
+    after: (&Generated, &Write),
+) -> Vec<Refused> {
+    use scaena_core::Severity;
+    let on = |made: &Generated, write: &Write, index: usize| -> Vec<Finding> {
+        let slides = write.deck.slides();
+        let Some(states) = slides.get(index) else { return Vec::new() };
+        let ids: Vec<&str> = states.iter().map(|k| write.deck.states[*k].id.as_str()).collect();
+        (made.created.findings.iter())
+            .filter(|f| f.severity != Severity::Info && f.state.as_deref().is_some_and(|s| ids.contains(&s)))
+            .cloned()
+            .collect()
+    };
+    (refused.iter())
+        .map(|&index| {
+            let was = on(before.0, before.1, index);
+            let mut new: Vec<Finding> = (on(after.0, after.1, index).into_iter())
+                .filter(|f| !was.iter().any(|w| w.code == f.code && w.node == f.node))
+                .collect();
+            scaena_core::sort::by_key(&mut new, |f| f.severity != Severity::Error);
+            let why = (new.first())
+                .map(|f| scaena_core::words::said(&f.code, f.measure.as_ref()).unwrap_or_else(|| f.message.clone()))
+                .unwrap_or_else(|| "lint found the slide worse for it".into());
+            let what = (changes.iter()).find(|c| c.slide == index + 1).map(asked).unwrap_or_else(|| "a change".into());
+            Refused { slide: index + 1, what, why }
+        })
+        .collect()
+}
+
+/// `refused` kept as the report says them and as the deck keeps them, in `meta.narrative.refused`,
+/// which its Story reads (lift-up USE-4).
+pub fn refuse(made: &mut Generated, write: &mut Write, refused: Vec<Refused>) {
+    if refused.is_empty() {
+        return;
+    }
+    let meta = write.deck.meta.get_or_insert_with(Default::default);
+    let narrative = meta.extra.entry("narrative".to_string()).or_insert_with(|| json!({}));
+    if let Some(narrative) = narrative.as_object_mut() {
+        narrative.insert("refused".into(), json!(refused));
+    }
+    made.refused = refused;
+}
+
 /// `changes` less those on the slides `refused` names by index.
 pub fn kept(mut changes: Vec<Change>, refused: &[usize]) -> Vec<Change> {
     changes.retain(|c| !c.slide.checked_sub(1).is_some_and(|index| refused.contains(&index)));
@@ -1050,16 +1235,23 @@ pub fn unkept(n: usize) -> String {
 }
 
 /// The deck `after` made with the model's `kept` changes, standing for `before`'s: the arc's
-/// fallback and the pictures carried over, and `refused` said.
-pub fn adopt(before: Generated, after: (Generated, Write), kept: Vec<Change>, refused: &[usize]) -> (Generated, Write) {
-    let (mut made, write) = after;
+/// fallback and the pictures carried over, and the changes `refused` said and kept with it.
+pub fn adopt(
+    before: Generated,
+    after: (Generated, Write),
+    kept: Vec<Change>,
+    refused: Vec<Refused>,
+) -> (Generated, Write) {
+    let (mut made, mut write) = after;
     made.fallback = before.fallback;
     made.pictures = before.pictures;
     made.unpictured = before.unpictured;
     made.looked = kept;
     if !refused.is_empty() {
-        made.unlooked = Some(as_made(refused));
+        let slides: Vec<usize> = refused.iter().map(|r| r.slide - 1).collect();
+        made.unlooked = Some(as_made(&slides));
     }
+    refuse(&mut made, &mut write, refused);
     (made, write)
 }
 
@@ -1615,6 +1807,7 @@ pub fn making(
         unpictured: Vec::new(),
         looked: Vec::new(),
         unlooked: None,
+        refused: Vec::new(),
     };
     let Some(mut write) = write else { return Ok((made, None)) };
     let nothing = scaena_store::Files::Zip(Default::default());
@@ -1985,6 +2178,10 @@ fn assemble(
             idea: (narrative.outline.as_ref()).map(|o| o.big_idea.trim()).filter(|i| !i.is_empty()),
             icons,
             lang: lang.unwrap_or("en"),
+            grounded: (slide.source_ref.as_deref())
+                .and_then(|named| source_named(&narrative.sources, named))
+                .map(|s| if s.name.trim().is_empty() { s.url.as_deref().unwrap_or_default() } else { s.name.as_str() })
+                .filter(|n| !n.trim().is_empty()),
         };
         let last = first + i + 1 == total;
         let peak = peaked == Some(i);
@@ -3785,6 +3982,9 @@ struct Slots<'a> {
     icons: Option<Vec<&'a Icon>>,
     /// The deck's language (BCP 47).
     lang: &'a str,
+    /// The name of the source the slide was grounded in, where it names one the deck was given:
+    /// its title, else its address (lift-up 20261025 FUNC-3).
+    grounded: Option<&'a str>,
 }
 
 /// What one slide added beyond its nodes: the data source its chart reads, and the steps its
@@ -4045,8 +4245,24 @@ impl Slots<'_> {
     /// A chart's caption: its source, else the slide's supporting fact. What it shows is its
     /// value axis's title, which a caption never says again.
     fn caption(&self) -> Option<String> {
-        let chart = self.slide.chart_data.as_ref()?;
-        (chart.source_id.as_deref().filter(|s| !s.trim().is_empty())).map(|s| self.sourced(s)).or_else(|| self.fact())
+        self.slide.chart_data.as_ref()?;
+        self.credit().or_else(|| self.fact())
+    }
+
+    /// "Source: …": the source the model wrote for the slide's chart, the one the slide was
+    /// grounded in, or both where they differ, the model's words first (lift-up 20261025 FUNC-3).
+    fn credit(&self) -> Option<String> {
+        let wrote = (self.slide.chart_data.as_ref())
+            .and_then(|c| c.source_id.as_deref())
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
+        let said = match (wrote, self.grounded) {
+            (Some(w), Some(g)) if !loose(w).contains(&loose(g)) => format!("{w} \u{b7} {g}"),
+            (Some(w), _) => w.to_string(),
+            (None, Some(g)) => g.to_string(),
+            (None, None) => return None,
+        };
+        Some(self.sourced(&said))
     }
 
     fn fact(&self) -> Option<String> {
@@ -4351,23 +4567,30 @@ impl Slots<'_> {
             }
             "under" | "detail" => self.fact().or_else(|| self.item(1).map(|i| i.whole.clone())),
             // A chart's source, in a place of its own beside its note (dogfood pass 4).
-            "source" => self.caption(),
+            "source" => self.caption().or_else(|| self.credit()),
             // A note beside a place for the source: the slide's fact where the source took none of it.
             "note" if self.has("source") && self.slide.chart_data.is_some() => {
-                let sourced = (self.slide.chart_data.as_ref().and_then(|c| c.source_id.as_deref()))
-                    .is_some_and(|s| !s.trim().is_empty());
-                if sourced { self.fact() } else { None }
+                if self.credit().is_some() {
+                    self.fact()
+                } else {
+                    None
+                }
             }
             "note" if layout.ends_with("chart") && self.slide.chart_data.is_some() => self.caption(),
             "note" => {
-                let source = self.slide.chart_data.as_ref().and_then(|c| c.source_id.clone()).map(|s| self.sourced(&s));
                 // What the headline leaves to say, where the layout has no place of its own for it
                 // and the slide is no chart's, whose value axis says it: a source or a fact stays
                 // first, never stacked with it.
                 let placed = ["subtitle", "support", "dek", "follow", "talk", "lede"].iter().any(|n| self.has(n));
                 let chart = self.slide.chart_data.is_some();
                 let fallback = if layout == "full" || (!placed && !chart) { self.subtitle() } else { None };
-                source.or_else(|| self.fact()).or(fallback)
+                // A chart's source first, as its caption says it; on a slide with no chart, the
+                // source it was grounded in only where none of the writer's words takes the place
+                // (lift-up 20261025 FUNC-3).
+                match chart {
+                    true => self.credit().or_else(|| self.fact()).or(fallback),
+                    false => self.fact().or(fallback).or_else(|| self.credit()),
+                }
             }
             "story" | "details" => (!self.items.is_empty()).then(|| self.wholes().join("\n")),
             "body" | "needs" | "method" => {
@@ -6735,6 +6958,81 @@ mod tests {
                 (name, deck(&n, &theme, &Pictures::new()).unwrap())
             })
             .collect()
+    }
+
+    /// Each title's room measured, and a topic title let grow to the claim its writer wrote
+    /// (lift-up FUNC-2), measured on the nine dogfood decks: each content title with no figure
+    /// cut to a topic, its first three words, and the look asked to give it back its claim.
+    /// Held to its own length and a few characters, almost none is taken; held to its place,
+    /// most are.
+    #[test]
+    #[cfg(feature = "shipped")]
+    fn a_topic_title_may_grow_to_the_claim_its_place_holds() {
+        let decks = [
+            ("deepdive", "dusk"),
+            ("board-de", "daybreak"),
+            ("appeal", "ember"),
+            ("training", "salon"),
+            ("pitch", "dusk"),
+            ("qbr", "daybreak"),
+            ("lecture", "salon"),
+            ("keynote", "ember"),
+            ("launch", "ember"),
+        ];
+        let font = |file: &str| -> Result<Vec<u8>, OpsError> {
+            match crate::shipped::fonts().find(|(path, _)| *path == file) {
+                Some((_, bytes)) => Ok(bytes.to_vec()),
+                None => Ok(std::fs::read(root().join("docs/examples").join(file))?),
+            }
+        };
+        let framing = ["Title", "Agenda", "Section", "Divider", "Closing", "Q&A", "Thank"];
+        let (mut asked, mut before, mut after) = (0, 0, 0);
+        for (name, theme) in decks {
+            let path = root().join(format!("tests/fixtures/dogfood/{name}.slides.json"));
+            let written = answer::slides(&std::fs::read_to_string(path).unwrap()).unwrap();
+            let last = written.slides.len() - 1;
+            let mut claims = Vec::new();
+            let topics: Vec<Slide> = (written.slides.iter().enumerate())
+                .map(|(i, slide)| {
+                    let words: Vec<&str> = slide.slide_title.split_whitespace().collect();
+                    let content = i != 0
+                        && i != last
+                        && !framing.iter().any(|f| slide.layout_suggestion.contains(f))
+                        && words.len() > 4
+                        && !slide.slide_title.chars().any(|c| c.is_ascii_digit());
+                    if !content {
+                        return slide.clone();
+                    }
+                    claims.push((i + 1, slide.slide_title.clone()));
+                    Slide { slide_title: words[..3].join(" "), ..slide.clone() }
+                })
+                .collect();
+            let n = narrative(&written.executive_summary, topics);
+            let shipped = crate::shipped::theme(theme).unwrap();
+            let model: Theme = serde_json::from_str(shipped.text).unwrap();
+            let built = deck(&n, &model, &Pictures::new()).unwrap();
+            let layouts = built.layouts.clone();
+            let (_, write) = making(built, &n.arc, Path::new(shipped.file), shipped.text.to_string(), &font).unwrap();
+            let write = write.unwrap();
+            let measured = rooms(&write);
+            assert_eq!(measured.len(), n.slides.len(), "{name}: a room for each slide");
+            let unmeasured = seeing(&n, &model, &Pictures::new(), &layouts);
+            let mut seen = unmeasured.clone();
+            roomed(&mut seen, &measured);
+            let answer = json!({ "slides": (claims.iter()).map(|(slide, claim)| json!({
+                "slide": slide, "layout": "", "title": claim, "subtitle": "", "bullets": [], "why": "Its claim."
+            })).collect::<Vec<_>>() })
+            .to_string();
+            let taken = |seen: &[scaena_narrato::look::Seen]| scaena_narrato::look::read(&answer, seen).unwrap().len();
+            let (was, now) = (taken(&unmeasured), taken(&seen));
+            eprintln!("{name}: {} topic titles, {was} taken before, {now} after", claims.len());
+            asked += claims.len();
+            before += was;
+            after += now;
+        }
+        eprintln!("all: {asked} topic titles, {before} taken before, {after} after");
+        assert!(asked >= 30, "{asked}");
+        assert!(after > before * 3 && after * 2 > asked, "{before} before, {after} after, of {asked}");
     }
 
     #[test]
@@ -9254,6 +9552,39 @@ mod tests {
         after.created.findings.push(long);
         assert_eq!(worse((&made, &write), (&after, &write)), vec![3]);
         assert_eq!(kept(made.looked.clone(), &[13]).len(), 1);
+        // The change let go is said with what lint found, and kept by the deck, whose Story says
+        // it (lift-up USE-4).
+        let asked_for = Change {
+            slide: 4,
+            layout: Some("Two Columns".into()),
+            title: Some("Heat, mapped".into()),
+            bullets: Some(vec!["Hotter".into()]),
+            why: "Two sides.".into(),
+            ..Change::default()
+        };
+        assert_eq!(asked(&asked_for), "the layout Two Columns, the title \u{201c}Heat, mapped\u{201d} and new points");
+        let said = refusals(&[asked_for], &[3], (&made, &write), (&after, &write));
+        let why = scaena_core::words::said("W203", None).unwrap();
+        assert_eq!(
+            said,
+            [Refused {
+                slide: 4,
+                what: "the layout Two Columns, the title \u{201c}Heat, mapped\u{201d} and new points".into(),
+                why: why.clone(),
+            }]
+        );
+        let (mut kept_made, mut kept_write) = (made.clone(), write.clone());
+        refuse(&mut kept_made, &mut kept_write, said.clone());
+        assert_eq!(kept_made.refused, said);
+        let meta = &kept_write.deck.meta.as_ref().unwrap().extra["narrative"];
+        assert_eq!(meta["refused"][0]["slide"], 4);
+        assert_eq!(meta["arc"], deck["meta"]["narrative"]["arc"], "the rest of the narrative stands");
+        let story = crate::health::health(&kept_write.deck).unwrap();
+        let look: Vec<_> = story.findings.iter().filter(|f| f.kind == crate::health::Kind::Look).collect();
+        assert_eq!(look.len(), 1);
+        assert_eq!((look[0].slide, look[0].severity), (4, scaena_core::Severity::Info));
+        assert!(look[0].says.starts_with("Slide 4 was kept as made: the model asked for the layout Two Columns"));
+        assert!(look[0].says.ends_with(&why), "{}", look[0].says);
     }
 
     /// A long deck is shown to the model a dozen slides at a time (narrative PERF-5): each round
@@ -9902,6 +10233,46 @@ mod tests {
         assert!(write.unwrap().deck.to_value().unwrap()["meta"]["narrative"].get("sources").is_none());
     }
 
+    /// A chart's slide grounded in a source the deck was given credits it where it shows its
+    /// source: the source's name where the model gave none, after the model's words where both
+    /// differ, once where they agree. A slide with no chart keeps its writer's words in its place
+    /// (lift-up 20261025 FUNC-3).
+    #[test]
+    fn a_slide_credits_the_source_it_was_grounded_in() {
+        let notes = source("notes.md", Kind::Markdown, "# Tidewater\nShipping emits about 3% of CO2.");
+        let g = grounding(&[notes], Provider::Anthropic).unwrap();
+        let (summary, mut slides) = catalog();
+        slides.truncate(8);
+        let made = |slides: Vec<Slide>| -> Vec<String> {
+            let mut n = narrative(&summary, slides);
+            n.sources = provenance(&g.given);
+            let (_, write) = generating(&n, Path::new("dusk.theme.json"), dusk(), &font).unwrap();
+            let deck = write.unwrap().deck.to_value().unwrap();
+            let mut said: Vec<String> = deck["nodes"].as_object().unwrap().values().map(words).collect();
+            said.retain(|w| !w.is_empty());
+            said.sort();
+            said
+        };
+        let plain = made(slides.clone());
+        let credits = |said: &[String]| -> Vec<String> {
+            said.iter().filter(|w| w.starts_with("Source: ")).cloned().collect::<Vec<_>>()
+        };
+        assert_eq!(credits(&plain), ["Source: Ecosystem Marketplace", "Source: ITF Transport Outlook"]);
+        for i in [3, 6, 7] {
+            slides[i].source_ref = Some("notes.md".into());
+        }
+        // The model's source dropped on one chart, and kept on the other.
+        slides[6].chart_data.as_mut().unwrap().source_id = None;
+        let grounded = made(slides.clone());
+        assert_eq!(credits(&grounded), ["Source: ITF Transport Outlook \u{b7} notes.md", "Source: notes.md"]);
+        // The slide with no chart says what its writer wrote, as it did.
+        let fact = plain.iter().find(|w| w.starts_with("International Maritime Organization")).unwrap();
+        assert!(grounded.contains(fact), "{grounded:?}");
+        // Where the model's words already name the source, it is said once.
+        slides[7].chart_data.as_mut().unwrap().source_id = Some("Notes.md, Tidewater".into());
+        assert!(credits(&made(slides)).contains(&"Source: Notes.md, Tidewater".to_string()));
+    }
+
     #[test]
     fn each_sheet_given_is_kept_as_a_data_source_of_the_deck() {
         let (summary, slides) = catalog();
@@ -10508,6 +10879,60 @@ mod tests {
         let after = patched(&doc, &written.patch);
         assert_eq!(after["spine"]["sections"][0]["beats"][0]["states"], json!(written.states));
         assert_eq!(firsts(&after), [written.states[0].clone()]);
+    }
+
+    /// A slide written for a grounded deck is asked with the deck's one idea, the claim its
+    /// outline settled for the slide's beat (not the spine's, the old headline), the sources it
+    /// credits, named only, and the rows of the data it keeps, told apart (lift-up 10-25b FUNC-1).
+    #[test]
+    fn a_slide_for_a_grounded_deck_is_asked_with_its_idea_its_settled_claim_and_its_sources() {
+        let (mut doc, files) = deck_at("docs/examples/revenue.deck.json");
+        // A deck made by hand credits no source, and its data's rows are given all the same.
+        let plain = one_asked(&doc, &Place::Replace("revenue".into()), "", &read_by(&files)).unwrap();
+        assert_eq!(plain.big_idea, None);
+        let rows = plain.sources.unwrap();
+        assert!(rows.starts_with("The data the deck keeps, its rows given:\n`q3`: quarter, product"), "{rows}");
+        doc["meta"]["narrative"] = json!({
+            "sources": [{ "name": "Q3 board pack", "kind": "file", "url": "https://example.com/q3", "bytes": 10, "truncated": false }],
+            "outline": { "bigIdea": "Pro carries the business now.", "beats": [
+                { "name": "Open", "claim": "The quarter changed us", "slides": 1 },
+                { "name": "Growth", "claim": "Pro tripled while Core held", "slides": 2 },
+            ] },
+        });
+        let asked = one_asked(&doc, &Place::Replace("revenue".into()), "", &read_by(&files)).unwrap();
+        assert_eq!(asked.big_idea.as_deref(), Some("Pro carries the business now."));
+        assert_eq!(asked.claim.as_deref(), Some("Pro tripled while Core held"), "the outline's, by its section");
+        let sources = asked.sources.unwrap();
+        // The credited sources, named only, then the data the deck keeps, told apart.
+        assert!(
+            sources.starts_with(
+                "The sources the deck credits, named only (their text is not given here):\n- Q3 board pack (https://example.com/q3)"
+            ),
+            "{sources}"
+        );
+        assert!(
+            sources
+                .contains("\n\nThe data the deck keeps, its rows given:\n`q3`: quarter, product, revenue, customers")
+        );
+        // By the beat's index into the outline, where Narrato's fields keep one.
+        doc["spine"]["sections"][1]["beats"][0]["media"]["narrato"] = json!({ "beatIndex": 0 });
+        let indexed = one_asked(&doc, &Place::Replace("revenue".into()), "", &read_by(&files)).unwrap();
+        assert_eq!(indexed.claim.as_deref(), Some("The quarter changed us"));
+    }
+
+    /// A slide written into a grounded deck cites the source its `sourceRef` names in its beat's
+    /// evidence, as a made deck's slides do (lift-up 10-25b FUNC-1).
+    #[test]
+    fn a_slide_written_into_a_grounded_deck_cites_its_source() {
+        let (mut doc, theme, slides) = made_of(&[0, 8]);
+        doc["meta"]["narrative"]["sources"] = json!([{ "name": "Q3 board pack", "kind": "file", "url": "https://example.com/q3", "bytes": 10, "truncated": false }]);
+        let mut slide = slides[12].clone();
+        slide.source_ref = Some("Q3 board pack".into());
+        let written = slide_into(&doc, &theme, slide, &Place::End, None, BTreeMap::new(), &no_files()).unwrap();
+        let after = patched(&doc, &written.patch);
+        let (s, b, _) = beat_of(&after, &written.states[0]);
+        let evidence = &after["spine"]["sections"][s]["beats"][b]["evidence"];
+        assert!(evidence.as_array().unwrap().iter().any(|e| e == "https://example.com/q3"), "{evidence}");
     }
 
     #[test]
