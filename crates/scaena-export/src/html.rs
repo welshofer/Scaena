@@ -166,8 +166,9 @@ mod tests {
             ("fonts/a \"b\".ttf".to_string(), vec![0, 1, 2, 255]),
         ]);
         let states = [("one".to_string(), "<h1 data-node=\"t\">Hi</h1>".to_string())];
-        let made = html(page, &Standalone { deck: &deck, name: "q3</script>", files: &files, states: &states, notes: true })
-            .expect("a page");
+        let made =
+            html(page, &Standalone { deck: &deck, name: "q3</script>", files: &files, states: &states, notes: true })
+                .expect("a page");
         assert!(made.starts_with(r#"<html lang="en-US"><title>Q3 &lt;Review&gt;</title>"#), "{made}");
         assert!(
             made.contains(
@@ -190,9 +191,11 @@ mod tests {
         // The same bundle, the same bytes.
         assert_eq!(
             made,
-            html(page, &Standalone { deck: &deck, name: "q3</script>", files: &files, states: &states, notes: true }).unwrap()
+            html(page, &Standalone { deck: &deck, name: "q3</script>", files: &files, states: &states, notes: true })
+                .unwrap()
         );
-        let wrong = html("<html>", &Standalone { deck: &deck, name: "q3", files: &files, states: &states, notes: true });
+        let wrong =
+            html("<html>", &Standalone { deck: &deck, name: "q3", files: &files, states: &states, notes: true });
         assert!(wrong.unwrap_err().to_string().contains("just web"));
         // A file without the speaker notes says so, for its presenter view to say (lift-up
         // 20261025 SEC-3).
