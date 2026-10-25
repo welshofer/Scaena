@@ -52,7 +52,7 @@ pub fn schema_gemini() -> Value {
 }
 
 /// The rewrites an answer gives, each kept where it names a text asked about, says something,
-/// and is no longer than the text it rewrites.
+/// is no longer than the text it rewrites, and writes its figures (REL-2).
 pub fn read(text: &str, longs: &[Long]) -> Result<Vec<(String, String)>, String> {
     let start = text.find('{').ok_or("the answer holds no JSON object")?;
     let end = text.rfind('}').ok_or("the answer holds no JSON object")?;
@@ -63,7 +63,12 @@ pub fn read(text: &str, longs: &[Long]) -> Result<Vec<(String, String)>, String>
         .iter()
         .filter_map(|t| Some((t.get("id")?.as_str()?.to_string(), t.get("text")?.as_str()?.trim().to_string())))
         .filter(|(id, text)| {
-            longs.iter().any(|l| &l.id == id && !text.is_empty() && text.chars().count() < l.text.chars().count())
+            longs.iter().any(|l| {
+                &l.id == id
+                    && !text.is_empty()
+                    && text.chars().count() < l.text.chars().count()
+                    && crate::same_figures(&l.text, text)
+            })
         })
         .collect())
 }
@@ -98,5 +103,12 @@ mod tests {
         let read = read(answer, &[long()]).unwrap();
         assert_eq!(read, vec![("a-header".to_string(), "Freight emissions keep climbing".to_string())]);
         assert!(super::read("no json", &[long()]).is_err());
+        // A rewrite that changes a figure is no rewrite of the same words (REL-2).
+        let figured =
+            Long { id: "f".into(), text: "Emissions per lane fell 41% across 38 pilot shippers".into(), most: 30 };
+        let answer = r#"{"texts": [{"id": "f", "text": "Emissions fell about 40% in pilots"}]}"#;
+        assert!(super::read(answer, std::slice::from_ref(&figured)).unwrap().is_empty());
+        let answer = r#"{"texts": [{"id": "f", "text": "Lane emissions fell 41% at 38 shippers"}]}"#;
+        assert_eq!(super::read(answer, &[figured]).unwrap().len(), 1);
     }
 }
