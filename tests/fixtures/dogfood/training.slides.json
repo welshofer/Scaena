@@ -1,0 +1,223 @@
+{
+ "executiveSummary": "A 45-minute training on writing blameless incident postmortems that people read and act on: what blameless means, the five parts in order, turning vague action items into owned, dated ones, the traps that make reviews useless, a short quiz, and a pre-publish checklist.",
+ "slides": [
+  {
+   "slideTitle": "Write postmortems people actually read",
+   "subtitle": "Incident review training · 45 minutes",
+   "layoutSuggestion": "Title",
+   "keyBullets": [],
+   "visualDescription": "A whiteboard covered in a hand-drawn incident timeline",
+   "speakerNotes": "- Welcome. By the end you'll write a postmortem in an hour, not a week.",
+   "beatIndex": 0,
+   "beatName": "Orientation",
+   "purpose": "Opens the session",
+   "intent": "Make attendees expect something practical",
+   "expectedIntensity": 0.2,
+   "expectedValence": 0.3
+  },
+  {
+   "slideTitle": "Today's plan",
+   "subtitle": "",
+   "layoutSuggestion": "Agenda",
+   "keyBullets": [
+    "What a blameless postmortem is",
+    "The five parts, in order",
+    "Good and bad action items",
+    "A quick quiz",
+    "What to do on your next incident"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "- Five parts. The quiz is short and anonymous.",
+   "beatIndex": 0,
+   "beatName": "Orientation",
+   "purpose": "Orients the session",
+   "intent": "Make the time feel well spent",
+   "expectedIntensity": 0.2,
+   "expectedValence": 0.2
+  },
+  {
+   "slideTitle": "Blameless postmortem",
+   "subtitle": "",
+   "layoutSuggestion": "Definition",
+   "keyBullets": [
+    "A written review of an incident that explains how the system let it happen, not who to blame",
+    "\"The deploy tool allowed a config push with no review\", not \"Sam pushed a bad config\""
+   ],
+   "visualDescription": "",
+   "speakerNotes": "- The example is the whole idea in one sentence.\n- Systems, not people.",
+   "beatIndex": 1,
+   "beatName": "Foundations",
+   "purpose": "Establishes the core term",
+   "intent": "Make the idea of blamelessness concrete",
+   "expectedIntensity": 0.4,
+   "expectedValence": 0.3
+  },
+  {
+   "slideTitle": "Write it in five parts, in this order",
+   "subtitle": "",
+   "layoutSuggestion": "Numbered",
+   "keyBullets": [
+    "Summary: what happened, in three sentences",
+    "Impact: who was affected and for how long",
+    "Timeline: what happened when, in UTC",
+    "Causes: what in the system allowed it",
+    "Actions: what we'll change, with owners"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "- The order matters: readers stop after the summary.\n- Write the summary last.",
+   "beatIndex": 1,
+   "beatName": "Foundations",
+   "purpose": "Gives the structure",
+   "intent": "Make the structure memorable",
+   "expectedIntensity": 0.4,
+   "expectedValence": 0.4
+  },
+  {
+   "slideTitle": "What every good postmortem has",
+   "subtitle": "",
+   "layoutSuggestion": "Bullet List",
+   "keyBullets": [
+    "Timeline: every event with a timestamp",
+    "People: who was paged, and when",
+    "Root cause: the system condition, not a person",
+    "Fixes: each with an owner and a date"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "- Four things. If one is missing, the review isn't done.",
+   "beatIndex": 1,
+   "beatName": "Foundations",
+   "purpose": "Lists the essentials",
+   "intent": "Make the checklist easy to recall",
+   "expectedIntensity": 0.4,
+   "expectedValence": 0.3,
+   "icons": [
+    "clock",
+    "users",
+    "target",
+    "wrench"
+   ]
+  },
+  {
+   "slideTitle": "From incident to published review in four steps",
+   "subtitle": "",
+   "layoutSuggestion": "Steps",
+   "keyBullets": [
+    "Gather: pull chat logs, graphs, and the pager history",
+    "Draft: write the timeline first, the summary last",
+    "Review: one reviewer from outside the team",
+    "Publish: share it within five working days"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "- Five working days is our standard.\n- The outside reviewer catches jargon.",
+   "beatIndex": 2,
+   "beatName": "Application",
+   "purpose": "Shows the process",
+   "intent": "Make it feel doable in a week",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.4
+  },
+  {
+   "slideTitle": "Turn a vague action item into one that gets done",
+   "subtitle": "",
+   "layoutSuggestion": "Before / After",
+   "keyBullets": [
+    "Before: Improve monitoring of the payments service",
+    "After: Alert when payment errors exceed 1% for 5 minutes — Priya — 30 Nov"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "- The first one will never be closed.\n- The second has a threshold, an owner, and a date.",
+   "beatIndex": 2,
+   "beatName": "Application",
+   "purpose": "Shows a worked example",
+   "intent": "Make the difference obvious",
+   "expectedIntensity": 0.6,
+   "expectedValence": 0.5
+  },
+  {
+   "slideTitle": "Three traps that make reviews useless",
+   "subtitle": "",
+   "layoutSuggestion": "Two-Column",
+   "keyBullets": [
+    "Blame in disguise: \"human error\" as a root cause hides what the system allowed",
+    "Action items with no owner: everyone's job is nobody's job"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "- Human error is a symptom. Ask what made the error easy.",
+   "beatIndex": 3,
+   "beatName": "Mastery",
+   "purpose": "Names the pitfalls",
+   "intent": "Make attendees catch themselves",
+   "expectedIntensity": 0.6,
+   "expectedValence": -0.2
+  },
+  {
+   "slideTitle": "Check yourself",
+   "subtitle": "Three questions, one minute each",
+   "layoutSuggestion": "Section Header",
+   "keyBullets": [],
+   "visualDescription": "",
+   "speakerNotes": "- Phones out. The link is on the screen.",
+   "beatIndex": 4,
+   "beatName": "Assessment",
+   "purpose": "Switches to the quiz",
+   "intent": "Make attendees ready to answer",
+   "expectedIntensity": 0.4,
+   "expectedValence": 0.3
+  },
+  {
+   "slideTitle": "Quick quiz",
+   "subtitle": "",
+   "layoutSuggestion": "Quiz",
+   "keyBullets": [
+    "Which is a root cause: \"Sam pushed a bad config\" or \"config pushes skip review\"?: Config pushes skip review",
+    "Who should review a postmortem?: Someone from outside the team",
+    "When should it be published?: Within five working days"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "- Give it a minute per question.\n- Most people get the first one right. The third surprises people.",
+   "beatIndex": 4,
+   "beatName": "Assessment",
+   "purpose": "Checks understanding",
+   "intent": "Make the key points stick",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.4
+  },
+  {
+   "slideTitle": "Before you publish, check these",
+   "subtitle": "",
+   "layoutSuggestion": "Checklist",
+   "keyBullets": [
+    "Done: timeline with timestamps in UTC",
+    "Done: impact in numbers",
+    "Next: every action has an owner and a date",
+    "Next: one outside reviewer has read it"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "- Print this. Pin it next to your monitor.",
+   "beatIndex": 5,
+   "beatName": "Transfer",
+   "purpose": "Gives a pre-publish checklist",
+   "intent": "Make the habit portable",
+   "expectedIntensity": 0.4,
+   "expectedValence": 0.4
+  },
+  {
+   "slideTitle": "Three things to remember",
+   "subtitle": "",
+   "layoutSuggestion": "Closing",
+   "keyBullets": [
+    "Systems, not people: name what allowed it",
+    "Every action has an owner and a date",
+    "Publish within five days, while it's fresh"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "- Thank you. The template is on the wiki.",
+   "beatIndex": 5,
+   "beatName": "Transfer",
+   "purpose": "Closes on takeaways",
+   "intent": "Make the three habits the last thing they hear",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.7
+  }
+ ]
+}
