@@ -1125,6 +1125,7 @@ async function edit(source: Source, opened?: Stage) {
         void load("geoapify").then((kept) => (kept?.key ? board.refreshMap(node, kept.key, how) : say("No Geoapify key is kept: Insert › Map… keeps one"))),
       // The tab a finding's field stands in (lift-up ATTR-4), and the timeline under the canvas.
       reveal: (on) => tab(on === "animate" ? "animate" : "inspector"),
+      focus: (node, said) => board.focusLines(node, said),
       timeline: (show) => {
         if (show !== undefined) hiding("cue", !show);
         return !hidden("cue");
@@ -2579,6 +2580,17 @@ async function edit(source: Source, opened?: Stage) {
       { label: "Make Code", group: "Type", where: ["node"], applies: () => prose(), run: () => board.coded(picked()[0], "code") },
       { label: "Not Code", group: "Type", where: ["node"], applies: () => isCode(), run: () => board.coded(picked()[0], "prose") },
       { label: "Tidy Code", group: "Type", where: ["node"], applies: () => isCode(), run: () => board.coded(picked()[0], "tidy") },
+      // A walkthrough (PLAN 2.140): the lines a step is about, the rest set back, each one patch
+      // that leaves the states after it as they were.
+      {
+        label: "Focus on These Lines",
+        group: "Type",
+        where: ["node"],
+        applies: () => isCode() && board.caretIn(picked()[0]),
+        run: () => board.focusTouched(picked()[0]),
+      },
+      { label: "Clear Focus", group: "Type", where: ["node"], applies: () => isCode(), run: () => board.focusLines(picked()[0], "") },
+      { label: "Walk Through Lines…", group: "Type", where: ["node"], applies: () => isCode(), run: () => board.walk(picked()[0]) },
       // A text's words, by the model the assistant uses, offered to take or leave (PLAN 2.101).
       ...(["proofread", "tighten", "rewrite"] as const).map(
         (kind): Command => ({

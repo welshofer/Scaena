@@ -785,6 +785,21 @@ impl Player {
         serde_json::to_string(&self.0.tidying(state, node).map_err(js)?).map_err(js)
     }
 
+    /// The patch that sets code text `node`'s lines in focus in `state` to those `said` names in its
+    /// gutter's numbers, as JSON (PLAN 2.140): Focus on These Lines, Lines in Focus, and, with
+    /// nothing said, Clear Focus; the states after it as they were. `[]` where it shows them so.
+    pub fn focusing(&self, state: &str, node: &str, said: &str) -> Result<String, JsError> {
+        serde_json::to_string(&self.0.focusing(state, node, said).map_err(js)?).map_err(js)
+    }
+
+    /// The patch Walk Through Lines… makes of code text `node` from `state`, as JSON (PLAN 2.140):
+    /// `steps` a JSON array of the lines each step shows, in the gutter's numbers, the first
+    /// `state`'s and a step after it for each of the rest; the states after them as they were.
+    pub fn walking(&self, state: &str, node: &str, steps: &str) -> Result<String, JsError> {
+        let steps: Vec<String> = serde_json::from_str(steps).map_err(js)?;
+        serde_json::to_string(&self.0.walking(state, node, &steps).map_err(js)?).map_err(js)
+    }
+
     /// `text` with `from` to `to` (UTF-16 code units) selected after `key` in a code text whose
     /// tab stops are `tab` columns apart, as JSON (PLAN 2.139): `{ text, from, to }`, or `null` for
     /// a key code does not answer. `language` is the text's `code.language`, so a Makefile's stop

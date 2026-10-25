@@ -84,6 +84,10 @@ export interface Around {
   /** Fetch the map image `node` shows again (ADR-0030, PLAN O.1c): `in` or `out` a step, centered
    * on its pin, or as it was asked. */
   remap?(node: string, how: "in" | "out" | "pin" | "again"): void;
+  /** Set code text `node`'s lines in focus in the state shown to those `said` names in its gutter's
+   * numbers, "2–4, 7"; nothing said shows every line (PLAN 2.140): one patch, the states after it
+   * as they were. */
+  focus?(node: string, said: string): Promise<void>;
   /** Show the tab a field stands in, Format or Animate (lift-up ATTR-4). */
   reveal?(tab: "format" | "animate"): void;
   /** The slide's animations on the timeline under the canvas: shown or hidden with `show`; whether
@@ -439,6 +443,12 @@ export function looks(stage: Stage, into: HTMLElement, around: Around, animating
         const words = offered && "node" in offered && offered.type === "text" ? "Its words" : "Describe it for someone who can’t see it";
         const [rows, empty] = f.prop === "alt" ? [2, words] : [3, "Notes you see as you present"];
         return `<textarea id="${id}" ${prop} rows="${rows}" placeholder="${empty}">${html(typeof value === "string" ? value : "")}</textarea>`;
+      }
+      case "lines": {
+        // A code text's lines in focus (PLAN 2.140), in its gutter's numbers; none shows every line.
+        const said = value === undefined ? "" : (f.words?.said[JSON.stringify(value)] ?? "");
+        const all = `${t.first}–${t.last}`;
+        return `<input id="${id}" type="text" ${prop} data-lines value="${html(said)}" placeholder="Every line (${all})" aria-label="${html(label)}, as the line numbers say them" title="The lines this step is about, ${html(all)}: 2–4, 7">`;
       }
       case "fractions": {
         // An image's focal point or crop (PLAN 2.45): what shows where nothing sets it. Each part
@@ -905,6 +915,10 @@ export function looks(stage: Stage, into: HTMLElement, around: Around, animating
     }
     const prop = target.dataset.prop;
     if (prop === undefined) return;
+    // A code text's lines in focus (PLAN 2.140): read by the engine, the states after as they were.
+    if (target.dataset.lines !== undefined && offered && "node" in offered && around.focus) {
+      return void around.focus(offered.node, target.value);
+    }
     // Fractions of the image, together (PLAN 2.45): a crop keeps some of the image, inside it.
     if (target.dataset.part !== undefined) {
       const inputs = [...into.querySelectorAll<HTMLInputElement>(`input[data-prop="${CSS.escape(prop)}"][data-part]`)];
@@ -950,7 +964,9 @@ export function looks(stage: Stage, into: HTMLElement, around: Around, animating
       return;
     }
     const away = (e.target as Element).closest<HTMLElement>("[data-away]");
-    if (away?.dataset.away) void choose(away.dataset.away, null);
+    // The lines in focus taken away show every line, the states after as they were (PLAN 2.140).
+    if (away?.dataset.away === "code/focus" && offered && "node" in offered && around.focus) void around.focus(offered.node, "");
+    else if (away?.dataset.away) void choose(away.dataset.away, null);
     const arranging = (e.target as Element).closest<HTMLElement>("[data-arrange]");
     if (arranging?.dataset.arrange) void around.arrange(JSON.parse(arranging.dataset.arrange) as Arrange);
     if ((e.target as Element).closest("[data-group]")) void around.group();

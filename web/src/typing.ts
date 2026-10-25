@@ -636,9 +636,13 @@ export function typing(stage: Stage, overlay: HTMLElement, around: Around) {
 
   /** Stop typing: the node stays selected. Keys typed after a change still with the worker are
    * made once it is (`finish`). */
+  /** The text last typed in, its words, and the selection in it as typing stopped. */
+  let last: { node: string; state: string; value: string; from: number; to: number } | undefined;
+
   function leave() {
     if (!open) return;
     const was = open.node;
+    last = { node: open.node, state: open.state, value: area.value, from: area.selectionStart, to: area.selectionEnd };
     if (sending && carets && area.value !== carets.text)
       finishing = { now: open, value: area.value, end: area.selectionEnd, bounds, text: carets.text, read };
     open = carets = read = undefined;
@@ -1098,6 +1102,9 @@ export function typing(stage: Stage, overlay: HTMLElement, around: Around) {
     selection,
     /** Whether a text is typed in, and which. */
     node: () => open?.node,
+    /** Where the caret was in the text last typed in, as typing stopped (UTF-16): what Focus on
+     * These Lines reads once the keys have left the text (PLAN 2.140). */
+    last: () => last,
     /** What is typed, for a test: the text, the caret, the lines the engine set it in, and
      * whether a change is with the worker. */
     now: () =>

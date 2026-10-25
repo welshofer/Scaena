@@ -43,6 +43,7 @@ pub const LABELS: &[(&str, &str)] = &[
     ("code/language", "Language"),
     ("code/numbers", "Line Numbers"),
     ("code/start", "First Line Number"),
+    ("code/focus", "Lines in Focus"),
     ("code/card", "Card"),
     ("opacity", "Opacity"),
     ("transform/rotate", "Rotation"),
@@ -892,7 +893,9 @@ pub struct FieldWords {
     /// The property as a presentation app labels it: `Font`, `Build In`, `Advance`.
     pub label: String,
     /// Each name or word offered, and the value and the theme's where they are one, said:
-    /// `onSurface` as `Text`, `fast` as `Fast (0.18 s)`, `cover` as `Fill`; a weight by its name.
+    /// `onSurface` as `Text`, `fast` as `Fast (0.18 s)`, `cover` as `Fill`; a weight by its name;
+    /// a code text's lines in focus by the value as JSON writes it, `[[2,4],7]`, as its gutter
+    /// numbers them, `2–4, 7` (PLAN 2.140).
     pub said: BTreeMap<String, String>,
     /// For a color, each of the theme's names offered, and the value and the theme's where they
     /// are one, as the color it is, `#rrggbb`: what a color well shows beside the name.
@@ -940,6 +943,13 @@ pub fn field(field: &Field, theme: &Theme) -> FieldWords {
             {
                 said.insert(s.clone(), say(s));
             }
+        }
+    }
+    // Lines in focus said as the gutter numbers them, by the value as JSON writes it (PLAN 2.140).
+    if let Takes::Lines { first, .. } = field.takes {
+        for value in shown.into_iter().flatten() {
+            let spans = crate::code::focus::spans(value);
+            said.insert(value.to_string(), crate::code::focus::said(&spans, first));
         }
     }
     // A color well shows the color each name is, and the value's and the theme's.

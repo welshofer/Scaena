@@ -10,6 +10,8 @@
 // - Keys typed in it in one burst (PLAN 2.139): Enter a line a stop in after `{`, Shift+Tab a stop
 //   out, letters between, each in turn and one step to undo; ⌘B withheld. Not Code, Tidy Code,
 //   and Make Code, each from the palette.
+// - A walkthrough (PLAN 2.140): Walk Through Lines… adds a step for each range in one step to undo;
+//   Clear Focus with none set changes nothing; Focus on These Lines sets the caret's line.
 // - Prose pastes as words, and Paste as Text pastes code as words.
 // - VS Code's mode names the language of what it copies.
 // - A Makefile's keys keep its recipes' tabs.
@@ -142,6 +144,37 @@ try {
   await says("The code copied as text");
   const copied = await page.evaluate(() => navigator.clipboard.readText());
   check(copied === "fn main() {\n    let total = 42;\n    println!(\"{total}\");\n}", `Copy Code copies its words: ${JSON.stringify(copied)}`);
+
+  // A walkthrough (PLAN 2.140): Walk Through Lines… asks the lines each step shows, from the whole
+  // block to the whole block, and adds a step for each after the first, gliding in, in one patch;
+  // ⌘Z takes them back. Clear Focus with none set changes nothing. Focus on These Lines sets the
+  // lines the caret touches, in the state shown.
+  const states = async () => ((await source()).match(/^state /gm) ?? []).length;
+  const before = await states();
+  await run("Walk Through Lines…");
+  const asked = page.locator(".note-words");
+  await asked.waitFor({ timeout: 10000 });
+  check((await asked.inputValue()) === "1–4; 1–4", `it asks from the whole block to the whole block: ${await asked.inputValue()}`);
+  await asked.fill("1–4; 2–3; 4; 1–4");
+  await asked.press("Enter");
+  check(await changed(pasted), "Walk Through Lines… changes the deck");
+  check(await says("3 steps added"), `a step for each range after the first: ${await status()}`);
+  check((await states()) === before + 3, `three steps in the deck: ${await states()}`);
+  const walked = await source();
+  check(/focus/.test(walked) && /\[2, 3\]/.test(walked), "each step names its lines in focus");
+  check(await undo(pasted), "⌘Z takes the walkthrough back in one step");
+  await run("Clear Focus");
+  check(await says("shows every line already"), `Clear Focus with none set changes nothing: ${await status()}`);
+  await page.locator("#overlay").focus();
+  await page.keyboard.press("Enter");
+  await page.waitForFunction(() => window.scaena.canvas.typing?.() !== undefined, null, { timeout: 30000 }).catch(() => {});
+  await page.keyboard.press("Control+Home");
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("Escape");
+  await run("Focus on These Lines");
+  check(await says("lines 2 in focus"), `Focus on These Lines sets the line the caret was on: ${await status()}`);
+  check(await changed(pasted), "the focus is set");
+  check(await undo(pasted), "⌘Z takes the focus away");
 
   // Keys typed in code (PLAN 2.139), in one burst: Enter after `fn main() {` is a line a stop in,
   // two letters on it, Shift+Tab a stop out, and a third; the engine answers each key in turn, so
