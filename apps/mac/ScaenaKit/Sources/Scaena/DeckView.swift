@@ -1025,6 +1025,17 @@ struct DeckView: View {
                 .overlayPreferenceValue(CanvasHint.Key.self) { hint in
                     DeskHint(hint: hint, desk: room.size, slide: slide, visible: visible)
                 }
+                // A beat's claim the last edit left behind, offered restated in the slide's words
+                // (lift-up FUNC-2): one step to undo.
+                .overlay(alignment: .top) {
+                    if let words = editor.restatingSaid, let restating = editor.restating {
+                        RestateBar(words: words, fixable: !restating.fix.isEmpty) {
+                            perform { try document.make(restating.fix, undo: undo, named: "Update Story") }
+                        } keep: {
+                            editor.keepClaim()
+                        }
+                    }
+                }
                 #if os(macOS)
                 // The wheel and a pinch anywhere on the desk, as the browser's preview takes them
                 // (PLAN 2.46): a pinch, or the wheel with ⌘, zooms about the pointer, and the wheel
@@ -2037,6 +2048,35 @@ struct DeckView: View {
         } catch {
             failure = Why.said(error)
         }
+    }
+}
+
+/// A beat's claim the last edit left behind (lift-up FUNC-2), said as the window says things
+/// (PLAN 2.99), with Update, which restates it in the slide's words, and Keep, which leaves it.
+struct RestateBar: View {
+    let words: String
+    let fixable: Bool
+    let update: () -> Void
+    let keep: () -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Text(words)
+                .font(.callout)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+            if fixable {
+                Button("Update", action: update)
+                    .accessibilityIdentifier("restate")
+            }
+            Button(fixable ? "Keep" : "OK", action: keep)
+                .accessibilityIdentifier("keepClaim")
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(.regularMaterial, in: Capsule())
+        .padding(.top, 8)
+        .padding(.horizontal, 16)
     }
 }
 

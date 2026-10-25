@@ -67,6 +67,7 @@ import type {
   Mapped,
   Compared,
   Restored,
+  Restated,
   Rewritten,
   Grid,
   Grouped,
@@ -723,6 +724,9 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
           files: JSON.parse(player.bundleFiles()) as BundleFile[],
           grounded: JSON.parse(player.grounded()) as Grounded[],
         });
+      case "restated":
+        current(data.source);
+        return post({ type: "restated", id: data.id, restated: JSON.parse(player.restated(data.before)) as Restated[] });
       case "health": {
         current(data.source);
         const deck = deckRead();

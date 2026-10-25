@@ -115,3 +115,39 @@ fn a_hold_that_makes_the_deck_run_on_its_own_reaches_every_state() {
     );
     assert_eq!(said(&scoped.added), said(&whole.added));
 }
+
+/// A patch that takes a headline away from its beat's claim says so, with the patch that
+/// restates the claim in the headline's words; one that sets the claim with it, or leaves the
+/// headline saying it, says nothing (lift-up FUNC-2).
+#[test]
+fn a_patch_that_leaves_a_claim_behind_reports_it_restated() {
+    let b = scaena_ops::open(Path::new("../../docs/examples/revenue.deck.json")).unwrap();
+    let typed =
+        json!([{ "op": "replace_text", "node": "title", "state": "revenue", "from": 8, "to": 15, "text": "tripled" }]);
+    let patched = scaena_ops::patch::patch(&b, &typed, true).unwrap();
+    assert!(!patched.refused && patched.states == ["revenue"], "{patched:#?}");
+    assert_eq!(patched.restated.len(), 1, "{:#?}", patched.restated);
+    let r = &patched.restated[0];
+    assert_eq!((r.beat.as_str(), r.says.as_deref()), ("doubled", Some("Revenue tripled")));
+    assert_eq!(
+        r.fix[1],
+        json!({ "op": "replace", "path": "/spine/sections/1/beats/0/claim", "value": "Revenue tripled" })
+    );
+    let report = serde_json::to_value(&patched).unwrap();
+    assert_eq!(report["restated"][0]["beat"], "doubled");
+    // deck_patch's report says it too.
+    let reported = scaena_ops::patch::reported(&b, &typed, true, false).unwrap();
+    assert_eq!(reported.restated, patched.restated);
+
+    // The claim set in the same patch: nothing left behind.
+    let mut both = typed.as_array().unwrap().clone();
+    both.extend(r.fix.iter().cloned());
+    assert!(scaena_ops::patch::patch(&b, &Value::Array(both), true).unwrap().restated.is_empty());
+    // A headline that still says the claim: nothing either.
+    let kept = json!([{ "op": "replace_text", "node": "title", "state": "revenue", "from": 15, "to": 15, "text": " year over year" }]);
+    let patched = scaena_ops::patch::patch(&b, &kept, true).unwrap();
+    assert!(
+        patched.restated.is_empty()
+            && !serde_json::to_value(&patched).unwrap().as_object().unwrap().contains_key("restated")
+    );
+}

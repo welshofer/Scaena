@@ -612,10 +612,12 @@ pub struct Slot {
     /// Default text role for nodes placed in this slot.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub role: Option<String>,
-    /// How far in from its cells the slot stands on each side, canvas units (theme format 0.11,
-    /// PLAN 3.30): words on a card that fills the same cells.
+    /// How far in from its cells the slot stands, canvas units (theme format 0.11, PLAN 3.30):
+    /// one number on each side, words on a card that fills the same cells; or each side its own
+    /// (theme format 0.27), as words under a text set on the foot of its cells stand clear of its
+    /// descenders.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub inset: Option<f64>,
+    pub inset: Option<SlotInset>,
     /// What goes in the slot (theme format 0.11, PLAN 3.30). Words a person types over: a new
     /// slide in the layout puts a text in the slot's `role` there, with these words, each item of
     /// a list a paragraph. A slot with no role says in words what goes in it, a picture or a
@@ -656,6 +658,40 @@ impl Slot {
             (Some(_), _) => kind == NodeType::Text,
             (None, Some(_)) => matches!(kind, NodeType::Image | NodeType::Chart | NodeType::Table | NodeType::Shader),
             (None, None) => true,
+        }
+    }
+}
+
+/// How far in from its cells a slot stands: the same on each side, or each side its own (theme
+/// format 0.27), a side left out none.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(untagged)]
+pub enum SlotInset {
+    All(f64),
+    Sides(Sides),
+}
+
+/// Each side's own inset, canvas units.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+#[schemars(extend("minProperties" = 1))]
+pub struct Sides {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub top: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub right: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bottom: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub left: Option<f64>,
+}
+
+impl SlotInset {
+    /// Its sides: top, right, bottom, left.
+    pub fn sides(&self) -> [f64; 4] {
+        match *self {
+            SlotInset::All(n) => [n; 4],
+            SlotInset::Sides(s) => [s.top, s.right, s.bottom, s.left].map(|n| n.unwrap_or(0.0)),
         }
     }
 }

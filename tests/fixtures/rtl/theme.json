@@ -500,7 +500,11 @@
             "y": "cap"
           },
           "role": "display",
-          "prompt": "The talk's title"
+          "prompt": "The talk's title",
+          "inset": {
+            "bottom": 39
+          },
+          "fit": "shrink"
         },
         "subtitle": {
           "col": [

@@ -484,8 +484,8 @@
         "align": { "$ref": "#/$defs/Align" },
         "role": { "description": "Default text role for nodes placed in this slot.", "type": "string" },
         "inset": {
-          "description": "How far in from its cells the slot stands on each side, canvas units (theme format 0.11, PLAN 3.30): words on a card that fills the same cells.",
-          "type": "number"
+          "description": "How far in from its cells the slot stands, canvas units (theme format 0.11, PLAN 3.30): one number on each side, words on a card that fills the same cells; or each side its own (theme format 0.27), as words under a text set on the foot of its cells stand clear of its descenders.",
+          "$ref": "#/$defs/SlotInset"
         },
         "prompt": {
           "description": "What goes in the slot (theme format 0.11, PLAN 3.30). Words a person types over: a new slide in the layout puts a text in the slot's `role` there, with these words, each item of a list a paragraph. A slot with no role says in words what goes in it, a picture or a figure, and a new slide leaves it empty, an editor outlining it. A shape: a new slide puts one there, under what is placed in the slots over it, a card or a rule. A format's slot keeps the layout's prompt.",
@@ -523,6 +523,22 @@
       "properties": { "x": { "$ref": "#/$defs/AlignX" }, "y": { "$ref": "#/$defs/AlignY" } }
     },
     "AlignY": { "type": "string", "enum": ["start", "center", "end", "stretch", "cap", "baseline", "x-height"] },
+    "SlotInset": {
+      "description": "How far in from its cells a slot stands: the same on each side, or each side its own (theme format 0.27), a side left out none.",
+      "anyOf": [{ "type": "number" }, { "$ref": "#/$defs/Sides" }]
+    },
+    "Sides": {
+      "description": "Each side's own inset, canvas units.",
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": false,
+      "properties": {
+        "top": { "type": "number" },
+        "right": { "type": "number" },
+        "bottom": { "type": "number" },
+        "left": { "type": "number" }
+      }
+    },
     "Prompt": {
       "description": "What goes in a slot (PLAN 3.30): words, a paragraph to each line; a list's items; or a shape.",
       "anyOf": [
