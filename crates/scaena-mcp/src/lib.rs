@@ -1026,7 +1026,9 @@ impl Scaena {
         show_node, hide_node, add_state, …; SPEC §7.3), all or none. A patch that would make the deck invalid is refused. \
         Reports the semantic ops given, what changed in the slides and the story (`summary`: slides and beats \
         added, removed, and moved, and beats told otherwise), and what lint finds that it did not (`added`) and finds \
-        no more (`removed`); with `verbose`, the patch compiled to JSON Patch too.")]
+        no more (`removed`); with `verbose`, the patch compiled to JSON Patch too. Each beat whose claim a slide said \
+        before and says no more is `restated`, with a `fix` that sets the claim to the slide's words, or none where its \
+        headline was taken away: restate the claim, or ask the user.")]
     async fn deck_patch(
         &self,
         Parameters(a): Parameters<DeckPatch>,
