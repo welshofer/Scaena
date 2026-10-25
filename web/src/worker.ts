@@ -900,9 +900,18 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
       }
       case "write": {
         const { write } = await import("@scaena/assistant");
-        const { text, usage } = await write(data.call);
-        return post({ type: "wrote", id: data.id, text, usage });
+        // Kept until it is answered, so that its dialog closed stops it (lift-up PERF-4).
+        const stop = new AbortController();
+        writes.set(data.id, stop);
+        try {
+          const { text, usage } = await write(data.call, stop.signal);
+          return post({ type: "wrote", id: data.id, text, usage });
+        } finally {
+          writes.delete(data.id);
+        }
       }
+      case "stopWrite":
+        return writes.get(data.id)?.abort();
       case "helpers":
         await Promise.all(data.ports.map(join));
         return;
@@ -1443,6 +1452,8 @@ async function save(): Promise<{ where: Where; renamed: [string, string][]; file
 
 /** The assistant's question being answered, to stop. */
 let asking: AbortController | undefined;
+/** Each writing tool's question still being answered, by its request's id (lift-up PERF-4). */
+const writes = new Map<number, AbortController>();
 /** Where the editor shows the deck: the slot and format it last showed or edited, where the
  * assistant's edits are shown. */
 let shown: { index: number; format?: string } = { index: 0 };

@@ -4007,9 +4007,9 @@ fn row(item: &Item) -> (Option<String>, Option<String>, Option<String>) {
 }
 
 /// The latest figure a chart plots, in its unit and the deck's language (`lang`): its first
-/// series' last value, with the decimals the chart's labels give it.
+/// series' last value, with the decimals the chart's labels give it; none where it has none there.
 fn latest(chart: &ChartData, lang: &str) -> Option<String> {
-    let value = *chart.series.first()?.values.last()?;
+    let value = (*chart.series.first()?.values.last()?)?;
     Some(at_places(value, decimals(chart), chart.unit.as_deref(), lang))
 }
 
@@ -4589,7 +4589,7 @@ impl Slots<'_> {
             // what was counted, or the source.
             ("two-figures", _, Some((k, part))) => {
                 let chart = self.slide.chart_data.as_ref()?;
-                let value = chart.series.first().and_then(|s| s.values.get(k).copied());
+                let value = chart.series.first().and_then(|s| s.values.get(k).copied().flatten());
                 match part {
                     "figure" => text(value.map(|v| at_places(v, decimals(chart), chart.unit.as_deref(), self.lang))),
                     "" => text(chart.categories.get(k).cloned()),
@@ -5530,13 +5530,14 @@ fn builds(
     (!items.is_empty()).then(|| json!(items))
 }
 
-/// A chart's figures as a data source, written inline: a row for each category and series.
+/// A chart's figures as a data source, written inline: a row for each category and series, none
+/// where the series has no value for the category (STAB-1).
 fn source(chart: &ChartData, dated: bool) -> Value {
     let several = chart.series.len() > 1;
     let mut rows = Vec::new();
     for (c, category) in chart.categories.iter().enumerate() {
         for (n, series) in chart.series.iter().enumerate() {
-            let Some(value) = series.values.get(c) else { continue };
+            let Some(Some(value)) = series.values.get(c) else { continue };
             let mut row = json!({ "category": category, "value": value });
             if several {
                 row["series"] = json!(series.name.clone().unwrap_or_else(|| format!("Series {}", n + 1)));
@@ -5862,7 +5863,7 @@ fn two(slide: &Slide) -> bool {
 /// The decimals of the most precise of `chart`'s values, two at most: 2.0 beside 1.1.
 fn decimals(chart: &ChartData) -> usize {
     let places = |v: f64| (0..=2usize).find(|d| (v * 10f64.powi(*d as i32)).fract().abs() < 1e-9).unwrap_or(2);
-    chart.series.iter().flat_map(|s| &s.values).map(|v| places(*v)).max().unwrap_or(0)
+    chart.series.iter().flat_map(|s| s.values.iter().flatten()).map(|v| places(*v)).max().unwrap_or(0)
 }
 
 /// Which of a single series' categories the slide is about, by index: the one its takeaway
@@ -5886,7 +5887,10 @@ fn signal(chart: &ChartData, takeaway: Option<&str>) -> Option<usize> {
         [one] if years && runs_on(&chart.categories[*one]) => chart.categories.len().checked_sub(1),
         [one] => Some(*one),
         _ if years => chart.categories.len().checked_sub(1),
-        _ => (values.iter().enumerate()).max_by(|a, b| a.1.total_cmp(b.1)).map(|(i, _)| i),
+        _ => (values.iter().enumerate())
+            .filter_map(|(i, v)| Some((i, (*v)?)))
+            .max_by(|a, b| a.1.total_cmp(&b.1))
+            .map(|(i, _)| i),
     }
 }
 
@@ -6002,12 +6006,13 @@ fn named_figure(chart: &ChartData, series: Option<&str>, said: [Option<&str>; 2]
     let last = line.values.len().checked_sub(1)?;
     said.into_iter().flatten().find_map(|text| {
         figures(text).into_iter().filter(|n| !chart.categories.iter().any(|c| c.parse() == Ok(*n))).find_map(|n| {
-            let at = line.values.iter().position(|v| (v - n).abs() < near).filter(|&i| i != 0 && i != last)?;
+            let at = (line.values.iter().position(|v| v.is_some_and(|v| (v - n).abs() < near)))
+                .filter(|&i| i != 0 && i != last)?;
             let mut place = json!({ "x": chart.categories.get(at)? });
             if let Some(name) = series {
                 place["series"] = json!(name);
             }
-            Some(json!({ "kind": "callout", "at": place, "text": grouped(line.values[at], places) }))
+            Some(json!({ "kind": "callout", "at": place, "text": grouped(line.values[at]?, places) }))
         })
     })
 }
@@ -6122,12 +6127,14 @@ fn described(chart: &ChartData, kind: &str, counts: Option<&str>, lang: &str) ->
         (_, Some(counts)) => head = format!("{head}: {counts}"),
         _ => {}
     }
-    let few = chart.series.iter().map(|s| s.values.len()).sum::<usize>() <= 12;
+    let few = chart.series.iter().map(|s| s.values.iter().flatten().count()).sum::<usize>() <= 12;
     let series: Vec<String> = chart
         .series
         .iter()
         .filter_map(|s| {
-            let pairs: Vec<(&String, f64)> = chart.categories.iter().zip(s.values.iter().copied()).collect();
+            // A category the series has no value for goes unsaid.
+            let pairs: Vec<(&String, f64)> =
+                chart.categories.iter().zip(&s.values).filter_map(|(c, v)| Some((c, (*v)?))).collect();
             let said = if few {
                 pairs.iter().map(|(c, v)| format!("{c} {}", value(*v))).collect::<Vec<_>>().join(", ")
             } else {
@@ -6327,7 +6334,7 @@ mod tests {
     fn a_line_of_years_marks_the_year_its_headline_names() {
         let line = |years: &[&str]| ChartData {
             categories: years.iter().map(|y| y.to_string()).collect(),
-            series: vec![answer::Series { name: None, values: vec![1.0; years.len()] }],
+            series: vec![answer::Series { name: None, values: vec![Some(1.0); years.len()] }],
             ..Default::default()
         };
         let span = line(&["1880", "1950", "2024"]);
@@ -6361,7 +6368,7 @@ mod tests {
     fn bars_of_years_light_where_the_takeaway_lands() {
         let wait = ChartData {
             categories: ["2022", "2023", "2024", "2025"].map(String::from).to_vec(),
-            series: vec![answer::Series { name: None, values: vec![11.0, 17.0, 26.0, 34.0] }],
+            series: vec![answer::Series { name: None, values: vec![Some(11.0), Some(17.0), Some(26.0), Some(34.0)] }],
             ..Default::default()
         };
         assert_eq!(signal(&wait, Some("The wait has tripled since 2022")), Some(3));
@@ -6717,6 +6724,27 @@ mod tests {
         let invented = answered.replacen("1,900", "2,400", 1);
         let (made, _) = make(Noting::Answered(&invented));
         assert_eq!(made.noted.len(), 12, "{:?}", made.noted);
+    }
+
+    #[test]
+    fn a_value_the_model_did_not_give_is_no_row_and_moves_no_other() {
+        let chart = ChartData {
+            categories: ["Q3 FY25", "Q4 FY25", "Q1 FY26"].map(String::from).to_vec(),
+            series: vec![answer::Series { name: None, values: vec![Some(33.9), None, Some(40.1)] }],
+            unit: Some("$M".into()),
+            source_id: None,
+        };
+        let rows = super::source(&chart, false)["source"]["inline"].clone();
+        assert_eq!(rows, json!([{ "category": "Q3 FY25", "value": 33.9 }, { "category": "Q1 FY26", "value": 40.1 }]));
+        // Its latest figure is the last category's, and a reader hears no figure for the one missing.
+        assert_eq!(latest(&chart, "en").as_deref(), Some("$40.1M"));
+        let said = described(&chart, "line", None, "en");
+        assert!(said.contains("Q3 FY25 $33.9M, Q1 FY26 $40.1M"), "{said}");
+        let short = ChartData {
+            series: vec![answer::Series { name: None, values: vec![Some(33.9), Some(35.0), None] }],
+            ..chart
+        };
+        assert_eq!(latest(&short, "en"), None);
     }
 
     #[test]
@@ -8611,8 +8639,11 @@ mod tests {
         let months = ChartData {
             categories: (1..=13).map(|m| format!("M{m}")).collect(),
             series: vec![
-                answer::Series { name: Some("North".into()), values: (1..=13).map(f64::from).collect() },
-                answer::Series { name: Some("South".into()), values: (1..=13).map(|v| f64::from(20 - v)).collect() },
+                answer::Series { name: Some("North".into()), values: (1..=13).map(|v| Some(f64::from(v))).collect() },
+                answer::Series {
+                    name: Some("South".into()),
+                    values: (1..=13).map(|v| Some(f64::from(20 - v))).collect(),
+                },
             ],
             unit: None,
             source_id: None,
