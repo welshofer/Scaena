@@ -33,15 +33,26 @@ final class ScaenaDocument: ReferenceFileDocument {
     var startsNew = false
     /// What its window says as it opens, once: what a deck made from a prompt came to (PLAN G.6).
     var opening: String?
+    /// Why New made the deck in another theme than Dusk, which its window says once as it opens
+    /// (lift-up STAB-3).
+    var fellBack: String?
 
-    /// A new deck, as New starts one in the browser: Dusk, one state with nothing on it.
+    /// A new deck, as New starts one in the browser: Dusk, one state with nothing on it. Where Dusk
+    /// makes none, the next theme that ships does, and the window says why (lift-up STAB-3).
     init() {
-        let session: ScaenaSession
-        do {
-            session = try ScaenaSession.create(theme: "dusk", title: "Untitled")
-        } catch {
-            // Dusk ships inside the app: a deck made from it always validates.
-            fatalError("the theme that ships made no deck: \(error)")
+        let (made, failed) = ScaenaSession.create(title: "Untitled")
+        for (theme, error) in failed {
+            openingLog.error("New: \(theme, privacy: .public) made no deck: \(String(describing: error), privacy: .public)")
+        }
+        guard let session = made else {
+            // Every theme the app carries made no deck: the engine itself is broken, and there is
+            // no deck to open a window on.
+            let why = failed.map { "\($0.theme): \($0.error)" }.joined(separator: "; ")
+            preconditionFailure("no theme that ships made a deck: \(why)")
+        }
+        if let first = failed.first, let used = ScaenaSession.newThemes.dropFirst(failed.count).first {
+            fellBack = "\(first.theme.capitalized) couldn’t make a new deck, so it was made in "
+                + "\(used.capitalized): \(Why.said(first.error))"
         }
         _ = try? session.call("keepHistory") as JSONValue
         editor = DeckEditor(session: session)

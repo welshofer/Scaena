@@ -21,6 +21,7 @@ pub mod heuristic;
 mod js;
 pub mod layouts;
 pub mod look;
+pub mod one;
 pub mod outline;
 pub mod pictures;
 pub mod prompt;
@@ -54,10 +55,38 @@ pub const TRIES: usize = 6;
 /// The longest wait before a step is asked again, in seconds.
 pub const LONGEST_WAIT: f64 = 60.0;
 
+/// The figures `text` writes, as numbers: "$1,140" is 1140, "4.9%" is 4.9, "2024" is 2024.
+pub fn figures(text: &str) -> Vec<f64> {
+    text.split(|c: char| !(c.is_ascii_digit() || c == '.' || c == ','))
+        .map(|w| w.trim_matches(['.', ',']).replace(',', ""))
+        .filter(|w| !w.is_empty())
+        .filter_map(|w| w.parse().ok())
+        .collect()
+}
+
+/// Whether `now` writes the figures `was` does, each as often: none dropped, none added, none
+/// changed (lift-up REL-2). A rewrite that rounds 41% to "about 40%" or drops a year says
+/// something else, however much shorter it is.
+pub fn same_figures(was: &str, now: &str) -> bool {
+    let sorted = |text: &str| {
+        let mut f = figures(text);
+        f.sort_unstable_by(f64::total_cmp);
+        f
+    };
+    sorted(was) == sorted(now)
+}
+
 /// Whether `status` answers for now, not for good: no answer (0), a timeout, a rate limit, or a
 /// server's failure, Anthropic's 529 and Cloudflare's edge among them.
 pub fn busy(status: u16) -> bool {
     matches!(status, 0 | 408 | 429 | 500..=599)
+}
+
+/// How long to wait before asking a busy provider again for a look or a fit (lift-up REL-1),
+/// as the slides and the pictures are asked: `tried` the times it was asked so far, from 0. None
+/// where `status` answers for good, or [`TRIES`] are spent.
+pub fn retry_after(status: u16, body: &str, after: Option<&str>, tried: usize) -> Option<f64> {
+    (busy(status) && tried + 1 < TRIES).then(|| providers::wait(after, body, tried + 1))
 }
 
 /// Who writes the deck: a provider, the model the user picked from those their key lists, and
@@ -367,7 +396,7 @@ impl Generation {
     }
 
     /// The request the step asks for, `key` in its headers, `documents` (PDFs) beside the
-    /// slides' prompt; none once the narrative is written. Arc selection sees the sources' first
+    /// outline's prompt and the slides'; none once the narrative is written. Arc selection sees the sources' first
     /// 500 characters, never their documents.
     pub fn request(&self, key: &str, documents: &[Document]) -> Option<Request> {
         use providers::Shape;
@@ -388,7 +417,8 @@ impl Generation {
                 let arc = arcs::arc(&chosen.selection);
                 let plan = beats::plan(arc, self.target());
                 let text = outline::prompt(&self.brief, arc, &chosen.reasoning, &plan);
-                (outline::OUTLINE_SYSTEM, text, Shape::Outline, room(outline::OUTLINE_MAX_TOKENS), 0.3, &[][..])
+                // The documents beside it, as the slides have them (lift-up FUNC-3).
+                (outline::OUTLINE_SYSTEM, text, Shape::Outline, room(outline::OUTLINE_MAX_TOKENS), 0.3, documents)
             }
             Step::Slides => {
                 let arc = arcs::arc(&self.arc.as_ref()?.selection);
@@ -441,8 +471,15 @@ impl Generation {
     /// take ([`look::Seen`]) and `drawn` its picture, in their order, and asks what it would
     /// change ([`look`]): Scaena's own call, made once the narrative is written; none before, or
     /// for no slide. `slides` may be a part of the deck, a dozen at a time (narrative PERF-5):
-    /// each slide is numbered as it stands in the deck, and the prompt says which are shown.
-    pub fn look_request(&self, key: &str, slides: &[look::Seen], drawn: &[Picture]) -> Option<Request> {
+    /// each slide is numbered as it stands in the deck, and the prompt says which are shown and,
+    /// from `edges`, the slides just before and after them (lift-up PERF-1).
+    pub fn look_request(
+        &self,
+        key: &str,
+        slides: &[look::Seen],
+        drawn: &[Picture],
+        edges: [Option<&look::Seen>; 2],
+    ) -> Option<Request> {
         let narrative = self.narrative.as_ref()?;
         if slides.is_empty() || slides.len() != drawn.len() {
             return None;
@@ -454,7 +491,10 @@ impl Generation {
             .collect();
         let brief = &narrative.brief;
         let shown = (slides[0].slide, slides[slides.len() - 1].slide);
-        let prompt = look::prompt(&brief.topic, &brief.audience, count, brief.language.as_deref(), shown);
+        let big_idea = narrative.outline.as_ref().map(|o| o.big_idea.as_str());
+        let around = look::edges(edges);
+        let prompt =
+            look::prompt(&brief.topic, &brief.audience, count, brief.language.as_deref(), shown, big_idea, &around);
         let max_tokens = if s.provider == Provider::Gemini { GEMINI_MAX_TOKENS } else { LOOK_MAX_TOKENS };
         Some(s.provider.structured(&providers::Call {
             model: &s.model,

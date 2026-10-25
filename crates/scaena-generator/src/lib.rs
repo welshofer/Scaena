@@ -61,11 +61,17 @@ pub fn choices() -> String {
 }
 
 /// A deck's narrative health (PLAN G.9, SPEC §7.7), as `scaena health --json` gives it: `deck`, as
-/// `deck.json` holds it, read as its slides and the beats that tell them.
+/// `deck.json` holds it, read as its slides and the beats that tell them, beside `lint`, the
+/// findings the editor's last lint gave as JSON, so a slide lint finds broken comes first
+/// (lift-up 10-24b STAB-1).
 #[wasm_bindgen]
-pub fn health(deck: &str) -> Result<String, JsError> {
+pub fn health(deck: &str, lint: Option<String>) -> Result<String, JsError> {
     let deck = scaena_core::Deck::from_json(deck).map_err(error)?;
-    let health = scaena_ops::health::health(&deck).map_err(error)?;
+    let lint: Vec<scaena_core::Finding> = match lint {
+        Some(lint) => serde_json::from_str(&lint).map_err(error)?,
+        None => Vec::new(),
+    };
+    let health = scaena_ops::health::health_in(&deck, &lint).map_err(error)?;
     serde_json::to_string(&health).map_err(error)
 }
 
@@ -442,15 +448,18 @@ impl Generation {
 
     /// The request that shows the model `seen` (as `seeing` gives it), each slide drawn as
     /// `drawn` holds it (JSON `[{ mediaType, data }]`, its bytes in base64), and asks what it
-    /// would change (PLAN G.13); none before the narrative is written.
+    /// would change (PLAN G.13); none before the narrative is written. `edges` is the slides just
+    /// before and after them, as `seeing` gives each, or null (JSON `[before, after]`, lift-up
+    /// PERF-1).
     #[wasm_bindgen(js_name = lookRequest)]
-    pub fn look_request(&self, key: &str, seen: &str, drawn: &str) -> Result<Option<String>, JsError> {
+    pub fn look_request(&self, key: &str, seen: &str, drawn: &str, edges: &str) -> Result<Option<String>, JsError> {
         let seen: Vec<scaena_narrato::look::Seen> = serde_json::from_str(seen).map_err(error)?;
+        let [before, after]: [Option<scaena_narrato::look::Seen>; 2] = serde_json::from_str(edges).map_err(error)?;
         let drawn: Vec<Drawn> = serde_json::from_str(drawn).map_err(error)?;
         let pictures: Vec<scaena_narrato::Picture> = (drawn.into_iter())
             .map(|d| scaena_narrato::Picture { caption: String::new(), media_type: d.media_type, data: d.data })
             .collect();
-        let request = self.inner.look_request(key, &seen, &pictures);
+        let request = self.inner.look_request(key, &seen, &pictures, [before.as_ref(), after.as_ref()]);
         Ok(request.map(|r| serde_json::to_string(&r).expect("a request is JSON")))
     }
 
@@ -488,6 +497,14 @@ impl Generation {
         let longs: Vec<Long> = serde_json::from_str(longs).map_err(error)?;
         let request = self.inner.fit_request(key, &longs);
         Ok(request.map(|r| serde_json::to_string(&r).expect("a request is JSON")))
+    }
+
+    /// How many seconds to wait before asking a busy provider again for a look or a fit, the
+    /// request asked `tried` times so far (from 0); none where the answer is for good or the tries
+    /// are spent (lift-up REL-1). `after` is the reply's `Retry-After`, where it had one.
+    #[wasm_bindgen(js_name = retryAfter)]
+    pub fn retry_after(&self, status: u16, body: &str, after: Option<String>, tried: usize) -> Option<f64> {
+        scaena_narrato::retry_after(status, body, after.as_deref(), tried)
     }
 
     /// The rewrites an answer to `fitRequest` gives, JSON `[[id, text]]`, each shorter than the
@@ -777,4 +794,94 @@ impl MapFetching {
 pub fn keyed_url(get: &str, key: &str) -> Result<String, JsError> {
     let get: scaena_objects::Get = serde_json::from_str(get).map_err(error)?;
     Ok(get.keyed_url(key))
+}
+
+/// Where a slide goes, as the page names it: `{ "after": STATE }`, `{ "replace": STATE }`, or
+/// `{}` for the end (lift-up FUNC-1).
+fn place(place: &str) -> Result<scaena_ops::narrative::Place, JsError> {
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Named {
+        #[serde(default)]
+        after: Option<String>,
+        #[serde(default)]
+        replace: Option<String>,
+    }
+    let named: Named = serde_json::from_str(place).map_err(|e| error(format!("where the slide goes: {e}")))?;
+    match (named.after, named.replace) {
+        (Some(_), Some(_)) => Err(error("give `after` or `replace`, not both")),
+        (Some(state), None) => Ok(scaena_ops::narrative::Place::After(state)),
+        (None, Some(state)) => Ok(scaena_ops::narrative::Place::Replace(state)),
+        (None, None) => Ok(scaena_ops::narrative::Place::End),
+    }
+}
+
+/// One slide written for a deck (lift-up FUNC-1), as Write This Slide Again… and Add a Slide
+/// About… write it: what to ask the model, and the slide its answer holds built for the deck, the
+/// bundle's data files handed over first, which the rows of the chart a slide draws are read from.
+/// The editor's module makes the slide built one patch (`Player.slidePolishing`).
+#[wasm_bindgen]
+pub struct SlideWriting {
+    files: std::collections::BTreeMap<String, Vec<u8>>,
+}
+
+#[wasm_bindgen]
+impl SlideWriting {
+    #[wasm_bindgen(constructor)]
+    pub fn new() -> SlideWriting {
+        SlideWriting { files: Default::default() }
+    }
+
+    /// The bundle's file at `path`.
+    pub fn add(&mut self, path: &str, bytes: Vec<u8>) {
+        self.files.insert(path.to_string(), bytes);
+    }
+
+    /// What to ask for one slide of `deck` (`deck.json`) at `place`, with the person's `ask`:
+    /// `{ system, prompt }`, the request's two halves.
+    pub fn asked(&self, deck: &str, place_json: &str, ask: &str) -> Result<String, JsError> {
+        let doc: Value = serde_json::from_str(deck).map_err(error)?;
+        let one = scaena_ops::narrative::one_asked(&doc, &place(place_json)?, ask, &self.files).map_err(error)?;
+        let asked =
+            json!({ "system": scaena_narrato::one::ONE_SLIDE_SYSTEM, "prompt": scaena_narrato::one::prompt(&one) });
+        Ok(asked.to_string())
+    }
+
+    /// `slide` (a slide as Narrato writes one, as `oneAnswered` reads it) built for `deck` in
+    /// `theme` (its JSON) at `place`, as the deck's generator builds a slide, each icon its words
+    /// name from `icons` (`{ word: { name, path, view } }`, as `giveIcons` takes them): the
+    /// `Written` the editor's module polishes, `{ patch, states, layout, beat, what }`.
+    pub fn built(
+        &self,
+        deck: &str,
+        theme: &str,
+        slide: &str,
+        place_json: &str,
+        icons: &str,
+    ) -> Result<String, JsError> {
+        let doc: Value = serde_json::from_str(deck).map_err(error)?;
+        let theme: scaena_core::model::theme::Theme =
+            serde_json::from_str(theme).map_err(|e| error(format!("the theme: {e}")))?;
+        let slide: scaena_ops::narrative::Slide =
+            serde_json::from_str(slide).map_err(|e| error(format!("the slide: {e}")))?;
+        let icons = serde_json::from_str(icons).map_err(|e| error(format!("the icons: {e}")))?;
+        let place = place(place_json)?;
+        let written =
+            scaena_ops::narrative::slide_into(&doc, &theme, slide, &place, icons, &self.files).map_err(error)?;
+        serde_json::to_string(&written).map_err(error)
+    }
+}
+
+impl Default for SlideWriting {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// The one slide a model's `answer` holds, as Narrato writes a slide: what
+/// `SlideWriting.built` builds.
+#[wasm_bindgen(js_name = oneAnswered)]
+pub fn one_answered(answer: &str) -> Result<String, JsError> {
+    let slide = scaena_narrato::one::answer(answer).map_err(error)?;
+    serde_json::to_string(&slide).map_err(error)
 }

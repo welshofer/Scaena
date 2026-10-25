@@ -767,6 +767,20 @@ pub struct DataAttach {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
+pub struct ImageAdd {
+    /// The bundle: a directory, a `.scaena` zip, or a `deck.json`.
+    pub bundle: String,
+    /// The picture: a PNG or a JPEG file.
+    pub file: PathBuf,
+    #[serde(flatten)]
+    pub picture: scaena_ops::pictures::Picture,
+    /// Say what it would put where, and write nothing.
+    #[serde(default)]
+    pub dry_run: bool,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct DataEdit {
     /// The bundle: a directory, a `.scaena` zip, or a `deck.json`.
     pub bundle: String,
@@ -835,6 +849,27 @@ pub struct BackgroundSet {
     /// background is taken away.
     #[serde(default)]
     pub preset: Option<String>,
+    /// Say what would change, and write nothing.
+    #[serde(default)]
+    pub dry_run: bool,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SlideWrite {
+    /// The bundle: a directory, a `.scaena` zip, or a `deck.json`.
+    pub bundle: String,
+    /// One slide, as Narrato writes each of `deck_generate`'s `slides`: `slideTitle`, `subtitle`,
+    /// `layoutSuggestion`, `keyBullets`, `speakerNotes`, and `chartData`, `icons`, `beatName`,
+    /// `purpose`, `intent`, `expectedIntensity`, and `expectedValence` where it has them.
+    pub slide: Map<String, Value>,
+    /// The slide goes after the slide that holds this state.
+    #[serde(default)]
+    pub after: Option<String>,
+    /// The slide is written in place of the slide that holds this state, with all its steps, in
+    /// its beat. Without it or `after`, the slide goes after every slide.
+    #[serde(default)]
+    pub replace: Option<String>,
     /// Say what would change, and write nothing.
     #[serde(default)]
     pub dry_run: bool,
@@ -1270,6 +1305,34 @@ impl Scaena {
         blocking(move || scaena_ops::create::attach(&*open_by(&a.bundle, author)?, &data)).await.map(Json)
     }
 
+    #[tool(description = "Put a picture the user hands you on a slide: a PNG or JPEG `file` (a logo, a product \
+        shot, a chart drawn elsewhere), copied into the bundle's `assets/` named by its content, one past 8192 px a \
+        side made smaller first. It goes in the image `into` names, in place of what it showed; else in the state's \
+        first empty place for a picture; else as a new image at `at` ([x, y, width, height], canvas units), kept to its \
+        slide. `alt` says what it shows for someone who cannot see it. One patch, refused as a patch is; `dry_run` \
+        writes nothing.")]
+    async fn image_add(
+        &self,
+        Parameters(a): Parameters<ImageAdd>,
+        context: RequestContext<RoleServer>,
+    ) -> Result<Json<scaena_ops::pictures::Added>, String> {
+        let author = author(&context);
+        let file = self.readable(&a.file, &a.bundle).map_err(failure)?;
+        blocking(move || {
+            let bytes = scaena_ops::pictures::read(&file)?;
+            let bytes = scaena_ops::pictures::smaller(bytes)?;
+            let b = &*open_by(&a.bundle, author)?;
+            if a.dry_run {
+                let (mut added, _) = scaena_ops::pictures::adding(b, &bytes, &a.picture)?;
+                added.patched.applied = false;
+                return Ok(added);
+            }
+            scaena_ops::pictures::add(b, &bytes, &a.picture)
+        })
+        .await
+        .map(Json)
+    }
+
     #[tool(description = "Put a map on a slide (ADR-0030): a picture of `place` (an address, a place, or `lat, lon`) \
         fetched once from Geoapify with the user's own key ($GEOAPIFY_API_KEY), kept in the bundle, and drawn with a \
         pin, its label, and the credit Geoapify's terms ask. It sends the place's words to Geoapify's geocoder \
@@ -1434,6 +1497,37 @@ impl Scaena {
                 }),
                 false => scaena_ops::backgrounds::background(&b, &a.state, a.preset.as_deref()),
             }
+        })
+        .await
+        .map(Json)
+    }
+
+    #[tool(description = "Write one slide into the deck as its generator builds slides (lift-up FUNC-1), from a \
+        slide in the JSON Narrato writes (`deck_generate`'s `slides`): its layout chosen for its items, each place \
+        filled, its figures, builds, and icons, in the deck's theme and the brief it keeps. After the slide that \
+        holds `after`, in place of the slide that holds `replace` (its beat kept, its picture shown again, the nodes \
+        no other slide shows taken away with it), or at the end. Its set of texts held to one size and lint's fixes \
+        taken, as a made deck's are; what no fix mends is in `left`, a text past its place first. One patch, \
+        refused as `deck_patch` refuses one, reported as `deck_patch` reports one, with the slide's states, layout, \
+        and beat.")]
+    async fn slide_write(
+        &self,
+        Parameters(a): Parameters<SlideWrite>,
+        context: RequestContext<RoleServer>,
+    ) -> Result<Json<scaena_ops::narrative::SlideWritten>, String> {
+        let author = author(&context);
+        blocking(move || {
+            let slide: scaena_ops::narrative::Slide =
+                serde_json::from_value(Value::Object(a.slide)).map_err(|e| OpsError::new(format!("the slide: {e}")))?;
+            let place = match (a.replace, a.after) {
+                (Some(_), Some(_)) => return Err(OpsError::new("give `after` or `replace`, not both")),
+                (Some(state), None) => scaena_ops::narrative::Place::Replace(state),
+                (None, Some(state)) => scaena_ops::narrative::Place::After(state),
+                (None, None) => scaena_ops::narrative::Place::End,
+            };
+            let icons = scaena_ops::narrative::icons_found(&slide.icons);
+            let b = open_by(&a.bundle, author)?;
+            scaena_ops::narrative::slide_write(&b, slide, &place, icons, a.dry_run)
         })
         .await
         .map(Json)

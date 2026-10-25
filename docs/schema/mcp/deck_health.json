@@ -109,6 +109,36 @@
             "description": "A state of it has an error lint finds: it does not stand as it is to be read.",
             "type": "string",
             "const": "layout"
+          },
+          {
+            "description": "The beat of the settled outline it opens says nothing of the claim the person settled for\nit (`meta.narrative.outline`).",
+            "type": "string",
+            "const": "claim"
+          },
+          {
+            "description": "The closing it opens never lands the big idea the outline settled.",
+            "type": "string",
+            "const": "bigIdea"
+          },
+          {
+            "description": "A break in its story the narrative lint finds: no claim shown, evidence with no claim,\nmore than one claim, or the claim of the slide before it again (W420, W421, W424, W425).",
+            "type": "string",
+            "const": "story"
+          },
+          {
+            "description": "It makes more points, or shows more words, than a room takes in.",
+            "type": "string",
+            "const": "dense"
+          },
+          {
+            "description": "It shows something, and gives the speaker nothing to say about it.",
+            "type": "string",
+            "const": "notes"
+          },
+          {
+            "description": "The deck runs past the range of slides its brief asked for; this slide turns least from\nthe one before, and is the first to cut.",
+            "type": "string",
+            "const": "pacing"
           }
         ]
       },
@@ -170,6 +200,10 @@
         "description": "What to look at, slide by slide.",
         "type": "array",
         "items": { "$ref": "#/$defs/Finding" }
+      },
+      "bigIdea": {
+        "description": "The big idea the deck's settled outline names (`meta.narrative.outline`): the one sentence\nthe audience should remember, which the editors show above the curve.",
+        "type": ["string", "null"]
       }
     }
   }

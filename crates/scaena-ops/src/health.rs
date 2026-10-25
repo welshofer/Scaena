@@ -54,6 +54,10 @@ pub struct Health {
     pub slides: Vec<Read>,
     /// What to look at, slide by slide.
     pub findings: Vec<Finding>,
+    /// The big idea the deck's settled outline names (`meta.narrative.outline`): the one sentence
+    /// the audience should remember, which the editors show above the curve.
+    #[serde(rename = "bigIdea", skip_serializing_if = "Option::is_none")]
+    pub big_idea: Option<String>,
 }
 
 /// One measure: 0–100, and what it says.
@@ -130,6 +134,22 @@ pub enum Kind {
     Drift,
     /// A state of it has an error lint finds: it does not stand as it is to be read.
     Layout,
+    /// The beat of the settled outline it opens says nothing of the claim the person settled for
+    /// it (`meta.narrative.outline`).
+    Claim,
+    /// The closing it opens never lands the big idea the outline settled.
+    #[serde(rename = "bigIdea")]
+    BigIdea,
+    /// A break in its story the narrative lint finds: no claim shown, evidence with no claim,
+    /// more than one claim, or the claim of the slide before it again (W420, W421, W424, W425).
+    Story,
+    /// It makes more points, or shows more words, than a room takes in.
+    Dense,
+    /// It shows something, and gives the speaker nothing to say about it.
+    Notes,
+    /// The deck runs past the range of slides its brief asked for; this slide turns least from
+    /// the one before, and is the first to cut.
+    Pacing,
 }
 
 /// Something to look at on one slide: what it says, what to ask the assistant, and, where one
@@ -224,10 +244,13 @@ fn declared(beat: &Beat) -> Option<NarrativeMeta> {
     })
 }
 
-/// The slides of `deck` as health reads them, each by its first state's id.
-fn readings(deck: &Deck, slides: &[Slide]) -> Result<Vec<SlideForHealth>, OpsError> {
+/// The slides of `deck` as health reads them, each by its first state's id, and the most points
+/// any one of its texts makes: its list's items, or its paragraphs (lift-up 10-24b FUNC-2). A
+/// grid of short places, a SWOT or a timeline, makes few in each.
+fn readings(deck: &Deck, slides: &[Slide]) -> Result<(Vec<SlideForHealth>, Vec<usize>), OpsError> {
     let snaps = resolve_states(deck).map_err(|e| OpsError::new(e.to_string()))?;
     let mut out = Vec::with_capacity(slides.len());
+    let mut most = Vec::with_capacity(slides.len());
     for slide in slides {
         let (Some(&first), Some(&last)) = (slide.states.first(), slide.states.last()) else { continue };
         let beat = slide.beat.map(|(.., b)| b);
@@ -245,6 +268,7 @@ fn readings(deck: &Deck, slides: &[Slide]) -> Result<Vec<SlideForHealth>, OpsErr
         };
         // Each item of a set its own point, its parts together; each item of a list one too.
         let mut lines: Vec<(Option<&str>, String)> = Vec::new();
+        let mut points = 0;
         for &(_, props) in &texts {
             let said = words(props);
             let said = said.trim();
@@ -253,6 +277,7 @@ fn readings(deck: &Deck, slides: &[Slide]) -> Result<Vec<SlideForHealth>, OpsErr
             if said.is_empty() || said == title || aside {
                 continue;
             }
+            points = points.max(scaena_core::lists::paragraphs(said).len());
             let listed: Vec<Option<Value>> = match props.get("list") {
                 Some(Value::Array(items)) => items.iter().map(|i| (!i.is_null()).then(|| i.clone())).collect(),
                 _ => Vec::new(),
@@ -290,8 +315,9 @@ fn readings(deck: &Deck, slides: &[Slide]) -> Result<Vec<SlideForHealth>, OpsErr
             narrative_meta: beat.and_then(declared),
             ..SlideForHealth::default()
         });
+        most.push(points);
     }
-    Ok(out)
+    Ok((out, most))
 }
 
 /// The slides whose beat breaks the order the deck's beats run in: each outside the longest run
@@ -344,6 +370,12 @@ fn asked(length: &str) -> Option<(usize, Option<usize>)> {
     Some((lo.trim().parse().ok()?, Some(hi.trim().parse().ok()?)))
 }
 
+/// More points than a slide makes for a room to take in, as Vzestup's balance reads two to five
+/// as full (lift-up 10-24b FUNC-2).
+const DENSE_POINTS: usize = 5;
+/// More words than a room reads on a slide while the speaker talks.
+const DENSE_WORDS: usize = 75;
+
 /// A range of slides, as a person writes it: "16–25", "41 or more".
 fn range(lo: usize, hi: Option<usize>) -> String {
     match hi {
@@ -394,6 +426,16 @@ fn pacing(count: usize, asked: Option<(usize, Option<usize>)>, m: &LocalHealthMe
     Measure { score: Some(100u32.saturating_sub(5 * outside as u32)), says }
 }
 
+/// Whether a deck in `language` is in English, by its name or its tag's first part, as the
+/// lexicons judge a language named (`scaena_narrato::health`'s `english`): one that names none is.
+fn in_english(language: Option<&str>) -> bool {
+    let Some(name) = language.map(str::trim).filter(|l| !l.is_empty()) else { return true };
+    let name = name.to_lowercase();
+    let head = name.split(['-', '_', ' ']).next().unwrap_or_default();
+    let en = |t: &str| matches!(t, "en" | "eng" | "english");
+    en(&name) || en(head)
+}
+
 /// The narrative health of `deck`, as its words and its plan read: [`health_in`] with nothing
 /// lint found.
 pub fn health(deck: &Deck) -> Result<Health, OpsError> {
@@ -403,6 +445,23 @@ pub fn health(deck: &Deck) -> Result<Health, OpsError> {
 /// The narrative health of `deck`, with what lint finds in it (`lint`, over its bundle): health
 /// lays nothing out, so a slide that does not stand as it is to be read is lint's to say. Each
 /// slide with an error in one of its states is a finding of its own, ahead of every other: what
+/// The slides at `indices`, from 0, as a person names them: "slide 3", or "slides 3, 5 and 8";
+/// and whether there are several.
+fn slides_named(indices: &[usize]) -> (String, bool) {
+    let named: Vec<String> = indices.iter().map(|i| (i + 1).to_string()).collect();
+    match named.split_last() {
+        Some((last, [])) => (format!("slide {last}"), false),
+        Some((last, rest)) => (format!("slides {} and {last}", rest.join(", ")), true),
+        None => (String::new(), false),
+    }
+}
+
+/// `text` with its first letter a capital.
+fn capitalized(text: &str) -> String {
+    let mut chars = text.chars();
+    chars.next().map(|c| c.to_uppercase().chain(chars).collect()).unwrap_or_default()
+}
+
 /// lint says of it, and the assistant asked to fix it. The scores are Vzestup's, as without them.
 pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Health, OpsError> {
     let narrative = deck.meta.as_ref().and_then(|m| m.extra.get("narrative"));
@@ -410,9 +469,15 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
     let asked =
         (narrative.and_then(|n| n.get("brief")).and_then(|b| b.get("length")).and_then(Value::as_str)).and_then(asked);
     let slides = slides(deck);
-    let read = readings(deck, &slides)?;
+    let (read, most) = readings(deck, &slides)?;
     let n = read.len();
     let m = health::metrics(&read, None);
+    // The language the deck is written in, its brief's, else its own: the lexicons read English
+    // alone, and German's "die" and "will" are English words too, so a deck in another language
+    // is not read for intensity or tone, whatever script it is in (dogfood DF7-4).
+    let language = (narrative.and_then(|n| n.get("brief")).and_then(|b| b.get("language")).and_then(Value::as_str))
+        .or_else(|| deck.meta.as_ref().and_then(|m| m.lang.as_deref()));
+    let english = in_english(language);
 
     // The arc's own curve and beats, as Vzestup's graph draws them. Fidelity is read against the
     // arc the deck was written to, where it names one, as that graph reads it; else against a
@@ -501,7 +566,10 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
             .filter(|s| s.narrative_meta.as_ref().and_then(of).is_some_and(f64::is_finite))
             .count()
     };
-    let matched = |r: &health::MatchReport, gaps: usize, declared: usize, what: &str| match (r.measured_slides, gaps) {
+    let matched = |r: &health::MatchReport, gaps: usize, declared: usize, what: &str| match (
+        if english { r.measured_slides } else { 0 },
+        gaps,
+    ) {
         (0, _) if declared > 0 => Measure {
             score: None,
             says: format!(
@@ -550,9 +618,9 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
                 title: s.title.clone(),
                 curve: curve.get(i).copied().unwrap_or(0.5),
                 declared: meta.and_then(|m| m.expected_intensity).filter(|v| v.is_finite()).map(|v| v.clamp(0.0, 1.0)),
-                read: health::intensity::detected(&text, None),
+                read: health::intensity::detected(&text, language),
                 tone: meta.and_then(|m| m.expected_valence).filter(|v| v.is_finite()).map(|v| v.clamp(-1.0, 1.0)),
-                tone_read: health::valence::detected(&text, None),
+                tone_read: health::valence::detected(&text, language),
                 after: i.checked_sub(1).and_then(|p| m.coherence.pair_similarities.get(p).copied()),
                 standing,
                 sources,
@@ -647,7 +715,10 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         };
         find(&d.slide_id, Severity::Info, Kind::Arc, says, ask, None);
     }
-    for g in &m.intensity_gaps {
+    // Gaps the English lexicons read in another language's words are not the deck's.
+    let (intensity_gaps, tone_gaps) =
+        if english { (&m.intensity_gaps[..], &m.tone_gaps[..]) } else { (&[][..], &[][..]) };
+    for g in intensity_gaps {
         let Some(&i) = place.get(g.slide_id.as_str()) else { continue };
         let k = i + 1;
         let (declared, detected) = (level(g.declared), level(g.detected));
@@ -679,7 +750,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         // No fix: the plan's intensity is the arc's, which the words are to carry, not follow.
         find(&g.slide_id, Severity::Warning, Kind::Intensity, says, ask, None);
     }
-    for g in &m.tone_gaps {
+    for g in tone_gaps {
         let Some(&i) = place.get(g.slide_id.as_str()) else { continue };
         let k = i + 1;
         let (declared, detected) = (signed(g.declared), signed(g.detected));
@@ -728,6 +799,187 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
             fix,
         );
     }
+    // The settled outline (narrative FUNC-1, lift-up 10-24b FUNC-1): each beat's slides carry
+    // its claim, and the closing beat lands the big idea, read by their words as coherence
+    // reads them. A sentence with no word to read by (another script) says nothing either way.
+    let outline = narrative.and_then(|n| n.get("outline"));
+    let big_idea = (outline.and_then(|o| o.get("bigIdea")).and_then(Value::as_str))
+        .map(str::trim)
+        .filter(|b| !b.is_empty())
+        .map(str::to_string);
+    let outlined: Vec<(String, String)> = (outline.and_then(|o| o.get("beats")).and_then(Value::as_array))
+        .into_iter()
+        .flatten()
+        .map(|b| {
+            let text = |k: &str| b.get(k).and_then(Value::as_str).unwrap_or_default().trim().to_string();
+            (text("name"), text("claim"))
+        })
+        .collect();
+    // Each outline beat's slides, by the beat each was written for.
+    let of_beat = |k: usize| -> Vec<usize> {
+        (0..read.len()).filter(|&i| read[i].narrative_meta.as_ref().and_then(|m| m.beat_index) == Some(k)).collect()
+    };
+    let shares = |sentence: &str, of: &[usize]| -> Option<bool> {
+        let said = content_words(sentence);
+        if said.is_empty() {
+            return None;
+        }
+        Some(of.iter().any(|&i| !content_words(&format!("{} {}", read[i].title, read[i].body)).is_disjoint(&said)))
+    };
+    let spanned = |of: &[usize]| match (of.first(), of.last()) {
+        (Some(a), Some(b)) if a != b => format!("slides {}\u{2013}{}", a + 1, b + 1),
+        _ => format!("slide {}", of[0] + 1),
+    };
+    for (k, (name, claim)) in outlined.iter().enumerate() {
+        let of = of_beat(k);
+        if claim.is_empty() || of.is_empty() || shares(claim, &of) != Some(false) {
+            continue;
+        }
+        let part = if name.is_empty() { format!("beat {}", k + 1) } else { name.clone() };
+        let slides = spanned(&of);
+        let (does, carry) = if of.len() > 1 { ("say", "they carry") } else { ("says", "it carries") };
+        let mut said = slides.clone();
+        said[..1].make_ascii_uppercase();
+        find(
+            &read[of[0]].id,
+            Severity::Warning,
+            Kind::Claim,
+            format!("{said} {does} nothing of the claim settled for {part}: \u{201c}{claim}\u{201d}"),
+            format!(
+                "Check the claim: the outline settled that the {part} part of the talk leaves the audience believing \u{201c}{claim}\u{201d}. Rewrite {slides} so {carry} it, or tell me what to settle instead."
+            ),
+            None,
+        );
+    }
+    if let Some(idea) = &big_idea {
+        let closing = (0..outlined.len()).rev().map(of_beat).find(|of| !of.is_empty());
+        if let Some(of) = closing.filter(|of| shares(idea, of) == Some(false)) {
+            let slides = spanned(&of);
+            find(
+                &read[of[0]].id,
+                Severity::Warning,
+                Kind::BigIdea,
+                format!("The close, {slides}, never lands the big idea: \u{201c}{idea}\u{201d}"),
+                format!(
+                    "The big idea is \u{201c}{idea}\u{201d}. Rewrite the closing {slides} so the talk ends by landing it."
+                ),
+                None,
+            );
+        }
+    }
+    // Coaching, slide by slide (lift-up 10-24b FUNC-2): the narrative lint's warnings where they
+    // fall, a slide that says more than a room takes in, one that leaves the speaker nothing to
+    // say, and the slides to cut first where the deck runs past what its brief asked.
+    let slide_of_state = |id: &str| slides.iter().position(|sl| sl.states.iter().any(|&j| deck.states[j].id == id));
+    let slide_of_beat = |path: &str| -> Option<usize> {
+        let rest = path.strip_prefix("/spine/sections/")?;
+        let mut parts = rest.split('/');
+        let s: usize = parts.next()?.parse().ok()?;
+        let b: usize = parts.nth(1)?.parse().ok()?;
+        slides.iter().position(|sl| sl.beat.is_some_and(|(i, j, _)| i == s && j == b))
+    };
+    let slide_of_path = |path: &str| -> Option<usize> {
+        let i: usize = path.strip_prefix("/states/")?.split('/').next()?.parse().ok()?;
+        slide_of_state(&deck.states.get(i)?.id)
+    };
+    let mut told: Vec<(usize, &str)> = Vec::new();
+    for f in lint.iter().filter(|f| matches!(f.code.as_str(), "W420" | "W421" | "W424" | "W425")) {
+        let at = (f.state.as_deref().and_then(slide_of_state))
+            .or_else(|| f.path.as_deref().and_then(|p| slide_of_beat(p).or_else(|| slide_of_path(p))));
+        let Some(i) = at.filter(|&i| i < read.len()) else { continue };
+        if told.contains(&(i, f.code.as_str())) {
+            continue;
+        }
+        told.push((i, f.code.as_str()));
+        let k = i + 1;
+        let said = scaena_core::words::said(&f.code, f.measure.as_ref()).unwrap_or_else(|| f.message.clone());
+        let ask = match f.code.as_str() {
+            "W420" => format!("Say slide {k}'s claim on it: the one sentence it is there to prove, as its headline."),
+            "W421" => {
+                format!(
+                    "Slide {k} ends on evidence: say on it what the evidence proves, so the room knows why it is there."
+                )
+            }
+            "W424" => format!("Keep one claim on slide {k}: make the others the evidence for it, or split the slide."),
+            _ => format!("Make slide {k} say something slide {} doesn't, or fold the two together.", i.max(1)),
+        };
+        find(&read[i].id, Severity::Warning, Kind::Story, format!("Slide {k}: {said}"), ask, None);
+    }
+    let mut unnoted = Vec::new();
+    for (i, s) in read.iter().enumerate() {
+        let k = i + 1;
+        let points = most.get(i).copied().unwrap_or(0);
+        let words = s.body.split_whitespace().count();
+        if points > DENSE_POINTS {
+            find(
+                &s.id,
+                Severity::Warning,
+                Kind::Dense,
+                format!("Slide {k} makes {points} points in one place, more than a room takes in."),
+                format!("Tighten slide {k} to the {DENSE_POINTS} points that matter most, or split it in two."),
+                None,
+            );
+        } else if words > DENSE_WORDS {
+            find(
+                &s.id,
+                Severity::Warning,
+                Kind::Dense,
+                format!("Slide {k} shows {words} words, more than a room reads while you speak."),
+                format!("Tighten slide {k}'s words to what the room must read, and move the rest to its notes."),
+                None,
+            );
+        }
+        if !s.body.trim().is_empty() && s.notes.trim().is_empty() {
+            unnoted.push(i);
+        }
+    }
+    // The slides with nothing for the presenter to say, as one finding at the first of them: a
+    // deck written by hand has no notes on any, and a row for each would bury the rest.
+    if let Some(&first) = unnoted.first() {
+        let (named, many) = slides_named(&unnoted);
+        let (have, each) = if many { ("have", "each") } else { ("has", "it") };
+        find(
+            &read[first].id,
+            Severity::Info,
+            Kind::Notes,
+            format!("{} {have} no notes for you.", capitalized(&named)),
+            format!("Draft notes for {named}, in order: what to tell the room beyond what {each} shows."),
+            None,
+        );
+    }
+    if let Some((lo, Some(hi))) = asked.filter(|_| n > 2) {
+        let over = n.saturating_sub(hi);
+        if over > 0 {
+            // The slides that turn least from the one before, the first and the last kept.
+            let pairs = &m.coherence.pair_similarities;
+            let mut cut: Vec<usize> = (1..n.saturating_sub(1)).collect();
+            scaena_core::sort::by_key(&mut cut, |&i| {
+                std::cmp::Reverse((pairs.get(i - 1).copied().unwrap_or(0.0) * 1e6) as i64)
+            });
+            cut.truncate(over);
+            scaena_core::sort::by_key(&mut cut, |&i| i);
+            if let Some(&first) = cut.first() {
+                let (named, many) = slides_named(&cut);
+                let adds =
+                    if many { "add least to the slides before them" } else { "adds least to the slide before it" };
+                find(
+                    &read[first].id,
+                    Severity::Warning,
+                    Kind::Pacing,
+                    format!(
+                        "The deck runs {} past the {} slides the brief asked for: {named} {adds}.",
+                        counted(over, "slide"),
+                        range(lo, Some(hi))
+                    ),
+                    format!(
+                        "Bring the deck to the {} slides the brief asked for: {named} {adds}. Fold them in, or cut them.",
+                        range(lo, Some(hi))
+                    ),
+                    None,
+                );
+            }
+        }
+    }
     // A slide lint finds an error on: what the first says, and how many more there are.
     for (i, slide) in slides.iter().enumerate() {
         let k = i + 1;
@@ -768,7 +1020,17 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         tone,
         slides: slides_read,
         findings,
+        big_idea,
     })
+}
+
+/// The words of `text` that coherence reads a slide by: lowercased, past three letters, Latin
+/// letters and figures alone, as `scaena_narrato::health::coherence::keyword_overlap` splits them.
+fn content_words(text: &str) -> std::collections::BTreeSet<String> {
+    (text.to_lowercase().split(|c: char| !c.is_ascii_lowercase() && !c.is_ascii_digit()))
+        .filter(|w| w.len() > 3)
+        .map(str::to_string)
+        .collect()
 }
 
 #[cfg(test)]
@@ -823,6 +1085,147 @@ mod tests {
             }
         }
         panic!("no beat tells {id}")
+    }
+
+    /// Coaching slide by slide (lift-up 10-24b FUNC-2): a narrative warning lint finds is a
+    /// `story` finding on its slide in the editors' words; a slide of more than five points is
+    /// `dense`; a content slide with no notes asks for them; and a deck past the range its brief
+    /// asked names the slides that turn least as the first to cut.
+    #[test]
+    fn health_coaches_slide_by_slide() {
+        use scaena_core::lint::Finding as Linted;
+        let mut deck = climate();
+        let d = Deck::from_value(&deck).unwrap();
+        let id = |k: usize| deck["states"][k]["id"].as_str().unwrap().to_string();
+        let lint = [Linted::new("W424", Severity::Warning, "two claims")
+            .state(id(3))
+            .measure(json!({ "claims": 2, "max": 1 }))];
+        let h = health_in(&d, &lint).unwrap();
+        let slide = h.slides.iter().position(|s| s.state == id(3)).map(|i| i + 1);
+        let story = h.findings.iter().find(|f| f.kind == Kind::Story).expect("a story finding");
+        assert_eq!(Some(story.slide), slide);
+        assert_eq!(story.says, format!("Slide {}: More than one claim is on screen at once.", story.slide));
+        assert!(story.ask.starts_with(&format!("Keep one claim on slide {}", story.slide)), "{}", story.ask);
+
+        // Seven points on a slide, and no notes for it.
+        let first = h.slides.iter().position(|s| !s.title.is_empty()).unwrap();
+        let state = &h.slides[first].state;
+        let points = (1..=7).map(|n| format!("Point {n}")).collect::<Vec<_>>().join("\n");
+        let list: Vec<Value> = (1..=7).map(|_| json!({ "kind": "bullet" })).collect();
+        deck["nodes"]["dense"] = json!({ "type": "text", "role": "body", "text": points, "list": list, "at": { "rect": [0.1, 0.4, 0.8, 0.5] } });
+        // On every state of the slide, so its last shows it.
+        for st in deck["states"].as_array_mut().unwrap() {
+            if st["id"] == *state || st["slide"] == *state {
+                st["props"]["dense"] = json!({});
+            }
+        }
+        let h = of(&deck);
+        let dense = h.findings.iter().find(|f| f.kind == Kind::Dense && f.slide == first + 1);
+        assert!(
+            dense.is_some_and(|f| f.says.ends_with("makes 7 points in one place, more than a room takes in.")),
+            "{:?}",
+            h.findings
+        );
+        assert!((h.findings.iter()).all(|f| f.kind != Kind::Notes), "a made deck writes notes on every slide");
+
+        // Two slides with nothing for the presenter to say: one finding, at the first, naming both.
+        let slides: Vec<String> = (deck["states"].as_array().unwrap().iter())
+            .filter(|st| st.get("slide").is_none())
+            .map(|st| st["id"].as_str().unwrap().to_string())
+            .collect();
+        let mut unnoted = deck.clone();
+        for st in unnoted["states"].as_array_mut().unwrap() {
+            let of = st.get("slide").cloned().unwrap_or_else(|| st["id"].clone());
+            if of == slides[2] || of == slides[4] {
+                st.as_object_mut().unwrap().remove("notes");
+            }
+        }
+        for section in unnoted["spine"]["sections"].as_array_mut().unwrap() {
+            for beat in section["beats"].as_array_mut().unwrap() {
+                let tells = |id: &String| beat["states"].as_array().unwrap().iter().any(|s| s == id.as_str());
+                if tells(&slides[2]) || tells(&slides[4]) {
+                    beat.as_object_mut().unwrap().remove("notes");
+                }
+            }
+        }
+        let h = of(&unnoted);
+        let noted: Vec<&Finding> = h.findings.iter().filter(|f| f.kind == Kind::Notes).collect();
+        assert_eq!(noted.len(), 1, "{:?}", h.findings);
+        assert_eq!((noted[0].slide, noted[0].severity), (3, Severity::Info));
+        assert_eq!(noted[0].says, "Slides 3 and 5 have no notes for you.");
+        assert_eq!(
+            noted[0].ask,
+            "Draft notes for slides 3 and 5, in order: what to tell the room beyond what each shows."
+        );
+
+        // Twenty-five slides where ten to fifteen were asked: ten to cut, named.
+        deck["meta"]["narrative"]["brief"]["length"] = json!("10-15 slides");
+        let h = of(&deck);
+        let paced: Vec<&Finding> = h.findings.iter().filter(|f| f.kind == Kind::Pacing).collect();
+        assert_eq!(paced.len(), 1, "{:?}", h.findings);
+        assert!(
+            paced[0]
+                .says
+                .starts_with("The deck runs 10 slides past the 10\u{2013}15 slides the brief asked for: slides "),
+            "{}",
+            paced[0].says
+        );
+        assert!(paced[0].slide > 1 && paced[0].slide < 25);
+    }
+
+    /// The settled outline read (lift-up 10-24b FUNC-1): a deck whose beats each say their claim
+    /// and whose close says its big idea is found carrying both, and the big idea is given for the
+    /// editors to show; a claim no slide of its beat says, and a big idea the close never says,
+    /// are each found on the beat's first slide, with what to ask.
+    #[test]
+    fn health_reads_the_settled_outline() {
+        let mut deck = climate();
+        let h = of(&deck);
+        // Each slide's arc beat, as the spine declares it.
+        let written: Vec<usize> = (h.slides.iter())
+            .map(|s| {
+                let at = format!("{}/media/narrato/beatIndex", beat_of(&deck, &s.state));
+                deck.pointer(&at).and_then(Value::as_u64).unwrap() as usize
+            })
+            .collect();
+        let first_of = |k: usize| written.iter().position(|&w| w == k).unwrap();
+        let beats: Vec<Value> = (h.beats.iter().enumerate())
+            .map(|(k, name)| json!({ "name": name, "claim": h.slides[first_of(k)].title, "slides": 1 }))
+            .collect();
+        let close = first_of(h.beats.len() - 1);
+        deck["meta"]["narrative"]["outline"] = json!({ "bigIdea": h.slides[close].title, "beats": beats });
+        let carried = of(&deck);
+        let outlined = |h: &Health| -> Vec<(Kind, usize)> {
+            (h.findings.iter())
+                .filter(|f| matches!(f.kind, Kind::Claim | Kind::BigIdea))
+                .map(|f| (f.kind, f.slide))
+                .collect()
+        };
+        assert_eq!(outlined(&carried), [], "{:?}", carried.findings);
+        assert_eq!(carried.big_idea.as_deref(), Some(h.slides[close].title.as_str()));
+
+        let second = h.beats[1].clone();
+        deck["meta"]["narrative"]["outline"]["beats"][1]["claim"] = json!("Penguins juggle marmalade quietly");
+        deck["meta"]["narrative"]["outline"]["bigIdea"] = json!("Zebras orchestrate symphonies underwater");
+        let missed = of(&deck);
+        assert_eq!(
+            outlined(&missed),
+            [(Kind::Claim, first_of(1) + 1), (Kind::BigIdea, close + 1)],
+            "{:?}",
+            missed.findings
+        );
+        let claim = missed.findings.iter().find(|f| f.kind == Kind::Claim).unwrap();
+        assert!(
+            claim.says.contains(&second) && claim.says.ends_with("\u{201c}Penguins juggle marmalade quietly\u{201d}"),
+            "{}",
+            claim.says
+        );
+        assert!(claim.ask.starts_with("Check the claim:"), "{}", claim.ask);
+        let big = missed.findings.iter().find(|f| f.kind == Kind::BigIdea).unwrap();
+        assert!(big.says.starts_with("The close, slide") && big.ask.starts_with("The big idea is"), "{big:?}");
+        // A big idea in another script has no words to read by: nothing is found of it.
+        deck["meta"]["narrative"]["outline"]["bigIdea"] = json!("気候変動は止められる");
+        assert!(!of(&deck).findings.iter().any(|f| f.kind == Kind::BigIdea));
     }
 
     #[test]
@@ -1017,6 +1420,39 @@ mod tests {
             "25 slides declare intensity, but health reads it only in English words, three or more, and none has them.";
         assert_eq!(h.intensity, Measure { score: None, says: says.into() });
         assert_eq!(h.tone.score, None, "{}", h.tone.says);
+    }
+
+    /// A deck in another language written in Latin letters is not read for intensity or tone
+    /// either (dogfood DF7-4): German's "die" and "will" are English words too, so the language
+    /// its brief names, else its own `lang`, decides, not its script. English decks read as before.
+    #[test]
+    fn a_deck_named_in_another_language_is_not_read_for_intensity_or_tone() {
+        let english = of(&climate());
+        assert!(english.intensity.score.is_some() && english.tone.score.is_some());
+        let mut by_brief = climate();
+        by_brief["meta"]["narrative"]["brief"]["language"] = json!("German");
+        let mut by_lang = climate();
+        by_lang["meta"]["lang"] = json!("de-DE");
+        for deck in [by_brief, by_lang] {
+            let h = of(&deck);
+            assert!(h.slides.iter().all(|s| s.read.is_none() && s.tone_read.is_none()), "{:#?}", h.slides);
+            let says = "25 slides declare intensity, but health reads it only in English words, three or more, and none has them.";
+            assert_eq!(h.intensity, Measure { score: None, says: says.into() });
+            assert_eq!(h.tone.score, None, "{}", h.tone.says);
+            assert!(h.findings.iter().all(|f| f.kind != Kind::Intensity && f.kind != Kind::Tone), "{:?}", h.findings);
+            // Its other measures, and its score, are as an English deck's.
+            assert_eq!((h.score, &h.pacing, &h.fidelity), (english.score, &english.pacing, &english.fidelity));
+        }
+        // A deck that names English, in any of its forms, reads as one that names none.
+        for named in ["English", "en", "en-GB"] {
+            let mut deck = climate();
+            deck["meta"]["narrative"]["brief"]["language"] = json!(named);
+            let h = of(&deck);
+            assert_eq!(
+                (h.intensity.clone(), h.tone.clone(), h.findings.len()),
+                (english.intensity.clone(), english.tone.clone(), english.findings.len())
+            );
+        }
     }
 
     #[test]

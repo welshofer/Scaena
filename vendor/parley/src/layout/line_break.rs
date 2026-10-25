@@ -167,6 +167,9 @@ pub struct BreakerState {
     prev_boundary: Option<PrevBoundaryState>,
     /// Saved breaker state for the last emergency line-breaking opportunity
     emergency_boundary: Option<PrevBoundaryState>,
+    /// Saved breaker state for the last emergency opportunity the layout prefers (Scaena,
+    /// ADR-0004 finding 27)
+    preferred_boundary: Option<PrevBoundaryState>,
 }
 
 impl Default for BreakerState {
@@ -185,6 +188,7 @@ impl Default for BreakerState {
             line: LineState::default(),
             prev_boundary: None,
             emergency_boundary: None,
+            preferred_boundary: None,
         }
     }
 }
@@ -222,6 +226,16 @@ impl BreakerState {
     /// an *emergency* line breaking opportunity at this point.
     fn mark_emergency_break_opportunity(&mut self) {
         self.emergency_boundary = Some(PrevBoundaryState {
+            item_idx: self.item_idx,
+            run_idx: self.run_idx,
+            cluster_idx: self.cluster_idx,
+            state: self.line.clone(),
+        });
+    }
+
+    /// Store the current iteration state as an emergency opportunity the layout prefers.
+    fn mark_preferred_break_opportunity(&mut self) {
+        self.preferred_boundary = Some(PrevBoundaryState {
             item_idx: self.item_idx,
             run_idx: self.run_idx,
             cluster_idx: self.cluster_idx,
@@ -350,6 +364,7 @@ impl<'a, B: Brush> BreakLines<'a, B> {
         self.state.line.running_line_height = 0.;
         self.state.prev_boundary = None;
         self.state.emergency_boundary = None;
+        self.state.preferred_boundary = None;
 
         self.finish_line(self.lines.lines.len() - 1, line_height);
 
@@ -597,8 +612,34 @@ impl<'a, B: Brush> BreakLines<'a, B> {
                         && text_wrap_mode == TextWrapMode::Wrap
                         // If we're at the start of the line, this particular cluster will never fit, so it's not a valid emergency break opportunity.
                         && self.state.line.x != 0.0
+                        // Scaena (ADR-0004 finding 26): no line starts with what may not start
+                        // one, nor ends with what may not end one (kinsoku shori).
+                        && !kinsoku::starts_no_line(cluster.info().source_char())
+                        && !(self.state.cluster_idx > 0
+                            && self.layout.data.clusters
+                                .get(self.state.cluster_idx - 1)
+                                .is_some_and(|before| kinsoku::ends_no_line(before.info.source_char())))
                         {
                             self.state.mark_emergency_break_opportunity();
+                            // Scaena (ADR-0004 finding 27): where the layout prefers it, too.
+                            if let Some(preferred) = self.layout.preferred_breaks {
+                                // The clusters before it in the text, whichever run holds
+                                // them: a change of script starts a run.
+                                let char_at = |back: usize| {
+                                    let at = self.state.cluster_idx.checked_sub(back)?;
+                                    Some(self.layout.data.clusters.get(at)?.info.source_char())
+                                };
+                                if let Some(before) = char_at(1) {
+                                    let cx = crate::LineBreakContext {
+                                        before_before: char_at(2),
+                                        before,
+                                        after: cluster.info().source_char(),
+                                    };
+                                                                        if preferred(cx) {
+                                        self.state.mark_preferred_break_opportunity();
+                                    }
+                                }
+                            }
                         }
 
                         // If current cluster is the start of a ligature, then advance state to include
@@ -670,8 +711,11 @@ impl<'a, B: Brush> BreakLines<'a, B> {
                             //
                             // We "take" the line-breaking opportunity by starting a new line and resetting our
                             // item/run/cluster iteration state back to how it was when the line-breaking opportunity was encountered
-                            else if let Some(prev_emergency) =
-                                self.state.emergency_boundary.take()
+                            else if let Some(prev_emergency) = self
+                                .state
+                                .preferred_boundary
+                                .take()
+                                .or_else(|| self.state.emergency_boundary.take())
                             {
                                 self.state.reset_to(prev_emergency);
                                 return self.start_new_line(
@@ -1348,5 +1392,29 @@ fn reorder_line_items(runs: &mut [LineItemData]) {
             }
             i += 1;
         }
+    }
+}
+
+/// What may not stand at a line's edge, by Japanese line breaking's first rules (JIS X 4051's
+/// kinsoku shori, W3C's JLREQ): where an emergency break would put one there, it is passed over
+/// (Scaena, ADR-0004 finding 26). UAX #14 already keeps a line break off them; an emergency break,
+/// which `overflow-wrap: anywhere` allows before any cluster, did not.
+mod kinsoku {
+    /// A mark that closes or follows: a comma, a stop, a closing bracket, the prolonged sound
+    /// mark, the iteration mark, or a small kana. No line starts with one.
+    pub(super) fn starts_no_line(c: char) -> bool {
+        matches!(
+            c,
+            '、' | '。' | '，' | '．' | '・' | '：' | '；' | '？' | '！' | '」' | '』' | '）' | '］' | '｝' | '】'
+                | '〕' | '〉' | '》' | '〙' | '〗' | '〟' | '’' | '”' | 'ー' | '々' | '〻' | 'ゝ' | 'ゞ' | 'ヽ' | 'ヾ'
+                | 'ぁ' | 'ぃ' | 'ぅ' | 'ぇ' | 'ぉ' | 'っ' | 'ゃ' | 'ゅ' | 'ょ' | 'ゎ' | 'ゕ' | 'ゖ'
+                | 'ァ' | 'ィ' | 'ゥ' | 'ェ' | 'ォ' | 'ッ' | 'ャ' | 'ュ' | 'ョ' | 'ヮ' | 'ヵ' | 'ヶ'
+                | ',' | '.' | ':' | ';' | '?' | '!' | ')' | ']' | '}'
+        ) || matches!(u32::from(c), 0x31F0..=0x31FF)
+    }
+
+    /// An opening bracket or quotation mark. No line ends with one.
+    pub(super) fn ends_no_line(c: char) -> bool {
+        matches!(c, '「' | '『' | '（' | '［' | '｛' | '【' | '〔' | '〈' | '《' | '〘' | '〖' | '〝' | '‘' | '“' | '(' | '[' | '{')
     }
 }

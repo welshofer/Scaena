@@ -56,6 +56,7 @@ const PROVIDERS: Record<ProviderId, { name: string; base: string; keys: string }
  * conversation, as ScaenaKit's `ToolWords` says them on the Mac. */
 const TOOL_WORDS: Record<string, [doing: string, done: string, not: string]> = {
   background_set: ["Setting a background…", "Set a background", "Didn't set a background"],
+  slide_write: ["Writing a slide…", "Wrote a slide", "Didn't write a slide"],
   data_attach: ["Adding data…", "Added data", "Didn't add data"],
   data_edit: ["Changing the data…", "Changed the data", "Didn't change the data"],
   deck_create: ["Making a deck…", "Made a deck", "Didn't make a deck"],
@@ -71,6 +72,7 @@ const TOOL_WORDS: Record<string, [doing: string, done: string, not: string]> = {
   deck_read: ["Reading the deck…", "Went through the deck", "Didn't go through the deck"],
   deck_render: ["Looking at a slide…", "Looked at a slide", "Didn't look at a slide"],
   icon_find: ["Finding an icon…", "Found an icon", "Didn't find an icon"],
+  image_add: ["Putting a picture on the slide…", "Put a picture on the slide", "Didn't put a picture on the slide"],
   map_fetch: ["Fetching a map…", "Put a map on the slide", "Didn't fetch a map"],
   spine_read: ["Reading the outline…", "Went through the outline", "Didn't go through the outline"],
   spine_update: ["Changing the outline…", "Changed the outline", "Didn't change the outline"],

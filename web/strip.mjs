@@ -13,7 +13,7 @@
 //   it back, its slide shown and named in the picker, and a slide picked there straight after the
 //   undo is the one shown.
 // - + Slide opens Dusk's layouts by their sections (PLAN 3.30, 3.31, S.1, S.2): the 16 down the side as
-//   tabs, 173 layouts in all, Titles first, each drawn as it is used and named as a person calls it;
+//   tabs, 176 layouts in all, Titles first, each drawn as it is used and named as a person calls it;
 //   a tab clicked or the down arrow shows another, and the field finds a layout in any section, and
 //   by another name people call it (Kanban finds Roadmap, ADR-0031).
 //   Among the layouts, → goes to the next and ↓ to the one below, as they stand in the grid.
@@ -29,7 +29,7 @@
 //   undo that puts it back. Blank adds an empty slide after `mix`. Alt with an arrow key moves it,
 //   and so does a drag; Delete removes it, and the source is as it was.
 // - A deck whose bundle took Dusk before its library grew, 11 layouts in no section, opens with the
-//   library Dusk ships now (PLAN 3.31): + Slide offers the 16 sections and 173 layouts.
+//   library Dusk ships now (PLAN 3.31): + Slide offers the 16 sections and 176 layouts.
 // - Each is named as a person counts it (PLAN 2.99): Slide 2, Step 2; no id names one. A state
 //   another builds on is not removed, and the status says why.
 // - The state shown, taken away, leaves no error on the page, and ⌘Z and ⇧⌘Z with the strip
@@ -161,6 +161,10 @@ try {
   // A state shown just after an edit on the canvas stays shown once the editor lints the source.
   // The lint takes the patch's own result, which names the state shown when it was made: a click
   // on another state between the two is a move, as it is while the worker compiles.
+  // Each state's tile stays across an edit, its canvas the same element (lift-up 10-24b PERF-5).
+  await page.evaluate(() => {
+    for (const c of document.querySelectorAll("#strip li[data-state] canvas")) c.kept = c.closest("li").dataset.state;
+  });
   await item("revenue").click();
   await shows(1);
   await page.waitForFunction(() => window.scaena.canvas.boxes().some((b) => b.node === "note"), null, { timeout: 30000 });
@@ -192,6 +196,8 @@ try {
   check(then === 2 && linted === 2 && (await selected()) === "mix", `mix, clicked just after a Delete on revenue, stays shown once the source is linted: ${then} then ${linted}`);
   await undo();
   check(await back(original), "one undo takes the Delete back");
+  const kept = await page.evaluate(() => [...document.querySelectorAll("#strip li[data-state] canvas")].map((c) => c.kept === c.closest("li").dataset.state));
+  check(kept.length === 4 && kept.every(Boolean), `each tile, its canvas too, is the one it was before the Delete and its undo: ${kept}`);
 
   // + Step after revenue: in its slide, showing what it shows.
   await item("revenue").click();
@@ -292,7 +298,7 @@ try {
   }));
   const sections = "Titles,Statements,Lists,Comparison,Frameworks,Process,Time,Numbers,Charts,Pictures,People,Editorial,Diagrams,Briefing,Classroom,Closing";
   check(offered.sections.join() === sections, `the sections down the side: ${offered.sections.join(", ")}`);
-  check(offered.counted === 173 && offered.selected === "Titles", `173 layouts, Titles shown first: ${offered.counted}, ${offered.selected}`);
+  check(offered.counted === 176 && offered.selected === "Titles", `176 layouts, Titles shown first: ${offered.counted}, ${offered.selected}`);
   const titles = await drawn();
   const want = "Title,Section,Title over Photo,Title Only,Centered Title,Title beside Photo,Section and Photo,Section Number,Paper Title";
   check(titles.join() === want, `each drawn, by its name: ${titles.join(", ")}`);
@@ -523,7 +529,7 @@ try {
       counted: [...document.querySelectorAll("#starting [role=tab] .count")].reduce((n, c) => n + Number(c.textContent), 0),
     }));
     check(served > 0, `the bundle's theme is the older Dusk, served ${served} time(s)`);
-    check(brought.sections.join() === sections && brought.counted === 173, `an older Dusk opens with its library: ${brought.sections.length} sections, ${brought.counted} layouts`);
+    check(brought.sections.join() === sections && brought.counted === 176, `an older Dusk opens with its library: ${brought.sections.length} sections, ${brought.counted} layouts`);
     await fresh.close();
   }
 

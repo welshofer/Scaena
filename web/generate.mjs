@@ -126,8 +126,8 @@ const provider = createServer(async (req, res) => {
     const look = { slides: [{ slide: 1, layout: "", title: "Carbon-negative cargo, ready to scale", subtitle: "", bullets: [], why: "One idea, one line." }] };
     return reply(200, { content: [{ type: "text", text: JSON.stringify(look) }], stop_reason: "end_turn" });
   }
-  // Each text asked for shorter, cut to the most characters it may have.
-  const texts = [...prompt.matchAll(/id: (.+)\nat most: (\d+) characters\ntext:\n([^\n]*)/g)].map(([, id, most, said]) => ({
+  // Each text asked for shorter, its words read back from their fence, cut to the most characters it may have.
+  const texts = [...prompt.matchAll(/id: (.+)\nat most: (\d+) characters\ntext:\n<data label="text">\n([^\n]*)/g)].map(([, id, most, said]) => ({
     id,
     text: said.slice(0, Math.max(1, Number(most) - 1)).trim(),
   }));
@@ -515,15 +515,24 @@ try {
   ).catch(() => {});
   const back = await page.evaluate(() => window.scaena.story.health()?.findings.map((f) => `${f.slide} ${f.kind}`));
   check(back.includes(`${slide} ${kind}`), `undone, the finding is back: ${back}`);
-  // A row's questions are asked together.
+  // A row's questions are asked together, with the slide they are about shown, whichever was
+  // (lift-up USE-5): another slide is shown first.
   const asked = page.locator("#story [data-findings] li [data-ask]").first();
-  const question = await page.evaluate(() => {
+  const { question, about } = await page.evaluate(() => {
     const { findings } = window.scaena.story.health();
-    return findings.filter((f) => f.slide === findings[0].slide).map((f) => f.ask).join(" ");
+    const run = findings.filter((f) => f.slide === findings[0].slide);
+    return { question: run.map((f) => f.ask).join(" "), about: window.scaena.last().states.findIndex(([id]) => id === run[0].state) };
   });
+  const other = await page.evaluate((i) => (i === 0 ? window.scaena.last().states.length - 1 : 0), about);
+  const elsewhere = await page.evaluate((i) => window.scaena.last().states[i][1], other);
+  await page.evaluate((offset) => window.scaena.cursor(offset), elsewhere);
+  await page.waitForFunction((i) => window.scaena.shown() === i, other, { timeout: 30000 }).catch(() => {});
   await asked.click();
+  await page.waitForFunction((q) => document.querySelector("#question")?.value === q, question, { timeout: 30000 }).catch(() => {});
   check((await page.getAttribute("#tab-assistant", "aria-selected")) === "true", "a question opens the assistant's tab");
   check((await page.inputValue("#question")) === question, `the question is in its box: ${question}`);
+  const shown = await page.evaluate(() => window.scaena.shown());
+  check(shown === about && about !== other, `with the slide it is about shown, not the one that was: ${shown} (about ${about}, was ${other})`);
   // The slide moved goes back, so what follows reads the deck as made.
   await page.locator("#overlay").focus();
   await page.keyboard.press("Control+z");
@@ -538,9 +547,30 @@ try {
     `the Files tab lists what the deck was grounded in, each with its slides: ${grounded.join(" | ")}`,
   );
 
-  // Items that each name an icon are set under the icons the worker finds in the set that ships,
-  // fetched for them (PLAN G.23): each a path on its view, named by the icon.
+  // An icon set that cannot be fetched loses none of the slides paid for: they are set without
+  // icons, which the progress says in a line (lift-up 10-25 STAB-3).
   state.slides = ICONED;
+  const unserved = (route) => route.fulfill({ status: 503, body: "" });
+  await page.context().route("**/phosphor*.json", unserved);
+  const before = await page.evaluate(() => window.scaena.source());
+  await opened();
+  await page.uncheck("#prompting-show-outline");
+  await page.click("#prompting-go");
+  await page
+    .waitForFunction((was) => window.scaena.source() !== was && window.scaena.source().includes("Why Tidewater wins") && window.scaena.last(), before, { timeout: 180000 })
+    .catch(() => {});
+  await page.context().unroute("**/phosphor*.json", unserved);
+  const uniconed = await page.evaluate(() => window.scaena.source());
+  check(uniconed.includes("Why Tidewater wins") && !uniconed.includes("alt:Lightning"), "a set that cannot be fetched leaves the deck made, its slides set without icons");
+  const saidUniconed = await lines();
+  check(
+    saidUniconed.some((l) => l === "The slides that name icons are set without them: the icons did not load (503)") && !saidUniconed.some((l) => l.includes("failed")),
+    `the progress says so in a line, and nothing failed: ${saidUniconed.join(" | ")}`,
+  );
+
+  // Items that each name an icon are set under the icons the worker finds in the set that ships,
+  // fetched for them (PLAN G.23): each a path on its view, named by the icon. The set is fetched
+  // again after the failure above.
   await opened();
   // Slides at once, the outline not asked for: a person who wants them now gets them.
   await page.uncheck("#prompting-show-outline");

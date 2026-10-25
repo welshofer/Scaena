@@ -541,17 +541,22 @@ private func keychainWritable() -> Bool {
     let writing = try session.writing(ask)
     let words = try #require(writing.task.text)
     #expect(words.hasPrefix("Why this exists"))
-    #expect(writing.title == "Tightened" && writing.prompt == words)
+    // Asked with the point its slide makes (lift-up FUNC-3).
+    let claim = "Scaena is the tool we would build if the slide had never been invented."
+    // The deck's words fenced as data (lift-up W1).
+    #expect(
+        writing.title == "Tightened"
+            && writing.prompt == "<data label=\"text\">\nThe text:\n\(words)\nThe point its slide makes: \(claim)\n</data>")
     #expect(writing.instructions.hasPrefix("You tighten the words of one text on a slide"))
     let notes = try session.writing(WritingAsk(kind: .notes, state: "cover"))
-    #expect(notes.prompt.hasPrefix("The slide reads:\nTitle: Scaena"))
+    #expect(notes.prompt.hasPrefix("The slide reads:\n<data label=\"slide\">\nTitle: Scaena"))
 
     let request = try Provider.anthropic.onceRequest(
         model: "a-model", key: "sk-test", instructions: writing.instructions, prompt: writing.prompt)
     let sent = try JSONDecoder().decode(JSONValue.self, from: try #require(try request.urlRequest().httpBody))
     #expect(sent["tools"] == nil, "a question asked once sends no tools")
     #expect(sent["system"]?[0]?["text"]?.string == writing.instructions)
-    #expect(sent["messages"]?[0]?["content"]?[0]?["text"]?.string == words)
+    #expect(sent["messages"]?[0]?["content"]?[0]?["text"]?.string == writing.prompt)
     let answer = try Provider.anthropic.answered(status: 200, body: answering("“Why Scaena exists.”"))
     #expect(answer == "“Why Scaena exists.”")
 
@@ -559,6 +564,12 @@ private func keychainWritable() -> Bool {
     #expect(written.text == "Why Scaena exists.", "the quotes a model wraps it in come off")
     let patch = try #require(written.patch)
     #expect(!patch.isEmpty && patch.allSatisfy { $0["op"]?.string == "replace_text" })
+    // A rewrite in the person's own words is asked in them (lift-up FUNC-3).
+    let rewrite = try session.writing(
+        WritingAsk(kind: .rewrite, state: "cover", node: "subtitle", instruction: "Shorter, for executives"))
+    // The deck's words fenced, the person's own after the fence (lift-up W1).
+    #expect(rewrite.prompt.hasPrefix("<data label=\"text\">\nThe text:\n\(words)\n"))
+    #expect(rewrite.prompt.hasSuffix("</data>\nHow to rewrite it: Shorter, for executives"))
     let drafted = try session.written(WritingAsk(kind: .notes, state: "cover"), answer: "Open on the name.")
     #expect(drafted.patch?.first?["op"]?.string == "set_state")
 

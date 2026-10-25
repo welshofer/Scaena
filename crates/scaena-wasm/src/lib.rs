@@ -435,6 +435,12 @@ impl Player {
         serde_json::to_string(&self.0.lint(state.as_deref(), now).map_err(js)?).map_err(js)
     }
 
+    /// What the last lint found in the deck compiled last, as JSON findings: what its narrative
+    /// health reads beside it (the generator's `health`, lift-up 10-24b STAB-1).
+    pub fn findings(&self) -> Result<String, JsError> {
+        serde_json::to_string(self.0.findings()).map_err(js)
+    }
+
     /// The source compiled last with `patch` (JSON: a finding's `fix`) applied.
     pub fn fix(&self, patch: &str) -> Result<String, JsError> {
         let patch: Vec<serde_json::Value> = serde_json::from_str(patch).map_err(js)?;
@@ -1282,6 +1288,38 @@ impl Player {
             }
         }
     }
+
+    /// `slide_write`'s second half (lift-up FUNC-1): `written`, the slide the generator's module
+    /// built for this deck (its `slideInto`), made one patch by the session as the Mac's writes
+    /// one, its set held to one size and set clear and lint's fixes on its own states taken,
+    /// written unless `dryRun`, by `author` at `at`. What `slide_write` returns.
+    #[cfg(feature = "generate")]
+    #[wasm_bindgen(js_name = slidePolishing)]
+    pub fn slide_polishing(
+        &mut self,
+        written: &str,
+        dry_run: bool,
+        author: Option<String>,
+        at: Option<String>,
+    ) -> ToolResult {
+        let by = assistant::Caller {
+            author: author.as_deref().unwrap_or("agent"),
+            at: at.as_deref().and_then(store::seconds),
+        };
+        let called = match serde_json::from_str(written) {
+            Ok(written) => self.0.slide_polishing(written, dry_run, by),
+            Err(e) => Err(Error::Ops(format!("slide_write: the slide built is not JSON: {e}"))),
+        };
+        match called {
+            Ok(c) => {
+                ToolResult { json: c.result, error: false, edited: c.edited, frame: c.frame, rewritten: c.rewritten }
+            }
+            Err(e) => {
+                let json = assistant::failure(&e).to_string();
+                ToolResult { json, error: true, edited: false, frame: None, rewritten: Vec::new() }
+            }
+        }
+    }
 }
 
 /// A data source from the editor (PLAN 2.55, SPEC §3.10): its sheet, its edits, and their undo.
@@ -1745,6 +1783,12 @@ impl Making {
         self.0.unfitted(why);
     }
 
+    /// What still runs past its place once the last rewrite is set, which the report says.
+    #[wasm_bindgen(js_name = stillLong)]
+    pub fn still_long(&mut self) -> Result<(), JsError> {
+        self.0.still_long().map_err(js)
+    }
+
     /// How many pictures were made for the deck's slides, and why each other asked for was not
     /// (JSON `[reason]`), which the report says.
     pub fn painted(&mut self, pictures: usize, unmade: &str) -> Result<(), JsError> {
@@ -1898,6 +1942,50 @@ mod web {
         #[wasm_bindgen(getter)]
         pub fn adapter(&self) -> String {
             self.adapter.clone()
+        }
+
+        /// Resolves once the GPU has done the work submitted so far: the frame last painted is
+        /// whole, for the page's compositor to show. A frame's work can outlast the page's next
+        /// frames where the GPU is slow, a large picture's first upload on a software adapter
+        /// above all, and the compositor shows the last frame done meanwhile.
+        pub fn settled(&self) -> wasm_bindgen_futures::js_sys::Promise {
+            let done = std::sync::Arc::new(Done::default());
+            let heard = done.clone();
+            self.queue.on_submitted_work_done(move || heard.set());
+            wasm_bindgen_futures::future_to_promise(async move {
+                (&*done).await;
+                Ok(JsValue::UNDEFINED)
+            })
+        }
+    }
+
+    /// The GPU's word that submitted work is done, which its callback, on any thread, gives.
+    #[derive(Default)]
+    struct Done {
+        is: std::sync::atomic::AtomicBool,
+        waker: std::sync::Mutex<Option<std::task::Waker>>,
+    }
+
+    impl Done {
+        fn set(&self) {
+            self.is.store(true, std::sync::atomic::Ordering::Release);
+            if let Some(waker) = self.waker.lock().unwrap_or_else(|e| e.into_inner()).take() {
+                waker.wake();
+            }
+        }
+    }
+
+    impl std::future::Future for &Done {
+        type Output = ();
+        fn poll(self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<()> {
+            if self.is.load(std::sync::atomic::Ordering::Acquire) {
+                return std::task::Poll::Ready(());
+            }
+            *self.waker.lock().unwrap_or_else(|e| e.into_inner()) = Some(cx.waker().clone());
+            if self.is.load(std::sync::atomic::Ordering::Acquire) {
+                return std::task::Poll::Ready(());
+            }
+            std::task::Poll::Pending
         }
     }
 

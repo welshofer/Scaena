@@ -8,7 +8,8 @@
 // - An edit that compiles shows at once: a headline too long for its slot is E100, placed on
 //   the line that sets it, with a fix in the gutter. The fix rewrites only what it changes,
 //   and the finding goes.
-// - A source that does not compile says where; the preview keeps the deck it had.
+// - A source that does not compile says where; the preview keeps the deck it had, under the
+//   findings' marks, which it takes away.
 // - The preview and the inspector follow the cursor from state to state.
 // - Once typing stops, every state is linted, and what that finds replaces what the edit's
 //   lint of the state shown left standing.
@@ -17,7 +18,7 @@
 // - On B1, each edit's round trip (compile, the frame, lint of the state shown) is recorded;
 //   gate 2 asks for under 200 ms (PLAN §2). So is the lint of every state that follows.
 // Exits 1 on any failure.
-import { readFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { launch, serve } from "./serve.mjs";
 
 const server = await serve();
@@ -83,6 +84,8 @@ try {
 
   // Its fix.
   const before = await page.evaluate(() => window.scaena.trips().length);
+  // The fix's lint of every state lands once typing stops, after the edit's own lint.
+  const wholesAtFix = await page.evaluate(() => window.scaena.wholes().length);
   await page.evaluate(() => window.scaena.fix("E100"));
   last = await settled(page, before);
   const fixed = await page.evaluate(() => window.scaena.source());
@@ -105,13 +108,59 @@ try {
   await page
     .waitForFunction(() => window.scaena.canvas.boxed() === "close" && window.scaena.canvas.boxes().length > 0, null, { timeout: 30000 })
     .catch(() => {});
+  // The fixed source's lint of every state draws each state's findings as marks over the canvas,
+  // and the compile error below takes them all away: both captures wait for it, so neither races
+  // it, and the slide is compared under them, the marks said apart.
+  await page.waitForFunction((n) => window.scaena.wholes().length > n, wholesAtFix, { timeout: 30000 });
   await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
-  const shownBefore = await canvas(page);
+  const onClose = await page.evaluate(() => window.scaena.wholes().at(-1).findings.filter((f) => f.state === "close").map((f) => f.code));
+  const marksBefore = await page.evaluate(() => window.scaena.canvas.marks());
+  const slide = (page) => page.locator("#stage").screenshot({ style: "#marks { visibility: hidden !important; }" });
+  const shownBefore = await slide(page);
   const broken = fixed.replace("state close layout:title", "state close layout:");
   last = await type(page, broken);
   const brokenLine = broken.split("\n").findIndex((l) => l.startsWith("state close")) + 1;
   check(Boolean(last.error) && last.error.at?.line === brokenLine, `a source that does not compile says where: ${JSON.stringify(last.error?.at)} (line ${brokenLine})`);
-  check((await canvas(page)).equals(shownBefore), "the preview keeps the deck it had");
+  const shownAfter = await slide(page);
+  const marksAfter = await page.evaluate(() => window.scaena.canvas.marks());
+  const kept = shownAfter.equals(shownBefore);
+  check(kept, `the preview keeps the deck it had (close's findings: ${onClose.join(",") || "none"}; marks ${marksBefore.length}, then ${marksAfter.length})`);
+  check(marksAfter.length === 0, `a source that does not compile takes the findings' marks away: ${JSON.stringify(marksAfter)}`);
+  if (!kept) {
+    // What differs, for the run's artifact: which pixels, where, and what each capture showed.
+    const out = "target/web-smoke/editor";
+    await mkdir(out, { recursive: true });
+    await writeFile(`${out}/preview-before.png`, shownBefore);
+    await writeFile(`${out}/preview-after.png`, shownAfter);
+    const differs = await page.evaluate(
+      async ([a, b]) => {
+        const pixels = async (b64) => {
+          // Decoded here, as the page's content security policy lets no fetch of a `data:` address.
+          const bytes = Uint8Array.from(atob(b64), (ch) => ch.charCodeAt(0));
+          const image = await createImageBitmap(new Blob([bytes], { type: "image/png" }));
+          const c = new OffscreenCanvas(image.width, image.height).getContext("2d");
+          c.drawImage(image, 0, 0);
+          return c.getImageData(0, 0, image.width, image.height);
+        };
+        const [x, y] = [await pixels(a), await pixels(b)];
+        if (x.width !== y.width || x.height !== y.height) return { size: [[x.width, x.height], [y.width, y.height]] };
+        let count = 0;
+        const box = [Infinity, Infinity, -1, -1];
+        for (let i = 0; i < x.data.length; i += 4) {
+          if (x.data[i] === y.data[i] && x.data[i + 1] === y.data[i + 1] && x.data[i + 2] === y.data[i + 2] && x.data[i + 3] === y.data[i + 3]) continue;
+          const p = i / 4;
+          const [px, py] = [p % x.width, Math.floor(p / x.width)];
+          count++;
+          [box[0], box[1], box[2], box[3]] = [Math.min(box[0], px), Math.min(box[1], py), Math.max(box[2], px), Math.max(box[3], py)];
+        }
+        return { count, box: count ? [box[0], box[1], box[2] - box[0] + 1, box[3] - box[1] + 1] : null };
+      },
+      [shownBefore.toString("base64"), shownAfter.toString("base64")],
+    );
+    const state = { differs, onClose, marksBefore, marksAfter, at: await page.evaluate(() => window.scaena.at()) };
+    await writeFile(`${out}/preview.json`, JSON.stringify(state, null, 1));
+    console.log(`     the preview's pixels that differ: ${JSON.stringify(differs)} (target/web-smoke/editor/)`);
+  }
   last = await type(page, fixed);
   check(last.valid && !last.error, "putting it right compiles again");
 

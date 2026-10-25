@@ -85,6 +85,9 @@ struct DeckView: View {
     @State private var remoting = false
     /// An export shown in Quick Look (PLAN 3.8).
     @State private var looking: URL?
+    /// An export being made away from the window, and the work making it (lift-up PERF-3).
+    @State private var making: MakingExport?
+    @State private var makingTask: Task<Void, Never>?
     /// An export to save where the user says, its type, and the name offered.
     @State private var saving: ExportedFile?
     @State private var savingType = UTType.pdf
@@ -111,6 +114,9 @@ struct DeckView: View {
     @State private var choosingIcon = false
     /// The themes that ship, offered as a deck made by New opens (PLAN 3.3); none once one is chosen.
     @State private var offeredThemes: [ShippedTheme] = []
+    /// Whether the window is the theme chooser, as a deck made by New opens, until one is chosen or
+    /// it is cancelled (lift-up ATTR-5).
+    @State private var choosingFirst = false
     /// The slides made in this window, from the gallery or after the slide shown (PLAN 3.30):
     /// only theirs show their layout's empty slots, so a deck opened shows none it never filled.
     @State private var fresh: Set<String> = []
@@ -118,6 +124,13 @@ struct DeckView: View {
     @SceneStorage("formats") private var showsFormats = false
     /// How close the canvas is shown, and the part of it shown (PLAN 3.16).
     @State private var zoom = Zoom(canvas: CGSize(width: 1920, height: 1080))
+    /// The slide shown and the zoom, kept with the window, which reopens on them, as a presentation
+    /// app's does (lift-up 10-24b ATTR-5): the state's id, and `Zoom.kept`.
+    @SceneStorage("slide") private var keptSlide = ""
+    @SceneStorage("zoom") private var keptZoom = ""
+    /// Whether the zoom kept has been taken back, once the desk and the canvas have their sizes:
+    /// until then, the zoom fitted as the window opens is not kept over it.
+    @State private var zoomTaken = false
     /// What a touch holds in a keyboard's place: Select, and Only on This Slide (lift-up FUNC-4).
     @State private var touch = TouchHeld()
     /// Whether the find bar shows over the canvas (PLAN 3.16).
@@ -128,20 +141,29 @@ struct DeckView: View {
 
     private var editor: DeckEditor { document.editor }
 
-    /// The state shown: the one chosen, or the deck's first.
+    /// The state shown: the one chosen, else the one the window was closed on where the deck still
+    /// has it (lift-up 10-24b ATTR-5), else the deck's first.
     private var shown: String? {
         let slots = editor.slots
         if let chosen, slots.contains(where: { $0.state == chosen }) { return chosen }
+        if chosen == nil, slots.contains(where: { $0.state == keptSlide }) { return keptSlide }
         return slots.first?.state
     }
 
     // The window's parts, each its own expression: one modifier chain over all of them is more
     // than the compiler type-checks in reasonable time.
     var body: some View {
-        presented(watched(undoing(window)))
-            .focusedSceneValue(\.deck, actions)
-            .focusedSceneValue(\.canvasActions, canvasActions)
+        // While the themes are offered, the window waits on them as it waited on a sheet: its
+        // toolbar, its canvas and panes, and the menus' deck commands take nothing (lift-up ATTR-5).
+        presented(watched(undoing(window.disabled(choosingTheme))))
+            .focusedSceneValue(\.deck, choosingTheme ? nil : actions)
+            .focusedSceneValue(\.canvasActions, choosingTheme ? nil : canvasActions)
             .focusedSceneValue(\.panes, panes)
+    }
+
+    /// Whether a new deck's themes are offered over the window, before one is chosen.
+    private var choosingTheme: Bool {
+        document.startsNew || choosingFirst
     }
 
     /// The states down the side; beside them the canvas and the rest; and the toolbar.
@@ -180,6 +202,14 @@ struct DeckView: View {
                 if let shown { insertIcon(icon, in: shown) }
             }
         }
+    }
+
+    /// The zoom the window was closed on taken back, once (lift-up 10-24b ATTR-5): when the desk has
+    /// its size and the canvas is the deck's, so that neither fits it again after.
+    private func takeZoom(canvas: CGSize) {
+        guard !zoomTaken, zoom.desk.width > 0, zoom.desk.height > 0, zoom.canvas == canvas else { return }
+        zoom.restore(keptZoom)
+        zoomTaken = true
     }
 
     /// The light table shown, or put away (PLAN 3.14). The canvas's selection is let go, so the
@@ -708,8 +738,10 @@ struct DeckView: View {
     private func watched(_ view: some View) -> some View {
         view
             .onChange(of: shown, initial: true) { _, now in
-                // The slide shown is the one the list selects: the deck's first, as it opens.
+                // The slide shown is the one the list selects: the one the window was closed on, or
+                // the deck's first, as it opens; and the window keeps it to reopen on.
                 if chosen != now { chosen = now }
+                keptSlide = now ?? ""
                 // A state chosen plays its cue, as it does in the browser.
                 editor.shown = now
                 node = arriving
@@ -786,6 +818,25 @@ struct DeckView: View {
     private func presented(_ view: some View) -> some View {
         view
             .quickLookPreview($looking)
+            // An export seen in Quick Look, its folder taken away once it is closed (lift-up REL-5).
+            .onChange(of: looking) { seen, now in
+                if let seen, seen != now { ExportFolders.remove(seen) }
+            }
+            // An export being made: what it is, and Cancel, which drops it (lift-up PERF-3).
+            .sheet(item: $making) { made in
+                VStack(spacing: 16) {
+                    ProgressView(made.said)
+                    Button("Cancel", role: .cancel) {
+                        makingTask?.cancel()
+                        making = nil
+                        makingTask = nil
+                    }
+                    .keyboardShortcut(.cancelAction)
+                }
+                .padding(24)
+                .frame(minWidth: 320)
+                .interactiveDismissDisabled()
+            }
             .fileExporter(
                 isPresented: exporting, document: saving, contentType: savingType, defaultFilename: savingName
             ) { result in
@@ -800,7 +851,12 @@ struct DeckView: View {
                 RemoteSheet(editor: editor) { shown }
             }
             .sheet(item: $asked) { asked in
-                OfferSheet(title: asked.title, ask: asked.ask, shown: asked.shown, take: asked.take, whence: asked.whence) { ops in
+                OfferSheet(
+                    title: asked.title, ask: asked.ask, shown: asked.shown, take: asked.take, whence: asked.whence,
+                    instruction: asked.instruction,
+                    // Asked again in the person's words: the sheet shows the new question.
+                    again: asked.again.map { remake in { how in self.asked = remake(how) } }
+                ) { ops in
                     // An answer that changes nothing makes no change, and says so, as the browser does.
                     guard let ops else {
                         said = "Nothing to change: it already reads so"
@@ -815,13 +871,21 @@ struct DeckView: View {
             .sheet(item: $mapping) { target in
                 MapSheet(target: target) { map, label in putMap(map, at: target, label: label) }
             }
-            .sheet(isPresented: choosingTheme) {
-                ThemeChooser(themes: offeredThemes) { name in
-                    offeredThemes = []
-                    if let name { begin(in: name) }
+            // A deck New made opens on the themes that ship, over the window from its first frame, so
+            // no deck shows before one is chosen, as a presentation app's theme chooser opens
+            // (lift-up ATTR-5).
+            .overlay {
+                if choosingTheme {
+                    ThemeChooser(themes: offeredThemes) { name in
+                        choosingFirst = false
+                        offeredThemes = []
+                        if let name { begin(in: name) }
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(.background)
                 }
             }
-            // A deck New made: the themes that ship offered first, once its window is up. A deck
+            // A deck New made: the themes that ship offered first, as its window opens. A deck
             // made from a prompt says what it came to, and lands on its story (narrative USE-2):
             // the Document tab's Story panel, with the arc's curve and each slide's fix.
             .task {
@@ -833,11 +897,21 @@ struct DeckView: View {
                     documentPanel = .story
                 }
                 guard document.startsNew else { return }
-                document.startsNew = false
                 // Its title slide's empty places outlined, as on a slide made here.
                 fresh.formUnion(editor.slots.map(\.state))
-                try? await Task.sleep(for: .milliseconds(250))
-                offeredThemes = (try? editor.session.shippedThemes()) ?? []
+                // Made in another theme than Dusk, which made none: said once, as an alert in front
+                // of the themes offered, which wait behind it until it is read (lift-up STAB-3).
+                if let fellBack = document.fellBack {
+                    document.fellBack = nil
+                    failure = fellBack
+                }
+                do {
+                    offeredThemes = try editor.session.shippedThemes()
+                } catch {
+                    failure = [failure, Why.said(error)].compactMap { $0 }.joined(separator: "\n\n")
+                }
+                choosingFirst = !offeredThemes.isEmpty
+                document.startsNew = false
             }
             .alert("Couldn’t Make That Change", isPresented: failing, presenting: failure) { _ in
                 Button("OK") { failure = nil }
@@ -849,11 +923,6 @@ struct DeckView: View {
     /// Whether an export waits to be saved.
     private var exporting: Binding<Bool> {
         Binding(get: { saving != nil }, set: { if !$0 { saving = nil } })
-    }
-
-    /// Whether the themes that ship are offered.
-    private var choosingTheme: Binding<Bool> {
-        Binding(get: { !offeredThemes.isEmpty }, set: { if !$0 { offeredThemes = [] } })
     }
 
     /// A deck New made put in the theme that ships named `name`, before anything is on it (PLAN
@@ -966,10 +1035,19 @@ struct DeckView: View {
                 #endif
                 // Where a pinch's fingers are read, on the iPad (PLAN 4.3).
                 .coordinateSpace(.named(Zoom.space))
-                .onChange(of: room.size, initial: true) { _, now in zoom.place(on: now) }
+                .onChange(of: room.size, initial: true) { _, now in
+                    zoom.place(on: now)
+                    takeZoom(canvas: size)
+                }
                 // The slide fitted again once the canvas is another size: another format shown, say.
-                .onChange(of: size, initial: true) { _, now in zoom.resize(to: now) }
+                .onChange(of: size, initial: true) { _, now in
+                    zoom.resize(to: now)
+                    takeZoom(canvas: now)
+                }
                 .onChange(of: zoom.view) { _, now in editor.look(through: now) }
+                .onChange(of: zoom) { _, now in
+                    if zoomTaken { keptZoom = now.kept }
+                }
             }
             .frame(minWidth: 320, minHeight: 200)
             #if os(macOS)
@@ -1069,10 +1147,13 @@ struct DeckView: View {
             }
         }
         if let typing, typing.typing {
-            made.bold = { typing.bold() }
-            made.italic = { typing.italic() }
             made.link = { typing.askLink() }
-            made.list = { kind in typing.toggle(kind) }
+            // Code takes no bold, italic, or list: its theme colors it, its lines as written (PLAN 2.139).
+            if !typing.inCode {
+                made.bold = { typing.bold() }
+                made.italic = { typing.italic() }
+                made.list = { kind in typing.toggle(kind) }
+            }
         }
         return made
     }
@@ -1104,19 +1185,53 @@ struct DeckView: View {
 
     /// Write `kind` and share it, or show it in Quick Look.
     private func export(_ kind: Exporting.Kind, sharing: Bool) {
-        perform {
-            let url = try Exporting.file(kind, of: editor)
+        let name = Exporting.name(kind, of: editor)
+        make(kind) { data in
+            let url = try Exporting.file(data, named: name)
             if sharing { Exporting.share(url) } else { looking = url }
         }
     }
 
     /// Offer `kind` to save where the user says.
     private func save(_ kind: Exporting.Kind) {
-        perform {
-            let data = try Exporting.bytes(kind, of: editor)
+        let name = Exporting.name(kind, of: editor)
+        make(kind) { data in
             savingType = kind.type
-            savingName = Exporting.name(kind, of: editor)
+            savingName = name
             saving = ExportedFile(data: data)
+        }
+    }
+
+    /// `kind`'s bytes made from the deck as it stands, away from the window, which says so in a
+    /// sheet whose Cancel drops them; then `done` with them, back on the window's thread (lift-up
+    /// PERF-3). An edit made meanwhile is not in them: they are the deck as it was asked for.
+    private func make(_ kind: Exporting.Kind, then done: @escaping (Data) throws -> Void) {
+        guard making == nil else { return }
+        let snapshot: ScaenaSession.Snapshot
+        do {
+            snapshot = try editor.session.snapshot()
+        } catch {
+            failure = Why.said(error)
+            return
+        }
+        let export = Exporting.export(kind, of: editor)
+        let id = UUID()
+        making = MakingExport(id: id, said: Exporting.making(kind))
+        makingTask = Task {
+            defer {
+                if making?.id == id {
+                    making = nil
+                    makingTask = nil
+                }
+            }
+            do {
+                let data = try await snapshot.exported(export)
+                guard making?.id == id else { return }
+                try done(data)
+            } catch is CancellationError {
+            } catch {
+                if making?.id == id { failure = Why.said(error) }
+            }
         }
     }
 
@@ -1168,13 +1283,23 @@ struct DeckView: View {
         made.draw = { takePen() }
         made.drawing = pen != nil
         if selection.count == 2 { made.connect = { arrow in connect(arrow, in: shown) } }
-        if one && texted { made.diagram = { kind in diagram(kind, in: shown) } }
+        // A diagram is drawn from words, never from code (PLAN 2.139).
+        if one && texted, !(node.map(codes.contains) ?? false) { made.diagram = { kind in diagram(kind, in: shown) } }
         made.deletesElsewhere = elsewhere
         // A gesture kept to the slide shown without Option, from a long press (lift-up FUNC-4).
         made.keepToSlide = { touch.onlyThisSlide.toggle() }
         made.keptToSlide = touch.onlyThisSlide
         // Code selected copies as text, and words paste as words (PLAN 2.133).
         if one, let node, codes.contains(node) { made.copyCode = { copyCode(node, in: shown) } }
+        // A text made code, code made words again, and code tidied (PLAN 2.139).
+        if one, let node, texted {
+            if codes.contains(node) {
+                made.notCode = { notCode(node) }
+                made.tidyCode = { tidyCode(node, in: shown) }
+            } else {
+                made.makeCode = { makeCode(node) }
+            }
+        }
         made.pasteAsText = { pasteAsText() }
         // In another of the deck's formats, a node given a layout of its own there (PLAN 2.85).
         if one, let node, let format = editor.format {
@@ -1270,6 +1395,40 @@ struct DeckView: View {
             let words = try editor.session.codeWords(state: state, node: node)
             Pasteboard.write(words: words)
             said = "The code copied as text: \(words.split(separator: "\n", omittingEmptySubsequences: false).count) lines"
+        }
+    }
+
+    /// Make Code (PLAN 2.139): the text selected made code in the language it reads as, set in the
+    /// theme's code role, as written; one step of undo.
+    private func makeCode(_ node: String) {
+        perform {
+            let patch = try editor.session.coding(node: node)
+            try document.make(patch, undo: undo, named: "Make Code")
+            said = "Made code"
+        }
+    }
+
+    /// Not Code (PLAN 2.139): the code selected made words again, in the body's role, on every
+    /// slide that shows it; one step of undo.
+    private func notCode(_ node: String) {
+        perform {
+            let patch = try editor.session.uncoding(node: node)
+            try document.make(patch, undo: undo, named: "Not Code")
+            said = "Made words again"
+        }
+    }
+
+    /// Tidy Code (PLAN 2.139): the code selected tidied as a paste of code is, as the slide shows
+    /// it; one step of undo, or nothing where it is tidy.
+    private func tidyCode(_ node: String, in state: String) {
+        perform {
+            let patch = try editor.session.tidying(state: state, node: node)
+            guard !patch.isEmpty else {
+                said = "The code is tidy already"
+                return
+            }
+            try document.make(patch, undo: undo, named: "Tidy Code")
+            said = "The code tidied"
         }
     }
 
@@ -1875,4 +2034,11 @@ struct DeckView: View {
             failure = Why.said(error)
         }
     }
+}
+
+/// An export being made away from the window (lift-up PERF-3): which one, and what the window says
+/// of it while it is made.
+struct MakingExport: Identifiable {
+    let id: UUID
+    let said: String
 }

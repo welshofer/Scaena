@@ -31,26 +31,29 @@ enum Exporting {
         }
     }
 
-    /// The export's bytes.
-    static func bytes(_ kind: Kind, of editor: DeckEditor) throws -> Data {
+    /// What the engine makes for `kind`, read on the window's thread: the deck's title names the
+    /// slides in their zip.
+    static func export(_ kind: Kind, of editor: DeckEditor) -> Export {
         switch kind {
-        case .pdf:
-            return try editor.session.pdf()
-        case .png(let state, let width):
-            return try editor.session.png(state, width: width)
-        case .slides(let width):
-            return try editor.session.slides(width: width, name: title(of: editor))
+        case .pdf: .pdf
+        case .png(let state, let width): .png(state: state, width: width)
+        case .slides(let width): .slides(width: width, name: title(of: editor))
         }
     }
 
-    /// The export written into a folder of its own, named for the deck: what the Share sheet and
-    /// Quick Look are given.
-    static func file(_ kind: Kind, of editor: DeckEditor) throws -> URL {
-        let folder = FileManager.default.temporaryDirectory.appending(path: "Scaena-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        let url = folder.appending(path: name(kind, of: editor))
-        try bytes(kind, of: editor).write(to: url)
-        return url
+    /// What the window says while `kind` is made (lift-up PERF-3).
+    static func making(_ kind: Kind) -> String {
+        switch kind {
+        case .pdf: "Making the PDF…"
+        case .png: "Making the PNG…"
+        case .slides: "Making a PNG of every slide…"
+        }
+    }
+
+    /// An export's bytes written into a folder of its own as `name`: what the Share sheet and
+    /// Quick Look are given, and which each takes away once it is done (lift-up REL-5).
+    static func file(_ data: Data, named name: String) throws -> URL {
+        try ExportFolders.write(data, named: name)
     }
 
     /// The export's file name: the deck's title, and for a PNG its state.
@@ -70,20 +73,31 @@ enum Exporting {
         return title.components(separatedBy: CharacterSet(charactersIn: "/:\\?%*|\"<>")).joined(separator: "-")
     }
 
-    /// `url` offered through the Share sheet, from the window's top right.
+    /// `url` offered through the Share sheet, from the window's top right, its folder taken away
+    /// once the share is done, failed, or dismissed (lift-up REL-5).
     @MainActor static func share(_ url: URL) {
         #if os(macOS)
-        guard let view = NSApp.keyWindow?.contentView else { return }
+        guard let view = NSApp.keyWindow?.contentView else {
+            ExportFolders.remove(url)
+            return
+        }
         let picker = NSSharingServicePicker(items: [url])
+        let end = SharingEnd(url: url)
+        SharingEnd.live.insert(end)
+        picker.delegate = end
         let corner = NSRect(x: view.bounds.maxX - 80, y: view.bounds.maxY - 8, width: 1, height: 1)
         picker.show(relativeTo: corner, of: view, preferredEdge: .minY)
         #else
         let scene = UIApplication.shared.connectedScenes
             .compactMap { $0 as? UIWindowScene }
             .first { $0.activationState == .foregroundActive }
-        guard var top = scene?.keyWindow?.rootViewController else { return }
+        guard var top = scene?.keyWindow?.rootViewController else {
+            ExportFolders.remove(url)
+            return
+        }
         while let shown = top.presentedViewController { top = shown }
         let sheet = UIActivityViewController(activityItems: [url], applicationActivities: nil)
+        sheet.completionWithItemsHandler = { _, _, _, _ in ExportFolders.remove(url) }
         // On the iPad the sheet is a popover, which must point at something.
         sheet.popoverPresentationController?.sourceView = top.view
         sheet.popoverPresentationController?.sourceRect = CGRect(x: top.view.bounds.maxX - 80, y: 8, width: 1, height: 1)
@@ -91,6 +105,45 @@ enum Exporting {
         #endif
     }
 }
+
+#if os(macOS)
+/// What ends a share on the Mac: the picker dismissed with nothing chosen, or the service chosen
+/// done or failed. Each takes the export's folder away (lift-up REL-5).
+@MainActor
+private final class SharingEnd: NSObject, NSSharingServicePickerDelegate, NSSharingServiceDelegate {
+    /// Each share under way, kept until it ends, since the picker and the service hold their
+    /// delegates weakly.
+    static var live: Set<SharingEnd> = []
+    let url: URL
+
+    init(url: URL) {
+        self.url = url
+    }
+
+    func sharingServicePicker(
+        _ picker: NSSharingServicePicker, delegateFor sharingService: NSSharingService
+    ) -> (any NSSharingServiceDelegate)? {
+        self
+    }
+
+    func sharingServicePicker(_ picker: NSSharingServicePicker, didChoose service: NSSharingService?) {
+        if service == nil { end() }
+    }
+
+    func sharingService(_ sharingService: NSSharingService, didShareItems items: [Any]) {
+        end()
+    }
+
+    func sharingService(_ sharingService: NSSharingService, didFailToShareItems items: [Any], error: any Error) {
+        end()
+    }
+
+    private func end() {
+        ExportFolders.remove(url)
+        Self.live.remove(self)
+    }
+}
+#endif
 
 /// An export's bytes, as a save panel writes them.
 struct ExportedFile: FileDocument {

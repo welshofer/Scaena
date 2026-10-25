@@ -9,7 +9,7 @@
 // font, fetched from google/fonts at the commit the shipped fonts come from, held to its digest,
 // and kept in the browser's cache for the next deck (PLAN G.22, ADR-0027).
 import { Making, scriptChecked, scriptFor, scriptTaken, writable } from "@scaena/wasm";
-import { findIcons, iconSet } from "./icon-set";
+import { findIcons, type IconSet, iconSet } from "./icon-set";
 import { atMost } from "./most";
 import type { Choices, FetchedMap, Generate, Generated, GeneratingEvent, Health, MapAsk, MapPlace, PictureJob, StoryOutline } from "./protocol";
 import { answered } from "./words";
@@ -31,9 +31,66 @@ const said = (e: unknown) => (e instanceof Error ? e.message : String(e));
 /** Who makes pictures, by name, as a person reads it. */
 const PAINTERS = { openai: "OpenAI", gemini: "Gemini" } as const;
 
-/** The narrative health of `deck`, as `deck.json` holds it (PLAN G.9, SPEC §7.7). */
-export async function health(deck: string): Promise<Health> {
-  return JSON.parse((await generator()).health(deck)) as Health;
+/** The narrative health of `deck`, as `deck.json` holds it (PLAN G.9, SPEC §7.7), beside `lint`, the
+ * findings the last lint gave, as JSON (lift-up 10-24b STAB-1). */
+export async function health(deck: string, lint?: string): Promise<Health> {
+  return JSON.parse((await generator()).health(deck, lint)) as Health;
+}
+
+/** Where a slide goes in an open deck (lift-up FUNC-1): after the slide that holds a state, in
+ * place of it, or, with neither, at the end. */
+export interface SlidePlace {
+  after?: string;
+  replace?: string;
+}
+
+/** The generator's writer of one slide (lift-up FUNC-1), the bundle's data `files` handed to it:
+ * which the rows of a chart the slide draws are read from. */
+async function writing(files: Iterable<[string, Uint8Array]>) {
+  const w = new (await generator()).SlideWriting();
+  for (const [path, bytes] of files) w.add(path, bytes);
+  return w;
+}
+
+/** What to ask a model for one slide of `deck` at `place`, with the person's `ask` (lift-up
+ * FUNC-1), the bundle's data `files` read for the rows of a chart the slide draws: the request's
+ * instructions and prompt. */
+export async function oneAsked(
+  deck: string,
+  place: SlidePlace,
+  ask: string,
+  files: Iterable<[string, Uint8Array]>,
+): Promise<{ system: string; prompt: string }> {
+  const w = await writing(files);
+  try {
+    return JSON.parse(w.asked(deck, JSON.stringify(place), ask)) as { system: string; prompt: string };
+  } finally {
+    w.free();
+  }
+}
+
+/** `slide` built for `deck` in `theme` at `place`, as the deck's generator builds a slide, its
+ * icons `found` in the set the page carries and its data `files` the bundle's: what the editor's
+ * module makes one patch of (`Player.slidePolishing`). */
+export async function slideBuilt(
+  deck: string,
+  theme: string,
+  slide: Record<string, unknown>,
+  place: SlidePlace,
+  found: Record<string, { name: string; path: string; view: number[] }>,
+  files: Iterable<[string, Uint8Array]>,
+): Promise<string> {
+  const w = await writing(files);
+  try {
+    return w.built(deck, theme, JSON.stringify(slide), JSON.stringify(place), JSON.stringify(found));
+  } finally {
+    w.free();
+  }
+}
+
+/** The one slide a model's `answer` holds, as Narrato writes a slide. */
+export async function oneAnswered(answer: string): Promise<Record<string, unknown>> {
+  return JSON.parse((await generator()).oneAnswered(answer)) as Record<string, unknown>;
 }
 
 /** What a brief may ask, as Narrato knows it. */
@@ -289,7 +346,7 @@ export async function generate(
           }
         } else hear({ kind: "wrote", slides: at.written ?? 0, truncated: at.truncated ?? false });
       }
-      await giveIcons(generation);
+      await giveIcons(generation, hear);
       const painted = job.pictures ? await paint(g, generation, job.pictures, theme, hear) : undefined;
       hear({ kind: "making" });
       const built = generation.deck(theme.text, painted?.placed ?? "{}");
@@ -322,11 +379,18 @@ export async function generate(
 /** The icons the narrative's slides name (PLAN G.23), each the first its word finds in the set
  * that ships, in its regular weight, as `scaena_ops::narrative::icons_found` finds them: the set
  * fetched only where a slide names one. A word that finds none is left out, and its slide set
- * without icons. */
-async function giveIcons(generation: InstanceType<Generator["Generation"]>) {
+ * without icons. A set that cannot be fetched finds none, which `hear` hears: the slides are
+ * already paid for, and an icon is a decoration (lift-up 10-25 STAB-3). */
+async function giveIcons(generation: InstanceType<Generator["Generation"]>, hear: (event: GeneratingEvent) => void) {
   const words = JSON.parse(generation.iconWords()) as string[];
   if (words.length === 0) return;
-  const set = await iconSet();
+  let set: IconSet;
+  try {
+    set = await iconSet();
+  } catch (e) {
+    hear({ kind: "unIconed", why: said(e) });
+    return generation.giveIcons("{}");
+  }
   const found: Record<string, { name: string; path: string; view: number[] }> = {};
   for (const word of words) {
     const [first] = findIcons(set, word);
@@ -530,6 +594,43 @@ const LOOK_WIDTH = 1024;
  * provider's limit on images in one request. */
 const LOOK_BATCH = 12;
 
+/** How many of the look's rounds are asked at once, as `scaena_ops::narrative::LOOKS_AT_ONCE` (lift-up PERF-1). */
+const LOOKS_AT_ONCE = 3;
+
+/** What each of `requests` answered, a few asked at once (`LOOKS_AT_ONCE`), and those a busy
+ * provider answered for now asked again after the wait the slides and pictures take, up to its
+ * tries, the wait said: as `scaena_ops::narrative::asked_again` (lift-up REL-1). Each reply in its
+ * request's place. */
+async function askedAgain(
+  generation: InstanceType<Generator["Generation"]>,
+  requests: Request[],
+  hear: (event: GeneratingEvent) => void,
+): Promise<Awaited<ReturnType<typeof send>>[]> {
+  const replies: Awaited<ReturnType<typeof send>>[] = new Array(requests.length);
+  let open = requests.map((_, i) => i);
+  for (let tried = 0; open.length; tried++) {
+    const got: Awaited<ReturnType<typeof send>>[] = [];
+    for (let at = 0; at < open.length; at += LOOKS_AT_ONCE) {
+      got.push(...(await Promise.all(open.slice(at, at + LOOKS_AT_ONCE).map((i) => send(requests[i])))));
+    }
+    let wait = 0;
+    const again: number[] = [];
+    open.forEach((i, k) => {
+      replies[i] = got[k];
+      const w = generation.retryAfter(got[k].status, got[k].body, got[k].after, tried);
+      if (w !== undefined) {
+        wait = Math.max(wait, w);
+        again.push(i);
+      }
+    });
+    if (!again.length) break;
+    hear({ kind: "retrying", seconds: wait, tried: tried + 1 });
+    await new Promise((r) => setTimeout(r, wait * 1000));
+    open = again;
+  }
+  return replies;
+}
+
 /** The deck shown to the model as it is drawn (PLAN G.13): each slide drawn by the editor's
  * module, a JPEG made of it here, and what the model asks to change (another of a slide's
  * layouts, its words tightened) built again by the generator and kept where lint finds no slide
@@ -557,15 +658,22 @@ async function look(
     const slides = JSON.parse(seen) as { slide: number }[];
     const changes: { slide: number }[] = [];
     let unanswered: string | undefined;
-    let looking = false;
+    // Every round asked at once, a few at a time so that no provider's rate limit is tripped,
+    // each told the slides just outside it, and each answer read in its round's order (lift-up
+    // PERF-1).
+    const rounds: { round: { slide: number }[]; part: string; asked: string }[] = [];
     for (let start = 0; start < slides.length; start += LOOK_BATCH) {
       const round = slides.slice(start, start + LOOK_BATCH);
       const part = JSON.stringify(round);
-      const asked = generation.lookRequest(key, part, JSON.stringify(drawn.slice(start, start + LOOK_BATCH)));
-      if (!asked) continue;
-      if (!looking) hear({ kind: "looking", slides: drawn.length });
-      looking = true;
-      const reply = await send(JSON.parse(asked));
+      const edges = JSON.stringify([slides[start - 1] ?? null, slides[start + LOOK_BATCH] ?? null]);
+      const asked = generation.lookRequest(key, part, JSON.stringify(drawn.slice(start, start + LOOK_BATCH)), edges);
+      if (asked) rounds.push({ round, part, asked });
+    }
+    const looking = rounds.length > 0;
+    if (looking) hear({ kind: "looking", slides: drawn.length });
+    const replies = await askedAgain(generation, rounds.map((r) => JSON.parse(r.asked) as Request), hear);
+    for (const [i, { round, part }] of rounds.entries()) {
+      const reply = replies[i];
       try {
         changes.push(...(JSON.parse(read(name, reply, () => generation.lookAnswer(reply.status, reply.statusText, reply.body, part))) as { slide: number }[]));
       } catch (e) {
@@ -628,8 +736,13 @@ async function jpeg(pixels: ImageData): Promise<{ mediaType: string; data: strin
   return { mediaType: "image/jpeg", data: btoa(binary) };
 }
 
+/** How many times the model is asked to rewrite what runs past its place, as
+ * `scaena_narrato::fit::ROUNDS`: once, then once more for what its rewrite left too long. */
+const FIT_ROUNDS = 2;
+
 /** Each text that still runs past its place, rewritten by the model to the length the engine
- * measured for it; a rewrite that fails leaves the deck as it was, saying why. */
+ * measured for it, and asked again once for what the rewrite left too long; a rewrite that fails
+ * leaves the deck as it was, saying why, and what still runs over is said (STAB-4). */
 async function fit(
   generation: InstanceType<Generator["Generation"]>,
   making: Making,
@@ -637,19 +750,24 @@ async function fit(
   name: string,
   hear: (event: GeneratingEvent) => void,
 ) {
-  const longs = making.longs();
-  const texts = (JSON.parse(longs) as unknown[]).length;
-  if (!texts) return;
-  const asked = generation.fitRequest(key, longs);
-  if (!asked) return;
-  hear({ kind: "fitting", texts });
-  const reply = await send(JSON.parse(asked));
-  try {
-    const rewrites = read(name, reply, () => generation.fitAnswer(reply.status, reply.statusText, reply.body, longs));
-    making.fitted(rewrites);
-    hear({ kind: "fitted", texts: (JSON.parse(rewrites) as unknown[]).length });
-  } catch (e) {
-    making.unfitted(said(e));
-    hear({ kind: "unfitted", why: said(e) });
+  for (let round = 1; round <= FIT_ROUNDS; round++) {
+    const longs = making.longs();
+    const texts = (JSON.parse(longs) as unknown[]).length;
+    if (!texts) return;
+    const asked = generation.fitRequest(key, longs);
+    if (!asked) return;
+    hear({ kind: "fitting", texts });
+    // A busy provider asked again for the fit, as for the look (lift-up REL-1).
+    const [reply] = await askedAgain(generation, [JSON.parse(asked) as Request], hear);
+    try {
+      const rewrites = read(name, reply, () => generation.fitAnswer(reply.status, reply.statusText, reply.body, longs));
+      making.fitted(rewrites);
+      hear({ kind: "fitted", texts: (JSON.parse(rewrites) as unknown[]).length });
+    } catch (e) {
+      making.unfitted(said(e));
+      hear({ kind: "unfitted", why: said(e) });
+      return;
+    }
   }
+  making.stillLong();
 }

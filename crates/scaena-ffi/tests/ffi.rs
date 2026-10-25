@@ -792,7 +792,7 @@ fn the_assistant_asks_with_the_users_key_and_runs_each_call_on_the_bundle() {
     let question = body["messages"][0]["content"][0]["text"].as_str().unwrap();
     assert_eq!(question, "[In the window: state cover shown; selected: title (text).]\n\nIs the cover clean?");
     let tools: Vec<&str> = body["tools"].as_array().unwrap().iter().map(|t| t["name"].as_str().unwrap()).collect();
-    assert_eq!(tools.len(), 18, "the page's seventeen and resource_read: {tools:?}");
+    assert_eq!(tools.len(), 19, "the page's eighteen and resource_read: {tools:?}");
     assert_eq!(tools.last(), Some(&"resource_read"));
 
     // The model calls three tools: each runs on the bundle, as the browser runs it.
@@ -1999,7 +1999,13 @@ fn a_writing_tool_asks_once_and_its_answer_is_one_patch() {
     assert_eq!(writing["title"], "Tightened", "{writing}");
     let words = writing["task"]["text"].as_str().unwrap_or_default().to_string();
     assert!(words.starts_with("Why this exists"), "{writing}");
-    assert_eq!(writing["prompt"], words.as_str());
+    // Asked with the point its slide makes (lift-up FUNC-3).
+    let claim = "Scaena is the tool we would build if the slide had never been invented.";
+    // The deck's words fenced as data (lift-up W1).
+    assert_eq!(
+        writing["prompt"],
+        format!("<data label=\"text\">\nThe text:\n{words}\nThe point its slide makes: {claim}\n</data>")
+    );
 
     let request = providers(
         "once",
@@ -2012,7 +2018,7 @@ fn a_writing_tool_asks_once_and_its_answer_is_one_patch() {
     let body = body_of(&request);
     assert!(body.get("tools").is_none(), "a question asked once sends no tools: {body}");
     assert_eq!(body["system"][0]["text"], writing["instructions"]);
-    assert_eq!(body["messages"][0]["content"][0]["text"], words.as_str());
+    assert_eq!(body["messages"][0]["content"][0]["text"], writing["prompt"]);
     let reply = json!({ "content": [{ "type": "text", "text": "“Why Scaena exists.”" }], "stop_reason": "end_turn" });
     let said = providers("answered", json!({ "provider": "anthropic", "status": 200, "body": reply.to_string() }));
     assert_eq!(said, "“Why Scaena exists.”");
@@ -2022,13 +2028,13 @@ fn a_writing_tool_asks_once_and_its_answer_is_one_patch() {
     let ops = written["patch"].as_array().cloned().unwrap_or_default();
     assert!(!ops.is_empty() && ops.iter().all(|op| op["op"] == "replace_text"), "{written}");
     assert_eq!(tool(s, "deck_patch", json!({ "ops": ops }))["edited"], true);
-    assert_eq!(call(s, "writing", ask)["prompt"], "Why Scaena exists.", "the patch makes the text read so");
+    assert_eq!(call(s, "writing", ask)["task"]["text"], "Why Scaena exists.", "the patch makes the text read so");
 
     let notes = json!({ "kind": "notes", "state": "cover" });
     assert!(
         call(s, "writing", notes.clone())["prompt"]
             .as_str()
-            .is_some_and(|p| p.starts_with("The slide reads:\nTitle: Scaena"))
+            .is_some_and(|p| p.starts_with("The slide reads:\n<data label=\"slide\">\nTitle: Scaena"))
     );
     let drafted = call(s, "written", json!({ "ask": notes, "answer": "Open on the name." }));
     assert_eq!(
@@ -2039,7 +2045,11 @@ fn a_writing_tool_asks_once_and_its_answer_is_one_patch() {
     let finding = json!({ "code": "E100", "severity": "error", "message": "text `title` overflows", "node": "title" });
     let explain = json!({ "kind": "explain", "state": "cover", "finding": finding });
     let asked = call(s, "writing", explain.clone());
-    assert_eq!(asked["prompt"], "Finding E100 (error): text `title` overflows\nIts words: Scaena", "{asked}");
+    assert_eq!(
+        asked["prompt"],
+        "Finding E100 (error): text `title` overflows\nIts words:\n<data label=\"words\">\nScaena\n</data>",
+        "{asked}"
+    );
     assert_eq!(
         call(s, "written", json!({ "ask": explain, "answer": "It runs out of its box." }))["patch"],
         Value::Null

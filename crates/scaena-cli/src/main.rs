@@ -438,8 +438,20 @@ enum Cmd {
     /// makes and its notes, how each follows from the one before, how the intensity each
     /// declares follows a talk's curve, whether its words carry the intensity and the tone it
     /// declares, and the slides that now stand in another beat than they were written for. Each
-    /// finding says what to ask about it and, where one is safe, the patch that fixes it.
-    Health { bundle: PathBuf },
+    /// finding says what to ask about it and, where one is safe, the patch that fixes it: each
+    /// such fix numbered, in the order the findings come, which `--fix N` applies.
+    Health {
+        bundle: PathBuf,
+        /// Apply fix N as `patch` applies a patch: refused where it would make the deck invalid.
+        #[arg(long, value_name = "N")]
+        fix: Option<usize>,
+        /// With `--fix`: say what would change, and write nothing.
+        #[arg(long, requires = "fix")]
+        dry_run: bool,
+        /// Name each finding's state by its id beside its slide, and print each fix's patch.
+        #[arg(long)]
+        verbose: bool,
+    },
     /// Find text across the deck's words, in every state (PLAN 2.47, 2.83): its texts, each
     /// node's description (`alt`), each state's notes, and each beat's claim and notes, once for
     /// each place they are written, and the states that show them. With `--replace`, every match
@@ -865,7 +877,10 @@ fn run(cli: Cli) -> Result<ExitCode> {
         Cmd::Background { bundle, state, preset, none, dry_run } => {
             background(&bundle, &state, preset.as_deref(), none, dry_run, cli.json)
         }
-        Cmd::Health { bundle } => health(&bundle, cli.json),
+        Cmd::Health { bundle, fix, dry_run, verbose } => match fix {
+            Some(n) => health_fix(&bundle, n, dry_run, cli.json),
+            None => health(&bundle, verbose, cli.json),
+        },
         Cmd::Icons { query, fill, limit } => icons(&query.join(" "), fill, limit, cli.json),
         Cmd::History { bundle, at, scn, diff, restore, dry_run } => {
             let ask =
@@ -907,14 +922,18 @@ fn serve(bundle: &Path, port: u16, json: bool) -> Result<ExitCode> {
         return Ok(fail(json, 3, message, Some("2.11")));
     }
     let shown = bundle.display().to_string();
-    let started = |addr: std::net::SocketAddr| {
+    // Each address carries the launch's token, which the pages send with each write: another
+    // account on this machine reaches 127.0.0.1 too, but not what this one prints (lift-up 10-24b
+    // SEC-5).
+    let started = |addr: std::net::SocketAddr, token: &str| {
         let url = format!("http://localhost:{}/", addr.port());
+        let (player, editor) = (format!("{url}?serve={token}"), format!("{url}edit?serve={token}"));
         if json {
-            let v = serde_json::json!({ "bundle": shown, "player": url, "editor": format!("{url}edit") });
+            let v = serde_json::json!({ "bundle": shown, "player": player, "editor": editor });
             println!("{}", serde_json::to_string_pretty(&v).expect("JSON"));
         } else {
             eprintln!(
-                "Serving {shown} on this machine only.\n  The player: {url}\n  The editor: {url}edit\nCtrl-C stops it."
+                "Serving {shown} on this machine only.\n  The player: {player}\n  The editor: {editor}\nCtrl-C stops it."
             );
         }
     };
@@ -1415,7 +1434,7 @@ fn background(
     Ok(if p.refused || p.errors > 0 { ExitCode::from(1) } else { ExitCode::SUCCESS })
 }
 
-fn health(bundle: &Path, json: bool) -> Result<ExitCode> {
+fn health(bundle: &Path, verbose: bool, json: bool) -> Result<ExitCode> {
     // With what lint finds: a slide that does not stand as it is to be read is found first.
     let b = open(bundle)?;
     let h = scaena_ops::health::health_in(&b.deck, &scaena_ops::lint::lint(&b)?.findings)?;
@@ -1439,19 +1458,73 @@ fn health(bundle: &Path, json: bool) -> Result<ExitCode> {
         let score = m.score.map_or("\u{2014}".to_string(), |s| s.to_string());
         println!("  {name:<10}{score:>4}  {}", m.says);
     }
+    // Each finding by its slide, as the editors say it, its state's id only when asked; each fix
+    // by its words and the command that applies it (lift-up 20261025 USE-3).
+    let mut fixes = 0;
     for f in &h.findings {
         let sev = match f.severity {
             Severity::Error => "error",
             Severity::Warning => "warn ",
             Severity::Info => "info ",
         };
-        println!("{sev} {}: {}", f.state, f.says);
+        // Said as a sentence about its slide, which most findings' words already begin with.
+        let slide = format!("Slide {}", f.slide);
+        match f.says.strip_prefix(&slide).is_some_and(|rest| rest.starts_with([' ', ':', ',', '\''])) {
+            true => println!("{sev} {}", f.says),
+            false => println!("{sev} {slide}: {}", f.says),
+        }
+        if verbose {
+            println!("  state: {}", f.state);
+        }
         println!("  ask: {}", f.ask);
         if let Some(fix) = &f.fix {
-            println!("  fix: {}: {}", fix.says, serde_json::to_string(&fix.patch)?);
+            fixes += 1;
+            println!("  fix {fixes}: {}: scaena health {} --fix {fixes}", fix.says, quoted(bundle));
+            if verbose {
+                println!("    {}", serde_json::to_string(&fix.patch)?);
+            }
         }
     }
     Ok(ExitCode::SUCCESS)
+}
+
+/// `bundle` as a shell reads it back: as written where it is plain, else in single quotes.
+fn quoted(bundle: &Path) -> String {
+    let path = bundle.to_string_lossy();
+    if path.chars().all(|c| c.is_ascii_alphanumeric() || "/._-+=:,@".contains(c)) {
+        path.into_owned()
+    } else {
+        format!("'{}'", path.replace('\'', r"'\''"))
+    }
+}
+
+/// `scaena health BUNDLE --fix N`: the deck's Nth fix, numbered as `health` prints them, applied
+/// as `patch` applies a patch, and reported as it reports one.
+fn health_fix(bundle: &Path, n: usize, dry_run: bool, json: bool) -> Result<ExitCode> {
+    let b = open(bundle)?;
+    let h = scaena_ops::health::health_in(&b.deck, &scaena_ops::lint::lint(&b)?.findings)?;
+    let fixes: Vec<(&scaena_ops::health::Finding, &scaena_ops::health::Fix)> =
+        h.findings.iter().filter_map(|f| Some((f, f.fix.as_ref()?))).collect();
+    let Some((finding, fix)) = n.checked_sub(1).and_then(|i| fixes.get(i)) else {
+        match fixes.len() {
+            0 => anyhow::bail!("--fix {n}: the deck's health offers no fix"),
+            1 => anyhow::bail!("--fix {n}: the deck's health offers one fix, 1"),
+            k => anyhow::bail!("--fix {n}: the deck's health offers fixes 1 to {k}"),
+        }
+    };
+    let p = scaena_ops::patch::patch(&b, &serde_json::Value::Array(fix.patch.clone()), dry_run)?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&p)?);
+    } else {
+        let what = format!("fix {n}, on slide {}: {}", finding.slide, fix.says);
+        match (p.refused, dry_run) {
+            (true, _) => println!("refused {what}: it would make the deck invalid; nothing was written"),
+            (false, true) => println!("would apply {what}"),
+            (false, false) => println!("applied {what}"),
+        }
+        print_delta(&p.added, &p.removed);
+    }
+    Ok(if p.refused || p.errors > 0 { ExitCode::from(1) } else { ExitCode::SUCCESS })
 }
 
 fn icons(query: &str, fill: bool, limit: usize, json: bool) -> Result<ExitCode> {

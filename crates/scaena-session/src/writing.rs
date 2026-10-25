@@ -29,6 +29,10 @@ pub struct Ask {
     pub node: Option<String>,
     #[serde(default)]
     pub finding: Option<Finding>,
+    /// For a rewrite, how the person wants it rewritten, in their own words ("more formal",
+    /// "shorter, for executives"; lift-up FUNC-3).
+    #[serde(default)]
+    pub instruction: Option<String>,
 }
 
 /// A finding to explain, as the window shows it (`said`) and lint wrote it.
@@ -109,7 +113,9 @@ impl Session {
             Task::Proofread { .. } | Task::Tighten { .. } | Task::Rewrite { .. } | Task::Notes { .. } if none => {
                 Some(Vec::new())
             }
-            Task::Proofread { text: before } | Task::Tighten { text: before } | Task::Rewrite { text: before } => {
+            Task::Proofread { text: before }
+            | Task::Tighten { text: before, .. }
+            | Task::Rewrite { text: before, .. } => {
                 let node = ask.node.as_deref().unwrap_or_default();
                 Some(
                     (replacing(before, &text).into_iter())
@@ -156,6 +162,21 @@ impl Session {
         }
         let parts = self.reads(state)?;
         Ok(parts.iter().find(|p| p.role == "heading" && !p.text.trim().is_empty()).map(|p| p.node.clone()))
+    }
+
+    /// The claim of the beat whose states hold `state`, where the spine gives one.
+    fn claim_of(&self, state: &str) -> Option<String> {
+        (self.deck().spine.as_ref())
+            .and_then(|s| s.sections.iter().flat_map(|s| &s.beats).find(|b| b.states.iter().any(|s| s == state)))
+            .map(|b| b.claim.clone())
+            .filter(|c| !c.trim().is_empty())
+    }
+
+    /// The deck's voice, as its brief says it (`meta.narrative.brief.voice`, narrative FUNC-4).
+    fn voice(&self) -> Option<String> {
+        let meta = self.deck().meta.as_ref()?;
+        let voice = meta.extra.get("narrative")?.pointer("/brief/voice")?.as_str()?.trim();
+        (!voice.is_empty()).then(|| voice.to_string())
     }
 
     /// `node`'s props as `state` shows them, its overrides over them.
@@ -218,18 +239,22 @@ impl Session {
                 let text = (words(self, node)?)
                     .filter(|t| !t.trim().is_empty())
                     .ok_or_else(|| Error::Ops("the text has no words to write: type some first".into()))?;
+                // The point the slide's beat makes and the deck's voice, which a tightening and a
+                // rewrite keep to, and the person's own words for how to rewrite it (lift-up FUNC-3).
+                let (claim, voice) = (self.claim_of(&ask.state), self.voice());
                 match ask.kind.as_str() {
                     "proofread" => Task::Proofread { text },
-                    "tighten" => Task::Tighten { text },
-                    _ => Task::Rewrite { text },
+                    "tighten" => Task::Tighten { text, claim, voice },
+                    _ => {
+                        let ask =
+                            ask.instruction.as_deref().map(str::trim).filter(|a| !a.is_empty()).map(str::to_string);
+                        Task::Rewrite { text, ask, claim, voice }
+                    }
                 }
             }
             "notes" => {
                 let slide = scaena_core::writing::slide(&self.reads(&ask.state)?);
-                let claim = (self.deck().spine.as_ref())
-                    .and_then(|s| s.sections.iter().flat_map(|s| &s.beats).find(|b| b.states.contains(&ask.state)))
-                    .map(|b| b.claim.clone());
-                Task::Notes { slide, claim }
+                Task::Notes { slide, claim: self.claim_of(&ask.state) }
             }
             "explain" => {
                 let f =
@@ -396,7 +421,7 @@ mod tests {
     }
 
     fn ask(kind: &str, state: &str, node: Option<&str>) -> Ask {
-        Ask { kind: kind.into(), state: state.into(), node: node.map(str::to_string), finding: None }
+        Ask { kind: kind.into(), state: state.into(), node: node.map(str::to_string), finding: None, instruction: None }
     }
 
     /// The revenue example, its subtitle set by `runs`.
@@ -467,6 +492,32 @@ mod tests {
         );
     }
 
+    /// A rewrite is asked with the person's own words for how, the claim of the slide's beat, and
+    /// the deck's voice from its brief; a tightening with the claim and the voice; a proofreading
+    /// with neither (lift-up FUNC-3). Its answer is taken as any rewrite's is.
+    #[test]
+    fn a_rewrite_is_asked_with_the_persons_words_the_claim_and_the_voice() {
+        let mut s =
+            revenue_with(|deck| deck["meta"]["narrative"] = json!({ "brief": { "voice": "Plain, confident" } }));
+        let mut rewrite = ask("rewrite", "intro", Some("subtitle"));
+        rewrite.instruction = Some("  More formal, for the board ".into());
+        let w = s.writing(&rewrite).unwrap();
+        assert_eq!(
+            w.prompt,
+            "<data label=\"text\">\nThe text:\nThis quarter changed the shape of the business.\nThe point its slide makes: This quarter changed the shape of the business.\nThe deck's voice: Plain, confident\n</data>\nHow to rewrite it: More formal, for the board"
+        );
+        assert_eq!(serde_json::to_value(&w.task).unwrap()["ask"], "More formal, for the board");
+        let tighten = s.writing(&ask("tighten", "intro", Some("subtitle"))).unwrap();
+        assert!(
+            tighten.prompt.ends_with("\nThe deck's voice: Plain, confident\n</data>")
+                && !tighten.prompt.contains("How to")
+        );
+        let proofread = s.writing(&ask("proofread", "intro", Some("subtitle"))).unwrap();
+        assert_eq!(proofread.prompt, "<data label=\"text\">\nThis quarter changed the shape of the business.\n</data>");
+        let taken = s.written(&rewrite, "This quarter reshaped the business.").unwrap();
+        assert_eq!(taken.patch.unwrap().len(), 1);
+    }
+
     /// No answer from the model, or one of nothing but spaces, changes nothing: it deletes no
     /// text's words and empties no notes.
     #[test]
@@ -500,7 +551,14 @@ mod tests {
         let tighten = ask("tighten", "intro", Some("subtitle"));
         let w = s.writing(&tighten).unwrap();
         assert_eq!(w.title, "Tightened");
-        assert_eq!(w.prompt, "This quarter changed the shape of the business.");
+        // Asked with the point its slide makes, which here its own words say (lift-up FUNC-3).
+        let claim = "\nThe point its slide makes: This quarter changed the shape of the business.";
+        assert_eq!(
+            w.prompt,
+            format!(
+                "<data label=\"text\">\nThe text:\nThis quarter changed the shape of the business.{claim}\n</data>"
+            )
+        );
         assert!(w.instructions.starts_with("You tighten the words of one text on a slide"));
         let taken = s.written(&tighten, "“This quarter reshaped the business.”").unwrap();
         assert_eq!(taken.text, "This quarter reshaped the business.");
@@ -514,7 +572,10 @@ mod tests {
         // The patch makes the text read as the answer.
         let ops = Value::Array(patch);
         s.typed(&ops, None).unwrap();
-        assert_eq!(s.writing(&tighten).unwrap().prompt, "This quarter reshaped the business.");
+        assert_eq!(
+            s.writing(&tighten).unwrap().prompt,
+            format!("<data label=\"text\">\nThe text:\nThis quarter reshaped the business.{claim}\n</data>")
+        );
         assert!(s.writing(&ask("tighten", "intro", Some("bg"))).is_err(), "a shader has no words to write");
     }
 
@@ -527,7 +588,7 @@ mod tests {
         let w = s.writing(&notes).unwrap();
         assert_eq!(
             w.prompt,
-            "The slide reads:\nTitle: Q3 Review\nHeading: This quarter changed the shape of the business.\nThe point it makes: This quarter changed the shape of the business."
+            "The slide reads:\n<data label=\"slide\">\nTitle: Q3 Review\nHeading: This quarter changed the shape of the business.\nThe point it makes: This quarter changed the shape of the business.\n</data>"
         );
         let drafted = s.written(&notes, "Open on the quarter.\n").unwrap();
         assert_eq!(
@@ -547,9 +608,13 @@ mod tests {
                 hint: None,
                 node: Some("title".into()),
             }),
+            instruction: None,
         };
         let w = s.writing(&explain).unwrap();
-        assert_eq!(w.prompt, "Finding E100 (error): The words run out of their box.\nIts words: Q3 Review");
+        assert_eq!(
+            w.prompt,
+            "Finding E100 (error): The words run out of their box.\nIts words:\n<data label=\"words\">\nQ3 Review\n</data>"
+        );
         assert!(s.written(&explain, "It overflows.").unwrap().patch.is_none(), "an explanation is only read");
         assert!(s.writing(&ask("polish", "intro", None)).is_err());
     }
@@ -568,7 +633,7 @@ mod tests {
         assert_eq!(w.task.text(), Some("Revenue doubled"));
         assert_eq!(
             w.prompt,
-            "The claim its beat makes: Revenue doubled year over year, and Pro drove it.\nThe slide reads:\nTitle: Revenue doubled\nPicture: Quarterly revenue by product, Q4 2025 through Q3 2026.\nText: Revenue in $M. Enterprise recognized on delivery.\nIts headline: Revenue doubled"
+            "<data label=\"slide\">\nThe claim its beat makes: Revenue doubled year over year, and Pro drove it.\nThe slide reads:\nTitle: Revenue doubled\nPicture: Quarterly revenue by product, Q4 2025 through Q3 2026.\nText: Revenue in $M. Enterprise recognized on delivery.\nIts headline: Revenue doubled\n</data>"
         );
         let drifted = "Drifts: the slide says revenue doubled, not that Pro drove it.\nHeadline: Revenue doubled, and Pro drove it";
         let written = s.written(&claim, drifted).unwrap();
@@ -591,7 +656,9 @@ mod tests {
         // The cover's claim is its subtitle, the text with `semantic: claim`.
         let intro = s.writing(&ask("claim", "intro", None)).unwrap();
         assert_eq!(intro.task.text(), Some("This quarter changed the shape of the business."));
-        assert!(intro.prompt.starts_with("The claim its beat makes: This quarter changed the shape of the business."));
+        assert!(intro.prompt.starts_with(
+            "<data label=\"slide\">\nThe claim its beat makes: This quarter changed the shape of the business."
+        ));
         // A slide in no beat has no claim to check.
         let mut s = revenue_with(|deck| {
             for section in deck["spine"]["sections"].as_array_mut().unwrap() {
@@ -616,7 +683,11 @@ mod tests {
         let w = s.writing(&mono).unwrap();
         assert_eq!(w.title, "Description");
         assert!(w.instructions.starts_with("You describe a picture"));
-        assert!(w.prompt.starts_with("Describe this picture. The slide it is on reads:\n"), "{}", w.prompt);
+        assert!(
+            w.prompt.starts_with("Describe this picture. The slide it is on reads:\n<data label=\"slide\">\n"),
+            "{}",
+            w.prompt
+        );
         assert!(w.prompt.contains("Adjust Image"), "the slide's words: {}", w.prompt);
         assert!(!w.prompt.contains("in black and white"), "but not the picture's own description: {}", w.prompt);
         assert_eq!(w.task.text(), Some("The same picture in black and white."));

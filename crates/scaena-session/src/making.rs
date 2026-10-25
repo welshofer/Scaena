@@ -187,6 +187,16 @@ impl Making {
         self.made.unfitted = Some(why);
     }
 
+    /// What still runs past its place once the last rewrite is set, which the deck made says
+    /// (STAB-4): nothing where all of it fits.
+    pub fn still_long(&mut self) -> Result<(), Error> {
+        let longs = self.longs()?;
+        if !longs.is_empty() {
+            self.made.unfitted = Some(scaena_narrato::fit::still(&longs));
+        }
+        Ok(())
+    }
+
     /// How many pictures were made for its slides, and why each other asked for was not
     /// (PLAN G.10), which the deck made says.
     pub fn painted(&mut self, pictures: usize, unmade: Vec<String>) {
@@ -265,7 +275,7 @@ mod tests {
                 { "id": "close", "mode": "absolute", "layout": "title", "props": { "close-title": {} } }
             ]
         });
-        Made { deck, layouts: vec!["title".into(), "title".into()], assets: Default::default() }
+        Made { deck, layouts: vec!["title".into(), "title".into()], assets: Default::default(), relisted: Vec::new() }
     }
 
     #[test]
