@@ -115,7 +115,14 @@ try {
       if (status) new MutationObserver(() => window.statusSaid.push(status.textContent)).observe(status, { childList: true, characterData: true, subtree: true });
     });
   });
-  const mayClear = () => page.evaluate(() => window.statusSaid.filter((t) => t.includes("This browser may clear")).length);
+  // How often the refusal was said: each time the status comes to end with it. Lint's report puts
+  // what the status last told before what it found (`told — found`), which may be the refusal
+  // again after a save's "Saving…" has taken its place: that is the report, not the refusal said.
+  const mayClear = () =>
+    page.evaluate(() => {
+      const says = (t) => /This browser may clear [^—]*$/.test(t ?? "");
+      return window.statusSaid.filter((t, i, all) => says(t) && !says(all[i - 1])).length;
+    });
 
   // The revenue example, from its URL, edited and saved into the browser's storage.
   await page.goto(editor("/docs/examples/revenue.deck.json"));
