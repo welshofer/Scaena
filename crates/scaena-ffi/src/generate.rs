@@ -32,7 +32,8 @@ use std::collections::BTreeMap;
 #[derive(Default)]
 struct Look {
     seen: Vec<Seen>,
-    drawn: Vec<Picture>,
+    /// Each slide as drawn for the model, once its round is (lift-up 10-25 PERF-5).
+    drawn: Vec<Option<Picture>>,
     /// The index the next round starts at, and the round last asked.
     next: usize,
     current: std::ops::Range<usize>,
@@ -41,20 +42,43 @@ struct Look {
 }
 
 impl Look {
-    /// The next round's request, with how many slides the look shows in all; none once every
-    /// round is asked.
-    fn round(&mut self, generation: &Generation, key: &str) -> Option<Value> {
+    /// The next round's request, with how many slides the look shows in all, its slides drawn
+    /// where they are not yet; none once every round is asked.
+    fn round(&mut self, generation: &Generation, key: &str, making: &Making) -> Result<Option<Value>, String> {
         while let Some(round) = look_rounds(self.seen.len()).find(|r| r.start == self.next) {
             self.next = round.end;
+            self.draw(making, round.clone())?;
+            let drawn: Vec<Picture> = self.drawn[round.clone()].iter().flatten().cloned().collect();
             let edges = [round.start.checked_sub(1).and_then(|b| self.seen.get(b)), self.seen.get(round.end)];
-            if let Some(asked) =
-                generation.look_request(key, &self.seen[round.clone()], &self.drawn[round.clone()], edges)
-            {
+            if let Some(asked) = generation.look_request(key, &self.seen[round.clone()], &drawn, edges) {
                 self.current = round;
-                return Some(json!({ "request": request(asked), "slides": self.seen.len() }));
+                return Ok(Some(json!({ "request": request(asked), "slides": self.seen.len() })));
             }
         }
-        None
+        Ok(None)
+    }
+
+    /// The slides of `round` drawn for the model, where they are not yet.
+    fn draw(&mut self, making: &Making, round: std::ops::Range<usize>) -> Result<(), String> {
+        if self.drawn.len() < self.seen.len() {
+            self.drawn.resize(self.seen.len(), None);
+        }
+        if self.drawn[round.clone()].iter().all(Option::is_some) {
+            return Ok(());
+        }
+        let pictures = making.drawn_in(scaena_ops::narrative::LOOK_WIDTH, round.clone()).map_err(|e| e.to_string())?;
+        for (slot, picture) in self.drawn[round].iter_mut().zip(pictures) {
+            *slot = Some(picture);
+        }
+        Ok(())
+    }
+
+    /// The round after the one asked drawn, while that one is out (lift-up 10-25 PERF-5).
+    fn draw_ahead(&mut self, making: &Making) -> Result<(), String> {
+        match look_rounds(self.seen.len()).find(|r| r.start == self.next) {
+            Some(round) => self.draw(making, round),
+            None => Ok(()),
+        }
     }
 
     /// The slides the round last asked showed.
@@ -537,20 +561,30 @@ impl Generating {
                     let seen = scaena_ops::narrative::seeing(narrative, &model, &placed, making.layouts());
                     // A slide that would not draw for the model to see leaves the deck as made,
                     // saying why (narrative STAB-3): the look is a polish, never the deck.
-                    match making.drawn(scaena_ops::narrative::LOOK_WIDTH) {
-                        Ok(drawn) => {
-                            let mut look = Look { seen, drawn, ..Look::default() };
-                            if let Some(round) = look.round(&w.generation, key) {
-                                self.look = look;
-                                self.making = Some((making, Vec::new()));
-                                return Ok(json!({ "look": round }));
-                            }
+                    // The first round drawn alone, and asked while the next is (lift-up 10-25 PERF-5).
+                    let mut look = Look { seen, ..Look::default() };
+                    match look.round(&w.generation, key, &making) {
+                        Ok(Some(round)) => {
+                            self.look = look;
+                            self.making = Some((making, Vec::new()));
+                            return Ok(json!({ "look": round }));
                         }
+                        Ok(None) => {}
                         Err(why) => making.unlooked(format!("the slides could not be drawn for the model: {why}")),
                     }
                 }
                 let fit = self.fitting(making, key)?;
                 json!({ "fit": fit })
+            }
+            // The look's next round drawn while the one asked is out (lift-up 10-25 PERF-5):
+            // `{}`, or why a slide would not draw, which the round's `looked` says again.
+            "drawAhead" => {
+                let (making, _) = self.making.as_ref().ok_or_else(|| said("drawAhead: no deck is made"))?;
+                let making: &Making = making;
+                match self.look.draw_ahead(making) {
+                    Ok(()) => json!({}),
+                    Err(why) => json!({ "unlooked": why }),
+                }
             }
             "looked" => {
                 // The model's answer to one round of the look (narrative PERF-5): the next round's
@@ -573,12 +607,26 @@ impl Generating {
                         self.look.unanswered = Some(was.map_or(why.clone(), |was| format!("{was}; {why}")));
                     }
                 }
-                if let Some(key) = key
-                    && let Some(next) = self.look.round(&w.generation, key)
-                {
-                    return Ok(json!({ "look": next }));
+                let (mut making, longs) = self.making.take().ok_or_else(|| said("looked: no deck is made"))?;
+                if let Some(key) = key {
+                    match self.look.round(&w.generation, key, &making) {
+                        Ok(Some(next)) => {
+                            self.making = Some((making, longs));
+                            return Ok(json!({ "look": next }));
+                        }
+                        Ok(None) => {}
+                        // A slide that would not draw for the model to see: the deck stands as
+                        // made (narrative STAB-3).
+                        Err(why) => {
+                            self.look = Look::default();
+                            making.unlooked(format!("the slides could not be drawn for the model: {why}"));
+                            let fit = self.fitting(making, Some(key))?;
+                            return Ok(
+                                json!({ "unlooked": format!("the slides could not be drawn for the model: {why}"), "fit": fit }),
+                            );
+                        }
+                    }
                 }
-                let (mut making, _) = self.making.take().ok_or_else(|| said("looked: no deck is made"))?;
                 let narrative = w.generation.narrative().ok_or_else(|| said("looked: no narrative is written"))?;
                 let look = std::mem::take(&mut self.look);
                 if !look.changes.is_empty() {

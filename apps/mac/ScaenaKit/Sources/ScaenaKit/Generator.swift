@@ -690,6 +690,11 @@ public final class Generator {
 
     /// One round of the look answered: the next round where one is left (narrative PERF-5), else
     /// what the look came to and the fit asked for.
+    /// The look's next round drawn: why a slide would not draw, where one would not.
+    private struct Ahead: Decodable, Sendable {
+        let unlooked: String?
+    }
+
     private struct Looking: Decodable, Sendable {
         let look: Making.Look?
         let looked: Int?
@@ -966,7 +971,13 @@ public final class Generator {
         var seeing = making.look
         if let first = seeing { hear(.looking(slides: first.slides)) }
         while let round = seeing {
-            let reply = await send(round.request)
+            // The round asked, and the next drawn while it is out (lift-up 10-25 PERF-5); a slide
+            // that will not draw is said by the round's `looked`.
+            let send = self.send
+            let request = round.request
+            async let replied = send(request)
+            let _: Ahead = try await stepAway("drawAhead")
+            let reply = await replied
             let looking: Looking = try await stepAway(
                 "looked",
                 [

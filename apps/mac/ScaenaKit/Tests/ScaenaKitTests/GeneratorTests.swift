@@ -114,8 +114,9 @@ private func anthropic(_ text: String) -> Data {
     #expect(made.words.contains("\(pictures) picture"))
     // Built and drawn, then drawn again as the model's look changed it; fitted where a text ran on.
     let slow = away.steps.map(\.step)
-    #expect(Array(slow.prefix(2)) == ["make", "looked"], "the slow steps: \(slow)")
-    #expect(Set(slow).isSubset(of: ["make", "looked", "fitted"]), "the slow steps: \(slow)")
+    // The next round drawn while the one asked is out (lift-up 10-25 PERF-5).
+    #expect(Array(slow.prefix(3)) == ["make", "drawAhead", "looked"], "the slow steps: \(slow)")
+    #expect(Set(slow).isSubset(of: ["make", "drawAhead", "looked", "fitted"]), "the slow steps: \(slow)")
     #expect(away.steps.allSatisfy { !$0.main }, "a slow step was made on the main thread: \(away.steps)")
     // On a stack that holds a deck being built: a dispatch queue's 512 KB worker overflows it.
     #expect(away.steps.allSatisfy { $0.stack >= Generator.stack }, "a slow step's stack: \(away.steps)")

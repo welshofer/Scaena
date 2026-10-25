@@ -140,6 +140,9 @@ fn a_deck_is_made_from_a_prompt_as_swift_makes_one_its_pictures_with_it() {
         &json!({ "slides": [{ "slide": 1, "layout": "", "title": "Carbon-negative cargo, ready to scale", "subtitle": "", "bullets": [], "why": "One idea, one line." }] })
             .to_string(),
     );
+    // The next round drawn while this one is out, as Swift asks it (lift-up 10-25 PERF-5): none
+    // is left of a deck one round long.
+    assert_eq!(step(g, "drawAhead", json!({}), &[]), json!({}));
     let looked =
         step(g, "looked", json!({ "status": 200, "statusText": "OK", "body": tightened, "key": "sk-writer" }), &[]);
     assert_eq!(looked["looked"], 1, "{looked}");

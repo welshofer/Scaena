@@ -479,7 +479,7 @@ pub fn generate(
     transport: &mut dyn Transport,
     say: &mut dyn FnMut(Progress),
 ) -> Result<(Generated, Option<Write>), OpsError> {
-    let draw = |write: &Write| drawn(write, LOOK_WIDTH);
+    let draw = |write: &Write, slides: std::ops::Range<usize>| drawn_in(write, LOOK_WIDTH, slides);
     generate_drawn(generation, key, documents, painter, looking, theme_file, theme, font, transport, say, &draw)
 }
 
@@ -500,7 +500,7 @@ pub fn generate_drawn(
     font: &dyn Fn(&str) -> Result<Vec<u8>, OpsError>,
     transport: &mut dyn Transport,
     say: &mut dyn FnMut(Progress),
-    draw: &dyn Fn(&Write) -> Result<Vec<Picture>, OpsError>,
+    draw: &(dyn Fn(&Write, std::ops::Range<usize>) -> Result<Vec<Picture>, OpsError> + Sync),
 ) -> Result<(Generated, Option<Write>), OpsError> {
     while let Some(request) = key.and_then(|key| generation.request(key, documents)) {
         let step = generation.step();
@@ -550,26 +550,72 @@ pub fn generate_drawn(
     let mut unanswered: Option<String> = None;
     let changes = match (looking, key) {
         (Looking::Answered(text), _) => Some(scaena_narrato::look::read(text, &seen).map_err(OpsError::new)),
-        (Looking::Asked, Some(key)) => match draw(&write) {
-            Ok(drawn) => {
-                let mut changes = Vec::new();
-                // Every round asked at once, a few at a time so that no provider's rate limit is
-                // tripped, and each answer read in its round's order (lift-up PERF-1).
-                let asked: Vec<(std::ops::Range<usize>, Request)> = look_rounds(seen.len())
-                    .filter_map(|round| {
-                        let edges = [round.start.checked_sub(1).and_then(|b| seen.get(b)), seen.get(round.end)];
-                        let request =
-                            generation.look_request(key, &seen[round.clone()], &drawn[round.clone()], edges)?;
-                        Some((round, request))
-                    })
-                    .collect();
-                if !asked.is_empty() {
-                    say(Progress::Looking { slides: seen.len() });
+        (Looking::Asked, Some(key)) => {
+            let rounds: Vec<std::ops::Range<usize>> = look_rounds(seen.len()).collect();
+            let (seen, write) = (&seen, &write);
+            std::thread::scope(|scope| {
+                // Each round's slides drawn ahead of it, on a thread of their own where there are
+                // threads, so the first round is asked while the rest are drawn (lift-up 10-25
+                // PERF-5); in order, a slide that will not draw ending the drawing.
+                let (drew, drawings) = std::sync::mpsc::channel();
+                let drawing = {
+                    let rounds = &rounds;
+                    move || {
+                        for round in rounds {
+                            if drew.send(draw(write, round.clone())).is_err() {
+                                break;
+                            }
+                        }
+                    }
+                };
+                #[cfg(not(target_arch = "wasm32"))]
+                scope.spawn(drawing);
+                #[cfg(target_arch = "wasm32")]
+                {
+                    let _ = scope;
+                    drawing();
                 }
-                let requests: Vec<Request> = asked.iter().map(|(_, r)| r.clone()).collect();
-                let replies: Vec<Reply> =
-                    requests.chunks(LOOKS_AT_ONCE).flat_map(|some| transport.send_all(some)).collect();
+                let mut asked: Vec<(std::ops::Range<usize>, Request)> = Vec::new();
+                let mut replies: Vec<Reply> = Vec::new();
+                let mut waiting: Vec<(std::ops::Range<usize>, Request)> = Vec::new();
+                let mut send = |waiting: &mut Vec<(std::ops::Range<usize>, Request)>, asked: &mut Vec<_>| {
+                    let requests: Vec<Request> = waiting.iter().map(|(_, r)| r.clone()).collect();
+                    replies.extend(transport.send_all(&requests));
+                    asked.append(waiting);
+                };
+                for round in &rounds {
+                    let drawn = match drawings.recv() {
+                        Ok(Ok(drawn)) => drawn,
+                        // A slide that would not draw for the model to see: the deck stands as
+                        // made.
+                        Ok(Err(why)) => {
+                            return Some(Err(OpsError::new(format!(
+                                "the slides could not be drawn for the model: {why}"
+                            ))));
+                        }
+                        Err(_) => break,
+                    };
+                    let edges = [round.start.checked_sub(1).and_then(|b| seen.get(b)), seen.get(round.end)];
+                    let Some(request) = generation.look_request(key, &seen[round.clone()], &drawn, edges) else {
+                        continue;
+                    };
+                    if asked.is_empty() && waiting.is_empty() {
+                        say(Progress::Looking { slides: seen.len() });
+                    }
+                    waiting.push((round.clone(), request));
+                    // The first round alone, as soon as it is drawn; the rest a few at a time, so
+                    // that no provider's rate limit is tripped (lift-up PERF-1).
+                    if asked.is_empty() || waiting.len() == LOOKS_AT_ONCE {
+                        send(&mut waiting, &mut asked);
+                    }
+                }
+                if !waiting.is_empty() {
+                    send(&mut waiting, &mut asked);
+                }
+                drop(send);
+                let mut changes = Vec::new();
                 let asked_any = !asked.is_empty();
+                // Each answer read in its round's order.
                 for ((round, _), reply) in asked.into_iter().zip(replies) {
                     match generation.look_answer(reply.status, &reply.status_text, &reply.body, &seen[round.clone()]) {
                         Ok(answered) => changes.extend(answered),
@@ -579,7 +625,7 @@ pub fn generate_drawn(
                                 1 => format!("slide {first} not looked at: {why}"),
                                 _ => format!("slides {first}\u{2013}{last} not looked at: {why}"),
                             };
-                            unanswered = Some(unanswered.map_or(why.clone(), |was| format!("{was}; {why}")));
+                            unanswered = Some(unanswered.take().map_or(why.clone(), |was| format!("{was}; {why}")));
                         }
                     }
                 }
@@ -591,10 +637,8 @@ pub fn generate_drawn(
                         Some(Ok(changes))
                     }
                 }
-            }
-            // A slide that would not draw for the model to see: the deck stands as made.
-            Err(why) => Some(Err(OpsError::new(format!("the slides could not be drawn for the model: {why}")))),
-        },
+            })
+        }
         _ => None,
     };
     match changes {
@@ -1008,8 +1052,15 @@ pub fn adopt(before: Generated, after: (Generated, Write), kept: Vec<Change>, re
 /// pixels wide by the CPU painter, as a JPEG, in their order: what the model looks at (PLAN
 /// G.13).
 pub fn drawn(write: &Write, width: u32) -> Result<Vec<Picture>, OpsError> {
+    drawn_in(write, width, 0..write.deck.slides().len())
+}
+
+/// The slides `slides` names by index of the deck `write` makes, drawn as [`drawn`] draws each:
+/// a round of the look, drawn while the one before is asked (lift-up 10-25 PERF-5).
+pub fn drawn_in(write: &Write, width: u32, slides: std::ops::Range<usize>) -> Result<Vec<Picture>, OpsError> {
     let mut drawing = Drawing::new(write)?;
-    (write.deck.slides().into_iter())
+    let all = write.deck.slides();
+    (all.get(slides).unwrap_or_default().iter())
         .map(|states| {
             let state = &write.deck.states[*states.last().expect("a slide has a state")];
             let raster = drawing.draw(&state.id, width)?;
@@ -7348,6 +7399,76 @@ mod tests {
         assert_eq!(kept(made.looked.clone(), &[13]).len(), 1);
     }
 
+    /// The look's first round is asked as soon as its slides are drawn, while the rest are drawn
+    /// (lift-up 10-25 PERF-5): here the second round's slides draw only once the first is asked,
+    /// and the look goes on.
+    #[test]
+    fn the_first_round_of_the_look_is_asked_while_the_rest_are_drawn() {
+        use scaena_narrato::{Provider, Settings};
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let (summary, slides) = catalog();
+        let mut picked = vec![slides[0].clone()];
+        picked.extend(slides[2..14].iter().cloned());
+        picked.push(slides[55].clone());
+        let written = json!({ "executiveSummary": summary, "slides": picked }).to_string();
+        let arc =
+            std::fs::read_to_string(root().join("crates/scaena-narrato/tests/answers/anthropic-arc.json")).unwrap();
+        let first_asked = AtomicBool::new(false);
+        let mut rounds = 0;
+        let mut send = |r: &Request| {
+            let body = r.body.as_ref().unwrap();
+            let content = body["messages"][0]["content"].as_array().unwrap();
+            let prompt = content.last().unwrap()["text"].as_str().unwrap().to_string();
+            let reply = if prompt.contains("=== CATALOG ===") {
+                arc.clone()
+            } else if prompt.contains("runs past its place") {
+                anthropic(r#"{"texts": []}"#)
+            } else if prompt.starts_with("You have seen") {
+                rounds += 1;
+                first_asked.store(true, Ordering::SeqCst);
+                anthropic(r#"{"slides": []}"#)
+            } else {
+                anthropic(&written)
+            };
+            Reply { status: 200, status_text: "OK".into(), body: reply, after: None }
+        };
+        // A round after the first draws only once the first is asked: drawn all before any is
+        // asked, it would wait in vain.
+        let draw = |write: &Write, slides: std::ops::Range<usize>| {
+            if slides.start > 0 {
+                let waited = std::time::Instant::now();
+                while !first_asked.load(Ordering::SeqCst) {
+                    if waited.elapsed() > std::time::Duration::from_secs(20) {
+                        return Err(OpsError::new("drawn before the first round was asked"));
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(5));
+                }
+            }
+            drawn_in(write, 64, slides)
+        };
+        let mut heard = Vec::new();
+        let mut say = |p: Progress| heard.push(p);
+        let settings = Settings { provider: Provider::Anthropic, model: "a-model".into(), base: None, browser: false };
+        let g = Generation::new(narrative("", Vec::new()).brief, settings).unwrap();
+        let (made, _) = generate_drawn(
+            g,
+            Some("sk-test"),
+            &[],
+            None,
+            Looking::Asked,
+            Path::new("dusk.theme.json"),
+            dusk(),
+            &font,
+            &mut send,
+            &mut say,
+            &draw,
+        )
+        .unwrap();
+        assert_eq!(rounds, 2, "{:?}", made.unlooked);
+        assert_eq!(made.unlooked, None);
+        assert!(heard.contains(&Progress::Looking { slides: 14 }), "{heard:?}");
+    }
+
     /// A long deck is shown to the model a dozen slides at a time (narrative PERF-5): each round
     /// says which slides it shows, numbered as they stand in the deck; the changes answered are
     /// folded into one; and a round the provider refuses loses its own slides' changes alone,
@@ -7473,7 +7594,9 @@ mod tests {
         let mut say = |p: Progress| heard.push(p);
         let settings = Settings { provider: Provider::Anthropic, model: "a-model".into(), base: None, browser: false };
         let g = Generation::new(narrative("", Vec::new()).brief, settings).unwrap();
-        let painter_down = |_: &Write| Err(OpsError::new("state `cover` is past the painter's largest raster"));
+        let painter_down = |_: &Write, _: std::ops::Range<usize>| {
+            Err(OpsError::new("state `cover` is past the painter's largest raster"))
+        };
         let (made, write) = generate_drawn(
             g,
             Some("sk-test"),

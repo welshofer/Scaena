@@ -609,33 +609,34 @@ async function look(
   // A slide that would not draw for the model to see, as a deck the model asked for that cannot be
   // made again, leaves the deck as it was, saying why (narrative STAB-3): the look is a polish.
   try {
-    const drawn = [];
-    for (let i = 0; i < making.count; i++) drawn.push(await jpeg(making.pixels(i, LOOK_WIDTH)));
     // A dozen slides a round (narrative PERF-5), each numbered as it stands in the deck; the
     // changes answered folded into one, and a round not answered losing its own slides' changes
     // alone.
     const slides = JSON.parse(seen) as { slide: number }[];
     const changes: { slide: number }[] = [];
     let unanswered: string | undefined;
-    // Every round asked at once, a few at a time so that no provider's rate limit is tripped,
-    // each told the slides just outside it, and each answer read in its round's order (lift-up
-    // PERF-1).
-    const rounds: { round: { slide: number }[]; part: string; asked: string }[] = [];
+    // Every round asked as soon as its slides are drawn, while the next are drawn (lift-up
+    // 10-25 PERF-5), a few at a time so that no provider's rate limit is tripped, each told the
+    // slides just outside it, and each answer read in its round's order (lift-up PERF-1).
+    const rounds: { round: { slide: number }[]; part: string }[] = [];
+    const replies: ReturnType<typeof send>[] = [];
     for (let start = 0; start < slides.length; start += LOOK_BATCH) {
       const round = slides.slice(start, start + LOOK_BATCH);
+      const drawn = [];
+      for (let i = start; i < Math.min(start + LOOK_BATCH, making.count); i++) drawn.push(await jpeg(making.pixels(i, LOOK_WIDTH)));
       const part = JSON.stringify(round);
       const edges = JSON.stringify([slides[start - 1] ?? null, slides[start + LOOK_BATCH] ?? null]);
-      const asked = generation.lookRequest(key, part, JSON.stringify(drawn.slice(start, start + LOOK_BATCH)), edges);
-      if (asked) rounds.push({ round, part, asked });
+      const asked = generation.lookRequest(key, part, JSON.stringify(drawn), edges);
+      if (!asked) continue;
+      if (!rounds.length) hear({ kind: "looking", slides: making.count });
+      // No more than a few in flight: the one asked LOOKS_AT_ONCE rounds before answered first.
+      if (replies.length >= LOOKS_AT_ONCE) await replies[replies.length - LOOKS_AT_ONCE];
+      rounds.push({ round, part });
+      replies.push(send(JSON.parse(asked)));
     }
     const looking = rounds.length > 0;
-    if (looking) hear({ kind: "looking", slides: drawn.length });
-    const replies: Awaited<ReturnType<typeof send>>[] = [];
-    for (let at = 0; at < rounds.length; at += LOOKS_AT_ONCE) {
-      replies.push(...(await Promise.all(rounds.slice(at, at + LOOKS_AT_ONCE).map((r) => send(JSON.parse(r.asked))))));
-    }
     for (const [i, { round, part }] of rounds.entries()) {
-      const reply = replies[i];
+      const reply = await replies[i];
       try {
         changes.push(...(JSON.parse(read(name, reply, () => generation.lookAnswer(reply.status, reply.statusText, reply.body, part))) as { slide: number }[]));
       } catch (e) {
