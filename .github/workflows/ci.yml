@@ -696,3 +696,5 @@ jobs:
       - run: node --experimental-strip-types web/exchanges.mjs
       # The assistant's answers render as they read (narrative ATTR-4): the blocks and elements.
       - run: node --experimental-strip-types web/markdown.mjs
+      # A call the answer's token limit cut off is answered, not run (lift-up REL-1).
+      - run: node --experimental-strip-types web/cut.mjs
