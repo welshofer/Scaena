@@ -107,7 +107,18 @@ public final class RemoteClient {
 
     /// Ask the show for `command`.
     public func send(_ command: RemoteCommand) {
-        guard status == .joined, let sealed, let body = try? JSONEncoder().encode(RemoteMessage(command: command)),
+        send(RemoteMessage(command: command))
+    }
+
+    /// Ask the show for the slide numbered `number`, as typing its number on the presenter's keys
+    /// does (PLAN 2.105, lift-up FUNC-5).
+    public func go(slide number: Int) {
+        guard number > 0 else { return }
+        send(RemoteMessage(slide: number))
+    }
+
+    private func send(_ message: RemoteMessage) {
+        guard status == .joined, let sealed, let body = try? JSONEncoder().encode(message),
             let frame = try? sealed.seal(body)
         else { return }
         connection.send(frame: frame)
@@ -189,7 +200,7 @@ public final class RemoteClient {
                     self.lose("The presenter went.")
                     return
                 }
-                if let place = message.place { self.place = place }
+                if let place = message.place { self.place = place.received() }
                 self.hearPlaces()
             }
         }
