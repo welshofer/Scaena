@@ -210,7 +210,7 @@ fn a_save_that_stops_partway_leaves_the_deck_as_it_was() {
     let font = saving.files.keys().find(|p| p.starts_with("fonts/") && !dir.join(p).exists()).unwrap();
     std::fs::create_dir_all(dir.join(font)).unwrap();
     let err = bundle.save(&dir, &opts()).unwrap_err();
-    assert!(matches!(err, scaena_store::StoreError::Io(_)), "{err}");
+    assert!(matches!(err, scaena_store::StoreError::Write { .. }), "{err}");
     assert_eq!(std::fs::read(dir.join("deck.json")).unwrap(), before, "the fonts come before deck.json");
     let (deck, held) = scaena_store::open_unparsed(&dir).unwrap();
     assert_eq!(validate_bundle(&deck, &held).unwrap(), [], "the bundle opens as it was");
@@ -223,7 +223,7 @@ fn a_save_that_stops_partway_leaves_the_deck_as_it_was() {
     let theme = std::fs::read(dir.join("theme.json")).unwrap();
     std::fs::create_dir(dir.join(".deck.json.partial")).unwrap();
     let err = bundle.save(&dir, &opts()).unwrap_err();
-    assert!(matches!(err, scaena_store::StoreError::Io(_)), "{err}");
+    assert!(matches!(err, scaena_store::StoreError::Write { .. }), "{err}");
     assert_eq!(std::fs::read(dir.join("deck.json")).unwrap(), before, "deck.json is as it was");
     assert_eq!(std::fs::read(dir.join("theme.json")).unwrap(), theme, "and the theme");
     assert_eq!(files(&dir), listed, "no file was put in place, and no partial is listed");
@@ -248,7 +248,7 @@ fn a_zip_that_cannot_be_written_is_left_as_it_was() {
     let before = std::fs::read(&zip).unwrap();
     std::fs::create_dir(dir.join(".b1.scaena.partial")).unwrap();
     let err = Bundle::open(&zip).unwrap().save(&zip, &opts()).unwrap_err();
-    assert!(matches!(err, scaena_store::StoreError::Io(_)), "{err}");
+    assert!(matches!(err, scaena_store::StoreError::Write { .. }), "{err}");
     assert_eq!(std::fs::read(&zip).unwrap(), before, "the zip is as it was");
     let (deck, files) = scaena_store::open_unparsed(&zip).unwrap();
     assert_eq!(validate_bundle(&deck, &files).unwrap(), []);
@@ -265,7 +265,7 @@ fn a_write_that_stops_partway_leaves_the_deck_as_it_was() {
     std::fs::create_dir(dir.join("notes.txt")).unwrap();
     let files = [("deck.json".to_string(), b"{}".to_vec()), ("notes.txt".to_string(), b"mine".to_vec())].into();
     let err = bundle.write(&files).unwrap_err();
-    assert!(matches!(err, scaena_store::StoreError::Io(_)), "{err}");
+    assert!(matches!(err, scaena_store::StoreError::Write { .. }), "{err}");
     assert_eq!(std::fs::read(dir.join("deck.json")).unwrap(), before, "deck.json comes last");
     std::fs::remove_dir(dir.join("notes.txt")).unwrap();
     bundle.write(&files).unwrap();
@@ -322,4 +322,41 @@ fn a_link_out_of_the_bundle_is_neither_read_written_nor_walked() {
     let written = bundle.write(&files).unwrap_err().to_string();
     assert!(written.contains("leads out of the bundle"), "{written}");
     assert!(!outside.join("q3.csv").exists());
+}
+
+/// What an error says with the causes behind it, as anyhow's `{:#}` says it: the path, then
+/// the system's reason, each once.
+fn told(e: &dyn std::error::Error) -> String {
+    let mut said = e.to_string();
+    let mut cause = e.source();
+    while let Some(c) = cause {
+        said = format!("{said}: {c}");
+        cause = c.source();
+    }
+    said
+}
+
+/// A bundle that cannot be read or written says which file and why, as the system said it: a
+/// folder where a file goes, a path through a file (lift-up 10-24b USE-3). Each once: the
+/// message names the path and its source the reason.
+#[test]
+fn a_file_that_cannot_be_read_or_written_says_which_and_why() {
+    let dir = scratch("says-why");
+    let bundle = dir.join("b1.scaena");
+    copy_dir(Path::new("../../tests/bench/b1.scaena"), &bundle);
+    let theme = bundle.join("theme.json");
+    std::fs::remove_file(&theme).unwrap();
+    std::fs::create_dir(&theme).unwrap();
+    let said = told(&Bundle::open(&bundle).expect_err("a theme that is a folder"));
+    assert!(said.starts_with(&format!("reading {}: ", theme.display())), "{said}");
+    assert!(said.to_ascii_lowercase().contains("is a directory"), "{said}");
+    std::fs::remove_dir(&theme).unwrap();
+    std::fs::copy("../../tests/bench/b1.scaena/theme.json", &theme).unwrap();
+    // Saved under a file, as if it were a folder: the file it stopped at, and why.
+    let blocked = dir.join("a-file");
+    std::fs::write(&blocked, b"not a folder").unwrap();
+    let said = told(&Bundle::open(&bundle).unwrap().save(&blocked.join("out"), &opts()).expect_err("no folder"));
+    assert!(said.starts_with(&format!("writing {}", blocked.join("out").display())), "{said}");
+    assert!(said.to_ascii_lowercase().contains("not a directory"), "{said}");
+    assert_eq!(said.to_ascii_lowercase().matches("not a directory").count(), 1, "the reason once: {said}");
 }

@@ -48,13 +48,24 @@ impl Backdrop for Bare {
 
 /// A canvas a hair wide validates (it is wider than nothing), but contrast judges text at
 /// presentation size, which makes it billions of pixels tall: an error, as a painter
-/// refuses a raster it cannot make, not an overflow.
+/// refuses a raster it cannot make, not an overflow. Its grid has no margins or gutters, so
+/// it lays out; with B1's own, the grid has no room on it and says so first (lift-up 10-24b
+/// STAB-3).
 #[test]
 fn a_canvas_too_thin_to_paint_lints_to_an_error() {
-    let (deck, theme, mut engine) = b1(|d| d["canvas"]["width"] = 1e-9.into());
+    let thin = |d: &mut Value| d["canvas"]["width"] = 1e-9.into();
+    let bare = |t: &mut Value| {
+        t["grid"]["margin"] = 0.into();
+        t["grid"]["gutter"] = 0.into();
+    };
+    let (deck, theme, mut engine) = b1_themed(thin, bare);
     let found = lint::lint(&mut engine, &deck, &theme, &DataFiles::new(), Some(&mut Bare));
     let error = found.expect_err("no raster that tall").to_string();
     assert!(error.contains("is not a raster this painter can make"), "{error}");
+    let (deck, theme, mut engine) = b1(thin);
+    let found = lint::lint(&mut engine, &deck, &theme, &DataFiles::new(), Some(&mut Bare));
+    let error = found.expect_err("no room on the grid").to_string();
+    assert!(error.contains("grid.margin: its margins leave its columns no room"), "{error}");
     // As it was, contrast judges the bare surface without a painter.
     let (deck, theme, mut engine) = b1(|_| {});
     lint::lint(&mut engine, &deck, &theme, &DataFiles::new(), Some(&mut Bare)).unwrap();
