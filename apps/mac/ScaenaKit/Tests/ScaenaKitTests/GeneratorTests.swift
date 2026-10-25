@@ -429,3 +429,52 @@ private actor Flight {
     let most = await flight.most
     #expect(most > 1 && most <= 3, "\(most) in flight at once")
 }
+
+/// Says yes the first time it is asked, and never again.
+private actor Once {
+    private var asked = false
+
+    func first() -> Bool {
+        defer { asked = true }
+        return !asked
+    }
+}
+
+/// A busy provider on one round of the look (lift-up 20261025 PERF-2, lift-up REL-1): that round
+/// alone is asked again, after the wait it gave, and the rounds that answered are not; the deck is
+/// made, its look said.
+@MainActor
+@Test func aBusyRoundOfTheLookIsAskedAgainAlone() async throws {
+    let arc = try Data(contentsOf: answers.appending(path: "anthropic-arc.json"))
+    // The catalog's 56 slides: the look goes in rounds of a dozen.
+    let catalog = try String(contentsOf: answers.appending(path: "catalog.json"), encoding: .utf8)
+    let overloaded = Data(#"{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}"#.utf8)
+    let asked = Asked()
+    let once = Once()
+    let generator = Generator { request in
+        await asked.add(request)
+        let body = request.body ?? ""
+        if body.contains("=== CATALOG ===") { return GeneratorReply(status: 200, body: arc) }
+        if body.contains("runs past its place") { return GeneratorReply(status: 200, body: anthropic(#"{"texts": []}"#)) }
+        if body.contains("art director") {
+            // The second round, which opens at slide 13, is busy the first time it is asked.
+            if body.contains("Slide 13 of"), await once.first() {
+                return GeneratorReply(status: 529, body: overloaded, after: "1")
+            }
+            return GeneratorReply(status: 200, body: anthropic(#"{"slides": []}"#))
+        }
+        return GeneratorReply(status: 200, body: anthropic(catalog))
+    }
+    var heard: [GeneratingStep] = []
+    let (_, made) = try await generator.generate(
+        brief: Brief(topic: "Tidewater's Series A", audience: "Investors"),
+        provider: .anthropic, model: "a-model", key: "sk-writer", theme: "dusk"
+    ) { heard.append($0) }
+    #expect(made.created.created)
+    let looks = await asked.requests.compactMap(\.body).filter { $0.contains("art director") }
+    #expect(Set(looks).count > 2, "the look in rounds: \(Set(looks).count)")
+    #expect(looks.count == Set(looks).count + 1, "one round asked twice, the rest once")
+    #expect(looks.filter { $0.contains("Slide 13 of") }.count == 2, "the busy round, asked again")
+    #expect(heard.contains(.retrying(seconds: 1, tried: 1)), "\(heard)")
+    #expect(heard.contains(.looked(slides: 0)), "\(heard)")
+}

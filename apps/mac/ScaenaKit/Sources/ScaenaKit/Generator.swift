@@ -692,9 +692,15 @@ public final class Generator {
 
     /// The look's rounds answered: what it came to, and the fit asked for.
     private struct Looking: Decodable, Sendable {
+        /// The rounds a busy provider answered for now, handed back to be asked again.
+        let look: Making.Look?
         let looked: Int?
         let unlooked: String?
         let fit: Fit?
+        /// Seconds to wait before `look`, the same round, is asked again, and how many times it
+        /// was asked so far (lift-up REL-1).
+        let wait: Double?
+        let tried: Int?
     }
 
     /// A rewrite answered: what it came to, and the next round's request where the rewrite left
@@ -702,7 +708,12 @@ public final class Generator {
     private struct Fitting: Decodable, Sendable {
         let fitted: Int?
         let unfitted: String?
+        /// The next round's request, where the rewrite left a text too long (STAB-4); or, with
+        /// `wait`, the same fit asked again after that many seconds, `tried` times so far (lift-up
+        /// REL-1).
         let fit: Fit?
+        let wait: Double?
+        let tried: Int?
     }
 
     /// Who makes a deck's pictures (PLAN G.10): an image provider, the user's key for it, where
@@ -987,38 +998,59 @@ public final class Generator {
         // lint finds the slide no worse; then the fit, asked after it.
         // The look goes a dozen slides a round (narrative PERF-5), the rounds asked a few at a
         // time, as the CLI and the browser ask them (lift-up 20261025 PERF-2), and every answer
-        // handed back in the rounds' order.
-        if let look = making.look {
-            hear(.looking(slides: look.slides))
-            let replies = await Self.asked(look.rounds, atOnce: look.atOnce, send: send)
-            let answers: [JSONValue] = replies.map { reply in
-                .object([
+        // handed back in the rounds' order. A round a busy provider answered for now is handed
+        // back alone, asked again after the wait the engine says (lift-up REL-1).
+        var seeing = making.look
+        if let first = seeing { hear(.looking(slides: first.slides)) }
+        var refused: GeneratorReply?
+        while let round = seeing {
+            let replies = await Self.asked(round.rounds, atOnce: round.atOnce, send: send)
+            refused = replies.last { !(200..<300).contains($0.status) } ?? refused
+            let answers: [JSONValue] = replies.map { reply -> JSONValue in
+                var answered: [String: JSONValue] = [
                     "status": .number(Double(reply.status)),
                     "statusText": .string(reply.status == 0 ? reply.text : HTTPURLResponse.localizedString(forStatusCode: reply.status)),
                     "body": .string(reply.status == 0 ? "" : reply.text),
-                ])
+                ]
+                if let after = reply.after { answered["after"] = .string(after) }
+                return .object(answered)
             }
             let looking: Looking = try await stepAway("looked", ["replies": .array(answers), "key": .string(key)])
+            if let wait = looking.wait {
+                hear(.retrying(seconds: wait, tried: looking.tried ?? 0))
+                try await Task.sleep(for: .seconds(wait))
+            }
+            seeing = looking.look
+            if seeing != nil { continue }
             if let why = looking.unlooked {
-                let refused = replies.first { !(200..<300).contains($0.status) } ?? replies[0]
-                hear(.unlooked(unanswered(why, provider, refused)))
+                hear(.unlooked(unanswered(why, provider, refused ?? replies[0])))
             } else {
                 hear(.looked(slides: looking.looked ?? 0))
             }
             fit = looking.fit
         }
-        // Each answer may ask once more for what the rewrite left too long (STAB-4).
+        // Each answer may ask once more for what the rewrite left too long (STAB-4), or, from a
+        // busy provider, the same fit again after the wait the engine says (lift-up REL-1).
+        var retrying = false
         while let asked = fit {
-            hear(.fitting(texts: asked.texts))
+            if !retrying { hear(.fitting(texts: asked.texts)) }
+            retrying = false
             let reply = await send(asked.request)
-            let fitting: Fitting = try await stepAway(
-                "fitted",
-                [
-                    "status": .number(Double(reply.status)),
-                    "statusText": .string(HTTPURLResponse.localizedString(forStatusCode: reply.status)),
-                    "body": .string(reply.text),
-                    "key": .string(key),
-                ])
+            var answered: [String: JSONValue] = [
+                "status": .number(Double(reply.status)),
+                "statusText": .string(HTTPURLResponse.localizedString(forStatusCode: reply.status)),
+                "body": .string(reply.text),
+                "key": .string(key),
+            ]
+            if let after = reply.after { answered["after"] = .string(after) }
+            let fitting: Fitting = try await stepAway("fitted", answered)
+            if let wait = fitting.wait, let again = fitting.fit {
+                hear(.retrying(seconds: wait, tried: fitting.tried ?? 0))
+                try await Task.sleep(for: .seconds(wait))
+                fit = again
+                retrying = true
+                continue
+            }
             if let n = fitting.fitted { hear(.fitted(texts: n)) }
             if let why = fitting.unfitted { hear(.unfitted(unanswered(why, provider, reply))) }
             fit = fitting.fit

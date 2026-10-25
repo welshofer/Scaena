@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Scaena.app (PLAN 3.3): the engine's static library in release, the Swift app over it, and the
-# bundle macOS opens, signed for this machine alone. `just mac` builds and opens it.
+# bundle macOS opens, signed by apps/mac/sign.sh: sandboxed, with the hardened runtime, by the Developer
+# ID $SCAENA_SIGNING_IDENTITY names, or for this machine alone. `just mac` builds and opens it.
 #
 #   apps/mac/build-app.sh [OUT]   (OUT defaults to target/mac; prints the app's path)
 set -euo pipefail
@@ -19,7 +20,11 @@ rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 cp "$bin/Scaena" "$app/Contents/MacOS/Scaena"
 cp "$root/apps/mac/Scaena/Info.plist" "$app/Contents/Info.plist"
+# Each theme that ships drawn as its title slide, which the theme chooser shows rather than making
+# and drawing a deck in each as New opens (lift-up PERF-4), as the browser's New dialog shows them
+# (PLAN T.0c). Its own words go to stderr: this script prints the app's path alone.
+(cd "$root" && cargo run -q --locked -p scaena-cli --example theme_thumbnails -- "$app/Contents/Resources/themes" >&2)
 # The icon Info.plist names (CFBundleIconFile), made of each size scripts/build_app_icon.py draws.
 iconutil -c icns -o "$app/Contents/Resources/AppIcon.icns" "$root/apps/mac/Scaena/AppIcon.iconset"
-codesign --force --sign - "$app"
+"$root/apps/mac/sign.sh" "$app"
 echo "$app"

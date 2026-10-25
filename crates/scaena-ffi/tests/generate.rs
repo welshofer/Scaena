@@ -233,6 +233,69 @@ fn a_deck_is_made_from_a_prompt_as_swift_makes_one_its_pictures_with_it() {
 /// The icons the slides name are found in the set that ships as the deck is made, as the CLI
 /// finds them (PLAN G.23): a slide whose items each name one sets each under it, and Swift does
 /// nothing more for it.
+/// A busy provider's answer to the look or the fit, as Swift's loop hands it over: the same
+/// request handed back with the wait to sleep and the tries so far, and a refusal after it left
+/// as it is (lift-up REL-1).
+#[test]
+fn a_busy_look_or_fit_is_handed_back_to_ask_again_as_swift_asks_it() {
+    let arc = std::fs::read_to_string(format!("{ANSWERS}/anthropic-arc.json")).unwrap();
+    // The slides as recorded, the second's title made far too long for its place, so that the
+    // deck made asks for the fit.
+    let mut slides: Value =
+        serde_json::from_str(&std::fs::read_to_string(format!("{ANSWERS}/anthropic-slides.json")).unwrap()).unwrap();
+    let block = (slides["content"].as_array_mut().unwrap().iter_mut()).find(|c| c["type"] == "text").unwrap();
+    let text = block["text"].as_str().unwrap().to_string();
+    let mut written: Value = serde_json::from_str(&text[text.find('{').unwrap()..=text.rfind('}').unwrap()]).unwrap();
+    // As the ops test makes one: an agenda's headline stands in a narrow column, which this title
+    // runs past at any size.
+    written["slides"][1]["layoutSuggestion"] = json!("Agenda");
+    written["slides"][1]["slideTitle"] =
+        json!("What we will cover today across the whole Gulf Coast and every port beyond it");
+    block["text"] = json!(written.to_string());
+    let slides = slides.to_string();
+    let g = scaena_generator_new();
+    let brief = json!({ "topic": "Carbon-negative cargo is ready to scale", "audience": "Investors" });
+    step(g, "begin", json!({ "brief": brief, "provider": "anthropic", "model": "a-model" }), &[]);
+    loop {
+        let standing = step(g, "request", json!({ "key": "sk-writer" }), &[]);
+        let Some(request) = standing.get("request").cloned() else { break };
+        let answer = if request["body"].as_str().unwrap().contains("=== CATALOG ===") { &arc } else { &slides };
+        step(g, "answer", json!({ "status": 200, "statusText": "OK", "body": answer }), &[]);
+    }
+    let making = step(g, "make", json!({ "theme": "dusk", "key": "sk-writer" }), &[]);
+    let first = making["look"]["rounds"][0].clone();
+    assert!(first.is_object(), "{making}");
+    let overloaded = json!({ "type": "error", "error": { "type": "overloaded_error", "message": "Overloaded" } });
+    let busy = json!({ "status": 529, "statusText": "", "body": overloaded.to_string(), "after": "1" });
+    let at_529 =
+        json!({ "status": 529, "statusText": "", "body": overloaded.to_string(), "after": "1", "key": "sk-writer" });
+
+    // The look: busy, then the same round handed back to ask again; a refusal then ends it.
+    let again = step(g, "looked", json!({ "replies": [busy], "key": "sk-writer" }), &[]);
+    assert_eq!((again["wait"].as_f64(), again["tried"].as_u64()), (Some(1.0), Some(1)), "{again}");
+    assert_eq!(again["look"]["rounds"], json!([first]), "the round first handed out");
+    let refused = json!({ "type": "error", "error": { "type": "invalid_request_error", "message": "Bad" } });
+    let bad = json!({ "status": 400, "statusText": "Bad Request", "body": refused.to_string() });
+    let ended = step(g, "looked", json!({ "replies": [bad], "key": "sk-writer" }), &[]);
+    assert!(ended["unlooked"].as_str().is_some_and(|w| w.contains("not looked at")), "{ended}");
+    assert!(ended.get("wait").is_none(), "a refusal is not asked again: {ended}");
+
+    // The fit: busy, then the same request handed back; answered, the text fits.
+    let fit = ended["fit"]["request"].clone();
+    assert!(fit.is_object(), "the long title asks for the fit: {ended}");
+    let again = step(g, "fitted", at_529, &[]);
+    assert_eq!((again["wait"].as_f64(), again["tried"].as_u64()), (Some(1.0), Some(1)), "{again}");
+    assert_eq!(again["fit"]["request"], fit, "the fit first handed out");
+    let prompt: Value = serde_json::from_str(fit["body"].as_str().unwrap()).unwrap();
+    let prompt = prompt["messages"][0]["content"][0]["text"].as_str().unwrap().to_string();
+    let id = prompt.split("id: ").nth(1).unwrap().split_once('\n').unwrap().0;
+    let rewrite = anthropic(&json!({ "texts": [{ "id": id, "text": "What we will cover" }] }).to_string());
+    let fitted = step(g, "fitted", json!({ "status": 200, "statusText": "OK", "body": rewrite }), &[]);
+    assert_eq!(fitted["fitted"], 1, "{fitted}");
+    let report = step(g, "report", json!({}), &[]);
+    assert_eq!(report["fitted"], json!([id]), "{report:#}");
+}
+
 #[test]
 fn the_icons_the_slides_name_are_found_as_the_deck_is_made() {
     let arc = std::fs::read_to_string(format!("{ANSWERS}/anthropic-arc.json")).unwrap();
@@ -397,21 +460,32 @@ fn a_long_decks_look_hands_over_every_round_at_once() {
     };
     assert!(first(&rounds[0]).starts_with("Slide 1 of "), "{}", first(&rounds[0]));
     assert!(!first(&rounds[1]).starts_with("Slide 1 of "), "{}", first(&rounds[1]));
-    // Too few answers is refused; the first round answered with a change, the second refused.
+    // Too few answers is refused. The first round answered with a change, the second busy for now
+    // and the third refused, the rest with none: the busy round alone is handed back, after the
+    // wait it asked, its tries counted (lift-up REL-1), and the rounds that answered are kept.
     let refused = answered(g, "looked", &json!({ "replies": [], "key": "sk-writer" }), &[]);
-    assert!(refused["error"]["message"].as_str().unwrap().contains("answer each round, in order"), "{refused}");
+    assert!(
+        refused["error"]["message"].as_str().unwrap().contains("answer each round handed over, in order"),
+        "{refused}"
+    );
     let tightened = anthropic(
         &json!({ "slides": [{ "slide": 1, "layout": "", "title": "Freight that pulls carbon", "subtitle": "", "bullets": [], "why": "Shorter." }] })
             .to_string(),
     );
-    let mut replies = vec![json!({ "status": 200, "statusText": "OK", "body": tightened })];
-    replies.push(json!({ "status": 529, "statusText": "Overloaded", "body": r#"{"error":{"message":"busy"}}"# }));
-    for _ in 2..rounds.len() {
+    let busy = json!({ "status": 529, "statusText": "", "body": r#"{"error":{"message":"busy"}}"#, "after": "2" });
+    let bad = json!({ "status": 400, "statusText": "Bad Request", "body": r#"{"error":{"message":"bad"}}"# });
+    let mut replies = vec![json!({ "status": 200, "statusText": "OK", "body": tightened }), busy, bad];
+    for _ in 3..rounds.len() {
         replies.push(json!({ "status": 200, "statusText": "OK", "body": anthropic(r#"{"slides": []}"#) }));
     }
-    let looked = step(g, "looked", json!({ "replies": replies }), &[]);
-    assert_eq!(looked["looked"], 1, "{looked}");
+    let again = step(g, "looked", json!({ "replies": replies }), &[]);
+    assert_eq!((again["wait"].as_f64(), again["tried"].as_u64()), (Some(2.0), Some(1)), "{again}");
+    assert_eq!(again["look"]["rounds"], json!([rounds[1]]), "the busy round alone, as first handed out");
+    let none = json!({ "status": 200, "statusText": "OK", "body": anthropic(r#"{"slides": []}"#) });
+    let looked = step(g, "looked", json!({ "replies": [none] }), &[]);
+    assert_eq!(looked["looked"], 1, "the first round's change kept: {looked}");
     let unlooked = looked["unlooked"].as_str().unwrap();
-    assert!(unlooked.starts_with("slides ") && unlooked.contains("not looked at"), "{unlooked}");
+    assert!(unlooked.starts_with("slides ") && unlooked.contains("not looked at"), "the refused round's: {unlooked}");
+    assert_eq!(unlooked.matches("not looked at").count(), 1, "the busy round, answered, is not said: {unlooked}");
     unsafe { scaena_generator_free(g) };
 }

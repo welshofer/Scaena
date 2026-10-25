@@ -12,7 +12,7 @@ use crate::{Failure, said};
 use base64::Engine;
 use scaena_narrato::Picture;
 use scaena_narrato::fit::Long;
-use scaena_narrato::look::Seen;
+use scaena_narrato::look::{Change, Seen};
 use scaena_narrato::research::{Asked, Next, Report, Research, source_name};
 use scaena_narrato::{Brief, Document, Generation, Provider, Request, Settings, Step};
 use scaena_ops::narrative::{Asked as Wanted, Painting, Pictures, Reply, look_rounds};
@@ -33,26 +33,36 @@ use std::collections::BTreeMap;
 struct Look {
     seen: Vec<Seen>,
     drawn: Vec<Picture>,
-    asked: Vec<std::ops::Range<usize>>,
+    /// Each round asked: its slides, its request as Swift is handed it, and how many times a busy
+    /// provider has answered it for now (lift-up REL-1).
+    asked: Vec<(std::ops::Range<usize>, Value, usize)>,
+    /// The rounds still to be answered, by their place in `asked`, in the order Swift is handed
+    /// them.
+    pending: Vec<usize>,
+    changes: Vec<Change>,
+    unanswered: Option<String>,
 }
 
 impl Look {
     /// Every round's request, in order, with how many slides the look shows in all and how many
     /// rounds the client asks at once; none where no round asks anything.
     fn rounds(&mut self, generation: &Generation, key: &str) -> Option<Value> {
-        let mut requests = Vec::new();
         for round in look_rounds(self.seen.len()) {
             let edges = [round.start.checked_sub(1).and_then(|b| self.seen.get(b)), self.seen.get(round.end)];
             if let Some(asked) =
                 generation.look_request(key, &self.seen[round.clone()], &self.drawn[round.clone()], edges)
             {
-                self.asked.push(round);
-                requests.push(request(asked));
+                self.asked.push((round, request(asked), 0));
             }
         }
-        (!requests.is_empty()).then(
-            || json!({ "rounds": requests, "slides": self.seen.len(), "atOnce": scaena_ops::narrative::LOOKS_AT_ONCE }),
-        )
+        self.pending = (0..self.asked.len()).collect();
+        (!self.pending.is_empty()).then(|| self.handed())
+    }
+
+    /// The rounds still to be answered, as Swift is handed them.
+    fn handed(&self) -> Value {
+        let rounds: Vec<&Value> = self.pending.iter().map(|&i| &self.asked[i].1).collect();
+        json!({ "rounds": rounds, "slides": self.seen.len(), "atOnce": scaena_ops::narrative::LOOKS_AT_ONCE })
     }
 }
 
@@ -78,6 +88,10 @@ pub struct Generating {
     script: Option<(&'static Script, Vec<u8>)>,
     /// A map being fetched from Geoapify (ADR-0030, PLAN O.1d), and the map once it is.
     map: Option<scaena_objects::map::MapPlan>,
+    /// The fit last asked, as Swift was handed it, and how many times a busy provider has
+    /// answered it for now (lift-up REL-1).
+    fit_asked: Option<Value>,
+    fit_tried: usize,
 }
 
 /// A [`Generating`] goes from one thread to another between steps (lift-up narrative PERF-3): the
@@ -546,42 +560,61 @@ impl Generating {
                 json!({ "fit": fit })
             }
             "looked" => {
-                // The model's answers to the look's rounds (narrative PERF-5), every one, in the
-                // order `make` gave the rounds: `replies`, each `{status, statusText, body}` (lift-up
-                // 20261025 PERF-2). Each slide's change is kept where lint finds the slide no worse,
-                // then the fit asked for, as `make` asks it: `{looked, unlooked, fit}`. A round not
-                // answered loses its own slides' changes alone, said beside the rest.
+                // The model's answers to the rounds of the look still to be answered (narrative
+                // PERF-5), in the order they were handed over: `replies`, each `{status,
+                // statusText, body, after?}` (lift-up 20261025 PERF-2). A round a busy provider
+                // answered for now is handed over again after the wait Swift is told, alone,
+                // until its tries are spent (lift-up REL-1): `{look, wait, tried}`. Once every
+                // round is answered, each slide's change is kept where lint finds the slide no
+                // worse, then the fit asked for, as `make` asks it: `{looked, unlooked, fit}`. A
+                // round not answered loses its own slides' changes alone, said beside the rest.
                 let w = self.generation.as_ref().ok_or_else(|| said("looked: no narrative is written"))?;
                 let key = args.get("key").and_then(Value::as_str);
                 let replies = (args.get("replies").and_then(Value::as_array))
                     .ok_or_else(|| said("looked: `replies`, the answer to each round, is an array it needs"))?;
-                if replies.len() != self.look.asked.len() {
+                if replies.len() != self.look.pending.len() {
                     return Err(said(format!(
-                        "looked: {} replies to {} rounds: answer each round, in order",
+                        "looked: {} replies to {} rounds: answer each round handed over, in order",
                         replies.len(),
-                        self.look.asked.len()
+                        self.look.pending.len()
                     )));
                 }
-                let mut changes = Vec::new();
-                let mut unanswered: Option<String> = None;
-                for (round, reply) in self.look.asked.iter().zip(replies) {
-                    let shown = &self.look.seen[round.clone()];
+                let mut again = Vec::new();
+                let mut wait: f64 = 0.0;
+                for (&i, reply) in std::mem::take(&mut self.look.pending).iter().zip(replies) {
                     let status =
                         reply.get("status").and_then(Value::as_u64).and_then(|s| u16::try_from(s).ok()).unwrap_or(0);
                     let status_text = reply.get("statusText").and_then(Value::as_str).unwrap_or_default();
                     let body = reply.get("body").and_then(Value::as_str).unwrap_or_default();
+                    let after = reply.get("after").and_then(Value::as_str);
+                    let (round, _, tried) = &mut self.look.asked[i];
+                    if let Some(seconds) = scaena_narrato::retry_after(status, body, after, *tried) {
+                        *tried += 1;
+                        wait = wait.max(seconds);
+                        again.push(i);
+                        continue;
+                    }
+                    let shown = &self.look.seen[round.clone()];
                     match w.generation.look_answer(status, status_text, body, shown) {
-                        Ok(made) => changes.extend(made),
+                        Ok(made) => self.look.changes.extend(made),
                         Err(why) => {
                             let (first, last) = (shown[0].slide, shown[shown.len() - 1].slide);
                             let why = match shown.len() {
                                 1 => format!("slide {first} not looked at: {why}"),
                                 _ => format!("slides {first}\u{2013}{last} not looked at: {why}"),
                             };
-                            unanswered = Some(unanswered.map_or(why.clone(), |was| format!("{was}; {why}")));
+                            let was = self.look.unanswered.take();
+                            self.look.unanswered = Some(was.map_or(why.clone(), |was| format!("{was}; {why}")));
                         }
                     }
                 }
+                if !again.is_empty() {
+                    let tried = again.iter().map(|&i| self.look.asked[i].2).max().unwrap_or(0);
+                    self.look.pending = again;
+                    return Ok(json!({ "look": self.look.handed(), "wait": wait, "tried": tried }));
+                }
+                let changes = std::mem::take(&mut self.look.changes);
+                let unanswered = self.look.unanswered.take();
                 let (mut making, _) = self.making.take().ok_or_else(|| said("looked: no deck is made"))?;
                 let narrative = w.generation.narrative().ok_or_else(|| said("looked: no narrative is written"))?;
                 self.look = Look::default();
@@ -603,6 +636,15 @@ impl Generating {
                 json!({ "looked": report["looked"].as_array().map_or(0, Vec::len), "unlooked": report["unlooked"], "fit": fit })
             }
             "fitted" => {
+                // A busy provider: the fit asked again, after the wait Swift is told (lift-up
+                // REL-1), `{fit, wait, tried}`.
+                let after = args.get("after").and_then(Value::as_str);
+                if let Some(wait) = scaena_narrato::retry_after(status(), arg("body")?, after, self.fit_tried)
+                    && let Some(again) = self.fit_asked.clone()
+                {
+                    self.fit_tried += 1;
+                    return Ok(json!({ "fit": again, "wait": wait, "tried": self.fit_tried }));
+                }
                 let key = args.get("key").and_then(Value::as_str);
                 let w = self.generation.as_ref().ok_or_else(|| said("fitted: no narrative is written"))?;
                 let (mut making, longs) = self.making.take().ok_or_else(|| said("fitted: no deck is made"))?;
@@ -669,7 +711,10 @@ impl Generating {
         };
         let texts = longs.len();
         self.making = Some((making, longs));
-        Ok(fit.map_or(Value::Null, |r| json!({ "request": r, "texts": texts })))
+        let fit = fit.map_or(Value::Null, |r| json!({ "request": r, "texts": texts }));
+        self.fit_asked = Some(fit.clone()).filter(|f| !f.is_null());
+        self.fit_tried = 0;
+        Ok(fit)
     }
 
     fn written(&mut self) -> Result<&mut Written, Failure> {

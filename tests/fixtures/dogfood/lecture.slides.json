@@ -1,0 +1,307 @@
+{
+ "executiveSummary": "A positive result from an accurate test can still be wrong most of the time when the condition is rare. This lecture builds conditional probability and Bayes' theorem step by step, works a screening example with natural frequencies, names base-rate neglect and the prosecutor's fallacy, and ends with practice problems and a four-question habit students can use anywhere.",
+ "slides": [
+  {
+   "slideTitle": "Why a positive test usually doesn't mean you're sick",
+   "subtitle": "Bayes' theorem, step by step · STAT 101, Lecture 9",
+   "layoutSuggestion": "Title",
+   "keyBullets": [],
+   "visualDescription": "A single lab test strip on a clean white table, one faint line, soft morning light",
+   "speakerNotes": "- Welcome back. Today is one of my favorite lectures, because it changes how you read every test result for the rest of your life.\n- We'll build Bayes' theorem from scratch, then use it.\n- Bring out a pencil: there are three problems at the end.",
+   "beatIndex": 0,
+   "beatName": "Orientation",
+   "purpose": "Opens the lecture with a counterintuitive promise",
+   "intent": "Make students curious enough to lean in",
+   "expectedIntensity": 0.3,
+   "expectedValence": 0.2
+  },
+  {
+   "slideTitle": "Where today's lecture will take us",
+   "subtitle": "",
+   "layoutSuggestion": "Agenda",
+   "keyBullets": [
+    "The puzzle: a test result that misleads",
+    "Conditional probability, from the ground up",
+    "Bayes' theorem, built one step at a time",
+    "Pitfalls: base rates and the prosecutor's fallacy",
+    "Check yourself: three quick problems"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "- Five parts, about ten minutes each.\n- We start with a puzzle, then build the tools to solve it.\n- The last part is practice, so keep your notes from the middle.",
+   "beatIndex": 0,
+   "beatName": "Orientation",
+   "purpose": "Previews the path through the lecture",
+   "intent": "Make students feel the lecture has a clear shape",
+   "expectedIntensity": 0.2,
+   "expectedValence": 0.0
+  },
+  {
+   "slideTitle": "Only one in five doctors answered this question correctly",
+   "subtitle": "",
+   "layoutSuggestion": "Big Number",
+   "keyBullets": [
+    "21%",
+    "of 160 gynecologists chose the right answer to a screening question about mammograms"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "- In 2007, Gerd Gigerenzer asked 160 gynecologists a question about mammogram results.\n- If a woman tests positive, how likely is it that she has breast cancer?\n- Only 21% chose the right answer, worse than guessing among four options.\n- These are experts. The problem isn't intelligence; it's the way the numbers are presented.",
+   "beatIndex": 0,
+   "beatName": "Orientation",
+   "purpose": "Creates the puzzle that motivates the lecture",
+   "intent": "Make students feel the stakes: experts get this wrong",
+   "expectedIntensity": 0.7,
+   "expectedValence": -0.3,
+   "supportingFacts": "Gigerenzer et al., Psychological Science in the Public Interest, 2007"
+  },
+  {
+   "slideTitle": "Conditional probability",
+   "subtitle": "",
+   "layoutSuggestion": "Definition",
+   "keyBullets": [
+    "The probability that A is true given that B has happened, written P(A | B)",
+    "P(rain | cloudy) is higher than P(rain): knowing it's cloudy changes the odds"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "- Everything today rests on this one idea.\n- The vertical bar means 'given'.\n- Conditioning narrows the world we're looking at: only the cloudy days.\n- Notice that P(A | B) and P(B | A) are different numbers. Hold on to that.",
+   "beatIndex": 1,
+   "beatName": "Foundations",
+   "purpose": "Establishes the core term precisely",
+   "intent": "Make students comfortable with the notation",
+   "expectedIntensity": 0.3,
+   "expectedValence": 0.1
+  },
+  {
+   "slideTitle": "Four words we'll use for the rest of the course",
+   "subtitle": "",
+   "layoutSuggestion": "Glossary",
+   "keyBullets": [
+    "Prior: what you believe before the evidence, P(H)",
+    "Likelihood: how probable the evidence is if H is true, P(E | H)",
+    "Evidence: how probable the evidence is overall, P(E)",
+    "Posterior: what you believe after the evidence, P(H | E)"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "- These four terms are the vocabulary of Bayesian reasoning.\n- Prior and posterior are before and after.\n- The likelihood is what the test manufacturer reports.\n- The evidence term is the one everybody forgets.",
+   "beatIndex": 1,
+   "beatName": "Foundations",
+   "purpose": "Gives shared vocabulary for the method",
+   "intent": "Make students able to name each part of the formula",
+   "expectedIntensity": 0.3,
+   "expectedValence": 0.1
+  },
+  {
+   "slideTitle": "Bayes' theorem combines three numbers in three moves",
+   "subtitle": "",
+   "layoutSuggestion": "How It Works",
+   "keyBullets": [
+    "Start with the prior: how common is the condition? P(H)",
+    "Weigh it by the likelihood: how often does a sick person test positive? P(E | H)",
+    "Divide by all the ways to test positive: true positives plus false positives, P(E)"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "- Here is the whole theorem as a procedure.\n- Multiply prior by likelihood: that's the share of people who are sick and test positive.\n- Divide by everyone who tests positive, sick or not.\n- What's left is the share of positives that are real.",
+   "beatIndex": 2,
+   "beatName": "Application",
+   "purpose": "Turns the formula into a procedure students can follow",
+   "intent": "Make students believe they can compute it",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.3
+  },
+  {
+   "slideTitle": "Work it through for 1,000 people",
+   "subtitle": "1% prevalence, 90% sensitivity, 9% false positives",
+   "layoutSuggestion": "Steps",
+   "keyBullets": [
+    "10 people: have the disease, at 1% prevalence",
+    "9 of them: test positive, at 90% sensitivity",
+    "89 healthy people: also test positive, at a 9% false-positive rate",
+    "9 of 98: positives are actually sick, about 9%"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "- Natural frequencies make this easy.\n- Out of 1,000 people, 10 are sick and 990 are healthy.\n- 9 of the sick test positive. 89 of the healthy do too.\n- So of 98 positives, only 9 are sick. That's about 9%.",
+   "beatIndex": 2,
+   "beatName": "Application",
+   "purpose": "Works the example with natural frequencies",
+   "intent": "Make the answer feel obvious once counted",
+   "expectedIntensity": 0.6,
+   "expectedValence": 0.2
+  },
+  {
+   "slideTitle": "False positives outnumber true positives almost ten to one",
+   "subtitle": "Positive results per 1,000 people tested",
+   "layoutSuggestion": "Bar Chart",
+   "keyBullets": [
+    "Of 98 positive results, only 9 are true"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "- Here are the same numbers as bars.\n- The false positives tower over the true ones.\n- Not because the test is bad, but because healthy people vastly outnumber sick ones.",
+   "beatIndex": 2,
+   "beatName": "Application",
+   "purpose": "Makes the imbalance visible at a glance",
+   "intent": "Make the result unforgettable",
+   "expectedIntensity": 0.7,
+   "expectedValence": -0.2,
+   "chartData": {
+    "categories": [
+     "True positives",
+     "False positives"
+    ],
+    "series": [
+     {
+      "name": "Positive tests",
+      "values": [
+       9,
+       89
+      ]
+     }
+    ],
+    "unit": "people"
+   }
+  },
+  {
+   "slideTitle": "How common the condition is changes everything",
+   "subtitle": "Chance a positive test is right, by prevalence, %",
+   "layoutSuggestion": "Line Chart",
+   "keyBullets": [
+    "At 50% prevalence the same test is right 91% of the time"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "- Same test, same accuracy, different populations.\n- At 1 in 1,000 a positive is right 1% of the time; at 50% it's right 91% of the time.\n- This is why doctors test people with symptoms first.",
+   "beatIndex": 3,
+   "beatName": "Mastery",
+   "purpose": "Shows the base rate drives the answer",
+   "intent": "Make students see why screening everyone misleads",
+   "expectedIntensity": 0.6,
+   "expectedValence": 0.1,
+   "chartData": {
+    "categories": [
+     "0.1%",
+     "1%",
+     "5%",
+     "10%",
+     "20%",
+     "50%"
+    ],
+    "series": [
+     {
+      "name": "Positive predictive value",
+      "values": [
+       1.0,
+       9.2,
+       34.5,
+       52.6,
+       71.4,
+       90.9
+      ]
+     }
+    ],
+    "unit": "%"
+   }
+  },
+  {
+   "slideTitle": "Two mistakes that even experts make",
+   "subtitle": "",
+   "layoutSuggestion": "Two-Column",
+   "keyBullets": [
+    "Base-rate neglect: judging by the test's accuracy and ignoring how rare the condition is",
+    "Prosecutor's fallacy: confusing P(evidence | innocent) with P(innocent | evidence)"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "- Base-rate neglect is what the gynecologists did.\n- The prosecutor's fallacy is the same error in a courtroom.\n- In the Sally Clark case, a one-in-73-million figure was read as the chance she was innocent. It wasn't.",
+   "beatIndex": 3,
+   "beatName": "Mastery",
+   "purpose": "Names the two classic errors",
+   "intent": "Make students able to spot these errors in the wild",
+   "expectedIntensity": 0.7,
+   "expectedValence": -0.4
+  },
+  {
+   "slideTitle": "Check yourself",
+   "subtitle": "Three problems, two minutes each",
+   "layoutSuggestion": "Section Header",
+   "keyBullets": [],
+   "visualDescription": "",
+   "speakerNotes": "- Time to practice. Work with the person next to you.\n- Use natural frequencies: imagine 1,000 or 10,000 people.",
+   "beatIndex": 4,
+   "beatName": "Assessment",
+   "purpose": "Turns the lecture from teaching to practice",
+   "intent": "Make students switch into problem-solving",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.3
+  },
+  {
+   "slideTitle": "Three quick problems to test your understanding",
+   "subtitle": "",
+   "layoutSuggestion": "FAQ",
+   "keyBullets": [
+    "A test is 99% sensitive with a 1% false-positive rate, and 1 in 1,000 people are sick. If you test positive, what are the odds you're sick?: About 9%",
+    "You test positive twice on independent tests. What happens?: The chance rises to about 91%",
+    "Prevalence doubles. Does the chance a positive is right double?: Nearly, while it stays small"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "- Give it two minutes per problem.\n- For the first, imagine 100,000 people: 100 sick, 99 test positive; 999 healthy people test positive too.\n- For the second, today's posterior becomes tomorrow's prior.\n- The third is a good exam question. Expect it.",
+   "beatIndex": 4,
+   "beatName": "Assessment",
+   "purpose": "Checks understanding with worked problems",
+   "intent": "Make students confident they can do it alone",
+   "expectedIntensity": 0.6,
+   "expectedValence": 0.3
+  },
+  {
+   "slideTitle": "Four questions to ask about any test result",
+   "subtitle": "",
+   "layoutSuggestion": "Numbered",
+   "keyBullets": [
+    "How common is the condition in people like me?",
+    "How often does the test catch it?",
+    "How often does it raise a false alarm?",
+    "Of all the positives, what share are real?"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "- This is the takeaway you can use at the doctor's office.\n- Ask these four questions in order.\n- The last one is the answer you actually care about, and it's the one nobody tells you.",
+   "beatIndex": 5,
+   "beatName": "Transfer",
+   "purpose": "Gives students a reusable checklist",
+   "intent": "Make students apply this outside class",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.4
+  },
+  {
+   "slideTitle": "The same logic runs spam filters, courtrooms, and rescues",
+   "subtitle": "",
+   "layoutSuggestion": "Gallery",
+   "keyBullets": [
+    "Spam filters: weigh each word by how often it appears in spam versus real mail",
+    "Courtrooms: a DNA match means little without the population's base rate",
+    "Search and rescue: each empty search updates the map of where the boat could be"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "- Bayes is everywhere once you look.\n- Spam filters were the first big commercial use.\n- The US Coast Guard's search software is Bayesian at its core.\n- Next week we'll handle many pieces of evidence at once.",
+   "beatIndex": 5,
+   "beatName": "Transfer",
+   "purpose": "Shows the method's reach beyond medicine",
+   "intent": "Make students see Bayes as a general tool",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.5,
+   "icons": [
+    "envelope",
+    "scales",
+    "compass"
+   ]
+  },
+  {
+   "slideTitle": "Always ask how common it was to begin with",
+   "subtitle": "Next week: Bayesian updating with many pieces of evidence",
+   "layoutSuggestion": "Closing",
+   "keyBullets": [],
+   "visualDescription": "",
+   "speakerNotes": "- If you remember one sentence from today, make it this one.\n- Problem set 4 is posted; it's due next Friday.\n- Office hours are Tuesday at 3 in room 204.",
+   "beatIndex": 5,
+   "beatName": "Transfer",
+   "purpose": "Lands the one sentence to remember",
+   "intent": "Make students leave with one durable habit",
+   "expectedIntensity": 0.6,
+   "expectedValence": 0.5
+  }
+ ]
+}

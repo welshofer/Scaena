@@ -36,6 +36,16 @@ enum CanvasOffer {
         if let copyCode = deck.copyCode {
             offers.append(.action("Copy Code", symbol: "chevron.left.forwardslash.chevron.right", run: copyCode))
         }
+        // A text made code, and code made words again or tidied (PLAN 2.139).
+        if let makeCode = deck.makeCode {
+            offers.append(.action("Make Code", symbol: "curlybraces", run: makeCode))
+        }
+        if let tidyCode = deck.tidyCode {
+            offers.append(.action("Tidy Code", symbol: "text.alignleft", run: tidyCode))
+        }
+        if let notCode = deck.notCode {
+            offers.append(.action("Not Code", symbol: "textformat", run: notCode))
+        }
         offers.append(.divider)
         if let duplicate = deck.duplicate {
             offers.append(.action("Duplicate", symbol: "plus.square.on.square", run: duplicate))

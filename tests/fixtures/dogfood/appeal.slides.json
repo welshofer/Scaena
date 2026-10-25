@@ -1,0 +1,216 @@
+{
+ "executiveSummary": "Harbor House's winter appeal tells one child's story, Maya's, who did her homework in a car for three months, to show a county-wide problem: one child in seven slept somewhere unstable last winter, and the wait for a family room has tripled since 2022. 212 families are waiting tonight. The appeal asks for $180,000 to keep every family room open from December to March.",
+ "slides": [
+  {
+   "slideTitle": "Every child deserves a warm bed this winter",
+   "subtitle": "Harbor House · Winter appeal 2026",
+   "layoutSuggestion": "Title",
+   "keyBullets": [],
+   "visualDescription": "A child's bed with a patchwork quilt in a small, warm room",
+   "speakerNotes": "- Thank you all for coming tonight.",
+   "beatIndex": 0,
+   "beatName": "Opposition",
+   "purpose": "Opens the appeal",
+   "intent": "Make the room lean in",
+   "expectedIntensity": 0.3,
+   "expectedValence": 0.3
+  },
+  {
+   "slideTitle": "Maya did her homework in a car for three months",
+   "subtitle": "",
+   "layoutSuggestion": "Image + Text",
+   "keyBullets": [
+    "Maya is nine. Last winter her family lost their apartment when her mother's hours were cut.",
+    "She slept in the back seat of a Corolla and did her spelling by the dome light.",
+    "She never missed a day of school."
+   ],
+   "visualDescription": "A girl doing homework in the back seat of a car at night, lit by a dome light",
+   "speakerNotes": "- Maya's mother gave us permission to tell this story.\n- Maya picked the photo herself.",
+   "beatIndex": 0,
+   "beatName": "Opposition",
+   "purpose": "Puts one child's face on the problem",
+   "intent": "Make the audience care about one person first",
+   "expectedIntensity": 0.7,
+   "expectedValence": -0.5
+  },
+  {
+   "slideTitle": "She is one of many",
+   "subtitle": "",
+   "layoutSuggestion": "Big Number",
+   "keyBullets": [
+    "1 in 7",
+    "children in Halverson County slept somewhere unstable last winter"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "- That's about 2,300 children.\n- In a county most of you live in.",
+   "beatIndex": 1,
+   "beatName": "Escalation",
+   "purpose": "Shows the scale",
+   "intent": "Make the scale land",
+   "expectedIntensity": 0.8,
+   "expectedValence": -0.6,
+   "supportingFacts": [
+    "Halverson County school district, 2025 count"
+   ]
+  },
+  {
+   "slideTitle": "Families wait longer every year",
+   "subtitle": "Average wait for a family room, days",
+   "layoutSuggestion": "Bar Chart",
+   "keyBullets": [
+    "The wait has tripled since 2022"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "- In 2022 a family waited 11 days. This year it's 34.",
+   "beatIndex": 1,
+   "beatName": "Escalation",
+   "purpose": "Shows the problem getting worse",
+   "intent": "Make the urgency felt",
+   "expectedIntensity": 0.7,
+   "expectedValence": -0.5,
+   "chartData": {
+    "categories": [
+     "2022",
+     "2023",
+     "2024",
+     "2025"
+    ],
+    "series": [
+     {
+      "name": "Days",
+      "values": [
+       11,
+       17,
+       26,
+       34
+      ]
+     }
+    ],
+    "unit": "days",
+    "sourceId": "Harbor House intake records"
+   }
+  },
+  {
+   "slideTitle": "“I didn't want her to know we were scared”",
+   "subtitle": "",
+   "layoutSuggestion": "Quote",
+   "keyBullets": [
+    "I didn't want her to know we were scared. Harbor House let me stop pretending.",
+    "Lena, Maya's mother"
+   ],
+   "visualDescription": "A mother and daughter on a front porch at dusk, seen from behind",
+   "speakerNotes": "- Lena said this to me in March, the week they moved in.",
+   "beatIndex": 1,
+   "beatName": "Escalation",
+   "purpose": "Gives the parent's voice",
+   "intent": "Make the audience feel the fear and the relief",
+   "expectedIntensity": 0.9,
+   "expectedValence": -0.2
+  },
+  {
+   "slideTitle": "This winter, 212 families are on our waiting list",
+   "subtitle": "",
+   "layoutSuggestion": "Statement",
+   "keyBullets": [],
+   "visualDescription": "",
+   "speakerNotes": "- 212 families. 340 children.",
+   "beatIndex": 2,
+   "beatName": "Turning Point",
+   "purpose": "Names the gap tonight can close",
+   "intent": "Make the gap concrete",
+   "expectedIntensity": 0.8,
+   "expectedValence": -0.3
+  },
+  {
+   "slideTitle": "What your gift does",
+   "subtitle": "",
+   "layoutSuggestion": "Scorecard",
+   "keyBullets": [
+    "$85: one night in a family room",
+    "$600: a month of after-school tutoring",
+    "$2,500: a family's first month of rent",
+    "$10,000: a room open all winter"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "- Every gift, any size, goes to a family on the list.",
+   "beatIndex": 2,
+   "beatName": "Turning Point",
+   "purpose": "Turns money into nights and rooms",
+   "intent": "Make every gift feel concrete",
+   "expectedIntensity": 0.7,
+   "expectedValence": 0.6
+  },
+  {
+   "slideTitle": "Where Maya is now",
+   "subtitle": "",
+   "layoutSuggestion": "Timeline",
+   "keyBullets": [
+    "January: moved into a Harbor House family room",
+    "March: her mother started full-time work",
+    "June: the family signed a lease",
+    "September: Maya started fourth grade at the same school"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "- Nine months from the car to a lease.",
+   "beatIndex": 3,
+   "beatName": "Resolution",
+   "purpose": "Shows how the story turns",
+   "intent": "Make the audience see the outcome",
+   "expectedIntensity": 0.7,
+   "expectedValence": 0.8
+  },
+  {
+   "slideTitle": "What families tell us",
+   "subtitle": "",
+   "layoutSuggestion": "Testimonials",
+   "keyBullets": [
+    "We had a door that locked. That was everything. — Jamal, father of two",
+    "My son stopped asking where we'd sleep. — Rosa, mother",
+    "They helped me find the job that got us our place. — Lena, Maya's mother"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "- Three families, all from last winter.",
+   "beatIndex": 3,
+   "beatName": "Resolution",
+   "purpose": "Shows Maya isn't alone",
+   "intent": "Make the change feel common, not rare",
+   "expectedIntensity": 0.7,
+   "expectedValence": 0.7
+  },
+  {
+   "slideTitle": "Open 212 rooms this winter",
+   "subtitle": "",
+   "layoutSuggestion": "The Ask",
+   "keyBullets": [
+    "$180,000 keeps every room open from December to March",
+    "$85 gives one family one night",
+    "Monthly giving keeps a room open all year"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "- Our goal tonight is $180,000.\n- Cards are on your table.",
+   "beatIndex": 4,
+   "beatName": "Aftermath",
+   "purpose": "Makes the ask",
+   "intent": "Make the room give tonight",
+   "expectedIntensity": 0.9,
+   "expectedValence": 0.6
+  },
+  {
+   "slideTitle": "Thank you",
+   "subtitle": "",
+   "layoutSuggestion": "Closing",
+   "keyBullets": [
+    "Give a family a warm bed tonight",
+    "harborhouse.org/winter · (555) 014-2200"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "- Thank you. Maya says thank you too.",
+   "beatIndex": 4,
+   "beatName": "Aftermath",
+   "purpose": "Closes with the ask and the address",
+   "intent": "Make giving one step away",
+   "expectedIntensity": 0.8,
+   "expectedValence": 0.8
+  }
+ ]
+}
