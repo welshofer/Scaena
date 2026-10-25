@@ -44,13 +44,19 @@ struct Entry {
     fill: String,
 }
 
-/// An icon found: its name, its tags and categories, and the icon to insert in the weight asked.
+/// The most icons an agent's `icon_find` returns at once (lift-up 20261025c SEC-3): a call is a
+/// bounded read, whatever `limit` asks.
+pub const MOST: usize = 50;
+
+/// An icon found: its name, its tags and categories, and the icon to insert in the weight asked,
+/// left out where only names were asked for ([`Icons::names_only`]).
 #[derive(Debug, Clone, PartialEq, Serialize, JsonSchema)]
 pub struct Found {
     pub name: String,
     pub tags: Vec<String>,
     pub categories: Vec<String>,
-    pub icon: Icon,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub icon: Option<Icon>,
 }
 
 /// What `scaena icons` prints and `icon_find` returns: the icons found, best first, at most as
@@ -124,16 +130,28 @@ pub fn find(query: &str, weight: Weight, limit: usize) -> Icons {
         name: e.name.clone(),
         tags: e.tags.clone(),
         categories: e.categories.clone(),
-        icon: Icon {
+        icon: Some(Icon {
             name: e.name.clone(),
             path: match weight {
                 Weight::Regular => e.regular.clone(),
                 Weight::Fill => e.fill.clone(),
             },
             view: set.view,
-        },
+        }),
     });
     Icons { icons: icons.collect(), found: all }
+}
+
+impl Icons {
+    /// The icons by their names, tags, and categories alone, without the path each is drawn
+    /// from: what an agent's first search reads, which a search for the one chosen, with its
+    /// path, follows (lift-up 20261025c SEC-3).
+    pub fn names_only(mut self) -> Self {
+        for found in &mut self.icons {
+            found.icon = None;
+        }
+        self
+    }
 }
 
 /// The icon named `name` in `weight`, if one ships.
@@ -160,10 +178,15 @@ mod tests {
         let every = find("", Weight::Regular, usize::MAX);
         assert_eq!((every.icons.len(), every.found), (count(), count()));
         for found in every.icons.into_iter().step_by(97) {
-            let insert = scaena_core::inserts::icon([deck.canvas.width, deck.canvas.height], &theme, &found.icon);
+            let insert = scaena_core::inserts::icon(
+                [deck.canvas.width, deck.canvas.height],
+                &theme,
+                found.icon.as_ref().unwrap(),
+            );
             // A view in whole numbers is written whole, as the set writes it (PLAN G.23).
             assert_eq!(insert.node["view"], serde_json::json!([0, 0, 256, 256]));
-            assert!(kurbo_like(&found.icon.path), "{}: {}", found.name, &found.icon.path[..40]);
+            let path = &found.icon.as_ref().unwrap().path;
+            assert!(kurbo_like(path), "{}: {}", found.name, &path[..40]);
         }
     }
 

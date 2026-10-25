@@ -6,6 +6,7 @@
 // carries neither.
 import initResources, { list, text } from "@scaena/resources";
 import { findIcons, iconSet } from "../icon-set";
+import { iconsFound } from "./icon-find";
 import type { MapAsk, MapRefresh, MapTarget, Mapped, Rewritten, Seeing } from "../protocol";
 import { converse, type Event } from "./converse";
 import { type Call, type Message, type ProviderId, providers, type Result } from "./providers";
@@ -424,26 +425,11 @@ async function deckHealth(session: Session, args: unknown): Promise<[string, boo
 }
 
 /** `icon_find`: the icons that ship (PLAN 2.104), found in the set the page carries beside it, by
- * the rule the MCP server finds them by, and returned as it returns them: the editor's module
- * carries none. Or why there are none. */
+ * the rule the MCP server finds them by, and returned as it returns them (`iconsFound`): the
+ * editor's module carries none. Or why there are none. */
 async function iconFind(args: unknown): Promise<[string, boolean]> {
-  const a = (args ?? {}) as { query?: unknown; weight?: unknown; limit?: unknown };
-  const known = Object.keys(a).every((k) => k === "query" || k === "weight" || k === "limit");
-  const { query = "", weight = "regular", limit } = a;
-  const whole = limit === undefined || limit === null || (typeof limit === "number" && Number.isInteger(limit) && limit >= 0);
-  if (!known || typeof query !== "string" || (weight !== "regular" && weight !== "fill") || !whole) {
-    return [JSON.stringify({ message: "icon_find takes `query`, words; `weight`, `regular` or `fill`; and `limit`, a whole number" }), true];
-  }
   try {
-    const set = await iconSet();
-    const found = findIcons(set, query);
-    const icons = found.slice(0, typeof limit === "number" ? limit : 20).map((e) => ({
-      name: e.name,
-      tags: e.tags,
-      categories: e.categories,
-      icon: { name: e.name, path: weight === "fill" ? e.fill : e.regular, view: set.view },
-    }));
-    return [JSON.stringify({ icons, found: found.length }), false];
+    return iconsFound(await iconSet(), args);
   } catch (e) {
     return [JSON.stringify({ message: e instanceof Error ? e.message : String(e) }), true];
   }

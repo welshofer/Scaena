@@ -367,11 +367,20 @@ async fn an_agent_builds_a_deck_with_the_tools_alone() {
     let titles: Vec<&str> = health["slides"].as_array().unwrap().iter().filter_map(|s| s["title"].as_str()).collect();
     assert_eq!(titles, ["Q3 in review.", "Revenue doubled."], "{health:#}");
     assert!(health["coherence"]["score"].is_null() && health["score"].as_u64().is_some(), "{health:#}");
-    // The icons that ship (PLAN 2.104): found by words, each its path and the view it is drawn on.
-    let icons = ok(&client, "icon_find", json!({ "query": "rocket", "weight": "fill", "limit": 2 })).await;
+    // The icons that ship (PLAN 2.104): found by words, each, with `paths`, its path and the view
+    // it is drawn on.
+    let icons =
+        ok(&client, "icon_find", json!({ "query": "rocket", "weight": "fill", "limit": 2, "paths": true })).await;
     assert_eq!(icons["icons"][0]["name"], "rocket", "{icons:#}");
     assert_eq!(icons["icons"][0]["icon"]["view"], json!([0.0, 0.0, 256.0, 256.0]), "{icons:#}");
     assert!(icons["icons"].as_array().unwrap().len() == 2 && icons["found"].as_u64() >= Some(2), "{icons:#}");
+    // Fifty at most, whatever `limit` asks, and the names alone without `paths` (lift-up
+    // 20261025c SEC-3).
+    let every = ok(&client, "icon_find", json!({ "query": "", "limit": 100_000 })).await;
+    let listed = every["icons"].as_array().unwrap();
+    assert_eq!(listed.len(), scaena_ops::icons::MOST, "{}", every["found"]);
+    assert!(every["found"].as_u64() > Some(scaena_ops::icons::MOST as u64));
+    assert!(listed.iter().all(|i| i.get("icon").is_none() && i["name"].is_string()), "{}", listed[0]);
 
     // Found across the deck's words, and replaced where each is written (PLAN 2.47, 2.83): the
     // beat's claim in the spine, and the title in `revenue`'s delta.

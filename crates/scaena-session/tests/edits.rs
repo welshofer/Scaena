@@ -559,6 +559,7 @@ fn tool_call(r: &mut Rng, b: &Bundle, states: &[String], values: &BTreeMap<Strin
             set!("query", json!(r.pick(&["rocket", "", "-", "arrow up", "\u{1F680}", "zzqx"])));
             set!("weight", json!(r.pick(&["regular", "fill", "bold", ""])));
             set!("limit", r.pick(&[json!(0), json!(3), json!(u64::MAX), json!(-1), json!(null)]).clone());
+            set!("paths", r.pick(&[json!(true), json!(false), json!("yes")]).clone());
         }
         "slide_write" => {
             let slide = json!({

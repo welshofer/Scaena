@@ -14,6 +14,7 @@ import { isDeepStrictEqual } from "node:util";
 import { RULE, fenced, seen, system } from "./src/assistant/prompt.ts";
 import { CUT, owing } from "./src/assistant/cut.ts";
 import { providers } from "./src/assistant/providers.ts";
+import { MOST_ICONS, iconsFound } from "./src/assistant/icon-find.ts";
 import { MOST_BLOCKS, Stream } from "./src/assistant/stream.ts";
 
 const write = process.argv.includes("--write");
@@ -142,6 +143,19 @@ if (write) {
   const last = new Stream("anthropic");
   last.feed(huge.replace("4000000000", String(MOST_BLOCKS - 1)));
   check(last.finish()?.content?.length === MOST_BLOCKS, "the last block a provider may send still reads");
+}
+{
+  // icon_find in the page answers as the MCP server does: 50 at most, whatever limit asks, and the
+  // paths only where asked for (lift-up 20261025c SEC-3).
+  const set = JSON.parse(await readFile(new URL("../docs/icons/phosphor.json", import.meta.url), "utf8"));
+  const [many, manyFailed] = iconsFound(set, { query: "", limit: 100000 });
+  const listed = JSON.parse(many);
+  check(!manyFailed && listed.icons.length === MOST_ICONS && listed.found > MOST_ICONS, `a limit past ${MOST_ICONS} is held to it: ${listed.icons.length} of ${listed.found}`);
+  check(listed.icons.every((i) => i.icon === undefined && typeof i.name === "string"), "without paths, the names alone");
+  const [one] = iconsFound(set, { query: "airplane", limit: 1, paths: true });
+  const icon = JSON.parse(one).icons[0]?.icon;
+  check(icon?.name === "airplane" && icon.path.length > 0 && icon.view.length === 4, `with paths, the path to draw: ${one.slice(0, 120)}`);
+  check(iconsFound(set, { paths: "yes" })[1], "paths is true or false");
 }
 if (failures.length) {
   console.log(`\n${failures.length} failed: the browser's assistant no longer says what is recorded. If the change is meant, write it again (--write), and hold scaena-chat to it.`);

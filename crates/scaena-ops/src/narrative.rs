@@ -2568,7 +2568,8 @@ pub fn icons_found(words: &[String]) -> BTreeMap<String, Icon> {
             return None;
         }
         let found = crate::icons::find(word, crate::icons::Weight::Regular, 1).icons.into_iter().next()?;
-        Some((word.clone(), Icon { name: found.name, path: found.icon.path, view: found.icon.view }))
+        let icon = found.icon?;
+        Some((word.clone(), Icon { name: found.name, path: icon.path, view: icon.view }))
     }))
 }
 
