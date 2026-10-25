@@ -687,6 +687,13 @@ async fn a_tool_writes_only_under_its_folder_or_beside_the_bundle() {
     assert_eq!(read.is_error, Some(true));
     assert!(text(&read).contains("is outside where this server reads"), "{}", text(&read));
     assert!(!here.join("q3/data/credentials").exists());
+    // Nor muxed into a video as its sound (lift-up 20261025b SEC-2).
+    let audio = path(&elsewhere.join("credentials"));
+    let out = path(&here.join("q3.mp4"));
+    let video = call(&client, "deck_export", json!({ "bundle": deck, "format": "mp4", "out": out, "audio": audio })).await;
+    assert_eq!(video.is_error, Some(true));
+    assert!(text(&video).contains("is outside where this server reads"), "{}", text(&video));
+    assert!(!here.join("q3.mp4").exists());
     // Under its folder, nothing hidden: no key, no cloud credentials, no git hook.
     std::fs::create_dir_all(here.join(".ssh")).unwrap();
     std::fs::create_dir_all(here.join(".aws")).unwrap();
