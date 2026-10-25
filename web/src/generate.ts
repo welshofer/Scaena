@@ -656,7 +656,7 @@ async function look(
     ) as "kept" | { worse: number[] };
     if (tried === "kept") {
       if (unanswered) making.unlooked(unanswered);
-      await drawing(making, hear);
+      await drawing(making, hear, changes);
       return hear({ kind: "looked", slides: changes.length });
     }
     const kept = changes.filter((c) => !tried.worse.includes(c.slide - 1));
@@ -676,7 +676,7 @@ async function look(
     ) as "kept" | { worse: number[] };
     if (again === "kept") {
       if (unanswered) making.unlooked(unanswered);
-      await drawing(making, hear);
+      await drawing(making, hear, kept);
       return hear({ kind: "looked", slides: kept.length });
     }
     making.unlooked("lint found a slide the model changed worse for it");
@@ -688,12 +688,13 @@ async function look(
 }
 
 /** Each slide of the deck made, drawn for the model to see, and shown to the person as it is
- * drawn, so the wait shows the deck coming together (lift-up ATTR-1); drawn again once the model's
- * changes are kept. */
-async function drawing(making: Making, hear: (event: GeneratingEvent) => void) {
+ * drawn, so the wait shows the deck coming together (lift-up ATTR-1). With `only`, the model's
+ * kept changes, just the slides they touched are drawn again (each `slide` counted from 1). */
+async function drawing(making: Making, hear: (event: GeneratingEvent) => void, only?: { slide: number }[]) {
   const drawn = [];
   const of = making.count;
-  for (let i = 0; i < of; i++) {
+  const which = only ? [...new Set(only.map((c) => c.slide - 1))].filter((i) => i >= 0 && i < of) : [...Array(of).keys()];
+  for (const i of which) {
     const picture = await jpeg(making.pixels(i, LOOK_WIDTH));
     drawn.push(picture);
     hear({ kind: "drawn", slide: i, of, jpeg: picture.data });

@@ -774,7 +774,11 @@ struct PromptView: View {
                 let (session, made) = try await generator.generate(
                     brief: brief, arc: arc.isEmpty ? nil : arc, provider: provider, model: model, key: key,
                     theme: theme, painter: paint, outline: settle,
-                    drawn: { slides in withAnimation { film = slides } }
+                    drawn: { slide, jpeg in
+                        withAnimation {
+                            if film.indices.contains(slide) { film[slide] = jpeg } else { film.append(jpeg) }
+                        }
+                    }
                 ) { say($0.words) }
                 try Task.checkCancellation()
                 #if os(macOS)

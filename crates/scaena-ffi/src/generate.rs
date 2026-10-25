@@ -599,17 +599,17 @@ impl Generating {
                 }
                 let report = making.report();
                 let looked = report["looked"].as_array().map_or(0, Vec::len);
-                // The slides the model changed, drawn again for the window (lift-up ATTR-1); none
-                // where nothing changed, or where they would not draw.
-                let drawn: Vec<String> = match looked {
-                    0 => Vec::new(),
-                    _ => making
-                        .drawn(scaena_ops::narrative::LOOK_WIDTH)
-                        .unwrap_or_default()
-                        .into_iter()
-                        .map(|p| p.data)
-                        .collect(),
-                };
+                // The slides the model changed, and those alone, drawn again for the window, each
+                // by its index (lift-up ATTR-1); none that would not draw.
+                let changed = report["looked"].as_array().into_iter().flatten();
+                let drawn: Vec<Value> = changed
+                    .filter_map(|c| c["slide"].as_u64()?.checked_sub(1))
+                    .filter_map(|slide| {
+                        let r = making.pixels(slide as usize, scaena_ops::narrative::LOOK_WIDTH).ok()?;
+                        let jpeg = scaena_export::pdf::jpeg(&r.rgba, r.width, r.height, 82)?;
+                        Some(json!({ "slide": slide, "jpeg": base64::engine::general_purpose::STANDARD.encode(jpeg) }))
+                    })
+                    .collect();
                 let fit = self.fitting(making, key)?;
                 json!({ "looked": looked, "unlooked": report["unlooked"], "fit": fit, "drawn": drawn })
             }

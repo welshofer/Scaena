@@ -147,8 +147,11 @@ fn a_deck_is_made_from_a_prompt_as_swift_makes_one_its_pictures_with_it() {
     let looked =
         step(g, "looked", json!({ "status": 200, "statusText": "OK", "body": tightened, "key": "sk-writer" }), &[]);
     assert_eq!(looked["looked"], 1, "{looked}");
-    // Drawn again as the look changed them, for the window.
-    assert_eq!(looked["drawn"].as_array().unwrap().len(), drawn.len(), "{}", looked["drawn"]);
+    // The slide the look changed, and it alone, drawn again for the window, by its index.
+    let redrawn = looked["drawn"].as_array().unwrap();
+    assert_eq!(redrawn.len(), 1, "{}", looked["drawn"]);
+    assert_eq!(redrawn[0]["slide"], 0);
+    assert!(redrawn[0]["jpeg"].as_str().unwrap().starts_with("/9j/"));
     // Each rewrite asked for answered with none: asked once more, no more, then said (STAB-4).
     let (mut fit, mut rounds) = (looked["fit"].clone(), 0);
     while let Some(asked) = fit.as_object() {
