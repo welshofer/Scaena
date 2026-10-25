@@ -915,7 +915,7 @@
 - **Look and fit are never retried on a busy provider:** in flight (#667, #669).
 - **The assistant's conversation is never cached:** in flight (#656, PERF-2 of 10-24b, the breakpoint on the conversation).
 - **The Mac's source fetch: DNS rebinding, and redirects carrying headers:** already done. #651 (10-24b SEC-3) holds a web source to where its host resolves on the Mac and the iPad.
-- **The writing tools don't fence the deck's words** (`scaena_core::writing::prompt`): may be W1b (dispatched, N5), so left to it. If W1b covers only the look and fit prompts, it is the next fence to add.
+- **The writing tools don't fence the deck's words** (`scaena_core::writing::prompt`): in flight, #679 (W1, the writing tools), where every task's prompt fences the deck's words and the person's own ask stays outside.
 - **The web presenter indexes past its arrays after a served reload** (`player.ts:1003-1017`): mislocated. The reload reassigns `states` and `notes` before `steer({type: "hello"})` (`:1063-1067`), and I could not show a place sent between the two.
 - **The presenter view starts its timer when opened:** in flight (#630).
 - **Health's balance counts points only from bullet marks, and "visual coverage" counts long text, not pictures** (`health/mod.rs:423-428`): real (the keynote's and launch's statement slides score "1.3 points each"), but these are Vzestup's figures, held "to the last bit" (CLAUDE.md, G.9), so they move to Deferred.
