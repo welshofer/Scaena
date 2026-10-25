@@ -127,8 +127,8 @@ const provider = createServer(async (req, res) => {
     const look = { slides: [{ slide: 1, layout: "", title: "Carbon-negative cargo, ready to scale", subtitle: "", bullets: [], why: "One idea, one line." }] };
     return reply(200, { content: [{ type: "text", text: JSON.stringify(look) }], stop_reason: "end_turn" });
   }
-  // Each text asked for shorter, cut to the most characters it may have.
-  const texts = [...prompt.matchAll(/id: (.+)\nat most: (\d+) characters\ntext:\n([^\n]*)/g)].map(([, id, most, said]) => ({
+  // Each text asked for shorter, its words read back from their fence, cut to the most characters it may have.
+  const texts = [...prompt.matchAll(/id: (.+)\nat most: (\d+) characters\ntext:\n<data label="text">\n([^\n]*)/g)].map(([, id, most, said]) => ({
     id,
     text: said.slice(0, Math.max(1, Number(most) - 1)).trim(),
   }));
@@ -318,9 +318,19 @@ try {
 
   // Cancel stops it, once asked (lift-up 10-24 USE-2): kept making, Cancel and Escape leave it
   // running; stopped, the deck open stays open.
+  // Leaving or reloading the page asks first while it runs (lift-up 10-25 REL-4): its
+  // `beforeunload` is cancelled then, and neither before nor once the deck is stopped.
+  const leaving = () =>
+    page.evaluate(() => {
+      const leave = new Event("beforeunload", { cancelable: true });
+      dispatchEvent(leave);
+      return leave.defaultPrevented;
+    });
+  check(!(await leaving()), "before a deck is made, leaving the page asks nothing of it");
   state.slow = 4000;
   await page.click("#prompting-go");
   await page.waitForFunction(() => [...document.querySelectorAll("#prompting-progress li")].some((l) => l.textContent.startsWith("Choosing the arc")), null, { timeout: 60000 });
+  check(await leaving(), "leaving the page while a deck is being made asks first");
   page.off("dialog", accepting);
   const askedFirst = [];
   const declining = (d) => (askedFirst.push(d.message()), d.dismiss());
@@ -338,6 +348,7 @@ try {
   check(!(await page.locator("#prompting").evaluate((d) => d.open)), "Cancel closes the dialog");
   await page.waitForTimeout(5000);
   check((await page.evaluate(() => window.scaena.where().name)) === "revenue", "the deck open stays open");
+  check(!(await leaving()), "stopped, leaving the page asks nothing more of it");
   state.slow = 0;
 
   // Grounded in a Markdown file, a CSV, and a web page, each slide naming the source its facts
@@ -385,6 +396,8 @@ try {
   await page.locator("#prompting-beats li").last().locator(".name").fill("Thanks");
   await page.locator("#prompting-beats li").last().locator(".claim").fill("Thank you for listening.");
   await page.fill("#prompting-big-idea", "Cargo pays for its carbon.");
+  // The first beat given three slides, a number the person sets (lift-up FUNC-4).
+  await page.locator("#prompting-beats li").first().locator(".slides").fill("3");
   await mkdir("target/web-generate", { recursive: true });
   await page.locator("#prompting").screenshot({ path: "target/web-generate/outline.png" });
   await page.click("#prompting-write");
@@ -396,6 +409,7 @@ try {
   check(toOutline.includes("**Slot shapes (Scaena)**") && block.length > 0, "the slides' prompt carries Narrato's text, then the outline's block");
   check(block.includes("\"Cargo pays for its carbon.\""), "with the big idea as typed");
   check(/Beat 1 "Existing Approaches[^\n]*\n\s+Beat 2 "Problem/.test(block), `the beats in the order settled: ${block.slice(0, 400)}`);
+  check(/Beat 1 "Existing Approaches[^"]*" → slides 1–3:/.test(block), `the first beat takes the three slides set: ${block.slice(0, 300)}`);
   check(block.includes(": No carrier can cut it alone.\n") && block.includes("Beat 6 \"Thanks\"") && !block.includes("Claim 6:"), "the claim rewritten, the beat added, the beat removed");
   check(await page.locator("#prompting").evaluate((d) => !d.open), "the deck made, the dialog closed");
   const made = await page.evaluate(() => window.scaena.where());
@@ -563,9 +577,30 @@ try {
     `the Files tab lists what the deck was grounded in, each with its slides: ${grounded.join(" | ")}`,
   );
 
-  // Items that each name an icon are set under the icons the worker finds in the set that ships,
-  // fetched for them (PLAN G.23): each a path on its view, named by the icon.
+  // An icon set that cannot be fetched loses none of the slides paid for: they are set without
+  // icons, which the progress says in a line (lift-up 10-25 STAB-3).
   state.slides = ICONED;
+  const unserved = (route) => route.fulfill({ status: 503, body: "" });
+  await page.context().route("**/phosphor*.json", unserved);
+  const before = await page.evaluate(() => window.scaena.source());
+  await opened();
+  await page.uncheck("#prompting-show-outline");
+  await page.click("#prompting-go");
+  await page
+    .waitForFunction((was) => window.scaena.source() !== was && window.scaena.source().includes("Why Tidewater wins") && window.scaena.last(), before, { timeout: 180000 })
+    .catch(() => {});
+  await page.context().unroute("**/phosphor*.json", unserved);
+  const uniconed = await page.evaluate(() => window.scaena.source());
+  check(uniconed.includes("Why Tidewater wins") && !uniconed.includes("alt:Lightning"), "a set that cannot be fetched leaves the deck made, its slides set without icons");
+  const saidUniconed = await lines();
+  check(
+    saidUniconed.some((l) => l === "The slides that name icons are set without them: the icons did not load (503)") && !saidUniconed.some((l) => l.includes("failed")),
+    `the progress says so in a line, and nothing failed: ${saidUniconed.join(" | ")}`,
+  );
+
+  // Items that each name an icon are set under the icons the worker finds in the set that ships,
+  // fetched for them (PLAN G.23): each a path on its view, named by the icon. The set is fetched
+  // again after the failure above.
   await opened();
   // Slides at once, the outline not asked for: a person who wants them now gets them.
   await page.uncheck("#prompting-show-outline");

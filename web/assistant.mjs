@@ -114,7 +114,7 @@ const WIRE = {
     }),
     answer: () => ({ content: [{ type: "text", text: ANSWER }], stop_reason: "end_turn", usage: { input_tokens: 1200, output_tokens: 20 } }),
     key: (h) => h["x-api-key"],
-    system: (b) => b.system?.[0]?.text ?? "",
+    system: (b) => (b.system ?? []).map((s) => s.text).join(""),
     tools: (b) => b.tools.map((t) => ({ name: t.name, schema: t.input_schema })),
   },
   openai: {
@@ -347,6 +347,21 @@ try {
     if (id === "anthropic") {
       check(first.headers["anthropic-dangerous-direct-browser-access"] === "true" && first.headers["anthropic-version"], "anthropic: the browser's opt-in header and the API version");
       check(first.body.system[0].cache_control?.type === "ephemeral", "anthropic: the system prompt is cached");
+      // The deck's facts come last, uncached, so an edit leaves the rest cached, and the
+      // conversation is cached to its newest block (lift-up PERF-2).
+      const facts = first.body.system[1];
+      check(
+        first.body.system.length === 2 && !facts.cache_control && facts.text.startsWith("\n\n--- the deck open ---\nThe deck: ") && !first.body.system[0].text.includes("The deck: "),
+        `anthropic: the deck's facts are a block of their own, last and uncached (${JSON.stringify(facts?.text?.slice(0, 60))})`,
+      );
+      check(
+        requests.every((r) => r.body.system[0].text === first.body.system[0].text),
+        "anthropic: what is cached of the system prompt is the same on every round",
+      );
+      check(
+        requests.every((r) => r.body.messages.at(-1).content.at(-1).cache_control?.type === "ephemeral" && r.body.messages.slice(0, -1).every((m) => m.content.every((c) => !c.cache_control))),
+        "anthropic: each request caches the conversation to its newest block, and only there",
+      );
     }
     const system = wire.system(first.body);
     check(system.includes("# author-deck") && system.includes("scaena://spec"), `${id}: the system prompt holds the author-deck skill and the resources`);

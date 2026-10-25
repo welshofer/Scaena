@@ -12,6 +12,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { isDeepStrictEqual } from "node:util";
 import { RULE, fenced, seen, system } from "./src/assistant/prompt.ts";
+import { CUT, owing } from "./src/assistant/cut.ts";
 import { providers } from "./src/assistant/providers.ts";
 
 const write = process.argv.includes("--write");
@@ -111,6 +112,20 @@ if (write) {
     const what = { system: "system prompt", seen: "line saying what the editor shows", fence: "fence" }[part];
     check(isDeepStrictEqual(record.prompt[part], kept.prompt?.[part]), `the ${what} is the one recorded`);
   }
+}
+// A call the answer's token limit cut off is answered, not run (lift-up REL-1), as scaena-chat's
+// `Chat::answer` answers it: the browser's rule, which converse.ts takes.
+{
+  const lint = { id: "toolu_1", name: "deck_lint", args: { state: "cover" } };
+  const { run, owed } = owing([lint, { id: "toolu_2", name: "deck_patch", args: {} }], "length");
+  check(run.length === 1 && run[0].id === "toolu_1", "a cut call: only the whole call before it runs");
+  check(owed.length === 1 && owed[0].id === "toolu_2" && owed[0].error, "and the cut one is owed an answer, as an error");
+  check(owed[0]?.json === JSON.stringify({ message: CUT }), "told to make the edit in smaller patches");
+  const alone = owing([{ id: "call_1", name: "deck_patch", args: '{"ops": [{"op": "repl' }], "length");
+  check(alone.run.length === 0 && alone.owed.length === 1, "a cut call alone, its arguments no JSON, runs nothing and is owed an answer");
+  const render = { id: "toolu_3", name: "deck_render", args: {} };
+  check(owing([render], "tools").run.length === 1, "a call with no arguments in a whole answer runs");
+  check(owing([render, lint], "length").owed.length === 0, "a last call with its arguments whole runs");
 }
 if (failures.length) {
   console.log(`\n${failures.length} failed: the browser's assistant no longer says what is recorded. If the change is meant, write it again (--write), and hold scaena-chat to it.`);

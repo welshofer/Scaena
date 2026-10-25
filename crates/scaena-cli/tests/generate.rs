@@ -68,6 +68,58 @@ fn slides_written_elsewhere_make_a_bundle_with_no_call() {
     assert!(again["error"]["message"].as_str().unwrap().contains("not an empty directory"));
 }
 
+/// `scaena health` says each finding by its slide, as the editors do, its state's id only under
+/// `--verbose`, and each fix by its words and the command that applies it, numbered, which
+/// `--fix N` applies as a patch (lift-up 20261025 USE-3).
+#[test]
+fn health_names_each_finding_by_its_slide_and_numbers_its_fixes() {
+    let dir = place("health");
+    let bundle = dir.to_str().unwrap();
+    let made = scaena(&["--json", "generate", bundle, "Tidewater's Series A", "--slides", &catalog()]);
+    assert_eq!(made.status.code(), Some(0), "{}", String::from_utf8_lossy(&made.stdout));
+    // The agenda, written for the opening, moved to the end: the slides after it drift.
+    let mut deck: Value = serde_json::from_str(&std::fs::read_to_string(dir.join("deck.json")).unwrap()).unwrap();
+    let states = deck["states"].as_array_mut().unwrap();
+    let agenda = states.remove(1);
+    let id = agenda["id"].as_str().unwrap().to_string();
+    states.push(agenda);
+    std::fs::write(dir.join("deck.json"), serde_json::to_string_pretty(&deck).unwrap()).unwrap();
+
+    let text = |args: &[&str]| {
+        let out = scaena(args);
+        assert_eq!(out.status.code(), Some(0), "{args:?}: {}", String::from_utf8_lossy(&out.stderr));
+        String::from_utf8(out.stdout).unwrap()
+    };
+    let said = text(&["health", bundle]);
+    let findings: Vec<&str> =
+        said.lines().filter(|l| ["error", "warn ", "info "].iter().any(|s| l.starts_with(s))).collect();
+    assert!(!findings.is_empty(), "{said}");
+    assert!(findings.iter().all(|l| l[6..].starts_with("Slide ")), "{said}");
+    assert!(!said.contains(&id), "no state's id: {said}");
+    let fixes: Vec<&str> = said.lines().filter(|l| l.starts_with("  fix ")).collect();
+    assert!(!fixes.is_empty(), "{said}");
+    for (n, line) in fixes.iter().enumerate() {
+        let n = n + 1;
+        assert!(
+            line.starts_with(&format!("  fix {n}: ")) && line.ends_with(&format!(": scaena health {bundle} --fix {n}")),
+            "{line}"
+        );
+        assert!(!line.contains("\"op\""), "the fix's words, not its patch: {line}");
+    }
+    let verbose = text(&["health", bundle, "--verbose"]);
+    assert!(verbose.contains(&format!("  state: {id}\n")), "{verbose}");
+    assert!(verbose.contains("\"op\":\"replace\""), "and each fix's patch: {verbose}");
+
+    // The first fix, applied: one fewer is offered, and a number past them is refused.
+    assert!(text(&["health", bundle, "--fix", "1", "--dry-run"]).starts_with("would apply fix 1, on slide "));
+    assert!(text(&["health", bundle, "--fix", "1"]).starts_with("applied fix 1, on slide "));
+    let after = text(&["health", bundle]);
+    assert_eq!(after.lines().filter(|l| l.starts_with("  fix ")).count(), fixes.len() - 1, "{after}");
+    let refused = json(&scaena(&["--json", "health", bundle, "--fix", "0"]));
+    let message = refused["error"]["message"].as_str().unwrap_or_default();
+    assert!(message.starts_with("--fix 0: the deck's health offers fixes 1 to "), "{refused:#}");
+}
+
 /// The sources a deck is grounded in are kept beside its brief, each beat cites the one its slide
 /// names, lint finds nothing in the citations, and `scaena files` lists each with the beats
 /// citing it (narrative FUNC-3).
@@ -411,6 +463,49 @@ fn sources_ground_the_slides_a_pdf_beside_them_and_a_sheet_kept_as_data() {
     assert_eq!(scaena(&["validate", dir.to_str().unwrap()]).status.code(), Some(0));
 }
 
+/// A deck grounded in a PDF has its outline written with the PDF beside the prompt, the brief's
+/// voice and modality, and a hook asked of its first beat (lift-up FUNC-3).
+#[test]
+fn the_outline_is_grounded_in_the_sources_and_the_brief_whole() {
+    let (base, asked) = serve(narrato);
+    let dir = place("outline-grounded");
+    let outline = place("outline-grounded-outline").with_extension("json");
+    let _ = std::fs::remove_file(&outline);
+    let given = place("outline-grounded-sources");
+    std::fs::create_dir_all(&given).unwrap();
+    std::fs::write(given.join("deck.pdf"), b"%PDF-1.7\n% a test\n").unwrap();
+    std::fs::write(given.join("notes.md"), "# Tidewater\nPort calls doubled in Q3.").unwrap();
+    let source = |f: &str| given.join(f).to_string_lossy().into_owned();
+    let mut c = Command::new(env!("CARGO_BIN_EXE_scaena"));
+    for k in KEYS.into_iter().chain(PROXIES) {
+        c.env_remove(k);
+    }
+    let out = c
+        .env("ANTHROPIC_API_KEY", "sk-test")
+        .args(["--json", "generate", dir.to_str().unwrap(), "Tidewater's Series A"])
+        .args(["--provider", "anthropic", "--model", "a-model", "--base", &base])
+        .args(["--voice", "Plain, warm, no jargon", "--modality", "keynote"])
+        .args(["--source", &source("notes.md"), "--source", &source("deck.pdf")])
+        .args(["--outline", outline.to_str().unwrap()])
+        .output()
+        .unwrap();
+    let said = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+    assert_eq!(out.status.code(), Some(0), "{said}");
+    let calls = asked.lock().unwrap();
+    let posts: Vec<&Asked> = calls.iter().filter(|a| a.method == "POST").collect();
+    assert_eq!(posts.len(), 2, "the arc, then the outline");
+    assert!(!posts[0].body.contains("\"document\""), "the arc sees no document");
+    let body: Value = serde_json::from_str(&posts[1].body).unwrap();
+    let content = body["messages"][0]["content"].as_array().unwrap();
+    assert_eq!(content[0]["type"], "document", "the PDF beside the outline's prompt");
+    assert_eq!(content[0]["source"]["data"], "JVBERi0xLjcKJSBhIHRlc3QK");
+    let prompt = content.last().unwrap()["text"].as_str().unwrap();
+    assert!(prompt.contains(" Its voice: Plain, warm, no jargon."), "{prompt}");
+    assert!(prompt.contains(" It is given as: Keynote"), "{prompt}");
+    assert!(prompt.contains("make it a hook drawn from the material"), "{prompt}");
+    assert!(prompt.contains("=== SOURCE: notes.md ===") && prompt.contains("=== SOURCE: deck.pdf ==="), "{prompt}");
+}
+
 /// The outline before the slides (narrative FUNC-1): `--outline FILE` asks the arc and the
 /// outline, writes it, and makes nothing; edited, `--from-outline FILE` writes the slides to it,
 /// Scaena's block carrying the edits into the slides' prompt and the deck's sections following
@@ -465,6 +560,8 @@ fn an_outline_is_written_first_and_the_slides_follow_the_edited_one() {
     beats[1]["claim"] = Value::String("Carriers cannot cut it with today's ships.".into());
     beats.pop();
     beats.push(serde_json::json!({ "name": "Thanks", "claim": "Thank you for listening.", "slides": 0 }));
+    // The beat moved first given three slides, which the slides keep (lift-up FUNC-4).
+    beats[0]["slides"] = serde_json::json!(3);
     std::fs::write(&outline, serde_json::to_string_pretty(&edited).unwrap()).unwrap();
     asked.lock().unwrap().clear();
     let out = run(&["--from-outline", outline.to_str().unwrap()]);
@@ -482,7 +579,10 @@ fn an_outline_is_written_first_and_the_slides_follow_the_edited_one() {
     let block = &prompt[prompt.find("**Outline (Scaena)**").expect("the outline's block")..];
     assert!(block.contains("The big idea, which every slide serves: \"Cargo can pay for its carbon.\""), "{block}");
     let moved = written["beats"][2]["name"].as_str().unwrap();
-    assert!(block.contains(&format!("Beat 1 \"{moved}\"")), "the beat moved first: {block}");
+    assert!(
+        block.contains(&format!("Beat 1 \"{moved}\" \u{2192} slides 1\u{2013}3:")),
+        "the beat moved first, its three slides kept: {block}"
+    );
     assert!(block.contains("Beat 2 \"Problem: Define core challenge and stakes\" \u{2192} slide"), "{block}");
     assert!(block.contains(": Carriers cannot cut it with today's ships.\n"), "the claim rewritten: {block}");
     assert!(block.contains("Beat 6 \"Thanks\" \u{2192} slide"), "the beat added: {block}");
