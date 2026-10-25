@@ -508,11 +508,13 @@ impl Session {
                 Called::of(scaena_ops::read::spine(&b))
             }
             // The deck's story, as `scaena health` reads it (PLAN G.9): where this library
-            // carries generation. The browser's page reads it by the generator's module.
+            // carries generation. The browser's page reads it by the generator's module. Read
+            // beside what lint finds, as the CLI and the MCP server read it, so a slide lint
+            // finds broken comes first (lift-up 10-24b STAB-1).
             #[cfg(feature = "generate")]
             "deck_health" => {
                 let _: DeckHealth = args(name, a)?;
-                Called::of(scaena_ops::health::health(self.deck())?)
+                Called::of(scaena_ops::health::health_in(self.deck(), &scaena_ops::lint::lint(&b)?.findings)?)
             }
             #[cfg(not(feature = "generate"))]
             "deck_health" => {
@@ -717,6 +719,43 @@ mod tests {
     fn call(s: &mut Session, name: &str, a: Value) -> Got {
         let c = s.tool(name, a, AGENT).unwrap_or_else(|e| panic!("{name}: {}", failure(&e)));
         Got { result: serde_json::from_str(&c.result).unwrap(), frame: c.frame, edited: c.edited }
+    }
+
+    /// The story read beside lint (lift-up 10-24b STAB-1): a headline too long for its slot, an
+    /// E100, puts its slide first in `deck_health`, as `scaena health` does, and the session and
+    /// a laying taken from it hold that E100 for the editors' Story panels to read beside the deck.
+    #[cfg(feature = "generate")]
+    #[test]
+    fn deck_health_puts_the_slide_lint_finds_broken_first() {
+        let mut s = dusk();
+        let long = "Volunteers rebuilt fifty-two miles of trail across the state park";
+        call(
+            &mut s,
+            "deck_patch",
+            json!({ "ops": [
+            { "op": "add", "path": "/states/0/layout", "value": "agenda-photo" },
+            { "op": "add_node", "id": "headline", "state": "start",
+              "node": { "type": "text", "role": "headline", "semantic": "claim", "at": { "in": "header" }, "text": long } },
+        ] }),
+        );
+        let health = call(&mut s, "deck_health", json!({}));
+        let first = &health.result["findings"][0];
+        assert_eq!((first["kind"].as_str(), first["slide"].as_u64()), (Some("layout"), Some(1)), "{}", health.result);
+        assert!(first["says"].as_str().unwrap().contains("does not stand as it is to be read"), "{first}");
+        assert!(!health.edited);
+
+        let source = s.source();
+        s.compile(&source);
+        s.lint(None, None).unwrap();
+        assert!(s.findings().iter().any(|f| f.code == "E100"), "{:?}", s.findings());
+        let laying = s.laying().unwrap();
+        let read = scaena_ops::health::health_in(laying.deck(), laying.findings()).unwrap();
+        assert_eq!(
+            read.findings.first().map(|f| f.kind),
+            Some(scaena_ops::health::Kind::Layout),
+            "{:?}",
+            read.findings
+        );
     }
 
     /// PLAN 1.19's agent loop, through the tools a page's assistant calls: a headline too

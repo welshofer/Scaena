@@ -170,6 +170,60 @@ class Gate(unittest.TestCase):
         self.gate("suspects", "--run", now, "--base", base, "--out", out)
         self.assertEqual(out.read_text(), "sample/b1\n")
 
+    def turns(self, now: dict, base: dict, turns: list, bases: list) -> tuple[int, str]:
+        """`check` with a turn of timing again per pair."""
+        argv = ["check", "--history", self.dir / "history.json", "--run", self.write("run.json", now)]
+        argv += ["--base", self.write("base.json", base), "--again"]
+        argv += [self.write(f"again-{i}.json", t) for i, t in enumerate(turns)]
+        argv += ["--base-again"] + [self.write(f"base-again-{i}.json", b) for i, b in enumerate(bases)]
+        return self.gate(*argv)
+
+    # #626's cold renders: b1 +11.8% and its retimes +26%, +86%, +80%, the rest of the group as
+    # its base. A process start slows every deck's cold render alike; one deck alone is noise.
+    COLD_BASE = dict(render_cold__b1=13.2, render_cold__b2=13.3, render_cold__b3=66.3, render_cold__b4=51.9)
+    COLD_NOW = dict(render_cold__b1=14.7, render_cold__b2=13.2, render_cold__b3=56.5, render_cold__b4=52.3)
+
+    def test_a_cold_bench_is_judged_with_its_group(self):
+        base = run(**self.COLD_BASE)
+        turns = [run(**{**self.COLD_BASE, "render_cold__b1": 13.2 * r}) for r in (1.263, 1.865, 1.804)]
+        code, report = self.turns(run(**self.COLD_NOW), base, turns, [base] * 3)
+        self.assertEqual(code, 0, report)
+        verdicts = self.verdicts(report)
+        self.assertEqual(verdicts["render_cold/b1"], "ok: its group is not slower")
+        self.assertEqual(verdicts["render_cold/b3"], "faster")
+        self.assertNotIn("regressed", report)
+
+    def test_a_cold_group_slower_every_time_regresses(self):
+        base = run(**self.COLD_BASE)
+        slower = run(**{k: v * 1.12 for k, v in self.COLD_BASE.items()})
+        code, report = self.turns(slower, base, [slower] * 3, [base] * 3)
+        self.assertEqual(code, 1, report)
+        self.assertEqual(set(self.verdicts(report).values()), {"**slower** (its group)"})
+        self.assertIn("::error title=bench regression::render_cold/b1", report)
+        # Slower once, then not, the group passes.
+        code, report = self.turns(slower, base, [slower, base, slower], [base] * 3)
+        self.assertEqual(code, 0, report)
+
+    def test_a_cold_deck_over_its_budget_fails_alone(self):
+        # SPEC §15: a cold render of B1 within 300 ms. The group is as its base; B1 is over.
+        over = {**self.COLD_BASE, "render_cold__b1": 320.0}
+        code, report = self.check(run(**over), run(**{**over, "render_cold__b1": 310.0}))
+        self.assertEqual(code, 1, report)
+        self.assertEqual(self.verdicts(report)["render_cold/b1"], "**over its budget**")
+        self.assertIn("render_cold/b1: 320 ms, over SPEC §15's 300 ms", report)
+        # Within it, the same deck passes.
+        code, report = self.check(run(**{**over, "render_cold__b1": 290.0}), run(**{**over, "render_cold__b1": 280.0}))
+        self.assertEqual(code, 0, report)
+
+    def test_the_suspects_are_a_cold_group_whole_when_it_is_slower(self):
+        out = self.dir / "suspects.txt"
+        base = self.write("base.json", run(**self.COLD_BASE, sample__b1=1.0))
+        self.gate("suspects", "--run", self.write("now.json", run(**self.COLD_NOW, sample__b1=1.0)), "--base", base, "--out", out)
+        self.assertEqual(out.read_text(), "", "one cold deck alone is not timed again")
+        slower = run(**{k: v * 1.12 for k, v in self.COLD_BASE.items()}, sample__b1=1.0)
+        self.gate("suspects", "--run", self.write("now.json", slower), "--base", base, "--out", out)
+        self.assertEqual(out.read_text(), "".join(f"render_cold/b{i}\n" for i in range(1, 5)))
+
     def test_collect_keeps_each_bench_at_its_fastest(self):
         def criterion(home: str, bench: str, ms: float):
             d = self.dir / home / bench.replace("/", "_") / "new"

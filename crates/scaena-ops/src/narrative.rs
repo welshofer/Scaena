@@ -323,6 +323,10 @@ pub const LOOK_WIDTH: u32 = 1024;
 /// more than its own.
 pub const LOOK_BATCH: usize = 12;
 
+/// How many of a look's rounds are asked at once (lift-up PERF-1): a 45-slide deck's four in
+/// two waits, not four, and never so many that a provider's rate limit is tripped.
+pub const LOOKS_AT_ONCE: usize = 3;
+
 /// The rounds a look at `slides` slides goes in: each the indices of [`LOOK_BATCH`] slides at
 /// most, in order.
 pub fn look_rounds(slides: usize) -> impl Iterator<Item = std::ops::Range<usize>> {
@@ -544,17 +548,24 @@ pub fn generate_drawn(
         (Looking::Asked, Some(key)) => match draw(&write) {
             Ok(drawn) => {
                 let mut changes = Vec::new();
-                let mut asked = false;
-                for round in look_rounds(seen.len()) {
-                    let Some(request) = generation.look_request(key, &seen[round.clone()], &drawn[round.clone()])
-                    else {
-                        continue;
-                    };
-                    if !asked {
-                        say(Progress::Looking { slides: seen.len() });
-                        asked = true;
-                    }
-                    let reply = transport.send(&request);
+                // Every round asked at once, a few at a time so that no provider's rate limit is
+                // tripped, and each answer read in its round's order (lift-up PERF-1).
+                let asked: Vec<(std::ops::Range<usize>, Request)> = look_rounds(seen.len())
+                    .filter_map(|round| {
+                        let edges = [round.start.checked_sub(1).and_then(|b| seen.get(b)), seen.get(round.end)];
+                        let request =
+                            generation.look_request(key, &seen[round.clone()], &drawn[round.clone()], edges)?;
+                        Some((round, request))
+                    })
+                    .collect();
+                if !asked.is_empty() {
+                    say(Progress::Looking { slides: seen.len() });
+                }
+                let requests: Vec<Request> = asked.iter().map(|(_, r)| r.clone()).collect();
+                let replies: Vec<Reply> =
+                    requests.chunks(LOOKS_AT_ONCE).flat_map(|some| transport.send_all(some)).collect();
+                let asked_any = !asked.is_empty();
+                for ((round, _), reply) in asked.into_iter().zip(replies) {
                     match generation.look_answer(reply.status, &reply.status_text, &reply.body, &seen[round.clone()]) {
                         Ok(answered) => changes.extend(answered),
                         Err(why) => {
@@ -567,7 +578,7 @@ pub fn generate_drawn(
                         }
                     }
                 }
-                match (asked, changes.is_empty(), unanswered.take()) {
+                match (asked_any, changes.is_empty(), unanswered.take()) {
                     (false, _, _) => None,
                     (true, true, Some(why)) => Some(Err(OpsError::new(why))),
                     (true, _, why) => {
@@ -1105,8 +1116,10 @@ fn alike(doc: &mut Value, view: &View, held: &mut Held) -> Result<bool, OpsError
         let size = if figures { size * 0.9 } else { *size };
         // A quarter of a unit under, so that every one of them fits at it.
         let size = (size * 4.0).floor() / 4.0;
-        // A text that shrinks and took no more than that keeps no cap it does not need.
-        if doc["nodes"][id]["fit"] == "shrink" && reached.get(id).is_some_and(|(r, _)| *r <= size + 0.25) {
+        // A text that shrinks, by its own fit or its slot's, and took no more than that keeps no
+        // cap it does not need.
+        let shrinks = |fit: &TextFit| doc["nodes"][id]["fit"] == "shrink" || *fit == TextFit::Shrink;
+        if reached.get(id).is_some_and(|(r, fit)| shrinks(fit) && *r <= size + 0.25) {
             continue;
         }
         let node = &mut doc["nodes"][id];
@@ -1129,7 +1142,8 @@ fn alike(doc: &mut Value, view: &View, held: &mut Held) -> Result<bool, OpsError
 }
 
 /// Each text of `doc` that grows or shrinks and is one of a set [`alike`] holds to one size:
-/// its set, its state, its id, and its role's size.
+/// its set, its state, its id, and its role's size. A text that says no fit of its own fits as its
+/// slot says, so a set of titles the slot shrinks shrinks together (lift-up dogfood).
 fn growing(doc: &Value, theme: &scaena_engine::theme::Theme) -> Vec<(String, String, String, f64)> {
     let mut members = Vec::new();
     for state in doc["states"].as_array().into_iter().flatten() {
@@ -1137,11 +1151,15 @@ fn growing(doc: &Value, theme: &scaena_engine::theme::Theme) -> Vec<(String, Str
         let layout = state["layout"].as_str().unwrap_or_default();
         for node in shown.keys() {
             let n = &doc["nodes"][node];
-            let (Some("grow" | "shrink"), Some(slot), Some(role)) =
-                (n["fit"].as_str(), n["at"]["in"].as_str(), n["role"].as_str())
-            else {
-                continue;
+            let (Some(slot), Some(role)) = (n["at"]["in"].as_str(), n["role"].as_str()) else { continue };
+            let slotted = || theme.layouts.get(layout).and_then(|l| l.slots.get(slot)).and_then(|s| s.fit);
+            let fits = match n["fit"].as_str() {
+                Some(fit) => matches!(fit, "grow" | "shrink"),
+                None => matches!(slotted(), Some(TextFit::Grow | TextFit::Shrink)),
             };
+            if !fits {
+                continue;
+            }
             let Some(size) = theme.typography.roles.get(role).map(|r| r.size) else { continue };
             let set = match ordinal(slot) {
                 Some((_, part)) => format!("{id}\u{1f}{part}\u{1f}{role}"),
@@ -1780,6 +1798,7 @@ pub fn deck_as(
             section: numbers.get(&i).copied(),
             running: running.as_ref().map(|(r, _)| r.as_str()),
             picture,
+            idea: (narrative.outline.as_ref()).map(|o| o.big_idea.trim()).filter(|i| !i.is_empty()),
             icons,
             lang: lang.unwrap_or("en"),
         };
@@ -2375,7 +2394,14 @@ fn layout_for(
         "section" => "section",
         "agenda" if pictured => "agenda-photo",
         "agenda" => "agenda",
+        // A deck ends on what it leaves the room with (lift-up ATTR-3): its takeaways on cards, an
+        // ask with its button, or its last words over its picture, never the cover's layout.
+        "closing" | "thanks" if n == 3 && theme.layouts.contains_key("takeaways") => "takeaways",
+        "closing" | "thanks" if pictured && theme.layouts.contains_key("poster") => "poster",
         "closing" | "thanks" if pictured => "title-split",
+        // A bare "Thank you" or "Questions?" that carries an ask: the ask its words, its address
+        // the button. A closing that says something stays as it is said.
+        "closing" | "thanks" if bare(&slide.slide_title) && calling(slide, items).is_some() => "call-to-action",
         "closing" | "thanks" => "closing",
         "body" if pictured => "bullets-photo",
         "body" => "bullets",
@@ -2466,6 +2492,9 @@ fn layout_for(
         "headline" if pictured => "headline",
         "headline" => "statement",
         "manifesto" => "manifesto",
+        // With no picture to show, the people stand by name, under the headline, with no band
+        // left empty for their faces.
+        "team" if !pictured => "team-names",
         "team" => match n {
             0..=3 => "team",
             4 => "team-four",
@@ -2523,6 +2552,74 @@ fn layout_for(
         .or_else(|| theme.layouts.keys().next().map(String::as_str))
         .unwrap_or("bullets")
         .to_string()
+}
+
+/// Whether a closing's title only thanks the room or opens the floor ("Thank you", "Questions?",
+/// "Q&A"), in the languages Scaena can tell: an ending that says nothing of the talk (lift-up
+/// ATTR-3).
+fn bare(title: &str) -> bool {
+    const BARE: [&str; 24] = [
+        "thank you",
+        "thanks",
+        "thank you for listening",
+        "thanks for listening",
+        "questions",
+        "any questions",
+        "q&a",
+        "q & a",
+        "questions and answers",
+        "merci",
+        "gracias",
+        "danke",
+        "grazie",
+        "obrigado",
+        "obrigada",
+        "dank u",
+        "tack",
+        "questions ?",
+        "preguntas",
+        "fragen",
+        "ありがとうございました",
+        "ありがとうございます",
+        "谢谢",
+        "감사합니다",
+    ];
+    let t = title.trim().trim_end_matches(['!', '?', '.', '！', '？', '。']).trim().to_lowercase();
+    !t.is_empty() && BARE.contains(&t.as_str())
+}
+
+/// What a bare closing asks of the room, and where: its subtitle and its items, an ask that
+/// starts with an asking verb (book, contact, sign up, join, start, register, subscribe, try,
+/// visit, apply) and an address (a site and its page, or an email), either in one line or each
+/// its own. None where it has not both. The verbs are English: another language keeps its
+/// closing (lift-up ATTR-3).
+fn calling(slide: &Slide, items: &[Item]) -> Option<(String, String)> {
+    const ASKING: [&str; 10] =
+        ["book", "contact", "sign", "join", "start", "register", "subscribe", "try", "visit", "apply"];
+    let dotted = |w: &str| w.rsplit_once('.').is_some_and(|(_, tail)| tail.starts_with(|c: char| c.is_alphabetic()));
+    let address_of = |line: &str| {
+        (line.split_whitespace())
+            .map(|w| {
+                w.trim_matches(|c: char| matches!(c, ',' | ';' | '(' | ')' | '!' | '?')).trim_end_matches(['.', ':'])
+            })
+            .find(|w| w.contains('@') || dotted(w))
+            .map(str::to_string)
+    };
+    let lines: Vec<String> = std::iter::once(slide.subtitle.trim().to_string())
+        .chain(items.iter().map(|i| i.whole.clone()))
+        .filter(|l| !l.is_empty())
+        .collect();
+    let address = lines.iter().find_map(|l| address_of(l))?;
+    let ask = lines.iter().find_map(|l| {
+        // The ask without its address: "Book a demo at relay.app/demo" asks "Book a demo".
+        let rest = l.replace(&address, "");
+        let rest = rest.trim().trim_end_matches([':', '-', '\u{2013}', '\u{2014}', ',']).trim();
+        let rest = rest.strip_suffix(" at").unwrap_or(rest).trim();
+        let words: Vec<&str> = rest.split_whitespace().collect();
+        let first = words.first()?.trim_matches(|c: char| !c.is_alphanumeric()).to_lowercase();
+        (ASKING.contains(&first.as_str()) && words.len() <= 8).then(|| rest.to_string())
+    })?;
+    Some((ask, address))
 }
 
 /// Whether `layout` has a place for each of `n` items: a list or a body holds any number; a
@@ -2661,6 +2758,9 @@ struct Slots<'a> {
     running: Option<&'a str>,
     /// The picture made for the slide, if one was.
     picture: Option<&'a Placed>,
+    /// The deck's big idea, where the person settled an outline (narrative FUNC-1): what a closing
+    /// that only thanks the room heads its takeaways with (lift-up ATTR-3).
+    idea: Option<&'a str>,
     /// The icon each item is set under, where each has one (G.23).
     icons: Option<Vec<&'a Icon>>,
     /// The deck's language (BCP 47).
@@ -3027,8 +3127,9 @@ impl Slots<'_> {
             (None, "figure") if name == "callout" && self.layout == "line-chart" => at_least("numeral"),
             (None, "caption") if name == "note" && self.layout == "line-chart" => at_least("body"),
             // A journey's cells, a few words each, as large as their places take, up to the lede,
-            // all of a slide's at one size (dogfood pass 5).
-            (None, "caption") if self.layout == "journey" && journey_cell(name) => at_least("lede"),
+            // all of a slide's at one size (dogfood pass 5), set in the body where the theme sets
+            // them so (lift-up dogfood) or in the caption where an older copy does.
+            (None, "caption" | "body") if self.layout == "journey" && journey_cell(name) => at_least("lede"),
             _ => None,
         }
     }
@@ -3164,12 +3265,21 @@ impl Slots<'_> {
         text(match name {
             // A slide's foot names the part of the talk it is in, as a running head does.
             "kicker" if self.foot(slot) => self.running.map(str::to_string),
+            // A bare thanks's takeaways under the deck's big idea, where it has one (lift-up ATTR-3).
+            "header" if layout == "takeaways" && self.title().is_some_and(|t| bare(&t)) => {
+                self.idea.map(str::to_string).or_else(|| self.title())
+            }
+            // A call to action's words: a bare closing's ask, not its thanks (lift-up ATTR-3).
+            "statement" if layout == "call-to-action" => calling(self.slide, self.items).map(|(ask, _)| ask),
             "header" | "title" | "statement" | "claim" | "ask" | "question" | "term" | "headline" | "point"
             | "name" | "thanks" | "top" => self.title(),
             "subtitle" | "support" | "dek" | "follow" | "talk" | "lede" | "role" => {
                 self.subtitle().or_else(|| self.item(0).map(|i| i.whole.clone()))
             }
             "hub" => self.subtitle().or_else(|| self.title()),
+            // A call to action's button: what it asks, as the slide says it (lift-up ATTR-3).
+            // A call to action's button: a bare closing's address (lift-up ATTR-3).
+            "button" => calling(self.slide, self.items).map(|(_, address)| address),
             "number" if matches!(layout, "section" | "section-photo") => self.section.map(|n| format!("{n:02}")),
             // A figure with its unit is set whole: "11 days", not "11".
             "number" => self.item(0).map(|i| match numeric(&i.whole) {
@@ -3197,7 +3307,12 @@ impl Slots<'_> {
             "note" if layout.ends_with("chart") && self.slide.chart_data.is_some() => self.caption(),
             "note" => {
                 let source = self.slide.chart_data.as_ref().and_then(|c| c.source_id.clone()).map(|s| self.sourced(&s));
-                let fallback = if layout == "full" { self.subtitle() } else { None };
+                // What the headline leaves to say, where the layout has no place of its own for it
+                // and the slide is no chart's, whose value axis says it: a source or a fact stays
+                // first, never stacked with it.
+                let placed = ["subtitle", "support", "dek", "follow", "talk", "lede"].iter().any(|n| self.has(n));
+                let chart = self.slide.chart_data.is_some();
+                let fallback = if layout == "full" || (!placed && !chart) { self.subtitle() } else { None };
                 source.or_else(|| self.fact()).or(fallback)
             }
             "story" | "details" => (!self.items.is_empty()).then(|| self.wholes().join("\n")),
@@ -3384,7 +3499,9 @@ impl Slots<'_> {
                 })
             }
             // "Name, role: credit".
-            ("team" | "team-four" | "team-six", _, Some((k, part))) if part != "art" => {
+            ("team" | "team-four" | "team-six" | "team-names", _, Some((k, part)))
+                if part != "art" && part != "card" =>
+            {
                 let item = self.item(k)?;
                 let label = item.label.clone().unwrap_or_else(|| item.whole.clone());
                 let (person, role) =
@@ -5035,7 +5152,7 @@ mod tests {
             "ranking",
             "statement",
             "manifesto",
-            "team-four",
+            "team-names",
             "bio",
             "testimonials",
             "how-it-works",
@@ -5252,6 +5369,46 @@ mod tests {
             ],
         );
         assert_eq!(layout, "milestones");
+    }
+
+    /// A set's titles stay one size (G.12, lift-up dogfood): How It Works' step titles take the
+    /// lines they need at the set's size, every step's words on one row, and one too long for its
+    /// place shrinks its set with it, the slot's own fit held as a text's is.
+    #[test]
+    fn a_steps_titles_wrap_at_one_size_and_shrink_together() {
+        let (summary, slides) = catalog();
+        let made = |bullets: &[&str]| {
+            let mut slide = slides.iter().find(|s| s.layout_suggestion == "How It Works").unwrap().clone();
+            slide.key_bullets = bullets.iter().map(|b| b.to_string()).collect();
+            let n = narrative(&summary, vec![slides[0].clone(), slide, slides[55].clone()]);
+            let (made, write) = generating(&n, Path::new("dusk.theme.json"), dusk(), &font).unwrap();
+            assert!(made.created.created, "{:#?}", made.created.findings);
+            assert_eq!(made.layouts[1], "how-it-works");
+            let deck = write.unwrap().deck.to_value().unwrap();
+            let state = deck["states"][1]["id"].as_str().unwrap().to_string();
+            let caps: Vec<Option<f64>> = ["first", "second", "third"]
+                .iter()
+                .map(|o| deck["nodes"][format!("{state}-{o}-title")]["maxSize"].as_f64())
+                .collect();
+            caps
+        };
+        // Each fits its two lines: none shrinks, each at the role's size.
+        let held = made(&[
+            "Start with how common it is: the base rate",
+            "Multiply by how often the test catches it: sensitivity",
+            "Divide by all the ways to test positive: the true and the false alike",
+        ]);
+        assert!(held.iter().all(Option::is_none), "none shrinks: {held:?}");
+        // One too long for its two lines shrinks, and the others with it, to one size: theirs
+        // capped at the size it reached, which, shrinking to fit, needs no cap of its own.
+        let held = made(&[
+            "Base rate: how common it is",
+            "Sensitivity: how often it catches it",
+            "Divide by every way that anyone at all could test positive: the true and the false alike",
+        ]);
+        let caps: Vec<f64> = held.iter().flatten().copied().collect();
+        assert_eq!(caps.len(), 2, "the two that fit are capped: {held:?}");
+        assert!(caps[0] == caps[1] && caps[0] < 48.0 && held[2].is_none(), "shrunk together: {held:?}");
     }
 
     /// Short words in a large place grow to fill it (dogfood pass 4): each side's list of a
@@ -5966,6 +6123,90 @@ mod tests {
     }
 
     #[test]
+    fn a_deck_ends_on_what_it_leaves_the_room_with() {
+        // A closing's layout follows what it says (lift-up ATTR-3): three takeaways on numbered
+        // cards; a bare thanks that carries an ask, the ask with its address on a button; its last
+        // words over its picture; else the closing as it was said. A layout the person chose stays.
+        let deck_of = |closing: serde_json::Value| {
+            let text = serde_json::json!({
+                "executiveSummary": "Proof is the product.",
+                "slides": [
+                    { "slideTitle": "Proof is the product", "subtitle": "A talk", "layoutSuggestion": "Title",
+                      "keyBullets": [], "beatIndex": 0, "beatName": "Hook" },
+                    { "slideTitle": "Why green freight stalls", "subtitle": "", "layoutSuggestion": "Bullet List",
+                      "keyBullets": ["Verification is slow", "Offsets are opaque"], "beatIndex": 1, "beatName": "Problem" },
+                    closing,
+                ]
+            })
+            .to_string();
+            let written = answer::slides(&text).unwrap();
+            narrative(&written.executive_summary, written.slides)
+        };
+        let closing = |title: &str, subtitle: &str, bullets: &[&str]| {
+            serde_json::json!({ "slideTitle": title, "subtitle": subtitle, "layoutSuggestion": "Closing",
+              "keyBullets": bullets, "beatIndex": 2, "beatName": "Close" })
+        };
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let last = |n: &Narrative, pictures: &Pictures, chosen: &BTreeMap<usize, String>| {
+            let made = deck_as(n, &theme, pictures, chosen).unwrap();
+            let state = made.deck["states"][2]["id"].as_str().unwrap().to_string();
+            (made.layouts[2].clone(), shown(&made.deck, &state))
+        };
+        let none = BTreeMap::new();
+        let has = |said: &[(String, String)], slot: &str, words: &str| {
+            assert!(said.iter().any(|(s, w)| s == slot && w == words), "{slot} = {words:?} in {said:#?}");
+        };
+        // Three takeaways, each on its card.
+        let three =
+            deck_of(closing("What to remember", "", &["Proof is slow", "Ledgers are closed", "Shippers pay twice"]));
+        let (layout, said) = last(&three, &Pictures::new(), &none);
+        assert_eq!(layout, "takeaways");
+        has(&said, "third", "Shippers pay twice");
+        // A bare thanks with three points heads them with the deck's big idea, where the person
+        // settled an outline, else keeps its thanks.
+        let mut thanks =
+            deck_of(closing("Thank you", "", &["Proof is slow", "Ledgers are closed", "Shippers pay twice"]));
+        let (layout, said) = last(&thanks, &Pictures::new(), &none);
+        assert_eq!(layout, "takeaways");
+        has(&said, "header", "Thank you");
+        let beat = |name: &str| scaena_narrato::outline::Beat { name: name.into(), ..Default::default() };
+        thanks.outline = Some(scaena_narrato::outline::Outline {
+            big_idea: "Proof, not offsets, will clean up freight".into(),
+            beats: vec![beat("Hook"), beat("Problem"), beat("Close")],
+        });
+        let (layout, said) = last(&thanks, &Pictures::new(), &none);
+        assert_eq!(layout, "takeaways");
+        has(&said, "header", "Proof, not offsets, will clean up freight");
+        // A bare thanks that carries an ask: the ask its words, the address its button.
+        let ask = deck_of(closing("Thank you!", "Book a pilot at tidewater.io/pilot", &[]));
+        let (layout, said) = last(&ask, &Pictures::new(), &none);
+        assert_eq!(layout, "call-to-action");
+        has(&said, "statement", "Book a pilot");
+        has(&said, "button", "tidewater.io/pilot");
+        let questions = deck_of(closing("Questions?", "", &["Contact us: hello@tidewater.io"]));
+        let (layout, said) = last(&questions, &Pictures::new(), &none);
+        assert_eq!(layout, "call-to-action");
+        has(&said, "statement", "Contact us");
+        has(&said, "button", "hello@tidewater.io");
+        // A closing that says something stays as it is said, its ask and address and all.
+        let strong = deck_of(closing("Go home and find your twelve people", "portalderpower.org/playbook", &[]));
+        assert_eq!(last(&strong, &Pictures::new(), &none).0, "closing");
+        // A bare thanks with no ask, or an ask with nowhere to go, stays as it was.
+        for (title, subtitle) in [("Thank you", ""), ("Thank you", "relay.app"), ("Thanks", "Book a demo today")] {
+            let bare = deck_of(closing(title, subtitle, &[]));
+            assert_eq!(last(&bare, &Pictures::new(), &none).0, "closing", "{title} / {subtitle}");
+        }
+        // Its last words over its picture, not the cover's layout.
+        let plain = deck_of(closing("Every invoice checked before it is paid", "", &[]));
+        let pictured: Pictures = [(2, Placed { src: "assets/picture-2.jpg".into(), alt: "A port".into() })].into();
+        assert_eq!(last(&plain, &pictured, &none).0, "poster");
+        assert_eq!(last(&plain, &Pictures::new(), &none).0, "closing");
+        // The person's own closing stays as they chose it.
+        let chosen: BTreeMap<usize, String> = [(2, "closing".to_string())].into();
+        assert_eq!(last(&ask, &Pictures::new(), &chosen).0, "closing");
+    }
+
+    #[test]
     fn a_text_that_cannot_come_clear_of_what_lies_across_it_is_left_as_it_was() {
         // A picture over the whole of a divider: its title, grown to its place, collides with it
         // however small it is set, the collision as large for its size. One step shows it, and
@@ -6139,6 +6380,36 @@ mod tests {
         assert_eq!(node(22, "kicker")["align"], json!({ "y": "end" }));
         assert!(!made.created.findings.iter().any(|f| f.code == "W210"), "{:#?}", made.created.findings);
         assert!(node(7, "kicker").is_null() && node(0, "kicker").is_null() && node(24, "kicker").is_null());
+    }
+
+    /// A slide's subtitle, where its layout has no place for one, goes in the note at its foot when
+    /// the slide has no source or fact for it there; a fact stays, never stacked with it; and a
+    /// chart's stays on its value axis, out of the note (lift-up dogfood).
+    #[test]
+    fn a_note_takes_the_subtitle_where_the_layout_has_no_place_for_it() {
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let mut n = climate();
+        let i = n.slides.iter().position(|s| s.chart_data.is_none() && s.layout_suggestion != "title").unwrap();
+        n.slides[i].supporting_facts = None;
+        n.slides[i].subtitle = "Ten years of readings, by station".into();
+        let forced = BTreeMap::from([(i, "table".to_string())]);
+        let note = |n: &Narrative, forced: &BTreeMap<usize, String>, at: usize| {
+            let made = deck_as(n, &theme, &Pictures::new(), forced).unwrap();
+            let deck = &made.deck;
+            let props = deck["states"][at]["props"].as_object().unwrap();
+            let id = props.keys().find(|id| deck["nodes"][id.as_str()]["at"]["in"] == "note")?;
+            deck["nodes"][id.as_str()].get("text").cloned()
+        };
+        assert_eq!(note(&n, &forced, i), Some(json!("Ten years of readings, by station")));
+        n.slides[i].supporting_facts = Some("NOAA, 2015\u{2013}2024".into());
+        assert_eq!(note(&n, &forced, i), Some(json!("NOAA, 2015\u{2013}2024")), "the fact stays");
+        // A chart's subtitle is its value axis's, and its note keeps to its source or its fact.
+        let c = n.slides.iter().position(|s| s.chart_data.is_some()).unwrap();
+        n.slides[c].supporting_facts = None;
+        n.slides[c].chart_data.as_mut().unwrap().source_id = None;
+        n.slides[c].subtitle = "Gigatonnes a year".into();
+        let figure = BTreeMap::from([(c, "figure".to_string())]);
+        assert_eq!(note(&n, &figure, c), None, "a chart's note takes no subtitle");
     }
 
     /// A chart makes its claim (dogfood pass, charts): a line of several series lights the one its
@@ -6636,7 +6907,8 @@ mod tests {
             .collect();
         let made = deck(&climate(), &theme, &pictures).unwrap();
         let layouts: Vec<&str> = [0, 1, 2, 3, 24].iter().map(|i| made.layouts[*i].as_str()).collect();
-        assert_eq!(layouts, ["title-split", "agenda-photo", "section-photo", "number-photo", "title-split"]);
+        // The closing's last words over its picture, not the cover's layout (lift-up ATTR-3).
+        assert_eq!(layouts, ["title-split", "agenda-photo", "section-photo", "number-photo", "poster"]);
         let art = placed(&made.deck, 2, "art");
         assert_eq!(
             (art["type"].as_str(), art["src"].as_str(), art["alt"].as_str()),
@@ -6758,7 +7030,7 @@ mod tests {
         assert!(holds(&theme, "head-to-head", 4) && !holds(&theme, "head-to-head", 5));
         assert!(holds(&theme, "receipt", 5) && !holds(&theme, "receipt", 6));
         let (summary, slides) = catalog();
-        let mut steps = slides.iter().find(|s| s.layout_suggestion == "Steps").unwrap().clone();
+        let mut steps = slides.iter().find(|s| s.layout_suggestion == "How It Works").unwrap().clone();
         steps.key_bullets.extend(["Report: certificates reach the buyer".into(), "Renew: the lane books again".into()]);
         let made =
             deck(&narrative(&summary, vec![slides[0].clone(), steps, slides[55].clone()]), &theme, &Pictures::new())

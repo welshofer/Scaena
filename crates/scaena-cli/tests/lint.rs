@@ -438,6 +438,43 @@ fn lint_fix_applies_what_lint_offers_and_lints_again() {
     assert_eq!(std::fs::read(dir.join("deck.json")).unwrap(), before);
 }
 
+/// A text set larger than the body whose descenders alone reach down into the text under it is
+/// E101 with I405's step: set smaller, found clear at the size it offers, and `lint --fix` leaves
+/// nothing over the other. One that half its size would not clear, and body text over body text,
+/// the rule's trigger, are offered no fix.
+#[test]
+fn a_large_texts_tail_over_the_text_under_it_is_fitted_and_nothing_else_is() {
+    // A figure standing on its box's foot, and a caption from `y` down under it.
+    let under = |y: u32| {
+        let nodes = serde_json::json!({
+            "big": { "type": "text", "role": "numeral", "text": "Typography",
+                     "at": { "rect": [96, 96, 1728, 160] }, "align": { "y": "end" } },
+            "under": { "type": "text", "role": "caption", "text": "What the figure counts",
+                       "at": { "rect": [96, y, 1728, 40] } }
+        });
+        deck(serde_json::json!({}), nodes)
+    };
+    let (_, found) = lint(&bundle("tail-deep", &under(256), |_| {}));
+    let e101 = found.iter().find(|f| f["code"] == "E101").unwrap();
+    assert!(e101.get("fix").is_none(), "half its size would not clear it: {e101:#}");
+
+    let dir = bundle("tail", &under(266), |_| {});
+    let (_, found) = lint(&dir);
+    let e101 = found.iter().find(|f| f["code"] == "E101").unwrap();
+    assert_eq!(e101["node"], "big", "found at the text its fix sets smaller: {e101:#}");
+    let fix = e101["fix"].as_array().unwrap();
+    let most = fix.iter().find(|op| op["path"] == "/nodes/big/maxSize").unwrap()["value"].as_f64().unwrap();
+    assert!((80.0..160.0).contains(&most), "smaller, never under half its size: {e101:#}");
+    let out = scaena(&["--json", "lint", dir.to_str().unwrap(), "--fix"]);
+    let v: Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert!(v["fixed"].as_array().unwrap().iter().any(|f| f["code"] == "E101"), "{v:#}");
+    assert!(v["findings"].as_array().unwrap().iter().all(|f| f["code"] != "E101"), "{v:#}");
+
+    let (_, found) = lint(&fixture("tail-body", "E101", "trigger"));
+    let unfixed: Vec<&Value> = found.iter().filter(|f| f["code"] == "E101").collect();
+    assert!(!unfixed.is_empty() && unfixed.iter().all(|f| f.get("fix").is_none()), "{unfixed:#?}");
+}
+
 /// A beat planned before its slide, in a spine written first, is reported and never fixed away:
 /// `lint --fix` leaves the story a deck is written from (dogfood 3).
 #[test]
