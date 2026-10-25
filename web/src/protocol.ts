@@ -1433,6 +1433,7 @@ export type GeneratingEvent =
   | { kind: "fetchingFont"; family: string; language: string; megabytes: number }
   | { kind: "reading"; name: string }
   | { kind: "read"; name: string; what: string }
+  | { kind: "grounded"; name: string; what: string; kilobytes: number; cut: boolean }
   | { kind: "researching"; topic: string }
   | { kind: "researchingNow"; doing: string }
   | { kind: "researched"; sources: number; cut: boolean }
@@ -1513,6 +1514,9 @@ export interface Asking {
   seeing?: Seeing;
   /** The Geoapify key kept, which `map_fetch` fetches a map with (ADR-0030). */
   mapKey?: string;
+  /** How long one turn may go without a word from the provider before it is asked again
+   * (narrative REL-3); two minutes without it. */
+  timeoutMs?: number;
 }
 
 /** What a person asks a model to write (PLAN 2.101): a text's words proofread, tightened, or
@@ -1577,6 +1581,12 @@ export interface Seeing {
 
 /** What the page hears as the assistant works. */
 export type AssistantEvent =
+  /** The model is saying `text`: more of the answer it is writing, which `text` then gives
+   * whole (narrative ATTR-3). */
+  | { kind: "saying"; text: string }
+  /** The provider was busy, down, or silent, and the same turn is asked again after `seconds`
+   * (narrative REL-3): `message` says so in a person's words, the `attempt`th of `of`. */
+  | { kind: "waiting"; message: string; seconds: number; attempt: number; of: number }
   /** The model said `text`. */
   | { kind: "text"; text: string }
   /** It calls tool `name`. */

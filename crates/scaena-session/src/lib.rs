@@ -108,6 +108,9 @@ pub struct Session {
     timeline: Option<Timeline>,
     /// The transition last sampled, so the frames of one transition lay out once.
     transition: Option<(String, Transition)>,
+    /// The transition into the state a show goes on to, laid out while the one shown rests
+    /// ([`Session::prepare`], lift-up PERF-1), which its first frame takes.
+    prepared: Option<(String, Transition)>,
     /// The state last asked what stands where, laid out at rest, so a pointer's every move
     /// lays out nothing (ADR-0013).
     rest: Option<(String, scaena_engine::sample::Scene)>,
@@ -361,6 +364,7 @@ impl Session {
             timed: scaena_engine::Timed::default(),
             timeline: None,
             transition: None,
+            prepared: None,
             rest: None,
             digests: HashMap::new(),
             drawn: None,
@@ -602,6 +606,7 @@ impl Session {
     fn forget_shown(&mut self) {
         self.timeline = None;
         self.transition = None;
+        self.prepared = None;
         self.rest = None;
         self.drawn = None;
         self.targets.clear();
@@ -699,9 +704,10 @@ impl Session {
     }
 
     /// The deck's states end to end, as a client lists them: `[{ "state", "slide", "said",
-    /// "start", "span", "hold" }]`, ms (SPEC §2.4), `slide` the slide each builds on and `said` the
-    /// state as a person counts it, `Slide 3, step 2` (PLAN 2.99). What a player auto-advances by,
-    /// and a video samples.
+    /// "headline", "start", "span", "hold" }]`, ms (SPEC §2.4), `slide` the slide each builds on,
+    /// `said` the state as a person counts it, `Slide 3, step 2` (PLAN 2.99), and `headline` the
+    /// words that head it, where a text does (`reading::headline`), which a slide list reads its
+    /// rows by (lift-up 10-24b USE-4). What a player auto-advances by, and a video samples.
     pub fn slots(&mut self) -> Result<serde_json::Value, Error> {
         let timeline = self.timeline()?;
         let deck = &self.deck;
@@ -709,11 +715,16 @@ impl Session {
         // Each as a person counts it (PLAN 2.99): `Slide 3, step 2`.
         let said = scaena_core::words::slides(deck);
         let said = |id: &str| deck.states.iter().position(|s| s.id == id).and_then(|i| said.get(i)).cloned();
+        // A deck whose states do not resolve heads none of them: its slots are listed all the same.
+        let snaps = scaena_core::tracking::resolve_states(deck).unwrap_or_default();
+        let headline =
+            |id: &str| (snaps.iter()).find(|s| s.state_id == id).and_then(|s| scaena_core::reading::headline(deck, s));
         let slots: Vec<serde_json::Value> = (timeline.slots.iter())
             .map(|s| {
                 let slide = slide(&s.state);
                 let said = said(&s.state);
-                serde_json::json!({ "state": s.state, "slide": slide, "said": said, "start": s.start, "span": s.span, "hold": s.hold })
+                let headline = headline(&s.state);
+                serde_json::json!({ "state": s.state, "slide": slide, "said": said, "headline": headline, "start": s.start, "span": s.span, "hold": s.hold })
             })
             .collect();
         Ok(serde_json::Value::Array(slots))
@@ -733,12 +744,12 @@ impl Session {
     pub fn frame(&mut self, state: &str, t_ms: f64) -> Result<DisplayList, Error> {
         let slot = self.kept_timeline()?.slot(state).ok_or_else(|| EngineError::UnknownState(state.to_string()))?;
         let (start, span) = (slot.start, slot.span);
-        // The engine is built by now: the timeline took it.
-        let format = self.format.as_deref();
         if t_ms.is_nan() || t_ms >= span {
             #[cfg(feature = "editor")]
             if let Some(deck) = &self.previewing {
+                // The engine is built by now: the timeline took it.
                 let engine = self.engine.as_mut().expect("built for the timeline");
+                let format = self.format.as_deref();
                 let req = FrameRequest { deck, theme: &self.theme, data: &self.data, state, t_ms, format };
                 return Ok(engine.frame(&req)?.display_list);
             }
@@ -751,14 +762,37 @@ impl Session {
                 None => scene.draw_at(time),
             });
         }
-        let engine = self.engine.as_mut().expect("built for the timeline");
         let cached = self.transition.as_ref().is_some_and(|(s, _)| s == state);
         if !cached {
-            let (deck, theme) = project(&self.deck, &self.theme, format)?;
-            let transition = engine.transition(&deck, &theme, &self.data, state)?;
+            let transition = match self.prepared.take() {
+                Some((s, transition)) if s == state => transition,
+                _ => self.laid_into(state)?,
+            };
             self.transition = Some((state.to_string(), transition));
         }
         Ok(self.transition.as_ref().expect("set above").1.frame(t_ms))
+    }
+
+    /// Lay out the cue into `state` ahead, in the format shown, while another rests: the state a
+    /// show goes on to, whose first frame then lays out nothing (lift-up PERF-1). A state with no
+    /// cue, or the one whose cue is kept already, needs nothing; an edit lets it go.
+    pub fn prepare(&mut self, state: &str) -> Result<(), Error> {
+        let slot = self.kept_timeline()?.slot(state).ok_or_else(|| EngineError::UnknownState(state.to_string()))?;
+        let kept = |kept: &Option<(String, Transition)>| kept.as_ref().is_some_and(|(s, _)| s == state);
+        if slot.span <= 0.0 || kept(&self.transition) || kept(&self.prepared) {
+            return Ok(());
+        }
+        let transition = self.laid_into(state)?;
+        self.prepared = Some((state.to_string(), transition));
+        Ok(())
+    }
+
+    /// The cue into `state`, its two snapshots laid out, in the format shown. The engine is
+    /// built by now: the timeline took it.
+    fn laid_into(&mut self, state: &str) -> Result<Transition, Error> {
+        let engine = self.engine.as_mut().expect("built for the timeline");
+        let (deck, theme) = project(&self.deck, &self.theme, self.format.as_deref())?;
+        Ok(engine.transition(&deck, &theme, &self.data, state)?)
     }
 
     /// `state` at rest in the format shown, laid out once and kept until the deck, its
@@ -2759,6 +2793,47 @@ mod tests {
         s
     }
 
+    /// The cue a show goes on to, laid out while the state shown rests, is the one its frames
+    /// sample: its first frame lays nothing out, and draws as it would have. An edit lets it go
+    /// (lift-up PERF-1).
+    #[test]
+    fn the_cue_laid_out_ahead_is_the_one_its_frames_sample() {
+        let mut s = torture();
+        let slots = s.slots().unwrap();
+        let cued: Vec<String> = (slots.as_array().unwrap().iter())
+            .filter(|slot| slot["span"].as_f64().unwrap() > 0.0)
+            .map(|slot| slot["state"].as_str().unwrap().to_string())
+            .collect();
+        let (next, later) = (&cued[1], &cued[2]);
+        let half = |s: &mut Session, state: &str| {
+            let span = s.kept_timeline().unwrap().slot(state).unwrap().span;
+            s.frame(state, span / 2.0).unwrap()
+        };
+        let drawn = half(&mut torture(), next);
+        s.frame(&cued[0], f64::INFINITY).unwrap();
+        s.prepare(next).unwrap();
+        assert!(s.prepared.as_ref().is_some_and(|(state, _)| state == next), "laid out ahead");
+        assert_eq!(half(&mut s, next), drawn);
+        assert!(s.prepared.is_none() && s.transition.as_ref().is_some_and(|(state, _)| state == next), "taken");
+        // The cue shown is kept, and one with none needs nothing laid out.
+        s.prepare(next).unwrap();
+        assert!(s.prepared.is_none());
+        let still = (slots.as_array().unwrap().iter())
+            .find(|slot| slot["span"].as_f64().unwrap() == 0.0)
+            .map(|slot| slot["state"].as_str().unwrap().to_string());
+        if let Some(still) = still {
+            s.prepare(&still).unwrap();
+            assert!(s.prepared.is_none(), "{still} has no cue");
+        }
+        // An edit lets go of what was laid out ahead.
+        s.prepare(later).unwrap();
+        assert!(s.prepared.is_some());
+        let deck = s.deck.clone();
+        s.set_deck(deck);
+        assert!(s.prepared.is_none() && s.transition.is_none());
+        assert!(s.prepare("nowhere").is_err(), "a state the deck has not");
+    }
+
     /// A PNG header for a picture of `w` × `h`: all an image reads of one before it is drawn.
     fn png(w: u32, h: u32) -> Vec<u8> {
         let mut b = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR".to_vec();
@@ -3221,6 +3296,20 @@ mod tests {
         // A way that does not place a node is no target, and a node not on screen is an error.
         assert!(s.snap("containers", "stat-a", SnapMode::Move, cell, false).unwrap().is_none());
         assert!(s.targets("containers", "title").is_err());
+    }
+
+    /// Each slot says the words that head its state, which a slide list reads its row by (lift-up
+    /// 10-24b USE-4): the cover by its display line, the agenda by its headline.
+    #[test]
+    fn each_slot_says_its_headline() {
+        let mut s = trails();
+        let slots = s.slots().unwrap();
+        let headline = |state: &str| {
+            let slot = slots.as_array().unwrap().iter().find(|s| s["state"] == state).unwrap();
+            slot["headline"].clone()
+        };
+        assert_eq!(headline("cover"), "High Country Trails");
+        assert_eq!(headline("agenda"), "Tonight");
     }
 
     /// The trails example, the site's demo deck, its files handed over as a page hands them.

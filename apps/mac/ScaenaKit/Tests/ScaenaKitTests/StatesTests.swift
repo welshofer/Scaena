@@ -54,6 +54,19 @@ private func playing(_ editor: DeckEditor) -> [String] {
     ])
 }
 
+/// The slides down the side and the light table read each slide to VoiceOver by its headline
+/// (lift-up 10-24b USE-4), as the engine says what heads it: B1's cover by its display line.
+@Test func eachSlideReadsByItsHeadline() throws {
+    let editor = DeckEditor(session: try ScaenaSession(directory: b1))
+    let cover = try #require(editor.slots.first)
+    #expect(cover.headline == "Scaena")
+    #expect(SlideReading.row(number: 1, step: 1, headline: cover.headline) == "Slide 1: Scaena")
+    #expect(SlideReading.row(number: 3, step: 2, headline: "What we refuse") == "Slide 3, step 2: What we refuse")
+    #expect(SlideReading.row(number: 4, step: 1, headline: nil) == "Slide 4")
+    #expect(SlideReading.cell(number: 2, headline: "") == "Slide 2")
+    #expect(SlideReading.steps(3) == "3 steps" && SlideReading.steps(1).isEmpty)
+}
+
 /// A rehearsal (PLAN 2.63, 3.14): the time each state is shown kept, back and on again; at the
 /// end each state reached holds what it took less its cue, to a tenth of a second, as one patch.
 @Test func aRehearsalKeepsWhatEachStateTook() throws {

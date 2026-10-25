@@ -718,6 +718,7 @@ async function edit(source: Source, opened?: Stage) {
   let showings = 0;
   /** The source's version: one more with each change. A lint answers the version it read. */
   let version = 0;
+  stage.sourceVersion = () => version;
   /** A lint of every state, waiting for typing to stop. */
   let pending: ReturnType<typeof setTimeout> | undefined;
   const pause = 500;
@@ -2217,6 +2218,7 @@ async function edit(source: Source, opened?: Stage) {
 
   const assistant = panel(stage, {
     source: () => view.state.doc.toString(),
+    states: () => last?.states.map(([id]) => id) ?? [],
     apply: (source, edited, touched, files = []) => {
       touching = touched?.length ? { source, nodes: touched } : undefined;
       // A theme it edited goes in the source's history with the theme's text before and after,

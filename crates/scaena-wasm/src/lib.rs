@@ -137,6 +137,12 @@ impl Player {
         self.0.frame(state, t_ms).map_err(js)?.to_postcard().map_err(js)
     }
 
+    /// Lay out the cue into `state` ahead, while the state shown rests: the state a show goes on
+    /// to, whose first frame then lays out nothing (lift-up PERF-1).
+    pub fn prepare(&mut self, state: &str) -> Result<(), JsError> {
+        self.0.prepare(state).map_err(js)
+    }
+
     /// What identifies `state`'s drawing at rest, in the format shown: its display list's
     /// digest (FNV-1a over its postcard bytes, as the goldens keep it). One digest, one
     /// drawing, so a thumbnail painted from it stands until it changes (PLAN 2.35).
@@ -427,6 +433,12 @@ impl Player {
     pub fn lint(&mut self, state: Option<String>, now: Option<f64>) -> Result<String, JsError> {
         let now = now.map(|n| n as i64);
         serde_json::to_string(&self.0.lint(state.as_deref(), now).map_err(js)?).map_err(js)
+    }
+
+    /// What the last lint found in the deck compiled last, as JSON findings: what its narrative
+    /// health reads beside it (the generator's `health`, lift-up 10-24b STAB-1).
+    pub fn findings(&self) -> Result<String, JsError> {
+        serde_json::to_string(self.0.findings()).map_err(js)
     }
 
     /// The source compiled last with `patch` (JSON: a finding's `fix`) applied.

@@ -41,8 +41,10 @@ final class RemoteHost {
     @ObservationIgnored private var deck = ""
     /// The show that plays, if one does.
     @ObservationIgnored private weak var showing: Showing?
-    /// The place last sent, as a key: the state, whether at rest, and the deck's revision.
+    /// The place last sent, as a key: the state, whether at rest, the deck's revision, the screen
+    /// black or white, and whether the show is over; and the presenter's timer as it was sent.
     @ObservationIgnored private var sent: String?
+    @ObservationIgnored private var sentTimer: Stopwatch?
     /// The states drawn for remotes, as PNGs, by the deck's revision.
     @ObservationIgnored private var drawn: [String: Data] = [:]
 
@@ -55,6 +57,7 @@ final class RemoteHost {
         do {
             let server = try RemoteServer(name: name)
             server.command = { [weak self] command in self?.perform(command) }
+            server.slide = { [weak self] number in self?.showing?.go(slide: number) }
             server.joined = { [weak self] count in self?.joined = count }
             server.tried = { [weak self] count in self?.tried = count }
             server.recoded = { [weak self] code in
@@ -105,6 +108,8 @@ final class RemoteHost {
     private func watch(_ showing: Showing) {
         withObservationTracking {
             _ = showing.show
+            // The timer paused, run on, or reset is told as the show is (lift-up FUNC-5).
+            _ = showing.stopwatch
         } onChange: { [weak self, weak showing] in
             Task { @MainActor in
                 guard let self, let showing, self.showing === showing else { return }
@@ -125,25 +130,32 @@ final class RemoteHost {
         let show = showing.show
         let rest = !show.playhead.playing
         let revision = showing.editor.revision
-        let key = "\(show.index)\u{1f}\(rest)\u{1f}\(revision)"
-        guard key != sent else { return }
+        let key = "\(show.index)\u{1f}\(rest)\u{1f}\(revision)\u{1f}\(show.blank?.rawValue ?? "")\u{1f}\(show.over)"
+        guard key != sent || showing.stopwatch != sentTimer else { return }
         sent = key
+        sentTimer = showing.stopwatch
         let ms = show.playhead.ms.isFinite ? max(show.playhead.ms, 0) : 0
         let notes = showing.notes(slot.state)
         let (editor, state, coming, began) = (showing.editor, slot.state, show.next?.state, showing.began)
         let (deck, index, count) = (deck, show.index, show.slots.count)
+        // What the room sees, mirrored (lift-up FUNC-5): a black or white screen, the end, and the
+        // presenter's own timer, paused where it is.
+        let now = Date()
+        let watch = showing.stopwatch
+        let timer = RemoteTimer(elapsed: watch.elapsed(at: now), paused: watch.paused, at: now)
+        let (blank, over) = (show.blank.flatMap { RemoteScreen(rawValue: $0.rawValue) }, show.over)
         // The slide and the next drawn, and made PNGs, away from the stage (lift-up PERF-2); a place
         // that has given way to another while they were drawn is not told.
         Task {
             let slide = await png(state, editor)
             var next: Data?
             if let coming { next = await png(coming, editor) }
-            guard sent == key, let server = self.server else { return }
+            guard sent == key, sentTimer == watch, let server = self.server else { return }
             server.tell(
                 RemotePlace(
                     deck: deck, showing: true, state: state, index: index, count: count,
                     ms: rest ? 0 : ms, rest: rest, notes: notes.text, read: notes.blocks,
-                    slide: slide, next: next, began: began))
+                    slide: slide, next: next, began: began, blank: blank, over: over, timer: timer))
         }
     }
 
@@ -165,6 +177,10 @@ final class RemoteHost {
             case .first: showing.first()
             case .last: showing.last()
             case .end: showing.ended()
+            case .black: showing.blanking(.black)
+            case .white: showing.blanking(.white)
+            case .pauseTimer: showing.stopwatch.toggle()
+            case .resetTimer: showing.stopwatch.reset()
             case .play: break
             }
         } else if command == .play, let editor, !editor.slots.isEmpty {
