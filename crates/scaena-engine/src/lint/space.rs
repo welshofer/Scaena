@@ -122,6 +122,36 @@ struct Pair {
     overlap: [f32; 2],
     states: Vec<String>,
 }
+
+/// A larger text whose descenders alone reach the text under it, where the two first collide: it,
+/// its size as set and its own, and how it fits.
+struct Tail {
+    id: String,
+    size: f32,
+    own: f32,
+    fit: TextFit,
+}
+
+/// Whether `a`'s collision with `b`, by `by`, is `a`'s descenders alone reaching down into `b`
+/// under it: `a` set larger than the body, `b` starting below `a`'s last baseline, and the two
+/// meeting no deeper than `a`'s tail hangs. Its fix is I405's [`step`]: a re-theme can grow a
+/// text whose foot stands on the one under it until its tail crosses the gutter between them.
+fn tail(a: &SceneNode, b: &SceneNode, by: [f32; 2], body: f32, scene: &Scene) -> Option<Tail> {
+    let identity = |n: &SceneNode| scene.posed(&n.id, true) == IDENTITY;
+    let (Content::Text(placed), Content::Text(_)) = (&a.content, &b.content) else { return None };
+    if !identity(a) || !identity(b) {
+        return None;
+    }
+    let (ink, under) = (a.ink()?, b.ink()?);
+    let f = foot(placed, ink)?;
+    let descent = ink[1] + ink[3] - f.baseline;
+    (f.size > body && under[1] >= f.baseline && by[1] <= descent + SLACK).then(|| Tail {
+        id: a.id.clone(),
+        size: f.size,
+        own: f.own,
+        fit: placed.fit,
+    })
+}
 impl Rule for E101Collision {
     fn code(&self) -> &'static str {
         "E101"
@@ -132,7 +162,8 @@ impl Rule for E101Collision {
     fn check(&self, cx: &Cx) -> Vec<Finding> {
         // Each pair once: where it first collides, and every state it collides in, with
         // what stacks for each where their paint paths part: the node, or a container it is in.
-        let mut pairs: BTreeMap<(String, String), (Pair, [String; 2])> = BTreeMap::new();
+        let mut pairs: BTreeMap<(String, String), (Pair, [String; 2], Option<Tail>)> = BTreeMap::new();
+        let body = cx.theme.typography.roles.get("body").map_or(f32::INFINITY, |r| r.size as f32);
         for state in cx.states {
             let content: Vec<(&SceneNode, Drawn)> = state
                 .scene
@@ -154,8 +185,9 @@ impl Rule for E101Collision {
                     let at = parting(a, b);
                     let stacks =
                         |n: &SceneNode| cx.deck.nodes.get_index(n.paint[at].1).map_or(&n.id, |(id, _)| id).clone();
-                    let (pair, _) = pairs.entry((a.id.clone(), b.id.clone())).or_insert_with(|| {
-                        (Pair { first: state.index, overlap: by, states: Vec::new() }, [stacks(a), stacks(b)])
+                    let (pair, _, _) = pairs.entry((a.id.clone(), b.id.clone())).or_insert_with(|| {
+                        let tail = tail(a, b, by, body, &state.scene).or_else(|| tail(b, a, by, body, &state.scene));
+                        (Pair { first: state.index, overlap: by, states: Vec::new() }, [stacks(a), stacks(b)], tail)
                     });
                     pair.states.push(state.snapshot.state_id.clone());
                 }
@@ -163,7 +195,7 @@ impl Rule for E101Collision {
         }
         pairs
             .into_iter()
-            .map(|((a, b), (Pair { first, overlap: [w, h], states }, [sa, sb]))| {
+            .map(|((a, b), (Pair { first, overlap: [w, h], states }, [sa, sb], tail))| {
                 let state = cx.laid(first);
                 // In two containers, what has the same `z` is what stacks where they part.
                 let level = |node: &str, stacks: &str| {
@@ -176,16 +208,29 @@ impl Rule for E101Collision {
                         .trim_end_matches(',')
                         .to_string()
                 };
-                cx.finding(
-                    self.code(),
-                    self.severity(),
-                    state,
-                    format!("`{a}` and `{b}` overlap by {w:.0} × {h:.0} cu{at}"),
-                )
-                .at(cx.node_path(&b))
-                .node(b.clone())
-                .measure(json!({ "nodes": [a, b], "overlap": [w, h], "states": states }))
-                .hint("Move one to another slot or cell; if one is meant to lie over the other, give it, or the container it is in, a higher `z`, or mark a decoration `semantic: decoration`.")
+                let mut measure = json!({ "nodes": [a, b], "overlap": [w, h], "states": states });
+                // A text whose tail reaches the one under it is found at it, as I405 finds one
+                // that comes close: it is what its fix sets smaller.
+                let at_node = tail.as_ref().map_or_else(|| b.clone(), |t| t.id.clone());
+                let fix = tail.and_then(|t| {
+                    measure["own"] = json!(t.own);
+                    step(cx, first, &t.id, t.size, t.own, t.fit)
+                });
+                let f = cx
+                    .finding(
+                        self.code(),
+                        self.severity(),
+                        state,
+                        format!("`{a}` and `{b}` overlap by {w:.0} × {h:.0} cu{at}"),
+                    )
+                    .at(cx.node_path(&at_node))
+                    .node(at_node)
+                    .measure(measure)
+                    .hint("Move one to another slot or cell; if one is meant to lie over the other, give it, or the container it is in, a higher `z`, or mark a decoration `semantic: decoration`.");
+                match fix {
+                    Some(fix) => f.fix(fix),
+                    None => f,
+                }
             })
             .collect()
     }
