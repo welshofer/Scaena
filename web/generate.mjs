@@ -610,6 +610,12 @@ try {
   // shown to the model.
   requests.length = 0;
   painted.length = 0;
+  // The copy the editor kept of the deck before is offered as the last one opened, a modal over the
+  // page (lift-up REL-4): discarded, since the brief's controls are what is checked here.
+  await page
+    .waitForSelector("#recovering[open]", { timeout: 5000 })
+    .then(() => page.click("#recovering [value=discard]"))
+    .catch(() => {});
   await opened();
   await page.uncheck("#prompting-show-outline");
   await page.fill("#prompting-audience", "the co-op's board");
