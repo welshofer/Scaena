@@ -225,6 +225,8 @@ struct PromptView: View {
     /// The providers whose keys the Keychain keeps.
     @State private var kept: Set<Provider> = []
     @State private var steps: [Line] = []
+    /// Each slide as drawn for the model, JPEGs in the deck's order (lift-up ATTR-1).
+    @State private var film: [Data] = []
     @State private var running: Task<Void, Never>?
     /// Cancel, or Escape, pressed while a deck is being made: asked first (lift-up 10-24 USE-2).
     @State private var confirmingStop = false
@@ -461,6 +463,9 @@ struct PromptView: View {
                 }
                 .padding(.horizontal)
                 .accessibilityIdentifier("prompt-progress")
+            }
+            if !film.isEmpty {
+                filmstrip
             }
             #if os(macOS)
             HStack {
@@ -775,6 +780,33 @@ struct PromptView: View {
         link = ""
     }
 
+    /// The slides as drawn for the model, in a strip under the progress, so the wait shows the
+    /// deck coming together (lift-up ATTR-1).
+    private var filmstrip: some View {
+        ScrollView(.horizontal) {
+            LazyHStack(spacing: 6) {
+                ForEach(film.indices, id: \.self) { i in
+                    Group {
+                        if let picture = Image(png: film[i]) {
+                            picture.resizable().aspectRatio(contentMode: .fit)
+                        } else {
+                            Color.secondary.opacity(0.2)
+                        }
+                    }
+                    .frame(height: 72)
+                    .clipShape(RoundedRectangle(cornerRadius: 4))
+                    .accessibilityElement()
+                    .accessibilityLabel("Slide \(i + 1)")
+                    .accessibilityAddTraits(.isImage)
+                    .transition(.opacity)
+                }
+            }
+        }
+        .frame(height: 76)
+        .padding(.horizontal)
+        .accessibilityIdentifier("prompt-film")
+    }
+
     private func say(_ words: String, failed: Bool = false) {
         steps.append(Line(words: words, failed: failed))
     }
@@ -782,6 +814,7 @@ struct PromptView: View {
     private func generate() {
         guard ready, let key = keychain.key(for: provider) else { return }
         steps = []
+        film = []
         let brief = Brief(
             topic: topic.trimmingCharacters(in: .whitespacesAndNewlines),
             audience: audience.isEmpty ? nil : audience, goal: goal.isEmpty ? nil : goal,
@@ -848,7 +881,12 @@ struct PromptView: View {
                 }
                 let (session, made) = try await generator.generate(
                     brief: brief, arc: arc.isEmpty ? nil : arc, provider: provider, model: model, key: key,
-                    theme: theme, painter: paint, outline: settle
+                    theme: theme, painter: paint, outline: settle,
+                    drawn: { slide, jpeg in
+                        withAnimation {
+                            if film.indices.contains(slide) { film[slide] = jpeg } else { film.append(jpeg) }
+                        }
+                    }
                 ) { say($0.words) }
                 try Task.checkCancellation()
                 #if os(macOS)
