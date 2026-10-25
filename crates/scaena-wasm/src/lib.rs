@@ -1288,6 +1288,38 @@ impl Player {
             }
         }
     }
+
+    /// `slide_write`'s second half (lift-up FUNC-1): `written`, the slide the generator's module
+    /// built for this deck (its `slideInto`), made one patch by the session as the Mac's writes
+    /// one, its set held to one size and set clear and lint's fixes on its own states taken,
+    /// written unless `dryRun`, by `author` at `at`. What `slide_write` returns.
+    #[cfg(feature = "generate")]
+    #[wasm_bindgen(js_name = slidePolishing)]
+    pub fn slide_polishing(
+        &mut self,
+        written: &str,
+        dry_run: bool,
+        author: Option<String>,
+        at: Option<String>,
+    ) -> ToolResult {
+        let by = assistant::Caller {
+            author: author.as_deref().unwrap_or("agent"),
+            at: at.as_deref().and_then(store::seconds),
+        };
+        let called = match serde_json::from_str(written) {
+            Ok(written) => self.0.slide_polishing(written, dry_run, by),
+            Err(e) => Err(Error::Ops(format!("slide_write: the slide built is not JSON: {e}"))),
+        };
+        match called {
+            Ok(c) => {
+                ToolResult { json: c.result, error: false, edited: c.edited, frame: c.frame, rewritten: c.rewritten }
+            }
+            Err(e) => {
+                let json = assistant::failure(&e).to_string();
+                ToolResult { json, error: true, edited: false, frame: None, rewritten: Vec::new() }
+            }
+        }
+    }
 }
 
 /// A data source from the editor (PLAN 2.55, SPEC §3.10): its sheet, its edits, and their undo.

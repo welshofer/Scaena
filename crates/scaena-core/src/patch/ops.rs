@@ -2204,6 +2204,14 @@ fn slide_states(deck: &Deck, id: &str) -> Result<Range<usize>, String> {
     Ok(first..last + 1)
 }
 
+/// The deck `deck`'s `states` array with `given`, its states in a new order and new ones among
+/// them, each of its own showing what it showed: [`keep_looks`], written as the deck holds them
+/// (lift-up FUNC-1). A new state is written as `given` has it.
+pub fn states_kept(deck: &Value, given: Vec<State>) -> Result<Value, String> {
+    let d = Doc(deck);
+    looks_kept(&d, &typed(&d)?, given, &[])
+}
+
 /// `given`, the deck's states in a new order and new ones among them, as [`keep_looks`] keeps
 /// each as it looks (PLAN 2.97), written as the deck holds them: each of the deck's states as
 /// its JSON was, but what keeping its look wrote again, and a new one as it is.
