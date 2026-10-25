@@ -1240,20 +1240,28 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         );
     }
     // Each change the model asked once it saw the deck drawn that was let go, and why (lift-up
-    // USE-4): what the person may try again, by hand or with the assistant.
+    // USE-4): what the person may try again, by hand or with the assistant, or dismiss. Its fix
+    // takes its record away, held to the record as read, so a fix gone stale once another took a
+    // record before it is refused, not another record taken; on a slide with several, the
+    // highest first, so each taken in the order given finds its own.
     let refused = narrative.and_then(|n| n.get("refused")).and_then(Value::as_array).into_iter().flatten();
-    for r in refused {
+    for (i, r) in refused.enumerate().collect::<Vec<_>>().into_iter().rev() {
         let text = |key: &str| r.get(key).and_then(Value::as_str).unwrap_or_default();
         let Some(k) = r.get("slide").and_then(Value::as_u64).map(|k| k as usize) else { continue };
         let Some(slide) = k.checked_sub(1).and_then(|i| slides.get(i)) else { continue };
         let (what, why) = (text("what"), text("why"));
+        let path = format!("/meta/narrative/refused/{i}");
+        let fix = Fix {
+            says: "Dismiss it".into(),
+            patch: vec![json!({ "op": "test", "path": path, "value": r }), json!({ "op": "remove", "path": path })],
+        };
         find(
             &deck.states[slide.states[0]].id,
             Severity::Info,
             Kind::Look,
             format!("Slide {k} was kept as made: the model asked for {what}, and lint found it worse for that. {why}"),
             format!("The model asked slide {k} for {what}. Make that change without what lint found it caused: {why}"),
-            None,
+            Some(fix),
         );
     }
     // A slide that does not stand first, then in the order the slides stand, and on each slide in
@@ -1348,6 +1356,58 @@ mod tests {
     fn planned(deck: &mut Value, state: &str, intensity: f64) {
         let beat = beat_of(deck, state);
         *deck.pointer_mut(&format!("{beat}/media/narrato/intensity")).unwrap() = json!(intensity);
+    }
+
+    /// What the model's look let go is a finding each, which its fix dismisses (lift-up USE-4):
+    /// the record taken away, held to it as read, the highest first; the deck then says nothing
+    /// of it, and a fix gone stale is refused.
+    #[test]
+    fn what_the_look_let_go_is_dismissed_by_its_fix() {
+        let mut deck = climate();
+        let refused = json!([
+            { "slide": 2, "what": "a shorter title", "why": "Its text runs past its place." },
+            { "slide": 3, "what": "another layout", "why": "Two texts overlap." }
+        ]);
+        deck.pointer_mut("/meta/narrative").unwrap()["refused"] = refused.clone();
+        let looks =
+            |deck: &Value| -> Vec<Finding> { of(deck).findings.into_iter().filter(|f| f.kind == Kind::Look).collect() };
+        let found = looks(&deck);
+        assert_eq!(found.iter().map(|f| f.slide).collect::<Vec<_>>(), [2, 3]);
+        let fix = |f: &Finding| f.fix.clone().expect("a fix").patch;
+        assert_eq!(found[0].fix.as_ref().unwrap().says, "Dismiss it");
+        assert_eq!(
+            fix(&found[1]),
+            [
+                json!({ "op": "test", "path": "/meta/narrative/refused/1", "value": refused[1] }),
+                json!({ "op": "remove", "path": "/meta/narrative/refused/1" })
+            ]
+        );
+        // Each taken in turn, as the slides give them: the other still finds its own record.
+        let apply = |deck: &mut Value, patch: &[Value]| -> bool {
+            let mut was = deck.clone();
+            for op in patch {
+                let path = op["path"].as_str().unwrap();
+                match op["op"].as_str().unwrap() {
+                    "test" if was.pointer(path) != Some(&op["value"]) => return false,
+                    "remove" => {
+                        let (parent, at) = path.rsplit_once('/').unwrap();
+                        was.pointer_mut(parent).unwrap().as_array_mut().unwrap().remove(at.parse().unwrap());
+                    }
+                    _ => {}
+                }
+            }
+            *deck = was;
+            true
+        };
+        let stale = fix(&found[1]);
+        assert!(apply(&mut deck, &fix(&found[0])), "the first slide's dismissed");
+        assert_eq!(looks(&deck).iter().map(|f| f.slide).collect::<Vec<_>>(), [3]);
+        let now = fix(&looks(&deck)[0]);
+        assert_eq!(now[1]["path"], "/meta/narrative/refused/0", "read again, the record left is the first");
+        assert!(apply(&mut deck, &now));
+        assert!(looks(&deck).is_empty());
+        assert_eq!(deck["meta"]["narrative"]["refused"], json!([]));
+        assert!(!apply(&mut deck, &stale), "a fix gone stale is refused");
     }
 
     /// A turn the notes bridge is not found (narrative dogfood H4): coherence reads a slide's
