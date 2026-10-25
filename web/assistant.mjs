@@ -153,7 +153,9 @@ const WIRE = {
         .filter((p) => p.functionResponse)
         .map((p, i) => {
           const r = p.functionResponse.response;
-          return { json: JSON.stringify(r.result ?? r.error), error: "error" in r, png: pngs[i] };
+          // A result that is no JSON, as a fenced one is, goes as the string it is.
+          const told = r.result ?? r.error;
+          return { json: typeof told === "string" ? told : JSON.stringify(told), error: "error" in r, png: pngs[i] };
         });
     },
     call: (step, i) => ({
@@ -363,8 +365,20 @@ try {
       `${id}: no tool takes a bundle or an output path, and every schema is whole`,
     );
 
-    const result = (n) => wire.results(requests[n].body)[0] ?? {};
+    // Each result reaches the model fenced as data under its tool's name (lift-up SEC-3): read back
+    // from its fence, its escaped closings as written.
+    const fence = /^<data label="([a-z0-9-]+)">\n([\s\S]*)\n<\/data>$/;
+    const sent = (n) => wire.results(requests[n].body)[0] ?? {};
+    const result = (n) => {
+      const r = sent(n);
+      const m = r.json?.match(fence);
+      return m ? { ...r, json: m[2].replace(/<\\\/(data)/gi, "</$1"), label: m[1] } : r;
+    };
     const parsed = (n) => JSON.parse(result(n).json ?? "{}");
+    check(
+      [result(1).label, result(2).label, result(6).label, result(9).label].join() === "deck-patch,deck-lint,theme-edit,deck-health",
+      `${id}: each tool's result reaches the model fenced under its name (${sent(1).json?.slice(0, 40)})`,
+    );
     const patched = parsed(1);
     check(patched.applied === true && patched.added?.some((f) => f.code === "E100"), `${id}: deck_patch applied, and lint finds an E100 it did not (${result(1).json?.slice(0, 160)})`);
     const linted = parsed(2);
@@ -413,10 +427,10 @@ try {
     if (id === "anthropic") {
       await tab(page, "story");
       await page.waitForFunction(() => document.querySelector("#story [data-ask]"), null, { timeout: 60000 });
-      const asked = await page.evaluate(() => {
-        document.querySelector("#story [data-ask]").click();
-        return { question: document.querySelector("#question").value, shown: document.querySelector("#tab-assistant").getAttribute("aria-selected") };
-      });
+      // The slide it is about is shown first (lift-up USE-5), then the question goes in the box.
+      await page.evaluate(() => document.querySelector("#story [data-ask]").click());
+      await page.waitForFunction(() => document.querySelector("#question").value.length > 20, null, { timeout: 30000 }).catch(() => {});
+      const asked = await page.evaluate(() => ({ question: document.querySelector("#question").value, shown: document.querySelector("#tab-assistant").getAttribute("aria-selected") }));
       check(asked.shown === "true" && asked.question.length > 20, `the Story tab's Ask puts its question to the assistant: ${asked.question.slice(0, 80)}`);
     }
 
@@ -622,6 +636,37 @@ try {
       await tab(page, "assistant");
       await page.waitForFunction(() => document.querySelector("#key").value, null, { timeout: 10000 });
       check((await page.$eval("#key", (k) => k.value)) === "anthropic-test-key", "and comes back after a reload");
+      // The vault not reached (IndexedDB refused, as in a private window): the key is not read,
+      // and kept, and read again once the vault is reached (lift-up 10-24b REL-5).
+      await page.addInitScript(() => {
+        if (sessionStorage.getItem("scaena.test.vault") !== "unreached") return;
+        indexedDB.open = () => {
+          const asked = {};
+          setTimeout(() => asked.onerror?.(new Event("error")));
+          return asked;
+        };
+      });
+      const reopened = async () => {
+        await page.reload();
+        await page.waitForFunction(() => window.scaena?.last(), null, { timeout: 120000 });
+        await page
+          .waitForSelector("#recovering[open]", { timeout: 5000 })
+          .then(() => page.click("#recovering [value=discard]"))
+          .catch(() => {});
+        await tab(page, "assistant");
+      };
+      await page.evaluate(() => sessionStorage.setItem("scaena.test.vault", "unreached"));
+      await reopened();
+      await page.waitForTimeout(1500);
+      const unreached = await stored();
+      check(
+        (await page.$eval("#key", (k) => k.value)) === "" && unreached.local === keys.local,
+        "with the vault not reached, the key is not read, and kept as it was",
+      );
+      await page.evaluate(() => sessionStorage.removeItem("scaena.test.vault"));
+      await reopened();
+      await page.waitForFunction(() => document.querySelector("#key").value, null, { timeout: 10000 });
+      check((await page.$eval("#key", (k) => k.value)) === "anthropic-test-key", "and read again once it is");
       await page.click("#forget-key");
       keys = await stored();
       check(keys.session === null && keys.local === null && (await page.$eval("#key", (k) => k.value)) === "", "Forget key forgets it everywhere");

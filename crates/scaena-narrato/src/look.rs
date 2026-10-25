@@ -119,6 +119,18 @@ pub fn prompt(topic: &str, audience: &str, count: usize, language: Option<&str>,
     out
 }
 
+/// What is said of the slides just outside a round, so that "three or more slides in a row
+/// drawn alike" holds across a round's edge (lift-up PERF-1): nothing for a deck shown whole.
+pub fn edges(edges: [Option<&Seen>; 2]) -> String {
+    let said = |s: &Seen| format!("slide {} is drawn as {}", s.slide, s.layout.name);
+    match edges {
+        [None, None] => String::new(),
+        [Some(b), None] => format!(" Just before these, {}.", said(b)),
+        [None, Some(a)] => format!(" Just after these, {}.", said(a)),
+        [Some(b), Some(a)] => format!(" Just before these, {}; just after them, {}.", said(b), said(a)),
+    }
+}
+
 /// The answer's contract, as Gemini takes it (the others derive theirs from it).
 pub fn schema_gemini() -> Value {
     json!({
@@ -257,6 +269,13 @@ mod tests {
         // A long deck shown a dozen at a time says which slides these are (narrative PERF-5).
         let part = prompt("Climate change", "", 25, None, (13, 24));
         assert!(part.starts_with("You have seen slides 13\u{2013}24 of the 25 slides of a deck on \u{201c}Climate change\u{201d}, each drawn"), "{part}");
+        // The slides just outside a round, so a run drawn alike is seen across its edge (PERF-1).
+        assert_eq!(edges([None, None]), "");
+        assert_eq!(edges([Some(&s[0]), None]), " Just before these, slide 1 is drawn as Centered Title.");
+        assert_eq!(
+            edges([Some(&s[0]), Some(&s[1])]),
+            " Just before these, slide 1 is drawn as Centered Title; just after them, slide 2 is drawn as Bullets."
+        );
     }
 
     #[test]

@@ -230,22 +230,30 @@ fn a_megabyte_of_openers_reads_in_one_pass() {
         ("vue", &["{{", "{{a}}", "<a :b=\"", "<a @b=\"", "<a v-if=\"", "<script>", "<style lang=\"scss\">"]),
         ("svelte", &["{", "{#if ", "{:else if ", "{/if}", "{@html ", "<a b={", "<a b=\"{", "<a {...", "{\"", "{`"]),
     ];
+    // Each language's openers are timed on a core of its own: a pool as many as the machine has,
+    // each taking the next language as it finishes one, so no measurement shares its core with
+    // the others' and the bound is the scanner's, not the runner's.
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    let cores = std::thread::available_parallelism().map_or(1, |n| n.get());
+    let taken = || OPENERS.get(next.fetch_add(1, std::sync::atomic::Ordering::Relaxed));
     std::thread::scope(|scope| {
-        for &(name, pieces) in OPENERS {
-            scope.spawn(move || {
-                for piece in pieces {
-                    let row = piece.repeat(1024 / piece.len()).replace(['\n', '\r'], " ");
-                    let one = piece.repeat((1 << 20) / piece.len());
-                    let many = format!("{row}\n").repeat((1 << 20) / (row.len() + 1));
-                    for text in [one, many] {
-                        let started = std::time::Instant::now();
-                        let tokens = highlight(&text, lang(name));
-                        let took = started.elapsed();
-                        assert_eq!(tokens.last().map(|t| t.end), Some(text.len()), "{name}: {piece:?}");
-                        assert!(
-                            took < std::time::Duration::from_secs(5),
-                            "{name}: a megabyte of {piece:?} in {took:?}"
-                        );
+        for _ in 0..cores {
+            scope.spawn(|| {
+                while let Some(&(name, pieces)) = taken() {
+                    for piece in pieces {
+                        let row = piece.repeat(1024 / piece.len()).replace(['\n', '\r'], " ");
+                        let one = piece.repeat((1 << 20) / piece.len());
+                        let many = format!("{row}\n").repeat((1 << 20) / (row.len() + 1));
+                        for text in [one, many] {
+                            let started = std::time::Instant::now();
+                            let tokens = highlight(&text, lang(name));
+                            let took = started.elapsed();
+                            assert_eq!(tokens.last().map(|t| t.end), Some(text.len()), "{name}: {piece:?}");
+                            assert!(
+                                took < std::time::Duration::from_secs(5),
+                                "{name}: a megabyte of {piece:?} in {took:?}"
+                            );
+                        }
                     }
                 }
             });
