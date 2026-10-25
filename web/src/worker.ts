@@ -97,6 +97,7 @@ import type {
   Where,
   Writing,
   Written,
+  Serving,
 } from "./protocol";
 
 const post = (message: FromWorker, transfer: Transferable[] = []) => self.postMessage(message, transfer);
@@ -712,7 +713,8 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         const deck = deckRead();
         if (!deck) throw new Error("the deck does not read");
         const { health } = await import("@scaena/generate");
-        return post({ type: "health", id: data.id, health: await health(JSON.stringify(deck)) });
+        // Read beside what the last lint found, a slide lint finds broken first (lift-up 10-24b STAB-1).
+        return post({ type: "health", id: data.id, health: await health(JSON.stringify(deck), player.findings()) });
       }
       case "makePicture": {
         // The theme frames are drawn in, as its JSON: its palette colors the picture.
@@ -1042,12 +1044,14 @@ function keptIn(dir: FileSystemDirectoryHandle, kind: "folder" | "opfs"): Home {
 }
 
 /** The folder `scaena serve` serves the bundle whose deck is at `deck` from (PLAN 2.11): a save
- * writes it back, as the page `id`, so the page does not hear its own save as a change. */
-function served(deck: string, id: string, folder: string): Home {
+ * writes it back, as the page `serve.client`, so the page does not hear its own save as a change,
+ * with the token its address carried (lift-up 10-24b SEC-5). */
+function served(deck: string, serve: Serving, folder: string): Home {
   const sent = async (method: "PUT" | "DELETE", path: string, bytes?: Uint8Array) => {
     const url = new URL(path.split("/").map(encodeURIComponent).join("/"), deck);
     const body = bytes as Uint8Array<ArrayBuffer> | undefined;
-    const response = await fetch(url, { method, body, headers: { "X-Scaena-Client": id } });
+    const headers = { "X-Scaena-Client": serve.client, "X-Scaena-Token": serve.token };
+    const response = await fetch(url, { method, body, headers });
     // A file not there to remove is removed, as in a folder.
     if (method === "DELETE" && response.status === 404) return;
     if (!response.ok) throw new Error(`${path}: ${(await response.text()).trim() || response.status}`);

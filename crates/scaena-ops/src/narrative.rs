@@ -323,6 +323,10 @@ pub const LOOK_WIDTH: u32 = 1024;
 /// more than its own.
 pub const LOOK_BATCH: usize = 12;
 
+/// How many of a look's rounds are asked at once (lift-up PERF-1): a 45-slide deck's four in
+/// two waits, not four, and never so many that a provider's rate limit is tripped.
+pub const LOOKS_AT_ONCE: usize = 3;
+
 /// The rounds a look at `slides` slides goes in: each the indices of [`LOOK_BATCH`] slides at
 /// most, in order.
 pub fn look_rounds(slides: usize) -> impl Iterator<Item = std::ops::Range<usize>> {
@@ -544,17 +548,24 @@ pub fn generate_drawn(
         (Looking::Asked, Some(key)) => match draw(&write) {
             Ok(drawn) => {
                 let mut changes = Vec::new();
-                let mut asked = false;
-                for round in look_rounds(seen.len()) {
-                    let Some(request) = generation.look_request(key, &seen[round.clone()], &drawn[round.clone()])
-                    else {
-                        continue;
-                    };
-                    if !asked {
-                        say(Progress::Looking { slides: seen.len() });
-                        asked = true;
-                    }
-                    let reply = transport.send(&request);
+                // Every round asked at once, a few at a time so that no provider's rate limit is
+                // tripped, and each answer read in its round's order (lift-up PERF-1).
+                let asked: Vec<(std::ops::Range<usize>, Request)> = look_rounds(seen.len())
+                    .filter_map(|round| {
+                        let edges = [round.start.checked_sub(1).and_then(|b| seen.get(b)), seen.get(round.end)];
+                        let request =
+                            generation.look_request(key, &seen[round.clone()], &drawn[round.clone()], edges)?;
+                        Some((round, request))
+                    })
+                    .collect();
+                if !asked.is_empty() {
+                    say(Progress::Looking { slides: seen.len() });
+                }
+                let requests: Vec<Request> = asked.iter().map(|(_, r)| r.clone()).collect();
+                let replies: Vec<Reply> =
+                    requests.chunks(LOOKS_AT_ONCE).flat_map(|some| transport.send_all(some)).collect();
+                let asked_any = !asked.is_empty();
+                for ((round, _), reply) in asked.into_iter().zip(replies) {
                     match generation.look_answer(reply.status, &reply.status_text, &reply.body, &seen[round.clone()]) {
                         Ok(answered) => changes.extend(answered),
                         Err(why) => {
@@ -567,7 +578,7 @@ pub fn generate_drawn(
                         }
                     }
                 }
-                match (asked, changes.is_empty(), unanswered.take()) {
+                match (asked_any, changes.is_empty(), unanswered.take()) {
                     (false, _, _) => None,
                     (true, true, Some(why)) => Some(Err(OpsError::new(why))),
                     (true, _, why) => {
@@ -721,11 +732,27 @@ pub fn seeing(narrative: &Narrative, theme: &Theme, pictures: &Pictures, layouts
         }
     };
     let varied = varied(narrative);
+    let count = narrative.slides.len();
+    // What each slide must leave the audience with (lift-up ATTR-2): its beat's claim in the
+    // outline the person settled, by the beat the deck's sections give it. A slide that names its
+    // part takes none, so its title stays the part's name: a divider is numbered by its title
+    // naming an agenda item, and the spine's sections are titled by the dividers.
+    let claim = |i: usize, slide: &Slide| {
+        let outlined = narrative.outline.as_ref().and_then(|o| {
+            let beat = (slide.beat_index.filter(|b| *b < o.beats.len()))
+                .unwrap_or_else(|| scaena_narrato::beats::beat_of(i, count, o.beats.len()));
+            o.beats.get(beat).map(|b| b.claim.clone())
+        });
+        outlined.filter(|c| !c.trim().is_empty()).unwrap_or_default()
+    };
     (narrative.slides.iter().zip(&varied).zip(layouts).enumerate())
         .map(|(i, ((slide, v), own))| {
             let items = items(slide, v);
             let iconed = icons_of(narrative, slide, &items).is_some();
             let options = others(v.layout.identity(), slide, &items, theme, pictures.contains_key(&i), iconed, own);
+            // The cover, a divider (a Q&A's among them, by its structural layout), the agenda,
+            // and the close.
+            let framing = matches!(v.layout.layout, "title" | "section" | "agenda" | "closing");
             Seen {
                 slide: i + 1,
                 layout: choice(own),
@@ -733,6 +760,9 @@ pub fn seeing(narrative: &Narrative, theme: &Theme, pictures: &Pictures, layouts
                 title: slide.slide_title.clone(),
                 subtitle: slide.subtitle.clone(),
                 bullets: slide.key_bullets.clone(),
+                claim: if framing { String::new() } else { claim(i, slide) },
+                // What it does, said as that where no claim is known.
+                purpose: if framing { String::new() } else { slide.purpose.clone().unwrap_or_default() },
             }
         })
         .collect()
@@ -1787,6 +1817,7 @@ pub fn deck_as(
             section: numbers.get(&i).copied(),
             running: running.as_ref().map(|(r, _)| r.as_str()),
             picture,
+            idea: (narrative.outline.as_ref()).map(|o| o.big_idea.trim()).filter(|i| !i.is_empty()),
             icons,
             lang: lang.unwrap_or("en"),
         };
@@ -2382,7 +2413,14 @@ fn layout_for(
         "section" => "section",
         "agenda" if pictured => "agenda-photo",
         "agenda" => "agenda",
+        // A deck ends on what it leaves the room with (lift-up ATTR-3): its takeaways on cards, an
+        // ask with its button, or its last words over its picture, never the cover's layout.
+        "closing" | "thanks" if n == 3 && theme.layouts.contains_key("takeaways") => "takeaways",
+        "closing" | "thanks" if pictured && theme.layouts.contains_key("poster") => "poster",
         "closing" | "thanks" if pictured => "title-split",
+        // A bare "Thank you" or "Questions?" that carries an ask: the ask its words, its address
+        // the button. A closing that says something stays as it is said.
+        "closing" | "thanks" if bare(&slide.slide_title) && calling(slide, items).is_some() => "call-to-action",
         "closing" | "thanks" => "closing",
         "body" if pictured => "bullets-photo",
         "body" => "bullets",
@@ -2535,6 +2573,74 @@ fn layout_for(
         .to_string()
 }
 
+/// Whether a closing's title only thanks the room or opens the floor ("Thank you", "Questions?",
+/// "Q&A"), in the languages Scaena can tell: an ending that says nothing of the talk (lift-up
+/// ATTR-3).
+fn bare(title: &str) -> bool {
+    const BARE: [&str; 24] = [
+        "thank you",
+        "thanks",
+        "thank you for listening",
+        "thanks for listening",
+        "questions",
+        "any questions",
+        "q&a",
+        "q & a",
+        "questions and answers",
+        "merci",
+        "gracias",
+        "danke",
+        "grazie",
+        "obrigado",
+        "obrigada",
+        "dank u",
+        "tack",
+        "questions ?",
+        "preguntas",
+        "fragen",
+        "ありがとうございました",
+        "ありがとうございます",
+        "谢谢",
+        "감사합니다",
+    ];
+    let t = title.trim().trim_end_matches(['!', '?', '.', '！', '？', '。']).trim().to_lowercase();
+    !t.is_empty() && BARE.contains(&t.as_str())
+}
+
+/// What a bare closing asks of the room, and where: its subtitle and its items, an ask that
+/// starts with an asking verb (book, contact, sign up, join, start, register, subscribe, try,
+/// visit, apply) and an address (a site and its page, or an email), either in one line or each
+/// its own. None where it has not both. The verbs are English: another language keeps its
+/// closing (lift-up ATTR-3).
+fn calling(slide: &Slide, items: &[Item]) -> Option<(String, String)> {
+    const ASKING: [&str; 10] =
+        ["book", "contact", "sign", "join", "start", "register", "subscribe", "try", "visit", "apply"];
+    let dotted = |w: &str| w.rsplit_once('.').is_some_and(|(_, tail)| tail.starts_with(|c: char| c.is_alphabetic()));
+    let address_of = |line: &str| {
+        (line.split_whitespace())
+            .map(|w| {
+                w.trim_matches(|c: char| matches!(c, ',' | ';' | '(' | ')' | '!' | '?')).trim_end_matches(['.', ':'])
+            })
+            .find(|w| w.contains('@') || dotted(w))
+            .map(str::to_string)
+    };
+    let lines: Vec<String> = std::iter::once(slide.subtitle.trim().to_string())
+        .chain(items.iter().map(|i| i.whole.clone()))
+        .filter(|l| !l.is_empty())
+        .collect();
+    let address = lines.iter().find_map(|l| address_of(l))?;
+    let ask = lines.iter().find_map(|l| {
+        // The ask without its address: "Book a demo at relay.app/demo" asks "Book a demo".
+        let rest = l.replace(&address, "");
+        let rest = rest.trim().trim_end_matches([':', '-', '\u{2013}', '\u{2014}', ',']).trim();
+        let rest = rest.strip_suffix(" at").unwrap_or(rest).trim();
+        let words: Vec<&str> = rest.split_whitespace().collect();
+        let first = words.first()?.trim_matches(|c: char| !c.is_alphanumeric()).to_lowercase();
+        (ASKING.contains(&first.as_str()) && words.len() <= 8).then(|| rest.to_string())
+    })?;
+    Some((ask, address))
+}
+
 /// Whether `layout` has a place for each of `n` items: a list or a body holds any number; a
 /// layout of places, one item for each ordinal; a line with its support, one; a quote, a number,
 /// or a definition, the two it sets beside it. A chart takes its takeaway alone, its figures in
@@ -2671,6 +2777,9 @@ struct Slots<'a> {
     running: Option<&'a str>,
     /// The picture made for the slide, if one was.
     picture: Option<&'a Placed>,
+    /// The deck's big idea, where the person settled an outline (narrative FUNC-1): what a closing
+    /// that only thanks the room heads its takeaways with (lift-up ATTR-3).
+    idea: Option<&'a str>,
     /// The icon each item is set under, where each has one (G.23).
     icons: Option<Vec<&'a Icon>>,
     /// The deck's language (BCP 47).
@@ -3175,12 +3284,21 @@ impl Slots<'_> {
         text(match name {
             // A slide's foot names the part of the talk it is in, as a running head does.
             "kicker" if self.foot(slot) => self.running.map(str::to_string),
+            // A bare thanks's takeaways under the deck's big idea, where it has one (lift-up ATTR-3).
+            "header" if layout == "takeaways" && self.title().is_some_and(|t| bare(&t)) => {
+                self.idea.map(str::to_string).or_else(|| self.title())
+            }
+            // A call to action's words: a bare closing's ask, not its thanks (lift-up ATTR-3).
+            "statement" if layout == "call-to-action" => calling(self.slide, self.items).map(|(ask, _)| ask),
             "header" | "title" | "statement" | "claim" | "ask" | "question" | "term" | "headline" | "point"
             | "name" | "thanks" | "top" => self.title(),
             "subtitle" | "support" | "dek" | "follow" | "talk" | "lede" | "role" => {
                 self.subtitle().or_else(|| self.item(0).map(|i| i.whole.clone()))
             }
             "hub" => self.subtitle().or_else(|| self.title()),
+            // A call to action's button: what it asks, as the slide says it (lift-up ATTR-3).
+            // A call to action's button: a bare closing's address (lift-up ATTR-3).
+            "button" => calling(self.slide, self.items).map(|(_, address)| address),
             "number" if matches!(layout, "section" | "section-photo") => self.section.map(|n| format!("{n:02}")),
             // A figure with its unit is set whole: "11 days", not "11".
             "number" => self.item(0).map(|i| match numeric(&i.whole) {
@@ -6024,6 +6142,90 @@ mod tests {
     }
 
     #[test]
+    fn a_deck_ends_on_what_it_leaves_the_room_with() {
+        // A closing's layout follows what it says (lift-up ATTR-3): three takeaways on numbered
+        // cards; a bare thanks that carries an ask, the ask with its address on a button; its last
+        // words over its picture; else the closing as it was said. A layout the person chose stays.
+        let deck_of = |closing: serde_json::Value| {
+            let text = serde_json::json!({
+                "executiveSummary": "Proof is the product.",
+                "slides": [
+                    { "slideTitle": "Proof is the product", "subtitle": "A talk", "layoutSuggestion": "Title",
+                      "keyBullets": [], "beatIndex": 0, "beatName": "Hook" },
+                    { "slideTitle": "Why green freight stalls", "subtitle": "", "layoutSuggestion": "Bullet List",
+                      "keyBullets": ["Verification is slow", "Offsets are opaque"], "beatIndex": 1, "beatName": "Problem" },
+                    closing,
+                ]
+            })
+            .to_string();
+            let written = answer::slides(&text).unwrap();
+            narrative(&written.executive_summary, written.slides)
+        };
+        let closing = |title: &str, subtitle: &str, bullets: &[&str]| {
+            serde_json::json!({ "slideTitle": title, "subtitle": subtitle, "layoutSuggestion": "Closing",
+              "keyBullets": bullets, "beatIndex": 2, "beatName": "Close" })
+        };
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let last = |n: &Narrative, pictures: &Pictures, chosen: &BTreeMap<usize, String>| {
+            let made = deck_as(n, &theme, pictures, chosen).unwrap();
+            let state = made.deck["states"][2]["id"].as_str().unwrap().to_string();
+            (made.layouts[2].clone(), shown(&made.deck, &state))
+        };
+        let none = BTreeMap::new();
+        let has = |said: &[(String, String)], slot: &str, words: &str| {
+            assert!(said.iter().any(|(s, w)| s == slot && w == words), "{slot} = {words:?} in {said:#?}");
+        };
+        // Three takeaways, each on its card.
+        let three =
+            deck_of(closing("What to remember", "", &["Proof is slow", "Ledgers are closed", "Shippers pay twice"]));
+        let (layout, said) = last(&three, &Pictures::new(), &none);
+        assert_eq!(layout, "takeaways");
+        has(&said, "third", "Shippers pay twice");
+        // A bare thanks with three points heads them with the deck's big idea, where the person
+        // settled an outline, else keeps its thanks.
+        let mut thanks =
+            deck_of(closing("Thank you", "", &["Proof is slow", "Ledgers are closed", "Shippers pay twice"]));
+        let (layout, said) = last(&thanks, &Pictures::new(), &none);
+        assert_eq!(layout, "takeaways");
+        has(&said, "header", "Thank you");
+        let beat = |name: &str| scaena_narrato::outline::Beat { name: name.into(), ..Default::default() };
+        thanks.outline = Some(scaena_narrato::outline::Outline {
+            big_idea: "Proof, not offsets, will clean up freight".into(),
+            beats: vec![beat("Hook"), beat("Problem"), beat("Close")],
+        });
+        let (layout, said) = last(&thanks, &Pictures::new(), &none);
+        assert_eq!(layout, "takeaways");
+        has(&said, "header", "Proof, not offsets, will clean up freight");
+        // A bare thanks that carries an ask: the ask its words, the address its button.
+        let ask = deck_of(closing("Thank you!", "Book a pilot at tidewater.io/pilot", &[]));
+        let (layout, said) = last(&ask, &Pictures::new(), &none);
+        assert_eq!(layout, "call-to-action");
+        has(&said, "statement", "Book a pilot");
+        has(&said, "button", "tidewater.io/pilot");
+        let questions = deck_of(closing("Questions?", "", &["Contact us: hello@tidewater.io"]));
+        let (layout, said) = last(&questions, &Pictures::new(), &none);
+        assert_eq!(layout, "call-to-action");
+        has(&said, "statement", "Contact us");
+        has(&said, "button", "hello@tidewater.io");
+        // A closing that says something stays as it is said, its ask and address and all.
+        let strong = deck_of(closing("Go home and find your twelve people", "portalderpower.org/playbook", &[]));
+        assert_eq!(last(&strong, &Pictures::new(), &none).0, "closing");
+        // A bare thanks with no ask, or an ask with nowhere to go, stays as it was.
+        for (title, subtitle) in [("Thank you", ""), ("Thank you", "relay.app"), ("Thanks", "Book a demo today")] {
+            let bare = deck_of(closing(title, subtitle, &[]));
+            assert_eq!(last(&bare, &Pictures::new(), &none).0, "closing", "{title} / {subtitle}");
+        }
+        // Its last words over its picture, not the cover's layout.
+        let plain = deck_of(closing("Every invoice checked before it is paid", "", &[]));
+        let pictured: Pictures = [(2, Placed { src: "assets/picture-2.jpg".into(), alt: "A port".into() })].into();
+        assert_eq!(last(&plain, &pictured, &none).0, "poster");
+        assert_eq!(last(&plain, &Pictures::new(), &none).0, "closing");
+        // The person's own closing stays as they chose it.
+        let chosen: BTreeMap<usize, String> = [(2, "closing".to_string())].into();
+        assert_eq!(last(&ask, &Pictures::new(), &chosen).0, "closing");
+    }
+
+    #[test]
     fn a_text_that_cannot_come_clear_of_what_lies_across_it_is_left_as_it_was() {
         // A picture over the whole of a divider: its title, grown to its place, collides with it
         // however small it is set, the collision as large for its size. One step shows it, and
@@ -6724,7 +6926,8 @@ mod tests {
             .collect();
         let made = deck(&climate(), &theme, &pictures).unwrap();
         let layouts: Vec<&str> = [0, 1, 2, 3, 24].iter().map(|i| made.layouts[*i].as_str()).collect();
-        assert_eq!(layouts, ["title-split", "agenda-photo", "section-photo", "number-photo", "title-split"]);
+        // The closing's last words over its picture, not the cover's layout (lift-up ATTR-3).
+        assert_eq!(layouts, ["title-split", "agenda-photo", "section-photo", "number-photo", "poster"]);
         let art = placed(&made.deck, 2, "art");
         assert_eq!(
             (art["type"].as_str(), art["src"].as_str(), art["alt"].as_str()),
@@ -7005,6 +7208,42 @@ mod tests {
             texts.push(json!({ "id": id, "text": cut }));
         }
         json!({ "texts": texts }).to_string()
+    }
+
+    /// A content slide is shown its beat's claim as what it must leave the audience with, and,
+    /// where no outline was settled, its purpose as what it does; a slide that names its part
+    /// (the cover, a divider, a Q&A, the agenda, the close) is shown neither, so nothing pushes
+    /// a takeaway into its title (lift-up ATTR-2).
+    #[test]
+    fn a_content_slide_is_shown_its_claim_and_one_that_names_its_part_none() {
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let mut narrative = climate();
+        let pictures = Pictures::new();
+        let layouts = deck(&narrative, &theme, &pictures).unwrap().layouts;
+        let framing = |k: usize| [0, 1, 2, 7, 11, 15, 21, 23, 24].contains(&k);
+        let captions = |n: &Narrative| -> Vec<String> {
+            seeing(n, &theme, &pictures, &layouts).iter().map(|s| scaena_narrato::look::caption(s, 25)).collect()
+        };
+        // No outline: each content slide's purpose, said as what it does, never as a takeaway.
+        for (k, c) in captions(&narrative).iter().enumerate() {
+            assert!(!c.contains("leave the audience"), "slide {}: {c}", k + 1);
+            assert_eq!(!framing(k), c.contains("\nWhat it does in the talk: "), "slide {}: {c}", k + 1);
+        }
+        assert!(captions(&narrative)[3].ends_with("\nWhat it does in the talk: Evidence\n</data>"));
+        // An outline settled: each content slide's beat's claim, and no purpose beside it.
+        let beats = (0..5)
+            .map(|b| scaena_narrato::outline::Beat {
+                name: format!("Beat {b}"),
+                claim: format!("Claim {b}"),
+                slides: 5,
+            })
+            .collect();
+        narrative.outline = Some(scaena_narrato::outline::Outline { big_idea: "We can halve it".into(), beats });
+        for (k, c) in captions(&narrative).iter().enumerate() {
+            assert!(!c.contains("What it does in the talk"), "slide {}: {c}", k + 1);
+            assert_eq!(!framing(k), c.contains("\nIt must leave the audience with: Claim "), "slide {}: {c}", k + 1);
+        }
+        assert!(captions(&narrative)[8].ends_with("\nIt must leave the audience with: Claim 2\n</data>"));
     }
 
     #[test]
