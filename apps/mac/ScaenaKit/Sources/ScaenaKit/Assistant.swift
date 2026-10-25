@@ -540,7 +540,7 @@ public final class Assistant {
 
     /// Why an answer stopped, in a person's words, where it did not simply end: `stopped`,
     /// `steps`, `length`, or the provider's own reason. None where it ended as answers do.
-    public static func stopped(_ why: String) -> String? {
+    nonisolated public static func stopped(_ why: String) -> String? {
         switch why {
         case "end", "tools": nil
         case "stopped": "Stopped."
