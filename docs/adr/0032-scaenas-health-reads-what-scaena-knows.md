@@ -1,6 +1,6 @@
 # ADR-0032: Scaena's health reads what Scaena knows
 
-**Status:** proposed · **Date:** 2026-10-24 · **Decides:** Jay
+**Status:** accepted · **Date:** 2026-10-24 · **Decided:** 2026-10-25, Jay
 
 ## Context
 
@@ -117,10 +117,13 @@ It removes a contradiction with lint: balance marked a one-idea slide down while
 
 ## Decision
 
-Jay's to make:
-- **Adopt** 4 (moves no figure).
-- **Adopt** 1 (inert until lint sees more).
-- **Adopt** 5, with its test deck.
-- **Hold** 2 and 3. Tone from the visible words gains little over the lexicon's silence. One-idea balance raises scores that are already too high; it should come only together with a cap that lint can feed.
+Jay, 2026-10-25: "your recommendation". It is the recommendation above, with what dogfood pass 7 added (`wip/dogfood-decks` 93ce8d04, `dogfood7/findings.md`, item 8):
 
-Each adopted item is a small follow-up behind #532's tests. The pinned climate figures (`a_generated_talks_figures_are_vzestups`) are re-pinned in the same commit that moves them, with this ADR named in it.
+- **1, adopted.** Lint now sees more of what the first pass saw: text over text, judged by its glyphs' ink (E101); a place a layout leaves empty (W304); a big number's tail over the words under it (I405). The builder also no longer draws a figure its writer didn't write (DF7-1).
+- **2, adopted in its narrow form, for intensity as for tone.** A gap finding is raised only where the slide's words read something in the lexicon. Where they read nothing, health says nothing of them. No figure moves. Pass 7 found plainly hopeful English read as neutral (appeal 8 and 9), and German read as neutral where the lexicons read no German (board-de 6). A language the lexicons don't read has no intensity or tone score, as #532 says.
+- **3, adopted with 1.** A one-idea layout's points are left out of the average. A slide that draws a picture, a chart, or a table counts as showing something. With the cap and the lint above, scores fall where slides are broken and stop falling where a slide is one idea by design.
+- **4, adopted** (#609).
+- **5, adopted.** It is measured on the Japanese keynote (`keynote-ja.json`) before and after.
+- **6, added: a calm close is no bend.** In pass 7, all four decks got "planned cooler than its place in the talk" on their last two or three slides, the closing at 0.3 against a curve at 0.90–0.96. A calm "Questions?" or "Vielen Dank" is right. The bend finding is not raised on the deck's closing slides, its last run of slides in a closing layout. No figure moves.
+
+`a_generated_talks_figures_are_vzestups` is re-pinned in the commit that moves the figures, naming this ADR.
