@@ -819,7 +819,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
             Kind::Turn,
             format!("Slide {k} shares little with slide {before}: the turn between them may lose the room."),
             format!(
-                "Let slide {k}'s own words carry the turn: its headline or its first line picking up from slide {before}."
+                "Write the line that carries the talk from slide {before} to slide {k}, and put it in slide {k}'s notes."
             ),
             None,
         );
