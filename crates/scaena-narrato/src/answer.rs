@@ -177,31 +177,32 @@ pub fn normalize(raw: &Value) -> Slide {
     }
 }
 
-/// Chart data as Narrato's `normalizeChartData` keeps it: categories that are words, series with
-/// a finite value at least, each series' name where it has one; none where no category or no
-/// series is left. Each value keeps its category's place (STAB-1): one that is not a finite number
-/// (a model's `null` for a quarter it does not know) is none there, never the next category's;
-/// and a series that gives a different count of values than there are categories is left out,
-/// since none of its values can be placed.
+/// Chart data as Narrato's `normalizeChartData` keeps it: categories that are words, each series'
+/// name where it has one, a series that gives no values left out as Narrato leaves it; none where
+/// no category or no series is left. Each value keeps its category's place (STAB-1): one that is
+/// not a finite number (a model's `null` for a quarter it does not know) is none there, never the
+/// next category's. A chart any series of which gives a different count of values than there are
+/// categories, or no number among them, is none: the slide's words were written about every
+/// series, and a chart that lost one would draw them over the rest.
 fn chart_data(raw: &Value) -> Option<ChartData> {
     let words = |v: &Value| v.as_str().map(js::trim).filter(|s| !s.is_empty()).map(str::to_string);
     let named: Vec<Option<String>> =
         raw.get("categories").and_then(Value::as_array).into_iter().flatten().map(words).collect();
     let categories: Vec<String> = named.iter().flatten().cloned().collect();
     let series: Vec<Series> = (raw.get("series").and_then(Value::as_array).into_iter().flatten())
-        .filter_map(|s| {
-            let values = s.get("values").and_then(Value::as_array)?;
-            (values.len() == named.len()).then(|| Series {
+        .filter_map(|s| Some((s, s.get("values").and_then(Value::as_array).filter(|v| !v.is_empty())?)))
+        .map(|(s, values)| {
+            let series = Series {
                 name: s.get("name").and_then(words),
                 // A category that is no word goes with its value in every series.
                 values: (values.iter().zip(&named))
                     .filter(|(_, category)| category.is_some())
                     .map(|(v, _)| v.as_f64().filter(|v| v.is_finite()))
                     .collect(),
-            })
+            };
+            (values.len() == named.len() && series.values.iter().any(Option::is_some)).then_some(series)
         })
-        .filter(|s| s.values.iter().any(Option::is_some))
-        .collect();
+        .collect::<Option<_>>()?;
     if categories.is_empty() || series.is_empty() {
         return None;
     }
@@ -359,30 +360,27 @@ mod tests {
         assert!(s.icons.is_empty(), "a slide that names no icon has none");
     }
 
-    /// A value the model gave no number for keeps its category's place, and a series that counts
-    /// its values otherwise than the categories is left out (STAB-1).
+    /// A value the model gave no number for keeps its category's place, and a chart a series of
+    /// which counts its values otherwise than the categories, or gives no number, is none (STAB-1).
     #[test]
-    fn a_missing_value_keeps_its_category_and_a_miscounted_series_is_left_out() {
+    fn a_missing_value_keeps_its_category_and_a_miscounted_series_drops_the_chart() {
         let chart = |raw: Value| chart_data(&raw);
         let quarters = json!(["Q3 FY25", "Q4 FY25", "Q1 FY26", "Q2 FY26", "Q3 FY26"]);
         let held = chart(json!({ "categories": quarters, "series": [{ "values": [33.9, null, 40.1, 44.2, 48.2] }] }));
         let held = held.unwrap();
         assert_eq!(held.series[0].values, [Some(33.9), None, Some(40.1), Some(44.2), Some(48.2)]);
         assert_eq!(held.categories.len(), 5);
-        // One series short of a value: it is left out, and the other stands.
-        let two = chart(json!({ "categories": quarters, "series": [
-            { "name": "ARR", "values": [33.9, 40.1, 44.2, 48.2] },
-            { "name": "NRR", "values": [110, 111, 112, 113, 114] },
-        ] }))
-        .unwrap();
-        assert_eq!(two.series.len(), 1);
-        assert_eq!(two.series[0].name.as_deref(), Some("NRR"));
-        // No series left: no chart, and the slide is drawn from its words.
-        assert!(chart(json!({ "categories": quarters, "series": [{ "values": [1, 2, 3] }] })).is_none());
-        assert!(
-            chart(json!({ "categories": quarters, "series": [{ "values": [null, null, null, null, null] }] }))
-                .is_none()
-        );
+        // Values missing before the first given keep their places too.
+        let late = chart(json!({ "categories": quarters, "series": [{ "values": [null, null, 3, 5, 8] }] })).unwrap();
+        assert_eq!(late.series[0].values, [None, None, Some(3.0), Some(5.0), Some(8.0)]);
+        // One series short of a value, or with no number: no chart, though the other stands whole,
+        // and the slide is drawn from its words, which were written about both.
+        let short = json!({ "name": "ARR", "values": [33.9, 40.1, 44.2, 48.2] });
+        let blank = json!({ "name": "ARR", "values": [null, null, null, null, null] });
+        let whole = json!({ "name": "NRR", "values": [110, 111, 112, 113, 114] });
+        assert!(chart(json!({ "categories": quarters, "series": [short, whole] })).is_none());
+        assert!(chart(json!({ "categories": quarters, "series": [blank, whole] })).is_none());
+        assert!(chart(json!({ "categories": quarters, "series": [whole] })).is_some());
     }
 
     /// Scaena's `icons` (PLAN G.23): a word for each bullet, each trimmed, what is not a word left
