@@ -688,6 +688,7 @@ impl Generating {
                 let mut out = self.after_look(making, key)?;
                 out["looked"] = json!(looked);
                 out["unlooked"] = report["unlooked"].clone();
+                out["refused"] = report["refused"].clone();
                 out["drawn"] = json!(drawn);
                 out
             }

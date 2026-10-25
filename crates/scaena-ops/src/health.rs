@@ -150,6 +150,9 @@ pub enum Kind {
     /// The deck runs past the range of slides its brief asked for; this slide turns least from
     /// the one before, and is the first to cut.
     Pacing,
+    /// A change the model asked once it saw the slide drawn was not kept, lint having found the
+    /// slide worse for it (`meta.narrative.refused`, lift-up USE-4).
+    Look,
 }
 
 /// Something to look at on one slide: what it says, what to ask the assistant, and, where one
@@ -1249,6 +1252,23 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
             Kind::Layout,
             format!("Slide {k} does not stand as it is to be read: {what}{more}"),
             format!("Fix what lint finds wrong on slide {k}, so it reads as it should: {what}"),
+            None,
+        );
+    }
+    // Each change the model asked once it saw the deck drawn that was let go, and why (lift-up
+    // USE-4): what the person may try again, by hand or with the assistant.
+    let refused = narrative.and_then(|n| n.get("refused")).and_then(Value::as_array).into_iter().flatten();
+    for r in refused {
+        let text = |key: &str| r.get(key).and_then(Value::as_str).unwrap_or_default();
+        let Some(k) = r.get("slide").and_then(Value::as_u64).map(|k| k as usize) else { continue };
+        let Some(slide) = k.checked_sub(1).and_then(|i| slides.get(i)) else { continue };
+        let (what, why) = (text("what"), text("why"));
+        find(
+            &deck.states[slide.states[0]].id,
+            Severity::Info,
+            Kind::Look,
+            format!("Slide {k} was kept as made: the model asked for {what}, and lint found it worse for that. {why}"),
+            format!("The model asked slide {k} for {what}. Make that change without what lint found it caused: {why}"),
             None,
         );
     }

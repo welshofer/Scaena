@@ -1051,6 +1051,14 @@ struct PresenterView: View {
                         .accessibilityAddTraits(.isButton)
                         .accessibilityAction { showing.on() }
                     }
+                    // Where the talk is (lift-up FUNC-2): the section and the beat's claim.
+                    if let story = show.slot?.story, !story.told.isEmpty {
+                        Text(story.told)
+                            .font(.title3)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                            .accessibilityIdentifier("story")
+                    }
                     HStack(spacing: 12) {
                         Text(showing.progress)
                         Button("Slides") { navigating = true }
@@ -1077,6 +1085,16 @@ struct PresenterView: View {
                                 }
                                 .font(.body)
                                 .accessibilityIdentifier("reset-timer")
+                                // Against the plan, where the deck plans its beats' times.
+                                if let story = show.slot?.story,
+                                    show.slots.contains(where: { $0.story?.planned != nil })
+                                {
+                                    Text(story.pace(elapsed: showing.stopwatch.elapsed(at: context.date)))
+                                        .monospacedDigit()
+                                        .foregroundStyle(.secondary)
+                                        .accessibilityLabel("Against the plan")
+                                        .accessibilityIdentifier("pace")
+                                }
                                 Text(context.date, format: .dateTime.hour().minute())
                                     .monospacedDigit()
                                     .foregroundStyle(.secondary)
