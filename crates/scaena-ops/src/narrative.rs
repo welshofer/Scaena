@@ -1056,7 +1056,7 @@ pub fn refusals(
             let mut new: Vec<Finding> = (on(after.0, after.1, index).into_iter())
                 .filter(|f| !was.iter().any(|w| w.code == f.code && w.node == f.node))
                 .collect();
-            new.sort_by_key(|f| f.severity != Severity::Error);
+            scaena_core::sort::by_key(&mut new, |f| f.severity != Severity::Error);
             let why = (new.first())
                 .map(|f| scaena_core::words::said(&f.code, f.measure.as_ref()).unwrap_or_else(|| f.message.clone()))
                 .unwrap_or_else(|| "lint found the slide worse for it".into());
