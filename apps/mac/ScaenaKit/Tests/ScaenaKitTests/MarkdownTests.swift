@@ -46,4 +46,9 @@ import Testing
     #expect(shown[host].link == URL(string: "https://Evil.example:8443/k?x=1"))
     #expect(MarkdownBlocks.host(of: URL(string: "scaena-state:cover")!) == nil)
     #expect(String(MarkdownBlocks.hosted(AttributedString("no links")).characters) == "no links")
+    // Words that only hold part of the host do not hide it; words that name it whole do.
+    let part = try AttributedString(markdown: "[paypal.com](https://pal.com/)", options: inline)
+    #expect(String(MarkdownBlocks.hosted(part).characters) == "paypal.com (pal.com)")
+    #expect(MarkdownBlocks.names("See https://www.example.com/a.", "example.com"))
+    #expect(!MarkdownBlocks.names("paypal.com", "pal.com"))
 }

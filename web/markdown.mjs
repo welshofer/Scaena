@@ -100,6 +100,14 @@ check(
     named.title === "https://www.example.com/a",
   `a link says where it goes: ${into.html}`,
 );
+// The host said is the one the click opens, read by the browser's own parser, which takes `\`
+// as `/`; and words that only hold part of a host do not hide it.
+render("[Your account](https://evil.example\\@good.example/x) and [paypal.com](https://pal.com/)", into);
+const [spoofed, part] = into.children[0].children.filter((c) => c instanceof Element);
+check(
+  spoofed.textContent === "Your account (evil.example)" && part.textContent === "paypal.com (pal.com)",
+  `the host said is the one opened, never hidden by part of the words: ${into.html}`,
+);
 render("<b>not html</b> & **bold**", into);
 check(into.html === "<li><p><b>not html</b> & <strong>bold</strong></p></li>" && into.textContent === "<b>not html</b> & bold", `the model's text is text, never markup: ${into.html}`);
 render("[js](javascript:alert(1)) and [state](state:nowhere)", into, { states: ["cover"], show: () => {} });

@@ -146,8 +146,7 @@ extension MarkdownBlocks {
         var out = AttributedString()
         for (link, range) in text.runs[\.link] {
             out.append(text[range])
-            guard let link, let going = Self.host(of: link),
-                !String(text[range].characters).lowercased().contains(going)
+            guard let link, let going = Self.host(of: link), !Self.names(String(text[range].characters), going)
             else { continue }
             var said = AttributedString(" (\(going))")
             said.link = link
@@ -160,9 +159,23 @@ extension MarkdownBlocks {
     /// address.
     public static func host(of url: URL) -> String? {
         guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https",
-            var host = url.host()?.lowercased(), !host.isEmpty
+            var host = url.host(percentEncoded: false)?.lowercased(), !host.isEmpty
         else { return nil }
         if host.hasPrefix("www.") { host.removeFirst(4) }
         return host
+    }
+
+    /// Whether `words` name `host` whole, as the browser's `names` reads them: one of their
+    /// tokens, split at white space and at every mark but `.` and `-`, a trailing `.` and a `www.`
+    /// taken off, is the host. A host the words only hold part of is said (`pal.com` under the
+    /// words "paypal.com").
+    public static func names(_ words: String, _ host: String) -> Bool {
+        let tokens = words.lowercased().split { !($0.isLetter || $0.isNumber || $0 == "." || $0 == "-") }
+        return tokens.contains { token in
+            var name = token
+            while name.hasSuffix(".") { name = name.dropLast() }
+            if name.hasPrefix("www.") { name = name.dropFirst(4) }
+            return name == host
+        }
     }
 }

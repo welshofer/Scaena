@@ -178,7 +178,7 @@ function webLink(words: string, url: string): HTMLAnchorElement {
   a.title = url;
   a.textContent = words;
   const host = hostOf(url);
-  if (host && !words.toLowerCase().includes(host)) {
+  if (host && !names(words, host)) {
     const where = document.createElement("span");
     where.className = "host";
     where.textContent = ` (${host})`;
@@ -187,11 +187,27 @@ function webLink(words: string, url: string): HTMLAnchorElement {
   return a;
 }
 
-/** The host `url` goes to, in lower case, without a port or `www.`: none where it reads as no
- * web address. */
+/** The host `url` goes to, in lower case, without a port or `www.`: none where it is no web
+ * address. Read by the parser a click goes through, so the host said is the one opened: it
+ * takes `\` as `/`, as no pattern written apart would. */
 export function hostOf(url: string): string | undefined {
-  const host = /^https?:\/\/(?:[^@/?#]*@)?([^/?#:]+)/i.exec(url)?.[1]?.toLowerCase();
-  return host?.replace(/^www\./, "") || undefined;
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return undefined;
+    return parsed.hostname.toLowerCase().replace(/^www\./, "") || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Whether `words` name `host` whole: one of their tokens, split at white space and at every mark
+ * but `.` and `-`, a trailing `.` and a `www.` taken off, is the host. A host the words only
+ * hold part of is said (`pal.com` under the words "paypal.com"). */
+export function names(words: string, host: string): boolean {
+  return words
+    .toLowerCase()
+    .split(/[^\p{L}\p{N}.\-]+/u)
+    .some((token) => token.replace(/\.+$/, "").replace(/^www\./, "") === host);
 }
 
 function stateLink(words: string, state: string, show: (state: string) => void): HTMLAnchorElement {
