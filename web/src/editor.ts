@@ -639,7 +639,6 @@ async function edit(source: Source, opened?: Stage) {
       }
       await keep(key, { at: Date.now(), name, source: view.state.doc.toString(), files: [...written.keys()], removed }, files);
       copied = new Map(written);
-      void persist(say);
     };
     copying = copying.then(run, run).catch((e: unknown) => console.warn(`The recovery copy was not kept: ${said(e)}`));
     return copying;

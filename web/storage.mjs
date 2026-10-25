@@ -24,8 +24,9 @@
 //   why; one is deleted, asked first, and is gone. The deck open here is marked, is not deleted,
 //   and renamed, goes on where it is kept now: the address names it, and a save writes there.
 //   Escape in a name leaves it as it was, the list open.
-// - A browser that will not keep the page's storage for good is asked once, at the first keep, and
-//   its refusal is said once; the list says it may clear the decks (lift-up 10-24b REL-4).
+// - A browser that will not keep the page's storage for good is asked once, at the first save into
+//   it, never at an edit, and its refusal is said once; the list says it may clear the decks
+//   (lift-up 10-24b REL-4).
 // Exits 1 on any failure.
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
@@ -123,6 +124,10 @@ try {
   const source = await page.evaluate(() => window.scaena.source());
   const edited = source.replace('"Revenue doubled"', '"Revenue more than doubled"');
   check((await type(edited)).valid && (await where()).dirty, "an edit marks the bundle changed");
+  // Past the recovery copy's 2 s: an edit keeps that copy, and asks the browser nothing (Firefox
+  // would prompt for a deck the person never kept there).
+  await page.waitForTimeout(3000);
+  check((await page.evaluate(() => window.persistAsked())) === 0 && (await mayClear()) === 0, "an edit with nothing saved asks the browser nothing, and says nothing of it");
 
   const broken = edited.replace("state close layout:title", "state close layout:");
   await type(broken);
