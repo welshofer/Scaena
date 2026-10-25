@@ -41,12 +41,14 @@ use thiserror::Error;
 pub enum StoreError {
     #[error("io: {0}")]
     Io(#[from] std::io::Error),
-    /// A file or folder of the bundle that could not be read, and why: not found, permission
-    /// denied, a folder where a file goes (lift-up 10-24b USE-3).
-    #[error("reading {}: {source}", path.display())]
+    /// A file or folder of the bundle that could not be read, and why, its `source`: not found,
+    /// permission denied, a folder where a file goes (lift-up 10-24b USE-3). The message names
+    /// the path and the source says why, once: anyhow's chain says it in the CLI, and
+    /// `scaena_ops`' errors join it.
+    #[error("reading {}", path.display())]
     Read { path: PathBuf, source: std::io::Error },
-    /// A file of the bundle that could not be written or removed, and why.
-    #[error("writing {}: {source}", path.display())]
+    /// A file of the bundle that could not be written or removed, and why, its `source`.
+    #[error("writing {}", path.display())]
     Write { path: PathBuf, source: std::io::Error },
     #[error("`{0}` is not in the bundle")]
     Missing(String),

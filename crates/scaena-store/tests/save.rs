@@ -324,8 +324,21 @@ fn a_link_out_of_the_bundle_is_neither_read_written_nor_walked() {
     assert!(!outside.join("q3.csv").exists());
 }
 
+/// What an error says with the causes behind it, as anyhow's `{:#}` says it: the path, then
+/// the system's reason, each once.
+fn told(e: &dyn std::error::Error) -> String {
+    let mut said = e.to_string();
+    let mut cause = e.source();
+    while let Some(c) = cause {
+        said = format!("{said}: {c}");
+        cause = c.source();
+    }
+    said
+}
+
 /// A bundle that cannot be read or written says which file and why, as the system said it: a
-/// folder where a file goes, a path through a file (lift-up 10-24b USE-3).
+/// folder where a file goes, a path through a file (lift-up 10-24b USE-3). Each once: the
+/// message names the path and its source the reason.
 #[test]
 fn a_file_that_cannot_be_read_or_written_says_which_and_why() {
     let dir = scratch("says-why");
@@ -334,7 +347,7 @@ fn a_file_that_cannot_be_read_or_written_says_which_and_why() {
     let theme = bundle.join("theme.json");
     std::fs::remove_file(&theme).unwrap();
     std::fs::create_dir(&theme).unwrap();
-    let said = Bundle::open(&bundle).expect_err("a theme that is a folder").to_string();
+    let said = told(&Bundle::open(&bundle).expect_err("a theme that is a folder"));
     assert!(said.starts_with(&format!("reading {}: ", theme.display())), "{said}");
     assert!(said.to_ascii_lowercase().contains("is a directory"), "{said}");
     std::fs::remove_dir(&theme).unwrap();
@@ -342,7 +355,8 @@ fn a_file_that_cannot_be_read_or_written_says_which_and_why() {
     // Saved under a file, as if it were a folder: the file it stopped at, and why.
     let blocked = dir.join("a-file");
     std::fs::write(&blocked, b"not a folder").unwrap();
-    let said = Bundle::open(&bundle).unwrap().save(&blocked.join("out"), &opts()).expect_err("no folder").to_string();
+    let said = told(&Bundle::open(&bundle).unwrap().save(&blocked.join("out"), &opts()).expect_err("no folder"));
     assert!(said.starts_with(&format!("writing {}", blocked.join("out").display())), "{said}");
     assert!(said.to_ascii_lowercase().contains("not a directory"), "{said}");
+    assert_eq!(said.to_ascii_lowercase().matches("not a directory").count(), 1, "the reason once: {said}");
 }
