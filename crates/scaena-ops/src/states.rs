@@ -62,11 +62,7 @@ pub struct SlotEmpty {
 /// follows (`revenue-2`, after `revenue`), a slide `slide`, `slide-2`, …: the first that names
 /// no state.
 pub fn adding(deck: &Deck, shown: &str, what: Adding) -> Result<AddedState, OpsError> {
-    let i = deck
-        .states
-        .iter()
-        .position(|s| s.id == shown)
-        .ok_or_else(|| OpsError::new(format!("unknown state `{shown}`")))?;
+    let i = deck.states.iter().position(|s| s.id == shown).ok_or_else(|| OpsError::unknown_state(deck, shown))?;
     let slide = deck.states[i].slide.clone().unwrap_or_else(|| shown.to_string());
     let (id, after, state) = match what {
         Adding::Step => {
@@ -151,11 +147,7 @@ pub fn starting_as(
     {
         return Err(OpsError::new(format!("a state is named `{id}` already")));
     }
-    let i = deck
-        .states
-        .iter()
-        .position(|s| s.id == shown)
-        .ok_or_else(|| OpsError::new(format!("unknown state `{shown}`")))?;
+    let i = deck.states.iter().position(|s| s.id == shown).ok_or_else(|| OpsError::unknown_state(deck, shown))?;
     let template = match layout {
         Some(name) => {
             Some(theme.layouts.get(name).ok_or_else(|| OpsError::new(format!("the theme has no layout `{name}`")))?)
@@ -640,8 +632,7 @@ pub struct Filled {
 /// an empty slot's words puts there, as a presentation app's placeholder fills.
 pub fn filling(deck: &Deck, theme: &Theme, state: &str, slot: &str) -> Result<Filled, OpsError> {
     let snaps = scaena_core::resolve_states(deck).context("tracking")?;
-    let snap =
-        snaps.iter().find(|s| s.state_id == state).ok_or_else(|| OpsError::new(format!("unknown state `{state}`")))?;
+    let snap = snaps.iter().find(|s| s.state_id == state).ok_or_else(|| OpsError::unknown_state(deck, state))?;
     let layout = snap.layout.as_deref().ok_or_else(|| OpsError::new(format!("`{state}` is in no layout")))?;
     let s = theme
         .layouts
@@ -651,7 +642,7 @@ pub fn filling(deck: &Deck, theme: &Theme, state: &str, slot: &str) -> Result<Fi
     let node = slot_node(slot, s, scaena_core::direction::mirrored(deck)).filter(|n| n["type"] == "text").ok_or_else(
         || OpsError::new(format!("the slot `{slot}` waits for no words: a picture or a figure goes there")),
     )?;
-    let i = deck.state_index(state).ok_or_else(|| OpsError::new(format!("unknown state `{state}`")))?;
+    let i = deck.state_index(state).ok_or_else(|| OpsError::unknown_state(deck, state))?;
     let slide = deck.slide_of(&deck.states[i]);
     let id = named(deck, &format!("{slide}-{}", slug(slot, "slot")), &[]);
     let made = [(id.clone(), serde_json::from_value(node.clone()).context("a slot's node")?)];
@@ -667,8 +658,7 @@ pub fn filling(deck: &Deck, theme: &Theme, state: &str, slot: &str) -> Result<Fi
 /// them whole as typing begins in them, so typing replaces them, as a placeholder's are.
 pub fn prompted(deck: &Deck, theme: &Theme, state: &str, node: &str) -> Result<bool, OpsError> {
     let snaps = scaena_core::resolve_states(deck).context("tracking")?;
-    let snap =
-        snaps.iter().find(|s| s.state_id == state).ok_or_else(|| OpsError::new(format!("unknown state `{state}`")))?;
+    let snap = snaps.iter().find(|s| s.state_id == state).ok_or_else(|| OpsError::unknown_state(deck, state))?;
     let Some(props) = snap.nodes.get(node) else { return Ok(false) };
     let slot = props.get("at").filter(|a| a.get("parent").is_none()).and_then(|a| a.get("in")?.as_str());
     let prompt = (snap.layout.as_deref().and_then(|l| theme.layouts.get(l)))
@@ -711,8 +701,7 @@ pub fn waiting(
         return Ok(Vec::new());
     };
     let snaps = scaena_core::resolve_states(deck).context("tracking")?;
-    let snap =
-        snaps.iter().find(|s| s.state_id == state).ok_or_else(|| OpsError::new(format!("unknown state `{state}`")))?;
+    let snap = snaps.iter().find(|s| s.state_id == state).ok_or_else(|| OpsError::unknown_state(deck, state))?;
     let filled: Vec<&str> = snap
         .nodes
         .values()

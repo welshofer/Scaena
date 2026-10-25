@@ -157,7 +157,7 @@ fn brief(args: &Value) -> Result<Brief, Failure> {
 fn asked(args: &Value) -> Result<(Provider, String, Option<String>), Failure> {
     let name = args.get("provider").and_then(Value::as_str).ok_or_else(|| said("`provider` is a string it needs"))?;
     let model = args.get("model").and_then(Value::as_str).unwrap_or_default().to_string();
-    let base = args.get("base").and_then(Value::as_str).filter(|b| !b.is_empty()).map(str::to_string);
+    let base = crate::base(args)?.map(str::to_string);
     Ok((provider(name)?, model, base))
 }
 
@@ -259,7 +259,7 @@ impl Generating {
                 let script =
                     scaena_ops::scripts::needed(language, "", shipped.text, &|file| shipped_font(&shipped, file))
                         .map_err(said)?;
-                let base = args.get("base").and_then(Value::as_str).filter(|b| !b.is_empty());
+                let base = crate::base(args)?;
                 json!({ "script": script.map(|s| json!({
                     "key": s.key, "family": s.family, "language": s.language, "url": s.url(base),
                     "sha256": s.sha256, "bytes": s.bytes,
@@ -350,7 +350,7 @@ impl Generating {
             }
             "imageModels" => {
                 let provider = provider(arg("provider")?)?;
-                let base = args.get("base").and_then(Value::as_str).filter(|b| !b.is_empty());
+                let base = crate::base(args)?;
                 json!({ "request": request(provider.models(arg("key")?, base, false)) })
             }
             "imageModelsRead" => {
@@ -374,7 +374,7 @@ impl Generating {
                 let settings = scaena_narrato::pictures::Settings {
                     provider: provider(arg("provider")?)?,
                     model: arg("model")?.to_string(),
-                    base: args.get("base").and_then(Value::as_str).filter(|b| !b.is_empty()).map(str::to_string),
+                    base: crate::base(args)?.map(str::to_string),
                     quality: (args.get("quality").and_then(Value::as_str))
                         .and_then(scaena_narrato::pictures::Quality::named)
                         .unwrap_or_default(),
@@ -435,7 +435,7 @@ impl Generating {
                 let settings = scaena_narrato::pictures::Settings {
                     provider: provider(arg("provider")?)?,
                     model: arg("model")?.to_string(),
-                    base: args.get("base").and_then(Value::as_str).filter(|b| !b.is_empty()).map(str::to_string),
+                    base: crate::base(args)?.map(str::to_string),
                     quality: (args.get("quality").and_then(Value::as_str))
                         .and_then(scaena_narrato::pictures::Quality::named)
                         .unwrap_or_default(),
@@ -648,7 +648,13 @@ impl Generating {
                     })
                     .collect();
                 let fit = self.fitting(making, key)?;
-                json!({ "looked": looked, "unlooked": report["unlooked"], "fit": fit, "drawn": drawn })
+                json!({
+                    "looked": looked,
+                    "unlooked": report["unlooked"],
+                    "refused": report["refused"],
+                    "fit": fit,
+                    "drawn": drawn,
+                })
             }
             "fitted" => {
                 // A busy provider: the fit asked again, after the wait Swift is told (lift-up
