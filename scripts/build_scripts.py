@@ -34,6 +34,9 @@ import build_torture_fonts as torture  # noqa: E402
 ROOT = torture.ROOT
 COMMON = ROOT / "crates/scaena-store/src/common.rs"
 FIXTURES = ROOT / "tests/fixtures/scripts"
+# Japanese the engine's tests set beside `japanese.json`'s slides: a phrase longer than its line
+# (crates/scaena-engine/tests/text.rs).
+TESTS_TEXT = "これは本当にうまくいくかもしれない"
 
 # Each set: its name, what it is, the codec that encodes the standard, the lead bytes of its
 # first level, the code points to look among, and how many the standard has.
@@ -88,9 +91,9 @@ def common() -> str:
 
 
 def japanese_chars() -> set[int]:
-    """Every character of `japanese.json`, the letters a theme is asked for before a deck is
-    written in Japanese (`LETTERS` in scaena_ops::narrative), CJK punctuation, and full-width
-    forms."""
+    """Every character of `japanese.json`, of the engine's tests' own Japanese (`TESTS_TEXT`), the
+    letters a theme is asked for before a deck is written in Japanese (`LETTERS` in
+    scaena_ops::narrative), CJK punctuation, and full-width forms."""
     import re
 
     text = json.dumps(json.loads((FIXTURES / "japanese.json").read_text(encoding="utf-8")), ensure_ascii=False)
@@ -98,7 +101,7 @@ def japanese_chars() -> set[int]:
     letters = re.search(r'\("Japanese", "([^"]*)"\)', narrative)
     if not letters:
         sys.exit("scaena_ops::narrative::LETTERS names no letters for Japanese")
-    chars = {ord(c) for c in text + letters[1]}
+    chars = {ord(c) for c in text + TESTS_TEXT + letters[1]}
     chars.update(range(0x3000, 0x3040))
     chars.update(range(0xFF01, 0xFF5F))
     return chars
@@ -129,7 +132,7 @@ def build(cache: Path | None) -> None:
         (FIXTURES / file).write_bytes(torture.fetch(path, pinned, cache))
     rows = [
         ("NotoSansDevanagari-VF.ttf", DEVANAGARI[0], "whole, the upstream bytes"),
-        ("NotoSansJP-subset.ttf", JP[0], "subset to `japanese.json`, CJK punctuation, and full-width forms"),
+        ("NotoSansJP-subset.ttf", JP[0], "subset to `japanese.json`, the engine tests' Japanese, CJK punctuation, and full-width forms"),
     ]
     lines = [
         "# Script fonts for the tests: provenance",
