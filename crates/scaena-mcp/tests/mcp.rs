@@ -604,6 +604,42 @@ async fn an_agent_starts_a_slide_sets_a_background_and_builds_from_written_slide
     client.cancel().await.unwrap();
 }
 
+/// Slides told in a planned spine's beats out of order stand in the spine's order (lift-up 10-25c
+/// STAB-3): the first beat's, the third's, then the second's between them, and no W426.
+#[tokio::test(flavor = "multi_thread")]
+async fn slides_told_out_of_order_stand_in_the_spines_order() {
+    let root = scratch("spine-order");
+    let client = connect_in(&root).await;
+    let slides: Value =
+        serde_json::from_str(&std::fs::read_to_string("../scaena-narrato/tests/answers/catalog.json").unwrap())
+            .unwrap();
+    let dir = root.join("ordered");
+    ok(&client, "deck_create", json!({ "bundle": path(&dir), "theme": "ember", "title": "Tidewater" })).await;
+    let spine = json!({ "sections": [{ "id": "why", "title": "Why now", "beats": [
+        { "id": "stakes", "claim": "Coastal towns lose a season to every storm", "states": [] },
+        { "id": "answer", "claim": "Tidewater keeps the harbor open", "states": [] },
+        { "id": "ask", "claim": "Eighteen million crosses the Atlantic", "states": [] },
+    ] }] });
+    ok(&client, "spine_update", json!({ "bundle": path(&dir), "spine": spine })).await;
+    let mut firsts = std::collections::BTreeMap::new();
+    for (k, beat) in [(0, "stakes"), (1, "ask"), (2, "answer")] {
+        let w = ok(&client, "slide_write", json!({ "bundle": path(&dir), "slide": slides["slides"][k], "beat": beat }))
+            .await;
+        assert_eq!(w["errors"], json!(0), "{w:#}");
+        firsts.insert(beat, w["slide"][0].as_str().unwrap().to_string());
+    }
+    let d: Value = serde_json::from_str(&std::fs::read_to_string(dir.join("deck.json")).unwrap()).unwrap();
+    let played: Vec<&str> = (d["states"].as_array().unwrap().iter())
+        .filter(|s| s.get("slide").is_none())
+        .map(|s| s["id"].as_str().unwrap())
+        .collect();
+    assert_eq!(played, ["stakes", "answer", "ask"].map(|b| firsts[b].as_str()), "{played:?}");
+    let lint = ok(&client, "deck_lint", json!({ "bundle": path(&dir) })).await;
+    let codes: Vec<&str> = (lint["findings"].as_array().unwrap().iter()).filter_map(|f| f["code"].as_str()).collect();
+    assert!(!codes.contains(&"W426"), "{codes:?}");
+    client.cancel().await.unwrap();
+}
+
 /// A theme that ships, by its name, as deck_create takes one (PLAN T.0d): copied into the bundle
 /// with its fonts, and Salon by `gallery`, the name it shipped under, too.
 #[tokio::test(flavor = "multi_thread")]
