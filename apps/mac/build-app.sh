@@ -19,6 +19,10 @@ rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 cp "$bin/Scaena" "$app/Contents/MacOS/Scaena"
 cp "$root/apps/mac/Scaena/Info.plist" "$app/Contents/Info.plist"
+# Each theme that ships drawn as its title slide, which the theme chooser shows rather than making
+# and drawing a deck in each as New opens (lift-up PERF-4), as the browser's New dialog shows them
+# (PLAN T.0c). Its own words go to stderr: this script prints the app's path alone.
+(cd "$root" && cargo run -q --locked -p scaena-cli --example theme_thumbnails -- "$app/Contents/Resources/themes" >&2)
 # The icon Info.plist names (CFBundleIconFile), made of each size scripts/build_app_icon.py draws.
 iconutil -c icns -o "$app/Contents/Resources/AppIcon.icns" "$root/apps/mac/Scaena/AppIcon.iconset"
 codesign --force --sign - "$app"
