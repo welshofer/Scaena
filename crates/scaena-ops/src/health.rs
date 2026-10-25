@@ -460,12 +460,16 @@ enum Timed {
     Noted,
 }
 
+/// A beat as the talk times it: the index of the first slide it tells, its seconds, and what
+/// gives them.
+type Beaten = (usize, f64, Timed);
+
 /// How long the talk runs, by its beats (lift-up FUNC-1): each beat the most of its `duration`,
 /// the holds of its states, as a video paces it, and its notes and its states' own said aloud,
 /// so that notes deepened lengthen the talk; and each beat's seconds, and what gives them, by the
 /// index of the first slide it tells. None where a beat has neither a `duration` nor a hold on
 /// every state, or a slide neither a beat nor holds, as a deck written by hand with no spine.
-fn talk(deck: &Deck, slides: &[Slide]) -> Option<(f64, Vec<(usize, f64, Timed)>)> {
+fn talk(deck: &Deck, slides: &[Slide]) -> Option<(f64, Vec<Beaten>)> {
     let state = |id: &str| deck.states.iter().find(|s| s.id == id);
     let mut told: Vec<((usize, usize), usize, f64, Timed)> = Vec::new();
     let mut seconds = 0.0;
@@ -1095,7 +1099,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         let said = (seconds / 60.0).round() as u32;
         let under = said < *lo;
         if under || hi.is_some_and(|hi| said > hi) {
-            let mut by: Vec<(usize, f64, Timed)> = beats.clone();
+            let mut by: Vec<Beaten> = beats.clone();
             scaena_core::sort::by_key(&mut by, |&(_, s, _)| (s * 1000.0) as i64);
             let ((short, shortest, _), (long, longest, timed)) = (by[0], by[by.len() - 1]);
             if !under {
