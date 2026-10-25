@@ -716,6 +716,11 @@ pub struct DeckExport {
     /// each state's hold alone, as a player auto-advances.
     #[serde(default)]
     pub pace: scaena_core::spine::Pace,
+    /// A PDF with the presenter's notes: each slide drawn smaller at the head of a page, the
+    /// notes a presenter reads for it under it, notes too long for it going on to pages of
+    /// their own. Only a PDF.
+    #[serde(default)]
+    pub notes: bool,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -1021,7 +1026,9 @@ impl Scaena {
         show_node, hide_node, add_state, …; SPEC §7.3), all or none. A patch that would make the deck invalid is refused. \
         Reports the semantic ops given, what changed in the slides and the story (`summary`: slides and beats \
         added, removed, and moved, and beats told otherwise), and what lint finds that it did not (`added`) and finds \
-        no more (`removed`); with `verbose`, the patch compiled to JSON Patch too.")]
+        no more (`removed`); with `verbose`, the patch compiled to JSON Patch too. Each beat whose claim a slide said \
+        before and says no more is `restated`, with a `fix` that sets the claim to the slide's words, or none where its \
+        headline was taken away: restate the claim, or ask the user.")]
     async fn deck_patch(
         &self,
         Parameters(a): Parameters<DeckPatch>,
@@ -1160,7 +1167,7 @@ impl Scaena {
     }
 
     #[tool(description = "Export a projection to `out`: `pdf` (each slide at its last state, or `states`, a page \
-        each), `png` or `svg` (an image per state, into a directory), `mp4`, `webm`, or `prores` (the timeline, \
+        each; with `notes`, the slide smaller with the presenter's notes under it), `png` or `svg` (an image per state, into a directory), `mp4`, `webm`, or `prores` (the timeline, \
         each state's cue then its hold, or where it has none its share of its beat's `duration` (`pace`), at \
         `fps`; needs ffmpeg), `html` (one file that plays the deck in a \
         browser, offline: the player, the engine, and the bundle), or `spine`, which is also returned. An export \
@@ -1181,6 +1188,7 @@ impl Scaena {
             audio: a.audio.clone().map(Into::into),
             painter: a.painter,
             pace: a.pace,
+            notes: a.notes,
         };
         let bundle = a.bundle.clone();
         let b = blocking(move || open(&bundle)).await?;

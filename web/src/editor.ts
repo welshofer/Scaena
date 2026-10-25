@@ -70,7 +70,7 @@ import { filesPanel } from "./files";
 import { storyPanel } from "./story";
 import { finder, findKeys } from "./find";
 import { deleteKept, keptBundle, keptNames, persist, persisted, renameKept } from "./folders";
-import { discard, find, keep, savedAt, type Copy } from "./recovery";
+import { discard, find, keep, savedAt, sha256, type Copy } from "./recovery";
 import { formatsRow } from "./formats";
 import { layerKeys, layers } from "./layers";
 import { ended, listen as heed, observing } from "./life";
@@ -89,6 +89,7 @@ import type {
   Linted,
   Painter,
   ProviderId,
+  Restated,
   Rewritten,
   SaveTo,
   Seeing,
@@ -227,10 +228,11 @@ let generating: { running: () => boolean } | undefined;
  * status that stays, before what lint finds, until the source is edited by hand. `kept` is the
  * name the browser keeps it under, if it does, and `rekeep` renames a bundle the browser keeps, or
  * deletes it, through the bundle's worker, which writes where the page may not (PLAN 2.124).
- * `unsaved` says whether closing it loses something: an edit not saved, or a deck kept nowhere. */
+ * `unsaved` says whether closing it loses something: an edit not saved, or a deck kept nowhere.
+ * `close` with `lost` takes its recovery copy away, its changes lost as the person agreed. */
 let current:
   | {
-      close: () => void;
+      close: (lost?: boolean) => Promise<void> | void;
       unsaved: () => boolean;
       say: (text: string) => void;
       /** The deck's story read: its score (narrative USE-2). */
@@ -256,7 +258,10 @@ function namedFor(source: Source): string {
  * were asked about already. One that does not open leaves the bundle open as it was, in use, and
  * the status says why, by the file's name. */
 async function open(source: Source, asked = false) {
-  if (!asked && current?.unsaved() && !confirm("The deck open is not saved. Open another and lose what is not saved?")) return;
+  // Changes not saved, lost as the person agreed, asked here or before: no copy keeps them, so none
+  // is offered onto another deck that is named alike.
+  const lost = current?.unsaved() ?? false;
+  if (lost && !asked && !confirm("The deck open is not saved. Open another and lose what is not saved?")) return;
   $("#status").textContent = "Opening…";
   let stage: Stage;
   try {
@@ -267,8 +272,10 @@ async function open(source: Source, asked = false) {
     else $("#status").textContent = why;
     return;
   }
-  current?.close();
+  const closed = current?.close(lost);
   current = undefined;
+  // The copy taken away before the deck opens looks for its own.
+  await closed;
   await edit(source, stage);
 }
 
@@ -518,6 +525,9 @@ const describes = invertedEffects.of((tr) => tr.effects.filter((e) => e.is(descr
 const describing = (words: string) => words.replace(/\s*·\s*⌘Z undoes it$/, "");
 
 async function edit(source: Source, opened?: Stage) {
+  // The deck of files as it opened, by its digest: what keys its recovery copy.
+  const files = "files" in source ? source.files : "recovered" in source ? source.recovered : undefined;
+  const openedAs = files?.["deck.json"] ? await sha256(files["deck.json"]) : undefined;
   const status = $("#status");
   // A status too long for its two lines says the rest in its title.
   observing(new MutationObserver(() => (status.title = status.textContent ?? ""))).observe(status, { childList: true, characterData: true, subtree: true });
@@ -626,12 +636,15 @@ async function edit(source: Source, opened?: Stage) {
   // The recovery copy (lift-up REL-4): what is not saved, the source and the files written since
   // the save, kept in this browser a few seconds after each change and when the page is hidden,
   // taken away by a save, and offered when the deck opens again (`recovery.ts`).
-  /** What names the deck's copy: where it is kept, else where it came from. */
+  /** What names the deck's copy: where it is kept, else where it came from. A new deck's is its
+   * title, so the copy is offered when a deck of that title is made again. A deck of files, a
+   * made deck's or a single file's, is its name and its deck as it opened: another deck of the
+   * name, made or opened anew, is offered nothing of this one. */
   const copyKey = () => {
     if (where) return `${where.kind}:${where.name}`;
     if ("url" in source) return `url:${new URL(source.url, location.href).href}`;
     if ("create" in source) return `new:${source.create.title}`;
-    return `files:${name}`;
+    return `files:${name}:${openedAs ?? ""}`;
   };
   /** How long after a change the copy is written, ms. */
   const COPY_AFTER = 2000;
@@ -1012,14 +1025,74 @@ async function edit(source: Source, opened?: Stage) {
   /** The words for the state shown (PLAN 2.99): its objects by what they show, the theme's names
    * said. Asked for each time the state shown is inspected. */
   let lexicon: Lexicon | undefined;
+  /** A beat's claim its slide said before an edit and says no more (lift-up FUNC-2): the status
+   * says so in a person's words and Update, beside it, restates the claim in the slide's words, a
+   * patch by the user, one step to undo. A headline taken away has no words to restate it in. */
+  const restate = $<HTMLButtonElement>("#restate");
+  let restating: { said: string; fix: unknown[] } | undefined;
+  const quoted = (words: string) => `“${words.length > 60 ? `${words.slice(0, 59)}…` : words}”`;
+  /** `kept`: the status the edit's own gesture said goes first, so what it did is still said. */
+  async function restated(before: string, after: string, kept = false) {
+    const found = await stage.restated(after, before).catch(() => [] as Restated[]);
+    const one = found[0];
+    if (!one || view.state.doc.toString() !== after) return;
+    const slide = slideOf(one.state).replace(/, step \d+$/, "");
+    const offer =
+      one.says !== undefined && one.fix?.length
+        ? `${slide}'s story still says ${quoted(one.claim)}. Update it to ${quoted(one.says)}?`
+        : `${slide}'s story still says ${quoted(one.claim)}, which the slide no longer says: restate it in the Story tab`;
+    const gesture = kept ? status.textContent?.trim() : "";
+    const said = gesture ? `${gesture} · ${offer}` : offer;
+    say(said);
+    restating = one.fix?.length ? { said, fix: one.fix } : undefined;
+    restate.hidden = restating === undefined;
+  }
+  /** The status says something else: what Update would restate goes with it. */
+  observing(new MutationObserver(() => {
+    if (restating && status.textContent !== restating.said) [restating, restate.hidden] = [undefined, true];
+  })).observe(status, { childList: true, characterData: true, subtree: true });
+  restate.addEventListener("click", async () => {
+    const now = showing();
+    const ask = restating;
+    if (!now || !ask) return;
+    [restating, restate.hidden] = [undefined, true];
+    try {
+      const { source, edited } = await stage.make(() => view.state.doc.toString(), ask.fix, now.index, format());
+      made(source, edited, "the story's claim");
+      say("The story says what the slide says");
+    } catch (e) {
+      say(`Not updated: ${said(e)}`);
+    }
+  });
+  /** The source as a burst of typing on the canvas began, asked about once the burst ends: typing
+   * is validated but not linted, so its end is where a claim it left behind is told (FUNC-2). */
+  let burst: { from: string; timer?: ReturnType<typeof setTimeout> } | undefined;
+  const BURST = 1000;
+  const typedAway = (joins: boolean) => {
+    const before = view.state.doc.toString();
+    if (burst && !joins) {
+      clearTimeout(burst.timer);
+      void restated(burst.from, before);
+      burst = undefined;
+    }
+    burst ??= { from: before };
+    clearTimeout(burst.timer);
+    const was = burst;
+    was.timer = setTimeout(() => {
+      if (burst === was) burst = undefined;
+      void restated(was.from, view.state.doc.toString());
+    }, BURST);
+  };
   /** Take `source`, a patch made on the canvas or in the inspector: one change, one step to undo,
    * which `said`, the change in a person's words, names when it is undone (lift-up USE-4). */
   const made = (source: string, edited: Edited, said?: string) => {
     taken = { source, edited, showings };
     anchor();
-    const changes = change(view.state.doc.toString(), source);
+    const before = view.state.doc.toString();
+    const changes = change(before, source);
     const effects = said ? [described.of(describing(said))] : [];
     view.dispatch({ changes, effects, userEvent: "input.canvas", annotations: isolateHistory.of("full") });
+    void restated(before, source, true);
   };
   /** The node selected, its look chosen from the theme in the inspector (PLAN 2.33): each choice a
    * patch, as each gesture on the canvas is. */
@@ -1092,6 +1165,7 @@ async function edit(source: Source, opened?: Stage) {
     typed: (source, edited, joins) => {
       taken = { source, edited, showings };
       if (!joins) anchor();
+      typedAway(joins);
       const changes = change(view.state.doc.toString(), source);
       // A burst of typing is one step to undo. CodeMirror's history joins a change to the one
       // before it when both are `input.type.compose`; the burst's first starts a step of its own.
@@ -2182,10 +2256,14 @@ async function edit(source: Source, opened?: Stage) {
   /** Export (PLAN 2.54) the deck the source compiles to, as `scaena export` writes it, and
    * download it: `png`, the state shown at rest in the format shown, `width` pixels wide;
    * `slides`, every slide once its steps have played, so, in one zip, each named by its number
-   * (PLAN 2.122); `pdf`, each slide at its last state; `html`, the deck as one file that plays
-   * offline, the single-file player's page beside this one filled in. Each is made in the worker:
-   * nothing is sent anywhere. */
-  async function exportAs(as: "png" | "slides" | "pdf" | "html", width?: number): Promise<{ file: string; bytes: ArrayBuffer } | undefined> {
+   * (PLAN 2.122); `pdf`, each slide at its last state, with `notes` each with the presenter's
+   * notes under it; `html`, the deck as one file that plays offline, the single-file player's
+   * page beside this one filled in. Each is made in the worker: nothing is sent anywhere. */
+  async function exportAs(
+    as: "png" | "slides" | "pdf" | "html",
+    width?: number,
+    notes = false,
+  ): Promise<{ file: string; bytes: ArrayBuffer } | undefined> {
     await settled();
     let what: Export;
     let file: string;
@@ -2205,8 +2283,8 @@ async function edit(source: Source, opened?: Stage) {
       // hyphen, which a browser keeps in a file's name where the system's own encoding is not UTF-8.
       file = `${name} - ${slideOf(now.state)}${shownIn ? ` (${shownIn.replace(/[^\w.-]+/g, "x")})` : ""}.png`;
     } else if (as === "pdf") {
-      what = { kind: "pdf" };
-      file = `${name}.pdf`;
+      what = { kind: "pdf", notes };
+      file = notes ? `${name} - Notes.pdf` : `${name}.pdf`;
     } else {
       const page = await fetch(new URL("standalone.html", document.baseURI)).catch(() => undefined);
       if (!page?.ok) {
@@ -2736,6 +2814,11 @@ async function edit(source: Source, opened?: Stage) {
       { label: "Export this slide as a PNG…", applies: () => showing() !== undefined, run: () => openExport("png") },
       { label: "Export every slide as PNGs…", applies: () => showing() !== undefined, run: () => openExport("slides") },
       { label: "Export the deck as a PDF", applies: () => last?.valid === true, run: () => exportAs("pdf").catch(failed) },
+      {
+        label: "Export the deck as a PDF with the presenter's notes",
+        applies: () => last?.valid === true,
+        run: () => exportAs("pdf", undefined, true).catch(failed),
+      },
       { label: "Export the deck as one HTML file", applies: () => last?.valid === true, run: () => exportAs("html").catch(failed) },
       { label: "Play", applies: () => !play.hidden, run: () => play.click() },
       { label: "New deck…", run: () => $("#new-deck").click() },
@@ -2892,6 +2975,7 @@ async function edit(source: Source, opened?: Stage) {
   const exporting = $<HTMLDialogElement>("#exporting");
   const exportWidth = $<HTMLInputElement>("#exporting-width");
   const exportNote = $("#exporting-note");
+  const withNotes = $<HTMLInputElement>("#exporting-with-notes");
   type ExportAs = "png" | "slides" | "pdf" | "html";
   const chosenExport = () => exporting.querySelector<HTMLInputElement>("input[name=as]:checked")!.value as ExportAs;
   /** What the export chosen makes, said under the choices. */
@@ -2900,6 +2984,8 @@ async function edit(source: Source, opened?: Stage) {
     const sized = as === "png" || as === "slides";
     $("#exporting-size").hidden = !sized;
     exportWidth.disabled = !sized;
+    $("#exporting-notes").hidden = as !== "pdf";
+    const notes = withNotes.checked;
     const [w, h] = board.size();
     const width = Number(exportWidth.value);
     const pixels = `${width} × ${Math.round((h * width) / w)} pixels`;
@@ -2915,7 +3001,9 @@ async function edit(source: Source, opened?: Stage) {
       slides: whole
         ? `${slides} slide${slides === 1 ? "" : "s"}, each as it stands once its steps have played${format() ? `, in ${format()}` : ""}: a PNG of ${pixels} named by its number, all in one .zip.`
         : "A width in whole pixels: the height keeps the canvas's aspect.",
-      pdf: "A page for each slide at its last state: vector paths, text in subset fonts that copies and searches as the deck reads, tagged for a screen reader.",
+      pdf: notes
+        ? "A page for each slide at its last state, drawn smaller, the notes you read for it under it, notes too long for the page going on to the next: text that copies and searches, tagged for a screen reader."
+        : "A page for each slide at its last state: vector paths, text in subset fonts that copies and searches as the deck reads, tagged for a screen reader.",
       html: "The player and the deck in one file that plays in a browser with no network, its fonts subset to what the deck draws.",
     }[as];
   };
@@ -2933,7 +3021,9 @@ async function edit(source: Source, opened?: Stage) {
   exporting.onclose = () => {
     if (exporting.returnValue !== "export") return;
     const as = chosenExport();
-    void exportAs(as, as === "png" || as === "slides" ? Number(exportWidth.value) : undefined).catch(failed);
+    void exportAs(as, as === "png" || as === "slides" ? Number(exportWidth.value) : undefined, as === "pdf" && withNotes.checked).catch(
+      failed,
+    );
   };
   onkeydown = (e) => {
     if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") {
@@ -3004,15 +3094,22 @@ async function edit(source: Source, opened?: Stage) {
     if (unsaved() || unsettled || generating?.running()) e.preventDefault();
   };
   current = {
-    close: () => {
+    close: (lost) => {
       clearTimeout(pending);
-      if (copyTimer) void keepCopy();
+      let gone: Promise<void> | undefined;
+      if (lost) {
+        clearTimeout(copyTimer);
+        copyTimer = undefined;
+        const key = copyKey();
+        gone = copying.then(() => discard(key)).catch(() => {});
+      } else if (copyTimer) void keepCopy();
       hearing?.close();
       board.close();
       view.destroy();
       stage.close();
       // What it listened for on the page goes with it: the bundle opened next hears each key once.
       ended();
+      return gone;
     },
     unsaved,
     say,

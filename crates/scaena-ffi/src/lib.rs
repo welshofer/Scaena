@@ -537,7 +537,8 @@ pub unsafe extern "C" fn scaena_picture(bytes: *const u8, len: usize) -> *mut c_
 /// moved in frames at rest, laying nothing out; `preview {ops?}`, frames at rest drawn as a
 /// patch would make them; and `reach {ops}`, the states a patch changes. Text typed in place
 /// (PLAN 3.9): `typed {ops, at?}`, `replace_text`, `style_text`, and `list` ops by the user,
-/// validated but not linted, and whether the deck changed; and `bolding` and `italicizing
+/// validated but not linted, and whether the deck changed; `restated {before}`, the beats whose
+/// claim a slide said in the source as typing began and says no longer, once a burst ends; and `bolding` and `italicizing
 /// {state, node, from, to}`, the look ⌘B and ⌘I give characters; and `codeWords {state, node}`,
 /// a code text's words as the state shows them, which Copy Code copies, and `tidied {text,
 /// language}`, code pasted into code, tidied (PLAN 2.133). A text's
@@ -1269,7 +1270,8 @@ pub unsafe extern "C" fn scaena_surface_free(surface: *mut ScaenaSurface) {
 
 /// The deck exported as `format` (PLAN 3.8), the bytes `scaena export` writes for it: `pdf`, a page
 /// for each slide at its last state, as the browser's PDF module draws it from the pages the
-/// session lays out; or `png`, `args` `{state, width}`, the state at rest painted by the CPU
+/// session lays out, and with `args` `{notes: true}` each with the presenter's notes under it, as
+/// `export --format pdf --notes` prints them; or `png`, `args` `{state, width}`, the state at rest painted by the CPU
 /// painter that wide, as the editor's PNG export paints it; or `slides`, `args` `{width, name}`,
 /// every slide once its steps have played, as PNGs that wide in one zip, each `{name} - Slide
 /// 3.png` (PLAN 2.122); or `version`, the same as `png` of the version `viewVersion` shows (PLAN
@@ -1297,7 +1299,9 @@ pub unsafe extern "C" fn scaena_export(
         match format {
             "pdf" => {
                 use scaena_export::pdf::{PdfSettings, Prepared, prepared};
-                let laid = session.0.pdf_laid_out().map_err(said)?;
+                // With `notes`, each slide with the presenter's notes under it.
+                let notes = args.get("notes").and_then(Value::as_bool).unwrap_or(false);
+                let laid = session.0.pdf_laid_out(notes).map_err(said)?;
                 let laid = Prepared::from_bytes(&laid).map_err(said)?;
                 prepared(&laid, &PdfSettings::default()).map_err(said)
             }
@@ -1392,7 +1396,9 @@ pub unsafe extern "C" fn scaena_chat_new(args: *const c_char, error: *mut *mut c
 /// - `next`: the calls' results handed to the model, every call answered (those not run, as
 ///   stopped): whether it may be asked again, or the question has taken its rounds.
 /// - `use {provider, model, base?}`: another model from the next request on, the conversation
-///   kept. `forget`: the next question is the first. `conversation`: the conversation as kept.
+///   kept. `shorter`: the provider found the conversation too long; whether to ask again with
+///   half as much of tools' results, once a question (lift-up PERF-3). `forget`: the next
+///   question is the first. `conversation`: the conversation as kept.
 ///
 /// `session` may be null for a step that runs nothing on it: all but `ask` and `run`.
 ///
@@ -1740,6 +1746,9 @@ fn call(s: &mut Session, method: &str, args: &Value) -> Result<Value, Failure> {
             let at = optional("at").and_then(scaena_session::store::seconds);
             json!(s.typed(&Value::Array(ops), at).map_err(said)?)
         }
+        // The beats whose claim a slide said in the deck `before` (the source as a burst of
+        // typing began) compiles to and says no longer now, each with its fix (lift-up FUNC-2).
+        "restated" => value(serde_json::to_value(s.restated(arg("before")?)))?,
         // The words of a code text as a state shows them, which Copy Code copies (PLAN 2.133).
         "codeWords" => json!(s.code_words(arg("state")?, arg("node")?).map_err(said)?),
         // Code pasted into code, tidied as a paste of code is (PLAN 2.133).

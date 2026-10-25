@@ -22,6 +22,7 @@ import type {
   Grid,
   Grouped,
   Health,
+  Restated,
   Hit,
   Insert,
   Inspected,
@@ -155,6 +156,7 @@ type Reply = Extract<
       | "put"
       | "bundleFiles"
       | "health"
+      | "restated"
       | "pictureMade"
       | "mapTargeted"
       | "mapFetched"
@@ -696,6 +698,12 @@ export class Stage {
     return this.request<"health">({ type: "health", id: ++this.asked, source }).then(({ health }) => health);
   }
 
+  /** The beats whose claim a slide said in the deck `before` compiles to and says no longer in
+   * the deck `source` compiles to, each with its fix (lift-up FUNC-2). */
+  restated(source: string, before: string): Promise<Restated[]> {
+    return this.request<"restated">({ type: "restated", id: ++this.asked, source, before }).then(({ restated }) => restated);
+  }
+
   /** A picture made by the user's image model in the deck's theme (PLAN 2.107), by the
    * generator's module, which the worker loads the first time: its bytes, its file's kind, what
    * it shows, and the model that made it. */
@@ -1006,8 +1014,15 @@ export class Stage {
     }));
   }
 
-  write(call: WritingCall): Promise<{ text: string; usage?: { input: number; output: number } }> {
-    return this.request<"wrote">({ type: "write", id: ++this.asked, call }).then(({ text, usage }) => ({ text, usage }));
+  /** Ask a model once, with the user's key and nothing to call (PLAN 2.101): its words. `signal`,
+   * aborted, stops the request in the worker (lift-up PERF-4). */
+  write(call: WritingCall, signal?: AbortSignal): Promise<{ text: string; usage?: { input: number; output: number } }> {
+    const id = ++this.asked;
+    const stop = () => this.send({ type: "stopWrite", id });
+    signal?.addEventListener("abort", stop, { once: true });
+    return this.request<"wrote">({ type: "write", id, call })
+      .then(({ text, usage }) => ({ text, usage }))
+      .finally(() => signal?.removeEventListener("abort", stop));
   }
 
   /** The words an editor shows for `state` (PLAN 2.99): each object it shows named by what it
@@ -1475,6 +1490,7 @@ export class Stage {
       case "put":
       case "bundleFiles":
       case "health":
+      case "restated":
       case "pictureMade":
       case "mapTargeted":
       case "mapFetched":
