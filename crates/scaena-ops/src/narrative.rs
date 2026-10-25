@@ -40,6 +40,13 @@ use std::path::{Path, PathBuf};
 
 mod one;
 pub use one::{Place, SlideWritten, Written, one_asked, slide_into, slide_polishing, slide_write, slide_writing};
+
+/// One slide an agent hands over, as `slide_write` takes it: normalized as a model's slides are,
+/// or refused where it gives none of the fields Narrato's slides are written in (lift-up 10-25b
+/// FUNC-5, `scaena_narrato::answer::one`).
+pub fn slide_from(raw: &Value) -> Result<Slide, OpsError> {
+    scaena_narrato::answer::one(raw).map_err(OpsError::new)
+}
 mod quoting;
 
 /// The canvas a made deck draws on.
@@ -627,7 +634,10 @@ pub fn generate_drawn(
     let Some(mut write) = write else { return Ok((made, None)) };
     // The deck seen as it is drawn (PLAN G.13): what the model would change, each slide's change
     // kept where lint finds the slide no worse for it.
-    let seen = seeing(&narrative, &model, &pictures, &made.layouts);
+    let mut seen = seeing(&narrative, &model, &pictures, &made.layouts);
+    // Each title's room, so a topic may become the claim the look asks it to state (lift-up
+    // FUNC-2).
+    roomed(&mut seen, &rooms(&write));
     // A round that is not answered loses its own slides' changes alone, said beside the rest.
     let mut unanswered: Option<String> = None;
     let changes = match (looking, key) {
@@ -743,6 +753,20 @@ pub fn from_slides(
     arc: Option<&str>,
 ) -> Result<Generated, OpsError> {
     crate::create::vacant(dir)?;
+    // Each slide in the names an agent reaches for read as Narrato's (lift-up 10-25b FUNC-5):
+    // `intensity`, `tone`, and `valence` where `expectedIntensity` and `expectedValence` are not.
+    // A word for a number is refused, naming the slide and the field.
+    let mut aliased = None;
+    if let Ok(mut written) = serde_json::from_str::<Value>(slides)
+        && let Some(list) = written.get_mut("slides").and_then(Value::as_array_mut)
+    {
+        for (i, slide) in list.iter_mut().enumerate() {
+            scaena_narrato::answer::numbered(slide).map_err(|e| OpsError::new(format!("slide {}: {e}", i + 1)))?;
+            *slide = scaena_narrato::answer::aliased(slide);
+        }
+        aliased = Some(written.to_string());
+    }
+    let slides = aliased.as_deref().unwrap_or(slides);
     let font = |file: &str| theme.font(file);
     let language = brief.language.as_deref();
     if let Some(script) = crate::scripts::needed(language, slides, &theme.text, &font)? {
@@ -866,9 +890,68 @@ pub fn seeing(narrative: &Narrative, theme: &Theme, pictures: &Pictures, layouts
                 claim: if framing { String::new() } else { claim(i, slide) },
                 // What it does, said as that where no claim is known.
                 purpose: if framing { String::new() } else { slide.purpose.clone().unwrap_or_default() },
+                // Measured once the deck is laid out ([`rooms`]).
+                room: None,
             }
         })
         .collect()
+}
+
+/// How many characters each slide's title place holds at its role's size, as the deck `write`
+/// makes lays it out (lift-up FUNC-2): what the look lets a topic title grow to as it states its
+/// claim. Measured from the title as set: its characters' mean advance, its lines' height, each
+/// taken back to the role's size where the text shrank, over its box, two lines at most, as the
+/// look asks a title to keep, and a tenth under, so a line that wraps otherwise still fits. None
+/// for a slide whose title place is not found or does not lay out.
+pub fn rooms(write: &Write) -> Vec<Option<usize>> {
+    let measured = || -> Result<Vec<Option<usize>>, OpsError> {
+        let nothing = scaena_store::Files::Zip(Default::default());
+        let view = View { base: &nothing, pending: write.files.clone() };
+        let deck = &write.deck;
+        let Some(theme) = view.theme(deck)? else { return Ok(Vec::new()) };
+        let theme = scaena_engine::theme::Theme::from_json(&theme)?;
+        let mut engine = crate::lint::engine_in(deck, &view, &theme, None)?;
+        let data = crate::lint::data_in(deck, &view)?;
+        Ok((deck.slides().iter())
+            .map(|states| {
+                let state = &deck.states[states[0]].id;
+                // The place the slide's title is set in, by the slot that takes it.
+                let id = ["header", "title", "headline", "statement", "claim"]
+                    .iter()
+                    .map(|slot| format!("{state}-{slot}"))
+                    .find(|id| deck.nodes.contains_key(id))?;
+                let req = scaena_engine::FrameRequest {
+                    deck,
+                    theme: &theme,
+                    data: &data,
+                    state,
+                    t_ms: f64::INFINITY,
+                    format: None,
+                };
+                let placed = engine.text_layouts(&req, &[id.as_str()]).ok()?.pop()?;
+                let n = placed.text.written.chars().count();
+                let lines = placed.text.lines.len();
+                let scale = placed.scale.max(f32::EPSILON);
+                let set: f32 = placed.text.lines.iter().map(|l| l.width).sum();
+                if n == 0 || lines == 0 || set <= 0.0 {
+                    return None;
+                }
+                let advance = set / n as f32 / scale;
+                let leading = placed.text.height / lines as f32 / scale;
+                let per_line = (placed.cell[2] / advance).floor();
+                let held = (placed.cell[3] / leading).floor().clamp(1.0, 2.0);
+                Some((per_line * held * 0.9).floor() as usize)
+            })
+            .collect())
+    };
+    measured().unwrap_or_default()
+}
+
+/// `seen` given each slide's title room, as [`rooms`] measures them, by slide.
+pub fn roomed(seen: &mut [Seen], rooms: &[Option<usize>]) {
+    for s in seen {
+        s.room = s.slide.checked_sub(1).and_then(|i| rooms.get(i).copied().flatten());
+    }
 }
 
 /// The layouts a slide may take in place of `own`, the one it took (PLAN G.13): for a slide of
@@ -6875,6 +6958,81 @@ mod tests {
                 (name, deck(&n, &theme, &Pictures::new()).unwrap())
             })
             .collect()
+    }
+
+    /// Each title's room measured, and a topic title let grow to the claim its writer wrote
+    /// (lift-up FUNC-2), measured on the nine dogfood decks: each content title with no figure
+    /// cut to a topic, its first three words, and the look asked to give it back its claim.
+    /// Held to its own length and a few characters, almost none is taken; held to its place,
+    /// most are.
+    #[test]
+    #[cfg(feature = "shipped")]
+    fn a_topic_title_may_grow_to_the_claim_its_place_holds() {
+        let decks = [
+            ("deepdive", "dusk"),
+            ("board-de", "daybreak"),
+            ("appeal", "ember"),
+            ("training", "salon"),
+            ("pitch", "dusk"),
+            ("qbr", "daybreak"),
+            ("lecture", "salon"),
+            ("keynote", "ember"),
+            ("launch", "ember"),
+        ];
+        let font = |file: &str| -> Result<Vec<u8>, OpsError> {
+            match crate::shipped::fonts().find(|(path, _)| *path == file) {
+                Some((_, bytes)) => Ok(bytes.to_vec()),
+                None => Ok(std::fs::read(root().join("docs/examples").join(file))?),
+            }
+        };
+        let framing = ["Title", "Agenda", "Section", "Divider", "Closing", "Q&A", "Thank"];
+        let (mut asked, mut before, mut after) = (0, 0, 0);
+        for (name, theme) in decks {
+            let path = root().join(format!("tests/fixtures/dogfood/{name}.slides.json"));
+            let written = answer::slides(&std::fs::read_to_string(path).unwrap()).unwrap();
+            let last = written.slides.len() - 1;
+            let mut claims = Vec::new();
+            let topics: Vec<Slide> = (written.slides.iter().enumerate())
+                .map(|(i, slide)| {
+                    let words: Vec<&str> = slide.slide_title.split_whitespace().collect();
+                    let content = i != 0
+                        && i != last
+                        && !framing.iter().any(|f| slide.layout_suggestion.contains(f))
+                        && words.len() > 4
+                        && !slide.slide_title.chars().any(|c| c.is_ascii_digit());
+                    if !content {
+                        return slide.clone();
+                    }
+                    claims.push((i + 1, slide.slide_title.clone()));
+                    Slide { slide_title: words[..3].join(" "), ..slide.clone() }
+                })
+                .collect();
+            let n = narrative(&written.executive_summary, topics);
+            let shipped = crate::shipped::theme(theme).unwrap();
+            let model: Theme = serde_json::from_str(shipped.text).unwrap();
+            let built = deck(&n, &model, &Pictures::new()).unwrap();
+            let layouts = built.layouts.clone();
+            let (_, write) = making(built, &n.arc, Path::new(shipped.file), shipped.text.to_string(), &font).unwrap();
+            let write = write.unwrap();
+            let measured = rooms(&write);
+            assert_eq!(measured.len(), n.slides.len(), "{name}: a room for each slide");
+            let unmeasured = seeing(&n, &model, &Pictures::new(), &layouts);
+            let mut seen = unmeasured.clone();
+            roomed(&mut seen, &measured);
+            let answer = json!({ "slides": (claims.iter()).map(|(slide, claim)| json!({
+                "slide": slide, "layout": "", "title": claim, "subtitle": "", "bullets": [], "why": "Its claim."
+            })).collect::<Vec<_>>() })
+            .to_string();
+            let taken = |seen: &[scaena_narrato::look::Seen]| scaena_narrato::look::read(&answer, seen).unwrap().len();
+            let (was, now) = (taken(&unmeasured), taken(&seen));
+            eprintln!("{name}: {} topic titles, {was} taken before, {now} after", claims.len());
+            asked += claims.len();
+            before += was;
+            after += now;
+        }
+        eprintln!("all: {asked} topic titles, {before} taken before, {after} after");
+        assert!(asked >= 30, "{asked}");
+        assert!(after > before * 3 && after * 2 > asked, "{before} before, {after} after, of {asked}");
     }
 
     #[test]
