@@ -199,20 +199,22 @@ pub fn export_watched(b: &Bundle, req: &Request, progress: &Progress) -> Result<
         _ => None,
     };
     if req.size.is_some() && !matches!(format, Format::Png | Format::Svg | Format::Spine) && video.is_none() {
-        return Err(OpsError::new("--size sets the pixels of png, svg, video, and the spine's thumbnails"));
+        return Err(OpsError::new("`size` (--size) sets the pixels of png, svg, video, and the spine's thumbnails"));
     }
     if req.notes && format != Format::Pdf {
-        return Err(OpsError::new("--notes prints the presenter's notes under each slide of a PDF: --format pdf"));
+        return Err(OpsError::new(
+            "`notes` (--notes) prints the presenter's notes under each slide of a PDF: `format` pdf",
+        ));
     }
     if req.fps.is_some() && video.is_none() {
-        return Err(OpsError::new("--fps sets a video's frame rate: mp4, webm, or prores"));
+        return Err(OpsError::new("`fps` (--fps) sets a video's frame rate: `format` mp4, webm, or prores"));
     }
     if req.audio.is_some() && video.is_none() {
-        return Err(OpsError::new("--audio sets a video's sound track: mp4, webm, or prores"));
+        return Err(OpsError::new("`audio` (--audio) sets a video's sound track: `format` mp4, webm, or prores"));
     }
     if req.painter == crate::render::Painter::Gpu && video.is_none() {
         return Err(OpsError::new(
-            "--painter gpu paints a video's frames: mp4, webm, or prores; every other export paints with the CPU painter",
+            "`painter` gpu (--painter gpu) paints a video's frames: mp4, webm, or prores; every other export paints with the CPU painter",
         ));
     }
     if req.painter == crate::render::Painter::Gpu && cfg!(not(feature = "gpu")) {
@@ -223,16 +225,18 @@ pub fn export_watched(b: &Bundle, req: &Request, progress: &Progress) -> Result<
     let shown = out.map(|p| p.display().to_string());
     let format_name = req.format.clone();
     match format {
-        Format::Spine if states.is_some() => {
-            Err(OpsError::new("--states picks the frames of png, svg, pdf, and video; spine is the whole spine"))
-        }
+        Format::Spine if states.is_some() => Err(OpsError::new(
+            "`states` (--states) picks the frames of png, svg, pdf, and video; spine is the whole spine",
+        )),
         Format::Spine => {
             let mut exported = spine(b, out, req.size.as_deref(), req.pace, progress)?;
             exported.out = shown;
             Ok(exported)
         }
         Format::Pdf => {
-            let out = out.ok_or_else(|| OpsError::new("`export --format pdf` writes a file: give it --out FILE"))?;
+            let out = out.ok_or_else(|| {
+                OpsError::new("a PDF export writes a file: give it `out`, a file's path (--out FILE)")
+            })?;
             let (bytes, pages) = document(b, states, req.notes, &PdfSettings::default(), progress)?;
             write(out, &bytes)?;
             Ok(Exported {
@@ -245,7 +249,9 @@ pub fn export_watched(b: &Bundle, req: &Request, progress: &Progress) -> Result<
         }
         Format::Png | Format::Svg => {
             let out = out.ok_or_else(|| {
-                OpsError::new(format!("`export --format {format_name}` writes an image per state: give it --out DIR"))
+                OpsError::new(format!(
+                    "a {format_name} export writes an image per state: give it `out`, a folder's path (--out DIR)"
+                ))
             })?;
             let mut exported = images(b, format, states, out, req.size.as_deref(), progress)?;
             exported.out = shown;
@@ -254,14 +260,18 @@ pub fn export_watched(b: &Bundle, req: &Request, progress: &Progress) -> Result<
         Format::Mp4 | Format::Webm | Format::Prores => {
             let codec = video.expect("a video format");
             let out = out.ok_or_else(|| {
-                OpsError::new(format!("`export --format {format_name}` writes a video: give it --out FILE"))
+                OpsError::new(format!(
+                    "a {format_name} export writes a video: give it `out`, a file's path (--out FILE)"
+                ))
             })?;
             let mut exported = export_video(b, codec, req, out, progress)?;
             exported.out = shown;
             Ok(exported)
         }
         Format::Html => {
-            let out = out.ok_or_else(|| OpsError::new("`export --format html` writes a file: give it --out FILE"))?;
+            let out = out.ok_or_else(|| {
+                OpsError::new("an HTML export writes a file: give it `out`, a file's path (--out FILE)")
+            })?;
             let page = scaena_export::html::player().ok_or_else(|| {
                 OpsError::not_built(
                     "this scaena was built without the web player a single-file export carries: build it with \
@@ -365,7 +375,11 @@ fn named(deck: &scaena_core::Deck, states: Option<&[String]>) -> Result<Vec<Stri
     let Some(states) = states else { return Ok(deck.states.iter().map(|s| s.id.clone()).collect()) };
     for s in states {
         if !deck.states.iter().any(|st| &st.id == s) {
-            return Err(OpsError::new(format!("--states names `{s}`, which is not a state of the deck")));
+            let known = deck.states.iter().map(|st| st.id.as_str());
+            let near = scaena_core::patch::nearest("states", s, known);
+            return Err(OpsError::new(format!(
+                "`states` (--states) names `{s}`, which is not a state of the deck{near}"
+            )));
         }
     }
     Ok(states.to_vec())
@@ -766,7 +780,7 @@ impl Reel {
     ) -> Result<Reel, OpsError> {
         if fps == 0 || fps > scaena_export::video::MAX_FPS {
             return Err(OpsError::new(format!(
-                "--fps {fps}: a video takes 1 to {} frames a second",
+                "`fps` (--fps) {fps}: a video takes 1 to {} frames a second",
                 scaena_export::video::MAX_FPS
             )));
         }
@@ -776,7 +790,13 @@ impl Reel {
                 .iter()
                 .map(|s| {
                     let slot = timeline.slot(s).cloned();
-                    slot.ok_or_else(|| OpsError::new(format!("--states names `{s}`, which is not a state of the deck")))
+                    slot.ok_or_else(|| {
+                        let known = deck.into_iter().flat_map(|d| d.states.iter().map(|st| st.id.as_str()));
+                        let near = scaena_core::patch::nearest("states", s, known);
+                        OpsError::new(format!(
+                            "`states` (--states) names `{s}`, which is not a state of the deck{near}"
+                        ))
+                    })
                 })
                 .collect::<Result<_, _>>()?,
         };
