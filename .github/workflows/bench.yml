@@ -13,7 +13,9 @@ name: bench
 # unreadable to the pull request's build, its benches panic opening them and the job fails; nothing
 # works around that. It fails when a bench is slower than the base by more than the run's floor
 # (10%, or 2.5 times how far its benches stray from the base, if that is more), and in each of
-# three more turns beside its base, bench by bench (scripts/bench_gate.py). Runs on different
+# three more turns beside its base, bench by bench (scripts/bench_gate.py). A cold bench, which
+# starts a process (`render_cold`, `mcp_render`), is judged by its group's median change across
+# its decks and timed again as a group, and fails alone over its SPEC §15 budget. Runs on different
 # machines spread too far to judge by, so each runner's history of main's runs, kept in the
 # Actions cache, is only shown beside each bench. The label `bench-accept` lets a regression
 # through on purpose. Every run's report, SPEC §15's budgets first, goes to the run summary. A
