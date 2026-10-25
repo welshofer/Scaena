@@ -41,8 +41,13 @@ use thiserror::Error;
 pub enum StoreError {
     #[error("io: {0}")]
     Io(#[from] std::io::Error),
-    #[error("reading {}", path.display())]
+    /// A file or folder of the bundle that could not be read, and why: not found, permission
+    /// denied, a folder where a file goes (lift-up 10-24b USE-3).
+    #[error("reading {}: {source}", path.display())]
     Read { path: PathBuf, source: std::io::Error },
+    /// A file of the bundle that could not be written or removed, and why.
+    #[error("writing {}: {source}", path.display())]
+    Write { path: PathBuf, source: std::io::Error },
     #[error("`{0}` is not in the bundle")]
     Missing(String),
     #[error("`{0}` is not a path inside the bundle (relative, no `..`)")]
@@ -396,13 +401,14 @@ fn unzip_within(
 /// stays inside the bundle: a linked folder is not walked, so a link to `/` or to a folder
 /// above lists nothing and never walks the disk.
 fn walk(root: &Path, dir: &Path, out: &mut Vec<String>) -> Result<(), StoreError> {
-    for entry in std::fs::read_dir(dir)? {
-        let entry = entry?;
+    let unread = |source| StoreError::Read { path: dir.to_path_buf(), source };
+    for entry in std::fs::read_dir(dir).map_err(unread)? {
+        let entry = entry.map_err(unread)?;
         if entry.file_name().to_string_lossy().starts_with('.') {
             continue;
         }
         let path = entry.path();
-        let kind = entry.file_type()?;
+        let kind = entry.file_type().map_err(|source| StoreError::Read { path: path.clone(), source })?;
         if kind.is_symlink() && (path.is_dir() || !links_inside(root, &path)) {
             continue;
         }
@@ -443,8 +449,9 @@ pub fn write_whole(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
 /// ([`write_whole`]'s), synced, and only once each is written whole is each renamed into place,
 /// in `files`' order. A disk that fills or a path that cannot be written stops the write before
 /// any file has changed; a rename that fails leaves those before it written and those after it,
-/// `deck.json` among them where it is last, as they were. Each file's directory is made.
-pub fn write_all(files: &[(PathBuf, &[u8])]) -> std::io::Result<()> {
+/// `deck.json` among them where it is last, as they were. Each file's directory is made. A
+/// failure names the file it stopped at, and why ([`StoreError::Write`]).
+pub fn write_all(files: &[(PathBuf, &[u8])]) -> Result<(), StoreError> {
     let mut partials: Vec<PathBuf> = Vec::with_capacity(files.len());
     let unstaged = |partials: &[PathBuf]| {
         for partial in partials {
@@ -455,16 +462,16 @@ pub fn write_all(files: &[(PathBuf, &[u8])]) -> std::io::Result<()> {
         let made = path.parent().filter(|p| !p.as_os_str().is_empty()).map_or(Ok(()), std::fs::create_dir_all);
         match made.and_then(|()| staged(path, bytes)) {
             Ok(partial) => partials.push(partial),
-            Err(e) => {
+            Err(source) => {
                 unstaged(&partials);
-                return Err(e);
+                return Err(StoreError::Write { path: path.clone(), source });
             }
         }
     }
     for (i, (path, _)) in files.iter().enumerate() {
-        if let Err(e) = std::fs::rename(&partials[i], path) {
+        if let Err(source) = std::fs::rename(&partials[i], path) {
             unstaged(&partials[i..]);
-            return Err(e);
+            return Err(StoreError::Write { path: path.clone(), source });
         }
     }
     Ok(())
