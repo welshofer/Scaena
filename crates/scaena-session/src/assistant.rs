@@ -463,21 +463,22 @@ impl Session {
                     SeverityArg::Warning => Severity::Warning,
                     SeverityArg::Info => Severity::Info,
                 };
+                // Dates are judged at the moment asked, else at the call's (ADR-0030).
+                let now = match a.now.as_deref() {
+                    Some(now) => Some(
+                        scaena_core::fetched::moment(now)
+                            .ok_or_else(|| ops(format!("deck_lint: `now` `{now}` is not an instant or a day")))?,
+                    ),
+                    None => by.at,
+                };
+                let state = a.state.as_deref();
                 let (findings, fixed, laid, deck) = match a.fix {
                     true => {
-                        let (f, deck) = scaena_ops::lint::fixing(&b)?;
+                        let (f, deck) = scaena_ops::lint::fixing_at(&b, state, now)?;
                         (f.findings, Some(f.fixed), true, deck)
                     }
                     false => {
-                        // Dates are judged at the moment asked, else at the call's (ADR-0030).
-                        let now =
-                            match a.now.as_deref() {
-                                Some(now) => Some(scaena_core::fetched::moment(now).ok_or_else(|| {
-                                    ops(format!("deck_lint: `now` `{now}` is not an instant or a day"))
-                                })?),
-                                None => by.at,
-                            };
-                        let l = scaena_ops::lint::lint_at(&b, now)?;
+                        let l = scaena_ops::lint::lint_scoped_at(&b, state, now)?;
                         (l.findings, None, l.laid, None)
                     }
                 };
