@@ -13,6 +13,7 @@ use crate::create::{Attach, Create, Created, attaching, creating};
 use crate::lint::{View, Write, lint_in};
 use crate::{Context, OpsError};
 use base64::Engine;
+use scaena_core::format::{Locale, NumberFormat};
 use scaena_core::inserts::slug;
 use scaena_core::model::nodes::TextFit;
 use scaena_core::model::theme::{Example, Prompt, PromptItems, PromptShapeKind, Slot, Theme};
@@ -52,6 +53,10 @@ pub struct Made {
     /// beside the JSON, as bytes.
     #[serde(skip)]
     pub assets: BTreeMap<String, Vec<u8>>,
+    /// The slides, by index, set as a list of their words as written because the layout chosen
+    /// would have drawn one of their figures other than as written (DF7-1).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub relisted: Vec<usize>,
 }
 
 /// A picture made for a slide (PLAN G.10): the path the bundle keeps it at, and what it shows,
@@ -1826,7 +1831,7 @@ fn assemble(
     let mut divided = false;
     let before = deck.previous.take();
     let mut previous: Option<(String, &Slide)> = before.as_ref().map(|(layout, slide)| (layout.clone(), slide));
-    for (i, ((slide, v), Planned { beat, items, icons, layout })) in
+    for (i, ((slide, v), Planned { beat, items, icons, mut layout })) in
         narrative.slides.iter().zip(&varied).zip(planned).enumerate()
     {
         let picture = pictures.get(&i);
@@ -1849,9 +1854,26 @@ fn assemble(
             icons,
             lang: lang.unwrap_or("en"),
         };
-        let entrance =
-            entrance(&layout, slide, previous.as_ref().map(|(l, s)| (l.as_str(), *s)), first + i + 1 == total);
-        let made = deck.slide(slots, entrance)?;
+        let last = first + i + 1 == total;
+        let after = previous.as_ref().map(|(l, s)| (l.as_str(), *s));
+        let kept = (deck.nodes.clone(), deck.states.len(), deck.data.clone());
+        let mut made = deck.slide(slots.clone(), entrance(&layout, slide, after, last))?;
+        // A slide never draws a figure its writer did not write (DF7-1): where it would, it is
+        // made again as a list of its items, their words as written.
+        let drawn: Vec<&Value> =
+            deck.nodes.iter().filter(|(id, _)| !kept.0.contains_key(*id)).map(|(_, n)| n).collect();
+        if slide.chart_data.is_none()
+            && layout != "bullets"
+            && !faithful(&items, &drawn)
+            && theme.layouts.contains_key("bullets")
+            && holds(theme, "bullets", items.len())
+        {
+            (deck.nodes, deck.data) = (kept.0, kept.2);
+            deck.states.truncate(kept.1);
+            made = deck.slide(Slots { layout: "bullets", ..slots }, entrance("bullets", slide, after, last))?;
+            layout = "bullets".to_string();
+            deck.relisted.push(first + i);
+        }
         let divider = layout.starts_with("section") && !slide.slide_title.is_empty();
         if divider {
             running = Some((slide.slide_title.clone(), beat));
@@ -1966,7 +1988,10 @@ fn assemble(
     if !deck.data.is_empty() {
         out["data"] = Value::Object(deck.data.clone());
     }
-    Ok((Made { deck: out, layouts: chosen, assets: BTreeMap::new() }, deck))
+    Ok((
+        Made { deck: out, layouts: chosen, assets: BTreeMap::new(), relisted: std::mem::take(&mut deck.relisted) },
+        deck,
+    ))
 }
 
 /// `planned` with no three slides in a row on one of the theme's layouts (lift-up ATTR-2):
@@ -2352,40 +2377,245 @@ fn without_figure(text: &str) -> String {
     }
 }
 
-/// The first figure in `text`: a number with its currency sign, its suffix, or its percent.
+/// The first figure in `text`: a number with its currency sign, its suffix, or its percent; a
+/// ratio or a range of two ("1 in 7", "3 of 4", "2\u{2013}3\u{d7}"); and a magnitude, a percent, or
+/// a currency a language sets after it, spaced or not ("48,6 Mio. \u{20ac}", "+18 %"). Never the
+/// digits of a name ("Q3", "FY26", "p99"), nor a year such a name dates ("Q3 2026").
 fn figure(text: &str) -> Option<String> {
     let chars: Vec<char> = text.chars().collect();
-    let start = chars.iter().position(|c| c.is_ascii_digit())?;
-    let mut begin = start;
-    while begin > 0 && matches!(chars[begin - 1], '$' | '\u{20ac}' | '\u{a3}' | '\u{a5}' | '+' | '-' | '\u{2212}' | '~')
-    {
-        begin -= 1;
+    let mut from = 0;
+    while let Some(start) = chars[from..].iter().position(char::is_ascii_digit).map(|at| from + at) {
+        let end = digits(&chars, start);
+        if !named(&chars, start, end) {
+            return Some(figure_at(&chars, start, end));
+        }
+        from = end;
     }
+    None
+}
+
+/// Whether a slide whose nodes are `drawn` draws its `items`' figures as they are written (DF7-1):
+/// each item's own figure somewhere on it, and in its figures' places none that is only a part of
+/// one ("1" of "1 in 7", "+18" of "+18 %") or the digits of a name ("3" of "Q3").
+fn faithful(items: &[Item], drawn: &[&Value]) -> bool {
+    // Set as compared: case, spaces, and the kinds of dash and minus set aside.
+    let plain = |text: &str| -> String {
+        (text.chars().filter(|c| !c.is_whitespace()))
+            .map(|c| if matches!(c, '\u{2013}' | '\u{2014}' | '\u{2212}') { '-' } else { c })
+            .flat_map(char::to_lowercase)
+            .collect()
+    };
+    let written: Vec<String> = items.iter().flat_map(|i| figures_in(&i.whole)).map(|f| plain(&f)).collect();
+    // Each item's own figure, which a layout may set apart but never leaves out; the figures its
+    // detail goes on to give a layout may leave to the notes ("$180B of it, 14,000 companies").
+    let led: Vec<String> =
+        items.iter().filter_map(Item::figure).filter_map(|f| figure(&f)).map(|f| plain(&f)).collect();
+    let names: Vec<String> = (items.iter())
+        .flat_map(|i| {
+            let chars: Vec<char> = i.whole.chars().collect();
+            let mut runs = Vec::new();
+            let mut at = 0;
+            while let Some(start) = chars[at..].iter().position(char::is_ascii_digit).map(|k| at + k) {
+                let end = digits(&chars, start);
+                if named(&chars, start, end) {
+                    runs.push(chars[start..end].iter().collect::<String>());
+                }
+                at = end;
+            }
+            runs
+        })
+        .collect();
+    let texts: Vec<(&str, &str)> =
+        (drawn.iter()).filter_map(|n| Some((n["role"].as_str().unwrap_or_default(), n["text"].as_str()?))).collect();
+    // `f` is the head of `w` and not all of it: "1" of "1 in 7", never "1" of "10%".
+    let part = |w: &str, f: &str| {
+        w.len() > f.len()
+            && w.starts_with(f)
+            && !w[f.len()..].starts_with(|c: char| c.is_ascii_digit() || c == ',' || c == '.')
+    };
+    let all = texts.iter().map(|(_, t)| plain(t)).collect::<Vec<_>>().join("|");
+    let shown = led.iter().all(|f| all.contains(f.as_str()));
+    let whole = (texts.iter().filter(|(role, _)| figure_role(role)))
+        .filter_map(|(_, t)| figure(t).map(|f| plain(&f)))
+        .all(|f| written.contains(&f) || !(names.contains(&f) || written.iter().any(|w| part(w, &f))));
+    shown && whole
+}
+
+/// Every figure in `text`, in order, as [`figure`] reads the first.
+fn figures_in(text: &str) -> Vec<String> {
+    let mut found = Vec::new();
+    let mut rest = text;
+    while let Some(f) = figure(rest) {
+        let Some(at) = rest.find(f.as_str()) else { break };
+        rest = &rest[at + f.len()..];
+        found.push(f);
+    }
+    found
+}
+
+/// Where the number whose first digit is at `start` ends: its digits, the marks between them,
+/// and the narrow spaces a language groups thousands by ("1\u{202f}200"), none at its end.
+fn digits(chars: &[char], start: usize) -> usize {
     let mut end = start;
-    while end < chars.len() && (chars[end].is_ascii_digit() || matches!(chars[end], ',' | '.')) {
+    while end < chars.len() {
+        let c = chars[end];
+        let grouped = matches!(c, '\u{a0}' | '\u{202f}' | '\u{2009}')
+            && end > start
+            && (1..=3).all(|k| chars.get(end + k).is_some_and(char::is_ascii_digit))
+            && !chars.get(end + 4).is_some_and(char::is_ascii_digit);
+        if !(c.is_ascii_digit() || matches!(c, ',' | '.') || grouped) {
+            break;
+        }
         end += 1;
     }
     while end > start && matches!(chars[end - 1], ',' | '.') {
         end -= 1;
     }
+    end
+}
+
+/// Whether the number at `start..end` is part of a name, not a figure: digits set against the
+/// letters before them ("Q3", "FY26", "p99", "W36"), or a year after such a name ("Q3 2026").
+fn named(chars: &[char], start: usize, end: usize) -> bool {
+    let letter = |c: char| c.is_alphabetic() && !unspaced(c);
+    if start > 0 && letter(chars[start - 1]) {
+        return true;
+    }
+    let year = end - start == 4 && matches!((chars[start], chars[start + 1]), ('1', '9') | ('2', '0'));
+    if !year || start < 2 || chars[start - 1] != ' ' {
+        return false;
+    }
+    let word: Vec<char> = chars[..start - 1].iter().rev().take_while(|c| c.is_alphanumeric()).copied().collect();
+    word.len() <= 6 && word.iter().any(char::is_ascii_digit) && word.last().copied().is_some_and(letter)
+}
+
+/// The figure whose number is at `start..end`, with what is written before and after it.
+fn figure_at(chars: &[char], start: usize, end: usize) -> String {
+    let mut begin = start;
+    while begin > 0 && matches!(chars[begin - 1], '$' | '\u{20ac}' | '\u{a3}' | '\u{a5}' | '+' | '-' | '\u{2212}' | '~')
+    {
+        begin -= 1;
+    }
+    let end = joined(chars, end).unwrap_or(end);
+    let at = |from: usize, n: usize| -> String { chars[from.min(chars.len())..].iter().take(n).collect() };
     // A magnitude a language without spaces writes after its figure, and its currency after
     // that: "41.2\u{4e07}\u{30c9}\u{30eb}" is $412K, never "41.2".
-    let rest: String = chars[end..].iter().take(3).collect();
-    if MAGNITUDES.iter().any(|m| rest.starts_with(m)) {
-        let after: String = chars[end + 1..].iter().take(2).collect();
+    if MAGNITUDES.iter().any(|m| at(end, 3).starts_with(m)) {
+        let after = at(end + 1, 2);
         let currency = CURRENCIES.iter().filter(|c| after.starts_with(*c)).map(|c| c.chars().count()).max();
-        return Some(chars[begin..end + 1 + currency.unwrap_or(0)].iter().collect());
+        return chars[begin..end + 1 + currency.unwrap_or(0)].iter().collect();
     }
-    let suffix = ["%", "\u{d7}", "x", "M", "B", "K", "k", "T", "bn", "tn", "m", "pp", "pts"]
+    // Whether a word that ends at `to` stops there: "5M" yes, "5Mbps" no.
+    let stops = |to: usize| chars.get(to).is_none_or(|c| !c.is_alphanumeric());
+    let rest = at(end, 3);
+    let suffix = ["%", "\u{2030}", "\u{d7}", "x", "M", "B", "K", "k", "T", "bn", "tn", "m", "pp", "pts"]
         .iter()
+        .chain(&SIGNS)
         .filter(|s| rest.starts_with(*s))
         .max_by_key(|s| s.len())
         .map_or(0, |s| s.chars().count());
-    // A suffix is the figure's only where the word stops there: "5 M" no, "5M" yes, "5Mbps" no.
-    let after = chars.get(end + suffix).copied();
-    let suffix = if suffix > 0 && after.is_none_or(|c| !c.is_alphanumeric()) { suffix } else { 0 };
-    Some(chars[begin..end + suffix].iter().collect())
+    if suffix > 0 && stops(end + suffix) {
+        return chars[begin..end + suffix].iter().collect();
+    }
+    // Spaced, as German and French set them: a percent ("+18 %"), a magnitude and the currency
+    // after it ("48,6 Mio. \u{20ac}"), or a currency alone ("12 \u{20ac}").
+    let mut to = end;
+    if chars.get(to).copied().is_some_and(spacing) {
+        let from = to + 1;
+        let word = |words: &[&str]| -> Option<usize> {
+            let rest: String = at(from, 12);
+            (words.iter())
+                .filter(|w| rest.starts_with(**w) && stops(from + w.chars().count()))
+                .map(|w| w.chars().count())
+                .max()
+        };
+        if let Some(n) = word(&["%", "\u{2030}"]) {
+            return chars[begin..from + n].iter().collect();
+        }
+        if let Some(n) = word(&SPACED_MAGNITUDES) {
+            to = from + n;
+        }
+        let then = match to > end {
+            true if chars.get(to).copied().is_some_and(spacing) => to + 1,
+            true => to,
+            false => from,
+        };
+        let rest: String = at(then, 4);
+        let currency = (SIGNS.iter().chain(&CODES))
+            .filter(|c| rest.starts_with(**c) && stops(then + c.chars().count()))
+            .map(|c| c.chars().count())
+            .max();
+        if let Some(n) = currency {
+            to = then + n;
+        }
+    }
+    chars[begin..to].iter().collect()
 }
+
+/// Where the second of two numbers ends, where a range's dash, a ratio's slash, or a ratio's word
+/// joins it to the one that ends at `end`: "2\u{2013}3\u{d7}", "24/7", "1 in 7", "3 of 4"; none where
+/// a third follows, as a date's or a telephone number's does, or the second is a year ("5 in 2024").
+fn joined(chars: &[char], end: usize) -> Option<usize> {
+    let digit = |at: usize| chars.get(at).is_some_and(char::is_ascii_digit);
+    let dashed = matches!(chars.get(end), Some('-' | '\u{2013}' | '/')) && digit(end + 1);
+    let second = if dashed {
+        end + 1
+    } else {
+        let rest: String = chars[end..].iter().take(10).collect();
+        let word = RATIOS.iter().find(|w| rest.starts_with(**w))?;
+        let at = end + word.chars().count();
+        if !digit(at) {
+            return None;
+        }
+        at
+    };
+    let stop = digits(chars, second);
+    let year = stop - second == 4 && matches!((chars[second], chars[second + 1]), ('1', '9') | ('2', '0'));
+    let third = matches!(chars.get(stop), Some('-' | '\u{2013}' | '/')) && digit(stop + 1);
+    // A ratio counts in whole numbers: "1 in 7", never "1 in 7%" or "5 in 2024".
+    let counts = dashed || !(year || chars.get(stop) == Some(&'%'));
+    (!third && counts).then_some(stop)
+}
+
+/// The words that join a ratio's two numbers: "1 in 7", "3 of 4", "1 von 7", "1 sur 7".
+const RATIOS: [&str; 10] = [" in ", " of ", " out of ", " von ", " sur ", " de cada ", " de ", " su ", " op ", " na "];
+
+/// Whether `c` sets a unit apart from its figure: a space, or a space that never breaks.
+fn spacing(c: char) -> bool {
+    matches!(c, ' ' | '\u{a0}' | '\u{202f}' | '\u{2009}')
+}
+
+/// The magnitudes written as a word after a figure: "48,6 Mio. \u{20ac}", "1.2 million".
+const SPACED_MAGNITUDES: [&str; 22] = [
+    "Tsd.",
+    "Tsd",
+    "Mio.",
+    "Mio",
+    "Mrd.",
+    "Mrd",
+    "Bio.",
+    "Mill.",
+    "Millionen",
+    "Milliarden",
+    "thousand",
+    "million",
+    "millions",
+    "billion",
+    "billions",
+    "trillion",
+    "milliards",
+    "mln.",
+    "mln",
+    "mld.",
+    "mld",
+    "mil",
+];
+
+/// The currency signs written after a figure, against it or spaced: "12 \u{20ac}", "5\u{20ac}".
+const SIGNS: [&str; 7] = ["\u{20ac}", "$", "\u{a3}", "\u{a5}", "\u{20b9}", "\u{20a9}", "\u{20bd}"];
+
+/// The currencies written by their codes after a figure: "12 EUR".
+const CODES: [&str; 5] = ["EUR", "USD", "GBP", "CHF", "JPY"];
 
 /// The magnitudes Japanese, Chinese, and Korean write after a figure: ten thousand, a hundred
 /// million, a trillion, a thousand.
@@ -2792,6 +3022,7 @@ fn entrance(layout: &str, slide: &Slide, previous: Option<(&str, &Slide)>, last:
     })
 }
 
+#[derive(Clone)]
 struct Slots<'a> {
     theme: &'a Theme,
     layout: &'a str,
@@ -2980,34 +3211,27 @@ fn row(item: &Item) -> (Option<String>, Option<String>, Option<String>) {
     (criterion, left.map(|s| sentence(&s)), right.map(|s| sentence(&s)))
 }
 
-/// The latest figure a chart plots, in its unit: its first series' last value.
-fn latest(chart: &ChartData) -> Option<String> {
+/// The latest figure a chart plots, in its unit and the deck's language (`lang`): its first
+/// series' last value, with the decimals the chart's labels give it.
+fn latest(chart: &ChartData, lang: &str) -> Option<String> {
     let value = *chart.series.first()?.values.last()?;
-    Some(in_unit(value, chart.unit.as_deref()))
+    Some(at_places(value, decimals(chart), chart.unit.as_deref(), lang))
 }
 
-/// `value` written with `unit`: "$44/MWh", "1.55\u{b0}C", "30%", "424 ppm", "$2T".
-fn in_unit(value: f64, unit: Option<&str>) -> String {
-    let n = if value.fract() == 0.0 && value.abs() >= 10_000.0 && value.abs() < 1e15 {
-        // Thousands set apart: 1,250,000.
-        let digits = format!("{}", value.abs() as u64);
-        let mut out = String::new();
-        for (i, c) in digits.chars().enumerate() {
-            if i > 0 && (digits.len() - i).is_multiple_of(3) {
-                out.push(',');
-            }
-            out.push(c);
-        }
-        if value < 0.0 { format!("-{out}") } else { out }
-    } else {
-        format!("{value}")
-    };
+/// `value` with `places` decimals, written as the chart's own labels write it (`,.{places}f`) in
+/// the deck's language (`lang`), and with `unit`: "$44/MWh", "1.55\u{b0}C", "30%", "1,840 ms",
+/// "$2.0T" beside "$1.1T", "48,6 Mio. \u{20ac}" in German.
+fn at_places(value: f64, places: usize, unit: Option<&str>, lang: &str) -> String {
+    let locale = Locale::of(Some(lang));
+    let n =
+        NumberFormat::parse(&format!(",.{places}f")).map_or_else(|_| format!("{value}"), |f| f.format(value, locale));
     match unit.map(str::trim).filter(|u| !u.is_empty()) {
         None => n,
         Some(u) if u.starts_with(['$', '\u{20ac}', '\u{a3}', '\u{a5}']) => {
             let sign = u.chars().next().expect("not empty");
             format!("{sign}{n}{}", &u[sign.len_utf8()..])
         }
+        Some("%") => format!("{n}{}", locale.percent),
         Some(u) if u.starts_with(['%', '\u{b0}', '/', '\u{d7}']) => format!("{n}{u}"),
         // A unit written in a script set without spaces sits against its figure: "2時間", "340ドル".
         Some(u) if u.chars().next().is_some_and(unspaced) => format!("{n}{u}"),
@@ -3446,7 +3670,7 @@ impl Slots<'_> {
                 let chart = self.slide.chart_data.as_ref()?;
                 let value = chart.series.first().and_then(|s| s.values.get(k).copied());
                 match part {
-                    "figure" => text(value.map(|v| at_places(v, decimals(chart), chart.unit.as_deref()))),
+                    "figure" => text(value.map(|v| at_places(v, decimals(chart), chart.unit.as_deref(), self.lang))),
                     "" => text(chart.categories.get(k).cloned()),
                     _ => Some(None),
                 }
@@ -3465,7 +3689,7 @@ impl Slots<'_> {
             // and the source.
             ("line-chart", "callout", _) => text(
                 (self.item(0).filter(|i| i.figure_first()).and_then(|i| i.label.clone()))
-                    .or_else(|| self.slide.chart_data.as_ref().and_then(latest)),
+                    .or_else(|| self.slide.chart_data.as_ref().and_then(|c| latest(c, self.lang))),
             ),
             // The takeaway; then, where the layout has no place for it, the chart's source a line
             // of its own. A takeaway that names the headline's first and last figures again says
@@ -3779,6 +4003,8 @@ struct Builder {
     /// The slide before the first one made, by its layout: an open deck's, which a slide written
     /// into it enters after (lift-up FUNC-1).
     previous: Option<(String, Slide)>,
+    /// The slides set as a list of their words, by their index in the deck (DF7-1).
+    relisted: Vec<usize>,
 }
 
 impl Builder {
@@ -4569,25 +4795,6 @@ fn decimals(chart: &ChartData) -> usize {
     chart.series.iter().flat_map(|s| &s.values).map(|v| places(*v)).max().unwrap_or(0)
 }
 
-/// `value` with `places` decimals, written with `unit`: "$2.0T" beside "$1.1T".
-fn at_places(value: f64, places: usize, unit: Option<&str>) -> String {
-    if places == 0 {
-        return in_unit(value, unit);
-    }
-    let n = format!("{value:.places$}");
-    match unit.map(str::trim).filter(|u| !u.is_empty()) {
-        None => n,
-        Some(u) if u.starts_with(['$', '\u{20ac}', '\u{a3}', '\u{a5}']) => {
-            let sign = u.chars().next().expect("not empty");
-            format!("{sign}{n}{}", &u[sign.len_utf8()..])
-        }
-        Some(u) if u.starts_with(['%', '\u{b0}', '/', '\u{d7}']) => format!("{n}{u}"),
-        // A unit written in a script set without spaces sits against its figure: "2時間", "340ドル".
-        Some(u) if u.chars().next().is_some_and(unspaced) => format!("{n}{u}"),
-        Some(u) => format!("{n} {u}"),
-    }
-}
-
 /// Which of a single series' categories the slide is about, by index: the one its takeaway
 /// names; else, where the categories are years, the latest; else the largest.
 fn signal(chart: &ChartData, takeaway: Option<&str>) -> Option<usize> {
@@ -4826,7 +5033,7 @@ fn word_at(text: &str, word: &str) -> Option<usize> {
 fn described(chart: &ChartData, kind: &str, counts: Option<&str>, lang: &str) -> String {
     let words = own(lang);
     let places = decimals(chart);
-    let value = |v: f64| at_places(v, places, chart.unit.as_deref());
+    let value = |v: f64| at_places(v, places, chart.unit.as_deref(), lang);
     let several = chart.series.len() > 1;
     let names: Vec<&str> = chart.series.iter().filter_map(|s| s.name.as_deref()).collect();
     let mut head = (if kind == "line" { words.line } else { words.bar }).to_string();
@@ -5119,8 +5326,8 @@ mod tests {
         assert_eq!(quoted("Ours", "zh-Hans"), "\u{201c}Ours\u{201d}");
         assert_eq!(quoted("Ours", "de"), "\u{201e}Ours\u{201c}");
         // A line's latest figure sits against a unit in a script set without spaces (V3).
-        assert_eq!(in_unit(2.0, Some("\u{6642}\u{9593}")), "2\u{6642}\u{9593}");
-        assert_eq!(in_unit(2.0, Some("hours")), "2 hours");
+        assert_eq!(at_places(2.0, 0, Some("\u{6642}\u{9593}"), "ja"), "2\u{6642}\u{9593}");
+        assert_eq!(at_places(2.0, 0, Some("hours"), "en"), "2 hours");
         // A short parenthetical is kept on one line; a long one may still wrap.
         assert_eq!(typeset("P(H | E) = P(E | H)", "en"), "P(H\u{a0}|\u{a0}E) = P(E\u{a0}|\u{a0}H)");
         let long = "the posterior (what we believe after the test)";
@@ -5149,6 +5356,138 @@ mod tests {
         assert_eq!(after_figure("1,200, 28% go on").as_deref(), Some("28% go on"));
         assert_eq!(after_figure("$40M revenue by 2028"), None);
         assert_eq!(after_figure("41%").as_deref(), Some(""));
+    }
+
+    #[test]
+    fn a_figure_is_read_whole_and_never_from_a_name() {
+        // A ratio, a range, and the figure written whole where an item is one (DF7-1).
+        assert_eq!(figure("1 in 7").as_deref(), Some("1 in 7"));
+        assert_eq!(figure("about 3 of 4 teams").as_deref(), Some("3 of 4"));
+        assert_eq!(figure("2\u{2013}3\u{d7} faster").as_deref(), Some("2\u{2013}3\u{d7}"));
+        assert_eq!(figure("open 24/7").as_deref(), Some("24/7"));
+        assert!(numeric("1 in 7") && numeric("2\u{2013}3\u{d7}"));
+        // No ratio of a year, a percent, or a date's three parts.
+        assert_eq!(figure("5 in 2024").as_deref(), Some("5"));
+        assert_eq!(figure("on 2025-11-28").as_deref(), Some("2025"));
+        // German figures, their magnitude and their currency spaced, and a spaced percent.
+        assert_eq!(figure("48,6 Mio. \u{20ac}: Umsatz").as_deref(), Some("48,6 Mio. \u{20ac}"));
+        assert_eq!(figure("Budget von 0,8 Mio. \u{20ac} freigeben").as_deref(), Some("0,8 Mio. \u{20ac}"));
+        assert_eq!(figure("EBITDA, +18 %").as_deref(), Some("+18 %"));
+        assert_eq!(figure("12 \u{20ac} pro Monat").as_deref(), Some("12 \u{20ac}"));
+        assert_eq!(figure("raised 1.2 million").as_deref(), Some("1.2 million"));
+        assert_eq!(figure("1\u{202f}200\u{a0}\u{20ac}").as_deref(), Some("1\u{202f}200\u{a0}\u{20ac}"));
+        assert!(numeric("48,6 Mio. \u{20ac}") && numeric("94 %") && numeric("+18 %"));
+        let i = item("48,6 Mio. \u{20ac}: Umsatz im Q3, +9 %");
+        assert!(i.figure_first());
+        assert_eq!(i.figure().as_deref(), Some("48,6 Mio. \u{20ac}"));
+        // A name's digits are no figure, nor a year a name dates.
+        assert_eq!(figure("Umsatz im Q3, +9 %").as_deref(), Some("+9 %"));
+        assert_eq!(figure("p99 doubled, from 910 ms").as_deref(), Some("910"));
+        assert_eq!(figure("FY26 plan"), None);
+        assert_eq!(figure("Seit Q3 2025 ist der Umsatz um 27 % gestiegen").as_deref(), Some("27 %"));
+        assert!(!numeric("Q3") && !numeric("H1 2027"));
+        // A language without spaces keeps its figure after its letters.
+        assert_eq!(figure("\u{4e88}\u{7b97}\u{306f}3\u{5104}\u{5186}").as_deref(), Some("3\u{5104}\u{5186}"));
+        assert_eq!(figures_in("from 1,210 ms to 140 ms at p99"), ["1,210".to_string(), "140".to_string()]);
+    }
+
+    #[test]
+    fn a_slide_that_would_draw_a_figure_otherwise_is_found() {
+        let text = |role: &str, text: &str| json!({ "type": "text", "role": role, "text": text });
+        let faithful_of = |bullets: &[&str], drawn: &[Value]| {
+            let items: Vec<Item> = bullets.iter().map(|b| item(b)).collect();
+            faithful(&items, &drawn.iter().collect::<Vec<_>>())
+        };
+        let ratio = ["1 in 7", "children in Halverson County slept somewhere unstable last winter"];
+        let meaning = text("title", ratio[1]);
+        assert!(faithful_of(&ratio, &[text("hero", "1 in 7"), meaning.clone()]));
+        // Its head alone ("1"), as dogfood pass 7's appeal drew it.
+        assert!(!faithful_of(&ratio, &[text("hero", "1"), meaning]));
+        // A name's digits, and a figure without its percent, as its board report drew them.
+        let scorecard = ["48,6 Mio. \u{20ac}: Umsatz im Q3, +9 %", "1,2 Mio. \u{20ac}: EBITDA, +18 %"];
+        let words = [text("label", "48,6 Mio. \u{20ac}"), text("caption", "Umsatz im Q3, +9 %")];
+        let more = [text("label", "1,2 Mio. \u{20ac}"), text("caption", "EBITDA, +18 %")];
+        let drawn = |a: &str, b: &str| [&[text("figure", a)], &words[..], &[text("figure", b)], &more[..]].concat();
+        assert!(!faithful_of(&scorecard, &drawn("3", "+18")));
+        assert!(faithful_of(&scorecard, &drawn("48,6 Mio. \u{20ac}", "1,2 Mio. \u{20ac}")));
+        // A figure that is not shown at all.
+        assert!(!faithful_of(&scorecard, &[text("figure", "48,6 Mio. \u{20ac}"), words[1].clone()]));
+        // A card's number is no part of a figure it does not begin.
+        assert!(faithful_of(&["10% churn"], &[text("figure", "1"), text("body", "10% churn")]));
+    }
+
+    #[test]
+    fn a_slide_that_would_draw_a_figure_otherwise_is_set_as_its_words() {
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let slide = Slide {
+            slide_title: "Buyers wait less".into(),
+            layout_suggestion: "Bullets".into(),
+            key_bullets: vec!["41% of buyers: order again".into(), "12 days: the wait, down from 30".into()],
+            ..Slide::default()
+        };
+        // A cover, which says its title alone: neither of its figures drawn.
+        let layouts = BTreeMap::from([(0, "title".to_string())]);
+        let made = deck_as(&narrative("", vec![slide]), &theme, &Pictures::new(), &layouts).unwrap();
+        assert_eq!((made.relisted.as_slice(), made.layouts[0].as_str()), (&[0][..], "bullets"));
+        let said = made.deck.to_string();
+        assert!(said.contains("41%") && said.contains("12 days"), "{said}");
+    }
+
+    /// The four decks of dogfood pass 7 and the five before them (`tests/fixtures/dogfood`), each
+    /// made in the theme and the language it was written for.
+    #[cfg(feature = "shipped")]
+    fn dogfood() -> Vec<(&'static str, Made)> {
+        let decks = [
+            ("deepdive", "dusk", None),
+            ("board-de", "daybreak", Some("German")),
+            ("appeal", "ember", None),
+            ("training", "salon", None),
+            ("pitch", "dusk", None),
+            ("qbr", "daybreak", None),
+            ("lecture", "salon", None),
+            ("keynote", "ember", None),
+            ("launch", "ember", None),
+        ];
+        (decks.into_iter())
+            .map(|(name, theme, language)| {
+                let path = root().join(format!("tests/fixtures/dogfood/{name}.slides.json"));
+                let written = answer::slides(&std::fs::read_to_string(path).unwrap()).unwrap();
+                let mut n = narrative(&written.executive_summary, written.slides);
+                n.brief.language = language.map(str::to_string);
+                let theme: Theme = serde_json::from_str(crate::shipped::theme(theme).unwrap().text).unwrap();
+                (name, deck(&n, &theme, &Pictures::new()).unwrap())
+            })
+            .collect()
+    }
+
+    #[test]
+    #[cfg(feature = "shipped")]
+    fn a_made_deck_draws_every_figure_as_its_writer_wrote_it() {
+        let decks = dogfood();
+        // No slide of theirs needs setting as a list to draw its figures as written (DF7-1).
+        for (name, made) in &decks {
+            assert!(made.relisted.is_empty(), "{name}: slides {:?} set as lists", made.relisted);
+        }
+        let said = |deck: &str, node: &str| -> String {
+            let made = &decks.iter().find(|(n, _)| *n == deck).unwrap().1;
+            made.deck["nodes"][node]["text"].as_str().unwrap_or_default().to_string()
+        };
+        assert_eq!(said("appeal", "she-is-one-of-many-number"), "1 in 7");
+        assert_eq!(said("board-de", "ein-starkes-quartal-in-vier-first-figure"), "48,6 Mio. \u{20ac}");
+        assert_eq!(said("board-de", "ein-starkes-quartal-in-vier-second-figure"), "1,2 Mio. \u{20ac}");
+        // A figure the builder writes is written as its chart's labels write it, in the deck's language.
+        assert_eq!(said("board-de", "der-umsatz-w-chst-seit-f-nf-callout"), "48,6 Mio. \u{20ac}");
+        assert_eq!(said("deepdive", "latency-climbed-every-week-as-callout"), "1,840 ms");
+    }
+
+    #[test]
+    fn a_figure_the_builder_writes_is_written_as_the_charts_write_it() {
+        // Thousands set apart as the axis sets them, in the deck's language (DF7-1).
+        assert_eq!(at_places(1840.0, 0, Some("ms"), "en"), "1,840 ms");
+        assert_eq!(at_places(48.6, 1, Some("Mio. \u{20ac}"), "de"), "48,6 Mio. \u{20ac}");
+        assert_eq!(at_places(1234.5, 1, None, "de"), "1.234,5");
+        assert_eq!(at_places(27.0, 0, Some("%"), "fr"), "27\u{a0}%");
+        assert_eq!(at_places(2.0, 1, Some("$T"), "en"), "$2.0T");
     }
 
     #[test]
