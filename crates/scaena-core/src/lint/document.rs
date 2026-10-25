@@ -868,9 +868,24 @@ impl Rule for I403UncoloredLanguage {
 /// W204: a code text's lines in focus (PLAN 2.140) that name a line past its last, which nothing
 /// draws: the lines it has are set back for a line that is not there. One finding a text and the
 /// place its focus is written, in the first state it is so in, with every state it is so in. The
-/// fix holds each span to the lines the text has in that state, and takes away a span past them
-/// all, and the focus where none is left.
+/// fix is written where the focus is, so it is sized by every state that reads it there: it holds
+/// each span to the most lines any of them draws, and takes away a span past them all, and the
+/// focus where none is left. Where a state that reads it draws every line it names, no fix cuts
+/// it, and the finding says to write the focus in the state that is short.
 struct W204FocusPastLast;
+
+/// What W204 finds of one text's focus written in one place: the states that show a line past
+/// their last, with the first's lines and the line past them, and the most lines any state that
+/// reads it there draws.
+struct Focused {
+    id: String,
+    at: String,
+    ends: Vec<(u64, u64)>,
+    first: Option<(String, u64, u64)>,
+    states: Vec<String>,
+    most: u64,
+}
+
 impl Rule for W204FocusPastLast {
     fn code(&self) -> &'static str {
         "W204"
@@ -880,8 +895,7 @@ impl Rule for W204FocusPastLast {
     }
     fn check(&self, cx: &Context) -> Vec<Finding> {
         use crate::tracking::{Lives, lives};
-        let mut out: Vec<Finding> = Vec::new();
-        let mut seen: Vec<(String, String, usize)> = Vec::new();
+        let mut places: Vec<Focused> = Vec::new();
         for (i, snap) in cx.snapshots.iter().enumerate() {
             for (id, props) in &snap.nodes {
                 if cx.deck.nodes.get(id).is_none_or(|n| n.node_type != NodeType::Text) {
@@ -892,46 +906,59 @@ impl Rule for W204FocusPastLast {
                 let shown = props.get("code").and_then(|c| c.get("focus"));
                 let Some(spans) = over.or(shown).and_then(Value::as_array) else { continue };
                 let lines = crate::lists::paragraphs(&crate::reading::words(props)).len() as u64;
-                let ends: Vec<(u64, u64)> = spans.iter().filter_map(span).collect();
-                let Some(past) = ends.iter().map(|&(_, b)| b).filter(|&b| b > lines).max() else { continue };
                 let at = match (over.is_some(), lives(cx.deck, i, id, "code", &["focus"])) {
                     (true, _) => format!("/overrides/{}", token(id)),
                     (false, Lives::State(j)) => format!("/states/{j}/props/{}", token(id)),
                     (false, Lives::Node) => format!("/nodes/{}", token(id)),
                 };
-                if let Some((_, _, k)) = seen.iter().find(|(n, a, _)| n == id && *a == at) {
-                    if let Some(states) = out[*k].measure.as_mut().and_then(|m| m["states"].as_array_mut()) {
-                        states.push(snap.state_id.clone().into());
+                let k = match places.iter().position(|p| p.id == *id && p.at == at) {
+                    Some(k) => k,
+                    None => {
+                        let ends = spans.iter().filter_map(span).collect();
+                        places.push(Focused { id: id.clone(), at, ends, first: None, states: vec![], most: 0 });
+                        places.len() - 1
                     }
-                    continue;
-                }
-                let held: Vec<Value> = (ends.iter())
-                    .filter(|&&(a, _)| a <= lines)
-                    .map(|&(a, b)| match b.min(lines) {
-                        b if b == a => Value::from(a),
-                        b => Value::from(vec![a, b]),
-                    })
-                    .collect();
-                let pointer = format!("{at}/code/focus");
-                let fix = match held.is_empty() {
-                    true => serde_json::json!({ "op": "remove", "path": pointer }),
-                    false => serde_json::json!({ "op": "replace", "path": pointer, "value": held }),
                 };
-                seen.push((id.clone(), at.clone(), out.len()));
-                out.push(
-                    Finding::new(
-                        self.code(),
-                        self.severity(),
-                        format!("`{id}` has line {past} in focus, past its last, line {lines}: nothing draws it"),
-                    )
-                    .at(pointer)
-                    .state(snap.state_id.clone())
-                    .node(id.clone())
-                    .measure(serde_json::json!({ "line": past, "lines": lines, "states": [snap.state_id] }))
-                    .hint("Name the lines the text has, or take the focus away to show every line.")
-                    .fix(vec![fix]),
-                );
+                let place = &mut places[k];
+                place.most = place.most.max(lines);
+                let Some(past) = place.ends.iter().map(|&(_, b)| b).filter(|&b| b > lines).max() else { continue };
+                place.first.get_or_insert((snap.state_id.clone(), lines, past));
+                place.states.push(snap.state_id.clone());
             }
+        }
+        let mut out = Vec::new();
+        for place in places {
+            let Some((state, lines, past)) = place.first else { continue };
+            let held: Vec<(u64, u64)> =
+                (place.ends.iter()).filter(|&&(a, _)| a <= place.most).map(|&(a, b)| (a, b.min(place.most))).collect();
+            let pointer = format!("{}/code/focus", place.at);
+            let finding = Finding::new(
+                self.code(),
+                self.severity(),
+                format!("`{}` has line {past} in focus, past its last, line {lines}: nothing draws it", place.id),
+            )
+            .at(pointer.clone())
+            .state(state)
+            .node(place.id)
+            .measure(serde_json::json!({ "line": past, "lines": lines, "states": place.states }));
+            // Another state reads the focus there and draws every line it names: cutting it
+            // there would cut what that state draws.
+            if held == place.ends {
+                out.push(
+                    finding.hint("Write the lines in focus in the state that has fewer lines, where it shows them."),
+                );
+                continue;
+            }
+            let held: Vec<Value> = (held.into_iter())
+                .map(|(a, b)| if a == b { Value::from(a) } else { Value::from(vec![a, b]) })
+                .collect();
+            let fix = match held.is_empty() {
+                true => serde_json::json!({ "op": "remove", "path": pointer }),
+                false => serde_json::json!({ "op": "replace", "path": pointer, "value": held }),
+            };
+            out.push(
+                finding.hint("Name the lines the text has, or take the focus away to show every line.").fix(vec![fix]),
+            );
         }
         out
     }

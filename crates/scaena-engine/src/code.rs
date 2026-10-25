@@ -221,19 +221,9 @@ pub(crate) fn in_spans(spans: &[(usize, usize)], line: usize) -> bool {
 }
 
 /// Where each of `written`'s lines starts, as written: at 0, and after each character that
-/// breaks a line, a CRLF once, as [`laid`] breaks them.
+/// breaks a line, a CRLF once, as [`laid`] breaks them and the deck counts them.
 fn line_starts(written: &str) -> Vec<usize> {
-    let mut starts = vec![0];
-    let mut chars = written.char_indices().peekable();
-    while let Some((i, c)) = chars.next() {
-        if c == '\r' && chars.peek().is_some_and(|&(_, next)| next == '\n') {
-            continue;
-        }
-        if crate::carets::breaks(c) {
-            starts.push(i + c.len_utf8());
-        }
-    }
-    starts
+    scaena_core::lists::paragraphs(written).into_iter().map(|r| r.start).collect()
 }
 
 /// The SHA-256 of each file of the tables the scanners read (`scaena_core::code::tables`, in

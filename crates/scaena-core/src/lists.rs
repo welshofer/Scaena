@@ -6,9 +6,16 @@ use crate::model::theme::Lists;
 use crate::model::values::{ListItem, ListKind};
 use std::ops::Range;
 
-/// The paragraphs of `text`, as byte ranges without the break that ends each: a hard line
-/// break ends one (`\n`, `\r`, `\r\n`, U+2028, U+2029). A text has one paragraph more than
-/// it has breaks, so an empty text has one, empty.
+/// A character that ends a line wherever it stands, UAX #14's mandatory breaks, as the engine
+/// lays a text out: `\n`, `\r`, VT, FF, NEL, U+2028, and U+2029 (a CRLF breaks once).
+pub fn breaks(c: char) -> bool {
+    matches!(c, '\n' | '\r' | '\u{B}' | '\u{C}' | '\u{85}' | '\u{2028}' | '\u{2029}')
+}
+
+/// The paragraphs of `text`, as byte ranges without the break that ends each: each character
+/// that [`breaks`] a line ends one, a CRLF once, so a text has a paragraph for each line the
+/// engine draws it in before wrapping. A text has one paragraph more than it has breaks, so
+/// an empty text has one, empty.
 pub fn paragraphs(text: &str) -> Vec<Range<usize>> {
     let mut out = Vec::new();
     let mut start = 0;
@@ -19,7 +26,7 @@ pub fn paragraphs(text: &str) -> Vec<Range<usize>> {
                 chars.next();
                 i + 2
             }
-            '\n' | '\r' | '\u{2028}' | '\u{2029}' => i + c.len_utf8(),
+            _ if breaks(c) => i + c.len_utf8(),
             _ => continue,
         };
         out.push(start..i);
@@ -271,6 +278,9 @@ mod tests {
         assert_eq!(paragraphs("a\nb"), [0..1, 2..3]);
         assert_eq!(paragraphs("a\r\nb\n"), [0..1, 3..4, 5..5]);
         assert_eq!(paragraphs("a\u{2028}b"), [0..1, 4..5]);
+        // A form feed, as GNU sources and Python's page their code, and the rest of UAX #14's
+        // mandatory breaks, end a line as the engine draws it (PLAN 2.140).
+        assert_eq!(paragraphs("a\u{C}b\u{B}c\u{85}d"), [0..1, 2..3, 4..5, 7..8]);
     }
 
     #[test]
