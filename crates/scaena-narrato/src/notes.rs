@@ -52,14 +52,14 @@ pub struct Talk<'a> {
 }
 
 /// The minutes a talk of `length` (one of [`crate::brief::LENGTHS`]) is written to run: the
-/// middle of the slot its slides are given, as [`crate::brief::length_for_minutes`] maps a slot
-/// to its slides; ten for a length it does not name.
+/// middle of the slot [`crate::brief::minutes_for_slides`] gives its slides, the slot health's
+/// pacing reads the talk against; past the last closed slot, half a slot's 15 minutes past its
+/// floor; ten for a length it does not name.
 pub fn minutes(length: &str) -> f64 {
-    match length {
-        "11-15 slides" => 23.0,
-        "16-25 slides" => 38.0,
-        "26-40 slides" => 55.0,
-        _ => 10.0,
+    match crate::brief::minimum_slides(length).map(crate::brief::minutes_for_slides) {
+        Some((lo, Some(hi))) => f64::from(lo + hi) / 2.0,
+        Some((lo, None)) => f64::from(lo) + 7.5,
+        None => 10.0,
     }
 }
 
@@ -265,7 +265,18 @@ mod tests {
     #[test]
     fn a_talk_runs_the_middle_of_its_slot_and_each_slide_its_share() {
         assert_eq!(minutes("11-15 slides"), 23.0);
-        assert_eq!(minutes("5-10 slides"), 10.0);
+        assert_eq!(minutes("5-10 slides"), 7.5);
+        assert_eq!(minutes("41+ slides"), 53.5);
+        assert_eq!(minutes("a length no one names"), 10.0);
+        // Each length's talk stands in the slot health's pacing gives its slides.
+        for length in crate::brief::LENGTHS {
+            let (lo, hi) = crate::brief::minutes_for_slides(crate::brief::minimum_slides(length).unwrap());
+            let at = minutes(length);
+            assert!(
+                at >= f64::from(lo) && hi.is_none_or(|hi| at <= f64::from(hi)),
+                "{length}: {at} min, not in {lo}–{hi:?}"
+            );
+        }
         // A slide twice as long as another speaks about twice its words, less what it shows and
         // its change, a chart's a quarter fewer; none fewer than a few sentences.
         let timed = |seconds: f64, shown: usize, factor: f64| Timed { seconds, shown, factor };
