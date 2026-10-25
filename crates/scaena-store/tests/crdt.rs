@@ -528,9 +528,9 @@ fn from_the_future(bytes: &[u8]) -> Vec<u8> {
 fn a_history_from_a_newer_scaena_is_not_damaged() {
     let deck = Deck::from_json(&std::fs::read_to_string("../../docs/examples/revenue.deck.json").unwrap()).unwrap();
     let saved = DeckDoc::from_deck(&deck, &user()).unwrap().save().unwrap();
-    let newer = DeckDoc::load(&from_the_future(&saved)).err().expect("a newer encoding does not load");
+    let Err(newer) = DeckDoc::load(&from_the_future(&saved)) else { panic!("a newer encoding does not load") };
     assert!(newer.newer(), "{newer}");
-    let cut = DeckDoc::load(&saved[..saved.len() / 2]).err().expect("a cut history does not load");
+    let Err(cut) = DeckDoc::load(&saved[..saved.len() / 2]) else { panic!("a cut history does not load") };
     assert!(!cut.newer(), "{cut}");
     let said = scaena_store::crdt::recorded(&from_the_future(&saved), "[]").unwrap_err();
     assert!(said.starts_with(scaena_store::NEWER), "{said}");
