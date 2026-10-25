@@ -77,7 +77,7 @@ private func anthropic(_ text: String) -> Data {
         Three lanes ran carbon-negative for a quarter. Fuel cost rose 4%, and every shipper renewed its \
         contract for the next season.
         """
-    let read = try generator.add(name: "notes.md", data: Data(notes.utf8))
+    let read = try await generator.add(name: "notes.md", data: Data(notes.utf8))
     #expect(read == .read(name: "notes.md", kind: "markdown"))
 
     // The deck built and every slide drawn away from the main actor (lift-up narrative PERF-3).
@@ -400,4 +400,21 @@ private final class Endless: URLProtocol {
     Endless.chunks = 8
     let whole = await GeneratorReply.made(request, by: session)
     #expect(whole.status == 200 && whole.body.count == 8 << 16)
+}
+
+/// A file handed to New from a Prompt is read and parsed away from the main actor, so the brief's
+/// window, Cancel among it, goes on answering while a large one is read (lift-up 20261025b
+/// PERF-4).
+@MainActor
+@Test func aSourceFileIsReadAwayFromTheMainActor() async throws {
+    let generator = Generator()
+    let away = Away()
+    generator.away = { away.add($0, main: Thread.isMainThread, stack: Thread.current.stackSize) }
+    let file = FileManager.default.temporaryDirectory.appending(path: "away-\(UUID().uuidString).md")
+    try Data("# Pilots\n\nThree lanes ran carbon-negative for a quarter.\n".utf8).write(to: file)
+    defer { try? FileManager.default.removeItem(at: file) }
+    let read = try await generator.add(contentsOf: file)
+    #expect(read == .read(name: file.lastPathComponent, kind: "markdown"))
+    #expect(away.steps.map(\.step) == ["add"], "the file parsed off the main actor: \(away.steps)")
+    #expect(away.steps.allSatisfy { !$0.main }, "parsed on the main thread: \(away.steps)")
 }

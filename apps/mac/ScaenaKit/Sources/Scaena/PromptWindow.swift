@@ -761,7 +761,7 @@ struct PromptView: View {
                         say(GeneratingStep.reading(url.lastPathComponent).words)
                         let reading = url.startAccessingSecurityScopedResource()
                         defer { if reading { url.stopAccessingSecurityScopedResource() } }
-                        say(try generator.add(name: url.lastPathComponent, data: try Data(contentsOf: url)).words)
+                        say(try await generator.add(contentsOf: url).words)
                     case .link(let link):
                         say(GeneratingStep.reading(link).words)
                         let read = try await generator.fetch(
