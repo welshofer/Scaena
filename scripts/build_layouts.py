@@ -1923,7 +1923,11 @@ def cleared(slots, geometry):
             # room: its own foot stands clear of them, and the text shrinks a step where it fills.
             need = max(n for _, n in under)
             top, right, bottom, left = sides(a.get("inset"))
+            a.pop("fit", None)
             a["inset"] = {**({"top": top, "right": right} if right else {}), "bottom": bottom + need, **({"left": left} if right else {})}
+            # Whatever text lands there, made by hand, inserted, generated, or started by Add Slide,
+            # steps down where it fills, where it says nothing of its own fit.
+            a["fit"] = "shrink"
             continue
         for b, need in under:
             top, right, bottom, left = sides(b.get("inset"))
