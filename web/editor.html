@@ -737,7 +737,7 @@
       #prompting-sources { margin: 0; padding-left: 1.2em; }
       #prompting-sources:empty { display: none; }
       #prompting-sources button { font-size: 12px; padding: 0 6px; }
-      #prompting-progress { margin: 0; padding-left: 1.4em; max-height: 9em; overflow: auto; font-size: 13px; }
+      #prompting-progress { margin: 0; padding-left: 2.2em; max-height: 9em; overflow: auto; font-size: 13px; }
       #prompting-progress:empty { display: none; }
       #prompting-progress .failed { color: var(--error); }
       #prompting-film { margin: 0; padding: 0 0 4px; list-style: none; display: flex; gap: 6px; overflow-x: auto; }
@@ -748,6 +748,7 @@
       #prompting-film li.drawn img { animation: prompting-drawn 240ms ease-out; }
       @keyframes prompting-drawn { from { opacity: 0; transform: translateY(6px); } }
       @media (prefers-reduced-motion: reduce) { #prompting-film li.drawn img { animation: none; } }
+      #prompting-outline[hidden] { display: none; }
       #prompting-outline { border-top: 1px solid var(--line); padding-top: 8px; display: flex; flex-direction: column; gap: 8px; }
       #prompting-outline h3 { margin: 0; font-size: 14px; }
       #prompting-outline .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: end; }
