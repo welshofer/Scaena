@@ -10478,7 +10478,7 @@ mod tests {
         doc["meta"]["narrative"]["sources"] = json!([{ "name": "Q3 board pack", "kind": "file", "url": "https://example.com/q3", "bytes": 10, "truncated": false }]);
         let mut slide = slides[12].clone();
         slide.source_ref = Some("Q3 board pack".into());
-        let written = slide_into(&doc, &theme, slide, &Place::End, BTreeMap::new(), &no_files()).unwrap();
+        let written = slide_into(&doc, &theme, slide, &Place::End, None, BTreeMap::new(), &no_files()).unwrap();
         let after = patched(&doc, &written.patch);
         let (s, b, _) = beat_of(&after, &written.states[0]);
         let evidence = &after["spine"]["sections"][s]["beats"][b]["evidence"];
