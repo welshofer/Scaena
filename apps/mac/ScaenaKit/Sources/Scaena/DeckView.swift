@@ -763,6 +763,8 @@ struct DeckView: View {
                 // as a presentation app's tips fade once read: those words alone. Words said as
                 // the time runs out (a slide turned to by PageDown, say) stay their own moment.
                 guard let words = said else { return }
+                // Said to VoiceOver as it shows (lift-up 10-25c USE-1).
+                Spoken.say(words)
                 try? await Task.sleep(for: .seconds(6))
                 if !Task.isCancelled, said == words { said = nil }
             }
@@ -1256,6 +1258,9 @@ struct DeckView: View {
                 let data = try await snapshot.exported(export)
                 guard making?.id == id else { return }
                 try done(data)
+                // Made, said to VoiceOver, which the sheet's going would otherwise leave unsaid
+                // (lift-up 10-25c USE-1); a failure says itself in the alert.
+                Spoken.say(Exporting.made(kind))
             } catch is CancellationError {
             } catch {
                 if making?.id == id { failure = Why.said(error) }
