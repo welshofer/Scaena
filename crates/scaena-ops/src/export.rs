@@ -678,6 +678,30 @@ fn images(
     })
 }
 
+/// Why a video of `plays` would run past a day, or for ever: the state that runs longest, and
+/// what makes it, its own `hold` or its beat's `duration`, where `deck` says which.
+fn too_long(plays: &[Slot], deck: Option<&scaena_core::Deck>) -> String {
+    let longest = plays.iter().max_by(|a, b| (a.span + a.hold).total_cmp(&(b.span + b.hold)));
+    let Some(slot) = longest else { return "the timeline runs past a day".into() };
+    // A number as a person reads it: whole under a billion, else in powers of ten (`1e300`).
+    let shown =
+        |v: f64| if v.abs() < 1e9 { format!("{}", v.round()) } else { format!("{v:.3e}").replace(".000e", "e") };
+    let held = |ms: f64| if ms.is_finite() { format!("{} hours", shown(ms / 3_600_000.0)) } else { "for ever".into() };
+    let state = deck.and_then(|d| d.states.iter().find(|s| s.id == slot.state));
+    let beat = deck
+        .and_then(|d| d.spine.as_ref())
+        .and_then(|spine| spine.sections.iter().flat_map(|s| &s.beats).find(|b| b.states.contains(&slot.state)));
+    let what = match (state.and_then(|s| s.hold), beat.and_then(|b| b.duration.map(|d| (b, d)))) {
+        (Some(hold), _) => format!("state `{}`'s `hold` of {} ms", slot.state, shown(hold)),
+        (None, Some((beat, duration))) => format!("beat `{}`'s `duration` of {} ms", beat.id, shown(duration)),
+        _ => format!("state `{}`, which holds {}", slot.state, held(slot.span + slot.hold)),
+    };
+    format!(
+        "a video plays at most 24 hours, and this one would play {}: {what} makes it; give it a shorter one",
+        held(plays.iter().map(|s| s.span + s.hold).sum())
+    )
+}
+
 /// Where a video's frames fall on the deck's global timeline (SPEC §2.4): the states it
 /// plays, end to end, each its cue and then its hold, sampled `fps` times a second.
 #[derive(Debug, Clone, PartialEq)]
@@ -690,6 +714,10 @@ pub struct Reel {
     pub fps: u32,
 }
 
+/// The longest a video plays, ms: a day (lift-up 10-24b STAB-3). A `hold` of 1e300 would
+/// otherwise export for ever.
+pub const MOST_VIDEO_MS: f64 = 24.0 * 60.0 * 60.0 * 1000.0;
+
 impl Reel {
     /// The states `states` names, in that order, or the whole timeline; `fps` frames a
     /// second, enough to cover it.
@@ -697,6 +725,26 @@ impl Reel {
         timeline: &scaena_core::timeline::Timeline,
         states: Option<&[String]>,
         fps: u32,
+    ) -> Result<Reel, OpsError> {
+        Reel::made(timeline, states, fps, None)
+    }
+
+    /// [`Reel::new`] for `deck`'s timeline: a video that would run past a day says which state's
+    /// `hold`, or which beat's `duration`, makes it.
+    pub fn of(
+        deck: &scaena_core::Deck,
+        timeline: &scaena_core::timeline::Timeline,
+        states: Option<&[String]>,
+        fps: u32,
+    ) -> Result<Reel, OpsError> {
+        Reel::made(timeline, states, fps, Some(deck))
+    }
+
+    fn made(
+        timeline: &scaena_core::timeline::Timeline,
+        states: Option<&[String]>,
+        fps: u32,
+        deck: Option<&scaena_core::Deck>,
     ) -> Result<Reel, OpsError> {
         if fps == 0 || fps > scaena_export::video::MAX_FPS {
             return Err(OpsError::new(format!(
@@ -719,6 +767,9 @@ impl Reel {
         for slot in &plays {
             starts.push(length);
             length += slot.span + slot.hold;
+        }
+        if !length.is_finite() || length > MOST_VIDEO_MS {
+            return Err(OpsError::new(too_long(&plays, deck)));
         }
         if length <= 0.0 {
             return Err(OpsError::new(
@@ -797,7 +848,7 @@ fn export_video(
     let data = data_files(b)?;
     let (mut engine, assets) = engine(b, &theme)?;
     let timeline = engine.timeline(&b.deck, &theme, &data)?;
-    let reel = Reel::new(&scaena_core::spine::paced(&b.deck, &timeline, req.pace), states, fps)?;
+    let reel = Reel::of(&b.deck, &scaena_core::spine::paced(&b.deck, &timeline, req.pace), states, fps)?;
     let canvas = [b.deck.canvas.width as f32, b.deck.canvas.height as f32];
     let scale = match size {
         Some(size) => scale_for(size, canvas)?,
@@ -862,7 +913,7 @@ fn export_video(
 mod tests {
     use super::{Reel, pdf_pages};
     use scaena_core::timeline::Timeline;
-    use serde_json::json;
+    use serde_json::{Value, json};
 
     #[test]
     fn a_reel_plays_each_state_then_its_hold_and_passes_over_empty_ones() {
@@ -883,6 +934,42 @@ mod tests {
         assert!(err(Some(&["b".to_string()]), 30).contains("0 ms long"));
         assert!(err(Some(&["z".to_string()]), 30).contains("`z`"));
         assert!(err(None, 0).contains("1 to 240"));
+    }
+
+    /// A video that would run past a day, or for ever, is refused, naming the state's `hold` or
+    /// the beat's `duration` that makes it (lift-up 10-24b STAB-3); one of a day plays.
+    #[test]
+    fn a_video_past_a_day_says_which_hold_makes_it() {
+        let deck = |hold: Value, duration: Value| -> scaena_core::Deck {
+            serde_json::from_value(json!({
+                "scaena": scaena_core::FORMAT_VERSION, "canvas": { "width": 1920, "height": 1080 }, "nodes": {},
+                "states": [{ "id": "open", "hold": 1000 }, { "id": "long", "hold": hold }],
+                "spine": { "sections": [{ "id": "s", "title": "S", "beats": [
+                    { "id": "b", "claim": "C", "states": ["long"], "duration": duration }
+                ] }] }
+            }))
+            .unwrap()
+        };
+        let refused = |deck: &scaena_core::Deck, long: f64| {
+            let timeline = Timeline::new([("open".into(), 0.0, 1000.0), ("long".into(), 0.0, long)]);
+            Reel::of(deck, &timeline, None, 30).unwrap_err().to_string()
+        };
+        let said = refused(&deck(json!(1e300), Value::Null), 1e300);
+        assert!(said.contains("state `long`'s `hold` of 1e300 ms") && said.contains("24 hours"), "{said}");
+        assert!(said.len() < 200, "said briefly: {said}");
+        let said = refused(&deck(Value::Null, json!(1e12)), 1e12);
+        assert!(
+            said.contains("beat `b`'s `duration` of 1e12 ms") && said.contains("would play 277778 hours"),
+            "{said}"
+        );
+        // Not finite, by a pace or a sum that overflows: refused, not played for ever.
+        let said = refused(&deck(json!(1e300), Value::Null), f64::INFINITY);
+        assert!(said.contains("for ever"), "{said}");
+        let day = Timeline::new([("open".into(), 0.0, super::MOST_VIDEO_MS)]);
+        assert!(Reel::new(&day, None, 1).is_ok(), "a day plays");
+        // Without the deck, the state alone.
+        let said = Reel::new(&Timeline::new([("long".into(), 0.0, 1e300)]), None, 30).unwrap_err().to_string();
+        assert!(said.contains("state `long`"), "{said}");
     }
 
     #[test]

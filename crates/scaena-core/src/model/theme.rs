@@ -508,6 +508,57 @@ pub enum Margin {
     Sides(#[schemars(length(min = 2, max = 4))] Vec<NonNegative>),
 }
 
+impl Margin {
+    /// Top, right, bottom, and left, as CSS's shorthand reads one value, two (vertical and
+    /// horizontal), three (top, horizontal, bottom), or four; `None` for any other count.
+    pub fn sides(&self) -> Option<[f64; 4]> {
+        match self {
+            Margin::All(all) => Some([*all; 4]),
+            Margin::Sides(sides) => match sides[..] {
+                [NonNegative(v), NonNegative(h)] => Some([v, h, v, h]),
+                [NonNegative(t), NonNegative(h), NonNegative(b)] => Some([t, h, b, h]),
+                [NonNegative(t), NonNegative(r), NonNegative(b), NonNegative(l)] => Some([t, r, b, l]),
+                _ => None,
+            },
+        }
+    }
+}
+
+impl Grid {
+    /// The most columns, or rows, a grid lays out (lift-up 10-24b STAB-3): far more than a
+    /// slide uses, and few enough that laying one out stays cheap, where `columns: 4000000000`
+    /// would run the engine out of memory.
+    pub const MOST_TRACKS: u32 = 96;
+
+    /// Why this grid cannot be laid out on `canvas`: the field (`columns`, `rows`, `margin`, or
+    /// `gutter`) and what is wrong with it. `None` where it can. Columns and rows are 1 to
+    /// [`Grid::MOST_TRACKS`], and the margins and gutters leave each track some room.
+    pub fn unfit(&self, canvas: [f64; 2]) -> Option<(&'static str, String)> {
+        let rows = self.rows.unwrap_or(6);
+        for (key, n) in [("columns", self.columns), ("rows", rows)] {
+            if n == 0 || n > Grid::MOST_TRACKS {
+                return Some((key, format!("{n} {key}: a grid has 1 to {} of them", Grid::MOST_TRACKS)));
+            }
+        }
+        let Some([top, right, bottom, left]) = self.margin.sides() else {
+            return Some(("margin", "a margin takes 1 to 4 values".into()));
+        };
+        let tracks = [
+            ("columns", self.columns, canvas[0], left + right, "wide"),
+            ("rows", rows, canvas[1], top + bottom, "high"),
+        ];
+        for (key, n, extent, margins, way) in tracks {
+            let size = (extent - margins - self.gutter * f64::from(n - 1)) / f64::from(n);
+            if size.is_nan() || size <= 0.0 {
+                let (field, what) =
+                    if margins >= extent { ("margin", "margins") } else { ("gutter", "margins and gutters") };
+                return Some((field, format!("its {what} leave its {key} no room on a canvas {extent} {way}")));
+            }
+        }
+        None
+    }
+}
+
 /// A layout template: named slots on the grid.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
