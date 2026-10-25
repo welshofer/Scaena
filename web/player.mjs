@@ -413,6 +413,13 @@ try {
     .waitForFunction((html) => document.querySelector("#reading").innerHTML === html && html !== "", await player.innerHTML("#reading"), { timeout: 15000 })
     .then(() => true, () => false);
   check(readsAsPlayer, `the presenter view reads ${states[1]} as the player reads it`);
+  // Where the talk is (lift-up FUNC-2): the section and the beat's claim the spine gives the state,
+  // and, the deck planning its beats' times, how the talk stands against the plan.
+  const section = deck.spine.sections.find((s) => s.beats.some((b) => b.states?.includes(states[1])));
+  const beat = section.beats.find((b) => b.states?.includes(states[1]));
+  const story = await presenter.evaluate(() => window.scaena.story());
+  check(story.story === `${section.title} \u00b7 ${beat.claim}`, `it says the section and the beat's claim: ${story.story}`);
+  check(/^(On plan|\d+:\d\d (ahead|behind))$/.test(story.pace), `and how the talk stands against its plan: ${story.pace}`);
   // The notes' size (lift-up USE-4): 20 px to start, A+ and + a step up, A− and - a step down,
   // kept in this browser for the next presenter view; the player answers neither key.
   const notesPx = (page) => page.evaluate(() => parseFloat(getComputedStyle(document.querySelector("#notes")).fontSize));

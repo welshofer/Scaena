@@ -82,9 +82,21 @@ export interface Slot {
   /** The words that head it, where a text does: what the presenter's navigator names its slide by
    * (lift-up 10-24b USE-1, USE-4). */
   headline?: string;
+  /** Its place in the talk, where a beat names it (lift-up FUNC-2). */
+  story?: StoryPlace;
   start: number;
   span: number;
   hold: number;
+}
+
+/** A state's place in the talk (lift-up FUNC-2, `Session::story_place`): its section's title, its
+ * beat's claim, the seconds the beat is planned to take, and the seconds planned before the state
+ * comes up, the deck paced by its beats. */
+export interface StoryPlace {
+  section?: string;
+  claim: string;
+  planned?: number;
+  before: number;
 }
 
 /** A box, canvas units: `[x, y, width, height]`. */

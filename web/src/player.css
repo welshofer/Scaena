@@ -41,6 +41,9 @@ body.presenter { display: grid; grid-template-columns: 2fr 1fr; grid-template-ro
 .presenter #now { margin-left: auto; font-size: 20px; color: #b5b3ae; }
 .presenter #where { font-size: 20px; font-variant-numeric: tabular-nums; }
 .presenter #where:empty { display: none; }
+.presenter #story { font-size: 18px; color: #b5b3ae; }
+.presenter #story[hidden] { display: none; }
+.presenter #pace { font-size: 20px; color: #b5b3ae; }
 .presenter .notes { font-size: var(--notes, 20px); line-height: 1.4; flex: 1; min-height: 0; overflow: auto; }
 /* The notes' size, a step up or down (lift-up USE-4). */
 .presenter .notesize { display: flex; align-items: center; gap: 6px; font-size: 14px; color: #b5b3ae; }

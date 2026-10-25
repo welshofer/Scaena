@@ -961,8 +961,9 @@ async function presentView(deck: Source, how: Play, channel: BroadcastChannel) {
     <main><canvas id="stage"></canvas><p id="blanked" class="blanked" hidden></p></main>
     <aside>
       <div class="next"><canvas id="upnext"></canvas><p id="nextName"></p></div>
-      <div class="clock"><span id="clock" role="timer" aria-label="Time since the show began" title="The time since the show began: it starts when the deck first goes on">0:00</span><button id="pause" type="button" title="Pause the timer">Pause</button><button id="reset" type="button" title="Put the timer back to 0:00">Reset</button><span id="now" title="The time of day"></span></div>
+      <div class="clock"><span id="clock" role="timer" aria-label="Time since the show began" title="The time since the show began: it starts when the deck first goes on">0:00</span><button id="pause" type="button" title="Pause the timer">Pause</button><button id="reset" type="button" title="Put the timer back to 0:00">Reset</button><span id="pace" title="Against the plan: the time the talk has run beside the time its beats planned before this slide"></span><span id="now" title="The time of day"></span></div>
       <p id="where" aria-live="polite"></p>
+      <p id="story" class="story" hidden></p>
       <p class="notesize"><span>Notes</span><button id="smaller" type="button" aria-label="Smaller notes" title="Smaller notes (−)">A−</button><button id="larger" type="button" aria-label="Larger notes" title="Larger notes (+)">A+</button></p>
       <div id="notes" class="notes" role="region" aria-label="Speaker notes"></div>
       <p class="buttons"><button id="back" aria-label="Back" disabled><span aria-hidden="true">◀</span> Back</button><button id="on" aria-label="Next" disabled><span aria-hidden="true">▶</span> Next</button><button id="navigate" type="button" aria-haspopup="dialog" title="Every slide, to go to one (N)" disabled>Slides</button></p>
@@ -1114,9 +1115,20 @@ async function presentView(deck: Source, how: Play, channel: BroadcastChannel) {
     if (!held) since = performance.now();
   };
   const elapsed = () => counted + (since === undefined ? 0 : performance.now() - since);
+  const minutes = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+  /** The state the room sees, by its index. */
+  let shown = 0;
+  /** Whether the deck plans its beats' times (lift-up FUNC-2): with none, it is never behind. */
+  const planned = () => slots.some((s) => s.story?.planned !== undefined);
   const clock = () => {
     const s = Math.floor(elapsed() / 1000);
-    $("#clock").textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+    $("#clock").textContent = minutes(s);
+    // Ahead or behind the plan: the time run beside the time planned before the state up, once
+    // the show has begun; within a few seconds of it, on plan.
+    const story = slots[shown]?.story;
+    const off = story && begun && planned() ? Math.round(elapsed() / 1000 - story.before) : undefined;
+    $("#pace").textContent =
+      off === undefined ? "" : Math.abs(off) < 5 ? "On plan" : `${minutes(Math.abs(off))} ${off > 0 ? "behind" : "ahead"}`;
     $("#now").textContent = new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
   };
   const pause = $<HTMLButtonElement>("#pause");
@@ -1160,6 +1172,13 @@ async function presentView(deck: Source, how: Play, channel: BroadcastChannel) {
         latest = undefined;
         await now.show(states[at.index], at.t, at.format);
         $("#where").textContent = place(slots, at.index);
+        // Where the talk is (lift-up FUNC-2): the section and the beat's claim, as the spine says.
+        shown = at.index;
+        const story = slots[at.index]?.story;
+        const told = [story?.section, story?.claim].filter(Boolean).join(" \u00b7 ");
+        $("#story").textContent = told;
+        $("#story").hidden = !told;
+        clock();
         void read(states[at.index], at.format);
         // Other notes start at their top, however far the last were scrolled; a step that keeps its
         // slide's notes keeps them where they stood. They are drawn as a speaker reads them
@@ -1246,6 +1265,8 @@ async function presentView(deck: Source, how: Play, channel: BroadcastChannel) {
       blanked: () => (blanked.hidden ? null : blanked.textContent),
       /** The timer as it reads, and whether it is paused (PLAN 2.121). */
       timer: () => ({ shows: $("#clock").textContent, paused: held, now: $("#now").textContent }),
+      /** Where the talk is, and how it stands against the plan (lift-up FUNC-2). */
+      story: () => ({ story: $("#story").textContent, pace: $("#pace").textContent }),
       /** Where the laser points on the slide, as the player says, or null. */
       pointed: () => (laser ? point : null),
       /** The size the next state is painted at, in the format the player shows, or null after the
