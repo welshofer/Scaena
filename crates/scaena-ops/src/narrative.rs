@@ -5802,10 +5802,9 @@ mod tests {
         assert_eq!(node(&deck, &state, "body")["maxSize"].as_f64(), Some(most.max(size("lede"))));
         // A bar chart's takeaway grows toward three-quarters of the headline.
         let (layout, deck, state) = made("Bar Chart", &["Pricing fell from 1,210 ms to 140 ms at p99"]);
-        if layout == "bar-chart" {
-            let takeaway = node(&deck, &state, "takeaway");
-            assert_eq!((takeaway["fit"].as_str(), takeaway["maxSize"].as_f64()), (Some("grow"), Some(most)));
-        }
+        assert_eq!(layout, "bar-chart");
+        let takeaway = node(&deck, &state, "takeaway");
+        assert_eq!((takeaway["fit"].as_str(), takeaway["maxSize"].as_f64()), (Some("grow"), Some(most)));
         // Four figures with no note of how each moved: Plain Scorecard, each in its slot, the
         // figures still held as a set.
         let plain = ["−60%: p99 checkout latency", "0.74 s: p99 at peak", "−38%: database CPU", "+2.1%: conversion"];
