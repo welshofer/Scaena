@@ -259,6 +259,11 @@ enum Cmd {
         /// state's hold alone, as a player auto-advances.
         #[arg(long, value_enum, default_value_t = PaceArg::Beats)]
         pace: PaceArg,
+        /// What a single HTML file carries of the presenter's words: `keep` them, or `drop`
+        /// each state's and beat's notes, each beat's evidence, and what Narrato planned, for a
+        /// file sent to the room.
+        #[arg(long, value_enum, default_value_t = NotesArg::Keep)]
+        notes: NotesArg,
     },
     /// Apply a patch: JSON Patch (RFC 6902) and semantic ops, all or none, and say what
     /// changes in what `validate` and `lint` find. A patch that would make the deck invalid
@@ -573,6 +578,14 @@ enum PaceArg {
     Holds,
 }
 
+#[derive(Clone, Copy, PartialEq, ValueEnum)]
+enum NotesArg {
+    /// The presenter's words kept: the presenter's own copy.
+    Keep,
+    /// The presenter's words left out: the room's copy (lift-up 20261025 SEC-3).
+    Drop,
+}
+
 impl From<PaceArg> for scaena_core::spine::Pace {
     fn from(pace: PaceArg) -> Self {
         match pace {
@@ -783,9 +796,13 @@ fn run(cli: Cli) -> Result<ExitCode> {
             }
             Ok(ExitCode::SUCCESS)
         }
-        Cmd::Export { bundle, format, out, states, size, fps, audio, painter, pace } => {
+        Cmd::Export { bundle, format, out, states, size, fps, audio, painter, pace, notes } => {
             let (painter, pace) = (painter.into(), pace.into());
-            let req = scaena_ops::export::Request { format, states, out, size, fps, audio, painter, pace };
+            let notes = match notes {
+                NotesArg::Keep => scaena_ops::export::Notes::Keep,
+                NotesArg::Drop => scaena_ops::export::Notes::Drop,
+            };
+            let req = scaena_ops::export::Request { format, states, out, size, fps, audio, painter, pace, notes };
             let exported = scaena_ops::export::export(&open(&bundle)?, &req)?;
             if cli.json {
                 println!("{}", serde_json::to_string_pretty(&exported)?);

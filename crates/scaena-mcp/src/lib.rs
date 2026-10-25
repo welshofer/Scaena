@@ -1167,6 +1167,8 @@ impl Scaena {
             audio: a.audio.clone().map(Into::into),
             painter: a.painter,
             pace: a.pace,
+            // An agent's single file is the presenter's copy, notes kept, as the CLI's is by default.
+            notes: scaena_ops::export::Notes::Keep,
         };
         let bundle = a.bundle.clone();
         let b = blocking(move || open(&bundle)).await?;

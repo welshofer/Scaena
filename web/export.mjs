@@ -189,6 +189,28 @@ try {
   check(JSON.stringify(plays) === '["intro","revenue","mix","close"]', `the file plays offline: ${JSON.stringify(plays)}`);
   await offline.close();
 
+  // For the room, the same file without the presenter's words: the CLI's `--notes drop`
+  // (lift-up 20261025 SEC-3).
+  await page.click("#export");
+  await page.check("#exporting input[name=as][value=html]");
+  const notesOffered = await page.locator("#exporting-notes").isVisible();
+  await page.uncheck("#exporting-keep-notes");
+  const roomNote = await page.evaluate(() => document.querySelector("#exporting-note").textContent);
+  const room = await downloaded(() => page.click("#exporting-go"));
+  scaena("export", bundle, "--format", "html", "--notes", "drop", "--out", join(out, "room.html"));
+  const cliRoom = readFileSync(join(out, "room.html"));
+  check(
+    notesOffered && roomNote.includes("without the speaker notes") && room.bytes.equals(cliRoom) && !room.bytes.equals(cliHtml),
+    `without the notes, it is the CLI's --notes drop byte for byte (${room.bytes.length} B), and not the presenter's (${cliHtml.length} B)`,
+  );
+  await page.click("#export");
+  await page.check("#exporting input[name=as][value=html]");
+  await page.check("#exporting-keep-notes");
+  await page.check("#exporting input[name=as][value=png]");
+  const notesGone = await page.locator("#exporting-notes").isHidden();
+  await page.keyboard.press("Escape");
+  check(notesGone, "the notes' choice is a single file's alone");
+
   // A right click on a state in the strip.
   const li = page.locator(`#strip li[data-state="${state}"]`);
   await li.click({ button: "right" });

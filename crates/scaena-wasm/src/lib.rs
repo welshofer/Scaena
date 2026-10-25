@@ -1242,8 +1242,11 @@ impl Player {
     /// The deck as one HTML file that plays offline (PLAN 2.54): `page`, the single-file
     /// player's page, filled in with the bundle as `scaena export --format html` fills it, and
     /// named `name`. Its fonts are subset first, as for a save (`subsetting`, `addSubset`).
-    pub fn standalone(&self, page: &str, name: &str) -> Result<String, JsError> {
-        self.0.standalone(page, name).map_err(js)
+    /// Without `notes`, it carries none of the presenter's words, for a file sent to the room
+    /// (lift-up 20261025 SEC-3).
+    pub fn standalone(&self, page: &str, name: &str, notes: bool) -> Result<String, JsError> {
+        let notes = if notes { scaena_ops::export::Notes::Keep } else { scaena_ops::export::Notes::Drop };
+        self.0.standalone(page, name, notes).map_err(js)
     }
 
     /// Where a file dropped on the page goes in the bundle: a font under `fonts/` and a
