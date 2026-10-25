@@ -80,6 +80,10 @@ pub(crate) struct Shared {
     /// The bundle's folder, its path resolved.
     root: PathBuf,
     port: u16,
+    /// What a page's write carries to show it is one this server opened (lift-up 10-24b SEC-5):
+    /// made at launch, given only in the addresses it prints. 127.0.0.1 is every account's on the
+    /// machine, and a write with no `Origin` is no page's.
+    token: String,
     state: Mutex<watch::State>,
     /// Each event for the pages, as server-sent events say it.
     events: broadcast::Sender<Bytes>,
@@ -99,9 +103,13 @@ impl Serve {
         let listener =
             TcpListener::bind((Ipv4Addr::LOCALHOST, port)).await.map_err(|source| ServeError::Bind { port, source })?;
         let port = listener.local_addr()?.port();
+        let mut seed = [0u8; 16];
+        getrandom::fill(&mut seed).map_err(|e| ServeError::Io(std::io::Error::other(e.to_string())))?;
+        let token = seed.iter().map(|b| format!("{b:02x}")).collect();
         let shared = Arc::new(Shared {
             root,
             port,
+            token,
             state: Mutex::default(),
             events: broadcast::channel(64).0,
             notes: broadcast::channel(64).0,
@@ -112,6 +120,12 @@ impl Serve {
     /// Where it answers.
     pub fn addr(&self) -> SocketAddr {
         SocketAddr::from((Ipv4Addr::LOCALHOST, self.shared.port))
+    }
+
+    /// What the pages it opens carry in their addresses (`?serve=TOKEN`) and send with each write
+    /// (`X-Scaena-Token`): made at launch, 32 hex digits.
+    pub fn token(&self) -> &str {
+        &self.shared.token
     }
 
     /// What it says as it happens, from now on.
@@ -152,14 +166,14 @@ impl Serve {
 pub fn run(
     bundle: &Path,
     port: u16,
-    started: impl FnOnce(SocketAddr),
+    started: impl FnOnce(SocketAddr, &str),
     note: impl Fn(Note) + Send + 'static,
 ) -> Result<(), ServeError> {
     let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build()?;
     runtime.block_on(async {
         let serve = Serve::bind(bundle, port).await?;
         let mut notes = serve.notes();
-        started(serve.addr());
+        started(serve.addr(), serve.token());
         tokio::spawn(async move {
             loop {
                 match notes.recv().await {
@@ -192,6 +206,10 @@ impl Shared {
                         return refused(request, StatusCode::FORBIDDEN, "scaena serve writes only for its own pages")
                             .await;
                     }
+                    if !self.carries_token(request.headers()) {
+                        let why = "scaena serve writes only for the pages it opened: open the address it printed";
+                        return refused(request, StatusCode::FORBIDDEN, why).await;
+                    }
                     let by = request.headers().get("x-scaena-client").and_then(|v| v.to_str().ok()).map(str::to_string);
                     if method == Method::DELETE {
                         let shared = self.clone();
@@ -214,8 +232,8 @@ impl Shared {
             return refused(request, StatusCode::METHOD_NOT_ALLOWED, "GET or HEAD").await;
         }
         match path.as_str() {
-            "/" => moved("/index.html?bundle=/bundle/&serve"),
-            "/edit" => moved("/editor.html?bundle=/bundle/&serve"),
+            "/" => moved(&format!("/index.html?bundle=/bundle/&serve{}", carried(request.uri().query()))),
+            "/edit" => moved(&format!("/editor.html?bundle=/bundle/&serve{}", carried(request.uri().query()))),
             "/scaena/events" => self.events(),
             "/scaena/state" => {
                 let json = Bytes::from(self.status().to_string());
@@ -232,6 +250,14 @@ impl Shared {
             Some(value) => names_us(value.as_bytes(), scheme, self.port),
             None => name == header::ORIGIN,
         }
+    }
+
+    /// Whether a write carries this launch's token, compared in time that does not say how much
+    /// of it was right.
+    fn carries_token(&self, headers: &HeaderMap) -> bool {
+        let Some(given) = headers.get("x-scaena-token") else { return false };
+        let (given, ours) = (given.as_bytes(), self.token.as_bytes());
+        given.len() == ours.len() && given.iter().zip(ours).fold(0u8, |d, (a, b)| d | (a ^ b)) == 0
     }
 
     /// The bundle's file at `rel`, as it is on disk now.
@@ -416,6 +442,9 @@ fn answer(status: StatusCode, media: &str, bytes: Bytes, cache: &'static str) ->
     headers.insert(header::CONTENT_TYPE, HeaderValue::from_str(media).expect("a media type"));
     headers.insert(header::CACHE_CONTROL, HeaderValue::from_static(cache));
     headers.insert(header::X_CONTENT_TYPE_OPTIONS, HeaderValue::from_static("nosniff"));
+    // A page's address carries the launch's token: a link followed from a deck sends no
+    // `Referer` that would carry it elsewhere (lift-up 10-24b SEC-5).
+    headers.insert(header::REFERRER_POLICY, HeaderValue::from_static("no-referrer"));
     response
 }
 
@@ -431,10 +460,21 @@ fn said(status: StatusCode, message: &str) -> Response<Body> {
     answer(status, "text/plain; charset=utf-8", Bytes::from(format!("{message}\n")), "no-store")
 }
 
-fn moved(to: &'static str) -> Response<Body> {
+fn moved(to: &str) -> Response<Body> {
     let mut response = said(StatusCode::FOUND, to);
-    response.headers_mut().insert(header::LOCATION, HeaderValue::from_static(to));
+    response.headers_mut().insert(header::LOCATION, HeaderValue::from_str(to).expect("a path and query"));
     response
+}
+
+/// The token a request's `?serve=` carries, as a redirect passes it on (`=TOKEN`): only hex, as
+/// the server makes it, else none. The server never puts its own in an answer: a page has it only
+/// from the address it was opened at.
+fn carried(query: Option<&str>) -> String {
+    let token = query.into_iter().flat_map(|q| q.split('&')).find_map(|pair| pair.strip_prefix("serve="));
+    match token {
+        Some(t) if !t.is_empty() && t.len() <= 64 && t.bytes().all(|b| b.is_ascii_hexdigit()) => format!("={t}"),
+        _ => String::new(),
+    }
 }
 
 /// A write's answer: 204, or why not.
