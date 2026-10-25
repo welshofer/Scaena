@@ -193,6 +193,35 @@ private func streaming(_ text: String) -> [String] {
     #expect(notAccepted == "Anthropic didn't accept your key. Check it, or replace it.")
 }
 
+/// A conversation too long for the model is asked again once, with half as much of tools'
+/// results, and answered; too long again, it is said in a person's words (lift-up PERF-3).
+@MainActor
+@Test func theAssistantAsksAgainShorterWhereTheModelFindsItTooLong() async throws {
+    let editor = DeckEditor(session: try ScaenaSession(directory: b1))
+    let long = #"{"error": {"type": "invalid_request_error", "message": "prompt is too long"}}"#
+    let answers = Answers([(long, 400), (answering("Clean."), 200)])
+    let assistant = Assistant(editor: editor) { request in await answers.answer(request) }
+    assistant.ask("Is it clean?", provider: .anthropic, model: "a-model", key: "sk-test")
+    for _ in 0..<500 where assistant.working {
+        try await Task.sleep(for: .milliseconds(5))
+    }
+    #expect(await answers.asked.count == 2, "asked again once")
+    #expect(said(assistant) == ["Clean."])
+
+    let still = Answers([(long, 400), (long, 400), (answering("Clean."), 200)])
+    let again = Assistant(editor: editor) { request in await still.answer(request) }
+    again.ask("Is it clean?", provider: .anthropic, model: "a-model", key: "sk-test")
+    for _ in 0..<500 where again.working {
+        try await Task.sleep(for: .milliseconds(5))
+    }
+    #expect(await still.asked.count == 2, "once a question")
+    guard case .failed(let why) = again.entries.last?.kind else {
+        Issue.record("too long: \(again.entries)")
+        return
+    }
+    #expect(why == "That is more than Anthropic's model takes at once. Ask about less, or start again.")
+}
+
 /// A provider that goes quiet is given up on at the deadline and asked again (narrative REL-3).
 @MainActor
 @Test func theAssistantAsksASilentProviderAgain() async throws {
@@ -308,6 +337,44 @@ private actor Seen {
     #expect(request.headers["authorization"] == "Bearer sk-test")
     #expect(try Provider.openai.models(status: 200, body: #"{"data": [{"id": "b"}, {"id": "a"}]}"#) == ["a", "b"])
     #expect(throws: ScaenaError.self) { try Provider.gemini.models(status: 403, body: "{}") }
+}
+
+/// A provider's `Retry-After` is waited (lift-up REL-5): the longer of it and the assistant's own
+/// wait, said, and a minute at most; a date as the header may give one is read too.
+@MainActor
+@Test func theAssistantWaitsWhatTheProviderAsks() async throws {
+    let editor = DeckEditor(session: try ScaenaSession(directory: b1))
+    let busy = #"{"error": {"type": "rate_limit_error", "message": "Rate limited"}}"#
+    let answers = Answers([(busy, 429), (answering("Clean."), 200)])
+    let seen = Seen()
+    let assistant = Assistant(
+        editor: editor,
+        asking: { request in
+            let (data, status) = await answers.answer(request)
+            return Assistant.Answered(data: data, status: status, after: status == 429 ? 2 : nil)
+        },
+        streaming: nil)
+    assistant.waits = [0.01]
+    let began = ContinuousClock.now
+    assistant.ask("Is it clean?", provider: .anthropic, model: "a-model", key: "sk-test")
+    for _ in 0..<1000 where assistant.working {
+        if let waiting = assistant.waiting { await seen.keep([waiting]) }
+        try await Task.sleep(for: .milliseconds(5))
+    }
+    #expect(!assistant.working)
+    #expect(said(assistant) == ["Clean."])
+    #expect(ContinuousClock.now - began >= .seconds(2), "the provider's two seconds, not the assistant's own")
+    let kept = await seen.kept
+    #expect(kept.first?.hasPrefix("Anthropic is busy. Trying again in 2 s (1 of 1)") == true, "\(kept)")
+
+    #expect(Assistant.Answered.seconds("120") == 120)
+    #expect(Assistant.Answered.seconds(" 1.5 ") == 1.5)
+    #expect(Assistant.Answered.seconds("soon") == nil && Assistant.Answered.seconds(nil) == nil)
+    let now = Date(timeIntervalSince1970: 1_792_800_000)
+    let later = "Sat, 24 Oct 2026 08:00:30 GMT"
+    let at = try #require(Assistant.Answered.seconds(later, now: Date(timeIntervalSince1970: 1_792_828_800)))
+    #expect(at == 30, "\(at)")
+    #expect(Assistant.Answered.seconds(later, now: now.addingTimeInterval(1e8)) == 0, "a date gone by asks for none")
 }
 
 /// What a stand-in for the network answers, in order, each with its status, and the requests it

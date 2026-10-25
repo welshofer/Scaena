@@ -114,7 +114,7 @@ const WIRE = {
     }),
     answer: () => ({ content: [{ type: "text", text: ANSWER }], stop_reason: "end_turn", usage: { input_tokens: 1200, output_tokens: 20 } }),
     key: (h) => h["x-api-key"],
-    system: (b) => b.system?.[0]?.text ?? "",
+    system: (b) => (b.system ?? []).map((s) => s.text).join(""),
     tools: (b) => b.tools.map((t) => ({ name: t.name, schema: t.input_schema })),
   },
   openai: {
@@ -237,8 +237,8 @@ async function provider(wire) {
   const requests = [];
   /** `busy`: that many requests answered 429 with Retry-After: 1 before the answer; `hang`: that
    * many whose answer stops after its first word, the socket left open, before the answer
-   * (narrative REL-3). */
-  const state = { slow: 0, trickle: 0, busy: 0, hang: 0 };
+   * (narrative REL-3); `long`: that many answered 400, the prompt too long (lift-up PERF-3). */
+  const state = { slow: 0, trickle: 0, busy: 0, hang: 0, long: 0 };
   const hung = [];
   const server = createServer(async (req, res) => {
     const cors = {
@@ -262,6 +262,10 @@ async function provider(wire) {
     if (state.busy > 0) {
       state.busy--;
       return res.writeHead(429, { ...cors, "content-type": "application/json", "retry-after": "1" }).end(JSON.stringify({ error: { type: "rate_limit_error", message: "Rate limited" } }));
+    }
+    if (state.long > 0) {
+      state.long--;
+      return reply(400, { type: "error", error: { type: "invalid_request_error", message: "prompt is too long: 214012 tokens > 200000 maximum" } });
     }
     if (state.slow) await new Promise((ok) => setTimeout(ok, state.slow));
     const i = wire.answered(body);
@@ -347,6 +351,21 @@ try {
     if (id === "anthropic") {
       check(first.headers["anthropic-dangerous-direct-browser-access"] === "true" && first.headers["anthropic-version"], "anthropic: the browser's opt-in header and the API version");
       check(first.body.system[0].cache_control?.type === "ephemeral", "anthropic: the system prompt is cached");
+      // The deck's facts come last, uncached, so an edit leaves the rest cached, and the
+      // conversation is cached to its newest block (lift-up PERF-2).
+      const facts = first.body.system[1];
+      check(
+        first.body.system.length === 2 && !facts.cache_control && facts.text.startsWith("\n\n--- the deck open ---\nThe deck: ") && !first.body.system[0].text.includes("The deck: "),
+        `anthropic: the deck's facts are a block of their own, last and uncached (${JSON.stringify(facts?.text?.slice(0, 60))})`,
+      );
+      check(
+        requests.every((r) => r.body.system[0].text === first.body.system[0].text),
+        "anthropic: what is cached of the system prompt is the same on every round",
+      );
+      check(
+        requests.every((r) => r.body.messages.at(-1).content.at(-1).cache_control?.type === "ephemeral" && r.body.messages.slice(0, -1).every((m) => m.content.every((c) => !c.cache_control))),
+        "anthropic: each request caches the conversation to its newest block, and only there",
+      );
     }
     const system = wire.system(first.body);
     check(system.includes("# author-deck") && system.includes("scaena://spec"), `${id}: the system prompt holds the author-deck skill and the resources`);
@@ -599,6 +618,28 @@ try {
       const stopped = await page.evaluate(() => window.asked);
       check(stopped.kind === "done" && stopped.stop === "stopped" && Date.now() - stoppedAt < 1500, `${id}: Stop during the wait stops at once (${JSON.stringify(stopped)})`);
       scripted.state.busy = 0;
+    }
+
+    // A conversation too long for the model is sent again once with half as much of tools'
+    // results, never more than it sent, and answered (lift-up PERF-3); a second refusal is said.
+    {
+      const before = scripted.requests.length;
+      scripted.state.long = 1;
+      const shorter = await page.evaluate(() => window.scaena.assistant.ask("Shorter now."));
+      const sent = (r) => JSON.stringify(r.body.messages ?? r.body.contents).length;
+      const [long, again] = scripted.requests.slice(before);
+      check(
+        shorter.kind === "done" && shorter.stop === "end" && scripted.requests.length === before + 2 && sent(again) <= sent(long),
+        `${id}: a conversation too long is asked again once, sending no more than it did, and answered (${JSON.stringify(shorter)}, ${scripted.requests.length - before} requests)`,
+      );
+      const asked = scripted.requests.length;
+      scripted.state.long = 2;
+      const refused = await page.evaluate(() => window.scaena.assistant.ask("Still shorter."));
+      scripted.state.long = 0;
+      check(
+        refused.kind === "failed" && /more than .*'s model takes at once/.test(refused.message) && scripted.requests.length === asked + 2,
+        `${id}: and too long again, it is said, once asked again (${JSON.stringify(refused)}, ${scripted.requests.length - asked} requests)`,
+      );
     }
 
     if (id === "anthropic") {

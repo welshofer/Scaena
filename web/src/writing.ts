@@ -87,6 +87,16 @@ export function writer(stage: Stage, host: WritingHost) {
   let offered: { ask: WritingAsk; written: Written } | undefined;
   /** The last question asked, settled: what a test waits for. */
   let settled: Promise<void> = Promise.resolve();
+  /** What stops the request of the question being answered (lift-up PERF-4). */
+  let stopping: AbortController | undefined;
+
+  /** A signal for a new question's request: an earlier one still on its way is stopped, as its
+   * answer would be dropped. */
+  function stopper(): AbortSignal {
+    stopping?.abort();
+    stopping = new AbortController();
+    return stopping.signal;
+  }
 
   function reset(name: string) {
     title.textContent = name;
@@ -143,15 +153,18 @@ export function writer(stage: Stage, host: WritingHost) {
     leave.focus();
     let text: string;
     try {
-      ({ text } = await stage.write({
-        provider: who.provider,
-        model: who.model,
-        key: who.key,
-        base: who.base,
-        instructions: writing.instructions,
-        prompt: writing.prompt,
-        picture: writing.picture,
-      }));
+      ({ text } = await stage.write(
+        {
+          provider: who.provider,
+          model: who.model,
+          key: who.key,
+          base: who.base,
+          instructions: writing.instructions,
+          prompt: writing.prompt,
+          picture: writing.picture,
+        },
+        stopper(),
+      ));
     } catch (e) {
       // Why, in a person's words (PLAN 3.18), as the Mac's writing tools say it: never the
       // provider's own, nor its status.
@@ -235,8 +248,10 @@ export function writer(stage: Stage, host: WritingHost) {
     settled = new Promise<void>((done) => (taken = done));
   });
   listen(dialog, "close", () => {
-    // An answer still on its way is dropped.
+    // An answer still on its way is dropped, and its request stopped (lift-up PERF-4).
     turn++;
+    stopping?.abort();
+    stopping = undefined;
     const done = taken;
     taken = undefined;
     if (dialog.returnValue === "use") settled = take().finally(() => done?.());

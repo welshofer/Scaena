@@ -22,37 +22,54 @@ extension XCTestCase {
 
     /// B1, which `apps/ipad/app-test.sh` puts in the app's own folder, open in its window, as
     /// someone opens it: in the document browser, Browse, On My iPad, the app's folder, then B1.
-    /// Its first state, `cover`, is shown, found by its id in the slides down the side; a window the
-    /// app brought back already showing it is taken as it is.
+    /// Its first state, `cover`, is shown, found by its id in the slides down the side, with
+    /// neither the browser's launch scene nor B1's cell left to press: the cover listed behind
+    /// them is not open. A window the app brought back already showing it is taken as it is.
     ///
-    /// B1 is tapped once, then given a minute. On the first launch after the app is installed, a
-    /// tap on B1 has gone unanswered for minutes, and B1 tapped again changed nothing: there the
-    /// app is launched again, once, and B1 tapped in it. What the app says of its opening (the
-    /// GPU, the deck read, the canvas's surface) is kept in `log.txt` beside the screenshots.
+    /// A tap on B1 has gone unanswered: the browser still listing B1, or its launch scene still
+    /// over the window, a minute on. So B1 is tapped again where its window has not shown in 20
+    /// seconds, three taps in all, the last given a minute, each said in the log. On the first
+    /// launch after the app is installed, a tap has gone unanswered for minutes and taps again
+    /// changed nothing: there the app is launched again, once, and B1 tapped in it. What the app
+    /// says of its opening (the GPU, the deck read, the canvas's surface) is kept in `log.txt`
+    /// beside the screenshots.
     @MainActor
     func openB1(in app: XCUIApplication) throws {
         let first = app.descendants(matching: .any).matching(NSPredicate(format: "identifier == 'state-cover'")).firstMatch
-        if first.waitForExistence(timeout: 5) { return }
+        // Open once the browser's launch scene and B1's cell are no longer there to be pressed.
+        // By its words, as OpeningTests finds it: the launch screen also keeps a bare button of
+        // each, out of sight, which never reads as hittable.
+        let prompt = app.staticTexts.matching(NSPredicate(format: "label == 'New from a Prompt…'")).firstMatch
+        let b1 = cell(in: app, named: "b1")
+        let open = { first.exists && !(prompt.exists && prompt.isHittable) && !(b1.exists && b1.isHittable) }
+        if first.waitForExistence(timeout: 5), wait(5, open) { return }
         for launch in 1...2 {
             if launch > 1 {
                 keep(app, as: "b1-unanswered")
+                print("B1 unanswered after three taps: the app launched again")
                 app.terminate()
                 app.launch()
-                if first.waitForExistence(timeout: 5) { return }
+                if first.waitForExistence(timeout: 5), wait(5, open) { return }
             }
-            try XCTContext.runActivity(named: "B1 tapped in the document browser, launch \(launch)") { _ in
-                try tapB1(in: app)
+            for tap in 1...3 {
+                let named = "B1 tapped in the document browser, launch \(launch), tap \(tap)"
+                let tapped = XCTContext.runActivity(named: named) { _ in tapB1(in: app) }
+                if !tapped { print("B1 not found in the document browser: launch \(launch), tap \(tap)") }
+                if first.waitForExistence(timeout: tap == 3 ? 60 : 20), wait(5, open) { return }
+                keep(app, as: "b1-still-browsing-\(launch)-\(tap)")
+                let next = tap < 3 ? "tapped again" : "given up on"
+                print("B1's window not shown after launch \(launch), tap \(tap): \(next)")
             }
-            if first.waitForExistence(timeout: 60) { return }
         }
         keep(app, as: "b1-not-shown")
+        keepElements(app, as: "b1-not-shown")
         throw Unseen(description: "B1's window did not show: \(app.debugDescription)")
     }
 
     /// The document browser walked to B1, a step at a time from wherever it stands, each tap one
-    /// place further, and B1 tapped.
+    /// place further, and B1 tapped: whether it was found to tap.
     @MainActor
-    private func tapB1(in app: XCUIApplication) throws {
+    private func tapB1(in app: XCUIApplication) -> Bool {
         let b1 = cell(in: app, named: "b1")
         let folder = cell(in: app, named: "Scaena")
         let onIPad = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'On My iPad'")).firstMatch
@@ -60,7 +77,7 @@ extension XCTestCase {
         for _ in 0..<8 {
             if b1.waitForExistence(timeout: 3) {
                 b1.tap()
-                return
+                return true
             }
             if folder.exists {
                 folder.tap()
@@ -71,7 +88,7 @@ extension XCTestCase {
             }
         }
         keep(app, as: "b1-not-found")
-        throw Unseen(description: "the document browser shows no B1: \(app.debugDescription)")
+        return false
     }
 
     /// The document browser's item named `name`: a file or a folder, by the name it shows first.

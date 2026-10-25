@@ -16,7 +16,8 @@
 //   its steps have played (`mix` for the revenue slide), the width asked, within §13.5 of
 //   `scaena export --format png` of that state. The palette offers it too.
 // - The deck as a PDF, from the palette: the PDF's own module loads then, and not before, and the
-//   PDF is the one `scaena export --format pdf` writes, byte for byte.
+//   PDF is the one `scaena export --format pdf` writes, byte for byte; and with the presenter's
+//   notes, from Export…, the one `--notes` writes.
 // - The deck as one HTML file, from Export…: the one `scaena export --format html` writes, byte for
 //   byte. Opened from its address on disk with the network off, it plays.
 // - A right click on a state in the strip offers Export it as a PNG…, which opens Export… on it.
@@ -166,6 +167,24 @@ try {
   const cliPdf = readFileSync(join(out, "cli.pdf"));
   check(pdfModule() === 1, `the PDF's module loads for it, once (${pdfModule()})`);
   check(pdf.name === "revenue.pdf" && pdf.bytes.equals(cliPdf), `${pdf.name}, ${pdf.bytes.length} B, is the CLI's PDF byte for byte (${cliPdf.length} B)`);
+
+  // The deck as a PDF with the presenter's notes, from Export…: offered for a PDF alone, and the
+  // PDF `scaena export --format pdf --notes` writes, byte for byte.
+  await page.click("#export");
+  await page.check("#exporting input[name=as][value=png]");
+  check(await page.locator("#exporting-notes").isHidden(), "the presenter's notes are not offered for a PNG");
+  await page.check("#exporting input[name=as][value=pdf]");
+  check(await page.locator("#exporting-notes").isVisible(), "they are offered for a PDF");
+  await page.check("#exporting-with-notes");
+  const notedNote = await page.evaluate(() => document.querySelector("#exporting-note").textContent);
+  check(notedNote.includes("the notes you read for it under it"), `the note says what a PDF with notes holds: ${notedNote}`);
+  const noted = await downloaded(() => page.click("#exporting-go"));
+  scaena("export", bundle, "--format", "pdf", "--notes", "--out", join(out, "cli-notes.pdf"));
+  const cliNoted = readFileSync(join(out, "cli-notes.pdf"));
+  check(
+    noted.name === "revenue - Notes.pdf" && noted.bytes.equals(cliNoted),
+    `${noted.name}, ${noted.bytes.length} B, is the CLI's PDF with notes byte for byte (${cliNoted.length} B)`,
+  );
 
   // The deck as one HTML file, from Export….
   await page.click("#export");

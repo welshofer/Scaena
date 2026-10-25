@@ -15,7 +15,9 @@ mod providers;
 mod stream;
 mod tools;
 
-pub use prompt::{Brief, Characters, Client, Facts, Listed, Seeing, Selected, seen, skill_name, system, system_of};
+pub use prompt::{
+    Brief, Characters, Client, FACTS, Facts, Listed, Seeing, Selected, seen, skill_name, stable, system, system_of,
+};
 pub use providers::{Ask, Provider, Request, Stop, Turn, Usage, inlined};
 pub use stream::{Stream, assembled, is_sse};
 pub use tools::{RESOURCE_READ, made, resource_read, summary, tools};
@@ -84,14 +86,30 @@ pub enum Message {
     },
 }
 
+/// About how much of tools' results, in bytes, the model is sent again (lift-up PERF-3): each
+/// round re-sends the conversation, so a long session's `deck_read`s and `deck_health`s would
+/// grow it until the provider refuses it.
+pub const BUDGET: usize = 60_000;
+
 /// The conversation as the model is sent it: the newest `frames` frames, and the older ones
-/// named in their place, since each costs as much as a page of text.
-pub fn recent(conversation: &[Message], frames: usize) -> Vec<Message> {
+/// named in their place, since each costs as much as a page of text; and the newest results
+/// whole within `budget` bytes, the last round's always, and the older ones named in their place
+/// from the first that would pass it on (lift-up PERF-3), so what is cached before them stays.
+pub fn recent(conversation: &[Message], frames: usize, budget: usize) -> Vec<Message> {
     let mut kept = 0;
+    let mut used: usize = 0;
+    let last = conversation.iter().rposition(|m| matches!(m, Message::Tool { .. }));
     let mut out: Vec<Message> = conversation.to_vec();
-    for m in out.iter_mut().rev() {
+    for (i, m) in out.iter_mut().enumerate().rev() {
         let Message::Tool { results } = m else { continue };
         for r in results.iter_mut().rev() {
+            used = used.saturating_add(r.json.len());
+            if Some(i) != last && used > budget {
+                used = usize::MAX;
+                r.png = None;
+                r.json = format!("(What {} returned is no longer shown: call it again to see it.)", r.name);
+                continue;
+            }
             if r.png.is_none() {
                 continue;
             }
@@ -146,6 +164,9 @@ pub struct Chat {
     pub rounds: usize,
     /// The most frames the model is sent again: older ones are named, not shown.
     pub frames: usize,
+    /// About how much of tools' results the model is sent again, in bytes ([`BUDGET`]): older
+    /// ones are named, not shown. Halved for the rest of a question the provider found too long.
+    pub budget: usize,
     /// The rounds of calls the question asked last has taken.
     taken: usize,
     /// What the last answer's call cut off by its token limit is told in place of a result, to go
@@ -185,6 +206,7 @@ impl Chat {
             conversation: Vec::new(),
             rounds: 32,
             frames: 2,
+            budget: BUDGET,
             taken: 0,
             owed: Vec::new(),
         }
@@ -194,11 +216,21 @@ impl Chat {
     pub fn ask(&mut self, text: &str) {
         self.conversation.push(Message::User { text: text.to_string(), png: None });
         self.taken = 0;
+        self.budget = BUDGET;
+    }
+
+    /// The provider found the conversation too long: send it again with half as much of tools'
+    /// results (lift-up PERF-3), once a question. Whether it was not halved already, and so is
+    /// worth asking again.
+    pub fn shorter(&mut self) -> bool {
+        let halved = self.budget == BUDGET;
+        self.budget = BUDGET / 2;
+        halved
     }
 
     /// The request for the model's next turn, `key` in its headers.
     pub fn request(&self, key: &str) -> Request {
-        let messages = recent(&self.conversation, self.frames);
+        let messages = recent(&self.conversation, self.frames, self.budget);
         self.provider.turn(&Ask {
             model: &self.model,
             key,

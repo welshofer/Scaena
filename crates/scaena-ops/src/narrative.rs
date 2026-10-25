@@ -1910,6 +1910,9 @@ fn assemble(
     };
     let count = narrative.slides.len();
     let varied = varied(narrative);
+    // The slide the talk peaks on, where the whole deck is made at once: one slide written into
+    // a deck has no arc of its own to peak.
+    let peaked = (first == 0 && count == total).then(|| peak(&narrative.slides)).flatten();
 
     let lang = deck_lang(&narrative.brief);
     deck.mirrored = lang.is_some_and(scaena_core::direction::right_to_left);
@@ -1977,9 +1980,10 @@ fn assemble(
             lang: lang.unwrap_or("en"),
         };
         let last = first + i + 1 == total;
+        let peak = peaked == Some(i);
         let after = previous.as_ref().map(|(l, s)| (l.as_str(), *s));
         let kept = (deck.nodes.clone(), deck.states.len(), deck.data.clone());
-        let mut made = deck.slide(slots.clone(), entrance(&layout, slide, after, last))?;
+        let mut made = deck.slide(slots.clone(), entrance(&layout, slide, after, last, peak))?;
         // A slide never draws a figure its writer did not write (DF7-1): where it would, it is
         // made again as a list of its items, their words as written.
         let drawn: Vec<&Value> =
@@ -1992,7 +1996,7 @@ fn assemble(
         {
             (deck.nodes, deck.data) = (kept.0, kept.2);
             deck.states.truncate(kept.1);
-            made = deck.slide(Slots { layout: "bullets", ..slots }, entrance("bullets", slide, after, last))?;
+            made = deck.slide(Slots { layout: "bullets", ..slots }, entrance("bullets", slide, after, last, peak))?;
             layout = "bullets".to_string();
             deck.relisted.push(first + i);
         }
@@ -3668,6 +3672,9 @@ fn divider_numbers(narrative: &Narrative, planned: &[Planned]) -> BTreeMap<usize
 struct Entrance {
     style: Option<&'static str>,
     slow: bool,
+    /// The arc's peak: its claim pops as it comes to rest, and its items wait a beat (lift-up
+    /// ATTR-3).
+    peak: bool,
 }
 
 /// A valence at or under which a slide reads as grave: Narrato writes `expectedValence` from −1,
@@ -3680,18 +3687,38 @@ const GRAVE: f64 = -0.5;
 /// reads grave after one that did not, takes the slow pace; and content slides between keep the
 /// plain transition, which morphs what two slides in one layout share. The same narrative gives
 /// the same entrances. None for the deck's first slide.
-fn entrance(layout: &str, slide: &Slide, previous: Option<(&str, &Slide)>, last: bool) -> Option<Entrance> {
+fn entrance(layout: &str, slide: &Slide, previous: Option<(&str, &Slide)>, last: bool, peak: bool) -> Option<Entrance> {
     let (before, earlier) = previous?;
     let divider = |l: &str| l.starts_with("section");
     let valence = |s: &Slide| s.expected_valence.unwrap_or(0.0);
     let grave = valence(slide) <= GRAVE && valence(earlier) > GRAVE;
     Some(if last {
-        Entrance { style: Some("dissolve"), slow: true }
+        Entrance { style: Some("dissolve"), slow: true, peak: false }
+    } else if peak {
+        Entrance { style: Some("dissolve"), slow: true, peak: true }
     } else if divider(layout) || divider(before) {
-        Entrance { style: Some("push"), slow: grave }
+        Entrance { style: Some("push"), slow: grave, peak: false }
     } else {
-        Entrance { style: None, slow: grave }
+        Entrance { style: None, slow: grave, peak: false }
     })
+}
+
+/// The intensity at and above which the slide a talk peaks on enters as its climax.
+const PEAK: f64 = 0.7;
+
+/// The slide the talk peaks on, by the intensity Narrato writes for each (`expectedIntensity`):
+/// the most intense of those between the cover and the last slide, the first where several are
+/// alike, at [`PEAK`] or above; none where no slide reaches it (lift-up ATTR-3).
+fn peak(slides: &[Slide]) -> Option<usize> {
+    let inner = 1..slides.len().saturating_sub(1);
+    let mut best: Option<(usize, f64)> = None;
+    for i in inner {
+        let Some(v) = slides[i].expected_intensity.filter(|v| v.is_finite()) else { continue };
+        if v >= PEAK && best.is_none_or(|(_, b)| v > b) {
+            best = Some((i, v));
+        }
+    }
+    best.map(|(i, _)| i)
 }
 
 #[derive(Clone)]
@@ -3884,9 +3911,9 @@ fn row(item: &Item) -> (Option<String>, Option<String>, Option<String>) {
 }
 
 /// The latest figure a chart plots, in its unit and the deck's language (`lang`): its first
-/// series' last value, with the decimals the chart's labels give it.
+/// series' last value, with the decimals the chart's labels give it; none where it has none there.
 fn latest(chart: &ChartData, lang: &str) -> Option<String> {
-    let value = *chart.series.first()?.values.last()?;
+    let value = (*chart.series.first()?.values.last()?)?;
     Some(at_places(value, decimals(chart), chart.unit.as_deref(), lang))
 }
 
@@ -4466,7 +4493,7 @@ impl Slots<'_> {
             // what was counted, or the source.
             ("two-figures", _, Some((k, part))) => {
                 let chart = self.slide.chart_data.as_ref()?;
-                let value = chart.series.first().and_then(|s| s.values.get(k).copied());
+                let value = chart.series.first().and_then(|s| s.values.get(k).copied().flatten());
                 match part {
                     "figure" => text(value.map(|v| at_places(v, decimals(chart), chart.unit.as_deref(), self.lang))),
                     "" => text(chart.categories.get(k).cloned()),
@@ -4849,6 +4876,10 @@ impl Builder {
         // A list that builds by bullet (ATTR-2): its node, and how many paragraphs it has.
         let mut bulleted: Option<(String, usize)> = None;
         let mut claimed = false;
+        // The node that says the slide's claim, and each that sets a figure: on the arc's peak its
+        // one figure pops in, else its claim (lift-up ATTR-3).
+        let mut claim: Option<String> = None;
+        let mut figures: Vec<String> = Vec::new();
         // What builds once the transition ends (G.17): each item's nodes, by its place's ordinal
         // (`first-…`, `second-…`), and each chart.
         let mut built: Vec<(usize, Vec<String>)> = Vec::new();
@@ -5108,6 +5139,12 @@ impl Builder {
             if node["type"] == "chart" {
                 charts.push(id.clone());
             }
+            if node["semantic"] == "claim" && claim.is_none() {
+                claim = Some(id.clone());
+            }
+            if node["type"] == "text" && node["role"].as_str().is_some_and(figure_role) {
+                figures.push(id.clone());
+            }
             self.nodes.insert(id.clone(), node);
             props.insert(id, json!({}));
         }
@@ -5141,6 +5178,7 @@ impl Builder {
                 made.steps.push(id);
             }
         }
+        let peaked = entrance.as_ref().is_some_and(|e| e.peak);
         let mut state = json!({ "id": s.state, "mode": "absolute", "layout": s.layout, "props": props });
         let durations = &s.theme.motion.durations;
         let mut transition = durations.get("standard").map_or(420.0, |d| d.0);
@@ -5158,7 +5196,9 @@ impl Builder {
             }
             state["transition"] = t;
         }
-        if let Some(choreography) = builds(s.theme, built, &charts, transition) {
+        let lone = <[String; 1]>::try_from(figures).ok().map(|[f]| f);
+        let peak = lone.or(claim).filter(|_| peaked);
+        if let Some(choreography) = builds(s.theme, built, &charts, transition, peak.as_deref()) {
             state["choreography"] = choreography;
         }
         self.states.push(state);
@@ -5360,18 +5400,32 @@ fn by_bullet_preset(theme: &Theme) -> Option<&str> {
 /// half the theme's `standard` duration, so that no more than two move at once; and each chart
 /// growing from its baseline, a mark at a time, as the theme's `grow` has it. Two to six items
 /// build, within the theme's `maxBuild` (lint W321); one item, or more, comes in with the slide.
-fn builds(theme: &Theme, mut built: Vec<(usize, Vec<String>)>, charts: &[String], transition: f64) -> Option<Value> {
+/// On the arc's peak, the node `peak` names, its one figure or else its claim, springs in by the
+/// theme's `pop`, and its items wait the theme's `standard` beat before they rise (lift-up ATTR-3).
+fn builds(
+    theme: &Theme,
+    mut built: Vec<(usize, Vec<String>)>,
+    charts: &[String],
+    transition: f64,
+    peak: Option<&str>,
+) -> Option<Value> {
     let mut items = Vec::new();
     let standard = theme.motion.durations.get("standard").map_or(420.0, |d| d.0);
     let gap = (standard * 0.6).round();
-    // The transition, the gaps, and the last item's own rise.
-    let span = |n: usize| transition + standard + gap * n.saturating_sub(1) as f64;
+    let popped = peak.filter(|_| theme.motion.presets.contains_key("pop"));
+    let held = if popped.is_some() { standard } else { 0.0 };
+    if let Some(claim) = popped {
+        items.push(json!({ "target": claim, "enter": "pop" }));
+    }
+    // The transition, the beat held, the gaps, and the last item's own rise.
+    let span = |n: usize| transition + held + standard + gap * n.saturating_sub(1) as f64;
     if (2..=6).contains(&built.len()) && span(built.len()) <= theme.motion.max_build.unwrap_or(2500.0) {
         scaena_core::sort::by_key(&mut built, |(k, _)| *k);
         for (i, (_, ids)) in built.iter().enumerate() {
             let mut item = json!({ "target": ids, "enter": "rise" });
-            if i > 0 {
-                item["delay"] = json!(gap * i as f64);
+            let delay = held + gap * i as f64;
+            if delay > 0.0 {
+                item["delay"] = json!(delay);
             }
             items.push(item);
         }
@@ -5380,13 +5434,14 @@ fn builds(theme: &Theme, mut built: Vec<(usize, Vec<String>)>, charts: &[String]
     (!items.is_empty()).then(|| json!(items))
 }
 
-/// A chart's figures as a data source, written inline: a row for each category and series.
+/// A chart's figures as a data source, written inline: a row for each category and series, none
+/// where the series has no value for the category (STAB-1).
 fn source(chart: &ChartData, dated: bool) -> Value {
     let several = chart.series.len() > 1;
     let mut rows = Vec::new();
     for (c, category) in chart.categories.iter().enumerate() {
         for (n, series) in chart.series.iter().enumerate() {
-            let Some(value) = series.values.get(c) else { continue };
+            let Some(Some(value)) = series.values.get(c) else { continue };
             let mut row = json!({ "category": category, "value": value });
             if several {
                 row["series"] = json!(series.name.clone().unwrap_or_else(|| format!("Series {}", n + 1)));
@@ -5712,7 +5767,7 @@ fn two(slide: &Slide) -> bool {
 /// The decimals of the most precise of `chart`'s values, two at most: 2.0 beside 1.1.
 fn decimals(chart: &ChartData) -> usize {
     let places = |v: f64| (0..=2usize).find(|d| (v * 10f64.powi(*d as i32)).fract().abs() < 1e-9).unwrap_or(2);
-    chart.series.iter().flat_map(|s| &s.values).map(|v| places(*v)).max().unwrap_or(0)
+    chart.series.iter().flat_map(|s| s.values.iter().flatten()).map(|v| places(*v)).max().unwrap_or(0)
 }
 
 /// Which of a single series' categories the slide is about, by index: the one its takeaway
@@ -5736,7 +5791,10 @@ fn signal(chart: &ChartData, takeaway: Option<&str>) -> Option<usize> {
         [one] if years && runs_on(&chart.categories[*one]) => chart.categories.len().checked_sub(1),
         [one] => Some(*one),
         _ if years => chart.categories.len().checked_sub(1),
-        _ => (values.iter().enumerate()).max_by(|a, b| a.1.total_cmp(b.1)).map(|(i, _)| i),
+        _ => (values.iter().enumerate())
+            .filter_map(|(i, v)| Some((i, (*v)?)))
+            .max_by(|a, b| a.1.total_cmp(&b.1))
+            .map(|(i, _)| i),
     }
 }
 
@@ -5852,12 +5910,13 @@ fn named_figure(chart: &ChartData, series: Option<&str>, said: [Option<&str>; 2]
     let last = line.values.len().checked_sub(1)?;
     said.into_iter().flatten().find_map(|text| {
         figures(text).into_iter().filter(|n| !chart.categories.iter().any(|c| c.parse() == Ok(*n))).find_map(|n| {
-            let at = line.values.iter().position(|v| (v - n).abs() < near).filter(|&i| i != 0 && i != last)?;
+            let at = (line.values.iter().position(|v| v.is_some_and(|v| (v - n).abs() < near)))
+                .filter(|&i| i != 0 && i != last)?;
             let mut place = json!({ "x": chart.categories.get(at)? });
             if let Some(name) = series {
                 place["series"] = json!(name);
             }
-            Some(json!({ "kind": "callout", "at": place, "text": grouped(line.values[at], places) }))
+            Some(json!({ "kind": "callout", "at": place, "text": grouped(line.values[at]?, places) }))
         })
     })
 }
@@ -5972,12 +6031,14 @@ fn described(chart: &ChartData, kind: &str, counts: Option<&str>, lang: &str) ->
         (_, Some(counts)) => head = format!("{head}: {counts}"),
         _ => {}
     }
-    let few = chart.series.iter().map(|s| s.values.len()).sum::<usize>() <= 12;
+    let few = chart.series.iter().map(|s| s.values.iter().flatten().count()).sum::<usize>() <= 12;
     let series: Vec<String> = chart
         .series
         .iter()
         .filter_map(|s| {
-            let pairs: Vec<(&String, f64)> = chart.categories.iter().zip(s.values.iter().copied()).collect();
+            // A category the series has no value for goes unsaid.
+            let pairs: Vec<(&String, f64)> =
+                chart.categories.iter().zip(&s.values).filter_map(|(c, v)| Some((c, (*v)?))).collect();
             let said = if few {
                 pairs.iter().map(|(c, v)| format!("{c} {}", value(*v))).collect::<Vec<_>>().join(", ")
             } else {
@@ -6177,7 +6238,7 @@ mod tests {
     fn a_line_of_years_marks_the_year_its_headline_names() {
         let line = |years: &[&str]| ChartData {
             categories: years.iter().map(|y| y.to_string()).collect(),
-            series: vec![answer::Series { name: None, values: vec![1.0; years.len()] }],
+            series: vec![answer::Series { name: None, values: vec![Some(1.0); years.len()] }],
             ..Default::default()
         };
         let span = line(&["1880", "1950", "2024"]);
@@ -6211,7 +6272,7 @@ mod tests {
     fn bars_of_years_light_where_the_takeaway_lands() {
         let wait = ChartData {
             categories: ["2022", "2023", "2024", "2025"].map(String::from).to_vec(),
-            series: vec![answer::Series { name: None, values: vec![11.0, 17.0, 26.0, 34.0] }],
+            series: vec![answer::Series { name: None, values: vec![Some(11.0), Some(17.0), Some(26.0), Some(34.0)] }],
             ..Default::default()
         };
         assert_eq!(signal(&wait, Some("The wait has tripled since 2022")), Some(3));
@@ -6507,6 +6568,27 @@ mod tests {
         // its unit held to it by a space that never breaks, as the typesetter sets it (DF7-2).
         assert_eq!(said("board-de", "der-umsatz-w-chst-seit-f-nf-callout"), "48,6\u{a0}Mio.\u{a0}\u{20ac}");
         assert_eq!(said("deepdive", "latency-climbed-every-week-as-callout"), "1,840\u{a0}ms");
+    }
+
+    #[test]
+    fn a_value_the_model_did_not_give_is_no_row_and_moves_no_other() {
+        let chart = ChartData {
+            categories: ["Q3 FY25", "Q4 FY25", "Q1 FY26"].map(String::from).to_vec(),
+            series: vec![answer::Series { name: None, values: vec![Some(33.9), None, Some(40.1)] }],
+            unit: Some("$M".into()),
+            source_id: None,
+        };
+        let rows = super::source(&chart, false)["source"]["inline"].clone();
+        assert_eq!(rows, json!([{ "category": "Q3 FY25", "value": 33.9 }, { "category": "Q1 FY26", "value": 40.1 }]));
+        // Its latest figure is the last category's, and a reader hears no figure for the one missing.
+        assert_eq!(latest(&chart, "en").as_deref(), Some("$40.1M"));
+        let said = described(&chart, "line", None, "en");
+        assert!(said.contains("Q3 FY25 $33.9M, Q1 FY26 $40.1M"), "{said}");
+        let short = ChartData {
+            series: vec![answer::Series { name: None, values: vec![Some(33.9), Some(35.0), None] }],
+            ..chart
+        };
+        assert_eq!(latest(&short, "en"), None);
     }
 
     #[test]
@@ -8401,8 +8483,11 @@ mod tests {
         let months = ChartData {
             categories: (1..=13).map(|m| format!("M{m}")).collect(),
             series: vec![
-                answer::Series { name: Some("North".into()), values: (1..=13).map(f64::from).collect() },
-                answer::Series { name: Some("South".into()), values: (1..=13).map(|v| f64::from(20 - v)).collect() },
+                answer::Series { name: Some("North".into()), values: (1..=13).map(|v| Some(f64::from(v))).collect() },
+                answer::Series {
+                    name: Some("South".into()),
+                    values: (1..=13).map(|v| Some(f64::from(20 - v))).collect(),
+                },
             ],
             unit: None,
             source_id: None,
@@ -9377,6 +9462,40 @@ mod tests {
         }
     }
 
+    /// On a big number at the talk's peak, the figure is what springs in, not the words under it.
+    #[test]
+    fn the_peak_springs_its_one_figure_in() {
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let text = json!({
+            "executiveSummary": "A town kept its own lights on.",
+            "slides": [
+                { "slideTitle": "The town that kept its lights on", "layoutSuggestion": "Title", "keyBullets": [],
+                  "expectedIntensity": 0.2 },
+                { "slideTitle": "The ice storm left them $412,000 over budget", "layoutSuggestion": "Big Number",
+                  "keyBullets": ["$412K", "over budget, covered by 140 neighbors in nine days"], "expectedIntensity": 0.9 },
+                { "slideTitle": "Waiting for permission was the real outage", "layoutSuggestion": "Statement",
+                  "keyBullets": [], "expectedIntensity": 0.6 },
+                { "slideTitle": "Go home and find your twelve people", "layoutSuggestion": "Closing", "keyBullets": [],
+                  "expectedIntensity": 0.95 },
+            ]
+        })
+        .to_string();
+        let written = answer::slides(&text).unwrap();
+        let built = deck(&narrative(&written.executive_summary, written.slides), &theme, &Pictures::new()).unwrap();
+        let states = built.deck["states"].as_array().unwrap();
+        // The closing is hotter still, but a deck's last slide keeps its own way in.
+        let built_in = states[1]["choreography"].as_array().unwrap();
+        let popped = built_in[0]["target"].as_str().unwrap();
+        assert_eq!(built_in[0]["enter"], "pop");
+        assert_eq!(built.deck["nodes"][popped]["text"], "$412K");
+        assert!(states[2]["choreography"].as_array().is_none_or(|c| c.iter().all(|b| b["enter"] != "pop")));
+        // Nothing reaches the peak's intensity: no slide is entered as one.
+        let mut calm = narrative(&written.executive_summary, answer::slides(&text).unwrap().slides);
+        calm.slides.iter_mut().for_each(|s| s.expected_intensity = Some(0.5));
+        let calm = deck(&calm, &theme, &Pictures::new()).unwrap();
+        assert!(!calm.deck.to_string().contains("\"pop\""));
+    }
+
     /// A generated deck enters by its structure (narrative ATTR-1): each section divider and the
     /// first slide of its part push in, the closing slide dissolves in slowly, a grave turn takes
     /// the slow pace, and the content slides between keep the plain transition that morphs what
@@ -9409,10 +9528,30 @@ mod tests {
         assert_eq!(transition(3), push(true), "the hottest year, grave after The Signal's divider");
         assert_eq!(transition(10), plain(true));
         assert_eq!(transition(6), plain(true), "every vital sign, at the grave mark after a slide above it");
-        for i in [1, 4, 5, 9, 13, 14, 17, 18, 19, 20, 23] {
+        for i in [1, 4, 5, 9, 14, 17, 18, 19, 20, 23] {
             assert_eq!(transition(i), plain(false), "slide {i}");
         }
-        assert_eq!(transition(24), json!({ "style": "dissolve", "duration": "slow", "ease": "standard" }), "the close");
+        let dissolve = json!({ "style": "dissolve", "duration": "slow", "ease": "standard" });
+        assert_eq!(transition(24), dissolve, "the close");
+        // The talk's peak, Four Years of Records at 0.9, enters as its climax (lift-up ATTR-3): it
+        // dissolves in slowly, its claim springs in, and its moments wait a beat before they rise.
+        assert_eq!(transition(13), dissolve, "the peak");
+        let built_in = built.deck["states"][13]["choreography"].as_array().unwrap().clone();
+        let claim = built_in[0]["target"].as_str().unwrap();
+        assert_eq!(
+            (built_in[0]["enter"].as_str(), built.deck["nodes"][claim]["semantic"].as_str()),
+            (Some("pop"), Some("claim"))
+        );
+        let standard = theme.motion.durations["standard"].0;
+        assert!(
+            built_in[1..].iter().all(|b| b["enter"] == "rise" && b["delay"].as_f64() >= Some(standard)),
+            "{built_in:#?}"
+        );
+        // Only the peak: no other slide pops.
+        let popped = (built.deck["states"].as_array().unwrap().iter())
+            .filter(|s| s["choreography"].as_array().is_some_and(|c| c.iter().any(|b| b["enter"] == "pop")))
+            .count();
+        assert_eq!(popped, 1);
         // It validates and lints no worse: no build runs past the theme's limit with a slow entrance.
         let (made, _) = making(built, "Data Storytelling", Path::new("dusk.theme.json"), dusk(), &font).unwrap();
         assert!(made.created.created && made.created.errors == 0, "{:#?}", made.created.findings);
