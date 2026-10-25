@@ -58,8 +58,9 @@ public struct Health: Decodable, Sendable {
     public let score: Int
     /// The arc the deck was written to, where it names one.
     public let arc: String?
-    /// The arc's beats, by name, in order; none for an arc the catalog does not name.
-    public let beats: [String]
+    /// The arc's beats, by name, in order; none for an arc the catalog does not name, or where
+    /// the answer names none.
+    public let beats: [String]?
     public let pacing: Measure
     public let balance: Measure
     public let coherence: Measure

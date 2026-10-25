@@ -50,7 +50,7 @@ struct StoryPanel: View {
                         .accessibilityElement(children: .combine)
                         .accessibilityIdentifier("story-big-idea")
                     }
-                    ArcGraph(slides: health.slides, beats: health.beats) { edits.go($0) }
+                    ArcGraph(slides: health.slides, beats: health.beats ?? []) { edits.go($0) }
                         .frame(height: 110)
                     ArcLegend()
                 }
