@@ -1,6 +1,7 @@
 // A page `scaena serve` serves (PLAN 2.11, ADR-0012), with `?serve` in its address. The bundle is
 // a folder on disk: the page hears of each change to it at `/scaena/events`, made on disk or by
 // another page's save, and of a `deck.scn` there that does not compile.
+import type { Serving } from "./protocol";
 
 /** One thing the compiler found in `deck.scn`, at its line. */
 export interface Problem {
@@ -34,6 +35,14 @@ export const served = new URLSearchParams(location.search).has("serve");
 
 /** This page's id, which its writes carry, so it does not hear its own saves as changes. */
 export const client = served ? crypto.randomUUID() : "";
+
+/** The token the address `scaena serve` printed carries (`?serve=TOKEN`), which each write sends:
+ * another account on this machine reaches the server too, but not the address (lift-up 10-24b
+ * SEC-5). */
+export const token = served ? (new URLSearchParams(location.search).get("serve") ?? "") : "";
+
+/** What this page's writes carry: its id and the token. */
+export const serving: Serving = { client, token };
 
 /** Where the bundle on disk stands now. */
 export async function status(): Promise<Status> {

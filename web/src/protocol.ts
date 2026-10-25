@@ -7,7 +7,7 @@ export type Source =
   /** A deck file at a URL, whose directory is the bundle: it reads the files the deck names,
    * and every file its manifest lists. `serve`, on a page `scaena serve` serves (PLAN 2.11):
    * the page's id, which its writes carry, for the bundle is kept there, and saves back to it. */
-  | { url: string; serve?: string }
+  | { url: string; serve?: Serving }
   /** A bundle kept in the browser's own storage (the origin-private file system), by its
    * name there. */
   | { opfs: string }
@@ -30,7 +30,14 @@ export type Source =
 
 /** Where a recovered bundle is kept: the browser's storage by name, a folder on disk by its handle,
  * or the folder `scaena serve` serves it from, by the deck's URL and the page's id. */
-export type Kept = { opfs: string } | { folder: FileSystemDirectoryHandle } | { url: string; serve: string };
+export type Kept = { opfs: string } | { folder: FileSystemDirectoryHandle } | { url: string; serve: Serving };
+
+/** What a page `scaena serve` opened writes the folder with (PLAN 2.11): its own id, so it does not
+ * hear its own saves, and the token the address it was opened at carries (lift-up 10-24b SEC-5). */
+export interface Serving {
+  client: string;
+  token: string;
+}
 
 /** Where Save as puts a bundle (PLAN 2.12): a folder on disk the page was given, or the
  * browser's storage under a name (`name-2`, … where that is taken). */
@@ -1536,6 +1543,8 @@ export interface WritingAsk {
   state?: string;
   node?: string;
   finding?: { code: string; severity: string; message: string; said?: string; hint?: string; node?: string };
+  /** For a rewrite, how the person wants it rewritten, in their own words (lift-up FUNC-3). */
+  instruction?: string;
 }
 
 /** What a model is asked for a writing tool (`scaena_core::writing`): the task, with the words it
