@@ -918,3 +918,24 @@ fn diff_reads_as_changes_for_a_person_and_as_an_object_for_an_agent() {
     let out = scaena(&["diff", TORTURE, "--from", "chart", "--to", "chart"]);
     assert_eq!(String::from_utf8(out.stdout).unwrap().trim(), "no changes from `chart` to `chart`");
 }
+
+/// `export --format pdf --notes` (dogfood pass 2): a page for each slide, as the PDF without notes
+/// has them, each the slide with its presenter's notes under it, the notes' words text a reader
+/// copies; `--notes` on any other format stops with why.
+#[test]
+fn export_pdf_notes_prints_a_page_for_each_slide_with_its_notes() {
+    let dir = scratch("pdf-notes");
+    let (plain, notes) = (dir.join("plain.pdf"), dir.join("notes.pdf"));
+    let (code, without) = json(&["export", EXAMPLE, "--format", "pdf", "--out", plain.to_str().unwrap()]);
+    assert_eq!(code, 0, "{without}");
+    let (code, with) = json(&["export", EXAMPLE, "--format", "pdf", "--notes", "--out", notes.to_str().unwrap()]);
+    assert_eq!(code, 0, "{with}");
+    // The revenue example's notes fit a page each: a page for each slide, in the same order.
+    assert_eq!(with["pages"], without["pages"]);
+    // Its pages are others than the PDF's without notes: the slide smaller, its notes under it.
+    assert_ne!(std::fs::read(&notes).unwrap(), std::fs::read(&plain).unwrap());
+    let png = dir.join("png");
+    let (code, refused) = json(&["export", EXAMPLE, "--format", "png", "--notes", "--out", png.to_str().unwrap()]);
+    assert_eq!(code, 2);
+    assert!(refused["error"]["message"].as_str().unwrap().contains("--notes"), "{refused}");
+}

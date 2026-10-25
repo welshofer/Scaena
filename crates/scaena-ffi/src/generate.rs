@@ -589,11 +589,14 @@ impl Generating {
                     // saying why (narrative STAB-3): the look is a polish, never the deck.
                     match making.drawn(scaena_ops::narrative::LOOK_WIDTH) {
                         Ok(drawn) => {
+                            // Each slide as drawn, which the window shows while the model looks
+                            // (lift-up ATTR-1).
+                            let shown: Vec<String> = drawn.iter().map(|p| p.data.clone()).collect();
                             let mut look = Look { seen, drawn, ..Look::default() };
                             if let Some(round) = look.round(&w.generation, key) {
                                 self.look = look;
                                 self.making = Some((making, Vec::new()));
-                                return Ok(json!({ "look": round }));
+                                return Ok(json!({ "look": round, "drawn": shown }));
                             }
                         }
                         Err(why) => making.unlooked(format!("the slides could not be drawn for the model: {why}")),
@@ -653,9 +656,22 @@ impl Generating {
                     making.unlooked(was.map_or(why.clone(), |was| format!("{was}; {why}")));
                 }
                 let report = making.report();
+                let looked = report["looked"].as_array().map_or(0, Vec::len);
+                // The slides the model changed, and those alone, drawn again for the window, each
+                // by its index (lift-up ATTR-1); none that would not draw.
+                let changed = report["looked"].as_array().into_iter().flatten();
+                let drawn: Vec<Value> = changed
+                    .filter_map(|c| c["slide"].as_u64()?.checked_sub(1))
+                    .filter_map(|slide| {
+                        let r = making.pixels(slide as usize, scaena_ops::narrative::LOOK_WIDTH).ok()?;
+                        let jpeg = scaena_export::pdf::jpeg(&r.rgba, r.width, r.height, 82)?;
+                        Some(json!({ "slide": slide, "jpeg": base64::engine::general_purpose::STANDARD.encode(jpeg) }))
+                    })
+                    .collect();
                 let mut out = self.after_look(making, key)?;
-                out["looked"] = json!(report["looked"].as_array().map_or(0, Vec::len));
+                out["looked"] = json!(looked);
                 out["unlooked"] = report["unlooked"].clone();
+                out["drawn"] = json!(drawn);
                 out
             }
             "noted" => {

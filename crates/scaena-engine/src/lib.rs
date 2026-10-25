@@ -42,6 +42,7 @@ pub mod layout;
 pub mod lint;
 pub mod marks;
 pub mod motion;
+pub mod notes;
 pub mod pin;
 pub mod render;
 pub mod reveals;

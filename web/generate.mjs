@@ -77,7 +77,7 @@ const PAGE = "<h1>Tidewater in the press</h1><p>The Gulf's first carbon-negative
 /** Anthropic, scripted: what each request asks, and the state the walk sets (`slow`, `fail`, and
  * the `slides` it answers with, the recorded ones where none is set). */
 const requests = [];
-const state = { slow: 0, fail: false, slides: undefined };
+const state = { slow: 0, fail: false, slides: undefined, looking: 0 };
 const provider = createServer(async (req, res) => {
   const cors = {
     "access-control-allow-origin": req.headers.origin ?? "*",
@@ -115,6 +115,7 @@ const provider = createServer(async (req, res) => {
           : "slides";
   requests.push({ headers: req.headers, body, prompt, asked });
   if (state.slow) await new Promise((ok) => setTimeout(ok, state.slow));
+  if (asked === "look" && state.looking) await new Promise((ok) => setTimeout(ok, state.looking));
   if (state.fail) return reply(401, { type: "error", error: { type: "authentication_error", message: "invalid x-api-key" } });
   if (asked === "arc") return reply(200, ARC);
   // The outline before the slides (narrative FUNC-1): the big idea and a claim for each of the
@@ -325,9 +326,19 @@ try {
 
   // Cancel stops it, once asked (lift-up 10-24 USE-2): kept making, Cancel and Escape leave it
   // running; stopped, the deck open stays open.
+  // Leaving or reloading the page asks first while it runs (lift-up 10-25 REL-4): its
+  // `beforeunload` is cancelled then, and neither before nor once the deck is stopped.
+  const leaving = () =>
+    page.evaluate(() => {
+      const leave = new Event("beforeunload", { cancelable: true });
+      dispatchEvent(leave);
+      return leave.defaultPrevented;
+    });
+  check(!(await leaving()), "before a deck is made, leaving the page asks nothing of it");
   state.slow = 4000;
   await page.click("#prompting-go");
   await page.waitForFunction(() => [...document.querySelectorAll("#prompting-progress li")].some((l) => l.textContent.startsWith("Choosing the arc")), null, { timeout: 60000 });
+  check(await leaving(), "leaving the page while a deck is being made asks first");
   page.off("dialog", accepting);
   const askedFirst = [];
   const declining = (d) => (askedFirst.push(d.message()), d.dismiss());
@@ -345,6 +356,7 @@ try {
   check(!(await page.locator("#prompting").evaluate((d) => d.open)), "Cancel closes the dialog");
   await page.waitForTimeout(5000);
   check((await page.evaluate(() => window.scaena.where().name)) === "revenue", "the deck open stays open");
+  check(!(await leaving()), "stopped, leaving the page asks nothing more of it");
   state.slow = 0;
 
   // Grounded in a Markdown file, a CSV, and a web page, each slide naming the source its facts
@@ -392,9 +404,17 @@ try {
   await page.locator("#prompting-beats li").last().locator(".name").fill("Thanks");
   await page.locator("#prompting-beats li").last().locator(".claim").fill("Thank you for listening.");
   await page.fill("#prompting-big-idea", "Cargo pays for its carbon.");
+  // The first beat given three slides, a number the person sets (lift-up FUNC-4).
+  await page.locator("#prompting-beats li").first().locator(".slides").fill("3");
   await mkdir("target/web-generate", { recursive: true });
   await page.locator("#prompting").screenshot({ path: "target/web-generate/outline.png" });
+  // The look answered slowly, so the strip of slides drawn for it can be seen while it waits
+  // (lift-up ATTR-1).
+  state.looking = 4000;
   await page.click("#prompting-write");
+  await page.waitForFunction(() => document.querySelectorAll("#prompting-film li.drawn").length === 5, null, { timeout: 180000 }).catch(() => {});
+  await page.locator("#prompting").screenshot({ path: "target/web-generate/drawn.png" });
+  state.looking = 0;
   await page.waitForFunction(() => window.scaena.where().name !== "revenue" && window.scaena.last(), null, { timeout: 180000 });
   const outlined = requests.filter((r) => r.asked === "outline");
   check(outlined.length === 1 && outlined[0].prompt.includes("Beat 1 \"Problem: Define core challenge and stakes\" → 1 slide"), `the outline was asked once, each beat with its slides: ${outlined[0]?.prompt.slice(0, 120)}`);
@@ -403,6 +423,7 @@ try {
   check(toOutline.includes("**Slot shapes (Scaena)**") && block.length > 0, "the slides' prompt carries Narrato's text, then the outline's block");
   check(block.includes("\"Cargo pays for its carbon.\""), "with the big idea as typed");
   check(/Beat 1 "Existing Approaches[^\n]*\n\s+Beat 2 "Problem/.test(block), `the beats in the order settled: ${block.slice(0, 400)}`);
+  check(/Beat 1 "Existing Approaches[^"]*" → slides 1–3:/.test(block), `the first beat takes the three slides set: ${block.slice(0, 300)}`);
   check(block.includes(": No carrier can cut it alone.\n") && block.includes("Beat 6 \"Thanks\"") && !block.includes("Claim 6:"), "the claim rewritten, the beat added, the beat removed");
   check(await page.locator("#prompting").evaluate((d) => !d.open), "the deck made, the dialog closed");
   const made = await page.evaluate(() => window.scaena.where());
@@ -444,6 +465,12 @@ try {
     `each slide shown to the model as a JPEG: ${drawn.length}`,
   );
   check(look?.prompt.startsWith("Slide 1 of 5, drawn as"), "each after what is said of it");
+  // The person sees each slide as it is drawn for the model (lift-up ATTR-1).
+  const film = await page.locator("#prompting-film li.drawn img").evaluateAll((pictures) => pictures.map((p) => p.src));
+  check(
+    film.length === 5 && film.every((src) => src.startsWith("data:image/jpeg;base64,/9j/")),
+    `the dialog shows each slide as drawn: ${film.length}`,
+  );
   // Then each slide's notes written for the talk, after the look (lift-up 10-25 ATTR-2).
   const noted = requests.find((r) => r.asked === "notes");
   check(noted?.prompt.startsWith("Write the speaker notes for the 5 slides of a talk"), `the notes are asked for the talk: ${noted?.prompt.slice(0, 80)}`);
@@ -605,12 +632,16 @@ try {
   // is set under the set's first icon.
   state.slides = DASHED;
   check(DASHED !== ICONED, "the dashed answer differs from the iconed one");
+  // The deck made just now keeps a copy of itself, as it would a few seconds on: the next deck
+  // made, of the same title, is another deck, and is offered nothing of it.
+  await page.evaluate(() => window.scaena.keepCopy());
   await opened();
   await page.uncheck("#prompting-show-outline");
   await page.click("#prompting-go");
   await page
     .waitForFunction((was) => window.scaena.source() !== was && window.scaena.source().includes("alt:Compass") && window.scaena.last(), iconed, { timeout: 180000 })
     .catch(() => {});
+  check(!(await page.locator("#recovering").evaluate((d) => d.open)), "a second deck made of the same title is offered no copy of the first");
   const dashed = await page.evaluate(() => window.scaena.source());
   check(dashed.includes("alt:Compass"), "the other list is still set under its icons");
   check(!dashed.includes("alt:Acorn") && !dashed.includes("alt:Lightning"), "the dashed list keeps its words, under no icon");

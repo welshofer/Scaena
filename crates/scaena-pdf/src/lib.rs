@@ -27,7 +27,7 @@ mod tests {
     fn it_draws_the_pdf_the_cli_writes() {
         for bundle in ["../../docs/examples/revenue.deck.json", "../../tests/fixtures/torture.scaena"] {
             let b = scaena_store::Bundle::open(std::path::Path::new(bundle)).unwrap();
-            let (laid, pages) = pdf_laid_out(&b, None, &Progress::default()).unwrap();
+            let (laid, pages) = pdf_laid_out(&b, None, false, &Progress::default()).unwrap();
             let bytes = laid.to_bytes().unwrap();
             let ours = prepared(&Prepared::from_bytes(&bytes).unwrap(), &PdfSettings::default()).unwrap();
             let (cli, cli_pages) = pdf_document(&b, None, &PdfSettings::default()).unwrap();
@@ -39,7 +39,7 @@ mod tests {
     #[test]
     fn other_bytes_are_an_error_that_says_why() {
         let b = scaena_store::Bundle::open(std::path::Path::new("../../docs/examples/revenue.deck.json")).unwrap();
-        let bytes = pdf_laid_out(&b, None, &Progress::default()).unwrap().0.to_bytes().unwrap();
+        let bytes = pdf_laid_out(&b, None, false, &Progress::default()).unwrap().0.to_bytes().unwrap();
         let said = |bytes: &[u8]| Prepared::from_bytes(bytes).unwrap_err().to_string();
         assert!(said(b"%PDF-1.7").contains("does not begin `SPDF`"));
         assert!(said(&bytes[..6]).contains("ends early"));

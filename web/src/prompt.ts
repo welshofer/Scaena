@@ -54,6 +54,8 @@ export function said(event: GeneratingEvent): string {
         : `${event.pictures} pictures made`;
     case "making":
       return "Making the deck in the theme…";
+    case "drawn":
+      return `Slide ${event.slide + 1} of ${event.of} drawn`;
     case "looking":
       return `Showing the model the ${event.slides} slides as drawn…`;
     case "looked":
@@ -93,7 +95,9 @@ type Given = { file: File } | { link: string };
  * `story`, which gives its score, and its line by `tell`. `models` lists the models a key can
  * use, as the Assistant tab lists them (lift-up 10-24 USE-1): with no key kept, the dialog takes
  * one in place, checks it, and keeps it as that tab does. Changes not saved are asked about
- * before a deck is made, not as it opens: what a model wrote is never thrown away for them. */
+ * before a deck is made, not as it opens: what a model wrote is never thrown away for them.
+ * `running` says whether a deck is being made, which leaving the page asks about first (lift-up
+ * 10-25 REL-4). */
 export function prompting(
   engine: Engine,
   opener: HTMLElement,
@@ -125,6 +129,7 @@ export function prompting(
   const list = $<HTMLUListElement>("#prompting-sources");
   const who = $<HTMLParagraphElement>("#prompting-who");
   const progress = $<HTMLOListElement>("#prompting-progress");
+  const film = $<HTMLOListElement>("#prompting-film");
   const go = $<HTMLButtonElement>("#prompting-go");
   const keying = $<HTMLFieldSetElement>("#prompting-key");
   const keyProvider = $<HTMLSelectElement>("#prompting-key-provider");
@@ -144,18 +149,22 @@ export function prompting(
   /** The outline pane's own fields, which stay live while the deck is made. */
   const outlining = (field: Element) => field.closest("#prompting-outline") !== null;
 
-  /** A beat as a row: its name, its claim to type over, the slides it takes, and Up, Down, and
-   * Remove. */
+  /** A beat as a row: its name, its claim to type over, the slides it takes, a number to set
+   * (lift-up FUNC-4), and Up, Down, and Remove. */
   const beatRow = (beat: { name: string; claim: string; slides: number }): HTMLLIElement => {
     const li = document.createElement("li");
-    li.dataset.slides = String(beat.slides);
     const name = document.createElement("input");
     name.className = "name";
     name.value = beat.name;
     name.setAttribute("aria-label", "The beat's name");
-    const slides = document.createElement("span");
+    const slides = document.createElement("input");
     slides.className = "slides";
-    slides.textContent = beat.slides === 0 ? "no slides" : beat.slides === 1 ? "1 slide" : `${beat.slides} slides`;
+    slides.type = "number";
+    slides.min = "0";
+    slides.max = "60";
+    slides.step = "1";
+    slides.value = String(beat.slides);
+    slides.setAttribute("aria-label", "The slides the beat takes");
     const claim = document.createElement("textarea");
     claim.className = "claim";
     claim.rows = 2;
@@ -185,7 +194,7 @@ export function prompting(
     beats: [...beats.querySelectorAll("li")].map((li) => ({
       name: li.querySelector<HTMLInputElement>(".name")!.value,
       claim: li.querySelector<HTMLTextAreaElement>(".claim")!.value,
-      slides: Number(li.dataset.slides ?? 0),
+      slides: Math.max(0, Math.round(Number(li.querySelector<HTMLInputElement>(".slides")!.value) || 0)),
     })),
   });
 
@@ -371,6 +380,23 @@ export function prompting(
     item.scrollIntoView({ block: "nearest" });
   };
 
+  // Each slide as it is drawn for the model, in a strip under the progress, so the wait shows the
+  // deck coming together (lift-up ATTR-1); a slide drawn again takes its own place.
+  const drawn = (event: Extract<GeneratingEvent, { kind: "drawn" }>) => {
+    while (film.children.length > event.of) film.lastElementChild!.remove();
+    while (film.children.length < event.of) {
+      const item = document.createElement("li");
+      const picture = document.createElement("img");
+      picture.alt = `Slide ${film.children.length + 1}`;
+      item.append(picture);
+      film.append(item);
+    }
+    const item = film.children[event.slide] as HTMLLIElement;
+    item.querySelector("img")!.src = `data:image/jpeg;base64,${event.jpeg}`;
+    item.classList.add("drawn");
+    item.scrollIntoView({ block: "nearest", inline: "nearest" });
+  };
+
   const busy = (on: boolean) => {
     running = on;
     for (const field of form.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement | HTMLButtonElement>(
@@ -384,6 +410,7 @@ export function prompting(
 
   opener.onclick = () => {
     progress.replaceChildren();
+    film.replaceChildren();
     outlinePane.hidden = true;
     dialog.returnValue = "";
     dialog.showModal();
@@ -482,11 +509,12 @@ export function prompting(
       })(),
     };
     progress.replaceChildren();
+    film.replaceChildren();
     busy(true);
     const making = worker;
     const done = new Promise<{ files: Record<string, ArrayBuffer>; name: string; made: Generated }>((resolve, reject) => {
       making.onmessage = ({ data }: MessageEvent<FromWorker>) => {
-        if (data.type === "generating") step(said(data.event));
+        if (data.type === "generating") data.event.kind === "drawn" ? drawn(data.event) : step(said(data.event));
         else if (data.type === "storyOutlined") showOutlined(data);
         else if (data.type === "generated") resolve(data);
         else if (data.type === "error") reject(new Error(data.message));
@@ -527,4 +555,5 @@ export function prompting(
       start();
     }
   };
+  return { running: () => running };
 }

@@ -134,6 +134,10 @@ fn a_deck_is_made_from_a_prompt_as_swift_makes_one_its_pictures_with_it() {
     assert!(drawn.iter().all(|d| d["source"]["media_type"] == "image/jpeg"));
     assert!(content[0]["text"].as_str().unwrap().starts_with("Slide 1 of "), "{}", content[0]);
     assert!(body["system"][0]["text"].as_str().unwrap().contains("art director"));
+    // The same slides handed back for the window to show while the model looks (lift-up ATTR-1).
+    let shown = making["drawn"].as_array().unwrap();
+    assert_eq!(shown.len(), drawn.len());
+    assert!(shown.iter().zip(&drawn).all(|(s, d)| *s == d["source"]["data"]), "the window is shown what the model is");
     // The model tightens the cover's title; then a text that runs past its place is asked for
     // shorter.
     let tightened = anthropic(
@@ -143,6 +147,11 @@ fn a_deck_is_made_from_a_prompt_as_swift_makes_one_its_pictures_with_it() {
     let looked =
         step(g, "looked", json!({ "status": 200, "statusText": "OK", "body": tightened, "key": "sk-writer" }), &[]);
     assert_eq!(looked["looked"], 1, "{looked}");
+    // The slide the look changed, and it alone, drawn again for the window, by its index.
+    let redrawn = looked["drawn"].as_array().unwrap();
+    assert_eq!(redrawn.len(), 1, "{}", looked["drawn"]);
+    assert_eq!(redrawn[0]["slide"], 0);
+    assert!(redrawn[0]["jpeg"].as_str().unwrap().starts_with("/9j/"));
     // Then each slide's notes written for the talk (lift-up 10-25 ATTR-2), a dozen slides a round,
     // the cover's given in the first: its slides each with the words its notes run to.
     let mut notes = looked["notes"].clone();
