@@ -123,6 +123,10 @@ struct Pair {
     states: Vec<String>,
 }
 
+/// Two nodes that collide, what stacks for each where their paint paths part, and the text whose
+/// tail alone reaches the other, if one does.
+type Collided = (Pair, [String; 2], Option<Tail>);
+
 /// A larger text whose descenders alone reach the text under it, where the two first collide: it,
 /// its size as set and its own, and how it fits.
 struct Tail {
@@ -162,7 +166,7 @@ impl Rule for E101Collision {
     fn check(&self, cx: &Cx) -> Vec<Finding> {
         // Each pair once: where it first collides, and every state it collides in, with
         // what stacks for each where their paint paths part: the node, or a container it is in.
-        let mut pairs: BTreeMap<(String, String), (Pair, [String; 2], Option<Tail>)> = BTreeMap::new();
+        let mut pairs: BTreeMap<(String, String), Collided> = BTreeMap::new();
         let body = cx.theme.typography.roles.get("body").map_or(f32::INFINITY, |r| r.size as f32);
         for state in cx.states {
             let content: Vec<(&SceneNode, Drawn)> = state
