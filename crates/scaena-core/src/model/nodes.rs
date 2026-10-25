@@ -273,6 +273,13 @@ pub struct Code {
     /// where unset. A deck saved before 0.39 reads with it off, and draws as it did.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub card: Option<bool>,
+    /// The lines in focus (PLAN 2.140, deck format 0.40), counted from 1 as `paragraphs` counts
+    /// paragraphs: each one line, or the first and the last of a run. The rest are set back
+    /// toward their ground by the theme's `code.focus.dim`, never under 3:1, so a state names
+    /// the lines a talk is on and a walkthrough is a step for each. Without it, every line.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(length(min = 1))]
+    pub focus: Option<Vec<Range>>,
 }
 
 /// What a text node does when its text does not fit (SPEC §3.4).
