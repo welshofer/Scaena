@@ -246,7 +246,7 @@ try {
   // deck of that title made again is offered nothing.
   await page.evaluate(() => window.scaena.keepCopy());
   check((await copies()).some((c) => c.record?.name === "fresh"), "kept again before it is closed");
-  await page.evaluate(() => window.scaena.open({ url: "/docs/examples/revenue.deck.json" }));
+  await page.evaluate((url) => window.scaena.open({ url }), `${server.origin}/docs/examples/revenue.deck.json`);
   await ready("revenue");
   check(!(await copies()).some((c) => c.record?.name === "fresh"), "opened over, its changes lost as agreed, its copy goes with them");
   await page.evaluate(() => window.scaena.open({ create: { theme: "Dusk", title: "Fresh" } }));
