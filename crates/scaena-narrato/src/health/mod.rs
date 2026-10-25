@@ -46,6 +46,15 @@ pub struct SlideForHealth {
     /// What its words embed as, for coherence; where any pair lacks one, their words are read.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub embedding: Option<Vec<f64>>,
+    /// A slide whose layout makes one point by design (a big number, a quote, a statement):
+    /// Scaena's, not Vzestup's (ADR-0032 item 3, Jay's call, 2026-10-25). It is left out of the
+    /// points a slide makes on average; every other measure reads it.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub one_idea: bool,
+    /// A slide that draws a picture, a chart, or a table: it shows something, whatever its words
+    /// (Scaena's, not Vzestup's; ADR-0032, Jay's call, 2026-10-25).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub drawn: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub narrative_meta: Option<NarrativeMeta>,
 }
@@ -447,13 +456,16 @@ pub fn metrics(slides: &[SlideForHealth], length_minutes: Option<u32>) -> LocalH
     };
 
     // Content balance.
-    let bullets: usize = (visible.iter())
+    // The points made on average, over the slides made to make several.
+    let pointed: Vec<&SlideForHealth> = visible.iter().filter(|s| !s.one_idea).collect();
+    let bullets: usize = (pointed.iter())
         .map(|s| s.body.split('\n').map(js::trim).filter(|l| l.starts_with('\u{2022}') || l.starts_with('-')).count())
         .sum();
     let per_slide = |total: usize| if count > 0 { total as f64 / count as f64 } else { 0.0 };
-    let avg_bullets = per_slide(bullets);
+    let avg_bullets = if pointed.is_empty() { 0.0 } else { bullets as f64 / pointed.len() as f64 };
     let avg_notes = per_slide(visible.iter().map(|s| units(&s.notes)).sum());
-    let visual_coverage = per_slide(visible.iter().filter(|s| s.embedding.is_some() || units(&s.body) > 30).count());
+    let visual_coverage =
+        per_slide(visible.iter().filter(|s| s.drawn || s.embedding.is_some() || units(&s.body) > 30).count());
     let bullet_score =
         if (2.0..=5.0).contains(&avg_bullets) { 100.0 } else { js::max(0.0, 100.0 - (avg_bullets - 3.5).abs() * 20.0) };
     let notes_score = if avg_notes >= 60.0 { 100.0 } else { (avg_notes / 60.0) * 100.0 };
@@ -859,6 +871,35 @@ mod tests {
         let en = SlideForHealth { body: "the town rebuilt".into(), ..slide("en") };
         assert_eq!(metrics(&[ja], Some(15)).content_balance.visual_coverage, 1.0);
         assert_eq!(metrics(&[en], Some(15)).content_balance.visual_coverage, 0.0);
+    }
+
+    /// A one-idea slide makes the point it is made for, and is left out of the points a slide
+    /// makes on average; a deck with none reads as Vzestup reads it (ADR-0032 item 3).
+    #[test]
+    fn a_one_idea_slide_is_not_counted_thin() {
+        let listed = |i: usize| SlideForHealth {
+            body: "\u{2022} one\n\u{2022} two\n\u{2022} three".into(),
+            ..slide(&format!("l{i}"))
+        };
+        let big = |i: usize| SlideForHealth { body: "41%".into(), one_idea: true, ..slide(&format!("n{i}")) };
+        let flat: Vec<SlideForHealth> =
+            (0..4).map(listed).chain((0..2).map(|i| SlideForHealth { one_idea: false, ..big(i) })).collect();
+        assert_eq!(metrics(&flat, Some(15)).content_balance.avg_bullets_per_slide, 2.0);
+        let marked: Vec<SlideForHealth> = (0..4).map(listed).chain((0..2).map(big)).collect();
+        assert_eq!(metrics(&marked, Some(15)).content_balance.avg_bullets_per_slide, 3.0);
+        // Every slide one idea: no points to average.
+        let only: Vec<SlideForHealth> = (0..3).map(big).collect();
+        assert_eq!(metrics(&only, Some(15)).content_balance.avg_bullets_per_slide, 0.0);
+    }
+
+    /// A slide that draws a picture, a chart, or a table shows something, however few its words
+    /// (ADR-0032).
+    #[test]
+    fn a_slide_that_draws_a_figure_shows_something() {
+        let slides: Vec<SlideForHealth> = (0..4)
+            .map(|i| SlideForHealth { body: "tiny".into(), drawn: i % 2 == 0, ..slide(&format!("d{i}")) })
+            .collect();
+        assert_eq!(metrics(&slides, Some(15)).content_balance.visual_coverage, 0.5);
     }
 
     #[test]

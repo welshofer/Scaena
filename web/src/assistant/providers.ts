@@ -134,6 +134,18 @@ function runs<T extends { role: string }>(items: T[]): T[][] {
   return out;
 }
 
+/** What heads the open deck's facts, last in the system prompt: `prompt.ts`'s and `scaena-chat`'s
+ * `FACTS`, which the recorded exchanges hold this to, since Node runs each file alone. */
+const FACTS = "\n\n--- the deck open ---\n";
+
+/** The system prompt split where the deck's facts begin, at the first `FACTS`, since every word
+ * before it is Scaena's own: what stays the same between edits, then the facts (lift-up PERF-2).
+ * A prompt with no facts, as a writing tool's, is stable whole. */
+function stable(system: string): [string, string] {
+  const at = system.indexOf(FACTS);
+  return at < 0 ? [system, ""] : [system.slice(0, at), system.slice(at)];
+}
+
 /** Anthropic's Messages API, called from the browser with its opt-in header for that. */
 export const anthropic: Provider = {
   name: "Anthropic",
@@ -173,11 +185,17 @@ export const anthropic: Provider = {
         };
       }),
     ).map((run) => ({ role: run[0].role, content: run.flatMap((m) => m.content) }));
+    // The conversation is cached to its newest block, so each round of calls after it reads what
+    // came before at a tenth (lift-up PERF-2).
+    const last = messages.at(-1)?.content.at(-1) as Record<string, unknown> | undefined;
+    if (last) last.cache_control = { type: "ephemeral" };
+    // The system prompt is the same each turn but for the deck's facts, last: cached up to them, it
+    // costs a tenth on every turn after the first, an edit between questions too.
+    const [kept, facts] = stable(ask.system);
     const body = {
       model: ask.model,
       max_tokens: 8192,
-      // The system prompt is the same each turn: cached, it costs a tenth on every turn after the first.
-      system: [{ type: "text", text: ask.system, cache_control: { type: "ephemeral" } }],
+      system: [{ type: "text", text: kept, cache_control: { type: "ephemeral" } }, ...(facts ? [{ type: "text", text: facts }] : [])],
       // A question asked once, with nothing to call, sends no tools (PLAN 2.101).
       ...(ask.tools.length && { tools: ask.tools.map((t) => ({ name: t.name, description: t.description, input_schema: inlined(t.schema) })) }),
       messages,

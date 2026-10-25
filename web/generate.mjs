@@ -317,9 +317,19 @@ try {
 
   // Cancel stops it, once asked (lift-up 10-24 USE-2): kept making, Cancel and Escape leave it
   // running; stopped, the deck open stays open.
+  // Leaving or reloading the page asks first while it runs (lift-up 10-25 REL-4): its
+  // `beforeunload` is cancelled then, and neither before nor once the deck is stopped.
+  const leaving = () =>
+    page.evaluate(() => {
+      const leave = new Event("beforeunload", { cancelable: true });
+      dispatchEvent(leave);
+      return leave.defaultPrevented;
+    });
+  check(!(await leaving()), "before a deck is made, leaving the page asks nothing of it");
   state.slow = 4000;
   await page.click("#prompting-go");
   await page.waitForFunction(() => [...document.querySelectorAll("#prompting-progress li")].some((l) => l.textContent.startsWith("Choosing the arc")), null, { timeout: 60000 });
+  check(await leaving(), "leaving the page while a deck is being made asks first");
   page.off("dialog", accepting);
   const askedFirst = [];
   const declining = (d) => (askedFirst.push(d.message()), d.dismiss());
@@ -337,6 +347,7 @@ try {
   check(!(await page.locator("#prompting").evaluate((d) => d.open)), "Cancel closes the dialog");
   await page.waitForTimeout(5000);
   check((await page.evaluate(() => window.scaena.where().name)) === "revenue", "the deck open stays open");
+  check(!(await leaving()), "stopped, leaving the page asks nothing more of it");
   state.slow = 0;
 
   // Grounded in a Markdown file, a CSV, and a web page, each slide naming the source its facts
@@ -384,6 +395,8 @@ try {
   await page.locator("#prompting-beats li").last().locator(".name").fill("Thanks");
   await page.locator("#prompting-beats li").last().locator(".claim").fill("Thank you for listening.");
   await page.fill("#prompting-big-idea", "Cargo pays for its carbon.");
+  // The first beat given three slides, a number the person sets (lift-up FUNC-4).
+  await page.locator("#prompting-beats li").first().locator(".slides").fill("3");
   await mkdir("target/web-generate", { recursive: true });
   await page.locator("#prompting").screenshot({ path: "target/web-generate/outline.png" });
   await page.click("#prompting-write");
@@ -395,6 +408,7 @@ try {
   check(toOutline.includes("**Slot shapes (Scaena)**") && block.length > 0, "the slides' prompt carries Narrato's text, then the outline's block");
   check(block.includes("\"Cargo pays for its carbon.\""), "with the big idea as typed");
   check(/Beat 1 "Existing Approaches[^\n]*\n\s+Beat 2 "Problem/.test(block), `the beats in the order settled: ${block.slice(0, 400)}`);
+  check(/Beat 1 "Existing Approaches[^"]*" → slides 1–3:/.test(block), `the first beat takes the three slides set: ${block.slice(0, 300)}`);
   check(block.includes(": No carrier can cut it alone.\n") && block.includes("Beat 6 \"Thanks\"") && !block.includes("Claim 6:"), "the claim rewritten, the beat added, the beat removed");
   check(await page.locator("#prompting").evaluate((d) => !d.open), "the deck made, the dialog closed");
   const made = await page.evaluate(() => window.scaena.where());
@@ -592,12 +606,16 @@ try {
   // is set under the set's first icon.
   state.slides = DASHED;
   check(DASHED !== ICONED, "the dashed answer differs from the iconed one");
+  // The deck made just now keeps a copy of itself, as it would a few seconds on: the next deck
+  // made, of the same title, is another deck, and is offered nothing of it.
+  await page.evaluate(() => window.scaena.keepCopy());
   await opened();
   await page.uncheck("#prompting-show-outline");
   await page.click("#prompting-go");
   await page
     .waitForFunction((was) => window.scaena.source() !== was && window.scaena.source().includes("alt:Compass") && window.scaena.last(), iconed, { timeout: 180000 })
     .catch(() => {});
+  check(!(await page.locator("#recovering").evaluate((d) => d.open)), "a second deck made of the same title is offered no copy of the first");
   const dashed = await page.evaluate(() => window.scaena.source());
   check(dashed.includes("alt:Compass"), "the other list is still set under its icons");
   check(!dashed.includes("alt:Acorn") && !dashed.includes("alt:Lightning"), "the dashed list keeps its words, under no icon");
