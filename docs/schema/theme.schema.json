@@ -1,13 +1,13 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://scaena.dev/schema/theme-0.26.json",
+  "$id": "https://scaena.dev/schema/theme-0.27.json",
   "title": "Scaena theme (design system)",
   "description": "Tokens, typographic roles, layout templates, motion, and palettes. Documents reference these by name; they never store resolved values. See docs/SPEC.md §3.6.",
   "type": "object",
   "required": ["scaena-theme", "name", "tokens", "type", "grid", "layouts", "motion"],
   "additionalProperties": false,
   "properties": {
-    "scaena-theme": { "description": "Theme format version.", "type": "string", "pattern": "^0\\.26(\\.[0-9]+)?$" },
+    "scaena-theme": { "description": "Theme format version.", "type": "string", "pattern": "^0\\.27(\\.[0-9]+)?$" },
     "name": { "type": "string", "minLength": 1 },
     "description": { "type": "string" },
     "tokens": { "$ref": "#/$defs/Tokens" },
@@ -484,7 +484,7 @@
         "align": { "$ref": "#/$defs/Align" },
         "role": { "description": "Default text role for nodes placed in this slot.", "type": "string" },
         "inset": {
-          "description": "How far in from its cells the slot stands, canvas units (theme format 0.11, PLAN 3.30): one number on each side, words on a card that fills the same cells; or each side its own (theme format 0.26), as words under a text set on the foot of its cells stand clear of its descenders.",
+          "description": "How far in from its cells the slot stands, canvas units (theme format 0.11, PLAN 3.30): one number on each side, words on a card that fills the same cells; or each side its own (theme format 0.27), as words under a text set on the foot of its cells stand clear of its descenders.",
           "$ref": "#/$defs/SlotInset"
         },
         "prompt": {
@@ -524,7 +524,7 @@
     },
     "AlignY": { "type": "string", "enum": ["start", "center", "end", "stretch", "cap", "baseline", "x-height"] },
     "SlotInset": {
-      "description": "How far in from its cells a slot stands: the same on each side, or each side its own (theme format 0.26), a side left out none.",
+      "description": "How far in from its cells a slot stands: the same on each side, or each side its own (theme format 0.27), a side left out none.",
       "anyOf": [{ "type": "number" }, { "$ref": "#/$defs/Sides" }]
     },
     "Sides": {
