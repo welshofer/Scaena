@@ -114,6 +114,9 @@ struct DeckView: View {
     @State private var choosingIcon = false
     /// The themes that ship, offered as a deck made by New opens (PLAN 3.3); none once one is chosen.
     @State private var offeredThemes: [ShippedTheme] = []
+    /// Whether the window is the theme chooser, as a deck made by New opens, until one is chosen or
+    /// it is cancelled (lift-up ATTR-5).
+    @State private var choosingFirst = false
     /// The slides made in this window, from the gallery or after the slide shown (PLAN 3.30):
     /// only theirs show their layout's empty slots, so a deck opened shows none it never filled.
     @State private var fresh: Set<String> = []
@@ -150,10 +153,17 @@ struct DeckView: View {
     // The window's parts, each its own expression: one modifier chain over all of them is more
     // than the compiler type-checks in reasonable time.
     var body: some View {
-        presented(watched(undoing(window)))
-            .focusedSceneValue(\.deck, actions)
-            .focusedSceneValue(\.canvasActions, canvasActions)
+        // While the themes are offered, the window waits on them as it waited on a sheet: its
+        // toolbar, its canvas and panes, and the menus' deck commands take nothing (lift-up ATTR-5).
+        presented(watched(undoing(window.disabled(choosingTheme))))
+            .focusedSceneValue(\.deck, choosingTheme ? nil : actions)
+            .focusedSceneValue(\.canvasActions, choosingTheme ? nil : canvasActions)
             .focusedSceneValue(\.panes, panes)
+    }
+
+    /// Whether a new deck's themes are offered over the window, before one is chosen.
+    private var choosingTheme: Bool {
+        document.startsNew || choosingFirst
     }
 
     /// The states down the side; beside them the canvas and the rest; and the toolbar.
@@ -808,6 +818,10 @@ struct DeckView: View {
     private func presented(_ view: some View) -> some View {
         view
             .quickLookPreview($looking)
+            // An export seen in Quick Look, its folder taken away once it is closed (lift-up REL-5).
+            .onChange(of: looking) { seen, now in
+                if let seen, seen != now { ExportFolders.remove(seen) }
+            }
             // An export being made: what it is, and Cancel, which drops it (lift-up PERF-3).
             .sheet(item: $making) { made in
                 VStack(spacing: 16) {
@@ -857,13 +871,21 @@ struct DeckView: View {
             .sheet(item: $mapping) { target in
                 MapSheet(target: target) { map, label in putMap(map, at: target, label: label) }
             }
-            .sheet(isPresented: choosingTheme) {
-                ThemeChooser(themes: offeredThemes) { name in
-                    offeredThemes = []
-                    if let name { begin(in: name) }
+            // A deck New made opens on the themes that ship, over the window from its first frame, so
+            // no deck shows before one is chosen, as a presentation app's theme chooser opens
+            // (lift-up ATTR-5).
+            .overlay {
+                if choosingTheme {
+                    ThemeChooser(themes: offeredThemes) { name in
+                        choosingFirst = false
+                        offeredThemes = []
+                        if let name { begin(in: name) }
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(.background)
                 }
             }
-            // A deck New made: the themes that ship offered first, once its window is up. A deck
+            // A deck New made: the themes that ship offered first, as its window opens. A deck
             // made from a prompt says what it came to, and lands on its story (narrative USE-2):
             // the Document tab's Story panel, with the arc's curve and each slide's fix.
             .task {
@@ -875,21 +897,21 @@ struct DeckView: View {
                     documentPanel = .story
                 }
                 guard document.startsNew else { return }
-                document.startsNew = false
                 // Its title slide's empty places outlined, as on a slide made here.
                 fresh.formUnion(editor.slots.map(\.state))
-                // Made in another theme than Dusk, which made none: said once, and the themes
-                // offered once it is read, as an alert and a sheet are not shown together
-                // (lift-up STAB-3).
+                // Made in another theme than Dusk, which made none: said once, as an alert in front
+                // of the themes offered, which wait behind it until it is read (lift-up STAB-3).
                 if let fellBack = document.fellBack {
                     document.fellBack = nil
                     failure = fellBack
-                    while failure != nil, !Task.isCancelled {
-                        try? await Task.sleep(for: .milliseconds(100))
-                    }
                 }
-                try? await Task.sleep(for: .milliseconds(250))
-                offeredThemes = (try? editor.session.shippedThemes()) ?? []
+                do {
+                    offeredThemes = try editor.session.shippedThemes()
+                } catch {
+                    failure = [failure, Why.said(error)].compactMap { $0 }.joined(separator: "\n\n")
+                }
+                choosingFirst = !offeredThemes.isEmpty
+                document.startsNew = false
             }
             .alert("Couldn’t Make That Change", isPresented: failing, presenting: failure) { _ in
                 Button("OK") { failure = nil }
@@ -901,11 +923,6 @@ struct DeckView: View {
     /// Whether an export waits to be saved.
     private var exporting: Binding<Bool> {
         Binding(get: { saving != nil }, set: { if !$0 { saving = nil } })
-    }
-
-    /// Whether the themes that ship are offered.
-    private var choosingTheme: Binding<Bool> {
-        Binding(get: { !offeredThemes.isEmpty }, set: { if !$0 { offeredThemes = [] } })
     }
 
     /// A deck New made put in the theme that ships named `name`, before anything is on it (PLAN

@@ -223,6 +223,8 @@ const READS = new Set<ToWorker["type"]>([
 self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
   const id = "id" in data ? data.id : undefined;
   const reads = READS.has(data.type);
+  // A probe answers and changes nothing, the words kept among it.
+  if (data.type === "ping") return post({ type: "pong", id: data.id });
   if (!reads) worded = undefined;
   if (stopped !== undefined) {
     if (id !== undefined) post({ type: "error", id, message: `the engine stopped: ${stopped}` });
@@ -240,6 +242,17 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         return await open(data.source, data.painter, data.canvas, data.engine);
       case "trap":
         return player.trap();
+      case "die": {
+        // An error outside the message, then one task that answers nothing, for good or `busy` ms.
+        setTimeout(() => {
+          throw new Error(`the worker ${data.busy === undefined ? "died" : "failed"}, as asked, to test the editor's recovery`);
+        });
+        const until = data.busy;
+        setTimeout(() => {
+          for (const end = performance.now() + (until ?? Number.POSITIVE_INFINITY); performance.now() < end; );
+        });
+        return;
+      }
       case "briefing": {
         await init(data.engine && { module_or_path: data.engine });
         const { choices } = await import("@scaena/generate");
@@ -1968,9 +1981,6 @@ let painting: Promise<void> = Promise.resolve();
  * canvas changes (a drag, a zoom). */
 type Beside = "paint" | "pace" | "keep";
 
-/** `state` `t` ms into its cue, on the canvas, sized to the format first, then in each format
- * beside it as `beside` says. Past its span, it is at rest; its shaders keep the timeline's time
- * (SPEC §3.8). */
 /** Request `id` answered, a frame painted since `start`, once the GPU has done the frame: a
  * page that screenshots the canvas when it hears gets the frame asked for, not the last one the
  * compositor had whole (a large picture's first upload, on a slow adapter, outlasting the page's
@@ -1981,6 +1991,9 @@ async function answerShown(id: number, start: number) {
   post({ type: "shown", id, size: [canvas.width, canvas.height], ms });
 }
 
+/** `state` `t` ms into its cue, on the canvas, sized to the format first, then in each format
+ * beside it as `beside` says. Past its span, it is at rest; its shaders keep the timeline's time
+ * (SPEC §3.8). */
 async function paint(state: string, t: number, beside: Beside = "paint") {
   lastPainted = { state, t };
   sized(true);
