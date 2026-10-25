@@ -218,7 +218,7 @@ const SPECS: [(&str, &str, Option<&str>, &[&str]); 41] = [
     ("chyron", "Chyron", None, &[]),
     ("recipe-card", "Recipe", Some("Playbook"), &["playbook", "recipe"]),
     ("architecture", "Architecture", None, &["system architecture", "architecture diagram", "system diagram"]),
-    ("decision-brief", "Decision brief", None, &["decision", "decision memo", "recommendation"]),
+    ("decision-brief", "Decision brief", None, &["decision memo"]),
     ("quiz", "Quiz", None, &["knowledge check", "pop quiz", "check yourself"]),
     ("risk-matrix", "Risk matrix", None, &["risk register", "risk heat map", "heat map", "risk map"]),
 ];

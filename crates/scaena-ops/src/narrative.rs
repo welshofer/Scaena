@@ -2514,7 +2514,8 @@ fn layout_for(
         "quadrant" => "quadrants",
         // A system's parts in tiers, each joined to what it calls (dogfood pass 7).
         "architecture" if tiers(items).is_some() => "architecture",
-        "decision-brief" => "decision-brief",
+        // A decision put to the room: its items the brief's parts, else what they are.
+        "decision-brief" if briefed(items) => "decision-brief",
         // Questions each with its answer are an FAQ's; one question with answers to choose from,
         // a quiz.
         "quiz" if questions(items) && n == 3 && theme.layouts.contains_key("cards") => "cards",
@@ -2762,7 +2763,7 @@ fn phone(line: &str) -> Option<String> {
             (true, None) if c.is_some_and(|c| c.is_ascii_digit() || matches!(c, '(' | '+')) => start = Some(i),
             (false, Some(s)) => {
                 let run = line[s..i].trim_end_matches([' ', '-', '\u{2013}', '.', '(']);
-                if run.chars().filter(char::is_ascii_digit).count() >= 7 {
+                if run.chars().filter(char::is_ascii_digit).count() >= 7 && !a_figure(run) {
                     best = best.or(Some(run));
                 }
                 start = None;
@@ -2771,6 +2772,21 @@ fn phone(line: &str) -> Option<String> {
         }
     }
     best.map(str::to_string)
+}
+
+/// Whether a run of digits [`phone`] found is a figure, not a number to call: a range of years
+/// ("2025-2027") or thousands set apart ("10 000 000"). A number written with its country's `+`
+/// or its area code's bracket is a phone's, whatever its groups.
+fn a_figure(run: &str) -> bool {
+    if run.starts_with(['+', '(']) {
+        return false;
+    }
+    let groups: Vec<&str> = run.split(|c: char| !c.is_ascii_digit()).filter(|g| !g.is_empty()).collect();
+    let years =
+        groups.len() == 2 && groups.iter().all(|g| g.len() == 4 && (g.starts_with("19") || g.starts_with("20")));
+    let thousands =
+        groups.len() >= 2 && groups.first().is_some_and(|g| g.len() <= 3) && groups[1..].iter().all(|g| g.len() == 3);
+    years || thousands
 }
 
 /// A system's parts in the architecture layout's tiers, each part's name: up to three clients,
@@ -2969,6 +2985,113 @@ fn rating(item: &Item) -> Option<(usize, usize)> {
 /// risk matrix numbers in its legend.
 fn rated(items: &[Item]) -> bool {
     (1..=9).contains(&items.len()) && items.iter().all(|i| rating(i).is_some())
+}
+
+/// The parts of a decision brief, each by words its label may begin with or hold, in the languages
+/// [`LABELS`] says the brief's titles in: the issue, the options, what is recommended or decided,
+/// and what is asked.
+const BRIEF_PARTS: [&[&str]; 4] = [
+    &[
+        "issue",
+        "problem",
+        "situation",
+        "context",
+        "background",
+        "question",
+        "frage",
+        "problème",
+        "problema",
+        "probleem",
+        "problém",
+        "sytuacja",
+        "проблема",
+        "課題",
+        "问题",
+        "문제",
+        "المشكلة",
+        "समस्या",
+    ],
+    &[
+        "option",
+        "alternative",
+        "choice",
+        "optionen",
+        "opciones",
+        "opzioni",
+        "opties",
+        "opções",
+        "možnosti",
+        "opcje",
+        "варіанти",
+        "選択肢",
+        "选项",
+        "선택지",
+        "الخيارات",
+        "विकल्प",
+    ],
+    &[
+        "recommend",
+        "decision",
+        "decide",
+        "proposal",
+        "empfehl",
+        "entscheid",
+        "recommand",
+        "décision",
+        "recomend",
+        "decisión",
+        "raccomand",
+        "decisione",
+        "advie",
+        "advis",
+        "besluit",
+        "decisão",
+        "doporuč",
+        "rekomend",
+        "рекоменд",
+        "推奨",
+        "建议",
+        "권고",
+        "نوصي",
+        "सिफ़ारिश",
+    ],
+    &[
+        "ask",
+        "need",
+        "request",
+        "approve",
+        "brauchen",
+        "bitte",
+        "demande",
+        "besoin",
+        "il nous faut",
+        "necesit",
+        "pedimos",
+        "ci serve",
+        "vragen",
+        "nodig",
+        "precisamos",
+        "potřebuj",
+        "potrzebuj",
+        "потрібно",
+        "必要",
+        "需要",
+        "필요",
+        "نحتاج",
+        "चाहिए",
+    ],
+];
+
+/// Whether `items` read as a decision brief: three or four, each labelled, the labels naming two
+/// parts of a brief or more ([`BRIEF_PARTS`]), as "Decision", "Why", "Trade-off", "Ask" do and
+/// three recommendations do not.
+fn briefed(items: &[Item]) -> bool {
+    let part = |label: &str| {
+        let label = label.to_lowercase();
+        BRIEF_PARTS.iter().position(|words| words.iter().any(|w| label.contains(w)))
+    };
+    let parts = scaena_core::sort::set(items.iter().filter_map(|i| i.label.as_deref().and_then(part)));
+    (3..=4).contains(&items.len()) && items.iter().all(|i| i.label.is_some()) && parts.len() >= 2
 }
 
 /// Whether the slide speaks of risks, in the languages [`level`] reads: a matrix of high and low
@@ -6746,6 +6869,25 @@ mod tests {
         has(&said, "bottom", "Fund a six-week pilot on two lanes, decided by Friday.");
         has(&said, "bottom-title", "Bottom line");
         has(&said, "mark", "shape");
+        // Three recommendations, or three plain bullets, named "Decision Brief" or "Recommendation",
+        // are no brief: they stay what they are (review of #689).
+        for (name, bullets) in [
+            ("Recommendation", ["Ship the cache this sprint", "Retire the old pricing path", "Watch p99 for a month"]),
+            (
+                "Decision Brief",
+                [
+                    "Recommendation 1: ship the cache",
+                    "Recommendation 2: retire the old path",
+                    "Recommendation 3: watch p99",
+                ],
+            ),
+        ] {
+            let (layout, _) = made(
+                serde_json::json!({ "slideTitle": "What we recommend", "layoutSuggestion": name, "keyBullets": bullets }),
+                "en",
+            );
+            assert_ne!(layout, "decision-brief", "{name}");
+        }
         // A quiz: one question, its answers under their letters.
         let (layout, said) = made(
             serde_json::json!({ "slideTitle": "Which is a root cause?", "layoutSuggestion": "Quiz",
@@ -6888,6 +7030,15 @@ mod tests {
         );
         let phoned = deck_of(closing("Questions?", "Call us: +1 555 014 2200", &[]));
         assert_eq!(last(&phoned, &Pictures::new(), &none).0, "call-to-action");
+        // A range of years, or thousands set apart, is a figure, not a number to call (review of #689).
+        for line in ["Join our 2025-2027 plan", "Join the 10 000 000 who switched"] {
+            let planned = deck_of(closing("Thank you", line, &[]));
+            assert_eq!(last(&planned, &Pictures::new(), &none).0, "closing", "{line}");
+        }
+        assert_eq!(phone("(555) 014-2200").as_deref(), Some("(555) 014-2200"));
+        assert_eq!(phone("+49 30 1234567").as_deref(), Some("+49 30 1234567"));
+        assert_eq!(phone("Our 2025-2027 plan"), None);
+        assert_eq!(phone("Join the 10 000 000 who switched"), None);
         let questions = deck_of(closing("Questions?", "", &["Contact us: hello@tidewater.io"]));
         let (layout, said) = last(&questions, &Pictures::new(), &none);
         assert_eq!(layout, "call-to-action");
