@@ -527,6 +527,8 @@
       #story dt { color: var(--muted); }
       #story dd { margin: 0; }
       #story dd b { display: inline-block; min-width: 2.2em; }
+      #story [data-big-idea] { margin: 6px 0; font-style: italic; }
+      #story [data-big-idea] span { font-style: normal; color: var(--muted); margin-right: 4px; }
       #story [data-arc] svg { display: block; width: 100%; height: auto; border: 1px solid var(--line); border-radius: 4px; }
       #story .curve { fill: none; stroke: var(--muted); stroke-dasharray: 3 3; }
       #story .declared { fill: none; stroke: var(--info); stroke-width: 1.5; }
@@ -996,6 +998,7 @@
           <section id="story" role="tabpanel" aria-labelledby="tab-story" hidden>
             <p data-score aria-live="polite"></p>
             <dl data-measures></dl>
+            <p data-big-idea hidden></p>
             <div data-arc></div>
             <p data-legend><i class="declared"></i>as written <i class="read"></i>as its words read <i class="curve"></i>the arc's curve <i class="bends"></i>off it; higher is more intense</p>
             <ol data-findings aria-label="What to look at, slide by slide"></ol>
