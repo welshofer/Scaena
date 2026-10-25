@@ -854,6 +854,8 @@ struct PromptView: View {
                 dismissWindow(id: PromptWindow.id)
                 #else
                 let document = ScaenaDocument(generated: session, said: made.words)
+                // The brief goes as `finish` puts it away, and `halt` cancels this task then; nothing
+                // is awaited after it, so the deck is already written and opens all the same.
                 finish(try Prompting.written(document, about: brief.topic, said: made.words))
                 #endif
             } catch is CancellationError {
