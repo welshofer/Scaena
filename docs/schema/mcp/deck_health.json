@@ -173,7 +173,7 @@
         "type": ["string", "null"]
       },
       "beats": {
-        "description": "The arc's beats, by name, in order; none for an arc the catalog does not name.",
+        "description": "The deck's beats, by name, in order: its settled outline's where it has one, else its\narc's; none for an arc the catalog does not name and no outline.",
         "type": "array",
         "items": { "type": "string" }
       },
