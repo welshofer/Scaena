@@ -319,7 +319,10 @@ final class KeysTests: XCTestCase {
             let make = app.descendants(matching: .any).matching(NSPredicate(format: "label == 'Make Code'")).firstMatch
             guard paged(to: make, in: app) else {
                 keep(app, as: "no-make-code")
-                throw Unseen(description: "the long press offered no Make Code: \(app.debugDescription)")
+                // Copy and Duplicate come with a node selected: without them the menu was made for nothing.
+                let copy = app.descendants(matching: .any).matching(NSPredicate(format: "label == 'Copy'")).firstMatch
+                let what = copy.exists ? "no Make Code" : "nothing done to the subtitle, no Copy or Duplicate"
+                throw Unseen(description: "the long press offered \(what): \(app.debugDescription)")
             }
             make.tap()
             settle()
