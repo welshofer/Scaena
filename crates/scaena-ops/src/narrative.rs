@@ -34,6 +34,8 @@ use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
+mod quoting;
+
 /// The canvas a made deck draws on.
 const CANVAS: [u32; 2] = [1920, 1080];
 
@@ -399,6 +401,9 @@ pub struct Kept {
     pub rows: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub why: Option<String>,
+    /// How many figures the deck's slides write quote it (G1).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub quoted: Option<usize>,
 }
 
 /// `write`, a bundle not yet written, with each sheet given kept as a data source
@@ -407,7 +412,14 @@ pub struct Kept {
 pub fn keeping(mut write: Write, tables: &[Table]) -> Result<(Write, Vec<Kept>), OpsError> {
     let mut kept = Vec::new();
     for table in tables {
-        let not = |why: String| Kept { sheet: table.named.clone(), id: None, source: None, rows: None, why: Some(why) };
+        let not = |why: String| Kept {
+            sheet: table.named.clone(),
+            id: None,
+            source: None,
+            rows: None,
+            why: Some(why),
+            quoted: None,
+        };
         let Some(csv) = table.csv.clone() else {
             kept.push(not("no row under its header".into()));
             continue;
@@ -424,12 +436,25 @@ pub fn keeping(mut write: Write, tables: &[Table]) -> Result<(Write, Vec<Kept>),
                 write.deck = w.deck;
                 write.files.extend(w.files);
                 let (source, rows) = (Some(attached.source), Some(attached.rows));
-                kept.push(Kept { sheet: table.named.clone(), id: Some(id), source, rows, why: None });
+                kept.push(Kept { sheet: table.named.clone(), id: Some(id), source, rows, why: None, quoted: None });
             }
             Ok((attached, _)) => {
                 kept.push(not(attached.added.first().map_or("it would not validate".into(), |f| f.message.clone())))
             }
             Err(e) => kept.push(not(e.to_string())),
+        }
+    }
+    // Each figure a slide writes that is one kept cell's value quotes it, so the slide follows
+    // the data (G1, ADR-0019).
+    let ids: Vec<String> = kept.iter().filter_map(|k| k.id.clone()).collect();
+    if !ids.is_empty() {
+        let mut doc = write.deck.to_value().context("the deck")?;
+        let counts = quoting::quoting(&mut doc, &write.files, &ids);
+        if counts.iter().any(|(_, n)| *n > 0) {
+            write.deck = Deck::from_json(&doc.to_string()).context("the deck")?;
+        }
+        for k in &mut kept {
+            k.quoted = counts.iter().find(|(id, _)| k.id.as_ref() == Some(id)).map(|(_, n)| *n);
         }
     }
     Ok((write, kept))
