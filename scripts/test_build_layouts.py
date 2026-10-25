@@ -2,6 +2,7 @@
 lists takes its family's layouts, and a new theme its family's first file's."""
 
 import json
+import math
 import sys
 import tempfile
 import unittest
@@ -64,6 +65,30 @@ class ByGeometry(unittest.TestCase):
         with self.assertRaisesRegex(AssertionError, f"has no layout `{gone}`"):
             layouts.library("basel", old, geometry)
 
+
+
+class ClearOfDescenders(unittest.TestCase):
+    """Words under a text set on the foot of its cells stand clear of its descenders (theme format
+    0.26): their slot takes the descent at its top, its other sides as they were."""
+
+    def test_the_quote_credit_takes_the_quotes_descent_at_its_top(self):
+        for slug, geometry, paths in LISTED:
+            with self.subTest(theme=slug):
+                who = own(paths)["quote"]["slots"]["who"]
+                descent = layouts.family(geometry)[0]["quote"][0]
+                self.assertEqual(who["inset"], {"top": math.ceil(descent)})
+                self.assertEqual(who["col"], own(paths)["quote"]["slots"]["quote"]["col"])
+
+    def test_a_card_already_clear_takes_nothing_more(self):
+        _, geometry, paths = LISTED[0]
+        cards = own(paths)["numbered-cards"]["slots"]
+        self.assertEqual(cards["first"].get("inset"), cards["first-title"].get("inset"))
+
+    def test_clearing_twice_clears_once(self):
+        _, geometry, paths = LISTED[0]
+        for name, layout in own(paths).items():
+            with self.subTest(layout=name):
+                self.assertEqual(layouts.cleared(layout["slots"], geometry), layout["slots"])
 
 if __name__ == "__main__":
     unittest.main()

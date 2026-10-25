@@ -71,7 +71,7 @@
         [16,1179.125,254.59375]
       ],"clusters":[8,6,4,2,0]}}
     ]}},
-    {"layer":{"node":"cover-subtitle","cell":null,"label":null,"transform":[1.0,0.0,0.0,1.0,688.0,693.25],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+    {"layer":{"node":"cover-subtitle","cell":null,"label":null,"transform":[1.0,0.0,0.0,1.0,688.0,733.25],"opacity":1.0,"blend":"normal","clip":null,"ops":[
       {"glyphs":{"font":1,"size":48.0,"coords":[10240,0],"paint":{"solid":"#F2F0E9FF"},"text":"עבודה","glyphs":[
         [11,585.6719,45.03125],
         [5,615.3281,45.03125],
