@@ -220,6 +220,46 @@ fn a_deck_is_made_from_a_prompt_as_swift_makes_one_its_pictures_with_it() {
 /// The icons the slides name are found in the set that ships as the deck is made, as the CLI
 /// finds them (PLAN G.23): a slide whose items each name one sets each under it, and Swift does
 /// nothing more for it.
+/// An outline that does not read, as Swift's loop meets it (lift-up REL-3): the first answer
+/// leaves the step to ask again, the second stands as `unread`, and `skipOutline` writes the
+/// slides without one, on the arc chosen.
+#[test]
+fn an_unreadable_outline_is_asked_again_then_passed_over_as_swift_asks_it() {
+    let arc = std::fs::read_to_string(format!("{ANSWERS}/anthropic-arc.json")).unwrap();
+    let slides = std::fs::read_to_string(format!("{ANSWERS}/anthropic-slides.json")).unwrap();
+    let g = scaena_generator_new();
+    let brief = json!({ "topic": "Carbon-negative cargo is ready to scale", "audience": "Investors" });
+    step(g, "begin", json!({ "brief": brief, "provider": "anthropic", "model": "a-model" }), &[]);
+    let asked = step(g, "request", json!({ "key": "sk-writer" }), &[]);
+    let chose = step(g, "answer", json!({ "status": 200, "statusText": "OK", "body": arc }), &[]);
+    assert_eq!(asked["step"], "arc");
+    assert_eq!(chose["step"], "slides");
+    assert_eq!(step(g, "outline", json!({}), &[])["step"], "outline");
+    let prose = anthropic("I would be glad to outline this talk.");
+    let first = step(g, "request", json!({ "key": "sk-writer" }), &[]);
+    let once = step(g, "answer", json!({ "status": 200, "statusText": "OK", "body": prose }), &[]);
+    assert_eq!((once["step"].as_str(), once.get("unread")), (Some("outline"), Some(&Value::Null)), "{once}");
+    assert!(once["wait"].is_null(), "asked again at once: {once}");
+    let again = step(g, "request", json!({ "key": "sk-writer" }), &[]);
+    assert_eq!(again["request"], first["request"], "the same outline asked once more");
+    let twice = step(g, "answer", json!({ "status": 200, "statusText": "OK", "body": prose }), &[]);
+    assert_eq!(twice["step"], "outline");
+    assert!(twice["unread"].as_str().is_some_and(|w| w.ends_with("(asked 2 times)")), "{twice}");
+    assert_eq!(twice["arc"], "Problem\u{2013}Solution", "the arc paid for stands");
+
+    let passed = step(g, "skipOutline", json!({}), &[]);
+    assert_eq!((passed["step"].as_str(), passed["outline"].is_null()), (Some("slides"), true), "{passed}");
+    let writing = step(g, "request", json!({ "key": "sk-writer" }), &[]);
+    let body = writing["request"]["body"].as_str().unwrap();
+    assert!(
+        body.contains("**Narrative Framework**: Problem\u{2013}Solution") && !body.contains("**Outline (Scaena)**")
+    );
+    let wrote = step(g, "answer", json!({ "status": 200, "statusText": "OK", "body": slides }), &[]);
+    assert_eq!(wrote["step"], "done", "{wrote}");
+    assert_eq!(wrote["written"], 5);
+    unsafe { scaena_generator_free(g) };
+}
+
 #[test]
 fn the_icons_the_slides_name_are_found_as_the_deck_is_made() {
     let arc = std::fs::read_to_string(format!("{ANSWERS}/anthropic-arc.json")).unwrap();

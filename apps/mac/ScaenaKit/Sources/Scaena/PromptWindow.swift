@@ -371,7 +371,9 @@ struct PromptView: View {
             #if os(macOS)
             Text(who).font(.caption).foregroundStyle(.secondary).padding(.horizontal)
             #endif
-            if outlined != nil {
+            if let outlined, let unread = outlined.unread {
+                unreadView(unread, arc: outlined.arc)
+            } else if outlined != nil {
                 outlineView
             }
             if !steps.isEmpty {
@@ -514,6 +516,28 @@ struct PromptView: View {
         // A container of its own, so its fields and buttons keep their own identifiers.
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("prompt-outline")
+    }
+
+    /// The outline that did not read, once asked twice (lift-up REL-3): why, and the choice to write
+    /// the slides without one, on the arc already chosen, or to stop.
+    private func unreadView(_ why: String, arc: String) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("The outline didn't come back readable").font(.headline)
+            Text("It was asked twice, and \(why.prefix(1).lowercased() + why.dropFirst()). Write the slides without one, on the \(arc) arc already chosen, or stop.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            HStack {
+                Spacer()
+                Button("Stop") { stop() }
+                    .accessibilityIdentifier("prompt-unread-stop")
+                Button("Write Without an Outline") { decide(.withoutOutline) }
+                    .keyboardShortcut(.defaultAction)
+                    .accessibilityIdentifier("prompt-without")
+            }
+        }
+        .padding(.horizontal)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("prompt-unread")
     }
 
     /// `outlined` shown, its beats to edit.

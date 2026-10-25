@@ -312,6 +312,14 @@ impl Generation {
         self.inner.plan().map(|p| serde_json::to_string(&p).expect("a plan is JSON"))
     }
 
+    /// Write the slides without an outline, the arc chosen standing (lift-up REL-3): where the
+    /// outline was asked twice and did not read (`unread`), and the person passes it over.
+    #[wasm_bindgen(js_name = skipOutline)]
+    pub fn skip_outline(&mut self) -> Result<String, JsError> {
+        self.inner.skip_outline().map_err(error)?;
+        Ok(self.said())
+    }
+
     /// The outline as the person settled it, JSON as `outline` gives it: what the slides are
     /// written to (narrative FUNC-1). Refused with why where no beat keeps a claim.
     pub fn settle(&mut self, outline: &str) -> Result<String, JsError> {
@@ -322,7 +330,7 @@ impl Generation {
     }
 
     /// Where it stands, as `answer` says it, with no answer read: JSON `{ step, slides, arc?,
-    /// reasoning?, fallback?, written?, truncated?, outline? }`.
+    /// reasoning?, fallback?, written?, truncated?, outline?, unread? }`.
     pub fn standing(&self) -> String {
         self.said()
     }
@@ -377,6 +385,7 @@ impl Generation {
             "written": narrative.map(|n| n.slides.len()),
             "truncated": narrative.map(|n| n.truncated),
             "outline": self.inner.outline(),
+            "unread": self.inner.unread(),
             "wait": self.inner.again(),
             "tried": self.inner.tried(),
         })

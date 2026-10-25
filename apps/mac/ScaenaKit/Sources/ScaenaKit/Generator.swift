@@ -90,12 +90,16 @@ public struct Outlined: Sendable, Equatable {
     public let arc: String
     public let reasoning: String
     public let fallback: String?
+    /// Why the outline did not read, once it was asked twice (lift-up REL-3): the person writes the
+    /// slides without one, on `arc`, or stops.
+    public let unread: String?
 
-    public init(outline: StoryOutline, arc: String, reasoning: String, fallback: String? = nil) {
+    public init(outline: StoryOutline, arc: String, reasoning: String, fallback: String? = nil, unread: String? = nil) {
         self.outline = outline
         self.arc = arc
         self.reasoning = reasoning
         self.fallback = fallback
+        self.unread = unread
     }
 
     /// An outline as one reads, for a window shown with none written: what the screenshots CI keeps
@@ -116,10 +120,12 @@ public struct Outlined: Sendable, Equatable {
 }
 
 /// What the person decided of the outline shown: settled, so the slides are written to it; or
-/// another arc, by name or the heuristic's where none, to outline again.
+/// another arc, by name or the heuristic's where none, to outline again; or, where it did not
+/// read, the slides written without one (lift-up REL-3).
 public enum OutlineDecision: Sendable, Equatable {
     case settled(StoryOutline)
     case anotherArc(String?)
+    case withoutOutline
 }
 
 /// How far a deck being made from a prompt has come, as `scaena generate` says it.
@@ -138,6 +144,8 @@ public enum GeneratingStep: Equatable, Sendable {
     case outlining
     case outlined(beats: Int)
     case settled(beats: Int)
+    /// The outline, twice unreadable, passed over (lift-up REL-3).
+    case unoutlined
     case writing(slides: Int)
     case retrying(seconds: Double, tried: Int)
     case wrote(slides: Int, truncated: Bool)
@@ -171,6 +179,7 @@ public enum GeneratingStep: Equatable, Sendable {
         case .outlining: "Outlining the story: the big idea, and what each beat says…"
         case .outlined(let beats): "Outline: \(beats) beats. Read it, change what you will, then Write the Slides."
         case .settled(let beats): "Outline settled: \(beats) beats"
+        case .unoutlined: "Writing the slides without an outline"
         case .writing(let slides): "Writing the slides, at least \(slides)…"
         case .retrying(let seconds, let tried):
             "The provider is busy or did not answer: asking again in \(Int(seconds.rounded())) s (try \(tried + 1) of 6)…"
@@ -667,6 +676,8 @@ public final class Generator {
         let truncated: Bool?
         /// The outline, once the model wrote it or the person settled one (narrative FUNC-1).
         let outline: StoryOutline?
+        /// Why the outline did not read, once asked twice (lift-up REL-3).
+        let unread: String?
         /// The seconds to wait before the same step is asked again, where its last answer was
         /// for now (narrative REL-1).
         let wait: Double?
@@ -928,11 +939,19 @@ public final class Generator {
                 // The outline before the slides: the next request is the outline's.
                 if outline != nil { let _: Standing = try step("outline") }
             case "outline":
-                guard let outline, let written = now.outline else { break }
-                hear(.outlined(beats: written.beats.count))
-                let shown = Outlined(outline: written, arc: now.arc ?? "", reasoning: now.reasoning ?? "", fallback: now.fallback)
+                // Back but unreadable once: the loop asks again at once; twice, the person decides
+                // (lift-up REL-3).
+                guard let outline, now.outline != nil || now.unread != nil else { break }
+                let written = now.outline ?? StoryOutline(bigIdea: "", beats: [])
+                if now.outline != nil { hear(.outlined(beats: written.beats.count)) }
+                let shown = Outlined(
+                    outline: written, arc: now.arc ?? "", reasoning: now.reasoning ?? "", fallback: now.fallback,
+                    unread: now.unread)
                 guard let decided = await outline(shown) else { throw CancellationError() }
                 switch decided {
+                case .withoutOutline:
+                    let _: Standing = try step("skipOutline")
+                    hear(.unoutlined)
                 case .settled(let settled):
                     let encoded = try JSONDecoder().decode(JSONValue.self, from: try JSONEncoder().encode(settled))
                     let after: Standing = try step("settle", ["outline": encoded])

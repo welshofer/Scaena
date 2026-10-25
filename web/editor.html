@@ -743,6 +743,9 @@
       #prompting-outline .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: end; }
       #prompting-outline .row.end { justify-content: flex-end; }
       #prompting-outline .row > label { flex: 1 1 10em; }
+      #prompting-unread { border-top: 1px solid var(--line); padding-top: 8px; display: flex; flex-direction: column; gap: 8px; }
+      #prompting-unread h3 { margin: 0; font-size: 14px; }
+      #prompting-unread .row { display: flex; gap: 8px; justify-content: flex-end; }
       #prompting-beats { margin: 0; padding-left: 1.4em; display: flex; flex-direction: column; gap: 6px; max-height: 40vh; overflow: auto; }
       #prompting-beats li { display: grid; grid-template-columns: 1fr auto; gap: 4px 8px; align-items: start; }
       #prompting-beats .name { font-size: 12px; font-weight: 600; }
@@ -1120,6 +1123,14 @@
           </div>
           <div class="row end">
             <button type="button" id="prompting-write">Write the slides</button>
+          </div>
+        </section>
+        <section id="prompting-unread" hidden aria-labelledby="prompting-unread-title">
+          <h3 id="prompting-unread-title">The outline didn't come back readable</h3>
+          <p class="note" id="prompting-unread-why"></p>
+          <div class="row end">
+            <button type="button" id="prompting-unread-stop">Stop</button>
+            <button type="button" id="prompting-without">Write without an outline</button>
           </div>
         </section>
         <menu>

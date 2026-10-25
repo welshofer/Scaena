@@ -38,6 +38,8 @@ export function said(event: GeneratingEvent): string {
       return `Outline: ${event.beats} beats. Read it below, change what you will, then Write the slides.`;
     case "settled":
       return `Outline settled: ${event.beats} beats`;
+    case "unoutlined":
+      return "Writing the slides without an outline";
     case "writing":
       return `Writing the slides, at least ${event.slides}…`;
     case "retrying":
@@ -133,8 +135,11 @@ export function prompting(
   const bigIdea = $<HTMLTextAreaElement>("#prompting-big-idea");
   const beats = $<HTMLOListElement>("#prompting-beats");
   const outlineArcs = $<HTMLSelectElement>("#prompting-outline-arcs");
-  /** The outline pane's own fields, which stay live while the deck is made. */
-  const outlining = (field: Element) => field.closest("#prompting-outline") !== null;
+  // The outline twice unreadable (lift-up REL-3): why, and a choice to write without one or stop.
+  const unreadPane = $<HTMLElement>("#prompting-unread");
+  const unreadWhy = $<HTMLParagraphElement>("#prompting-unread-why");
+  /** The outline panes' own fields, which stay live while the deck is made. */
+  const outlining = (field: Element) => field.closest("#prompting-outline, #prompting-unread") !== null;
 
   /** A beat as a row: its name, its claim to type over, the slides it takes, and Up, Down, and
    * Remove. */
@@ -181,8 +186,16 @@ export function prompting(
     })),
   });
 
-  /** The outline shown, to settle: the arc and why, the big idea, and the beats. */
-  const showOutlined = (outlined: { outline: StoryOutline; arc: string; reasoning: string; fallback?: string }) => {
+  /** The outline shown, to settle: the arc and why, the big idea, and the beats; or, where it did
+   * not read, why, to write without one or stop. */
+  const showOutlined = (outlined: { outline: StoryOutline; arc: string; reasoning: string; fallback?: string; unread?: string }) => {
+    if (outlined.unread) {
+      unreadWhy.textContent = `It was asked twice, and ${outlined.unread.replace(/^./, (c) => c.toLowerCase())}. Write the slides without one, on the ${outlined.arc} arc already chosen, or stop.`;
+      unreadPane.hidden = false;
+      for (const button of unreadPane.querySelectorAll("button")) button.disabled = false;
+      $<HTMLButtonElement>("#prompting-without").focus();
+      return;
+    }
     outlineArc.textContent = outlined.fallback
       ? `Arc: ${outlined.arc}, the heuristic's (${outlined.fallback}).`
       : `Arc: ${outlined.arc}. ${outlined.reasoning}`.trim();
@@ -372,11 +385,13 @@ export function prompting(
     go.disabled = on;
     go.textContent = on ? "Generating…" : "Generate";
     if (!on) outlinePane.hidden = true;
+    if (!on) unreadPane.hidden = true;
   };
 
   opener.onclick = () => {
     progress.replaceChildren();
     outlinePane.hidden = true;
+    unreadPane.hidden = true;
     dialog.returnValue = "";
     dialog.showModal();
     topic.focus();
@@ -496,6 +511,12 @@ export function prompting(
       outlinePane.hidden = true;
       making.postMessage({ type: "outlineAgain", arc: outlineArcs.value || undefined } satisfies ToWorker);
     };
+    // The outline that did not read passed over, or the deck stopped (lift-up REL-3).
+    $<HTMLButtonElement>("#prompting-without").onclick = () => {
+      unreadPane.hidden = true;
+      making.postMessage({ type: "outlinePassed" } satisfies ToWorker);
+    };
+    $<HTMLButtonElement>("#prompting-unread-stop").onclick = () => dialog.close("cancel");
     making.postMessage(
       { type: "generate", generate: job, engine: engine.module } satisfies ToWorker,
       job.files.map((f) => f.bytes),

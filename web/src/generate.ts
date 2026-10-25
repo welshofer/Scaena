@@ -191,6 +191,9 @@ async function scriptFont(script: Script, hear: (event: GeneratingEvent) => void
  * chosen for `reasoning`, or the heuristic's where `fallback` says why. */
 export interface Outlined {
   outline: StoryOutline;
+  /** Why the outline did not read, once it was asked twice (lift-up REL-3): the person writes the
+   * slides without one, or stops. */
+  unread?: string;
   arc: string;
   reasoning: string;
   fallback?: string;
@@ -198,7 +201,7 @@ export interface Outlined {
 
 /** What the person decided of an outline: settled, so the slides are written to it; or another
  * arc, by name or the heuristic's where none, to outline again. */
-export type Decision = { settled: StoryOutline } | { arc?: string };
+export type Decision = { settled: StoryOutline } | { arc?: string } | { without: true };
 
 /** The deck `job` asks for, made in `given`: the bundle's files by their paths, what it came
  * to, and its title. `hear` hears how far it has come. With `job.outline`, the outline is
@@ -260,6 +263,7 @@ export async function generate(
           written?: number | null;
           truncated?: boolean | null;
           outline?: StoryOutline | null;
+          unread?: string | null;
           wait?: number | null;
           tried?: number | null;
         };
@@ -275,10 +279,16 @@ export async function generate(
           // The outline before the slides (narrative FUNC-1): the next request is the outline's.
           if (outlining) generation.outlineFirst();
         } else if (step === "outline") {
+          // Back but unreadable once: asked again at once; twice, the person decides (lift-up REL-3).
+          if (!at.outline && !at.unread) continue;
           const outline = at.outline ?? { bigIdea: "", beats: [] };
-          hear({ kind: "outlined", beats: outline.beats.length });
-          const decided = await settle!({ outline, arc: at.arc ?? "", reasoning: at.reasoning ?? "", fallback: at.fallback ?? undefined });
-          if ("settled" in decided) {
+          if (at.outline) hear({ kind: "outlined", beats: outline.beats.length });
+          const shown = { outline, arc: at.arc ?? "", reasoning: at.reasoning ?? "", fallback: at.fallback ?? undefined };
+          const decided = await settle!(at.unread ? { ...shown, unread: at.unread } : shown);
+          if ("without" in decided) {
+            generation.skipOutline();
+            hear({ kind: "unoutlined" });
+          } else if ("settled" in decided) {
             const now = JSON.parse(generation.settle(JSON.stringify(decided.settled))) as { outline?: StoryOutline | null };
             hear({ kind: "settled", beats: now.outline?.beats.length ?? 0 });
           } else {
