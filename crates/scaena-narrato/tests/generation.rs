@@ -47,7 +47,10 @@ fn a_deck_is_generated_in_two_calls() {
     assert_eq!(narrative.arc, "Problem\u{2013}Solution");
     assert_eq!(narrative.slides.len(), 5);
     assert!(!narrative.truncated);
-    assert_eq!(narrative.slides[3].chart_data.as_ref().unwrap().series[0].values, [100.0, 80.0, 59.0]);
+    assert_eq!(
+        narrative.slides[3].chart_data.as_ref().unwrap().series[0].values,
+        [Some(100.0), Some(80.0), Some(59.0)]
+    );
     assert_eq!(narrative.brief.source_content, None);
 }
 
