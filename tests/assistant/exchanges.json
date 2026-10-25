@@ -369,7 +369,7 @@
             {
               "role": "tool",
               "tool_call_id": "toolu_02",
-              "content": "{\"message\":\"no such op\"}"
+              "content": "{\"error\":{\"message\":\"no such op\"}}"
             },
             {
               "role": "user",
