@@ -17,7 +17,8 @@ gpu = ["scaena-ops/gpu"]
 scaena-core = { workspace = true, features = ["syllables"] }
 # The themes that ship, by name, for `deck_create` (PLAN 2.13).
 # Narrative health (PLAN G.9), whose measures are Narrato's.
-scaena-ops = { workspace = true, features = ["shipped", "narrato"] }
+# A picture too large for `image_add` made smaller (lift-up 10-24b FUNC-5).
+scaena-ops = { workspace = true, features = ["shipped", "narrato", "smaller"] }
 scaena-resources.workspace = true
 scaena-objects.workspace = true
 rmcp.workspace = true
@@ -34,3 +35,5 @@ serde_json.workspace = true
 scaena-engine = { workspace = true, features = ["hyphenation", "code-tables"] }
 rmcp = { workspace = true, features = ["client"] }
 scaena-store.workspace = true
+# A picture too large to take as it is, made for `image_add` to make smaller (lift-up 10-24b FUNC-5).
+scaena-paint.workspace = true

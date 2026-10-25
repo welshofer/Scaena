@@ -97,7 +97,14 @@ pub(crate) fn unfenced(text: &str) -> &str {
 /// made it the catalog's first in silence; here the error says the name, and the generation
 /// falls back to the heuristic's choice for the brief, saying so, as it does when the call fails.
 pub fn arc(text: &str) -> Result<ArcChoice, String> {
-    let parsed: Value = serde_json::from_str(unfenced(text)).map_err(|e| format!("arc selection did not read: {e}"))?;
+    // Read as written, else from its first `{` to its last `}`, as the look reads its answer: a
+    // model that writes a sentence around its JSON still chose (lift-up REL-3).
+    let parsed: Value = serde_json::from_str(unfenced(text))
+        .or_else(|e| {
+            let within = text.find('{').zip(text.rfind('}')).filter(|(start, end)| start < end);
+            within.map_or(Err(e), |(start, end)| serde_json::from_str(&text[start..=end]))
+        })
+        .map_err(|e| format!("arc selection did not read: {e}"))?;
     let selection = parsed.get("selection").and_then(Value::as_str).ok_or("arc selection named no arc")?;
     let selection = match arcs::named(selection) {
         Some(a) => a.arc.clone(),
@@ -309,6 +316,21 @@ mod tests {
         assert_eq!(unknown.unwrap_err(), "the model named `Kishōtenketsu`, not an arc of the catalog");
         assert!(snapped("The").is_err(), "a word too short to name an arc names none");
         assert!(arc("not json").is_err());
+    }
+
+    /// An arc chosen in a sentence around its JSON, as Anthropic's arc call (which runs with no
+    /// schema) may write it, is read, not passed over for the heuristic's (lift-up REL-3).
+    #[test]
+    fn an_arc_written_in_a_sentence_is_read() {
+        let said = "Here is the arc I would choose: {\"selection\": \"Problem-Solution\", \"reasoning\": \"The pain is known.\", \"candidates\": []} I hope it helps.";
+        let chosen = arc(said).unwrap();
+        assert_eq!(
+            (chosen.selection.as_str(), chosen.reasoning.as_str()),
+            ("Problem\u{2013}Solution", "The pain is known.")
+        );
+        // Still an error where no JSON object is there to read, and the error is the parser's.
+        assert!(arc("I would choose Problem-Solution.").unwrap_err().starts_with("arc selection did not read"));
+        assert!(arc("} backwards {").is_err());
     }
 
     #[test]
