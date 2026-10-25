@@ -117,6 +117,10 @@ public final class DeckEditor {
     /// Where the inspector's backgrounds and layouts are drawn away from the window, one round at
     /// a time, beside the slides' drawings (lift-up 10-25c PERF-4).
     @ObservationIgnored private let inspecting = Drawer()
+    /// The latest round of each asked for: one a later round has outdated is not drawn, so a burst
+    /// of edits draws once, for the last.
+    @ObservationIgnored let backgroundsWanted = Wanted()
+    @ObservationIgnored let layoutsWanted = Wanted()
     /// The deck as it stands, taken twice: one to draw from on the drawer's thread, and one the
     /// session is asked about here, whether it still holds the deck, so neither is used by two
     /// threads at once.
@@ -391,15 +395,20 @@ public final class DeckEditor {
         let began = revision
         let format = self.format
         let snapshot = try session.snapshot()
-        let drawn = await inspecting.draw { () -> Apart<(Backgrounds, [ScaenaSession.Pixels?])> in
-            Apart {
+        let wanted = backgroundsWanted
+        let ticket = wanted.take()
+        let round = await inspecting.draw { () -> Apart<(Backgrounds, [ScaenaSession.Pixels?])>? in
+            // Outdated by a later round while it waited: not drawn.
+            guard wanted.still(ticket) else { return nil }
+            wanted.drew()
+            return Apart {
                 let apart = try snapshot.opened()
                 try apart.setFormat(format)
                 let offered = try apart.backgrounds(state: state, height: height)
                 return (offered, offered.options.indices.map { try? apart.backgroundPicture($0) })
             }
         }
-        guard let drawn, began == revision else { return nil }
+        guard let waited = round, let drawn = waited, began == revision, wanted.still(ticket) else { return nil }
         let (offered, pixels) = try drawn.value()
         return (offered, pixels.map { $0?.image })
     }
@@ -414,18 +423,26 @@ public final class DeckEditor {
         let began = revision
         let format = self.format
         let snapshot = try session.snapshot()
-        let drawn = await inspecting.draw { () -> Apart<[(LayoutSuggestion, ScaenaSession.Pixels)]> in
-            Apart {
+        let wanted = layoutsWanted
+        let ticket = wanted.take()
+        let round = await inspecting.draw { () -> Apart<[(LayoutSuggestion, ScaenaSession.Pixels)]>? in
+            // Outdated by a later round while it waited: not drawn.
+            guard wanted.still(ticket) else { return nil }
+            wanted.drew()
+            return Apart {
                 let apart = try snapshot.opened()
                 try apart.setFormat(format)
                 guard try apart.layoutsBegin(state: state) > 1 else { return [] }
-                while try apart.layoutsStep() {}
+                // Outdated part way, it stops between layouts, as the window's round did.
+                while try apart.layoutsStep() {
+                    guard wanted.still(ticket) else { throw Outdated() }
+                }
                 return try apart.layoutSuggestions(height: height).enumerated().compactMap { i, suggestion in
                     (try? apart.layoutPicture(i)).map { (suggestion, $0) }
                 }
             }
         }
-        guard let drawn, began == revision else { return nil }
+        guard let waited = round, let drawn = waited, began == revision, wanted.still(ticket) else { return nil }
         return try drawn.value().compactMap { suggestion, pixels in
             pixels.image.map { (suggestion: suggestion, image: $0) }
         }
@@ -558,6 +575,28 @@ private final class Drawer: Sendable {
         }
     }
 }
+
+/// The latest round of a kind of drawing asked for away from the window (lift-up 10-25c PERF-4):
+/// each round takes a ticket, and one a later round has outdated is not drawn, or stops part way.
+final class Wanted: Sendable {
+    private let latest = Atomic<Int>(0)
+    private let rounds = Atomic<Int>(0)
+
+    /// A ticket for the round asked for now, which outdates every one before it.
+    func take() -> Int { latest.wrappingAdd(1, ordering: .relaxed).newValue }
+
+    /// Whether the round with `ticket` is still the latest asked for.
+    func still(_ ticket: Int) -> Bool { latest.load(ordering: .relaxed) == ticket }
+
+    /// A round begun, as a test counts them.
+    func drew() { _ = rounds.wrappingAdd(1, ordering: .relaxed) }
+
+    /// How many rounds were begun.
+    var drawn: Int { rounds.load(ordering: .relaxed) }
+}
+
+/// A round of drawing a later one outdated part way.
+private struct Outdated: Error {}
 
 /// What work done away from the window came to: its value, or why there is none, in a person's
 /// words, which the window shows where the value would have stood (lift-up 10-25c PERF-4).
