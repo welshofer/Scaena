@@ -1,5 +1,5 @@
 {
-  "scaena": "0.38",
+  "scaena": "0.39",
   "_comment": "E107 trigger: a picture whose header reads and whose pixels do not decode, under a headline whose contrast is painted over it.",
   "canvas": {"width": 1920, "height": 1080},
   "theme": "theme.json",
