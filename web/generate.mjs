@@ -30,7 +30,8 @@
 //   (lift-up FUNC-5).
 // - Its story (PLAN G.9): the Story tab reads it as Vzestup measures a talk, by the generator's
 //   module: its score and the arc it was written to, the six measures, coherence by words
-//   unscored, a mark on the arc for each slide. No fix rewrites the plan's intensity or tone. A
+//   unscored, a mark on the arc for each slide, its beats as bands and its tone a line (lift-up
+//   ATTR-4). No fix rewrites the plan's intensity or tone. A
 //   slide moved out of its beat's order has drifted: a finding's slide is shown at a press; its
 //   fix is one change, which ⌘Z takes back; a burst of edits is read once, after it stops (lift-up
 //   PERF-1); and its question goes into the assistant's box.
@@ -496,6 +497,21 @@ try {
   check(coherence.startsWith("—"), `coherence by words, unscored: ${coherence}`);
   const marks = await page.locator("#story [data-arc] [data-slide]").count();
   check(marks === 5, `a mark on the arc for each slide: ${marks}`);
+  // The arc's beats as bands under it, each slide in the band of the beat it was written for, and
+  // the tone each declares a line beside the intensity (lift-up ATTR-4).
+  const graph = await page.evaluate(() => {
+    const h = window.scaena.story.health();
+    const bands = [...document.querySelectorAll("#story [data-arc] .beat")].map((g) => ({ part: Number(g.dataset.part), name: g.querySelector("title")?.textContent }));
+    const parts = h.slides.map((s) => s.part);
+    const runs = parts.filter((p, i) => p !== undefined && p !== parts[i - 1]);
+    const tone = document.querySelector("#story [data-arc] .tone")?.getAttribute("points")?.trim().split(/\s+/).length ?? 0;
+    return { bands, runs, beats: h.beats, tone, toned: h.slides.filter((s) => s.tone !== undefined).length };
+  });
+  check(
+    graph.bands.length > 0 && graph.bands.map((b) => b.part).join() === graph.runs.join() && graph.bands.every((b) => b.name === graph.beats[b.part]),
+    `a band for each run of slides in one of the arc's beats, named by it: ${JSON.stringify(graph.bands)} for ${graph.runs}`,
+  );
+  check(graph.toned > 0 && graph.tone === graph.toned, `the tone each slide declares, a line: ${graph.tone} points for ${graph.toned}`);
   const said = await page.locator("#story [data-findings] li").allTextContents();
   // Each slide names what its words came from, and its row says so (narrative FUNC-3).
   const cited = await page.evaluate(() => window.scaena.story.health().slides.map((s) => (s.sources ?? []).join()));

@@ -13,7 +13,11 @@
     "type": "object",
     "properties": {
       "bundle": { "description": "The bundle: a directory, a `.scaena` zip, or a `deck.json`.", "type": "string" },
-      "state": { "description": "Only the findings in this state.", "type": ["string", "null"], "default": null },
+      "state": {
+        "description": "Only the findings in this state, laying out it alone, a finding that holds there from an\nearlier state reported at it; with `fix`, only its fixes.",
+        "type": ["string", "null"],
+        "default": null
+      },
       "severity": { "$ref": "#/$defs/SeverityArg" },
       "fix": {
         "description": "Apply the fixes lint offers (each checked by laying its state out again; never a\nchange of content), write the deck, and lint again.",

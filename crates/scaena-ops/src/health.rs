@@ -78,6 +78,10 @@ pub struct Read {
     /// The beat that tells it, where one does.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub beat: Option<String>,
+    /// The beat of the arc it was written for, by its place in [`Health::beats`], where it names
+    /// one the arc has: the band the graph draws it in (lift-up ATTR-4).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub part: Option<usize>,
     /// Its headline.
     pub title: String,
     /// Where the curve of the arc it was written to stands at its place, 0–1.
@@ -997,6 +1001,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
             Read {
                 state: s.id.clone(),
                 beat,
+                part: meta.and_then(|m| m.beat_index).filter(|&k| k < beats.len()),
                 title: s.title.clone(),
                 curve: curve.get(i).copied().unwrap_or(0.5),
                 declared: meta.and_then(|m| m.expected_intensity).filter(|v| v.is_finite()).map(|v| v.clamp(0.0, 1.0)),
@@ -2084,6 +2089,10 @@ mod tests {
             let beat = deck.pointer(&beat_of(&deck, read.state.as_str())).unwrap();
             assert_eq!(read.title, beat["claim"]);
             assert_eq!(read.declared, beat["media"]["narrato"]["intensity"].as_f64());
+            // The arc's beat it was written for, the band the graph draws it in (lift-up ATTR-4).
+            let part = beat["media"]["narrato"]["beatIndex"].as_u64().map(|k| k as usize);
+            assert_eq!(read.part, part);
+            assert!(part.is_some_and(|k| k < h.beats.len()), "{part:?} of {:?}", h.beats);
         }
         // Asked for 16 to 25 slides, it has 25: paced as asked, its beats a short talk for them.
         assert_eq!(

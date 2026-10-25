@@ -125,6 +125,9 @@
     }
   },
   "code": {
+    "card": {
+      "shadow": "soft"
+    },
     "focus": {
       "dim": 0.55,
       "band": "paper"

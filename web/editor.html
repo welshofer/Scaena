@@ -544,6 +544,14 @@
       #story [data-legend] .read { width: 5px; height: 5px; border: 1px solid var(--ink); border-radius: 50%; }
       #story [data-legend] .curve { width: 14px; border-top: 1px dashed var(--muted); }
       #story [data-legend] .bends { width: 7px; height: 7px; border-radius: 50%; background: var(--warning); }
+      #story [data-legend] .drifted { width: 7px; height: 7px; border-radius: 50%; background: var(--error); }
+      #story [data-legend] .tone { width: 14px; border-top: 1px solid var(--ink); }
+      #story [data-legend] .tone-read { width: 4px; height: 4px; border: 1px solid var(--ink); }
+      #story .beat rect { fill: var(--line); opacity: 0.35; }
+      #story .beat[data-odd] rect { opacity: 0.15; }
+      #story .beat text { font-size: 7px; fill: var(--muted); text-anchor: middle; }
+      #story .tone { fill: none; stroke: var(--ink); stroke-width: 0.75; opacity: 0.7; }
+      #story .tone-read { fill: none; stroke: var(--ink); stroke-width: 0.75; }
       #story ol { list-style: none; margin: 8px 0 0; padding: 0; }
       #story li { padding: 6px 0; border-top: 1px solid var(--line); }
       #story li .headline { margin-left: 6px; color: var(--muted); }
@@ -1014,7 +1022,7 @@
             <dl data-measures></dl>
             <p data-big-idea hidden></p>
             <div data-arc></div>
-            <p data-legend><i class="declared"></i>as written <i class="read"></i>as its words read <i class="curve"></i>the arc's curve <i class="bends"></i>off it; higher is more intense</p>
+            <p data-legend><i class="declared"></i>intensity as written <i class="read"></i>as its words read <i class="curve"></i>the arc's curve <i class="bends"></i>off it <i class="drifted"></i>out of its beat; higher is more intense. <i class="tone"></i>tone as written <i class="tone-read"></i>as its words read; higher is more hopeful</p>
             <ol data-findings aria-label="What to look at, slide by slide"></ol>
           </section>
         </div>
