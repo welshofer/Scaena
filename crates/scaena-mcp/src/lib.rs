@@ -703,8 +703,8 @@ pub struct DeckExport {
     /// A video's frames a second; 60 without it.
     #[serde(default)]
     pub fps: Option<u32>,
-    /// A video's sound track, any file ffmpeg reads, from the first frame: cut where the
-    /// video ends, or carried on in silence until it does.
+    /// A video's sound track, a file ffmpeg reads under this server's folder or the bundle's,
+    /// from the first frame: cut where the video ends, or carried on in silence until it does.
     #[serde(default)]
     pub audio: Option<String>,
     /// What paints a video's frames: `gpu` is vello on the GPU, in a server built with the
@@ -1200,7 +1200,9 @@ impl Scaena {
             },
             size: a.size.clone(),
             fps: a.fps,
-            audio: a.audio.clone().map(Into::into),
+            // A sound track is held as a data file is: nothing else the user can read goes into a
+            // video made to be shared (lift-up 20261025b SEC-2).
+            audio: a.audio.as_deref().map(|f| self.readable(Path::new(f), &a.bundle)).transpose().map_err(failure)?,
             painter: a.painter,
             pace: a.pace,
             notes: a.notes,
