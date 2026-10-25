@@ -456,6 +456,7 @@ Each layout's slots say what goes in them (`prompt`, SPEC §3.6): words to type 
 | `two-figures` | `kicker`, `header`, `first-figure`, `second-figure`, `first`, `second`, `note` | Two Figures, in Numbers |
 | `four-numbers` | `kicker`, `header`, `first-figure`, `second-figure`, `third-figure`, `fourth-figure`, `first-title`, `second-title`, `third-title`, `fourth-title`, `first`, `second`, `third`, `fourth` | Four Numbers, in Numbers |
 | `scorecard` | `kicker`, `header`, `rule`, `first-figure`, `second-figure`, `third-figure`, `fourth-figure`, `first-title`, `second-title`, `third-title`, `fourth-title`, `first`, `second`, `third`, `fourth` | Scorecard, in Numbers |
+| `scorecard-plain` | `kicker`, `header`, `rule`, `first-figure`, `second-figure`, `third-figure`, `fourth-figure`, `first-title`, `second-title`, `third-title`, `fourth-title` | Plain Scorecard, in Numbers |
 | `ranking` | `kicker`, `header`, `first-card`, `third-card`, `first-rank`, `second-rank`, `third-rank`, `fourth-rank`, `first`, `second`, `third`, `fourth`, `first-figure`, `second-figure`, `third-figure`, `fourth-figure` | Ranking, in Numbers |
 | `progress` | `kicker`, `header`, `first-track`, `second-track`, `third-track`, `first-bar`, `second-bar`, `third-bar`, `first`, `second`, `third`, `first-figure`, `second-figure`, `third-figure` | Progress, in Numbers |
 | `number-photo` | `art`, `number`, `claim`, `under` | Number and Photo, in Numbers |
