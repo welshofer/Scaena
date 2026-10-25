@@ -613,6 +613,8 @@ private func carets(_ json: String) throws -> Carets {
     let editor = DeckEditor(session: try ScaenaSession(directory: tortureDeck))
     editor.shown = "code"
     let typing = Typing(editor: editor)
+    // One burst however long a loaded runner takes between the keys, as the other bursts here.
+    typing.burst = .seconds(60)
     var steps = 0
     typing.edited = { _, joins in
         if !joins { steps += 1 }
