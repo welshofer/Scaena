@@ -277,8 +277,9 @@ fn verify(
 ) -> Result<(), EngineError> {
     let json = serde_json::to_value(deck).map_err(|e| EngineError::Layout(e.to_string()))?;
     for f in findings.iter_mut().filter(|f| f.fix.is_some()) {
-        // A crowded text's step is taken again until it comes clear, never under half its size.
-        let floor = (f.code == "I405")
+        // A crowded text's step, or one whose tail reaches the text under it, is taken again
+        // until it comes clear, never under half its size.
+        let floor = (f.code == "I405" || f.code == "E101")
             .then(|| f.measure.as_ref().and_then(|m| m["own"].as_f64()).map(|own| own * 0.5))
             .flatten();
         loop {
@@ -322,6 +323,7 @@ fn works(engine: &mut Engine, json: &serde_json::Value, theme: &Theme, data: &Da
     let rules: Vec<&dyn Rule> = match f.code.as_str() {
         "W314" => vec![&space::W314Credit],
         "I405" => vec![&space::I405Crowded, &text::E100Overflow, &text::W203ShrinkFloor],
+        "E101" => vec![&space::E101Collision, &text::E100Overflow, &text::W203ShrinkFloor],
         _ => vec![&text::E100Overflow, &text::W202MaxLines, &text::W203ShrinkFloor],
     };
     Some(rules.iter().flat_map(|r| r.check(&cx)).all(|g| g.node != f.node))
