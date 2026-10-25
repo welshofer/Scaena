@@ -81,6 +81,17 @@ public struct StoryOutline: Codable, Sendable, Equatable {
         self.bigIdea = bigIdea
         self.beats = beats
     }
+
+    /// `items` with the one at `index` moved `step` places, up (−1) or down (1), as the outline's
+    /// Move Up and Move Down move a beat by keys and by VoiceOver as well as by a drag (lift-up
+    /// USE-5); as they were where it would go past either end.
+    public static func moved<Item>(_ items: [Item], at index: Int, by step: Int) -> [Item] {
+        let to = index + step
+        guard items.indices.contains(index), items.indices.contains(to) else { return items }
+        var out = items
+        out.swapAt(index, to)
+        return out
+    }
 }
 
 /// The outline as the model wrote it, shown for the person to settle (narrative FUNC-1): on `arc`,

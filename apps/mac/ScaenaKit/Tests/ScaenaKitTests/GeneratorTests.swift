@@ -401,3 +401,14 @@ private final class Endless: URLProtocol {
     let whole = await GeneratorReply.made(request, by: session)
     #expect(whole.status == 200 && whole.body.count == 8 << 16)
 }
+
+/// A beat of the outline moves by one, up or down, as Move Up and Move Down move it by a click, a
+/// key, or VoiceOver (lift-up USE-5); at either end it stays.
+@Test func aBeatMovesByOneUpOrDown() {
+    let beats = ["Hook", "Ordeal", "Return"].map { StoryOutline.Beat(name: $0, claim: "") }
+    let names = { (beats: [StoryOutline.Beat]) in beats.map(\.name) }
+    #expect(names(StoryOutline.moved(beats, at: 1, by: -1)) == ["Ordeal", "Hook", "Return"])
+    #expect(names(StoryOutline.moved(beats, at: 1, by: 1)) == ["Hook", "Return", "Ordeal"])
+    #expect(names(StoryOutline.moved(beats, at: 0, by: -1)) == ["Hook", "Ordeal", "Return"], "the first goes no higher")
+    #expect(names(StoryOutline.moved(beats, at: 2, by: 1)) == ["Hook", "Ordeal", "Return"], "the last no lower")
+}

@@ -466,6 +466,7 @@ struct PromptView: View {
                 .accessibilityIdentifier("prompt-big-idea")
             List {
                 ForEach($beats) { $beat in
+                    let at = beats.firstIndex { $0.id == beat.id } ?? 0
                     VStack(alignment: .leading, spacing: 2) {
                         HStack {
                             TextField("Beat", text: $beat.name, prompt: Text("The beat's name"))
@@ -481,6 +482,22 @@ struct PromptView: View {
                                 .accessibilityLabel("The slides the beat takes")
                                 .accessibilityIdentifier("prompt-beat-slides")
                             Text(beat.slides == 1 ? "slide" : "slides").font(.caption).foregroundStyle(.secondary)
+                            // A beat moves by one, by a click, a key, or VoiceOver, as well as by a
+                            // drag, as the browser's ↑ and ↓ move it (lift-up USE-5).
+                            Button { move(beat.id, by: -1) } label: { Image(systemName: "arrow.up") }
+                                .buttonStyle(.borderless)
+                                .font(.caption)
+                                .disabled(at == 0)
+                                .help("Move the beat up")
+                                .accessibilityLabel("Move the beat up")
+                                .accessibilityIdentifier("prompt-beat-up")
+                            Button { move(beat.id, by: 1) } label: { Image(systemName: "arrow.down") }
+                                .buttonStyle(.borderless)
+                                .font(.caption)
+                                .disabled(at == beats.count - 1)
+                                .help("Move the beat down")
+                                .accessibilityLabel("Move the beat down")
+                                .accessibilityIdentifier("prompt-beat-down")
                             Button("Remove") { beats.removeAll { $0.id == beat.id } }
                                 .buttonStyle(.borderless)
                                 .font(.caption)
@@ -490,6 +507,8 @@ struct PromptView: View {
                             .lineLimit(1...3)
                             .accessibilityIdentifier("prompt-beat-claim")
                     }
+                    .accessibilityAction(named: "Move Up") { move(beat.id, by: -1) }
+                    .accessibilityAction(named: "Move Down") { move(beat.id, by: 1) }
                 }
                 .onMove { from, to in beats.move(fromOffsets: from, toOffset: to) }
                 .onDelete { at in beats.remove(atOffsets: at) }
@@ -500,7 +519,8 @@ struct PromptView: View {
                 Button("Add a Beat") { beats.append(EditedBeat()) }
                     .accessibilityIdentifier("prompt-add-beat")
                 #if !os(macOS)
-                // A beat is moved in the list's edit mode on the iPad; the Mac drags a row.
+                // A beat is moved by its arrows, and in the list's edit mode on the iPad; the Mac
+                // also drags a row.
                 EditButton()
                 #endif
                 Spacer()
@@ -524,6 +544,12 @@ struct PromptView: View {
         // A container of its own, so its fields and buttons keep their own identifiers.
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("prompt-outline")
+    }
+
+    /// The beat `id` moved `step` places, up (−1) or down (1); none past either end (lift-up USE-5).
+    private func move(_ id: UUID, by step: Int) {
+        guard let at = beats.firstIndex(where: { $0.id == id }) else { return }
+        beats = StoryOutline.moved(beats, at: at, by: step)
     }
 
     /// `outlined` shown, its beats to edit.
