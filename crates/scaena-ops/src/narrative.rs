@@ -14,6 +14,7 @@ use crate::lint::{View, Write, lint_in};
 use crate::{Context, OpsError};
 use base64::Engine;
 use scaena_core::document::NodeType;
+use scaena_core::format::{Locale, NumberFormat};
 use scaena_core::inserts::slug;
 use scaena_core::model::nodes::TextFit;
 use scaena_core::model::theme::{Example, Prompt, PromptItems, PromptShapeKind, Slot, Theme};
@@ -54,6 +55,10 @@ pub struct Made {
     /// beside the JSON, as bytes.
     #[serde(skip)]
     pub assets: BTreeMap<String, Vec<u8>>,
+    /// The slides, by index, set as a list of their words as written because the layout chosen
+    /// would have drawn one of their figures other than as written (DF7-1).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub relisted: Vec<usize>,
 }
 
 /// A picture made for a slide (PLAN G.10): the path the bundle keeps it at, and what it shows,
@@ -1905,6 +1910,9 @@ fn assemble(
     };
     let count = narrative.slides.len();
     let varied = varied(narrative);
+    // The slide the talk peaks on, where the whole deck is made at once: one slide written into
+    // a deck has no arc of its own to peak.
+    let peaked = (first == 0 && count == total).then(|| peak(&narrative.slides)).flatten();
 
     let lang = deck_lang(&narrative.brief);
     deck.mirrored = lang.is_some_and(scaena_core::direction::right_to_left);
@@ -1948,7 +1956,7 @@ fn assemble(
     let mut divided = false;
     let before = deck.previous.take();
     let mut previous: Option<(String, &Slide)> = before.as_ref().map(|(layout, slide)| (layout.clone(), slide));
-    for (i, ((slide, v), Planned { beat, items, icons, layout })) in
+    for (i, ((slide, v), Planned { beat, items, icons, mut layout })) in
         narrative.slides.iter().zip(&varied).zip(planned).enumerate()
     {
         let picture = pictures.get(&i);
@@ -1971,9 +1979,27 @@ fn assemble(
             icons,
             lang: lang.unwrap_or("en"),
         };
-        let entrance =
-            entrance(&layout, slide, previous.as_ref().map(|(l, s)| (l.as_str(), *s)), first + i + 1 == total);
-        let made = deck.slide(slots, entrance)?;
+        let last = first + i + 1 == total;
+        let peak = peaked == Some(i);
+        let after = previous.as_ref().map(|(l, s)| (l.as_str(), *s));
+        let kept = (deck.nodes.clone(), deck.states.len(), deck.data.clone());
+        let mut made = deck.slide(slots.clone(), entrance(&layout, slide, after, last, peak))?;
+        // A slide never draws a figure its writer did not write (DF7-1): where it would, it is
+        // made again as a list of its items, their words as written.
+        let drawn: Vec<&Value> =
+            deck.nodes.iter().filter(|(id, _)| !kept.0.contains_key(*id)).map(|(_, n)| n).collect();
+        if slide.chart_data.is_none()
+            && layout != "bullets"
+            && !faithful(&items, &drawn)
+            && theme.layouts.contains_key("bullets")
+            && holds(theme, "bullets", items.len())
+        {
+            (deck.nodes, deck.data) = (kept.0, kept.2);
+            deck.states.truncate(kept.1);
+            made = deck.slide(Slots { layout: "bullets", ..slots }, entrance("bullets", slide, after, last, peak))?;
+            layout = "bullets".to_string();
+            deck.relisted.push(first + i);
+        }
         let divider = layout.starts_with("section") && !slide.slide_title.is_empty();
         if divider {
             running = Some((slide.slide_title.clone(), beat));
@@ -2088,7 +2114,10 @@ fn assemble(
     if !deck.data.is_empty() {
         out["data"] = Value::Object(deck.data.clone());
     }
-    Ok((Made { deck: out, layouts: chosen, assets: BTreeMap::new() }, deck))
+    Ok((
+        Made { deck: out, layouts: chosen, assets: BTreeMap::new(), relisted: std::mem::take(&mut deck.relisted) },
+        deck,
+    ))
 }
 
 /// `planned` with no three slides in a row on one of the theme's layouts (lift-up ATTR-2):
@@ -2489,40 +2518,317 @@ fn without_figure(text: &str) -> String {
     }
 }
 
-/// The first figure in `text`: a number with its currency sign, its suffix, or its percent.
+/// The first figure in `text`: a number with its currency sign, its suffix, or its percent; a
+/// ratio or a range of two ("1 in 7", "3 of 4", "2\u{2013}3\u{d7}"); and a magnitude, a percent, or
+/// a currency a language sets after it, spaced or not ("48,6 Mio. \u{20ac}", "+18 %"). Never the
+/// digits of a name ("Q3", "FY26", "p99"), nor a year such a name dates ("Q3 2026").
 fn figure(text: &str) -> Option<String> {
     let chars: Vec<char> = text.chars().collect();
-    let start = chars.iter().position(|c| c.is_ascii_digit())?;
-    let mut begin = start;
-    while begin > 0 && matches!(chars[begin - 1], '$' | '\u{20ac}' | '\u{a3}' | '\u{a5}' | '+' | '-' | '\u{2212}' | '~')
-    {
-        begin -= 1;
+    let mut from = 0;
+    while let Some(start) = chars[from..].iter().position(char::is_ascii_digit).map(|at| from + at) {
+        let end = digits(&chars, start);
+        if !named(&chars, start, end) {
+            return Some(figure_at(&chars, start, end));
+        }
+        from = end;
     }
+    None
+}
+
+/// Whether a slide whose nodes are `drawn` draws its `items`' figures as they are written (DF7-1):
+/// the figure of each item that is one somewhere on it, and in its figures' places none that is
+/// only a part of one ("1" of "1 in 7", "+18" of "+18 %") or the digits of a name ("3" of "Q3").
+fn faithful(items: &[Item], drawn: &[&Value]) -> bool {
+    // Set as compared: case, spaces, and the kinds of dash and minus set aside.
+    let plain = |text: &str| -> String {
+        (text.chars().filter(|c| !c.is_whitespace()))
+            .map(|c| if matches!(c, '\u{2013}' | '\u{2014}' | '\u{2212}') { '-' } else { c })
+            .flat_map(char::to_lowercase)
+            .collect()
+    };
+    let written: Vec<String> = items.iter().flat_map(|i| figures_in(&i.whole)).map(|f| plain(&f)).collect();
+    // The figure of each item that is one, led by it ("48,6 Mio. \u{20ac}: Umsatz") or nothing but it
+    // ("1 in 7"), which a layout may set apart but never leaves out. A figure in the detail of an
+    // item a name leads ("Checkout service: Go, 40 pods") a layout may leave to the notes: an
+    // architecture's cards and a funnel's stages show names alone (DF7-5).
+    let led: Vec<String> = (items.iter())
+        .filter(|i| i.figure_first() || numeric(&i.whole))
+        .filter_map(Item::figure)
+        .filter_map(|f| figure(&f))
+        .map(|f| plain(&f))
+        .collect();
+    let names: Vec<String> = (items.iter())
+        .flat_map(|i| {
+            let chars: Vec<char> = i.whole.chars().collect();
+            let mut runs = Vec::new();
+            let mut at = 0;
+            while let Some(start) = chars[at..].iter().position(char::is_ascii_digit).map(|k| at + k) {
+                let end = digits(&chars, start);
+                if named(&chars, start, end) {
+                    runs.push(chars[start..end].iter().collect::<String>());
+                }
+                at = end;
+            }
+            runs
+        })
+        .collect();
+    // Each text's words, its runs' joined where it is set in runs (a link's, a source's).
+    let texts: Vec<(&str, String)> = (drawn.iter())
+        .filter_map(|n| {
+            let said = match n["runs"].as_array() {
+                Some(runs) => runs.iter().filter_map(|r| r["text"].as_str()).collect(),
+                None => n["text"].as_str()?.to_string(),
+            };
+            Some((n["role"].as_str().unwrap_or_default(), said))
+        })
+        .collect();
+    // `f` is the head of `w` and not all of it: "1" of "1 in 7", never "1" of "10%".
+    let part = |w: &str, f: &str| {
+        w.len() > f.len()
+            && w.starts_with(f)
+            && !w[f.len()..].starts_with(|c: char| c.is_ascii_digit() || c == ',' || c == '.')
+    };
+    let all = texts.iter().map(|(_, t)| plain(t)).collect::<Vec<_>>().join("|");
+    let shown = led.iter().all(|f| all.contains(f.as_str()));
+    let whole = (texts.iter().filter(|(role, _)| figure_role(role)))
+        .filter_map(|(_, t)| figure(t).map(|f| plain(&f)))
+        .all(|f| written.contains(&f) || !(names.contains(&f) || written.iter().any(|w| part(w, &f))));
+    shown && whole
+}
+
+/// Every figure in `text`, in order, as [`figure`] reads the first.
+fn figures_in(text: &str) -> Vec<String> {
+    let mut found = Vec::new();
+    let mut rest = text;
+    while let Some(f) = figure(rest) {
+        let Some(at) = rest.find(f.as_str()) else { break };
+        rest = &rest[at + f.len()..];
+        found.push(f);
+    }
+    found
+}
+
+/// Where the number whose first digit is at `start` ends: its digits, the marks between them,
+/// and the narrow spaces a language groups thousands by ("1\u{202f}200"), none at its end.
+fn digits(chars: &[char], start: usize) -> usize {
     let mut end = start;
-    while end < chars.len() && (chars[end].is_ascii_digit() || matches!(chars[end], ',' | '.')) {
+    while end < chars.len() {
+        let c = chars[end];
+        let grouped = matches!(c, '\u{a0}' | '\u{202f}' | '\u{2009}')
+            && end > start
+            && (1..=3).all(|k| chars.get(end + k).is_some_and(char::is_ascii_digit))
+            && !chars.get(end + 4).is_some_and(char::is_ascii_digit);
+        if !(c.is_ascii_digit() || matches!(c, ',' | '.') || grouped) {
+            break;
+        }
         end += 1;
     }
     while end > start && matches!(chars[end - 1], ',' | '.') {
         end -= 1;
     }
+    end
+}
+
+/// Whether the number at `start..end` is part of a name, not a figure: digits set against the
+/// letters before them ("Q3", "FY26", "p99", "W36"), or a year after such a name ("Q3 2026").
+fn named(chars: &[char], start: usize, end: usize) -> bool {
+    let letter = |c: char| c.is_alphabetic() && !unspaced(c);
+    if start > 0 && letter(chars[start - 1]) {
+        return true;
+    }
+    let year = end - start == 4 && matches!((chars[start], chars[start + 1]), ('1', '9') | ('2', '0'));
+    if !year || start < 2 || chars[start - 1] != ' ' {
+        return false;
+    }
+    let word: Vec<char> = chars[..start - 1].iter().rev().take_while(|c| c.is_alphanumeric()).copied().collect();
+    word.len() <= 6 && word.iter().any(char::is_ascii_digit) && word.last().copied().is_some_and(letter)
+}
+
+/// The figure whose number is at `start..end`, with what is written before and after it.
+fn figure_at(chars: &[char], start: usize, end: usize) -> String {
+    let mut begin = start;
+    while begin > 0 && matches!(chars[begin - 1], '$' | '\u{20ac}' | '\u{a3}' | '\u{a5}' | '+' | '-' | '\u{2212}' | '~')
+    {
+        begin -= 1;
+    }
+    let end = paired(chars, end).unwrap_or(end);
+    let at = |from: usize, n: usize| -> String { chars[from.min(chars.len())..].iter().take(n).collect() };
     // A magnitude a language without spaces writes after its figure, and its currency after
     // that: "41.2\u{4e07}\u{30c9}\u{30eb}" is $412K, never "41.2".
-    let rest: String = chars[end..].iter().take(3).collect();
-    if MAGNITUDES.iter().any(|m| rest.starts_with(m)) {
-        let after: String = chars[end + 1..].iter().take(2).collect();
+    if MAGNITUDES.iter().any(|m| at(end, 3).starts_with(m)) {
+        let after = at(end + 1, 2);
         let currency = CURRENCIES.iter().filter(|c| after.starts_with(*c)).map(|c| c.chars().count()).max();
-        return Some(chars[begin..end + 1 + currency.unwrap_or(0)].iter().collect());
+        return chars[begin..end + 1 + currency.unwrap_or(0)].iter().collect();
     }
-    let suffix = ["%", "\u{d7}", "x", "M", "B", "K", "k", "T", "bn", "tn", "m", "pp", "pts"]
+    // Whether a word that ends at `to` stops there: "5M" yes, "5Mbps" no.
+    let stops = |to: usize| chars.get(to).is_none_or(|c| !c.is_alphanumeric());
+    let rest = at(end, 3);
+    let suffix = ["%", "\u{2030}", "\u{d7}", "x", "M", "B", "K", "k", "T", "bn", "tn", "m", "pp", "pts"]
         .iter()
+        .chain(&SIGNS)
         .filter(|s| rest.starts_with(*s))
         .max_by_key(|s| s.len())
         .map_or(0, |s| s.chars().count());
-    // A suffix is the figure's only where the word stops there: "5 M" no, "5M" yes, "5Mbps" no.
-    let after = chars.get(end + suffix).copied();
-    let suffix = if suffix > 0 && after.is_none_or(|c| !c.is_alphanumeric()) { suffix } else { 0 };
-    Some(chars[begin..end + suffix].iter().collect())
+    if suffix > 0 && stops(end + suffix) {
+        return chars[begin..end + suffix].iter().collect();
+    }
+    // Spaced, as German and French set them: a percent ("+18 %"), a magnitude and the currency
+    // after it ("48,6 Mio. \u{20ac}"), or a currency alone ("12 \u{20ac}").
+    let mut to = end;
+    if chars.get(to).copied().is_some_and(spacing) {
+        let from = to + 1;
+        let word = |words: &[&str]| -> Option<usize> {
+            let rest: String = at(from, 12);
+            (words.iter())
+                .filter(|w| rest.starts_with(**w) && stops(from + w.chars().count()))
+                .map(|w| w.chars().count())
+                .max()
+        };
+        if let Some(n) = word(&["%", "\u{2030}"]) {
+            return chars[begin..from + n].iter().collect();
+        }
+        if let Some(n) = word(&SPACED_MAGNITUDES) {
+            to = from + n;
+        }
+        let then = match to > end {
+            true if chars.get(to).copied().is_some_and(spacing) => to + 1,
+            true => to,
+            false => from,
+        };
+        let rest: String = at(then, 4);
+        let currency = (SIGNS.iter().chain(&CODES))
+            .filter(|c| rest.starts_with(**c) && stops(then + c.chars().count()))
+            .map(|c| c.chars().count())
+            .max();
+        if let Some(n) = currency {
+            to = then + n;
+        }
+    }
+    chars[begin..to].iter().collect()
 }
+
+/// Where the second of two numbers ends, where a range's dash, a ratio's slash, or a ratio's word
+/// joins it to the one that ends at `end`: "2\u{2013}3\u{d7}", "24/7", "1 in 7", "3 of 4"; none where
+/// a third follows, as a date's or a telephone number's does, the second is a year ("5 in 2024"),
+/// or a word joins a duration to it ("2 in 3 weeks").
+fn paired(chars: &[char], end: usize) -> Option<usize> {
+    let digit = |at: usize| chars.get(at).is_some_and(char::is_ascii_digit);
+    let dashed = matches!(chars.get(end), Some('-' | '\u{2013}' | '/')) && digit(end + 1);
+    let second = if dashed {
+        end + 1
+    } else {
+        // Its spaces any kind, as the typesetter may set them: "1\u{a0}in\u{a0}7".
+        let matches = |w: &str| {
+            w.chars().enumerate().all(|(k, p)| chars.get(end + k).is_some_and(|&c| c == p || (p == ' ' && spacing(c))))
+        };
+        let word = RATIOS.iter().find(|w| matches(w))?;
+        let at = end + word.chars().count();
+        if !digit(at) {
+            return None;
+        }
+        at
+    };
+    let stop = digits(chars, second);
+    let year = stop - second == 4 && matches!((chars[second], chars[second + 1]), ('1', '9') | ('2', '0'));
+    let third = matches!(chars.get(stop), Some('-' | '\u{2013}' | '/')) && digit(stop + 1);
+    // The word after the second, for a duration: "2 in 3 weeks" is no ratio.
+    let after: String = (chars[stop..].iter())
+        .skip_while(|c| spacing(**c))
+        .take_while(|c| c.is_alphabetic())
+        .flat_map(|c| c.to_lowercase())
+        .collect();
+    let lasting = stop < chars.len() && spacing(chars[stop]) && DURATIONS.contains(&after.as_str());
+    // A ratio counts in whole numbers: "1 in 7", never "1 in 7%", "5 in 2024", or "2 in 3 weeks".
+    let counts = dashed || !(year || lasting || chars.get(stop) == Some(&'%'));
+    (!third && counts).then_some(stop)
+}
+
+/// The words that join a ratio's two numbers: "1 in 7", "3 of 4", "1 von 7", "1 sur 7".
+const RATIOS: [&str; 10] = [" in ", " of ", " out of ", " von ", " sur ", " de cada ", " de ", " su ", " op ", " na "];
+
+/// The words of a duration, which a ratio's second number never counts ("2 in 3 weeks").
+const DURATIONS: [&str; 43] = [
+    "second",
+    "seconds",
+    "minute",
+    "minutes",
+    "hour",
+    "hours",
+    "day",
+    "days",
+    "week",
+    "weeks",
+    "month",
+    "months",
+    "quarter",
+    "quarters",
+    "year",
+    "years",
+    "sekunden",
+    "minuten",
+    "stunde",
+    "stunden",
+    "tag",
+    "tage",
+    "tagen",
+    "woche",
+    "wochen",
+    "monat",
+    "monate",
+    "monaten",
+    "quartal",
+    "quartale",
+    "jahr",
+    "jahre",
+    "jahren",
+    "heure",
+    "heures",
+    "jour",
+    "jours",
+    "semaine",
+    "semaines",
+    "mois",
+    "an",
+    "ans",
+    "trimestre",
+];
+
+/// Whether `c` sets a unit apart from its figure: a space, or a space that never breaks.
+fn spacing(c: char) -> bool {
+    matches!(c, ' ' | '\u{a0}' | '\u{202f}' | '\u{2009}')
+}
+
+/// The magnitudes written as a word after a figure: "48,6 Mio. \u{20ac}", "1.2 million".
+const SPACED_MAGNITUDES: [&str; 22] = [
+    "Tsd.",
+    "Tsd",
+    "Mio.",
+    "Mio",
+    "Mrd.",
+    "Mrd",
+    "Bio.",
+    "Mill.",
+    "Millionen",
+    "Milliarden",
+    "thousand",
+    "million",
+    "millions",
+    "billion",
+    "billions",
+    "trillion",
+    "milliards",
+    "mln.",
+    "mln",
+    "mld.",
+    "mld",
+    "mil",
+];
+
+/// The currency signs written after a figure, against it or spaced: "12 \u{20ac}", "5\u{20ac}".
+const SIGNS: [&str; 7] = ["\u{20ac}", "$", "\u{a3}", "\u{a5}", "\u{20b9}", "\u{20a9}", "\u{20bd}"];
+
+/// The currencies written by their codes after a figure: "12 EUR".
+const CODES: [&str; 5] = ["EUR", "USD", "GBP", "CHF", "JPY"];
 
 /// The magnitudes Japanese, Chinese, and Korean write after a figure: ten thousand, a hundred
 /// million, a trillion, a thousand.
@@ -3366,6 +3672,9 @@ fn divider_numbers(narrative: &Narrative, planned: &[Planned]) -> BTreeMap<usize
 struct Entrance {
     style: Option<&'static str>,
     slow: bool,
+    /// The arc's peak: its claim pops as it comes to rest, and its items wait a beat (lift-up
+    /// ATTR-3).
+    peak: bool,
 }
 
 /// A valence at or under which a slide reads as grave: Narrato writes `expectedValence` from −1,
@@ -3378,20 +3687,41 @@ const GRAVE: f64 = -0.5;
 /// reads grave after one that did not, takes the slow pace; and content slides between keep the
 /// plain transition, which morphs what two slides in one layout share. The same narrative gives
 /// the same entrances. None for the deck's first slide.
-fn entrance(layout: &str, slide: &Slide, previous: Option<(&str, &Slide)>, last: bool) -> Option<Entrance> {
+fn entrance(layout: &str, slide: &Slide, previous: Option<(&str, &Slide)>, last: bool, peak: bool) -> Option<Entrance> {
     let (before, earlier) = previous?;
     let divider = |l: &str| l.starts_with("section");
     let valence = |s: &Slide| s.expected_valence.unwrap_or(0.0);
     let grave = valence(slide) <= GRAVE && valence(earlier) > GRAVE;
     Some(if last {
-        Entrance { style: Some("dissolve"), slow: true }
+        Entrance { style: Some("dissolve"), slow: true, peak: false }
+    } else if peak {
+        Entrance { style: Some("dissolve"), slow: true, peak: true }
     } else if divider(layout) || divider(before) {
-        Entrance { style: Some("push"), slow: grave }
+        Entrance { style: Some("push"), slow: grave, peak: false }
     } else {
-        Entrance { style: None, slow: grave }
+        Entrance { style: None, slow: grave, peak: false }
     })
 }
 
+/// The intensity at and above which the slide a talk peaks on enters as its climax.
+const PEAK: f64 = 0.7;
+
+/// The slide the talk peaks on, by the intensity Narrato writes for each (`expectedIntensity`):
+/// the most intense of those between the cover and the last slide, the first where several are
+/// alike, at [`PEAK`] or above; none where no slide reaches it (lift-up ATTR-3).
+fn peak(slides: &[Slide]) -> Option<usize> {
+    let inner = 1..slides.len().saturating_sub(1);
+    let mut best: Option<(usize, f64)> = None;
+    for i in inner {
+        let Some(v) = slides[i].expected_intensity.filter(|v| v.is_finite()) else { continue };
+        if v >= PEAK && best.is_none_or(|(_, b)| v > b) {
+            best = Some((i, v));
+        }
+    }
+    best.map(|(i, _)| i)
+}
+
+#[derive(Clone)]
 struct Slots<'a> {
     theme: &'a Theme,
     layout: &'a str,
@@ -3580,38 +3910,37 @@ fn row(item: &Item) -> (Option<String>, Option<String>, Option<String>) {
     (criterion, left.map(|s| sentence(&s)), right.map(|s| sentence(&s)))
 }
 
-/// The latest figure a chart plots, in its unit: its first series' last value.
-fn latest(chart: &ChartData) -> Option<String> {
-    let value = *chart.series.first()?.values.last()?;
-    Some(in_unit(value, chart.unit.as_deref()))
+/// The latest figure a chart plots, in its unit and the deck's language (`lang`): its first
+/// series' last value, with the decimals the chart's labels give it; none where it has none there.
+fn latest(chart: &ChartData, lang: &str) -> Option<String> {
+    let value = (*chart.series.first()?.values.last()?)?;
+    Some(at_places(value, decimals(chart), chart.unit.as_deref(), lang))
 }
 
-/// `value` written with `unit`: "$44/MWh", "1.55\u{b0}C", "30%", "424 ppm", "$2T".
-fn in_unit(value: f64, unit: Option<&str>) -> String {
-    let n = if value.fract() == 0.0 && value.abs() >= 10_000.0 && value.abs() < 1e15 {
-        // Thousands set apart: 1,250,000.
-        let digits = format!("{}", value.abs() as u64);
-        let mut out = String::new();
-        for (i, c) in digits.chars().enumerate() {
-            if i > 0 && (digits.len() - i).is_multiple_of(3) {
-                out.push(',');
-            }
-            out.push(c);
-        }
-        if value < 0.0 { format!("-{out}") } else { out }
-    } else {
-        format!("{value}")
-    };
+/// `value` with `places` decimals, written as the chart's own labels write it (`,.{places}f`) in
+/// the deck's language (`lang`), and with `unit`: "$44/MWh", "1.55\u{b0}C", "30%", "1,840 ms",
+/// "$2.0T" beside "$1.1T", "48,6 Mio. \u{20ac}" in German.
+fn at_places(value: f64, places: usize, unit: Option<&str>, lang: &str) -> String {
+    let locale = Locale::of(Some(lang));
+    let n =
+        NumberFormat::parse(&format!(",.{places}f")).map_or_else(|_| format!("{value}"), |f| f.format(value, locale));
     match unit.map(str::trim).filter(|u| !u.is_empty()) {
         None => n,
         Some(u) if u.starts_with(['$', '\u{20ac}', '\u{a3}', '\u{a5}']) => {
             let sign = u.chars().next().expect("not empty");
             format!("{sign}{n}{}", &u[sign.len_utf8()..])
         }
+        Some("%") => format!("{n}{}", locale.percent),
         Some(u) if u.starts_with(['%', '\u{b0}', '/', '\u{d7}']) => format!("{n}{u}"),
         // A unit written in a script set without spaces sits against its figure: "2時間", "340ドル".
         Some(u) if u.chars().next().is_some_and(unspaced) => format!("{n}{u}"),
-        Some(u) => format!("{n} {u}"),
+        // Held to its figure by a space no line breaks at, as the typesetter holds one (DF7-2):
+        // "1,840\u{a0}ms", "48,6\u{a0}Mio.\u{a0}\u{20ac}"; "2 hours" as it is.
+        Some(u) => {
+            let spaced: Vec<char> = format!("{n} {u}").chars().collect();
+            let space = if joined(&spaced, n.chars().count()) { '\u{a0}' } else { ' ' };
+            format!("{n}{space}{u}")
+        }
     }
 }
 
@@ -4164,9 +4493,9 @@ impl Slots<'_> {
             // what was counted, or the source.
             ("two-figures", _, Some((k, part))) => {
                 let chart = self.slide.chart_data.as_ref()?;
-                let value = chart.series.first().and_then(|s| s.values.get(k).copied());
+                let value = chart.series.first().and_then(|s| s.values.get(k).copied().flatten());
                 match part {
-                    "figure" => text(value.map(|v| at_places(v, decimals(chart), chart.unit.as_deref()))),
+                    "figure" => text(value.map(|v| at_places(v, decimals(chart), chart.unit.as_deref(), self.lang))),
                     "" => text(chart.categories.get(k).cloned()),
                     _ => Some(None),
                 }
@@ -4185,7 +4514,7 @@ impl Slots<'_> {
             // and the source.
             ("line-chart", "callout", _) => text(
                 (self.item(0).filter(|i| i.figure_first()).and_then(|i| i.label.clone()))
-                    .or_else(|| self.slide.chart_data.as_ref().and_then(latest)),
+                    .or_else(|| self.slide.chart_data.as_ref().and_then(|c| latest(c, self.lang))),
             ),
             // The takeaway; then, where the layout has no place for it, the chart's source a line
             // of its own. A takeaway that names the headline's first and last figures again says
@@ -4501,6 +4830,8 @@ struct Builder {
     /// The slide before the first one made, by its layout: an open deck's, which a slide written
     /// into it enters after (lift-up FUNC-1).
     previous: Option<(String, Slide)>,
+    /// The slides set as a list of their words, by their index in the deck (DF7-1).
+    relisted: Vec<usize>,
 }
 
 impl Builder {
@@ -4545,6 +4876,10 @@ impl Builder {
         // A list that builds by bullet (ATTR-2): its node, and how many paragraphs it has.
         let mut bulleted: Option<(String, usize)> = None;
         let mut claimed = false;
+        // The node that says the slide's claim, and each that sets a figure: on the arc's peak its
+        // one figure pops in, else its claim (lift-up ATTR-3).
+        let mut claim: Option<String> = None;
+        let mut figures: Vec<String> = Vec::new();
         // What builds once the transition ends (G.17): each item's nodes, by its place's ordinal
         // (`first-…`, `second-…`), and each chart.
         let mut built: Vec<(usize, Vec<String>)> = Vec::new();
@@ -4804,6 +5139,12 @@ impl Builder {
             if node["type"] == "chart" {
                 charts.push(id.clone());
             }
+            if node["semantic"] == "claim" && claim.is_none() {
+                claim = Some(id.clone());
+            }
+            if node["type"] == "text" && node["role"].as_str().is_some_and(figure_role) {
+                figures.push(id.clone());
+            }
             self.nodes.insert(id.clone(), node);
             props.insert(id, json!({}));
         }
@@ -4837,6 +5178,7 @@ impl Builder {
                 made.steps.push(id);
             }
         }
+        let peaked = entrance.as_ref().is_some_and(|e| e.peak);
         let mut state = json!({ "id": s.state, "mode": "absolute", "layout": s.layout, "props": props });
         let durations = &s.theme.motion.durations;
         let mut transition = durations.get("standard").map_or(420.0, |d| d.0);
@@ -4854,7 +5196,9 @@ impl Builder {
             }
             state["transition"] = t;
         }
-        if let Some(choreography) = builds(s.theme, built, &charts, transition) {
+        let lone = <[String; 1]>::try_from(figures).ok().map(|[f]| f);
+        let peak = lone.or(claim).filter(|_| peaked);
+        if let Some(choreography) = builds(s.theme, built, &charts, transition, peak.as_deref()) {
             state["choreography"] = choreography;
         }
         self.states.push(state);
@@ -5056,18 +5400,32 @@ fn by_bullet_preset(theme: &Theme) -> Option<&str> {
 /// half the theme's `standard` duration, so that no more than two move at once; and each chart
 /// growing from its baseline, a mark at a time, as the theme's `grow` has it. Two to six items
 /// build, within the theme's `maxBuild` (lint W321); one item, or more, comes in with the slide.
-fn builds(theme: &Theme, mut built: Vec<(usize, Vec<String>)>, charts: &[String], transition: f64) -> Option<Value> {
+/// On the arc's peak, the node `peak` names, its one figure or else its claim, springs in by the
+/// theme's `pop`, and its items wait the theme's `standard` beat before they rise (lift-up ATTR-3).
+fn builds(
+    theme: &Theme,
+    mut built: Vec<(usize, Vec<String>)>,
+    charts: &[String],
+    transition: f64,
+    peak: Option<&str>,
+) -> Option<Value> {
     let mut items = Vec::new();
     let standard = theme.motion.durations.get("standard").map_or(420.0, |d| d.0);
     let gap = (standard * 0.6).round();
-    // The transition, the gaps, and the last item's own rise.
-    let span = |n: usize| transition + standard + gap * n.saturating_sub(1) as f64;
+    let popped = peak.filter(|_| theme.motion.presets.contains_key("pop"));
+    let held = if popped.is_some() { standard } else { 0.0 };
+    if let Some(claim) = popped {
+        items.push(json!({ "target": claim, "enter": "pop" }));
+    }
+    // The transition, the beat held, the gaps, and the last item's own rise.
+    let span = |n: usize| transition + held + standard + gap * n.saturating_sub(1) as f64;
     if (2..=6).contains(&built.len()) && span(built.len()) <= theme.motion.max_build.unwrap_or(2500.0) {
         scaena_core::sort::by_key(&mut built, |(k, _)| *k);
         for (i, (_, ids)) in built.iter().enumerate() {
             let mut item = json!({ "target": ids, "enter": "rise" });
-            if i > 0 {
-                item["delay"] = json!(gap * i as f64);
+            let delay = held + gap * i as f64;
+            if delay > 0.0 {
+                item["delay"] = json!(delay);
             }
             items.push(item);
         }
@@ -5076,13 +5434,14 @@ fn builds(theme: &Theme, mut built: Vec<(usize, Vec<String>)>, charts: &[String]
     (!items.is_empty()).then(|| json!(items))
 }
 
-/// A chart's figures as a data source, written inline: a row for each category and series.
+/// A chart's figures as a data source, written inline: a row for each category and series, none
+/// where the series has no value for the category (STAB-1).
 fn source(chart: &ChartData, dated: bool) -> Value {
     let several = chart.series.len() > 1;
     let mut rows = Vec::new();
     for (c, category) in chart.categories.iter().enumerate() {
         for (n, series) in chart.series.iter().enumerate() {
-            let Some(value) = series.values.get(c) else { continue };
+            let Some(Some(value)) = series.values.get(c) else { continue };
             let mut row = json!({ "category": category, "value": value });
             if several {
                 row["series"] = json!(series.name.clone().unwrap_or_else(|| format!("Series {}", n + 1)));
@@ -5408,26 +5767,7 @@ fn two(slide: &Slide) -> bool {
 /// The decimals of the most precise of `chart`'s values, two at most: 2.0 beside 1.1.
 fn decimals(chart: &ChartData) -> usize {
     let places = |v: f64| (0..=2usize).find(|d| (v * 10f64.powi(*d as i32)).fract().abs() < 1e-9).unwrap_or(2);
-    chart.series.iter().flat_map(|s| &s.values).map(|v| places(*v)).max().unwrap_or(0)
-}
-
-/// `value` with `places` decimals, written with `unit`: "$2.0T" beside "$1.1T".
-fn at_places(value: f64, places: usize, unit: Option<&str>) -> String {
-    if places == 0 {
-        return in_unit(value, unit);
-    }
-    let n = format!("{value:.places$}");
-    match unit.map(str::trim).filter(|u| !u.is_empty()) {
-        None => n,
-        Some(u) if u.starts_with(['$', '\u{20ac}', '\u{a3}', '\u{a5}']) => {
-            let sign = u.chars().next().expect("not empty");
-            format!("{sign}{n}{}", &u[sign.len_utf8()..])
-        }
-        Some(u) if u.starts_with(['%', '\u{b0}', '/', '\u{d7}']) => format!("{n}{u}"),
-        // A unit written in a script set without spaces sits against its figure: "2時間", "340ドル".
-        Some(u) if u.chars().next().is_some_and(unspaced) => format!("{n}{u}"),
-        Some(u) => format!("{n} {u}"),
-    }
+    chart.series.iter().flat_map(|s| s.values.iter().flatten()).map(|v| places(*v)).max().unwrap_or(0)
 }
 
 /// Which of a single series' categories the slide is about, by index: the one its takeaway
@@ -5451,7 +5791,10 @@ fn signal(chart: &ChartData, takeaway: Option<&str>) -> Option<usize> {
         [one] if years && runs_on(&chart.categories[*one]) => chart.categories.len().checked_sub(1),
         [one] => Some(*one),
         _ if years => chart.categories.len().checked_sub(1),
-        _ => (values.iter().enumerate()).max_by(|a, b| a.1.total_cmp(b.1)).map(|(i, _)| i),
+        _ => (values.iter().enumerate())
+            .filter_map(|(i, v)| Some((i, (*v)?)))
+            .max_by(|a, b| a.1.total_cmp(&b.1))
+            .map(|(i, _)| i),
     }
 }
 
@@ -5567,12 +5910,13 @@ fn named_figure(chart: &ChartData, series: Option<&str>, said: [Option<&str>; 2]
     let last = line.values.len().checked_sub(1)?;
     said.into_iter().flatten().find_map(|text| {
         figures(text).into_iter().filter(|n| !chart.categories.iter().any(|c| c.parse() == Ok(*n))).find_map(|n| {
-            let at = line.values.iter().position(|v| (v - n).abs() < near).filter(|&i| i != 0 && i != last)?;
+            let at = (line.values.iter().position(|v| v.is_some_and(|v| (v - n).abs() < near)))
+                .filter(|&i| i != 0 && i != last)?;
             let mut place = json!({ "x": chart.categories.get(at)? });
             if let Some(name) = series {
                 place["series"] = json!(name);
             }
-            Some(json!({ "kind": "callout", "at": place, "text": grouped(line.values[at], places) }))
+            Some(json!({ "kind": "callout", "at": place, "text": grouped(line.values[at]?, places) }))
         })
     })
 }
@@ -5678,7 +6022,7 @@ fn word_at(text: &str, word: &str) -> Option<usize> {
 fn described(chart: &ChartData, kind: &str, counts: Option<&str>, lang: &str) -> String {
     let words = own(lang);
     let places = decimals(chart);
-    let value = |v: f64| at_places(v, places, chart.unit.as_deref());
+    let value = |v: f64| at_places(v, places, chart.unit.as_deref(), lang);
     let several = chart.series.len() > 1;
     let names: Vec<&str> = chart.series.iter().filter_map(|s| s.name.as_deref()).collect();
     let mut head = (if kind == "line" { words.line } else { words.bar }).to_string();
@@ -5687,12 +6031,14 @@ fn described(chart: &ChartData, kind: &str, counts: Option<&str>, lang: &str) ->
         (_, Some(counts)) => head = format!("{head}: {counts}"),
         _ => {}
     }
-    let few = chart.series.iter().map(|s| s.values.len()).sum::<usize>() <= 12;
+    let few = chart.series.iter().map(|s| s.values.iter().flatten().count()).sum::<usize>() <= 12;
     let series: Vec<String> = chart
         .series
         .iter()
         .filter_map(|s| {
-            let pairs: Vec<(&String, f64)> = chart.categories.iter().zip(s.values.iter().copied()).collect();
+            // A category the series has no value for goes unsaid.
+            let pairs: Vec<(&String, f64)> =
+                chart.categories.iter().zip(&s.values).filter_map(|(c, v)| Some((c, (*v)?))).collect();
             let said = if few {
                 pairs.iter().map(|(c, v)| format!("{c} {}", value(*v))).collect::<Vec<_>>().join(", ")
             } else {
@@ -5892,7 +6238,7 @@ mod tests {
     fn a_line_of_years_marks_the_year_its_headline_names() {
         let line = |years: &[&str]| ChartData {
             categories: years.iter().map(|y| y.to_string()).collect(),
-            series: vec![answer::Series { name: None, values: vec![1.0; years.len()] }],
+            series: vec![answer::Series { name: None, values: vec![Some(1.0); years.len()] }],
             ..Default::default()
         };
         let span = line(&["1880", "1950", "2024"]);
@@ -5926,7 +6272,7 @@ mod tests {
     fn bars_of_years_light_where_the_takeaway_lands() {
         let wait = ChartData {
             categories: ["2022", "2023", "2024", "2025"].map(String::from).to_vec(),
-            series: vec![answer::Series { name: None, values: vec![11.0, 17.0, 26.0, 34.0] }],
+            series: vec![answer::Series { name: None, values: vec![Some(11.0), Some(17.0), Some(26.0), Some(34.0)] }],
             ..Default::default()
         };
         assert_eq!(signal(&wait, Some("The wait has tripled since 2022")), Some(3));
@@ -6051,8 +6397,8 @@ mod tests {
         assert_eq!(quoted("Ours", "zh-Hans"), "\u{201c}Ours\u{201d}");
         assert_eq!(quoted("Ours", "de"), "\u{201e}Ours\u{201c}");
         // A line's latest figure sits against a unit in a script set without spaces (V3).
-        assert_eq!(in_unit(2.0, Some("\u{6642}\u{9593}")), "2\u{6642}\u{9593}");
-        assert_eq!(in_unit(2.0, Some("hours")), "2 hours");
+        assert_eq!(at_places(2.0, 0, Some("\u{6642}\u{9593}"), "ja"), "2\u{6642}\u{9593}");
+        assert_eq!(at_places(2.0, 0, Some("hours"), "en"), "2 hours");
         // A short parenthetical is kept on one line; a long one may still wrap.
         assert_eq!(typeset("P(H | E) = P(E | H)", "en"), "P(H\u{a0}|\u{a0}E) = P(E\u{a0}|\u{a0}H)");
         let long = "the posterior (what we believe after the test)";
@@ -6081,6 +6427,178 @@ mod tests {
         assert_eq!(after_figure("1,200, 28% go on").as_deref(), Some("28% go on"));
         assert_eq!(after_figure("$40M revenue by 2028"), None);
         assert_eq!(after_figure("41%").as_deref(), Some(""));
+    }
+
+    #[test]
+    fn a_figure_is_read_whole_and_never_from_a_name() {
+        // A ratio, a range, and the figure written whole where an item is one (DF7-1).
+        assert_eq!(figure("1 in 7").as_deref(), Some("1 in 7"));
+        assert_eq!(figure("about 3 of 4 teams").as_deref(), Some("3 of 4"));
+        assert_eq!(figure("2\u{2013}3\u{d7} faster").as_deref(), Some("2\u{2013}3\u{d7}"));
+        assert_eq!(figure("open 24/7").as_deref(), Some("24/7"));
+        assert!(numeric("1 in 7") && numeric("2\u{2013}3\u{d7}"));
+        // No ratio of a year, a percent, or a date's three parts.
+        assert_eq!(figure("5 in 2024").as_deref(), Some("5"));
+        // Nor of a duration: "2 in 3 weeks" is two figures, in German and French too.
+        assert_eq!(figure("2 in 3 weeks: from commit to customer").as_deref(), Some("2"));
+        assert_eq!(figure("1 von 3 Wochen").as_deref(), Some("1"));
+        assert_eq!(figure("1 sur 4\u{a0}ans").as_deref(), Some("1"));
+        assert_eq!(figure("3 of 4 teams").as_deref(), Some("3 of 4"));
+        assert_eq!(figure("on 2025-11-28").as_deref(), Some("2025"));
+        // German figures, their magnitude and their currency spaced, and a spaced percent.
+        assert_eq!(figure("48,6 Mio. \u{20ac}: Umsatz").as_deref(), Some("48,6 Mio. \u{20ac}"));
+        assert_eq!(figure("Budget von 0,8 Mio. \u{20ac} freigeben").as_deref(), Some("0,8 Mio. \u{20ac}"));
+        assert_eq!(figure("EBITDA, +18 %").as_deref(), Some("+18 %"));
+        assert_eq!(figure("12 \u{20ac} pro Monat").as_deref(), Some("12 \u{20ac}"));
+        assert_eq!(figure("raised 1.2 million").as_deref(), Some("1.2 million"));
+        assert_eq!(figure("1\u{202f}200\u{a0}\u{20ac}").as_deref(), Some("1\u{202f}200\u{a0}\u{20ac}"));
+        assert!(numeric("48,6 Mio. \u{20ac}") && numeric("94 %") && numeric("+18 %"));
+        // As the typesetter sets them, a space that never breaks between a figure and its unit.
+        let set = "48,6\u{a0}Mio.\u{a0}\u{20ac}: Umsatz";
+        assert_eq!(figure(set).as_deref(), Some("48,6\u{a0}Mio.\u{a0}\u{20ac}"));
+        assert_eq!(figure("EBITDA, +18\u{a0}%").as_deref(), Some("+18\u{a0}%"));
+        assert_eq!(figure("from 1,210\u{a0}ms").as_deref(), Some("1,210"));
+        assert_eq!(figure("1\u{a0}in\u{a0}7").as_deref(), Some("1\u{a0}in\u{a0}7"));
+        assert!(numeric("94\u{a0}%") && numeric("140\u{a0}ms"));
+        let i = item("48,6 Mio. \u{20ac}: Umsatz im Q3, +9 %");
+        assert!(i.figure_first());
+        assert_eq!(i.figure().as_deref(), Some("48,6 Mio. \u{20ac}"));
+        // A name's digits are no figure, nor a year a name dates.
+        assert_eq!(figure("Umsatz im Q3, +9 %").as_deref(), Some("+9 %"));
+        assert_eq!(figure("p99 doubled, from 910 ms").as_deref(), Some("910"));
+        assert_eq!(figure("FY26 plan"), None);
+        assert_eq!(figure("Seit Q3 2025 ist der Umsatz um 27 % gestiegen").as_deref(), Some("27 %"));
+        assert!(!numeric("Q3") && !numeric("H1 2027"));
+        // A language without spaces keeps its figure after its letters.
+        assert_eq!(figure("\u{4e88}\u{7b97}\u{306f}3\u{5104}\u{5186}").as_deref(), Some("3\u{5104}\u{5186}"));
+        assert_eq!(figures_in("from 1,210 ms to 140 ms at p99"), ["1,210".to_string(), "140".to_string()]);
+    }
+
+    #[test]
+    fn a_slide_that_would_draw_a_figure_otherwise_is_found() {
+        let text = |role: &str, text: &str| json!({ "type": "text", "role": role, "text": text });
+        let faithful_of = |bullets: &[&str], drawn: &[Value]| {
+            let items: Vec<Item> = bullets.iter().map(|b| item(b)).collect();
+            faithful(&items, &drawn.iter().collect::<Vec<_>>())
+        };
+        let ratio = ["1 in 7", "children in Halverson County slept somewhere unstable last winter"];
+        let meaning = text("title", ratio[1]);
+        assert!(faithful_of(&ratio, &[text("hero", "1 in 7"), meaning.clone()]));
+        // Its head alone ("1"), as dogfood pass 7's appeal drew it.
+        assert!(!faithful_of(&ratio, &[text("hero", "1"), meaning]));
+        // A name's digits, and a figure without its percent, as its board report drew them.
+        let scorecard = ["48,6 Mio. \u{20ac}: Umsatz im Q3, +9 %", "1,2 Mio. \u{20ac}: EBITDA, +18 %"];
+        let words = [text("label", "48,6 Mio. \u{20ac}"), text("caption", "Umsatz im Q3, +9 %")];
+        let more = [text("label", "1,2 Mio. \u{20ac}"), text("caption", "EBITDA, +18 %")];
+        let drawn = |a: &str, b: &str| [&[text("figure", a)], &words[..], &[text("figure", b)], &more[..]].concat();
+        assert!(!faithful_of(&scorecard, &drawn("3", "+18")));
+        assert!(faithful_of(&scorecard, &drawn("48,6 Mio. \u{20ac}", "1,2 Mio. \u{20ac}")));
+        // A figure that is not shown at all.
+        assert!(!faithful_of(&scorecard, &[text("figure", "48,6 Mio. \u{20ac}"), words[1].clone()]));
+        // A text set in runs, as a link's is, is read by its runs' words.
+        let linked = json!({ "type": "text", "role": "body", "runs": [
+            { "text": "$50: feeds a family for a week at " },
+            { "text": "harborhouse.org", "link": "https://harborhouse.org" },
+        ] });
+        assert!(faithful_of(&["$50: feeds a family for a week at harborhouse.org"], &[linked]));
+        // A card's number is no part of a figure it does not begin.
+        assert!(faithful_of(&["10% churn"], &[text("figure", "1"), text("body", "10% churn")]));
+    }
+
+    #[test]
+    fn a_slide_that_would_draw_a_figure_otherwise_is_set_as_its_words() {
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let slide = Slide {
+            slide_title: "Buyers wait less".into(),
+            layout_suggestion: "Bullets".into(),
+            key_bullets: vec!["41% of buyers: order again".into(), "12 days: the wait, down from 30".into()],
+            ..Slide::default()
+        };
+        // A cover, which says its title alone: neither of its figures drawn.
+        let layouts = BTreeMap::from([(0, "title".to_string())]);
+        let made = deck_as(&narrative("", vec![slide]), &theme, &Pictures::new(), &layouts).unwrap();
+        assert_eq!((made.relisted.as_slice(), made.layouts[0].as_str()), (&[0][..], "bullets"));
+        let said = made.deck.to_string();
+        assert!(said.contains("41%") && said.contains("12 days"), "{said}");
+    }
+
+    /// The four decks of dogfood pass 7 and the five before them (`tests/fixtures/dogfood`), each
+    /// made in the theme and the language it was written for.
+    #[cfg(feature = "shipped")]
+    fn dogfood() -> Vec<(&'static str, Made)> {
+        let decks = [
+            ("deepdive", "dusk", None),
+            ("board-de", "daybreak", Some("German")),
+            ("appeal", "ember", None),
+            ("training", "salon", None),
+            ("pitch", "dusk", None),
+            ("qbr", "daybreak", None),
+            ("lecture", "salon", None),
+            ("keynote", "ember", None),
+            ("launch", "ember", None),
+        ];
+        (decks.into_iter())
+            .map(|(name, theme, language)| {
+                let path = root().join(format!("tests/fixtures/dogfood/{name}.slides.json"));
+                let written = answer::slides(&std::fs::read_to_string(path).unwrap()).unwrap();
+                let mut n = narrative(&written.executive_summary, written.slides);
+                n.brief.language = language.map(str::to_string);
+                let theme: Theme = serde_json::from_str(crate::shipped::theme(theme).unwrap().text).unwrap();
+                (name, deck(&n, &theme, &Pictures::new()).unwrap())
+            })
+            .collect()
+    }
+
+    #[test]
+    #[cfg(feature = "shipped")]
+    fn a_made_deck_draws_every_figure_as_its_writer_wrote_it() {
+        let decks = dogfood();
+        // No slide of theirs needs setting as a list to draw its figures as written (DF7-1).
+        for (name, made) in &decks {
+            assert!(made.relisted.is_empty(), "{name}: slides {:?} set as lists", made.relisted);
+        }
+        let said = |deck: &str, node: &str| -> String {
+            let made = &decks.iter().find(|(n, _)| *n == deck).unwrap().1;
+            made.deck["nodes"][node]["text"].as_str().unwrap_or_default().to_string()
+        };
+        assert_eq!(said("appeal", "she-is-one-of-many-number"), "1 in 7");
+        assert_eq!(said("board-de", "ein-starkes-quartal-in-vier-first-figure"), "48,6\u{a0}Mio.\u{a0}\u{20ac}");
+        assert_eq!(said("board-de", "ein-starkes-quartal-in-vier-second-figure"), "1,2\u{a0}Mio.\u{a0}\u{20ac}");
+        // A figure the builder writes is written as its chart's labels write it, in the deck's language,
+        // its unit held to it by a space that never breaks, as the typesetter sets it (DF7-2).
+        assert_eq!(said("board-de", "der-umsatz-w-chst-seit-f-nf-callout"), "48,6\u{a0}Mio.\u{a0}\u{20ac}");
+        assert_eq!(said("deepdive", "latency-climbed-every-week-as-callout"), "1,840\u{a0}ms");
+    }
+
+    #[test]
+    fn a_value_the_model_did_not_give_is_no_row_and_moves_no_other() {
+        let chart = ChartData {
+            categories: ["Q3 FY25", "Q4 FY25", "Q1 FY26"].map(String::from).to_vec(),
+            series: vec![answer::Series { name: None, values: vec![Some(33.9), None, Some(40.1)] }],
+            unit: Some("$M".into()),
+            source_id: None,
+        };
+        let rows = super::source(&chart, false)["source"]["inline"].clone();
+        assert_eq!(rows, json!([{ "category": "Q3 FY25", "value": 33.9 }, { "category": "Q1 FY26", "value": 40.1 }]));
+        // Its latest figure is the last category's, and a reader hears no figure for the one missing.
+        assert_eq!(latest(&chart, "en").as_deref(), Some("$40.1M"));
+        let said = described(&chart, "line", None, "en");
+        assert!(said.contains("Q3 FY25 $33.9M, Q1 FY26 $40.1M"), "{said}");
+        let short = ChartData {
+            series: vec![answer::Series { name: None, values: vec![Some(33.9), Some(35.0), None] }],
+            ..chart
+        };
+        assert_eq!(latest(&short, "en"), None);
+    }
+
+    #[test]
+    fn a_figure_the_builder_writes_is_written_as_the_charts_write_it() {
+        // Thousands set apart as the axis sets them, in the deck's language (DF7-1).
+        assert_eq!(at_places(1840.0, 0, Some("ms"), "en"), "1,840\u{a0}ms");
+        assert_eq!(at_places(48.6, 1, Some("Mio.\u{a0}\u{20ac}"), "de"), "48,6\u{a0}Mio.\u{a0}\u{20ac}");
+        assert_eq!(at_places(1234.5, 1, None, "de"), "1.234,5");
+        assert_eq!(at_places(27.0, 0, Some("%"), "fr"), "27\u{a0}%");
+        assert_eq!(at_places(2.0, 1, Some("$T"), "en"), "$2.0T");
     }
 
     #[test]
@@ -7823,7 +8341,7 @@ mod tests {
         has(&hottest, "under", "WMO State of the Global Climate 2024");
         // A line chart's callout is its latest figure, and its takeaway stands under it.
         let co2 = said(5);
-        has(&co2, "callout", "424 ppm");
+        has(&co2, "callout", "424\u{a0}ppm");
         has(&co2, "note", "From 280\u{a0}ppm before industry to 424\u{a0}ppm in 2024");
         has(&said(4), "callout", "1.55\u{b0}C");
         // A line along years runs on time, 2010 to 2024 as long as fourteen years are (G.18); bars
@@ -7965,8 +8483,11 @@ mod tests {
         let months = ChartData {
             categories: (1..=13).map(|m| format!("M{m}")).collect(),
             series: vec![
-                answer::Series { name: Some("North".into()), values: (1..=13).map(f64::from).collect() },
-                answer::Series { name: Some("South".into()), values: (1..=13).map(|v| f64::from(20 - v)).collect() },
+                answer::Series { name: Some("North".into()), values: (1..=13).map(|v| Some(f64::from(v))).collect() },
+                answer::Series {
+                    name: Some("South".into()),
+                    values: (1..=13).map(|v| Some(f64::from(20 - v))).collect(),
+                },
             ],
             unit: None,
             source_id: None,
@@ -8941,6 +9462,40 @@ mod tests {
         }
     }
 
+    /// On a big number at the talk's peak, the figure is what springs in, not the words under it.
+    #[test]
+    fn the_peak_springs_its_one_figure_in() {
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let text = json!({
+            "executiveSummary": "A town kept its own lights on.",
+            "slides": [
+                { "slideTitle": "The town that kept its lights on", "layoutSuggestion": "Title", "keyBullets": [],
+                  "expectedIntensity": 0.2 },
+                { "slideTitle": "The ice storm left them $412,000 over budget", "layoutSuggestion": "Big Number",
+                  "keyBullets": ["$412K", "over budget, covered by 140 neighbors in nine days"], "expectedIntensity": 0.9 },
+                { "slideTitle": "Waiting for permission was the real outage", "layoutSuggestion": "Statement",
+                  "keyBullets": [], "expectedIntensity": 0.6 },
+                { "slideTitle": "Go home and find your twelve people", "layoutSuggestion": "Closing", "keyBullets": [],
+                  "expectedIntensity": 0.95 },
+            ]
+        })
+        .to_string();
+        let written = answer::slides(&text).unwrap();
+        let built = deck(&narrative(&written.executive_summary, written.slides), &theme, &Pictures::new()).unwrap();
+        let states = built.deck["states"].as_array().unwrap();
+        // The closing is hotter still, but a deck's last slide keeps its own way in.
+        let built_in = states[1]["choreography"].as_array().unwrap();
+        let popped = built_in[0]["target"].as_str().unwrap();
+        assert_eq!(built_in[0]["enter"], "pop");
+        assert_eq!(built.deck["nodes"][popped]["text"], "$412K");
+        assert!(states[2]["choreography"].as_array().is_none_or(|c| c.iter().all(|b| b["enter"] != "pop")));
+        // Nothing reaches the peak's intensity: no slide is entered as one.
+        let mut calm = narrative(&written.executive_summary, answer::slides(&text).unwrap().slides);
+        calm.slides.iter_mut().for_each(|s| s.expected_intensity = Some(0.5));
+        let calm = deck(&calm, &theme, &Pictures::new()).unwrap();
+        assert!(!calm.deck.to_string().contains("\"pop\""));
+    }
+
     /// A generated deck enters by its structure (narrative ATTR-1): each section divider and the
     /// first slide of its part push in, the closing slide dissolves in slowly, a grave turn takes
     /// the slow pace, and the content slides between keep the plain transition that morphs what
@@ -8973,10 +9528,30 @@ mod tests {
         assert_eq!(transition(3), push(true), "the hottest year, grave after The Signal's divider");
         assert_eq!(transition(10), plain(true));
         assert_eq!(transition(6), plain(true), "every vital sign, at the grave mark after a slide above it");
-        for i in [1, 4, 5, 9, 13, 14, 17, 18, 19, 20, 23] {
+        for i in [1, 4, 5, 9, 14, 17, 18, 19, 20, 23] {
             assert_eq!(transition(i), plain(false), "slide {i}");
         }
-        assert_eq!(transition(24), json!({ "style": "dissolve", "duration": "slow", "ease": "standard" }), "the close");
+        let dissolve = json!({ "style": "dissolve", "duration": "slow", "ease": "standard" });
+        assert_eq!(transition(24), dissolve, "the close");
+        // The talk's peak, Four Years of Records at 0.9, enters as its climax (lift-up ATTR-3): it
+        // dissolves in slowly, its claim springs in, and its moments wait a beat before they rise.
+        assert_eq!(transition(13), dissolve, "the peak");
+        let built_in = built.deck["states"][13]["choreography"].as_array().unwrap().clone();
+        let claim = built_in[0]["target"].as_str().unwrap();
+        assert_eq!(
+            (built_in[0]["enter"].as_str(), built.deck["nodes"][claim]["semantic"].as_str()),
+            (Some("pop"), Some("claim"))
+        );
+        let standard = theme.motion.durations["standard"].0;
+        assert!(
+            built_in[1..].iter().all(|b| b["enter"] == "rise" && b["delay"].as_f64() >= Some(standard)),
+            "{built_in:#?}"
+        );
+        // Only the peak: no other slide pops.
+        let popped = (built.deck["states"].as_array().unwrap().iter())
+            .filter(|s| s["choreography"].as_array().is_some_and(|c| c.iter().any(|b| b["enter"] == "pop")))
+            .count();
+        assert_eq!(popped, 1);
         // It validates and lints no worse: no build runs past the theme's limit with a slow entrance.
         let (made, _) = making(built, "Data Storytelling", Path::new("dusk.theme.json"), dusk(), &font).unwrap();
         assert!(made.created.created && made.created.errors == 0, "{:#?}", made.created.findings);

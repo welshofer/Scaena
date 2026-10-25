@@ -15,7 +15,9 @@ mod providers;
 mod stream;
 mod tools;
 
-pub use prompt::{Brief, Characters, Client, Facts, Listed, Seeing, Selected, seen, skill_name, system, system_of};
+pub use prompt::{
+    Brief, Characters, Client, FACTS, Facts, Listed, Seeing, Selected, seen, skill_name, stable, system, system_of,
+};
 pub use providers::{Ask, Provider, Request, Stop, Turn, Usage, checked_base, inlined};
 pub use stream::{Stream, assembled, is_sse};
 pub use tools::{RESOURCE_READ, made, resource_read, summary, tools};

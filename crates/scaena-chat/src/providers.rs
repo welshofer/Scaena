@@ -341,16 +341,27 @@ fn anthropic(ask: &Ask) -> Request {
         }
         Message::Tool { results } => ("user", results.iter().map(anthropic_result).collect()),
     });
-    let messages: Vec<Value> =
+    let mut messages: Vec<Value> =
         runs(items.collect()).into_iter().map(|(role, content)| json!({ "role": role, "content": content })).collect();
+    // The conversation is cached to its newest block, so each round of calls after it reads what
+    // came before at a tenth (lift-up PERF-2).
+    if let Some(last) = messages.last_mut().and_then(|m| m["content"].as_array_mut()).and_then(|c| c.last_mut()) {
+        last["cache_control"] = json!({ "type": "ephemeral" });
+    }
     let tools: Vec<Value> = (ask.tools.iter())
         .map(|t| json!({ "name": t.name, "description": t.description, "input_schema": inlined(&t.schema) }))
         .collect();
+    // The system prompt is the same each turn but for the deck's facts, last: cached up to them, it
+    // costs a tenth on every turn after the first, an edit between questions too.
+    let (kept, facts) = crate::prompt::stable(ask.system);
+    let mut system = vec![json!({ "type": "text", "text": kept, "cache_control": { "type": "ephemeral" } })];
+    if !facts.is_empty() {
+        system.push(json!({ "type": "text", "text": facts }));
+    }
     let mut body = json!({
         "model": ask.model,
         "max_tokens": 8192,
-        // The system prompt is the same each turn: cached, it costs a tenth on every turn after the first.
-        "system": [{ "type": "text", "text": ask.system, "cache_control": { "type": "ephemeral" } }],
+        "system": system,
         "messages": messages,
         // The answer as it is written, as server-sent events (narrative ATTR-3).
         "stream": true,
