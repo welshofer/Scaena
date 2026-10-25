@@ -716,6 +716,11 @@ pub struct DeckExport {
     /// each state's hold alone, as a player auto-advances.
     #[serde(default)]
     pub pace: scaena_core::spine::Pace,
+    /// A PDF with the presenter's notes: each slide drawn smaller at the head of a page, the
+    /// notes a presenter reads for it under it, notes too long for it going on to pages of
+    /// their own. Only a PDF.
+    #[serde(default)]
+    pub notes: bool,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -1160,7 +1165,7 @@ impl Scaena {
     }
 
     #[tool(description = "Export a projection to `out`: `pdf` (each slide at its last state, or `states`, a page \
-        each), `png` or `svg` (an image per state, into a directory), `mp4`, `webm`, or `prores` (the timeline, \
+        each; with `notes`, the slide smaller with the presenter's notes under it), `png` or `svg` (an image per state, into a directory), `mp4`, `webm`, or `prores` (the timeline, \
         each state's cue then its hold, or where it has none its share of its beat's `duration` (`pace`), at \
         `fps`; needs ffmpeg), `html` (one file that plays the deck in a \
         browser, offline: the player, the engine, and the bundle), or `spine`, which is also returned. An export \
@@ -1181,6 +1186,7 @@ impl Scaena {
             audio: a.audio.clone().map(Into::into),
             painter: a.painter,
             pace: a.pace,
+            notes: a.notes,
         };
         let bundle = a.bundle.clone();
         let b = blocking(move || open(&bundle)).await?;
