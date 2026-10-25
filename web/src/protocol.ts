@@ -901,7 +901,7 @@ export interface HealthFinding {
   state: string;
   slide: number;
   severity: "error" | "warning" | "info";
-  kind: "title" | "empty" | "turn" | "arc" | "intensity" | "tone" | "drift" | "layout" | "claim" | "bigIdea";
+  kind: "title" | "empty" | "turn" | "arc" | "intensity" | "tone" | "drift" | "layout" | "claim" | "bigIdea" | "story" | "dense" | "notes" | "pacing";
   says: string;
   ask: string;
   fix?: { says: string; patch: unknown[] };
@@ -1473,6 +1473,8 @@ export type GeneratingEvent =
   | { kind: "writing"; slides: number }
   | { kind: "retrying"; seconds: number; tried: number }
   | { kind: "wrote"; slides: number; truncated: boolean }
+  /** The icon set could not be fetched: the slides that name icons are set without them. */
+  | { kind: "unIconed"; why: string }
   | { kind: "painting"; pictures: number; model: string }
   | { kind: "painted"; pictures: number; unmade: string[] }
   | { kind: "making" }

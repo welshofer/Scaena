@@ -504,13 +504,16 @@ mod tests {
         let w = s.writing(&rewrite).unwrap();
         assert_eq!(
             w.prompt,
-            "The text:\nThis quarter changed the shape of the business.\nHow to rewrite it: More formal, for the board\nThe point its slide makes: This quarter changed the shape of the business.\nThe deck's voice: Plain, confident"
+            "<data label=\"text\">\nThe text:\nThis quarter changed the shape of the business.\nThe point its slide makes: This quarter changed the shape of the business.\nThe deck's voice: Plain, confident\n</data>\nHow to rewrite it: More formal, for the board"
         );
         assert_eq!(serde_json::to_value(&w.task).unwrap()["ask"], "More formal, for the board");
         let tighten = s.writing(&ask("tighten", "intro", Some("subtitle"))).unwrap();
-        assert!(tighten.prompt.ends_with("\nThe deck's voice: Plain, confident") && !tighten.prompt.contains("How to"));
+        assert!(
+            tighten.prompt.ends_with("\nThe deck's voice: Plain, confident\n</data>")
+                && !tighten.prompt.contains("How to")
+        );
         let proofread = s.writing(&ask("proofread", "intro", Some("subtitle"))).unwrap();
-        assert_eq!(proofread.prompt, "This quarter changed the shape of the business.");
+        assert_eq!(proofread.prompt, "<data label=\"text\">\nThis quarter changed the shape of the business.\n</data>");
         let taken = s.written(&rewrite, "This quarter reshaped the business.").unwrap();
         assert_eq!(taken.patch.unwrap().len(), 1);
     }
@@ -550,7 +553,12 @@ mod tests {
         assert_eq!(w.title, "Tightened");
         // Asked with the point its slide makes, which here its own words say (lift-up FUNC-3).
         let claim = "\nThe point its slide makes: This quarter changed the shape of the business.";
-        assert_eq!(w.prompt, format!("The text:\nThis quarter changed the shape of the business.{claim}"));
+        assert_eq!(
+            w.prompt,
+            format!(
+                "<data label=\"text\">\nThe text:\nThis quarter changed the shape of the business.{claim}\n</data>"
+            )
+        );
         assert!(w.instructions.starts_with("You tighten the words of one text on a slide"));
         let taken = s.written(&tighten, "“This quarter reshaped the business.”").unwrap();
         assert_eq!(taken.text, "This quarter reshaped the business.");
@@ -566,7 +574,7 @@ mod tests {
         s.typed(&ops, None).unwrap();
         assert_eq!(
             s.writing(&tighten).unwrap().prompt,
-            format!("The text:\nThis quarter reshaped the business.{claim}")
+            format!("<data label=\"text\">\nThe text:\nThis quarter reshaped the business.{claim}\n</data>")
         );
         assert!(s.writing(&ask("tighten", "intro", Some("bg"))).is_err(), "a shader has no words to write");
     }
@@ -580,7 +588,7 @@ mod tests {
         let w = s.writing(&notes).unwrap();
         assert_eq!(
             w.prompt,
-            "The slide reads:\nTitle: Q3 Review\nHeading: This quarter changed the shape of the business.\nThe point it makes: This quarter changed the shape of the business."
+            "The slide reads:\n<data label=\"slide\">\nTitle: Q3 Review\nHeading: This quarter changed the shape of the business.\nThe point it makes: This quarter changed the shape of the business.\n</data>"
         );
         let drafted = s.written(&notes, "Open on the quarter.\n").unwrap();
         assert_eq!(
@@ -603,7 +611,10 @@ mod tests {
             instruction: None,
         };
         let w = s.writing(&explain).unwrap();
-        assert_eq!(w.prompt, "Finding E100 (error): The words run out of their box.\nIts words: Q3 Review");
+        assert_eq!(
+            w.prompt,
+            "Finding E100 (error): The words run out of their box.\nIts words:\n<data label=\"words\">\nQ3 Review\n</data>"
+        );
         assert!(s.written(&explain, "It overflows.").unwrap().patch.is_none(), "an explanation is only read");
         assert!(s.writing(&ask("polish", "intro", None)).is_err());
     }
@@ -622,7 +633,7 @@ mod tests {
         assert_eq!(w.task.text(), Some("Revenue doubled"));
         assert_eq!(
             w.prompt,
-            "The claim its beat makes: Revenue doubled year over year, and Pro drove it.\nThe slide reads:\nTitle: Revenue doubled\nPicture: Quarterly revenue by product, Q4 2025 through Q3 2026.\nText: Revenue in $M. Enterprise recognized on delivery.\nIts headline: Revenue doubled"
+            "<data label=\"slide\">\nThe claim its beat makes: Revenue doubled year over year, and Pro drove it.\nThe slide reads:\nTitle: Revenue doubled\nPicture: Quarterly revenue by product, Q4 2025 through Q3 2026.\nText: Revenue in $M. Enterprise recognized on delivery.\nIts headline: Revenue doubled\n</data>"
         );
         let drifted = "Drifts: the slide says revenue doubled, not that Pro drove it.\nHeadline: Revenue doubled, and Pro drove it";
         let written = s.written(&claim, drifted).unwrap();
@@ -645,7 +656,9 @@ mod tests {
         // The cover's claim is its subtitle, the text with `semantic: claim`.
         let intro = s.writing(&ask("claim", "intro", None)).unwrap();
         assert_eq!(intro.task.text(), Some("This quarter changed the shape of the business."));
-        assert!(intro.prompt.starts_with("The claim its beat makes: This quarter changed the shape of the business."));
+        assert!(intro.prompt.starts_with(
+            "<data label=\"slide\">\nThe claim its beat makes: This quarter changed the shape of the business."
+        ));
         // A slide in no beat has no claim to check.
         let mut s = revenue_with(|deck| {
             for section in deck["spine"]["sections"].as_array_mut().unwrap() {
@@ -670,7 +683,11 @@ mod tests {
         let w = s.writing(&mono).unwrap();
         assert_eq!(w.title, "Description");
         assert!(w.instructions.starts_with("You describe a picture"));
-        assert!(w.prompt.starts_with("Describe this picture. The slide it is on reads:\n"), "{}", w.prompt);
+        assert!(
+            w.prompt.starts_with("Describe this picture. The slide it is on reads:\n<data label=\"slide\">\n"),
+            "{}",
+            w.prompt
+        );
         assert!(w.prompt.contains("Adjust Image"), "the slide's words: {}", w.prompt);
         assert!(!w.prompt.contains("in black and white"), "but not the picture's own description: {}", w.prompt);
         assert_eq!(w.task.text(), Some("The same picture in black and white."));
