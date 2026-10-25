@@ -1815,7 +1815,7 @@ def checked(theme, name, slots, new):
 # A text set on the foot of its cells, or one grown to fill them, hangs its last line's descenders
 # below them (SPEC §3.4: a role boxed to its cap height ends at its last baseline). Words in the
 # slot under it stand that far clear of them and a gutter more: the slot under it takes the
-# descent its own inset and the inset of the slot over it leave, at its top (theme format 0.26).
+# descent its own inset and the inset of the slot over it leave, at its top (theme format 0.27).
 # The descent is the font's own, as the engine reads it, at the role's size, the deepest of the
 # family's themes, so the themes of one family draw one library: each of them stands at least its
 # own descent and a gutter clear, and those with shallower descenders a little more.

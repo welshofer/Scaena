@@ -614,7 +614,7 @@ pub struct Slot {
     pub role: Option<String>,
     /// How far in from its cells the slot stands, canvas units (theme format 0.11, PLAN 3.30):
     /// one number on each side, words on a card that fills the same cells; or each side its own
-    /// (theme format 0.26), as words under a text set on the foot of its cells stand clear of its
+    /// (theme format 0.27), as words under a text set on the foot of its cells stand clear of its
     /// descenders.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub inset: Option<SlotInset>,
@@ -663,7 +663,7 @@ impl Slot {
 }
 
 /// How far in from its cells a slot stands: the same on each side, or each side its own (theme
-/// format 0.26), a side left out none.
+/// format 0.27), a side left out none.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(untagged)]
 pub enum SlotInset {

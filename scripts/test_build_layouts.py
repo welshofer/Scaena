@@ -69,7 +69,7 @@ class ByGeometry(unittest.TestCase):
 
 class ClearOfDescenders(unittest.TestCase):
     """Words under a text set on the foot of its cells stand clear of its descenders (theme format
-    0.26): their slot takes the descent at its top, its other sides as they were."""
+    0.27): their slot takes the descent at its top, its other sides as they were."""
 
     def test_the_quote_credit_takes_the_quotes_descent_at_its_top(self):
         for slug, geometry, paths in LISTED:

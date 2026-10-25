@@ -354,7 +354,7 @@ mod tests {
         assert!(place(json!("space.99")).unwrap_err().to_string().contains("no step 99"));
     }
 
-    /// A slot's inset gives each side its own where it names them (theme format 0.26): words under
+    /// A slot's inset gives each side its own where it names them (theme format 0.27): words under
     /// a quote set on the foot of its cells stand clear of its descenders, their left edge on the
     /// quote's.
     #[test]
