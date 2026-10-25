@@ -395,6 +395,22 @@ try {
   check((await wake(presenter)).held === 1, `the presenter view holds a screen wake lock while it is open: ${JSON.stringify(await wake(presenter))}`);
   check((await presenter.textContent("#notes")) === notes(1), `it shows ${states[1]}'s notes, its beat's`);
   check((await presenter.textContent("#nextName")) === `Next: ${slots[2].said}`, `it shows ${states[2]} next, by its slide's number: ${await presenter.textContent("#nextName")}`);
+  // It speaks to a screen reader as the player does (lift-up USE-1): where the deck is, and how
+  // the state up reads, each in a polite live region; the timer a timer, and the notes named.
+  const said = await presenter.evaluate(() => ({
+    where: document.querySelector("#where").getAttribute("aria-live"),
+    reading: document.querySelector("#reading")?.getAttribute("aria-live"),
+    clock: document.querySelector("#clock").getAttribute("role"),
+    notes: document.querySelector("#notes").getAttribute("aria-label"),
+  }));
+  check(
+    said.where === "polite" && said.reading === "polite" && said.clock === "timer" && said.notes === "Speaker notes",
+    `the presenter view's place and reading are live, its clock a timer, its notes named: ${JSON.stringify(said)}`,
+  );
+  const readsAsPlayer = await presenter
+    .waitForFunction((html) => document.querySelector("#reading").innerHTML === html && html !== "", await player.innerHTML("#reading"), { timeout: 15000 })
+    .then(() => true, () => false);
+  check(readsAsPlayer, `the presenter view reads ${states[1]} as the player reads it`);
   // The notes' size (lift-up USE-4): 20 px to start, A+ and + a step up, A− and - a step down,
   // kept in this browser for the next presenter view; the player answers neither key.
   const notesPx = (page) => page.evaluate(() => parseFloat(getComputedStyle(document.querySelector("#notes")).fontSize));
