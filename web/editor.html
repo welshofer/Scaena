@@ -717,6 +717,9 @@
       #keeping li { display: flex; align-items: center; gap: 6px; padding: 3px 0; }
       #keeping li [data-open], #keeping li input { flex: 1; min-width: 0; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       #keeping li .here { color: var(--muted); font-size: 12px; }
+      #leftovers ul { list-style: none; margin: 0; padding: 0; max-height: 50vh; overflow: auto; }
+      #leftovers li { display: flex; align-items: center; gap: 6px; padding: 3px 0; }
+      #leftovers li span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       /* Make a picture (PLAN 2.107): what it shows, its look, and who makes it. */
       #picturing { width: min(34em, 92vw); }
       #picturing textarea { font: inherit; font-size: 14px; background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 4px; padding: 6px; resize: vertical; }
@@ -1181,6 +1184,16 @@
         <menu>
           <button value="discard">Discard</button>
           <button value="recover" autofocus>Recover</button>
+        </menu>
+      </form>
+    </dialog>
+    <dialog id="leftovers" aria-labelledby="leftovers-title">
+      <form method="dialog">
+        <h2 id="leftovers-title">Decks not saved</h2>
+        <p class="note">These decks were not kept anywhere when this page last closed. The editor kept a copy of each in this browser.</p>
+        <ul class="leftovers"></ul>
+        <menu>
+          <button value="later">Not now</button>
         </menu>
       </form>
     </dialog>

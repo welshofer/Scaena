@@ -606,6 +606,28 @@ try {
   check(dashed.includes("alt:Compass"), "the other list is still set under its icons");
   check(!dashed.includes("alt:Acorn") && !dashed.includes("alt:Lightning"), "the dashed list keeps its words, under no icon");
   state.slides = undefined;
+
+  // A made deck edited and kept nowhere, its page gone as a crash takes it: the editor opened
+  // again lists it among the decks not saved, and Recover opens it again with the edit, still
+  // kept nowhere (lift-up REL-4).
+  const trips = await page.evaluate(() => window.scaena.trips().length);
+  await page.evaluate((t) => window.scaena.type(t), dashed.replace("Why Tidewater wins", "Why Tidewater still wins"));
+  await page.waitForFunction((n) => window.scaena.trips().length > n, trips, { timeout: 60000, polling: 50 });
+  await page.evaluate(() => window.scaena.keepCopy());
+  await page.reload();
+  const left = page.locator("#leftovers[open]");
+  await left.waitFor({ timeout: 60000 }).catch(() => {});
+  const leftList = await page.locator("#leftovers li span").allTextContents();
+  check(leftList.length === 1 && leftList[0].startsWith("Tidewater, changed "), `the editor opened again lists the made deck not saved: ${leftList.join(" | ")}`);
+  await page.click("#leftovers li button:text('Recover')");
+  await page
+    .waitForFunction(() => window.scaena.source().includes("Why Tidewater still wins") && window.scaena.last(), null, { timeout: 120000 })
+    .catch(() => {});
+  const recovered = await page.evaluate(() => ({ source: window.scaena.source(), where: window.scaena.where() }));
+  check(
+    recovered.source.includes("Why Tidewater still wins") && recovered.source.includes("alt:Compass") && recovered.where.where === undefined && recovered.where.dirty,
+    `Recover opens it again with the edit, its icons and all, kept nowhere: ${JSON.stringify(recovered.where)}`,
+  );
 } catch (e) {
   failures.push(String(e?.stack ?? e));
 } finally {

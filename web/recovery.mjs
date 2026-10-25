@@ -235,6 +235,11 @@ try {
   // offered them.
   await page.reload();
   await ready();
+  // The editor opened again lists it among the decks not saved; not now, it stays kept.
+  await page.locator("#leftovers[open]").waitFor({ timeout: 30000 }).catch(() => {});
+  const leftovers = await page.locator("#leftovers li span").allTextContents();
+  check(leftovers.length === 1 && leftovers[0].startsWith("Fresh words, changed "), `the editor opened again lists the new deck not saved: ${leftovers.join(" | ")}`);
+  await page.click("#leftovers button[value=later]");
   await page.evaluate(() => window.scaena.open({ create: { theme: "Dusk", title: "Fresh" } }));
   await ready("fresh");
   await offered().waitFor({ timeout: 10000 }).catch(() => {});

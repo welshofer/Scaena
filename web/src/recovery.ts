@@ -19,7 +19,16 @@ export interface Copy {
   /** The files written since the save, by their paths in the bundle, and those taken out. */
   files: string[];
   removed: string[];
+  /** How to open the deck again, for a deck kept nowhere, which nothing else opens again: a new
+   * deck by its theme and title, or a deck of files by the files it opened with, which the copy
+   * carries under `bundle/`, at their paths. */
+  reopen?: Reopen;
+  /** What names it, kept with it, so a list of every copy can find each. */
+  key?: string;
 }
+
+/** How a deck kept nowhere opens again. */
+export type Reopen = { create: { theme: string; title: string } } | { files: string[] };
 
 /** The record `copy.json` holds. */
 type Record_ = Omit<Copy, "source">;
@@ -63,14 +72,53 @@ async function read(root: FileSystemDirectoryHandle, path: string): Promise<File
   return (await fileAt(root, path, false).catch(() => null))?.getFile() ?? null;
 }
 
-/** Keep `copy` for `key`: its source, each of `files` not yet kept, and the record, last. A copy
- * kept before keeps the files it holds. */
-export async function keep(key: string, copy: Copy, files: Map<string, Uint8Array>) {
+/** Keep `copy` for `key`: its source, each of `files` not yet kept, the files `bundle` holds,
+ * which open its deck again, and the record, last. A copy kept before keeps the files it holds. */
+export async function keep(key: string, copy: Copy, files: Map<string, Uint8Array>, bundle?: Record<string, ArrayBuffer>) {
   const at = (await dir(key, true))!;
   await write(at, "source.scn", copy.source);
   for (const [path, bytes] of files) await write(at, `files/${path}`, bytes);
-  const record: Record_ = { at: copy.at, name: copy.name, files: copy.files, removed: copy.removed };
+  for (const [path, bytes] of Object.entries(bundle ?? {})) await write(at, `bundle/${path}`, new Uint8Array(bytes));
+  const record: Record_ = { at: copy.at, name: copy.name, files: copy.files, removed: copy.removed, reopen: copy.reopen, key };
   await write(at, "copy.json", JSON.stringify(record));
+}
+
+/** Every copy that opens its deck again, a deck kept nowhere's, the latest first: what a page left
+ * that nothing else would offer. */
+export async function leftovers(): Promise<(Record_ & { key: string; reopen: Reopen; title?: string })[]> {
+  const root = await navigator.storage.getDirectory();
+  const all = await root.getDirectoryHandle(DIR).catch(() => null);
+  const out: (Record_ & { key: string; reopen: Reopen; title?: string })[] = [];
+  if (!all) return out;
+  for await (const [, handle] of all.entries()) {
+    if (handle.kind !== "directory") continue;
+    const at = handle as FileSystemDirectoryHandle;
+    const record = await read(at, "copy.json");
+    try {
+      const parsed = record && (JSON.parse(await record.text()) as Record_);
+      if (!parsed?.key || !parsed.reopen) continue;
+      // Its title, as its source's `deck` line writes it: what a person calls it.
+      const source = await (await read(at, "source.scn"))?.text();
+      const header = source && /^deck\s+("(?:[^"\\\n]|\\.)*")/m.exec(source);
+      const title = header ? (JSON.parse(header[1]) as string) : undefined;
+      out.push({ ...parsed, key: parsed.key, reopen: parsed.reopen, title });
+    } catch {
+      // A record that does not read is no copy.
+    }
+  }
+  return out.sort((a, b) => b.at - a.at);
+}
+
+/** The files a copy's deck opened with, by their paths: what opens it again. */
+export async function bundleOf(key: string, paths: string[]): Promise<Record<string, ArrayBuffer>> {
+  const at = await dir(key, false);
+  const out: Record<string, ArrayBuffer> = {};
+  for (const path of paths) {
+    const file = at && (await read(at, `bundle/${path}`));
+    if (!file) throw new Error(`the copy lacks ${path}`);
+    out[path] = await file.arrayBuffer();
+  }
+  return out;
 }
 
 /** The copy kept for `key`, with a reader of each file it holds; null where there is none whole. */
