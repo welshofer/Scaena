@@ -560,6 +560,20 @@ fn tool_call(r: &mut Rng, b: &Bundle, states: &[String], values: &BTreeMap<Strin
             set!("weight", json!(r.pick(&["regular", "fill", "bold", ""])));
             set!("limit", r.pick(&[json!(0), json!(3), json!(u64::MAX), json!(-1), json!(null)]).clone());
         }
+        "slide_write" => {
+            let slide = json!({
+                "slideTitle": r.pick(&["Three reasons", "", "\u{1F680}"]),
+                "layoutSuggestion": r.pick(&["Bullet List", "Big Number", "Quote", "Nothing like it"]),
+                "keyBullets": r.pick(&[json!(["Fast: drafts in seconds", "Safe: never sends alone"]), json!([]), json!(["42%"]), json!(null)]).clone(),
+            });
+            set!("slide", if r.below(6) == 0 { junk(r) } else { slide });
+            if r.below(2) == 0 {
+                set!("after", state(r));
+            } else {
+                set!("replace", state(r));
+            }
+            set!("dry_run", flag(r));
+        }
         _ => set!("state", state(r)),
     }
     if r.below(12) == 0 {

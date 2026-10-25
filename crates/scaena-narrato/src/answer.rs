@@ -82,7 +82,7 @@ pub struct Slides {
 }
 
 /// `text` without a code fence around it, where a model wrote one.
-fn unfenced(text: &str) -> &str {
+pub(crate) fn unfenced(text: &str) -> &str {
     let t = js::trim(text);
     let Some(rest) = t.strip_prefix("```") else { return t };
     let rest = rest.trim_start_matches(|c: char| c.is_ascii_alphanumeric());
