@@ -12,7 +12,7 @@ import "./player.css";
 import { sourceOf } from "./bundle";
 import { start } from "./player";
 import type { Painter } from "./protocol";
-import { client, served } from "./served";
+import { served, serving, token } from "./served";
 import { offline } from "./offline";
 import { worker } from "./spawn";
 
@@ -20,12 +20,12 @@ const params = new URLSearchParams(location.search);
 const bundle = params.get("bundle") ?? import.meta.env.VITE_BUNDLE ?? "../../tests/fixtures/torture.scaena";
 const editing = new URLSearchParams({ bundle });
 if (params.has("painter")) editing.set("painter", params.get("painter")!);
-if (served) editing.set("serve", "");
+if (served) editing.set("serve", token);
 document.querySelector<HTMLAnchorElement>("#edit")!.href = `editor.html?${editing}`;
 
 try {
   const source = sourceOf(bundle, bundle);
-  await start(served && "url" in source ? { ...source, serve: client } : source, {
+  await start(served && "url" in source ? { ...source, serve: serving } : source, {
     painter: (params.get("painter") ?? "auto") as Painter,
     engine: worker,
     channel: `scaena:${new URL(bundle, location.href).href}`,
