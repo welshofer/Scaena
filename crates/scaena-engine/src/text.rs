@@ -749,6 +749,7 @@ impl TextEngine {
             }
             builder.build(&text)
         };
+        layout.set_preferred_breaks(particles(spec.lang.as_deref()));
         // The hyphen each span draws where a line breaks inside one of its words.
         let mut hyphens = Vec::new();
         let mut at = 0;
@@ -1537,6 +1538,32 @@ fn phrases(lang: Option<&str>) -> Option<&'static LineBreakOverrideFn> {
     }
 }
 
+/// Where a Japanese phrase too wide for its line breaks inside it, before any other place it may:
+/// after a particle that ends a noun, a word in Han or katakana (本当に|うまく, ケーキも|おいしい),
+/// and before the next phrase's letter. The phrase breaks elsewhere only where no
+/// such place fits; with no dictionary, a particle before another (には, でも) ends no phrase yet,
+/// and で before き is a verb's (使用でき|る), not a particle.
+fn particles(lang: Option<&str>) -> Option<fn(LineBreakContext) -> bool> {
+    fn prefers(cx: LineBreakContext) -> bool {
+        after_particle(cx.before_before, cx.before, cx.after)
+    }
+    match lang.and_then(|l| Language::parse(l).ok()).as_ref().map(Language::language) {
+        Some("ja") => Some(prefers),
+        _ => None,
+    }
+}
+
+/// Whether a break between `before` and `after`, `before_before` before them, falls after a
+/// particle that ends a noun ([`particles`]).
+fn after_particle(before_before: Option<char>, before: char, after: char) -> bool {
+    let particle = |c: char| matches!(c, 'に' | 'を' | 'が' | 'は' | 'で' | 'と' | 'も');
+    before_before.is_some_and(|c| han(c) || katakana(c))
+        && particle(before)
+        && cjk_letter(after)
+        && !particle(after)
+        && !(before == 'で' && after == 'き')
+}
+
 /// Whether `segment` ends at the hyphen inside a word, the word going on in the next: a
 /// hyphen or a hyphen (U+2010) between two letters or figures.
 fn joins(text: &str, segment: &Segment) -> bool {
@@ -2308,7 +2335,22 @@ fn read_layout(
 
 #[cfg(test)]
 mod tests {
-    use super::figure_runs;
+    use super::{after_particle, figure_runs, particles};
+
+    #[test]
+    fn a_japanese_phrase_prefers_to_break_after_the_particle_that_ends_a_noun() {
+        let at = |text: &str, k: usize| {
+            let chars: Vec<char> = text.chars().collect();
+            after_particle(k.checked_sub(2).map(|j| chars[j]), chars[k - 1], chars[k])
+        };
+        assert!(at("本当にうまく", 3), "本当に|うまく");
+        assert!(at("ケーキもおいしい", 4), "ケーキも|おいしい");
+        assert!(!at("これはうまく", 3), "after kana, no noun ends");
+        assert!(!at("日本にはない", 3), "には: a particle before another");
+        assert!(!at("使用できる", 3), "使用で|きる: a verb's で");
+        assert!(!at("本当に、", 3), "a mark is no phrase");
+        assert!(particles(Some("zh-Hans")).is_none() && particles(None).is_none());
+    }
 
     #[test]
     fn a_figure_run_is_its_digits_a_sign_before_them_and_the_marks_between_them() {

@@ -427,7 +427,8 @@ impl Deck {
 
     /// Parse a `deck.json` string. A deck saved before a shadow drew reads without its
     /// `shadow`s, and one saved before a shrinking text was held under its `maxSize` without the
-    /// `maxSize` of each text whose own `fit` is `shrink`, as it drew (`crate::version`).
+    /// `maxSize` of each text whose own `fit` is `shrink`, and one saved before code stood on a
+    /// card with each code text's card off, as it drew (`crate::version`).
     pub fn from_json(s: &str) -> Result<Deck, serde_json::Error> {
         let mut deck: Deck = serde_json::from_str(s)?;
         // The format as saved, which reading it as the current one wrote over.
@@ -472,6 +473,20 @@ impl Deck {
                 .filter(|(id, _)| shrinks(id))
                 .for_each(|(_, p)| {
                     p.shift_remove("maxSize");
+                });
+        }
+        // Code saved before it stood on a card stands where it stood (deck format 0.39).
+        let coded = |p: &Props| p.get("code").is_some_and(Value::is_object);
+        let any = deck.nodes.values().any(|n| coded(&n.props))
+            || deck.states.iter().flat_map(|s| s.props.values()).any(coded)
+            || deck.overrides.values().any(coded);
+        if any && crate::version::uncards(&saved(s)?) {
+            (deck.nodes.values_mut().map(|n| &mut n.props))
+                .chain(deck.states.iter_mut().flat_map(|s| s.props.values_mut()))
+                .chain(deck.overrides.values_mut())
+                .filter_map(|p| p.get_mut("code").and_then(Value::as_object_mut))
+                .for_each(|code| {
+                    code.entry("card").or_insert(Value::Bool(false));
                 });
         }
         Ok(deck)

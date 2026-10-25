@@ -573,8 +573,9 @@ pub struct Library {
     /// The shadows added (PLAN 2.115): those the theme ships that the copy lacked, by their names,
     /// in the theme's order.
     pub shadows: Vec<String>,
-    /// Whether the look the theme gives code (PLAN 2.132), which the copy lacked, was brought: only
-    /// into a copy whose deck shows no code text, so no code draws otherwise than it did.
+    /// Whether the look the theme gives code (PLAN 2.132), or its card and numbers (PLAN 2.136),
+    /// which the copy lacked, was brought: only into a copy whose deck shows no code text, so no
+    /// code draws otherwise than it did.
     pub code: bool,
     /// The backgrounds added (PLAN 2.147): the shader presets the theme ships that the copy
     /// lacked, by their names, in the theme's order, each with its palette where the copy lacked
@@ -683,7 +684,16 @@ pub fn library(theme: &Value, shipped: &Value, code_shown: bool) -> Option<(Valu
     // Code's look (PLAN 2.132), where the copy has none and nothing in the deck draws in the one it
     // has: the theme's own colors would recolor code a slide shows.
     let code = shipped.get("code").filter(|_| theme.get("code").is_none() && !code_shown);
-    brought.code = code.is_some();
+    // Code's card and numbers (PLAN 2.136), into a copy whose `code` lacks them, on the same terms.
+    let framing: Vec<(&str, &Value)> = match (shipped.get("code"), theme.get("code")) {
+        (Some(ships), Some(has)) if !code_shown => ["card", "numbers"]
+            .into_iter()
+            .filter(|key| has.get(*key).is_none())
+            .filter_map(|key| Some((key, ships.get(key)?)))
+            .collect(),
+        _ => Vec::new(),
+    };
+    brought.code = code.is_some() || !framing.is_empty();
     if brought.added.is_empty()
         && brought.named.is_empty()
         && !brought.furniture
@@ -691,6 +701,7 @@ pub fn library(theme: &Value, shipped: &Value, code_shown: bool) -> Option<(Valu
         && shadows.is_none()
         && backgrounds.is_none()
         && code.is_none()
+        && framing.is_empty()
     {
         return None;
     }
@@ -722,6 +733,9 @@ pub fn library(theme: &Value, shipped: &Value, code_shown: bool) -> Option<(Valu
     }
     if let Some(code) = code {
         theme["code"] = code.clone();
+    }
+    for (key, value) in framing {
+        theme["code"][key] = value.clone();
     }
     if let Some(version) = shipped.get("scaena-theme") {
         theme["scaena-theme"] = version.clone();
