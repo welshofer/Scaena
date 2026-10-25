@@ -139,6 +139,11 @@
             "description": "The deck runs past the range of slides its brief asked for; this slide turns least from\nthe one before, and is the first to cut.",
             "type": "string",
             "const": "pacing"
+          },
+          {
+            "description": "A change the model asked once it saw the slide drawn was not kept, lint having found the\nslide worse for it (`meta.narrative.refused`, lift-up USE-4).",
+            "type": "string",
+            "const": "look"
           }
         ]
       },
