@@ -463,10 +463,11 @@ fn openai_turn(answer: &Value) -> Turn {
             args: parsed(c.pointer("/function/arguments").and_then(Value::as_str).unwrap_or_default()),
         })
         .collect();
+    // An answer that ran out of room says so, its calls or not: the last may be cut off (REL-1).
     let stop = match choice.get("finish_reason").and_then(Value::as_str) {
+        Some("length") => Stop::Length,
         _ if !calls.is_empty() => Stop::Tools,
         Some("stop") => Stop::End,
-        Some("length") => Stop::Length,
         _ => Stop::Other,
     };
     let usage =
@@ -560,9 +561,9 @@ fn gemini_turn(answer: &Value) -> Turn {
         .filter_map(|p| p.get("text").and_then(Value::as_str))
         .collect();
     let stop = match candidate.get("finishReason").and_then(Value::as_str) {
+        Some("MAX_TOKENS") => Stop::Length,
         _ if !calls.is_empty() => Stop::Tools,
         Some("STOP") => Stop::End,
-        Some("MAX_TOKENS") => Stop::Length,
         _ => Stop::Other,
     };
     let usage = (answer.get("usageMetadata"))

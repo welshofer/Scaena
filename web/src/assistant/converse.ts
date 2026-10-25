@@ -4,6 +4,7 @@
 import type { AssistantEvent } from "../protocol";
 import { answerOf, unanswered, unasked } from "../words";
 import type { Call, Message, Provider, Result, Tool, Turn } from "./providers";
+import { owing } from "./cut";
 import { fenced } from "./prompt";
 
 /** What the page hears as the assistant works. */
@@ -180,9 +181,13 @@ export async function converse(o: Options): Promise<void> {
     o.conversation.push({ role: "assistant", text: answered.text, calls: answered.calls, raw: answered.raw });
     if (answered.usage) o.emit({ kind: "usage", ...answered.usage });
     if (answered.text) o.emit({ kind: "text", text: answered.text });
-    if (!answered.calls.length) return o.emit({ kind: "done", stop: answered.stop });
+    // A call the answer's token limit cut off is not run: its arguments are not what the model
+    // meant. It goes back with the others, told to make the edit in smaller patches, as
+    // scaena-chat's `answer` tells it (lift-up REL-1).
+    const { run: calls, owed } = owing(answered.calls, answered.stop);
+    if (!calls.length && !owed.length) return o.emit({ kind: "done", stop: answered.stop });
     const results: Result[] = [];
-    for (const call of answered.calls) {
+    for (const call of calls) {
       // A call the user stopped before it ran is answered as stopped: every call has an answer.
       if (stopped()) {
         results.push({ id: call.id, name: call.name, json: JSON.stringify({ message: "the user stopped the assistant" }), error: true });
@@ -193,6 +198,7 @@ export async function converse(o: Options): Promise<void> {
       results.push(result);
       o.emit({ kind: "result", id: call.id, name: call.name, error: result.error, summary, made, json: result.json, png: result.png });
     }
+    results.push(...owed);
     // Each result, errors too, reaches the model fenced as data under its tool's name (lift-up
     // SEC-3), as scaena-chat's `results` fences it: what a tool reads is the deck's words or a
     // source's, and an error can quote them.

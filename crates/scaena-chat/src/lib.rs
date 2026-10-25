@@ -169,6 +169,19 @@ pub struct Chat {
     pub budget: usize,
     /// The rounds of calls the question asked last has taken.
     taken: usize,
+    /// What the last answer's call cut off by its token limit is told in place of a result, to go
+    /// back with the others ([`Chat::results`], lift-up REL-1).
+    owed: Vec<ToolResult>,
+}
+
+/// What a call cut off by the answer's token limit is told in place of its result: it was not
+/// run, and why (lift-up REL-1).
+pub const CUT: &str = "Your answer ran out of room in this call; make the edit in smaller patches.";
+
+/// Whether `call`, the last of an answer that ran out of room, was cut off: its arguments came to
+/// nothing or did not read as JSON (OpenAI's text, `{}` where a stream's did not parse).
+fn cut(call: &Call) -> bool {
+    call.args.as_object().is_none_or(|o| o.is_empty())
 }
 
 /// What the model's answer comes to.
@@ -195,6 +208,7 @@ impl Chat {
             frames: 2,
             budget: BUDGET,
             taken: 0,
+            owed: Vec::new(),
         }
     }
 
@@ -231,6 +245,10 @@ impl Chat {
     /// Read the answer to [`Chat::request`]: its turn joins the conversation, and says what
     /// comes next. A provider's refusal, or an answer that does not read, is an error, and the
     /// conversation is as it was.
+    ///
+    /// A call the answer's token limit cut off is not run: its arguments are not what the model
+    /// meant. It goes back with the others' results, told to make the edit in smaller patches
+    /// ([`CUT`], lift-up REL-1), so [`Next::Calls`] may hold no call to run.
     pub fn answer(&mut self, status: u16, status_text: &str, body: &str) -> Result<Next, ChatError> {
         let turn = self.provider.read_turn(status, status_text, body)?;
         self.conversation.push(Message::Assistant {
@@ -238,10 +256,17 @@ impl Chat {
             calls: turn.calls.clone(),
             raw: turn.raw,
         });
-        Ok(if turn.calls.is_empty() {
+        let mut calls = turn.calls;
+        self.owed.clear();
+        if turn.stop == Stop::Length && calls.last().is_some_and(cut) {
+            let call = calls.pop().expect("a last call");
+            let json = serde_json::json!({ "message": CUT }).to_string();
+            self.owed.push(ToolResult { id: call.id, name: call.name, json, error: true, png: None });
+        }
+        Ok(if calls.is_empty() && self.owed.is_empty() {
             Next::Done { text: turn.text, stop: turn.stop, usage: turn.usage }
         } else {
-            Next::Calls { text: turn.text, calls: turn.calls, usage: turn.usage }
+            Next::Calls { text: turn.text, calls, usage: turn.usage }
         })
     }
 
@@ -249,7 +274,16 @@ impl Chat {
     /// whether the model may be asked again, or the question has taken its rounds.
     /// Each result, errors too, reaches the model fenced as data under its tool's name: what a
     /// tool reads is the deck's words or a source's, and an error can quote them (lift-up SEC-3).
+    ///
+    /// A call cut off by the answer's token limit is answered as [`Chat::answer`] said, in place
+    /// of any result handed for it.
     pub fn results(&mut self, mut results: Vec<ToolResult>) -> bool {
+        for owed in self.owed.drain(..) {
+            match results.iter_mut().find(|r| r.id == owed.id) {
+                Some(r) => *r = owed,
+                None => results.push(owed),
+            }
+        }
         for r in results.iter_mut() {
             r.json = scaena_fence::fenced(&r.name.replace('_', "-"), &r.json);
         }
@@ -261,6 +295,7 @@ impl Chat {
     /// Start again: the next question is the first.
     pub fn forget(&mut self) {
         self.conversation.clear();
+        self.owed.clear();
         self.taken = 0;
     }
 }

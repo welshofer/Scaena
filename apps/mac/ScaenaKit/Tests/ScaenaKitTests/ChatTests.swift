@@ -572,10 +572,13 @@ private func keychainWritable() -> Bool {
     #expect(words.hasPrefix("Why this exists"))
     // Asked with the point its slide makes (lift-up FUNC-3).
     let claim = "Scaena is the tool we would build if the slide had never been invented."
-    #expect(writing.title == "Tightened" && writing.prompt == "The text:\n\(words)\nThe point its slide makes: \(claim)")
+    // The deck's words fenced as data (lift-up W1).
+    #expect(
+        writing.title == "Tightened"
+            && writing.prompt == "<data label=\"text\">\nThe text:\n\(words)\nThe point its slide makes: \(claim)\n</data>")
     #expect(writing.instructions.hasPrefix("You tighten the words of one text on a slide"))
     let notes = try session.writing(WritingAsk(kind: .notes, state: "cover"))
-    #expect(notes.prompt.hasPrefix("The slide reads:\nTitle: Scaena"))
+    #expect(notes.prompt.hasPrefix("The slide reads:\n<data label=\"slide\">\nTitle: Scaena"))
 
     let request = try Provider.anthropic.onceRequest(
         model: "a-model", key: "sk-test", instructions: writing.instructions, prompt: writing.prompt)
@@ -593,7 +596,9 @@ private func keychainWritable() -> Bool {
     // A rewrite in the person's own words is asked in them (lift-up FUNC-3).
     let rewrite = try session.writing(
         WritingAsk(kind: .rewrite, state: "cover", node: "subtitle", instruction: "Shorter, for executives"))
-    #expect(rewrite.prompt.hasPrefix("The text:\n\(words)\nHow to rewrite it: Shorter, for executives\n"))
+    // The deck's words fenced, the person's own after the fence (lift-up W1).
+    #expect(rewrite.prompt.hasPrefix("<data label=\"text\">\nThe text:\n\(words)\n"))
+    #expect(rewrite.prompt.hasSuffix("</data>\nHow to rewrite it: Shorter, for executives"))
     let drafted = try session.written(WritingAsk(kind: .notes, state: "cover"), answer: "Open on the name.")
     #expect(drafted.patch?.first?["op"]?.string == "set_state")
 
