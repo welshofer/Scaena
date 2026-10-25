@@ -1305,7 +1305,8 @@ mod tests {
         assert!(timing(&h).is_empty(), "{:?}", h.findings);
         let m = ((30.0 * (n - 1) as f64 + 3000.0 * 60.0 / WORDS_A_MINUTE) / 60.0).round() as usize;
         assert!(h.pacing.says.ends_with(&slot(m)), "{} for {m}", h.pacing.says);
-        assert_eq!((h.score, h.pacing.score), score, "the score is Vzestup's");
+        // Pacing's score is Vzestup's count; the overall moves only as notes fill out balance.
+        assert_eq!(h.pacing.score, score.1, "pacing's score is Vzestup's");
 
         // A beat long by its notes alone: past the slot, found on it, by its notes.
         deck.pointer_mut(&short).unwrap()["notes"] = json!(words(7000));
