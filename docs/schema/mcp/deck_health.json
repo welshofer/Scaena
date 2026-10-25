@@ -144,6 +144,11 @@
             "description": "A change the model asked once it saw the slide drawn was not kept, lint having found the\nslide worse for it (`meta.narrative.refused`, lift-up USE-4).",
             "type": "string",
             "const": "look"
+          },
+          {
+            "description": "Its headline names a topic (\"Q3 by product\") where a content slide states its point: in a\ndeck health reads in English, three to six words with no verb and no question\n(lift-up 10-25b FUNC-4).",
+            "type": "string",
+            "const": "label"
           }
         ]
       },

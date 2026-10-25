@@ -108,6 +108,7 @@ extension Health {
                 switch finding.kind {
                 case "bigIdea": "big idea"
                 case "layout": "broken slide"
+                case "look": "change let go"
                 case "label": "topic headline"
                 default: finding.kind
                 }

@@ -1850,10 +1850,26 @@ mod tests {
                 .and_then(|s| s["layout"].as_str())
                 .map(str::to_string)
         };
+        let labelled = |h: &Health| h.findings.iter().filter(|f| f.kind == Kind::Label).cloned().collect::<Vec<_>>();
+        // The climate deck as Narrato wrote it: the headlines it names a topic by, and none else.
+        let base = labelled(&h);
+        let named: Vec<&str> = base.iter().map(|f| h.slides[f.slide - 1].title.as_str()).collect();
+        assert_eq!(
+            named,
+            [
+                "Who Emits: History Versus Today",
+                "Four Years of Records",
+                "The Path to Net Zero",
+                "Pledges Versus the 1.5°C Path",
+                "Next Steps for Our Team"
+            ],
+            "{base:#?}"
+        );
         let content = (1..h.slides.len() - 1)
             .find(|&i| {
                 layout(&h.slides[i].state)
                     .is_none_or(|l| !FRAMING.contains(&l.as_str()) && !CLOSING.contains(&l.as_str()))
+                    && !base.iter().any(|f| f.slide == i + 1)
             })
             .expect("a content slide");
         let retitled = |deck: &Value, i: usize, to: &str| -> Value {
@@ -1861,11 +1877,9 @@ mod tests {
             let was = serde_json::to_string(&h.slides[i].title).unwrap();
             serde_json::from_str(&text.replace(&was, &serde_json::to_string(to).unwrap())).unwrap()
         };
-        let labelled = |h: &Health| h.findings.iter().filter(|f| f.kind == Kind::Label).cloned().collect::<Vec<_>>();
-        assert!(labelled(&h).is_empty(), "the climate deck's headlines state their points: {:#?}", labelled(&h));
 
         let titled = retitled(&deck, content, "Emissions by sector");
-        let found = labelled(&of(&titled));
+        let found: Vec<Finding> = labelled(&of(&titled)).into_iter().filter(|f| !base.contains(f)).collect();
         assert_eq!(found.len(), 1, "{found:#?}");
         let k = content + 1;
         assert_eq!((found[0].slide, found[0].severity, found[0].fix.clone()), (k, Severity::Info, None));
@@ -1880,7 +1894,7 @@ mod tests {
             format!("Restate slide {k}'s headline as the point it makes: what should the room believe after it?")
         );
         // The cover frames the talk, and a deck in another language is not read for it.
-        assert!(labelled(&of(&retitled(&deck, 0, "Emissions by sector"))).is_empty());
+        assert_eq!(labelled(&of(&retitled(&deck, 0, "Emissions by sector"))), base);
         let mut german = titled.clone();
         german["meta"]["narrative"]["brief"]["language"] = json!("German");
         assert!(labelled(&of(&german)).is_empty());

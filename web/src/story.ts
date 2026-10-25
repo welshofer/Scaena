@@ -88,7 +88,12 @@ export function triage(h: Health, open = OPEN): { open: HealthFinding[]; more: H
 }
 
 /** A kind of finding as the folded count names it. */
-const KIND: Partial<Record<HealthFinding["kind"], string>> = { bigIdea: "big idea", layout: "broken slide", label: "topic headline" };
+const KIND: Partial<Record<HealthFinding["kind"], string>> = {
+  bigIdea: "big idea",
+  layout: "broken slide",
+  look: "change let go",
+  label: "topic headline",
+};
 
 /** What the folded findings come to, by kind, the most first: "12 more: 7 tone, 5 arc". */
 export function moreSaid(more: HealthFinding[]): string {
@@ -305,5 +310,7 @@ export function storyPanel(stage: Stage, into: HTMLElement, editor: StoryEditor)
     health: () => health,
     /** What it leads with and what it folds, as it last drew them. */
     triaged: () => (health ? triage(health) : undefined),
+    /** What folded findings of these kinds would come to, as the panel names them. */
+    said: (kinds: HealthFinding["kind"][]) => moreSaid(kinds.map((kind) => ({ kind }) as HealthFinding)),
   };
 }

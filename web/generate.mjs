@@ -505,6 +505,9 @@ try {
   // What to do first open, the rest folded (lift-up S1): a row for each slide in each, every
   // finding in one of them once.
   const rows = await page.evaluate(() => [...document.querySelectorAll("#story [data-findings] li[data-slide]")].map((li) => li.querySelectorAll("p[data-kind]").length));
+  // Every kind of finding folded is said by a name a person reads (lift-up 10-25b FUNC-4).
+  const kinds = await page.evaluate(() => window.scaena.story.said(["look", "label", "look", "bigIdea"]));
+  check(kinds === "4 more: 2 change let go, 1 topic headline, 1 big idea", `the folded kinds named: ${kinds}`);
   const looked = await page.evaluate(() => window.scaena.story.health().findings.length);
   check(rows.reduce((a, b) => a + b, 0) === looked, `every finding has its row once: ${rows} of ${looked}`);
   // Opened, so a fix or a question folded with the rest can be reached.
