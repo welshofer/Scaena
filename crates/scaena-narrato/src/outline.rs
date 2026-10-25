@@ -139,7 +139,7 @@ pub fn read(text: &str, arc: &NarrativeArc, plan: &[(usize, usize, usize)]) -> R
 /// `outline` as the person settled it, ready for the slides: each claim and name trimmed, a beat
 /// with no claim passed over, a beat with no name called by its place, and `target` slides spread
 /// over the beats that stand as the plan spreads them. None left is refused.
-pub fn settled(outline: &Outline, target: usize) -> Result<Outline, String> {
+pub fn settled(outline: &Outline, target: usize, range: (usize, Option<usize>)) -> Result<Outline, String> {
     let mut beats: Vec<Beat> = (outline.beats.iter())
         .filter(|b| !b.claim.trim().is_empty())
         .map(|b| Beat { name: b.name.trim().to_string(), claim: b.claim.trim().to_string(), slides: b.slides })
@@ -153,30 +153,33 @@ pub fn settled(outline: &Outline, target: usize) -> Result<Outline, String> {
         }
     }
     let given: Vec<usize> = beats.iter().map(|b| b.slides).collect();
-    for (beat, count) in beats.iter_mut().zip(counted(&given, target.max(1))) {
+    for (beat, count) in beats.iter_mut().zip(counted(&given, target.max(1), range)) {
         beat.slides = count;
     }
     Ok(Outline { big_idea: outline.big_idea.trim().to_string(), beats })
 }
 
 /// The slides each beat takes, from the counts the person `given` them (lift-up FUNC-4): kept where
-/// they come to `target`, the least the length asks, or a little past it (a fifth, a slide at
-/// least), a beat given none taking one; else scaled to `target` in proportion, each beat at least
-/// one, the largest shares taking what rounding leaves. With no count given at all, the slides are
-/// spread evenly ([`beats::allocate`]).
-pub fn counted(given: &[usize], target: usize) -> Vec<usize> {
+/// they come to a sum within `range`, the fewest and the most slides the length allows (no most
+/// for "41+ slides"), a beat given none taking one; else scaled in proportion to the nearer end of
+/// it, each beat at least one, the largest shares taking what rounding leaves. With no count given
+/// at all, `target` slides are spread evenly ([`beats::allocate`]).
+pub fn counted(given: &[usize], target: usize, range: (usize, Option<usize>)) -> Vec<usize> {
     let n = given.len();
     if given.iter().all(|&c| c == 0) {
         return beats::allocate(target.max(n), n);
     }
     let counts: Vec<usize> = given.iter().map(|&c| c.max(1)).collect();
     let sum: usize = counts.iter().sum();
-    if sum >= target && sum <= target + (target / 5).max(1) {
-        return counts;
-    }
+    let (least, most) = range;
+    let goal = match most {
+        _ if sum < least => least,
+        Some(most) if sum > most => most,
+        _ => return counts,
+    };
     // In proportion, floored, each at least one; then what is left over goes to the largest
     // remainders, or what is over comes off the largest counts.
-    let goal = target.max(n);
+    let goal = goal.max(n);
     let exact: Vec<f64> = counts.iter().map(|&c| c as f64 * goal as f64 / sum as f64).collect();
     let mut out: Vec<usize> = exact.iter().map(|&x| (x.floor() as usize).max(1)).collect();
     let mut total: usize = out.iter().sum();
@@ -261,19 +264,27 @@ mod tests {
         assert!(prompt(&czech, arc, "", &plan).contains("write the big idea and every claim in Czech"));
     }
 
-    /// The counts a person sets stand where they come to the length's least, or near it; others
-    /// are scaled to it, each beat one at least; none given, the slides spread evenly (lift-up
-    /// FUNC-4).
+    /// The counts a person sets stand where their sum is within the length's own range; others
+    /// are scaled to its nearer end, each beat one at least; none given, the slides spread evenly
+    /// (lift-up FUNC-4).
     #[test]
     fn the_slides_a_person_gives_each_beat_are_kept() {
-        assert_eq!(counted(&[3, 1, 1], 5), [3, 1, 1], "kept: they come to the target");
-        assert_eq!(counted(&[3, 2, 1], 5), [3, 2, 1], "kept: one past it");
-        assert_eq!(counted(&[6, 2, 2], 5), [3, 1, 1], "scaled down to the target");
-        assert_eq!(counted(&[1, 1], 8), [4, 4], "scaled up to it");
-        assert_eq!(counted(&[2, 0, 1], 4), [2, 1, 1], "a beat given none takes one");
-        assert_eq!(counted(&[9, 1, 1, 1, 1], 5), [1, 1, 1, 1, 1], "each one at least");
-        assert_eq!(counted(&[0, 0, 0], 5), beats::allocate(5, 3), "none given: spread evenly");
-        assert_eq!(counted(&[0, 0, 0], 5), [1, 2, 2]);
+        assert_eq!(counted(&[3, 1, 1], 5, (5, Some(6))), [3, 1, 1], "kept: they come to the least");
+        assert_eq!(counted(&[3, 2, 1], 5, (5, Some(6))), [3, 2, 1], "kept: at the most");
+        assert_eq!(counted(&[6, 2, 2], 5, (5, Some(5))), [3, 1, 1], "scaled down to the most");
+        assert_eq!(counted(&[1, 1], 8, (8, Some(9))), [4, 4], "scaled up to the least");
+        assert_eq!(counted(&[2, 0, 1], 4, (4, Some(5))), [2, 1, 1], "a beat given none takes one");
+        assert_eq!(counted(&[9, 1, 1, 1, 1], 5, (5, Some(5))), [1, 1, 1, 1, 1], "each one at least");
+        assert_eq!(counted(&[0, 0, 0], 5, (5, Some(6))), beats::allocate(5, 3), "none given: spread evenly");
+        assert_eq!(counted(&[0, 0, 0], 5, (5, Some(6))), [1, 2, 2]);
+        // Within the length's own range, not from its count on: "11-15 slides" counts 13, and
+        // keeps a person's 11 and 15; 18 comes down to 15.
+        let eleven_to_fifteen = (11, Some(15));
+        assert_eq!(counted(&[5, 3, 3], 13, eleven_to_fifteen), [5, 3, 3]);
+        assert_eq!(counted(&[5, 5, 5], 13, eleven_to_fifteen), [5, 5, 5]);
+        assert_eq!(counted(&[6, 6, 6], 13, eleven_to_fifteen), [5, 5, 5]);
+        // "41+ slides" has no top.
+        assert_eq!(counted(&[30, 20], 45, (41, None)), [30, 20]);
         let three = |slides: [usize; 3]| Outline {
             big_idea: String::new(),
             beats: slides
@@ -282,9 +293,11 @@ mod tests {
                 .map(|(i, &s)| Beat { name: format!("B{i}"), claim: "A claim.".into(), slides: s })
                 .collect(),
         };
-        let kept: Vec<usize> = settled(&three([3, 1, 1]), 5).unwrap().beats.iter().map(|b| b.slides).collect();
+        let kept: Vec<usize> =
+            settled(&three([3, 1, 1]), 5, (5, Some(6))).unwrap().beats.iter().map(|b| b.slides).collect();
         assert_eq!(kept, [3, 1, 1]);
-        let scaled: Vec<usize> = settled(&three([6, 2, 2]), 5).unwrap().beats.iter().map(|b| b.slides).collect();
+        let scaled: Vec<usize> =
+            settled(&three([6, 2, 2]), 5, (5, Some(5))).unwrap().beats.iter().map(|b| b.slides).collect();
         assert_eq!(scaled, [3, 1, 1]);
     }
 
@@ -320,15 +333,15 @@ mod tests {
                 Beat { name: "Proof".into(), claim: "Ninety miles walked.".into(), slides: 9 },
             ],
         };
-        let settled = settled(&outline, 8).unwrap();
+        let settled = settled(&outline, 8, (5, Some(10))).unwrap();
         assert_eq!(settled.big_idea, "One idea");
         let names: Vec<&str> = settled.beats.iter().map(|b| b.name.as_str()).collect();
         assert_eq!(names, ["Solution", "Beat 2", "Proof"]);
         let slides: Vec<usize> = settled.beats.iter().map(|b| b.slides).collect();
-        // Eleven given over the three kept, more than eight's room: scaled to eight in proportion,
-        // each one at least (lift-up FUNC-4).
-        assert_eq!(slides, [1, 1, 6]);
-        assert!(super::settled(&Outline::default(), 8).is_err());
+        // Eleven given over the three kept, more than "5-10 slides" allows: scaled to ten in
+        // proportion, each one at least (lift-up FUNC-4).
+        assert_eq!(slides, [1, 1, 8]);
+        assert!(super::settled(&Outline::default(), 8, (5, Some(10))).is_err());
     }
 
     #[test]
