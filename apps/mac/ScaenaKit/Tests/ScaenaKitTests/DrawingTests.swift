@@ -55,3 +55,26 @@ import Testing
     #expect(c?.count == 7, "the last round is drawn")
     #expect(editor.layoutsWanted.drawn == 1, "\(editor.layoutsWanted.drawn) rounds drawn, of three asked")
 }
+
+/// The cue a show goes on to is laid out ahead away from the window (lift-up 10-25b PERF-5): the
+/// session takes it, and its frames are those the session lays out here; once its cue is kept, or
+/// the deck changed since, another is not taken.
+@Test @MainActor func aCueLaidOutAwayFromTheWindowIsTheOneItsFramesSample() async throws {
+    let editor = DeckEditor(session: try ScaenaSession(directory: b1))
+    let cued = try #require(editor.slots.dropFirst().first { $0.span > 0 })
+    let here = try ScaenaSession(directory: b1).frame(cued.state, at: cued.span / 2)
+
+    await editor.preparing(cued.state)
+    #expect(try editor.session.frame(cued.state, at: cued.span / 2) == here, "sampled as laid out here")
+    let laying = try #require(editor.session.laying())
+    let again = try laying.cue(format: nil, state: cued.state)
+    #expect(!editor.session.cue(laid: again), "the cue shown is kept")
+
+    let stale = try laying.cue(format: nil, state: cued.state)
+    let typed: JSONValue = [
+        "op": "replace_text", "state": "cover", "node": "title", "from": 0, "to": 0, "text": "Edited. ",
+    ]
+    editor.shown = "cover"
+    try editor.make([typed])
+    #expect(!editor.session.cue(laid: stale), "the deck changed since")
+}
