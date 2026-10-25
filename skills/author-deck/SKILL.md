@@ -35,6 +35,11 @@ Every step works through either surface. An MCP tool takes the same settings its
 | set a slide's background | `scaena background <bundle> <state> backdrop`, one of the theme's shader presets; `--none` takes it away; neither lists what the slide may take | `background_set` |
 | write one slide as the generator builds them | the MCP server's alone: a slide in the JSON Narrato writes (`deck_generate`'s `slides`), after a slide (`after`) or in a slide's place (`replace`), its layout chosen for its items in the deck's theme and brief; `beat` names the beat of the spine it tells, which its states join and which keeps its claim; with none, a deck with no spine yet begins one, the first slide taking the place of `deck_create`'s blank one | `slide_write` |
 | make a deck from slides you wrote | `scaena generate <dir> "topic" --slides slides.json`: Narrato's slide JSON, no model called | `deck_generate`: the same, the slides given inline |
+| find and replace words | `scaena find <bundle> TEXT`, with `--replace WITH` | `deck_find`, with `replace` |
+| put a picture on a slide | copy it into the bundle's `assets/`, then `add_node` an image | `image_add`: a PNG or JPEG `file`, on a slide, in its empty place for a picture or a box, described by `alt` |
+| edit the theme | `scaena theme <bundle> --edit ops.json` | `theme_edit`: JSON Patch on the theme the deck names |
+| edit a data source's rows | `scaena data <bundle> <source> --edits edits.json` | `data_edit` |
+| read and restore versions (undo) | `scaena history <bundle>`, with `--at`, `--diff`, or `--restore` | `deck_history`, with `at`, `compare`, or `restore` |
 
 Errors:
 - Under `--json`, every command prints one JSON value, and an error is `{ "error": … }` (SPEC §7.1).
@@ -97,7 +102,8 @@ Errors:
    - `--data` shows the rows a chart or table reads after its `dataTransform`.
    - `diff --from a --to b` confirms that a build changes only what it should.
 8. **Edit with patches.**
-   - Once a deck exists, change it with ops (SPEC §7.3, `docs/schema/patch.schema.json`; `docs/examples/revenue.patch.json` is one). Dry-run first: the result is the patch as JSON Patch and what lint finds differently (`added`, `removed`).
+   - Once a deck exists, change it with ops (SPEC §7.3, `docs/schema/patch.schema.json`; `docs/examples/revenue.patch.json` is one). Dry-run first: the result says what the patch changed in the slides and the story (`summary`), what lint finds that it did not (`added`) and finds no more (`removed`), and each beat whose claim its slide no longer says (`restated`); `verbose: true` returns the JSON Patch it compiled to.
+   - A slide's own ops: `move_slide`, `remove_slide`, and `duplicate_slide` move, take away, and copy a slide with its steps and its beat; `set_state` sets a state's layout, transition, hold, and notes; `place`, `choose`, and `replace_text` place a node, set a property where its value lives, and change words, keeping their runs.
    - Prefer the semantic ops:
      - `set_prop` and `set_text` with a `state` change what that state shows.
      - `choose` changes one property where it lives, as a person does in the editor's inspector: `inspect --state <id> --choices <node>` (`deck_inspect` with `choices`) lists what the theme offers for each property, the value shown, and where it lives.
