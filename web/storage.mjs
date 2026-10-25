@@ -24,6 +24,9 @@
 //   why; one is deleted, asked first, and is gone. The deck open here is marked, is not deleted,
 //   and renamed, goes on where it is kept now: the address names it, and a save writes there.
 //   Escape in a name leaves it as it was, the list open.
+// - A browser that will not keep the page's storage for good is asked once, at the first save into
+//   it, never at an edit, and its refusal is said once; the list says it may clear the decks
+//   (lift-up 10-24b REL-4).
 // Exits 1 on any failure.
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
@@ -99,6 +102,21 @@ try {
   };
   const where = () => page.evaluate(() => window.scaena.where());
 
+  // A browser that will not keep what the page stores for good (lift-up 10-24b REL-4): the page
+  // asks it once, and says once what that means; everything the status says is heard.
+  await page.addInitScript(() => {
+    let asked = 0;
+    Object.defineProperty(navigator.storage, "persist", { value: async () => (asked++, false) });
+    Object.defineProperty(navigator.storage, "persisted", { value: async () => false });
+    window.persistAsked = () => asked;
+    window.statusSaid = [];
+    document.addEventListener("DOMContentLoaded", () => {
+      const status = document.querySelector("#status");
+      if (status) new MutationObserver(() => window.statusSaid.push(status.textContent)).observe(status, { childList: true, characterData: true, subtree: true });
+    });
+  });
+  const mayClear = () => page.evaluate(() => window.statusSaid.filter((t) => t.includes("This browser may clear")).length);
+
   // The revenue example, from its URL, edited and saved into the browser's storage.
   await page.goto(editor("/docs/examples/revenue.deck.json"));
   await ready();
@@ -106,6 +124,10 @@ try {
   const source = await page.evaluate(() => window.scaena.source());
   const edited = source.replace('"Revenue doubled"', '"Revenue more than doubled"');
   check((await type(edited)).valid && (await where()).dirty, "an edit marks the bundle changed");
+  // Past the recovery copy's 2 s: an edit keeps that copy, and asks the browser nothing (Firefox
+  // would prompt for a deck the person never kept there).
+  await page.waitForTimeout(3000);
+  check((await page.evaluate(() => window.persistAsked())) === 0 && (await mayClear()) === 0, "an edit with nothing saved asks the browser nothing, and says nothing of it");
 
   const broken = edited.replace("state close layout:title", "state close layout:");
   await type(broken);
@@ -116,6 +138,17 @@ try {
 
   const saved = await page.evaluate(() => window.scaena.save());
   check(saved?.where.kind === "opfs" && saved.where.name === "revenue", `the save goes into the browser's storage as revenue: ${JSON.stringify(saved?.where)}`);
+  await page.waitForFunction(() => window.persistAsked() > 0, null, { timeout: 10000 }).catch(() => {});
+  await page.evaluate(() => window.scaena.save());
+  check(
+    (await page.evaluate(() => window.persistAsked())) === 1 && (await mayClear()) === 1,
+    `the first keep asks the browser to keep it for good, once, and its refusal is said once: asked ${await page.evaluate(() => window.persistAsked())}, said ${await mayClear()}`,
+  );
+  const refusedSaid = await page.evaluate(() => window.statusSaid.find((t) => t.includes("This browser may clear")) ?? "");
+  check(
+    refusedSaid.startsWith("Saved, ") && refusedSaid.indexOf("Saved, ") < refusedSaid.indexOf("This browser may clear"),
+    `the refusal is said after what was saved, never in its place: ${refusedSaid}`,
+  );
   check(new URL(page.url()).searchParams.get("bundle") === "opfs:revenue", `the address names it: ${page.url()}`);
   const kept = await listing(page, "bundles/revenue");
   const fonts = Object.keys(kept).filter((p) => p.startsWith("fonts/"));
@@ -345,6 +378,8 @@ try {
   await page.waitForFunction(() => document.querySelector("#keeping").open && document.querySelectorAll("#keeping li").length, null, { timeout: 10000 }).catch(() => {});
   check(JSON.stringify(await listed()) === JSON.stringify(["downloaded", "revenue"]) && JSON.stringify(await keeps()) === JSON.stringify(["downloaded", "revenue"]), `Kept in this browser lists the decks it keeps: ${await listed()}`);
   check(await page.evaluate(() => document.querySelector("#keeping").contains(document.activeElement)), "the focus in the list");
+  const persistedSaid = await page.evaluate(() => document.querySelector("#keeping [data-persisted]").textContent);
+  check(persistedSaid.startsWith("This browser may clear them"), `the list says the browser may clear them: ${persistedSaid}`);
   await axeInto(page);
   const found = await page.evaluate(async () => {
     const result = await window.axe.run(document, { runOnly: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] });

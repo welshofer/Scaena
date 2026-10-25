@@ -69,7 +69,7 @@ import { dataKeys, sheets } from "./data";
 import { filesPanel } from "./files";
 import { storyPanel } from "./story";
 import { finder, findKeys } from "./find";
-import { deleteKept, keptBundle, keptNames, renameKept } from "./folders";
+import { deleteKept, keptBundle, keptNames, persist, persisted, renameKept } from "./folders";
 import { discard, find, keep, savedAt, type Copy } from "./recovery";
 import { formatsRow } from "./formats";
 import { layerKeys, layers } from "./layers";
@@ -308,6 +308,11 @@ async function listKept() {
   };
   $("#keeping ul").replaceChildren(...names.map(row));
   $("#keeping [data-none]").hidden = names.length > 0;
+  // Whether the browser keeps them for good, or may clear them when short of room (lift-up
+  // 10-24b REL-4).
+  $("#keeping [data-persisted]").textContent = (await persisted())
+    ? "This browser keeps them until you delete them."
+    : "This browser may clear them when it runs short of room: Download keeps a copy of your own.";
 }
 
 /** Say `text` in Kept in this browser, over the page, and in the status under it. */
@@ -2120,7 +2125,16 @@ async function edit(source: Source, opened?: Stage) {
     void listKept();
     // The save recorded the edits since the last: they are versions now.
     void versioning.refresh();
-    say(`Saved, ${many(done.files, "file")}${done.recorded ? ", and the changes kept in its history" : ""}`);
+    const saved = `Saved, ${many(done.files, "file")}${done.recorded ? ", and the changes kept in its history" : ""}`;
+    say(saved);
+    // Kept in this browser: the browser is asked to keep it for good (lift-up 10-24b REL-4), and a
+    // refusal is said after whatever the status says by then (what was saved, or what Play said of
+    // keeping the deck to play it), never in its place.
+    if (done.where.kind === "opfs")
+      void persist((refused) => {
+        const now = status.textContent ?? "";
+        if (!now.includes(refused)) say(now ? `${now}. ${refused}` : refused);
+      });
     return done;
   }
 
