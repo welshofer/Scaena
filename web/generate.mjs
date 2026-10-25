@@ -30,7 +30,8 @@
 //   module: its score and the arc it was written to, the six measures, coherence by words
 //   unscored, a mark on the arc for each slide. No fix rewrites the plan's intensity or tone. A
 //   slide moved out of its beat's order has drifted: a finding's slide is shown at a press; its
-//   fix is one change, which ⌘Z takes back; and its question goes into the assistant's box.
+//   fix is one change, which ⌘Z takes back; a burst of edits is read once, after it stops (lift-up
+//   PERF-1); and its question goes into the assistant's box.
 // Exits 1 on any failure.
 import { mkdir, readFile } from "node:fs/promises";
 import { createServer } from "node:http";
@@ -515,6 +516,19 @@ try {
   ).catch(() => {});
   const back = await page.evaluate(() => window.scaena.story.health()?.findings.map((f) => `${f.slide} ${f.kind}`));
   check(back.includes(`${slide} ${kind}`), `undone, the finding is back: ${back}`);
+  // A burst of edits is read once, after it stops, as the Mac's Story panel waits (lift-up
+  // PERF-1): five edits a tenth of a second apart, then the panel's pause.
+  const reads = await page.evaluate(() => window.scaena.story.reads());
+  const burst = await page.evaluate(() => window.scaena.source());
+  for (let i = 1; i <= 5; i++) {
+    await page.evaluate((s) => window.scaena.type(s), `# a burst of edits, ${i}\n${burst}`);
+    await page.waitForTimeout(100);
+  }
+  await page.waitForTimeout(1500);
+  const burstReads = (await page.evaluate(() => window.scaena.story.reads())) - reads;
+  check(burstReads === 1, `a burst of five edits is read once: ${burstReads}`);
+  await page.evaluate((s) => window.scaena.type(s), burst);
+  await page.waitForFunction((was) => window.scaena.source() === was, burst, { timeout: 30000 }).catch(() => {});
   // A row's questions are asked together, with the slide they are about shown, whichever was
   // (lift-up USE-5): another slide is shown first.
   const asked = page.locator("#story [data-findings] li [data-ask]").first();
