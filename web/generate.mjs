@@ -620,10 +620,10 @@ try {
   await page.click("#prompting details > summary");
   await page.selectOption("#prompting-quality", "high");
   await page.uncheck("#prompting-see");
-  const before = await page.evaluate(() => window.scaena.source());
+  const unbriefed = await page.evaluate(() => window.scaena.source());
   await page.click("#prompting-go");
   await page
-    .waitForFunction((was) => window.scaena.source() !== was && window.scaena.last(), before, { timeout: 180000 })
+    .waitForFunction((was) => window.scaena.source() !== was && window.scaena.last(), unbriefed, { timeout: 180000 })
     .catch(() => {});
   const briefed = requests.find((r) => r.asked === "slides")?.prompt ?? "";
   check(briefed.includes("presentation for: Students & Educators"), `the slides are written for the persona chosen: ${briefed.match(/presentation for: [^\n]*/)?.[0]}`);
