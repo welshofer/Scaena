@@ -76,6 +76,11 @@ export function writer(stage: Stage, host: WritingHost) {
   const leave = $<HTMLButtonElement>("#writing-leave");
   const use = $<HTMLButtonElement>("#writing-use");
   const key = $<HTMLButtonElement>("#writing-key");
+  const howRow = $("#writing-how-row");
+  const how = $<HTMLInputElement>("#writing-how");
+  const again = $<HTMLButtonElement>("#writing-again");
+  /** The question being answered, which a rewrite asks again in the person's words. */
+  let current: WritingAsk | undefined;
   /** The question being answered: a later one, or the dialog closed, drops an earlier answer. */
   let turn = 0;
   /** The answer offered, and what it answers, until it is taken or left. */
@@ -103,6 +108,10 @@ export function writer(stage: Stage, host: WritingHost) {
   async function asking(ask: WritingAsk) {
     const mine = ++turn;
     reset(TOOLS[ask.kind]);
+    // A rewrite takes the person's own words for how (lift-up FUNC-3), kept as it is asked again.
+    current = ask;
+    howRow.hidden = ask.kind !== "rewrite";
+    how.value = ask.instruction ?? "";
     const who = host.who();
     if (typeof who === "string") {
       thinking.textContent = who;
@@ -179,6 +188,20 @@ export function writer(stage: Stage, host: WritingHost) {
     use.disabled = false;
     answer.focus();
   }
+
+  /** Ask the rewrite again, in the words in the field. */
+  function rewrite() {
+    if (current?.kind !== "rewrite") return;
+    const instruction = how.value.trim() || undefined;
+    void offer({ ...current, instruction });
+  }
+  again.addEventListener("click", rewrite);
+  // Return in the field asks again, rather than taking the answer the form would otherwise take.
+  how.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter" || e.isComposing) return;
+    e.preventDefault();
+    rewrite();
+  });
 
   // An answer with no words left in it is nothing to take, as no answer is: Use it waits for words.
   answer.addEventListener("input", () => {
