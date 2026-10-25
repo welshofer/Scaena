@@ -437,7 +437,7 @@ async function paint(
 async function painting(
   g: Generator,
   asked: string,
-  pictures: { provider: "openai" | "gemini"; key: string; base?: string },
+  pictures: { provider: "openai" | "gemini"; key: string; base?: string; quality?: "low" | "medium" | "high" },
   hear: (event: GeneratingEvent) => void,
   heard?: (reply: { status: number; body: string }) => void,
 ): Promise<{ placed: string; bytes: Map<string, Uint8Array>; made: number; unmade: string[]; model: string } | undefined> {
@@ -463,7 +463,7 @@ async function painting(
     return undefined;
   }
   hear({ kind: "painting", pictures: wanted, model });
-  const settings = JSON.stringify({ provider: pictures.provider, model, base: pictures.base, quality: "medium" });
+  const settings = JSON.stringify({ provider: pictures.provider, model, base: pictures.base, quality: pictures.quality ?? "medium" });
   const painting = new g.Painting(asked, settings);
   let finished: ReturnType<typeof painting.finish> | undefined;
   try {

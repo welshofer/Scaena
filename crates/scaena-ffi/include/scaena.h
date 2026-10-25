@@ -229,7 +229,8 @@ char *scaena_picture(const uint8_t *bytes, size_t len);
 // moved in frames at rest, laying nothing out; `preview {ops?}`, frames at rest drawn as a
 // patch would make them; and `reach {ops}`, the states a patch changes. Text typed in place
 // (PLAN 3.9): `typed {ops, at?}`, `replace_text`, `style_text`, and `list` ops by the user,
-// validated but not linted, and whether the deck changed; and `bolding` and `italicizing
+// validated but not linted, and whether the deck changed; `restated {before}`, the beats whose
+// claim a slide said in the source as typing began and says no longer, once a burst ends; and `bolding` and `italicizing
 // {state, node, from, to}`, the look ⌘B and ⌘I give characters; and `codeWords {state, node}`,
 // a code text's words as the state shows them, which Copy Code copies, and `tidied {text,
 // language}`, code pasted into code, tidied (PLAN 2.133). A text's
@@ -584,7 +585,9 @@ struct ScaenaChat *scaena_chat_new(const char *args, char **error);
 // - `next`: the calls' results handed to the model, every call answered (those not run, as
 //   stopped): whether it may be asked again, or the question has taken its rounds.
 // - `use {provider, model, base?}`: another model from the next request on, the conversation
-//   kept. `forget`: the next question is the first. `conversation`: the conversation as kept.
+//   kept. `shorter`: the provider found the conversation too long; whether to ask again with
+//   half as much of tools' results, once a question (lift-up PERF-3). `forget`: the next
+//   question is the first. `conversation`: the conversation as kept.
 //
 // `session` may be null for a step that runs nothing on it: all but `ask` and `run`.
 //
