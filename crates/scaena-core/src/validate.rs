@@ -548,7 +548,8 @@ impl LoadedTheme {
                 }
             }
         }
-        // How code is set and colored (ADR-0029): the role it is set in, and each kind's color.
+        // How code is set and colored (ADR-0029): the role it is set in, each kind's color, and
+        // its card's and its line numbers' names (PLAN 2.136).
         if let Some(code) = &t.code {
             if let Some(role) = &code.role {
                 need(t.typography.roles.contains_key(role), "text role", role, "/code/role".into());
@@ -557,6 +558,26 @@ impl LoadedTheme {
             for class in crate::code::Class::KINDS {
                 let Some(color) = syntax.and_then(|s| s.of(class)).and_then(|l| l.color.as_ref()) else { continue };
                 need(self.color(color), "color", color, format!("/code/syntax/{}/color", class.name()));
+            }
+            if let Some(card) = &code.card {
+                for (key, color) in [("fill", &card.fill), ("stroke", &card.stroke)] {
+                    if let Some(color) = color {
+                        need(self.color(color), "color", color, format!("/code/card/{key}"));
+                    }
+                }
+                if let Some(shadow) = &card.shadow {
+                    let named = t.names(crate::model::theme::Vocabulary::Shadow).contains(shadow);
+                    need(named, "shadow", shadow, "/code/card/shadow".into());
+                }
+                if let Some(crate::model::values::Length::Token(radius)) = &card.radius
+                    && radius.starts_with("radius.")
+                {
+                    let named = t.names(crate::model::theme::Vocabulary::Radius).contains(radius);
+                    need(named, "radius", radius, "/code/card/radius".into());
+                }
+            }
+            if let Some(color) = code.numbers.as_ref().and_then(|n| n.color.as_ref()) {
+                need(self.color(color), "color", color, "/code/numbers/color".into());
             }
         }
         // A picture's frame (PLAN T.3a): each band's color.

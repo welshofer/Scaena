@@ -247,6 +247,10 @@ impl SceneNode {
     pub fn ink(&self) -> Option<Rect> {
         match &self.content {
             Content::Text(placed) => {
+                // Code on a card takes its card's box (PLAN 2.136).
+                if let Some(card) = placed.frame.as_deref().and_then(crate::render::CodeFrame::extent) {
+                    return Some(card);
+                }
                 let t = &placed.text;
                 let left = t.lines.iter().map(|l| l.x - l.hang).fold(f32::INFINITY, f32::min);
                 let right = t.lines.iter().map(|l| l.x + l.width + l.hang_end).fold(f32::NEG_INFINITY, f32::max);
@@ -2920,13 +2924,29 @@ fn cell_layer(dl: &mut DisplayList, cell: &Cell, origin: Point, opacity: f32) ->
 /// A text node's layer at `origin`, clipped to its box under `fit: clip` (the clip moves
 /// with the text).
 fn text_layer(dl: &mut DisplayList, id: &str, placed: &PlacedText, origin: Point, opacity: f32) -> Op {
-    let Op::Layer { node, cell, label, transform, opacity, blend, ops, .. } =
-        layer(Some(id), origin, opacity, item_ops(dl, &placed.text))
+    let mut ops = frame_ops(dl, placed);
+    ops.extend(item_ops(dl, &placed.text));
+    let Op::Layer { node, cell, label, transform, opacity, blend, ops, .. } = layer(Some(id), origin, opacity, ops)
     else {
         unreachable!("`layer` makes layers")
     };
     let clip = placed.clip.map(|[x, y, w, h]| Path::rect([x - placed.origin[0], y - placed.origin[1], w, h]));
     Op::Layer { node, cell, label, transform, opacity, blend, clip, ops }
+}
+
+/// What a code text stands on and beside (PLAN 2.136), in its layer, whose origin is the text's:
+/// its card, then its line numbers, each in a layer of its own that no reader or unit takes.
+fn frame_ops(dl: &mut DisplayList, placed: &PlacedText) -> Vec<Op> {
+    let Some(frame) = &placed.frame else { return Vec::new() };
+    let [x, y] = placed.origin;
+    let mut ops = Vec::new();
+    if let Some(card) = &frame.card {
+        ops.push(layer(None, [card.rect[0] - x, card.rect[1] - y], 1.0, card.ops()));
+    }
+    if let Some((at, gutter)) = &frame.gutter {
+        ops.push(layer(None, [at[0] - x, at[1] - y], 1.0, text_ops(dl, gutter)));
+    }
+    ops
 }
 
 /// A text's runs as glyph ops; in a list (ADR-0018), each paragraph's in layers of its own, as
