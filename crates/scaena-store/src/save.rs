@@ -2,7 +2,7 @@
 
 use crate::crdt::{DeckDoc, Edit};
 use crate::subset::subset;
-use crate::{Bundle, Files, HISTORY, StoreError};
+use crate::{Bundle, Files, HISTORY, Recording, StoreError};
 use scaena_core::Deck;
 use scaena_core::document::{Manifest, NodeType};
 use serde_json::Value;
@@ -32,6 +32,10 @@ pub struct Saved {
     /// Fonts subset: (path, bytes before, bytes after).
     pub subset: Vec<(String, usize, usize)>,
     pub manifest: Manifest,
+    /// Where a history that did not load was kept aside, the history begun again beside it
+    /// (lift-up 20261025b REL-1): said once, by the save that did it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub again: Option<String>,
 }
 
 /// A save, done in memory: the files [`Bundle::save`] writes, for a caller that keeps them
@@ -108,14 +112,15 @@ impl Bundle {
         deck: &Deck,
         written: &BTreeMap<String, Vec<u8>>,
         begin: bool,
-    ) -> Result<Option<Vec<u8>>, StoreError> {
+    ) -> Result<Option<Recording>, StoreError> {
         let edit = Edit { message: Some("save"), ..Edit::by(&self.author) };
         match self.record(deck, written, &edit)? {
-            Some(bytes) => Ok(Some(bytes)),
+            Some(recording) => Ok(Some(recording)),
             None if begin => {
                 // The deck, and the data and the theme it is drawn from (ADR-0014, ADR-0016).
                 let begun = Edit { message: Some("history begins"), ..Edit::by(&self.author) };
-                Ok(Some(DeckDoc::begin(deck, &self.kept_files(deck, written), &begun)?.save()?))
+                let history = DeckDoc::begin(deck, &self.kept_files(deck, written), &begun)?.save()?;
+                Ok(Some(Recording { history, aside: None }))
             }
             None => Ok(None),
         }
@@ -126,14 +131,15 @@ impl Bundle {
     /// subset by `subset` (its path, its bytes, and the characters to keep) where `opts`
     /// subsets them.
     ///
-    /// `history` gives the history's bytes, or `None` to carry the bundle's history as it
+    /// `history` gives the history's bytes, and a damaged one it began again from kept aside
+    /// ([`Recording`]), or `None` to carry the bundle's history as it
     /// is. A caller that keeps no CRDT, as a page does (PLAN 2.4), carries it: the next save
     /// that records takes in the deck as a change by `fs`, as it does a `deck.json` edited by
     /// hand (SPEC §8).
     pub fn saving_with(
         &self,
         opts: &SaveOptions,
-        history: impl FnOnce(&Deck, &BTreeMap<String, Vec<u8>>) -> Result<Option<Vec<u8>>, StoreError>,
+        history: impl FnOnce(&Deck, &BTreeMap<String, Vec<u8>>) -> Result<Option<Recording>, StoreError>,
         mut subset: impl FnMut(&str, &[u8], &BTreeSet<char>) -> Result<Vec<u8>, StoreError>,
     ) -> Result<Saving, StoreError> {
         let mut deck = self.deck.clone();
@@ -228,9 +234,15 @@ impl Bundle {
 
         // The history, with this save in it: files renamed are a change to the deck, and the
         // theme as it is written is the history's (ADR-0016).
-        if let Some(bytes) = history(&deck, &rewritten)? {
+        let mut again = None;
+        if let Some(Recording { history, aside }) = history(&deck, &rewritten)? {
             replaced.insert(HISTORY.into());
-            out.insert(HISTORY.into(), bytes);
+            out.insert(HISTORY.into(), history);
+            // A history that did not load, kept aside beside the one begun again (REL-1).
+            if let Some((path, damaged)) = aside {
+                again = Some(path.clone());
+                out.insert(path, damaged);
+            }
         }
 
         // Everything else as it is.
@@ -256,7 +268,7 @@ impl Bundle {
         };
         out.insert("deck.json".into(), deck_json);
         out.insert("manifest.json".into(), (serde_json::to_string_pretty(&manifest)? + "\n").into_bytes());
-        Ok(Saving { files: out, replaced, saved: Saved { renamed, subset: subsets, manifest } })
+        Ok(Saving { files: out, replaced, saved: Saved { renamed, subset: subsets, manifest, again } })
     }
 
     /// Every character the deck can draw: every string in it, and every character of its

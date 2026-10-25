@@ -696,6 +696,9 @@ fn run(cli: Cli) -> Result<ExitCode> {
                 for (old, new) in &saved.renamed {
                     println!("  {old} → {new}");
                 }
+                if let Some(aside) = &saved.again {
+                    println!("  the history could not be read: kept aside as {aside}, and begun again");
+                }
             }
             Ok(ExitCode::SUCCESS)
         }

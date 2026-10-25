@@ -18,7 +18,7 @@ use scaena_ops::export::Progress;
 use scaena_ops::lint::Why;
 use scaena_store::crdt::{FS, OUTSIDE, Recorded};
 use scaena_store::subset::SubsetError;
-use scaena_store::{Bundle, Files, HISTORY, SaveOptions, Saving, StoreError};
+use scaena_store::{Bundle, Files, HISTORY, Recording, SaveOptions, Saving, StoreError};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::sync::Arc;
@@ -438,20 +438,32 @@ impl Reads<'_> {
     /// the page's edits as a change by `fs`.
     fn save(&self, now: &str, subset: bool, history: Option<&Recorder>) -> Result<Saving, Error> {
         let opts = SaveOptions { subset_fonts: subset, now: now.into(), history: false };
+        // Begun as `scaena save --history` begins one: the deck as saved, and the files it is drawn
+        // from, as the history's first version (PLAN 2.87), its first change saying so.
+        let begin = |record: &Recorder, saved: &Deck, written: &BTreeMap<String, Vec<u8>>, says: &str| {
+            let files = kept_texts(saved, |path| written.get(path).or_else(|| self.files.get(path)));
+            let saved = saved.to_json().map_err(|e| StoreError::History(e.to_string()))?;
+            let begun = Recorded { message: Some(says.into()), files, ..change(saved, USER, seconds(now)) };
+            let changes = serde_json::to_string(&[begun]).map_err(|e| StoreError::History(e.to_string()))?;
+            record(&[], &changes).map_err(StoreError::History)
+        };
         let record = |saved: &Deck, written: &BTreeMap<String, Vec<u8>>| match (history, self.files.get(HISTORY)) {
             (Some(record), Some(held)) => {
                 let changes =
                     self.changes(saved, written, seconds(now)).map_err(|e| StoreError::History(e.to_string()))?;
-                record(held, &changes).map(Some).map_err(StoreError::History)
+                match record(held, &changes) {
+                    Ok(history) => Ok(Some(Recording { history, aside: None })),
+                    // One that does not load blocks no save: it is kept aside, and the history
+                    // begins again with the deck as saved (lift-up 20261025b REL-1).
+                    Err(why) if why.starts_with(scaena_store::DAMAGED) => {
+                        let history = begin(record, saved, written, scaena_store::AGAIN)?;
+                        Ok(Some(Recording { history, aside: Some((scaena_store::aside(held), held.clone())) }))
+                    }
+                    Err(why) => Err(StoreError::History(why)),
+                }
             }
-            // Begun as `scaena save --history` begins one: the deck as saved, and the files it is
-            // drawn from, as the history's first version (PLAN 2.87).
             (Some(record), None) if self.begins => {
-                let files = kept_texts(saved, |path| written.get(path).or_else(|| self.files.get(path)));
-                let saved = saved.to_json().map_err(|e| StoreError::History(e.to_string()))?;
-                let begun = Recorded { message: Some(BEGINS.into()), files, ..change(saved, USER, seconds(now)) };
-                let changes = serde_json::to_string(&[begun]).map_err(|e| StoreError::History(e.to_string()))?;
-                record(&[], &changes).map(Some).map_err(StoreError::History)
+                Ok(Some(Recording { history: begin(record, saved, written, BEGINS)?, aside: None }))
             }
             _ => Ok(None),
         };
@@ -911,6 +923,34 @@ pub(crate) mod tests {
         let authors: Vec<_> = doc.changes().into_iter().filter_map(|c| c.author).collect();
         assert!(authors.iter().any(|a| a == scaena_store::crdt::FS), "{authors:?}");
         assert!(doc.deck().unwrap().to_json().unwrap().contains("Revenue more than doubled"));
+    }
+
+    /// A history that does not load blocks no save, in the browser or on the Mac: the save keeps
+    /// it aside, begins the history again with the deck as saved, and says where it kept it
+    /// (lift-up 20261025b REL-1).
+    #[test]
+    fn a_damaged_history_is_kept_aside_and_the_history_begins_again() {
+        let (mut files, _) = begun();
+        let damaged = files[HISTORY][..files[HISTORY].len() / 2].to_vec();
+        files.insert(HISTORY.into(), damaged.clone());
+        let mut s = Session::open(files).unwrap();
+        let source = s.source().replace("Revenue doubled\"", "Revenue more than doubled\"");
+        assert!(s.compile(&source).valid);
+        let saved = s.save(NOW, false, Some(&recorder)).unwrap();
+        let aside = scaena_store::aside(&damaged);
+        assert_eq!(saved.saved.again.as_deref(), Some(aside.as_str()));
+        assert_eq!(saved.files[&aside], damaged, "kept aside as it was");
+        let doc = DeckDoc::load(&saved.files[HISTORY]).unwrap();
+        let changes = doc.changes();
+        assert_eq!(changes.len(), 1, "begun again, once");
+        assert_eq!(changes[0].message.as_deref(), Some(scaena_store::AGAIN));
+        assert!(doc.deck().unwrap().to_json().unwrap().contains("Revenue more than doubled"));
+        // The next save records in the history begun again, and says nothing of it.
+        let mut s = Session::open(saved.files).unwrap();
+        assert!(s.compile(&s.source().replace("more than doubled", "tripled")).valid);
+        let next = s.save(NOW, false, Some(&recorder)).unwrap();
+        assert_eq!(next.saved.again, None);
+        assert_eq!(DeckDoc::load(&next.files[HISTORY]).unwrap().changes().len(), 2);
     }
 
     /// What records a save in a bundle's history, as the page's module does (PLAN 2.9).

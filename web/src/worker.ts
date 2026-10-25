@@ -1426,7 +1426,7 @@ async function history(begins = false) {
  * browser's storage: the files first, the deck and its manifest last, so the deck never names
  * a file not yet written; then the files the save renamed go. A bundle that keeps a history
  * has the save recorded in it. The session goes on from the save. */
-async function save(): Promise<{ where: Where; renamed: [string, string][]; files: number; recorded: boolean }> {
+async function save(): Promise<{ where: Where; renamed: [string, string][]; files: number; recorded: boolean; again?: string }> {
   if (!home) {
     const dir = await newBundle(name);
     home = keptIn(dir, "opfs");
@@ -1442,9 +1442,9 @@ async function save(): Promise<{ where: Where; renamed: [string, string][]; file
       await home.write(path, saved.file(path)!);
     const written = new Set(paths);
     for (const path of saved.replaced()) if (!written.has(path)) await home.remove(path);
-    const { renamed } = JSON.parse(saved.summary()) as { renamed: [string, string][] };
+    const { renamed, again } = JSON.parse(saved.summary()) as { renamed: [string, string][]; again?: string };
     player.adopt(saved);
-    return { where: home.where, renamed, files: paths.length, recorded: recorder !== undefined };
+    return { where: home.where, renamed, files: paths.length, recorded: recorder !== undefined, again };
   } finally {
     saved.free();
   }

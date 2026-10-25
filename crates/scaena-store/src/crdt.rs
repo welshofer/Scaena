@@ -159,7 +159,8 @@ fn configure(doc: &LoroDoc) {
 /// made. An empty `history` is begun by the first change: its deck, and the files it is drawn
 /// from, are the history's first version (PLAN 2.87), as `scaena save --history` begins one.
 /// What a client's save calls: the browser's history module (`scaena-history`) and the Mac's
-/// C ABI (`scaena-ffi`).
+/// C ABI (`scaena-ffi`). A `history` that does not load is an error that begins with
+/// [`crate::DAMAGED`], which the save answers by beginning the history again.
 pub fn recorded(history: &[u8], changes: &str) -> std::result::Result<Vec<u8>, String> {
     let changes: Vec<Recorded> = serde_json::from_str(changes).map_err(|e| format!("the changes to record: {e}"))?;
     let (doc, rest) = match history {
@@ -172,7 +173,8 @@ pub fn recorded(history: &[u8], changes: &str) -> std::result::Result<Vec<u8>, S
                 Edit { message: first.message.as_deref(), timestamp: first.timestamp, ..Edit::by(&first.author) };
             (DeckDoc::begin(&deck, &files, &edit).map_err(|e| e.to_string())?, rest)
         }
-        held => (DeckDoc::load(held).map_err(|e| e.to_string())?, &changes[..]),
+        // Said as damaged, so the session saving begins the history again (lift-up 20261025b REL-1).
+        held => (DeckDoc::load(held).map_err(|e| format!("{}: {e}", crate::DAMAGED))?, &changes[..]),
     };
     doc.record(rest).map_err(|e| e.to_string())?;
     doc.save().map_err(|e| e.to_string())

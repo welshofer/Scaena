@@ -157,3 +157,37 @@ fn a_theme_edit_is_a_version_compared_and_restored() {
     let last = log.last().map(|c| (c.0.as_str(), c.1.as_str()));
     assert_eq!(last, Some(("fs", "themes/dusk.theme.json changed outside Scaena")), "{log:?}");
 }
+
+/// A history that does not load blocks no write (lift-up 20261025b REL-1): a patch keeps it
+/// aside and begins the history again with the deck it writes, and a save does the same and says
+/// where it kept it.
+#[test]
+fn a_damaged_history_is_kept_aside_and_begun_again() {
+    let dir = scratch("damaged");
+    keeping_history(&dir);
+    let history = dir.join("history/deck.loro");
+    let whole = std::fs::read(&history).unwrap();
+    let damaged = whole[..whole.len() / 2].to_vec();
+    std::fs::write(&history, &damaged).unwrap();
+    let said = scaena_ops::open(&dir).unwrap().history().unwrap_err().to_string();
+    assert!(said.contains(scaena_store::DAMAGED) && said.contains("begins the history again"), "{said}");
+    // A patch writes the deck, keeps the damaged history aside, and begins the history again.
+    let b = scaena_ops::open(&dir).unwrap();
+    let patched = scaena_ops::patch::patch(&b, &json!([{ "op": "rename_node", "id": "title", "to": "headline" }]), false);
+    assert!(patched.unwrap().applied);
+    let aside = dir.join(scaena_store::aside(&damaged));
+    assert_eq!(std::fs::read(&aside).unwrap(), damaged, "kept aside as it was");
+    assert_eq!(
+        changes(&dir).iter().map(|c| (c.0.as_str(), c.1.as_str())).collect::<Vec<_>>(),
+        [("user", scaena_store::AGAIN)]
+    );
+    assert!(std::fs::read_to_string(dir.join("deck.json")).unwrap().contains("\"headline\""));
+    // So does a save, which says where.
+    std::fs::write(&history, &damaged[..damaged.len() / 2]).unwrap();
+    let opts = SaveOptions { subset_fonts: false, now: "2026-10-25T00:00:00Z".into(), history: false };
+    let saved = scaena_ops::open(&dir).unwrap().save(&dir, &opts).unwrap();
+    let kept = scaena_store::aside(&damaged[..damaged.len() / 2]);
+    assert_eq!(saved.again.as_deref(), Some(kept.as_str()));
+    assert!(dir.join(&kept).is_file() && aside.is_file(), "each damaged history kept");
+    assert_eq!(changes(&dir).len(), 1);
+}

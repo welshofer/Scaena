@@ -2120,7 +2120,17 @@ export type FromWorker =
   | { type: "typed"; id: number; source: string; edited: Edited; carets: Carets | null }
   /** The bundle is saved `where`, and the session goes on from it: the files the save
    * renamed, from and to, each a path the source may name; and how many files it wrote. */
-  | { type: "saved"; id: number; where: Where; renamed: [string, string][]; files: number; recorded: boolean }
+  | {
+      type: "saved";
+      id: number;
+      where: Where;
+      renamed: [string, string][];
+      files: number;
+      recorded: boolean;
+      /** Where a history that could not be read was kept aside, the history begun again beside it
+       * (lift-up 20261025b REL-1). */
+      again?: string;
+    }
   /** A bundle the browser keeps is renamed or deleted, and the open bundle is kept `where`. */
   | { type: "rekept"; id: number; where?: Where }
   /** The bundle as a `.scaena` zip, and each font subset: its path, and its size before and

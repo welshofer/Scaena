@@ -305,8 +305,9 @@ pub fn write_deck(b: &Bundle, deck: &Deck, mut files: BTreeMap<String, Vec<u8>>,
         renamed_nodes: &why.renamed_nodes,
         renamed_states: &why.renamed_states,
     };
-    if let Some(history) = b.record(deck, &files, &edit).context("recording the change in the bundle's history")? {
-        files.insert(scaena_store::HISTORY.into(), history);
+    // With a history that did not load kept aside, and the history begun again (REL-1).
+    if let Some(recording) = b.record(deck, &files, &edit).context("recording the change in the bundle's history")? {
+        files.extend(recording.files());
     }
     b.write(&files).with_context(|| format!("writing {}", b.root.display()))
 }

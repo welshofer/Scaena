@@ -80,6 +80,39 @@ pub enum StoreError {
     /// record in it.
     #[error("{HISTORY}: {0}")]
     History(String),
+    /// A history that does not load: cut short, damaged on the disk, or written by a newer
+    /// Loro. It blocks no save: the next keeps it aside ([`aside`]) and begins the history again
+    /// ([`AGAIN`], lift-up 20261025b REL-1).
+    #[error("{HISTORY}: {DAMAGED} ({0}); the next save keeps it aside and begins the history again")]
+    HistoryDamaged(String),
+}
+
+/// What a history that does not load is said to be, at the head of the error that says so: the
+/// history's own module and the Mac's C ABI ([`crdt::recorded`]) begin with it, and a session's
+/// save that reads it begins the history again (lift-up 20261025b REL-1).
+pub const DAMAGED: &str = "the history could not be read";
+
+/// The message of the first change of a history begun again, the one before it damaged.
+pub const AGAIN: &str = "history begins again: the earlier one could not be read";
+
+/// Where a save keeps a history that does not load, beside the one it begins again: named by its
+/// content, so the same damage is kept once, and two are kept apart.
+pub fn aside(damaged: &[u8]) -> String {
+    format!("{HISTORY}.damaged-{}", &sha256(damaged)[..12])
+}
+
+/// The history a write records, and a damaged one it began again from, kept aside at its path.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Recording {
+    pub history: Vec<u8>,
+    pub aside: Option<(String, Vec<u8>)>,
+}
+
+impl Recording {
+    /// The files the write puts beside the deck: the history, and the damaged one kept aside.
+    pub fn files(self) -> impl Iterator<Item = (String, Vec<u8>)> {
+        std::iter::once((HISTORY.to_string(), self.history)).chain(self.aside)
+    }
 }
 
 /// Where a bundle keeps its CRDT document and its history (SPEC §3.1, §8).
@@ -248,7 +281,7 @@ impl Bundle {
         if !self.files.exists(HISTORY) {
             return Ok(None);
         }
-        let doc = DeckDoc::load(&self.read(HISTORY)?)?;
+        let doc = DeckDoc::load(&self.read(HISTORY)?).map_err(|e| StoreError::HistoryDamaged(e.to_string()))?;
         let disk = Deck::from_json(&String::from_utf8_lossy(&self.read(&self.deck_file)?))?;
         doc.outside(&disk, &self.kept_files(&disk, &BTreeMap::new()), None)?;
         Ok(Some(doc))
@@ -263,14 +296,26 @@ impl Bundle {
         deck: &Deck,
         written: &BTreeMap<String, Vec<u8>>,
         edit: &Edit,
-    ) -> Result<Option<Vec<u8>>, StoreError> {
-        let Some(doc) = self.history()? else { return Ok(None) };
+    ) -> Result<Option<Recording>, StoreError> {
+        let doc = match self.history() {
+            Ok(Some(doc)) => doc,
+            Ok(None) => return Ok(None),
+            // One that does not load blocks nothing: it is kept aside, and the history begins
+            // again with the deck as written (lift-up 20261025b REL-1).
+            Err(StoreError::HistoryDamaged(_)) => {
+                let damaged = self.read(HISTORY)?;
+                let again = Edit { message: Some(AGAIN), timestamp: edit.timestamp, ..Edit::by(edit.author) };
+                let history = DeckDoc::begin(deck, &self.kept_files(deck, written), &again)?.save()?;
+                return Ok(Some(Recording { history, aside: Some((aside(&damaged), damaged)) }));
+            }
+            Err(e) => return Err(e),
+        };
         let files: Vec<(String, Vec<u8>)> = kept_paths(deck)
             .into_iter()
             .filter_map(|path| written.get(path).map(|bytes| (path.to_string(), bytes.clone())))
             .collect();
         doc.apply_with(deck, &files, edit)?;
-        Ok(Some(doc.save()?))
+        Ok(Some(Recording { history: doc.save()?, aside: None }))
     }
 
     /// The files the history keeps beside `deck` ([`kept_paths`]), as (bundle path, bytes), in
