@@ -57,6 +57,9 @@ pub struct Laying {
     data: DataFiles,
     timed: scaena_engine::Timed,
     validated: Option<Vec<Finding>>,
+    /// What the session's last lint found in the deck, which its narrative health reads beside
+    /// it (lift-up 10-24b STAB-1).
+    findings: Vec<Finding>,
     /// What it found once laid out, or why it could not be.
     laid: Option<Result<LaidOut, String>>,
     /// What it draws its states with, built the first time it draws one and kept for the next.
@@ -115,6 +118,12 @@ impl Laying {
     /// lint is laid out (lift-up narrative PERF-1).
     pub fn deck(&self) -> &Deck {
         &self.deck
+    }
+
+    /// What the session's last lint found in the deck when it was taken: what its narrative
+    /// health reads beside it, so a slide lint finds broken comes first (lift-up 10-24b STAB-1).
+    pub fn findings(&self) -> &[Finding] {
+        &self.findings
     }
 
     /// `state` at rest in `format` (the deck's own canvas where none), painted by the CPU painter
@@ -377,9 +386,17 @@ impl Session {
             data: self.data.clone(),
             timed: self.engine.as_ref().map_or_else(|| self.timed.clone(), Engine::timed),
             validated: self.validated.clone(),
+            findings: edit.findings.clone(),
             laid: None,
             drawer: None,
         })
+    }
+
+    /// What the last lint found in the deck compiled last, every state's once typing stopped:
+    /// what its narrative health reads beside it, so a slide lint finds broken comes first
+    /// (`scaena_ops::health::health_in`, lift-up 10-24b STAB-1). Nothing before the first lint.
+    pub fn findings(&self) -> &[Finding] {
+        self.edit.as_ref().map_or(&[], |edit| &edit.findings)
     }
 
     /// Whether `laying` was taken from the deck as it stands: the source compiled last, the

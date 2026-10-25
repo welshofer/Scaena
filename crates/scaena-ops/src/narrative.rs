@@ -323,6 +323,10 @@ pub const LOOK_WIDTH: u32 = 1024;
 /// more than its own.
 pub const LOOK_BATCH: usize = 12;
 
+/// How many of a look's rounds are asked at once (lift-up PERF-1): a 45-slide deck's four in
+/// two waits, not four, and never so many that a provider's rate limit is tripped.
+pub const LOOKS_AT_ONCE: usize = 3;
+
 /// The rounds a look at `slides` slides goes in: each the indices of [`LOOK_BATCH`] slides at
 /// most, in order.
 pub fn look_rounds(slides: usize) -> impl Iterator<Item = std::ops::Range<usize>> {
@@ -544,17 +548,24 @@ pub fn generate_drawn(
         (Looking::Asked, Some(key)) => match draw(&write) {
             Ok(drawn) => {
                 let mut changes = Vec::new();
-                let mut asked = false;
-                for round in look_rounds(seen.len()) {
-                    let Some(request) = generation.look_request(key, &seen[round.clone()], &drawn[round.clone()])
-                    else {
-                        continue;
-                    };
-                    if !asked {
-                        say(Progress::Looking { slides: seen.len() });
-                        asked = true;
-                    }
-                    let reply = transport.send(&request);
+                // Every round asked at once, a few at a time so that no provider's rate limit is
+                // tripped, and each answer read in its round's order (lift-up PERF-1).
+                let asked: Vec<(std::ops::Range<usize>, Request)> = look_rounds(seen.len())
+                    .filter_map(|round| {
+                        let edges = [round.start.checked_sub(1).and_then(|b| seen.get(b)), seen.get(round.end)];
+                        let request =
+                            generation.look_request(key, &seen[round.clone()], &drawn[round.clone()], edges)?;
+                        Some((round, request))
+                    })
+                    .collect();
+                if !asked.is_empty() {
+                    say(Progress::Looking { slides: seen.len() });
+                }
+                let requests: Vec<Request> = asked.iter().map(|(_, r)| r.clone()).collect();
+                let replies: Vec<Reply> =
+                    requests.chunks(LOOKS_AT_ONCE).flat_map(|some| transport.send_all(some)).collect();
+                let asked_any = !asked.is_empty();
+                for ((round, _), reply) in asked.into_iter().zip(replies) {
                     match generation.look_answer(reply.status, &reply.status_text, &reply.body, &seen[round.clone()]) {
                         Ok(answered) => changes.extend(answered),
                         Err(why) => {
@@ -567,7 +578,7 @@ pub fn generate_drawn(
                         }
                     }
                 }
-                match (asked, changes.is_empty(), unanswered.take()) {
+                match (asked_any, changes.is_empty(), unanswered.take()) {
                     (false, _, _) => None,
                     (true, true, Some(why)) => Some(Err(OpsError::new(why))),
                     (true, _, why) => {
