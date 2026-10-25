@@ -39,6 +39,23 @@ import Testing
     #expect(png.starts(with: [0x89, 0x50, 0x4E, 0x47]), "a PNG")
 }
 
+/// The Format tab's rounds of drawing asked for in a burst (lift-up 10-25c PERF-4): each outdates
+/// the ones before it, which are not drawn, so a burst of edits draws once, for the last.
+@Test @MainActor func aBurstOfLayoutRoundsDrawsOnlyTheLast() async throws {
+    let editor = DeckEditor(session: try ScaenaSession(files: example("revenue")))
+    // A round of backgrounds holds the queue first, so the three rounds of layouts asked for after
+    // it all wait behind it, the last asked outdating the two before.
+    let holding = Task { try await editor.backgroundsAway(state: "intro", height: 90) }
+    let first = Task { try await editor.layoutsAway(state: "revenue", height: 90) }
+    let second = Task { try await editor.layoutsAway(state: "revenue", height: 90) }
+    let third = Task { try await editor.layoutsAway(state: "revenue", height: 90) }
+    _ = try await holding.value
+    let (a, b, c) = (try await first.value, try await second.value, try await third.value)
+    #expect(a == nil && b == nil, "outdated rounds come back with nothing")
+    #expect(c?.count == 7, "the last round is drawn")
+    #expect(editor.layoutsWanted.drawn == 1, "\(editor.layoutsWanted.drawn) rounds drawn, of three asked")
+}
+
 /// The cue a show goes on to is laid out ahead away from the window (lift-up 10-25b PERF-5): the
 /// session takes it, and its frames are those the session lays out here; once its cue is kept, or
 /// the deck changed since, another is not taken.
