@@ -690,7 +690,8 @@ async fn a_tool_writes_only_under_its_folder_or_beside_the_bundle() {
     // Nor muxed into a video as its sound (lift-up 20261025b SEC-2).
     let audio = path(&elsewhere.join("credentials"));
     let out = path(&here.join("q3.mp4"));
-    let video = call(&client, "deck_export", json!({ "bundle": deck, "format": "mp4", "out": out, "audio": audio })).await;
+    let video =
+        call(&client, "deck_export", json!({ "bundle": deck, "format": "mp4", "out": out, "audio": audio })).await;
     assert_eq!(video.is_error, Some(true));
     assert!(text(&video).contains("is outside where this server reads"), "{}", text(&video));
     assert!(!here.join("q3.mp4").exists());
