@@ -278,11 +278,133 @@ fn only_the_newest_frames_are_shown_again() {
     };
     let conversation =
         vec![Message::Tool { results: vec![frame("a"), frame("b")] }, Message::Tool { results: vec![frame("c")] }];
-    let sent = scaena_chat::recent(&conversation, 2);
+    let sent = scaena_chat::recent(&conversation, 2, scaena_chat::BUDGET);
     let Message::Tool { results } = &sent[0] else { unreachable!() };
     assert_eq!(results[0].png, None);
     assert!(results[0].json.ends_with("(The frame is no longer shown: render it again to see it.)"));
     assert_eq!(results[1].png.as_deref(), Some("iVBOR"));
     let Message::Tool { results } = &sent[1] else { unreachable!() };
     assert_eq!(results[0].png.as_deref(), Some("iVBOR"));
+}
+
+/// The newest results go again whole within the budget, the last round's always, and the older
+/// ones are named in their place from the first that would pass it on, a frame's picture with
+/// them (lift-up PERF-3); within it, frames past the newest are named as before.
+#[test]
+fn only_the_newest_results_are_shown_again_within_the_budget() {
+    let result = |id: &str, name: &str, json: String, png: bool| ToolResult {
+        id: id.into(),
+        name: name.into(),
+        json,
+        error: false,
+        png: png.then(|| "iVBOR".into()),
+    };
+    let conversation = vec![
+        Message::Tool {
+            results: vec![
+                result("a1", "deck_read", "x".repeat(40), false),
+                result("a2", "deck_render", r#"{"state":"one"}"#.into(), true),
+            ],
+        },
+        Message::Tool { results: vec![result("b1", "deck_health", "y".repeat(30), false)] },
+        Message::User { text: "Again?".into(), png: None },
+        Message::Tool {
+            results: vec![
+                result("c1", "deck_read", "z".repeat(100), false),
+                result("c2", "deck_render", "{}".into(), true),
+            ],
+        },
+    ];
+    let results = |sent: &[Message], i: usize| match &sent[i] {
+        Message::Tool { results } => results.clone(),
+        _ => unreachable!(),
+    };
+    // The last round alone passes 80 bytes: it goes whole all the same, and every older result is
+    // named, its picture with it.
+    let sent = scaena_chat::recent(&conversation, 1, 80);
+    assert_eq!(results(&sent, 3), results(&conversation, 3), "the last round's results go whole");
+    let named =
+        |r: &ToolResult| r.json == format!("(What {} returned is no longer shown: call it again to see it.)", r.name);
+    assert!(results(&sent, 0).iter().chain(&results(&sent, 1)).all(|r| named(r) && r.png.is_none()));
+    // With room for the last round and the one before, the oldest is named from the first result
+    // that passes it on, and a frame within it past the newest is named as frames are.
+    let sent = scaena_chat::recent(&conversation, 1, 150);
+    assert_eq!(results(&sent, 1), results(&conversation, 1), "within the budget, whole");
+    let oldest = results(&sent, 0);
+    assert_eq!(oldest[1].json, "{\"state\":\"one\"}\n(The frame is no longer shown: render it again to see it.)");
+    assert_eq!(oldest[1].png, None);
+    assert!(named(&oldest[0]), "{}", oldest[0].json);
+    // Within the budget, nothing is named but frames.
+    assert_eq!(scaena_chat::recent(&conversation, 2, scaena_chat::BUDGET), conversation);
+
+    // A provider that finds a question too long is asked again once with half the budget.
+    let mut chat = Chat::new(Provider::Anthropic, "a-model", "Be brief.".into(), vec![]);
+    chat.ask("Read it.");
+    assert_eq!(chat.budget, scaena_chat::BUDGET);
+    assert!(chat.shorter(), "halved, and worth asking again");
+    assert_eq!(chat.budget, scaena_chat::BUDGET / 2);
+    assert!(!chat.shorter(), "once a question");
+    chat.ask("And now?");
+    assert_eq!(chat.budget, scaena_chat::BUDGET, "a new question has the whole budget");
+}
+
+/// A call the answer's token limit cut off is not run (lift-up REL-1): its arguments are not what
+/// the model meant. It goes back with the others' results, told to make the edit in smaller
+/// patches, and a whole call before it runs as before. Anthropic's stream leaves a cut call's
+/// input `{}`, OpenAI's arguments are text that is no JSON; each answer says it ran out of room.
+#[test]
+fn a_call_cut_off_by_the_token_limit_is_not_run_but_answered() {
+    let tools = scaena_chat::tools(&["deck_patch", "deck_lint"]).unwrap();
+    let mut chat = Chat::new(Provider::Anthropic, "a-model", "Be brief.".into(), tools.clone());
+    chat.ask("Rewrite the second beat.");
+    let cut = json!({
+        "content": [
+            { "type": "text", "text": "Checking, then patching." },
+            { "type": "tool_use", "id": "toolu_1", "name": "deck_lint", "input": { "state": "cover" } },
+            { "type": "tool_use", "id": "toolu_2", "name": "deck_patch", "input": {} },
+        ],
+        "stop_reason": "max_tokens",
+    });
+    let Next::Calls { calls, .. } = chat.answer(200, "OK", &cut.to_string()).unwrap() else {
+        panic!("the whole call is still run");
+    };
+    assert_eq!(calls.iter().map(|c| c.id.as_str()).collect::<Vec<_>>(), ["toolu_1"]);
+    // The client answers the calls it ran, and the cut one as not run, as the C ABI does; the
+    // cut one goes back told why.
+    let ran = ToolResult { id: "toolu_1".into(), name: "deck_lint".into(), json: "{}".into(), error: false, png: None };
+    let stopped =
+        ToolResult { id: "toolu_2".into(), name: "deck_patch".into(), json: "{}".into(), error: true, png: None };
+    assert!(chat.results(vec![ran, stopped]));
+    let Some(Message::Tool { results }) = chat.conversation.last() else { panic!("results handed back") };
+    assert_eq!(results.len(), 2);
+    assert!(results[1].error && results[1].json.contains(scaena_chat::CUT), "{:?}", results[1]);
+
+    // A cut call alone: nothing to run, its answer owed all the same.
+    let mut chat = Chat::new(Provider::Openai, "a-model", "Be brief.".into(), tools.clone());
+    chat.ask("Rewrite the second beat.");
+    let alone = json!({
+        "choices": [{
+            "finish_reason": "length",
+            "message": { "role": "assistant", "content": null, "tool_calls": [
+                { "id": "call_1", "type": "function", "function": { "name": "deck_patch", "arguments": "{\"ops\": [{\"op\": \"repl" } },
+            ] },
+        }],
+    });
+    let Next::Calls { calls, .. } = chat.answer(200, "OK", &alone.to_string()).unwrap() else {
+        panic!("the cut call is owed an answer");
+    };
+    assert!(calls.is_empty());
+    assert!(chat.results(vec![]));
+    let Some(Message::Tool { results }) = chat.conversation.last() else { panic!("results handed back") };
+    assert_eq!((results.len(), results[0].id.as_str()), (1, "call_1"));
+    assert!(results[0].json.contains(scaena_chat::CUT));
+
+    // An answer that ran out of room in its words, with no call, is done as before.
+    let mut chat = Chat::new(Provider::Anthropic, "a-model", "Be brief.".into(), tools);
+    chat.ask("Say a lot.");
+    let words = json!({ "content": [{ "type": "text", "text": "So much" }], "stop_reason": "max_tokens" });
+    assert_eq!(
+        chat.answer(200, "OK", &words.to_string()).unwrap(),
+        Next::Done { text: "So much".into(), stop: Stop::Length, usage: None }
+    );
 }

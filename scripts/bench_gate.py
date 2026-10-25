@@ -32,6 +32,12 @@ when the median of its decks' changes is past the floor, and is timed again whol
 in each turn, and regresses when that median is past the floor in every turn. A cold deck that
 takes longer than its SPEC §15 budget fails alone, every time it was timed.
 
+A **fonts** bench (`fonts/`: a bundle's fonts registered and its theme's roles checked against
+them) is judged with its group too. It is the same few dozen microseconds of code for every deck,
+each bundle's subset aside, so a change that slows it slows every deck alike; at that scale where
+the code lands in the binary sways one deck's time on its own. #701's B2 ran +10%, then +15%,
++17%, and +11% timed again, while B1 and B3, the same work, ran −19% to −0%.
+
 Each runner keeps a history of what the benches measured on `main`, run by run. The report
 shows it beside each bench for context; it does not judge. `probe/` benches time the
 machine, not Scaena: they are shown, never judged.
@@ -78,6 +84,9 @@ DECKS = ["b1", "b2", "b3", "b4"]
 PROBE = "probe/"
 # The groups that start a process for each render, judged as a group (see above).
 COLD = ("render_cold", "mcp_render")
+# The groups whose every deck runs the same few microseconds of code, judged as a group as a cold
+# group is, with no budget of their own (see above).
+SHARED = ("fonts",)
 # The fewest benches beside a base that measure a run's noise; with fewer, the floor is
 # `--floor` alone.
 NOISE_BENCHES = 10
@@ -154,17 +163,17 @@ def noise(run: dict, base: dict):
     return 1.4826 * statistics.median(abs(x - middle) for x in logs), len(logs)
 
 
-def cold(bench: str):
-    """The cold group a bench is in, or `None`."""
+def grouped(bench: str):
+    """The group a bench is judged with, a cold or a shared one, or `None`."""
     group = bench.split("/", 1)[0]
-    return group if group in COLD else None
+    return group if group in COLD + SHARED else None
 
 
 def group_change(run: dict, base: dict, group: str):
-    """How much slower a cold group ran than its base: the median of its decks' changes, of
-    those both ran. `None` where they share none."""
+    """How much slower a group judged whole ran than its base: the median of its decks' changes,
+    of those both ran. `None` where they share none."""
     changes = [
-        ns(run, b) / ns(base, b) - 1 for b in run["benches"] if cold(b) == group and ns(base, b) and ns(run, b)
+        ns(run, b) / ns(base, b) - 1 for b in run["benches"] if grouped(b) == group and ns(base, b) and ns(run, b)
     ]
     return statistics.median(changes) if changes else None
 
@@ -200,8 +209,9 @@ class Judged:
         # Each turn of timing again, the pull request beside its base.
         pairs = [(ns(a, bench), ns(b, bench)) for a, b in turns]
         self.turns = [a / b - 1 for a, b in pairs if a and b]
-        # A cold bench: its group's median change, in this run and in each turn it was timed.
-        self.group = cold(bench)
+        # A bench judged with its group: the group's median change, in this run and in each turn it
+        # was timed.
+        self.group = grouped(bench)
         if self.group:
             self.group_change = group_change(run, base, self.group)
             self.group_turns = [c for c in (group_change(a, b, self.group) for a, b in turns) if c is not None]
@@ -225,8 +235,8 @@ class Judged:
 
     @property
     def slower(self) -> bool:
-        """Slower than its base by more than the floor, each time they were timed together; a cold
-        bench, when its group is."""
+        """Slower than its base by more than the floor, each time they were timed together; a bench
+        judged with its group, when its group is."""
         if not self.judged:
             return False
         if self.group:
@@ -290,9 +300,9 @@ def suspects(args) -> None:
     def suspect(b: str) -> bool:
         if b.startswith(PROBE) or not ns(base, b):
             return False
-        if cold(b):
-            # A cold group is timed again whole, when its median is past the floor.
-            change = group_change(run, base, cold(b))
+        if grouped(b):
+            # A group judged whole is timed again whole, when its median is past the floor.
+            change = group_change(run, base, grouped(b))
             return change is not None and change > at
         return ns(run, b) / ns(base, b) - 1 > at
 

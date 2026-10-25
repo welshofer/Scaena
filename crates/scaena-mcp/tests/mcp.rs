@@ -115,6 +115,7 @@ async fn the_tools_and_resources_are_listed() {
             "deck_read",
             "deck_render",
             "icon_find",
+            "image_add",
             "map_fetch",
             "slide_write",
             "spine_read",
@@ -173,6 +174,104 @@ async fn the_resources_say_how_long_to_keep_them() {
         assert_eq!(read.ttl_ms.zip(read.cache_scope), hints, "{lifecycle:?}: resources/read");
         client.cancel().await.unwrap();
     }
+}
+
+/// A picture the user hands an agent goes into the bundle and onto the slide (lift-up 10-24b
+/// FUNC-5): at a box, described; then one past 8192 px a side, made smaller as the browser and
+/// the Mac make one, in its place. A dry run writes nothing.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_agent_puts_a_picture_it_is_handed_on_a_slide() {
+    let root = scratch("picture");
+    let client = connect_in(&root).await;
+    let dir = root.join("logo");
+    let bundle = path(&dir);
+    ok(&client, "deck_create", json!({ "bundle": bundle, "theme": "dusk", "title": "Logo" })).await;
+    let logo = root.join("logo.png");
+    std::fs::copy("../../tests/fixtures/maps/map.png", &logo).unwrap();
+    let asked = json!({ "bundle": bundle, "file": path(&logo), "at": [80, 80, 480, 270], "alt": "The logo" });
+    let added = ok(&client, "image_add", asked).await;
+    assert_eq!(added["applied"], true, "{added:#}");
+    assert_eq!(added["node"], "picture");
+    let src = added["src"].as_str().unwrap().to_string();
+    assert!(src.starts_with("assets/") && dir.join(&src).is_file(), "{added:#}");
+    // Too large to take as it is: made smaller, its proportions kept, as a PNG.
+    let big = root.join("banner.png");
+    let wide = scaena_paint::Raster { width: 9000, height: 30, rgba: vec![200; 9000 * 30 * 4] };
+    std::fs::write(&big, wide.to_png_fast().unwrap()).unwrap();
+    let dry = json!({ "bundle": bundle, "file": path(&big), "into": "picture", "dry_run": true });
+    let tried = ok(&client, "image_add", dry).await;
+    assert_eq!(tried["applied"], false, "{tried:#}");
+    assert!(!dir.join(tried["src"].as_str().unwrap()).exists(), "a dry run writes nothing");
+    let put = ok(&client, "image_add", json!({ "bundle": bundle, "file": path(&big), "into": "picture" })).await;
+    assert_eq!(
+        (put["applied"].as_bool(), put["said"].as_str()),
+        (Some(true), Some("Picture put in the image")),
+        "{put:#}"
+    );
+    let made = std::fs::read(dir.join(put["src"].as_str().unwrap())).unwrap();
+    let seen = scaena_engine::images::Picture::read(&made).unwrap();
+    assert_eq!((seen.width, seen.height), (8192, 27), "made smaller, its proportions kept");
+    assert!(put["src"].as_str().unwrap().ends_with(".png"));
+    // A file outside where this server reads is not read.
+    let outside =
+        call(&client, "image_add", json!({ "bundle": bundle, "file": "/etc/hostname", "at": [0, 0, 10, 10] })).await;
+    assert_eq!(outside.is_error, Some(true));
+}
+
+/// A picture's header can claim what no file holds: 60,000 px a side in a few bytes is refused
+/// from the header, quickly, in a sentence, with nothing decoded; and a file past what a bundle
+/// holds is refused before it is read (lift-up 10-24b FUNC-5).
+#[tokio::test(flavor = "multi_thread")]
+async fn a_picture_too_large_to_hold_is_refused_before_it_is_read() {
+    let root = scratch("picture-bomb");
+    let client = connect_in(&root).await;
+    let dir = root.join("bomb");
+    let bundle = path(&dir);
+    ok(&client, "deck_create", json!({ "bundle": bundle, "theme": "dusk", "title": "Bomb" })).await;
+    let bomb = root.join("bomb.png");
+    std::fs::write(&bomb, png_claiming(60_000, 60_000)).unwrap();
+    let began = std::time::Instant::now();
+    let refused =
+        call(&client, "image_add", json!({ "bundle": bundle, "file": path(&bomb), "at": [0, 0, 10, 10] })).await;
+    assert_eq!(refused.is_error, Some(true));
+    let said = format!("{:?}", refused.content);
+    assert!(said.contains("60000 × 60000 px") && said.contains("make it smaller first"), "{said}");
+    assert!(began.elapsed() < std::time::Duration::from_secs(5), "refused from the header, not by decoding");
+    // A file larger than a bundle holds, sparse on disk: refused by its size, never read.
+    let huge = root.join("huge.png");
+    std::fs::File::create(&huge).unwrap().set_len((256 << 20) + 1).unwrap();
+    let refused =
+        call(&client, "image_add", json!({ "bundle": bundle, "file": path(&huge), "at": [0, 0, 10, 10] })).await;
+    assert_eq!(refused.is_error, Some(true));
+    let said = format!("{:?}", refused.content);
+    assert!(said.contains("huge.png is 268435457 bytes; a picture is at most 256 MB"), "{said}");
+}
+
+/// A PNG whose header says `width` × `height` and whose one IDAT holds a few bytes.
+fn png_claiming(width: u32, height: u32) -> Vec<u8> {
+    fn crc(bytes: &[u8]) -> u32 {
+        let mut c = !0u32;
+        for &b in bytes {
+            c ^= u32::from(b);
+            for _ in 0..8 {
+                c = if c & 1 == 1 { 0xEDB8_8320 ^ (c >> 1) } else { c >> 1 };
+            }
+        }
+        !c
+    }
+    let mut png = b"\x89PNG\r\n\x1a\n".to_vec();
+    let mut chunk = |kind: &[u8], data: &[u8]| {
+        png.extend((data.len() as u32).to_be_bytes());
+        let body = [kind, data].concat();
+        png.extend(&body);
+        png.extend(crc(&body).to_be_bytes());
+    };
+    let mut ihdr = [width.to_be_bytes(), height.to_be_bytes()].concat();
+    ihdr.extend([8, 6, 0, 0, 0]);
+    chunk(b"IHDR", &ihdr);
+    chunk(b"IDAT", &[0x78, 0x9c, 0x63, 0, 0, 0, 1, 0, 1]);
+    chunk(b"IEND", &[]);
+    png
 }
 
 #[tokio::test(flavor = "multi_thread")]

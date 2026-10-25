@@ -4,6 +4,7 @@
 import type { AssistantEvent } from "../protocol";
 import { answerOf, unanswered, unasked } from "../words";
 import type { Call, Message, Provider, Result, Tool, Turn } from "./providers";
+import { owing } from "./cut";
 import { fenced } from "./prompt";
 
 /** What the page hears as the assistant works. */
@@ -113,19 +114,35 @@ async function turn(o: Options, messages: Message[]): Promise<Turn> {
   }
 }
 
+/** About how much of tools' results, in bytes, the model is sent again (lift-up PERF-3): each
+ * round re-sends the conversation, so a long session's `deck_read`s and `deck_health`s would grow
+ * it until the provider refuses it. `scaena-chat`'s `BUDGET`. */
+export const BUDGET = 60_000;
+
+const bytes = (text: string) => new TextEncoder().encode(text).length;
+
 /** The conversation as the model is sent it: the newest `frames` frames, and the older ones
- * named in their place, since each costs as much as a page of text. */
-export function recent(conversation: Message[], frames: number): Message[] {
+ * named in their place, since each costs as much as a page of text; and the newest results whole
+ * within `budget` bytes, the last round's always, and the older ones named in their place from the
+ * first that would pass it on (lift-up PERF-3), so what is cached before them stays. */
+export function recent(conversation: Message[], frames: number, budget = BUDGET): Message[] {
   let kept = 0;
+  let used = 0;
+  const last = conversation.findLastIndex((m) => m.role === "tool");
   return conversation
-    .slice()
+    .map((m, i) => [m, i] as const)
     .reverse()
-    .map((m) => {
+    .map(([m, i]) => {
       if (m.role !== "tool") return m;
       const results = m.results
         .slice()
         .reverse()
         .map((r) => {
+          used += bytes(r.json);
+          if (i !== last && used > budget) {
+            used = Infinity;
+            return { ...r, png: undefined, json: `(What ${r.name} returned is no longer shown: call it again to see it.)` };
+          }
           if (!r.png) return r;
           if (kept++ < frames) return r;
           return { ...r, png: undefined, json: `${r.json}\n(The frame is no longer shown: render it again to see it.)` };
@@ -139,14 +156,24 @@ export function recent(conversation: Message[], frames: number): Message[] {
 export async function converse(o: Options): Promise<void> {
   const rounds = o.rounds ?? 32;
   const stopped = () => o.signal.aborted;
+  // Halved for the rest of the question where the provider finds the conversation too long.
+  let budget = BUDGET;
   for (let round = 0; ; round++) {
     if (stopped()) return o.emit({ kind: "done", stop: "stopped" });
     if (round === rounds) return o.emit({ kind: "done", stop: "steps" });
     let answered: Turn;
     try {
-      answered = await turn(o, recent(o.conversation, o.frames ?? 2));
+      answered = await turn(o, recent(o.conversation, o.frames ?? 2, budget));
     } catch (e) {
       if (stopped()) return o.emit({ kind: "done", stop: "stopped" });
+      // Too long for the model: sent again once with half as much of tools' results (lift-up
+      // PERF-3), before the person is told to start again.
+      const answer = answerOf(e);
+      if (budget === BUDGET && answer && unanswered(answer.status, answer.words) === "tooLong") {
+        budget = BUDGET / 2;
+        round--;
+        continue;
+      }
       // A refusal, or no way to the provider, in a person's words (PLAN 3.18), as the Mac's
       // assistant says it: never the provider's own, nor its status.
       return o.emit({ kind: "failed", message: unasked(o.provider.name, e) });
@@ -154,9 +181,13 @@ export async function converse(o: Options): Promise<void> {
     o.conversation.push({ role: "assistant", text: answered.text, calls: answered.calls, raw: answered.raw });
     if (answered.usage) o.emit({ kind: "usage", ...answered.usage });
     if (answered.text) o.emit({ kind: "text", text: answered.text });
-    if (!answered.calls.length) return o.emit({ kind: "done", stop: answered.stop });
+    // A call the answer's token limit cut off is not run: its arguments are not what the model
+    // meant. It goes back with the others, told to make the edit in smaller patches, as
+    // scaena-chat's `answer` tells it (lift-up REL-1).
+    const { run: calls, owed } = owing(answered.calls, answered.stop);
+    if (!calls.length && !owed.length) return o.emit({ kind: "done", stop: answered.stop });
     const results: Result[] = [];
-    for (const call of answered.calls) {
+    for (const call of calls) {
       // A call the user stopped before it ran is answered as stopped: every call has an answer.
       if (stopped()) {
         results.push({ id: call.id, name: call.name, json: JSON.stringify({ message: "the user stopped the assistant" }), error: true });
@@ -167,6 +198,7 @@ export async function converse(o: Options): Promise<void> {
       results.push(result);
       o.emit({ kind: "result", id: call.id, name: call.name, error: result.error, summary, made, json: result.json, png: result.png });
     }
+    results.push(...owed);
     // Each result, errors too, reaches the model fenced as data under its tool's name (lift-up
     // SEC-3), as scaena-chat's `results` fences it: what a tool reads is the deck's words or a
     // source's, and an error can quote them.

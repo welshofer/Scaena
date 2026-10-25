@@ -36,12 +36,65 @@ public final class Assistant {
 
     /// A request made with `URLSession`, under the app's sandbox and the system's proxies.
     nonisolated public static let urlSession: Send = { request in
+        let answered = try await Assistant.urlSessionAsking(request)
+        return (answered.data, answered.status)
+    }
+
+    /// What a turn's request came to: its body, its status, and the seconds its `Retry-After` asks
+    /// the client to wait, where it asks (lift-up REL-5).
+    public struct Answered: Sendable {
+        public let data: Data
+        public let status: Int
+        public let after: TimeInterval?
+
+        public init(data: Data, status: Int, after: TimeInterval? = nil) {
+            self.data = data
+            self.status = status
+            self.after = after
+        }
+
+        /// `response`'s status and `Retry-After`, as seconds or a date, with `data`.
+        init(_ data: Data, _ response: URLResponse) {
+            let http = response as? HTTPURLResponse
+            self.init(
+                data: data, status: http?.statusCode ?? 0,
+                after: Answered.seconds(http?.value(forHTTPHeaderField: "retry-after")))
+        }
+
+        /// The seconds `header` asks the client to wait, as the browser reads `Retry-After`: a
+        /// number of seconds, or a date; none where it says neither.
+        public static func seconds(_ header: String?, now: Date = Date()) -> TimeInterval? {
+            guard let header = header?.trimmingCharacters(in: .whitespaces), !header.isEmpty else { return nil }
+            if let seconds = Double(header), seconds.isFinite { return max(0, seconds) }
+            let format = DateFormatter()
+            format.locale = Locale(identifier: "en_US_POSIX")
+            format.timeZone = TimeZone(identifier: "GMT")
+            format.dateFormat = "EEE, dd MMM yyyy HH:mm:ss zzz"
+            return format.date(from: header).map { max(0, $0.timeIntervalSince(now)) }
+        }
+    }
+
+    /// A turn's request made as `Send` makes it, its `Retry-After` read too.
+    public typealias Asking = @Sendable (URLRequest) async throws -> Answered
+
+    /// A turn's request made as `Stream` makes it, its `Retry-After` read too.
+    public typealias Streaming = @Sendable (URLRequest, _ heard: @Sendable (String) async -> Void) async throws -> Answered
+
+    /// A turn's request made with `URLSession`, read whole, its `Retry-After` read.
+    nonisolated public static let urlSessionAsking: Asking = { request in
         let (data, response) = try await URLSession.shared.data(for: request)
-        return (data, (response as? HTTPURLResponse)?.statusCode ?? 0)
+        return Answered(data, response)
     }
 
     /// A request made with `URLSession`, its answer read line by line as it arrives.
     nonisolated public static let urlSessionStream: Stream = { request, heard in
+        let answered = try await Assistant.urlSessionStreaming(request, heard)
+        return (answered.data, answered.status)
+    }
+
+    /// A turn's request made with `URLSession`, its answer read line by line as it arrives, its
+    /// `Retry-After` read.
+    nonisolated public static let urlSessionStreaming: Streaming = { request, heard in
         let (bytes, response) = try await URLSession.shared.bytes(for: request)
         var whole = Data()
         var line = Data()
@@ -57,7 +110,7 @@ public final class Assistant {
             whole.append(line)
             await heard(String(decoding: line, as: UTF8.self))
         }
-        return (whole, (response as? HTTPURLResponse)?.statusCode ?? 0)
+        return Answered(whole, response)
     }
 
     public let editor: DeckEditor
@@ -87,8 +140,8 @@ public final class Assistant {
     /// How `map_fetch` makes each of Geoapify's requests: `URLSession` in the app.
     @ObservationIgnored public var mapSend: Generator.Send = { await GeneratorReply.made($0) }
 
-    private let send: Send
-    private let stream: Stream?
+    private let send: Asking
+    private let stream: Streaming?
     @ObservationIgnored private var chat: ScaenaChat?
     /// The question being answered: what a test awaits.
     @ObservationIgnored private(set) var asking: Task<Void, Never>?
@@ -99,15 +152,33 @@ public final class Assistant {
     /// The assistant on `editor`'s deck, its requests made by `stream`, which reads each answer as
     /// it is written (narrative ATTR-3), else by `send`, which reads it whole: `URLSession`'s in
     /// the app, a stand-in in a test.
-    public init(editor: DeckEditor, send: @escaping Send, stream: Stream?) {
+    public convenience init(editor: DeckEditor, send: @escaping Send, stream: Stream?) {
+        self.init(
+            editor: editor,
+            asking: { request in
+                let (data, status) = try await send(request)
+                return Answered(data: data, status: status)
+            },
+            streaming: stream.map { stream -> Streaming in
+                { request, heard in
+                    let (data, status) = try await stream(request, heard)
+                    return Answered(data: data, status: status)
+                }
+            })
+    }
+
+    /// The assistant on `editor`'s deck, its requests made by `streaming` where it reads each
+    /// answer as it is written, else by `asking`, each with the `Retry-After` its answer said
+    /// (lift-up REL-5).
+    public init(editor: DeckEditor, asking: @escaping Asking, streaming: Streaming?) {
         self.editor = editor
-        self.send = send
-        self.stream = stream
+        self.send = asking
+        self.stream = streaming
     }
 
     /// The assistant on `editor`'s deck, as the app makes it: each answer read as it is written.
     public convenience init(editor: DeckEditor) {
-        self.init(editor: editor, send: Assistant.urlSession, stream: Assistant.urlSessionStream)
+        self.init(editor: editor, asking: Assistant.urlSessionAsking, streaming: Assistant.urlSessionStreaming)
     }
 
     /// The assistant on `editor`'s deck, each answer read whole by `send`: a test's stand-in.
@@ -174,6 +245,9 @@ public final class Assistant {
                 do {
                     next = try await turn(request, chat: chat)
                 } catch let refusal as Refusal {
+                    // Too long for the model: asked again once with half as much of tools'
+                    // results (lift-up PERF-3), before the person is told to start again.
+                    if refusal.tooLong, try chat.shorter() { continue }
                     // A refusal, or an answer that does not read, said in a person's words (PLAN
                     // 3.18), never the provider's own: the conversation is as it was.
                     unsaid()
@@ -309,6 +383,8 @@ public final class Assistant {
     /// A provider's answer that is no answer, in a person's words.
     private struct Refusal: Error {
         let said: String
+        /// Whether what was asked is more than the model takes at once.
+        var tooLong = false
     }
 
     /// When the answer being read last said something: never, until its first line.
@@ -336,8 +412,12 @@ public final class Assistant {
         for attempt in 0... {
             saying = nil
             let again: String
+            // The seconds the provider asked to be given, where it asked (lift-up REL-5).
+            var asked: TimeInterval?
             do {
-                let (data, status) = try await answered(request, chat: chat)
+                let reply = try await answered(request, chat: chat)
+                let (data, status) = (reply.data, reply.status)
+                asked = reply.after
                 try Task.checkCancellation()
                 let body = String(decoding: data, as: UTF8.self)
                 do {
@@ -345,7 +425,8 @@ public final class Assistant {
                 } catch {
                     let why = Why.Answer(status: status, body: body)
                     guard why == .busy || why == .down else {
-                        throw Refusal(said: Why.answered(chat.provider, status: status, body: body))
+                        throw Refusal(
+                            said: Why.answered(chat.provider, status: status, body: body), tooLong: why == .tooLong)
                     }
                     again = why == .busy ? "\(chat.provider.name) is busy." : "\(chat.provider.name) couldn't answer just now."
                 }
@@ -357,7 +438,9 @@ public final class Assistant {
                 throw Refusal(said: again + " Try again in a moment.")
             }
             unsaid()
-            let wait = waits[attempt]
+            // The longer of what the provider asked and this attempt's own wait, a minute at most,
+            // as the browser waits (lift-up REL-5).
+            let wait = min(60, max(asked ?? 0, waits[attempt]))
             waiting = "\(again) Trying again in \(Int(wait)) s (\(attempt + 1) of \(waits.count))…"
             try await Task.sleep(for: .seconds(wait))
         }
@@ -368,11 +451,11 @@ public final class Assistant {
     /// piece's words shown as they come (narrative ATTR-3); else whole.
     /// Once the answer has begun, `silence` with no new line gives it up as timed out (narrative
     /// REL-3); the wait for its first line is the request's own timeout.
-    private func answered(_ request: URLRequest, chat: ScaenaChat) async throws -> (Data, Int) {
+    private func answered(_ request: URLRequest, chat: ScaenaChat) async throws -> Answered {
         guard let stream else { return try await send(request) }
         let lines = Lines()
         let silence = silence
-        return try await withThrowingTaskGroup(of: (Data, Int)?.self) { group in
+        return try await withThrowingTaskGroup(of: Answered?.self) { group in
             group.addTask {
                 // The closure crosses to the session's task, so it carries nothing of the
                 // conversation: each piece is read by the conversation the assistant holds, on the
@@ -466,6 +549,9 @@ public enum ToolWords {
         "deck_read": ("Reading the deck…", "Went through the deck", "Didn't go through the deck"),
         "deck_render": ("Looking at a slide…", "Looked at a slide", "Didn't look at a slide"),
         "icon_find": ("Finding an icon…", "Found an icon", "Didn't find an icon"),
+        "image_add": (
+            "Putting a picture on the slide…", "Put a picture on the slide", "Didn't put a picture on the slide"
+        ),
         "map_fetch": ("Fetching a map…", "Put a map on the slide", "Didn't fetch a map"),
         "slide_write": ("Writing a slide…", "Wrote a slide", "Didn't write a slide"),
         "spine_read": ("Reading the outline…", "Went through the outline", "Didn't go through the outline"),
