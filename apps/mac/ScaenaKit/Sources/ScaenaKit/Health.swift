@@ -41,7 +41,8 @@ public struct Health: Decodable, Sendable {
         /// `title`, `empty`, `turn`, `arc`, `intensity`, `tone`, `drift`, `layout`, `claim` (a beat of
         /// the settled outline its slides do not carry), `bigIdea` (a close that never lands it),
         /// `story` (a narrative warning lint finds), `dense`, `notes` (none to speak from), or
-        /// `pacing` (the first slide to cut where the deck runs past its brief).
+        /// `pacing` (the first slide to cut where the deck runs past its brief), or `label` (a
+        /// content slide's headline that names its topic where it could state its point).
         public let kind: String
         public let says: String
         public let ask: String
@@ -106,6 +107,7 @@ extension Health {
                 switch finding.kind {
                 case "bigIdea": "big idea"
                 case "layout": "broken slide"
+                case "label": "topic headline"
                 default: finding.kind
                 }
             if let i = counts.firstIndex(where: { $0.kind == kind }) {
