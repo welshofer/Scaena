@@ -4,9 +4,10 @@ import SwiftUI
 /// The deck's story (PLAN G.9, as the browser's Story tab): how well it tells it, as Vzestup measures
 /// a talk. Its score, and each measure with what it says; the big idea the settled outline names;
 /// the arc, its curve, the intensity each slide declares on it, and what its words read, a click on
-/// a slide's place showing it; and what to look at, a row for each slide in the order they stand,
-/// its headline beside it: what health finds there, each fix one step to undo, and its questions,
-/// which the assistant takes into its box. Read again as the deck changes.
+/// a slide's place showing it; and what to look at, what to do first open and the rest folded under
+/// one "N more" counted by kind (`Health.triaged`, lift-up S1), a row for each slide, its headline
+/// beside it: what health finds there, each fix one step to undo, and its questions, which the
+/// assistant takes into its box. Read again as the deck changes.
 struct StoryPanel: View {
     let editor: DeckEditor
     let edits: PanelEdits
@@ -57,8 +58,18 @@ struct StoryPanel: View {
                     if health.findings.isEmpty {
                         Text("Nothing to look at: each slide tells its part.").foregroundStyle(.secondary)
                     }
-                    ForEach(Self.bySlide(health.findings), id: \.first?.slide) { run in
+                    // What to do first, open; the rest folded under one "N more" (lift-up S1).
+                    let triaged = health.triaged()
+                    ForEach(Self.bySlide(triaged.open), id: \.first?.slide) { run in
                         row(run, health)
+                    }
+                    if !triaged.more.isEmpty {
+                        DisclosureGroup(Health.moreSaid(triaged.more)) {
+                            ForEach(Self.bySlide(triaged.more), id: \.first?.slide) { run in
+                                row(run, health)
+                            }
+                        }
+                        .accessibilityIdentifier("story-more")
                     }
                 }
             } else if let why {
@@ -121,12 +132,13 @@ struct StoryPanel: View {
         .padding(.vertical, 2)
     }
 
-    /// The findings, a run for each slide, in the order the slides stand (as health gives them).
+    /// The findings a row for each slide, in the order they come: a slide's findings together,
+    /// where its first stands.
     static func bySlide(_ findings: [Health.Finding]) -> [[Health.Finding]] {
         var runs: [[Health.Finding]] = []
         for finding in findings {
-            if runs.last?.first?.slide == finding.slide {
-                runs[runs.count - 1].append(finding)
+            if let i = runs.firstIndex(where: { $0.first?.slide == finding.slide }) {
+                runs[i].append(finding)
             } else {
                 runs.append([finding])
             }
