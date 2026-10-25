@@ -2336,3 +2336,44 @@ fn an_id_the_deck_has_not_is_refused_with_the_one_meant() {
     let moved = refused(json!([{ "op": "move_state", "id": "mix", "after": "clsoe" }]));
     assert!(moved.ends_with("no state `clsoe`; did you mean `close`?"), "{moved}");
 }
+
+/// A walkthrough's focus follows its lines as they are typed (PLAN 2.140): each state's
+/// `code.focus`, and the node's own, kept in step by `replace_text` as a list's items are, so a
+/// step stays on the lines it named; and the deck still validates.
+#[test]
+fn replace_text_keeps_each_states_focus_in_step_with_its_lines() {
+    let doc = json!({
+        "scaena": "0.40", "canvas": { "width": 1920, "height": 1080 },
+        "nodes": {
+            "c": {
+                "type": "text", "role": "body", "code": { "language": "rust", "focus": [1] },
+                "text": "fn main() {\n    let x = 1;\n    run(x);\n}", "at": { "in": "body" }
+            },
+        },
+        "states": [
+            { "id": "a", "props": { "c": {} } },
+            { "id": "b", "props": { "c": { "code": { "focus": [2] } } } },
+            { "id": "c", "props": { "c": { "code": { "focus": [[3, 4]] } } } },
+        ],
+    });
+    let typed = patch(
+        &doc,
+        json!([{ "op": "replace_text", "node": "c", "state": "a", "from": 11, "to": 11, "text": "\n    // set up" }]),
+    )
+    .unwrap()
+    .doc;
+    assert_eq!(typed["nodes"]["c"]["text"], "fn main() {\n    // set up\n    let x = 1;\n    run(x);\n}");
+    // The line broken at the end of the first is in focus with it; the steps after move down one.
+    assert_eq!(typed["nodes"]["c"]["code"]["focus"], json!([[1, 2]]));
+    assert_eq!(typed["states"][1]["props"]["c"]["code"]["focus"], json!([3]));
+    assert_eq!(typed["states"][2]["props"]["c"]["code"]["focus"], json!([[4, 5]]));
+    assert_eq!(errors(&typed), Vec::<String>::new());
+    // A line taken away closes the spans after it up.
+    let cut =
+        patch(&doc, json!([{ "op": "replace_text", "node": "c", "state": "a", "from": 11, "to": 26, "text": "" }]))
+            .unwrap()
+            .doc;
+    assert_eq!(cut["nodes"]["c"]["text"], "fn main() {\n    run(x);\n}");
+    assert_eq!(cut["states"][1]["props"]["c"]["code"]["focus"], json!([1]));
+    assert_eq!(cut["states"][2]["props"]["c"]["code"]["focus"], json!([[2, 3]]));
+}

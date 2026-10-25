@@ -60,6 +60,20 @@ public final class DeckEditor {
     /// The format frames are laid out in (PLAN 2.62, 3.16): one of the deck's `formats`, or none
     /// for its own canvas.
     public private(set) var format: String?
+    /// Whether the assistant is at work on the deck (lift-up STAB-5): while it is, the user's own
+    /// edits and undo are refused, as the browser refuses them, so the model's next call reads the
+    /// deck it left. Its `Assistant` sets it.
+    public internal(set) var assisting = false {
+        // Typing left uncompiled is compiled as the hold begins, before the model reads the deck,
+        // so no burst's end compiles it over what the assistant makes (lift-up 10-25b PERF-2).
+        didSet { if assisting { compileTyped() } }
+    }
+
+    /// Why an edit is refused while the assistant is at work, as the browser says it.
+    public static let busy = "the assistant is at work on the deck"
+    /// What the window says of an undo, or a redo, refused while it is.
+    public static let atWork = "The assistant is at work on the deck: undo once it is done"
+
     /// A beat's claim its slide said before the last edit and says no more (lift-up FUNC-2): what
     /// the window offers to restate in the slide's words, one step to undo. A patch reports it at
     /// once, and typing once its burst ends (`restate(since:)`).
@@ -134,6 +148,7 @@ public final class DeckEditor {
     /// source does not compile, which is no deck to edit.
     @discardableResult
     public func make(_ ops: [JSONValue], author: String = "user") throws -> String {
+        if author == "user" { try unassisted() }
         guard valid, error == nil else { throw ScaenaError(message: "the source does not compile: fix it first") }
         let called = try session.tool("deck_patch", ["ops": .array(ops)], author: author)
         guard called.edited else {
@@ -222,6 +237,7 @@ public final class DeckEditor {
     /// in a long deck waits on no compile (lift-up 10-25b PERF-2).
     @discardableResult
     public func typed(_ ops: [JSONValue], at date: Date = Date()) throws -> String {
+        try unassisted()
         guard valid, error == nil else { throw ScaenaError(message: "the source does not compile: fix it first") }
         guard let typed = try session.typing(ops, at: date) else { throw ScaenaError(message: "it reads so already") }
         let before = made
@@ -240,8 +256,16 @@ public final class DeckEditor {
 
     /// Compile the source typed on the canvas, where a burst of typing left one (`typed`): once
     /// the burst ends, and before anything reads what compiling gives (a fix, lint, the deck taken
-    /// to draw or lay out away from the window). Drawn again, as an edit is, once.
+    /// to draw or lay out away from the window). Drawn again, as an edit is, once. Never while the
+    /// assistant holds the deck (lift-up STAB-5): the hold compiled what was typed as it began, and
+    /// typing waits while it lasts, so there is nothing to compile then.
     public func settled() {
+        guard !assisting else { return }
+        compileTyped()
+    }
+
+    /// The source typed on the canvas compiled, where there is one.
+    private func compileTyped() {
         guard let next = uncompiled else { return }
         _ = take(next, lint: false, settling: true)
     }
@@ -249,13 +273,14 @@ public final class DeckEditor {
     /// Compile `typed`, the source pane's text: the source the deck had, for an undo, where it
     /// became the deck; none where it does not compile or validate, or says what the pane did.
     public func type(_ typed: String) -> String? {
-        guard typed != source else { return nil }
+        guard typed != source, !assisting else { return nil }
         return take(typed)
     }
 
     /// Apply `finding`'s fix (SPEC §7.4): the source the deck had, for an undo.
     @discardableResult
     public func fix(_ finding: Finding) throws -> String {
+        try unassisted()
         settled()
         guard let patch = finding.fix, finding.fixable else { throw ScaenaError(message: "there is no fix for it") }
         let fixed = try session.fix(patch)
@@ -263,6 +288,13 @@ public final class DeckEditor {
             throw ScaenaError(message: error?.said ?? "the fixed deck does not validate")
         }
         return before
+    }
+
+    /// Throws while the assistant is at work on the deck (lift-up STAB-5): an edit of the user's,
+    /// on the canvas, in a panel, or by a fix, waits until it is done, as the browser's does.
+    public func unassisted() throws {
+        guard assisting else { return }
+        throw ScaenaError(message: Self.busy)
     }
 
     /// Make the deck `source` again (an undo, or its redo): the source it replaces.

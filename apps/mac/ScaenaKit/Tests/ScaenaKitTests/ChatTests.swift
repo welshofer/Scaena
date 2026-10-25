@@ -136,6 +136,61 @@ private func streaming(_ text: String) -> [String] {
     #expect(assistant.usage == Usage(input: 10, output: 2))
 }
 
+/// While the assistant is at work on the deck, the deck is its own (lift-up STAB-5): a patch the
+/// user makes, as a gesture does, is refused in the browser's words, and a source typed is not
+/// compiled, so the model's next call reads the deck it left. Once it has answered, they are the
+/// user's again.
+@MainActor
+@Test func theDeckIsTheAssistantsWhileItWorks() async throws {
+    let editor = DeckEditor(session: try ScaenaSession(directory: b1))
+    let typed: JSONValue = [
+        "op": "replace_text", "state": "cover", "node": "title", "from": 0, "to": 0, "text": "Mine. ",
+    ]
+    let events = streaming("Looked.")
+    let seen = Seen()
+    let mine = UsersEdits(editor: editor, typed: typed)
+    let assistant = Assistant(editor: editor, send: { _ in (Data(), 0) }) { _, heard in
+        var whole = ""
+        for (i, event) in events.enumerated() {
+            whole += event
+            await heard(event)
+            // Mid-answer: what the user's own edits come to.
+            if i == 2 { await seen.keep(await MainActor.run { mine.tried() }) }
+        }
+        return (Data(whole.utf8), 200)
+    }
+    #expect(!editor.assisting)
+    assistant.ask("Is the cover clean?", provider: .anthropic, model: "a-model", key: "sk-test")
+    for _ in 0..<500 where assistant.working {
+        try await Task.sleep(for: .milliseconds(10))
+    }
+    #expect(!assistant.working)
+    #expect(await seen.kept == ["assisting", "The assistant is at work on the deck.", "not compiled"])
+    #expect(!editor.assisting, "the deck is the user's again")
+    let original = editor.source
+    #expect(try editor.make([typed]) == original)
+}
+
+/// Typing left uncompiled (lift-up 10-25b PERF-2) is compiled as the assistant's hold begins, before
+/// the model reads the deck, and nothing compiles while the hold lasts (lift-up STAB-5): no burst's
+/// end compiles the typed source over what the assistant makes.
+@Test @MainActor func typingIsCompiledAsTheAssistantsHoldBegins() throws {
+    let editor = DeckEditor(session: try ScaenaSession(directory: b1))
+    editor.shown = "cover"
+    let revision = editor.revision
+    let typed: JSONValue = [
+        "op": "replace_text", "state": "cover", "node": "title", "from": 0, "to": 0, "text": "Held. ",
+    ]
+    try editor.typed([typed])
+    #expect(editor.revision == revision, "not compiled at the key")
+    editor.assisting = true
+    #expect(editor.revision == revision + 1, "compiled as the hold began")
+    #expect(try editor.session.source() == editor.source)
+    editor.settled()
+    #expect(editor.revision == revision + 1, "nothing compiles while the assistant holds the deck")
+    editor.assisting = false
+}
+
 /// A busy provider is asked again (narrative REL-3): two 429s, each waited out with the wait
 /// said, then the answer; a provider that stays busy is given up on in a person's words; and a
 /// key not taken is never asked again.
@@ -311,6 +366,32 @@ private func streaming(_ text: String) -> [String] {
 private func said(_ assistant: Assistant) -> [String] {
     assistant.entries.compactMap { entry in
         if case .said(let text) = entry.kind { text } else { nil }
+    }
+}
+
+/// The user's own edits, made on the main actor from a stream's closure, which cannot carry the
+/// editor itself: whether the deck is the assistant's, then a patch and a source typed, each said
+/// as it is refused.
+@MainActor
+private final class UsersEdits {
+    let editor: DeckEditor
+    let typed: JSONValue
+
+    init(editor: DeckEditor, typed: JSONValue) {
+        self.editor = editor
+        self.typed = typed
+    }
+
+    func tried() -> [String] {
+        var said: [String] = []
+        if editor.assisting { said.append("assisting") }
+        do {
+            try editor.make([typed])
+        } catch {
+            said.append(Why.said(error))
+        }
+        if editor.type(editor.source + "\n") == nil { said.append("not compiled") }
+        return said
     }
 }
 
