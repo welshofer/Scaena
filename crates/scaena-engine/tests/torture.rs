@@ -38,7 +38,7 @@ const GOLDEN: &str = "../../tests/golden/torture";
 /// picture's adjustments fading from one to the next (PLAN 2.117): photos over themselves, and a
 /// PNG as the other fades out. Case 65 adds a walkthrough's step (PLAN 2.140): the lines out of
 /// focus setting back as the band behind those in it fades in.
-const MORPH: [(&str, f64); 26] = [
+const MORPH: [(&str, f64); 27] = [
     ("chart", 0.25),
     ("chart", 0.5),
     ("chart-next", 0.25),
@@ -65,6 +65,7 @@ const MORPH: [(&str, f64); 26] = [
     ("shadows-next", 0.5),
     ("adjust-next", 0.5),
     ("code-next", 0.5),
+    ("code-move", 0.5),
 ];
 /// Frames in a format of the deck's (PLAN 1.13) as (state, fraction of its span, or `None`
 /// at rest), named `state~9x16` and `state@fraction~9x16`: case 43's halves stacked, and
