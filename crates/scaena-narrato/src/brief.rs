@@ -266,6 +266,18 @@ pub fn minimum_slides(length: &str) -> Option<usize> {
     }
 }
 
+/// The most slides a deck of `length` may come back with, the top of its range: none for one
+/// with no top ("41+ slides") or none known.
+pub fn maximum_slides(length: &str) -> Option<usize> {
+    match length {
+        "5-10 slides" => Some(10),
+        "11-15 slides" => Some(15),
+        "16-25 slides" => Some(25),
+        "26-40 slides" => Some(40),
+        _ => None,
+    }
+}
+
 /// The length a talk of `minutes` takes (Narrato's `LENGTH_BY_MINUTES`): two hours is held to
 /// 26–40 slides, more being too heavy to draft at once.
 pub fn length_for_minutes(minutes: u32) -> &'static str {
