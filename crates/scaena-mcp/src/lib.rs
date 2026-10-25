@@ -716,9 +716,11 @@ pub struct DeckExport {
     /// each state's hold alone, as a player auto-advances.
     #[serde(default)]
     pub pace: scaena_core::spine::Pace,
-    /// A PDF with the presenter's notes: each slide drawn smaller at the head of a page, the
+    /// The presenter's notes: a PDF with each slide drawn smaller at the head of a page, the
     /// notes a presenter reads for it under it, notes too long for it going on to pages of
-    /// their own. Only a PDF.
+    /// their own; a single HTML file with each state's and beat's notes, each beat's evidence,
+    /// and what Narrato planned, the presenter's own copy. Without it a single file leaves them
+    /// out, for the room. Only a PDF or a single file.
     #[serde(default)]
     pub notes: bool,
 }
