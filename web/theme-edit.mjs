@@ -138,8 +138,8 @@ try {
   await page.waitForFunction(() => window.scaena.theme.theme()?.code?.syntax?.keyword?.color === "onSurfaceMuted", null, { timeout: 30000 }).catch(() => {});
   check((await theme())?.code?.syntax?.keyword?.color === "onSurfaceMuted", `the keywords named Muted Text: ${await status()}`);
   check((await codes())[0].named === "onSurfaceMuted", "and the tab says so");
-  await press("Control+z", () => !window.scaena.theme.theme()?.code);
-  check(!(await theme())?.code && (await codes())[0].named === undefined, "⌘Z takes it back");
+  await press("Control+z", () => !window.scaena.theme.theme()?.code?.syntax);
+  check(!(await theme())?.code?.syntax && (await codes())[0].named === undefined, "⌘Z takes it back");
 
   // A save records each edit, by the user, and nothing as changed outside Scaena.
   const saved = await page.evaluate(() => window.scaena.save());

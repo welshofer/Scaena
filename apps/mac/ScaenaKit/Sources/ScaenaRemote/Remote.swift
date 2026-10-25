@@ -268,11 +268,18 @@ public struct RemotePlace: Codable, Sendable, Equatable {
     public var over: Bool
     /// The presenter's timer, paused or running, as it stood when the place was sent (PLAN 2.121).
     public var timer: RemoteTimer?
+    /// The state's slide by its number, from 1, how many slides the show has, and the state's step
+    /// on its slide, from 1, as a person counts them (lift-up USE-2); none from a presenter that
+    /// sends none, which counts states.
+    public var number: Int?
+    public var slides: Int?
+    public var step: Int?
 
     public init(
         deck: String, showing: Bool, state: String = "", index: Int = 0, count: Int = 0, ms: Double = 0,
         rest: Bool = true, notes: String = "", read: [NoteBlock] = [], slide: Data? = nil, next: Data? = nil,
-        began: Date? = nil, blank: RemoteScreen? = nil, over: Bool = false, timer: RemoteTimer? = nil
+        began: Date? = nil, blank: RemoteScreen? = nil, over: Bool = false, timer: RemoteTimer? = nil,
+        number: Int? = nil, slides: Int? = nil, step: Int? = nil
     ) {
         self.deck = deck
         self.showing = showing
@@ -289,10 +296,14 @@ public struct RemotePlace: Codable, Sendable, Equatable {
         self.blank = blank
         self.over = over
         self.timer = timer
+        self.number = number
+        self.slides = slides
+        self.step = step
     }
 
     enum CodingKeys: String, CodingKey {
         case deck, showing, state, index, count, ms, rest, notes, read, slide, next, began, blank, over, timer
+        case number, slides, step
     }
 
     /// A place as a presenter sent it, one that sent no `read` read as lines.
@@ -314,6 +325,38 @@ public struct RemotePlace: Codable, Sendable, Equatable {
         blank = try c.decodeIfPresent(RemoteScreen.self, forKey: .blank)
         over = try c.decodeIfPresent(Bool.self, forKey: .over) ?? false
         timer = try c.decodeIfPresent(RemoteTimer.self, forKey: .timer)
+        // A presenter from before the remote counted slides sends none of them.
+        number = try c.decodeIfPresent(Int.self, forKey: .number)
+        slides = try c.decodeIfPresent(Int.self, forKey: .slides)
+        step = try c.decodeIfPresent(Int.self, forKey: .step)
+    }
+
+    /// Where the show is, as the presenter's words say it (PLAN 2.99): `Slide 3 of 12`, or `Slide 3
+    /// of 12, step 2` for a step after a slide's first; from a presenter that counts no slides, the
+    /// state among the states, `7 of 19`.
+    public var said: String {
+        guard let number, let slides else { return "\(index + 1) of \(count)" }
+        let at = "Slide \(number) of \(slides)"
+        return (step ?? 1) > 1 ? "\(at), step \(step ?? 1)" : at
+    }
+
+    /// The slide of the state at `index` among states whose slides are `of`, in order, as a person
+    /// counts them (lift-up USE-2): its number from 1, how many slides there are, and its step on
+    /// its slide from 1; none for an index past them.
+    public static func counted(_ of: [String], at index: Int) -> (number: Int, slides: Int, step: Int)? {
+        guard of.indices.contains(index) else { return nil }
+        var (number, step, slides) = (0, 0, 0)
+        var last: String?
+        for (i, slide) in of.enumerated() {
+            if slide != last {
+                slides += 1
+                if i <= index { (number, step) = (slides, 1) }
+                last = slide
+            } else if i <= index {
+                step += 1
+            }
+        }
+        return (number, slides, step)
     }
 
     /// No show plays.

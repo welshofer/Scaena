@@ -526,7 +526,7 @@ pub struct Rows {
 pub fn inspect(b: &Bundle, state: Option<&str>, views: Views) -> Result<Vec<Inspected>, OpsError> {
     let snaps = scaena_core::resolve_states(&b.deck).context("tracking")?;
     if !snaps.iter().any(|s| state.is_none_or(|id| s.state_id == id)) {
-        return Err(OpsError::new(format!("unknown state `{}`", state.unwrap_or_default())));
+        return Err(OpsError::unknown_state(&b.deck, state.unwrap_or_default()));
     }
     let themed = views.resolved
         || views.timeline
@@ -670,7 +670,7 @@ pub fn inspect_deck(
     let snaps = scaena_core::resolve_states(deck).context("tracking")?;
     let selected: Vec<&Snapshot> = snaps.iter().filter(|s| state.is_none_or(|id| s.state_id == id)).collect();
     if selected.is_empty() {
-        return Err(OpsError::new(format!("unknown state `{}`", state.unwrap_or_default())));
+        return Err(OpsError::unknown_state(deck, state.unwrap_or_default()));
     }
     let needs = |what: &str| OpsError::new(format!("inspecting {what} needs the deck's theme"));
     let offers = views.choices.is_some() || views.state_choices || views.look.is_some();
@@ -976,8 +976,7 @@ pub fn inserting(
 /// None where `own` lays it under them already.
 fn beneath(deck: &Deck, state: &str, own: i64) -> Result<Option<i64>, OpsError> {
     let snaps = scaena_core::resolve_states(deck).context("tracking")?;
-    let snap =
-        snaps.iter().find(|s| s.state_id == state).ok_or_else(|| OpsError::new(format!("unknown state `{state}`")))?;
+    let snap = snaps.iter().find(|s| s.state_id == state).ok_or_else(|| OpsError::unknown_state(deck, state))?;
     let lowest = (snap.nodes.iter())
         .filter(|(id, p)| {
             p.get("at").and_then(|a| a.get("parent")).is_none()
@@ -1042,8 +1041,7 @@ pub(crate) fn under(
     slot: &str,
 ) -> Result<Option<i64>, OpsError> {
     let snaps = scaena_core::resolve_states(deck).context("tracking")?;
-    let snap =
-        snaps.iter().find(|s| s.state_id == state).ok_or_else(|| OpsError::new(format!("unknown state `{state}`")))?;
+    let snap = snaps.iter().find(|s| s.state_id == state).ok_or_else(|| OpsError::unknown_state(deck, state))?;
     let Some(k) = room.slots.iter().position(|(name, _)| name == slot) else { return Ok(None) };
     let [x, y, w, h] = room.slots[k].1;
     let overlaps = |r: &[f32; 4]| x.max(r[0]) < (x + w).min(r[0] + r[2]) && y.max(r[1]) < (y + h).min(r[1] + r[3]);
@@ -1286,8 +1284,7 @@ pub(crate) fn empty_slot(
     kind: NodeType,
 ) -> Result<Option<(String, [f32; 4])>, OpsError> {
     let snaps = scaena_core::resolve_states(deck).context("tracking")?;
-    let snap =
-        snaps.iter().find(|s| s.state_id == state).ok_or_else(|| OpsError::new(format!("unknown state `{state}`")))?;
+    let snap = snaps.iter().find(|s| s.state_id == state).ok_or_else(|| OpsError::unknown_state(deck, state))?;
     let filled: Vec<&str> = snap
         .nodes
         .values()
@@ -1321,8 +1318,7 @@ pub fn duplicating(
     boxes: &[scaena_engine::geometry::NodeBox],
 ) -> Result<Added, OpsError> {
     let snaps = scaena_core::resolve_states(deck).context("tracking")?;
-    let snap =
-        snaps.iter().find(|s| s.state_id == state).ok_or_else(|| OpsError::new(format!("unknown state `{state}`")))?;
+    let snap = snaps.iter().find(|s| s.state_id == state).ok_or_else(|| OpsError::unknown_state(deck, state))?;
     if !snap.nodes.contains_key(node) {
         return Err(OpsError::new(format!("`{node}` is not on screen in `{state}`")));
     }
@@ -1461,8 +1457,7 @@ pub fn rejoining(
     taken: &[String],
 ) -> Result<Vec<(String, Value)>, OpsError> {
     let snaps = scaena_core::resolve_states(deck).context("tracking")?;
-    let snap =
-        snaps.iter().find(|s| s.state_id == state).ok_or_else(|| OpsError::new(format!("unknown state `{state}`")))?;
+    let snap = snaps.iter().find(|s| s.state_id == state).ok_or_else(|| OpsError::unknown_state(deck, state))?;
     let mut taken: Vec<String> = deck.nodes.keys().cloned().chain(taken.iter().cloned()).collect();
     let mut out = Vec::new();
     for node in nodes {
@@ -1515,8 +1510,7 @@ pub fn wording(deck: &Deck, theme: &Theme, shape: &str, state: &str) -> Result<W
     let held = deck.nodes.iter().find(|(_, n)| scaena_core::tracking::words_of(deck, n) == Some(shape));
     if let Some((id, _)) = held {
         let snaps = scaena_core::resolve_states(deck).context("tracking")?;
-        let snap = (snaps.iter().find(|s| s.state_id == state))
-            .ok_or_else(|| OpsError::new(format!("unknown state `{state}`")))?;
+        let snap = (snaps.iter().find(|s| s.state_id == state)).ok_or_else(|| OpsError::unknown_state(deck, state))?;
         let hidden = snap.nodes.contains_key(shape) && !snap.nodes.contains_key(id);
         let show = serde_json::json!({ "op": "show_node", "node": id, "state": state });
         return Ok(Worded { id: id.clone(), patch: if hidden { vec![show] } else { Vec::new() } });
@@ -1545,8 +1539,7 @@ pub struct Connected {
 /// Refused for a node the state does not show, a group, a connector, or a node joined to itself.
 pub fn connecting(deck: &Deck, state: &str, from: &str, to: &str, arrow: bool) -> Result<Connected, OpsError> {
     let snaps = scaena_core::resolve_states(deck).context("tracking")?;
-    let snap =
-        snaps.iter().find(|s| s.state_id == state).ok_or_else(|| OpsError::new(format!("unknown state `{state}`")))?;
+    let snap = snaps.iter().find(|s| s.state_id == state).ok_or_else(|| OpsError::unknown_state(deck, state))?;
     if from == to {
         return Err(OpsError::new("a connector joins two nodes, not one to itself"));
     }
@@ -1813,7 +1806,7 @@ pub enum Change {
 /// What changes between states `from` and `to`, resolved: `diff`.
 pub fn diff(b: &Bundle, from: &str, to: &str) -> Result<IndexMap<String, Change>, OpsError> {
     let snaps = scaena_core::resolve_states(&b.deck).context("tracking")?;
-    let find = |id: &str| snaps.iter().find(|s| s.state_id == id).with_context(|| format!("unknown state `{id}`"));
+    let find = |id: &str| snaps.iter().find(|s| s.state_id == id).ok_or_else(|| OpsError::unknown_state(&b.deck, id));
     let (a, z) = (find(from)?, find(to)?);
     let mut changes = IndexMap::new();
     for (id, props) in &z.nodes {
@@ -1972,6 +1965,12 @@ mod tests {
         assert!(refused("title", "nothing").contains("no node `nothing`"));
         assert!(refused("title-to-rev", "note").contains("a connector itself"));
         assert!(connecting(&deck, "nowhere", "title", "rev", true).unwrap_err().to_string().contains("unknown state"));
+        // A state guessed near one of the deck's is named with the one meant, else the deck's first
+        // few, so an agent mends it without a round of `deck_inspect` (lift-up 10-25b USE-5).
+        let near = connecting(&deck, "revenu", "title", "rev", true).unwrap_err().to_string();
+        assert_eq!(near, "unknown state `revenu`; did you mean `revenue`?");
+        let far = connecting(&deck, "zzzzzz", "title", "rev", true).unwrap_err().to_string();
+        assert!(far.starts_with("unknown state `zzzzzz`; the deck's states include `"), "{far}");
         // A second connector between the same two is named apart.
         assert_eq!(connecting(&deck, "revenue", "title", "rev", true).unwrap().id, "title-to-rev-2");
         // An end that leaves on a step and comes back on the next slide takes the connector with it

@@ -5,6 +5,7 @@
 use crate::lint::data_files;
 use crate::render::scale_for;
 use crate::{Bundle, OpsError};
+use scaena_core::document::Deck;
 use scaena_core::timeline::Slot;
 use scaena_engine::Engine;
 use scaena_engine::fonts::BundleFonts;
@@ -20,6 +21,7 @@ use scaena_paint::{Assets, Painter as _};
 use scaena_store::{SaveOptions, StoreError};
 use schemars::JsonSchema;
 use serde::Serialize;
+use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -53,9 +55,23 @@ pub struct Request {
     /// How a video and the spine pace the timeline (SPEC §2.4, §10): by the beats' durations
     /// where a state has no hold (the default), or by the holds alone.
     pub pace: scaena_core::spine::Pace,
-    /// A PDF with the presenter's notes: each slide drawn smaller at the head of a page, its
-    /// notes under it, as Keynote's "Include presenter notes" prints them (SPEC §10). Only a PDF.
+    /// The presenter's notes, as Keynote's "Include presenter notes": a PDF with each slide drawn
+    /// smaller at the head of a page, its notes under it (SPEC §10); a single-file HTML with each
+    /// state's and beat's notes, each beat's evidence, and what Narrato planned kept, the
+    /// presenter's own copy. Without it, a single file is the room's, those left out (lift-up
+    /// 20261025 SEC-3; Jay's call, 2026-10-25). Only a PDF or a single file.
     pub notes: bool,
+}
+
+/// What a single-file HTML export does with the presenter's words: each state's and beat's
+/// `notes`, each beat's `evidence`, and what Narrato planned for each beat (`media.narrato`).
+/// Dropped by default, the file is the room's, which plays the same and whose presenter view says
+/// it carries no notes; kept, it is the presenter's own copy (Jay's call, 2026-10-25).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Notes {
+    Keep,
+    #[default]
+    Drop,
 }
 
 /// What an export wrote (SPEC §7.1).
@@ -199,20 +215,23 @@ pub fn export_watched(b: &Bundle, req: &Request, progress: &Progress) -> Result<
         _ => None,
     };
     if req.size.is_some() && !matches!(format, Format::Png | Format::Svg | Format::Spine) && video.is_none() {
-        return Err(OpsError::new("--size sets the pixels of png, svg, video, and the spine's thumbnails"));
+        return Err(OpsError::new("`size` (--size) sets the pixels of png, svg, video, and the spine's thumbnails"));
     }
-    if req.notes && format != Format::Pdf {
-        return Err(OpsError::new("--notes prints the presenter's notes under each slide of a PDF: --format pdf"));
+    if req.notes && !matches!(format, Format::Pdf | Format::Html) {
+        return Err(OpsError::new(
+            "`notes` (--notes) keeps the presenter's notes: under each slide of a PDF, or in a single file's presenter \
+             view: `format` pdf or html",
+        ));
     }
     if req.fps.is_some() && video.is_none() {
-        return Err(OpsError::new("--fps sets a video's frame rate: mp4, webm, or prores"));
+        return Err(OpsError::new("`fps` (--fps) sets a video's frame rate: `format` mp4, webm, or prores"));
     }
     if req.audio.is_some() && video.is_none() {
-        return Err(OpsError::new("--audio sets a video's sound track: mp4, webm, or prores"));
+        return Err(OpsError::new("`audio` (--audio) sets a video's sound track: `format` mp4, webm, or prores"));
     }
     if req.painter == crate::render::Painter::Gpu && video.is_none() {
         return Err(OpsError::new(
-            "--painter gpu paints a video's frames: mp4, webm, or prores; every other export paints with the CPU painter",
+            "`painter` gpu (--painter gpu) paints a video's frames: mp4, webm, or prores; every other export paints with the CPU painter",
         ));
     }
     if req.painter == crate::render::Painter::Gpu && cfg!(not(feature = "gpu")) {
@@ -223,16 +242,18 @@ pub fn export_watched(b: &Bundle, req: &Request, progress: &Progress) -> Result<
     let shown = out.map(|p| p.display().to_string());
     let format_name = req.format.clone();
     match format {
-        Format::Spine if states.is_some() => {
-            Err(OpsError::new("--states picks the frames of png, svg, pdf, and video; spine is the whole spine"))
-        }
+        Format::Spine if states.is_some() => Err(OpsError::new(
+            "`states` (--states) picks the frames of png, svg, pdf, and video; spine is the whole spine",
+        )),
         Format::Spine => {
             let mut exported = spine(b, out, req.size.as_deref(), req.pace, progress)?;
             exported.out = shown;
             Ok(exported)
         }
         Format::Pdf => {
-            let out = out.ok_or_else(|| OpsError::new("`export --format pdf` writes a file: give it --out FILE"))?;
+            let out = out.ok_or_else(|| {
+                OpsError::new("a PDF export writes a file: give it `out`, a file's path (--out FILE)")
+            })?;
             let (bytes, pages) = document(b, states, req.notes, &PdfSettings::default(), progress)?;
             write(out, &bytes)?;
             Ok(Exported {
@@ -245,7 +266,9 @@ pub fn export_watched(b: &Bundle, req: &Request, progress: &Progress) -> Result<
         }
         Format::Png | Format::Svg => {
             let out = out.ok_or_else(|| {
-                OpsError::new(format!("`export --format {format_name}` writes an image per state: give it --out DIR"))
+                OpsError::new(format!(
+                    "a {format_name} export writes an image per state: give it `out`, a folder's path (--out DIR)"
+                ))
             })?;
             let mut exported = images(b, format, states, out, req.size.as_deref(), progress)?;
             exported.out = shown;
@@ -254,14 +277,18 @@ pub fn export_watched(b: &Bundle, req: &Request, progress: &Progress) -> Result<
         Format::Mp4 | Format::Webm | Format::Prores => {
             let codec = video.expect("a video format");
             let out = out.ok_or_else(|| {
-                OpsError::new(format!("`export --format {format_name}` writes a video: give it --out FILE"))
+                OpsError::new(format!(
+                    "a {format_name} export writes a video: give it `out`, a file's path (--out FILE)"
+                ))
             })?;
             let mut exported = export_video(b, codec, req, out, progress)?;
             exported.out = shown;
             Ok(exported)
         }
         Format::Html => {
-            let out = out.ok_or_else(|| OpsError::new("`export --format html` writes a file: give it --out FILE"))?;
+            let out = out.ok_or_else(|| {
+                OpsError::new("an HTML export writes a file: give it `out`, a file's path (--out FILE)")
+            })?;
             let page = scaena_export::html::player().ok_or_else(|| {
                 OpsError::not_built(
                     "this scaena was built without the web player a single-file export carries: build it with \
@@ -269,7 +296,8 @@ pub fn export_watched(b: &Bundle, req: &Request, progress: &Progress) -> Result<
                     "2.5",
                 )
             })?;
-            let (html, pages) = standalone(b, states, page, progress)?;
+            let (html, pages) =
+                standalone(b, states, page, if req.notes { Notes::Keep } else { Notes::Drop }, progress)?;
             write(out, html.as_bytes())?;
             Ok(Exported {
                 format: format_name,
@@ -290,6 +318,7 @@ fn standalone(
     b: &Bundle,
     states: Option<&[String]>,
     page: &str,
+    notes: Notes,
     progress: &Progress,
 ) -> Result<(String, Vec<String>), OpsError> {
     let saved = || {
@@ -299,18 +328,20 @@ fn standalone(
         };
         Ok(b.saving_with(&opts, |_, _| Ok(None), subset)?.files)
     };
-    standalone_with(b, states, page, &bundle_name(b), progress, saved)
+    standalone_with(b, states, page, &bundle_name(b), notes, progress, saved)
 }
 
 /// The deck as one HTML file that plays offline, as [`standalone`] makes it, named `name`, the
 /// bundle in it what `saved` gives: what a save writes with fonts subset to what the deck draws,
 /// no history recorded, and no time (`SaveOptions { subset_fonts: true, .. }`). In the browser,
-/// that is the page's own save, its fonts subset by the subsetter's module (PLAN 2.54).
+/// that is the page's own save, its fonts subset by the subsetter's module (PLAN 2.54). With
+/// [`Notes::Drop`], the deck it carries has none of the presenter's words.
 pub fn standalone_with(
     b: &Bundle,
     states: Option<&[String]>,
     page: &str,
     name: &str,
+    notes: Notes,
     progress: &Progress,
     saved: impl FnOnce() -> Result<BTreeMap<String, Vec<u8>>, OpsError>,
 ) -> Result<(String, Vec<String>), OpsError> {
@@ -329,9 +360,36 @@ pub fn standalone_with(
     })?;
     let mut files = saved()?;
     files.retain(|path, _| path != "manifest.json" && !path.starts_with("history/"));
-    let standalone = Standalone { deck: &b.deck, name, files: &files, states: &read };
+    if notes == Notes::Drop
+        && let Some(deck) = files.get_mut("deck.json")
+    {
+        *deck = unnoted(deck)?;
+    }
+    let standalone = Standalone { deck: &b.deck, name, files: &files, states: &read, notes: notes == Notes::Keep };
     let html = scaena_export::html::html(page, &standalone).map_err(|e| OpsError::new(e.to_string()))?;
     Ok((html, pages))
+}
+
+/// `deck`, a saved `deck.json`, without the presenter's words: each state's and beat's `notes`,
+/// each beat's `evidence`, and each beat's `media.narrato`, its other hints kept.
+fn unnoted(deck: &[u8]) -> Result<Vec<u8>, OpsError> {
+    let said = |e: serde_json::Error| OpsError::new(format!("the deck a single file carries: {e}"));
+    let mut deck =
+        Deck::from_json(std::str::from_utf8(deck).map_err(|e| OpsError::new(e.to_string()))?).map_err(said)?;
+    for state in &mut deck.states {
+        state.notes = None;
+    }
+    for beat in deck.spine.iter_mut().flat_map(|s| s.sections.iter_mut()).flat_map(|s| s.beats.iter_mut()) {
+        beat.notes = None;
+        beat.evidence.clear();
+        if let Some(Value::Object(media)) = &mut beat.media {
+            media.remove("narrato");
+            if media.is_empty() {
+                beat.media = None;
+            }
+        }
+    }
+    Ok((deck.to_json().map_err(said)? + "\n").into_bytes())
 }
 
 /// A bundle's name: its directory's or zip's, or its deck file's, without `.scaena`,
@@ -365,7 +423,11 @@ fn named(deck: &scaena_core::Deck, states: Option<&[String]>) -> Result<Vec<Stri
     let Some(states) = states else { return Ok(deck.states.iter().map(|s| s.id.clone()).collect()) };
     for s in states {
         if !deck.states.iter().any(|st| &st.id == s) {
-            return Err(OpsError::new(format!("--states names `{s}`, which is not a state of the deck")));
+            let known = deck.states.iter().map(|st| st.id.as_str());
+            let near = scaena_core::patch::nearest("states", s, known);
+            return Err(OpsError::new(format!(
+                "`states` (--states) names `{s}`, which is not a state of the deck{near}"
+            )));
         }
     }
     Ok(states.to_vec())
@@ -766,7 +828,7 @@ impl Reel {
     ) -> Result<Reel, OpsError> {
         if fps == 0 || fps > scaena_export::video::MAX_FPS {
             return Err(OpsError::new(format!(
-                "--fps {fps}: a video takes 1 to {} frames a second",
+                "`fps` (--fps) {fps}: a video takes 1 to {} frames a second",
                 scaena_export::video::MAX_FPS
             )));
         }
@@ -776,7 +838,13 @@ impl Reel {
                 .iter()
                 .map(|s| {
                     let slot = timeline.slot(s).cloned();
-                    slot.ok_or_else(|| OpsError::new(format!("--states names `{s}`, which is not a state of the deck")))
+                    slot.ok_or_else(|| {
+                        let known = deck.into_iter().flat_map(|d| d.states.iter().map(|st| st.id.as_str()));
+                        let near = scaena_core::patch::nearest("states", s, known);
+                        OpsError::new(format!(
+                            "`states` (--states) names `{s}`, which is not a state of the deck{near}"
+                        ))
+                    })
                 })
                 .collect::<Result<_, _>>()?,
         };
@@ -942,9 +1010,40 @@ fn export_video(
 
 #[cfg(test)]
 mod tests {
-    use super::{Reel, pdf_pages};
+    use super::{Reel, Request, pdf_pages, unnoted};
     use scaena_core::timeline::Timeline;
     use serde_json::{Value, json};
+
+    /// A single file for the room carries none of the presenter's words (lift-up 20261025
+    /// SEC-3): each state's and beat's notes, each beat's evidence, and what Narrato planned for
+    /// it go, every other hint and word of the deck stays.
+    #[test]
+    fn a_single_file_for_the_room_carries_none_of_the_presenters_words() {
+        let deck = json!({
+            "scaena": scaena_core::FORMAT_VERSION, "canvas": { "width": 1920, "height": 1080 }, "nodes": {},
+            "states": [{ "id": "open", "notes": "Pause here." }, { "id": "close", "notes": "Thank them." }],
+            "spine": { "sections": [{ "id": "s", "title": "S", "beats": [
+                { "id": "a", "claim": "Revenue doubled.", "states": ["open"], "notes": "The mix is the point.",
+                  "evidence": ["source:q3.pdf", "https://example.org/private"],
+                  "media": { "narrato": { "visual": "a bar chart" }, "podcast": { "script": "Revenue doubled." } } },
+                { "id": "b", "claim": "Thanks.", "states": ["close"], "media": { "narrato": { "visual": "x" } } }
+            ] }] }
+        });
+        let bytes = unnoted(deck.to_string().as_bytes()).unwrap();
+        let left: Value = serde_json::from_slice(&bytes).unwrap();
+        let text = String::from_utf8(bytes).unwrap();
+        for gone in
+            ["Pause here.", "Thank them.", "The mix is the point.", "q3.pdf", "example.org", "narrato", "bar chart"]
+        {
+            assert!(!text.contains(gone), "{gone} in {text}");
+        }
+        let beats = &left["spine"]["sections"][0]["beats"];
+        assert_eq!(beats[0]["media"], json!({ "podcast": { "script": "Revenue doubled." } }));
+        assert_eq!((beats[0]["claim"].as_str(), beats[1].get("media")), (Some("Revenue doubled."), None));
+        assert_eq!(left["states"][0].get("notes"), None);
+        // Dropped unless they are asked for (Jay's call, 2026-10-25).
+        assert!(!Request::default().notes, "a single file leaves the notes out unless asked");
+    }
 
     #[test]
     fn a_reel_plays_each_state_then_its_hold_and_passes_over_empty_ones() {
