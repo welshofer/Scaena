@@ -1466,6 +1466,8 @@ export type GeneratingEvent =
   | { kind: "writing"; slides: number }
   | { kind: "retrying"; seconds: number; tried: number }
   | { kind: "wrote"; slides: number; truncated: boolean }
+  /** The icon set could not be fetched: the slides that name icons are set without them. */
+  | { kind: "unIconed"; why: string }
   | { kind: "painting"; pictures: number; model: string }
   | { kind: "painted"; pictures: number; unmade: string[] }
   | { kind: "making" }
