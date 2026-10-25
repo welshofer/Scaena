@@ -6,11 +6,10 @@ use crate::lint::data_files;
 use crate::render::scale_for;
 use crate::{Bundle, OpsError};
 use scaena_core::timeline::Slot;
-use scaena_engine::data::DataFiles;
+use scaena_engine::Engine;
 use scaena_engine::fonts::BundleFonts;
 use scaena_engine::images::BundleImages;
 use scaena_engine::theme::Theme;
-use scaena_engine::{Engine, FrameRequest};
 use scaena_export::Format;
 use scaena_export::html::Standalone;
 use scaena_export::pdf::{Page, Prepared, prepared};
@@ -316,12 +315,12 @@ pub fn standalone_with(
     let (mut engine, _) = engine(b, &theme)?;
     let snapshots = scaena_core::resolve_states(&b.deck)?;
     let mut read = Vec::with_capacity(pages.len());
-    for state in &pages {
-        let list = at_rest(&mut engine, b, &theme, &data, state)?;
-        let snap = snapshots.iter().find(|s| &s.state_id == state).expect("`named` checked the state");
-        read.push((state.clone(), scaena_core::reading::html(&b.deck, snap, &list)));
+    engine.frames_at_rest(&b.deck, &theme, &data, None, &pages, |state, list| {
+        let snap = snapshots.iter().find(|s| s.state_id == state).expect("`named` checked the state");
+        read.push((state.to_string(), scaena_core::reading::html(&b.deck, snap, &list)));
         progress.step();
-    }
+        Ok::<(), OpsError>(())
+    })?;
     let mut files = saved()?;
     files.retain(|path, _| path != "manifest.json" && !path.starts_with("history/"));
     let standalone = Standalone { deck: &b.deck, name, files: &files, states: &read };
@@ -423,27 +422,31 @@ fn spine(
             file_named(beat, "the beat")?;
         }
     }
+    // Each beat that names a state drawn at rest on the deck's canvas, then in each other format,
+    // each format's states laid out in one pass (lift-up 10-24b PERF-4).
+    let told: Vec<(String, String)> =
+        (projection.beats.iter()).filter_map(|(beat, e)| e.state.clone().map(|s| (beat.clone(), s))).collect();
+    let states: Vec<String> = told.iter().map(|(_, state)| state.clone()).collect();
     let mut pixels = None;
-    progress.start(projection.beats.values().filter(|entry| entry.state.is_some()).count());
-    for (beat, entry) in &mut projection.beats {
-        let Some(state) = entry.state.clone() else { continue };
-        let list = at_rest(&mut engine, b, &theme, &data, &state)?;
+    progress.start(told.len() * (1 + others.len()));
+    let mut beats = told.iter().map(|(beat, _)| beat);
+    engine.frames_at_rest(&b.deck, &theme, &data, None, &states, |_, list| {
+        let beat = beats.next().expect("a beat for each state drawn");
         pixels = Some(list.viewport.map(|v| (v * scale).round() as u32));
-        entry.thumbnail = Some(draw(&list, scale, format!("renders/{beat}.png"))?);
-        for format in &others {
-            let req = FrameRequest {
-                deck: &b.deck,
-                theme: &theme,
-                data: &data,
-                state: &state,
-                t_ms: f64::INFINITY,
-                format: Some(format),
-            };
-            let list = engine.frame(&req)?.display_list;
-            let name = format!("renders/{beat}@{}.png", format.replace(':', "x"));
-            entry.formats.insert(format.clone(), draw(&list, 1.0, name)?);
-        }
+        let drawn = draw(&list, scale, format!("renders/{beat}.png"))?;
+        projection.beats[beat].thumbnail = Some(drawn);
         progress.step();
+        Ok::<(), OpsError>(())
+    })?;
+    for format in &others {
+        let mut beats = told.iter().map(|(beat, _)| beat);
+        engine.frames_at_rest(&b.deck, &theme, &data, Some(format), &states, |_, list| {
+            let beat = beats.next().expect("a beat for each state drawn");
+            let drawn = draw(&list, 1.0, format!("renders/{beat}@{}.png", format.replace(':', "x")))?;
+            projection.beats[beat].formats.insert(format.clone(), drawn);
+            progress.step();
+            Ok::<(), OpsError>(())
+        })?;
     }
     let text = serde_json::to_string_pretty(&projection)? + "\n";
     write(out, text.as_bytes())?;
@@ -524,18 +527,6 @@ fn engine_files(b: &Bundle, theme: &Theme) -> Result<(Engine, Named), OpsError> 
     Ok((Engine::new(fonts).with_images(images), named))
 }
 
-/// A state at rest, laid out on the deck's canvas.
-fn at_rest(
-    engine: &mut Engine,
-    b: &Bundle,
-    theme: &Theme,
-    data: &DataFiles,
-    state: &str,
-) -> Result<scaena_core::displaylist::DisplayList, OpsError> {
-    let req = FrameRequest { deck: &b.deck, theme, data, state, t_ms: f64::INFINITY, format: None };
-    Ok(engine.frame(&req)?.display_list)
-}
-
 /// The deck as a PDF, and the state each page draws, written as `settings` say: `export`
 /// takes [`PdfSettings::default`].
 pub fn pdf_document(
@@ -572,10 +563,11 @@ pub fn pdf_laid_out(
     let data = data_files(b)?;
     let (mut engine, named) = engine_files(b, &theme)?;
     let mut drawn = Vec::with_capacity(pages.len());
-    for state in &pages {
-        drawn.push(Page { state: state.clone(), list: at_rest(&mut engine, b, &theme, &data, state)? });
+    engine.frames_at_rest(&b.deck, &theme, &data, None, &pages, |state, list| {
+        drawn.push(Page { state: state.to_string(), list });
         progress.step();
-    }
+        Ok::<(), OpsError>(())
+    })?;
     let laid = Prepared { deck: b.deck.clone(), pages: drawn, fonts: named.fonts, images: named.images };
     Ok((laid, pages))
 }
@@ -646,9 +638,8 @@ fn images(
     let (ext, svg_format) = if format == Format::Svg { ("svg", true) } else { ("png", false) };
     let (mut files, mut total, mut pixels) = (Vec::new(), 0_u64, [0, 0]);
     let mut painter = CpuPainter::default();
-    for state in &pages {
-        let (name, title) = names.get(state).cloned().unwrap_or_else(|| (state.clone(), state.clone()));
-        let list = at_rest(&mut engine, b, &theme, &data, state)?;
+    engine.frames_at_rest(&b.deck, &theme, &data, None, &pages, |state, list| {
+        let (name, title) = names.get(state).cloned().unwrap_or_else(|| (state.to_string(), state.to_string()));
         let scale = match size {
             Some(size) => scale_for(size, list.viewport)?,
             None => 1.0,
@@ -667,7 +658,8 @@ fn images(
         total += bytes.len() as u64;
         files.push(file.display().to_string());
         progress.step();
-    }
+        Ok::<(), OpsError>(())
+    })?;
     Ok(Exported {
         format: ext.into(),
         pages: Some(pages),

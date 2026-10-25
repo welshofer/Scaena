@@ -125,8 +125,9 @@ impl Grid {
     pub fn place(&self, theme: &Theme, template: Option<&str>, at: Option<&Value>) -> Result<Rect, EngineError> {
         let mut rect = self.cell(theme, template, at)?;
         let Some(at) = at else { return Ok(rect) };
-        if let Some(inset) = at.get("inset").and_then(Value::as_f64) {
-            let inset = inset as f32;
+        // Its inset, in canvas units or a theme token (`space.N`), as any length (SPEC §3.2).
+        if let Some(inset) = at.get("inset") {
+            let inset = theme.length(inset, rect[2].min(rect[3]))?;
             rect = [rect[0] + inset, rect[1] + inset, rect[2] - 2.0 * inset, rect[3] - 2.0 * inset];
         }
         if let Some([dx, dy]) = at.get("offset").and_then(|o| serde_json::from_value::<[f32; 2]>(o.clone()).ok()) {
@@ -340,6 +341,23 @@ mod tests {
         assert_eq!(grid.place(&t, None, Some(&json!({"in": "canvas"}))).unwrap(), [0.0, 0.0, 1920.0, 1080.0]);
         assert_eq!(grid.place(&t, Some("specimen"), Some(&json!({"in": "case"}))).unwrap(), [96.0, 96.0, 1728.0, 90.0]);
         assert_eq!(Grid::slot_role(&t, Some("specimen"), Some(&json!({"in": "case"}))).as_deref(), Some("label"));
+    }
+
+    /// A placement's inset is a length as any is: canvas units, `"24cu"`, or a step of the theme's
+    /// space (`space.N`), which W300 asks for in place of a number; an unknown token says so.
+    #[test]
+    fn a_placements_inset_is_any_length() {
+        let dusk = Theme::from_json(include_str!("../../../docs/examples/themes/dusk.theme.json")).unwrap();
+        let grid = Grid::from_theme(&dusk, [1920.0, 1080.0]).unwrap();
+        let place =
+            |inset: Value| grid.place(&dusk, None, Some(&json!({"col": [1, 4], "row": [3, 6], "inset": inset})));
+        let units = place(json!(24)).unwrap();
+        // Dusk's space scale is [0, 4, 8, 16, 24, …]: step 4 is 24.
+        assert_eq!(place(json!("space.4")).unwrap(), units);
+        assert_eq!(place(json!("24cu")).unwrap(), units);
+        let bare = grid.place(&dusk, None, Some(&json!({"col": [1, 4], "row": [3, 6]}))).unwrap();
+        assert_eq!(units, [bare[0] + 24.0, bare[1] + 24.0, bare[2] - 48.0, bare[3] - 48.0]);
+        assert!(place(json!("space.99")).unwrap_err().to_string().contains("no step 99"));
     }
 
     #[test]
