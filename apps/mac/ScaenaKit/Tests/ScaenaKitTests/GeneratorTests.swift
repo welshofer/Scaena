@@ -93,7 +93,7 @@ private func anthropic(_ text: String) -> Data {
     let (session, made) = try await generator.generate(
         brief: Brief(topic: "Carbon-negative cargo is ready to scale", audience: "Investors"),
         provider: .anthropic, model: "a-model", key: "sk-writer", theme: "dusk",
-        painter: Generator.Painter(provider: .openai, key: "sk-pictures"),
+        painter: Generator.Painter(provider: .openai, key: "sk-pictures", quality: "high"),
         drawn: { film.append(($0, $1)) }
     ) { heard.append($0) }
 
@@ -147,7 +147,10 @@ private func anthropic(_ text: String) -> Data {
     }
 
     let requests = await asked.requests
-    #expect(requests.filter { $0.url == "https://api.openai.com/v1/images/generations" }.count == pictures)
+    let painted = requests.filter { $0.url == "https://api.openai.com/v1/images/generations" }
+    #expect(painted.count == pictures)
+    // Made with the care the window chose (lift-up FUNC-5).
+    #expect(painted.allSatisfy { ($0.body ?? "").contains(#""quality":"high""#) })
     for request in requests {
         let body = request.body ?? ""
         #expect(!body.contains("sk-writer") && !body.contains("sk-pictures"), "no key in a body")

@@ -297,6 +297,7 @@ web-smoke: site
     node web/live.mjs
     node web/new.mjs
     node web/generate.mjs
+    node web/story.mjs
     node web/first-deck.mjs
     node web/edit-deck.mjs
     node web/present-deck.mjs
