@@ -279,7 +279,7 @@ try {
   });
   requests.length = 0;
   await page.click("#prompting details > summary");
-  await page.fill("#prompting-language", "Japanese");
+  await page.selectOption("#prompting-language", "Japanese");
   await page.click("#prompting-go");
   const unfetched = await failed();
   check(
@@ -289,7 +289,7 @@ try {
   check(requests.length === 0, `nothing is asked of the provider: ${requests.length}`);
   // Hindi's is fetched and checked, then the provider is asked, which refuses the key here.
   state.fail = true;
-  await page.fill("#prompting-language", "Hindi");
+  await page.selectOption("#prompting-language", "Hindi");
   await page.click("#prompting-go");
   const hindi = await failed();
   const fetching = (await lines()).find((l) => l.startsWith("Fetching"));
@@ -303,7 +303,7 @@ try {
   await failed();
   check(devanagari() === 1 && !(await lines()).some((l) => l.startsWith("Fetching")), "kept, it is not fetched for the next deck");
   state.fail = false;
-  await page.fill("#prompting-language", "");
+  await page.selectOption("#prompting-language", "English");
   await page.click("#prompting details > summary");
 
   // A provider that refuses the key says so in a person's words, as the pictures do (lift-up

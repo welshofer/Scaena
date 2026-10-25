@@ -490,7 +490,8 @@ export function prompting(
         length: length.value || undefined,
         modality: modality.value || undefined,
         desiredOutcomes: outcome.value.trim() || undefined,
-        language: language.value || undefined,
+        // English is Narrato's default, sent as none, so its prompt reads as it did.
+        language: language.value === "English" ? undefined : language.value || undefined,
         voice: voice.value.trim() || undefined,
         personaId: persona.value || undefined,
       },

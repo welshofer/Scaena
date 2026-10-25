@@ -845,7 +845,7 @@ struct PromptView: View {
             topic: topic.trimmingCharacters(in: .whitespacesAndNewlines),
             audience: audience.isEmpty ? nil : audience, goal: goal.isEmpty ? nil : goal,
             length: length.isEmpty ? nil : length, modality: modality.isEmpty ? nil : modality,
-            desiredOutcomes: outcome.isEmpty ? nil : outcome, language: language.isEmpty ? nil : language,
+            desiredOutcomes: outcome.isEmpty ? nil : outcome, language: language.isEmpty || language == "English" ? nil : language,
             voice: voice.isEmpty ? nil : voice, personaId: persona.isEmpty ? nil : persona)
         let paint = painter.flatMap { made in
             keychain.key(for: made).map { Generator.Painter(provider: made, key: $0, look: look, quality: quality) }
