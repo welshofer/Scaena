@@ -157,6 +157,8 @@ struct PromptView: View {
     @State private var kept: Set<Provider> = []
     @State private var steps: [Line] = []
     @State private var running: Task<Void, Never>?
+    /// Cancel, or Escape, pressed while a deck is being made: asked first (lift-up 10-24 USE-2).
+    @State private var confirmingStop = false
     /// The outline shown to settle (narrative FUNC-1), its beats as the person edits them, and the
     /// generation waiting on what they decide.
     @State private var outlined: Outlined?
@@ -529,20 +531,33 @@ struct PromptView: View {
         deciding = nil
     }
 
-    /// Cancel: what is under way stopped, and the brief put away.
+    /// Cancel: what is under way stopped, and the brief put away. While a deck is being made, it
+    /// asks first: stopping drops what has been made so far, and the calls already paid for.
     private var cancelling: some View {
         Button("Cancel") {
-            decide(nil)
-            running?.cancel()
-            running = nil
-            #if os(macOS)
-            dismissWindow(id: PromptWindow.id)
-            #else
-            finish(nil)
-            #endif
+            if running == nil { stop() } else { confirmingStop = true }
         }
         .keyboardShortcut(.cancelAction)
         .accessibilityIdentifier("prompt-cancel")
+        .confirmationDialog("Stop making the deck?", isPresented: $confirmingStop) {
+            Button("Stop Making It", role: .destructive) { stop() }
+                .accessibilityIdentifier("prompt-stop")
+            Button("Keep Making It", role: .cancel) {}
+        } message: {
+            Text("What has been made so far is lost.")
+        }
+    }
+
+    /// What is under way stopped, and the brief put away.
+    private func stop() {
+        decide(nil)
+        running?.cancel()
+        running = nil
+        #if os(macOS)
+        dismissWindow(id: PromptWindow.id)
+        #else
+        finish(nil)
+        #endif
     }
 
     /// Generate: the deck written, once it has something to be about and a key to write it with.

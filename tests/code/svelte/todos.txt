@@ -1,0 +1,26 @@
+<script>
+  export let todos = [];
+  let filter = "all";
+  $: done = todos.filter((t) => t.done).length;
+</script>
+
+<h1>{done} of {todos.length} done</h1>
+{#if todos.length === 0}
+  <p>Nothing to do.</p>
+{:else if filter === "done"}
+  <p>Only the finished ones.</p>
+{:else}
+  <ul>
+    {#each todos as todo (todo.id)}
+      <li class:done={todo.done} title="Due {todo.due}">
+        <input type="checkbox" bind:checked={todo.done} />
+        {@html todo.label}
+      </li>
+    {/each}
+  </ul>
+{/if}
+<Button {...props} on:click={() => (filter = "all")}>Show all</Button>
+
+<style>
+  .done { opacity: 0.5; }
+</style>
