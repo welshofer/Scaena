@@ -1,0 +1,10 @@
+warn  W210 /states/12: state `we-keep-the-cache-in-process` shows 54 words; the theme's density allows 40
+        hint: Split it into builds, or move the detail to the beat's notes.
+warn  W210 /states/13: state `we-keep-the-cache-in-process-2` shows 54 words; the theme's density allows 40
+        hint: Split it into builds, or move the detail to the beat's notes.
+warn  W210 /states/14: state `we-keep-the-cache-in-process-3` shows 54 words; the theme's density allows 40
+        hint: Split it into builds, or move the detail to the beat's notes.
+warn  W210 /states/15: state `we-keep-the-cache-in-process-4` shows 54 words; the theme's density allows 40
+        hint: Split it into builds, or move the detail to the beat's notes.
+warn  W210 /states/17: state `three-things-we-d-do-again` shows 42 words; the theme's density allows 40
+        hint: Split it into builds, or move the detail to the beat's notes.

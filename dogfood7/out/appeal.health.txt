@@ -1,0 +1,33 @@
+narrative health 89/100, written to Conflict → Struggle → Resolution
+  pacing     100  11 slides, as the brief asked (11–15).
+  balance     80  Slides make 1.7 points each, where two to five read as full.
+  coherence    —  Read by their words: 1 slide where the talk turns sharply, 2 at a beat's turn.
+  arc         89  2 slides bend the intensity away from Conflict → Struggle → Resolution's curve.
+  intensity   73  5 slides read far from the intensity they declare.
+  tone        74  3 slides read far from the tone they declare.
+warn  every-child-deserves-a-warm: Slide 1 reads hotter than it was written to be.
+  ask: Calm slide 1's words to the intensity it declares (0.30); they read 0.55.
+info  maya-did-her-homework-in: Slide 2 was planned hotter than its place in the talk.
+  ask: Slide 2 is planned at 0.70, more intense than its place in the story calls for (0.25): plan it calmer, or move it nearer the climax.
+info  she-is-one-of-many: Slide 3 was planned hotter than its place in the talk.
+  ask: Slide 3 is planned at 0.80, more intense than its place in the story calls for (0.39): plan it calmer, or move it nearer the climax.
+warn  she-is-one-of-many: Slide 3 reads flatter than it was written to be.
+  ask: Slide 3's words read 0.51, as its place in the story calls for (0.39): it is its plan (0.80) that strays, so plan it for its place, not the words.
+warn  families-wait-longer-every-year: Slide 4 shares little with slide 3: the turn between them may lose the room.
+  ask: Write the line that carries the talk from slide 3 to slide 4, and put it in slide 4's notes.
+warn  i-didn-t-want-her-to: Slide 5 reads flatter than it was written to be.
+  ask: Make slide 5's words carry the intensity it declares (0.90): sharper verbs, a figure that lands.
+warn  this-winter-212-families-are: Slide 6 shares little with slide 5: the turn between them may lose the room.
+  ask: Write the line that carries the talk from slide 5 to slide 6, and put it in slide 6's notes.
+warn  this-winter-212-families-are: Slide 6 reads flatter than it was written to be.
+  ask: Make slide 6's words carry the intensity it declares (0.80): sharper verbs, a figure that lands.
+warn  where-maya-is-now: Slide 8 reads neutral, where it was written to sound hopeful.
+  ask: Warm slide 8's words toward the tone it declares (+0.80); they read +0.00.
+warn  what-families-tell-us: Slide 9 reads neutral, where it was written to sound hopeful.
+  ask: Warm slide 9's words toward the tone it declares (+0.70); they read +0.00.
+warn  open-212-rooms-this-winter: Slide 10 shares little with slide 9: the turn between them may lose the room.
+  ask: Write the line that carries the talk from slide 9 to slide 10, and put it in slide 10's notes.
+warn  open-212-rooms-this-winter: Slide 10 reads flatter than it was written to be.
+  ask: Make slide 10's words carry the intensity it declares (0.90): sharper verbs, a figure that lands.
+warn  thank-you: Slide 11 reads neutral, where it was written to sound hopeful.
+  ask: Warm slide 11's words toward the tone it declares (+0.80); they read +0.00.

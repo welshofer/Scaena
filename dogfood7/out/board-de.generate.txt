@@ -1,0 +1,6 @@
+11 slides written
+made /tmp/claude-0/-home-user-Scaena/00582647-5a6f-5e98-b9b5-9a839d596db4/scratchpad/d7out/board-de: 11 slides on the arc Data Storytelling
+  layouts: title-center, agenda, scorecard, line-chart, bar-chart, big-number, quote, quadrants, timeline, next-steps, closing
+  fixed by lint: 1
+ok: no findings
+next: scaena serve /tmp/claude-0/-home-user-Scaena/00582647-5a6f-5e98-b9b5-9a839d596db4/scratchpad/d7out/board-de

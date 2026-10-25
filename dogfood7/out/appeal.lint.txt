@@ -1,0 +1,8 @@
+warn  W210 /states/1: state `maya-did-her-homework-in` shows 50 words; the theme's density allows 40
+        hint: Split it into builds, or move the detail to the beat's notes.
+warn  W210 /states/2: state `maya-did-her-homework-in-2` shows 50 words; the theme's density allows 40
+        hint: Split it into builds, or move the detail to the beat's notes.
+warn  W210 /states/3: state `maya-did-her-homework-in-3` shows 50 words; the theme's density allows 40
+        hint: Split it into builds, or move the detail to the beat's notes.
+warn  W210 /states/10: state `what-families-tell-us` shows 43 words; the theme's density allows 40
+        hint: Split it into builds, or move the detail to the beat's notes.

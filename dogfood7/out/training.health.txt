@@ -1,0 +1,25 @@
+narrative health 92/100, written to Learning Journey
+  pacing     100  12 slides, as the brief asked (11–15).
+  balance    100  Each slide makes two to five points, and its notes give the speaker enough to say.
+  coherence    —  Read by their words: 2 slides where the talk turns sharply, 0 at a beat's turn.
+  arc         77  4 slides bend the intensity away from Learning Journey's curve.
+  intensity   89  1 slide read far from the intensity they declare.
+  tone        81  2 slides read far from the tone they declare.
+warn  write-postmortems-people-actually-read: Slide 1 reads hotter than it was written to be.
+  ask: Calm slide 1's words to the intensity it declares (0.20); they read 0.46.
+warn  blameless-postmortem: Slide 3 reads graver than it was written to be.
+  ask: Warm slide 3's words toward the tone it declares (+0.30); they read −0.35.
+warn  turn-a-vague-action-item: Slide 7 shares little with slide 6: the turn between them may lose the room.
+  ask: Write the line that carries the talk from slide 6 to slide 7, and put it in slide 7's notes.
+info  check-yourself: Slide 9 was planned cooler than its place in the talk.
+  ask: Slide 9 is planned at 0.40, calmer than its place in the story calls for (0.76): plan it more intense, or move it away from the climax.
+warn  quick-quiz: Slide 10 shares little with slide 9: the turn between them may lose the room.
+  ask: Write the line that carries the talk from slide 9 to slide 10, and put it in slide 10's notes.
+info  quick-quiz: Slide 10 was planned cooler than its place in the talk.
+  ask: Slide 10 is planned at 0.50, calmer than its place in the story calls for (0.79): plan it more intense, or move it away from the climax.
+info  before-you-publish-check-these: Slide 11 was planned cooler than its place in the talk.
+  ask: Slide 11 is planned at 0.40, calmer than its place in the story calls for (0.86): plan it more intense, or move it away from the climax.
+info  three-things-to-remember: Slide 12 was planned cooler than its place in the talk.
+  ask: Slide 12 is planned at 0.50, calmer than its place in the story calls for (0.96): plan it more intense, or move it away from the climax.
+warn  three-things-to-remember: Slide 12 reads neutral, where it was written to sound hopeful.
+  ask: Warm slide 12's words toward the tone it declares (+0.70); they read +0.00.

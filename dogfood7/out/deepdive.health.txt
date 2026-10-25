@@ -1,0 +1,28 @@
+narrative health 92/100, written to PARL (Problem, Action, Result, Learning)
+  pacing     100  13 slides, as the brief asked (11–15).
+  balance    100  Each slide makes two to five points, and its notes give the speaker enough to say.
+  coherence    —  Read by their words: 1 slide where the talk turns sharply, 3 at a beat's turn.
+  arc         78  3 slides bend the intensity away from PARL (Problem, Action, Result, Learning)'s curve.
+  intensity   88  The words carry the intensity each slide declares.
+  tone        77  2 slides read far from the tone they declare.
+info  at-last-year-s-peak-one: Slide 3 was planned hotter than its place in the talk.
+  ask: Slide 3 is planned at 0.60, more intense than its place in the story calls for (0.30): plan it calmer, or move it nearer the climax.
+warn  every-line-item-made-its: Slide 5 shares little with slide 4: the turn between them may lose the room.
+  ask: Write the line that carries the talk from slide 4 to slide 5, and put it in slide 5's notes.
+warn  faster-checkout-cheaper-database-more: Slide 9 shares little with slide 8: the turn between them may lose the room.
+  ask: Write the line that carries the talk from slide 8 to slide 9, and put it in slide 9's notes.
+warn  faster-checkout-cheaper-database-more: Slide 9 reads neutral, where it was written to sound hopeful.
+  ask: Warm slide 9's words toward the tone it declares (+0.80); they read +0.00.
+warn  we-keep-the-cache-in-process: Slide 10 shares little with slide 9: the turn between them may lose the room.
+  ask: Write the line that carries the talk from slide 9 to slide 10, and put it in slide 10's notes.
+warn  the-pager-stayed-quiet-all: Slide 11 shares little with slide 10: the turn between them may lose the room.
+  ask: Write the line that carries the talk from slide 10 to slide 11, and put it in slide 11's notes.
+warn  the-pager-stayed-quiet-all: Slide 11 reads graver than it was written to be.
+  ask: Warm slide 11's words toward the tone it declares (+0.90); they read +0.17.
+warn  the-pager-stayed-quiet-all: Slide 11 was written for Result, and now stands in Learning.
+  ask: Slide 11 was written for the Result part of the talk and now stands in Learning: rewrite it for its new place, or move it back.
+  fix: Make it part of Learning: [{"op":"replace","path":"/spine/sections/4/beats/0/media/narrato/beatIndex","value":3},{"op":"replace","path":"/spine/sections/4/beats/0/media/narrato/beatName","value":"Learning"}]
+info  three-things-we-d-do-again: Slide 12 was planned cooler than its place in the talk.
+  ask: Slide 12 is planned at 0.50, calmer than its place in the story calls for (0.83): plan it more intense, or move it away from the climax.
+info  questions: Slide 13 was planned cooler than its place in the talk.
+  ask: Slide 13 is planned at 0.30, calmer than its place in the story calls for (0.90): plan it more intense, or move it away from the climax.

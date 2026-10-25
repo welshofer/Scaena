@@ -1,0 +1,2 @@
+warn  W210 /states/3: state `write-it-in-five-parts` shows 41 words; the theme's density allows 40
+        hint: Split it into builds, or move the detail to the beat's notes.

@@ -1,0 +1,14 @@
+13 slides written
+made /tmp/claude-0/-home-user-Scaena/00582647-5a6f-5e98-b9b5-9a839d596db4/scratchpad/d7out/deepdive: 13 slides on the arc PARL (Problem, Action, Result, Learning)
+  layouts: title-center, agenda, big-number, line-chart, bullets, myth-fact, numbered-cards, bar-chart, scorecard, bullets, quote, numbered, closing
+warn  W210 /states/12: state `we-keep-the-cache-in-process` shows 54 words; the theme's density allows 40
+        hint: Split it into builds, or move the detail to the beat's notes.
+warn  W210 /states/13: state `we-keep-the-cache-in-process-2` shows 54 words; the theme's density allows 40
+        hint: Split it into builds, or move the detail to the beat's notes.
+warn  W210 /states/14: state `we-keep-the-cache-in-process-3` shows 54 words; the theme's density allows 40
+        hint: Split it into builds, or move the detail to the beat's notes.
+warn  W210 /states/15: state `we-keep-the-cache-in-process-4` shows 54 words; the theme's density allows 40
+        hint: Split it into builds, or move the detail to the beat's notes.
+warn  W210 /states/17: state `three-things-we-d-do-again` shows 42 words; the theme's density allows 40
+        hint: Split it into builds, or move the detail to the beat's notes.
+next: scaena serve /tmp/claude-0/-home-user-Scaena/00582647-5a6f-5e98-b9b5-9a839d596db4/scratchpad/d7out/deepdive

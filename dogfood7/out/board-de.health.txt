@@ -1,0 +1,21 @@
+narrative health 85/100, written to Data Storytelling
+  pacing     100  11 slides, as the brief asked (11–15).
+  balance     82  Slides make 1.8 points each, where two to five read as full.
+  coherence    —  Read by their words: 1 slide where the talk turns sharply, 1 at a beat's turn.
+  arc         76  3 slides bend the intensity away from Data Storytelling's curve.
+  intensity   86  1 slide read far from the intensity they declare.
+  tone        77  1 slide read far from the tone they declare.
+warn  das-ebitda-w-chst-doppelt-so: Slide 6 reads neutral, where it was written to sound hopeful.
+  ask: Warm slide 6's words toward the tone it declares (+0.70); they read +0.00.
+warn  die-marge-ist-kein-zufall: Slide 7 shares little with slide 6: the turn between them may lose the room.
+  ask: Write the line that carries the talk from slide 6 to slide 7, and put it in slide 7's notes.
+warn  zwei-risiken-verlangen-jetzt-aufmerksamkeit: Slide 8 shares little with slide 7: the turn between them may lose the room.
+  ask: Write the line that carries the talk from slide 7 to slide 8, and put it in slide 8's notes.
+warn  zwei-risiken-verlangen-jetzt-aufmerksamkeit: Slide 8 reads flatter than it was written to be.
+  ask: Make slide 8's words carry the intensity it declares (0.70): sharper verbs, a figure that lands.
+info  fahrplan-bis-zum-dritten-quartal: Slide 9 was planned cooler than its place in the talk.
+  ask: Slide 9 is planned at 0.50, calmer than its place in the story calls for (0.76): plan it more intense, or move it away from the climax.
+info  drei-beschl-sse-f-r-heute: Slide 10 was planned cooler than its place in the talk.
+  ask: Slide 10 is planned at 0.60, calmer than its place in the story calls for (0.86): plan it more intense, or move it away from the climax.
+info  vielen-dank: Slide 11 was planned cooler than its place in the talk.
+  ask: Slide 11 is planned at 0.30, calmer than its place in the story calls for (0.96): plan it more intense, or move it away from the climax.

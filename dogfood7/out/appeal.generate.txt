@@ -1,0 +1,12 @@
+11 slides written
+made /tmp/claude-0/-home-user-Scaena/00582647-5a6f-5e98-b9b5-9a839d596db4/scratchpad/d7out/appeal: 11 slides on the arc Conflict → Struggle → Resolution
+  layouts: title-center, bullets, big-number, bar-chart, quote, statement, scorecard, milestones, testimonials, the-ask, bullets
+warn  W210 /states/1: state `maya-did-her-homework-in` shows 50 words; the theme's density allows 40
+        hint: Split it into builds, or move the detail to the beat's notes.
+warn  W210 /states/2: state `maya-did-her-homework-in-2` shows 50 words; the theme's density allows 40
+        hint: Split it into builds, or move the detail to the beat's notes.
+warn  W210 /states/3: state `maya-did-her-homework-in-3` shows 50 words; the theme's density allows 40
+        hint: Split it into builds, or move the detail to the beat's notes.
+warn  W210 /states/10: state `what-families-tell-us` shows 43 words; the theme's density allows 40
+        hint: Split it into builds, or move the detail to the beat's notes.
+next: scaena serve /tmp/claude-0/-home-user-Scaena/00582647-5a6f-5e98-b9b5-9a839d596db4/scratchpad/d7out/appeal
