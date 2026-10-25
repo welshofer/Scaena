@@ -127,7 +127,8 @@ fn an_outline_is_asked_settled_and_written_to() {
     assert!(prompt.contains("**Outline (Scaena)**"), "{prompt}");
     assert!(prompt.contains("The big idea, which every slide serves: \"Cargo can pay for its carbon.\""));
     assert!(
-        prompt.contains(&format!("Beat 2 \"{}\" \u{2192} slide 2: Shippers pay more for them.", outline.beats[3].name)),
+        // Beat 1 takes the cover and the slide past it, for its hook (lift-up 10-25b FUNC-3).
+        prompt.contains(&format!("Beat 2 \"{}\" \u{2192} slide 3: Shippers pay more for them.", outline.beats[3].name)),
         "{prompt}"
     );
     assert!(prompt.contains("Beat 6 \"Thanks\" \u{2192} slide"), "{prompt}");

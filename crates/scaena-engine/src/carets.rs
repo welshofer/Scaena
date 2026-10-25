@@ -95,10 +95,9 @@ pub struct Caret {
     pub bottom: f32,
 }
 
-/// A character that ends a line wherever it stands (UAX #14's mandatory breaks).
-pub fn breaks(c: char) -> bool {
-    matches!(c, '\n' | '\r' | '\u{B}' | '\u{C}' | '\u{85}' | '\u{2028}' | '\u{2029}')
-}
+/// A character that ends a line wherever it stands (UAX #14's mandatory breaks): the deck's own
+/// count of a text's lines, so lint and an edit count them as they are drawn.
+pub use scaena_core::lists::breaks;
 
 /// Whether `c` takes room on its line: it sets ink, or it is a space.
 fn takes_room(c: char) -> bool {
