@@ -1876,7 +1876,11 @@ def apart(inset):
     if not isinstance(inset, dict):
         return inset
     top, right, bottom, left = sides(inset)
-    return right if right == bottom == left and right else None
+    # Its top taken by words under a text, or its bottom by a display text over words: the other
+    # three sides are what its layout gave it.
+    if right == bottom == left or top == right == left:
+        return right or None
+    return None
 
 
 def cleared(slots, geometry):
@@ -1895,14 +1899,16 @@ def cleared(slots, geometry):
         descent, tallest, _ = role
         (ca, ra) = cells(a)
         y = (a.get("align") or {}).get("y", "start") if isinstance(a.get("align"), dict) else a.get("align", "start")
+        display = y in ("start", "cap") and a.get("role") == "display"
         if y == "end":
             hang = descent
-        elif y in ("start", "cap") and a.get("role") == "display":
+        elif display:
             # A display text grown or broken to fill its cells, its last baseline at their foot.
-            box = (ra[1] - ra[0] + 1) * row + (ra[1] - ra[0]) * gutter - 2 * sides(a.get("inset"))[2]
+            box = (ra[1] - ra[0] + 1) * row + (ra[1] - ra[0]) * gutter - sum(sides(a.get("inset"))[0::2])
             hang = max(0, min(tallest, box) + descent - box)
         else:
             continue
+        under = []
         for b in out.values():
             if b is a or not b.get("role") or "row" not in b:
                 continue
@@ -1910,8 +1916,16 @@ def cleared(slots, geometry):
             if rb[0] != ra[1] + 1 or cb[1] < ca[0] or cb[0] > ca[1]:
                 continue
             need = math.ceil(hang - sides(a.get("inset"))[2] - sides(b.get("inset"))[0])
-            if need <= 0:
-                continue
+            if need > 0:
+                under.append((b, need))
+        if display and under:
+            # A display text that only fills its cells now and then keeps the words under it their
+            # room: its own foot stands clear of them, and the text shrinks a step where it fills.
+            need = max(n for _, n in under)
+            top, right, bottom, left = sides(a.get("inset"))
+            a["inset"] = {**({"top": top, "right": right} if right else {}), "bottom": bottom + need, **({"left": left} if right else {})}
+            continue
+        for b, need in under:
             top, right, bottom, left = sides(b.get("inset"))
             b["inset"] = {"top": top + need, **({"right": right, "bottom": bottom, "left": left} if right else {})}
     return out
