@@ -123,6 +123,22 @@ pub fn adding(b: &Bundle, bytes: &[u8], picture: &Picture) -> Result<(Added, Opt
     Ok((Added { node, src, said, patched }, write))
 }
 
+/// A picture's file, read whole: one larger than a bundle holds a file
+/// ([`scaena_store::UNZIPPED`]) refused by its size before a byte of it is read.
+pub fn read(file: &std::path::Path) -> Result<Vec<u8>, OpsError> {
+    let failed = |e: std::io::Error| OpsError::new(format!("{}: {e}", file.display()));
+    let size = std::fs::metadata(file).map_err(failed)?.len();
+    let most = scaena_store::UNZIPPED.entry;
+    if size > most {
+        return Err(OpsError::new(format!(
+            "{} is {size} bytes; a picture is at most {} MB",
+            file.display(),
+            most >> 20
+        )));
+    }
+    std::fs::read(file).map_err(failed)
+}
+
 /// The PNG or JPEG `bytes` made no larger than [`MAX_IMAGE_SIDE`] a side, as the browser and the
 /// Mac make a picture too large (SPEC §3.3): a PNG as a PNG with its transparency, a JPEG as a
 /// JPEG turned upright by its orientation; one that fits as it is.
@@ -133,10 +149,27 @@ pub fn smaller(bytes: Vec<u8>) -> Result<Vec<u8>, OpsError> {
     if seen.fits() {
         return Ok(bytes);
     }
+    // What a painter would hold, four bytes a pixel: a header that claims more is refused before
+    // anything is decoded, and the decoder is held to it besides.
+    let most = scaena_paint::MAX_PIXELS * 4;
+    if u64::from(seen.width) * u64::from(seen.height) > scaena_paint::MAX_PIXELS {
+        return Err(OpsError::new(format!(
+            "the picture is {} × {} px, more than {} pixels: too large to make smaller here; make it smaller first",
+            seen.width,
+            seen.height,
+            scaena_paint::MAX_PIXELS
+        )));
+    }
     let bad = |e: image::ImageError| OpsError::new(format!("the picture could not be made smaller: {e}"));
     let jpeg = scaena_core::jpeg::is_jpeg(&bytes);
-    let reader = image::ImageReader::new(std::io::Cursor::new(&bytes)).with_guessed_format().context("the picture")?;
+    let mut limits = image::Limits::default();
+    limits.max_alloc = Some(most);
+    let mut reader =
+        image::ImageReader::new(std::io::Cursor::new(&bytes)).with_guessed_format().context("the picture")?;
+    reader.limits(limits.clone());
     let mut decoder = reader.into_decoder().map_err(bad)?;
+    // `into_decoder` leaves the whole buffer to the caller to reserve, as `ImageReader::decode` does.
+    limits.reserve(decoder.total_bytes()).map_err(bad)?;
     let orientation = decoder.orientation().map_err(bad)?;
     let mut picture = image::DynamicImage::from_decoder(decoder).map_err(bad)?;
     picture.apply_orientation(orientation);

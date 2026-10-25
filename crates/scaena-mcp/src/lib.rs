@@ -1298,7 +1298,7 @@ impl Scaena {
         let author = author(&context);
         let file = self.readable(&a.file, &a.bundle).map_err(failure)?;
         blocking(move || {
-            let bytes = std::fs::read(&file).map_err(|e| OpsError::new(format!("{}: {e}", file.display())))?;
+            let bytes = scaena_ops::pictures::read(&file)?;
             let bytes = scaena_ops::pictures::smaller(bytes)?;
             let b = &*open_by(&a.bundle, author)?;
             if a.dry_run {
