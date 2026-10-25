@@ -247,6 +247,10 @@ impl SceneNode {
     pub fn ink(&self) -> Option<Rect> {
         match &self.content {
             Content::Text(placed) => {
+                // Code on a card takes its card's box (PLAN 2.136).
+                if let Some(card) = placed.frame.as_deref().and_then(crate::render::CodeFrame::extent) {
+                    return Some(card);
+                }
                 let t = &placed.text;
                 let left = t.lines.iter().map(|l| l.x - l.hang).fold(f32::INFINITY, f32::min);
                 let right = t.lines.iter().map(|l| l.x + l.width + l.hang_end).fold(f32::NEG_INFINITY, f32::max);
@@ -1088,7 +1092,9 @@ impl Transition {
             return op;
         };
         let split = text_split(cue.split).expect("found by its split");
-        let ops = unit_ops(dl, &placed.text, split, cue, t);
+        // Code's card and numbers stay under its units (PLAN 2.136).
+        let mut ops = frame_ops(dl, placed);
+        ops.extend(unit_ops(dl, &placed.text, split, cue, t));
         Op::Layer {
             node: node.clone(),
             cell: *cell,
@@ -1203,7 +1209,15 @@ impl Transition {
                     let op = match (&from[*i].content, &to[*j].content) {
                         (Content::Text(a), Content::Text(b)) => {
                             let origin = lerp2(a.origin, b.origin, geo);
-                            text_layer(&mut dl, &to[*j].id, b, origin, opacity)
+                            let mut ops = frame_between(&mut dl, a, b, origin, geo, p);
+                            ops.extend(item_ops(&mut dl, &b.text));
+                            let clip = b.clip.map(|[x, y, w, h]| Path::rect([x - origin[0], y - origin[1], w, h]));
+                            let Op::Layer { node, cell, label, transform, opacity, blend, ops, .. } =
+                                layer(Some(&to[*j].id), origin, opacity, ops)
+                            else {
+                                unreachable!("`layer` makes layers")
+                            };
+                            Op::Layer { node, cell, label, transform, opacity, blend, clip, ops }
                         }
                         (Content::Shader(a), Content::Shader(b)) => {
                             let shader = ShaderNode::lerp(a, b, geo, p);
@@ -1307,7 +1321,8 @@ impl Transition {
                     let opacity = if moving { lerp(x.opacity, y.opacity, p) } else { y.opacity };
                     // What both draw stays; what comes enters by the text's entrance, else fades
                     // in with the transition; what goes leaves by its exit, else fades out.
-                    let mut ops = item_ops(&mut dl, &parts.both);
+                    let mut ops = frame_between(&mut dl, a, b, origin, geo, p);
+                    ops.extend(item_ops(&mut dl, &parts.both));
                     let cue = |on: fn(&Motion) -> bool| self.schedule.of(&y.id).find(|c| on(&c.motion));
                     let sides = [
                         (&parts.came, cue(|m| matches!(m, Motion::Enter(_))), p, true),
@@ -1343,7 +1358,8 @@ impl Transition {
                         unreachable!("Words tracks pair text")
                     };
                     let origin = lerp2(a.origin, b.origin, geo);
-                    let ops = plan.sample(&mut dl, [a.origin, b.origin], origin, p, geo);
+                    let mut ops = frame_between(&mut dl, a, b, origin, geo, p);
+                    ops.extend(plan.sample(&mut dl, [a.origin, b.origin], origin, p, geo));
                     // Clipped text stays clipped where it stands at either end.
                     let clip = (a.clip.is_some() && b.clip.is_some())
                         .then(|| b.clip.map(|[x, y, w, h]| Path::rect([x - origin[0], y - origin[1], w, h])))
@@ -2920,13 +2936,73 @@ fn cell_layer(dl: &mut DisplayList, cell: &Cell, origin: Point, opacity: f32) ->
 /// A text node's layer at `origin`, clipped to its box under `fit: clip` (the clip moves
 /// with the text).
 fn text_layer(dl: &mut DisplayList, id: &str, placed: &PlacedText, origin: Point, opacity: f32) -> Op {
-    let Op::Layer { node, cell, label, transform, opacity, blend, ops, .. } =
-        layer(Some(id), origin, opacity, item_ops(dl, &placed.text))
+    let mut ops = frame_ops(dl, placed);
+    ops.extend(item_ops(dl, &placed.text));
+    let Op::Layer { node, cell, label, transform, opacity, blend, ops, .. } = layer(Some(id), origin, opacity, ops)
     else {
         unreachable!("`layer` makes layers")
     };
     let clip = placed.clip.map(|[x, y, w, h]| Path::rect([x - placed.origin[0], y - placed.origin[1], w, h]));
     Op::Layer { node, cell, label, transform, opacity, blend, clip, ops }
+}
+
+/// What a code text stands on and beside (PLAN 2.136), in its layer, whose origin is the text's:
+/// its card, then its line numbers, each in a layer of its own that no reader or unit takes.
+fn frame_ops(dl: &mut DisplayList, placed: &PlacedText) -> Vec<Op> {
+    let Some(frame) = &placed.frame else { return Vec::new() };
+    let [x, y] = placed.origin;
+    let mut ops = Vec::new();
+    if let Some(card) = &frame.card {
+        ops.push(layer(None, [card.rect[0] - x, card.rect[1] - y], 1.0, card.ops()));
+    }
+    if let Some((at, gutter)) = &frame.gutter {
+        ops.push(layer(None, [at[0] - x, at[1] - y], 1.0, text_ops(dl, gutter)));
+    }
+    ops
+}
+
+/// What a code text stands on and beside, `p` (`geo` for where) of the way from `a`'s to `b`'s,
+/// in its layer at `origin` (PLAN 2.136): the card moving and resizing as a shape does, or fading
+/// where only one side stands on one; the numbers moving where both sides set the same, else
+/// each side's fading where its text sets them.
+fn frame_between(dl: &mut DisplayList, a: &PlacedText, b: &PlacedText, origin: Point, geo: f32, p: f32) -> Vec<Op> {
+    fn card(t: &PlacedText) -> Option<&ShapeNode> {
+        t.frame.as_ref().and_then(|f| f.card.as_ref())
+    }
+    fn gutter(t: &PlacedText) -> Option<&([f32; 2], TextLayout)> {
+        t.frame.as_ref().and_then(|f| f.gutter.as_ref())
+    }
+    let mut ops = Vec::new();
+    let mut put = |shape: &ShapeNode, alpha: f32| {
+        ops.push(layer(None, [shape.rect[0] - origin[0], shape.rect[1] - origin[1]], alpha, shape.ops()));
+    };
+    match (card(a), card(b)) {
+        (Some(x), Some(y)) if x.morphs_to(y) => put(&ShapeNode::lerp(x, y, geo, p), 1.0),
+        (x, y) => {
+            if let Some(x) = x {
+                put(x, 1.0 - p);
+            }
+            if let Some(y) = y {
+                put(y, p);
+            }
+        }
+    }
+    // Where the numbers stand from their text's origin, which moves as the text does.
+    let from = |t: &PlacedText, at: &[f32; 2]| [at[0] - t.origin[0], at[1] - t.origin[1]];
+    match (gutter(a), gutter(b)) {
+        (Some((x_at, x)), Some((y_at, y))) if x.text == y.text && x.runs == y.runs => {
+            ops.push(layer(None, lerp2(from(a, x_at), from(b, y_at), geo), 1.0, text_ops(dl, y)));
+        }
+        (x, y) => {
+            if let Some((at, numbers)) = x {
+                ops.push(layer(None, from(a, at), 1.0 - p, text_ops(dl, numbers)));
+            }
+            if let Some((at, numbers)) = y {
+                ops.push(layer(None, from(b, at), p, text_ops(dl, numbers)));
+            }
+        }
+    }
+    ops
 }
 
 /// A text's runs as glyph ops; in a list (ADR-0018), each paragraph's in layers of its own, as
