@@ -7848,11 +7848,6 @@ mod tests {
         }
     }
 
-    /// A generated deck enters by its structure (narrative ATTR-1): each section divider and the
-    /// first slide of its part push in, the closing slide dissolves in slowly, a grave turn takes
-    /// the slow pace, and the content slides between keep the plain transition that morphs what
-    /// they share; the cover has none. The same narrative gives the same entrances, and a deck
-    /// that reads right to left pushes from the left.
     /// On a big number at the talk's peak, the figure is what springs in, not the words under it.
     #[test]
     fn the_peak_springs_its_one_figure_in() {
@@ -7887,6 +7882,11 @@ mod tests {
         assert!(!calm.deck.to_string().contains("\"pop\""));
     }
 
+    /// A generated deck enters by its structure (narrative ATTR-1): each section divider and the
+    /// first slide of its part push in, the closing slide dissolves in slowly, a grave turn takes
+    /// the slow pace, and the content slides between keep the plain transition that morphs what
+    /// they share; the cover has none. The same narrative gives the same entrances, and a deck
+    /// that reads right to left pushes from the left.
     #[test]
     fn a_generated_deck_enters_by_its_structure() {
         let theme: Theme = serde_json::from_str(&dusk()).unwrap();
