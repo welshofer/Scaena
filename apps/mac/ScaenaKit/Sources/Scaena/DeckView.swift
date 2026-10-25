@@ -764,6 +764,13 @@ struct DeckView: View {
                 try? await Task.sleep(for: .seconds(6))
                 if !Task.isCancelled, said == words { said = nil }
             }
+            .onChange(of: editor.savedSaid) { _, now in
+                // What a save said of the bundle's history, a moment on the desk (lift-up
+                // 20261025b REL-1), as the browser's status line says it.
+                guard let now else { return }
+                said = now
+                editor.savedSaid = nil
+            }
             .onChange(of: undo, initial: true) { _, now in
                 // The assistant's edits are each one step of this window's undo.
                 if assistant == nil { assistant = Assistant(editor: editor) }
