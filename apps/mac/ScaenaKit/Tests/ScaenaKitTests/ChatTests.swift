@@ -134,6 +134,18 @@ private func streaming(_ text: String) -> [String] {
     #expect(await seen.kept == ["The"], "the first word shows before the rest is written")
     #expect(said(assistant) == ["The cover is clean."], "the answer whole, in its place")
     #expect(assistant.usage == Usage(input: 10, output: 2))
+    // Each piece heard bumps what the panel follows the answer by, the entry growing in place
+    // (lift-up 10-25c ATTR-3).
+    #expect(assistant.spoken >= 4, "\(assistant.spoken) pieces followed")
+}
+
+/// Why an answer stopped, in a person's words: none where it simply ended; what VoiceOver hears
+/// once it is done (lift-up 10-25c USE-1).
+@Test func anAnswerStoppedSaysWhy() {
+    #expect(Assistant.stopped("end") == nil && Assistant.stopped("tools") == nil)
+    #expect(Assistant.stopped("stopped") == "Stopped.")
+    #expect(Assistant.stopped("length") == "The answer ran out of room.")
+    #expect(Assistant.stopped("max_tokens_reason") == "The model stopped.")
 }
 
 /// While the assistant is at work on the deck, the deck is its own (lift-up STAB-5): a patch the

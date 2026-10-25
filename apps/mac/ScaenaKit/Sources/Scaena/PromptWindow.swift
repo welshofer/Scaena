@@ -831,6 +831,9 @@ struct PromptView: View {
 
     private func say(_ words: String, failed: Bool = false) {
         steps.append(Line(words: words, failed: failed))
+        // Said to VoiceOver too, as the browser's progress list is a live region (lift-up 10-25c
+        // USE-1): a failure at once.
+        Spoken.say(words, urgent: failed)
     }
 
     private func generate() {
