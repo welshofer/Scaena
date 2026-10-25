@@ -270,6 +270,18 @@ pub fn length_for_minutes(minutes: u32) -> &'static str {
     }
 }
 
+/// The minutes a talk of at least `least` slides is given, the inverse of [`length_for_minutes`]:
+/// up to 15 for 5–10 slides, 16–30 for 11–15, 31–45 for 16–25, and 46 or more past them (lift-up
+/// FUNC-1). A brief that asks for slides asks for a slot this long.
+pub fn minutes_for_slides(least: usize) -> (u32, Option<u32>) {
+    match least {
+        0..=10 => (0, Some(15)),
+        11..=15 => (16, Some(30)),
+        16..=25 => (31, Some(45)),
+        _ => (46, None),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -309,5 +321,10 @@ mod tests {
             [15, 30, 45, 90, 120].map(length_for_minutes),
             [LENGTHS[0], LENGTHS[1], LENGTHS[2], LENGTHS[3], LENGTHS[3]]
         );
+        // Each talk's minutes stand in the slot its length's slides are given.
+        for minutes in 1..=180 {
+            let (lo, hi) = minutes_for_slides(minimum_slides(length_for_minutes(minutes)).unwrap());
+            assert!(lo <= minutes && hi.is_none_or(|hi| minutes <= hi), "{minutes} minutes in {lo}..{hi:?}");
+        }
     }
 }
