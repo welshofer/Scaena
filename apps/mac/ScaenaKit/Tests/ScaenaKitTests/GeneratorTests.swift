@@ -186,7 +186,7 @@ private func anthropic(_ text: String) -> Data {
     var shown: Outlined?
     let (session, made) = try await generator.generate(
         brief: Brief(topic: "Carbon-negative cargo is ready to scale", audience: "Investors"),
-        provider: .anthropic, model: "a-model", key: "sk-writer", theme: "dusk", look: false,
+        provider: .anthropic, model: "a-model", key: "sk-writer", theme: "dusk", look: false, notes: false,
         outline: { outlined in
             shown = outlined
             // The proof moved before the mechanism, the second beat's claim rewritten, the last
@@ -231,7 +231,7 @@ private func anthropic(_ text: String) -> Data {
     }
     _ = try await direct.generate(
         brief: Brief(topic: "Carbon-negative cargo is ready to scale"), provider: .anthropic, model: "a-model",
-        key: "sk-writer", theme: "dusk", look: false
+        key: "sk-writer", theme: "dusk", look: false, notes: false
     ) { _ in }
     let direct2 = await plain.requests.filter { $0.url.hasSuffix("/v1/messages") }
     #expect(direct2.count == 2)
