@@ -85,7 +85,9 @@ type Given = { file: File } | { link: string };
  * `story`, which gives its score, and its line by `tell`. `models` lists the models a key can
  * use, as the Assistant tab lists them (lift-up 10-24 USE-1): with no key kept, the dialog takes
  * one in place, checks it, and keeps it as that tab does. Changes not saved are asked about
- * before a deck is made, not as it opens: what a model wrote is never thrown away for them. */
+ * before a deck is made, not as it opens: what a model wrote is never thrown away for them.
+ * `running` says whether a deck is being made, which leaving the page asks about first (lift-up
+ * 10-25 REL-4). */
 export function prompting(
   engine: Engine,
   opener: HTMLElement,
@@ -519,4 +521,5 @@ export function prompting(
       start();
     }
   };
+  return { running: () => running };
 }
