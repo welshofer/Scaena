@@ -2367,6 +2367,13 @@ fn palette(theme: &Theme) -> Palette {
 /// The shape of `slot`'s place on the canvas a made deck draws on: its tracks' share of the
 /// theme's grid, out to the canvas's edge where it bleeds.
 fn frame_of(theme: &Theme, slot: &Slot) -> Frame {
+    let [w, h] = place_of(theme, slot);
+    Frame::of(w, h)
+}
+
+/// The width and height of `slot`'s place on the canvas a made deck draws on, as [`frame_of`]
+/// shapes it.
+fn place_of(theme: &Theme, slot: &Slot) -> [f64; 2] {
     use scaena_core::model::theme::Margin;
     let grid = &theme.grid;
     let (top, right, bottom, left) = match &grid.margin {
@@ -2394,7 +2401,7 @@ fn frame_of(theme: &Theme, slot: &Slot) -> Frame {
     let x1 = if bleed && c1 >= cols { w } else { left + c1 * col + (c1 - 1.0) * grid.gutter };
     let y0 = if bleed && r0 <= 1.0 { 0.0 } else { top + (r0 - 1.0) * (row + grid.gutter) };
     let y1 = if bleed && r1 >= rows { h } else { top + r1 * row + (r1 - 1.0) * grid.gutter };
-    Frame::of(x1 - x0, y1 - y0)
+    [x1 - x0, y1 - y0]
 }
 
 /// Narrato's fields of a slide that the deck keeps beside its beat.
@@ -3043,6 +3050,8 @@ fn layout_for(
         "bar-chart" | "line-chart" => "bullets",
         "two-column" if n == 3 && labelled => "three-columns",
         "two-column" if n == 4 && labelled => "quadrants",
+        // Two sides in code too long to stand side by side: one above the other.
+        "two-column" | "before-after" if n == 2 && labelled && stacked(slide, items, theme) => "two-code-stacked",
         // Two sides said in a line each: each a card, its words set large.
         "two-column" | "before-after" if n == 2 && labelled && brief => "myth-fact",
         "two-column" if labelled => "comparison",
@@ -3730,6 +3739,69 @@ fn identifier(word: &str) -> bool {
     word.contains(['_', '(', ')', '[', ']', '`']) || word.contains('.') || word.chars().any(|c| c.is_ascii_digit())
 }
 
+/// The language `text`, an item of `slide`'s, is written in, where it is code (dogfood 8a): it
+/// reads as code ([`reads_as_code`]), and [`code::detect`] names its language by the file the
+/// subtitle names ("checkout/price.go"), or finds it likely in the slide's `items` that read as
+/// code read together, since one line alone is prose to it. None for prose, "p99 fell 60%".
+fn coded_in(slide: &Slide, items: &[Item], text: &str) -> Option<&'static str> {
+    if !reads_as_code(text) {
+        return None;
+    }
+    let subtitle = slide.subtitle.trim();
+    let file = (!subtitle.contains(char::is_whitespace) && subtitle.contains('.')).then_some(subtitle);
+    let hints = code::Hints { file, ..Default::default() };
+    if let Some(language) = code::detect(text, &hints).language() {
+        return Some(language.name);
+    }
+    let lines: Vec<&str> = (items.iter())
+        .map(|i| if i.label.is_some() { i.detail.as_str() } else { i.whole.as_str() })
+        .filter(|l| reads_as_code(l))
+        .collect();
+    let language = code::detect(&lines.join("\n"), &code::Hints::default()).language()?;
+    // Plain text names no language a card colors: the words stay words.
+    (language.name != "plain").then_some(language.name)
+}
+
+/// The least share of its role's size code set side by side keeps before the two sides stand one
+/// above the other (PLAN 2.138): seven-eighths, 14 pt of the shipped role's 16. A pair shrinking
+/// less keeps the comparison side by side, which reads best as a pair.
+const SIDE_BY_SIDE_AT_LEAST: f64 = 7.0 / 8.0;
+
+/// Whether two sides written in code stand one above the other, on Two Code Blocks, Stacked,
+/// rather than on Myth and Fact's two cards side by side (PLAN 2.138, deepdive 6): where side by
+/// side would set them under seven-eighths of their role's size ([`SIDE_BY_SIDE_AT_LEAST`]) and
+/// stacked sets them larger. Each side is
+/// measured as it would be set, its lines as [`blocked`] writes them, each column a monospace's
+/// six-tenths of its size and each line its role's leading, in its place less its slot's inset
+/// and its card's.
+fn stacked(slide: &Slide, items: &[Item], theme: &Theme) -> bool {
+    let (Some(beside), Some(stacked)) = (theme.layouts.get("myth-fact"), theme.layouts.get("two-code-stacked")) else {
+        return false;
+    };
+    let Some(role) = theme.code_role().and_then(|r| theme.typography.roles.get(r)) else { return false };
+    let code: Option<Vec<String>> =
+        items.iter().map(|i| coded_in(slide, items, &i.detail).map(|l| blocked(&i.detail, l))).collect();
+    let Some(code) = code.filter(|c| c.len() == 2) else { return false };
+    let look = theme.code.as_ref();
+    let tab = look.and_then(|c| c.tab).unwrap_or(4) as usize;
+    let card = look.and_then(|c| c.card.as_ref()).and_then(|c| c.inset).unwrap_or(32.0);
+    let columns = (code.iter().flat_map(|c| c.lines()))
+        .map(|l| l.chars().map(|c| if c == '\t' { tab } else { 1 }).sum::<usize>())
+        .max()
+        .unwrap_or(1)
+        .max(1) as f64;
+    let lines = code.iter().map(|c| c.lines().count()).max().unwrap_or(1).max(1) as f64;
+    let size = |layout: &scaena_core::model::theme::Layout| -> Option<f64> {
+        let slot = layout.slots.get("first")?;
+        let [w, h] = place_of(theme, slot);
+        let [top, right, bottom, left] = slot.inset.as_ref().map_or([0.0; 4], |i| i.sides());
+        let (w, h) = (w - left - right - 2.0 * card, h - top - bottom - 2.0 * card);
+        Some((w / (columns * 0.6)).min(h / (lines * role.leading)).min(role.size))
+    };
+    let (Some(beside), Some(stacked)) = (size(beside), size(stacked)) else { return false };
+    beside < role.size * SIDE_BY_SIDE_AT_LEAST && stacked > beside
+}
+
 /// Whether `text` reads as code rather than prose: it holds a backtick, a brace, an angle
 /// bracket a letter, `/`, or `=` follows ("<div>", "Vec<T>", "<="), or one of code's operators
 /// (`:=`, `=>`, `->`, `==`, `!=`, `()`, `::`), or it ends in a semicolon. A comparison of figures,
@@ -4136,27 +4208,9 @@ impl Slots<'_> {
             .or_else(|| Some(self.body.to_string()).filter(|b| !b.is_empty() && !b.starts_with('\u{2022}')))
     }
 
-    /// The language `text`, an item's words, is written in, where it is code (dogfood 8a): it
-    /// reads as code ([`reads_as_code`]), and [`code::detect`] names its language by the file the
-    /// subtitle names ("checkout/price.go"), or finds it likely in the slide's items that read as
-    /// code read together, since one line alone is prose to it. None for prose, "p99 fell 60%".
+    /// The language `text`, an item's words, is written in, where it is code ([`coded_in`]).
     fn coded(&self, text: &str) -> Option<&'static str> {
-        if !reads_as_code(text) {
-            return None;
-        }
-        let subtitle = self.slide.subtitle.trim();
-        let file = (!subtitle.contains(char::is_whitespace) && subtitle.contains('.')).then_some(subtitle);
-        let hints = code::Hints { file, ..Default::default() };
-        if let Some(language) = code::detect(text, &hints).language() {
-            return Some(language.name);
-        }
-        let lines: Vec<&str> = (self.items.iter())
-            .map(|i| if i.label.is_some() { i.detail.as_str() } else { i.whole.as_str() })
-            .filter(|l| reads_as_code(l))
-            .collect();
-        let language = code::detect(&lines.join("\n"), &code::Hints::default()).language()?;
-        // Plain text names no language a card colors: the words stay words.
-        (language.name != "plain").then_some(language.name)
+        coded_in(self.slide, self.items, text)
     }
 
     /// A chart's caption: its source, else the slide's supporting fact. What it shows is its
@@ -6605,13 +6659,22 @@ mod tests {
         ];
         let named = texts(loop_, batch, "checkout/price.go");
         assert_eq!(coded(&named), go);
+        // Too long to stand side by side at seven-eighths of their role's size, they stand one
+        // above the other, each at the top of its place (PLAN 2.138).
         for code in named.iter().filter(|n| n.get("code").is_some()) {
+            assert_eq!(code["role"], "code", "{code:#}");
+            assert!(["fit", "maxLines", "align"].iter().all(|k| code.get(k).is_none()), "{code:#}");
+        }
+        // Short enough, each stands in the middle of its side's card.
+        let short = texts("p := price(item)", "ps := prices(items)", "checkout/price.go");
+        assert_eq!(coded(&short).len(), 2, "{short:#?}");
+        for code in short.iter().filter(|n| n.get("code").is_some()) {
             assert_eq!(code["role"], "code", "{code:#}");
             assert!(["fit", "maxLines"].iter().all(|k| code.get(k).is_none()), "{code:#}");
             assert_eq!(code["align"]["y"], "center", "{code:#}");
         }
-        // Before and after, side by side, set at one size: the smaller of their fits, so each
-        // fits and the two compare like with like (dogfood 8a), as the deck is made and laid out.
+        // Before and after set at one size: the smaller of their fits, so each fits and the two
+        // compare like with like (dogfood 8a), as the deck is made and laid out.
         let slide = Slide {
             slide_title: "We changed one loop".into(),
             subtitle: "checkout/price.go".into(),
@@ -6664,6 +6727,62 @@ mod tests {
         assert_eq!(blocked("if (ok) { run(); stop(); }", "javascript"), "if (ok) {\n    run();\n    stop();\n}");
         assert_eq!(blocked("for x in xs { go(x) }", "python"), "for x in xs { go(x) }");
         assert_eq!(blocked("let v = { a: 1 }; f(v)", "javascript"), "let v = { a: 1 }; f(v)");
+    }
+
+    /// Two sides in code whose lines are too long for two cards side by side stand one above the
+    /// other, each the slide's width, where side by side would set them under seven-eighths of
+    /// their role's size and stacked sets them larger (PLAN 2.138, deepdive 6); two short sides stay side by side.
+    #[test]
+    fn code_too_long_to_stand_side_by_side_is_stacked() {
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let layout = |before: &str, after: &str| -> String {
+            let slide = Slide {
+                slide_title: "We changed one loop".into(),
+                subtitle: "checkout/price.go".into(),
+                layout_suggestion: "Before / After".into(),
+                key_bullets: vec![format!("Before: {before}"), format!("After: {after}")],
+                ..Slide::default()
+            };
+            deck(&narrative("", vec![slide]), &theme, &Pictures::new()).unwrap().layouts[0].clone()
+        };
+        let long = (
+            "for _, item := range cart.Items { price, err := pricing.Get(ctx, item.SKU, pricing.WithRegion(region)) }",
+            "prices, err := pricing.GetMany(ctx, cart.SKUs(), pricing.WithRegion(region), pricing.WithCache(cache))",
+        );
+        assert_eq!(layout(long.0, long.1), "two-code-stacked");
+        // Side by side at the 12 pt floor, under seven-eighths of the role's 16 pt: stacked sets
+        // them at the role's size.
+        let medium = (
+            "for _, item := range cart.Items { p, err := pricing.Get(ctx, item.SKU) }",
+            "prices, err := pricing.GetMany(ctx, cart.SKUs())",
+        );
+        assert_eq!(layout(medium.0, medium.1), "two-code-stacked");
+        // Shrinking only a little side by side, to about 29 cu of the role's 32: kept side by side,
+        // though stacked would set them larger.
+        assert_eq!(
+            layout("for _, it := range items { p := get(ctx, it.SKU) }", "ps, err := pricing.GetMany(ctx, theSKUs)"),
+            "myth-fact"
+        );
+        // Short enough to stand side by side at the role's size: as large stacked, so side by side.
+        assert_eq!(layout("p := price(item)", "ps := prices(items)"), "myth-fact");
+        // Words stay on their cards, however long.
+        assert_eq!(layout(&"p99 fell sixty percent ".repeat(3), &"p99 holds at 740 ms ".repeat(3)), "myth-fact");
+        let slide = Slide {
+            slide_title: "We changed one loop".into(),
+            subtitle: "checkout/price.go".into(),
+            layout_suggestion: "Before / After".into(),
+            key_bullets: vec![format!("Before: {}", long.0), format!("After: {}", long.1)],
+            ..Slide::default()
+        };
+        let made = deck(&narrative("", vec![slide]), &theme, &Pictures::new()).unwrap();
+        let nodes = made.deck["nodes"].as_object().unwrap();
+        let placed = |slot: &str| nodes.values().find(|n| n["at"]["in"] == slot).cloned().unwrap_or_default();
+        assert_eq!(placed("first-title")["text"], "Before", "{nodes:#?}");
+        assert_eq!(placed("second-title")["text"], "After");
+        for slot in ["first", "second"] {
+            assert_eq!(placed(slot)["code"]["language"], "go", "{slot}: {nodes:#?}");
+            assert_eq!(placed(slot)["role"], "code");
+        }
     }
 
     /// A phone number's hyphen, and a ZIP+4's, are no range (DF7-2, appeal 11).
