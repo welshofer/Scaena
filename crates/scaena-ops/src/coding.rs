@@ -208,8 +208,11 @@ pub fn walking(deck: &Deck, state: &str, node: &str, steps: &[Vec<(u64, u64)>]) 
     let beat = (deck.spine.iter().flat_map(|s| &s.sections).flat_map(|s| &s.beats))
         .find(|b| b.states.iter().any(|s| s == state))
         .map(|b| b.id.clone());
+    // Named after the slide's own name: a step's `-N` taken off, but a slide's own digits kept,
+    // so `revenue-2026`'s steps are `revenue-2026-2`, … .
+    let step = deck.states[i].slide.as_deref().is_some_and(|s| s != state);
     let base = match state.rsplit_once('-') {
-        Some((stem, n)) if !stem.is_empty() && !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()) => stem,
+        Some((stem, n)) if step && !stem.is_empty() && !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()) => stem,
         _ => state,
     };
     let mut after = state.to_string();
