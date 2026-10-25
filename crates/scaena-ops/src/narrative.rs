@@ -6992,7 +6992,9 @@ mod tests {
             let (id, rest) = block.split_once('\n').unwrap();
             let most: usize =
                 rest.split_once(" characters").unwrap().0.trim_start_matches("at most: ").parse().unwrap();
-            let words = rest.split_once("text:\n").unwrap().1.trim();
+            // Its words, read back from their fence (lift-up W1).
+            let fenced = rest.split_once("text:\n<data label=\"text\">\n").unwrap().1;
+            let words = fenced.split_once("\n</data>").unwrap().0.trim();
             let mut cut = String::new();
             for word in words.split(' ') {
                 if cut.chars().count() + word.chars().count() + 1 > most {
