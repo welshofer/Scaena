@@ -114,6 +114,21 @@ class ClearOfDescenders(unittest.TestCase):
                 self.assertLess(support["inset"]["bottom"], 0)
                 self.assertGreaterEqual(layouts.lines(support, roles, row, gutter), 2)
 
+    def test_siblings_in_a_row_stand_clear_alike(self):
+        # Glossary's third and fourth terms, side by side: one could reach a free row and the
+        # other could not, so both titles stand higher alike, their baselines in line (F4).
+        for slug, geometry, paths in LISTED:
+            slots = own(paths)["glossary"]["slots"]
+            with self.subTest(theme=slug):
+                self.assertEqual(slots["third-title"].get("inset"), slots["fourth-title"].get("inset"))
+                self.assertEqual(slots["third"].get("inset"), slots["fourth"].get("inset"))
+        unlike = {
+            "third": {"col": [1, 6], "row": [9, 10], "role": "body", "inset": {"top": 12, "bottom": -76}},
+            "fourth": {"col": [7, 12], "row": [9, 10], "role": "body"},
+        }
+        with self.assertRaisesRegex(AssertionError, "siblings stand clear unlike"):
+            layouts.in_line("basel", "unlike", unlike)
+
     def test_a_slot_the_clearance_costs_a_line_is_refused(self):
         _, geometry, _ = LISTED[0]
         given = {"note": {"col": [1, 6], "row": [5, 6], "role": "body"}}
