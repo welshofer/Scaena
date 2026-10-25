@@ -239,8 +239,10 @@ impl Painting {
                         self.why[i] = Some(why);
                     }
                 }
+                // Asked once more, plainly; refused so in the last round, it says why, as a busy
+                // answer then does, never "it was not asked for" (lift-up 10-25b STAB-5).
                 Err(pictures::Unmade::Plain(why)) => {
-                    if self.plain[i] {
+                    if self.plain[i] || last {
                         self.why[i] = Some(why);
                     }
                     self.plain[i] = true;
@@ -8664,6 +8666,45 @@ mod tests {
         assert!(unmade.is_empty(), "{unmade:?}");
         assert_eq!(placed[&0].alt, "A lighthouse at dusk");
         assert_eq!(assets[&placed[&0].src][..4], [0x89, b'P', b'N', b'G']);
+    }
+
+    /// A picture busy every round but the last, refused there as a model that makes no JPEG, says
+    /// what the provider said, not "it was not asked for" (lift-up 10-25b STAB-5).
+    #[test]
+    fn a_picture_refused_in_the_last_round_says_why() {
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let wide = asked_one(&theme, "A lighthouse at dusk", Look::Illustration, 900.0, 500.0);
+        let settings = pictures::Settings {
+            provider: Provider::Openai,
+            model: "gpt-image-1".into(),
+            base: None,
+            quality: pictures::Quality::Medium,
+        };
+        let busy = || Reply {
+            status: 503,
+            status_text: "Service Unavailable".into(),
+            body: r#"{"error":{"message":"Busy"}}"#.into(),
+            after: Some("1".into()),
+        };
+        let plain = Reply {
+            status: 400,
+            status_text: "Bad Request".into(),
+            body: r#"{"error":{"message":"Unknown parameter: 'output_format'."}}"#.into(),
+            after: None,
+        };
+        let mut painting = Painting::new(vec![wide], settings);
+        for _ in 1..scaena_narrato::TRIES {
+            assert_eq!(painting.requests("sk-test").len(), 1);
+            assert!(painting.answer(vec![busy()]) > 0.0);
+        }
+        assert_eq!(painting.requests("sk-test").len(), 1, "the last round");
+        assert_eq!(painting.answer(vec![plain]), 0.0);
+        assert!(painting.requests("sk-test").is_empty());
+        let (placed, _, unmade) = painting.finish();
+        assert!(placed.is_empty());
+        assert_eq!(unmade.len(), 1);
+        assert!(unmade[0].contains("Unknown parameter: 'output_format'"), "{unmade:?}");
+        assert!(!unmade[0].contains("not asked for"), "{unmade:?}");
     }
 
     #[test]
