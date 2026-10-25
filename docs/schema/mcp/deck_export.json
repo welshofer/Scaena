@@ -61,7 +61,7 @@
         "default": null
       },
       "audio": {
-        "description": "A video's sound track, any file ffmpeg reads, from the first frame: cut where the\nvideo ends, or carried on in silence until it does.",
+        "description": "A video's sound track, a file ffmpeg reads under this server's folder or the bundle's,\nfrom the first frame: cut where the video ends, or carried on in silence until it does.",
         "type": ["string", "null"],
         "default": null
       },
@@ -76,7 +76,7 @@
         "default": "beats"
       },
       "notes": {
-        "description": "A PDF with the presenter's notes: each slide drawn smaller at the head of a page, the\nnotes a presenter reads for it under it, notes too long for it going on to pages of\ntheir own. Only a PDF.",
+        "description": "The presenter's notes: a PDF with each slide drawn smaller at the head of a page, the\nnotes a presenter reads for it under it, notes too long for it going on to pages of\ntheir own; a single HTML file with each state's and beat's notes, each beat's evidence,\nand what Narrato planned, the presenter's own copy. Without it a single file leaves them\nout, for the room. Only a PDF or a single file.",
         "type": "boolean",
         "default": false
       }

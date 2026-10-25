@@ -116,13 +116,13 @@ function back(m: Map6 | undefined, p: [number, number]): [number, number] {
 }
 
 /** The paragraphs of `text`, UTF-16 ranges without the break that ends each, as the deck counts
- * them (`scaena_core::lists::paragraphs`): `\n`, `\r`, `\r\n`, U+2028, and U+2029 end one. */
+ * them (`scaena_core::lists::paragraphs`): `\n`, `\r`, `\r\n`, VT, FF, NEL, U+2028, and U+2029 end one. */
 export function paragraphs(text: string): [number, number][] {
   const out: [number, number][] = [];
   let start = 0;
   for (let i = 0; i < text.length; i++) {
     const c = text[i];
-    if (c !== "\n" && c !== "\r" && c !== "\u2028" && c !== "\u2029") continue;
+    if (!"\n\r\v\f\u0085\u2028\u2029".includes(c)) continue;
     out.push([start, i]);
     if (c === "\r" && text[i + 1] === "\n") i++;
     start = i + 1;

@@ -288,7 +288,9 @@ struct DeckView: View {
     private var divided: some View {
         Panes(axis: .horizontal) {
             if showsSource {
-                SourcePane(text: editor.source) { typed in document.type(typed, undo: undo) }
+                SourcePane(text: editor.source, editable: !editor.assisting) { typed in
+                    document.type(typed, undo: undo)
+                }
                     .frame(minWidth: 280, idealWidth: 420)
             }
             Panes(axis: .vertical) {
@@ -386,7 +388,7 @@ struct DeckView: View {
             #if !os(macOS)
             // Undo by touch, as a presentation app's on the iPad (PLAN 4.11), and Select, which lets
             // a touch alone select several (lift-up FUNC-4).
-            UndoButton(undo: undo)
+            UndoButton(undo: undo, locked: editor.assisting) { said = DeckEditor.atWork }
             SelectButton(touch: touch)
             #endif
         }
@@ -809,6 +811,11 @@ struct DeckView: View {
         view
             .onReceive(NotificationCenter.default.publisher(for: .NSUndoManagerDidUndoChange), perform: unsaid)
             .onReceive(NotificationCenter.default.publisher(for: .NSUndoManagerDidRedoChange), perform: unsaid)
+            #if os(macOS)
+            // While the assistant is at work on the deck, Undo and Redo say so and take nothing
+            // back, as the browser's do (lift-up STAB-5).
+            .background(UndoGuard(locked: editor.assisting) { said = DeckEditor.atWork })
+            #endif
     }
 
     /// What the canvas says, taken away as this window's undo takes a step back or makes it again.
