@@ -12,8 +12,8 @@
 // - On the revenue example: a new headline typed over the cover's, which says the opening beat's
 //   claim, is offered beside the status once the burst of typing ends ("Slide 1's story still says
 //   “…”. Update it to “…”?"), with Update and Keep, and the offer stands whatever the status says
-//   after it, Escape's words and what lint finds; Update restates the claim and the offer goes; Keep
-//   lets it be and changes nothing; an undo of the typing takes the offer away (lift-up FUNC-2).
+//   after it, Escape's words and what lint finds; Update restates the claim and the offer goes; an
+//   undo of the typing takes the offer away; Keep lets it be and changes nothing (lift-up FUNC-2).
 // Exits 1 on any failure.
 import { launch, serve, tab } from "./serve.mjs";
 
@@ -164,22 +164,11 @@ try {
     const updated = await offer();
     check(!updated.shown && !updated.update && updated.keep === undefined, `and the offer goes: ${JSON.stringify(updated)}`);
 
-    // Keep lets the claim be: the offer goes, the source as it was.
-    await retitle("This quarter remade the business.");
-    check(await offered(), "a headline typed again over the claim's words is offered again");
-    await page.keyboard.press("Escape");
-    const kept = await source();
-    await page.click("#keep-claim");
-    await page.waitForTimeout(500);
-    const gone = await offer();
-    check(!gone.shown && !gone.update && gone.keep === undefined, `Keep lets it be, and the offer goes: ${JSON.stringify(gone)}`);
-    check((await source()) === kept, "Keep changes nothing in the source");
-
     // The next change to the source takes the offer away: the typing that left the claim behind,
-    // undone.
+    // undone, the headline saying the claim again.
     const before = await source();
     await retitle("This quarter rebuilt the business.");
-    check(await offered(), "a third headline is offered too");
+    check(await offered(), "a headline typed again over the claim's words is offered again");
     await page.keyboard.press("Escape");
     await page.locator("#overlay").focus();
     await page.keyboard.press("Control+z");
@@ -187,6 +176,18 @@ try {
     check((await source()) === before, "an undo takes the typing back");
     const undone = await offer();
     check(!undone.shown && !undone.update && undone.keep === undefined, `and the offer with it: ${JSON.stringify(undone)}`);
+
+    // Keep lets the claim be: the offer goes, the source as it was. The headline and the claim then
+    // part, so the next edit of the headline offers nothing: only a claim the slide said is offered.
+    await retitle("This quarter remade the business.");
+    check(await offered(), "a third headline over the claim's words is offered too");
+    await page.keyboard.press("Escape");
+    const kept = await source();
+    await page.click("#keep-claim");
+    await page.waitForTimeout(500);
+    const gone = await offer();
+    check(!gone.shown && !gone.update && gone.keep === undefined, `Keep lets it be, and the offer goes: ${JSON.stringify(gone)}`);
+    check((await source()) === kept, "Keep changes nothing in the source");
   })();
 } catch (e) {
   failures.push(`error: ${e.message}`);
