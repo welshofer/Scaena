@@ -196,7 +196,27 @@ pub fn one(raw: &Value) -> Result<Slide, String> {
              written in (it gave {named}); `expectedIntensity` and `expectedValence` carry its intensity and tone"
         ));
     }
-    Ok(normalize(raw))
+    Ok(normalize(&aliased(raw)))
+}
+
+/// `raw`, a slide an agent wrote, with the names an agent reaches for read as Narrato's: where it
+/// gives no `expectedIntensity`, its `intensity`; where no `expectedValence`, its `tone`, else its
+/// `valence` (lift-up 10-25b FUNC-5), so a slide in those words keeps what it declares rather than
+/// losing it to [`normalize`] without a word. Anything else as it is.
+pub fn aliased(raw: &Value) -> Value {
+    let mut out = raw.clone();
+    if let Some(fields) = out.as_object_mut() {
+        for (theirs, ours) in
+            [("intensity", "expectedIntensity"), ("tone", "expectedValence"), ("valence", "expectedValence")]
+        {
+            if !fields.contains_key(ours)
+                && let Some(value) = fields.get(theirs).cloned()
+            {
+                fields.insert(ours.to_string(), value);
+            }
+        }
+    }
+    out
 }
 
 /// Chart data as Narrato's `normalizeChartData` keeps it: categories that are words, each series'
@@ -322,6 +342,13 @@ mod tests {
         assert_eq!(slide.slide_title, "Relay drafts every reply");
         assert_eq!(slide.layout_suggestion, "Bullet List", "the layout defaulted");
         assert_eq!((slide.expected_intensity, slide.expected_valence), (Some(1.0), Some(-1.0)), "clamped");
+        // The names an agent reaches for are read as Narrato's, clamped, where Narrato's are absent.
+        let named = one(&serde_json::json!({ "slideTitle": "Relay", "intensity": 0.8, "tone": -2 })).unwrap();
+        assert_eq!((named.expected_intensity, named.expected_valence), (Some(0.8), Some(-1.0)));
+        let valence = one(&serde_json::json!({ "slideTitle": "Relay", "valence": 0.3 })).unwrap();
+        assert_eq!(valence.expected_valence, Some(0.3));
+        let both = one(&serde_json::json!({ "slideTitle": "Relay", "intensity": 0.8, "expectedIntensity": 0.2 }));
+        assert_eq!(both.unwrap().expected_intensity, Some(0.2), "Narrato's name wins");
         let said = one(&serde_json::json!({ "title": "Relay", "intensity": 0.8, "tone": 0.2 })).unwrap_err();
         assert!(said.contains("none of `slideTitle`, `keyBullets`, or `layoutSuggestion`"), "{said}");
         assert!(said.contains("`intensity`") && said.contains("`expectedIntensity`"), "{said}");

@@ -613,6 +613,33 @@ async fn an_agent_starts_a_slide_sets_a_background_and_builds_from_written_slide
         said.contains("none of `slideTitle`, `keyBullets`, or `layoutSuggestion`") && said.contains("`title`"),
         "{said}"
     );
+    // Slides in the names an agent reaches for keep what they declare, by slide_write and by
+    // deck_generate alike (lift-up 10-25b FUNC-5): `intensity` and `tone`, clamped.
+    let natural = |k: usize| {
+        let mut slide = slides["slides"][k].clone();
+        let fields = slide.as_object_mut().unwrap();
+        fields.remove("expectedIntensity");
+        fields.remove("expectedValence");
+        fields.insert("intensity".into(), json!(0.9));
+        fields.insert("tone".into(), json!(-1.5));
+        slide
+    };
+    let told = ok(&client, "slide_write", json!({ "bundle": path(&planned), "slide": natural(2) })).await;
+    let d = read(&planned);
+    let beat = beats(&d).into_iter().find(|b| b["id"] == told["beat"]).unwrap();
+    assert_eq!(
+        (beat["media"]["narrato"]["intensity"].clone(), beat["media"]["narrato"]["valence"].clone()),
+        (json!(0.9), json!(-1.0)),
+        "{beat:#}"
+    );
+    let generated = scratch("editors-ops").join("natural");
+    let all: Vec<Value> = (0..slides["slides"].as_array().unwrap().len()).map(natural).collect();
+    let written = json!({ "executiveSummary": "Tidewater", "slides": all });
+    ok(&client, "deck_generate", json!({ "bundle": path(&generated), "slides": written, "theme": "ember" })).await;
+    for beat in beats(&read(&generated)) {
+        let narrato = &beat["media"]["narrato"];
+        assert_eq!((narrato["intensity"].clone(), narrato["valence"].clone()), (json!(0.9), json!(-1.0)), "{beat:#}");
+    }
     client.cancel().await.unwrap();
 }
 
