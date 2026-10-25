@@ -83,6 +83,12 @@ The catalog the model is shown has no layout for code, an architecture, a decisi
 ### 13. What lint doesn't catch
 Findings 1, 2, 5, 6 and 7 are about words and figures set wrong, and none raises a lint finding. A figure the builder writes into a figure place that differs from the slide's own figure, or code whose case changed, would be cheap to check where the deck is made.
 
+### DF7-5. A funnel drops each stage's detail figures (owner: the builder's funnel mapping, `scaena_ops::narrative`)
+- **pitch 12 (Funnel → `funnel`):** the bullets are "US freight spend: $1.1T a year", "Mid-market shippers: $180B of it, 14,000 companies", "On EDI with top carriers: $60B, 4,200 companies", and "Our audit fee: $2.4B a year at 4% of recovered value".
+- Each stage shows only its label and first figure: "US freight spend · $1.1T", "Mid-market shippers · $180B", "On EDI with top carriers · $60B", and "Our audit fee · $2.4B".
+- "14,000 companies", "4,200 companies", and "4% of recovered value" appear nowhere on the slide, and "a year" is dropped too. The writer's facts are lost, though none is falsified.
+- Found by DF7-1's per-slide figure check run strictly (every figure the slide states). DF7-1 keeps its narrower check (each item's own figure), so it does not fire here.
+
 ## What worked
 - German quotation marks „…“ on board-de 7, and "+18 %" with its space.
 - The vertical timeline (appeal 8), the testimonials (appeal 9), the icon rows (training 5: clock, users, target and wrench all fit), the definition (training 3), Takeaways for three closing points (training 12), and Next Steps as a table (board-de 10).
