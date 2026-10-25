@@ -7235,7 +7235,9 @@ mod tests {
             let (id, rest) = block.split_once('\n').unwrap();
             let most: usize =
                 rest.split_once(" characters").unwrap().0.trim_start_matches("at most: ").parse().unwrap();
-            let words = rest.split_once("text:\n").unwrap().1.trim();
+            // Its words, read back from their fence (lift-up W1).
+            let fenced = rest.split_once("text:\n<data label=\"text\">\n").unwrap().1;
+            let words = fenced.split_once("\n</data>").unwrap().0.trim();
             let mut cut = String::new();
             for word in words.split(' ') {
                 if cut.chars().count() + word.chars().count() + 1 > most {
@@ -7267,7 +7269,7 @@ mod tests {
             assert!(!c.contains("leave the audience"), "slide {}: {c}", k + 1);
             assert_eq!(!framing(k), c.contains("\nWhat it does in the talk: "), "slide {}: {c}", k + 1);
         }
-        assert!(captions(&narrative)[3].ends_with("\nWhat it does in the talk: Evidence"));
+        assert!(captions(&narrative)[3].ends_with("\nWhat it does in the talk: Evidence\n</data>"));
         // An outline settled: each content slide's beat's claim, and no purpose beside it.
         let beats = (0..5)
             .map(|b| scaena_narrato::outline::Beat {
@@ -7281,7 +7283,7 @@ mod tests {
             assert!(!c.contains("What it does in the talk"), "slide {}: {c}", k + 1);
             assert_eq!(!framing(k), c.contains("\nIt must leave the audience with: Claim "), "slide {}: {c}", k + 1);
         }
-        assert!(captions(&narrative)[8].ends_with("\nIt must leave the audience with: Claim 2"));
+        assert!(captions(&narrative)[8].ends_with("\nIt must leave the audience with: Claim 2\n</data>"));
     }
 
     #[test]
@@ -7668,7 +7670,9 @@ mod tests {
             let texts: Vec<Value> = (prompt.split("id: ").skip(1))
                 .map(|block| {
                     let (id, rest) = block.split_once('\n').unwrap();
-                    let words = rest.split_once("text:\n").unwrap().1.trim();
+                    // Its words, read back from their fence (lift-up W1).
+                    let fenced = rest.split_once("text:\n<data label=\"text\">\n").unwrap().1;
+                    let words = fenced.split_once("\n</data>").unwrap().0.trim();
                     json!({ "id": id, "text": words.rsplit_once(' ').unwrap().0 })
                 })
                 .collect();

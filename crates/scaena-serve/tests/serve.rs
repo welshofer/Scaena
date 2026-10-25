@@ -77,8 +77,14 @@ fn request(addr: SocketAddr, head: &str, body: &[u8]) -> Answer {
     Answer { status, head, body: raw[split + 4..].to_vec() }
 }
 
+/// A read as anyone on the machine makes it: no token.
 fn get(addr: SocketAddr, path: &str) -> Answer {
     request(addr, &format!("GET {path} HTTP/1.1\r\nHost: 127.0.0.1:{}", addr.port()), b"")
+}
+
+/// A read as a page of the server's own makes it, with the launch's token.
+fn read(addr: SocketAddr, path: &str, token: &str) -> Answer {
+    request(addr, &format!("GET {path} HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nX-Scaena-Token: {token}", addr.port()), b"")
 }
 
 /// A write as a page of the server's own makes it: its origin, its id, and the launch's token.
@@ -94,12 +100,17 @@ fn write(addr: SocketAddr, method: &str, path: &str, body: &[u8], origin: &str, 
 struct Events(BufReader<TcpStream>);
 
 impl Events {
-    fn open(addr: SocketAddr) -> Events {
+    /// The events, heard as a page's `EventSource` hears them: the token in the address, since it
+    /// sends no header.
+    fn open(addr: SocketAddr, token: &str) -> Events {
         let mut stream = TcpStream::connect(addr).unwrap();
         stream.set_read_timeout(Some(Duration::from_millis(200))).unwrap();
         // HTTP/1.0, so the stream comes as it is, not in chunks.
         stream
-            .write_all(format!("GET /scaena/events HTTP/1.0\r\nHost: 127.0.0.1:{}\r\n\r\n", addr.port()).as_bytes())
+            .write_all(
+                format!("GET /scaena/events?serve={token} HTTP/1.0\r\nHost: 127.0.0.1:{}\r\n\r\n", addr.port())
+                    .as_bytes(),
+            )
             .unwrap();
         let mut events = Events(BufReader::new(stream));
         let deadline = Instant::now() + Duration::from_secs(20);
@@ -173,22 +184,22 @@ fn noted<T>(notes: &mut tokio::sync::broadcast::Receiver<Note>, wanted: impl Fn(
 #[test]
 fn the_bundle_is_the_folders_and_nothing_outside_it() {
     let dir = bundle("files");
-    let (addr, _, _) = serve(&dir);
-    let deck = get(addr, "/bundle/deck.json");
+    let (addr, _, token) = serve(&dir);
+    let deck = read(addr, "/bundle/deck.json", &token);
     assert_eq!(deck.status, 200);
     assert_eq!(deck.body, std::fs::read(dir.join("deck.json")).unwrap());
     assert_eq!(deck.header("content-type"), Some("application/json"));
     assert_eq!(deck.header("cache-control"), Some("no-store"));
-    assert_eq!(get(addr, "/bundle/fonts/Inter-VF.ttf").header("content-type"), Some("font/ttf"));
-    assert_eq!(get(addr, "/bundle/nothing.json").status, 404);
+    assert_eq!(read(addr, "/bundle/fonts/Inter-VF.ttf", &token).header("content-type"), Some("font/ttf"));
+    assert_eq!(read(addr, "/bundle/nothing.json", &token).status, 404);
     for outside in ["/bundle/../Cargo.toml", "/bundle/%2e%2e/Cargo.toml", "/bundle/fonts/../../x", "/bundle/.hidden"] {
-        assert_eq!(get(addr, outside).status, 400, "{outside}");
+        assert_eq!(read(addr, outside, &token).status, 400, "{outside}");
     }
     #[cfg(unix)]
     {
         std::os::unix::fs::symlink(Path::new(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml"), dir.join("out.toml"))
             .unwrap();
-        assert_eq!(get(addr, "/bundle/out.toml").status, 404, "a link out of the folder is not the bundle's");
+        assert_eq!(read(addr, "/bundle/out.toml", &token).status, 404, "a link out of the folder is not the bundle's");
     }
     // A request through another name for this machine is refused: no other site's page can
     // reach the server by resolving a name of its own to it.
@@ -198,7 +209,7 @@ fn the_bundle_is_the_folders_and_nothing_outside_it() {
     let player = get(addr, "/");
     assert_eq!((player.status, player.header("location")), (302, Some("/index.html?bundle=/bundle/&serve")));
     assert_eq!(get(addr, "/edit").header("location"), Some("/editor.html?bundle=/bundle/&serve"));
-    let state: Value = serde_json::from_slice(&get(addr, "/scaena/state").body).unwrap();
+    let state: Value = serde_json::from_slice(&read(addr, "/scaena/state", &token).body).unwrap();
     assert_eq!(state, serde_json::json!({ "version": 0, "name": "serve-files", "source": true, "failed": null }));
     // The pages, when this build carries them.
     let page = get(addr, "/index.html");
@@ -228,11 +239,15 @@ fn a_bundles_files_are_never_live_pages() {
     for name in ["x.html", "x.htm", "x.xhtml", "x.svg", "x.xml", "x.js", "x.mjs"] {
         std::fs::write(dir.join(name), script).unwrap();
     }
-    let (addr, _, _) = serve(&dir);
+    let (addr, _, token) = serve(&dir);
+    let port = addr.port();
     for name in ["x.html", "x.htm", "x.xhtml", "x.svg", "x.xml", "x.js", "x.mjs"] {
         for method in ["GET", "HEAD"] {
-            let answer =
-                request(addr, &format!("{method} /bundle/{name} HTTP/1.1\r\nHost: 127.0.0.1:{}", addr.port()), b"");
+            let answer = request(
+                addr,
+                &format!("{method} /bundle/{name} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nX-Scaena-Token: {token}"),
+                b"",
+            );
             assert_eq!(answer.status, 200, "{method} {name}");
             assert_eq!(
                 answer.header("content-security-policy"),
@@ -244,7 +259,7 @@ fn a_bundles_files_are_never_live_pages() {
     }
     // What the pages read as bytes keeps its type, sandboxed too, and is no download.
     for path in ["/bundle/deck.json", "/bundle/fonts/Inter-VF.ttf", "/bundle/data/q3-revenue.csv"] {
-        let answer = get(addr, path);
+        let answer = read(addr, path, &token);
         assert_eq!(answer.status, 200, "{path}");
         assert_eq!(answer.header("content-security-policy"), Some("sandbox; default-src 'none'"), "{path}");
         assert_eq!(answer.header("content-disposition"), None, "{path}");
@@ -258,7 +273,7 @@ fn a_page_writes_inside_the_folder_and_is_heard_once() {
     let dir = bundle("writes");
     let (addr, _, token) = serve(&dir);
     let ours = format!("http://localhost:{}", addr.port());
-    let mut events = Events::open(addr);
+    let mut events = Events::open(addr, &token);
     assert_eq!(events.next("hello")["version"], 0);
 
     let png = b"\x89PNG not really";
@@ -267,7 +282,7 @@ fn a_page_writes_inside_the_folder_and_is_heard_once() {
     let changed = events.next("changed");
     assert_eq!(changed["by"], "page-1");
     assert_eq!(changed["paths"], serde_json::json!(["assets/new one.png"]));
-    assert_eq!(get(addr, "/bundle/assets/new%20one.png").body, png);
+    assert_eq!(read(addr, "/bundle/assets/new%20one.png", &token).body, png);
 
     // Another site's page cannot write here, nor through `..`.
     assert_eq!(write(addr, "PUT", "/bundle/assets/evil.png", png, "http://attacker.example", &token).status, 403);
@@ -358,6 +373,43 @@ fn a_write_takes_the_token_the_printed_address_carries() {
     assert!(!dir.join("assets/x.png").exists(), "nothing written through another name");
 }
 
+/// A read takes the token too (lift-up R1): the bundle, where it stands, and its changes are the
+/// deck, and another account on the machine reaches 127.0.0.1 as a page does. A page's fetches
+/// send it as a header, and its `EventSource`, which sends none, in the address, as the page's
+/// own address carries it. The pages themselves, which hold nothing of the deck, need none.
+#[test]
+fn a_read_takes_the_token_the_printed_address_carries() {
+    let dir = bundle("reads");
+    let (addr, _, token) = serve(&dir);
+    let port = addr.port();
+    let deck = std::fs::read(dir.join("deck.json")).unwrap();
+    for path in ["/bundle/deck.json", "/bundle/fonts/Inter-VF.ttf", "/scaena/state", "/scaena/events"] {
+        let bare = get(addr, path);
+        assert_eq!(bare.status, 403, "{path} without the token");
+        assert_ne!(bare.body, deck, "{path}");
+        assert_eq!(read(addr, path, &"0".repeat(32)).status, 403, "{path} with another token");
+        assert_eq!(read(addr, path, &token[..31]).status, 403, "{path} with part of it");
+        assert_eq!(
+            get(addr, &format!("{path}?serve={}", "0".repeat(32))).status,
+            403,
+            "{path} with another in the address"
+        );
+    }
+    let head = request(addr, &format!("HEAD /bundle/deck.json HTTP/1.1\r\nHost: 127.0.0.1:{port}"), b"");
+    assert_eq!(head.status, 403, "a HEAD without the token");
+    // With it, as a header or in the address, the read is served.
+    assert_eq!(read(addr, "/bundle/deck.json", &token).body, deck);
+    assert_eq!(get(addr, &format!("/bundle/deck.json?serve={token}")).body, deck);
+    let state: Value = serde_json::from_slice(&read(addr, "/scaena/state", &token).body).unwrap();
+    assert_eq!(state["name"], "serve-reads");
+    Events::open(addr, &token).next("hello");
+    // The pages and `/` need none: they hold nothing of the deck, and take the token from the
+    // address.
+    assert_eq!(get(addr, "/").status, 302);
+    let page = get(addr, "/index.html");
+    assert_eq!(page.status, if scaena_serve::pages_built() { 200 } else { 404 });
+}
+
 /// A write refused at once is answered once its body is in. A connection closed with a body still
 /// coming is reset, and the reset can lose the answer before the page reads it: on macOS the
 /// writes above heard "connection reset by peer" for a refused write's 16 bytes, now and then. A
@@ -399,8 +451,8 @@ fn a_refused_write_is_answered_once_its_body_is_in() {
 #[test]
 fn a_source_saved_on_disk_compiles_into_the_deck_and_a_broken_one_keeps_it() {
     let dir = bundle("source");
-    let (addr, mut notes, _) = serve(&dir);
-    let mut events = Events::open(addr);
+    let (addr, mut notes, token) = serve(&dir);
+    let mut events = Events::open(addr, &token);
     events.next("hello");
     let source = std::fs::read_to_string(dir.join("deck.scn")).unwrap();
     assert!(source.contains("\"Q3 Review\""));
@@ -431,7 +483,7 @@ fn a_source_saved_on_disk_compiles_into_the_deck_and_a_broken_one_keeps_it() {
     });
     assert_eq!(failure.source, broken);
     assert!(failure.problems[0].span.is_some());
-    let state: Value = serde_json::from_slice(&get(addr, "/scaena/state").body).unwrap();
+    let state: Value = serde_json::from_slice(&read(addr, "/scaena/state", &token).body).unwrap();
     assert_eq!(state["failed"]["problems"][0]["line"], line);
 
     // Mended, it compiles again, and the failure is over.
