@@ -136,6 +136,41 @@ private func streaming(_ text: String) -> [String] {
     #expect(assistant.usage == Usage(input: 10, output: 2))
 }
 
+/// While the assistant is at work on the deck, the deck is its own (lift-up STAB-5): a patch the
+/// user makes, as a gesture does, is refused in the browser's words, and a source typed is not
+/// compiled, so the model's next call reads the deck it left. Once it has answered, they are the
+/// user's again.
+@MainActor
+@Test func theDeckIsTheAssistantsWhileItWorks() async throws {
+    let editor = DeckEditor(session: try ScaenaSession(directory: b1))
+    let typed: JSONValue = [
+        "op": "replace_text", "state": "cover", "node": "title", "from": 0, "to": 0, "text": "Mine. ",
+    ]
+    let events = streaming("Looked.")
+    let seen = Seen()
+    let mine = UsersEdits(editor: editor, typed: typed)
+    let assistant = Assistant(editor: editor, send: { _ in (Data(), 0) }) { _, heard in
+        var whole = ""
+        for (i, event) in events.enumerated() {
+            whole += event
+            await heard(event)
+            // Mid-answer: what the user's own edits come to.
+            if i == 2 { await seen.keep(await MainActor.run { mine.tried() }) }
+        }
+        return (Data(whole.utf8), 200)
+    }
+    #expect(!editor.assisting)
+    assistant.ask("Is the cover clean?", provider: .anthropic, model: "a-model", key: "sk-test")
+    for _ in 0..<500 where assistant.working {
+        try await Task.sleep(for: .milliseconds(10))
+    }
+    #expect(!assistant.working)
+    #expect(await seen.kept == ["assisting", "The assistant is at work on the deck.", "not compiled"])
+    #expect(!editor.assisting, "the deck is the user's again")
+    let original = editor.source
+    #expect(try editor.make([typed]) == original)
+}
+
 /// A busy provider is asked again (narrative REL-3): two 429s, each waited out with the wait
 /// said, then the answer; a provider that stays busy is given up on in a person's words; and a
 /// key not taken is never asked again.
@@ -191,6 +226,35 @@ private func streaming(_ text: String) -> [String] {
         return
     }
     #expect(notAccepted == "Anthropic didn't accept your key. Check it, or replace it.")
+}
+
+/// A conversation too long for the model is asked again once, with half as much of tools'
+/// results, and answered; too long again, it is said in a person's words (lift-up PERF-3).
+@MainActor
+@Test func theAssistantAsksAgainShorterWhereTheModelFindsItTooLong() async throws {
+    let editor = DeckEditor(session: try ScaenaSession(directory: b1))
+    let long = #"{"error": {"type": "invalid_request_error", "message": "prompt is too long"}}"#
+    let answers = Answers([(long, 400), (answering("Clean."), 200)])
+    let assistant = Assistant(editor: editor) { request in await answers.answer(request) }
+    assistant.ask("Is it clean?", provider: .anthropic, model: "a-model", key: "sk-test")
+    for _ in 0..<500 where assistant.working {
+        try await Task.sleep(for: .milliseconds(5))
+    }
+    #expect(await answers.asked.count == 2, "asked again once")
+    #expect(said(assistant) == ["Clean."])
+
+    let still = Answers([(long, 400), (long, 400), (answering("Clean."), 200)])
+    let again = Assistant(editor: editor) { request in await still.answer(request) }
+    again.ask("Is it clean?", provider: .anthropic, model: "a-model", key: "sk-test")
+    for _ in 0..<500 where again.working {
+        try await Task.sleep(for: .milliseconds(5))
+    }
+    #expect(await still.asked.count == 2, "once a question")
+    guard case .failed(let why) = again.entries.last?.kind else {
+        Issue.record("too long: \(again.entries)")
+        return
+    }
+    #expect(why == "That is more than Anthropic's model takes at once. Ask about less, or start again.")
 }
 
 /// A provider that goes quiet is given up on at the deadline and asked again (narrative REL-3).
@@ -282,6 +346,32 @@ private func streaming(_ text: String) -> [String] {
 private func said(_ assistant: Assistant) -> [String] {
     assistant.entries.compactMap { entry in
         if case .said(let text) = entry.kind { text } else { nil }
+    }
+}
+
+/// The user's own edits, made on the main actor from a stream's closure, which cannot carry the
+/// editor itself: whether the deck is the assistant's, then a patch and a source typed, each said
+/// as it is refused.
+@MainActor
+private final class UsersEdits {
+    let editor: DeckEditor
+    let typed: JSONValue
+
+    init(editor: DeckEditor, typed: JSONValue) {
+        self.editor = editor
+        self.typed = typed
+    }
+
+    func tried() -> [String] {
+        var said: [String] = []
+        if editor.assisting { said.append("assisting") }
+        do {
+            try editor.make([typed])
+        } catch {
+            said.append(Why.said(error))
+        }
+        if editor.type(editor.source + "\n") == nil { said.append("not compiled") }
+        return said
     }
 }
 

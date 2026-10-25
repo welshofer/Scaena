@@ -140,6 +140,9 @@ impl Asking {
                 let results = self.answered().ok_or_else(|| said("next: the model's last answer made no calls"))?;
                 json!(self.chat.results(results))
             }
+            // The provider found the conversation too long: whether it is worth asking again
+            // with half as much of tools' results, once a question (lift-up PERF-3).
+            "shorter" => json!(self.chat.shorter()),
             "use" => {
                 // Another model, or provider, from the next request on: the conversation goes on.
                 self.chat.provider = provider(args)?;

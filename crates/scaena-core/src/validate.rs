@@ -606,6 +606,9 @@ impl LoadedTheme {
             if let Some(color) = code.numbers.as_ref().and_then(|n| n.color.as_ref()) {
                 need(self.color(color), "color", color, "/code/numbers/color".into());
             }
+            if let Some(band) = code.focus.as_ref().and_then(|f| f.band.as_ref()) {
+                need(self.color(band), "color", band, "/code/focus/band".into());
+            }
         }
         // A picture's frame (PLAN T.3a): each band's color.
         if let Some(pictures) = &t.pictures {
@@ -1291,7 +1294,8 @@ fn connectors(deck: &Deck) -> Vec<Finding> {
 }
 
 /// E106: ends on a shape that is no line or arrow, which has none to draw them on (PLAN 2.128),
-/// a text's `paragraphs` that run backward (PLAN 2.129), and a `fetched` record from a service this
+/// a text's `paragraphs` that run backward (PLAN 2.129), a span of a code text's lines in focus
+/// that runs backward (PLAN 2.140), and a `fetched` record from a service this
 /// build does not know, at no instant, or with no credit where its service asks one (ADR-0030),
 /// wherever each is written: in the node's own props, a state's delta, or the deck's `overrides`.
 fn ends_and_paragraphs(deck: &Deck) -> Vec<Finding> {
@@ -1325,6 +1329,20 @@ fn ends_and_paragraphs(deck: &Deck) -> Vec<Finding> {
             out.push(
                 Finding::new("E106", Severity::Error, message).at(format!("{at}/paragraphs")).node(id.to_string()),
             );
+        }
+        // Each span of a code text's lines in focus (PLAN 2.140), as its paragraphs' is.
+        let focus = props.get("code").and_then(|c| c.get("focus")).and_then(Value::as_array);
+        for (k, span) in focus.into_iter().flatten().enumerate() {
+            if let Ok([a, b]) = serde_json::from_value::<[u64; 2]>(span.clone())
+                && a > b
+            {
+                let message = format!("`{id}` has lines {a} to {b} in focus, which run backward: write [{b}, {a}]");
+                out.push(
+                    Finding::new("E106", Severity::Error, message)
+                        .at(format!("{at}/code/focus/{k}"))
+                        .node(id.to_string()),
+                );
+            }
         }
         if let Some(record) = props.get("fetched").filter(|_| node.node_type == NodeType::Image) {
             for (below, why) in crate::fetched::problems(record) {

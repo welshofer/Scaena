@@ -151,8 +151,9 @@ try {
   await page.selectOption("#state", "intro");
   await repainted(count, "intro");
   const was = await page.evaluate(() => window.scaena.source());
-  // The intro's title, set in the display role.
-  const longer = was.replace(/(title text role:display )"Q3 Review"/, '$1"Revenue doubled again this quarter"');
+  // The intro's title, set in the display role: long enough to run past its lines in 9:16 though
+  // its slot shrinks it there (D2), and to fit the deck's own canvas.
+  const longer = was.replace(/(title text role:display )"Q3 Review"/, '$1"Revenue doubled again this quarter, and customers grew by half"');
   check(longer !== was, "the intro's title is in the source");
   await page.evaluate((s) => window.scaena.type(s), longer);
   await page.waitForFunction(() => window.scaena.last()?.whole, null, { timeout: 60000 }).catch(() => {});

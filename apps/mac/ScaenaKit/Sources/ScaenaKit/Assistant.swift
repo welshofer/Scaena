@@ -115,8 +115,11 @@ public final class Assistant {
 
     public let editor: DeckEditor
     public private(set) var entries: [Entry] = []
-    /// Whether a question is being answered.
-    public private(set) var working = false
+    /// Whether a question is being answered: while one is, the deck is the assistant's alone
+    /// (lift-up STAB-5).
+    public private(set) var working = false {
+        didSet { editor.assisting = working }
+    }
     /// Tokens in and out since the conversation began.
     public private(set) var usage = Usage(input: 0, output: 0)
     /// A question another panel drafted for the user to send (the story's, PLAN G.9): the
@@ -245,6 +248,9 @@ public final class Assistant {
                 do {
                     next = try await turn(request, chat: chat)
                 } catch let refusal as Refusal {
+                    // Too long for the model: asked again once with half as much of tools'
+                    // results (lift-up PERF-3), before the person is told to start again.
+                    if refusal.tooLong, try chat.shorter() { continue }
                     // A refusal, or an answer that does not read, said in a person's words (PLAN
                     // 3.18), never the provider's own: the conversation is as it was.
                     unsaid()
@@ -380,6 +386,8 @@ public final class Assistant {
     /// A provider's answer that is no answer, in a person's words.
     private struct Refusal: Error {
         let said: String
+        /// Whether what was asked is more than the model takes at once.
+        var tooLong = false
     }
 
     /// When the answer being read last said something: never, until its first line.
@@ -420,7 +428,8 @@ public final class Assistant {
                 } catch {
                     let why = Why.Answer(status: status, body: body)
                     guard why == .busy || why == .down else {
-                        throw Refusal(said: Why.answered(chat.provider, status: status, body: body))
+                        throw Refusal(
+                            said: Why.answered(chat.provider, status: status, body: body), tooLong: why == .tooLong)
                     }
                     again = why == .busy ? "\(chat.provider.name) is busy." : "\(chat.provider.name) couldn't answer just now."
                 }

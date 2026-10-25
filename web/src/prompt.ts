@@ -64,6 +64,8 @@ export function said(event: GeneratingEvent): string {
         : "The model saw nothing to change";
     case "unlooked":
       return `Not changed by what the model saw: ${event.why}`;
+    case "refused":
+      return `Slide ${event.slide} kept as made: the model asked for ${event.what}. ${event.why}`;
     case "fitting":
       return `${event.texts} ${event.texts === 1 ? "text runs" : "texts run"} past ${event.texts === 1 ? "its place" : "their places"}: asking for them shorter…`;
     case "fitted":
@@ -79,7 +81,8 @@ export function made(m: Generated): string {
   const errors = m.created.errors ? `, ${m.created.errors} ${m.created.errors === 1 ? "problem" : "problems"} to look at` : "";
   const pictures = m.pictures ? `, ${m.pictures} ${m.pictures === 1 ? "picture" : "pictures"}` : "";
   const looked = m.looked?.length ? `, ${m.looked.length} changed by what the model saw` : "";
-  return `Made: ${m.layouts.length} slides on the arc ${m.arc}${pictures}${looked}${fixed}${errors}`;
+  const refused = m.refused?.length ? `, ${m.refused.length} of its changes let go` : "";
+  return `Made: ${m.layouts.length} slides on the arc ${m.arc}${pictures}${looked}${refused}${fixed}${errors}`;
 }
 
 /** A source given: a file, or a link. */
@@ -112,6 +115,9 @@ export function prompting(
   const outcome = $<HTMLInputElement>("#prompting-outcome");
   const language = $<HTMLInputElement>("#prompting-language");
   const voice = $<HTMLInputElement>("#prompting-voice");
+  const persona = $<HTMLSelectElement>("#prompting-persona");
+  const see = $<HTMLInputElement>("#prompting-see");
+  const quality = $<HTMLSelectElement>("#prompting-quality");
   const arc = $<HTMLSelectElement>("#prompting-arc");
   const github = $<HTMLInputElement>("#prompting-github");
   const research = $<HTMLInputElement>("#prompting-research");
@@ -254,6 +260,9 @@ export function prompting(
     options(length, choices.lengths.map((l) => [l, l.replaceAll("-", "\u2013")]), choices.defaults.length);
     options(modality, choices.modalities.map((m) => [m.id, m.label]), choices.modalities[0]?.id ?? "");
     options(arc, [["", "The model's choice"], ...choices.arcs.map((a): [string, string] => [a, a])], "");
+    // A persona chosen where the audience is in the person's own words; by default the one the
+    // audience names (lift-up FUNC-5).
+    options(persona, [["", "As the audience suggests"], ...choices.personas.map((p): [string, string] => [p.id, p.name])], "");
     audience.placeholder = choices.defaults.audience;
     $<HTMLDataListElement>("#prompting-audiences").replaceChildren(...choices.audiences.map((a) => new Option(a)));
   };
@@ -263,6 +272,7 @@ export function prompting(
   const whoPaints = () => {
     const chosen = pictures.value as "openai" | "gemini" | "";
     look.disabled = running || !chosen;
+    quality.disabled = running || !chosen;
     if (!chosen) {
       painter.textContent = "No pictures: each slide is set in a layout that waits for none.";
     } else if (!painters[chosen]) {
@@ -482,6 +492,7 @@ export function prompting(
         desiredOutcomes: outcome.value.trim() || undefined,
         language: language.value.trim() || undefined,
         voice: voice.value.trim() || undefined,
+        personaId: persona.value || undefined,
       },
       arc: arc.value || undefined,
       theme: theme.value,
@@ -496,10 +507,19 @@ export function prompting(
       github: github.value.trim() || undefined,
       research: research.checked,
       outline: showOutline.checked,
+      look: see.checked,
       pictures: (() => {
         const chosen = pictures.value as "openai" | "gemini" | "";
         const kept = chosen ? painters[chosen] : undefined;
-        return chosen && kept ? { provider: chosen, key: kept.key, base: kept.base, look: look.value as "illustration" | "photo" } : undefined;
+        return chosen && kept
+          ? {
+              provider: chosen,
+              key: kept.key,
+              base: kept.base,
+              look: look.value as "illustration" | "photo",
+              quality: quality.value as "low" | "medium" | "high",
+            }
+          : undefined;
       })(),
     };
     progress.replaceChildren();

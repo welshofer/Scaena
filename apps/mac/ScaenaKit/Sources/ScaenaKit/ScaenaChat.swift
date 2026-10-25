@@ -384,6 +384,12 @@ public final class ScaenaChat {
         try step("next")
     }
 
+    /// The provider found the conversation too long: whether to ask again with half as much of
+    /// tools' results, once a question (lift-up PERF-3).
+    public func shorter() throws -> Bool {
+        try step("shorter")
+    }
+
     /// Another model from the next request on: the conversation goes on.
     public func use(provider: Provider, model: String, base: String? = nil) throws {
         var args: [String: JSONValue] = ["provider": .string(provider.rawValue), "model": .string(model)]

@@ -114,19 +114,35 @@ async function turn(o: Options, messages: Message[]): Promise<Turn> {
   }
 }
 
+/** About how much of tools' results, in bytes, the model is sent again (lift-up PERF-3): each
+ * round re-sends the conversation, so a long session's `deck_read`s and `deck_health`s would grow
+ * it until the provider refuses it. `scaena-chat`'s `BUDGET`. */
+export const BUDGET = 60_000;
+
+const bytes = (text: string) => new TextEncoder().encode(text).length;
+
 /** The conversation as the model is sent it: the newest `frames` frames, and the older ones
- * named in their place, since each costs as much as a page of text. */
-export function recent(conversation: Message[], frames: number): Message[] {
+ * named in their place, since each costs as much as a page of text; and the newest results whole
+ * within `budget` bytes, the last round's always, and the older ones named in their place from the
+ * first that would pass it on (lift-up PERF-3), so what is cached before them stays. */
+export function recent(conversation: Message[], frames: number, budget = BUDGET): Message[] {
   let kept = 0;
+  let used = 0;
+  const last = conversation.findLastIndex((m) => m.role === "tool");
   return conversation
-    .slice()
+    .map((m, i) => [m, i] as const)
     .reverse()
-    .map((m) => {
+    .map(([m, i]) => {
       if (m.role !== "tool") return m;
       const results = m.results
         .slice()
         .reverse()
         .map((r) => {
+          used += bytes(r.json);
+          if (i !== last && used > budget) {
+            used = Infinity;
+            return { ...r, png: undefined, json: `(What ${r.name} returned is no longer shown: call it again to see it.)` };
+          }
           if (!r.png) return r;
           if (kept++ < frames) return r;
           return { ...r, png: undefined, json: `${r.json}\n(The frame is no longer shown: render it again to see it.)` };
@@ -140,14 +156,24 @@ export function recent(conversation: Message[], frames: number): Message[] {
 export async function converse(o: Options): Promise<void> {
   const rounds = o.rounds ?? 32;
   const stopped = () => o.signal.aborted;
+  // Halved for the rest of the question where the provider finds the conversation too long.
+  let budget = BUDGET;
   for (let round = 0; ; round++) {
     if (stopped()) return o.emit({ kind: "done", stop: "stopped" });
     if (round === rounds) return o.emit({ kind: "done", stop: "steps" });
     let answered: Turn;
     try {
-      answered = await turn(o, recent(o.conversation, o.frames ?? 2));
+      answered = await turn(o, recent(o.conversation, o.frames ?? 2, budget));
     } catch (e) {
       if (stopped()) return o.emit({ kind: "done", stop: "stopped" });
+      // Too long for the model: sent again once with half as much of tools' results (lift-up
+      // PERF-3), before the person is told to start again.
+      const answer = answerOf(e);
+      if (budget === BUDGET && answer && unanswered(answer.status, answer.words) === "tooLong") {
+        budget = BUDGET / 2;
+        round--;
+        continue;
+      }
       // A refusal, or no way to the provider, in a person's words (PLAN 3.18), as the Mac's
       // assistant says it: never the provider's own, nor its status.
       return o.emit({ kind: "failed", message: unasked(o.provider.name, e) });
@@ -168,7 +194,12 @@ export async function converse(o: Options): Promise<void> {
         continue;
       }
       o.emit({ kind: "call", id: call.id, name: call.name, args: call.args });
-      const { result, summary, made } = await o.call(call);
+      // A call that throws is answered as failed, saying why: a call left with no answer makes the
+      // provider refuse every turn after it (lift-up 10-25b STAB-3).
+      const { result, summary, made } = await o.call(call).catch((e: unknown) => {
+        const message = e instanceof Error ? e.message : String(e);
+        return { result: { id: call.id, name: call.name, json: JSON.stringify({ message }), error: true } as Result, summary: `Stopped: ${message}`, made: false };
+      });
       results.push(result);
       o.emit({ kind: "result", id: call.id, name: call.name, error: result.error, summary, made, json: result.json, png: result.png });
     }
