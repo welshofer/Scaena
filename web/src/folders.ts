@@ -10,7 +10,8 @@ let persisting: Promise<boolean> | undefined;
  * will not, `say` is told once, with the way to keep a copy. Whether it keeps them. */
 export function persist(say: (text: string) => void): Promise<boolean> {
   persisting ??= (async () => {
-    const storage = navigator.storage;
+    // A page's own, which a worker's types, this file being in both, do not name.
+    const storage = navigator.storage as StorageManager & { persist?: () => Promise<boolean> };
     if (!storage?.persist) return false;
     if (await storage.persisted().catch(() => false)) return true;
     const kept = await storage.persist().catch(() => false);
