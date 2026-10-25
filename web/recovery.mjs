@@ -12,7 +12,8 @@
 // - Discard leaves the deck as saved, and the copy is gone.
 // - A copy older than the deck as saved is passed over, and gone.
 // - The page hidden, the copy is kept at once, not when typing stops.
-// - A new deck's changes are kept too, and offered when a deck of that title is made again.
+// - A new deck's changes are kept too, and offered when a deck of that title is made again after
+//   the page went; another deck opened over it, its changes lost as agreed, takes its copy away.
 // Exits 1 on any failure.
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
@@ -230,6 +231,10 @@ try {
   await page.evaluate(() => window.scaena.keepCopy());
   const keptNew = (await copies()).find((c) => c.record?.name === "fresh");
   check(keptNew?.source?.includes("Fresh words"), `the new deck's changes are kept: ${JSON.stringify((await copies()).map((c) => c.record?.name))}`);
+  // The page goes, as a crash or a tab closed takes it, and a deck of that title made again is
+  // offered them.
+  await page.reload();
+  await ready();
   await page.evaluate(() => window.scaena.open({ create: { theme: "Dusk", title: "Fresh" } }));
   await ready("fresh");
   await offered().waitFor({ timeout: 10000 }).catch(() => {});
@@ -237,6 +242,17 @@ try {
   await page.click("#recovering button[value=recover]");
   await page.waitForFunction(() => window.scaena.source().includes("Fresh words"), null, { timeout: 30000 });
   check((await source()).includes("Fresh words") && (await where()).dirty, "and Recover puts them back");
+  // Another deck opened over it, its changes lost as the person agreed: no copy keeps them, and a
+  // deck of that title made again is offered nothing.
+  await page.evaluate(() => window.scaena.keepCopy());
+  check((await copies()).some((c) => c.record?.name === "fresh"), "kept again before it is closed");
+  await page.evaluate(() => window.scaena.open({ url: "/docs/examples/revenue.deck.json" }));
+  await ready("revenue");
+  check(!(await copies()).some((c) => c.record?.name === "fresh"), "opened over, its changes lost as agreed, its copy goes with them");
+  await page.evaluate(() => window.scaena.open({ create: { theme: "Dusk", title: "Fresh" } }));
+  await ready("fresh");
+  await page.waitForTimeout(1000);
+  check((await offered().count()) === 0, "and a deck of that title made again is offered nothing");
 } finally {
   await browser.close();
   server.close();
