@@ -238,3 +238,44 @@ fn punctuation_is_a_word_of_its_own() {
     let period = mid.iter().filter(|w| w.1 == 1.0).map(|w| w.0[4]).fold(0.0_f32, |a, dx| a.min(dx));
     assert!(period < -1.0, "the period is still on its way right: {period}");
 }
+
+#[test]
+fn code_moves_its_card_and_fades_its_numbers_in() {
+    // PLAN 2.136: between two states, code's card moves and resizes as a shape does, and line
+    // numbers that only one side sets fade where that side sets them.
+    let code = |numbers: bool| json!({ "language": "rust", "numbers": numbers });
+    let nodes = json!({ "c": {
+        "type": "text", "role": "body", "code": code(false), "text": "let x = 1;", "at": { "rect": [100, 100, 800, 400] }
+    } });
+    let states = json!([
+        { "id": "one", "layout": "specimen", "props": { "c": {} } },
+        { "id": "two", "transition": "standard", "props": { "c": { "at": { "rect": [500, 300, 800, 400] }, "code": code(true) } } }
+    ]);
+    let mut fx = Fx::new(nodes, states);
+    // The card's left edge on the canvas, and the opacity of each layer of glyphs under it.
+    let parts = |dl: &DisplayList| {
+        let Some(Op::Layer { transform, ops, .. }) =
+            dl.ops.iter().find(|op| matches!(op, Op::Layer { node: Some(n), .. } if n == "c"))
+        else {
+            panic!("no layer for the code")
+        };
+        let mut card = None;
+        let mut numbers = Vec::new();
+        for op in ops {
+            let Op::Layer { transform: t, opacity, ops, .. } = op else { continue };
+            if ops.iter().any(|o| matches!(o, Op::Fill { .. })) && card.is_none() {
+                card = Some(transform[4] + t[4]);
+            } else if ops.iter().any(|o| matches!(o, Op::Glyphs { .. })) {
+                numbers.push(*opacity);
+            }
+        }
+        (card.expect("a card"), numbers)
+    };
+    let (before, _) = parts(&fx.dl("one", f64::INFINITY));
+    let (after, numbers) = parts(&fx.dl("two", f64::INFINITY));
+    assert_eq!((before, after), (100.0, 500.0));
+    assert_eq!(numbers, [1.0], "at rest, the numbers in full");
+    let (mid, numbers) = parts(&fx.dl("two", 150.0));
+    assert!(before < mid && mid < after, "the card moves: {mid}");
+    assert!(numbers.len() == 1 && numbers[0] > 0.0 && numbers[0] < 1.0, "the numbers fade in: {numbers:?}");
+}
