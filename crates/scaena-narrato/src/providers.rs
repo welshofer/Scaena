@@ -429,8 +429,42 @@ pub(crate) fn read(status: u16, status_text: &str, text: &str) -> Result<Value, 
     body.ok_or_else(|| format!("not JSON: {}", crate::js::first_units(text, 300)))
 }
 
+/// `base`, an API address typed beside a key, where a key may go to it: `https://` and a host, or
+/// `http://` to this machine alone (`localhost`, `127.0.0.1`, `[::1]`, at any port), for a proxy
+/// on it. Else why not: over plain `http` elsewhere the key would cross the network in the clear
+/// with every call (lift-up 20261025 SEC-2).
+pub fn checked_base(base: &str) -> Result<&str, String> {
+    let base = base.trim();
+    let host = |rest: &str| rest.split(['/', '?', '#']).next().unwrap_or_default().to_string();
+    let lower = base.to_ascii_lowercase();
+    if let Some(rest) = lower.strip_prefix("https://") {
+        let host = host(rest);
+        if !host.is_empty() && !host.contains('@') {
+            return Ok(base);
+        }
+    } else if let Some(rest) = lower.strip_prefix("http://") {
+        let host = host(rest);
+        let name = match host.strip_prefix('[') {
+            Some(v6) => v6.split(']').next().unwrap_or_default(),
+            None => host.split(':').next().unwrap_or_default(),
+        };
+        let port = host.rsplit_once(']').map_or(host.split_once(':').map(|p| p.1), |(_, p)| p.strip_prefix(':'));
+        if ["localhost", "127.0.0.1", "::1"].contains(&name)
+            && port.is_none_or(|p| p.bytes().all(|b| b.is_ascii_digit()))
+        {
+            return Ok(base);
+        }
+    }
+    Err(format!(
+        "{base}: an API address takes https://, or http:// to this machine (localhost, 127.0.0.1), so the key never crosses the network in the clear"
+    ))
+}
+
+/// `path` at `base`, the provider's own address `fallback` where none is given. An address
+/// [`checked_base`] refuses is never asked, the key never going to it: the clients refuse it
+/// as it is typed, and this is the last guard, asking the provider's own instead.
 pub(crate) fn at(base: Option<&str>, fallback: &str, path: &str) -> String {
-    let base = base.filter(|b| !b.is_empty()).unwrap_or(fallback);
+    let base = base.filter(|b| !b.is_empty()).and_then(|b| checked_base(b).ok()).unwrap_or(fallback);
     format!("{}{path}", base.trim_end_matches('/'))
 }
 
@@ -450,6 +484,43 @@ pub(crate) fn component(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A key goes over plain `http` to this machine alone (lift-up 20261025 SEC-2): every other
+    /// address but `https://` is refused, and one refused is never asked.
+    #[test]
+    fn a_key_never_goes_over_plain_http_off_this_machine() {
+        for good in [
+            "https://api.example.com",
+            "HTTPS://proxy.example.com:8443/v1/",
+            "http://localhost:8080",
+            "http://127.0.0.1",
+            "http://[::1]:9000/",
+            "http://LOCALHOST/proxy",
+        ] {
+            assert_eq!(checked_base(good), Ok(good), "{good}");
+        }
+        for bad in [
+            "http://api.example.com",
+            "http://localhost.evil.example",
+            "http://127.0.0.1.evil.example",
+            "http://localhost:80@evil.example",
+            "https://",
+            "https://user@evil.example",
+            "ftp://example.com",
+            "api.example.com",
+        ] {
+            let why = checked_base(bad).unwrap_err();
+            assert!(why.contains("https://"), "{bad}: {why}");
+        }
+        assert_eq!(
+            at(Some("http://evil.example"), "https://api.anthropic.com", "/v1/messages"),
+            "https://api.anthropic.com/v1/messages"
+        );
+        assert_eq!(
+            at(Some("http://localhost:4000/"), "https://x", "/v1/messages"),
+            "http://localhost:4000/v1/messages"
+        );
+    }
 
     fn call(shape: Shape, documents: &[Document]) -> Call<'_> {
         Call {

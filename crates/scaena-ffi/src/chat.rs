@@ -31,7 +31,7 @@ impl Asking {
             .ok_or_else(|| said("a conversation needs `model`, a string"))?;
         let tools = scaena_chat::tools(TOOLS).map_err(said)?;
         let mut chat = Chat::new(provider, model, String::new(), tools);
-        chat.base = args.get("base").and_then(Value::as_str).filter(|b| !b.is_empty()).map(str::to_string);
+        chat.base = crate::base(args)?.map(str::to_string);
         Ok(Asking { chat, ran: Vec::new(), heard: None })
     }
 
@@ -144,7 +144,7 @@ impl Asking {
                 // Another model, or provider, from the next request on: the conversation goes on.
                 self.chat.provider = provider(args)?;
                 self.chat.model = arg("model")?.to_string();
-                self.chat.base = args.get("base").and_then(Value::as_str).filter(|b| !b.is_empty()).map(str::to_string);
+                self.chat.base = crate::base(args)?.map(str::to_string);
                 Value::Null
             }
             "forget" => {
@@ -200,7 +200,7 @@ pub fn providers(method: &str, args: &Value) -> Result<Value, Failure> {
             .collect::<Vec<_>>()
             .into(),
         "models" => {
-            let base = args.get("base").and_then(Value::as_str);
+            let base = crate::base(args)?;
             request(provider(args)?.models(key("key")?, base, false))
         }
         "readModels" => {
@@ -214,7 +214,7 @@ pub fn providers(method: &str, args: &Value) -> Result<Value, Failure> {
         // (PLAN 2.101), which no conversation keeps; with `png`, the picture Describe shows the
         // model (PLAN 2.119).
         "once" => {
-            let base = args.get("base").and_then(Value::as_str).filter(|b| !b.is_empty());
+            let base = crate::base(args)?;
             let asked = scaena_chat::once(
                 provider(args)?,
                 key("model")?,
