@@ -321,8 +321,17 @@ const fullscreen = () =>
   );
 
 /** The player: the deck, its controls, and its clock. */
+/** What no handler caught, said in `status` rather than lost, so a talk never freezes on a slide
+ * with nothing said (lift-up STAB-5). */
+function saysRejections(status: HTMLElement) {
+  addEventListener("unhandledrejection", (e) => {
+    status.textContent = `Error: ${said(e.reason)}`;
+  });
+}
+
 async function play(deck: Source, how: Play, channel: BroadcastChannel) {
   const status = $("#status");
+  saysRejections(status);
   const statesPicker = $<HTMLSelectElement>("#state");
   const formatPicker = $<HTMLSelectElement>("#format");
   const scrub = $<HTMLInputElement>("#scrub");
@@ -637,8 +646,14 @@ async function play(deck: Source, how: Play, channel: BroadcastChannel) {
   reduced.onchange = () => {
     if (stage.at.playing) stage.run(stage.at.index, stage.at.t, format(), still());
   };
+  // A format the deck no longer lays out in says so, and the slide shown stays (lift-up STAB-5).
   formatPicker.onchange = async () => {
-    slots = await stage.timeline(format());
+    try {
+      slots = await stage.timeline(format());
+    } catch (e) {
+      status.textContent = `Error: ${said(e)}`;
+      return;
+    }
     go(Math.min(stage.at.index, slots.length - 1));
   };
   scrub.max = String(slots.length);
@@ -824,6 +839,7 @@ async function presentView(deck: Source, how: Play, channel: BroadcastChannel) {
       <p id="status" role="status">Loading…</p>
     </aside>`;
   const status = $("#status");
+  saysRejections(status);
   const [now, upNext] = await Promise.all([
     Stage.open($("#stage"), deck, how.painter, how.engine),
     Stage.open($("#upnext"), deck, how.painter, how.engine),
@@ -1063,13 +1079,17 @@ async function presentView(deck: Source, how: Play, channel: BroadcastChannel) {
     listen({
       changed: (paths) => {
         if (!paths.some((path) => path !== "deck.scn")) return;
-        void Promise.all([now.reload(), upNext.reload()]).then(async () => {
-          ({ states, notes } = now.opened);
-          title();
-          slots = await now.timeline();
-          next = "";
-          steer({ type: "hello" });
-        });
+        void Promise.all([now.reload(), upNext.reload()])
+          .then(async () => {
+            ({ states, notes } = now.opened);
+            title();
+            slots = await now.timeline();
+            next = "";
+            steer({ type: "hello" });
+          })
+          // A save that breaks the deck mid-talk says so here, where the presenter looks
+          // (lift-up STAB-5).
+          .catch((e) => (status.textContent = `Error: ${said(e)}`));
       },
     });
   hello("The player is not open.", "Open it", 2000);

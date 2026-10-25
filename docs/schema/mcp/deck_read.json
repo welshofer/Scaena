@@ -1,6 +1,6 @@
 {
   "name": "deck_read",
-  "description": "The bundle's deck, as `deck.json` holds it, or as `.scn` source; with `files`, the bundle's images, fonts, and data too, and what uses each.",
+  "description": "The bundle's deck, as `deck.json` holds it, or as `.scn` source; with `files`, the bundle's images, fonts, and data too, and what uses each; with `theme`, the theme it draws in.",
   "inputSchema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "required": ["bundle"],
@@ -10,6 +10,11 @@
       "scn": { "description": "The deck as `.scn` source rather than JSON.", "type": "boolean", "default": false },
       "files": {
         "description": "The bundle's images, fonts, and data too, each with what in the deck names it and the\nnodes drawn from it in the states that show them so; a file nothing names has no\n`named`, and may be taken out (`scaena files --remove`).",
+        "type": "boolean",
+        "default": false
+      },
+      "theme": {
+        "description": "The theme the deck draws in too, as the bundle holds it: its colors, type roles, layouts\nand their slots, and presets, by the names the deck uses (SPEC §3.6).",
         "type": "boolean",
         "default": false
       }
@@ -115,6 +120,9 @@
         "description": "With `files`, the bundle's images, fonts, and data, each with what in the deck names it\nand the nodes drawn from it, as `scaena files` lists them (PLAN 2.59).",
         "type": ["array", "null"],
         "items": { "$ref": "#/$defs/BundleFile" }
+      },
+      "theme": {
+        "description": "With `theme`, the theme the deck draws in, as the bundle holds it (SPEC §3.6): its\ncolors, type roles, layouts and their slots, and presets, by the names the deck uses."
       }
     },
     "type": "object"

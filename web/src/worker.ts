@@ -46,6 +46,7 @@ import type {
   FromWorker,
   Generate,
   Insert,
+  Keyed,
   Layer,
   LayoutSuggestion,
   Backgrounds,
@@ -224,6 +225,12 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
     if (id !== undefined) post({ type: "error", id, message: `the engine stopped: ${stopped}` });
     return;
   }
+  // A request that carries the editor's source waits out an edit in flight, so nothing compiles
+  // over the deck an edit compiled while its frame paints: it lints that deck and no other.
+  while (editing && typeof (data as { source?: unknown }).source === "string") await editing;
+  // Taken now: what it carries is read against the deck as it stands.
+  const carried = (data as { seen?: unknown }).seen;
+  if (typeof carried === "number") asked = carried;
   try {
     switch (data.type) {
       case "open":
@@ -296,10 +303,14 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         return;
       case "source":
         return post({ type: "source", id: data.id, source: player.source() });
-      case "edit":
+      case "edit": {
         latest++;
         shown = { index: data.index, format: data.format };
-        return post({ type: "edited", id: data.id, ...(await edit(data.source, data.index, data.format)) });
+        // An edit no newer than the deck held (the linter's, of the source the page had while a
+        // patch was made on it) is answered from that deck, never compiled back over it.
+        const source = stale(data.source) ? player.source() : data.source;
+        return post({ type: "edited", id: data.id, ...(await edit(source, data.index, data.format)) });
+      }
       case "lint": {
         const start = performance.now();
         const now = Math.floor(Date.now() / 1000);
@@ -557,7 +568,7 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
       case "carets": {
         // The source as it stands, where the deck shown is not yet the one it compiles to: an
         // undo, or the source changed under the text.
-        const behind = !player.compiledFrom(data.source);
+        const behind = !held(data.source);
         if (behind) saveable(data.source);
         layOut(data.format, behind);
         const carets = JSON.parse(player.carets(data.state, data.node)) as Carets | null;
@@ -575,21 +586,39 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
       }
       case "tidied":
         return post({ type: "tidied", id: data.id, text: player.tidied(data.text, data.language) });
-      case "codeWords": {
+      case "keyed": {
+        const keyed = JSON.parse(Player.keyed(data.text, data.from, data.to, data.key, data.tab, data.language)) as Keyed | null;
+        return post({ type: "keyed", id: data.id, keyed });
+      }
+      // Make Code, Not Code, and Tidy Code (PLAN 2.139): each the patch the page then makes.
+      case "coding":
+      case "uncoding":
+      case "tidying": {
         const behind = !player.compiledFrom(data.source);
+        if (behind) saveable(data.source);
+        const patch =
+          data.type === "coding"
+            ? player.coding(data.node, data.language)
+            : data.type === "uncoding"
+              ? player.uncoding(data.node)
+              : player.tidying(data.state, data.node);
+        return post({ type: data.type, id: data.id, patch: JSON.parse(patch) as unknown[] });
+      }
+      case "codeWords": {
+        const behind = !held(data.source);
         if (behind) saveable(data.source);
         layOut(data.format, behind);
         return post({ type: "codeWords", id: data.id, words: player.codeWords(data.state, data.node) });
       }
       case "bolding": {
-        const behind = !player.compiledFrom(data.source);
+        const behind = !held(data.source);
         if (behind) saveable(data.source);
         layOut(data.format, behind);
         const look = JSON.parse(player.bolding(data.state, data.node, data.from, data.to)) as Record<string, unknown>;
         return post({ type: "bolding", id: data.id, look });
       }
       case "italicizing": {
-        const behind = !player.compiledFrom(data.source);
+        const behind = !held(data.source);
         if (behind) saveable(data.source);
         layOut(data.format, behind);
         const look = JSON.parse(player.italicizing(data.state, data.node, data.from, data.to)) as Record<string, unknown>;
@@ -1158,11 +1187,10 @@ async function generating(job: Generate, engine?: WebAssembly.Module) {
 
 /** A new deck titled `title` (PLAN 2.12), as `deck_create` makes one: the theme that ships as
  * `theme` and the fonts it names. Its one state, with nothing on it, is made a title slide in
- * the theme's `title` layout, its words to type over and its picture's place waiting, as Add
- * Slide starts it (PLAN 3.30): made before the page reads the deck, so no undo goes back to the
- * empty state. A theme with no such layout leaves it. The Mac's new deck opens with the theme's
- * backdrop in that place (`titling`); here it waits until the CPU painter draws one without
- * holding up the editor's gestures. */
+ * the theme's `title` layout, its words to type over and the theme's backdrop in its picture's
+ * place, as the New dialog draws the theme and the Mac's new deck opens (PLAN 3.30, `titling`):
+ * made before the page reads the deck, so no undo goes back to the empty state. A theme with no
+ * such layout leaves it. */
 async function made(theme: string, title: string): Promise<Player> {
   const { file, text, fonts } = await shipped(theme);
   const created = Player.create(file, text, title, fonts);
@@ -1170,7 +1198,7 @@ async function made(theme: string, title: string): Promise<Player> {
   if (blank === undefined || more.length) return created;
   let started: { id: string; patch: unknown[] };
   try {
-    started = JSON.parse(created.starting(blank, "title")) as { id: string; patch: unknown[] };
+    started = JSON.parse(created.titling(blank)) as { id: string; patch: unknown[] };
   } catch {
     return created;
   }
@@ -1239,7 +1267,7 @@ function nameOf(deck: string): string {
 function saveable(source: string) {
   const compiled = JSON.parse(player.compile(source)) as { error?: Finding; findings: Finding[]; valid: boolean };
   const why = compiled.error ?? (compiled.valid ? undefined : compiled.findings.find((f) => f.severity === "error"));
-  if (!why) return;
+  if (!why) return noted(source);
   const where = why.at ? ` (line ${why.at.line})` : "";
   const what = compiled.error ? "the source does not compile" : "the deck does not validate";
   throw new Error(`${what}: ${why.message}${where}`);
@@ -1595,9 +1623,44 @@ function redrawn(height: number, known: Record<string, string>): { drawn: Thumb[
 /** The deck the editor's `source` compiles to: compiled first where the deck shown is not yet that
  * one, after an undo or while the source is typed in. */
 function current(source: string) {
-  if (player.compiledFrom(source)) return;
+  if (held(source)) return;
   saveable(source);
   layOut(format, true);
+}
+
+/** The sources compiled as the deck, the latest first and the eight before it, as the page
+ * keeps eight for an undo. A request that carries one of the eight is older than the deck held:
+ * posted before the edit the deck came from was answered, and taken while that edit's paint
+ * yielded. It is answered from the deck held, never by compiling its source over the newer
+ * one, which set the deck a track behind the source (#469's canvas red: two arrow presses in a
+ * row, and the Theme panel's `bundleFiles` between them). */
+const compiledSources: string[] = [];
+/** The page's version of the source (`version`, which counts every change of it, an undo
+ * included) that the request being answered carries, and the one the deck held was compiled at:
+ * a request no newer than the deck held is answered from it. An undo's source is one of the
+ * eight, but newer: it is compiled, never answered from the deck before the undo. */
+let asked: number | undefined;
+let heldAt: number | undefined;
+function noted(source: string) {
+  const was = compiledSources.indexOf(source);
+  if (was >= 0) compiledSources.splice(was, 1);
+  compiledSources.unshift(source);
+  compiledSources.length = Math.min(compiledSources.length, 9);
+  if (asked !== undefined) heldAt = asked;
+}
+/** Whether the deck held answers a request that carries `source`: compiled from it, or from an
+ * edit made after it, which is one of the eight, and, where the request carries a version, no
+ * newer than the deck's. */
+function held(source: string): boolean {
+  if (player.compiledFrom(source)) return true;
+  if (!compiledSources.includes(source)) return false;
+  return asked === undefined || heldAt === undefined || asked <= heldAt;
+}
+/** Whether a request carrying `source` and a version is older than the deck held: a source
+ * compiled before, at a version no newer than the deck's, and not the deck's own. A source never
+ * compiled (a fix's, which the page edits before it takes it) is newer whatever its version. */
+function stale(source: string): boolean {
+  return asked !== undefined && heldAt !== undefined && asked <= heldAt && !player.compiledFrom(source) && compiledSources.includes(source);
 }
 
 function layOut(next: string | undefined, again = false) {
@@ -1608,8 +1671,26 @@ function layOut(next: string | undefined, again = false) {
 }
 
 /** Compile `source`. Once it validates, repaint slot `index` at rest from the new deck, then
- * lint it: the editor's round trip (PLAN 2.3), each step timed. */
+ * lint it: the editor's round trip (PLAN 2.3), each step timed. Nothing else compiles meanwhile
+ * (`editing`), so the lint is of the deck compiled from `source`. */
 async function edit(source: string, index: number, at: string | undefined, read?: () => void): Promise<Edited> {
+  // One edit at a time, each through its lint, whoever asked for it.
+  while (editing) await editing;
+  let edited!: () => void;
+  editing = new Promise<void>((settle) => (edited = settle));
+  try {
+    return await editOf(source, index, at, read);
+  } finally {
+    editing = undefined;
+    edited();
+  }
+}
+
+/** The edit in flight, while its frame paints: what a request that carries a source waits for. */
+let editing: Promise<void> | undefined;
+
+/** [`edit`], on its turn. */
+async function editOf(source: string, index: number, at: string | undefined, read?: () => void): Promise<Edited> {
   const start = performance.now();
   const compiled = JSON.parse(player.compile(source)) as {
     error?: Finding;
@@ -1617,6 +1698,7 @@ async function edit(source: string, index: number, at: string | undefined, read?
     states: [string, number][];
     valid: boolean;
   };
+  noted(source);
   const compiledAt = performance.now();
   let where: Edited["at"];
   let shown: string | undefined;
@@ -1736,9 +1818,9 @@ async function make(source: string, ops: unknown[], index: number, at: string | 
 /** Compile `source` into the deck a data edit works on (PLAN 2.55), which need not validate: a
  * cell its column does not read (E103) leaves the deck invalid, and the edit is what fixes it. */
 function compiles(source: string) {
-  if (player.compiledFrom(source)) return;
+  if (held(source)) return;
   const compiled = JSON.parse(player.compile(source)) as { error?: Finding };
-  if (!compiled.error) return;
+  if (!compiled.error) return noted(source);
   const where = compiled.error.at ? ` (line ${compiled.error.at.line})` : "";
   throw new Error(`the source does not compile: ${compiled.error.message}${where}`);
 }
@@ -2035,6 +2117,8 @@ function run(index: number, t: number, run: number, still = false, alone = false
   let rested = -1;
   /** When the run's last frame was painted, by the display's clock. */
   let last: number | undefined;
+  /** The slot whose cue came to rest and laid out the next one's (lift-up PERF-1). */
+  let prepared = -1;
   const frame = async (now: number) => {
     if (run !== latest) return;
     let t = offset + Math.max(0, now - start);
@@ -2061,11 +2145,32 @@ function run(index: number, t: number, run: number, still = false, alone = false
       post({ type: "at", index, t: shown, global: slot.start + shown, playing, frame: timing });
       if (still) rested = index;
     }
+    // Its cue over, held or waiting, the next one's is laid out meanwhile; a cut never samples one.
+    if (!still && t >= slot.span && prepared !== index) {
+      prepared = index;
+      ahead(index + 1, run);
+    }
     if (!playing) return;
     if (still) setTimeout(() => frame(performance.now()), slot.span + slot.hold - t);
     else next(frame);
   };
   next(frame);
+}
+
+/** Lay out the cue into slot `index` while the one before it rests or holds, so going on draws its
+ * first frame at once (lift-up PERF-1): once the worker has answered what waits, and only while run
+ * `run` is the one shown. */
+function ahead(index: number, run: number) {
+  const slot = slots[index];
+  if (!slot || slot.span <= 0) return;
+  setTimeout(() => {
+    if (run !== latest) return;
+    try {
+      player.prepare(slot.state);
+    } catch (e) {
+      console.warn(`the next cue could not be laid out ahead: ${said(e)}`);
+    }
+  }, 0);
 }
 
 const next = (frame: (now: number) => void) => {

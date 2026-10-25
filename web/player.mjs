@@ -24,6 +24,8 @@
 // - The end of the show (PLAN 2.120): going on past the last state turns the screen black and says
 //   the show has ended, the status too; ← shows the last slide again, going on again keeps it,
 //   and a click or Escape leaves it, back on the last slide, and in fullscreen out of it.
+// - A format the deck does not lay out in, and a promise no handler caught, are said in the
+//   player's status, the slide shown staying (lift-up STAB-5).
 // - The presenter view's timer waits at 0:00 until the deck goes on, and a presenter view the
 //   browser blocks is said in the player's status (lift-up USE-2).
 // - The presenter view follows the player, shows the state's notes (its beat's, where it has
@@ -95,8 +97,10 @@ try {
   });
   const open = async (address) => {
     const page = await context.newPage();
-    page.on("pageerror", (e) => failures.push(`${address}: ${e.message}`));
-    page.on("console", (m) => m.type() === "error" && failures.push(`${address}: console: ${m.text()}`));
+    // The one promise left uncaught on purpose, to be said in the status (lift-up STAB-5).
+    const meant = (text) => text.includes("a promise no one caught");
+    page.on("pageerror", (e) => meant(e.message) || failures.push(`${address}: ${e.message}`));
+    page.on("console", (m) => m.type() === "error" && !meant(m.text()) && failures.push(`${address}: console: ${m.text()}`));
     await page.goto(address);
     await page.waitForFunction(() => window.scaena || document.querySelector("#status")?.textContent.startsWith("Error"), null, {
       timeout: 120000,
@@ -505,6 +509,29 @@ try {
   await turnTo("");
   const wide = await upright(false);
   check(tall && wide, `it paints the next state in the format the player shows, 9:16 and its own: ${tall}, ${wide}`);
+  // A format the deck does not lay out in, and a promise no handler caught (lift-up STAB-5): each is
+  // said in the player's status, the slide shown staying, and the player goes on.
+  const before = await player.evaluate(() => window.scaena.at().index);
+  await player.evaluate(() => {
+    const picker = document.querySelector("#format");
+    picker.add(new Option("1:1", "1:1"));
+    picker.value = "1:1";
+    picker.dispatchEvent(new Event("change"));
+  });
+  const refused = await player
+    .waitForFunction(() => document.querySelector("#status").textContent.startsWith("Error:"), null, { timeout: 15000 })
+    .then(() => player.evaluate(() => document.querySelector("#status").textContent), () => null);
+  check(refused?.includes("1:1") && (await player.evaluate(() => window.scaena.at().index)) === before, `a format the deck does not lay out in is said, the slide staying: ${refused}`);
+  await player.evaluate(() => {
+    const picker = document.querySelector("#format");
+    picker.remove(picker.options.length - 1);
+    void Promise.reject(new Error("a promise no one caught"));
+  });
+  const lost = await player
+    .waitForFunction(() => document.querySelector("#status").textContent === "Error: a promise no one caught", null, { timeout: 5000 })
+    .then(() => true, () => false);
+  check(lost, "a promise no handler caught is said in the status");
+  await turnTo("");
   // Its presenter's keys steer the player's screen (PLAN 2.105): B turns the room's black, and the
   // view says so; a key brings the slide back.
   await presenter.keyboard.press("b");
