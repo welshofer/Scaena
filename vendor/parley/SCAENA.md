@@ -1,7 +1,7 @@
 # parley 0.11.1, patched for Scaena
 
-This is parley 0.11.1 as crates.io publishes it, with two changes, carried until parley makes them
-upstream (ADR-0004 findings 21 and 25). The workspace takes it through `[patch.crates-io]` and leaves it
+This is parley 0.11.1 as crates.io publishes it, with three changes, carried until parley makes them
+upstream (ADR-0004 findings 21, 25, and 26). The workspace takes it through `[patch.crates-io]` and leaves it
 out of its members, so Scaena's lints, formatting, and tests do not run over it.
 
 **A change of spacing no longer splits a run of text into runs shaped apart.** parley shaped a
@@ -25,6 +25,17 @@ glue, held nothing together at a line's end. Now only a space hangs so; a no-bre
 overflows as a letter does, and the line breaks at the last opportunity before it.
 
 - `layout/line_break.rs`: the overflow case that hangs whitespace asks for `Whitespace::Space`.
+
+**An emergency break keeps the marks that may not stand at a line's edge off it** (finding 26).
+With `overflow-wrap: anywhere`, parley allowed an emergency break before any cluster, so a phrase
+too wide for its line could start the next one with a comma (、) or end a line with an opening
+bracket, which UAX #14's own breaks never do. Now an emergency break is passed over before a mark
+that may not start a line (a comma or a stop, a closing bracket, ー, 々, a small kana) and after one
+that may not end one (an opening bracket), as Japanese line breaking's kinsoku shori asks.
+
+- `layout/line_break.rs`: the emergency break asks `kinsoku::starts_no_line` and `ends_no_line`.
+
+Text set without `overflow-wrap: anywhere`, all but Japanese in Scaena, breaks exactly as before.
 
 Its manifest allows `deprecated`: parley 0.11.1 calls a method icu_properties 2.x deprecates, and as
 a path dependency the warning would show in every build.
