@@ -48,7 +48,7 @@ export interface Turn {
   calls: Call[];
   /** `tools`: it waits for its calls' results. `end`: its answer is done. `length`: it ran
    * out of room. */
-  stop: "tools" | "end" | "length" | "other";
+  stop: "tools" | "end" | "length" | "refused" | "other";
   raw?: unknown;
   /** Tokens in and out, as the provider counts them. */
   usage?: { input: number; output: number };
@@ -228,7 +228,9 @@ export const anthropic: Provider = {
     });
     const answered = await answer("anthropic", response, ask.onText, ask.onChunk);
     const content = (answered.content ?? []) as { type: string; text?: string; id?: string; name?: string; input?: unknown }[];
-    const stop = answered.stop_reason === "tool_use" ? "tools" : answered.stop_reason === "end_turn" ? "end" : answered.stop_reason === "max_tokens" ? "length" : "other";
+    const reason = answered.stop_reason;
+    // A refusal is said as one (lift-up 20261025c REL-1), as scaena-chat's adapters say it.
+    const stop = reason === "tool_use" ? "tools" : reason === "end_turn" ? "end" : reason === "max_tokens" ? "length" : reason === "refusal" ? "refused" : "other";
     return {
       text: content.flatMap((c) => (c.type === "text" && c.text ? [c.text] : [])).join("\n\n"),
       calls: content.flatMap((c) => (c.type === "tool_use" ? [{ id: c.id!, name: c.name!, args: c.input }] : [])),
@@ -323,7 +325,16 @@ export const openai: Provider = {
       text: typeof message.content === "string" ? message.content : "",
       calls,
       // An answer that ran out of room says so, its calls or not: the last may be cut off (REL-1).
-      stop: reason === "length" ? "length" : calls.length ? "tools" : reason === "stop" ? "end" : "other",
+      stop:
+        reason === "length"
+          ? "length"
+          : reason === "content_filter" || (typeof message.refusal === "string" && message.refusal)
+            ? "refused"
+            : calls.length
+              ? "tools"
+              : reason === "stop"
+                ? "end"
+                : "other",
       usage: answered.usage && { input: answered.usage.prompt_tokens ?? 0, output: answered.usage.completion_tokens ?? 0 },
     };
   },
@@ -331,6 +342,10 @@ export const openai: Provider = {
 
 /** A call's arguments, which OpenAI sends as text: what they say, or the text itself, which
  * the tool then refuses as arguments that are not an object. */
+/** Gemini's reasons for an answer it blocked, which a person hears as a refusal, as scaena-chat's
+ * `GEMINI_REFUSED` (lift-up 20261025c REL-1). */
+const GEMINI_REFUSED = ["SAFETY", "PROHIBITED_CONTENT", "BLOCKLIST", "RECITATION", "SPII"];
+
 function parsed(text: string): unknown {
   try {
     return text ? JSON.parse(text) : {};
@@ -402,7 +417,16 @@ export const gemini: Provider = {
     return {
       text: parts.flatMap((p) => (p.text && !p.thought ? [p.text] : [])).join(""),
       calls,
-      stop: reason === "MAX_TOKENS" ? "length" : calls.length ? "tools" : reason === "STOP" ? "end" : "other",
+      stop:
+        reason === "MAX_TOKENS"
+          ? "length"
+          : GEMINI_REFUSED.includes(reason) || answered.promptFeedback?.blockReason
+            ? "refused"
+            : calls.length
+              ? "tools"
+              : reason === "STOP"
+                ? "end"
+                : "other",
       raw: parts,
       usage: answered.usageMetadata && { input: answered.usageMetadata.promptTokenCount ?? 0, output: answered.usageMetadata.candidatesTokenCount ?? 0 },
     };

@@ -1716,7 +1716,7 @@ export type AssistantEvent =
   | { kind: "usage"; input: number; output: number }
   /** It stopped: its answer is done (`end`), it ran out of room (`length`), it called tools
    * as many rounds as one question allows (`steps`), or the user stopped it (`stopped`). */
-  | { kind: "done"; stop: "tools" | "end" | "length" | "other" | "steps" | "stopped" }
+  | { kind: "done"; stop: "tools" | "end" | "length" | "refused" | "other" | "steps" | "stopped" }
   /** It failed: the provider refused, or the network did. */
   | { kind: "failed"; message: string };
 

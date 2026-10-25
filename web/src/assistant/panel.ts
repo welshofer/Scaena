@@ -90,6 +90,8 @@ const undone = (tool: string) => TOOL_WORDS[tool]?.[2] ?? "Didn't use a tool";
 const STOPS: Record<string, string> = {
   stopped: "Stopped.",
   length: "The answer ran out of room.",
+  // Said as what it is, so the same ask is not paid for again as it was (lift-up 20261025c REL-1).
+  refused: "The model declined to answer this. Asked again the same way, it will likely decline again: ask it differently.",
   steps: "Stopped after as many rounds of tools as one question allows: ask it to go on.",
   other: "The model stopped.",
 };
