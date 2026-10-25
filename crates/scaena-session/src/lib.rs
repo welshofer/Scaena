@@ -4588,6 +4588,7 @@ mod tests {
             state: "revenue".into(),
             node: Some("note".into()),
             finding: None,
+            instruction: None,
         };
         assert!(s.writing(&ask).is_err(), "proofread on code");
         // Tidy Code: its tabs to spaces, the white space after its lines and the indentation they
