@@ -2949,7 +2949,15 @@ fn layout_for(
         "quadrant" => "quadrants",
         // A system's parts in tiers, each joined to what it calls (dogfood pass 7).
         "architecture" if tiers(items).is_some() => "architecture",
-        // A decision put to the room: its items the brief's parts, else what they are.
+        // A decision put to the room: its items the brief's parts, else what they are. With no
+        // bottom line (`supportingFacts`), its band under the headline would stand empty: its four
+        // parts go on four cards, each titled by its label (dogfood 8a F2).
+        "decision-brief"
+            if briefed(items) && slide.supporting_facts.as_deref().is_some_and(|f| !f.trim().is_empty()) =>
+        {
+            "decision-brief"
+        }
+        "decision-brief" if briefed(items) && n == 4 && theme.layouts.contains_key("four-cards") => "four-cards",
         "decision-brief" if briefed(items) => "decision-brief",
         // Questions each with its answer are an FAQ's; one question with answers to choose from,
         // a quiz.
@@ -7913,21 +7921,28 @@ mod tests {
         has(&said, "client-second", "iOS app");
         has(&said, "service-second", "Billing");
         has(&said, "second-call", "shape");
-        // A decision brief: each card titled by its label, the bottom line the slide's fact.
-        let (layout, said) = made(
-            serde_json::json!({ "slideTitle": "We keep the cache in-process, not in Redis", "layoutSuggestion": "Decision Brief",
-                "keyBullets": ["Decision: keep hot prices in each pod's memory for 30 seconds",
-                    "Why: one network hop fewer, and no new cluster to run",
-                    "Trade-off: a price change can take up to 30 seconds to reach every pod",
-                    "Ask: approve 30 s as the standard staleness for pricing"] }),
-            "en",
-        );
-        assert_eq!(layout, "decision-brief");
+        // A decision brief with no bottom line would leave the band under its headline empty: its
+        // four parts go on four cards instead, each titled by its label (dogfood 8a F2).
+        let briefless = serde_json::json!({ "slideTitle": "We keep the cache in-process, not in Redis",
+            "layoutSuggestion": "Decision Brief",
+            "keyBullets": ["Decision: keep hot prices in each pod's memory for 30 seconds",
+                "Why: one network hop fewer, and no new cluster to run",
+                "Trade-off: a price change can take up to 30 seconds to reach every pod",
+                "Ask: approve 30 s as the standard staleness for pricing"] });
+        let (layout, said) = made(briefless.clone(), "en");
+        assert_eq!(layout, "four-cards");
         has(&said, "first-title", "Decision");
         has(&said, "first", "Keep hot prices in each pod\u{2019}s memory for 30 seconds");
         has(&said, "fourth-title", "Ask");
-        lacks(&said, "bottom");
-        lacks(&said, "bottom-card");
+        // With its bottom line, it is a decision brief: each card titled by its label, the bottom
+        // line the slide's fact.
+        let mut bottomed = briefless;
+        bottomed["supportingFacts"] = serde_json::json!("Thirty seconds of staleness, for one hop and no cluster.");
+        let (layout, said) = made(bottomed, "en");
+        assert_eq!(layout, "decision-brief");
+        has(&said, "first-title", "Decision");
+        has(&said, "fourth-title", "Ask");
+        has(&said, "bottom", "Thirty seconds of staleness, for one hop and no cluster.");
         // The theme's mark over the third card marks a recommendation, which "Trade-off" is not.
         lacks(&said, "mark");
         let (_, said) = made(
