@@ -121,6 +121,13 @@ struct DeckView: View {
     @SceneStorage("formats") private var showsFormats = false
     /// How close the canvas is shown, and the part of it shown (PLAN 3.16).
     @State private var zoom = Zoom(canvas: CGSize(width: 1920, height: 1080))
+    /// The slide shown and the zoom, kept with the window, which reopens on them, as a presentation
+    /// app's does (lift-up 10-24b ATTR-5): the state's id, and `Zoom.kept`.
+    @SceneStorage("slide") private var keptSlide = ""
+    @SceneStorage("zoom") private var keptZoom = ""
+    /// Whether the zoom kept has been taken back, once the desk and the canvas have their sizes:
+    /// until then, the zoom fitted as the window opens is not kept over it.
+    @State private var zoomTaken = false
     /// What a touch holds in a keyboard's place: Select, and Only on This Slide (lift-up FUNC-4).
     @State private var touch = TouchHeld()
     /// Whether the find bar shows over the canvas (PLAN 3.16).
@@ -131,10 +138,12 @@ struct DeckView: View {
 
     private var editor: DeckEditor { document.editor }
 
-    /// The state shown: the one chosen, or the deck's first.
+    /// The state shown: the one chosen, else the one the window was closed on where the deck still
+    /// has it (lift-up 10-24b ATTR-5), else the deck's first.
     private var shown: String? {
         let slots = editor.slots
         if let chosen, slots.contains(where: { $0.state == chosen }) { return chosen }
+        if chosen == nil, slots.contains(where: { $0.state == keptSlide }) { return keptSlide }
         return slots.first?.state
     }
 
@@ -183,6 +192,14 @@ struct DeckView: View {
                 if let shown { insertIcon(icon, in: shown) }
             }
         }
+    }
+
+    /// The zoom the window was closed on taken back, once (lift-up 10-24b ATTR-5): when the desk has
+    /// its size and the canvas is the deck's, so that neither fits it again after.
+    private func takeZoom(canvas: CGSize) {
+        guard !zoomTaken, zoom.desk.width > 0, zoom.desk.height > 0, zoom.canvas == canvas else { return }
+        zoom.restore(keptZoom)
+        zoomTaken = true
     }
 
     /// The light table shown, or put away (PLAN 3.14). The canvas's selection is let go, so the
@@ -715,8 +732,10 @@ struct DeckView: View {
     private func watched(_ view: some View) -> some View {
         view
             .onChange(of: shown, initial: true) { _, now in
-                // The slide shown is the one the list selects: the deck's first, as it opens.
+                // The slide shown is the one the list selects: the one the window was closed on, or
+                // the deck's first, as it opens; and the window keeps it to reopen on.
                 if chosen != now { chosen = now }
+                keptSlide = now ?? ""
                 // A state chosen plays its cue, as it does in the browser.
                 editor.shown = now
                 node = arriving
@@ -1003,10 +1022,19 @@ struct DeckView: View {
                 #endif
                 // Where a pinch's fingers are read, on the iPad (PLAN 4.3).
                 .coordinateSpace(.named(Zoom.space))
-                .onChange(of: room.size, initial: true) { _, now in zoom.place(on: now) }
+                .onChange(of: room.size, initial: true) { _, now in
+                    zoom.place(on: now)
+                    takeZoom(canvas: size)
+                }
                 // The slide fitted again once the canvas is another size: another format shown, say.
-                .onChange(of: size, initial: true) { _, now in zoom.resize(to: now) }
+                .onChange(of: size, initial: true) { _, now in
+                    zoom.resize(to: now)
+                    takeZoom(canvas: now)
+                }
                 .onChange(of: zoom.view) { _, now in editor.look(through: now) }
+                .onChange(of: zoom) { _, now in
+                    if zoomTaken { keptZoom = now.kept }
+                }
             }
             .frame(minWidth: 320, minHeight: 200)
             #if os(macOS)

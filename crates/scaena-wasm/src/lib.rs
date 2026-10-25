@@ -1906,6 +1906,50 @@ mod web {
         pub fn adapter(&self) -> String {
             self.adapter.clone()
         }
+
+        /// Resolves once the GPU has done the work submitted so far: the frame last painted is
+        /// whole, for the page's compositor to show. A frame's work can outlast the page's next
+        /// frames where the GPU is slow, a large picture's first upload on a software adapter
+        /// above all, and the compositor shows the last frame done meanwhile.
+        pub fn settled(&self) -> wasm_bindgen_futures::js_sys::Promise {
+            let done = std::sync::Arc::new(Done::default());
+            let heard = done.clone();
+            self.queue.on_submitted_work_done(move || heard.set());
+            wasm_bindgen_futures::future_to_promise(async move {
+                (&*done).await;
+                Ok(JsValue::UNDEFINED)
+            })
+        }
+    }
+
+    /// The GPU's word that submitted work is done, which its callback, on any thread, gives.
+    #[derive(Default)]
+    struct Done {
+        is: std::sync::atomic::AtomicBool,
+        waker: std::sync::Mutex<Option<std::task::Waker>>,
+    }
+
+    impl Done {
+        fn set(&self) {
+            self.is.store(true, std::sync::atomic::Ordering::Release);
+            if let Some(waker) = self.waker.lock().unwrap_or_else(|e| e.into_inner()).take() {
+                waker.wake();
+            }
+        }
+    }
+
+    impl std::future::Future for &Done {
+        type Output = ();
+        fn poll(self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<()> {
+            if self.is.load(std::sync::atomic::Ordering::Acquire) {
+                return std::task::Poll::Ready(());
+            }
+            *self.waker.lock().unwrap_or_else(|e| e.into_inner()) = Some(cx.waker().clone());
+            if self.is.load(std::sync::atomic::Ordering::Acquire) {
+                return std::task::Poll::Ready(());
+            }
+            std::task::Poll::Pending
+        }
     }
 
     impl Canvas {
