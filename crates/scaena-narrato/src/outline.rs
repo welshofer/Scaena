@@ -15,7 +15,7 @@ use serde_json::{Value, json};
 pub const OUTLINE_MAX_TOKENS: u32 = 16_000;
 
 /// How much of the sources the outline sees: enough to ground each claim, short of the slides'
-/// whole.
+/// whole, shared among the sources given (lift-up FUNC-3).
 const SOURCE_UNITS: usize = 6_000;
 
 /// The deck's outline: its big idea, and its beats in the order the slides take them.
@@ -63,6 +63,17 @@ pub fn prompt(brief: &Brief, arc: &NarrativeArc, reasoning: &str, plan: &[(usize
     if let Some(language) = brief.language.as_deref().map(js::trim).filter(|l| !l.is_empty()) {
         out.push_str(&format!(" It is in {language}: write the big idea and every claim in {language}."));
     }
+    // The brief whole (lift-up FUNC-3): how it is given, and the voice its words take.
+    // Each said as a sentence of its own, its own last stop dropped.
+    let said = |field: &Option<String>| {
+        field.as_deref().map(|f| js::trim(f).trim_end_matches('.')).filter(|f| !f.is_empty()).map(str::to_string)
+    };
+    if let Some(modality) = said(&brief.modality) {
+        out.push_str(&format!(" It is given as: {modality}."));
+    }
+    if let Some(voice) = said(&brief.voice) {
+        out.push_str(&format!(" Its voice: {voice}."));
+    }
     out.push_str(&format!(
         "\n\nIt follows the {} arc: {} Why this arc: {}\n\nIts beats, with the slides each takes at this length:\n",
         arc.arc,
@@ -74,13 +85,54 @@ pub fn prompt(brief: &Brief, arc: &NarrativeArc, reasoning: &str, plan: &[(usize
         out.push_str(&format!("  Beat {number} \"{name}\" \u{2192} {count}\n"));
     }
     out.push_str(
-        "\nGive the big idea, then one claim for each beat above, in order: what its slides must leave the audience believing, said as the audience would repeat it. Each claim follows from the one before, and the last lands the big idea.",
+        "\nGive the big idea, then one claim for each beat above, in order: what its slides must leave the audience believing, said as the audience would repeat it. Each claim follows from the one before, and the last lands the big idea. The first beat's claim opens the talk: make it a hook drawn from the material, a tension, a surprising figure, or a question the audience will want answered.",
     );
     if let Some(content) = brief.source_content.as_deref().filter(|s| !s.trim().is_empty()) {
         out.push_str(&format!(
             "\n\nGround each claim in this material, which the slides will be written from:\n{}",
-            containment::wrap_source_excerpt(&js::first_units(content, SOURCE_UNITS))
+            containment::wrap_source_excerpt(&shared(content, SOURCE_UNITS))
         ));
+    }
+    out
+}
+
+/// `units` UTF-16 units of the sources packed in `content`, shared among them in turn (lift-up
+/// FUNC-3): each part, from its `=== SOURCE: … ===` header (or the context a client added), takes
+/// an even share, and what a short one leaves goes to the rest, so a deck grounded in several
+/// sources has its claims written from each, not from the head of the first.
+fn shared(content: &str, units: usize) -> String {
+    let mut parts: Vec<&str> = Vec::new();
+    let mut start = 0;
+    let mut at = 0;
+    for line in content.split_inclusive('\n') {
+        let header = line.starts_with("=== SOURCE: ") || line.starts_with("=== USER-PROVIDED CONTEXT ===");
+        if header && at > start {
+            parts.push(&content[start..at]);
+            start = at;
+        }
+        at += line.len();
+    }
+    parts.push(&content[start..]);
+    let length = |p: &str| p.encode_utf16().count();
+    let mut takes = vec![0; parts.len()];
+    let mut left = units;
+    let mut open: Vec<usize> = (0..parts.len()).collect();
+    // The shortest first: what each leaves of its share goes to those after it.
+    open.sort_by_key(|&i| length(parts[i]));
+    for (k, &i) in open.iter().enumerate() {
+        let share = left / (open.len() - k);
+        takes[i] = share.min(length(parts[i]));
+        left -= takes[i];
+    }
+    let mut out = String::new();
+    let last = parts.len() - 1;
+    for (k, (part, take)) in parts.iter().zip(takes).enumerate() {
+        let kept = js::first_units(part, take);
+        out.push_str(&kept);
+        // A part cut short ends its line, so the next one's header starts one of its own.
+        if k < last && !kept.ends_with('\n') {
+            out.push('\n');
+        }
     }
     out
 }
@@ -225,6 +277,44 @@ mod tests {
         assert!(g.contains("Ground each claim in this material") && g.contains("Port calls doubled."));
         let czech = Brief { language: Some("Czech".into()), ..brief() };
         assert!(prompt(&czech, arc, "", &plan).contains("write the big idea and every claim in Czech"));
+    }
+
+    /// The outline reads the brief whole, asks the first beat for a hook, and is grounded in each
+    /// source in turn, not the head of the first (lift-up FUNC-3).
+    #[test]
+    fn the_prompt_reads_the_brief_whole_asks_a_hook_and_shares_the_sources() {
+        let arc = arcs::arc("Problem\u{2013}Solution");
+        let plan = beats::plan(arc, 5);
+        let given = Brief {
+            modality: Some("Keynote \u{2014} One speaker on a stage".into()),
+            voice: Some("Plain, warm, no jargon".into()),
+            ..brief()
+        };
+        let p = prompt(&given, arc, "", &plan);
+        assert!(p.contains(" It is given as: Keynote \u{2014} One speaker on a stage."), "{p}");
+        assert!(p.contains(" Its voice: Plain, warm, no jargon."), "{p}");
+        let stopped = Brief { modality: Some("Keynote \u{2014} On a stage.".into()), ..brief() };
+        let once = prompt(&stopped, arc, "", &plan);
+        assert!(
+            once.contains(" It is given as: Keynote \u{2014} On a stage.\n") && !once.contains(".."),
+            "one stop: {once}"
+        );
+        assert!(p.contains("The first beat's claim opens the talk: make it a hook drawn from the material"), "{p}");
+        // The first source far past the room, the second short: the second is there whole.
+        let long = format!("=== SOURCE: report.pdf ===\n{}\n", "Freight rose. ".repeat(2_000));
+        let pack = format!("{long}\n=== SOURCE: notes.md ===\nPort calls doubled in Q3.\n");
+        let g = prompt(&Brief { source_content: Some(pack), ..brief() }, arc, "", &plan);
+        assert!(g.contains("=== SOURCE: report.pdf ===") && g.contains("Freight rose."), "{g}");
+        assert!(g.contains("=== SOURCE: notes.md ===\nPort calls doubled in Q3."), "the second source, whole");
+        // Held to the room: the long one gives up what the short one leaves.
+        let excerpt: usize =
+            shared(&format!("{long}\n=== SOURCE: notes.md ===\nPort calls doubled in Q3.\n"), SOURCE_UNITS)
+                .encode_utf16()
+                .count();
+        assert!(excerpt <= SOURCE_UNITS + 2 && excerpt > SOURCE_UNITS - 20, "{excerpt}");
+        // One source alone takes the whole room, as before.
+        let one = format!("=== SOURCE: report.pdf ===\n{}", "Freight rose. ".repeat(2_000));
+        assert_eq!(shared(&one, SOURCE_UNITS), js::first_units(&one, SOURCE_UNITS));
     }
 
     #[test]

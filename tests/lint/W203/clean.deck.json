@@ -1,12 +1,12 @@
 {
-  "scaena": "0.38",
+  "scaena": "0.39",
   "_comment": "W203 clean: a headline that shrinks to fit, and code that shrinks to fit above 24 cu.",
   "canvas": {"width": 1920, "height": 1080},
   "theme": "theme.json",
   "fonts": [{"family": "Roboto Serif", "file": "fonts/RobotoSerif-VF.ttf"}, {"family": "EB Garamond", "file": "fonts/EBGaramond-VF.ttf"}],
   "nodes": {
     "t": {"type": "text", "role": "headline", "text": "A headline that shrinks to fit", "fit": "shrink", "at": {"in": "header"}},
-    "code": {"type": "text", "role": "body", "code": {"language": "rust"}, "text": "// Rank the talks by their votes, most first.\nfn rank(talks: &mut Vec<Talk>) {\n\ttalks.sort_by(|a, b| b.votes.cmp(&a.votes));\n}\n\nfn main() {\n\tlet mut talks = load(\"talks.csv\");\n\trank(&mut talks);\n\tfor (place, talk) in talks.iter().enumerate() {\n\t\tprintln!(\"{}. {}\", place + 1, talk.title);\n\t}\n\tlet top = talks.first().map(|t| t.title.as_str());\n\tprintln!(\"First: {}\", top.unwrap_or(\"none\"));\n\tlet total: u32 = talks.iter().map(|t| t.votes).sum();\n\tprintln!(\"{} votes in all\", total);\n}", "at": {"in": "main"}}
+    "code": {"type": "text", "role": "body", "code": {"language": "rust", "card": false}, "text": "// Rank the talks by their votes, most first.\nfn rank(talks: &mut Vec<Talk>) {\n\ttalks.sort_by(|a, b| b.votes.cmp(&a.votes));\n}\n\nfn main() {\n\tlet mut talks = load(\"talks.csv\");\n\trank(&mut talks);\n\tfor (place, talk) in talks.iter().enumerate() {\n\t\tprintln!(\"{}. {}\", place + 1, talk.title);\n\t}\n\tlet top = talks.first().map(|t| t.title.as_str());\n\tprintln!(\"First: {}\", top.unwrap_or(\"none\"));\n\tlet total: u32 = talks.iter().map(|t| t.votes).sum();\n\tprintln!(\"{} votes in all\", total);\n}", "at": {"in": "main"}}
   },
   "states": [
     {"id": "a", "layout": "figure", "props": {"t": {}, "code": {}}}

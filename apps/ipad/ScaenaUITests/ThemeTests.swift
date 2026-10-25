@@ -70,16 +70,21 @@ final class ThemeTests: XCTestCase {
             // The type roles come in the order the theme writes them, and Display, Headline, and
             // Title, before Body, reach the window's foot: a form makes no row it does not show,
             // nor the fields a row opens below the foot. So the panel is scrolled until Body
-            // stands clear of the foot, as a person scrolls it, dragged up from the first role
-            // shown and held still before it is let go, so it stops where it was dragged.
-            let role = app.buttons.matching(NSPredicate(format: "label MATCHES %@", ".+, [0-9]+ pt")).firstMatch
+            // stands clear of the foot, and of the fields it opens below it, as a person scrolls
+            // it. Neither a drag from the first role's row nor one from the panel's right margin
+            // scrolled it on CI's simulator: Body stood at y 1017–1069 in a window 1032 tall, the
+            // panel's scroll bar at 0%.
             let foot = app.windows.firstMatch.frame.maxY
-            for _ in 0..<3 {
-                if body.waitForExistence(timeout: 3) && body.frame.maxY < foot - 240 || !role.exists { break }
-                let from = role.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-                from.press(
-                    forDuration: 0.1, thenDragTo: from.withOffset(CGVector(dx: 0, dy: -400)), withVelocity: .slow,
-                    thenHoldForDuration: 0.5)
+            let clear = { body.exists && body.isHittable && body.frame.maxY < foot - 240 }
+            _ = body.waitForExistence(timeout: 10)
+            let moves = scrollPanel(in: app, to: body, tries: 6, until: clear)
+            guard clear() else {
+                keep(app, as: "body-role-unreached")
+                throw Unseen(
+                    description: "the body role never stood clear of the window's foot at \(foot): after "
+                        + "\(moves.isEmpty ? "no move" : moves.joined(separator: ", ")) it stands at "
+                        + "\(body.exists ? "\(body.frame)" : "nowhere"), \(scrolled(app)): "
+                        + "\(app.debugDescription)")
             }
             guard body.waitForExistence(timeout: 10), says(32).exists else {
                 keep(app, as: "no-body-role")
@@ -142,23 +147,16 @@ final class ThemeTests: XCTestCase {
 
         try XCTContext.runActivity(named: "Code's keywords named a color are one step to undo") { _ in
             // The Code section stands under Spacing, near the foot of a panel some pages long:
-            // scrolled to as a person scrolls, until the keywords' row shows (PLAN 2.144). Each drag
-            // starts in the panel's right margin, beside the steppers and clear of the fields, at a
-            // point of the window that stays in the panel however far it has scrolled: a row
-            // dragged once has gone above the window, and a press there drags nothing.
+            // scrolled to as a person scrolls, until the keywords' row shows (PLAN 2.144).
             let keywords = app.staticTexts.matching(NSPredicate(format: "identifier == 'theme-code-keyword'")).firstMatch
             let derived = any.matching(NSPredicate(format: "label == 'From the accent'")).firstMatch
-            let window = app.windows.firstMatch.frame
-            let margin = app.windows.firstMatch.coordinate(withNormalizedOffset: .zero)
-                .withOffset(CGVector(dx: window.maxX - 55, dy: window.maxY * 0.75))
-            for _ in 0..<12 where !(keywords.exists && keywords.isHittable) {
-                margin.press(
-                    forDuration: 0.1, thenDragTo: margin.withOffset(CGVector(dx: 0, dy: -400)), withVelocity: .slow,
-                    thenHoldForDuration: 0.5)
-            }
+            let moves = scrollPanel(in: app, to: keywords, tries: 12) { keywords.exists && keywords.isHittable }
             guard keywords.waitForExistence(timeout: 10), derived.exists else {
                 keep(app, as: "no-code-colors")
-                throw Unseen(description: "the theme shows no code colors: \(app.debugDescription)")
+                throw Unseen(
+                    description: "the theme shows no code colors after \(moves.joined(separator: ", ")), "
+                        + "\(scrolled(app)): "
+                        + "\(app.debugDescription)")
             }
             keep(app, as: "theme-code")
             let pick = any.matching(NSPredicate(format: "identifier == 'theme-code-color-keyword'")).firstMatch
@@ -181,4 +179,64 @@ final class ThemeTests: XCTestCase {
         // The inspector as the other tests find it.
         if tab("Format").exists { tab("Format").tap() }
     }
+}
+
+/// Scrolls the Theme panel, as a person scrolls it, until `shown` holds, at most `tries` moves,
+/// and says each move it made. A move swipes the panel's list itself, as XCUITest scrolls a
+/// list: on CI's simulator a drag from the panel's right margin, which lies on the scroll bar's
+/// own column, moved nothing, nor did one from a row's button. Where a swipe moves nothing, as
+/// its scroll bar says, the next move is that drag, held still before it is let go, and the
+/// other way round. Where `target` has gone above the list's top, the move goes down.
+@MainActor
+private func scrollPanel(
+    in app: XCUIApplication, to target: XCUIElement, tries: Int, until shown: () -> Bool
+) -> [String] {
+    let window = app.windows.firstMatch.frame
+    let margin = app.windows.firstMatch.coordinate(withNormalizedOffset: .zero)
+        .withOffset(CGVector(dx: window.maxX - 55, dy: window.maxY * 0.75))
+    var moves: [String] = []
+    var swiping = true
+    while moves.count < tries && !shown() {
+        let before = scrolled(app)
+        let list = panelList(in: app)
+        let top = max(list?.frame.minY ?? window.minY, window.minY)
+        let down = target.exists && target.frame.minY < top
+        if swiping, let list {
+            if down { list.swipeDown(velocity: .slow) } else { list.swipeUp(velocity: .slow) }
+            moves.append(down ? "swiped down" : "swiped up")
+        } else {
+            margin.press(
+                forDuration: 0.05, thenDragTo: margin.withOffset(CGVector(dx: 0, dy: down ? 400 : -400)),
+                withVelocity: .slow, thenHoldForDuration: 0.5)
+            moves.append(down ? "dragged down" : "dragged up")
+        }
+        // A moment for a swipe's glide to stop before the scroll bar is read.
+        _ = XCTWaiter.wait(for: [XCTestExpectation(description: "scrolled")], timeout: 1)
+        if scrolled(app) == before { swiping.toggle() }
+    }
+    return moves
+}
+
+/// The Theme panel's list: of the window's collection views, the one in its right half, where
+/// the inspector stands; none where none stands there.
+@MainActor
+private func panelList(in app: XCUIApplication) -> XCUIElement? {
+    let window = app.windows.firstMatch.frame
+    let lists = app.collectionViews
+    let at = (0..<lists.count).first { i in
+        let frame = lists.element(boundBy: i).frame
+        return frame.minX > window.midX && frame.minY < window.maxY
+    }
+    return at.map { lists.element(boundBy: $0) }
+}
+
+/// How far the panel has scrolled, as its scroll bar says it.
+@MainActor
+private func scrolled(_ app: XCUIApplication) -> String {
+    let bar = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Vertical scroll bar'"))
+    let said = (0..<bar.count).map { i -> String in
+        let one = bar.element(boundBy: i)
+        return "\(one.label) at \(one.value as? String ?? "?")"
+    }
+    return said.isEmpty ? "no scroll bar shown" : said.joined(separator: "; ")
 }

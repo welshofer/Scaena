@@ -325,14 +325,19 @@ struct SpineRead {}
 #[serde(deny_unknown_fields)]
 struct DeckHealth {}
 
-#[cfg(feature = "shipped")]
+/// Read in a library without the icons too, which only refuses the call.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(not(feature = "shipped"), allow(dead_code))]
 struct IconFind {
     #[serde(default)]
     query: String,
+    #[cfg(feature = "shipped")]
     #[serde(default)]
     weight: scaena_ops::icons::Weight,
+    #[cfg(not(feature = "shipped"))]
+    #[serde(default)]
+    weight: Option<String>,
     #[serde(default)]
     limit: Option<usize>,
 }
@@ -615,8 +620,13 @@ impl Session {
                 let a: IconFind = args(name, a)?;
                 Called::of(scaena_ops::icons::find(&a.query, a.weight, a.limit.unwrap_or(20)))
             }
+            // Read as the MCP tool reads it, as `map_fetch` is, so a call is refused for what it
+            // is, not for what it holds, in a library without the icons as in one with them.
             #[cfg(not(feature = "shipped"))]
-            "icon_find" => Err(ops("icon_find: the icons are the page's, which finds them")),
+            "icon_find" => {
+                let _: IconFind = args(name, a)?;
+                Err(ops("icon_find: the icons are the page's, which finds them"))
+            }
             // A map's requests are the client's, which runs the call as Insert › Map… does.
             "map_fetch" => {
                 // Read as the MCP tool reads it, so a call is refused for what it is, not for

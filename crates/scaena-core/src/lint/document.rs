@@ -79,14 +79,16 @@ impl Rule for W210Density {
     }
 }
 
-/// The words a text node shows: its `text`, or its runs' text. A word is what whitespace
-/// separates (W210, and the reading W323 sizes a hold by).
+/// The words a text node shows: its `text`, or its runs' text read as one, so a word that
+/// runs split ("$" "48.2" "M", a quoted figure) is one word. A word is what whitespace separates
+/// (W210, and the reading W323 sizes a hold by).
 pub fn words(props: &Props) -> usize {
-    let count = |v: Option<&Value>| v.and_then(Value::as_str).map_or(0, |s| s.split_whitespace().count());
     match props.get("runs").and_then(Value::as_array) {
-        Some(runs) => runs.iter().map(|r| count(r.get("text"))).sum(),
-        None => count(props.get("text")),
+        Some(runs) => runs.iter().filter_map(|r| r.get("text").and_then(Value::as_str)).collect::<String>(),
+        None => props.get("text").and_then(Value::as_str).unwrap_or_default().to_string(),
     }
+    .split_whitespace()
+    .count()
 }
 
 /// How far `size × leading` may miss a whole number of grid lines and still count as
@@ -891,4 +893,21 @@ fn edits(a: &[u8], b: &[u8]) -> usize {
         }
     }
     row[b.len()]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_word_that_runs_split_is_one_word() {
+        let props = |v: Value| -> Props { serde_json::from_value(v).unwrap() };
+        let text = props(serde_json::json!({ "text": "ARR is up to $48.2M" }));
+        let runs = props(serde_json::json!({ "runs": [
+            { "text": "ARR is up to $" },
+            { "text": "48.2", "quote": { "data": "@kpi", "column": "arr" } },
+            { "text": "M" }
+        ] }));
+        assert_eq!((words(&text), words(&runs)), (5, 5));
+    }
 }
