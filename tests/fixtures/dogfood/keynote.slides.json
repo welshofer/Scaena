@@ -1,0 +1,245 @@
+{
+ "executiveSummary": "Port Alder, a Maine fishing town of 1,900, lost power for eleven days in 2023. Instead of waiting, its residents raised $2.1M, fought the utility and an ice storm, and built a community microgrid that cut outage hours from 286 to 2. The lesson: resilience is built by neighbors, and any town can start with twelve people and one roof.",
+ "slides": [
+  {
+   "slideTitle": "The town that learned to keep its own lights on",
+   "subtitle": "Port Alder, Maine · A story about resilience",
+   "layoutSuggestion": "Title",
+   "keyBullets": [],
+   "visualDescription": "A small harbor town at blue hour, lobster boats at their moorings, a few windows lit",
+   "speakerNotes": "- Good morning. I want to tell you about a fishing town of 1,900 people.\n- Nothing about Port Alder is special. That's the point.\n- By the end, I hope you'll want to go home and do what they did.",
+   "beatIndex": 0,
+   "beatName": "Ordinary World",
+   "purpose": "Opens the story in a quiet, ordinary place",
+   "intent": "Make the audience settle in for a story",
+   "expectedIntensity": 0.2,
+   "expectedValence": 0.3
+  },
+  {
+   "slideTitle": "For eleven days in October, Port Alder went dark",
+   "subtitle": "",
+   "layoutSuggestion": "Big Number",
+   "keyBullets": [
+    "11 days",
+    "without power after Storm Elsa, October 2023"
+   ],
+   "visualDescription": "A dark harbor at night, one lantern on a dock, storm clouds overhead",
+   "speakerNotes": "- On October 9th, 2023, Storm Elsa took down the only transmission line into town.\n- It was eleven days before power came back.\n- The co-op's freezers failed on day two. Forty thousand pounds of lobster spoiled.\n- Two elderly residents were hospitalized from the cold.",
+   "beatIndex": 1,
+   "beatName": "Call to Adventure",
+   "purpose": "Delivers the crisis as one stark number",
+   "intent": "Make the audience feel the shock of the outage",
+   "expectedIntensity": 0.85,
+   "expectedValence": -0.8
+  },
+  {
+   "slideTitle": "Waiting for permission was the real outage",
+   "subtitle": "",
+   "layoutSuggestion": "Quote",
+   "keyBullets": [
+    "We weren't waiting for the grid. We were waiting for someone to tell us we were allowed to fix it.",
+    "Ruth Calloway, harbor master, Port Alder"
+   ],
+   "visualDescription": "Portrait of a weathered harbor master in a kitchen, morning light, coffee mug",
+   "speakerNotes": "Ruth said this to me in her kitchen, a year after the storm. The town had the people, the roofs, and the will. What it didn't have was anyone telling it that a town could build its own power. That sentence is the hinge of this whole story.",
+   "beatIndex": 1,
+   "beatName": "Call to Adventure",
+   "purpose": "Names the real obstacle in a resident's words",
+   "intent": "Make the audience feel the frustration of waiting",
+   "expectedIntensity": 0.7,
+   "expectedValence": -0.5
+  },
+  {
+   "slideTitle": "So the town decided to build its own grid",
+   "subtitle": "Three hundred households, one fishing co-op, and no experience at all",
+   "layoutSuggestion": "Statement",
+   "keyBullets": [],
+   "visualDescription": "",
+   "speakerNotes": "- In January 2024, sixty people packed the grange hall.\n- Nobody there had built anything bigger than a boat shed.\n- They voted 58 to 2 to try.",
+   "beatIndex": 2,
+   "beatName": "Crossing the Threshold",
+   "purpose": "Marks the moment of commitment",
+   "intent": "Make the audience root for the town",
+   "expectedIntensity": 0.6,
+   "expectedValence": 0.4
+  },
+  {
+   "slideTitle": "How a town talked itself into a power plant",
+   "subtitle": "",
+   "layoutSuggestion": "Journey",
+   "keyBullets": [
+    "Spring 2024: knock on every door / will anyone sign up? / hopeful but unsure",
+    "Summer 2024: raise $2.1M from 312 households and a state grant / this might actually work / proud",
+    "Winter 2024: bolt the first panels to the co-op roof / we did this ourselves / elated"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "- The first phase was door-knocking. Twelve volunteers visited every house.\n- By summer, 312 households had pledged, and a state resilience grant matched them.\n- In December, the first panels went up on the co-op roof in a snowstorm.",
+   "beatIndex": 2,
+   "beatName": "Crossing the Threshold",
+   "purpose": "Shows the journey's first stretch and how it felt",
+   "intent": "Make the audience feel the town's momentum",
+   "expectedIntensity": 0.6,
+   "expectedValence": 0.5
+  },
+  {
+   "slideTitle": "Twice in one year, the project nearly died",
+   "subtitle": "",
+   "layoutSuggestion": "Timeline",
+   "keyBullets": [
+    "Jan 2025: the utility denies the interconnection permit",
+    "Mar 2025: an ice storm cracks the first battery enclosure",
+    "Jun 2025: a court rules the co-op may sell power to its members",
+    "Sep 2025: the microgrid passes its first islanding test"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "- January: the utility said no. Their lawyers said a fishing co-op couldn't be a power company.\n- March: an ice storm cracked a battery enclosure and we lost two months.\n- June: the state court sided with the town.\n- September: we cut the line to the grid on purpose, and the lights stayed on.",
+   "beatIndex": 3,
+   "beatName": "Trials and Ordeals",
+   "purpose": "Shows the setbacks honestly",
+   "intent": "Make the audience feel the struggle was real",
+   "expectedIntensity": 0.85,
+   "expectedValence": -0.5
+  },
+  {
+   "slideTitle": "The ice storm left them $412,000 over budget",
+   "subtitle": "",
+   "layoutSuggestion": "Big Number",
+   "keyBullets": [
+    "$412K",
+    "over budget, covered by 140 neighbors in nine days"
+   ],
+   "visualDescription": "A glass jar of bills on a general store counter, handwritten sign",
+   "speakerNotes": "- When the enclosure cracked, the project was $412,000 short.\n- The bank said no. The state said wait.\n- So the co-op put a jar on the counter at the general store, and 140 neighbors covered it in nine days.\n- That's the moment I knew this would work.",
+   "beatIndex": 3,
+   "beatName": "Trials and Ordeals",
+   "purpose": "Shows the low point and the community's answer",
+   "intent": "Make the audience feel the cost and the courage",
+   "expectedIntensity": 0.9,
+   "expectedValence": -0.3
+  },
+  {
+   "slideTitle": "From diesel on every dock to sun and storage",
+   "subtitle": "",
+   "layoutSuggestion": "Before / After",
+   "keyBullets": [
+    "Before: 31 hours of outages a year, and a diesel generator on every dock",
+    "After: 2 hours of outages a year, with the harbor running on sun and storage"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "- Before the microgrid, the harbor ran on hope and diesel.\n- Today, the batteries carry the harbor through anything short of a direct hit.\n- The generators are still there. Nobody has started one in a year.",
+   "beatIndex": 4,
+   "beatName": "Transformation",
+   "purpose": "Shows the change in one side-by-side",
+   "intent": "Make the audience feel the transformation",
+   "expectedIntensity": 0.75,
+   "expectedValence": 0.7
+  },
+  {
+   "slideTitle": "Outage hours fell from 286 to 2 in three years",
+   "subtitle": "Hours without power per year, Port Alder",
+   "layoutSuggestion": "Line Chart",
+   "keyBullets": [
+    "Outage hours fell to 2 in 2026, after 286 in the storm year"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "- This is the chart I show every town council.\n- 2023 is the spike: the storm.\n- Since the microgrid came online, outages have all but disappeared.",
+   "beatIndex": 4,
+   "beatName": "Transformation",
+   "purpose": "Proves the change with data",
+   "intent": "Make the audience believe the result is real",
+   "expectedIntensity": 0.7,
+   "expectedValence": 0.6,
+   "chartData": {
+    "categories": [
+     "2021",
+     "2022",
+     "2023",
+     "2024",
+     "2025",
+     "2026"
+    ],
+    "series": [
+     {
+      "name": "Outage hours",
+      "values": [
+       24,
+       29,
+       286,
+       31,
+       9,
+       2
+      ]
+     }
+    ],
+    "unit": "hours",
+    "sourceId": "Port Alder Power Co-op"
+   }
+  },
+  {
+   "slideTitle": "What the town got back was more than electricity",
+   "subtitle": "",
+   "layoutSuggestion": "Scorecard",
+   "keyBullets": [
+    "62%: of electricity now made in town",
+    "$340: saved per household each year",
+    "0: hours dark during Storm Nadia, 2026",
+    "14: towns that have asked for the playbook"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "- 62% of the town's power is now made in town.\n- Households save $340 a year on average.\n- When Storm Nadia hit in August, Port Alder was the only lit town on the peninsula.\n- And fourteen other towns have called asking how.",
+   "beatIndex": 5,
+   "beatName": "Return",
+   "purpose": "Shows what the town gained",
+   "intent": "Make the audience feel the payoff",
+   "expectedIntensity": 0.7,
+   "expectedValence": 0.8
+  },
+  {
+   "slideTitle": "Resilience is built by neighbors, not delivered to them",
+   "subtitle": "Every town has the people; few have been told they're allowed to start",
+   "layoutSuggestion": "Thesis",
+   "keyBullets": [],
+   "visualDescription": "",
+   "speakerNotes": "- This is what I came here to say.\n- We talk about resilience as infrastructure: wires, poles, substations.\n- But in Port Alder, resilience was neighbors who had done something hard together and knew they could again.",
+   "beatIndex": 5,
+   "beatName": "Return",
+   "purpose": "States the lesson of the story",
+   "intent": "Make the audience adopt the idea as their own",
+   "expectedIntensity": 0.8,
+   "expectedValence": 0.6
+  },
+  {
+   "slideTitle": "How your town can start next month",
+   "subtitle": "",
+   "layoutSuggestion": "Steps",
+   "keyBullets": [
+    "Map: list the buildings that must never go dark",
+    "Gather: find the twelve people who will knock on doors",
+    "Ask: request the interconnection study before you need it",
+    "Build: start with one roof and one battery"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "- Four steps. None of them needs an engineer.\n- Start with the list: the clinic, the school, the store with the freezers.\n- Then find your twelve. Every town has them.\n- Ask for the study early; it takes a year.",
+   "beatIndex": 6,
+   "beatName": "New Equilibrium",
+   "purpose": "Gives the audience a concrete starting path",
+   "intent": "Make the audience feel they can do this too",
+   "expectedIntensity": 0.6,
+   "expectedValence": 0.6
+  },
+  {
+   "slideTitle": "Go home and find your twelve people",
+   "subtitle": "portalderpower.org/playbook",
+   "layoutSuggestion": "Closing",
+   "keyBullets": [],
+   "visualDescription": "The harbor at dawn, every window lit, boats heading out",
+   "speakerNotes": "- Port Alder didn't have money, expertise, or permission.\n- It had twelve people willing to knock on doors.\n- Go home and find yours. The playbook is free. Thank you.",
+   "beatIndex": 6,
+   "beatName": "New Equilibrium",
+   "purpose": "Ends on a clear, personal call to action",
+   "intent": "Make the audience leave determined to act",
+   "expectedIntensity": 0.75,
+   "expectedValence": 0.8
+  }
+ ]
+}
