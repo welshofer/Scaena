@@ -2130,6 +2130,8 @@ export type FromWorker =
       /** Where a history that could not be read was kept aside, the history begun again beside it
        * (lift-up 20261025b REL-1). */
       again?: string;
+      /** Why the save is not recorded in the bundle's history, which a newer Scaena wrote. */
+      unrecorded?: string;
     }
   /** A bundle the browser keeps is renamed or deleted, and the open bundle is kept `where`. */
   | { type: "rekept"; id: number; where?: Where }

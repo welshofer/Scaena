@@ -2160,7 +2160,9 @@ async function edit(source: Source, opened?: Stage) {
     // A history that could not be read is said once, by the save that kept it aside (REL-1).
     const saved = done.again
       ? `Saved, ${many(done.files, "file")}. Its history could not be read: it is kept aside as ${done.again}, and the history begins again`
-      : `Saved, ${many(done.files, "file")}${done.recorded ? ", and the changes kept in its history" : ""}`;
+      : done.unrecorded
+        ? `Saved, ${many(done.files, "file")}. ${done.unrecorded}`
+        : `Saved, ${many(done.files, "file")}${done.recorded ? ", and the changes kept in its history" : ""}`;
     say(saved);
     // Kept in this browser: the browser is asked to keep it for good (lift-up 10-24b REL-4), and a
     // refusal is said after whatever the status says by then (what was saved, or what Play said of

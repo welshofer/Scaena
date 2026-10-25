@@ -111,7 +111,8 @@ mod tests {
         bundle.deck = scaena_core::Deck::from_json(&edited).unwrap();
         let edit = Edit { message: Some("save"), timestamp: Some(at), ..Edit::by("user") };
         let written = Default::default();
-        let theirs = DeckDoc::load(&bundle.record(&bundle.deck, &written, &edit).unwrap().unwrap().history).unwrap();
+        let theirs =
+            DeckDoc::load(&bundle.record(&bundle.deck, &written, &edit).unwrap().unwrap().files()[0].1).unwrap();
         let ours = DeckDoc::load(&ours).unwrap();
         assert_eq!(ours.deck().unwrap().to_json().unwrap(), theirs.deck().unwrap().to_json().unwrap());
         let said = |doc: &DeckDoc| -> Vec<_> {

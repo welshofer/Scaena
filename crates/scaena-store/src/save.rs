@@ -36,6 +36,10 @@ pub struct Saved {
     /// (lift-up 20261025b REL-1): said once, by the save that did it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub again: Option<String>,
+    /// Why the save is not recorded in the bundle's history, which a newer Scaena wrote and the
+    /// save left as it was ([`crate::UNRECORDED`]).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unrecorded: Option<String>,
 }
 
 /// A save, done in memory: the files [`Bundle::save`] writes, for a caller that keeps them
@@ -120,7 +124,7 @@ impl Bundle {
                 // The deck, and the data and the theme it is drawn from (ADR-0014, ADR-0016).
                 let begun = Edit { message: Some("history begins"), ..Edit::by(&self.author) };
                 let history = DeckDoc::begin(deck, &self.kept_files(deck, written), &begun)?.save()?;
-                Ok(Some(Recording { history, aside: None }))
+                Ok(Some(Recording::kept(history)))
             }
             None => Ok(None),
         }
@@ -234,15 +238,20 @@ impl Bundle {
 
         // The history, with this save in it: files renamed are a change to the deck, and the
         // theme as it is written is the history's (ADR-0016).
-        let mut again = None;
-        if let Some(Recording { history, aside }) = history(&deck, &rewritten)? {
-            replaced.insert(HISTORY.into());
-            out.insert(HISTORY.into(), history);
-            // A history that did not load, kept aside beside the one begun again (REL-1).
-            if let Some((path, damaged)) = aside {
-                again = Some(path.clone());
-                out.insert(path, damaged);
+        let (mut again, mut unrecorded) = (None, None);
+        match history(&deck, &rewritten)? {
+            Some(Recording::Kept { history, aside }) => {
+                replaced.insert(HISTORY.into());
+                out.insert(HISTORY.into(), history);
+                // A history that did not load, kept aside beside the one begun again (REL-1).
+                if let Some((path, damaged)) = aside {
+                    again = Some(path.clone());
+                    out.insert(path, damaged);
+                }
             }
+            // One a newer Scaena wrote is carried as it is, below, and the save says so.
+            Some(Recording::Newer) => unrecorded = Some(crate::UNRECORDED.to_string()),
+            None => {}
         }
 
         // Everything else as it is.
@@ -268,7 +277,7 @@ impl Bundle {
         };
         out.insert("deck.json".into(), deck_json);
         out.insert("manifest.json".into(), (serde_json::to_string_pretty(&manifest)? + "\n").into_bytes());
-        Ok(Saving { files: out, replaced, saved: Saved { renamed, subset: subsets, manifest, again } })
+        Ok(Saving { files: out, replaced, saved: Saved { renamed, subset: subsets, manifest, again, unrecorded } })
     }
 
     /// Every character the deck can draw: every string in it, and every character of its

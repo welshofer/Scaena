@@ -452,19 +452,19 @@ impl Reads<'_> {
                 let changes =
                     self.changes(saved, written, seconds(now)).map_err(|e| StoreError::History(e.to_string()))?;
                 match record(held, &changes) {
-                    Ok(history) => Ok(Some(Recording { history, aside: None })),
+                    Ok(history) => Ok(Some(Recording::kept(history))),
                     // One that does not load blocks no save: it is kept aside, and the history
                     // begins again with the deck as saved (lift-up 20261025b REL-1).
                     Err(why) if why.starts_with(scaena_store::DAMAGED) => {
                         let history = begin(record, saved, written, scaena_store::AGAIN)?;
-                        Ok(Some(Recording { history, aside: Some((scaena_store::aside(held), held.clone())) }))
+                        Ok(Some(Recording::Kept { history, aside: Some((scaena_store::aside(held), held.clone())) }))
                     }
+                    // One a newer Scaena wrote is left as it is, the save unrecorded in it.
+                    Err(why) if why.starts_with(scaena_store::NEWER) => Ok(Some(Recording::Newer)),
                     Err(why) => Err(StoreError::History(why)),
                 }
             }
-            (Some(record), None) if self.begins => {
-                Ok(Some(Recording { history: begin(record, saved, written, BEGINS)?, aside: None }))
-            }
+            (Some(record), None) if self.begins => Ok(Some(Recording::kept(begin(record, saved, written, BEGINS)?))),
             _ => Ok(None),
         };
         let subsets = |font: &str, _: &[u8], chars: &BTreeSet<char>| self.subset(font, chars);
@@ -951,6 +951,23 @@ pub(crate) mod tests {
         let next = s.save(NOW, false, Some(&recorder)).unwrap();
         assert_eq!(next.saved.again, None);
         assert_eq!(DeckDoc::load(&next.files[HISTORY]).unwrap().changes().len(), 2);
+    }
+
+    /// A history a newer Scaena wrote is not damaged: the save leaves it as it is and says it is
+    /// not recorded in it, in the browser and on the Mac (lift-up 20261025b REL-1).
+    #[test]
+    fn a_history_from_a_newer_scaena_is_left_as_it_is() {
+        let (mut files, _) = begun();
+        let mut newer = files[HISTORY].clone();
+        newer[20..22].copy_from_slice(&[0xFF, 0xFF]);
+        files.insert(HISTORY.into(), newer.clone());
+        let mut s = Session::open(files).unwrap();
+        assert!(s.compile(&s.source().replace("Revenue doubled\"", "Revenue more than doubled\"")).valid);
+        let saved = s.save(NOW, false, Some(&recorder)).unwrap();
+        assert_eq!(saved.saved.unrecorded.as_deref(), Some(scaena_store::UNRECORDED));
+        assert_eq!(saved.saved.again, None);
+        assert_eq!(saved.files[HISTORY], newer, "the history left as it was");
+        assert!(!saved.files.keys().any(|p| p.contains("damaged")), "nothing set aside");
     }
 
     /// What records a save in a bundle's history, as the page's module does (PLAN 2.9).

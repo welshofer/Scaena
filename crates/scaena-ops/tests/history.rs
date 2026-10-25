@@ -192,3 +192,32 @@ fn a_damaged_history_is_kept_aside_and_begun_again() {
     assert!(dir.join(&kept).is_file() && aside.is_file(), "each damaged history kept");
     assert_eq!(changes(&dir).len(), 1);
 }
+
+/// A history a newer Scaena wrote is not damaged (lift-up 20261025b REL-1): a patch writes the
+/// deck and leaves the history as it is, and a save says it is not recorded in it.
+#[test]
+fn a_history_from_a_newer_scaena_is_left_as_it_is() {
+    let dir = scratch("newer");
+    keeping_history(&dir);
+    let history = dir.join("history/deck.loro");
+    let mut newer = std::fs::read(&history).unwrap();
+    newer[20..22].copy_from_slice(&[0xFF, 0xFF]);
+    std::fs::write(&history, &newer).unwrap();
+    let said = scaena_ops::open(&dir).unwrap().history().unwrap_err().to_string();
+    assert!(said.contains(scaena_store::NEWER), "{said}");
+    let b = scaena_ops::open(&dir).unwrap();
+    let patched =
+        scaena_ops::patch::patch(&b, &json!([{ "op": "rename_node", "id": "title", "to": "headline" }]), false);
+    assert!(patched.unwrap().applied);
+    assert!(std::fs::read_to_string(dir.join("deck.json")).unwrap().contains("\"headline\""));
+    assert_eq!(std::fs::read(&history).unwrap(), newer, "the history left as it was");
+    let opts = SaveOptions { subset_fonts: false, now: "2026-10-25T00:00:00Z".into(), history: false };
+    let saved = scaena_ops::open(&dir).unwrap().save(&dir, &opts).unwrap();
+    assert_eq!(saved.unrecorded.as_deref(), Some(scaena_store::UNRECORDED));
+    assert_eq!(saved.again, None);
+    assert_eq!(std::fs::read(&history).unwrap(), newer, "the history left as it was");
+    let aside = std::fs::read_dir(dir.join("history"))
+        .unwrap()
+        .filter(|e| e.as_ref().unwrap().file_name().to_string_lossy().contains("damaged"));
+    assert_eq!(aside.count(), 0, "nothing set aside");
+}

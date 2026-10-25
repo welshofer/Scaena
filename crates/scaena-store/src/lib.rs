@@ -80,17 +80,30 @@ pub enum StoreError {
     /// record in it.
     #[error("{HISTORY}: {0}")]
     History(String),
-    /// A history that does not load: cut short, damaged on the disk, or written by a newer
-    /// Loro. It blocks no save: the next keeps it aside ([`aside`]) and begins the history again
-    /// ([`AGAIN`], lift-up 20261025b REL-1).
+    /// A history that does not load: cut short, or damaged on the disk. It blocks no save: the
+    /// next keeps it aside ([`aside`]) and begins the history again ([`AGAIN`], lift-up 20261025b
+    /// REL-1).
     #[error("{HISTORY}: {DAMAGED} ({0}); the next save keeps it aside and begins the history again")]
     HistoryDamaged(String),
+    /// A history a newer Scaena wrote, in an encoding this one does not know. It is not damaged:
+    /// a write leaves it as it is, unrecorded in it ([`UNRECORDED`]), and the newer Scaena takes
+    /// the deck in as a change by `fs` when it next opens it.
+    #[error("{HISTORY}: {NEWER} ({0}); a save leaves it as it is")]
+    HistoryNewer(String),
 }
 
 /// What a history that does not load is said to be, at the head of the error that says so: the
 /// history's own module and the Mac's C ABI ([`crdt::recorded`]) begin with it, and a session's
 /// save that reads it begins the history again (lift-up 20261025b REL-1).
 pub const DAMAGED: &str = "the history could not be read";
+
+/// What a history a newer Scaena wrote is said to be, at the head of the error that says so, as
+/// [`DAMAGED`] is: a session's save that reads it leaves the history as it is.
+pub const NEWER: &str = "the history was written by a newer Scaena";
+
+/// What a save says of a history a newer Scaena wrote, which it left as it was.
+pub const UNRECORDED: &str = "This bundle's history was written by a newer Scaena, so this save isn't recorded in it. \
+     The newer Scaena records it as a change made outside when it next opens the deck.";
 
 /// The message of the first change of a history begun again, the one before it damaged.
 pub const AGAIN: &str = "history begins again: the earlier one could not be read";
@@ -101,17 +114,31 @@ pub fn aside(damaged: &[u8]) -> String {
     format!("{HISTORY}.damaged-{}", &sha256(damaged)[..12])
 }
 
-/// The history a write records, and a damaged one it began again from, kept aside at its path.
+/// What a write does with the bundle's history (lift-up 20261025b REL-1).
 #[derive(Debug, Clone, PartialEq)]
-pub struct Recording {
-    pub history: Vec<u8>,
-    pub aside: Option<(String, Vec<u8>)>,
+pub enum Recording {
+    /// The history with the write recorded in it, and a damaged one it began again from, kept
+    /// aside at its path.
+    Kept { history: Vec<u8>, aside: Option<(String, Vec<u8>)> },
+    /// A history a newer Scaena wrote, left as it is, the write unrecorded in it.
+    Newer,
 }
 
 impl Recording {
-    /// The files the write puts beside the deck: the history, and the damaged one kept aside.
-    pub fn files(self) -> impl Iterator<Item = (String, Vec<u8>)> {
-        std::iter::once((HISTORY.to_string(), self.history)).chain(self.aside)
+    /// The history with the write recorded in it.
+    pub fn kept(history: Vec<u8>) -> Self {
+        Recording::Kept { history, aside: None }
+    }
+
+    /// The files the write puts beside the deck: the history, and the damaged one kept aside;
+    /// none for a history a newer Scaena wrote.
+    pub fn files(self) -> Vec<(String, Vec<u8>)> {
+        match self {
+            Recording::Kept { history, aside } => {
+                std::iter::once((HISTORY.to_string(), history)).chain(aside).collect()
+            }
+            Recording::Newer => Vec::new(),
+        }
     }
 }
 
@@ -281,7 +308,10 @@ impl Bundle {
         if !self.files.exists(HISTORY) {
             return Ok(None);
         }
-        let doc = DeckDoc::load(&self.read(HISTORY)?).map_err(|e| StoreError::HistoryDamaged(e.to_string()))?;
+        let doc = DeckDoc::load(&self.read(HISTORY)?).map_err(|e| match e.newer() {
+            true => StoreError::HistoryNewer(e.to_string()),
+            false => StoreError::HistoryDamaged(e.to_string()),
+        })?;
         let disk = Deck::from_json(&String::from_utf8_lossy(&self.read(&self.deck_file)?))?;
         doc.outside(&disk, &self.kept_files(&disk, &BTreeMap::new()), None)?;
         Ok(Some(doc))
@@ -306,8 +336,10 @@ impl Bundle {
                 let damaged = self.read(HISTORY)?;
                 let again = Edit { message: Some(AGAIN), timestamp: edit.timestamp, ..Edit::by(edit.author) };
                 let history = DeckDoc::begin(deck, &self.kept_files(deck, written), &again)?.save()?;
-                return Ok(Some(Recording { history, aside: Some((aside(&damaged), damaged)) }));
+                return Ok(Some(Recording::Kept { history, aside: Some((aside(&damaged), damaged)) }));
             }
+            // One a newer Scaena wrote is left as it is (REL-1).
+            Err(StoreError::HistoryNewer(_)) => return Ok(Some(Recording::Newer)),
             Err(e) => return Err(e),
         };
         let files: Vec<(String, Vec<u8>)> = kept_paths(deck)
@@ -315,7 +347,7 @@ impl Bundle {
             .filter_map(|path| written.get(path).map(|bytes| (path.to_string(), bytes.clone())))
             .collect();
         doc.apply_with(deck, &files, edit)?;
-        Ok(Some(Recording { history: doc.save()?, aside: None }))
+        Ok(Some(Recording::kept(doc.save()?)))
     }
 
     /// The files the history keeps beside `deck` ([`kept_paths`]), as (bundle path, bytes), in
