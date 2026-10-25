@@ -196,7 +196,29 @@ pub fn one(raw: &Value) -> Result<Slide, String> {
              written in (it gave {named}); `expectedIntensity` and `expectedValence` carry its intensity and tone"
         ));
     }
+    numbered(raw)?;
     Ok(normalize(&aliased(raw)))
+}
+
+/// `raw`'s intensity and tone, by Narrato's names or an agent's, each a number where given:
+/// refused, naming the field and what it takes, where one is a word ("hopeful") or anything but a
+/// number, rather than lost to [`normalize`] without a word (lift-up 10-25b FUNC-5).
+pub fn numbered(raw: &Value) -> Result<(), String> {
+    let ranges = [
+        ("expectedIntensity", "0 (calm) to 1 (intense)"),
+        ("intensity", "0 (calm) to 1 (intense)"),
+        ("expectedValence", "−1 (grave) to 1 (hopeful)"),
+        ("tone", "−1 (grave) to 1 (hopeful)"),
+        ("valence", "−1 (grave) to 1 (hopeful)"),
+    ];
+    for (key, range) in ranges {
+        match raw.get(key) {
+            None | Some(Value::Null) => {}
+            Some(v) if v.as_f64().is_some_and(f64::is_finite) => {}
+            Some(v) => return Err(format!("the slide's `{key}` is a number from {range}, not {v}")),
+        }
+    }
+    Ok(())
 }
 
 /// `raw`, a slide an agent wrote, with the names an agent reaches for read as Narrato's: where it
@@ -349,6 +371,10 @@ mod tests {
         assert_eq!(valence.expected_valence, Some(0.3));
         let both = one(&serde_json::json!({ "slideTitle": "Relay", "intensity": 0.8, "expectedIntensity": 0.2 }));
         assert_eq!(both.unwrap().expected_intensity, Some(0.2), "Narrato's name wins");
+        // A word for a number is refused, naming the field, rather than lost.
+        let worded = one(&serde_json::json!({ "slideTitle": "Relay", "tone": "hopeful" })).unwrap_err();
+        assert!(worded.contains("`tone` is a number from") && worded.contains("\"hopeful\""), "{worded}");
+        assert!(one(&serde_json::json!({ "slideTitle": "Relay", "expectedIntensity": "high" })).is_err());
         let said = one(&serde_json::json!({ "title": "Relay", "intensity": 0.8, "tone": 0.2 })).unwrap_err();
         assert!(said.contains("none of `slideTitle`, `keyBullets`, or `layoutSuggestion`"), "{said}");
         assert!(said.contains("`intensity`") && said.contains("`expectedIntensity`"), "{said}");

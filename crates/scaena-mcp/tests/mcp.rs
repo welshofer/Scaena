@@ -640,6 +640,20 @@ async fn an_agent_starts_a_slide_sets_a_background_and_builds_from_written_slide
         let narrato = &beat["media"]["narrato"];
         assert_eq!((narrato["intensity"].clone(), narrato["valence"].clone()), (json!(0.9), json!(-1.0)), "{beat:#}");
     }
+    // A word for a number is refused by both, naming the field (and the slide, of several).
+    let mut worded = natural(2);
+    worded["tone"] = json!("hopeful");
+    let one = call(&client, "slide_write", json!({ "bundle": path(&planned), "slide": worded })).await;
+    assert!(text(&one).contains("`tone` is a number from"), "{}", text(&one));
+    let mut all = written.clone();
+    all["slides"][3] = worded;
+    let many = call(
+        &client,
+        "deck_generate",
+        json!({ "bundle": path(&scratch("editors-ops").join("worded")), "slides": all, "theme": "ember" }),
+    )
+    .await;
+    assert!(text(&many).contains("slide 4: the slide's `tone` is a number from"), "{}", text(&many));
     client.cancel().await.unwrap();
 }
 

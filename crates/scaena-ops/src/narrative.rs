@@ -729,13 +729,17 @@ pub fn from_slides(
     crate::create::vacant(dir)?;
     // Each slide in the names an agent reaches for read as Narrato's (lift-up 10-25b FUNC-5):
     // `intensity`, `tone`, and `valence` where `expectedIntensity` and `expectedValence` are not.
-    let aliased = serde_json::from_str::<Value>(slides).ok().and_then(|mut written| {
-        let list = written.get_mut("slides")?.as_array_mut()?;
-        for slide in list.iter_mut() {
+    // A word for a number is refused, naming the slide and the field.
+    let mut aliased = None;
+    if let Ok(mut written) = serde_json::from_str::<Value>(slides)
+        && let Some(list) = written.get_mut("slides").and_then(Value::as_array_mut)
+    {
+        for (i, slide) in list.iter_mut().enumerate() {
+            scaena_narrato::answer::numbered(slide).map_err(|e| OpsError::new(format!("slide {}: {e}", i + 1)))?;
             *slide = scaena_narrato::answer::aliased(slide);
         }
-        Some(written.to_string())
-    });
+        aliased = Some(written.to_string());
+    }
     let slides = aliased.as_deref().unwrap_or(slides);
     let font = |file: &str| theme.font(file);
     let language = brief.language.as_deref();
