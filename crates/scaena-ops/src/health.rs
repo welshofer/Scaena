@@ -657,7 +657,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
                 "{} {what}, but health reads it only in English{}.",
                 if declared == 1 { "One slide declares".to_string() } else { format!("{declared} slides declare") },
                 // A deck named in another language says so; one in another script reads no words.
-                match language.filter(|_| !english).map(|l| language_named(l)) {
+                match language.filter(|_| !english).map(language_named) {
                     Some(Some(name)) => format!(", and this deck is in {name}"),
                     Some(None) => ", and this deck is in another language".to_string(),
                     None => " words, three or more, and none has them".to_string(),
