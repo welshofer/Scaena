@@ -297,6 +297,65 @@ final class KeysTests: XCTestCase {
     }
 
     /// What was heard of the canvas's Escape (PLAN 4.6).
+    /// Tab in code (PLAN 2.139), on B1's cover with a hardware keyboard: the subtitle made code by
+    /// the long press's Make Code, Return types in it, and Tab there indents, typing on, where Tab
+    /// in words leaves the text. ⌘Z takes the typing back and ⌘Z again Make Code, so B1 is left
+    /// as it was for the tests after this one.
+    @MainActor
+    func testTabInCodeIndentsAndTypesOn() throws {
+        let app = launched()
+        try openB1(in: app)
+        let canvas = app.descendants(matching: .any).matching(NSPredicate(format: "identifier == 'canvas'")).firstMatch
+        XCTAssertTrue(canvas.waitForExistence(timeout: 10), "no canvas: \(app.debugDescription)")
+        let subtitle = canvas.descendants(matching: .any)
+            .matching(NSPredicate(format: "label BEGINSWITH 'Why this exists'")).firstMatch
+        guard subtitle.waitForExistence(timeout: 10) else {
+            throw Unseen(description: "the cover reads no subtitle: \(app.debugDescription)")
+        }
+        settle()
+
+        try XCTContext.runActivity(named: "Make Code makes the subtitle code") { _ in
+            subtitle.press(forDuration: 1.2)
+            let make = app.descendants(matching: .any).matching(NSPredicate(format: "label == 'Make Code'")).firstMatch
+            guard paged(to: make, in: app) else {
+                keep(app, as: "no-make-code")
+                // Copy and Duplicate come with a node selected: without them the menu was made for nothing.
+                let copy = app.descendants(matching: .any).matching(NSPredicate(format: "label == 'Copy'")).firstMatch
+                let what = copy.exists ? "no Make Code" : "nothing done to the subtitle, no Copy or Duplicate"
+                throw Unseen(description: "the long press offered \(what): \(app.debugDescription)")
+            }
+            make.tap()
+            settle()
+            keep(app, as: "made-code")
+        }
+
+        let typing = app.descendants(matching: .any).matching(NSPredicate(format: "identifier == 'typing'")).firstMatch
+        try XCTContext.runActivity(named: "Return types in the code, and Tab indents there, typing on") { _ in
+            // The subtitle selected by the long press; a newline is the simulator's Return key.
+            app.typeKey("\n", modifierFlags: [])
+            guard typing.waitForExistence(timeout: 5) else {
+                throw Unseen(description: "Return typed in nothing: \(app.debugDescription)")
+            }
+            app.typeKey(XCUIKeyboardKey.tab, modifierFlags: [])
+            settle(1)
+            keep(app, as: "tab-in-code")
+            XCTAssertTrue(typing.exists, "Tab in code left the text, as Tab in words does")
+            _ = cancel(app, until: { !typing.exists })
+        }
+
+        try XCTContext.runActivity(named: "⌘Z takes the typing back, and ⌘Z again Make Code") { _ in
+            // B1 is left as it was: Not Code would leave the subtitle in the body's role, not its own.
+            app.typeKey("z", modifierFlags: .command)
+            settle(1)
+            app.typeKey("z", modifierFlags: .command)
+            settle()
+            subtitle.press(forDuration: 1.2)
+            let make = app.descendants(matching: .any).matching(NSPredicate(format: "label == 'Make Code'")).firstMatch
+            XCTAssertTrue(paged(to: make, in: app), "the subtitle is still code: \(app.debugDescription)")
+            app.typeKey(XCUIKeyboardKey.escape, modifierFlags: [])
+        }
+    }
+
     private enum Cancel {
         case escape, commandPeriod, neither
     }

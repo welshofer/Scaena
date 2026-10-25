@@ -12,7 +12,7 @@ use crate::EngineError;
 use crate::theme::Theme;
 use scaena_core::displaylist::Rect;
 use scaena_core::document::Props;
-use scaena_core::model::theme::{Margin, Slot};
+use scaena_core::model::theme::Slot;
 use scaena_core::model::values::Range;
 use serde_json::Value;
 
@@ -57,22 +57,14 @@ impl Grid {
     /// top/horizontal/bottom, or top/right/bottom/left).
     pub fn from_theme(theme: &Theme, canvas: [f32; 2]) -> Result<Grid, EngineError> {
         let grid = &theme.grid;
-        let count = |key: &str, n: u32| -> Result<usize, EngineError> {
-            (n >= 1).then_some(n as usize).ok_or_else(|| EngineError::Theme(format!("grid.{key} must be ≥ 1")))
-        };
-        let (columns, rows) = (count("columns", grid.columns)?, count("rows", grid.rows.unwrap_or(6))?);
+        // A grid that cannot be laid out says why, never runs the engine out of memory (lift-up
+        // 10-24b STAB-3): too many tracks, or margins and gutters that leave a track no room.
+        if let Some((key, why)) = grid.unfit([f64::from(canvas[0]), f64::from(canvas[1])]) {
+            return Err(EngineError::Theme(format!("grid.{key}: {why}")));
+        }
+        let (columns, rows) = (grid.columns as usize, grid.rows.unwrap_or(6) as usize);
         let gutter = grid.gutter as f32;
-        let margin: Vec<f32> = match &grid.margin {
-            Margin::All(all) => vec![*all as f32],
-            Margin::Sides(sides) => sides.iter().map(|v| v.0 as f32).collect(),
-        };
-        let [top, right, bottom, left] = match margin[..] {
-            [all] => [all; 4],
-            [v, h] => [v, h, v, h],
-            [t, h, b] => [t, h, b, h],
-            [t, r, b, l] => [t, r, b, l],
-            _ => return Err(EngineError::Theme("grid.margin takes 1 to 4 values".into())),
-        };
+        let [top, right, bottom, left] = grid.margin.sides().expect("a fit grid's margin").map(|m| m as f32);
         let tracks = |start: f32, extent: f32, n: usize| -> Vec<(f32, f32)> {
             let size = (extent - gutter * (n - 1) as f32) / n as f32;
             (0..n).map(|i| start + i as f32 * (size + gutter)).map(|s| (s, s + size)).collect()
@@ -367,6 +359,35 @@ mod tests {
         // Dusk: margin [96, 120] = 96 top/bottom, 120 left/right.
         assert_eq!((grid.cols[0].0, grid.rows[0].0), (120.0, 96.0));
         assert_eq!((grid.cols[11].1, grid.rows[11].1), (1800.0, 984.0));
+    }
+
+    /// A grid that cannot be laid out says why, naming its field, and never allocates for it
+    /// (lift-up 10-24b STAB-3).
+    #[test]
+    fn a_grid_that_cannot_be_laid_out_says_why() {
+        let dusk: Value = serde_json::from_str(include_str!("../../../docs/examples/themes/dusk.theme.json")).unwrap();
+        let laid = |grid: Value| {
+            let mut t = dusk.clone();
+            for (key, value) in grid.as_object().unwrap() {
+                t["grid"][key] = value.clone();
+            }
+            Grid::from_theme(&Theme::from_json(&t.to_string()).unwrap(), [1920.0, 1080.0])
+        };
+        let err = |grid: Value| laid(grid).map(|_| ()).unwrap_err().to_string();
+        assert!(
+            err(json!({"columns": 4_000_000_000u32}))
+                .contains("grid.columns: 4000000000 columns: a grid has 1 to 1000")
+        );
+        assert!(err(json!({"rows": 1001})).contains("grid.rows: 1001 rows"));
+        assert!(err(json!({"margin": 1000})).contains("grid.margin: its margins leave its columns no room"));
+        let gutters = err(json!({"gutter": 200}));
+        assert!(
+            gutters.contains("grid.gutter: its margins and gutters leave its columns no room on a canvas 1920 wide"),
+            "{gutters}"
+        );
+        // A 16 px placement grid on a 1920 canvas lays out, and so do a thousand tracks.
+        assert_eq!(laid(json!({"columns": 120, "gutter": 0})).unwrap().cols.len(), 120);
+        assert_eq!(laid(json!({"columns": 1000, "gutter": 0, "margin": 0})).unwrap().cols.len(), 1000);
     }
 
     #[test]

@@ -185,6 +185,8 @@ public final class CanvasKeys: NSView {
         case #selector(Keys.deleteToEndOfLine(_:)), #selector(Keys.deleteToEndOfParagraph(_:)):
             typing.delete(backward: false, by: .line)
         case #selector(Keys.insertNewline(_:)):
+            // In code, a code editor's Return (PLAN 2.139).
+            if typing.codeKey("Return") { break }
             // In an empty item, the list ends there (ADR-0018); else a new paragraph, an item like
             // the one it leaves in a list.
             if typing.endsList { typing.list(kind: "none", done: "The list ends") } else { typing.insert("\n") }
@@ -195,6 +197,8 @@ public final class CanvasKeys: NSView {
             // In a list, the items selected a level in, or out; elsewhere a text's field gives Tab
             // to what is next, as the browser's does: typing stops.
             let out = selector == #selector(Keys.insertBacktab(_:))
+            // In code, a stop in or out (PLAN 2.139).
+            if typing.codeKey(out ? "Shift+Tab" : "Tab") { break }
             if typing.inList {
                 typing.list(by: out ? -1 : 1, done: out ? "A level out" : "A level in")
             } else {
