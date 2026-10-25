@@ -127,6 +127,49 @@ extension ScaenaSession {
         try call("tidied", ["text": .string(text), "language": .string(language)])
     }
 
+    /// Make Code (PLAN 2.139): the patch that makes text `node` code in `language`, named, else
+    /// detected, else plain; in the theme's code role, its runs folded into its text, and what
+    /// code takes no part in (a list, a fit that wraps, hyphenation, …) taken away wherever it is
+    /// written.
+    public func coding(node: String, language: String? = nil) throws -> [JSONValue] {
+        var args: [String: JSONValue] = ["node": .string(node)]
+        if let language { args["language"] = .string(language) }
+        return try call("coding", .object(args))
+    }
+
+    /// Not Code (PLAN 2.139): the patch that takes `code` away from `node` and from every delta,
+    /// its role back to body where it was the code role.
+    public func uncoding(node: String) throws -> [JSONValue] {
+        try call("uncoding", ["node": .string(node)])
+    }
+
+    /// Tidy Code (PLAN 2.139): a `replace_text` for each run of lines of `node` in `state` it
+    /// changes; none where it is tidy.
+    public func tidying(state: String, node: String) throws -> [JSONValue] {
+        try call("tidying", ["state": .string(state), "node": .string(node)])
+    }
+
+    /// A key a code editor answers (PLAN 2.139), in `text` with `from`...`to` selected, UTF-16
+    /// offsets: Tab, Shift+Tab, or Return, with stops every `tab` columns, in `language` as the
+    /// deck names it: a stop the keys add is a tab where the text indents with tabs, and always in a
+    /// Makefile, else spaces. The text and the selection after it; none where code does not answer
+    /// the key there.
+    public func keyed(text: String, from: Int, to: Int, key: String, tab: Int, language: String? = nil) throws -> Keyed? {
+        var arguments: [String: JSONValue] = [
+            "text": .string(text), "from": .number(Double(from)), "to": .number(Double(to)),
+            "key": .string(key), "tab": .number(Double(tab)),
+        ]
+        if let language { arguments["language"] = .string(language) }
+        return try call("keyed", .object(arguments))
+    }
+
+    /// What a code key makes of the text and the selection.
+    public struct Keyed: Decodable, Equatable, Sendable {
+        public let text: String
+        public let from: Int
+        public let to: Int
+    }
+
     /// `node`'s look as `state` shows it (PLAN 2.58): what ⌥⌘C copies, each property its type's
     /// look has, with the value the state shows where the deck sets one.
     public func look(state: String, node: String) throws -> JSONValue {

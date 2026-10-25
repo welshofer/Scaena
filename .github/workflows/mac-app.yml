@@ -1,7 +1,9 @@
 # Scaena.app for a Mac (PLAN 3.3), built when asked: Actions → mac-app → Run workflow, then the
-# run's `Scaena.app` artifact. Signed ad hoc, for trying it, not for shipping: macOS asks once
-# whether to open it (right-click → Open). A pull request that changes how the app is made builds
-# it too.
+# run's `Scaena.app` artifact. Sandboxed and signed with the hardened runtime (apps/mac/sign.sh).
+# Where the repository holds a Developer ID and a notary key (the secrets below), it is signed by
+# that identity, notarized, and stapled, so it opens on any Mac; without them, ad hoc, for trying
+# it: macOS asks once whether to open it (right-click → Open). A pull request that changes how the
+# app is made builds it too (the 20261024 plan's SEC-4).
 name: mac-app
 on:
   workflow_dispatch:
@@ -9,6 +11,8 @@ on:
     paths:
       - .github/workflows/mac-app.yml
       - apps/mac/build-app.sh
+      - apps/mac/sign.sh
+      - apps/mac/Scaena/Scaena.entitlements
       - apps/mac/Scaena/Info.plist
       - apps/mac/Scaena/AppIcon.iconset/**
 permissions:
@@ -30,8 +34,43 @@ jobs:
           key: fonts-${{ hashFiles('scripts/build_bundle_fonts.py') }}
           restore-keys: fonts-
       - run: python3 scripts/build_bundle_fonts.py --fetch --shipped
+      # The Developer ID, where the repository holds one: its certificate into a keychain of this
+      # run's own, which build-app.sh signs by.
+      - name: The Developer ID, where there is one
+        env:
+          CERTIFICATE: ${{ secrets.MAC_CERTIFICATE_P12 }}
+          PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
+          IDENTITY: ${{ secrets.SCAENA_SIGNING_IDENTITY }}
+        run: |
+          if [ -z "$CERTIFICATE" ] || [ -z "$IDENTITY" ]; then echo "no Developer ID: signed ad hoc"; exit 0; fi
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          secret=$(uuidgen)
+          security create-keychain -p "$secret" "$keychain"
+          security set-keychain-settings -lut 3600 "$keychain"
+          security unlock-keychain -p "$secret" "$keychain"
+          echo "$CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
+          security import "$RUNNER_TEMP/certificate.p12" -k "$keychain" -P "$PASSWORD" -T /usr/bin/codesign
+          rm "$RUNNER_TEMP/certificate.p12"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$secret" "$keychain"
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          echo "SCAENA_SIGNING_IDENTITY=$IDENTITY" >> "$GITHUB_ENV"
       - run: apps/mac/build-app.sh "$RUNNER_TEMP/out"
       - run: cd "$RUNNER_TEMP/out" && ditto -c -k --keepParent Scaena.app Scaena.app.zip
+      # Notarized and stapled where the app was signed by the Developer ID and the repository holds
+      # an App Store Connect key for the notary: the zip goes to Apple, and the ticket that comes
+      # back is stapled to the app, which is zipped again.
+      - name: Notarized, where it can be
+        env:
+          KEY: ${{ secrets.NOTARY_KEY_P8 }}
+          KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+          ISSUER: ${{ secrets.NOTARY_ISSUER }}
+        run: |
+          if [ -z "${SCAENA_SIGNING_IDENTITY:-}" ] || [ -z "$KEY" ]; then echo "not notarized: no Developer ID or notary key"; exit 0; fi
+          echo "$KEY" | base64 --decode > "$RUNNER_TEMP/notary.p8"
+          xcrun notarytool submit "$RUNNER_TEMP/out/Scaena.app.zip" --key "$RUNNER_TEMP/notary.p8" --key-id "$KEY_ID" --issuer "$ISSUER" --wait
+          rm "$RUNNER_TEMP/notary.p8"
+          xcrun stapler staple "$RUNNER_TEMP/out/Scaena.app"
+          cd "$RUNNER_TEMP/out" && rm Scaena.app.zip && ditto -c -k --keepParent Scaena.app Scaena.app.zip
       - uses: actions/upload-artifact@v4
         with:
           name: Scaena.app

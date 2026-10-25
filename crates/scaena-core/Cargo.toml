@@ -28,6 +28,8 @@ schemars.workspace = true
 regex-lite.workspace = true
 thiserror.workspace = true
 postcard.workspace = true
+# The deck's words fenced as data in the writing tools' prompts (lift-up W1).
+scaena-fence.workspace = true
 # Springs, color, poses, and palettes (SPEC §13.7): transcendental math that reads the same everywhere.
 libm.workspace = true
 # What is done pixel by pixel: each shader kind's CPU reference and WGSL twin, and the JPEG
