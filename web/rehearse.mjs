@@ -174,7 +174,10 @@ try {
   await page.waitForFunction((w) => window.scaena.source() === w, was, { timeout: 30000 }).catch(() => {});
   check((await source()) === was, "and ⌘Z takes them back");
 
-  // A rehearsal timed: on, on, back, on, each after a wait; Escape stops.
+  // A rehearsal timed: on, on, back, on, each after a wait; Escape stops. It begins at the slide
+  // shown, so the first is shown first.
+  await page.selectOption("#state", "intro");
+  await page.waitForFunction(() => window.scaena.at().index === 0, null, { timeout: 5000 }).catch(() => {});
   await rehearse();
   await press("ArrowRight", 900); // intro: 0.9 s
   await press("ArrowRight", 2000); // revenue: 2.0 s
