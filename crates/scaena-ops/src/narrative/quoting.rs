@@ -24,6 +24,31 @@ struct Cell<'t> {
     value: f64,
 }
 
+/// Whether `context`, the words a slide shows beside a figure, names what `column` measures: at
+/// least half of the words of its name ("free cash flow" for `free_cash_flow`), or its initials
+/// ("net revenue retention" for `nrr`). A word written in kana or Han is found where it stands;
+/// a Latin one only as a word.
+fn names(column: &str, context: &str) -> bool {
+    let context = context.to_lowercase();
+    let latin: Vec<&str> = context.split(|c: char| !c.is_ascii_alphanumeric()).filter(|w| !w.is_empty()).collect();
+    let parts: Vec<String> =
+        column.split(|c: char| !c.is_alphanumeric()).filter(|w| !w.is_empty()).map(str::to_lowercase).collect();
+    let said = |w: &str| {
+        if !w.is_ascii() {
+            return context.contains(w);
+        }
+        let one = w.strip_suffix('s').unwrap_or(w);
+        latin.iter().any(|l| *l == w || *l == one || l.strip_suffix('s') == Some(one))
+    };
+    let initials = |w: &str| {
+        (2..=5).contains(&w.len())
+            && w.chars().all(|c| c.is_ascii_alphabetic())
+            && latin.windows(w.len()).any(|run| run.iter().zip(w.chars()).all(|(l, c)| l.starts_with(c)))
+    };
+    let hits = parts.iter().filter(|w| said(w)).count();
+    !parts.is_empty() && (hits * 2 >= parts.len() || parts.iter().any(|w| initials(w)))
+}
+
 /// A figure found in a text: where it stands (bytes), what it says, and how it is written.
 #[derive(Debug, Clone, PartialEq)]
 struct Figure {
@@ -259,6 +284,7 @@ fn same(a: f64, b: f64) -> bool {
 /// quote. `runs` are the node's own; `None` where nothing in it quotes.
 fn quoted_runs(
     runs: &[Value],
+    context: &str,
     cells: &[Cell],
     locale: &Locale,
     deck: &Deck,
@@ -284,7 +310,7 @@ fn quoted_runs(
             r
         };
         for f in figures(text, locale) {
-            let Some((span, quote)) = quote_of(text, &f, cells, locale, deck, files) else { continue };
+            let Some((span, quote)) = quote_of(text, context, &f, cells, locale, deck, files) else { continue };
             if span.0 < at {
                 continue;
             }
@@ -312,9 +338,12 @@ fn quoted_runs(
 }
 
 /// The cell `f` in `text` quotes, and the span of `text` the quote's run takes; none where no
-/// cell's value is the figure, or more than one is, or the quote would not write it as written.
+/// cell's value is the figure, or more than one is, or the slide's words beside it (`context`) do
+/// not name what the cell's column measures, or the quote would not write it as written.
+#[allow(clippy::too_many_arguments)]
 fn quote_of(
     text: &str,
+    context: &str,
     f: &Figure,
     cells: &[Cell],
     locale: &Locale,
@@ -345,6 +374,11 @@ fn quote_of(
         return None;
     }
     let (span, cell, format) = found.iter().rev().max_by_key(|(s, _, _)| s.1 - s.0)?;
+    // And a value is the cell's only where the slide says what the cell measures: $1.2M at risk
+    // is not a quarter's free cash flow of $1.2M.
+    if !names(cell.column, context) {
+        return None;
+    }
     let quote = Quote {
         data: format!("@{}", cell.source),
         data_transform: None,
@@ -374,6 +408,43 @@ pub fn quoting(doc: &mut Value, files: &dyn SourceFiles, sources: &[String]) -> 
         .filter(|(_, n)| n["type"] == "text" && n.get("code").is_none())
         .map(|(id, _)| id.clone())
         .collect();
+    // The words each state shows, and each text's: those of the states that show it.
+    let said = |props: &Value| -> String {
+        match (props.get("text").and_then(Value::as_str), props.get("runs").and_then(Value::as_array)) {
+            (Some(text), _) => text.to_string(),
+            (None, Some(runs)) => runs.iter().filter_map(|r| r["text"].as_str()).collect(),
+            _ => String::new(),
+        }
+    };
+    let shown: Vec<String> =
+        (doc["states"].as_array().into_iter().flatten())
+            .map(|state| {
+                let props = state["props"].as_object();
+                (props.into_iter().flatten())
+                    .filter(|(id, _)| texts.contains(id))
+                    .map(|(id, p)| {
+                        if p.get("text").is_some() || p.get("runs").is_some() {
+                            said(p)
+                        } else {
+                            said(&doc["nodes"][id])
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            })
+            .collect();
+    let context_of = |id: &str| -> String {
+        let states: Vec<&String> = (doc["states"].as_array().into_iter().flatten())
+            .zip(&shown)
+            .filter(|(state, _)| state["props"].get(id).is_some())
+            .map(|(_, words)| words)
+            .collect();
+        match states.is_empty() {
+            true => said(&doc["nodes"][id]),
+            false => states.into_iter().map(String::as_str).collect::<Vec<_>>().join("\n"),
+        }
+    };
+    let contexts: Vec<String> = texts.iter().map(|id| context_of(id)).collect();
     let mut tally = |runs: &[Value]| {
         for r in runs {
             if let Some(q) = r.get("quote").and_then(|q| q["data"].as_str()) {
@@ -383,7 +454,7 @@ pub fn quoting(doc: &mut Value, files: &dyn SourceFiles, sources: &[String]) -> 
             }
         }
     };
-    let mut quote_in = |props: &mut Map<String, Value>| {
+    let mut quote_in = |props: &mut Map<String, Value>, context: &str| {
         if props.contains_key("code") {
             return;
         }
@@ -392,21 +463,21 @@ pub fn quoting(doc: &mut Value, files: &dyn SourceFiles, sources: &[String]) -> 
             (None, Some(runs)) => runs.clone(),
             _ => return,
         };
-        if let Some((quoted, _)) = quoted_runs(&runs, &cells, locale, &deck, files) {
+        if let Some((quoted, _)) = quoted_runs(&runs, context, &cells, locale, &deck, files) {
             tally(&quoted);
             props.remove("text");
             props.insert("runs".into(), Value::Array(quoted));
         }
     };
-    for id in &texts {
+    for (id, context) in texts.iter().zip(&contexts) {
         if let Some(props) = doc["nodes"][id].as_object_mut() {
-            quote_in(props);
+            quote_in(props, context);
         }
     }
-    for state in doc["states"].as_array_mut().into_iter().flatten() {
+    for (state, context) in doc["states"].as_array_mut().into_iter().flatten().zip(&shown) {
         for id in &texts {
             if let Some(props) = state["props"].get_mut(id).and_then(Value::as_object_mut) {
-                quote_in(props);
+                quote_in(props, context);
             }
         }
     }
@@ -465,7 +536,7 @@ mod tests {
 
     #[test]
     fn a_percent_quotes_its_fraction() {
-        let (node, n) = quote("Net retention is 114% and margin 78.4%.", QUARTERS, schema(), None);
+        let (node, n) = quote("Net revenue retention is 114% and gross margin 78.4%.", QUARTERS, schema(), None);
         assert_eq!(n, 2);
         let q = quotes(&node);
         assert_eq!(q[0].0, "114%");
@@ -484,7 +555,7 @@ mod tests {
         assert_eq!((q[0].0.as_str(), q[0].1["format"].as_str()), ("$48.2M", Some("$.3~k")));
         assert_eq!(q[1].1["row"], json!({ "quarter": "Q2" }));
         let (node, _) = quote(
-            "Market: $1.1T",
+            "Market size: $1.1T",
             "segment,size\nGlobal,1100000000000\n",
             json!({ "segment": "string", "size": "number" }),
             None,
@@ -507,13 +578,9 @@ mod tests {
 
     #[test]
     fn a_cjk_counter_leaves_its_counter_as_words() {
-        let csv = "region,revenue_man_usd\nTokyo,41.2\nOsaka,18.6\n";
-        let (node, n) = quote(
-            "売上は41.2万ドルに達した",
-            csv,
-            json!({ "region": "string", "revenue_man_usd": "number" }),
-            Some("ja"),
-        );
+        let csv = "region,売上\nTokyo,41.2\nOsaka,18.6\n";
+        let (node, n) =
+            quote("売上は41.2万ドルに達した", csv, json!({ "region": "string", "売上": "number" }), Some("ja"));
         assert_eq!(n, 1);
         let q = quotes(&node);
         assert_eq!((q[0].0.as_str(), q[0].1["format"].as_str()), ("41.2", Some(".1f")));
@@ -535,6 +602,15 @@ mod tests {
         let csv = "quarter,share\nQ3,0.4123\n";
         let (_, n) = quote("A 41% share", csv, json!({ "quarter": "string", "share": "number" }), None);
         assert_eq!(n, 0);
+        // $1.2M is one cell's value, but the slide does not say what that cell measures.
+        let csv = "quarter,free_cash_flow\nQ1,1200000\nQ2,1500000\n";
+        let (_, n) = quote(
+            "A cheaper tier puts $1.2M at risk",
+            csv,
+            json!({ "quarter": "string", "free_cash_flow": "number" }),
+            None,
+        );
+        assert_eq!(n, 0, "a value alone is no quote");
         // Q3 and FY26 are names, and 2026 a year no column names.
         let csv = "quarter,year\nQ3,2026\n";
         let (_, n) = quote("Q3 FY26 closed in 2026", csv, json!({ "quarter": "string", "year": "number" }), None);
