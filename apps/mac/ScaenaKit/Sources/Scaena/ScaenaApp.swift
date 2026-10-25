@@ -15,6 +15,13 @@ let openingLog = Logger(subsystem: "com.welshofer.Scaena", category: "opening")
 @main
 struct ScaenaApp: App {
     init() {
+        #if !os(macOS)
+        // Launched with `-b1AsShipped YES`, as the iPad's UI tests launch it, B1 is put back as it
+        // shipped before any window opens. Each test then sees B1 as shipped, never what the one
+        // before it left: an edit saved, or one undone in the window that the test ended before
+        // the app saved.
+        if UserDefaults.standard.bool(forKey: "b1AsShipped") { Self.putBackB1() }
+        #endif
         // The GPU every canvas paints with, made as the app starts rather than when the first deck
         // shows (gate 3); on a queue of its own, since making it blocks. A failure here is said
         // again, by the surface that needs it.
@@ -45,6 +52,25 @@ struct ScaenaApp: App {
     #endif
 
     #if !os(macOS)
+    /// B1 in the app's Documents, which the document browser shows, made again from the copy
+    /// `apps/ipad/app-test.sh` keeps in its Library, which the browser does not show. Without
+    /// that copy, nothing changes.
+    private static func putBackB1() {
+        let files = FileManager.default
+        guard let library = files.urls(for: .libraryDirectory, in: .userDomainMask).first,
+            let documents = files.urls(for: .documentDirectory, in: .userDomainMask).first
+        else { return }
+        let shipped = library.appendingPathComponent("b1-shipped.scaena")
+        let b1 = documents.appendingPathComponent("b1.scaena")
+        guard files.fileExists(atPath: shipped.path) else { return }
+        do {
+            if files.fileExists(atPath: b1.path) { try files.removeItem(at: b1) }
+            try files.copyItem(at: shipped, to: b1)
+        } catch {
+            openingLog.debug("B1 not put back: \(String(describing: error), privacy: .public)")
+        }
+    }
+
     /// Whether New from a Prompt's brief covers the launch screen (PLAN G.6).
     @State private var prompting = false
     /// The bundle of the deck the brief made, opened once the brief is put away.
