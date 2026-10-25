@@ -644,8 +644,9 @@ async function edit(source: Source, opened?: Stage, recovering = false) {
     if ("create" in source) return `new:${source.create.title}`;
     return `files:${name}:${openedAs ?? ""}`;
   };
-  /** Whether the copy carries the files the deck opened with. */
-  let carried = false;
+  /** Whether the copy carries the files the deck opened with, or the browser had no room for them,
+   * which is said once: the copy then keeps the edits, but cannot open the deck again. */
+  let carried: boolean | "refused" = false;
   /** How long after a change the copy is written, ms. */
   const COPY_AFTER = 2000;
   let copyTimer: ReturnType<typeof setTimeout> | undefined;
@@ -675,10 +676,20 @@ async function edit(source: Source, opened?: Stage, recovering = false) {
       // A deck kept nowhere, which nothing else opens again, carries how to: its theme and title, or
       // the files it opened with, kept once (a page that starts lists each such copy).
       const reopen: Reopen | undefined =
-        where || "url" in source ? undefined : "create" in source ? { create: source.create } : opening ? { files: Object.keys(opening) } : undefined;
+        where || "url" in source || carried === "refused"
+          ? undefined
+          : "create" in source
+            ? { create: source.create }
+            : opening
+              ? { files: Object.keys(opening) }
+              : undefined;
       const bundle = reopen && "files" in reopen && !carried ? opening : undefined;
-      await keep(key, { at: Date.now(), name, source: view.state.doc.toString(), files: [...written.keys()], removed, reopen }, files, bundle);
-      if (bundle) carried = true;
+      const kept = await keep(key, { at: Date.now(), name, source: view.state.doc.toString(), files: [...written.keys()], removed, reopen }, files, bundle);
+      if (bundle && kept) carried = true;
+      else if (bundle) {
+        carried = "refused";
+        status.textContent = "This browser has no room to keep this deck for after a crash: save it to keep it safe.";
+      }
       copied = new Map(written);
     };
     copying = copying.then(run, run).catch((e: unknown) => console.warn(`The recovery copy was not kept: ${said(e)}`));

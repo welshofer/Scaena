@@ -73,30 +73,50 @@ async function read(root: FileSystemDirectoryHandle, path: string): Promise<File
 }
 
 /** Keep `copy` for `key`: its source, each of `files` not yet kept, the files `bundle` holds,
- * which open its deck again, and the record, last. A copy kept before keeps the files it holds. */
-export async function keep(key: string, copy: Copy, files: Map<string, Uint8Array>, bundle?: Record<string, ArrayBuffer>) {
+ * which open its deck again, and the record, last. A copy kept before keeps the files it holds.
+ * Whether the bundle was kept: one the browser has no room for is taken out again, and the copy is
+ * kept without it, as one that cannot open its deck again. */
+export async function keep(key: string, copy: Copy, files: Map<string, Uint8Array>, bundle?: Record<string, ArrayBuffer>): Promise<boolean> {
   const at = (await dir(key, true))!;
   await write(at, "source.scn", copy.source);
   for (const [path, bytes] of files) await write(at, `files/${path}`, bytes);
-  for (const [path, bytes] of Object.entries(bundle ?? {})) await write(at, `bundle/${path}`, new Uint8Array(bytes));
-  const record: Record_ = { at: copy.at, name: copy.name, files: copy.files, removed: copy.removed, reopen: copy.reopen, key };
+  let carried = true;
+  if (bundle) {
+    try {
+      for (const [path, bytes] of Object.entries(bundle)) await write(at, `bundle/${path}`, new Uint8Array(bytes));
+    } catch {
+      carried = false;
+      await at.removeEntry("bundle", { recursive: true }).catch(() => {});
+    }
+  }
+  const record: Record_ = { at: copy.at, name: copy.name, files: copy.files, removed: copy.removed, reopen: carried ? copy.reopen : undefined, key };
   await write(at, "copy.json", JSON.stringify(record));
+  return carried;
 }
 
+/** How long a copy nothing will offer again is kept, ms: a week. */
+const STRANDED = 7 * 24 * 60 * 60 * 1000;
+
 /** Every copy that opens its deck again, a deck kept nowhere's, the latest first: what a page left
- * that nothing else would offer. */
-export async function leftovers(): Promise<(Record_ & { key: string; reopen: Reopen; title?: string })[]> {
+ * that nothing else would offer. A copy of a deck kept nowhere that cannot open it again, as those
+ * kept before a copy said how, and no copy of a deck kept somewhere, is taken away a week on: no
+ * deck opened will find it. */
+export async function leftovers(now = Date.now()): Promise<(Record_ & { key: string; reopen: Reopen; title?: string })[]> {
   const root = await navigator.storage.getDirectory();
   const all = await root.getDirectoryHandle(DIR).catch(() => null);
   const out: (Record_ & { key: string; reopen: Reopen; title?: string })[] = [];
   if (!all) return out;
-  for await (const [, handle] of all.entries()) {
+  const stranded: string[] = [];
+  for await (const [name, handle] of all.entries()) {
     if (handle.kind !== "directory") continue;
     const at = handle as FileSystemDirectoryHandle;
     const record = await read(at, "copy.json");
     try {
       const parsed = record && (JSON.parse(await record.text()) as Record_);
-      if (!parsed?.key || !parsed.reopen) continue;
+      if (!parsed) continue;
+      const nowhere = !parsed.key || parsed.key.startsWith("files:") || parsed.key.startsWith("new:");
+      if (!parsed.reopen && nowhere && now - parsed.at > STRANDED) stranded.push(name);
+      if (!parsed.key || !parsed.reopen) continue;
       // Its title, as its source's `deck` line writes it: what a person calls it.
       const source = await (await read(at, "source.scn"))?.text();
       const header = source && /^deck\s+("(?:[^"\\\n]|\\.)*")/m.exec(source);
@@ -106,6 +126,7 @@ export async function leftovers(): Promise<(Record_ & { key: string; reopen: Reo
       // A record that does not read is no copy.
     }
   }
+  for (const name of stranded) await all.removeEntry(name, { recursive: true }).catch(() => {});
   return out.sort((a, b) => b.at - a.at);
 }
 

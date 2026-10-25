@@ -137,6 +137,22 @@ await new Promise((ok) => provider.once("listening", ok));
 const origin = `http://127.0.0.1:${provider.address().port}`;
 
 const site = await serve();
+/** Each recovery copy the browser keeps, as the paths of its files. */
+const copies = (page) =>
+  page.evaluate(async () => {
+    const all = await (await navigator.storage.getDirectory()).getDirectoryHandle("recovery").catch(() => null);
+    const each = [];
+    const walk = async (dir, at) => {
+      const paths = [];
+      for await (const [name, handle] of dir.entries()) {
+        if (handle.kind === "directory") paths.push(...(await walk(handle, `${at}${name}/`)));
+        else paths.push(`${at}${name}`);
+      }
+      return paths;
+    };
+    if (all) for await (const [, handle] of all.entries()) if (handle.kind === "directory") each.push((await walk(handle, "")).sort().join(","));
+    return each;
+  });
 const browser = await launch();
 try {
   const page = await browser.newPage({ viewport: { width: 1600, height: 1000 }, deviceScaleFactor: 1 });
@@ -628,6 +644,18 @@ try {
     recovered.source.includes("Why Tidewater still wins") && recovered.source.includes("alt:Compass") && recovered.where.where === undefined && recovered.where.dirty,
     `Recover opens it again with the edit, its icons and all, kept nowhere: ${JSON.stringify(recovered.where)}`,
   );
+
+  // Discarded from the list, the copy goes with the deck's files it carried: nothing of it is
+  // left in the browser's storage.
+  await page.evaluate(() => window.scaena.keepCopy());
+  const carrying = await copies(page);
+  check(carrying.length === 1 && carrying[0].includes("bundle/deck.json"), `the copy carries the deck's files: ${carrying.join(" | ")}`);
+  await page.reload();
+  await left.waitFor({ timeout: 60000 }).catch(() => {});
+  await page.click("#leftovers li button:text('Discard')");
+  await page.waitForFunction(() => !document.querySelector("#leftovers")?.open, null, { timeout: 10000 }).catch(() => {});
+  const discarded = await copies(page);
+  check(discarded.length === 0, `Discard takes the copy away, the deck's files with it: ${discarded.join(" | ") || "none left"}`);
 } catch (e) {
   failures.push(String(e?.stack ?? e));
 } finally {
