@@ -11,6 +11,23 @@ import os
 /// tests stream it to say where a key went (`apps/ipad/app-test.sh`, PLAN 4.6).
 private let keysLog = Logger(subsystem: "com.welshofer.Scaena", category: "keys")
 
+/// Undo and Redo, held on the canvas while the assistant is at work on the deck (lift-up STAB-5),
+/// as the Mac's `UndoHold` holds the Edit menu's: ⌘Z and ⇧⌘Z, which reach the canvas before the
+/// menu bar matches them, and the `undo:` and `redo:` the menu bar's items and the system's
+/// three-finger swipes send up the chain to the canvas, which has the keyboard.
+enum HeldUndo {
+    /// Whether `key` is ⌘Z or ⇧⌘Z.
+    static func undoes(_ key: UIKey) -> Bool {
+        let flags = key.modifierFlags.intersection([.command, .shift, .alternate, .control])
+        return key.keyCode == .keyboardZ && (flags == .command || flags == [.command, .shift])
+    }
+
+    /// Whether `action` is the menu bar's Undo or Redo.
+    static func undoing(_ action: Selector) -> Bool {
+        action == Selector(("undo:")) || action == Selector(("redo:"))
+    }
+}
+
 /// The canvas's keys on the iPad (PLAN 4.4), as the Mac's are (PLAN 3.9, 3.10): a view under the
 /// canvas that takes the keyboard while a text is typed in, and hands `Typing` what the text input
 /// system makes of each key (`UITextInput`): the software keyboard's and a hardware keyboard's, an
@@ -42,6 +59,10 @@ public final class CanvasKeys: UIView {
     public var clipping: (@MainActor (Clipping) -> Void)?
     /// The canvas's keys while no text is typed in (PLAN 4.6).
     public let presses = CanvasPresses()
+    /// Told of an undo or a redo held while the assistant is at work on the deck (lift-up STAB-5).
+    public var undoRefused: (@MainActor () -> Void)? {
+        didSet { presses.undoRefused = undoRefused }
+    }
 
     /// Told of each change the input system did not make.
     public weak var inputDelegate: (any UITextInputDelegate)?
@@ -129,6 +150,9 @@ public final class CanvasKeys: UIView {
             if typing.typing, let key = press.key, Self.cancels(key) {
                 stopped.insert(press)
                 typing.leave()
+            } else if let key = press.key, HeldUndo.undoes(key), typing.editor.assisting {
+                stopped.insert(press)
+                undoRefused?()
             } else {
                 rest.insert(press)
             }
@@ -287,9 +311,22 @@ public final class CanvasKeys: UIView {
         case #selector(Edits.toggleUnderline(_:)):
             // A text is underlined where it links (PLAN 2.70), and nowhere else.
             return false
+        case _ where HeldUndo.undoing(action):
+            // Taken here only to be held; otherwise they go on up the chain as before.
+            return typing.editor.assisting
         default:
             return super.canPerformAction(action, withSender: sender)
         }
+    }
+
+    /// The menu bar's Undo while the assistant is at work on the deck: held, saying so.
+    @objc(undo:) func heldUndo(_ sender: Any?) {
+        if typing.editor.assisting { undoRefused?() } else { undoManager?.undo() }
+    }
+
+    /// The menu bar's Redo while the assistant is at work on the deck: held, saying so.
+    @objc(redo:) func heldRedo(_ sender: Any?) {
+        if typing.editor.assisting { undoRefused?() } else { undoManager?.redo() }
     }
 
     public override func copy(_ sender: Any?) {
@@ -833,12 +870,14 @@ public struct CanvasKeysHost: UIViewRepresentable {
     public let commanded: (@MainActor (String, UIKeyModifierFlags) -> Bool)?
     /// ⌘A on the canvas while no text is typed in: whether it selected anything.
     public let selectingAll: (@MainActor () -> Bool)?
+    /// Told of an undo or a redo held while the assistant is at work on the deck (lift-up STAB-5).
+    public let undoRefused: (@MainActor () -> Void)?
 
     public init(
         typing: Typing, canvas: CGSize, shown: CGRect? = nil, clipping: @escaping @MainActor (Clipping) -> Void,
         finding: (@MainActor () -> Void)? = nil, pressed: (@MainActor (UIKey) -> Bool)? = nil,
         commanded: (@MainActor (String, UIKeyModifierFlags) -> Bool)? = nil,
-        selectingAll: (@MainActor () -> Bool)? = nil
+        selectingAll: (@MainActor () -> Bool)? = nil, undoRefused: (@MainActor () -> Void)? = nil
     ) {
         self.typing = typing
         self.canvas = canvas
@@ -848,6 +887,7 @@ public struct CanvasKeysHost: UIViewRepresentable {
         self.pressed = pressed
         self.commanded = commanded
         self.selectingAll = selectingAll
+        self.undoRefused = undoRefused
     }
 
     public func makeUIView(context: Context) -> CanvasKeys {
@@ -865,6 +905,7 @@ public struct CanvasKeysHost: UIViewRepresentable {
         view.presses.commanded = commanded
         view.presses.clipping = clipping
         view.presses.selectingAll = selectingAll
+        view.undoRefused = undoRefused
     }
 }
 
@@ -890,6 +931,8 @@ public final class CanvasPresses: UIView {
     public var commanded: (@MainActor (String, UIKeyModifierFlags) -> Bool)?
     public var clipping: (@MainActor (Clipping) -> Void)?
     public var selectingAll: (@MainActor () -> Bool)?
+    /// Told of an undo or a redo held while the assistant is at work on the deck (lift-up STAB-5).
+    public var undoRefused: (@MainActor () -> Void)?
     /// The presses the canvas took: how each goes on and ends is its too.
     private var taken: Set<UIPress> = []
     /// Whether the canvas let the keyboard go: Tab past either end of the slide.
@@ -985,7 +1028,11 @@ public final class CanvasPresses: UIView {
         for press in presses {
             let code = press.key?.keyCode.rawValue ?? -1
             let flags = press.key?.modifierFlags.rawValue ?? 0
-            if let key = press.key, pressed?(key) == true {
+            if let key = press.key, HeldUndo.undoes(key), assisting {
+                keysLog.debug("press \(code) flags \(flags): held, the assistant at work")
+                taken.insert(press)
+                undoRefused?()
+            } else if let key = press.key, pressed?(key) == true {
                 keysLog.debug("press \(code) flags \(flags): taken")
                 taken.insert(press)
                 lettingGo = false
@@ -1088,9 +1135,27 @@ public final class CanvasPresses: UIView {
         case #selector(CanvasPresses.keyed(_:)):
             // A sheet or a popover over the canvas keeps Escape and Return for itself.
             return commanded != nil && !covered
+        case _ where HeldUndo.undoing(action):
+            // Taken here only to be held; otherwise they go on up the chain as before.
+            return assisting
         default:
             return super.canPerformAction(action, withSender: sender)
         }
+    }
+
+    /// Whether the assistant is at work on the deck the canvas this view's keys are for shows.
+    private var assisting: Bool {
+        (superview as? CanvasKeys)?.typing.editor.assisting == true
+    }
+
+    /// The menu bar's Undo while the assistant is at work on the deck: held, saying so.
+    @objc(undo:) func heldUndo(_ sender: Any?) {
+        if assisting { undoRefused?() } else { undoManager?.undo() }
+    }
+
+    /// The menu bar's Redo while the assistant is at work on the deck: held, saying so.
+    @objc(redo:) func heldRedo(_ sender: Any?) {
+        if assisting { undoRefused?() } else { undoManager?.redo() }
     }
 
     public override func copy(_ sender: Any?) {

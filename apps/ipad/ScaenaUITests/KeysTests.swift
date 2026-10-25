@@ -356,6 +356,56 @@ final class KeysTests: XCTestCase {
         }
     }
 
+    /// Undo and Redo held while the assistant is at work on the deck (lift-up STAB-5), as the
+    /// Mac's Edit menu holds them: on B1's cover with a hardware keyboard, the title nudged by
+    /// eight arrows, the deck then held as the assistant holds it (`-assistantAtWorkAfter 8`), and ⌘Z and ⇧⌘Z
+    /// take nothing back, the canvas saying the assistant is at work on the deck.
+    @MainActor
+    func testUndoWaitsWhileTheAssistantIsAtWork() throws {
+        let app = launched(arguments: ["-assistantAtWorkAfter", "8"])
+        try openB1(in: app)
+        let canvas = app.descendants(matching: .any).matching(NSPredicate(format: "identifier == 'canvas'")).firstMatch
+        XCTAssertTrue(canvas.waitForExistence(timeout: 10), "no canvas: \(app.debugDescription)")
+        let title = canvas.descendants(matching: .any).matching(NSPredicate(format: "label == 'Scaena'")).firstMatch
+        guard title.waitForExistence(timeout: 10) else {
+            throw Unseen(description: "the cover reads no title: \(app.debugDescription)")
+        }
+        let hint = app.descendants(matching: .any).matching(NSPredicate(format: "identifier == 'hint'")).firstMatch
+        let said = { hint.exists ? hint.label : "nothing" }
+        settle()
+
+        // A tap where nothing draws gives the canvas the keyboard; Tab selects the title, and eight
+        // arrows nudge it, the eight edits after which the deck is held.
+        canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.03, dy: 0.97)).tap()
+        app.typeKey(XCUIKeyboardKey.tab, modifierFlags: [])
+        guard wait(5, { title.isSelected }) else {
+            throw Unseen(description: "Tab selected no title: \(app.debugDescription)")
+        }
+        let before = title.frame
+        for _ in 0..<8 {
+            app.typeKey(XCUIKeyboardKey.rightArrow, modifierFlags: [])
+        }
+        guard wait(5, { title.frame.minX > before.minX + 2 }) else {
+            throw Unseen(description: "the arrows nudged nothing: \(before) → \(title.frame)")
+        }
+        let nudged = title.frame
+        settle(1)
+
+        try XCTContext.runActivity(named: "⌘Z and ⇧⌘Z take nothing back, saying the assistant is at work") { _ in
+            app.typeKey("z", modifierFlags: .command)
+            settle(1)
+            keep(app, as: "undo-held")
+            XCTAssertTrue(wait(5) { said().hasPrefix("The assistant is at work on the deck") }, "⌘Z says \(said())")
+            XCTAssertEqual(
+                title.frame.minX, nudged.minX, accuracy: 0.5, "⌘Z took a nudge back while the assistant worked")
+            app.typeKey("z", modifierFlags: [.command, .shift])
+            settle(1)
+            XCTAssertTrue(said().hasPrefix("The assistant is at work on the deck"), "⇧⌘Z says \(said())")
+            XCTAssertEqual(
+                title.frame.minX, nudged.minX, accuracy: 0.5, "⇧⌘Z changed the title while the assistant worked")
+        }
+    }
+
     private enum Cancel {
         case escape, commandPeriod, neither
     }

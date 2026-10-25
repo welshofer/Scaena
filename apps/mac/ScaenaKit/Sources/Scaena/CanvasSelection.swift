@@ -290,7 +290,8 @@ struct CanvasSelection: View {
                 #else
                 CanvasKeysHost(
                     typing: typing, canvas: size, shown: zoom.view, clipping: clip, finding: { finding() },
-                    pressed: pressed, commanded: commanded, selectingAll: { selectAll() })
+                    pressed: pressed, commanded: commanded, selectingAll: { selectAll() },
+                    undoRefused: { said = DeckEditor.atWork })
                 #endif
                 #if os(macOS)
                 // The wheel and a pinch are the desk's, read anywhere on it (`CanvasWheel`, PLAN
