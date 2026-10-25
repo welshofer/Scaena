@@ -420,6 +420,20 @@ try {
   const story = await presenter.evaluate(() => window.scaena.story());
   check(story.story === `${section.title} \u00b7 ${beat.claim}`, `it says the section and the beat's claim: ${story.story}`);
   check(/^(On plan|\d+:\d\d (ahead|behind))$/.test(story.pace), `and how the talk stands against its plan: ${story.pace}`);
+  // The next is a still the one stage draws (lift-up PERF-3): no engine of its own, its canvas a
+  // 2D one with the slide on it (a canvas handed to a worker has no 2D context).
+  const still = await presenter
+    .waitForFunction(
+      () => {
+        const canvas = document.querySelector("#upnext");
+        const pixels = canvas.getContext("2d")?.getImageData(0, 0, canvas.width, canvas.height).data;
+        return !!pixels && pixels.some((v, i) => i % 4 !== 3 && v !== pixels[i % 4]);
+      },
+      null,
+      { timeout: 15000 },
+    )
+    .then(() => true, (e) => String(e).split("\n")[0]);
+  check(still === true, `the next slide is a still the one stage draws, on a 2D canvas no worker holds: ${still}`);
   // The notes' size (lift-up USE-4): 20 px to start, A+ and + a step up, A− and - a step down,
   // kept in this browser for the next presenter view; the player answers neither key.
   const notesPx = (page) => page.evaluate(() => parseFloat(getComputedStyle(document.querySelector("#notes")).fontSize));
