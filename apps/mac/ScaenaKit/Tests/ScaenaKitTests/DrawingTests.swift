@@ -50,7 +50,8 @@ import Testing
     await editor.preparing(cued.state)
     #expect(try editor.session.frame(cued.state, at: cued.span / 2) == here, "sampled as laid out here")
     let laying = try #require(editor.session.laying())
-    #expect(!editor.session.cue(laid: try laying.cue(format: nil, state: cued.state)), "the cue shown is kept")
+    let again = try laying.cue(format: nil, state: cued.state)
+    #expect(!editor.session.cue(laid: again), "the cue shown is kept")
 
     let stale = try laying.cue(format: nil, state: cued.state)
     let typed: JSONValue = [

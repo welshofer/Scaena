@@ -123,7 +123,8 @@ private func carets(_ json: String) throws -> Carets {
     // Compiled once the burst ends: the deck it compiles to is the one typed.
     typing.leave()
     #expect(editor.revision == revision + 1 && editor.edits == edits + 2)
-    #expect(editor.valid && (try editor.session.source()) == editor.source)
+    let compiled = try editor.session.source()
+    #expect(editor.valid && compiled == editor.source)
     #expect(editor.session.laying() != nil, "compiled: the deck is taken to lint")
 }
 
