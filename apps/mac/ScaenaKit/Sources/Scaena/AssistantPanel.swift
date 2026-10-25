@@ -416,6 +416,8 @@ private struct EntryRow: View {
         case "stopped": "Stopped."
         case "steps": "Stopped after 32 rounds of calls: ask again to go on."
         case "length": "The answer ran out of room."
+        // Said as what it is, as the browser says it (lift-up 20261025c REL-1).
+        case "refused": "The model declined to answer this. Asked again the same way, it will likely decline again: ask it differently."
         // The provider's own reason is no person's word (PLAN 3.18), as the browser says it.
         default: "The model stopped."
         }

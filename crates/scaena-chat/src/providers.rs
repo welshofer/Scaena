@@ -21,15 +21,22 @@ pub struct Request {
 }
 
 /// Why a model stopped: it waits for its calls' results, its answer is done, it ran out of
-/// room, or another reason.
+/// room, it declined to answer, or another reason.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Stop {
     Tools,
     End,
     Length,
+    /// It declined, or the provider blocked the answer: Anthropic's `refusal`, OpenAI's
+    /// `content_filter` or its `refusal`, Gemini's safety, blocklist, and recitation stops, and a
+    /// prompt it blocked (lift-up 20261025c REL-1). Asked again the same way, it says the same.
+    Refused,
     Other,
 }
+
+/// Gemini's reasons for an answer it blocked, which a person hears as a refusal.
+const GEMINI_REFUSED: [&str; 5] = ["SAFETY", "PROHIBITED_CONTENT", "BLOCKLIST", "RECITATION", "SPII"];
 
 /// Tokens in and out, as the provider counts them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -374,6 +381,7 @@ fn anthropic_turn(answer: &Value) -> Turn {
         Some("tool_use") => Stop::Tools,
         Some("end_turn") => Stop::End,
         Some("max_tokens") => Stop::Length,
+        Some("refusal") => Stop::Refused,
         _ => Stop::Other,
     };
     let usage =
@@ -464,8 +472,11 @@ fn openai_turn(answer: &Value) -> Turn {
         })
         .collect();
     // An answer that ran out of room says so, its calls or not: the last may be cut off (REL-1).
+    let refused = message.get("refusal").is_some_and(|r| r.as_str().is_some_and(|r| !r.is_empty()));
     let stop = match choice.get("finish_reason").and_then(Value::as_str) {
         Some("length") => Stop::Length,
+        Some("content_filter") => Stop::Refused,
+        _ if refused => Stop::Refused,
         _ if !calls.is_empty() => Stop::Tools,
         Some("stop") => Stop::End,
         _ => Stop::Other,
@@ -560,8 +571,11 @@ fn gemini_turn(answer: &Value) -> Turn {
         .filter(|p| p.get("thought").and_then(Value::as_bool) != Some(true))
         .filter_map(|p| p.get("text").and_then(Value::as_str))
         .collect();
+    let blocked = answer.pointer("/promptFeedback/blockReason").is_some_and(|r| !r.is_null());
     let stop = match candidate.get("finishReason").and_then(Value::as_str) {
         Some("MAX_TOKENS") => Stop::Length,
+        Some(reason) if GEMINI_REFUSED.contains(&reason) => Stop::Refused,
+        _ if blocked => Stop::Refused,
         _ if !calls.is_empty() => Stop::Tools,
         Some("STOP") => Stop::End,
         _ => Stop::Other,

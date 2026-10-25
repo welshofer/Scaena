@@ -77,12 +77,16 @@ for (const [id, provider] of Object.entries(providers)) {
   const { picture } = conversation;
   const pictured = { ...once, system: picture.system, messages: [{ role: "user", text: picture.prompt, png: picture.png }] };
   const shown = await asking({ status: 200, body: conversation.answers[id] }, () => provider.turn(pictured));
+  // Each answer a model declined or a provider blocked, read as a refusal (lift-up 20261025c REL-1).
+  const refused = [];
+  for (const body of conversation.refusals[id]) refused.push((await asking({ status: 200, body }, () => provider.turn(ask))).result.value?.stop);
   record[id] = {
     turn: { request: turn.asked[0], read: turn.result.value, streamed: { read: streamed.result.value, said } },
     models: { request: models.asked[0], read: models.result.value },
     failure: { message: failure.result.error },
     once: { request: asked.asked[0] },
     picture: { request: shown.asked[0] },
+    refusals: refused,
   };
 }
 

@@ -297,7 +297,10 @@
           "stream": true
         }
       }
-    }
+    },
+    "refusals": [
+      "refused"
+    ]
   },
   "openai": {
     "turn": {
@@ -553,7 +556,11 @@
           }
         }
       }
-    }
+    },
+    "refusals": [
+      "refused",
+      "refused"
+    ]
   },
   "gemini": {
     "turn": {
@@ -854,7 +861,14 @@
           ]
         }
       }
-    }
+    },
+    "refusals": [
+      "refused",
+      "refused",
+      "refused",
+      "refused",
+      "refused"
+    ]
   },
   "prompt": {
     "system": [
