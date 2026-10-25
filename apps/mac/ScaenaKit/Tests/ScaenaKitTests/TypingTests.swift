@@ -613,6 +613,9 @@ private func carets(_ json: String) throws -> Carets {
     let editor = DeckEditor(session: try ScaenaSession(directory: tortureDeck))
     editor.shown = "code"
     let typing = Typing(editor: editor)
+    // Each key goes through the engine, and a loaded machine can take past a second between two,
+    // which would end the burst this test counts: held open, as the other bursts counted here are.
+    typing.burst = .seconds(60)
     var steps = 0
     typing.edited = { _, joins in
         if !joins { steps += 1 }
