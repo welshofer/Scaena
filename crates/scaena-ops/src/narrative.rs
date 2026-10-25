@@ -1798,6 +1798,7 @@ pub fn deck_as(
             section: numbers.get(&i).copied(),
             running: running.as_ref().map(|(r, _)| r.as_str()),
             picture,
+            idea: (narrative.outline.as_ref()).map(|o| o.big_idea.trim()).filter(|i| !i.is_empty()),
             icons,
             lang: lang.unwrap_or("en"),
         };
@@ -2393,7 +2394,14 @@ fn layout_for(
         "section" => "section",
         "agenda" if pictured => "agenda-photo",
         "agenda" => "agenda",
+        // A deck ends on what it leaves the room with (lift-up ATTR-3): its takeaways on cards, an
+        // ask with its button, or its last words over its picture, never the cover's layout.
+        "closing" | "thanks" if n == 3 && theme.layouts.contains_key("takeaways") => "takeaways",
+        "closing" | "thanks" if pictured && theme.layouts.contains_key("poster") => "poster",
         "closing" | "thanks" if pictured => "title-split",
+        // A bare "Thank you" or "Questions?" that carries an ask: the ask its words, its address
+        // the button. A closing that says something stays as it is said.
+        "closing" | "thanks" if bare(&slide.slide_title) && calling(slide, items).is_some() => "call-to-action",
         "closing" | "thanks" => "closing",
         "body" if pictured => "bullets-photo",
         "body" => "bullets",
@@ -2546,6 +2554,74 @@ fn layout_for(
         .to_string()
 }
 
+/// Whether a closing's title only thanks the room or opens the floor ("Thank you", "Questions?",
+/// "Q&A"), in the languages Scaena can tell: an ending that says nothing of the talk (lift-up
+/// ATTR-3).
+fn bare(title: &str) -> bool {
+    const BARE: [&str; 24] = [
+        "thank you",
+        "thanks",
+        "thank you for listening",
+        "thanks for listening",
+        "questions",
+        "any questions",
+        "q&a",
+        "q & a",
+        "questions and answers",
+        "merci",
+        "gracias",
+        "danke",
+        "grazie",
+        "obrigado",
+        "obrigada",
+        "dank u",
+        "tack",
+        "questions ?",
+        "preguntas",
+        "fragen",
+        "ありがとうございました",
+        "ありがとうございます",
+        "谢谢",
+        "감사합니다",
+    ];
+    let t = title.trim().trim_end_matches(['!', '?', '.', '！', '？', '。']).trim().to_lowercase();
+    !t.is_empty() && BARE.contains(&t.as_str())
+}
+
+/// What a bare closing asks of the room, and where: its subtitle and its items, an ask that
+/// starts with an asking verb (book, contact, sign up, join, start, register, subscribe, try,
+/// visit, apply) and an address (a site and its page, or an email), either in one line or each
+/// its own. None where it has not both. The verbs are English: another language keeps its
+/// closing (lift-up ATTR-3).
+fn calling(slide: &Slide, items: &[Item]) -> Option<(String, String)> {
+    const ASKING: [&str; 10] =
+        ["book", "contact", "sign", "join", "start", "register", "subscribe", "try", "visit", "apply"];
+    let dotted = |w: &str| w.rsplit_once('.').is_some_and(|(_, tail)| tail.starts_with(|c: char| c.is_alphabetic()));
+    let address_of = |line: &str| {
+        (line.split_whitespace())
+            .map(|w| {
+                w.trim_matches(|c: char| matches!(c, ',' | ';' | '(' | ')' | '!' | '?')).trim_end_matches(['.', ':'])
+            })
+            .find(|w| w.contains('@') || dotted(w))
+            .map(str::to_string)
+    };
+    let lines: Vec<String> = std::iter::once(slide.subtitle.trim().to_string())
+        .chain(items.iter().map(|i| i.whole.clone()))
+        .filter(|l| !l.is_empty())
+        .collect();
+    let address = lines.iter().find_map(|l| address_of(l))?;
+    let ask = lines.iter().find_map(|l| {
+        // The ask without its address: "Book a demo at relay.app/demo" asks "Book a demo".
+        let rest = l.replace(&address, "");
+        let rest = rest.trim().trim_end_matches([':', '-', '\u{2013}', '\u{2014}', ',']).trim();
+        let rest = rest.strip_suffix(" at").unwrap_or(rest).trim();
+        let words: Vec<&str> = rest.split_whitespace().collect();
+        let first = words.first()?.trim_matches(|c: char| !c.is_alphanumeric()).to_lowercase();
+        (ASKING.contains(&first.as_str()) && words.len() <= 8).then(|| rest.to_string())
+    })?;
+    Some((ask, address))
+}
+
 /// Whether `layout` has a place for each of `n` items: a list or a body holds any number; a
 /// layout of places, one item for each ordinal; a line with its support, one; a quote, a number,
 /// or a definition, the two it sets beside it. A chart takes its takeaway alone, its figures in
@@ -2682,6 +2758,9 @@ struct Slots<'a> {
     running: Option<&'a str>,
     /// The picture made for the slide, if one was.
     picture: Option<&'a Placed>,
+    /// The deck's big idea, where the person settled an outline (narrative FUNC-1): what a closing
+    /// that only thanks the room heads its takeaways with (lift-up ATTR-3).
+    idea: Option<&'a str>,
     /// The icon each item is set under, where each has one (G.23).
     icons: Option<Vec<&'a Icon>>,
     /// The deck's language (BCP 47).
@@ -3186,12 +3265,21 @@ impl Slots<'_> {
         text(match name {
             // A slide's foot names the part of the talk it is in, as a running head does.
             "kicker" if self.foot(slot) => self.running.map(str::to_string),
+            // A bare thanks's takeaways under the deck's big idea, where it has one (lift-up ATTR-3).
+            "header" if layout == "takeaways" && self.title().is_some_and(|t| bare(&t)) => {
+                self.idea.map(str::to_string).or_else(|| self.title())
+            }
+            // A call to action's words: a bare closing's ask, not its thanks (lift-up ATTR-3).
+            "statement" if layout == "call-to-action" => calling(self.slide, self.items).map(|(ask, _)| ask),
             "header" | "title" | "statement" | "claim" | "ask" | "question" | "term" | "headline" | "point"
             | "name" | "thanks" | "top" => self.title(),
             "subtitle" | "support" | "dek" | "follow" | "talk" | "lede" | "role" => {
                 self.subtitle().or_else(|| self.item(0).map(|i| i.whole.clone()))
             }
             "hub" => self.subtitle().or_else(|| self.title()),
+            // A call to action's button: what it asks, as the slide says it (lift-up ATTR-3).
+            // A call to action's button: a bare closing's address (lift-up ATTR-3).
+            "button" => calling(self.slide, self.items).map(|(_, address)| address),
             "number" if matches!(layout, "section" | "section-photo") => self.section.map(|n| format!("{n:02}")),
             // A figure with its unit is set whole: "11 days", not "11".
             "number" => self.item(0).map(|i| match numeric(&i.whole) {
@@ -6035,6 +6123,90 @@ mod tests {
     }
 
     #[test]
+    fn a_deck_ends_on_what_it_leaves_the_room_with() {
+        // A closing's layout follows what it says (lift-up ATTR-3): three takeaways on numbered
+        // cards; a bare thanks that carries an ask, the ask with its address on a button; its last
+        // words over its picture; else the closing as it was said. A layout the person chose stays.
+        let deck_of = |closing: serde_json::Value| {
+            let text = serde_json::json!({
+                "executiveSummary": "Proof is the product.",
+                "slides": [
+                    { "slideTitle": "Proof is the product", "subtitle": "A talk", "layoutSuggestion": "Title",
+                      "keyBullets": [], "beatIndex": 0, "beatName": "Hook" },
+                    { "slideTitle": "Why green freight stalls", "subtitle": "", "layoutSuggestion": "Bullet List",
+                      "keyBullets": ["Verification is slow", "Offsets are opaque"], "beatIndex": 1, "beatName": "Problem" },
+                    closing,
+                ]
+            })
+            .to_string();
+            let written = answer::slides(&text).unwrap();
+            narrative(&written.executive_summary, written.slides)
+        };
+        let closing = |title: &str, subtitle: &str, bullets: &[&str]| {
+            serde_json::json!({ "slideTitle": title, "subtitle": subtitle, "layoutSuggestion": "Closing",
+              "keyBullets": bullets, "beatIndex": 2, "beatName": "Close" })
+        };
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let last = |n: &Narrative, pictures: &Pictures, chosen: &BTreeMap<usize, String>| {
+            let made = deck_as(n, &theme, pictures, chosen).unwrap();
+            let state = made.deck["states"][2]["id"].as_str().unwrap().to_string();
+            (made.layouts[2].clone(), shown(&made.deck, &state))
+        };
+        let none = BTreeMap::new();
+        let has = |said: &[(String, String)], slot: &str, words: &str| {
+            assert!(said.iter().any(|(s, w)| s == slot && w == words), "{slot} = {words:?} in {said:#?}");
+        };
+        // Three takeaways, each on its card.
+        let three =
+            deck_of(closing("What to remember", "", &["Proof is slow", "Ledgers are closed", "Shippers pay twice"]));
+        let (layout, said) = last(&three, &Pictures::new(), &none);
+        assert_eq!(layout, "takeaways");
+        has(&said, "third", "Shippers pay twice");
+        // A bare thanks with three points heads them with the deck's big idea, where the person
+        // settled an outline, else keeps its thanks.
+        let mut thanks =
+            deck_of(closing("Thank you", "", &["Proof is slow", "Ledgers are closed", "Shippers pay twice"]));
+        let (layout, said) = last(&thanks, &Pictures::new(), &none);
+        assert_eq!(layout, "takeaways");
+        has(&said, "header", "Thank you");
+        let beat = |name: &str| scaena_narrato::outline::Beat { name: name.into(), ..Default::default() };
+        thanks.outline = Some(scaena_narrato::outline::Outline {
+            big_idea: "Proof, not offsets, will clean up freight".into(),
+            beats: vec![beat("Hook"), beat("Problem"), beat("Close")],
+        });
+        let (layout, said) = last(&thanks, &Pictures::new(), &none);
+        assert_eq!(layout, "takeaways");
+        has(&said, "header", "Proof, not offsets, will clean up freight");
+        // A bare thanks that carries an ask: the ask its words, the address its button.
+        let ask = deck_of(closing("Thank you!", "Book a pilot at tidewater.io/pilot", &[]));
+        let (layout, said) = last(&ask, &Pictures::new(), &none);
+        assert_eq!(layout, "call-to-action");
+        has(&said, "statement", "Book a pilot");
+        has(&said, "button", "tidewater.io/pilot");
+        let questions = deck_of(closing("Questions?", "", &["Contact us: hello@tidewater.io"]));
+        let (layout, said) = last(&questions, &Pictures::new(), &none);
+        assert_eq!(layout, "call-to-action");
+        has(&said, "statement", "Contact us");
+        has(&said, "button", "hello@tidewater.io");
+        // A closing that says something stays as it is said, its ask and address and all.
+        let strong = deck_of(closing("Go home and find your twelve people", "portalderpower.org/playbook", &[]));
+        assert_eq!(last(&strong, &Pictures::new(), &none).0, "closing");
+        // A bare thanks with no ask, or an ask with nowhere to go, stays as it was.
+        for (title, subtitle) in [("Thank you", ""), ("Thank you", "relay.app"), ("Thanks", "Book a demo today")] {
+            let bare = deck_of(closing(title, subtitle, &[]));
+            assert_eq!(last(&bare, &Pictures::new(), &none).0, "closing", "{title} / {subtitle}");
+        }
+        // Its last words over its picture, not the cover's layout.
+        let plain = deck_of(closing("Every invoice checked before it is paid", "", &[]));
+        let pictured: Pictures = [(2, Placed { src: "assets/picture-2.jpg".into(), alt: "A port".into() })].into();
+        assert_eq!(last(&plain, &pictured, &none).0, "poster");
+        assert_eq!(last(&plain, &Pictures::new(), &none).0, "closing");
+        // The person's own closing stays as they chose it.
+        let chosen: BTreeMap<usize, String> = [(2, "closing".to_string())].into();
+        assert_eq!(last(&ask, &Pictures::new(), &chosen).0, "closing");
+    }
+
+    #[test]
     fn a_text_that_cannot_come_clear_of_what_lies_across_it_is_left_as_it_was() {
         // A picture over the whole of a divider: its title, grown to its place, collides with it
         // however small it is set, the collision as large for its size. One step shows it, and
@@ -6735,7 +6907,8 @@ mod tests {
             .collect();
         let made = deck(&climate(), &theme, &pictures).unwrap();
         let layouts: Vec<&str> = [0, 1, 2, 3, 24].iter().map(|i| made.layouts[*i].as_str()).collect();
-        assert_eq!(layouts, ["title-split", "agenda-photo", "section-photo", "number-photo", "title-split"]);
+        // The closing's last words over its picture, not the cover's layout (lift-up ATTR-3).
+        assert_eq!(layouts, ["title-split", "agenda-photo", "section-photo", "number-photo", "poster"]);
         let art = placed(&made.deck, 2, "art");
         assert_eq!(
             (art["type"].as_str(), art["src"].as_str(), art["alt"].as_str()),
