@@ -3163,6 +3163,9 @@ impl Slots<'_> {
             (Some((_, "title" | "criterion")), "label") => at_least("body"),
             // A journey's phases and lanes, over and beside its cells, likewise.
             (Some((_, "phase" | "lane")), "label") if self.layout == "journey" => at_least("body"),
+            // A checklist's states are what it is for: as large as their places take, toward the
+            // lede, never left the smallest words on the slide (dogfood pass 7).
+            (Some((_, "state")), "label") if self.layout == "checklist" => at_least("lede"),
             (Some((_, "figure")), "figure") => at_least("numeral"),
             // A tier's price is its card's point: as large as its place takes, up to the hero's
             // size, the set's held to one (dogfood pass 4).
@@ -4605,14 +4608,24 @@ fn at_places(value: f64, places: usize, unit: Option<&str>) -> String {
 }
 
 /// Which of a single series' categories the slide is about, by index: the one its takeaway
-/// names; else, where the categories are years, the latest; else the largest.
+/// names; else, where the categories are years, the latest; else the largest. A year the
+/// takeaway runs on from ("since 2022", "after", "from") is where the story starts, not where it
+/// lands: the latest is lit, as a line's band runs from that year to the last (dogfood pass 7).
 fn signal(chart: &ChartData, takeaway: Option<&str>) -> Option<usize> {
     let named: Vec<usize> = (0..chart.categories.len())
         .filter(|i| takeaway.is_some_and(|t| t.to_lowercase().contains(&chart.categories[*i].to_lowercase())))
         .collect();
     let years = chart.categories.iter().all(|c| c.len() == 4 && c.chars().all(|d| d.is_ascii_digit()));
     let values = chart.series.first().map(|s| s.values.as_slice()).unwrap_or_default();
+    let runs_on = |year: &str| {
+        let words: Vec<String> = (takeaway.unwrap_or_default().split(|c: char| !c.is_alphanumeric()))
+            .filter(|w| !w.is_empty())
+            .map(str::to_lowercase)
+            .collect();
+        words.windows(2).any(|w| matches!(w[0].as_str(), "since" | "after" | "from") && w[1] == year)
+    };
     match named.as_slice() {
+        [one] if years && runs_on(&chart.categories[*one]) => chart.categories.len().checked_sub(1),
         [one] => Some(*one),
         _ if years => chart.categories.len().checked_sub(1),
         _ => (values.iter().enumerate()).max_by(|a, b| a.1.total_cmp(b.1)).map(|(i, _)| i),
@@ -5082,6 +5095,24 @@ mod tests {
             assert_eq!(mark(title), None, "{title}");
         }
         assert_eq!(period(&line(&["Q1", "Q2", "Q3"]), [Some("Since 1980"), None]), None);
+    }
+
+    /// Bars of years light the year the takeaway lands on: one it names bare, or the latest where
+    /// the words run on from the one named ("since 2022"), never the start (dogfood pass 7).
+    #[test]
+    fn bars_of_years_light_where_the_takeaway_lands() {
+        let wait = ChartData {
+            categories: ["2022", "2023", "2024", "2025"].map(String::from).to_vec(),
+            series: vec![answer::Series { name: None, values: vec![11.0, 17.0, 26.0, 34.0] }],
+            ..Default::default()
+        };
+        assert_eq!(signal(&wait, Some("The wait has tripled since 2022")), Some(3));
+        assert_eq!(signal(&wait, Some("From 2023, it climbed")), Some(3));
+        assert_eq!(signal(&wait, Some("2023 was the turn")), Some(1));
+        assert_eq!(signal(&wait, Some("Longer every year")), Some(3));
+        // Categories that are no years keep the one named.
+        let stages = ChartData { categories: ["Gateway", "Pricing"].map(String::from).to_vec(), ..wait.clone() };
+        assert_eq!(signal(&stages, Some("Since Pricing fell")), Some(1));
     }
 
     fn typeset_en(text: &str) -> String {
