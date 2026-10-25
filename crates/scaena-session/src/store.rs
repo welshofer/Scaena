@@ -215,11 +215,12 @@ impl Session {
     /// The deck as one HTML file that plays offline (PLAN 2.54): `page`, the single-file player's
     /// page, filled in with the bundle as `scaena export --format html` fills it, named `name`:
     /// the bundle as a save that subsets writes it, its fonts the subsets handed over
-    /// ([`Session::subsetting`]).
-    pub fn standalone(&self, page: &str, name: &str) -> Result<String, Error> {
+    /// ([`Session::subsetting`]). With [`Notes::Drop`](scaena_ops::export::Notes), it carries none
+    /// of the presenter's words, for a file sent to the room (lift-up 20261025 SEC-3).
+    pub fn standalone(&self, page: &str, name: &str, notes: scaena_ops::export::Notes) -> Result<String, Error> {
         let saved = || self.save("", true, None).map(|saving| saving.files).map_err(|e| OpsError::new(e.to_string()));
         let (html, _) =
-            scaena_ops::export::standalone_with(&self.bundle(), None, page, name, &Progress::default(), saved)
+            scaena_ops::export::standalone_with(&self.bundle(), None, page, name, notes, &Progress::default(), saved)
                 .map_err(|e| Error::Ops(e.to_string()))?;
         Ok(html)
     }
@@ -532,6 +533,7 @@ fn change(deck: String, author: &str, at: Option<i64>) -> Recorded {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+    use scaena_ops::export::Notes;
     use scaena_store::crdt::DeckDoc;
     use serde_json::json;
     use std::path::Path;
@@ -766,7 +768,7 @@ pub(crate) mod tests {
         );
 
         let page = r#"<html lang="__SCAENA_LANG__"><title>__SCAENA_TITLE__</title><body><!--__SCAENA_DECK__--></body>"#;
-        let unsubset = s.standalone(page, "b1").unwrap_err().to_string();
+        let unsubset = s.standalone(page, "b1", Notes::Keep).unwrap_err().to_string();
         assert!(unsubset.contains("no subset of it was handed over"), "{unsubset}");
         subset_all(&mut s);
         let saved = || {
@@ -777,8 +779,13 @@ pub(crate) mod tests {
             Ok(disk.saving_with(&opts, |_, _| Ok(None), subset)?.files)
         };
         let (cli, _) =
-            scaena_ops::export::standalone_with(&disk, None, page, "b1", &Progress::default(), saved).unwrap();
-        assert!(s.standalone(page, "b1").unwrap() == cli, "the single file differs from the CLI's");
+            scaena_ops::export::standalone_with(&disk, None, page, "b1", Notes::Keep, &Progress::default(), saved)
+                .unwrap();
+        assert!(s.standalone(page, "b1", Notes::Keep).unwrap() == cli, "the single file differs from the CLI's");
+        let (cli, _) =
+            scaena_ops::export::standalone_with(&disk, None, page, "b1", Notes::Drop, &Progress::default(), saved)
+                .unwrap();
+        assert!(s.standalone(page, "b1", Notes::Drop).unwrap() == cli, "the room's single file differs from the CLI's");
     }
 
     /// Every slide as PNGs (PLAN 2.122): one zip, a file to a slide named by its number, each the
