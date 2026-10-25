@@ -33,7 +33,7 @@ Every step works through either surface. An MCP tool takes the same settings its
 | find an icon | `scaena icons <words> --json`: each its `path` and `view`, for `add_node` | `icon_find` |
 | start a slide in a layout | `scaena start <bundle> <state> --layout bullets`: a new slide after that state's slide, as Add Slide starts one, with a text in each slot to write over; `--claim "…"` tells its claim in a beat of its own, else it joins that state's beat; `--id pricing` names it and its nodes (`pricing-header`), and it says each slot it filled with the node there, and each it left empty for a picture or a figure; `scaena inspect <bundle> --state <id> --layouts` lists the layouts | `state_start` |
 | set a slide's background | `scaena background <bundle> <state> backdrop`, one of the theme's shader presets; `--none` takes it away; neither lists what the slide may take | `background_set` |
-| write one slide as the generator builds them | the MCP server's alone: a slide in the JSON Narrato writes (`deck_generate`'s `slides`), after a slide (`after`) or in a slide's place (`replace`), its layout chosen for its items in the deck's theme and brief | `slide_write` |
+| write one slide as the generator builds them | the MCP server's alone: a slide in the JSON Narrato writes (`deck_generate`'s `slides`), after a slide (`after`) or in a slide's place (`replace`), its layout chosen for its items in the deck's theme and brief; `beat` names the beat of the spine it tells, which its states join and which keeps its claim; with none, a deck with no spine yet begins one, the first slide taking the place of `deck_create`'s blank one | `slide_write` |
 | make a deck from slides you wrote | `scaena generate <dir> "topic" --slides slides.json`: Narrato's slide JSON, no model called | `deck_generate`: the same, the slides given inline |
 
 Errors:
@@ -42,9 +42,15 @@ Errors:
 
 ## Procedure
 
+0. **Choose the path**, in this order:
+   - A whole deck: write its slides in the JSON Narrato writes and make it with `deck_generate` (`scaena generate --slides`), which calls no model and gives the spine, its beats and notes, the layouts, the figures, and the builds.
+   - One slide into a deck that exists: `slide_write`, with the `beat` it tells.
+   - A deck written by hand: `deck_create`, then the steps below with `deck_patch`.
+
 1. **Spine first.**
    - From the brief, write `spine.sections[].beats[]`: one `claim` sentence per beat, `evidence` refs, and `notes`.
    - Aim for 3–7 beats. If the brief is thin, ask one question, then proceed.
+   - Over MCP, plan the spine with `spine_update`, then write each slide with `slide_write` and its `beat`: the slide's states join the beat you planned, which keeps its claim, so the story you wrote is the one the deck tells and `deck_health` reads.
    - On a deck that exists, read its spine before anything else: `spine_read` (from the CLI, `scaena export <bundle> --format spine`). Each beat's claim is what its slides must say, so an edit serves a claim or changes the spine; `spine_update` replaces the spine, checked as a patch is. Then read its story (step 6) to know what it needs before you touch a slide.
 2. **Data.**
    - Register sources under `data` (`data/*.csv|json`), each with a `schema`; `data_attach` writes both.

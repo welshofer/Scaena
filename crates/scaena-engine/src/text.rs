@@ -789,7 +789,7 @@ impl TextEngine {
         let mut fallback = match requested {
             _ if unbroken => None,
             Wrap::Greedy => None,
-            _ if text.contains(['\n', '\r', '\u{2028}', '\u{2029}']) => Some("hard line break"),
+            _ if text.contains(crate::carets::breaks) => Some("hard line break"),
             _ => None,
         };
         let wrap = match (requested, fallback) {

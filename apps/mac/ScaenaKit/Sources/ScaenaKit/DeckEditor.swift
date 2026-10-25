@@ -54,6 +54,20 @@ public final class DeckEditor {
     /// The format frames are laid out in (PLAN 2.62, 3.16): one of the deck's `formats`, or none
     /// for its own canvas.
     public private(set) var format: String?
+    /// Whether the assistant is at work on the deck (lift-up STAB-5): while it is, the user's own
+    /// edits and undo are refused, as the browser refuses them, so the model's next call reads the
+    /// deck it left. Its `Assistant` sets it.
+    public internal(set) var assisting = false
+
+    /// Why an edit is refused while the assistant is at work, as the browser says it.
+    public static let busy = "the assistant is at work on the deck"
+    /// What the window says of an undo, or a redo, refused while it is.
+    public static let atWork = "The assistant is at work on the deck: undo once it is done"
+
+    /// A beat's claim its slide said before the last edit and says no more (lift-up FUNC-2): what
+    /// the window offers to restate in the slide's words, one step to undo. A patch reports it at
+    /// once, and typing once its burst ends (`restate(since:)`).
+    public private(set) var restating: Restated?
 
     /// Why the deck shows no state, where it shows none: it opened, but its source does not
     /// compile or validate, so it is no deck to show or edit yet. What the window says in place
@@ -124,6 +138,7 @@ public final class DeckEditor {
     /// source does not compile, which is no deck to edit.
     @discardableResult
     public func make(_ ops: [JSONValue], author: String = "user") throws -> String {
+        if author == "user" { try unassisted() }
         guard valid, error == nil else { throw ScaenaError(message: "the source does not compile: fix it first") }
         let called = try session.tool("deck_patch", ["ops": .array(ops)], author: author)
         guard called.edited else {
@@ -138,7 +153,33 @@ public final class DeckEditor {
         let before = made
         let next = try session.source()
         _ = take(next)
+        restate(since: before)
         return before
+    }
+
+    /// Ask, once an edit is made, whether a beat's claim its slide said in the deck `before`
+    /// compiles to is said no more (lift-up FUNC-2): what the window offers then, `restating`.
+    public func restate(since before: String) {
+        restating = (try? session.restated(before: before))?.first
+    }
+
+    /// Put what `restating` offers away, unmade.
+    public func keepClaim() {
+        restating = nil
+    }
+
+    /// `restating` as the window says it (PLAN 2.99): "Slide 4's story still says “…”. Update it to
+    /// “…”?", or, its headline taken away, that the slide no longer says it.
+    public var restatingSaid: String? {
+        guard let restating else { return nil }
+        let slides = slots.reduce(into: [String]()) { seen, slot in if seen.last != slot.slide { seen.append(slot.slide) } }
+        let slide = slots.first { $0.state == restating.state }.flatMap { s in slides.firstIndex(of: s.slide) }
+        let named = slide.map { "Slide \($0 + 1)" } ?? "This slide"
+        let quoted = { (words: String) in "“\(words.count > 60 ? String(words.prefix(59)) + "…" : words)”" }
+        guard let says = restating.says, !restating.fix.isEmpty else {
+            return "\(named)'s story still says \(quoted(restating.claim)), which the slide no longer says: restate it in the Story panel"
+        }
+        return "\(named)'s story still says \(quoted(restating.claim)). Update it to \(quoted(says))?"
     }
 
     /// What lint found in a change refused, as an editor says it (`scaena_core::words`, as the
@@ -182,6 +223,7 @@ public final class DeckEditor {
     /// why.
     @discardableResult
     public func typed(_ ops: [JSONValue], at date: Date = Date()) throws -> String {
+        try unassisted()
         guard valid, error == nil else { throw ScaenaError(message: "the source does not compile: fix it first") }
         guard try session.typed(ops, at: date) else { throw ScaenaError(message: "it reads so already") }
         guard let before = take(try session.source(), lint: false) else {
@@ -193,19 +235,27 @@ public final class DeckEditor {
     /// Compile `typed`, the source pane's text: the source the deck had, for an undo, where it
     /// became the deck; none where it does not compile or validate, or says what the pane did.
     public func type(_ typed: String) -> String? {
-        guard typed != source else { return nil }
+        guard typed != source, !assisting else { return nil }
         return take(typed)
     }
 
     /// Apply `finding`'s fix (SPEC §7.4): the source the deck had, for an undo.
     @discardableResult
     public func fix(_ finding: Finding) throws -> String {
+        try unassisted()
         guard let patch = finding.fix, finding.fixable else { throw ScaenaError(message: "there is no fix for it") }
         let fixed = try session.fix(patch)
         guard let before = take(fixed) else {
             throw ScaenaError(message: error?.said ?? "the fixed deck does not validate")
         }
         return before
+    }
+
+    /// Throws while the assistant is at work on the deck (lift-up STAB-5): an edit of the user's,
+    /// on the canvas, in a panel, or by a fix, waits until it is done, as the browser's does.
+    public func unassisted() throws {
+        guard assisting else { return }
+        throw ScaenaError(message: Self.busy)
     }
 
     /// Make the deck `source` again (an undo, or its redo): the source it replaces.
@@ -401,6 +451,7 @@ public final class DeckEditor {
     /// `lint`, the state shown is linted at once; without, the findings shown wait for `lintEvery`.
     private func take(_ next: String, lint: Bool = true) -> String? {
         source = next
+        restating = nil
         compiled += 1
         linter.latest.store(compiled, ordering: .relaxed)
         guard let compiling = try? session.compile(next) else {

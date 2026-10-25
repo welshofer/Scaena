@@ -1145,6 +1145,13 @@ impl Player {
         let ops: serde_json::Value = serde_json::from_str(ops).map_err(js)?;
         self.0.typed(&ops, at.as_deref().and_then(store::seconds)).map_err(js)
     }
+
+    /// The beats whose claim a slide said in the deck `before` compiles to (the source as a
+    /// burst of typing began) and says no longer in the deck now, each with the `replace` that
+    /// restates it (lift-up FUNC-2), as JSON.
+    pub fn restated(&self, before: &str) -> Result<String, JsError> {
+        serde_json::to_string(&self.0.restated(before)).map_err(js)
+    }
 }
 
 /// The bundle a page opens, edits, and saves (PLAN 2.4, SPEC §9.2).
@@ -1243,8 +1250,11 @@ impl Player {
     /// The deck as one HTML file that plays offline (PLAN 2.54): `page`, the single-file
     /// player's page, filled in with the bundle as `scaena export --format html` fills it, and
     /// named `name`. Its fonts are subset first, as for a save (`subsetting`, `addSubset`).
-    pub fn standalone(&self, page: &str, name: &str) -> Result<String, JsError> {
-        self.0.standalone(page, name).map_err(js)
+    /// Without `notes`, it carries none of the presenter's words, for a file sent to the room
+    /// (lift-up 20261025 SEC-3).
+    pub fn standalone(&self, page: &str, name: &str, notes: bool) -> Result<String, JsError> {
+        let notes = if notes { scaena_ops::export::Notes::Keep } else { scaena_ops::export::Notes::Drop };
+        self.0.standalone(page, name, notes).map_err(js)
     }
 
     /// Where a file dropped on the page goes in the bundle: a font under `fonts/` and a

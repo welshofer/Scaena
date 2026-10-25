@@ -166,9 +166,9 @@ public final class ScaenaSession {
         return CGSize(width: size[0], height: size[1])
     }
 
-    /// A state on the deck's timeline: where it starts, its cue's span, and its hold, ms; and the
+    /// A state on the deck's timeline: where it starts, its cue's span, and its hold, ms; the
     /// words that head it, where a text does, which the slides down the side are read by (lift-up
-    /// 10-24b USE-4).
+    /// 10-24b USE-4); and its place in the talk, where a beat names it (lift-up FUNC-2).
     public struct Slot: Decodable, Equatable, Sendable {
         public let state: String
         public let slide: String
@@ -176,6 +176,32 @@ public final class ScaenaSession {
         public let span: Double
         public let hold: Double
         public var headline: String? = nil
+        public var story: Story? = nil
+
+        /// A state's place in the talk (`Session::story_place`): its section's title, its beat's
+        /// claim, the seconds the beat is planned to take, and the seconds planned before the
+        /// state comes up, the deck paced by its beats.
+        public struct Story: Decodable, Equatable, Sendable {
+            public var section: String? = nil
+            public var claim: String
+            public var planned: Double? = nil
+            public var before: Double
+
+            /// The section and the claim, as the presenter's view says where the talk is:
+            /// `Growth · Revenue doubled`.
+            public var told: String {
+                [section, claim].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " \u{00B7} ")
+            }
+
+            /// How a talk `elapsed` seconds in stands against this plan, as the browser's presenter
+            /// view says it: `On plan` within a few seconds of it, else `1:20 behind` or `0:45 ahead`.
+            public func pace(elapsed: TimeInterval) -> String {
+                let off = Int((elapsed - before).rounded())
+                if abs(off) < 5 { return "On plan" }
+                let s = abs(off)
+                return String(format: "%ld:%02ld %@", s / 60, s % 60, off > 0 ? "behind" : "ahead")
+            }
+        }
     }
 
     /// The deck's states end to end (SPEC §2.4).

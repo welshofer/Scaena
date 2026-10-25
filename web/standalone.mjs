@@ -193,6 +193,10 @@ try {
   await page.keyboard.press("ArrowRight");
   await presenter.waitForFunction(() => window.scaena.follows().startsWith("Slide 2 of 3"), null, { timeout: 30000 }).catch(() => {});
   check((await presenter.evaluate(() => window.scaena.follows())) === "Slide 2 of 3", `the presenter view opens from the file and follows it: ${await presenter.evaluate(() => window.scaena.follows())}`);
+  // A file exported without the speaker notes, as one is by default, says so where they would
+  // stand (lift-up 20261025 SEC-3; Jay's call, 2026-10-25).
+  const unnoted = await presenter.evaluate(() => document.querySelector("#notes").textContent);
+  check(unnoted.startsWith("This file was exported without the speaker notes."), `its presenter view says the file carries no notes: ${unnoted}`);
   await presenter.close();
   await page.close();
 
