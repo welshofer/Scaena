@@ -435,6 +435,23 @@ pub fn health(deck: &Deck) -> Result<Health, OpsError> {
 /// The narrative health of `deck`, with what lint finds in it (`lint`, over its bundle): health
 /// lays nothing out, so a slide that does not stand as it is to be read is lint's to say. Each
 /// slide with an error in one of its states is a finding of its own, ahead of every other: what
+/// The slides at `indices`, from 0, as a person names them: "slide 3", or "slides 3, 5 and 8";
+/// and whether there are several.
+fn slides_named(indices: &[usize]) -> (String, bool) {
+    let named: Vec<String> = indices.iter().map(|i| (i + 1).to_string()).collect();
+    match named.split_last() {
+        Some((last, [])) => (format!("slide {last}"), false),
+        Some((last, rest)) => (format!("slides {} and {last}", rest.join(", ")), true),
+        None => (String::new(), false),
+    }
+}
+
+/// `text` with its first letter a capital.
+fn capitalized(text: &str) -> String {
+    let mut chars = text.chars();
+    chars.next().map(|c| c.to_uppercase().chain(chars).collect()).unwrap_or_default()
+}
+
 /// lint says of it, and the assistant asked to fix it. The scores are Vzestup's, as without them.
 pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Health, OpsError> {
     let narrative = deck.meta.as_ref().and_then(|m| m.extra.get("narrative"));
@@ -866,6 +883,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         };
         find(&read[i].id, Severity::Warning, Kind::Story, format!("Slide {k}: {said}"), ask, None);
     }
+    let mut unnoted = Vec::new();
     for (i, s) in read.iter().enumerate() {
         let k = i + 1;
         let points = most.get(i).copied().unwrap_or(0);
@@ -890,15 +908,22 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
             );
         }
         if !s.body.trim().is_empty() && s.notes.trim().is_empty() {
-            find(
-                &s.id,
-                Severity::Info,
-                Kind::Notes,
-                format!("Slide {k} has nothing for you to say: it has no notes."),
-                format!("Draft notes for slide {k}: what to tell the room beyond what it shows."),
-                None,
-            );
+            unnoted.push(i);
         }
+    }
+    // The slides with nothing for the presenter to say, as one finding at the first of them: a
+    // deck written by hand has no notes on any, and a row for each would bury the rest.
+    if let Some(&first) = unnoted.first() {
+        let (named, many) = slides_named(&unnoted);
+        let (have, each) = if many { ("have", "each") } else { ("has", "it") };
+        find(
+            &read[first].id,
+            Severity::Info,
+            Kind::Notes,
+            format!("{} {have} no notes for you.", capitalized(&named)),
+            format!("Draft notes for {named}, in order: what to tell the room beyond what {each} shows."),
+            None,
+        );
     }
     if let Some((lo, Some(hi))) = asked.filter(|_| n > 2) {
         let over = n.saturating_sub(hi);
@@ -912,14 +937,9 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
             cut.truncate(over);
             scaena_core::sort::by_key(&mut cut, |&i| i);
             if let Some(&first) = cut.first() {
-                let named: Vec<String> = cut.iter().map(|i| (i + 1).to_string()).collect();
-                let (named, adds) = match named.split_last() {
-                    Some((last, [])) => (format!("slide {last}"), "adds least to the slide before it"),
-                    Some((last, rest)) => {
-                        (format!("slides {} and {last}", rest.join(", ")), "add least to the slides before them")
-                    }
-                    None => (String::new(), ""),
-                };
+                let (named, many) = slides_named(&cut);
+                let adds =
+                    if many { "add least to the slides before them" } else { "adds least to the slide before it" };
                 find(
                     &read[first].id,
                     Severity::Warning,
@@ -1084,7 +1104,37 @@ mod tests {
             "{:?}",
             h.findings
         );
-        assert!((h.findings.iter()).all(|f| f.kind != Kind::Notes || f.severity == Severity::Info));
+        assert!((h.findings.iter()).all(|f| f.kind != Kind::Notes), "a made deck writes notes on every slide");
+
+        // Two slides with nothing for the presenter to say: one finding, at the first, naming both.
+        let slides: Vec<String> = (deck["states"].as_array().unwrap().iter())
+            .filter(|st| st.get("slide").is_none())
+            .map(|st| st["id"].as_str().unwrap().to_string())
+            .collect();
+        let mut unnoted = deck.clone();
+        for st in unnoted["states"].as_array_mut().unwrap() {
+            let of = st.get("slide").cloned().unwrap_or_else(|| st["id"].clone());
+            if of == slides[2] || of == slides[4] {
+                st.as_object_mut().unwrap().remove("notes");
+            }
+        }
+        for section in unnoted["spine"]["sections"].as_array_mut().unwrap() {
+            for beat in section["beats"].as_array_mut().unwrap() {
+                let tells = |id: &String| beat["states"].as_array().unwrap().iter().any(|s| s == id.as_str());
+                if tells(&slides[2]) || tells(&slides[4]) {
+                    beat.as_object_mut().unwrap().remove("notes");
+                }
+            }
+        }
+        let h = of(&unnoted);
+        let noted: Vec<&Finding> = h.findings.iter().filter(|f| f.kind == Kind::Notes).collect();
+        assert_eq!(noted.len(), 1, "{:?}", h.findings);
+        assert_eq!((noted[0].slide, noted[0].severity), (3, Severity::Info));
+        assert_eq!(noted[0].says, "Slides 3 and 5 have no notes for you.");
+        assert_eq!(
+            noted[0].ask,
+            "Draft notes for slides 3 and 5, in order: what to tell the room beyond what each shows."
+        );
 
         // Twenty-five slides where ten to fifteen were asked: ten to cut, named.
         deck["meta"]["narrative"]["brief"]["length"] = json!("10-15 slides");
