@@ -82,6 +82,13 @@ pub fn busy(status: u16) -> bool {
     matches!(status, 0 | 408 | 429 | 500..=599)
 }
 
+/// How long to wait before asking a busy provider again for a look or a fit (lift-up REL-1),
+/// as the slides and the pictures are asked: `tried` the times it was asked so far, from 0. None
+/// where `status` answers for good, or [`TRIES`] are spent.
+pub fn retry_after(status: u16, body: &str, after: Option<&str>, tried: usize) -> Option<f64> {
+    (busy(status) && tried + 1 < TRIES).then(|| providers::wait(after, body, tried + 1))
+}
+
 /// Who writes the deck: a provider, the model the user picked from those their key lists, and
 /// where its API is.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
