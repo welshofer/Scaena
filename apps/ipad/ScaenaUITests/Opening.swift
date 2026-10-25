@@ -37,7 +37,9 @@ extension XCTestCase {
     func openB1(in app: XCUIApplication) throws {
         let first = app.descendants(matching: .any).matching(NSPredicate(format: "identifier == 'state-cover'")).firstMatch
         // Open once the browser's launch scene and B1's cell are no longer there to be pressed.
-        let prompt = app.buttons.matching(NSPredicate(format: "label == 'New from a Prompt…'")).firstMatch
+        // By its words, as OpeningTests finds it: the launch screen also keeps a bare button of
+        // each, out of sight, which never reads as hittable.
+        let prompt = app.staticTexts.matching(NSPredicate(format: "label == 'New from a Prompt…'")).firstMatch
         let b1 = cell(in: app, named: "b1")
         let open = { first.exists && !(prompt.exists && prompt.isHittable) && !(b1.exists && b1.isHittable) }
         if first.waitForExistence(timeout: 5), wait(5, open) { return }
