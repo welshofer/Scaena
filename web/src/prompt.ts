@@ -140,18 +140,22 @@ export function prompting(
   /** The outline pane's own fields, which stay live while the deck is made. */
   const outlining = (field: Element) => field.closest("#prompting-outline") !== null;
 
-  /** A beat as a row: its name, its claim to type over, the slides it takes, and Up, Down, and
-   * Remove. */
+  /** A beat as a row: its name, its claim to type over, the slides it takes, a number to set
+   * (lift-up FUNC-4), and Up, Down, and Remove. */
   const beatRow = (beat: { name: string; claim: string; slides: number }): HTMLLIElement => {
     const li = document.createElement("li");
-    li.dataset.slides = String(beat.slides);
     const name = document.createElement("input");
     name.className = "name";
     name.value = beat.name;
     name.setAttribute("aria-label", "The beat's name");
-    const slides = document.createElement("span");
+    const slides = document.createElement("input");
     slides.className = "slides";
-    slides.textContent = beat.slides === 0 ? "no slides" : beat.slides === 1 ? "1 slide" : `${beat.slides} slides`;
+    slides.type = "number";
+    slides.min = "0";
+    slides.max = "60";
+    slides.step = "1";
+    slides.value = String(beat.slides);
+    slides.setAttribute("aria-label", "The slides the beat takes");
     const claim = document.createElement("textarea");
     claim.className = "claim";
     claim.rows = 2;
@@ -181,7 +185,7 @@ export function prompting(
     beats: [...beats.querySelectorAll("li")].map((li) => ({
       name: li.querySelector<HTMLInputElement>(".name")!.value,
       claim: li.querySelector<HTMLTextAreaElement>(".claim")!.value,
-      slides: Number(li.dataset.slides ?? 0),
+      slides: Math.max(0, Math.round(Number(li.querySelector<HTMLInputElement>(".slides")!.value) || 0)),
     })),
   });
 
