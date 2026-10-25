@@ -115,7 +115,7 @@ try {
       if (status) new MutationObserver(() => window.statusSaid.push(status.textContent)).observe(status, { childList: true, characterData: true, subtree: true });
     });
   });
-  const mayClear = () => page.evaluate(() => window.statusSaid.filter((t) => t.startsWith("This browser may clear")).length);
+  const mayClear = () => page.evaluate(() => window.statusSaid.filter((t) => t.includes("This browser may clear")).length);
 
   // The revenue example, from its URL, edited and saved into the browser's storage.
   await page.goto(editor("/docs/examples/revenue.deck.json"));
@@ -143,6 +143,11 @@ try {
   check(
     (await page.evaluate(() => window.persistAsked())) === 1 && (await mayClear()) === 1,
     `the first keep asks the browser to keep it for good, once, and its refusal is said once: asked ${await page.evaluate(() => window.persistAsked())}, said ${await mayClear()}`,
+  );
+  const refusedSaid = await page.evaluate(() => window.statusSaid.find((t) => t.includes("This browser may clear")) ?? "");
+  check(
+    refusedSaid.startsWith("Saved, ") && refusedSaid.indexOf("Saved, ") < refusedSaid.indexOf("This browser may clear"),
+    `the refusal is said after what was saved, never in its place: ${refusedSaid}`,
   );
   check(new URL(page.url()).searchParams.get("bundle") === "opfs:revenue", `the address names it: ${page.url()}`);
   const kept = await listing(page, "bundles/revenue");

@@ -2099,8 +2099,6 @@ async function edit(source: Source, opened?: Stage) {
    * them left them: the bundle kept where it went, the paths the save renamed renamed in the source,
    * and the page's address naming it. */
   async function took(done: Extract<FromWorker, { type: "saved" }>, sent: string, files: number) {
-    // Kept in this browser: the browser is asked to keep it for good (lift-up 10-24b REL-4).
-    if (done.where.kind === "opfs") void persist(say);
     // Saved: the copy of what was not, under the key before and after, goes.
     const was = copyKey();
     clearTimeout(copyTimer);
@@ -2126,7 +2124,11 @@ async function edit(source: Source, opened?: Stage) {
     void listKept();
     // The save recorded the edits since the last: they are versions now.
     void versioning.refresh();
-    say(`Saved, ${many(done.files, "file")}${done.recorded ? ", and the changes kept in its history" : ""}`);
+    const saved = `Saved, ${many(done.files, "file")}${done.recorded ? ", and the changes kept in its history" : ""}`;
+    say(saved);
+    // Kept in this browser: the browser is asked to keep it for good (lift-up 10-24b REL-4), and a
+    // refusal is said after what was saved, never in its place.
+    if (done.where.kind === "opfs") void persist((refused) => say(status.textContent === saved ? `${saved}. ${refused}` : refused));
     return done;
   }
 
