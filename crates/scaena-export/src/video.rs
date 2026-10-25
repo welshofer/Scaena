@@ -84,6 +84,10 @@ pub struct VideoSettings {
     pub chapters: Vec<Chapter>,
     /// The ffmpeg to run.
     pub ffmpeg: PathBuf,
+    /// The video's title and comment, as players and uploads show them: the deck's title and
+    /// description, never a time (lift-up 10-24b ATTR-4).
+    pub title: Option<String>,
+    pub comment: Option<String>,
 }
 
 impl Default for VideoSettings {
@@ -96,6 +100,8 @@ impl Default for VideoSettings {
             audio: None,
             chapters: Vec::new(),
             ffmpeg: PathBuf::from("ffmpeg"),
+            title: None,
+            comment: None,
         }
     }
 }
@@ -609,6 +615,12 @@ fn args(settings: &VideoSettings, [w, h]: [u32; 2], out: &Path, chapters: Option
     // No metadata from the inputs. A bare `-map_metadata -1` would strip the chapters'
     // titles too, and in MP4 and QuickTime their track.
     args.extend(["-map_metadata:g", "-1", "-map_metadata:s", "-1", "-fflags", "+bitexact", "-y"].map(OsString::from));
+    // Then the deck's own: its title and description.
+    for (key, value) in [("title", &settings.title), ("comment", &settings.comment)] {
+        if let Some(value) = value.as_deref().map(str::trim).filter(|v| !v.is_empty()) {
+            args.extend(["-metadata".into(), OsString::from(format!("{key}={value}"))]);
+        }
+    }
     args.push(out.as_os_str().to_os_string());
     args
 }
@@ -653,6 +665,19 @@ mod tests {
         assert!(
             args.windows(2).any(|w| w == ["-map", "1:a:0"]) && args.windows(2).any(|w| w == ["-map_chapters", "2"])
         );
+    }
+
+    #[test]
+    fn the_video_carries_the_decks_title_and_description() {
+        let said =
+            VideoSettings { title: Some(" Trails ".into()), comment: Some(" ".into()), ..VideoSettings::default() };
+        let args = args(&said, [1920, 1080], Path::new("x"), None);
+        let args: Vec<&str> = args.iter().map(|a| a.to_str().unwrap()).collect();
+        let tags: Vec<&str> = args.windows(2).filter(|w| w[0] == "-metadata").map(|w| w[1]).collect();
+        assert_eq!(tags, ["title=Trails"], "the title trimmed, a blank description left out");
+        let at = |a: &str| args.iter().position(|b| *b == a).unwrap();
+        assert!(at("-map_metadata:g") < at("-metadata"), "the deck's tags come after the inputs' are dropped");
+        assert_eq!(args.last(), Some(&"x"));
     }
 
     /// Held to run stand-ins, and alone to write one: a child forked while a script is

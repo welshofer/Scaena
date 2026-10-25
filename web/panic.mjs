@@ -15,6 +15,12 @@
 // - A second panic, after the save: the engine starts again kept where the deck is kept, and a
 //   save writes there again.
 // - A request made of the engine that stopped is refused, not left waiting.
+// - The worker fails outside a message and holds one task 5 s (`scaena.die(5000)`): it lives, a
+//   request made of it meanwhile is answered when the task ends, and nothing is started again.
+// - The worker dies outside a message and answers nothing more, as one out of memory does
+//   (`scaena.die()`, lift-up 10-24b STAB-2): a request waiting on it is refused within the 20 s it
+//   is given to say anything, and the engine starts again from the deck as last saved, with the source as
+//   it stands, the status naming the picture dropped since the save, which went with the worker.
 // Exits 1 on any failure.
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
@@ -50,7 +56,7 @@ try {
   const page = await context.newPage();
   page.on("pageerror", (e) => failures.push(`page: ${e.message}`));
   // The panic asked for is said on the console by the engine's hook, as any panic is.
-  page.on("console", (m) => m.type() === "error" && !m.text().includes("a panic asked for") && failures.push(`console: ${m.text()}`));
+  page.on("console", (m) => m.type() === "error" && !m.text().includes("a panic asked for") && !m.text().includes("as asked, to test the editor's recovery") && failures.push(`console: ${m.text()}`));
   page.on("dialog", (d) => void d.accept());
   const ready = async () => {
     await page.waitForFunction(() => window.scaena?.last() || document.querySelector("#status")?.textContent.startsWith("Error"), null, { timeout: 120000 });
@@ -161,6 +167,63 @@ try {
   })).includes("Revenue tripled"), "with the edit made after the first panic");
   const answered = await asked;
   check(answered === "painted" || answered.startsWith("refused"), `a request in flight is answered or refused, not left waiting: ${answered}`);
+
+  // The worker fails outside a message, then holds one task 5 s, as a large deck's whole lint can:
+  // it lives, so a request made of it meanwhile is answered once the task ends, and nothing is
+  // started again.
+  const busy = await page.evaluate(async () => {
+    window.scaena.die(5000);
+    await new Promise((r) => setTimeout(r, 300));
+    const asked = performance.now();
+    const read = await window.scaena.reading().then(() => "read", (e) => `refused: ${e.message}`);
+    return { read, after: Math.round(performance.now() - asked) };
+  });
+  check(busy.read === "read" && busy.after > 3000, `a worker busy 5 s after an error is alive: a request made meanwhile is answered when it can be, ${busy.after} ms on: ${busy.read}`);
+  await page.waitForTimeout(500);
+  check((await page.evaluate(() => window.scaena.restarts())) === 2, "and the engine is not started again");
+
+  // The worker dies outside a message and answers nothing more, as one out of memory does (lift-up
+  // 10-24b STAB-2): it hands nothing over, so the engine starts again from the deck as last saved,
+  // with the source as it stands, and the picture dropped since the save is said to be lost. A
+  // request waiting on the worker is refused, not left waiting.
+  const map = await readFile("tests/fixtures/torture.scaena/assets/map-card.png");
+  const mapAsset = `assets/${createHash("sha256").update(map).digest("hex")}.png`;
+  const mapNode = '  mapped image  at:in(canvas) alt:"" z:-40\n';
+  const withMap = (await source()).replace("Revenue tripled", "Revenue quadrupled").replace("state intro layout:title hold:4s\n", `state intro layout:title hold:4s\n${mapNode}`);
+  await type(withMap);
+  const mapAt = withMap.indexOf(mapNode) + "  mapped image ".length;
+  const dropping = await page.evaluate(() => window.scaena.trips().length);
+  await page.evaluate(
+    async ([b64, at]) => window.scaena.drop("Map Card.png", Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)).buffer, at),
+    [map.toString("base64"), mapAt],
+  );
+  await page.waitForFunction((n) => window.scaena.trips().length > n && window.scaena.last().valid, dropping, { timeout: 60000 }).catch(() => {});
+  check((await source()).includes(`mapped image "${mapAsset}"`) && (await page.evaluate(() => window.scaena.last().valid)), "a picture dropped after the save, and an edit");
+  const waited = page.evaluate(async () => {
+    window.scaena.die();
+    // Once the worker has failed and stopped answering, a request of it.
+    await new Promise((r) => setTimeout(r, 300));
+    return window.scaena.reading().then(() => "read", (e) => `refused: ${e.message}`);
+  });
+  // While the stage waits for it to say anything, the status says so.
+  const stalled = await page
+    .waitForFunction(() => document.querySelector("#status").textContent.includes("stopped answering"), null, { timeout: 10000 })
+    .then(() => page.locator("#status").textContent(), () => "");
+  check(stalled.includes("waiting up to 20 seconds"), `while it waits, the status says the engine stopped answering: ${stalled}`);
+  const late = await Promise.race([waited, new Promise((r) => setTimeout(() => r("waiting"), 30000))]);
+  check(late.startsWith("refused: the engine stopped"), `a request waiting on a worker that died is refused, within the 20 s it is given to say anything: ${late}`);
+  await page.waitForFunction(() => window.scaena.restarts() === 3, null, { timeout: 60000 }).catch(() => {});
+  check((await page.evaluate(() => window.scaena.restarts())) === 3, "the engine starts again in a fresh worker");
+  await says("Save when you can");
+  const told = await status();
+  check(
+    told.includes("the worker died, as asked") && told.includes("from the deck as last saved, with the source as it stands") && told.includes("lost: Map Card.png"),
+    `the status says so, naming the picture lost: ${told}`,
+  );
+  check((await source()).includes("Revenue quadrupled") && (await where()).dirty, "the source stands as it was, as changes not saved");
+  await page.waitForFunction(() => window.scaena.last(), null, { timeout: 60000 }).catch(() => {});
+  const reads = await page.evaluate(() => window.scaena.reading().then(() => "read", (e) => `refused: ${e.message}`));
+  check(reads === "read", `the fresh worker answers: ${reads}`);
 } finally {
   await browser.close();
   server.close();
