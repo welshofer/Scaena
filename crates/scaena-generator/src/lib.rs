@@ -43,7 +43,17 @@ impl Asking {
     fn read(asking: &str) -> Result<(Asking, Provider), JsError> {
         let asking: Asking = serde_json::from_str(asking).map_err(|e| error(format!("who is asked: {e}")))?;
         let provider = provider(&asking.provider)?;
+        checked(asking.base.as_deref())?;
         Ok((asking, provider))
+    }
+}
+
+/// `base`, where it is given, as an address the key may go to: plain `http` off this machine is
+/// refused (lift-up 20261025 SEC-2).
+fn checked(base: Option<&str>) -> Result<(), JsError> {
+    match base.filter(|b| !b.is_empty()) {
+        Some(b) => scaena_narrato::providers::checked_base(b).map(drop).map_err(error),
+        None => Ok(()),
     }
 }
 
@@ -538,6 +548,7 @@ pub fn picture_asked(theme: &str, subject: &str, look: &str, width: f64, height:
 #[wasm_bindgen(js_name = pictureModelsRequest)]
 pub fn picture_models_request(provider: &str, key: &str, base: Option<String>) -> Result<String, JsError> {
     let provider = Provider::named(provider).ok_or_else(|| error(format!("`{provider}` is no provider")))?;
+    checked(base.as_deref())?;
     Ok(serde_json::to_string(&provider.models(key, base.as_deref(), true)).expect("a request is JSON"))
 }
 
@@ -566,6 +577,7 @@ impl Painting {
     pub fn new(asked: &str, settings: &str) -> Result<Painting, JsError> {
         let asked: Vec<scaena_ops::narrative::Asked> = serde_json::from_str(asked).map_err(error)?;
         let settings: scaena_narrato::pictures::Settings = serde_json::from_str(settings).map_err(error)?;
+        checked(settings.base.as_deref())?;
         Ok(Painting { inner: scaena_ops::narrative::Painting::new(asked, settings), replies: Vec::new() })
     }
 

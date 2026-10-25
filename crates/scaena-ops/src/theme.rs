@@ -573,9 +573,10 @@ pub struct Library {
     /// The shadows added (PLAN 2.115): those the theme ships that the copy lacked, by their names,
     /// in the theme's order.
     pub shadows: Vec<String>,
-    /// Whether the look the theme gives code (PLAN 2.132), or its card and numbers (PLAN 2.136),
-    /// which the copy lacked, was brought: only into a copy whose deck shows no code text, so no
-    /// code draws otherwise than it did.
+    /// Whether the look the theme gives code (PLAN 2.132), its card and numbers (PLAN 2.136,
+    /// 2.137), or how a walkthrough sets its lines back (PLAN 2.140), which the copy lacked, was
+    /// brought: only into a copy whose deck shows no code text, so no code draws otherwise than it
+    /// did. A role the copy has is never changed, so its code role keeps the features it has.
     pub code: bool,
     /// The backgrounds added (PLAN 2.147): the shader presets the theme ships that the copy
     /// lacked, by their names, in the theme's order, each with its palette where the copy lacked
@@ -684,9 +685,10 @@ pub fn library(theme: &Value, shipped: &Value, code_shown: bool) -> Option<(Valu
     // Code's look (PLAN 2.132), where the copy has none and nothing in the deck draws in the one it
     // has: the theme's own colors would recolor code a slide shows.
     let code = shipped.get("code").filter(|_| theme.get("code").is_none() && !code_shown);
-    // Code's card and numbers (PLAN 2.136), into a copy whose `code` lacks them, on the same terms.
+    // Code's card and numbers (PLAN 2.136, 2.137), and how a walkthrough sets back its lines (PLAN
+    // 2.140), into a copy whose `code` lacks them, on the same terms.
     let framing: Vec<(&str, &Value)> = match (shipped.get("code"), theme.get("code")) {
-        (Some(ships), Some(has)) if !code_shown => ["card", "numbers"]
+        (Some(ships), Some(has)) if !code_shown => ["card", "numbers", "focus"]
             .into_iter()
             .filter(|key| has.get(*key).is_none())
             .filter_map(|key| Some((key, ships.get(key)?)))
