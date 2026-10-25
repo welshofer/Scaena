@@ -85,6 +85,9 @@ struct DeckView: View {
     @State private var remoting = false
     /// An export shown in Quick Look (PLAN 3.8).
     @State private var looking: URL?
+    /// An export being made away from the window, and the work making it (lift-up PERF-3).
+    @State private var making: MakingExport?
+    @State private var makingTask: Task<Void, Never>?
     /// An export to save where the user says, its type, and the name offered.
     @State private var saving: ExportedFile?
     @State private var savingType = UTType.pdf
@@ -786,6 +789,21 @@ struct DeckView: View {
     private func presented(_ view: some View) -> some View {
         view
             .quickLookPreview($looking)
+            // An export being made: what it is, and Cancel, which drops it (lift-up PERF-3).
+            .sheet(item: $making) { made in
+                VStack(spacing: 16) {
+                    ProgressView(made.said)
+                    Button("Cancel", role: .cancel) {
+                        makingTask?.cancel()
+                        making = nil
+                        makingTask = nil
+                    }
+                    .keyboardShortcut(.cancelAction)
+                }
+                .padding(24)
+                .frame(minWidth: 320)
+                .interactiveDismissDisabled()
+            }
             .fileExporter(
                 isPresented: exporting, document: saving, contentType: savingType, defaultFilename: savingName
             ) { result in
@@ -1114,19 +1132,53 @@ struct DeckView: View {
 
     /// Write `kind` and share it, or show it in Quick Look.
     private func export(_ kind: Exporting.Kind, sharing: Bool) {
-        perform {
-            let url = try Exporting.file(kind, of: editor)
+        let name = Exporting.name(kind, of: editor)
+        make(kind) { data in
+            let url = try Exporting.file(data, named: name)
             if sharing { Exporting.share(url) } else { looking = url }
         }
     }
 
     /// Offer `kind` to save where the user says.
     private func save(_ kind: Exporting.Kind) {
-        perform {
-            let data = try Exporting.bytes(kind, of: editor)
+        let name = Exporting.name(kind, of: editor)
+        make(kind) { data in
             savingType = kind.type
-            savingName = Exporting.name(kind, of: editor)
+            savingName = name
             saving = ExportedFile(data: data)
+        }
+    }
+
+    /// `kind`'s bytes made from the deck as it stands, away from the window, which says so in a
+    /// sheet whose Cancel drops them; then `done` with them, back on the window's thread (lift-up
+    /// PERF-3). An edit made meanwhile is not in them: they are the deck as it was asked for.
+    private func make(_ kind: Exporting.Kind, then done: @escaping (Data) throws -> Void) {
+        guard making == nil else { return }
+        let snapshot: ScaenaSession.Snapshot
+        do {
+            snapshot = try editor.session.snapshot()
+        } catch {
+            failure = Why.said(error)
+            return
+        }
+        let export = Exporting.export(kind, of: editor)
+        let id = UUID()
+        making = MakingExport(id: id, said: Exporting.making(kind))
+        makingTask = Task {
+            defer {
+                if making?.id == id {
+                    making = nil
+                    makingTask = nil
+                }
+            }
+            do {
+                let data = try await snapshot.exported(export)
+                guard making?.id == id else { return }
+                try done(data)
+            } catch is CancellationError {
+            } catch {
+                if making?.id == id { failure = Why.said(error) }
+            }
         }
     }
 
@@ -1885,4 +1937,11 @@ struct DeckView: View {
             failure = Why.said(error)
         }
     }
+}
+
+/// An export being made away from the window (lift-up PERF-3): which one, and what the window says
+/// of it while it is made.
+struct MakingExport: Identifiable {
+    let id: UUID
+    let said: String
 }
