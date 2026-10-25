@@ -1251,20 +1251,22 @@ fn growing(doc: &Value, theme: &scaena_engine::theme::Theme) -> Vec<(String, Str
         for node in shown.keys() {
             let n = &doc["nodes"][node];
             let (Some(slot), Some(role)) = (n["at"]["in"].as_str(), n["role"].as_str()) else { continue };
-            // Code fits as code does, on its own lines (dogfood 8a): no set holds it.
-            if n.get("code").is_some() {
-                continue;
-            }
+            // Code shrinks as code does, on its own lines, and code side by side is a set of its
+            // own, held to the size the one with the least room reached, so a before and after
+            // compare like with like (dogfood 8a).
+            let code = n.get("code").is_some();
             let slotted = || theme.layouts.get(layout).and_then(|l| l.slots.get(slot)).and_then(|s| s.fit);
-            let fits = match n["fit"].as_str() {
-                Some(fit) => matches!(fit, "grow" | "shrink"),
-                None => matches!(slotted(), Some(TextFit::Grow | TextFit::Shrink)),
-            };
+            let fits = code
+                || match n["fit"].as_str() {
+                    Some(fit) => matches!(fit, "grow" | "shrink"),
+                    None => matches!(slotted(), Some(TextFit::Grow | TextFit::Shrink)),
+                };
             if !fits {
                 continue;
             }
             let Some(size) = theme.typography.roles.get(role).map(|r| r.size) else { continue };
             let set = match ordinal(slot) {
+                Some(_) if code => format!("{id}\u{1f}code"),
                 Some((_, part)) => format!("{id}\u{1f}{part}\u{1f}{role}"),
                 None if slot == "title" && layout.starts_with("section") => format!("\u{1f}{layout}\u{1f}{role}"),
                 // A journey's cells, every lane's, one set: the map reads at one size.
@@ -4977,6 +4979,9 @@ impl Builder {
                     // as it grows to fill the card (G.20); the running head stands on the slide's
                     // foot, as a footer does.
                     match (s.layout, ordinal(name)) {
+                        // Code stands in the middle of its side's card, as the words it stands for
+                        // would.
+                        ("myth-fact", Some((_, ""))) if coded.is_some() => node["align"] = json!({ "y": "center" }),
                         _ if coded.is_some() => {}
                         // A statement with nothing under it takes the rows its support leaves, and
                         // stands in the middle of them.
@@ -6383,8 +6388,47 @@ mod tests {
         assert_eq!(coded(&named), go);
         for code in named.iter().filter(|n| n.get("code").is_some()) {
             assert_eq!(code["role"], "code", "{code:#}");
-            assert!(["fit", "maxSize", "maxLines", "align"].iter().all(|k| code.get(k).is_none()), "{code:#}");
+            assert!(["fit", "maxLines"].iter().all(|k| code.get(k).is_none()), "{code:#}");
+            assert_eq!(code["align"]["y"], "center", "{code:#}");
         }
+        // Before and after, side by side, set at one size: the smaller of their fits, so each
+        // fits and the two compare like with like (dogfood 8a), as the deck is made and laid out.
+        let slide = Slide {
+            slide_title: "We changed one loop".into(),
+            subtitle: "checkout/price.go".into(),
+            layout_suggestion: "Before / After".into(),
+            key_bullets: vec![format!("Before: {loop_}"), format!("After: {batch}")],
+            ..Slide::default()
+        };
+        let built = deck(&narrative("", vec![slide]), &theme, &Pictures::new()).unwrap();
+        let (generated, write) =
+            making(built, "Problem\u{2013}Solution", Path::new("dusk.theme.json"), dusk(), &font).unwrap();
+        assert!(generated.created.created, "{:#?}", generated.created.findings);
+        let write = write.unwrap();
+        let nothing = scaena_store::Files::Zip(Default::default());
+        let view = View { base: &nothing, pending: write.files.clone() };
+        let looks = scaena_engine::theme::Theme::from_json(&dusk()).unwrap();
+        let mut engine = crate::lint::engine_in(&write.deck, &view, &looks, None).unwrap();
+        let data = crate::lint::data_in(&write.deck, &view).unwrap();
+        let laid = write.deck.to_value().unwrap();
+        let state = laid["states"][0]["id"].as_str().unwrap().to_string();
+        let ids = [format!("{state}-first"), format!("{state}-second")];
+        let ids: Vec<&str> = ids.iter().map(String::as_str).collect();
+        let req = scaena_engine::FrameRequest {
+            deck: &write.deck,
+            theme: &looks,
+            data: &data,
+            state: &state,
+            t_ms: f64::INFINITY,
+            format: None,
+        };
+        let sizes: Vec<f64> = (engine.text_layouts(&req, &ids).unwrap().iter())
+            .map(|p| (f64::from(p.scale) * looks.typography.roles["code"].size * 4.0).round() / 4.0)
+            .collect();
+        assert!(laid["nodes"][ids[0]]["code"].is_object() && laid["nodes"][ids[1]]["code"].is_object(), "{laid:#}");
+        assert!((sizes[0] - sizes[1]).abs() < 0.3, "before and after at one size: {sizes:?}");
+        // Neither under 12 pt at presentation size, W205's floor.
+        assert!(sizes.iter().all(|s| *s >= 24.0), "{sizes:?}");
         // With no file named, the slide's code read together: two lines score too little for Go,
         // and stay words, as `detect` reads them; three are Go's.
         assert!(coded(&texts(loop_, batch, "")).is_empty());
