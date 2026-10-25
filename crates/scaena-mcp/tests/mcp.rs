@@ -689,8 +689,9 @@ async fn a_tool_writes_only_under_its_folder_or_beside_the_bundle() {
     assert!(!here.join("q3/data/credentials").exists());
     // Nor by deck_create, which makes no bundle of it (lift-up 20261025b SEC-1).
     let attached = json!([{ "id": "keys", "file": path(&elsewhere.join("credentials")) }]);
-    let made = call(&client, "deck_create", json!({ "bundle": path(&here.join("q4")), "theme": "dusk", "data": attached }))
-        .await;
+    let made =
+        call(&client, "deck_create", json!({ "bundle": path(&here.join("q4")), "theme": "dusk", "data": attached }))
+            .await;
     assert_eq!(made.is_error, Some(true));
     assert!(text(&made).contains("is outside where this server reads"), "{}", text(&made));
     assert!(!here.join("q4").exists());
@@ -708,8 +709,9 @@ async fn a_tool_writes_only_under_its_folder_or_beside_the_bundle() {
     assert_eq!(read.is_error, Some(true));
     assert!(text(&read).contains("is outside where this server reads"), "{}", text(&read));
     let hidden = json!([{ "id": "aws", "file": path(&here.join(".aws/credentials.csv")) }]);
-    let made = call(&client, "deck_create", json!({ "bundle": path(&here.join("q5")), "theme": "dusk", "data": hidden }))
-        .await;
+    let made =
+        call(&client, "deck_create", json!({ "bundle": path(&here.join("q5")), "theme": "dusk", "data": hidden }))
+            .await;
     assert_eq!(made.is_error, Some(true));
     assert!(text(&made).contains("is outside where this server reads"), "{}", text(&made));
     assert!(!here.join("q5").exists());
