@@ -124,7 +124,8 @@ try {
   await editor.fill("#key", "site-test-key");
   await editor.waitForFunction(() => document.querySelector("#model").options.length > 0, null, { timeout: 30000 }).catch(() => {});
   const done = await editor.evaluate(() => window.scaena.assistant.ask("What is this deck about?"));
-  const system = scripted.requests[0]?.system?.[0]?.text ?? "";
+  // Anthropic's system prompt is its blocks in order: the deck's facts are the last (lift-up PERF-2).
+  const system = (scripted.requests[0]?.system ?? []).map((b) => b.text).join("");
   check(done.kind === "done", `the assistant answers (${JSON.stringify(done)})`);
   check(system.includes("scaena://spec") && system.includes("--- scaena://skills/author-deck ---") && system.includes(deck.meta.title), "its code and what it reads load from the site: the resources, the author-deck skill, and the deck");
 

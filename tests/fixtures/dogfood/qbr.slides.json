@@ -1,0 +1,303 @@
+{
+ "executiveSummary": "Q3 FY26 beat plan on ARR ($48.2M, up 9% QoQ) and gross margin (78.4%) but missed new logos by nine. Enterprise drove two-thirds of net new ARR; SMB churn rose to 4.9% on price. We propose a cheaper Starter tier and a Q4 plan to rebuild the top of the funnel, and need three decisions today.",
+ "slides": [
+  {
+   "slideTitle": "Q3 FY26 business review: growth held and margins widened",
+   "subtitle": "Northwind Analytics · Executive team · October 2026",
+   "layoutSuggestion": "Title",
+   "keyBullets": [],
+   "visualDescription": "A clean dashboard glowing on a wall screen in a glass meeting room at dusk",
+   "speakerNotes": "- Thanks, everyone. This is our Q3 review.\n- Short version: revenue and margin beat plan, new logos missed, and SMB churn is the number to watch.\n- We'll end with three decisions we need from this group today.",
+   "beatIndex": 0,
+   "beatName": "Context",
+   "purpose": "Opens the review and frames the headline result",
+   "intent": "Orient the executives and set expectations for decisions",
+   "expectedIntensity": 0.3,
+   "expectedValence": 0.2
+  },
+  {
+   "slideTitle": "Four things to cover in thirty minutes",
+   "subtitle": "",
+   "layoutSuggestion": "Agenda",
+   "keyBullets": [
+    "Headline numbers: revenue, retention, and margin",
+    "What moved: segments, pipeline, and churn",
+    "What it means: the Q4 outlook and one trade-off",
+    "Decisions: three asks for this group"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "- Four parts.\n- We'll go fast through the headline numbers, since you've seen the pre-read.\n- Most of our time should go to the churn trade-off and the decisions.",
+   "beatIndex": 0,
+   "beatName": "Context",
+   "purpose": "Orients the room on the review's structure",
+   "intent": "Make them expect a decision at the end",
+   "expectedIntensity": 0.2,
+   "expectedValence": 0.0
+  },
+  {
+   "slideTitle": "Q3 beat plan on revenue and margin but missed on new logos",
+   "subtitle": "",
+   "layoutSuggestion": "KPI Grid",
+   "keyBullets": [
+    "$48.2M: ARR, up 9% on Q2",
+    "114%: net revenue retention",
+    "78.4%: gross margin, up 2.1 points",
+    "61: new logos, 9 short of plan",
+    "$1.9M: free cash flow",
+    "2.8%: logo churn, up from 2.1%"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "- Six numbers, four green and two red.\n- ARR of $48.2M is $0.6M ahead of plan.\n- Gross margin is up because the hosting migration finished in July.\n- New logos and churn are the two misses, and they're related, as you'll see.",
+   "beatIndex": 1,
+   "beatName": "Data",
+   "purpose": "Gives the full scorecard at a glance",
+   "intent": "Make them see the quarter was good but not clean",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.2
+  },
+  {
+   "slideTitle": "ARR has grown 8–10% every quarter for a year",
+   "subtitle": "Annual recurring revenue, $M",
+   "layoutSuggestion": "Line Chart",
+   "keyBullets": [
+    "ARR is up 42% year over year, to $48.2M"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "- Five quarters, each between 8.6% and 10.2% growth.\n- That consistency is what lets us plan hiring with confidence.\n- Year over year we're up 42%.",
+   "beatIndex": 1,
+   "beatName": "Data",
+   "purpose": "Shows the growth trend is steady",
+   "intent": "Make them confident the core engine is healthy",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.5,
+   "chartData": {
+    "categories": [
+     "Q3 FY25",
+     "Q4 FY25",
+     "Q1 FY26",
+     "Q2 FY26",
+     "Q3 FY26"
+    ],
+    "series": [
+     {
+      "name": "ARR",
+      "values": [
+       33.9,
+       36.8,
+       40.1,
+       44.2,
+       48.2
+      ]
+     }
+    ],
+    "unit": "$M",
+    "sourceId": "Finance, Q3 FY26 close"
+   }
+  },
+  {
+   "slideTitle": "Enterprise drove two-thirds of new ARR this quarter",
+   "subtitle": "Net new ARR by segment, Q3 FY26, $M",
+   "layoutSuggestion": "Bar Chart",
+   "keyBullets": [
+    "Enterprise added $2.7M of the $4.0M net new ARR"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "- Enterprise added $2.7M, mostly expansions inside existing accounts.\n- Mid-market was steady at $1.1M.\n- SMB added just $0.2M net, because new SMB bookings were nearly cancelled out by churn.",
+   "beatIndex": 2,
+   "beatName": "Insight",
+   "purpose": "Shows where growth actually came from",
+   "intent": "Make them see growth is concentrated in enterprise",
+   "expectedIntensity": 0.6,
+   "expectedValence": 0.3,
+   "chartData": {
+    "categories": [
+     "Enterprise",
+     "Mid-market",
+     "SMB"
+    ],
+    "series": [
+     {
+      "name": "Net new ARR",
+      "values": [
+       2.7,
+       1.1,
+       0.2
+      ]
+     }
+    ],
+    "unit": "$M",
+    "sourceId": "Finance, Q3 FY26 close"
+   }
+  },
+  {
+   "slideTitle": "Pipeline converts well once qualified, but fewer leads came in",
+   "subtitle": "",
+   "layoutSuggestion": "Funnel",
+   "keyBullets": [
+    "Leads: 4,820, down 14% on Q2",
+    "Qualified: 1,130, 23% of leads",
+    "Proposals: 312, 28% of qualified",
+    "Closed won: 61, 20% of proposals"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "- Conversion at every stage is at or above our benchmarks.\n- The problem is the top: leads are down 14%.\n- That's mostly paid search, where cost per lead doubled after the July auction changes.\n- This is why new logos missed.",
+   "beatIndex": 2,
+   "beatName": "Insight",
+   "purpose": "Locates the new-logo miss at the top of the funnel",
+   "intent": "Make them see the miss is fixable volume, not broken selling",
+   "expectedIntensity": 0.6,
+   "expectedValence": -0.2
+  },
+  {
+   "slideTitle": "SMB churn climbed to 4.9% while mid-market churn fell",
+   "subtitle": "Quarterly logo churn by segment, %",
+   "layoutSuggestion": "Line Chart",
+   "keyBullets": [
+    "SMB churn has risen four quarters in a row"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "- This is the chart that worries us.\n- SMB churn has risen every quarter for a year, from 3.1% to 4.9%.\n- Mid-market churn is falling, so this is an SMB problem, not a product problem.\n- Exit interviews point to price.",
+   "beatIndex": 2,
+   "beatName": "Insight",
+   "purpose": "Isolates the one trend moving the wrong way",
+   "intent": "Make them feel the urgency of SMB churn",
+   "expectedIntensity": 0.75,
+   "expectedValence": -0.6,
+   "chartData": {
+    "categories": [
+     "Q3 FY25",
+     "Q4 FY25",
+     "Q1 FY26",
+     "Q2 FY26",
+     "Q3 FY26"
+    ],
+    "series": [
+     {
+      "name": "SMB",
+      "values": [
+       3.1,
+       3.3,
+       3.6,
+       4.0,
+       4.9
+      ]
+     },
+     {
+      "name": "Mid-market",
+      "values": [
+       1.4,
+       1.3,
+       1.2,
+       1.2,
+       1.1
+      ]
+     }
+    ],
+    "unit": "%",
+    "sourceId": "Customer success, churn dashboard"
+   }
+  },
+  {
+   "slideTitle": "Small customers tell us the price outgrew the value",
+   "subtitle": "",
+   "layoutSuggestion": "Quote",
+   "keyBullets": [
+    "We love the dashboards, but at our size the price went up faster than what we get from it.",
+    "Owner of a 12-person agency, exit interview, August 2026"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "We ran 46 exit interviews in Q3. This quote is typical. Thirty-one of the 46 named price as the main reason, and most of those were customers under 20 seats who were moved to the new Growth plan in April.",
+   "beatIndex": 3,
+   "beatName": "Implication",
+   "purpose": "Puts a human voice on the churn trend",
+   "intent": "Make them accept price is the root cause",
+   "expectedIntensity": 0.7,
+   "expectedValence": -0.5
+  },
+  {
+   "slideTitle": "Q4 lands between $50.6M and $53.4M ARR",
+   "subtitle": "Three scenarios for the end of Q4",
+   "layoutSuggestion": "Scenarios",
+   "keyBullets": [
+    "Base: $52.0M ARR if enterprise closes at Q3 rates",
+    "Upside: $53.4M ARR if both Fortune 500 pilots convert",
+    "Downside: $50.6M ARR if SMB churn reaches 6%"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "- Our base case is $52.0M, which is plan.\n- Upside is $53.4M if the two Fortune 500 pilots convert in November.\n- Downside is $50.6M if SMB churn keeps climbing to 6%.\n- The downside is the one we can do something about now.",
+   "beatIndex": 3,
+   "beatName": "Implication",
+   "purpose": "Frames the range of outcomes for Q4",
+   "intent": "Make them see the downside is controllable",
+   "expectedIntensity": 0.6,
+   "expectedValence": 0.0
+  },
+  {
+   "slideTitle": "A cheaper SMB tier protects retention but puts $1.2M at risk",
+   "subtitle": "",
+   "layoutSuggestion": "Pros / Cons",
+   "keyBullets": [
+    "Pros: cuts SMB churn by an estimated 40%; simpler packaging; wins back price-sensitive prospects",
+    "Cons: $1.2M of ARR at risk from downgrades; sales retraining in Q4; margin dilution of 0.4 points"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "| | Starter tier | Status quo |\n| --- | --- | --- |\n| SMB churn | Down ~40% | Rising |\n| ARR at risk | $1.2M from downgrades | $2.0M from churn by Q2 |\n| Margin | −0.4 pts | Flat |",
+   "beatIndex": 3,
+   "beatName": "Implication",
+   "purpose": "Lays out the trade-off honestly",
+   "intent": "Make them weigh the trade-off and lean toward acting",
+   "expectedIntensity": 0.65,
+   "expectedValence": -0.1
+  },
+  {
+   "slideTitle": "Our Q4 plan protects SMB and rebuilds the top of the funnel",
+   "subtitle": "",
+   "layoutSuggestion": "Roadmap",
+   "keyBullets": [
+    "October: launch the Starter tier; call 400 at-risk SMB accounts; fix the renewal email flow",
+    "November: close the two Fortune 500 pilots; hire four enterprise AEs; restart paid search",
+    "December: run the partner webinar series; review churn weekly; set FY27 targets"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "- October is about retention: the Starter tier and direct outreach.\n- November is about closing and hiring.\n- December rebuilds the top of the funnel with partners, which is cheaper than paid search right now.",
+   "beatIndex": 4,
+   "beatName": "Action",
+   "purpose": "Turns the analysis into a dated plan",
+   "intent": "Make them confident the team has a concrete plan",
+   "expectedIntensity": 0.6,
+   "expectedValence": 0.5
+  },
+  {
+   "slideTitle": "Three decisions we need from this group today",
+   "subtitle": "",
+   "layoutSuggestion": "Next Steps",
+   "keyBullets": [
+    "Approve Starter tier pricing — Maya Chen, CRO — by October 31",
+    "Release $600K for four enterprise AEs — Tom Reyes, CFO — by November 7",
+    "Add churn to the weekly exec dashboard — Priya Nair, COO — from November 3"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "- Three asks, each with an owner and a date.\n- The pricing decision is the urgent one; every week we wait costs about 15 SMB accounts.\n- The AE budget is already in the FY26 plan; we're asking to release it early.",
+   "beatIndex": 4,
+   "beatName": "Action",
+   "purpose": "Makes the specific asks with owners and dates",
+   "intent": "Make them commit to the three decisions now",
+   "expectedIntensity": 0.75,
+   "expectedValence": 0.4
+  },
+  {
+   "slideTitle": "Growth is healthy, and retention is the work for Q4",
+   "subtitle": "Questions, then decisions",
+   "layoutSuggestion": "Closing",
+   "keyBullets": [],
+   "visualDescription": "",
+   "speakerNotes": "- To sum up: the engine is healthy, enterprise is strong, and SMB churn is the fix for Q4.\n- Let's take questions, then go through the three decisions.",
+   "beatIndex": 4,
+   "beatName": "Action",
+   "purpose": "Lands the one-line summary",
+   "intent": "Make them leave with a clear, balanced view",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.4
+  }
+ ]
+}

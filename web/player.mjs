@@ -26,6 +26,8 @@
 //   and a click or Escape leaves it, back on the last slide, and in fullscreen out of it.
 // - A format the deck does not lay out in, and a promise no handler caught, are said in the
 //   player's status, the slide shown staying (lift-up STAB-5).
+// - The presenter view's timer waits at 0:00 until the deck goes on, and a presenter view the
+//   browser blocks is said in the player's status (lift-up USE-2).
 // - The presenter view follows the player, shows the state's notes (its beat's, where it has
 //   none), and steers it: on, back, and with End and Home to the last and the first; and its own
 //   presenter's keys steer the room's screen, its laser pointed from the slide it shows, and drawn
@@ -900,6 +902,36 @@ try {
   const plain = await open(url(revenue));
   check(await plain.locator("#meter").isHidden(), "without it, there is no meter");
   await plain.close();
+
+  // The presenter view (lift-up USE-2), in a context of its own so no other player answers it: its
+  // timer waits at 0:00 while the deck stands on its first slide, and starts when the deck goes
+  // on; and a presenter view the browser blocks says so in the player's status.
+  const fresh = await browser.newContext({ viewport: { width: 1280, height: 800 }, deviceScaleFactor: 1 });
+  const freshPage = async (address) => {
+    const page = await fresh.newPage();
+    page.on("pageerror", (e) => failures.push(`${address}: ${e.message}`));
+    await page.goto(address);
+    await page.waitForFunction(() => window.scaena, null, { timeout: 120000 });
+    return page;
+  };
+  const first = await freshPage(url(revenue));
+  const watching = await freshPage(url(revenue, "presenter"));
+  await watching.waitForFunction(() => window.scaena.follows(), null, { timeout: 15000 }).catch(() => {});
+  await watching.waitForTimeout(1500);
+  const waited = await watching.evaluate(() => window.scaena.timer().shows);
+  check(waited === "0:00", `the presenter view's timer waits at 0:00 while the deck stands on its first slide: ${waited}`);
+  await first.keyboard.press("ArrowRight");
+  const started = await watching
+    .waitForFunction(() => window.scaena.timer().shows !== "0:00", null, { timeout: 5000 })
+    .then(() => true, () => false);
+  check(started, "and starts when the deck goes on");
+  await first.evaluate(() => (window.open = () => null));
+  await first.keyboard.press("p");
+  const blocked = await first
+    .waitForFunction(() => document.querySelector("#status").textContent.startsWith("The presenter view was blocked"), null, { timeout: 5000 })
+    .then(() => true, () => false);
+  check(blocked, `a presenter view the browser blocks is said: ${await first.textContent("#status")}`);
+  await fresh.close();
 
   // Full sharpness (lift-up ATTR-2): at 2560 × 1440 and twice the density, the slide fills the
   // room the bar leaves, and in fullscreen the screen, and its frames are painted at the size it

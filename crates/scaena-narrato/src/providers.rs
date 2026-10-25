@@ -451,6 +451,17 @@ pub(crate) fn component(text: &str) -> String {
 mod tests {
     use super::*;
 
+    /// A busy look or fit is asked again after the wait the slides take, until the tries are
+    /// spent; a refusal is never asked again (lift-up REL-1).
+    #[test]
+    fn a_busy_look_or_fit_is_asked_again_and_a_refusal_is_not() {
+        assert_eq!(crate::retry_after(529, "", Some("7"), 0), Some(7.0));
+        assert_eq!(crate::retry_after(429, "", None, 0), Some(2.0));
+        assert_eq!(crate::retry_after(0, "", None, 2), Some(8.0));
+        assert_eq!(crate::retry_after(401, "", None, 0), None);
+        assert_eq!(crate::retry_after(529, "", None, crate::TRIES - 1), None);
+    }
+
     fn call(shape: Shape, documents: &[Document]) -> Call<'_> {
         Call {
             model: "model-x",
