@@ -177,6 +177,28 @@ pub fn normalize(raw: &Value) -> Slide {
     }
 }
 
+/// One slide an agent hands over (`slide_write`'s `slide`), normalized as a model's are: its layout
+/// defaulted, its intensity and tone clamped, its chart cleaned (lift-up 10-25b FUNC-5). Refused,
+/// naming the fields it gave, where it is no object or gives none of `slideTitle`, `keyBullets`,
+/// and `layoutSuggestion`: `{"title": …}` is no slide, rather than an empty one.
+pub fn one(raw: &Value) -> Result<Slide, String> {
+    let Some(fields) = raw.as_object() else { return Err("the slide is a JSON object, as Narrato writes one".into()) };
+    let given = |key: &str| match fields.get(key) {
+        Some(Value::String(s)) => !s.trim().is_empty(),
+        Some(Value::Array(items)) => !items.is_empty(),
+        _ => false,
+    };
+    if !["slideTitle", "keyBullets", "layoutSuggestion"].iter().any(|k| given(k)) {
+        let named: Vec<String> = fields.keys().map(|k| format!("`{k}`")).collect();
+        let named = if named.is_empty() { "nothing".to_string() } else { named.join(", ") };
+        return Err(format!(
+            "the slide gives none of `slideTitle`, `keyBullets`, or `layoutSuggestion`, which Narrato's slides are \
+             written in (it gave {named}); `expectedIntensity` and `expectedValence` carry its intensity and tone"
+        ));
+    }
+    Ok(normalize(raw))
+}
+
 /// Chart data as Narrato's `normalizeChartData` keeps it: categories that are words, each series'
 /// name where it has one, a series that gives no values left out as Narrato leaves it; none where
 /// no category or no series is left. Each value keeps its category's place (STAB-1): one that is
@@ -286,6 +308,27 @@ fn string_property(text: &str, key: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    /// A slide an agent hands over is normalized, and one that is none refuses, naming what it gave
+    /// (lift-up 10-25b FUNC-5).
+    #[test]
+    fn a_slide_an_agent_hands_over_is_normalized_or_refused() {
+        let slide = one(&serde_json::json!({
+            "slideTitle": "  Relay drafts every reply ",
+            "keyBullets": ["Draft: Relay writes"],
+            "expectedIntensity": 1.7,
+            "expectedValence": -3,
+        }))
+        .unwrap();
+        assert_eq!(slide.slide_title, "Relay drafts every reply");
+        assert_eq!(slide.layout_suggestion, "Bullet List", "the layout defaulted");
+        assert_eq!((slide.expected_intensity, slide.expected_valence), (Some(1.0), Some(-1.0)), "clamped");
+        let said = one(&serde_json::json!({ "title": "Relay", "intensity": 0.8, "tone": 0.2 })).unwrap_err();
+        assert!(said.contains("none of `slideTitle`, `keyBullets`, or `layoutSuggestion`"), "{said}");
+        assert!(said.contains("`intensity`") && said.contains("`expectedIntensity`"), "{said}");
+        assert!(one(&serde_json::json!("a slide")).is_err());
+        assert!(one(&serde_json::json!({ "slideTitle": "  " })).is_err());
+    }
+
     use super::*;
     use serde_json::json;
 

@@ -601,6 +601,18 @@ async fn an_agent_starts_a_slide_sets_a_background_and_builds_from_written_slide
     )
     .await;
     assert!(text(&unknown).contains("no beat `nowhere`"), "{}", text(&unknown));
+    // A slide in other words than Narrato's is refused, naming what it gave (lift-up 10-25b FUNC-5).
+    let titled = call(
+        &client,
+        "slide_write",
+        json!({ "bundle": path(&planned), "slide": { "title": "Tidewater", "intensity": 0.8, "tone": 0.2 } }),
+    )
+    .await;
+    let said = text(&titled);
+    assert!(
+        said.contains("none of `slideTitle`, `keyBullets`, or `layoutSuggestion`") && said.contains("`title`"),
+        "{said}"
+    );
     client.cancel().await.unwrap();
 }
 

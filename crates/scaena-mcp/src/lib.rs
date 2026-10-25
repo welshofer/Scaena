@@ -895,8 +895,9 @@ pub struct DeckGenerate {
     /// The slides, as Narrato writes them: `executiveSummary`, and `slides`, each with
     /// `slideTitle`, `subtitle`, `layoutSuggestion` (`Title`, `Bullet List`, `Big Number`,
     /// `Chart`, `Two Column`, `Quote`, `Section Divider`, `Closing`, …), `keyBullets`,
-    /// `speakerNotes`, `beatIndex` and `beatName` (the arc's beat it belongs to), `intensity`
-    /// (0–1), `tone` (−1–1), and `visualDescription`; `chartData` where a chart is drawn.
+    /// `speakerNotes`, `beatIndex` and `beatName` (the arc's beat it belongs to),
+    /// `expectedIntensity` (0–1), `expectedValence` (its tone, −1–1), and `visualDescription`;
+    /// `chartData` where a chart is drawn.
     pub slides: Map<String, Value>,
     /// The theme to make it in: one that ships, by name (`dusk`, `daybreak`, `ember`, `salon`),
     /// or a theme file. `dusk` without it.
@@ -1535,8 +1536,8 @@ impl Scaena {
     ) -> Result<Json<scaena_ops::narrative::SlideWritten>, String> {
         let author = author(&context);
         blocking(move || {
-            let slide: scaena_ops::narrative::Slide =
-                serde_json::from_value(Value::Object(a.slide)).map_err(|e| OpsError::new(format!("the slide: {e}")))?;
+            let slide =
+                scaena_ops::narrative::slide_from(&Value::Object(a.slide)).map_err(|e| e.context("the slide"))?;
             let place = match (a.replace, a.after) {
                 (Some(_), Some(_)) => return Err(OpsError::new("give `after` or `replace`, not both")),
                 (Some(state), None) => scaena_ops::narrative::Place::Replace(state),

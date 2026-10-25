@@ -871,8 +871,9 @@ impl SlideWriting {
         let doc: Value = serde_json::from_str(deck).map_err(error)?;
         let theme: scaena_core::model::theme::Theme =
             serde_json::from_str(theme).map_err(|e| error(format!("the theme: {e}")))?;
-        let slide: scaena_ops::narrative::Slide =
-            serde_json::from_str(slide).map_err(|e| error(format!("the slide: {e}")))?;
+        let slide: Value = serde_json::from_str(slide).map_err(|e| error(format!("the slide: {e}")))?;
+        let slide =
+            scaena_ops::narrative::slide_from(&slide).map_err(|e| error(format!("the slide: {}", e.message)))?;
         let icons = serde_json::from_str(icons).map_err(|e| error(format!("the icons: {e}")))?;
         let (place, beat) = placed(place_json)?;
         let written =

@@ -40,6 +40,13 @@ use std::path::{Path, PathBuf};
 
 mod one;
 pub use one::{Place, SlideWritten, Written, one_asked, slide_into, slide_polishing, slide_write, slide_writing};
+
+/// One slide an agent hands over, as `slide_write` takes it: normalized as a model's slides are,
+/// or refused where it gives none of the fields Narrato's slides are written in (lift-up 10-25b
+/// FUNC-5, `scaena_narrato::answer::one`).
+pub fn slide_from(raw: &Value) -> Result<Slide, OpsError> {
+    scaena_narrato::answer::one(raw).map_err(OpsError::new)
+}
 mod quoting;
 
 /// The canvas a made deck draws on.
