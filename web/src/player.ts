@@ -315,10 +315,12 @@ function meter(): ((at: At) => void) | undefined {
 /** What a deck's windows are called: its title, else its bundle's name. */
 const titled = (opened: { title?: string; name: string }) => opened.title ?? opened.name;
 
-const fullscreen = () =>
-  (document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen()).catch(
-    () => {},
-  );
+/** Fullscreen, or out of it: a browser that refuses says why in `status`, as a person pressing F
+ * would otherwise be told nothing (lift-up F1). */
+const fullscreen = (status: HTMLElement) => () =>
+  (document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen()).catch((e) => {
+    status.textContent = `The browser refused fullscreen: ${said(e)}`;
+  });
 
 /** The player: the deck, its controls, and its clock. */
 /** What no handler caught, said in `status` rather than lost, so a talk never freezes on a slide
@@ -664,14 +666,14 @@ async function play(deck: Source, how: Play, channel: BroadcastChannel) {
   };
   $("#on").onclick = on;
   $("#back").onclick = back;
-  $("#full").onclick = fullscreen;
+  $("#full").onclick = fullscreen(status);
   $("#present").onclick = present;
   const typing = keys({
     on,
     back,
     first: () => go(0),
     last: () => go(slots.length - 1),
-    full: fullscreen,
+    full: fullscreen(status),
     present,
     black: () => void blanking("black"),
     white: () => void blanking("white"),
@@ -869,7 +871,7 @@ async function presentView(deck: Source, how: Play, channel: BroadcastChannel) {
     back: () => steer({ type: "back" }),
     first: () => steer({ type: "first" }),
     last: () => steer({ type: "last" }),
-    full: fullscreen,
+    full: fullscreen(status),
     black: () => steer({ type: "black" }),
     white: () => steer({ type: "white" }),
     laser: () => steer({ type: "laser" }),

@@ -495,9 +495,17 @@ try {
       picker.value = format;
       picker.dispatchEvent(new Event("change"));
     }, format);
-    // Shown there once its status says 9:16, or no longer says it.
+    // Shown there once its status says where the deck is again, in 9:16 or no longer in it: an error
+    // the status still says is not the format shown.
     await player
-      .waitForFunction((format) => document.querySelector("#status").textContent.includes("9:16") === (format === "9:16"), format, { timeout: 15000 })
+      .waitForFunction(
+        (format) => {
+          const said = document.querySelector("#status").textContent;
+          return !said.startsWith("Error:") && said.includes("9:16") === (format === "9:16");
+        },
+        format,
+        { timeout: 15000 },
+      )
       .catch(() => failures.push(`the player turned to ${format || "its own size"}`));
   };
   const upright = (want) =>
@@ -922,7 +930,10 @@ try {
           : m.backing[0] === 1920 && m.backing[1] === 1080;
       return fills && fits && shape && painted;
     };
-    await page.waitForFunction(() => document.querySelector("#stage").width !== 1920, null, { timeout: 60000 }).catch(() => {});
+    // WebGPU paints at the size shown, once the page has fitted it; the CPU painter's canvas stays
+    // 1920 wide, and its first frame is the deck at rest.
+    if (paints === "webgpu") await page.waitForFunction(() => document.querySelector("#stage").width !== 1920, null, { timeout: 60000 }).catch(() => {});
+    else await page.waitForFunction(() => window.scaena.at() && !window.scaena.at().playing, null, { timeout: 60000 }).catch(() => {});
     const windowed = await measure();
     check(sharp(windowed) && windowed.dpr === 2, `${paints}: at 2560 × 1440 at 2×, the slide fills the room the bar leaves, painted at the size shown: ${JSON.stringify(windowed)}`);
     await page.keyboard.press("f");
@@ -943,7 +954,10 @@ try {
       }
       await page.keyboard.press("f");
       await page.waitForFunction(() => document.fullscreenElement === null, null, { timeout: 5000 }).catch(() => {});
-    } else failures.push(`dense ${painter}: F did not make the player fullscreen`);
+    } else {
+      const why = await page.evaluate(() => ({ status: document.querySelector("#status").textContent, focus: `${document.activeElement?.tagName}#${document.activeElement?.id}` }));
+      failures.push(`dense ${painter}, painted by ${paints}: F did not make the player fullscreen: ${JSON.stringify(why)}`);
+    }
     await page.close();
   }
   await dense.close();

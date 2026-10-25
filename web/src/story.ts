@@ -3,6 +3,7 @@
 // module, loaded the first time (`scaena_ops::health`), so the engine's module carries none of it.
 //
 // - The score, and the arc the deck was written to; each measure with what it says.
+// - The big idea the settled outline names, where it does, above the curve (lift-up 10-24b FUNC-1).
 // - The arc: its curve, slide by slide, the intensity each slide declares on it, and what its
 //   words read, a slide that bends the curve or has drifted from its beat marked. A press on a
 //   slide's mark shows it.
@@ -101,6 +102,7 @@ export function storyPanel(stage: Stage, into: HTMLElement, editor: StoryEditor)
   const score = into.querySelector<HTMLElement>("[data-score]")!;
   const measures = into.querySelector<HTMLElement>("[data-measures]")!;
   const arc = into.querySelector<HTMLElement>("[data-arc]")!;
+  const idea = into.querySelector<HTMLElement>("[data-big-idea]")!;
   const list = into.querySelector<HTMLOListElement>("[data-findings]")!;
   /** What the worker last read. */
   let health: Health | undefined;
@@ -122,6 +124,7 @@ export function storyPanel(stage: Stage, into: HTMLElement, editor: StoryEditor)
       score.textContent = "";
       measures.replaceChildren();
       arc.replaceChildren();
+      idea.hidden = true;
       list.replaceChildren();
       score.textContent = `Its story is not read: ${said(e)}`;
     }
@@ -138,6 +141,9 @@ export function storyPanel(stage: Stage, into: HTMLElement, editor: StoryEditor)
       const value = m.score === null ? "—" : String(m.score);
       return `<dt>${name}</dt><dd><b class="${m.score === null ? "" : grade(m.score)}">${value}</b> ${html(m.says)}</dd>`;
     }).join("");
+    // The one sentence the outline settled, above the curve it is to land on (lift-up 10-24b FUNC-1).
+    idea.hidden = !h.bigIdea;
+    idea.innerHTML = h.bigIdea ? `<span>The big idea</span>\u201c${html(h.bigIdea)}\u201d` : "";
     arc.innerHTML = arcGraph(h);
     for (const g of arc.querySelectorAll<SVGGElement>("[data-state]")) {
       g.addEventListener("click", () => void editor.show(g.dataset.state!));
@@ -206,7 +212,12 @@ export function storyPanel(stage: Stage, into: HTMLElement, editor: StoryEditor)
     ask.type = "button";
     ask.dataset.ask = "";
     ask.textContent = "Ask the assistant";
-    ask.addEventListener("click", () => editor.ask(run.map((f) => f.ask).join(" ")));
+    // The slide it is about is shown first: a question begins with what the editor shows, which
+    // "this slide" means to the assistant (lift-up USE-5).
+    ask.addEventListener("click", async () => {
+      await editor.show(state);
+      editor.ask(run.map((f) => f.ask).join(" "));
+    });
     actions.append(ask);
     const check = document.createElement("button");
     check.type = "button";

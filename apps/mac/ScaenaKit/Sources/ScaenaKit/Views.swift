@@ -176,6 +176,29 @@ public struct Zoom: Equatable, Sendable {
         return corner != was
     }
 
+    /// How close it is and the point of the canvas in the middle of what shows, canvas units, as a
+    /// window keeps them to reopen on (lift-up 10-24b ATTR-5): `level x y`; fitted, nothing.
+    public var kept: String {
+        guard level > 1 + 1e-9 else { return "" }
+        let s = shown
+        return "\(level) \(Double(s.midX)) \(Double(s.midY))"
+    }
+
+    /// As close as `kept` says, its point in the middle of what shows, the slide kept on the desk as
+    /// a pan keeps it. What says no level past fitted and a point, or comes before the desk has a
+    /// size, leaves it as it is. Whether it took it.
+    @discardableResult
+    public mutating func restore(_ kept: String) -> Bool {
+        let parts = kept.split(separator: " ").compactMap { Double($0) }
+        guard parts.count == 3, parts.allSatisfy(\.isFinite), parts[0] > 1 + 1e-9, desk.width > 0, desk.height > 0
+        else { return false }
+        level = min(Self.most, parts[0])
+        let middle = CGPoint(x: min(max(parts[1], 0), canvas.width), y: min(max(parts[2], 0), canvas.height))
+        corner = CGPoint(x: desk.width / 2 - middle.x * scale, y: desk.height / 2 - middle.y * scale)
+        settle()
+        return true
+    }
+
     /// The slide fitted to the desk again, in its middle.
     public mutating func fit() {
         level = 1

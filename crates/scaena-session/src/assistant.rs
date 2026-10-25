@@ -28,7 +28,10 @@ use serde_json::{Map, Value, json};
 /// and puts it on the slide by [`crate::Session::mapping`] (PLAN O.1c, O.1d). `deck_health` reads
 /// the deck's narrative health (PLAN G.9, SPEC §7.7): the session answers it where it carries
 /// generation (`generate`, the Mac's), and the browser's page from the generator's module, as its
-/// Story tab reads it, since the editor's module carries none of it.
+/// Story tab reads it, since the editor's module carries none of it. `slide_write` writes one
+/// slide as the deck's generator builds them (lift-up FUNC-1): the session where it carries
+/// generation and the icons that ship, the Mac's; the browser's page builds it by the generator's
+/// module, and the session makes it one patch ([`Session::slide_polishing`]).
 pub const TOOLS: &[&str] = &[
     "deck_read",
     "deck_patch",
@@ -47,6 +50,7 @@ pub const TOOLS: &[&str] = &[
     "theme_edit",
     "icon_find",
     "map_fetch",
+    "slide_write",
 ];
 
 /// Whether the tool `name`, called with `args`, only reads the deck, and is slow enough to be
@@ -365,6 +369,20 @@ struct BackgroundSet {
     dry_run: bool,
 }
 
+/// `slide_write`'s arguments, as the MCP tool takes them, less the bundle.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(not(feature = "generate"), allow(dead_code))]
+struct SlideWrite {
+    slide: Map<String, Value>,
+    #[serde(default)]
+    after: Option<String>,
+    #[serde(default)]
+    replace: Option<String>,
+    #[serde(default)]
+    dry_run: bool,
+}
+
 /// What `deck_lint` returns, as its MCP tool does.
 #[derive(Serialize)]
 struct Linted {
@@ -508,11 +526,13 @@ impl Session {
                 Called::of(scaena_ops::read::spine(&b))
             }
             // The deck's story, as `scaena health` reads it (PLAN G.9): where this library
-            // carries generation. The browser's page reads it by the generator's module.
+            // carries generation. The browser's page reads it by the generator's module. Read
+            // beside what lint finds, as the CLI and the MCP server read it, so a slide lint
+            // finds broken comes first (lift-up 10-24b STAB-1).
             #[cfg(feature = "generate")]
             "deck_health" => {
                 let _: DeckHealth = args(name, a)?;
-                Called::of(scaena_ops::health::health(self.deck())?)
+                Called::of(scaena_ops::health::health_in(self.deck(), &scaena_ops::lint::lint(&b)?.findings)?)
             }
             #[cfg(not(feature = "generate"))]
             "deck_health" => {
@@ -551,6 +571,17 @@ impl Session {
                 let started =
                     scaena_ops::states::Started { id: added.id, filled: added.filled, empty: added.empty, patched };
                 Ok(Called { edited, ..Called::of(started)? })
+            }
+            // One slide written as the deck's generator builds them (lift-up FUNC-1), its icons
+            // found in the set this library carries: the Mac's. The browser's page builds the slide
+            // by the generator's module and has the session polish it (`slide_polishing`), so the
+            // editor's module carries none of the deck's slide builder (SPEC §15).
+            #[cfg(all(feature = "generate", feature = "shipped"))]
+            "slide_write" => self.slide_write(a, by),
+            #[cfg(not(all(feature = "generate", feature = "shipped")))]
+            "slide_write" => {
+                let _: SlideWrite = args(name, a)?;
+                Err(ops("slide_write: the page builds the slide by the generator's module"))
             }
             // A slide's background set to a theme preset, or taken away (PLAN 2.148).
             "background_set" => {
@@ -679,6 +710,46 @@ impl From<OpsError> for Error {
     }
 }
 
+#[cfg(feature = "generate")]
+impl Session {
+    /// `slide_write` (lift-up FUNC-1), as its MCP tool takes it less the bundle, by `by`: one
+    /// slide written into the deck as the deck's generator builds them, its icons found in the set
+    /// this library carries, its set of texts held to one size and set clear, and lint's fixes on
+    /// it taken, in one patch.
+    #[cfg(feature = "shipped")]
+    pub fn slide_write(&mut self, a: Value, by: Caller) -> Result<Called, Error> {
+        let a: SlideWrite = args("slide_write", a)?;
+        let slide: scaena_ops::narrative::Slide =
+            serde_json::from_value(Value::Object(a.slide)).map_err(|e| ops(format!("slide_write: the slide: {e}")))?;
+        let place = match (a.replace, a.after) {
+            (Some(_), Some(_)) => return Err(ops("slide_write: give `after` or `replace`, not both")),
+            (Some(state), None) => scaena_ops::narrative::Place::Replace(state),
+            (None, Some(state)) => scaena_ops::narrative::Place::After(state),
+            (None, None) => scaena_ops::narrative::Place::End,
+        };
+        let icons = scaena_ops::narrative::icons_found(&slide.icons);
+        let b = self.bundle();
+        let (mut written, write) = scaena_ops::narrative::slide_writing(&b, slide, &place, icons)?;
+        written.patched.applied &= !a.dry_run;
+        let edited = self.write(write.filter(|_| !a.dry_run), by)?;
+        Ok(Called { edited, ..Called::of(written)? })
+    }
+
+    /// `slide_write`'s second half (lift-up FUNC-1), by `by`: `written`, a slide the browser's
+    /// generator module built for this deck (`scaena_ops::narrative::Written`, as JSON), made one
+    /// patch with its set held to one size and set clear and lint's fixes on its own states taken,
+    /// and written unless `dry_run`. What `slide_write` returns.
+    pub fn slide_polishing(&mut self, written: Value, dry_run: bool, by: Caller) -> Result<Called, Error> {
+        let written: scaena_ops::narrative::Written =
+            serde_json::from_value(written).map_err(|e| ops(format!("slide_write: the slide built: {e}")))?;
+        let b = self.bundle();
+        let (mut out, write) = scaena_ops::narrative::slide_polishing(&b, written)?;
+        out.patched.applied &= !dry_run;
+        let edited = self.write(write.filter(|_| !dry_run), by)?;
+        Ok(Called { edited, ..Called::of(out)? })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -717,6 +788,43 @@ mod tests {
     fn call(s: &mut Session, name: &str, a: Value) -> Got {
         let c = s.tool(name, a, AGENT).unwrap_or_else(|e| panic!("{name}: {}", failure(&e)));
         Got { result: serde_json::from_str(&c.result).unwrap(), frame: c.frame, edited: c.edited }
+    }
+
+    /// The story read beside lint (lift-up 10-24b STAB-1): a headline too long for its slot, an
+    /// E100, puts its slide first in `deck_health`, as `scaena health` does, and the session and
+    /// a laying taken from it hold that E100 for the editors' Story panels to read beside the deck.
+    #[cfg(feature = "generate")]
+    #[test]
+    fn deck_health_puts_the_slide_lint_finds_broken_first() {
+        let mut s = dusk();
+        let long = "Volunteers rebuilt fifty-two miles of trail across the state park";
+        call(
+            &mut s,
+            "deck_patch",
+            json!({ "ops": [
+            { "op": "add", "path": "/states/0/layout", "value": "agenda-photo" },
+            { "op": "add_node", "id": "headline", "state": "start",
+              "node": { "type": "text", "role": "headline", "semantic": "claim", "at": { "in": "header" }, "text": long } },
+        ] }),
+        );
+        let health = call(&mut s, "deck_health", json!({}));
+        let first = &health.result["findings"][0];
+        assert_eq!((first["kind"].as_str(), first["slide"].as_u64()), (Some("layout"), Some(1)), "{}", health.result);
+        assert!(first["says"].as_str().unwrap().contains("does not stand as it is to be read"), "{first}");
+        assert!(!health.edited);
+
+        let source = s.source();
+        s.compile(&source);
+        s.lint(None, None).unwrap();
+        assert!(s.findings().iter().any(|f| f.code == "E100"), "{:?}", s.findings());
+        let laying = s.laying().unwrap();
+        let read = scaena_ops::health::health_in(laying.deck(), laying.findings()).unwrap();
+        assert_eq!(
+            read.findings.first().map(|f| f.kind),
+            Some(scaena_ops::health::Kind::Layout),
+            "{:?}",
+            read.findings
+        );
     }
 
     /// PLAN 1.19's agent loop, through the tools a page's assistant calls: a headline too
@@ -827,6 +935,49 @@ mod tests {
         assert!(read.result["deck"]["nodes"].get("bullets-background").is_none(), "{}", read.result);
         let lacks = s.tool("background_set", json!({ "state": "bullets", "preset": "nowhere" }), AGENT).unwrap_err();
         assert!(failure(&lacks)["message"].as_str().unwrap().contains("nowhere"), "{}", failure(&lacks));
+    }
+
+    /// One slide written as the deck's generator builds them (lift-up FUNC-1): after the first
+    /// slide, then again in its place, each one patch by the assistant; where this library carries
+    /// generation, and refused for what it is where it does not.
+    #[test]
+    fn a_slide_is_written_after_another_and_again_in_its_place() {
+        let mut s = dusk();
+        let slide = json!({
+            "slideTitle": "Three reasons teams switch",
+            "layoutSuggestion": "Bullet List",
+            "keyBullets": ["Fast: drafts in seconds", "Safe: never sends alone", "Yours: learns your voice"],
+            "speakerNotes": "Each reason in a breath.",
+        });
+        #[cfg(all(feature = "generate", feature = "shipped"))]
+        {
+            let written = call(&mut s, "slide_write", json!({ "slide": slide, "after": "start" }));
+            assert_eq!((written.result["applied"].clone(), written.edited), (json!(true), true), "{}", written.result);
+            assert_eq!(written.result["errors"], 0, "{}", written.result);
+            let state = written.result["slide"][0].as_str().unwrap().to_string();
+            let read = call(&mut s, "deck_read", Value::Null);
+            assert_eq!(read.result["deck"]["states"][1]["id"], json!(state), "{}", read.result);
+            let again = slide.clone();
+            let redone = call(&mut s, "slide_write", json!({ "slide": again, "replace": state }));
+            assert_eq!(redone.result["applied"], json!(true), "{}", redone.result);
+            let read = call(&mut s, "deck_read", Value::Null);
+            let states = read.result["deck"]["states"].as_array().unwrap();
+            let ids: Vec<&str> = states.iter().filter_map(|s| s["id"].as_str()).collect();
+            assert!(!ids.contains(&state.as_str()), "{ids:?}");
+            // Two slides still: the first, and the one written again, a step for each point its
+            // list builds by.
+            let slides = states.iter().filter(|s| s["slide"].is_null()).count();
+            assert_eq!(slides, 2, "{ids:?}");
+        }
+        #[cfg(not(all(feature = "generate", feature = "shipped")))]
+        {
+            let refused = s.tool("slide_write", json!({ "slide": slide }), AGENT).unwrap_err();
+            assert!(
+                failure(&refused)["message"].as_str().unwrap().contains("generator's module"),
+                "{}",
+                failure(&refused)
+            );
+        }
     }
 
     #[test]

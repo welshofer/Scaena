@@ -527,6 +527,8 @@
       #story dt { color: var(--muted); }
       #story dd { margin: 0; }
       #story dd b { display: inline-block; min-width: 2.2em; }
+      #story [data-big-idea] { margin: 6px 0; font-style: italic; }
+      #story [data-big-idea] span { font-style: normal; color: var(--muted); margin-right: 4px; }
       #story [data-arc] svg { display: block; width: 100%; height: auto; border: 1px solid var(--line); border-radius: 4px; }
       #story .curve { fill: none; stroke: var(--muted); stroke-dasharray: 3 3; }
       #story .declared { fill: none; stroke: var(--info); stroke-width: 1.5; }
@@ -996,6 +998,7 @@
           <section id="story" role="tabpanel" aria-labelledby="tab-story" hidden>
             <p data-score aria-live="polite"></p>
             <dl data-measures></dl>
+            <p data-big-idea hidden></p>
             <div data-arc></div>
             <p data-legend><i class="declared"></i>as written <i class="read"></i>as its words read <i class="curve"></i>the arc's curve <i class="bends"></i>off it; higher is more intense</p>
             <ol data-findings aria-label="What to look at, slide by slide"></ol>
@@ -1244,6 +1247,10 @@
       <form method="dialog">
         <h2 id="writing-title">Writing</h2>
         <p class="note" id="writing-was" hidden></p>
+        <p class="fields" id="writing-how-row" hidden>
+          <label>How to rewrite it <input id="writing-how" type="text" placeholder="More formal; shorter, for executives" /></label>
+          <button type="button" id="writing-again" title="Ask again in these words">Rewrite again</button>
+        </p>
         <p id="writing-thinking" aria-live="polite"></p>
         <textarea id="writing-answer" rows="6" aria-labelledby="writing-title" hidden></textarea>
         <p id="writing-said" aria-live="polite" hidden></p>
@@ -1252,6 +1259,19 @@
           <button type="button" id="writing-key" hidden>Add a key…</button>
           <button value="cancel" id="writing-leave" formnovalidate>Leave it</button>
           <button value="use" id="writing-use" hidden>Use it</button>
+        </menu>
+      </form>
+    </dialog>
+    <dialog id="slide-ask" aria-labelledby="slide-ask-title">
+      <form method="dialog">
+        <h2 id="slide-ask-title">Write a slide</h2>
+        <label><span id="slide-ask-label">What the new slide is about</span> <textarea id="slide-ask-text" name="ask" rows="3"></textarea></label>
+        <p id="slide-ask-thinking" aria-live="polite"></p>
+        <p class="note" id="slide-ask-by"></p>
+        <menu>
+          <button type="button" id="slide-ask-key" hidden>Add a key…</button>
+          <button value="cancel" formnovalidate>Cancel</button>
+          <button type="button" id="slide-ask-go">Write the slide</button>
         </menu>
       </form>
     </dialog>

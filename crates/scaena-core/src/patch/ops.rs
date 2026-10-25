@@ -444,6 +444,27 @@ fn unbuilt(
     ops
 }
 
+/// Why `id` names no `what` (`node`, `state`) of `known`, with the id meant where one is near it:
+/// within three edits, or one holding it or held in it (`title` for `cover-title`), the nearest
+/// first; else the first few of `known` (`whats`), so an agent mends a guessed id without a
+/// round of `deck_inspect` (lift-up 10-24b USE-5).
+fn missing<'k>(what: &str, whats: &str, id: &str, known: impl Iterator<Item = &'k str>) -> String {
+    let known: Vec<&str> = known.collect();
+    let near = (known.iter())
+        .map(|k| (crate::model::check::distance(id, k), *k))
+        .filter(|(d, k)| *d <= 3.min(id.chars().count().saturating_sub(1)).max(1) || k.contains(id) || id.contains(k))
+        .min();
+    match near {
+        Some((_, k)) => format!("no {what} `{id}`; did you mean `{k}`?"),
+        None if known.is_empty() => format!("no {what} `{id}`: the deck has no {whats}"),
+        None => {
+            let some: Vec<String> = known.iter().take(5).map(|k| format!("`{k}`")).collect();
+            let more = if known.len() > 5 { format!(", … ({} in all)", known.len()) } else { String::new() };
+            format!("no {what} `{id}`; the deck's {whats} include {}{more}", some.join(", "))
+        }
+    }
+}
+
 /// The deck being patched, as JSON.
 struct Doc<'a>(&'a Value);
 
@@ -453,7 +474,8 @@ impl<'a> Doc<'a> {
     }
 
     fn node(&self, id: &str) -> Result<&'a Map<String, Value>, String> {
-        self.0.get("nodes").and_then(|n| n.get(id)).and_then(Value::as_object).ok_or_else(|| format!("no node `{id}`"))
+        (self.0.get("nodes").and_then(|n| n.get(id)).and_then(Value::as_object))
+            .ok_or_else(|| missing("node", "nodes", id, self.nodes().map(|(k, _)| k.as_str())))
     }
 
     /// A node's type.
@@ -467,7 +489,8 @@ impl<'a> Doc<'a> {
 
     /// A state's index.
     fn state(&self, id: &str) -> Result<usize, String> {
-        self.states().iter().position(|s| id_of(s) == id).ok_or_else(|| format!("no state `{id}`"))
+        (self.states().iter().position(|s| id_of(s) == id))
+            .ok_or_else(|| missing("state", "states", id, self.states().iter().map(id_of)))
     }
 
     /// An id for something new: one, and not taken.
@@ -2151,7 +2174,8 @@ fn hide_node(d: &Doc, node: &str, state: &str) -> Result<Vec<JsonOp>, String> {
 fn place(d: &Doc, after: Option<&str>, before: Option<&str>, moving: Option<usize>) -> Result<Option<usize>, String> {
     let ids: Vec<&str> =
         d.states().iter().enumerate().filter(|(k, _)| Some(*k) != moving).map(|(_, s)| id_of(s)).collect();
-    let find = |id: &str| ids.iter().position(|s| *s == id).ok_or_else(|| format!("no state `{id}`"));
+    let find =
+        |id: &str| ids.iter().position(|s| *s == id).ok_or_else(|| missing("state", "states", id, ids.iter().copied()));
     match (after, before) {
         (Some(_), Some(_)) => Err("say `after` or `before`, not both".into()),
         (Some(after), None) => Ok(Some(find(after)? + 1)),
@@ -2178,6 +2202,14 @@ fn slide_states(deck: &Deck, id: &str) -> Result<Range<usize>, String> {
         return Err(format!("slide `{id}`'s states do not stand together: move them together first"));
     }
     Ok(first..last + 1)
+}
+
+/// The deck `deck`'s `states` array with `given`, its states in a new order and new ones among
+/// them, each of its own showing what it showed: [`keep_looks`], written as the deck holds them
+/// (lift-up FUNC-1). A new state is written as `given` has it.
+pub fn states_kept(deck: &Value, given: Vec<State>) -> Result<Value, String> {
+    let d = Doc(deck);
+    looks_kept(&d, &typed(&d)?, given, &[])
 }
 
 /// `given`, the deck's states in a new order and new ones among them, as [`keep_looks`] keeps

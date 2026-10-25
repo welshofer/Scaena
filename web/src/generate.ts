@@ -31,9 +31,66 @@ const said = (e: unknown) => (e instanceof Error ? e.message : String(e));
 /** Who makes pictures, by name, as a person reads it. */
 const PAINTERS = { openai: "OpenAI", gemini: "Gemini" } as const;
 
-/** The narrative health of `deck`, as `deck.json` holds it (PLAN G.9, SPEC §7.7). */
-export async function health(deck: string): Promise<Health> {
-  return JSON.parse((await generator()).health(deck)) as Health;
+/** The narrative health of `deck`, as `deck.json` holds it (PLAN G.9, SPEC §7.7), beside `lint`, the
+ * findings the last lint gave, as JSON (lift-up 10-24b STAB-1). */
+export async function health(deck: string, lint?: string): Promise<Health> {
+  return JSON.parse((await generator()).health(deck, lint)) as Health;
+}
+
+/** Where a slide goes in an open deck (lift-up FUNC-1): after the slide that holds a state, in
+ * place of it, or, with neither, at the end. */
+export interface SlidePlace {
+  after?: string;
+  replace?: string;
+}
+
+/** The generator's writer of one slide (lift-up FUNC-1), the bundle's data `files` handed to it:
+ * which the rows of a chart the slide draws are read from. */
+async function writing(files: Iterable<[string, Uint8Array]>) {
+  const w = new (await generator()).SlideWriting();
+  for (const [path, bytes] of files) w.add(path, bytes);
+  return w;
+}
+
+/** What to ask a model for one slide of `deck` at `place`, with the person's `ask` (lift-up
+ * FUNC-1), the bundle's data `files` read for the rows of a chart the slide draws: the request's
+ * instructions and prompt. */
+export async function oneAsked(
+  deck: string,
+  place: SlidePlace,
+  ask: string,
+  files: Iterable<[string, Uint8Array]>,
+): Promise<{ system: string; prompt: string }> {
+  const w = await writing(files);
+  try {
+    return JSON.parse(w.asked(deck, JSON.stringify(place), ask)) as { system: string; prompt: string };
+  } finally {
+    w.free();
+  }
+}
+
+/** `slide` built for `deck` in `theme` at `place`, as the deck's generator builds a slide, its
+ * icons `found` in the set the page carries and its data `files` the bundle's: what the editor's
+ * module makes one patch of (`Player.slidePolishing`). */
+export async function slideBuilt(
+  deck: string,
+  theme: string,
+  slide: Record<string, unknown>,
+  place: SlidePlace,
+  found: Record<string, { name: string; path: string; view: number[] }>,
+  files: Iterable<[string, Uint8Array]>,
+): Promise<string> {
+  const w = await writing(files);
+  try {
+    return w.built(deck, theme, JSON.stringify(slide), JSON.stringify(place), JSON.stringify(found));
+  } finally {
+    w.free();
+  }
+}
+
+/** The one slide a model's `answer` holds, as Narrato writes a slide. */
+export async function oneAnswered(answer: string): Promise<Record<string, unknown>> {
+  return JSON.parse((await generator()).oneAnswered(answer)) as Record<string, unknown>;
 }
 
 /** What a brief may ask, as Narrato knows it. */
@@ -530,6 +587,9 @@ const LOOK_WIDTH = 1024;
  * provider's limit on images in one request. */
 const LOOK_BATCH = 12;
 
+/** How many of the look's rounds are asked at once, as `scaena_ops::narrative::LOOKS_AT_ONCE` (lift-up PERF-1). */
+const LOOKS_AT_ONCE = 3;
+
 /** The deck shown to the model as it is drawn (PLAN G.13): each slide drawn by the editor's
  * module, a JPEG made of it here, and what the model asks to change (another of a slide's
  * layouts, its words tightened) built again by the generator and kept where lint finds no slide
@@ -557,15 +617,25 @@ async function look(
     const slides = JSON.parse(seen) as { slide: number }[];
     const changes: { slide: number }[] = [];
     let unanswered: string | undefined;
-    let looking = false;
+    // Every round asked at once, a few at a time so that no provider's rate limit is tripped,
+    // each told the slides just outside it, and each answer read in its round's order (lift-up
+    // PERF-1).
+    const rounds: { round: { slide: number }[]; part: string; asked: string }[] = [];
     for (let start = 0; start < slides.length; start += LOOK_BATCH) {
       const round = slides.slice(start, start + LOOK_BATCH);
       const part = JSON.stringify(round);
-      const asked = generation.lookRequest(key, part, JSON.stringify(drawn.slice(start, start + LOOK_BATCH)));
-      if (!asked) continue;
-      if (!looking) hear({ kind: "looking", slides: drawn.length });
-      looking = true;
-      const reply = await send(JSON.parse(asked));
+      const edges = JSON.stringify([slides[start - 1] ?? null, slides[start + LOOK_BATCH] ?? null]);
+      const asked = generation.lookRequest(key, part, JSON.stringify(drawn.slice(start, start + LOOK_BATCH)), edges);
+      if (asked) rounds.push({ round, part, asked });
+    }
+    const looking = rounds.length > 0;
+    if (looking) hear({ kind: "looking", slides: drawn.length });
+    const replies: Awaited<ReturnType<typeof send>>[] = [];
+    for (let at = 0; at < rounds.length; at += LOOKS_AT_ONCE) {
+      replies.push(...(await Promise.all(rounds.slice(at, at + LOOKS_AT_ONCE).map((r) => send(JSON.parse(r.asked))))));
+    }
+    for (const [i, { round, part }] of rounds.entries()) {
+      const reply = replies[i];
       try {
         changes.push(...(JSON.parse(read(name, reply, () => generation.lookAnswer(reply.status, reply.statusText, reply.body, part))) as { slide: number }[]));
       } catch (e) {
