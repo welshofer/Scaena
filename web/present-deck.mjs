@@ -182,9 +182,12 @@ try {
     await followed(0);
     check((await presenter.textContent("#notes")) === notesOf(states[0]), `it shows ${states[0]}'s notes: ${await presenter.textContent("#notes")}`);
     check((await presenter.textContent("#nextName")) === `Next: ${slots[1].said}`, `and ${states[1]} next`);
-    const clock = await presenter.textContent("#clock");
-    await until(presenter, "its clock runs", (c) => document.querySelector("#clock").textContent !== c, clock, 5000);
-    check(true, `its clock runs: ${clock} → ${await presenter.textContent("#clock")}`);
+    // Its clock waits at 0:00 while the deck stands on its first slide, and runs once the show
+    // goes on (lift-up 10-24b USE-2).
+    const waiting = await presenter.textContent("#clock");
+    await presenter.waitForTimeout(2000);
+    const stillWaiting = await presenter.textContent("#clock");
+    check(waiting === "0:00" && stillWaiting === "0:00", `its clock waits at 0:00 on the first slide: ${waiting}, then ${stillWaiting}`);
     // Its keys and buttons steer the player. Going on plays the next state's cue and then its
     // hold, after which the deck goes on by itself; going back, End, and Home show a state at
     // rest, where it stays. So each going on starts at rest and goes back at once: the walk
@@ -197,6 +200,10 @@ try {
     };
     await steer(() => presenter.keyboard.press("ArrowRight"), 1, "the presenter view's → steers the player");
     await steer(() => presenter.keyboard.press("ArrowLeft"), 0, "the presenter view's ← steers the player");
+    // The show has gone on: the clock runs, back on the first slide too.
+    const clock = await presenter.textContent("#clock");
+    await until(presenter, "its clock runs once the show goes on", (c) => document.querySelector("#clock").textContent !== c, clock, 5000);
+    check(true, `its clock runs once the show goes on: ${clock} → ${await presenter.textContent("#clock")}`);
     await steer(() => presenter.keyboard.press(" "), 1, "the presenter view's Space steers the player");
     await steer(() => presenter.keyboard.press("ArrowLeft"), 0, "and back");
     check(true, "its →, ←, and Space steer the player");
