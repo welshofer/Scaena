@@ -51,6 +51,18 @@ fn a_deck_is_generated_in_two_calls() {
     assert_eq!(narrative.brief.source_content, None);
 }
 
+/// An arc answered in a sentence around its JSON keeps the model's arc, with no fall back to the
+/// heuristic's (lift-up REL-3).
+#[test]
+fn an_arc_answered_in_a_sentence_is_the_models() {
+    let mut g = Generation::new(brief(), settings(Provider::Anthropic)).unwrap();
+    let said = "Here is my pick: {\"selection\": \"Hero's Journey\", \"reasoning\": \"A founder's road.\", \"candidates\": []}";
+    let anthropic = serde_json::json!({ "content": [{ "type": "text", "text": said }], "stop_reason": "end_turn" });
+    assert_eq!(g.answer(200, "OK", &anthropic.to_string(), None).unwrap(), Step::Slides);
+    assert_eq!(g.arc().unwrap().selection, "Hero's Journey");
+    assert_eq!(g.fallback(), None, "the model's arc, not the heuristic's");
+}
+
 /// The outline before the slides (narrative FUNC-1): asked once the arc is chosen, Scaena's own
 /// call; settled by the person, it goes into the slides' prompt as Scaena's block, Narrato's text
 /// standing as it is, and the narrative keeps it for the deck's sections.
