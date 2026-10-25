@@ -286,3 +286,64 @@ fn only_the_newest_frames_are_shown_again() {
     let Message::Tool { results } = &sent[1] else { unreachable!() };
     assert_eq!(results[0].png.as_deref(), Some("iVBOR"));
 }
+
+/// A call the answer's token limit cut off is not run (lift-up REL-1): its arguments are not what
+/// the model meant. It goes back with the others' results, told to make the edit in smaller
+/// patches, and a whole call before it runs as before. Anthropic's stream leaves a cut call's
+/// input `{}`, OpenAI's arguments are text that is no JSON; each answer says it ran out of room.
+#[test]
+fn a_call_cut_off_by_the_token_limit_is_not_run_but_answered() {
+    let tools = scaena_chat::tools(&["deck_patch", "deck_lint"]).unwrap();
+    let mut chat = Chat::new(Provider::Anthropic, "a-model", "Be brief.".into(), tools.clone());
+    chat.ask("Rewrite the second beat.");
+    let cut = json!({
+        "content": [
+            { "type": "text", "text": "Checking, then patching." },
+            { "type": "tool_use", "id": "toolu_1", "name": "deck_lint", "input": { "state": "cover" } },
+            { "type": "tool_use", "id": "toolu_2", "name": "deck_patch", "input": {} },
+        ],
+        "stop_reason": "max_tokens",
+    });
+    let Next::Calls { calls, .. } = chat.answer(200, "OK", &cut.to_string()).unwrap() else {
+        panic!("the whole call is still run");
+    };
+    assert_eq!(calls.iter().map(|c| c.id.as_str()).collect::<Vec<_>>(), ["toolu_1"]);
+    // The client answers the calls it ran, and the cut one as not run, as the C ABI does; the
+    // cut one goes back told why.
+    let ran = ToolResult { id: "toolu_1".into(), name: "deck_lint".into(), json: "{}".into(), error: false, png: None };
+    let stopped =
+        ToolResult { id: "toolu_2".into(), name: "deck_patch".into(), json: "{}".into(), error: true, png: None };
+    assert!(chat.results(vec![ran, stopped]));
+    let Some(Message::Tool { results }) = chat.conversation.last() else { panic!("results handed back") };
+    assert_eq!(results.len(), 2);
+    assert!(results[1].error && results[1].json.contains(scaena_chat::CUT), "{:?}", results[1]);
+
+    // A cut call alone: nothing to run, its answer owed all the same.
+    let mut chat = Chat::new(Provider::Openai, "a-model", "Be brief.".into(), tools.clone());
+    chat.ask("Rewrite the second beat.");
+    let alone = json!({
+        "choices": [{
+            "finish_reason": "length",
+            "message": { "role": "assistant", "content": null, "tool_calls": [
+                { "id": "call_1", "type": "function", "function": { "name": "deck_patch", "arguments": "{\"ops\": [{\"op\": \"repl" } },
+            ] },
+        }],
+    });
+    let Next::Calls { calls, .. } = chat.answer(200, "OK", &alone.to_string()).unwrap() else {
+        panic!("the cut call is owed an answer");
+    };
+    assert!(calls.is_empty());
+    assert!(chat.results(vec![]));
+    let Some(Message::Tool { results }) = chat.conversation.last() else { panic!("results handed back") };
+    assert_eq!((results.len(), results[0].id.as_str()), (1, "call_1"));
+    assert!(results[0].json.contains(scaena_chat::CUT));
+
+    // An answer that ran out of room in its words, with no call, is done as before.
+    let mut chat = Chat::new(Provider::Anthropic, "a-model", "Be brief.".into(), tools);
+    chat.ask("Say a lot.");
+    let words = json!({ "content": [{ "type": "text", "text": "So much" }], "stop_reason": "max_tokens" });
+    assert_eq!(
+        chat.answer(200, "OK", &words.to_string()).unwrap(),
+        Next::Done { text: "So much".into(), stop: Stop::Length, usage: None }
+    );
+}

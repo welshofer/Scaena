@@ -223,6 +223,8 @@ const READS = new Set<ToWorker["type"]>([
 self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
   const id = "id" in data ? data.id : undefined;
   const reads = READS.has(data.type);
+  // A probe answers and changes nothing, the words kept among it.
+  if (data.type === "ping") return post({ type: "pong", id: data.id });
   if (!reads) worded = undefined;
   if (stopped !== undefined) {
     if (id !== undefined) post({ type: "error", id, message: `the engine stopped: ${stopped}` });
@@ -240,6 +242,17 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         return await open(data.source, data.painter, data.canvas, data.engine);
       case "trap":
         return player.trap();
+      case "die": {
+        // An error outside the message, then one task that answers nothing, for good or `busy` ms.
+        setTimeout(() => {
+          throw new Error(`the worker ${data.busy === undefined ? "died" : "failed"}, as asked, to test the editor's recovery`);
+        });
+        const until = data.busy;
+        setTimeout(() => {
+          for (const end = performance.now() + (until ?? Number.POSITIVE_INFINITY); performance.now() < end; );
+        });
+        return;
+      }
       case "briefing": {
         await init(data.engine && { module_or_path: data.engine });
         const { choices } = await import("@scaena/generate");
@@ -260,7 +273,7 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         if (!("url" in from)) throw new Error("only a bundle read from a URL is read again");
         latest++;
         const was = player;
-        player = await fetched(from.url);
+        player = await fetched(from.url, from.serve);
         await library();
         // A frame in flight finishes on the engine it began with.
         await painting;
@@ -1094,11 +1107,13 @@ function served(deck: string, serve: Serving, folder: string): Home {
  * kept there from then on. */
 async function load(source: Source) {
   if ("url" in source) {
-    player = await fetched(source.url);
+    player = await fetched(source.url, source.serve);
     name = nameOf(source.url);
     if (source.serve) {
       // The folder's own name, as `scaena serve` says it.
-      const state = await fetch(new URL("/scaena/state", source.url)).then((r) => r.json() as Promise<{ name?: string }>);
+      const state = await fetch(new URL("/scaena/state", source.url), { headers: { "X-Scaena-Token": source.serve.token } }).then(
+        (r) => r.json() as Promise<{ name?: string }>,
+      );
       name = state.name || name;
       home = served(source.url, source.serve, name);
     }
@@ -1137,10 +1152,11 @@ async function load(source: Source) {
 
 /** The bundle whose deck file is at `deck`: every file is where the deck names it, from the
  * deck's directory (SPEC §3.1). A saved bundle's manifest lists the rest: licenses, the
- * history. */
-async function fetched(deck: string): Promise<Player> {
+ * history. `scaena serve` reads each only with the token its address carried (lift-up R1). */
+async function fetched(deck: string, serve?: Serving): Promise<Player> {
+  const headers: Record<string, string> = serve ? { "X-Scaena-Token": serve.token } : {};
   const get = async (path: string) => {
-    const response = await fetch(new URL(path, deck));
+    const response = await fetch(new URL(path, deck), { headers });
     if (!response.ok) throw new Error(`${path}: HTTP ${response.status}`);
     return response;
   };
@@ -1151,7 +1167,7 @@ async function fetched(deck: string): Promise<Player> {
   const data = Object.values(files.data ?? {}).flatMap(({ source }) => (typeof source === "string" ? [source] : []));
   const paths = new Set([...(files.fonts ?? []).map((f) => f.file), ...data, ...fetchedPlayer.imageFiles()]);
   if (new URL(deck).pathname.endsWith("/deck.json")) {
-    const manifest = await fetch(new URL("manifest.json", deck)).catch(() => undefined);
+    const manifest = await fetch(new URL("manifest.json", deck), { headers }).catch(() => undefined);
     if (manifest?.ok) {
       const bytes = new Uint8Array(await manifest.arrayBuffer());
       fetchedPlayer.addFile("manifest.json", bytes);
@@ -1954,9 +1970,6 @@ let painting: Promise<void> = Promise.resolve();
  * canvas changes (a drag, a zoom). */
 type Beside = "paint" | "pace" | "keep";
 
-/** `state` `t` ms into its cue, on the canvas, sized to the format first, then in each format
- * beside it as `beside` says. Past its span, it is at rest; its shaders keep the timeline's time
- * (SPEC §3.8). */
 /** Request `id` answered, a frame painted since `start`, once the GPU has done the frame: a
  * page that screenshots the canvas when it hears gets the frame asked for, not the last one the
  * compositor had whole (a large picture's first upload, on a slow adapter, outlasting the page's
@@ -1967,6 +1980,9 @@ async function answerShown(id: number, start: number) {
   post({ type: "shown", id, size: [canvas.width, canvas.height], ms });
 }
 
+/** `state` `t` ms into its cue, on the canvas, sized to the format first, then in each format
+ * beside it as `beside` says. Past its span, it is at rest; its shaders keep the timeline's time
+ * (SPEC §3.8). */
 async function paint(state: string, t: number, beside: Beside = "paint") {
   lastPainted = { state, t };
   sized(true);

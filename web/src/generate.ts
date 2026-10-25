@@ -9,7 +9,7 @@
 // font, fetched from google/fonts at the commit the shipped fonts come from, held to its digest,
 // and kept in the browser's cache for the next deck (PLAN G.22, ADR-0027).
 import { Making, scriptChecked, scriptFor, scriptTaken, writable } from "@scaena/wasm";
-import { findIcons, iconSet } from "./icon-set";
+import { findIcons, type IconSet, iconSet } from "./icon-set";
 import { atMost } from "./most";
 import type { Choices, FetchedMap, Generate, Generated, GeneratingEvent, Health, MapAsk, MapPlace, PictureJob, StoryOutline } from "./protocol";
 import { answered } from "./words";
@@ -346,7 +346,7 @@ export async function generate(
           }
         } else hear({ kind: "wrote", slides: at.written ?? 0, truncated: at.truncated ?? false });
       }
-      await giveIcons(generation);
+      await giveIcons(generation, hear);
       const painted = job.pictures ? await paint(g, generation, job.pictures, theme, hear) : undefined;
       hear({ kind: "making" });
       const built = generation.deck(theme.text, painted?.placed ?? "{}");
@@ -379,11 +379,18 @@ export async function generate(
 /** The icons the narrative's slides name (PLAN G.23), each the first its word finds in the set
  * that ships, in its regular weight, as `scaena_ops::narrative::icons_found` finds them: the set
  * fetched only where a slide names one. A word that finds none is left out, and its slide set
- * without icons. */
-async function giveIcons(generation: InstanceType<Generator["Generation"]>) {
+ * without icons. A set that cannot be fetched finds none, which `hear` hears: the slides are
+ * already paid for, and an icon is a decoration (lift-up 10-25 STAB-3). */
+async function giveIcons(generation: InstanceType<Generator["Generation"]>, hear: (event: GeneratingEvent) => void) {
   const words = JSON.parse(generation.iconWords()) as string[];
   if (words.length === 0) return;
-  const set = await iconSet();
+  let set: IconSet;
+  try {
+    set = await iconSet();
+  } catch (e) {
+    hear({ kind: "unIconed", why: said(e) });
+    return generation.giveIcons("{}");
+  }
   const found: Record<string, { name: string; path: string; view: number[] }> = {};
   for (const word of words) {
     const [first] = findIcons(set, word);
@@ -590,6 +597,40 @@ const LOOK_BATCH = 12;
 /** How many of the look's rounds are asked at once, as `scaena_ops::narrative::LOOKS_AT_ONCE` (lift-up PERF-1). */
 const LOOKS_AT_ONCE = 3;
 
+/** What each of `requests` answered, a few asked at once (`LOOKS_AT_ONCE`), and those a busy
+ * provider answered for now asked again after the wait the slides and pictures take, up to its
+ * tries, the wait said: as `scaena_ops::narrative::asked_again` (lift-up REL-1). Each reply in its
+ * request's place. */
+async function askedAgain(
+  generation: InstanceType<Generator["Generation"]>,
+  requests: Request[],
+  hear: (event: GeneratingEvent) => void,
+): Promise<Awaited<ReturnType<typeof send>>[]> {
+  const replies: Awaited<ReturnType<typeof send>>[] = new Array(requests.length);
+  let open = requests.map((_, i) => i);
+  for (let tried = 0; open.length; tried++) {
+    const got: Awaited<ReturnType<typeof send>>[] = [];
+    for (let at = 0; at < open.length; at += LOOKS_AT_ONCE) {
+      got.push(...(await Promise.all(open.slice(at, at + LOOKS_AT_ONCE).map((i) => send(requests[i])))));
+    }
+    let wait = 0;
+    const again: number[] = [];
+    open.forEach((i, k) => {
+      replies[i] = got[k];
+      const w = generation.retryAfter(got[k].status, got[k].body, got[k].after, tried);
+      if (w !== undefined) {
+        wait = Math.max(wait, w);
+        again.push(i);
+      }
+    });
+    if (!again.length) break;
+    hear({ kind: "retrying", seconds: wait, tried: tried + 1 });
+    await new Promise((r) => setTimeout(r, wait * 1000));
+    open = again;
+  }
+  return replies;
+}
+
 /** The deck shown to the model as it is drawn (PLAN G.13): each slide drawn by the editor's
  * module, a JPEG made of it here, and what the model asks to change (another of a slide's
  * layouts, its words tightened) built again by the generator and kept where lint finds no slide
@@ -630,10 +671,7 @@ async function look(
     }
     const looking = rounds.length > 0;
     if (looking) hear({ kind: "looking", slides: drawn.length });
-    const replies: Awaited<ReturnType<typeof send>>[] = [];
-    for (let at = 0; at < rounds.length; at += LOOKS_AT_ONCE) {
-      replies.push(...(await Promise.all(rounds.slice(at, at + LOOKS_AT_ONCE).map((r) => send(JSON.parse(r.asked))))));
-    }
+    const replies = await askedAgain(generation, rounds.map((r) => JSON.parse(r.asked) as Request), hear);
     for (const [i, { round, part }] of rounds.entries()) {
       const reply = replies[i];
       try {
@@ -719,7 +757,8 @@ async function fit(
     const asked = generation.fitRequest(key, longs);
     if (!asked) return;
     hear({ kind: "fitting", texts });
-    const reply = await send(JSON.parse(asked));
+    // A busy provider asked again for the fit, as for the look (lift-up REL-1).
+    const [reply] = await askedAgain(generation, [JSON.parse(asked) as Request], hear);
     try {
       const rewrites = read(name, reply, () => generation.fitAnswer(reply.status, reply.statusText, reply.body, longs));
       making.fitted(rewrites);
