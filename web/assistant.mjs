@@ -16,7 +16,7 @@
 // tools as the MCP server's less `bundle`, each call's result as the model reads it, and the
 // frame as an image; that Gemini's thought signatures go back as they came; that the editor's
 // source takes each edit and lints clean at the end; that each edit shows the states it drew
-// anew, before and after (PLAN 2.93); that the theme's edit is one step of the source's undo, the
+// anew, before and after (PLAN 2.93); that the whole answer is one step of the source's undo, the
 // theme written back (PLAN 2.61); and that a question stops when asked to.
 // Then the key's field and storage: masked and shown on request, its form said as it is typed, its
 // provider's answer said (it works with its models, or is refused, in a person's words), kept
@@ -441,8 +441,10 @@ try {
     check(last.valid && !last.findings.some((f) => f.severity === "error"), `${id}: and lints clean: ${last.findings.map((f) => f.code).join(", ") || "nothing found"}`);
     const transcript = await page.evaluate(() => window.scaena.assistant.transcript());
     check(
-      transcript.filter((t) => t.startsWith("call")).length === SCRIPT.length && transcript.at(-1) === `said: ${PLAIN}`,
-      `${id}: the conversation shows each call and the answer (${transcript.length} entries): ${transcript.at(-1)}`,
+      transcript.filter((t) => t.startsWith("call")).length === SCRIPT.length &&
+        transcript.at(-2) === `said: ${PLAIN}` &&
+        transcript.at(-1) === "undo-answer: Undo this answer",
+      `${id}: the conversation shows each call, the answer, and Undo this answer under it (${transcript.length} entries): ${transcript.slice(-2).join(" | ")}`,
     );
     // The answer as it reads (narrative ATTR-4): its list and emphasis as elements, never markup
     // from the model's text, and the state named in a code span a link that shows it.
@@ -471,16 +473,34 @@ try {
     check(of(2).length === 1 && fixed2.state === "start" && fixed2.before === patched2.after && fixed2.after !== fixed2.before, `${id}: lint's fix shows start as the patch left it, then fixed: ${JSON.stringify(of(2))}`);
     check([1, 3, 4].every((i) => of(i).length === 0), `${id}: a lint and a render show nothing drawn anew`);
 
-    // The theme's edit shows in the Theme tab, and is one step of the source's undo: ⌘Z writes the
-    // theme back (PLAN 2.61).
+    // The theme's edit shows in the Theme tab. The whole answer is one step of the source's undo
+    // (lift-up 10-25 FUNC-4): ⌘Z takes back its patch, lint's fix, and the theme's edit at once,
+    // writing the theme back (PLAN 2.61), and ⌘⇧Z makes them again.
     const accent = () => page.evaluate(() => window.scaena.theme.theme()?.tokens?.color?.accent);
+    const source = () => page.evaluate(() => window.scaena.source());
+    const accented = (color) => page.waitForFunction((c) => window.scaena.theme.theme()?.tokens?.color?.accent === c, color, { timeout: 30000 }).catch(() => {});
     await tab(page, "theming");
-    await page.waitForFunction(() => window.scaena.theme.theme()?.tokens?.color?.accent === "#2E86E4", null, { timeout: 30000 }).catch(() => {});
+    await accented("#2E86E4");
     check((await accent()) === "#2E86E4", `${id}: the Theme tab shows the assistant's edit: ${await accent()}`);
     await page.locator("#code .cm-content").focus();
     await page.keyboard.press("Control+z");
-    await page.waitForFunction(() => window.scaena.theme.theme()?.tokens?.color?.accent === "#FF6A3D", null, { timeout: 30000 }).catch(() => {});
-    check((await accent()) === "#FF6A3D" && (await page.evaluate(() => window.scaena.source())) === after, `${id}: ⌘Z writes the theme back, the source as it was`);
+    await accented("#FF6A3D");
+    check((await accent()) === "#FF6A3D" && (await source()) === before, `${id}: one ⌘Z takes the whole answer back, the theme and the source as they were asked`);
+    await page.keyboard.press("Control+Shift+z");
+    await accented("#2E86E4");
+    check((await accent()) === "#2E86E4" && (await source()) === after, `${id}: ⌘⇧Z makes it again`);
+    // Undo this answer, on the finished turn, does the same.
+    await tab(page, "assistant");
+    await page.click("#transcript .undo-answer button");
+    const undoneSaid = await page.locator("#transcript .undo-answer").textContent();
+    await tab(page, "theming");
+    await accented("#FF6A3D");
+    const undoneTo = { accent: await accent(), asked: (await source()) === before };
+    check(undoneTo.accent === "#FF6A3D" && undoneTo.asked && undoneSaid.startsWith("Answer undone"), `${id}: Undo this answer takes it back: ${undoneSaid} ${JSON.stringify(undoneTo)}`);
+    await page.locator("#code .cm-content").focus();
+    await page.keyboard.press("Control+Shift+z");
+    await accented("#2E86E4");
+    check((await source()) === after, `${id}: and ⌘⇧Z makes it again`);
     await tab(page, "assistant");
     const usage = await page.evaluate(() => window.scaena.assistant.usage());
     check(usage.input === 1000 * SCRIPT.length + 1200, `${id}: tokens counted: ${usage.input} in, ${usage.output} out`);

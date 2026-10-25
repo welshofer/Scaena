@@ -440,6 +440,33 @@ private actor Answers {
     #expect(why == "Anthropic couldn't answer just now. Try again in a moment.", "\(why)")
 }
 
+/// An answer is one step of undo however many calls edited (lift-up 10-25 FUNC-4): the window is
+/// handed the source as the question found it once, when the answer ends, and the panel offers to
+/// take the answer back.
+@MainActor
+@Test(.timeLimit(.minutes(2))) func anAnswerOfSeveralEditsIsOneStepOfUndo() async throws {
+    let editor = DeckEditor(session: try ScaenaSession(directory: b1))
+    let louder = #"{"ops": [{"op": "replace_text", "state": "cover", "node": "title", "from": 0, "to": 0, "text": "Loudly: "}]}"#
+    let more = #"{"ops": [{"op": "replace_text", "state": "cover", "node": "title", "from": 0, "to": 0, "text": "Very "}]}"#
+    let answers = Answers([
+        calling("First.", [("t1", "deck_patch", louder)]), calling("Then.", [("t2", "deck_patch", more)]),
+        answering("Done."),
+    ])
+    let assistant = Assistant(editor: editor) { request in await answers.answer(request) }
+    var undone: [String] = []
+    assistant.edited = { before, _ in undone.append(before) }
+    let was = editor.source
+
+    assistant.ask("Say it louder, twice.", provider: .anthropic, model: "a-model", key: "sk-test")
+    #expect(!assistant.answered)
+    await assistant.asking?.value
+    #expect(editor.source.contains("Very Loudly: "), "both edits were taken")
+    #expect(undone == [was], "one step, from the source as the question found it")
+    #expect(assistant.answered, "the answer may be taken back")
+    assistant.answerUndone()
+    #expect(!assistant.answered)
+}
+
 /// Whether this Mac lets a test write the Keychain: a runner without a login keychain does not.
 private func keychainWritable() -> Bool {
     let probe = Keychain(service: "com.scaena.tests.probe")
