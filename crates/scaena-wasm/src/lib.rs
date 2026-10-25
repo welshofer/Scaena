@@ -1783,6 +1783,12 @@ impl Making {
         self.0.unfitted(why);
     }
 
+    /// What still runs past its place once the last rewrite is set, which the report says.
+    #[wasm_bindgen(js_name = stillLong)]
+    pub fn still_long(&mut self) -> Result<(), JsError> {
+        self.0.still_long().map_err(js)
+    }
+
     /// How many pictures were made for the deck's slides, and why each other asked for was not
     /// (JSON `[reason]`), which the report says.
     pub fn painted(&mut self, pictures: usize, unmade: &str) -> Result<(), JsError> {
