@@ -613,20 +613,32 @@ pub fn generate_drawn(
     if let Some(why) = unanswered {
         made.unlooked = Some(made.unlooked.map_or(why.clone(), |was| format!("{was}; {why}")));
     }
-    let longs = overflowing(&write.deck, &made.created.findings)?;
-    let (Some(key), false) = (key, longs.is_empty()) else { return Ok((made, Some(write))) };
-    let Some(request) = generation.fit_request(key, &longs) else { return Ok((made, Some(write))) };
-    say(Progress::Fitting { texts: longs.len() });
-    let reply = transport.send(&request);
-    let rewrites = match generation.fit_answer(reply.status, &reply.status_text, &reply.body, &longs) {
-        Ok(rewrites) => rewrites,
-        Err(why) => {
-            made.unfitted = Some(why.to_string());
-            return Ok((made, Some(write)));
+    let Some(key) = key else { return Ok((made, Some(write))) };
+    // Asked again for what the first rewrite still left too long, then said (STAB-4).
+    for round in 1..=scaena_narrato::fit::ROUNDS {
+        let longs = overflowing(&write.deck, &made.created.findings)?;
+        if longs.is_empty() {
+            break;
         }
-    };
-    say(Progress::Fitted { texts: rewrites.len() });
-    let write = fitted(&mut made, write, rewrites)?;
+        let Some(request) = generation.fit_request(key, &longs) else { break };
+        say(Progress::Fitting { texts: longs.len() });
+        let reply = transport.send(&request);
+        let rewrites = match generation.fit_answer(reply.status, &reply.status_text, &reply.body, &longs) {
+            Ok(rewrites) => rewrites,
+            Err(why) => {
+                made.unfitted = Some(why.to_string());
+                return Ok((made, Some(write)));
+            }
+        };
+        say(Progress::Fitted { texts: rewrites.len() });
+        write = fitted(&mut made, write, rewrites)?;
+        if round == scaena_narrato::fit::ROUNDS {
+            let longs = overflowing(&write.deck, &made.created.findings)?;
+            if !longs.is_empty() {
+                made.unfitted = Some(scaena_narrato::fit::still(&longs));
+            }
+        }
+    }
     Ok((made, Some(write)))
 }
 
@@ -707,7 +719,11 @@ pub fn fitted(made: &mut Generated, mut write: Write, rewrites: Vec<(String, Str
     let found = lint_in(&deck, &view)?.findings;
     let settled = settle(doc, found, &view)?;
     made.fixed.extend(settled.fixed);
-    made.fitted = rewrites.into_iter().map(|(id, _)| id).collect();
+    for (id, _) in rewrites {
+        if !made.fitted.contains(&id) {
+            made.fitted.push(id);
+        }
+    }
     made.created.errors = errors(&settled.findings);
     made.created.findings = settled.findings;
     write.deck = settled.deck;
@@ -7754,6 +7770,82 @@ mod tests {
         assert!(matches!(heard[0], Progress::Choosing));
         assert!(heard.iter().any(|p| matches!(p, Progress::Fitting { texts: 1 })));
         assert!(heard.iter().any(|p| matches!(p, Progress::Fitted { texts: 1 })));
+    }
+
+    /// A rewrite still too long for its place is not kept, and the model is asked once more for
+    /// what still runs over; what the second round leaves too long, the deck made says (STAB-4).
+    #[test]
+    fn a_rewrite_still_too_long_is_asked_again_once_then_said() {
+        use scaena_narrato::{Provider, Settings};
+        let (summary, slides) = catalog();
+        let mut agenda = slides[1].clone();
+        agenda.slide_title = "What we will cover today across the whole Gulf Coast and every port beyond it".into();
+        let picked = [slides[0].clone(), agenda, slides[4].clone(), slides[54].clone(), slides[55].clone()];
+        let written = json!({ "executiveSummary": summary, "slides": picked }).to_string();
+        let arc =
+            std::fs::read_to_string(root().join("crates/scaena-narrato/tests/answers/anthropic-arc.json")).unwrap();
+        // Each rewrite only its last word shorter: shorter than it was, still far too long.
+        let barely = |prompt: &str| {
+            let texts: Vec<Value> = (prompt.split("id: ").skip(1))
+                .map(|block| {
+                    let (id, rest) = block.split_once('\n').unwrap();
+                    let words = rest.split_once("text:\n").unwrap().1.trim();
+                    json!({ "id": id, "text": words.rsplit_once(' ').unwrap().0 })
+                })
+                .collect();
+            json!({ "texts": texts }).to_string()
+        };
+        let run = |too_long: usize| {
+            let mut fits = 0;
+            let mut send = |r: &Request| {
+                let body = r.body.as_ref().unwrap();
+                let content = body["messages"][0]["content"].as_array().unwrap();
+                let prompt = content.last().unwrap()["text"].as_str().unwrap().to_string();
+                let reply = if prompt.contains("=== CATALOG ===") {
+                    arc.clone()
+                } else if prompt.contains("runs past its place") {
+                    fits += 1;
+                    anthropic(&if fits <= too_long { barely(&prompt) } else { shortened(&prompt) })
+                } else {
+                    anthropic(&written)
+                };
+                Reply { status: 200, status_text: "OK".into(), body: reply, after: None }
+            };
+            let mut heard = Vec::new();
+            let settings =
+                Settings { provider: Provider::Anthropic, model: "a-model".into(), base: None, browser: false };
+            let g = Generation::new(narrative("", Vec::new()).brief, settings).unwrap();
+            let (made, _) = generate(
+                g,
+                Some("sk-test"),
+                &[],
+                None,
+                Looking::No,
+                Path::new("dusk.theme.json"),
+                dusk(),
+                &font,
+                &mut send,
+                &mut |p| heard.push(p),
+            )
+            .unwrap();
+            (made, heard, fits)
+        };
+        let fitting = |heard: &[Progress]| heard.iter().filter(|p| matches!(p, Progress::Fitting { .. })).count();
+        // The first rewrite too long, the second fits.
+        let (made, heard, fits) = run(1);
+        assert_eq!((fits, fitting(&heard)), (2, 2));
+        assert!(heard.contains(&Progress::Fitted { texts: 0 }) && heard.contains(&Progress::Fitted { texts: 1 }));
+        assert_eq!(made.fitted.len(), 1, "{:?}", made.fitted);
+        assert_eq!(made.unfitted, None);
+        // Both too long: asked twice, no more, and said.
+        let (made, heard, fits) = run(2);
+        assert_eq!((fits, fitting(&heard)), (2, 2));
+        assert!(made.fitted.is_empty());
+        let said = made.unfitted.expect("what still runs over said");
+        assert!(
+            said.starts_with("1 text still runs past its place: \u{201c}What we will cover today\u{2026}"),
+            "{said}"
+        );
     }
 
     /// A generated slide whose one item is a short list in the bullets layout builds it by
