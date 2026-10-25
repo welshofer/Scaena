@@ -1120,8 +1120,11 @@ public final class Generator {
             }
             noting = noted.notes
             if noting != nil { continue }
-            if let why = noted.unnoted { hear(.unnoted(unanswered(why, provider, reply))) }
-            hear(.noted(slides: noted.noted ?? 0))
+            if let why = noted.unnoted {
+                hear(.unnoted(unanswered(why, provider, reply)))
+            } else {
+                hear(.noted(slides: noted.noted ?? 0))
+            }
             fit = noted.fit
         }
         // Each answer may ask once more for what the rewrite left too long (STAB-4), or, from a
