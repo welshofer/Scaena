@@ -212,7 +212,12 @@ export function storyPanel(stage: Stage, into: HTMLElement, editor: StoryEditor)
     ask.type = "button";
     ask.dataset.ask = "";
     ask.textContent = "Ask the assistant";
-    ask.addEventListener("click", () => editor.ask(run.map((f) => f.ask).join(" ")));
+    // The slide it is about is shown first: a question begins with what the editor shows, which
+    // "this slide" means to the assistant (lift-up USE-5).
+    ask.addEventListener("click", async () => {
+      await editor.show(state);
+      editor.ask(run.map((f) => f.ask).join(" "));
+    });
     actions.append(ask);
     const check = document.createElement("button");
     check.type = "button";

@@ -109,7 +109,12 @@ struct StoryPanel: View {
                         Button(fix.says) { edits.patch("Fix Slide \(finding.slide)", fix.patch) }
                     }
                 }
-                Button("Ask the Assistant") { edits.ask(run.map(\.ask).joined(separator: " ")) }
+                // The slide it is about shown first: a question begins with what the window shows,
+                // which "this slide" means to the assistant (lift-up USE-5).
+                Button("Ask the Assistant") {
+                    edits.go(first.state)
+                    edits.ask(run.map(\.ask).joined(separator: " "))
+                }
             }
             .controlSize(.small)
         }
