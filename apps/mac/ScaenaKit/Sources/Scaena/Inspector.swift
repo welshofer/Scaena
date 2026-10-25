@@ -1003,6 +1003,8 @@ private struct LayoutsRow<Named: View>: View {
     @State private var drawn: [Drawn] = []
     /// The slide they were drawn for.
     @State private var drawnFor: String?
+    /// Why none could be drawn, where none could.
+    @State private var why: String?
     /// The layout the pointer is over, shown on the canvas.
     @State private var over: String?
 
@@ -1020,6 +1022,9 @@ private struct LayoutsRow<Named: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             named()
+            if let why {
+                Text(why).font(.caption).foregroundStyle(.secondary)
+            }
             if drawn.count >= 2 {
                 Text("Suggested for This Slide")
                     .font(.caption)
@@ -1030,31 +1035,25 @@ private struct LayoutsRow<Named: View>: View {
             }
         }
         // Once the inspector has settled on the slide: each layout laid out, linted in every size,
-        // and drawn, a step at a time, the window answering a person between steps.
+        // and drawn, away from the window, which answers a person meanwhile (lift-up 10-25c
+        // PERF-4); what an edit made meanwhile drawn again after it.
         .task(id: "\(state)\u{1f}\(editor.revision)\u{1f}\(editor.format ?? "")") {
             if drawnFor != state {
                 drawn = []
                 drawnFor = state
             }
             try? await Task.sleep(for: .milliseconds(150))
-            guard !Task.isCancelled, let found = await judged() else { return }
-            drawn = found
+            guard !Task.isCancelled else { return }
+            do {
+                let away = try await editor.layoutsAway(state: state, height: Self.painted)
+                guard let found = away, !Task.isCancelled else { return }
+                drawn = found.map { Drawn(suggestion: $0.suggestion, image: $0.image) }
+                why = nil
+            } catch {
+                if !Task.isCancelled { why = "The layouts couldn’t be drawn. \(Why.said(error))" }
+            }
         }
         .onDisappear { leave() }
-    }
-
-    /// The slide's layouts, best first, each drawn: none where it has one to take; nil where the
-    /// slide changed, or an edit came, while they were judged.
-    private func judged() async -> [Drawn]? {
-        let session = editor.session
-        guard let count = try? session.layoutsBegin(state: state) else { return nil }
-        guard count > 1 else { return [] }
-        while (try? session.layoutsStep()) == true {
-            await Task.yield()
-            if Task.isCancelled { return nil }
-        }
-        guard let all = try? session.layoutsDrawn(height: Self.painted) else { return nil }
-        return all.map { Drawn(suggestion: $0.suggestion, image: $0.image) }
     }
 
     /// The layout the slide takes now, which each other is judged beside.
@@ -1155,6 +1154,8 @@ private struct BackgroundsRow: View {
     let make: ([JSONValue]) -> Void
     @State private var offered: Backgrounds?
     @State private var images: [CGImage?] = []
+    /// Why none could be drawn, where none could.
+    @State private var why: String?
     /// The background the pointer or the focus is on, shown on the canvas.
     @State private var over: String?
     @FocusState private var focused: String?
@@ -1164,6 +1165,9 @@ private struct BackgroundsRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
+            if let why {
+                Text(why).font(.caption).foregroundStyle(.secondary)
+            }
             if let held = offered?.held {
                 Text(held)
                     .font(.caption)
@@ -1178,12 +1182,20 @@ private struct BackgroundsRow: View {
                 }
             }
         }
+        // Each drawn away from the window, which answers a person meanwhile (lift-up 10-25c
+        // PERF-4); what an edit made meanwhile drawn again after it.
         .task(id: "\(state)\u{1f}\(editor.revision)\u{1f}\(editor.format ?? "")") {
             try? await Task.sleep(for: .milliseconds(150))
-            guard !Task.isCancelled, let drawn = try? editor.session.backgroundsDrawn(state: state, height: Self.painted)
-            else { return }
-            offered = drawn.0
-            images = drawn.1
+            guard !Task.isCancelled else { return }
+            do {
+                let away = try await editor.backgroundsAway(state: state, height: Self.painted)
+                guard let drawn = away, !Task.isCancelled else { return }
+                offered = drawn.0
+                images = drawn.1
+                why = nil
+            } catch {
+                if !Task.isCancelled { why = "The backgrounds couldn’t be drawn. \(Why.said(error))" }
+            }
         }
         .onChange(of: focused) { _, now in
             guard let offered else { return }

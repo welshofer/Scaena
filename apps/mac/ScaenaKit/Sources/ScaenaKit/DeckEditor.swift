@@ -114,6 +114,9 @@ public final class DeckEditor {
     static let drawingsKept = 256
     /// Where states are drawn away from the window, one at a time (lift-up PERF-2).
     @ObservationIgnored private let drawer = Drawer()
+    /// Where the inspector's backgrounds and layouts are drawn away from the window, one round at
+    /// a time, beside the slides' drawings (lift-up 10-25c PERF-4).
+    @ObservationIgnored private let inspecting = Drawer()
     /// The deck as it stands, taken twice: one to draw from on the drawer's thread, and one the
     /// session is asked about here, whether it still holds the deck, so neither is used by two
     /// threads at once.
@@ -377,6 +380,57 @@ public final class DeckEditor {
         return image
     }
 
+    /// What the slide of `state` may take as its background, each drawn `height` pixels high, as
+    /// `session.backgroundsDrawn` draws them, but away from the window (lift-up 10-25c PERF-4): on
+    /// a session opened from a snapshot of the deck as it stands, in the format shown, on a thread
+    /// of its own, while the caller's actor goes on answering. Nil where an edit came meanwhile;
+    /// why none could be drawn, thrown.
+    public func backgroundsAway(
+        state: String, height: Int, isolation: isolated (any Actor)? = #isolation
+    ) async throws -> (Backgrounds, [CGImage?])? {
+        let began = revision
+        let format = self.format
+        let snapshot = try session.snapshot()
+        let drawn = await inspecting.draw { () -> Apart<(Backgrounds, [ScaenaSession.Pixels?])> in
+            Apart {
+                let apart = try snapshot.opened()
+                try apart.setFormat(format)
+                let offered = try apart.backgrounds(state: state, height: height)
+                return (offered, offered.options.indices.map { try? apart.backgroundPicture($0) })
+            }
+        }
+        guard let drawn, began == revision else { return nil }
+        let (offered, pixels) = try drawn.value()
+        return (offered, pixels.map { $0?.image })
+    }
+
+    /// The layouts the slide of `state` may take, best first, each drawn `height` pixels high, as
+    /// `session.layoutsDrawn` draws them after a round of `layoutsStep`s, but away from the window
+    /// (lift-up 10-25c PERF-4), as `backgroundsAway` draws: none where it has one to take; nil
+    /// where an edit came meanwhile; why none could be judged, thrown.
+    public func layoutsAway(
+        state: String, height: Int, isolation: isolated (any Actor)? = #isolation
+    ) async throws -> [(suggestion: LayoutSuggestion, image: CGImage)]? {
+        let began = revision
+        let format = self.format
+        let snapshot = try session.snapshot()
+        let drawn = await inspecting.draw { () -> Apart<[(LayoutSuggestion, ScaenaSession.Pixels)]> in
+            Apart {
+                let apart = try snapshot.opened()
+                try apart.setFormat(format)
+                guard try apart.layoutsBegin(state: state) > 1 else { return [] }
+                while try apart.layoutsStep() {}
+                return try apart.layoutSuggestions(height: height).enumerated().compactMap { i, suggestion in
+                    (try? apart.layoutPicture(i)).map { (suggestion, $0) }
+                }
+            }
+        }
+        guard let drawn, began == revision else { return nil }
+        return try drawn.value().compactMap { suggestion, pixels in
+            pixels.image.map { (suggestion: suggestion, image: $0) }
+        }
+    }
+
     /// `state` drawn at rest `width` pixels wide away from the window, as `drawingAway` draws it,
     /// and made a PNG there too: what a remote is sent (lift-up PERF-2).
     public func pngAway(_ state: String, width: Int, isolation: isolated (any Actor)? = #isolation) async -> Data? {
@@ -503,6 +557,19 @@ private final class Drawer: Sendable {
             }
         }
     }
+}
+
+/// What work done away from the window came to: its value, or why there is none, in a person's
+/// words, which the window shows where the value would have stood (lift-up 10-25c PERF-4).
+private struct Apart<T: Sendable>: Sendable {
+    private let made: Result<T, ScaenaError>
+
+    init(_ work: () throws -> T) {
+        made = Result { try work() }.mapError { ScaenaError(message: Why.said($0)) }
+    }
+
+    /// The value, or why there is none, thrown.
+    func value() throws -> T { try made.get() }
 }
 
 /// A value handed to one other thread and back, one thread at a time: a drawing to be made a

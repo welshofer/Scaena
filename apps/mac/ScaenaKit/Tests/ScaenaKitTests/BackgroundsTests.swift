@@ -35,3 +35,18 @@ import Testing
     #expect(data.first == "revenue" && data.held != nil)
     #expect(data.options.filter { data.offers($0) }.map(\.label) == ["None"])
 }
+
+/// The Format tab's backgrounds and layouts drawn away from the window (lift-up 10-25c PERF-4), on
+/// a session opened from a snapshot of the deck: what the session draws here, each picture the same.
+@Test @MainActor func theFormatTabsPicturesAreDrawnAwayAsHere() async throws {
+    let editor = DeckEditor(session: try ScaenaSession(files: example("revenue")))
+    let here = try editor.session.backgroundsDrawn(state: "intro", height: 90)
+    let away = try #require(try await editor.backgroundsAway(state: "intro", height: 90))
+    #expect(away.0 == here.0)
+    #expect(away.1.count == here.1.count)
+    #expect(zip(away.1, here.1).allSatisfy { $0?.dataProvider?.data as Data? == $1?.dataProvider?.data as Data? })
+
+    let layouts = try #require(try await editor.layoutsAway(state: "revenue", height: 90))
+    #expect(layouts.map(\.suggestion.layout).first == "figure" && layouts.count == 7)
+    #expect(layouts.allSatisfy { $0.image.height == 90 })
+}
