@@ -1329,8 +1329,9 @@ mod tests {
         assert!(s.compile(&format!("{original}\nstate encore\n  title \"{long}\"\n")).valid);
         let whole = s.lint(None, None).unwrap();
         let encore = |l: &Linting| l.findings.iter().any(|f| f.finding.state.as_deref() == Some("encore"));
-        let overflow = |f: &Located| f.finding.code == "E100" && f.finding.state.as_deref() == Some("encore");
-        assert!(whole.findings.iter().any(overflow), "{:#?}", written(&whole));
+        // The title's slot shrinks it (D2): what is found there is that it shrank and still runs
+        // past its box, not that it overflows.
+        assert!(encore(&whole), "{:#?}", written(&whole));
         assert!(s.compile(&original).valid);
         let one = s.lint(Some("revenue"), None).unwrap();
         assert!(!encore(&one), "{:#?}", written(&one));

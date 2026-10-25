@@ -81,7 +81,7 @@
         [60,1176.8125,112.03125]
       ],"clusters":[6,4,2,2,0]}}
     ]}},
-    {"layer":{"node":"cover-subtitle","cell":null,"label":null,"transform":[1.0,0.0,0.0,1.0,688.0,736.6094],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+    {"layer":{"node":"cover-subtitle","cell":null,"label":null,"transform":[1.0,0.0,0.0,1.0,688.0,696.6094],"opacity":1.0,"blend":"normal","clip":null,"ops":[
       {"glyphs":{"font":1,"size":48.0,"coords":[6226,0],"paint":{"solid":"#F2F0E9FF"},"text":"العمل","glyphs":[
         [50,579.8594,41.65625],
         [59,616.2344,41.65625],

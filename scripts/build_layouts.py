@@ -1837,8 +1837,8 @@ def _metrics(font):
 
 def family(geometry):
     """For each text role of a geometry family's themes, the deepest its descenders hang below its
-    last baseline and the tallest three lines of it stand, in canvas units; and the family's grid's
-    gutter and row."""
+    last baseline, the tallest three lines of it stand, whether it is boxed to its cap height, and
+    its tallest line, in canvas units; and the family's grid's row and gutter."""
     if geometry not in _FAMILIES:
         roles, grid = {}, None
         for _, g, paths in themes(json.loads(REGISTRY.read_text())):
@@ -1856,8 +1856,9 @@ def family(geometry):
                 descent, cap = fonts[font]
                 size = role["size"]
                 tallest = cap * size + (role.get("maxLines", 3) - 1) * role.get("leading", 1.2) * size
-                was = roles.get(name, (0, 0, False))
-                roles[name] = (max(was[0], descent * size), max(was[1], tallest), role.get("box") == "cap")
+                line = role.get("leading", 1.2) * size
+                was = roles.get(name, (0, 0, False, 0))
+                roles[name] = (max(was[0], descent * size), max(was[1], tallest), role.get("box") == "cap", max(was[3], line))
         rows, (margin, _) = grid["rows"], grid["margin"]
         row = (1080 - 2 * margin - (rows - 1) * grid["gutter"]) / rows
         _FAMILIES[geometry] = (roles, row, grid["gutter"])
@@ -1896,7 +1897,7 @@ def cleared(slots, geometry):
         role = roles.get(a.get("role"))
         if not role or not role[2] or "row" not in a:
             continue
-        descent, tallest, _ = role
+        descent, tallest, _, _ = role
         (ca, ra) = cells(a)
         y = (a.get("align") or {}).get("y", "start") if isinstance(a.get("align"), dict) else a.get("align", "start")
         display = y in ("start", "cap") and a.get("role") == "display"
@@ -1904,7 +1905,7 @@ def cleared(slots, geometry):
             hang = descent
         elif display:
             # A display text grown or broken to fill its cells, its last baseline at their foot.
-            box = (ra[1] - ra[0] + 1) * row + (ra[1] - ra[0]) * gutter - sum(sides(a.get("inset"))[0::2])
+            box = height(a, row, gutter)
             hang = max(0, min(tallest, box) + descent - box)
         else:
             continue
@@ -1929,10 +1930,37 @@ def cleared(slots, geometry):
             # steps down where it fills, where it says nothing of its own fit.
             a["fit"] = "shrink"
             continue
+        # Words under a text set on its foot take the clearance at their top, unless that leaves
+        # them less than a line of their role: then the text over them stands that much higher.
+        lifted = 0
         for b, need in under:
             top, right, bottom, left = sides(b.get("inset"))
+            if height(b, row, gutter) - need < roles[b["role"]][3]:
+                lifted = max(lifted, need)
+                continue
             b["inset"] = {"top": top + need, **({"right": right, "bottom": bottom, "left": left} if right else {})}
+        if lifted:
+            top, right, bottom, left = sides(a.get("inset"))
+            a["inset"] = {**({"top": top, "right": right} if right else {}), "bottom": bottom + lifted, **({"left": left} if right else {})}
     return out
+
+
+def height(s, row, gutter):
+    """How tall a slot stands, canvas units: its rows and the gutters between them, less its inset
+    at its top and its foot."""
+    _, (first, last) = cells(s)
+    top, _, bottom, _ = sides(s.get("inset"))
+    return (last - first + 1) * row + (last - first) * gutter - top - bottom
+
+
+def holding(theme, name, slots, geometry):
+    """Each slot with words and an inset holds at least a line of its role, the tallest the
+    family's themes set it in: a slot that cannot is broken in any layout."""
+    roles, row, gutter = family(geometry)
+    for key, s in slots.items():
+        if s.get("role") in roles and "inset" in s and "row" in s:
+            room, line = height(s, row, gutter), roles[s["role"]][3]
+            assert room >= line, f"{theme}'s {name}: `{key}` stands {room:g} high, less than a line of its {s['role']} ({line:g})"
 
 
 def library(theme, old, geometry):
@@ -1962,6 +1990,7 @@ def library(theme, old, geometry):
                 for key, changes in OLD_SLOTS_IN.get(geometry, {}).get(name, {}).items():
                     layout["slots"][key].update(changes)
             layout["slots"] = cleared(layout["slots"], geometry)
+            holding(theme, name, layout["slots"], geometry)
             checked(theme, name, layout["slots"], name in NEW)
             out[name] = layout
     missing = set(old) - set(out)

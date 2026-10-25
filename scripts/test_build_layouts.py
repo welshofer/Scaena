@@ -84,6 +84,21 @@ class ClearOfDescenders(unittest.TestCase):
         cards = own(paths)["numbered-cards"]["slots"]
         self.assertEqual(cards["first"].get("inset"), cards["first-title"].get("inset"))
 
+    def test_four_numbers_figures_stand_higher_where_their_labels_would_hold_no_line(self):
+        for slug, geometry, paths in LISTED:
+            slots = own(paths)["four-numbers"]["slots"]
+            roles, row, gutter = layouts.family(geometry)
+            with self.subTest(theme=slug):
+                self.assertGreaterEqual(layouts.height(slots["first-title"], row, gutter), roles["body"][3])
+                lifted = "bottom" in (slots["first-figure"].get("inset") or {})
+                self.assertNotEqual(lifted, "top" in (slots["first-title"].get("inset") or {}))
+
+    def test_a_slot_too_short_for_a_line_of_its_role_is_refused(self):
+        _, geometry, _ = LISTED[0]
+        short = {"note": {"col": [1, 6], "row": [5, 5], "role": "body", "inset": {"top": 30}}}
+        with self.assertRaisesRegex(AssertionError, "less than a line of its body"):
+            layouts.holding("basel", "short", short, geometry)
+
     def test_clearing_twice_clears_once(self):
         _, geometry, paths = LISTED[0]
         for name, layout in own(paths).items():
