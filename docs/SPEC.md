@@ -1086,7 +1086,7 @@ scaena data      <bundle> SOURCE [--edits edits.json|- [--dry-run]]   # a data s
 scaena files     <bundle> [--remove PATHS [--dry-run]]   # the bundle's images, fonts, and data, and what uses each; those nothing names taken out
 scaena start     <bundle> STATE [--layout L] [--dry-run]   # a slide started in one of the theme's layouts after STATE's slide, as Add Slide starts one: one patch, with the new state's id
 scaena background <bundle> STATE [PRESET | --none] [--dry-run]   # a slide's background: one of the theme's shader presets, or taken away, one patch; with neither, what the slide may take
-scaena health    <bundle>                             # its narrative health (§7.7): scores, each slide as read, findings with fixes
+scaena health    <bundle> [--verbose] [--fix N [--dry-run]]  # its narrative health (§7.7): scores, each slide as read, findings by slide with fixes numbered; `--fix N` applies the Nth as a patch
 scaena icons     [WORDS…] [--fill] [--limit N]        # the icons that ship, found by their words: each its path and the view it is drawn on (§3.3)
 scaena map       <bundle> PLACE [--show block|neighborhood|city|region | --zoom Z] [--label TEXT] [--style light|dark|bright] [--state S] [--into NODE | --at X,Y,W,H] [--pick N] [--places]
                  <bundle> --refresh NODE [--zoom Z] [--center LAT,LON]   # a map from Geoapify, with $GEOAPIFY_API_KEY, put on a slide in one patch (§3.3, ADR-0030); several places found exit 2
@@ -1549,7 +1549,7 @@ Skills are versioned with the format, and the MCP server serves each as `scaena:
 
 ### 7.7 Narrative health
 
-How well a deck tells its story, measured as Vzestup measures a talk (PLAN G.9, ADR-0026; `scaena_narrato::health`, its numbers Vzestup's to the last bit), over the deck's slides as they stand (`scaena_ops::health`). `scaena health` and `deck_health` give it.
+How well a deck tells its story, measured as Vzestup measures a talk (PLAN G.9, ADR-0026; `scaena_narrato::health`, its numbers Vzestup's to the last bit), over the deck's slides as they stand (`scaena_ops::health`). `scaena health` and `deck_health` give it. `scaena health` says each finding by its slide, as the editors do, its state's id only under `--verbose`, and each fix by its words, numbered in the order the findings come, with the command that applies it, `scaena health BUNDLE --fix N`, which applies it as `scaena patch` applies a patch (lift-up 20261025 USE-3).
 
 - **A slide** is a run of states one slide holds (§2.2). Its headline is the claim of the beat that tells it, else its text that heads it. Its words are what its last state shows past the headline and the running head: each item of a layout's set (`first-…`, `second-…`) a point, its parts together, each item of a list a point, and each other text a line. Its notes are its beat's and its states'. What the narrative declared of it is its beat's `media.narrato`, which a generated deck carries: the arc's beat it was written for, and the intensity (0–1) and tone (−1 grave to +1 hopeful) it was written at.
 - **The measures**, each 0–100 with what it says:
