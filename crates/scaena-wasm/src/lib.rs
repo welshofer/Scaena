@@ -137,6 +137,12 @@ impl Player {
         self.0.frame(state, t_ms).map_err(js)?.to_postcard().map_err(js)
     }
 
+    /// Lay out the cue into `state` ahead, while the state shown rests: the state a show goes on
+    /// to, whose first frame then lays out nothing (lift-up PERF-1).
+    pub fn prepare(&mut self, state: &str) -> Result<(), JsError> {
+        self.0.prepare(state).map_err(js)
+    }
+
     /// What identifies `state`'s drawing at rest, in the format shown: its display list's
     /// digest (FNV-1a over its postcard bytes, as the goldens keep it). One digest, one
     /// drawing, so a thumbnail painted from it stands until it changes (PLAN 2.35).
@@ -427,6 +433,12 @@ impl Player {
     pub fn lint(&mut self, state: Option<String>, now: Option<f64>) -> Result<String, JsError> {
         let now = now.map(|n| n as i64);
         serde_json::to_string(&self.0.lint(state.as_deref(), now).map_err(js)?).map_err(js)
+    }
+
+    /// What the last lint found in the deck compiled last, as JSON findings: what its narrative
+    /// health reads beside it (the generator's `health`, lift-up 10-24b STAB-1).
+    pub fn findings(&self) -> Result<String, JsError> {
+        serde_json::to_string(self.0.findings()).map_err(js)
     }
 
     /// The source compiled last with `patch` (JSON: a finding's `fix`) applied.
@@ -753,6 +765,32 @@ impl Player {
     #[wasm_bindgen(js_name = codeWords)]
     pub fn code_words(&self, state: &str, node: &str) -> Result<String, JsError> {
         self.0.code_words(state, node).map_err(js)
+    }
+
+    /// The patch Make Code makes of `node`, as JSON (PLAN 2.139): `code` in `language`, else in the
+    /// language its words read as, and the theme's code role, what code does not take taken away.
+    pub fn coding(&self, node: &str, language: Option<String>) -> Result<String, JsError> {
+        serde_json::to_string(&self.0.coding(node, language.as_deref()).map_err(js)?).map_err(js)
+    }
+
+    /// The patch Not Code makes of `node`, as JSON (PLAN 2.139): `code` taken away everywhere it
+    /// is written, the text set in `body` where it was in the code role.
+    pub fn uncoding(&self, node: &str) -> Result<String, JsError> {
+        serde_json::to_string(&self.0.uncoding(node).map_err(js)?).map_err(js)
+    }
+
+    /// The patch Tidy Code makes of `node` as `state` shows it, as JSON (PLAN 2.139): a
+    /// `replace_text` for each run of lines it changes; `[]` where it is tidy.
+    pub fn tidying(&self, state: &str, node: &str) -> Result<String, JsError> {
+        serde_json::to_string(&self.0.tidying(state, node).map_err(js)?).map_err(js)
+    }
+
+    /// `text` with `from` to `to` (UTF-16 code units) selected after `key` in a code text whose
+    /// tab stops are `tab` columns apart, as JSON (PLAN 2.139): `{ text, from, to }`, or `null` for
+    /// a key code does not answer. `language` is the text's `code.language`, so a Makefile's stop
+    /// is a tab.
+    pub fn keyed(text: &str, from: usize, to: usize, key: &str, tab: usize, language: Option<String>) -> String {
+        Session::keyed(text, from, to, key, tab, language.as_deref()).unwrap_or(serde_json::Value::Null).to_string()
     }
 
     /// What ⌘B gives the characters `from` to `to` (Unicode scalar values) of `node`'s text
