@@ -53,7 +53,7 @@ import {
   lineNumbers,
 } from "@codemirror/view";
 import { themes } from "@scaena/themes";
-import { familySections } from "./theme-families";
+import { themeGallery } from "./theme-gallery";
 import { panel } from "./assistant/panel";
 import { TOOLS, writer } from "./writing";
 import { load } from "./assistant/keys";
@@ -427,19 +427,9 @@ async function controls() {
   // New (PLAN 2.12): a title and a theme that ships.
   const making = $<HTMLDialogElement>("#making");
   const title = $<HTMLInputElement>("#making-name");
-  const theme = $<HTMLSelectElement>("#making-theme");
-  theme.replaceChildren(...familySections());
-  // The theme chosen, as its title slide drawn at build (PLAN T.0c).
-  const preview = $<HTMLImageElement>("#making-preview");
-  const previewed = () => {
-    const chosen = themes[theme.value];
-    preview.hidden = !chosen;
-    if (!chosen) return;
-    preview.src = chosen.thumbnail;
-    preview.alt = `A title slide in ${theme.value}`;
-  };
-  theme.onchange = previewed;
-  previewed();
+  // The themes that ship, chosen by their title slides drawn at build (PLAN T.0c, lift-up 10-25b
+  // ATTR-1).
+  const theme = themeGallery($("#making-themes"), "making-theme");
   $<HTMLButtonElement>("#new-deck").onclick = () => {
     making.returnValue = "";
     making.showModal();
