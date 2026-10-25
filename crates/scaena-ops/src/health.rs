@@ -426,6 +426,16 @@ fn pacing(count: usize, asked: Option<(usize, Option<usize>)>, m: &LocalHealthMe
     Measure { score: Some(100u32.saturating_sub(5 * outside as u32)), says }
 }
 
+/// Whether a deck in `language` is in English, by its name or its tag's first part, as the
+/// lexicons judge a language named (`scaena_narrato::health`'s `english`): one that names none is.
+fn in_english(language: Option<&str>) -> bool {
+    let Some(name) = language.map(str::trim).filter(|l| !l.is_empty()) else { return true };
+    let name = name.to_lowercase();
+    let head = name.split(['-', '_', ' ']).next().unwrap_or_default();
+    let en = |t: &str| matches!(t, "en" | "eng" | "english");
+    en(&name) || en(head)
+}
+
 /// The narrative health of `deck`, as its words and its plan read: [`health_in`] with nothing
 /// lint found.
 pub fn health(deck: &Deck) -> Result<Health, OpsError> {
@@ -462,6 +472,12 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
     let (read, most) = readings(deck, &slides)?;
     let n = read.len();
     let m = health::metrics(&read, None);
+    // The language the deck is written in, its brief's, else its own: the lexicons read English
+    // alone, and German's "die" and "will" are English words too, so a deck in another language
+    // is not read for intensity or tone, whatever script it is in (dogfood DF7-4).
+    let language = (narrative.and_then(|n| n.get("brief")).and_then(|b| b.get("language")).and_then(Value::as_str))
+        .or_else(|| deck.meta.as_ref().and_then(|m| m.lang.as_deref()));
+    let english = in_english(language);
 
     // The arc's own curve and beats, as Vzestup's graph draws them. Fidelity is read against the
     // arc the deck was written to, where it names one, as that graph reads it; else against a
@@ -550,7 +566,10 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
             .filter(|s| s.narrative_meta.as_ref().and_then(of).is_some_and(f64::is_finite))
             .count()
     };
-    let matched = |r: &health::MatchReport, gaps: usize, declared: usize, what: &str| match (r.measured_slides, gaps) {
+    let matched = |r: &health::MatchReport, gaps: usize, declared: usize, what: &str| match (
+        if english { r.measured_slides } else { 0 },
+        gaps,
+    ) {
         (0, _) if declared > 0 => Measure {
             score: None,
             says: format!(
@@ -599,9 +618,9 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
                 title: s.title.clone(),
                 curve: curve.get(i).copied().unwrap_or(0.5),
                 declared: meta.and_then(|m| m.expected_intensity).filter(|v| v.is_finite()).map(|v| v.clamp(0.0, 1.0)),
-                read: health::intensity::detected(&text, None),
+                read: health::intensity::detected(&text, language),
                 tone: meta.and_then(|m| m.expected_valence).filter(|v| v.is_finite()).map(|v| v.clamp(-1.0, 1.0)),
-                tone_read: health::valence::detected(&text, None),
+                tone_read: health::valence::detected(&text, language),
                 after: i.checked_sub(1).and_then(|p| m.coherence.pair_similarities.get(p).copied()),
                 standing,
                 sources,
@@ -696,7 +715,10 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         };
         find(&d.slide_id, Severity::Info, Kind::Arc, says, ask, None);
     }
-    for g in &m.intensity_gaps {
+    // Gaps the English lexicons read in another language's words are not the deck's.
+    let (intensity_gaps, tone_gaps) =
+        if english { (&m.intensity_gaps[..], &m.tone_gaps[..]) } else { (&[][..], &[][..]) };
+    for g in intensity_gaps {
         let Some(&i) = place.get(g.slide_id.as_str()) else { continue };
         let k = i + 1;
         let (declared, detected) = (level(g.declared), level(g.detected));
@@ -728,7 +750,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         // No fix: the plan's intensity is the arc's, which the words are to carry, not follow.
         find(&g.slide_id, Severity::Warning, Kind::Intensity, says, ask, None);
     }
-    for g in &m.tone_gaps {
+    for g in tone_gaps {
         let Some(&i) = place.get(g.slide_id.as_str()) else { continue };
         let k = i + 1;
         let (declared, detected) = (signed(g.declared), signed(g.detected));
@@ -1398,6 +1420,39 @@ mod tests {
             "25 slides declare intensity, but health reads it only in English words, three or more, and none has them.";
         assert_eq!(h.intensity, Measure { score: None, says: says.into() });
         assert_eq!(h.tone.score, None, "{}", h.tone.says);
+    }
+
+    /// A deck in another language written in Latin letters is not read for intensity or tone
+    /// either (dogfood DF7-4): German's "die" and "will" are English words too, so the language
+    /// its brief names, else its own `lang`, decides, not its script. English decks read as before.
+    #[test]
+    fn a_deck_named_in_another_language_is_not_read_for_intensity_or_tone() {
+        let english = of(&climate());
+        assert!(english.intensity.score.is_some() && english.tone.score.is_some());
+        let mut by_brief = climate();
+        by_brief["meta"]["narrative"]["brief"]["language"] = json!("German");
+        let mut by_lang = climate();
+        by_lang["meta"]["lang"] = json!("de-DE");
+        for deck in [by_brief, by_lang] {
+            let h = of(&deck);
+            assert!(h.slides.iter().all(|s| s.read.is_none() && s.tone_read.is_none()), "{:#?}", h.slides);
+            let says = "25 slides declare intensity, but health reads it only in English words, three or more, and none has them.";
+            assert_eq!(h.intensity, Measure { score: None, says: says.into() });
+            assert_eq!(h.tone.score, None, "{}", h.tone.says);
+            assert!(h.findings.iter().all(|f| f.kind != Kind::Intensity && f.kind != Kind::Tone), "{:?}", h.findings);
+            // Its other measures, and its score, are as an English deck's.
+            assert_eq!((h.score, &h.pacing, &h.fidelity), (english.score, &english.pacing, &english.fidelity));
+        }
+        // A deck that names English, in any of its forms, reads as one that names none.
+        for named in ["English", "en", "en-GB"] {
+            let mut deck = climate();
+            deck["meta"]["narrative"]["brief"]["language"] = json!(named);
+            let h = of(&deck);
+            assert_eq!(
+                (h.intensity.clone(), h.tone.clone(), h.findings.len()),
+                (english.intensity.clone(), english.tone.clone(), english.findings.len())
+            );
+        }
     }
 
     #[test]

@@ -598,8 +598,11 @@ pub(crate) fn targets(
     let holder = &scene.tree[parent];
     let props = &snap.nodes[parent];
     // A container's children stand from its box before its own inset.
-    let inset = props.get("at").and_then(|a| a.get("inset")).and_then(Value::as_f64).unwrap_or(0.0) as f32;
     let r = holder.rect;
+    let inset = match props.get("at").and_then(|a| a.get("inset")) {
+        Some(inset) => theme.length(inset, r[2].min(r[3]))?,
+        None => 0.0,
+    };
     t.within = [r[0] - inset, r[1] - inset, r[2] + 2.0 * inset, r[3] + 2.0 * inset];
     match deck.nodes[parent].node_type {
         NodeType::Stack => {

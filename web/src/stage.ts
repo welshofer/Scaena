@@ -82,6 +82,8 @@ import type {
   WritingAsk,
   WritingCall,
   Written,
+  SlidePlace,
+  SlideWritten,
   PictureJob,
   MapAsk,
   MapPlace,
@@ -145,6 +147,8 @@ type Reply = Extract<
       | "writing"
       | "written"
       | "wrote"
+      | "slideAsked"
+      | "slideWritten"
       | "words"
       | "notes"
       | "look"
@@ -199,7 +203,8 @@ type Reply = Extract<
       | "layoutSuggestions"
       | "backgrounds"
       | "backgroundFrames"
-      | "backgroundPatch";
+      | "backgroundPatch"
+      | "pong";
   }
 >;
 
@@ -210,11 +215,30 @@ const mostHelpers = (() => {
   return Number.isInteger(n) && n >= 0 ? n : Number.POSITIVE_INFINITY;
 })();
 
+/** How long a worker that failed outside a message has to say anything at all before it is taken
+ * to have died (lift-up 10-24b STAB-2), ms: one task of a live worker, a large deck's whole lint
+ * or a PDF's preparation, holds it for seconds. */
+export const PROBE = 20000;
+
 /** How a page starts the engine: a worker, and the engine's module, compiled, if the page
  * carries it, as a single-file export does (PLAN 2.5). A worker without it loads its own. */
 export interface Engine {
   spawn: () => Worker;
   module?: WebAssembly.Module;
+}
+
+/** What a request waiting on a worker that stopped is refused with, a panic or a death (lift-up
+ * STAB-2): the page that starts the engine again says so, so a caller that does not catch it
+ * leaves nothing to say. */
+export class EngineStopped extends Error {}
+
+/** Whether `listen` hears anything within `within` ms: `listen` is handed what to call on each
+ * thing heard (lift-up 10-24b STAB-2). */
+export function lives(within: number, listen: (heard: () => void) => void): Promise<boolean> {
+  return new Promise((resolve) => {
+    const late = setTimeout(() => resolve(false), within);
+    listen(() => (clearTimeout(late), resolve(true)));
+  });
 }
 
 export class Stage {
@@ -229,11 +253,26 @@ export class Stage {
    * the page to start the stage again from (`restart`). A page that does not hears an error. */
   onCrashed: (crash: { message: string; name: string; files: Record<string, ArrayBuffer> }) => void = (crash) =>
     this.onError(new Error(`the engine stopped: ${crash.message}`));
+  /** Called when the worker failed outside a message and then answered nothing for `PROBE` ms
+   * (lift-up 10-24b STAB-2), as one out of memory does: it is stopped and every request waiting
+   * on it refused, and it hands nothing over. `lost`: the bundle's files written since the save,
+   * which went with it, each by the name it was dropped as, where it was. A page that does not
+   * start the stage again (`restart`) hears an error. */
+  onDied: (death: { message: string; lost: string[] }) => void = (death) => this.onError(new Error(`the engine stopped: ${death.message}`));
+  /** Called when a worker that failed outside a message is given `PROBE` ms to say anything
+   * (lift-up 10-24b STAB-2), with what failed: the page says it is waiting, before it hears the
+   * error the worker lived through (`onError`) or the stage stopped (`onDied`). */
+  onStalled: (message: string) => void = () => {};
+  /** Called on each message the worker sends, while a worker that failed is asked whether it
+   * lives. */
+  private heard?: () => void;
   /** The formats beside the canvas are painted: `state`, `t` ms into its cue (PLAN 2.62). */
   onBesides: (state: string, t: number) => void = () => {};
   /** Called as the canvas's attributes change: `size`, which frames are painted at from then
    * on, fitted to the room (`fit`), the format shown, or the bundle read again (lift-up ATTR-2). */
   onSized: (size: [number, number]) => void = () => {};
+  /** Whether a worker that failed is being asked whether it still answers. */
+  private probing = false;
   /** Requests not yet answered, by id. */
   private waiting = new Map<number, { resolve: (reply: Reply) => void; reject: (error: Error) => void }>();
   /** What hears each step of the assistant's answer to a question, by the question's id. */
@@ -269,8 +308,49 @@ export class Stage {
   }
 
   private hear(worker: Worker) {
-    worker.onmessage = ({ data }: MessageEvent<FromWorker>) => this.listen(data);
-    worker.onerror = (e) => this.onError(new Error(e.message));
+    worker.onmessage = ({ data }: MessageEvent<FromWorker>) => {
+      if (worker === this.worker) this.heard?.();
+      this.listen(data);
+    };
+    worker.onerror = (e) => {
+      // Heard here, and said or recovered from: not the page's uncaught error.
+      e.preventDefault();
+      void this.failed(worker, e.message || "the worker failed");
+    };
+    // A message that could not be read leaves the request it answered waiting: each waiting is
+    // refused, and the worker, which still answers, is kept.
+    worker.onmessageerror = () => this.refuse(new Error("the engine's answer could not be read"));
+  }
+
+  /** The worker failed outside a message (lift-up 10-24b STAB-2): an error it lives through is
+   * said, and one it died of, which leaves it answering nothing, stops it as a panic does. */
+  private async failed(worker: Worker, message: string) {
+    if (worker !== this.worker || this.probing) return;
+    this.probing = true;
+    this.onStalled(message);
+    const alive = await this.probe();
+    this.probing = false;
+    if (worker !== this.worker) return;
+    if (alive) return this.onError(new Error(message));
+    const lost = [...this.writtenSince.keys()].map((path) => this.dropped.get(path) ?? path);
+    // They went with it: none is there to keep beside the source or to save.
+    this.writtenSince.clear();
+    this.halt(new EngineStopped(`the engine stopped: ${message}`));
+    this.onDied({ message, lost });
+  }
+
+  /** Whether the worker says anything within `PROBE` ms: an answer to anything, or to a `ping`,
+   * which it answers once the task it is in ends. */
+  private probe(): Promise<boolean> {
+    const id = ++this.asked;
+    return lives(PROBE, (heard) => {
+      this.heard = heard;
+      this.waiting.set(id, { resolve: heard, reject: heard });
+      this.send({ type: "ping", id });
+    }).finally(() => {
+      this.heard = undefined;
+      this.waiting.delete(id);
+    });
   }
 
   /** Open the bundle at `source` in a new worker of `engine`'s, which paints into a new
@@ -286,7 +366,7 @@ export class Stage {
    * STAB-2): a fresh worker of its own, painting into a fresh canvas in this one's place; the
    * requests waiting on the old one are refused. The bundle as the fresh worker opened it. */
   async restart(source: Source): Promise<Opened> {
-    this.halt(new Error("the engine stopped"));
+    this.halt(new EngineStopped("the engine stopped"));
     const started = await Stage.start(this.canvas, source, this.painter, this.engine);
     this.canvas = started.canvas;
     this.worker = started.worker;
@@ -911,6 +991,21 @@ export class Stage {
   }
 
   /** Ask a model once, with the user's key and nothing to call (PLAN 2.101): its words. */
+  /** What to ask a model for one slide at `place`, with the person's `ask` (lift-up FUNC-1). */
+  slideAsk(place: SlidePlace, ask: string): Promise<{ system: string; prompt: string }> {
+    return this.request<"slideAsked">({ type: "slideAsk", id: ++this.asked, place, ask }).then(({ asked }) => asked);
+  }
+
+  /** The slide a model's `answer` holds, written at `place` by `author` (lift-up FUNC-1): what it
+   * did, the deck's source now, and what the edit came to for state `index` in `format`. */
+  slideWrite(place: SlidePlace, answer: string, author: string, index: number, format?: string): Promise<{ written: SlideWritten; source: string; edited: Edited }> {
+    return this.request<"slideWritten">({ type: "slideWrite", id: ++this.asked, place, answer, author, index, format }).then(({ written, source, edited }) => ({
+      written,
+      source,
+      edited,
+    }));
+  }
+
   write(call: WritingCall): Promise<{ text: string; usage?: { input: number; output: number } }> {
     return this.request<"wrote">({ type: "write", id: ++this.asked, call }).then(({ text, usage }) => ({ text, usage }));
   }
@@ -1269,6 +1364,22 @@ export class Stage {
     for (const { reject } of waiting) reject(error);
   }
 
+  /** Refuse every request waiting on the worker with `error`, and keep it. */
+  private refuse(error: Error) {
+    const waiting = [...this.waiting.values()];
+    this.waiting.clear();
+    this.hearing.clear();
+    this.thumbing.clear();
+    for (const { reject } of waiting) reject(error);
+  }
+
+  /** Fail outside a message and answer nothing more, as a worker out of memory does, or nothing
+   * for `busy` ms, as a live one in a long task does, to test the page's recovery (lift-up 10-24b
+   * STAB-2). */
+  die(busy?: number) {
+    this.send({ type: "die", busy });
+  }
+
   /** Panic in the engine, to test the page's recovery (lift-up STAB-2): the editor's module alone
    * carries it. */
   trap() {
@@ -1356,6 +1467,8 @@ export class Stage {
       case "writing":
       case "written":
       case "wrote":
+      case "slideAsked":
+      case "slideWritten":
       case "words":
       case "notes":
       case "look":
@@ -1423,6 +1536,9 @@ export class Stage {
       case "thumbed":
         this.thumbing.get(data.id)?.(data.thumb);
         return;
+      case "pong":
+        this.waiting.get(data.id)?.resolve(data);
+        return;
       case "at": {
         const { type: _, id, ...at } = data;
         this.at = at;
@@ -1434,7 +1550,7 @@ export class Stage {
         return;
       }
       case "crashed": {
-        this.halt(new Error(`the engine stopped: ${data.message}`));
+        this.halt(new EngineStopped(`the engine stopped: ${data.message}`));
         this.onCrashed({ message: data.message, name: data.name, files: data.files });
         return;
       }
