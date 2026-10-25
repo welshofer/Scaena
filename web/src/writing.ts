@@ -92,7 +92,7 @@ export function writer(stage: Stage, host: WritingHost) {
 
   /** A signal for a new question's request: an earlier one still on its way is stopped, as its
    * answer would be dropped. */
-  function asking(): AbortSignal {
+  function stopper(): AbortSignal {
     stopping?.abort();
     stopping = new AbortController();
     return stopping.signal;
@@ -163,7 +163,7 @@ export function writer(stage: Stage, host: WritingHost) {
           prompt: writing.prompt,
           picture: writing.picture,
         },
-        asking(),
+        stopper(),
       ));
     } catch (e) {
       // Why, in a person's words (PLAN 3.18), as the Mac's writing tools say it: never the
