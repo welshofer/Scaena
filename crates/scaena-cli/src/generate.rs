@@ -602,6 +602,11 @@ fn env(vars: &[&str]) -> Option<String> {
 /// written elsewhere, into a new bundle. Exit 1 when the deck has errors, 2 when what was given
 /// is not what it takes or a call failed.
 pub fn run(a: GenerateArgs, json: bool) -> Result<ExitCode> {
+    // An address the key goes to over plain http, off this machine, is refused before any call
+    // (lift-up 20261025 SEC-2).
+    for base in [&a.base, &a.picture_base].into_iter().flatten() {
+        scaena_narrato::providers::checked_base(base).map_err(|e| anyhow!(e))?;
+    }
     let provider = match &a.provider {
         Some(name) => {
             Provider::named(name).ok_or_else(|| anyhow!("`{name}` is no provider: anthropic, openai, or gemini"))?
@@ -962,6 +967,10 @@ pub fn run(a: GenerateArgs, json: bool) -> Result<ExitCode> {
             (Some(why), true) => println!("  not changed by what the model saw: {why}"),
             (Some(why), false) => println!("  {why}"),
             (None, _) => {}
+        }
+        // Each change let go, and what lint found (lift-up USE-4).
+        for r in &made.refused {
+            println!("  slide {} kept as made: the model asked for {}. {}", r.slide, r.what, r.why);
         }
         if made.pictures > 0 {
             println!("  pictures: {}", made.pictures);

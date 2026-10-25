@@ -595,7 +595,11 @@ fn args(settings: &VideoSettings, [w, h]: [u32; 2], out: &Path, chapters: Option
     if settings.audio.is_some() || chapters.is_some() {
         maps.extend(["-map", "0:v:0"].map(OsString::from));
     }
+    // Each input past the frames is a file on this machine, never a URL ffmpeg would fetch: only
+    // the client's own transport reaches the network (ADR-0030; lift-up 20261025b SEC-2).
+    let local = || ["-protocol_whitelist", "file,pipe"].map(OsString::from);
     if let Some(audio) = &settings.audio {
+        inputs.extend(local());
         inputs.extend(["-i".into(), audio.as_os_str().to_os_string()]);
         // Silence after the track runs out, and the frames decide where the video ends.
         maps.extend(["-map".into(), format!("{next}:a:0").into()]);
@@ -604,6 +608,7 @@ fn args(settings: &VideoSettings, [w, h]: [u32; 2], out: &Path, chapters: Option
     }
     // The video's chapters are ours or none: never a sound file's.
     if let Some(chapters) = chapters {
+        inputs.extend(local());
         inputs.extend(["-f".into(), "ffmetadata".into(), "-i".into(), chapters.as_os_str().to_os_string()]);
         maps.extend(["-map_chapters".into(), next.to_string().into()]);
     } else {
@@ -661,6 +666,13 @@ mod tests {
         let args: Vec<&str> = args.iter().map(|a| a.to_str().unwrap()).collect();
         let inputs: Vec<&str> = args.windows(2).filter(|w| w[0] == "-i").map(|w| w[1]).collect();
         assert_eq!(inputs, ["pipe:0", "voice.wav", "x.chapters"]);
+        // Neither the sound nor the chapters is read from anywhere but this machine.
+        for input in ["voice.wav", "x.chapters"] {
+            let at = args.iter().position(|a| *a == input).unwrap();
+            let opened = &args[args[..at].iter().rposition(|a| *a == "-protocol_whitelist").unwrap()..at];
+            assert_eq!(&opened[..2], ["-protocol_whitelist", "file,pipe"], "{input}: {opened:?}");
+            assert!(!opened[2..].contains(&"-protocol_whitelist") && opened.ends_with(&["-i"]), "{opened:?}");
+        }
         assert!(args.windows(2).any(|w| w == ["-c:a", "aac"]) && args.contains(&"-shortest"));
         assert!(
             args.windows(2).any(|w| w == ["-map", "1:a:0"]) && args.windows(2).any(|w| w == ["-map_chapters", "2"])

@@ -413,6 +413,13 @@ try {
     .waitForFunction((html) => document.querySelector("#reading").innerHTML === html && html !== "", await player.innerHTML("#reading"), { timeout: 15000 })
     .then(() => true, () => false);
   check(readsAsPlayer, `the presenter view reads ${states[1]} as the player reads it`);
+  // Where the talk is (lift-up FUNC-2): the section and the beat's claim the spine gives the state,
+  // and, the deck planning its beats' times, how the talk stands against the plan.
+  const section = deck.spine.sections.find((s) => s.beats.some((b) => b.states?.includes(states[1])));
+  const beat = section.beats.find((b) => b.states?.includes(states[1]));
+  const story = await presenter.evaluate(() => window.scaena.story());
+  check(story.story === `${section.title} \u00b7 ${beat.claim}`, `it says the section and the beat's claim: ${story.story}`);
+  check(/^(On plan|\d+:\d\d (ahead|behind))$/.test(story.pace), `and how the talk stands against its plan: ${story.pace}`);
   // The next is a still the one stage draws (lift-up PERF-3): no engine of its own, its canvas a
   // 2D one with the slide on it (a canvas handed to a worker has no 2D context).
   const still = await presenter
