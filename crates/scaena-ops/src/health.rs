@@ -522,13 +522,17 @@ fn closing(deck: &Deck, slides: &[Slide], read: &[SlideForHealth]) -> Vec<String
     (0..n).rev().take_while(|&i| closes(i)).map(|i| read[i].id.clone()).collect()
 }
 
-/// The opening of a slide's notes: their first line or item, cut at its first sentence's end.
+/// The opening of a slide's notes: their first line or item, cut at its first sentence's end, a
+/// stop that white space or the line's end follows, so a figure's point ("3.5%") ends nothing.
 fn opening(notes: &str) -> &str {
     let first = notes.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or_default();
-    match first.find(['.', '!', '?']) {
-        Some(at) => &first[..=at],
-        None => first,
+    let mut chars = first.char_indices().peekable();
+    while let Some((at, c)) = chars.next() {
+        if matches!(c, '.' | '!' | '?') && chars.peek().is_none_or(|&(_, next)| next.is_whitespace()) {
+            return &first[..at + c.len_utf8()];
+        }
     }
+    first
 }
 
 /// Whether `next`'s notes open by carrying `before` across (narrative dogfood H4): a word of
@@ -1360,6 +1364,11 @@ mod tests {
         assert!(!found(&h), "{:#?}", h.findings);
         assert!(h.coherence.says.contains("; the notes bridge "), "{}", h.coherence.says);
         assert_eq!(h.coherence.score, before.coherence.score, "no figure moves");
+        // A figure's point ends no sentence: the opening runs on past "3.5" to the word carried.
+        let h = noted(&mut deck, format!("Retention rose 3.5% since {carried}. Then the rest."));
+        assert!(!found(&h), "{:#?}", h.findings);
+        assert_eq!(opening("Rose 3.5% since then. Later."), "Rose 3.5% since then.");
+        assert_eq!(opening("\n  - Up 2.1x!\nMore"), "- Up 2.1x!");
         let h = noted(&mut deck, format!("We turn to what comes next. Later, {carried}."));
         assert!(found(&h), "a word past the notes' opening carries nothing over");
         if let Some(shared) = shared {
