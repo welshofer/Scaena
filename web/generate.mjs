@@ -465,11 +465,18 @@ try {
   const cited = await page.evaluate(() => window.scaena.story.health().slides.map((s) => (s.sources ?? []).join()));
   check(slides?.prompt.includes("`sourceRef`"), "the slides' prompt asks each slide for its source");
   check(cited[0] === "notes.md" && cited[1] === `${press}/press.html` && cited.every((c) => c), `each slide cites its source: ${cited.join(" | ")}`);
-  const from = await page.evaluate(() => [...document.querySelectorAll("#story [data-findings] li")].map((li) => [li.dataset.slide, li.querySelector("[data-sources]")?.textContent]));
+  const from = await page.evaluate(() => [...document.querySelectorAll("#story [data-findings] li[data-slide]")].map((li) => [li.dataset.slide, li.querySelector("[data-sources]")?.textContent]));
   check(from.length > 0 && from.every(([n, f]) => f === `From ${cited[Number(n) - 1]}`), `each row says what its slide came from: ${JSON.stringify(from)}`);
-  const rows = await page.evaluate(() => [...document.querySelectorAll("#story [data-findings] li")].map((li) => li.dataset.slide));
-  const looked = await page.evaluate(() => [...new Set(window.scaena.story.health().findings.map((f) => String(f.slide)))]);
-  check(rows.join() === looked.join(), `a row for each slide with something to look at, in order: ${rows}`);
+  // What to do first open, the rest folded (lift-up S1): a row for each slide in each, every
+  // finding in one of them once.
+  const rows = await page.evaluate(() => [...document.querySelectorAll("#story [data-findings] li[data-slide]")].map((li) => li.querySelectorAll("p[data-kind]").length));
+  const looked = await page.evaluate(() => window.scaena.story.health().findings.length);
+  check(rows.reduce((a, b) => a + b, 0) === looked, `every finding has its row once: ${rows} of ${looked}`);
+  // Opened, so a fix or a question folded with the rest can be reached.
+  await page.evaluate(() => {
+    const more = document.querySelector("#story [data-more] details");
+    if (more) more.open = true;
+  });
   check(!said.some((s) => /\d\.\d\d/.test(s)), `in a person's words, no figure: ${said.join(" | ")}`);
   // The words are to carry the plan's intensity and tone: a gap is asked of the assistant, and
   // no fix declares what the words read in the plan's place.
@@ -485,7 +492,7 @@ try {
   await page
     .waitForFunction(() => window.scaena.story.health()?.findings.some((f) => f.kind === "drift"), null, { timeout: 30000 })
     .catch(() => {});
-  const fixable = page.locator("#story [data-findings] li:has([data-fix])").first();
+  const fixable = page.locator("#story [data-findings] li[data-slide]:has([data-fix])").first();
   check((await fixable.count()) === 1, `a finding offers its fix: ${said.join(" | ")}`);
   const slide = Number((await fixable.locator("[data-show]").textContent()).replace("Slide ", ""));
   await fixable.locator("[data-show]").click();
@@ -517,10 +524,11 @@ try {
   check(back.includes(`${slide} ${kind}`), `undone, the finding is back: ${back}`);
   // A row's questions are asked together, with the slide they are about shown, whichever was
   // (lift-up USE-5): another slide is shown first.
-  const asked = page.locator("#story [data-findings] li [data-ask]").first();
+  const asked = page.locator("#story [data-findings] li[data-slide] [data-ask]").first();
   const { question, about } = await page.evaluate(() => {
-    const { findings } = window.scaena.story.health();
-    const run = findings.filter((f) => f.slide === findings[0].slide);
+    // The first row's questions: the open findings of the slide that leads.
+    const { open } = window.scaena.story.triaged();
+    const run = open.filter((f) => f.slide === open[0].slide);
     return { question: run.map((f) => f.ask).join(" "), about: window.scaena.last().states.findIndex(([id]) => id === run[0].state) };
   });
   const other = await page.evaluate((i) => (i === 0 ? window.scaena.last().states.length - 1 : 0), about);
