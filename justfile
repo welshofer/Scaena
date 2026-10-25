@@ -110,7 +110,6 @@ scripts:
     python3 -m unittest discover -s scripts -p 'test_*.py'
     node --experimental-strip-types web/exchanges.mjs
     node --experimental-strip-types web/markdown.mjs
-    node --experimental-strip-types web/cut.mjs
     node --experimental-strip-types web/most.mjs
 
 # CI runs these on each runner, and fails a pull request on a bench slower than its base, timed

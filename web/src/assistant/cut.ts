@@ -1,7 +1,7 @@
 // A call cut off by the answer's token limit is not run (lift-up REL-1): its arguments are not
 // what the model meant. It goes back with the others' results, told to make the edit in smaller
 // patches, as scaena-chat's `Chat::answer` tells it. Pure, with no import, so node checks it as
-// it stands (`web/cut.mjs`).
+// it stands (`web/exchanges.mjs`).
 
 /** What a call cut off by the answer's token limit is told in place of its result, as
  * scaena-chat's `CUT` says it. */
