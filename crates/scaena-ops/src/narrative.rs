@@ -3011,7 +3011,15 @@ fn layout_for(
         "quadrant" => "quadrants",
         // A system's parts in tiers, each joined to what it calls (dogfood pass 7).
         "architecture" if tiers(items).is_some() => "architecture",
-        // A decision put to the room: its items the brief's parts, else what they are.
+        // A decision put to the room: its items the brief's parts, else what they are. With no
+        // bottom line (`supportingFacts`), its band under the headline would stand empty: its four
+        // parts go on four cards, each titled by its label (dogfood 8a F2).
+        "decision-brief"
+            if briefed(items) && slide.supporting_facts.as_deref().is_some_and(|f| !f.trim().is_empty()) =>
+        {
+            "decision-brief"
+        }
+        "decision-brief" if briefed(items) && n == 4 && theme.layouts.contains_key("four-cards") => "four-cards",
         "decision-brief" if briefed(items) => "decision-brief",
         // Questions each with its answer are an FAQ's; one question with answers to choose from,
         // a quiz.
@@ -3078,6 +3086,8 @@ fn layout_for(
         "manifesto" => "manifesto",
         // With no picture to show, the people stand by name, under the headline, with no band
         // left empty for their faces.
+        // Three or fewer by name, each on a card down the slide; more, three by two.
+        "team" if !pictured && n <= 3 => "team-names-three",
         "team" if !pictured => "team-names",
         "team" => match n {
             0..=3 => "team",
@@ -4192,6 +4202,11 @@ impl Slots<'_> {
             (Some((_, "title" | "criterion")), "label") => at_least("body"),
             // A journey's phases and lanes, over and beside its cells, likewise.
             (Some((_, "phase" | "lane")), "label") if self.layout == "journey" => at_least("body"),
+            // A team's names, as large as their cards take, toward three-quarters of the
+            // headline, so four names never outshout the slide's title; the set held to one.
+            (Some((_, "title")), "title") if self.layout.starts_with("team-names") => {
+                self.under_headline().filter(|most| size(role).is_some_and(|own| *most > own))
+            }
             // A checklist's states are what it is for: as large as their places take, toward the
             // lede, never left the smallest words on the slide (dogfood pass 7).
             (Some((_, "state")), "label") if self.layout == "checklist" => at_least("lede"),
@@ -4713,7 +4728,7 @@ impl Slots<'_> {
                 })
             }
             // "Name, role: credit".
-            ("team" | "team-four" | "team-six" | "team-names", _, Some((k, part)))
+            ("team" | "team-four" | "team-six" | "team-names" | "team-names-three", _, Some((k, part)))
                 if part != "art" && part != "card" =>
             {
                 let item = self.item(k)?;
@@ -5039,7 +5054,10 @@ impl Builder {
                             // A few short lines of words alone in a large place, a card's own words
                             // or a term's meaning, grow toward three-quarters of the headline, never
                             // past it, as a short list does (dogfood pass 4).
-                            let own = (matches!(ordinal(name), Some((_, ""))) && !s.figured(name))
+                            // What a team's person does stays a step under their name: to the lede.
+                            let own = (matches!(ordinal(name), Some((_, "")))
+                                && !s.figured(name)
+                                && !s.layout.starts_with("team-names"))
                                 || s.alone(name, role).is_some();
                             let most = match own && words_role(role) && short(&text) {
                                 true => s.under_headline().map_or(most, |h| h.max(most)),
@@ -7216,6 +7234,60 @@ mod tests {
         assert!(caps[0] == caps[1] && caps[0] < 48.0 && held[2].is_none(), "shrunk together: {held:?}");
     }
 
+    /// A team by name fills its place: its names grow toward three-quarters of the headline and
+    /// what each person does to the lede, each set held to one size; a team of three or fewer
+    /// takes Small Team by Name, each card down the slide, so it never sits in the slide's top
+    /// half. Six stand three by two.
+    #[test]
+    fn a_team_by_name_grows_and_a_small_one_takes_cards_down_the_slide() {
+        let people = [
+            "Maya Chen, CEO: ran Gulf operations at a top-three carrier",
+            "Ade Okafor, CTO: built direct air capture at scale",
+            "Luis Ortega, COO: scaled ports across three continents",
+            "Priya Nair, CFO: took two climate funds public",
+            "Tom Becker, VP Sales: sold freight to the Fortune 100",
+            "Ana Silva, Head of Science: led the ocean storage trials",
+        ];
+        let (summary, slides) = catalog();
+        for file in ["dusk", "ember"] {
+            let theme: Theme = serde_json::from_str(
+                &std::fs::read_to_string(root().join(format!("docs/examples/themes/{file}.theme.json"))).unwrap(),
+            )
+            .unwrap();
+            let size = |r: &str| theme.typography.roles[r].size;
+            for n in [2, 3, 6] {
+                let mut slide = slides.iter().find(|s| s.layout_suggestion == "Team").unwrap().clone();
+                slide.key_bullets = people[..n].iter().map(|p| p.to_string()).collect();
+                let made = deck(
+                    &narrative(&summary, vec![slides[0].clone(), slide, slides[55].clone()]),
+                    &theme,
+                    &Pictures::new(),
+                )
+                .unwrap();
+                let layout = if n <= 3 { "team-names-three" } else { "team-names" };
+                assert_eq!(made.layouts[1], layout, "{file}, {n}");
+                let state = made.deck["states"][1]["id"].as_str().unwrap();
+                let node = |slot: &str| made.deck["nodes"][format!("{state}-{slot}")].clone();
+                let (name, does) = (node("first-title"), node("first"));
+                // Each in its slot, as health, tracking, and the inspectors read it.
+                assert_eq!(name["at"], json!({ "in": "first-title" }), "{file}, {n}");
+                assert_eq!(does["at"], json!({ "in": "first" }), "{file}, {n}");
+                // A name grows only where the theme sets it under three-quarters of the headline.
+                let grows = (size("headline") * 0.75 > size("title")).then_some(size("headline") * 0.75);
+                assert_eq!(name["maxSize"].as_f64(), grows, "{file}, {n}: {name:#}");
+                assert_eq!(does["maxSize"].as_f64(), Some(size("lede").min(size("title"))), "{file}, {n}: {does:#}");
+            }
+            // The small team's cards run down both of Team by Name's rows of cards, the name over
+            // the split its rows of cards make and what they do under it.
+            let rows = |layout: &str, slot: &str| json!(theme.layouts[layout].slots[slot].row);
+            let span = |slot: &str| serde_json::from_value::<[u32; 2]>(rows("team-names", slot)).unwrap();
+            let ([top, upper], [lower, foot]) = (span("first-card"), span("fourth-card"));
+            assert_eq!(rows("team-names-three", "first-card"), json!([top, foot]), "{file}");
+            assert_eq!(rows("team-names-three", "first-title"), json!([top, upper]), "{file}");
+            assert_eq!(rows("team-names-three", "first"), json!([lower, foot]), "{file}");
+        }
+    }
+
     /// Short words in a large place grow to fill it (dogfood pass 4): each side's list of a
     /// pros and cons, each month's of a roadmap, as one set; a slide's one short list past the
     /// lede, under its headline still. Prices each with a tier go on a pricing slide, the tier
@@ -7986,21 +8058,28 @@ mod tests {
         has(&said, "client-second", "iOS app");
         has(&said, "service-second", "Billing");
         has(&said, "second-call", "shape");
-        // A decision brief: each card titled by its label, the bottom line the slide's fact.
-        let (layout, said) = made(
-            serde_json::json!({ "slideTitle": "We keep the cache in-process, not in Redis", "layoutSuggestion": "Decision Brief",
-                "keyBullets": ["Decision: keep hot prices in each pod's memory for 30 seconds",
-                    "Why: one network hop fewer, and no new cluster to run",
-                    "Trade-off: a price change can take up to 30 seconds to reach every pod",
-                    "Ask: approve 30 s as the standard staleness for pricing"] }),
-            "en",
-        );
-        assert_eq!(layout, "decision-brief");
+        // A decision brief with no bottom line would leave the band under its headline empty: its
+        // four parts go on four cards instead, each titled by its label (dogfood 8a F2).
+        let briefless = serde_json::json!({ "slideTitle": "We keep the cache in-process, not in Redis",
+            "layoutSuggestion": "Decision Brief",
+            "keyBullets": ["Decision: keep hot prices in each pod's memory for 30 seconds",
+                "Why: one network hop fewer, and no new cluster to run",
+                "Trade-off: a price change can take up to 30 seconds to reach every pod",
+                "Ask: approve 30 s as the standard staleness for pricing"] });
+        let (layout, said) = made(briefless.clone(), "en");
+        assert_eq!(layout, "four-cards");
         has(&said, "first-title", "Decision");
         has(&said, "first", "Keep hot prices in each pod\u{2019}s memory for 30 seconds");
         has(&said, "fourth-title", "Ask");
-        lacks(&said, "bottom");
-        lacks(&said, "bottom-card");
+        // With its bottom line, it is a decision brief: each card titled by its label, the bottom
+        // line the slide's fact.
+        let mut bottomed = briefless;
+        bottomed["supportingFacts"] = serde_json::json!("Thirty seconds of staleness, for one hop and no cluster.");
+        let (layout, said) = made(bottomed, "en");
+        assert_eq!(layout, "decision-brief");
+        has(&said, "first-title", "Decision");
+        has(&said, "fourth-title", "Ask");
+        has(&said, "bottom", "Thirty seconds of staleness, for one hop and no cluster.");
         // The theme's mark over the third card marks a recommendation, which "Trade-off" is not.
         lacks(&said, "mark");
         let (_, said) = made(
