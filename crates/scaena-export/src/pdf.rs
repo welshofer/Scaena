@@ -421,6 +421,12 @@ impl Cx<'_, '_> {
                 self.artifact(Artifact::new(kind, None), op, xf);
                 continue;
             }
+            // A notes page's notes (`scaena_engine::notes`): a paragraph after the slide's figure.
+            if node.as_deref() == Some(scaena_engine::notes::NOTES) {
+                let id = self.tagged(op, xf);
+                out.push(element(Tag::P.into(), None, vec![id.into()]));
+                continue;
+            }
             let reading = node.as_deref().and_then(|id| self.readings.get(id));
             let alt = reading.and_then(|r| r.alt.clone());
             // A layer drawn at an opacity or in a blend mode is a group (a form XObject)
