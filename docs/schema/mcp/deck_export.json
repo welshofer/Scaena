@@ -1,6 +1,6 @@
 {
   "name": "deck_export",
-  "description": "Export a projection to `out`: `pdf` (each slide at its last state, or `states`, a page each), `png` or `svg` (an image per state, into a directory), `mp4`, `webm`, or `prores` (the timeline, each state's cue then its hold, or where it has none its share of its beat's `duration` (`pace`), at `fps`; needs ffmpeg), `html` (one file that plays the deck in a browser, offline: the player, the engine, and the bundle), or `spine`, which is also returned. An export that takes longer than 40 s keeps going: the call returns `running`, how far it has got, and the same call again waits for the rest, then returns what it wrote.",
+  "description": "Export a projection to `out`: `pdf` (each slide at its last state, or `states`, a page each; with `notes`, the slide smaller with the presenter's notes under it), `png` or `svg` (an image per state, into a directory), `mp4`, `webm`, or `prores` (the timeline, each state's cue then its hold, or where it has none its share of its beat's `duration` (`pace`), at `fps`; needs ffmpeg), `html` (one file that plays the deck in a browser, offline: the player, the engine, and the bundle), or `spine`, which is also returned. An export that takes longer than 40 s keeps going: the call returns `running`, how far it has got, and the same call again waits for the rest, then returns what it wrote.",
   "inputSchema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "$defs": {
@@ -74,6 +74,11 @@
         "description": "How a video and the spine pace the timeline: `beats` (the default) gives each state\nwith no `hold` its share of its beat's `duration`, as the talk is given; `holds` plays\neach state's hold alone, as a player auto-advances.",
         "$ref": "#/$defs/Pace",
         "default": "beats"
+      },
+      "notes": {
+        "description": "A PDF with the presenter's notes: each slide drawn smaller at the head of a page, the\nnotes a presenter reads for it under it, notes too long for it going on to pages of\ntheir own. Only a PDF.",
+        "type": "boolean",
+        "default": false
       }
     },
     "additionalProperties": false,

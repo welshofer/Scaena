@@ -2194,10 +2194,14 @@ async function edit(source: Source, opened?: Stage) {
   /** Export (PLAN 2.54) the deck the source compiles to, as `scaena export` writes it, and
    * download it: `png`, the state shown at rest in the format shown, `width` pixels wide;
    * `slides`, every slide once its steps have played, so, in one zip, each named by its number
-   * (PLAN 2.122); `pdf`, each slide at its last state; `html`, the deck as one file that plays
-   * offline, the single-file player's page beside this one filled in. Each is made in the worker:
-   * nothing is sent anywhere. */
-  async function exportAs(as: "png" | "slides" | "pdf" | "html", width?: number): Promise<{ file: string; bytes: ArrayBuffer } | undefined> {
+   * (PLAN 2.122); `pdf`, each slide at its last state, with `notes` each with the presenter's
+   * notes under it; `html`, the deck as one file that plays offline, the single-file player's
+   * page beside this one filled in. Each is made in the worker: nothing is sent anywhere. */
+  async function exportAs(
+    as: "png" | "slides" | "pdf" | "html",
+    width?: number,
+    notes = false,
+  ): Promise<{ file: string; bytes: ArrayBuffer } | undefined> {
     await settled();
     let what: Export;
     let file: string;
@@ -2217,8 +2221,8 @@ async function edit(source: Source, opened?: Stage) {
       // hyphen, which a browser keeps in a file's name where the system's own encoding is not UTF-8.
       file = `${name} - ${slideOf(now.state)}${shownIn ? ` (${shownIn.replace(/[^\w.-]+/g, "x")})` : ""}.png`;
     } else if (as === "pdf") {
-      what = { kind: "pdf" };
-      file = `${name}.pdf`;
+      what = { kind: "pdf", notes };
+      file = notes ? `${name} - Notes.pdf` : `${name}.pdf`;
     } else {
       const page = await fetch(new URL("standalone.html", document.baseURI)).catch(() => undefined);
       if (!page?.ok) {
@@ -2748,6 +2752,11 @@ async function edit(source: Source, opened?: Stage) {
       { label: "Export this slide as a PNG…", applies: () => showing() !== undefined, run: () => openExport("png") },
       { label: "Export every slide as PNGs…", applies: () => showing() !== undefined, run: () => openExport("slides") },
       { label: "Export the deck as a PDF", applies: () => last?.valid === true, run: () => exportAs("pdf").catch(failed) },
+      {
+        label: "Export the deck as a PDF with the presenter's notes",
+        applies: () => last?.valid === true,
+        run: () => exportAs("pdf", undefined, true).catch(failed),
+      },
       { label: "Export the deck as one HTML file", applies: () => last?.valid === true, run: () => exportAs("html").catch(failed) },
       { label: "Play", applies: () => !play.hidden, run: () => play.click() },
       { label: "New deck…", run: () => $("#new-deck").click() },
@@ -2904,6 +2913,7 @@ async function edit(source: Source, opened?: Stage) {
   const exporting = $<HTMLDialogElement>("#exporting");
   const exportWidth = $<HTMLInputElement>("#exporting-width");
   const exportNote = $("#exporting-note");
+  const withNotes = $<HTMLInputElement>("#exporting-with-notes");
   type ExportAs = "png" | "slides" | "pdf" | "html";
   const chosenExport = () => exporting.querySelector<HTMLInputElement>("input[name=as]:checked")!.value as ExportAs;
   /** What the export chosen makes, said under the choices. */
@@ -2912,6 +2922,8 @@ async function edit(source: Source, opened?: Stage) {
     const sized = as === "png" || as === "slides";
     $("#exporting-size").hidden = !sized;
     exportWidth.disabled = !sized;
+    $("#exporting-notes").hidden = as !== "pdf";
+    const notes = withNotes.checked;
     const [w, h] = board.size();
     const width = Number(exportWidth.value);
     const pixels = `${width} × ${Math.round((h * width) / w)} pixels`;
@@ -2927,7 +2939,9 @@ async function edit(source: Source, opened?: Stage) {
       slides: whole
         ? `${slides} slide${slides === 1 ? "" : "s"}, each as it stands once its steps have played${format() ? `, in ${format()}` : ""}: a PNG of ${pixels} named by its number, all in one .zip.`
         : "A width in whole pixels: the height keeps the canvas's aspect.",
-      pdf: "A page for each slide at its last state: vector paths, text in subset fonts that copies and searches as the deck reads, tagged for a screen reader.",
+      pdf: notes
+        ? "A page for each slide at its last state, drawn smaller, the notes you read for it under it, notes too long for the page going on to the next: text that copies and searches, tagged for a screen reader."
+        : "A page for each slide at its last state: vector paths, text in subset fonts that copies and searches as the deck reads, tagged for a screen reader.",
       html: "The player and the deck in one file that plays in a browser with no network, its fonts subset to what the deck draws.",
     }[as];
   };
@@ -2945,7 +2959,9 @@ async function edit(source: Source, opened?: Stage) {
   exporting.onclose = () => {
     if (exporting.returnValue !== "export") return;
     const as = chosenExport();
-    void exportAs(as, as === "png" || as === "slides" ? Number(exportWidth.value) : undefined).catch(failed);
+    void exportAs(as, as === "png" || as === "slides" ? Number(exportWidth.value) : undefined, as === "pdf" && withNotes.checked).catch(
+      failed,
+    );
   };
   onkeydown = (e) => {
     if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") {

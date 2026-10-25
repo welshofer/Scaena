@@ -213,6 +213,8 @@ fn write(deck: &Deck, pages: &[Page], assets: &Assets, settings: &PdfSettings) -
     let mut fonts = Fonts::default();
     let mut photos = HashMap::new();
     let mut structure: Vec<Vec<Node>> = Vec::with_capacity(pages.len());
+    // Each page's headline, which bookmarks it where no section's title or beat's claim does.
+    let mut headlines: Vec<Option<String>> = Vec::with_capacity(pages.len());
     for page in pages {
         let dl = &page.list;
         assets.frame();
@@ -220,6 +222,7 @@ fn write(deck: &Deck, pages: &[Page], assets: &Assets, settings: &PdfSettings) -
             return Err(ExportError::Pdf(format!("`{}` is not a state of the deck", page.state)));
         };
         let readings = reading::readings(deck, snap);
+        headlines.push(reading::headline(deck, snap));
         let written: HashMap<String, String> =
             snap.nodes.iter().filter_map(|(id, props)| Some((id.clone(), as_written(props)?))).collect();
         let [w, h] = dl.viewport.map(|v| v * POINTS_PER_UNIT);
@@ -276,17 +279,24 @@ fn write(deck: &Deck, pages: &[Page], assets: &Assets, settings: &PdfSettings) -
     let mut page = |i: usize| TagGroup::with_children(Tag::Div, taken[i].take().unwrap_or_default());
     let mut tree = TagTree::new().with_lang(lang.clone());
     let mut outline = Outline::new();
-    for (section, at) in &sections {
+    let top = |i: usize| XyzDestination::new(i, Point::from_xy(0.0, 0.0));
+    for (n, (section, at)) in sections.iter().enumerate() {
         let mut sect = TagGroup::new(Tag::Section);
         for &i in at {
             sect.push(page(i));
         }
         tree.push(sect);
         let first = at.iter().copied().min().unwrap_or_default();
-        outline.push_child(OutlineNode::new(heading(section), XyzDestination::new(first, Point::from_xy(0.0, 0.0))));
+        let named = heading(section, headlines.get(first).cloned().flatten(), n + 1);
+        outline.push_child(OutlineNode::new(named, top(first)));
     }
-    for i in rest {
+    for &i in &rest {
         tree.push(page(i));
+        // A page no beat names is bookmarked by what it says, never by an id (lift-up ATTR-5).
+        if !sections.is_empty() {
+            let named = headlines.get(i).cloned().flatten().unwrap_or_else(|| format!("Slide {}", i + 1));
+            outline.push_child(OutlineNode::new(named, top(i)));
+        }
     }
     document.set_tag_tree(tree);
     if !sections.is_empty() {
@@ -362,11 +372,14 @@ fn reading_order<'d>(deck: &'d Deck, pages: &[Page]) -> (Vec<(&'d Section, Vec<u
     (sections, rest)
 }
 
-/// What a section's bookmark says: its title, else its first beat's claim.
-fn heading(section: &Section) -> String {
-    (section.title.clone())
-        .or_else(|| section.beats.first().map(|b| b.claim.clone()))
-        .unwrap_or_else(|| section.id.clone())
+/// What the `n`th section's bookmark says: its title, else its first beat's claim, else its first
+/// page's headline, else "Section n"; never its id (lift-up ATTR-5).
+fn heading(section: &Section, headline: Option<String>, n: usize) -> String {
+    let said = |s: &String| !s.trim().is_empty();
+    (section.title.clone().filter(said))
+        .or_else(|| section.beats.first().map(|b| b.claim.clone()).filter(said))
+        .or(headline.filter(said))
+        .unwrap_or_else(|| format!("Section {n}"))
 }
 
 struct Cx<'a, 's> {
@@ -419,6 +432,12 @@ impl Cx<'_, '_> {
                     ArtifactType::Footer
                 };
                 self.artifact(Artifact::new(kind, None), op, xf);
+                continue;
+            }
+            // A notes page's notes (`scaena_engine::notes`): a paragraph after the slide's figure.
+            if node.as_deref() == Some(scaena_engine::notes::NOTES) {
+                let id = self.tagged(op, xf);
+                out.push(element(Tag::P.into(), None, vec![id.into()]));
                 continue;
             }
             let reading = node.as_deref().and_then(|id| self.readings.get(id));

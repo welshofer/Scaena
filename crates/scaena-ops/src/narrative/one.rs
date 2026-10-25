@@ -327,13 +327,13 @@ fn charted(doc: &Value, deck: &Deck, files: &dyn SourceFiles, shown: &Snapshot) 
         }
     }
     let mut series: Vec<Series> =
-        named.iter().map(|n| Series { name: Some(n.clone()), values: vec![0.0; categories.len()] }).collect();
+        named.iter().map(|n| Series { name: Some(n.clone()), values: vec![Some(0.0); categories.len()] }).collect();
     for row in &table.rows {
         let Datum::Number(v) = row[y] else { continue };
         let c = categories.iter().position(|c| *c == row[x].label())?;
         let name = by.map(|b| row[b].label()).unwrap_or_else(|| table.columns[y].clone());
         let s = named.iter().position(|n| *n == name)?;
-        series[s].values[c] += v;
+        *series[s].values[c].get_or_insert(0.0) += v;
     }
     let mut rows = table.columns.join(", ");
     for row in table.rows.iter().take(ROWS_SHOWN) {
