@@ -748,6 +748,8 @@
       #prompting-unread { border-top: 1px solid var(--line); padding-top: 8px; display: flex; flex-direction: column; gap: 8px; }
       #prompting-unread h3 { margin: 0; font-size: 14px; }
       #prompting-unread .row { display: flex; gap: 8px; justify-content: flex-end; }
+      /* Each pane is a flex column, which would show it though hidden. */
+      #prompting-outline[hidden], #prompting-unread[hidden] { display: none; }
       #prompting-beats { margin: 0; padding-left: 1.4em; display: flex; flex-direction: column; gap: 6px; max-height: 40vh; overflow: auto; }
       #prompting-beats li { display: grid; grid-template-columns: 1fr auto; gap: 4px 8px; align-items: start; }
       #prompting-beats .name { font-size: 12px; font-weight: 600; }
