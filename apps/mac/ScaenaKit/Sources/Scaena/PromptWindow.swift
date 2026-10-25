@@ -4,7 +4,9 @@
 import ScaenaKit
 import SwiftUI
 import UniformTypeIdentifiers
-#if !os(macOS)
+#if os(macOS)
+import AppKit
+#else
 import UIKit
 #endif
 
@@ -22,6 +24,73 @@ struct PromptCommands: Commands {
         CommandGroup(after: .newItem) {
             Button("New from a Prompt…") { openWindow(id: PromptWindow.id) }
                 .keyboardShortcut("n", modifiers: [.option, .command])
+        }
+    }
+}
+
+/// What answers a window's own close (its close button, File › Close, ⌘W) before it closes: while
+/// `asks` says so, read as the close comes, the window stays and `ask` is called, which asks the
+/// person as Cancel does (lift-up STAB-2); else it closes. SwiftUI says nothing of a window's
+/// close, so the window's delegate is wrapped: this answers `windowShouldClose` and hands every
+/// other call to the delegate SwiftUI set, as it was.
+struct CloseGuard: NSViewRepresentable {
+    let asks: () -> Bool
+    let ask: () -> Void
+
+    func makeNSView(context: Context) -> GuardView {
+        let view = GuardView()
+        updateNSView(view, context: context)
+        return view
+    }
+
+    func updateNSView(_ view: GuardView, context: Context) {
+        view.asks = asks
+        view.ask = ask
+        view.wrap()
+    }
+
+    final class GuardView: NSView {
+        var asks: () -> Bool = { false }
+        var ask: () -> Void = {}
+        private let guarding = Guarding()
+
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            wrap()
+        }
+
+        /// The window's delegate wrapped, again where SwiftUI has set another since.
+        func wrap() {
+            guard let window, window.delegate !== guarding else { return }
+            guarding.inner = window.delegate
+            guarding.shouldClose = { [weak self] in
+                guard let self, self.asks() else { return true }
+                self.ask()
+                return false
+            }
+            window.delegate = guarding
+        }
+    }
+
+    /// The window's delegate, standing in front of SwiftUI's: what it does not answer itself, the
+    /// Objective-C runtime hands on to `inner`.
+    @MainActor
+    final class Guarding: NSObject, NSWindowDelegate {
+        nonisolated(unsafe) weak var inner: NSWindowDelegate?
+        var shouldClose: () -> Bool = { true }
+
+        func windowShouldClose(_ sender: NSWindow) -> Bool {
+            shouldClose() && (inner?.windowShouldClose?(sender) ?? true)
+        }
+
+        nonisolated override func responds(to selector: Selector!) -> Bool {
+            super.responds(to: selector) || (inner?.responds(to: selector) ?? false)
+        }
+
+        nonisolated override func forwardingTarget(for selector: Selector!) -> Any? {
+            inner?.responds(to: selector) == true ? inner : super.forwardingTarget(for: selector)
         }
     }
 }
@@ -409,6 +478,9 @@ struct PromptView: View {
         }
         #if os(macOS)
         .frame(minWidth: 520, idealWidth: 600, minHeight: 560, idealHeight: 720)
+        // The window's own close asks first while a deck is being made, as Cancel does (lift-up
+        // STAB-2).
+        .background(CloseGuard(asks: { running != nil }, ask: { confirmingStop = true }))
         #else
         // Cancel at the bar's start and Generate at its end, as an iPad's full-screen sheet has
         // them.
@@ -435,6 +507,10 @@ struct PromptView: View {
         }
         #endif
         .task(id: "\(provider.rawValue)\u{1f}\(keyed)") { await list() }
+        // However the window goes, what is under way stops with it: no call goes on being paid for,
+        // no deck opens later out of nowhere, and an outline waiting on the person is let go
+        // (lift-up STAB-2).
+        .onDisappear(perform: halt)
         .onAppear {
             if goal.isEmpty { goal = choices?.defaults.goal ?? "" }
             if length.isEmpty { length = choices?.defaults.length ?? "" }
@@ -481,6 +557,18 @@ struct PromptView: View {
                                 .accessibilityLabel("The slides the beat takes")
                                 .accessibilityIdentifier("prompt-beat-slides")
                             Text(beat.slides == 1 ? "slide" : "slides").font(.caption).foregroundStyle(.secondary)
+                            // Up and down a place, as the browser's arrows move a beat: no drag
+                            // needed, by the keyboard and VoiceOver too (lift-up USE-5).
+                            Button { move(beat.id, by: -1) } label: { Image(systemName: "chevron.up") }
+                                .buttonStyle(.borderless)
+                                .disabled(beats.first?.id == beat.id)
+                                .help("Move the beat up")
+                                .accessibilityLabel("Move the beat up")
+                            Button { move(beat.id, by: 1) } label: { Image(systemName: "chevron.down") }
+                                .buttonStyle(.borderless)
+                                .disabled(beats.last?.id == beat.id)
+                                .help("Move the beat down")
+                                .accessibilityLabel("Move the beat down")
                             Button("Remove") { beats.removeAll { $0.id == beat.id } }
                                 .buttonStyle(.borderless)
                                 .font(.caption)
@@ -490,6 +578,8 @@ struct PromptView: View {
                             .lineLimit(1...3)
                             .accessibilityIdentifier("prompt-beat-claim")
                     }
+                    .accessibilityAction(named: "Move Up") { move(beat.id, by: -1) }
+                    .accessibilityAction(named: "Move Down") { move(beat.id, by: 1) }
                 }
                 .onMove { from, to in beats.move(fromOffsets: from, toOffset: to) }
                 .onDelete { at in beats.remove(atOffsets: at) }
@@ -500,7 +590,8 @@ struct PromptView: View {
                 Button("Add a Beat") { beats.append(EditedBeat()) }
                     .accessibilityIdentifier("prompt-add-beat")
                 #if !os(macOS)
-                // A beat is moved in the list's edit mode on the iPad; the Mac drags a row.
+                // Beside each beat's arrows, its row moves in the list's edit mode on the iPad; the
+                // Mac drags a row.
                 EditButton()
                 #endif
                 Spacer()
@@ -524,6 +615,12 @@ struct PromptView: View {
         // A container of its own, so its fields and buttons keep their own identifiers.
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("prompt-outline")
+    }
+
+    /// The beat `id` moved `step` places, up for a negative step: where that stays in the list.
+    private func move(_ id: EditedBeat.ID, by step: Int) {
+        guard let at = beats.firstIndex(where: { $0.id == id }), beats.indices.contains(at + step) else { return }
+        beats.swapAt(at, at + step)
     }
 
     /// `outlined` shown, its beats to edit.
@@ -558,11 +655,17 @@ struct PromptView: View {
         }
     }
 
-    /// What is under way stopped, and the brief put away.
-    private func stop() {
+    /// What is under way stopped: an outline waiting on the person let go, and the generation
+    /// cancelled.
+    private func halt() {
         decide(nil)
         running?.cancel()
         running = nil
+    }
+
+    /// What is under way stopped, and the brief put away.
+    private func stop() {
+        halt()
         #if os(macOS)
         dismissWindow(id: PromptWindow.id)
         #else
@@ -789,9 +892,13 @@ struct PromptView: View {
                 #if os(macOS)
                 // A reference document is made by a closure, not an autoclosure.
                 newDocument { ScaenaDocument(generated: session, said: made.words) }
+                // Made: nothing is under way, so the window's close asks nothing.
+                running = nil
                 dismissWindow(id: PromptWindow.id)
                 #else
                 let document = ScaenaDocument(generated: session, said: made.words)
+                // The brief goes as `finish` puts it away, and `halt` cancels this task then; nothing
+                // is awaited after it, so the deck is already written and opens all the same.
                 finish(try Prompting.written(document, about: brief.topic, said: made.words))
                 #endif
             } catch is CancellationError {
