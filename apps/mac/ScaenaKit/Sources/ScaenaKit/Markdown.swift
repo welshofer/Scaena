@@ -136,3 +136,33 @@ public enum MarkdownBlocks {
         return (level, ordered, text)
     }
 }
+
+extension MarkdownBlocks {
+    /// `text` with each link to a web address saying where it goes: its host after its words,
+    /// where they do not name it, as the browser's `webLink` shows it. A deck's words and a tool's
+    /// results reach the model, and a link it echoes from them would read as the app's own
+    /// (lift-up 20261025 SEC-5).
+    public static func hosted(_ text: AttributedString) -> AttributedString {
+        var out = AttributedString()
+        for (link, range) in text.runs[\.link] {
+            out.append(text[range])
+            guard let link, let host = host(of: link),
+                !String(text[range].characters).lowercased().contains(host)
+            else { continue }
+            var said = AttributedString(" (\(host))")
+            said.link = link
+            out.append(said)
+        }
+        return out
+    }
+
+    /// The host `url` goes to, in lower case, without a port or `www.`: none where it is no web
+    /// address.
+    public static func host(of url: URL) -> String? {
+        guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https",
+            var host = url.host()?.lowercased(), !host.isEmpty
+        else { return nil }
+        if host.hasPrefix("www.") { host.removeFirst(4) }
+        return host
+    }
+}

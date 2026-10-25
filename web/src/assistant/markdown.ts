@@ -167,13 +167,31 @@ export function inline(text: string, into: HTMLElement, linking: Linking = {}): 
   if (at < text.length) into.append(text.slice(at));
 }
 
+/** A link to a web address, which says where it goes: its host after its words, where they do not
+ * name it, and the whole address as its title. A deck's words and a tool's results reach the
+ * model, and a link it echoes from them would read as the app's own (lift-up 20261025 SEC-5). */
 function webLink(words: string, url: string): HTMLAnchorElement {
   const a = document.createElement("a");
   a.href = url;
   a.target = "_blank";
   a.rel = "noopener noreferrer";
+  a.title = url;
   a.textContent = words;
+  const host = hostOf(url);
+  if (host && !words.toLowerCase().includes(host)) {
+    const where = document.createElement("span");
+    where.className = "host";
+    where.textContent = ` (${host})`;
+    a.append(where);
+  }
   return a;
+}
+
+/** The host `url` goes to, in lower case, without a port or `www.`: none where it reads as no
+ * web address. */
+export function hostOf(url: string): string | undefined {
+  const host = /^https?:\/\/(?:[^@/?#]*@)?([^/?#:]+)/i.exec(url)?.[1]?.toLowerCase();
+  return host?.replace(/^www\./, "") || undefined;
 }
 
 function stateLink(words: string, state: string, show: (state: string) => void): HTMLAnchorElement {

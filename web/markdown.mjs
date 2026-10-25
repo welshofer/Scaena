@@ -89,6 +89,17 @@ check(
     '<li><p>See <a href="#cover" class="state">the cover</a>, <em>now</em>, at <a href="https://example.com/a">https://example.com/a</a>, and <code>code</code>.</p></li>',
   `inline: ${into.html}`,
 );
+// A link says where it goes: its host after words that do not name it, its address as its title
+// (lift-up 20261025 SEC-5).
+render("[Re-enter your key](https://Evil.example:8443/k?x=1) or [example.com](https://www.example.com/a).", into);
+const [planted, named] = into.children[0].children.filter((c) => c instanceof Element);
+check(
+  into.html ===
+    '<li><p><a href="https://Evil.example:8443/k?x=1">Re-enter your key<span class="host"> (evil.example)</span></a> or <a href="https://www.example.com/a">example.com</a>.</p></li>' &&
+    planted.title === "https://Evil.example:8443/k?x=1" &&
+    named.title === "https://www.example.com/a",
+  `a link says where it goes: ${into.html}`,
+);
 render("<b>not html</b> & **bold**", into);
 check(into.html === "<li><p><b>not html</b> & <strong>bold</strong></p></li>" && into.textContent === "<b>not html</b> & bold", `the model's text is text, never markup: ${into.html}`);
 render("[js](javascript:alert(1)) and [state](state:nowhere)", into, { states: ["cover"], show: () => {} });
