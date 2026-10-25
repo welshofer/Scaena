@@ -905,6 +905,8 @@ fn export_video(
         fps,
         audio: audio.map(Path::to_path_buf),
         chapters: chapters.clone(),
+        title: b.deck.meta.as_ref().and_then(|m| m.title.clone()),
+        comment: b.deck.meta.as_ref().and_then(|m| m.description.clone()),
         ..VideoSettings::default()
     };
     // Each state's cue is laid out once, when its first frame comes; frames only sample it.
