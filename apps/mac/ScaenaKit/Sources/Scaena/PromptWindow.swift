@@ -204,6 +204,9 @@ struct PromptView: View {
     /// Whether the model is shown the slides once drawn, and may tighten them (PLAN G.13): another
     /// call to the provider (lift-up FUNC-5).
     @AppStorage("generate.see") private var see = true
+    /// Whether the speaker's notes are written for the talk, or Narrato's drafts kept (lift-up
+    /// 10-25 ATTR-2).
+    @AppStorage("generate.notes") private var speak = true
     @AppStorage("generate.theme") private var theme = "dusk"
     /// Whether the outline is shown first (narrative FUNC-1): the arc, the big idea, and each beat's
     /// claim, settled before the slides are written.
@@ -430,9 +433,11 @@ struct PromptView: View {
                         .accessibilityIdentifier("prompt-show-outline")
                     Toggle("Let the model see the slides", isOn: $see)
                         .accessibilityIdentifier("prompt-see")
+                    Toggle("Write the speaker’s notes", isOn: $speak)
+                        .accessibilityIdentifier("prompt-notes")
                 } footer: {
                     Text(
-                        "The arc, the big idea, and what each beat says, to change before the slides are written; then the slides, once drawn, shown to the model to tighten, another call."
+                        "The arc, the big idea, and what each beat says, to change before the slides are written; then the slides, once drawn, shown to the model to tighten, another call; then the notes the speaker says, written for the talk, another."
                     )
                 }
                 Section {
@@ -850,7 +855,7 @@ struct PromptView: View {
             self.provider, self.model.wrappedValue, self.theme, self.arc, self.given
         )
         let (research, contact, token) = (self.research && self.provider != .openai, self.secContact, self.token)
-        let see = self.see
+        let (see, speak) = (self.see, self.speak)
         // The outline shown to settle (narrative FUNC-1), the generation waiting on what is decided
         // of it; none where the slides are to come at once.
         let settle: Generator.Settle?
@@ -904,7 +909,7 @@ struct PromptView: View {
                 }
                 let (session, made) = try await generator.generate(
                     brief: brief, arc: arc.isEmpty ? nil : arc, provider: provider, model: model, key: key,
-                    theme: theme, painter: paint, look: see, outline: settle,
+                    theme: theme, painter: paint, look: see, notes: speak, outline: settle,
                     drawn: { slide, jpeg in
                         withAnimation {
                             if film.indices.contains(slide) { film[slide] = jpeg } else { film.append(jpeg) }

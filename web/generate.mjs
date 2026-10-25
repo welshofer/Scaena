@@ -658,8 +658,8 @@ try {
   state.slides = undefined;
 
   // The brief's other controls, as `scaena generate` takes them (lift-up FUNC-5): a persona chosen
-  // for an audience in the person's own words, pictures made with high care, and the slides not
-  // shown to the model.
+  // for an audience in the person's own words, pictures made with high care, the slides not
+  // shown to the model, and the speaker's notes left as Narrato drafted them (lift-up 10-25 ATTR-2).
   requests.length = 0;
   painted.length = 0;
   // The copy the editor kept of the deck before is offered as the last one opened, a modal over the
@@ -678,6 +678,7 @@ try {
   await page.click("#prompting details > summary");
   await page.selectOption("#prompting-quality", "high");
   await page.uncheck("#prompting-see");
+  await page.uncheck("#prompting-notes");
   const unbriefed = await page.evaluate(() => window.scaena.source());
   await page.click("#prompting-go");
   await page
@@ -687,6 +688,7 @@ try {
   check(briefed.includes("presentation for: Students & Educators"), `the slides are written for the persona chosen: ${briefed.match(/presentation for: [^\n]*/)?.[0]}`);
   check(painted.length > 0 && painted.every((p) => p.body.quality === "high"), `each picture asked for with high care: ${painted.map((p) => p.body.quality)}`);
   check(!requests.some((r) => r.asked === "look"), `the slides are not shown to the model: ${requests.map((r) => r.asked)}`);
+  check(!requests.some((r) => r.asked === "notes"), `the speaker's notes are not asked for: ${requests.map((r) => r.asked)}`);
 } catch (e) {
   failures.push(String(e?.stack ?? e));
 } finally {
