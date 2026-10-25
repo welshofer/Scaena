@@ -4,7 +4,9 @@
 import ScaenaKit
 import SwiftUI
 import UniformTypeIdentifiers
-#if !os(macOS)
+#if os(macOS)
+import AppKit
+#else
 import UIKit
 #endif
 
@@ -22,6 +24,73 @@ struct PromptCommands: Commands {
         CommandGroup(after: .newItem) {
             Button("New from a Prompt…") { openWindow(id: PromptWindow.id) }
                 .keyboardShortcut("n", modifiers: [.option, .command])
+        }
+    }
+}
+
+/// What answers a window's own close (its close button, File › Close, ⌘W) before it closes: while
+/// `asks` says so, read as the close comes, the window stays and `ask` is called, which asks the
+/// person as Cancel does (lift-up STAB-2); else it closes. SwiftUI says nothing of a window's
+/// close, so the window's delegate is wrapped: this answers `windowShouldClose` and hands every
+/// other call to the delegate SwiftUI set, as it was.
+struct CloseGuard: NSViewRepresentable {
+    let asks: () -> Bool
+    let ask: () -> Void
+
+    func makeNSView(context: Context) -> GuardView {
+        let view = GuardView()
+        updateNSView(view, context: context)
+        return view
+    }
+
+    func updateNSView(_ view: GuardView, context: Context) {
+        view.asks = asks
+        view.ask = ask
+        view.wrap()
+    }
+
+    final class GuardView: NSView {
+        var asks: () -> Bool = { false }
+        var ask: () -> Void = {}
+        private let guarding = Guarding()
+
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            wrap()
+        }
+
+        /// The window's delegate wrapped, again where SwiftUI has set another since.
+        func wrap() {
+            guard let window, window.delegate !== guarding else { return }
+            guarding.inner = window.delegate
+            guarding.shouldClose = { [weak self] in
+                guard let self, self.asks() else { return true }
+                self.ask()
+                return false
+            }
+            window.delegate = guarding
+        }
+    }
+
+    /// The window's delegate, standing in front of SwiftUI's: what it does not answer itself, the
+    /// Objective-C runtime hands on to `inner`.
+    @MainActor
+    final class Guarding: NSObject, NSWindowDelegate {
+        nonisolated(unsafe) weak var inner: NSWindowDelegate?
+        var shouldClose: () -> Bool = { true }
+
+        func windowShouldClose(_ sender: NSWindow) -> Bool {
+            shouldClose() && (inner?.windowShouldClose?(sender) ?? true)
+        }
+
+        nonisolated override func responds(to selector: Selector!) -> Bool {
+            super.responds(to: selector) || (inner?.responds(to: selector) ?? false)
+        }
+
+        nonisolated override func forwardingTarget(for selector: Selector!) -> Any? {
+            inner?.responds(to: selector) == true ? inner : super.forwardingTarget(for: selector)
         }
     }
 }
@@ -130,6 +199,11 @@ struct PromptView: View {
     @AppStorage("generate.pictures") private var pictures = "openai"
     /// How they look: `illustration` or `photo`.
     @AppStorage("generate.look") private var look = "illustration"
+    /// How much care each picture is made with: `low`, `medium`, or `high` (lift-up FUNC-5).
+    @AppStorage("generate.quality") private var quality = "medium"
+    /// Whether the model is shown the slides once drawn, and may tighten them (PLAN G.13): another
+    /// call to the provider (lift-up FUNC-5).
+    @AppStorage("generate.see") private var see = true
     @AppStorage("generate.theme") private var theme = "dusk"
     /// Whether the outline is shown first (narrative FUNC-1): the arc, the big idea, and each beat's
     /// claim, settled before the slides are written.
@@ -146,6 +220,8 @@ struct PromptView: View {
     @State private var outcome = ""
     @State private var language = ""
     @State private var voice = ""
+    /// The persona the deck speaks to, by its id; none for the one the audience names.
+    @State private var persona = ""
     @State private var token = ""
     @State private var research = false
     @State private var given: [Given] = []
@@ -315,6 +391,12 @@ struct PromptView: View {
                             Text("Illustrations").tag("illustration")
                             Text("Photos").tag("photo")
                         }
+                        Picker("Quality", selection: $quality) {
+                            Text("Low, the least each costs").tag("low")
+                            Text("Medium").tag("medium")
+                            Text("High, the most each costs").tag("high")
+                        }
+                        .accessibilityIdentifier("prompt-quality")
                         Text(paintedBy).font(.caption).foregroundStyle(.secondary)
                     }
                 }
@@ -346,8 +428,12 @@ struct PromptView: View {
                 Section {
                     Toggle("Show the outline first", isOn: $showOutline)
                         .accessibilityIdentifier("prompt-show-outline")
+                    Toggle("Let the model see the slides", isOn: $see)
+                        .accessibilityIdentifier("prompt-see")
                 } footer: {
-                    Text("The arc, the big idea, and what each beat says, to change before the slides are written.")
+                    Text(
+                        "The arc, the big idea, and what each beat says, to change before the slides are written; then the slides, once drawn, shown to the model to tighten, another call."
+                    )
                 }
                 Section {
                     DisclosureGroup("More") {
@@ -361,6 +447,11 @@ struct PromptView: View {
                         TextField("What it should achieve", text: $outcome)
                         field("Language", text: $language, prompt: "English")
                         field("Voice", text: $voice, prompt: "Plain, confident, no jargon")
+                        Picker("Speak to Them As", selection: $persona) {
+                            Text("As the audience suggests").tag("")
+                            ForEach(choices?.personas ?? [], id: \.id) { Text($0.name).tag($0.id) }
+                        }
+                        .accessibilityIdentifier("prompt-persona")
                         field("Your email, for SEC", text: $secContact, prompt: "SEC asks each request to name who makes it")
                         field("GitHub token", text: $token, prompt: "For a private repository", secure: true)
                     }
@@ -409,6 +500,9 @@ struct PromptView: View {
         }
         #if os(macOS)
         .frame(minWidth: 520, idealWidth: 600, minHeight: 560, idealHeight: 720)
+        // The window's own close asks first while a deck is being made, as Cancel does (lift-up
+        // STAB-2).
+        .background(CloseGuard(asks: { running != nil }, ask: { confirmingStop = true }))
         #else
         // Cancel at the bar's start and Generate at its end, as an iPad's full-screen sheet has
         // them.
@@ -435,6 +529,10 @@ struct PromptView: View {
         }
         #endif
         .task(id: "\(provider.rawValue)\u{1f}\(keyed)") { await list() }
+        // However the window goes, what is under way stops with it: no call goes on being paid for,
+        // no deck opens later out of nowhere, and an outline waiting on the person is let go
+        // (lift-up STAB-2).
+        .onDisappear(perform: halt)
         .onAppear {
             if goal.isEmpty { goal = choices?.defaults.goal ?? "" }
             if length.isEmpty { length = choices?.defaults.length ?? "" }
@@ -481,6 +579,18 @@ struct PromptView: View {
                                 .accessibilityLabel("The slides the beat takes")
                                 .accessibilityIdentifier("prompt-beat-slides")
                             Text(beat.slides == 1 ? "slide" : "slides").font(.caption).foregroundStyle(.secondary)
+                            // Up and down a place, as the browser's arrows move a beat: no drag
+                            // needed, by the keyboard and VoiceOver too (lift-up USE-5).
+                            Button { move(beat.id, by: -1) } label: { Image(systemName: "chevron.up") }
+                                .buttonStyle(.borderless)
+                                .disabled(beats.first?.id == beat.id)
+                                .help("Move the beat up")
+                                .accessibilityLabel("Move the beat up")
+                            Button { move(beat.id, by: 1) } label: { Image(systemName: "chevron.down") }
+                                .buttonStyle(.borderless)
+                                .disabled(beats.last?.id == beat.id)
+                                .help("Move the beat down")
+                                .accessibilityLabel("Move the beat down")
                             Button("Remove") { beats.removeAll { $0.id == beat.id } }
                                 .buttonStyle(.borderless)
                                 .font(.caption)
@@ -490,6 +600,8 @@ struct PromptView: View {
                             .lineLimit(1...3)
                             .accessibilityIdentifier("prompt-beat-claim")
                     }
+                    .accessibilityAction(named: "Move Up") { move(beat.id, by: -1) }
+                    .accessibilityAction(named: "Move Down") { move(beat.id, by: 1) }
                 }
                 .onMove { from, to in beats.move(fromOffsets: from, toOffset: to) }
                 .onDelete { at in beats.remove(atOffsets: at) }
@@ -500,7 +612,8 @@ struct PromptView: View {
                 Button("Add a Beat") { beats.append(EditedBeat()) }
                     .accessibilityIdentifier("prompt-add-beat")
                 #if !os(macOS)
-                // A beat is moved in the list's edit mode on the iPad; the Mac drags a row.
+                // Beside each beat's arrows, its row moves in the list's edit mode on the iPad; the
+                // Mac drags a row.
                 EditButton()
                 #endif
                 Spacer()
@@ -524,6 +637,12 @@ struct PromptView: View {
         // A container of its own, so its fields and buttons keep their own identifiers.
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("prompt-outline")
+    }
+
+    /// The beat `id` moved `step` places, up for a negative step: where that stays in the list.
+    private func move(_ id: EditedBeat.ID, by step: Int) {
+        guard let at = beats.firstIndex(where: { $0.id == id }), beats.indices.contains(at + step) else { return }
+        beats.swapAt(at, at + step)
     }
 
     /// `outlined` shown, its beats to edit.
@@ -558,11 +677,17 @@ struct PromptView: View {
         }
     }
 
-    /// What is under way stopped, and the brief put away.
-    private func stop() {
+    /// What is under way stopped: an outline waiting on the person let go, and the generation
+    /// cancelled.
+    private func halt() {
         decide(nil)
         running?.cancel()
         running = nil
+    }
+
+    /// What is under way stopped, and the brief put away.
+    private func stop() {
+        halt()
         #if os(macOS)
         dismissWindow(id: PromptWindow.id)
         #else
@@ -717,14 +842,15 @@ struct PromptView: View {
             audience: audience.isEmpty ? nil : audience, goal: goal.isEmpty ? nil : goal,
             length: length.isEmpty ? nil : length, modality: modality.isEmpty ? nil : modality,
             desiredOutcomes: outcome.isEmpty ? nil : outcome, language: language.isEmpty ? nil : language,
-            voice: voice.isEmpty ? nil : voice)
+            voice: voice.isEmpty ? nil : voice, personaId: persona.isEmpty ? nil : persona)
         let paint = painter.flatMap { made in
-            keychain.key(for: made).map { Generator.Painter(provider: made, key: $0, look: look) }
+            keychain.key(for: made).map { Generator.Painter(provider: made, key: $0, look: look, quality: quality) }
         }
         let (provider, model, theme, arc, given) = (
             self.provider, self.model.wrappedValue, self.theme, self.arc, self.given
         )
         let (research, contact, token) = (self.research && self.provider != .openai, self.secContact, self.token)
+        let see = self.see
         // The outline shown to settle (narrative FUNC-1), the generation waiting on what is decided
         // of it; none where the slides are to come at once.
         let settle: Generator.Settle?
@@ -778,7 +904,7 @@ struct PromptView: View {
                 }
                 let (session, made) = try await generator.generate(
                     brief: brief, arc: arc.isEmpty ? nil : arc, provider: provider, model: model, key: key,
-                    theme: theme, painter: paint, outline: settle,
+                    theme: theme, painter: paint, look: see, outline: settle,
                     drawn: { slide, jpeg in
                         withAnimation {
                             if film.indices.contains(slide) { film[slide] = jpeg } else { film.append(jpeg) }
@@ -789,9 +915,13 @@ struct PromptView: View {
                 #if os(macOS)
                 // A reference document is made by a closure, not an autoclosure.
                 newDocument { ScaenaDocument(generated: session, said: made.words) }
+                // Made: nothing is under way, so the window's close asks nothing.
+                running = nil
                 dismissWindow(id: PromptWindow.id)
                 #else
                 let document = ScaenaDocument(generated: session, said: made.words)
+                // The brief goes as `finish` puts it away, and `halt` cancels this task then; nothing
+                // is awaited after it, so the deck is already written and opens all the same.
                 finish(try Prompting.written(document, about: brief.topic, said: made.words))
                 #endif
             } catch is CancellationError {
