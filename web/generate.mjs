@@ -26,6 +26,8 @@
 //   OpenAI key in OpenAI's header alone, and each shown in its slide's picture place.
 // - The deck shown to the model as it is drawn (PLAN G.13): each slide a JPEG after what is said
 //   of it, and the cover's title as the model tightened it.
+// - The persona chosen, the pictures' quality, and the look turned off reach what is asked
+//   (lift-up FUNC-5).
 // - Its story (PLAN G.9): the Story tab reads it as Vzestup measures a talk, by the generator's
 //   module: its score and the arc it was written to, the six measures, coherence by words
 //   unscored, a mark on the arc for each slide. No fix rewrites the plan's intensity or tone. A
@@ -581,6 +583,31 @@ try {
   check(dashed.includes("alt:Compass"), "the other list is still set under its icons");
   check(!dashed.includes("alt:Acorn") && !dashed.includes("alt:Lightning"), "the dashed list keeps its words, under no icon");
   state.slides = undefined;
+
+  // The brief's other controls, as `scaena generate` takes them (lift-up FUNC-5): a persona chosen
+  // for an audience in the person's own words, pictures made with high care, and the slides not
+  // shown to the model.
+  requests.length = 0;
+  painted.length = 0;
+  await opened();
+  await page.uncheck("#prompting-show-outline");
+  await page.fill("#prompting-audience", "the co-op's board");
+  await page.click("#prompting details > summary");
+  const personas = await page.locator("#prompting-persona option").allTextContents();
+  check(personas[0] === "As the audience suggests" && personas.includes("Students & Educators"), `the personas are offered, the audience's first: ${personas.join(", ")}`);
+  await page.selectOption("#prompting-persona", "students-educators");
+  await page.click("#prompting details > summary");
+  await page.selectOption("#prompting-quality", "high");
+  await page.uncheck("#prompting-see");
+  const before = await page.evaluate(() => window.scaena.source());
+  await page.click("#prompting-go");
+  await page
+    .waitForFunction((was) => window.scaena.source() !== was && window.scaena.last(), before, { timeout: 180000 })
+    .catch(() => {});
+  const briefed = requests.find((r) => r.asked === "slides")?.prompt ?? "";
+  check(briefed.includes("presentation for: Students & Educators"), `the slides are written for the persona chosen: ${briefed.match(/presentation for: [^\n]*/)?.[0]}`);
+  check(painted.length > 0 && painted.every((p) => p.body.quality === "high"), `each picture asked for with high care: ${painted.map((p) => p.body.quality)}`);
+  check(!requests.some((r) => r.asked === "look"), `the slides are not shown to the model: ${requests.map((r) => r.asked)}`);
 } catch (e) {
   failures.push(String(e?.stack ?? e));
 } finally {
