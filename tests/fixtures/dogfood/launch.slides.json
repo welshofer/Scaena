@@ -1,0 +1,276 @@
+{
+ "executiveSummary": "Relay drafts the first reply to every support ticket in the team's own voice. B2B customers wait a median of twelve hours for a first reply, and three topics fill most queues. In a 42-team beta, Relay cut first replies to 47 seconds and raised CSAT eleven points. It starts free, costs $29 per agent per month, and sets up in twenty minutes.",
+ "slides": [
+  {
+   "slideTitle": "Relay answers every customer in under a minute",
+   "subtitle": "Launch event · October 2026",
+   "layoutSuggestion": "Title",
+   "keyBullets": [],
+   "visualDescription": "A dark stage, a single glowing inbox counter rolling down to zero",
+   "speakerNotes": "- Welcome, and thanks for joining us live.\n- Today we're launching Relay.\n- In the next twenty minutes you'll see it answer real tickets, live, and you'll leave with a free account.",
+   "beatIndex": 0,
+   "beatName": "Setup",
+   "purpose": "Opens with the product's promise",
+   "intent": "Make the audience expect something new",
+   "expectedIntensity": 0.3,
+   "expectedValence": 0.4
+  },
+  {
+   "slideTitle": "What if your team never wrote a first reply again?",
+   "subtitle": "",
+   "layoutSuggestion": "Statement",
+   "keyBullets": [],
+   "visualDescription": "",
+   "speakerNotes": "- Think about your support team's morning.\n- Most of it is typing answers they've typed a hundred times.\n- What if that part simply disappeared?",
+   "beatIndex": 0,
+   "beatName": "Setup",
+   "purpose": "Poses the question the launch answers",
+   "intent": "Make the audience imagine the outcome",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.4
+  },
+  {
+   "slideTitle": "Customers wait twelve hours for a first reply",
+   "subtitle": "",
+   "layoutSuggestion": "Big Number",
+   "keyBullets": [
+    "12 hours",
+    "median first reply time for B2B support teams in 2026"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "- The median B2B team takes twelve hours to send a first reply.\n- Customers expect one within the hour.\n- Every hour of waiting shows up later as churn.",
+   "beatIndex": 1,
+   "beatName": "Context",
+   "purpose": "Quantifies the gap between expectation and reality",
+   "intent": "Make the audience feel the cost of slow replies",
+   "expectedIntensity": 0.75,
+   "expectedValence": -0.6,
+   "supportingFacts": "Relay benchmark of 1,140 B2B support teams, Q2 2026"
+  },
+  {
+   "slideTitle": "Three questions make up most of every support queue",
+   "subtitle": "Share of tickets by topic, 1,140 teams",
+   "layoutSuggestion": "Bar Chart",
+   "keyBullets": [
+    "Order status, login, and billing are 62% of all tickets"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "- We looked at 4.2 million tickets across 1,140 teams.\n- Three topics dominate: order status, login, and billing.\n- These are answerable from data you already have.",
+   "beatIndex": 1,
+   "beatName": "Context",
+   "purpose": "Shows the repetitive nature of the work",
+   "intent": "Make the audience see the opportunity",
+   "expectedIntensity": 0.6,
+   "expectedValence": -0.3,
+   "chartData": {
+    "categories": [
+     "Order status",
+     "Password & login",
+     "Billing",
+     "How-to",
+     "Bugs",
+     "Other"
+    ],
+    "series": [
+     {
+      "name": "Share of tickets",
+      "values": [
+       27,
+       19,
+       16,
+       14,
+       13,
+       11
+      ]
+     }
+    ],
+    "unit": "%",
+    "sourceId": "Relay ticket benchmark, Q2 2026"
+   }
+  },
+  {
+   "slideTitle": "Macros and chatbots each solve only half the problem",
+   "subtitle": "",
+   "layoutSuggestion": "Two-Column",
+   "keyBullets": [
+    "Macros: fast, but agents still read, pick, and edit every one",
+    "Chatbots: deflect tickets, but customers hate being trapped in them"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "- Teams have tried two things.\n- Macros save typing but not thinking.\n- Chatbots save agents but annoy customers.\n- Neither gives you a great human reply, fast.",
+   "beatIndex": 2,
+   "beatName": "Build",
+   "purpose": "Explains why existing tools fall short",
+   "intent": "Make the audience want a better option",
+   "expectedIntensity": 0.6,
+   "expectedValence": -0.3
+  },
+  {
+   "slideTitle": "Agents spend their mornings retyping the same answers",
+   "subtitle": "",
+   "layoutSuggestion": "Quote",
+   "keyBullets": [
+    "I spend my mornings typing the same eleven answers. By lunch I've forgotten why I liked this job.",
+    "Support agent, Relay survey of 1,200 agents"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "This came from our survey of 1,200 support agents. It's the line we pinned to the wall when we started building. Relay exists so nobody has to write that sentence again.",
+   "beatIndex": 2,
+   "beatName": "Build",
+   "purpose": "Gives the problem a human voice",
+   "intent": "Make the audience empathize with their own agents",
+   "expectedIntensity": 0.7,
+   "expectedValence": -0.5
+  },
+  {
+   "slideTitle": "Relay drafts the first reply to every ticket, in your voice",
+   "subtitle": "",
+   "layoutSuggestion": "Headline",
+   "keyBullets": [],
+   "visualDescription": "",
+   "speakerNotes": "- So here it is.\n- Relay reads every new ticket and drafts the first reply before an agent opens it.\n- It sounds like your team, because it learned from your team.",
+   "beatIndex": 3,
+   "beatName": "Reveal",
+   "purpose": "Delivers the big reveal in one line",
+   "intent": "Make the audience feel the 'aha' moment",
+   "expectedIntensity": 0.9,
+   "expectedValence": 0.8
+  },
+  {
+   "slideTitle": "Watch Relay clear 200 tickets with one agent in ten minutes",
+   "subtitle": "Live demo",
+   "layoutSuggestion": "Full Image",
+   "keyBullets": [],
+   "visualDescription": "Screen recording of the Relay inbox: draft replies appear beside each ticket, an agent presses Tab to send, the counter drops",
+   "speakerNotes": "- Let's switch to the live demo.\n- This is a real queue from one of our beta customers, anonymized.\n- Watch the drafts appear in the right-hand column.\n- Our agent, Sam, reviews and sends with one key.",
+   "beatIndex": 3,
+   "beatName": "Reveal",
+   "purpose": "Shows the product working live",
+   "intent": "Make the audience believe it works on real tickets",
+   "expectedIntensity": 0.85,
+   "expectedValence": 0.7
+  },
+  {
+   "slideTitle": "Relay reads, drafts, and learns from every ticket",
+   "subtitle": "",
+   "layoutSuggestion": "How It Works",
+   "keyBullets": [
+    "Reads: each new ticket, the customer's history, and your help center",
+    "Drafts: a reply in your team's voice, with the order or account already looked up",
+    "Learns: every edit an agent makes improves the next draft"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "- Three things happen for every ticket.\n- Relay reads context, not just the message.\n- It looks up the order or account so the reply has real details.\n- And it learns from every edit your agents make.",
+   "beatIndex": 3,
+   "beatName": "Reveal",
+   "purpose": "Explains how the product works",
+   "intent": "Make the audience trust the mechanism",
+   "expectedIntensity": 0.6,
+   "expectedValence": 0.6
+  },
+  {
+   "slideTitle": "Beta teams answered faster and kept customers happier",
+   "subtitle": "42 beta teams, June–September 2026",
+   "layoutSuggestion": "Scorecard",
+   "keyBullets": [
+    "47 sec: median first reply, down from 9 hours",
+    "68%: of drafts sent with no edits",
+    "+11 pts: CSAT across all 42 teams",
+    "3.2×: tickets handled per agent per hour"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "- Forty-two teams used Relay for three months.\n- Median first reply dropped from nine hours to 47 seconds.\n- Two-thirds of drafts went out unedited.\n- And CSAT went up eleven points, which surprised even us.",
+   "beatIndex": 4,
+   "beatName": "Proof",
+   "purpose": "Proves the product's impact with numbers",
+   "intent": "Make the audience believe the results",
+   "expectedIntensity": 0.85,
+   "expectedValence": 0.8
+  },
+  {
+   "slideTitle": "Support leads say Relay sounds like their best day",
+   "subtitle": "",
+   "layoutSuggestion": "Testimonials",
+   "keyBullets": [
+    "Our queue used to be a Monday problem. Now it's empty by ten. — Aisha Bello, Head of Support, Kettle & Co.",
+    "Relay sounds like us on our best day. — Tom Brandt, CX Lead, Parcelpoint"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "Aisha's team of six handles 3,000 tickets a week. Tom's team was the most skeptical in the beta; they now auto-send order-status replies.",
+   "beatIndex": 4,
+   "beatName": "Proof",
+   "purpose": "Adds credible voices from customers",
+   "intent": "Make the audience trust peers' experience",
+   "expectedIntensity": 0.7,
+   "expectedValence": 0.8
+  },
+  {
+   "slideTitle": "Simple pricing that starts free",
+   "subtitle": "",
+   "layoutSuggestion": "Scorecard",
+   "keyBullets": [
+    "$0: Starter, up to 3 agents and 500 drafts a month",
+    "$29: Team, per agent per month, unlimited drafts",
+    "$59: Business, adds SSO, audit log, and a 99.9% SLA"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "- Starter is free forever for small teams.\n- Team is $29 per agent per month with unlimited drafts.\n- Business adds SSO, an audit log, and an SLA.\n- Launch week only: 40% off Team for a year.",
+   "beatIndex": 5,
+   "beatName": "Implications",
+   "purpose": "Makes the offer concrete",
+   "intent": "Make the audience see it's easy to start",
+   "expectedIntensity": 0.6,
+   "expectedValence": 0.6
+  },
+  {
+   "slideTitle": "Questions every support lead asks us first",
+   "subtitle": "",
+   "layoutSuggestion": "FAQ",
+   "keyBullets": [
+    "Does Relay send anything on its own?: Never by default; you choose which topics can auto-send",
+    "Where does our data go?: It stays in your region and never trains shared models",
+    "How long does setup take?: About 20 minutes with Zendesk, Intercom, or Front"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "- These three come up in every call.\n- Nothing auto-sends unless you turn it on, topic by topic.\n- Your data never trains anyone else's model.\n- Setup is twenty minutes; we'll do it with you.",
+   "beatIndex": 5,
+   "beatName": "Implications",
+   "purpose": "Handles the top objections",
+   "intent": "Make the audience feel safe to try it",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.5
+  },
+  {
+   "slideTitle": "Start free today and clear your queue this week",
+   "subtitle": "",
+   "layoutSuggestion": "Next Steps",
+   "keyBullets": [
+    "Sign up at relay.app — you — today",
+    "Connect your help desk — your admin — 20 minutes",
+    "Book a tuning session — our team — this week"
+   ],
+   "visualDescription": "",
+   "speakerNotes": "- Three steps.\n- Sign up today; it's free.\n- Your admin connects the help desk in about twenty minutes.\n- Then book a tuning session and we'll teach Relay your voice.",
+   "beatIndex": 5,
+   "beatName": "Implications",
+   "purpose": "Gives the audience a clear path to act",
+   "intent": "Make the audience sign up today",
+   "expectedIntensity": 0.7,
+   "expectedValence": 0.7
+  },
+  {
+   "slideTitle": "Answer every customer in under a minute",
+   "subtitle": "relay.app · Free for teams of up to three",
+   "layoutSuggestion": "Closing",
+   "keyBullets": [],
+   "visualDescription": "",
+   "speakerNotes": "- That's Relay.\n- Every customer answered in under a minute, in your voice.\n- Sign up at relay.app. Thank you.",
+   "beatIndex": 5,
+   "beatName": "Implications",
+   "purpose": "Lands the promise and the URL",
+   "intent": "Make the audience remember the promise",
+   "expectedIntensity": 0.6,
+   "expectedValence": 0.8
+  }
+ ]
+}

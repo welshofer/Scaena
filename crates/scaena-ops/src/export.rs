@@ -55,10 +55,12 @@ pub struct Request {
     /// How a video and the spine pace the timeline (SPEC §2.4, §10): by the beats' durations
     /// where a state has no hold (the default), or by the holds alone.
     pub pace: scaena_core::spine::Pace,
-    /// What a single-file HTML carries of the presenter's own words: dropped (the default), for a
-    /// file sent to the room, or kept, for the presenter's own (lift-up 20261025 SEC-3). Every
-    /// other export carries no notes, and reads none of this.
-    pub notes: Notes,
+    /// The presenter's notes, as Keynote's "Include presenter notes": a PDF with each slide drawn
+    /// smaller at the head of a page, its notes under it (SPEC §10); a single-file HTML with each
+    /// state's and beat's notes, each beat's evidence, and what Narrato planned kept, the
+    /// presenter's own copy. Without it, a single file is the room's, those left out (lift-up
+    /// 20261025 SEC-3; Jay's call, 2026-10-25). Only a PDF or a single file.
+    pub notes: bool,
 }
 
 /// What a single-file HTML export does with the presenter's words: each state's and beat's
@@ -215,6 +217,12 @@ pub fn export_watched(b: &Bundle, req: &Request, progress: &Progress) -> Result<
     if req.size.is_some() && !matches!(format, Format::Png | Format::Svg | Format::Spine) && video.is_none() {
         return Err(OpsError::new("--size sets the pixels of png, svg, video, and the spine's thumbnails"));
     }
+    if req.notes && !matches!(format, Format::Pdf | Format::Html) {
+        return Err(OpsError::new(
+            "--notes keeps the presenter's notes: under each slide of a PDF, or in a single file's presenter view: \
+             --format pdf or html",
+        ));
+    }
     if req.fps.is_some() && video.is_none() {
         return Err(OpsError::new("--fps sets a video's frame rate: mp4, webm, or prores"));
     }
@@ -244,7 +252,7 @@ pub fn export_watched(b: &Bundle, req: &Request, progress: &Progress) -> Result<
         }
         Format::Pdf => {
             let out = out.ok_or_else(|| OpsError::new("`export --format pdf` writes a file: give it --out FILE"))?;
-            let (bytes, pages) = document(b, states, &PdfSettings::default(), progress)?;
+            let (bytes, pages) = document(b, states, req.notes, &PdfSettings::default(), progress)?;
             write(out, &bytes)?;
             Ok(Exported {
                 format: format_name,
@@ -280,7 +288,7 @@ pub fn export_watched(b: &Bundle, req: &Request, progress: &Progress) -> Result<
                     "2.5",
                 )
             })?;
-            let (html, pages) = standalone(b, states, page, req.notes, progress)?;
+            let (html, pages) = standalone(b, states, page, if req.notes { Notes::Keep } else { Notes::Drop }, progress)?;
             write(out, html.as_bytes())?;
             Ok(Exported {
                 format: format_name,
@@ -581,16 +589,17 @@ pub fn pdf_document(
     states: Option<&[String]>,
     settings: &PdfSettings,
 ) -> Result<(Vec<u8>, Vec<String>), OpsError> {
-    document(b, states, settings, &Progress::default())
+    document(b, states, false, settings, &Progress::default())
 }
 
 fn document(
     b: &Bundle,
     states: Option<&[String]>,
+    notes: bool,
     settings: &PdfSettings,
     progress: &Progress,
 ) -> Result<(Vec<u8>, Vec<String>), OpsError> {
-    let (laid, pages) = pdf_laid_out(b, states, progress)?;
+    let (laid, pages) = pdf_laid_out(b, states, notes, progress)?;
     let bytes = prepared(&laid, settings).map_err(|e| OpsError::new(e.to_string()))?;
     Ok((bytes, pages))
 }
@@ -598,23 +607,42 @@ fn document(
 /// The deck's PDF laid out, and the state each page draws (PLAN 2.54): its pages at rest, as
 /// [`pdf_pages`] orders them, and the bytes of the fonts and images they name. Drawn here, it is
 /// `export --format pdf`; in the browser, the editor's module lays it out and the PDF's own
-/// module draws it ([`scaena_export::pdf::prepared`]), the same bytes.
+/// module draws it ([`scaena_export::pdf::prepared`]), the same bytes. With `notes`, each slide's
+/// page is the slide drawn smaller with the notes a presenter reads for it under it
+/// ([`scaena_core::notes::of`], set by the engine, [`scaena_engine::notes`]), notes too long for
+/// it going on to pages of their own: the state each draws is said once for each.
 pub fn pdf_laid_out(
     b: &Bundle,
     states: Option<&[String]>,
+    notes: bool,
     progress: &Progress,
 ) -> Result<(Prepared, Vec<String>), OpsError> {
-    let pages = pdf_pages(&b.deck, states)?;
-    progress.start(pages.len());
+    let slides = pdf_pages(&b.deck, states)?;
+    progress.start(slides.len());
     let theme = crate::theme(b)?;
     let data = data_files(b)?;
     let (mut engine, named) = engine_files(b, &theme)?;
-    let mut drawn = Vec::with_capacity(pages.len());
-    engine.frames_at_rest(&b.deck, &theme, &data, None, &pages, |state, list| {
-        drawn.push(Page { state: state.to_string(), list });
+    // Every slide at rest in one pass (#673), then, with notes, each set under its slide.
+    let mut lists = Vec::with_capacity(slides.len());
+    engine.frames_at_rest(&b.deck, &theme, &data, None, &slides, |state, list| {
+        lists.push((state.to_string(), list));
         progress.step();
         Ok::<(), OpsError>(())
     })?;
+    let mut drawn = Vec::with_capacity(lists.len());
+    let mut pages = Vec::with_capacity(lists.len());
+    for (state, list) in lists {
+        let lists = if notes {
+            let said = scaena_core::notes::of(&b.deck, &state).map(|n| scaena_core::notes::plain(&n.blocks));
+            engine.notes_pages(&b.deck, &theme, &list, said.as_deref().unwrap_or(""))?
+        } else {
+            vec![list]
+        };
+        for list in lists {
+            drawn.push(Page { state: state.clone(), list });
+            pages.push(state.clone());
+        }
+    }
     let laid = Prepared { deck: b.deck.clone(), pages: drawn, fonts: named.fonts, images: named.images };
     Ok((laid, pages))
 }
@@ -835,8 +863,9 @@ impl Reel {
 
     /// Its chapters (SPEC §10): each run of states that one beat names, titled by the
     /// beat's claim, from where the run starts to where the next chapter does. A state no
-    /// beat names is a chapter of its slide, titled by the slide's id; a state two beats
-    /// name is the first's. A deck without a spine has none.
+    /// beat names is a chapter of its slide, titled by the slide's headline, else "Slide N",
+    /// never its id (lift-up ATTR-5); a state two beats name is the first's. A deck without a
+    /// spine has none.
     pub fn chapters(&self, deck: &scaena_core::Deck) -> Vec<Chapter> {
         let Some(spine) = &deck.spine else { return Vec::new() };
         let mut beats: HashMap<&str, &scaena_core::document::Beat> = HashMap::new();
@@ -846,20 +875,30 @@ impl Reel {
             }
         }
         let slides: HashMap<&str, &str> = deck.states.iter().map(|s| (s.id.as_str(), deck.slide_of(s))).collect();
+        // Each slide's title, as its images are titled: from its first state.
+        let titled = slide_names(deck).unwrap_or_default();
         let mut chapters: Vec<Chapter> = Vec::new();
+        // What the last chapter is of: its beat, or the slide no beat names.
+        let mut of: Option<(Option<&str>, &str)> = None;
         for (slot, &start) in self.plays.iter().zip(&self.starts) {
             if slot.span + slot.hold <= 0.0 {
                 // No frame shows it.
                 continue;
             }
             let state = slot.state.as_str();
+            let slide = slides.get(state).copied().unwrap_or(state);
             let (beat, title) = match beats.get(state) {
                 Some(beat) => (Some(beat.id.clone()), beat.claim.clone()),
-                None => (None, slides.get(state).copied().unwrap_or(state).to_string()),
+                None => {
+                    let named = titled.get(slide).or_else(|| titled.get(state));
+                    (None, named.map(|(_, title)| title.clone()).unwrap_or_else(|| "Slide".into()))
+                }
             };
-            if chapters.last().is_some_and(|c| c.beat == beat && c.title == title) {
+            let key = (beats.get(state).map(|b| b.id.as_str()), if beat.is_some() { "" } else { slide });
+            if of == Some(key) {
                 continue;
             }
+            of = Some(key);
             if let Some(last) = chapters.last_mut() {
                 last.end = start;
             }
@@ -984,7 +1023,7 @@ mod tests {
         assert_eq!((beats[0]["claim"].as_str(), beats[1].get("media")), (Some("Revenue doubled."), None));
         assert_eq!(left["states"][0].get("notes"), None);
         // Dropped unless they are asked for (Jay's call, 2026-10-25).
-        assert_eq!(Request::default().notes, Notes::Drop);
+        assert!(!Request::default().notes, "a single file leaves the notes out unless asked");
     }
 
     #[test]
@@ -1071,7 +1110,9 @@ mod tests {
             chapters,
             [
                 (beat("built"), "A builds.".to_string(), 0.0, 2800.0),
-                (None, "c".to_string(), 2800.0, 4800.0),
+                // No beat names `c`, the third slide, which says nothing: titled by where it
+                // stands, never by its id (lift-up ATTR-5).
+                (None, "Slide 3".to_string(), 2800.0, 4800.0),
                 // `b`'s 850 ms end on a frame: the video runs to 5700.
                 (beat("then"), "Then B.".to_string(), 4800.0, 5700.0),
             ]

@@ -716,6 +716,13 @@ pub struct DeckExport {
     /// each state's hold alone, as a player auto-advances.
     #[serde(default)]
     pub pace: scaena_core::spine::Pace,
+    /// The presenter's notes: a PDF with each slide drawn smaller at the head of a page, the
+    /// notes a presenter reads for it under it, notes too long for it going on to pages of
+    /// their own; a single HTML file with each state's and beat's notes, each beat's evidence,
+    /// and what Narrato planned, the presenter's own copy. Without it a single file leaves them
+    /// out, for the room. Only a PDF or a single file.
+    #[serde(default)]
+    pub notes: bool,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -1160,7 +1167,7 @@ impl Scaena {
     }
 
     #[tool(description = "Export a projection to `out`: `pdf` (each slide at its last state, or `states`, a page \
-        each), `png` or `svg` (an image per state, into a directory), `mp4`, `webm`, or `prores` (the timeline, \
+        each; with `notes`, the slide smaller with the presenter's notes under it), `png` or `svg` (an image per state, into a directory), `mp4`, `webm`, or `prores` (the timeline, \
         each state's cue then its hold, or where it has none its share of its beat's `duration` (`pace`), at \
         `fps`; needs ffmpeg), `html` (one file that plays the deck in a \
         browser, offline: the player, the engine, and the bundle), or `spine`, which is also returned. An export \
@@ -1181,9 +1188,7 @@ impl Scaena {
             audio: a.audio.clone().map(Into::into),
             painter: a.painter,
             pace: a.pace,
-            // An agent's single file is the room's, the speaker notes left out, as the CLI's is
-            // by default (Jay's call, 2026-10-25).
-            notes: scaena_ops::export::Notes::Drop,
+            notes: a.notes,
         };
         let bundle = a.bundle.clone();
         let b = blocking(move || open(&bundle)).await?;

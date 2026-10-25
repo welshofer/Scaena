@@ -16,7 +16,8 @@
 //   its steps have played (`mix` for the revenue slide), the width asked, within §13.5 of
 //   `scaena export --format png` of that state. The palette offers it too.
 // - The deck as a PDF, from the palette: the PDF's own module loads then, and not before, and the
-//   PDF is the one `scaena export --format pdf` writes, byte for byte.
+//   PDF is the one `scaena export --format pdf` writes, byte for byte; and with the presenter's
+//   notes, from Export…, the one `--notes` writes.
 // - The deck as one HTML file, from Export…: the one `scaena export --format html` writes, byte for
 //   byte. Opened from its address on disk with the network off, it plays.
 // - A right click on a state in the strip offers Export it as a PNG…, which opens Export… on it.
@@ -167,6 +168,24 @@ try {
   check(pdfModule() === 1, `the PDF's module loads for it, once (${pdfModule()})`);
   check(pdf.name === "revenue.pdf" && pdf.bytes.equals(cliPdf), `${pdf.name}, ${pdf.bytes.length} B, is the CLI's PDF byte for byte (${cliPdf.length} B)`);
 
+  // The deck as a PDF with the presenter's notes, from Export…: offered for a PDF alone, and the
+  // PDF `scaena export --format pdf --notes` writes, byte for byte.
+  await page.click("#export");
+  await page.check("#exporting input[name=as][value=png]");
+  check(await page.locator("#exporting-notes").isHidden(), "the presenter's notes are not offered for a PNG");
+  await page.check("#exporting input[name=as][value=pdf]");
+  check(await page.locator("#exporting-notes").isVisible(), "they are offered for a PDF");
+  await page.check("#exporting-with-notes");
+  const notedNote = await page.evaluate(() => document.querySelector("#exporting-note").textContent);
+  check(notedNote.includes("the notes you read for it under it"), `the note says what a PDF with notes holds: ${notedNote}`);
+  const noted = await downloaded(() => page.click("#exporting-go"));
+  scaena("export", bundle, "--format", "pdf", "--notes", "--out", join(out, "cli-notes.pdf"));
+  const cliNoted = readFileSync(join(out, "cli-notes.pdf"));
+  check(
+    noted.name === "revenue - Notes.pdf" && noted.bytes.equals(cliNoted),
+    `${noted.name}, ${noted.bytes.length} B, is the CLI's PDF with notes byte for byte (${cliNoted.length} B)`,
+  );
+
   // The deck as one HTML file, from Export….
   await page.click("#export");
   await page.check("#exporting input[name=as][value=html]");
@@ -191,15 +210,16 @@ try {
 
   // The file above is the room's: the speaker notes left out unless asked for, as the CLI leaves
   // them out by default (lift-up 20261025 SEC-3; Jay's call, 2026-10-25). Asked for, they are
-  // the CLI's --notes keep.
+  // the CLI's --notes.
   await page.click("#export");
   await page.check("#exporting input[name=as][value=html]");
-  const notesOffered = (await page.locator("#exporting-notes").isVisible()) && !(await page.isChecked("#exporting-keep-notes"));
+  // Asked for each time: the PDF's choice above is not carried over to a file sent to the room.
+  const notesOffered = (await page.locator("#exporting-notes").isVisible()) && !(await page.isChecked("#exporting-with-notes"));
   const roomNote = await page.evaluate(() => document.querySelector("#exporting-note").textContent);
-  await page.check("#exporting-keep-notes");
+  await page.check("#exporting-with-notes");
   const keptNote = await page.evaluate(() => document.querySelector("#exporting-note").textContent);
   const kept = await downloaded(() => page.click("#exporting-go"));
-  scaena("export", bundle, "--format", "html", "--notes", "keep", "--out", join(out, "kept.html"));
+  scaena("export", bundle, "--format", "html", "--notes", "--out", join(out, "kept.html"));
   const cliKept = readFileSync(join(out, "kept.html"));
   check(
     notesOffered && roomNote.includes("without the speaker notes") && keptNote.includes("with the speaker notes"),
@@ -207,15 +227,15 @@ try {
   );
   check(
     kept.bytes.equals(cliKept) && !kept.bytes.equals(cliHtml),
-    `with the notes, it is the CLI's --notes keep byte for byte (${kept.bytes.length} B), and not the room's (${cliHtml.length} B)`,
+    `with the notes, it is the CLI's --notes byte for byte (${kept.bytes.length} B), and not the room's (${cliHtml.length} B)`,
   );
   await page.click("#export");
+  await page.check("#exporting input[name=as][value=pdf]");
+  await page.check("#exporting-with-notes");
   await page.check("#exporting input[name=as][value=html]");
-  await page.uncheck("#exporting-keep-notes");
-  await page.check("#exporting input[name=as][value=png]");
-  const notesGone = await page.locator("#exporting-notes").isHidden();
+  const notCarried = !(await page.isChecked("#exporting-with-notes"));
   await page.keyboard.press("Escape");
-  check(notesGone, "the notes' choice is a single file's alone");
+  check(notCarried, "the notes asked for a PDF are not carried over to a single file");
 
   // A right click on a state in the strip.
   const li = page.locator(`#strip li[data-state="${state}"]`);

@@ -259,11 +259,13 @@ enum Cmd {
         /// state's hold alone, as a player auto-advances.
         #[arg(long, value_enum, default_value_t = PaceArg::Beats)]
         pace: PaceArg,
-        /// What a single HTML file carries of the presenter's words: by default it `drop`s each
-        /// state's and beat's notes, each beat's evidence, and what Narrato planned, for a file
-        /// sent to the room; `keep` makes the presenter's own copy.
-        #[arg(long, value_enum)]
-        notes: Option<NotesArg>,
+        /// The presenter's notes, as Keynote's "Include presenter notes": a PDF with each slide
+        /// drawn smaller at the head of a page and the notes a presenter reads for it under it; a
+        /// single HTML file with each state's and beat's notes, each beat's evidence, and what
+        /// Narrato planned, the presenter's own copy. Without it a single file is the room's,
+        /// sent after a talk, those left out. Only a PDF or a single file.
+        #[arg(long)]
+        notes: bool,
     },
     /// Apply a patch: JSON Patch (RFC 6902) and semantic ops, all or none, and say what
     /// changes in what `validate` and `lint` find. A patch that would make the deck invalid
@@ -590,14 +592,6 @@ enum PaceArg {
     Holds,
 }
 
-#[derive(Clone, Copy, PartialEq, ValueEnum)]
-enum NotesArg {
-    /// The presenter's words kept: the presenter's own copy.
-    Keep,
-    /// The presenter's words left out: the room's copy (lift-up 20261025 SEC-3).
-    Drop,
-}
-
 impl From<PaceArg> for scaena_core::spine::Pace {
     fn from(pace: PaceArg) -> Self {
         match pace {
@@ -810,13 +804,6 @@ fn run(cli: Cli) -> Result<ExitCode> {
         }
         Cmd::Export { bundle, format, out, states, size, fps, audio, painter, pace, notes } => {
             let (painter, pace) = (painter.into(), pace.into());
-            if notes.is_some() && format != "html" {
-                anyhow::bail!("--notes says what a single file carries of the speaker notes: --format html");
-            }
-            let notes = match notes {
-                Some(NotesArg::Keep) => scaena_ops::export::Notes::Keep,
-                Some(NotesArg::Drop) | None => scaena_ops::export::Notes::Drop,
-            };
             let req = scaena_ops::export::Request { format, states, out, size, fps, audio, painter, pace, notes };
             let exported = scaena_ops::export::export(&open(&bundle)?, &req)?;
             if cli.json {
