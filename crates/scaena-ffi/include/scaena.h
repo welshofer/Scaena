@@ -584,7 +584,9 @@ struct ScaenaChat *scaena_chat_new(const char *args, char **error);
 // - `next`: the calls' results handed to the model, every call answered (those not run, as
 //   stopped): whether it may be asked again, or the question has taken its rounds.
 // - `use {provider, model, base?}`: another model from the next request on, the conversation
-//   kept. `forget`: the next question is the first. `conversation`: the conversation as kept.
+//   kept. `shorter`: the provider found the conversation too long; whether to ask again with
+//   half as much of tools' results, once a question (lift-up PERF-3). `forget`: the next
+//   question is the first. `conversation`: the conversation as kept.
 //
 // `session` may be null for a step that runs nothing on it: all but `ask` and `run`.
 //

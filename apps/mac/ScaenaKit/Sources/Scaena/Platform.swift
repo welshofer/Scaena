@@ -103,6 +103,8 @@ struct Presses {
 
 extension Image {
     /// A picture the engine drew, PNG bytes, as SwiftUI shows it on the Mac and the iPad alike.
+    /// ImageIO reads whatever the bytes are, so a JPEG, as a slide drawn for the model is, reads
+    /// too.
     init?(png data: Data) {
         guard let source = CGImageSourceCreateWithData(data as CFData, nil),
             let image = CGImageSourceCreateImageAtIndex(source, 0, nil)
