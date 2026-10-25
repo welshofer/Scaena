@@ -459,6 +459,22 @@ final class Showing {
         }
     }
 
+    /// The slide `state` begins, chosen in the presenter's navigator (lift-up 10-24b USE-1): shown
+    /// at once, as its number typed then Return shows it, a hold that ran let go.
+    func navigate(to state: String) {
+        typing?.cancel()
+        if show.go(toSlide: state) { holding?.cancel() }
+    }
+
+    /// The slide numbered `number`, as typing its number then Return goes there (PLAN 2.105): what
+    /// a remote's Go to Slide asks (lift-up FUNC-5).
+    func go(slide number: Int) {
+        guard number > 0 else { return }
+        show.untype(all: true)
+        for digit in String(number) { show.type(digit.wholeNumberValue ?? 0) }
+        enter()
+    }
+
     /// Delete: the last digit typed taken back; with none typed, back.
     func delete() {
         if show.typed.isEmpty { back() } else { show.untype() }
@@ -922,6 +938,7 @@ struct KeyList: View {
         Row(keys: "L", does: laser),
         Row(keys: "Escape", does: "End the show"),
         Row(keys: "+  −", does: "The notes larger, or smaller, in the presenter's view"),
+        Row(keys: "N", does: "The slides, to go to one, in the presenter's view"),
         Row(keys: "?", does: "These keys"),
     ]
 
@@ -940,7 +957,7 @@ struct KeyList: View {
         }
         .font(.title3)
         .padding(24)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
+        .floating(in: RoundedRectangle(cornerRadius: 14))
         .environment(\.colorScheme, .dark)
         .frame(maxWidth: 640)
         .accessibilityElement(children: .contain)
@@ -965,6 +982,8 @@ struct PresenterView: View {
     @Environment(\.displayScale) private var scale
     /// The notes' size, a step up or down, kept for the next show (lift-up USE-4).
     @AppStorage("presenter.notesSize") private var notesSize = NotesSize.standard
+    /// Whether every slide is shown, to go to one (lift-up 10-24b USE-1).
+    @State private var navigating = false
 
     private func sizeNotes(_ by: Int) {
         notesSize = NotesSize.stepped(notesSize, by: by)
@@ -1034,6 +1053,10 @@ struct PresenterView: View {
                     }
                     HStack(spacing: 12) {
                         Text(showing.progress)
+                        Button("Slides") { navigating = true }
+                            .font(.body)
+                            .help("Every slide, to go to one (N)")
+                            .accessibilityIdentifier("navigate")
                         Spacer()
                         // The timer, paused and reset here, and beside it the time of day.
                         TimelineView(.periodic(from: .now, by: 1)) { context in
@@ -1132,6 +1155,18 @@ struct PresenterView: View {
             sizeNotes(-1)
             return .handled
         }
+        // Every slide, to go to one, as Keynote's navigator, here alone (lift-up 10-24b USE-1).
+        .onKeyPress(characters: CharacterSet(charactersIn: "nN")) { press in
+            guard plain(press) else { return .ignored }
+            navigating = true
+            return .handled
+        }
+        .sheet(isPresented: $navigating) {
+            SlideNavigator(showing: showing) { navigating = false }
+        }
+        .onChange(of: navigating) { _, now in
+            if !now { focused = true }
+        }
         .paces(showing)
         .onAppear { focused = true }
         .task(id: show.index) {
@@ -1150,6 +1185,124 @@ struct PresenterView: View {
         guard size.width > 0, size.height > 0 else { return nil }
         let at = CGPoint(x: location.x / size.width, y: location.y / size.height)
         return (0...1).contains(at.x) && (0...1).contains(at.y) ? at : nil
+    }
+}
+
+/// The presenter's slides (lift-up 10-24b USE-1), as Keynote's navigator: every slide drawn small at
+/// its last state, the one the room sees marked. The arrows, Home, and End move through them, and
+/// Return or a click goes to one, as its number typed goes there; N, Escape, or Done closes it.
+struct SlideNavigator: View {
+    let showing: Showing
+    let close: () -> Void
+    /// The slide marked, from 0.
+    @State private var marked = 0
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        let slides = Slide.of(showing.show.slots)
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Slides").font(.title2.bold())
+                Spacer()
+                Button("Done", action: close).keyboardShortcut(.cancelAction)
+            }
+            ScrollViewReader { scroller in
+                ScrollView {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 180), spacing: 14)], spacing: 14) {
+                        ForEach(Array(slides.enumerated()), id: \.element.id) { n, slide in
+                            NavigatedSlide(
+                                editor: showing.editor, slide: slide, number: n + 1, marked: n == marked,
+                                revision: showing.editor.revision
+                            )
+                            .id(n)
+                            .onTapGesture { go(slide) }
+                            .accessibilityAction { go(slide) }
+                        }
+                    }
+                    .padding(4)
+                }
+                .onChange(of: marked) { _, now in scroller.scrollTo(now) }
+            }
+        }
+        .padding(20)
+        .frame(minWidth: 640, idealWidth: 860, minHeight: 420, idealHeight: 600)
+        .focusable()
+        .focused($focused)
+        .focusEffectDisabled()
+        .onKeyPress(keys: [.rightArrow, .downArrow]) { _ in
+            marked = min(marked + 1, max(slides.count - 1, 0))
+            return .handled
+        }
+        .onKeyPress(keys: [.leftArrow, .upArrow]) { _ in
+            marked = max(marked - 1, 0)
+            return .handled
+        }
+        .onKeyPress(.home) {
+            marked = 0
+            return .handled
+        }
+        .onKeyPress(.end) {
+            marked = max(slides.count - 1, 0)
+            return .handled
+        }
+        .onKeyPress(.return) {
+            if slides.indices.contains(marked) { go(slides[marked]) }
+            return .handled
+        }
+        .onKeyPress(characters: CharacterSet(charactersIn: "nN")) { press in
+            guard plain(press) else { return .ignored }
+            close()
+            return .handled
+        }
+        .onAppear {
+            focused = true
+            let room = showing.show.slot?.slide
+            marked = slides.firstIndex { $0.id == room } ?? 0
+        }
+        .accessibilityIdentifier("navigator")
+    }
+
+    private func go(_ slide: Slide) {
+        if let first = slide.states.first { showing.navigate(to: first) }
+        close()
+    }
+}
+
+/// A slide in the presenter's navigator: drawn at its last state, its number under it, outlined
+/// where it is marked.
+private struct NavigatedSlide: View {
+    let editor: DeckEditor
+    let slide: Slide
+    let number: Int
+    let marked: Bool
+    let revision: Int
+    @State private var drawing: CGImage?
+    @Environment(\.displayScale) private var scale
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Group {
+                if let drawing {
+                    Image(decorative: drawing, scale: scale).resizable().aspectRatio(contentMode: .fit)
+                } else {
+                    Rectangle().fill(.quaternary).aspectRatio(16 / 9, contentMode: .fit)
+                }
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 4))
+            .overlay {
+                RoundedRectangle(cornerRadius: 4)
+                    .strokeBorder(marked ? Color.accentColor : Color.secondary.opacity(0.3), lineWidth: marked ? 3 : 1)
+            }
+            Text("\(number)").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+        }
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Slide \(number)")
+        .accessibilityAddTraits(marked ? [.isButton, .isSelected] : .isButton)
+        .accessibilityIdentifier("navigated-\(slide.id)")
+        .task(id: "\(slide.last)\u{1f}\(revision)") {
+            drawing = await editor.drawingAway(slide.last, width: Int(200 * scale))
+        }
     }
 }
 

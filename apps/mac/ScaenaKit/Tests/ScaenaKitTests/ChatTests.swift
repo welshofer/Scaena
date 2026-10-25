@@ -488,6 +488,13 @@ private func keychainWritable() -> Bool {
     let accessible = (found as? [String: Any])?[kSecAttrAccessible as String] as? String
     #expect(accessible == kSecAttrAccessibleWhenUnlockedThisDeviceOnly as String)
     #expect(keychain.key(for: .openai) == "sk-one")
+    // Replaced in place, never taken away first (lift-up 10-24b REL-5): the same item, still kept
+    // to this device, holds the new key.
+    try keychain.set("sk-two", for: .openai)
+    #expect(keychain.key(for: .openai) == "sk-two")
+    var again: CFTypeRef?
+    #expect(SecItemCopyMatching(query as CFDictionary, &again) == errSecSuccess)
+    #expect((again as? [String: Any])?[kSecAttrAccessible as String] as? String == accessible)
 }
 
 /// Each tool the MCP server serves (`docs/schema/mcp`) has a person's words for the window (PLAN
@@ -534,7 +541,9 @@ private func keychainWritable() -> Bool {
     let writing = try session.writing(ask)
     let words = try #require(writing.task.text)
     #expect(words.hasPrefix("Why this exists"))
-    #expect(writing.title == "Tightened" && writing.prompt == words)
+    // Asked with the point its slide makes (lift-up FUNC-3).
+    let claim = "Scaena is the tool we would build if the slide had never been invented."
+    #expect(writing.title == "Tightened" && writing.prompt == "The text:\n\(words)\nThe point its slide makes: \(claim)")
     #expect(writing.instructions.hasPrefix("You tighten the words of one text on a slide"))
     let notes = try session.writing(WritingAsk(kind: .notes, state: "cover"))
     #expect(notes.prompt.hasPrefix("The slide reads:\nTitle: Scaena"))
@@ -544,7 +553,7 @@ private func keychainWritable() -> Bool {
     let sent = try JSONDecoder().decode(JSONValue.self, from: try #require(try request.urlRequest().httpBody))
     #expect(sent["tools"] == nil, "a question asked once sends no tools")
     #expect(sent["system"]?[0]?["text"]?.string == writing.instructions)
-    #expect(sent["messages"]?[0]?["content"]?[0]?["text"]?.string == words)
+    #expect(sent["messages"]?[0]?["content"]?[0]?["text"]?.string == writing.prompt)
     let answer = try Provider.anthropic.answered(status: 200, body: answering("“Why Scaena exists.”"))
     #expect(answer == "“Why Scaena exists.”")
 
@@ -552,6 +561,10 @@ private func keychainWritable() -> Bool {
     #expect(written.text == "Why Scaena exists.", "the quotes a model wraps it in come off")
     let patch = try #require(written.patch)
     #expect(!patch.isEmpty && patch.allSatisfy { $0["op"]?.string == "replace_text" })
+    // A rewrite in the person's own words is asked in them (lift-up FUNC-3).
+    let rewrite = try session.writing(
+        WritingAsk(kind: .rewrite, state: "cover", node: "subtitle", instruction: "Shorter, for executives"))
+    #expect(rewrite.prompt.hasPrefix("The text:\n\(words)\nHow to rewrite it: Shorter, for executives\n"))
     let drafted = try session.written(WritingAsk(kind: .notes, state: "cover"), answer: "Open on the name.")
     #expect(drafted.patch?.first?["op"]?.string == "set_state")
 

@@ -4,6 +4,7 @@
 import type { AssistantEvent } from "../protocol";
 import { answerOf, unanswered, unasked } from "../words";
 import type { Call, Message, Provider, Result, Tool, Turn } from "./providers";
+import { fenced } from "./prompt";
 
 /** What the page hears as the assistant works. */
 export type Event = AssistantEvent;
@@ -166,6 +167,10 @@ export async function converse(o: Options): Promise<void> {
       results.push(result);
       o.emit({ kind: "result", id: call.id, name: call.name, error: result.error, summary, made, json: result.json, png: result.png });
     }
-    o.conversation.push({ role: "tool", results });
+    // Each result, errors too, reaches the model fenced as data under its tool's name (lift-up
+    // SEC-3), as scaena-chat's `results` fences it: what a tool reads is the deck's words or a
+    // source's, and an error can quote them.
+    const told = results.map((r) => ({ ...r, json: fenced(r.name.replace(/_/g, "-"), r.json) }));
+    o.conversation.push({ role: "tool", results: told });
   }
 }

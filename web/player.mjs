@@ -24,6 +24,10 @@
 // - The end of the show (PLAN 2.120): going on past the last state turns the screen black and says
 //   the show has ended, the status too; ← shows the last slide again, going on again keeps it,
 //   and a click or Escape leaves it, back on the last slide, and in fullscreen out of it.
+// - A format the deck does not lay out in, and a promise no handler caught, are said in the
+//   player's status, the slide shown staying (lift-up STAB-5).
+// - The presenter view's timer waits at 0:00 until the deck goes on, and a presenter view the
+//   browser blocks is said in the player's status (lift-up USE-2).
 // - The presenter view follows the player, shows the state's notes (its beat's, where it has
 //   none), and steers it: on, back, and with End and Home to the last and the first; and its own
 //   presenter's keys steer the room's screen, its laser pointed from the slide it shows, and drawn
@@ -93,8 +97,10 @@ try {
   });
   const open = async (address) => {
     const page = await context.newPage();
-    page.on("pageerror", (e) => failures.push(`${address}: ${e.message}`));
-    page.on("console", (m) => m.type() === "error" && failures.push(`${address}: console: ${m.text()}`));
+    // The one promise left uncaught on purpose, to be said in the status (lift-up STAB-5).
+    const meant = (text) => text.includes("a promise no one caught");
+    page.on("pageerror", (e) => meant(e.message) || failures.push(`${address}: ${e.message}`));
+    page.on("console", (m) => m.type() === "error" && !meant(m.text()) && failures.push(`${address}: console: ${m.text()}`));
     await page.goto(address);
     await page.waitForFunction(() => window.scaena || document.querySelector("#status")?.textContent.startsWith("Error"), null, {
       timeout: 120000,
@@ -489,9 +495,17 @@ try {
       picker.value = format;
       picker.dispatchEvent(new Event("change"));
     }, format);
-    // Shown there once its status says 9:16, or no longer says it.
+    // Shown there once its status says where the deck is again, in 9:16 or no longer in it: an error
+    // the status still says is not the format shown.
     await player
-      .waitForFunction((format) => document.querySelector("#status").textContent.includes("9:16") === (format === "9:16"), format, { timeout: 15000 })
+      .waitForFunction(
+        (format) => {
+          const said = document.querySelector("#status").textContent;
+          return !said.startsWith("Error:") && said.includes("9:16") === (format === "9:16");
+        },
+        format,
+        { timeout: 15000 },
+      )
       .catch(() => failures.push(`the player turned to ${format || "its own size"}`));
   };
   const upright = (want) =>
@@ -503,6 +517,29 @@ try {
   await turnTo("");
   const wide = await upright(false);
   check(tall && wide, `it paints the next state in the format the player shows, 9:16 and its own: ${tall}, ${wide}`);
+  // A format the deck does not lay out in, and a promise no handler caught (lift-up STAB-5): each is
+  // said in the player's status, the slide shown staying, and the player goes on.
+  const before = await player.evaluate(() => window.scaena.at().index);
+  await player.evaluate(() => {
+    const picker = document.querySelector("#format");
+    picker.add(new Option("1:1", "1:1"));
+    picker.value = "1:1";
+    picker.dispatchEvent(new Event("change"));
+  });
+  const refused = await player
+    .waitForFunction(() => document.querySelector("#status").textContent.startsWith("Error:"), null, { timeout: 15000 })
+    .then(() => player.evaluate(() => document.querySelector("#status").textContent), () => null);
+  check(refused?.includes("1:1") && (await player.evaluate(() => window.scaena.at().index)) === before, `a format the deck does not lay out in is said, the slide staying: ${refused}`);
+  await player.evaluate(() => {
+    const picker = document.querySelector("#format");
+    picker.remove(picker.options.length - 1);
+    void Promise.reject(new Error("a promise no one caught"));
+  });
+  const lost = await player
+    .waitForFunction(() => document.querySelector("#status").textContent === "Error: a promise no one caught", null, { timeout: 5000 })
+    .then(() => true, () => false);
+  check(lost, "a promise no handler caught is said in the status");
+  await turnTo("");
   // Its presenter's keys steer the player's screen (PLAN 2.105): B turns the room's black, and the
   // view says so; a key brings the slide back.
   await presenter.keyboard.press("b");
@@ -537,6 +574,27 @@ try {
   const zero = await presenter.evaluate(() => document.querySelector(".typed").textContent);
   at = await player.evaluate(() => window.scaena.at());
   check(zero === `No slide 0: the deck has ${count} slides` && at.index === slideAt(count), `and 0 too, the player going nowhere: ${zero}`);
+  // N opens every slide, drawn small, the one the room sees marked (lift-up 10-24b USE-1); Home and
+  // Return go to the first, through the player, and End and Return back to the last.
+  await presenter.keyboard.press("n");
+  const navigated = await presenter
+    .waitForFunction((n) => { const v = window.scaena.navigator(); return v && v.drawn === n && v; }, count, { timeout: 10000 })
+    .then((h) => h.jsonValue(), async () => presenter.evaluate(() => window.scaena.navigator()));
+  check(
+    navigated?.slides.length === count && navigated.drawn === count && navigated.marked === count - 1,
+    `N shows every slide, drawn, the one the room sees marked: ${JSON.stringify(navigated)}`,
+  );
+  await presenter.keyboard.press("Home");
+  await presenter.keyboard.press("Enter");
+  at = await until(player, (k) => window.scaena.at().index === k, "the navigator's first slide", 0, 2000);
+  const putAway = (await presenter.evaluate(() => window.scaena.navigator())) === null;
+  check(at.index === 0 && putAway, "Home then Return goes to the first slide in the player, and closes it");
+  await presenter.click("#navigate");
+  await presenter.waitForFunction(() => window.scaena.navigator(), null, { timeout: 5000 }).catch(() => {});
+  await presenter.keyboard.press("End");
+  await presenter.keyboard.press("Enter");
+  at = await until(player, (k) => window.scaena.at().index === k, "the navigator's last slide", slideAt(count), 2000);
+  check(at.index === slideAt(count), `its Slides button opens it too, and End then Return goes to slide ${count}`);
   // L: the laser, pointed from the slide the presenter view shows, drawn on the room's.
   await presenter.keyboard.press("l");
   await player.waitForFunction(() => window.scaena.laser().on, null, { timeout: 5000 }).catch(() => {});
@@ -829,6 +887,36 @@ try {
   check(await plain.locator("#meter").isHidden(), "without it, there is no meter");
   await plain.close();
 
+  // The presenter view (lift-up USE-2), in a context of its own so no other player answers it: its
+  // timer waits at 0:00 while the deck stands on its first slide, and starts when the deck goes
+  // on; and a presenter view the browser blocks says so in the player's status.
+  const fresh = await browser.newContext({ viewport: { width: 1280, height: 800 }, deviceScaleFactor: 1 });
+  const freshPage = async (address) => {
+    const page = await fresh.newPage();
+    page.on("pageerror", (e) => failures.push(`${address}: ${e.message}`));
+    await page.goto(address);
+    await page.waitForFunction(() => window.scaena, null, { timeout: 120000 });
+    return page;
+  };
+  const first = await freshPage(url(revenue));
+  const watching = await freshPage(url(revenue, "presenter"));
+  await watching.waitForFunction(() => window.scaena.follows(), null, { timeout: 15000 }).catch(() => {});
+  await watching.waitForTimeout(1500);
+  const waited = await watching.evaluate(() => window.scaena.timer().shows);
+  check(waited === "0:00", `the presenter view's timer waits at 0:00 while the deck stands on its first slide: ${waited}`);
+  await first.keyboard.press("ArrowRight");
+  const started = await watching
+    .waitForFunction(() => window.scaena.timer().shows !== "0:00", null, { timeout: 5000 })
+    .then(() => true, () => false);
+  check(started, "and starts when the deck goes on");
+  await first.evaluate(() => (window.open = () => null));
+  await first.keyboard.press("p");
+  const blocked = await first
+    .waitForFunction(() => document.querySelector("#status").textContent.startsWith("The presenter view was blocked"), null, { timeout: 5000 })
+    .then(() => true, () => false);
+  check(blocked, `a presenter view the browser blocks is said: ${await first.textContent("#status")}`);
+  await fresh.close();
+
   // Full sharpness (lift-up ATTR-2): at 2560 × 1440 and twice the density, the slide fills the
   // room the bar leaves, and in fullscreen the screen, and its frames are painted at the size it
   // is shown, in device pixels, by WebGPU; by the CPU painter at the canvas's own size, scaled up
@@ -863,7 +951,10 @@ try {
           : m.backing[0] === 1920 && m.backing[1] === 1080;
       return fills && fits && shape && painted;
     };
-    await page.waitForFunction(() => document.querySelector("#stage").width !== 1920, null, { timeout: 60000 }).catch(() => {});
+    // WebGPU paints at the size shown, once the page has fitted it; the CPU painter's canvas stays
+    // 1920 wide, and its first frame is the deck at rest.
+    if (paints === "webgpu") await page.waitForFunction(() => document.querySelector("#stage").width !== 1920, null, { timeout: 60000 }).catch(() => {});
+    else await page.waitForFunction(() => window.scaena.at() && !window.scaena.at().playing, null, { timeout: 60000 }).catch(() => {});
     const windowed = await measure();
     check(sharp(windowed) && windowed.dpr === 2, `${paints}: at 2560 × 1440 at 2×, the slide fills the room the bar leaves, painted at the size shown: ${JSON.stringify(windowed)}`);
     await page.keyboard.press("f");
@@ -884,7 +975,10 @@ try {
       }
       await page.keyboard.press("f");
       await page.waitForFunction(() => document.fullscreenElement === null, null, { timeout: 5000 }).catch(() => {});
-    } else failures.push(`dense ${painter}: F did not make the player fullscreen`);
+    } else {
+      const why = await page.evaluate(() => ({ status: document.querySelector("#status").textContent, focus: `${document.activeElement?.tagName}#${document.activeElement?.id}` }));
+      failures.push(`dense ${painter}, painted by ${paints}: F did not make the player fullscreen: ${JSON.stringify(why)}`);
+    }
     await page.close();
   }
   await dense.close();

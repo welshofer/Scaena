@@ -202,6 +202,33 @@ impl Engine {
         Ok(Frame { display_list, duration_ms: slot.span })
     }
 
+    /// Each of `states` at rest, as [`Engine::frame`] draws one at `t_ms` infinite, handed to
+    /// `each` in order: the deck projected into `format`, its states resolved, and its timeline
+    /// worked out once for them all, where a frame apiece does each again for every state, so an
+    /// export of every state is linear in its states (lift-up 10-24b PERF-4).
+    pub fn frames_at_rest<E: From<EngineError>>(
+        &mut self,
+        deck: &Deck,
+        theme: &Theme,
+        data: &DataFiles,
+        format: Option<&str>,
+        states: &[String],
+        mut each: impl FnMut(&str, DisplayList) -> Result<(), E>,
+    ) -> Result<(), E> {
+        let (deck, theme) = project(deck, theme, format)?;
+        let (deck, theme) = (deck.as_ref(), theme.as_ref());
+        let snapshots = scaena_core::resolve_states(deck).map_err(EngineError::from)?;
+        let at = states.iter().map(|s| state_index(&snapshots, s)).collect::<Result<Vec<_>, _>>()?;
+        let Some(&last) = at.iter().max() else { return Ok(()) };
+        let timeline = self.timeline_to(deck, theme, data, last)?;
+        for (state, &i) in states.iter().zip(&at) {
+            let slot = &timeline.slots[i];
+            let list = self.scene(deck, theme, data, &snapshots[i])?.draw_at((slot.start + slot.span) / 1000.0);
+            each(state, list)?;
+        }
+        Ok(())
+    }
+
     /// The cue of `state`: the transition into it from the state before it in the cue
     /// list (what was on screen), each laid out once, and its motions. Its frames
     /// ([`Transition::frame`]) then sample any time without layout.
@@ -263,7 +290,7 @@ impl Engine {
         data: &DataFiles,
         last: usize,
     ) -> Result<Timeline, EngineError> {
-        let key = fingerprint(deck, theme, data);
+        let key = fingerprint(deck, theme, data)?;
         let mut states = match self.timeline.take() {
             Some((k, states)) if k == key => states,
             _ => Vec::new(),
@@ -816,6 +843,7 @@ impl Engine {
             clip: None,
             fit: TextFit::Wrap,
             natural: None,
+            code: None,
         };
         Ok(SceneNode {
             id: id.into(),
@@ -1006,7 +1034,12 @@ impl Engine {
             }
             None => text,
         };
-        Ok(PlacedText { cell, origin, text, scale, overflow, clip, fit, natural })
+        let code = spec.code.as_ref().map(|c| crate::carets::CaretCode {
+            tab: c.tab,
+            from: (props.get("code").and_then(|c| c.get("start")).and_then(Value::as_u64)).map_or(1, |n| n as usize),
+            language: c.language.clone(),
+        });
+        Ok(PlacedText { cell, origin, text, scale, overflow, clip, fit, natural, code })
     }
 }
 
@@ -1118,6 +1151,9 @@ pub struct PlacedText {
     /// trims it: what its box grows to hold first, at the size its width lets it
     /// ([`Engine::grown`]). `None` for any other text.
     pub natural: Option<[f32; 2]>,
+    /// Where it is code, what its keys read (PLAN 2.139): its tab stops and its first line's
+    /// number.
+    pub code: Option<crate::carets::CaretCode>,
 }
 
 /// Canvas y of the paragraph top, so the text's anchor sits where its alignment says
@@ -1381,12 +1417,18 @@ fn rejoin(theme: &Theme, snap: &Snapshot, placement: &mut Placement, tree: &mut 
 }
 
 /// A hash of everything the global timeline is worked out from.
-fn fingerprint(deck: &Deck, theme: &Theme, data: &DataFiles) -> u64 {
+/// What a timeline is kept for: the deck, the theme, and the data it was worked out from. One
+/// that does not serialize is an error, never the fingerprint of nothing, which two such decks
+/// would share (lift-up 10-24b PERF-4).
+fn fingerprint(deck: &Deck, theme: &Theme, data: &DataFiles) -> Result<u64, EngineError> {
+    let bytes = |what: &str, r: serde_json::Result<Vec<u8>>| {
+        r.map_err(|e| EngineError::Layout(format!("the {what} does not serialize: {e}")))
+    };
     let mut h = std::hash::DefaultHasher::new();
-    serde_json::to_vec(deck).unwrap_or_default().hash(&mut h);
-    serde_json::to_vec(&**theme).unwrap_or_default().hash(&mut h);
+    bytes("deck", serde_json::to_vec(deck))?.hash(&mut h);
+    bytes("theme", serde_json::to_vec(&**theme))?.hash(&mut h);
     data.hash(&mut h);
-    h.finish()
+    Ok(h.finish())
 }
 
 fn in_node(id: &str, e: EngineError) -> EngineError {

@@ -538,7 +538,8 @@ fn a_balanced_headline_in_chinese_japanese_or_korean_keeps_its_words_whole() {
         });
         assert_eq!(lines(&balanced), expected, "{lang}");
         assert!(balanced.lines.iter().all(|l| l.width <= width + 1e-3), "{lang}: {:?}", balanced.lines);
-        // Running text still breaks between any two letters, as it is set.
+        // Running text breaks otherwise: Chinese between any two of its characters, and Japanese
+        // after any of its phrases, here after の.
         let greedy = set("specimen", text, width, |s| {
             s.wrap = Some(Wrap::Greedy);
             s.lang = Some(lang.into());
@@ -607,4 +608,165 @@ fn tabular_figures_space_the_figures_and_leave_the_words_as_they_are() {
     assert_eq!(width("1111", TabularLining), width("8888", TabularLining));
     assert_ne!(width("1111", TabularLining), width("1111", ProportionalLining));
     assert_eq!(width("1.1-1", TabularLining), width("8.8-8", TabularLining));
+}
+
+/// Dusk as a Japanese deck takes it (`scaena_ops::scripts`): Noto Sans JP last in its text
+/// families' fallbacks, the subset the tests' Japanese slides are drawn in, and its fonts.
+fn japanese() -> (Theme, BundleFonts) {
+    const EXAMPLES: &str = "../../docs/examples";
+    let mut theme: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(format!("{EXAMPLES}/themes/dusk.theme.json")).unwrap()).unwrap();
+    let families = theme["type"]["families"].as_object_mut().unwrap();
+    families.insert(
+        "japanese".into(),
+        serde_json::json!({ "family": "Noto Sans JP", "file": "fonts/NotoSansJP-subset.ttf" }),
+    );
+    families["display"]["fallback"] = serde_json::json!(["body", "japanese"]);
+    families["body"]["fallback"] = serde_json::json!(["japanese"]);
+    let mut fonts = BundleFonts::new();
+    for file in ["Fraunces-VF.ttf", "Inter-VF.ttf"] {
+        let path = format!("fonts/{file}");
+        fonts.register(&path, std::fs::read(format!("{EXAMPLES}/{path}")).unwrap()).unwrap();
+    }
+    let jp = "fonts/NotoSansJP-subset.ttf";
+    fonts.register(jp, std::fs::read("../../tests/fixtures/scripts/NotoSansJP-subset.ttf").unwrap()).unwrap();
+    (Theme::from_json(&theme.to_string()).unwrap(), fonts)
+}
+
+/// Where each line of `layout` but the last ends and the next starts: the letters either side.
+fn breaks(layout: &TextLayout) -> Vec<(char, char)> {
+    (layout.lines.windows(2))
+        .map(|w| {
+            let before = layout.text[..w[0].text.end].trim_end().chars().next_back().unwrap();
+            (before, layout.text[w[1].text.start..].chars().next().unwrap())
+        })
+        .collect()
+}
+
+#[test]
+fn japanese_breaks_between_its_phrases_and_a_number_keeps_its_counter() {
+    // Dogfood: a Japanese deck broke lines inside words ("ひ / とつ", "取り付 / ける") and
+    // between a number and its counter ("286 / 時間"), as UAX #14 allows between any two of
+    // its letters. A line now breaks where kana gives way to Han or katakana, after
+    // punctuation, or at a space, and never between a figure and the letter after it.
+    let (theme, mut fonts) = japanese();
+    let kana = |c: char| matches!(u32::from(c), 0x3041..=0x30FF);
+    let letter = |c: char| kana(c) || matches!(u32::from(c), 0x4E00..=0x9FFF);
+    let hiragana = |c: char| matches!(u32::from(c), 0x3041..=0x309F);
+    let mut engine = TextEngine::new();
+    let mut set = |text: &str, lang: &str, width: f32| {
+        let mut spec = TextSpec::plain(theme.text_role("body").unwrap(), text);
+        spec.lang = Some(lang.into());
+        spec.wrap = Some(Wrap::Greedy);
+        engine.layout(&mut fonts, &theme, &spec, width).unwrap()
+    };
+    let size = theme.text_role("body").unwrap().size;
+    let sentences = [
+        "世界の平均気温は産業革命前より1.2℃上昇した",
+        "CO₂排出量の4分の3はエネルギー部門から出ている",
+        "太陽光発電のコストは10年で90%低下した",
+        "電気自動車の販売台数は毎年増え続けている",
+    ];
+    // Each width holds the longest phrase, "エネルギー部門から", nine letters a full em each: a
+    // phrase too wide for its line breaks where it must (`overflow-wrap: anywhere`).
+    let mut broke = 0;
+    for text in sentences {
+        for ems in 10..=20 {
+            let layout = set(text, "ja", ems as f32 * size);
+            for (before, after) in breaks(&layout) {
+                broke += 1;
+                assert!(!before.is_ascii_digit() || !letter(after), "{text} at {ems} em: {before} | {after}");
+                let phrase_ends = hiragana(before) && !hiragana(after);
+                assert!(!(letter(before) && letter(after)) || phrase_ends, "{text} at {ems} em: {before} | {after}");
+            }
+        }
+    }
+    assert!(broke > 20, "the sentences break: {broke}");
+    // One wider than its line still breaks, at the measure, rather than overflow it.
+    let narrow = set("エネルギー部門から", "ja", 4.0 * size);
+    assert!(narrow.lines.len() >= 2 && narrow.lines.iter().all(|l| l.width <= 4.0 * size + 1e-3), "{:?}", narrow.lines);
+    // Chinese keeps a number with its counter, and breaks between its characters as before.
+    let text = "全球平均气温比工业革命前上升了12年来的最高水平";
+    let mut inside = 0;
+    for ems in 4..=12 {
+        for (before, after) in breaks(&set(text, "zh-Hans", ems as f32 * size)) {
+            assert!(!before.is_ascii_digit() || !letter(after), "{ems} em: {before} | {after}");
+            inside += usize::from(letter(before) && letter(after));
+        }
+    }
+    assert!(inside > 0, "Chinese still breaks between two of its characters");
+    // No line starts with what may not start one, nor ends with an opening bracket (kinsoku):
+    // the dogfood's thesis, balanced as a headline is and wrapped as body text, its comma on
+    // the line it closes, even where its measure makes a phrase break mid-word.
+    let opens_no_line =
+        |c: char| "、。，．・：；？！」』）】〕〉》ーぁぃぅぇぉっゃゅょゎァィゥェォッャュョヮヵヶ".contains(c);
+    let thesis = "レジリエンスは届けられるものではなく、隣人どうしで築くもの";
+    let mut comma_closes = false;
+    for wrap in [Wrap::Greedy, Wrap::Balance] {
+        for quarter in 16..=60 {
+            let width = quarter as f32 / 4.0 * size;
+            let mut spec = TextSpec::plain(theme.text_role("body").unwrap(), thesis);
+            spec.lang = Some("ja".into());
+            spec.wrap = Some(wrap);
+            let layout = engine.layout(&mut fonts, &theme, &spec, width).unwrap();
+            for (before, after) in breaks(&layout) {
+                assert!(!opens_no_line(after), "{wrap:?} at {width}: {before} | {after}");
+                assert!(!"「『（【〔〈《".contains(before), "{wrap:?} at {width}: {before} | {after}");
+                comma_closes |= before == '、';
+            }
+        }
+    }
+    assert!(comma_closes, "the comma closes a line at some measure");
+}
+
+#[test]
+fn a_japanese_phrase_too_long_for_its_line_breaks_after_its_particle() {
+    // Dogfood: a journey's cell grown to its size set これは / 本当にうまくいくかもし / れない,
+    // the phrase too wide for its line broken at the last letter that fit, inside a word. It
+    // breaks after the particle that ends 本当に instead, where no other break of the phrase's
+    // fits, and at the last letter only where none does.
+    let (theme, mut fonts) = japanese();
+    let mut engine = TextEngine::new();
+    let size = theme.text_role("body").unwrap().size;
+    let mut lines = |text: &str, ems: f32, wrap: Wrap| {
+        let mut spec = TextSpec::plain(theme.text_role("body").unwrap(), text);
+        spec.lang = Some("ja".into());
+        spec.wrap = Some(wrap);
+        let layout = engine.layout(&mut fonts, &theme, &spec, ems * size).unwrap();
+        layout.lines.iter().map(|l| layout.text[l.text.clone()].trim_end().to_string()).collect::<Vec<_>>()
+    };
+    let text = "これは本当にうまくいくかもしれない";
+    for ems in [11.5, 12.5, 13.5] {
+        assert_eq!(lines(text, ems, Wrap::Greedy), ["これは", "本当に", "うまくいくかもしれない"], "at {ems} em");
+    }
+    // Whole where it fits.
+    assert_eq!(lines(text, 14.5, Wrap::Greedy), ["これは", "本当にうまくいくかもしれない"]);
+    // Narrower than what follows its particle, the rest breaks where it must, as before.
+    let narrow = lines(text, 8.5, Wrap::Greedy);
+    assert_eq!(narrow[..2], ["これは", "本当に"], "{narrow:?}");
+    assert!(narrow.iter().all(|l| l.chars().count() <= 8), "{narrow:?}");
+}
+
+#[test]
+fn a_number_in_japanese_is_set_in_the_scripts_face() {
+    // Dogfood: the figures in a Japanese headline were set in Fraunces, the Latin face Dusk's
+    // display family names first, among letters set in Noto Sans JP.
+    let (theme, mut fonts) = japanese();
+    let mut engine = TextEngine::new();
+    let mut faces = |lang: Option<&str>| {
+        let mut spec = TextSpec::plain(theme.text_role("display").unwrap(), "世界の平均気温は1.2℃上昇した");
+        spec.lang = lang.map(String::from);
+        let layout = engine.layout(&mut fonts, &theme, &spec, 10_000.0).unwrap();
+        let at = layout.text.find("1.2").unwrap();
+        let run = |k: usize| {
+            let r = layout.runs.iter().find(|r| r.clusters.contains(&k)).unwrap();
+            r.font.id.clone()
+        };
+        (run(at), run(at + 2), run(0))
+    };
+    let jp = "fonts/NotoSansJP-subset.ttf".to_string();
+    assert_eq!(faces(Some("ja")), (jp.clone(), jp.clone(), jp.clone()));
+    // Without a language, the family's own face sets them, as it does in any Latin text.
+    let (one, two, _) = faces(None);
+    assert_eq!((one.as_str(), two.as_str()), ("fonts/Fraunces-VF.ttf", "fonts/Fraunces-VF.ttf"));
 }
