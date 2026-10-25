@@ -618,6 +618,11 @@ fn env(vars: &[&str]) -> Option<String> {
 /// written elsewhere, into a new bundle. Exit 1 when the deck has errors, 2 when what was given
 /// is not what it takes or a call failed.
 pub fn run(a: GenerateArgs, json: bool) -> Result<ExitCode> {
+    // An address the key goes to over plain http, off this machine, is refused before any call
+    // (lift-up 20261025 SEC-2).
+    for base in [&a.base, &a.picture_base].into_iter().flatten() {
+        scaena_narrato::providers::checked_base(base).map_err(|e| anyhow!(e))?;
+    }
     let provider = match &a.provider {
         Some(name) => {
             Provider::named(name).ok_or_else(|| anyhow!("`{name}` is no provider: anthropic, openai, or gemini"))?

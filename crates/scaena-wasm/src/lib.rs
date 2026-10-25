@@ -1777,6 +1777,13 @@ impl Making {
         making.map(Making).map_err(js)
     }
 
+    /// How many characters each slide's title place holds, JSON `[n | null]` by slide (lift-up
+    /// FUNC-2): what the generator's `Generation.seeing` gives the look to let a topic title grow
+    /// to.
+    pub fn rooms(&self) -> String {
+        serde_json::to_string(&self.0.rooms()).expect("the rooms are JSON")
+    }
+
     /// The texts that still run past their place, as JSON `[{ id, text, most }]`: what the
     /// generator's `Generation.fitRequest` asks the model to rewrite.
     pub fn longs(&self) -> Result<String, JsError> {

@@ -32,7 +32,8 @@
 //   module: its score and the arc it was written to, the six measures, coherence by words
 //   unscored, a mark on the arc for each slide. No fix rewrites the plan's intensity or tone. A
 //   slide moved out of its beat's order has drifted: a finding's slide is shown at a press; its
-//   fix is one change, which ⌘Z takes back; and its question goes into the assistant's box.
+//   fix is one change, which ⌘Z takes back; a burst of edits is read once, after it stops (lift-up
+//   PERF-1); and its question goes into the assistant's box.
 // Exits 1 on any failure.
 import { mkdir, readFile } from "node:fs/promises";
 import { createServer } from "node:http";
@@ -602,6 +603,24 @@ try {
     grounded.length === 3 && grounded.some((g) => g.startsWith("notes.md") && /cited by Slide 1, Slide 3/.test(g)) && grounded.some((g) => g.includes("press.html") && /cited by Slide 2\b/.test(g)),
     `the Files tab lists what the deck was grounded in, each with its slides: ${grounded.join(" | ")}`,
   );
+
+  // A burst of edits is read once, after it stops, as the Mac's Story panel waits (lift-up
+  // PERF-1). The source is linted 150 ms after it last changed, so typing at a person's pace, a
+  // key every 300 ms, lints each edit; the panel reads the deck once the burst rests. The tab
+  // shown is read at once; the burst is counted once that read is in.
+  await tab(page, "story");
+  await page.waitForTimeout(1500);
+  const reads = await page.evaluate(() => window.scaena.story.reads());
+  const burst = await page.evaluate(() => window.scaena.source());
+  for (let i = 1; i <= 5; i++) {
+    await page.evaluate((s) => window.scaena.type(s), `# a burst of edits, ${i}\n${burst}`);
+    await page.waitForTimeout(300);
+  }
+  await page.waitForTimeout(1500);
+  const burstReads = (await page.evaluate(() => window.scaena.story.reads())) - reads;
+  check(burstReads === 1, `a burst of five edits a key every 300 ms is read once: ${burstReads}`);
+  await page.evaluate((s) => window.scaena.type(s), burst);
+  await page.waitForFunction((w) => window.scaena.source() === w, burst, { timeout: 30000 }).catch(() => {});
 
   // An icon set that cannot be fetched loses none of the slides paid for: they are set without
   // icons, which the progress says in a line (lift-up 10-25 STAB-3).
