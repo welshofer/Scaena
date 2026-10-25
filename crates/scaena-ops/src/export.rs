@@ -788,8 +788,9 @@ impl Reel {
 
     /// Its chapters (SPEC §10): each run of states that one beat names, titled by the
     /// beat's claim, from where the run starts to where the next chapter does. A state no
-    /// beat names is a chapter of its slide, titled by the slide's id; a state two beats
-    /// name is the first's. A deck without a spine has none.
+    /// beat names is a chapter of its slide, titled by the slide's headline, else "Slide N",
+    /// never its id (lift-up ATTR-5); a state two beats name is the first's. A deck without a
+    /// spine has none.
     pub fn chapters(&self, deck: &scaena_core::Deck) -> Vec<Chapter> {
         let Some(spine) = &deck.spine else { return Vec::new() };
         let mut beats: HashMap<&str, &scaena_core::document::Beat> = HashMap::new();
@@ -799,20 +800,30 @@ impl Reel {
             }
         }
         let slides: HashMap<&str, &str> = deck.states.iter().map(|s| (s.id.as_str(), deck.slide_of(s))).collect();
+        // Each slide's title, as its images are titled: from its first state.
+        let titled = slide_names(deck).unwrap_or_default();
         let mut chapters: Vec<Chapter> = Vec::new();
+        // What the last chapter is of: its beat, or the slide no beat names.
+        let mut of: Option<(Option<&str>, &str)> = None;
         for (slot, &start) in self.plays.iter().zip(&self.starts) {
             if slot.span + slot.hold <= 0.0 {
                 // No frame shows it.
                 continue;
             }
             let state = slot.state.as_str();
+            let slide = slides.get(state).copied().unwrap_or(state);
             let (beat, title) = match beats.get(state) {
                 Some(beat) => (Some(beat.id.clone()), beat.claim.clone()),
-                None => (None, slides.get(state).copied().unwrap_or(state).to_string()),
+                None => {
+                    let named = titled.get(slide).or_else(|| titled.get(state));
+                    (None, named.map(|(_, title)| title.clone()).unwrap_or_else(|| "Slide".into()))
+                }
             };
-            if chapters.last().is_some_and(|c| c.beat == beat && c.title == title) {
+            let key = (beats.get(state).map(|b| b.id.as_str()), if beat.is_some() { "" } else { slide });
+            if of == Some(key) {
                 continue;
             }
+            of = Some(key);
             if let Some(last) = chapters.last_mut() {
                 last.end = start;
             }
@@ -993,7 +1004,9 @@ mod tests {
             chapters,
             [
                 (beat("built"), "A builds.".to_string(), 0.0, 2800.0),
-                (None, "c".to_string(), 2800.0, 4800.0),
+                // No beat names `c`, the third slide, which says nothing: titled by where it
+                // stands, never by its id (lift-up ATTR-5).
+                (None, "Slide 3".to_string(), 2800.0, 4800.0),
                 // `b`'s 850 ms end on a frame: the video runs to 5700.
                 (beat("then"), "Then B.".to_string(), 4800.0, 5700.0),
             ]

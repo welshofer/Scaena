@@ -242,6 +242,30 @@ fn a_pdf_reads_by_the_spine() {
     );
 }
 
+/// A bookmark says what the deck says, never an id (lift-up ATTR-5): a section with no title and
+/// no claim, by its first page's headline; and the pages no beat names, each by its headline.
+#[test]
+fn a_pdf_bookmarks_what_a_slide_says_never_an_id() {
+    let mut bundle = scaena_ops::open(Path::new("../../docs/examples/trails.deck.json")).unwrap();
+    let spine = bundle.deck.spine.as_mut().expect("the trails deck has a spine");
+    let opening = &mut spine.sections[0];
+    opening.title = None;
+    opening.beats.iter_mut().for_each(|b| b.claim = String::new());
+    let dropped = spine.sections.pop().expect("a last section");
+    let (bytes, _) = exported(&bundle, None, &format!("{}", line!()));
+    let marks = outline(&bytes);
+    let ids: Vec<&str> =
+        std::iter::once(dropped.id.as_str()).chain(bundle.deck.states.iter().map(|s| s.id.as_str())).collect();
+    for mark in &marks {
+        assert!(!ids.contains(&mark.as_str()), "no bookmark is an id: {marks:?}");
+    }
+    // The opening, by the cover's headline; the dropped section's pages after the rest, each by
+    // its own.
+    assert!(marks[0].starts_with("High Country Trails"), "{marks:?}");
+    assert_eq!(&marks[1..5], ["The season in numbers", "Where the work went", "What it cost", "How we work"]);
+    assert!(marks.len() > 5, "the pages no beat names are bookmarked: {marks:?}");
+}
+
 #[test]
 fn a_table_reads_a_cell_for_every_column_of_every_row() {
     use scaena_ops::create::{Attach, Create, create};
