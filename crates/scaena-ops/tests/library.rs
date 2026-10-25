@@ -239,3 +239,29 @@ fn codes_look_comes_only_where_no_code_shows() {
     assert!(!brought.code);
     assert_eq!(theme["code"], json!({ "tab": 2 }), "a look of its own stays");
 }
+
+/// A shipped card and line numbers (PLAN 2.136) come into a copy whose `code` lacks them only
+/// where the deck shows no code text, as the rest of code's look does; a copy's own stay.
+#[test]
+fn codes_card_and_numbers_come_only_where_no_code_shows() {
+    let (mut older, mut shipped) = (read(OLDER), read(SHIPPED));
+    older["type"]["families"] = shipped["type"]["families"].clone();
+    older["code"] = json!({ "tab": 2 });
+    shipped["code"] = json!({ "card": { "fill": "line", "radius": 8 }, "numbers": { "color": "accent" } });
+
+    let (theme, brought) = library(&older, &shipped, true).expect("the copy takes the library");
+    assert!(!brought.code);
+    assert_eq!(theme["code"], json!({ "tab": 2 }), "code shows: its card stays as it drew");
+
+    let (theme, brought) = library(&older, &shipped, false).expect("the copy takes the library");
+    assert!(brought.code);
+    assert_eq!(
+        theme["code"],
+        json!({ "tab": 2, "card": { "fill": "line", "radius": 8 }, "numbers": { "color": "accent" } })
+    );
+
+    older["code"]["card"] = json!({ "fill": "accent" });
+    let (theme, _) = library(&older, &shipped, false).expect("the copy takes the library");
+    assert_eq!(theme["code"]["card"], json!({ "fill": "accent" }), "a card of its own stays");
+    assert_eq!(theme["code"]["numbers"], json!({ "color": "accent" }));
+}

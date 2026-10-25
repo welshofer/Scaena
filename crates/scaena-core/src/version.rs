@@ -92,17 +92,49 @@ pub(crate) fn uncaps(version: &str) -> bool {
     DECK.read(version) != version && parse(version) < parse(CAPPED)
 }
 
+/// The deck format in which code stands on a card unless it says otherwise (PLAN 2.136). Before
+/// it, code stood on the slide: a deck saved in an older format reads with each code text's card
+/// off, and draws as it did.
+const CARDS: &str = "0.39";
+
+/// Whether a deck saved in `version` reads with each code text's `card` off where it says none:
+/// one saved before code stood on a card, in a format this build reads.
+pub(crate) fn uncards(version: &str) -> bool {
+    DECK.read(version) != version && parse(version) < parse(CARDS)
+}
+
+/// `doc`'s code texts with their `card` off where they say none: on each node, in each state's
+/// deltas, and in the overrides.
+fn uncard(doc: &mut Value) {
+    let off = |props: Option<&mut Value>| {
+        for props in props.and_then(Value::as_object_mut).into_iter().flat_map(|m| m.values_mut()) {
+            if let Some(code) = props.get_mut("code").and_then(Value::as_object_mut) {
+                code.entry("card").or_insert(Value::Bool(false));
+            }
+        }
+    };
+    off(doc.get_mut("nodes"));
+    off(doc.get_mut("overrides"));
+    for state in doc.get_mut("states").and_then(Value::as_array_mut).into_iter().flatten() {
+        off(state.get_mut("props"));
+    }
+}
+
 /// `doc`, a deck as saved, as this build reads it: its format the current one where it is an
 /// older one this build reads; its `shadow`s taken away where it was saved before they drew, on
 /// each node, in each state's deltas, and in the overrides; and the `maxSize` of each text whose
-/// own `fit` is `shrink` taken away where it was saved before that held it. What validation
-/// checks and the source compiles.
+/// own `fit` is `shrink` taken away where it was saved before that held it; and each code text's
+/// card off where it was saved before code stood on one. What validation checks and the source
+/// compiles.
 pub(crate) fn deck_as_read(doc: &mut Value) {
     let version = doc.get("scaena").and_then(Value::as_str).unwrap_or_default().to_string();
-    let (unshadowed, uncapped) = (unshadows(&version), uncaps(&version));
+    let (unshadowed, uncapped, uncarded) = (unshadows(&version), uncaps(&version), uncards(&version));
     DECK.as_read(doc, "scaena");
     if uncapped {
         uncap(doc);
+    }
+    if uncarded {
+        uncard(doc);
     }
     if !unshadowed {
         return;
@@ -187,7 +219,7 @@ mod tests {
     #[test]
     fn the_current_format_reads_as_written() {
         assert_eq!(DECK.read(crate::FORMAT_VERSION), crate::FORMAT_VERSION);
-        assert_eq!(DECK.read("0.38.1"), "0.38.1");
+        assert_eq!(DECK.read("0.39.1"), "0.39.1");
         assert_eq!(DECK.unread(crate::FORMAT_VERSION), None);
         assert_eq!(THEME.unread(crate::THEME_FORMAT_VERSION), None);
     }
