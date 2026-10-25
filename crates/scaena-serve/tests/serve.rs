@@ -39,13 +39,14 @@ fn bundle(test: &str) -> PathBuf {
     dir
 }
 
-/// A server on `dir`, at a free port, serving on a thread of its own; and what it notes.
-fn serve(dir: &Path) -> (SocketAddr, tokio::sync::broadcast::Receiver<Note>) {
+/// A server on `dir`, at a free port, serving on a thread of its own; what it notes; and the token
+/// its pages' writes carry.
+fn serve(dir: &Path) -> (SocketAddr, tokio::sync::broadcast::Receiver<Note>, String) {
     let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
     let serve = runtime.block_on(Serve::bind(dir, 0)).unwrap();
-    let (addr, notes) = (serve.addr(), serve.notes());
+    let (addr, notes, token) = (serve.addr(), serve.notes(), serve.token().to_string());
     std::thread::spawn(move || runtime.block_on(serve.run()));
-    (addr, notes)
+    (addr, notes, token)
 }
 
 struct Answer {
@@ -80,11 +81,12 @@ fn get(addr: SocketAddr, path: &str) -> Answer {
     request(addr, &format!("GET {path} HTTP/1.1\r\nHost: 127.0.0.1:{}", addr.port()), b"")
 }
 
-/// A write as a page of the server's own makes it: its origin, and its id.
-fn write(addr: SocketAddr, method: &str, path: &str, body: &[u8], origin: &str) -> Answer {
+/// A write as a page of the server's own makes it: its origin, its id, and the launch's token.
+fn write(addr: SocketAddr, method: &str, path: &str, body: &[u8], origin: &str, token: &str) -> Answer {
     let port = addr.port();
-    let head =
-        format!("{method} {path} HTTP/1.1\r\nHost: localhost:{port}\r\nOrigin: {origin}\r\nX-Scaena-Client: page-1");
+    let head = format!(
+        "{method} {path} HTTP/1.1\r\nHost: localhost:{port}\r\nOrigin: {origin}\r\nX-Scaena-Client: page-1\r\nX-Scaena-Token: {token}"
+    );
     request(addr, &head, body)
 }
 
@@ -171,7 +173,7 @@ fn noted<T>(notes: &mut tokio::sync::broadcast::Receiver<Note>, wanted: impl Fn(
 #[test]
 fn the_bundle_is_the_folders_and_nothing_outside_it() {
     let dir = bundle("files");
-    let (addr, _) = serve(&dir);
+    let (addr, _, _) = serve(&dir);
     let deck = get(addr, "/bundle/deck.json");
     assert_eq!(deck.status, 200);
     assert_eq!(deck.body, std::fs::read(dir.join("deck.json")).unwrap());
@@ -226,7 +228,7 @@ fn a_bundles_files_are_never_live_pages() {
     for name in ["x.html", "x.htm", "x.xhtml", "x.svg", "x.xml", "x.js", "x.mjs"] {
         std::fs::write(dir.join(name), script).unwrap();
     }
-    let (addr, _) = serve(&dir);
+    let (addr, _, _) = serve(&dir);
     for name in ["x.html", "x.htm", "x.xhtml", "x.svg", "x.xml", "x.js", "x.mjs"] {
         for method in ["GET", "HEAD"] {
             let answer =
@@ -254,13 +256,13 @@ fn a_bundles_files_are_never_live_pages() {
 #[test]
 fn a_page_writes_inside_the_folder_and_is_heard_once() {
     let dir = bundle("writes");
-    let (addr, _) = serve(&dir);
+    let (addr, _, token) = serve(&dir);
     let ours = format!("http://localhost:{}", addr.port());
     let mut events = Events::open(addr);
     assert_eq!(events.next("hello")["version"], 0);
 
     let png = b"\x89PNG not really";
-    assert_eq!(write(addr, "PUT", "/bundle/assets/new%20one.png", png, &ours).status, 204);
+    assert_eq!(write(addr, "PUT", "/bundle/assets/new%20one.png", png, &ours, &token).status, 204);
     assert_eq!(std::fs::read(dir.join("assets/new one.png")).unwrap(), png);
     let changed = events.next("changed");
     assert_eq!(changed["by"], "page-1");
@@ -268,36 +270,92 @@ fn a_page_writes_inside_the_folder_and_is_heard_once() {
     assert_eq!(get(addr, "/bundle/assets/new%20one.png").body, png);
 
     // Another site's page cannot write here, nor through `..`.
-    assert_eq!(write(addr, "PUT", "/bundle/assets/evil.png", png, "http://attacker.example").status, 403);
+    assert_eq!(write(addr, "PUT", "/bundle/assets/evil.png", png, "http://attacker.example", &token).status, 403);
     assert!(!dir.join("assets/evil.png").exists());
-    assert_eq!(write(addr, "PUT", "/bundle/../evil.png", png, &ours).status, 400);
+    assert_eq!(write(addr, "PUT", "/bundle/../evil.png", png, &ours, &token).status, 400);
     assert!(!dir.parent().unwrap().join("evil.png").exists());
-    assert_eq!(write(addr, "PUT", "/bundle/fonts", png, &ours).status, 400, "not over a folder");
+    assert_eq!(write(addr, "PUT", "/bundle/fonts", png, &ours, &token).status, 400, "not over a folder");
 
-    assert_eq!(write(addr, "DELETE", "/bundle/assets/new%20one.png", b"", &ours).status, 204);
+    assert_eq!(write(addr, "DELETE", "/bundle/assets/new%20one.png", b"", &ours, &token).status, 204);
     assert!(!dir.join("assets/new one.png").exists());
     let changed = events.next("changed");
     assert_eq!((changed["by"].as_str(), changed["version"].as_u64()), (Some("page-1"), Some(2)));
     // A file that is not there is not found, which a page's save takes as removed.
-    assert_eq!(write(addr, "DELETE", "/bundle/assets/new%20one.png", b"", &ours).status, 404);
-    assert_eq!(write(addr, "DELETE", "/bundle/nowhere/x.png", b"", &ours).status, 404);
-    assert_eq!(write(addr, "DELETE", "/bundle/fonts", b"", &ours).status, 400, "not a folder");
+    assert_eq!(write(addr, "DELETE", "/bundle/assets/new%20one.png", b"", &ours, &token).status, 404);
+    assert_eq!(write(addr, "DELETE", "/bundle/nowhere/x.png", b"", &ours, &token).status, 404);
+    assert_eq!(write(addr, "DELETE", "/bundle/fonts", b"", &ours, &token).status, 400, "not a folder");
 
     #[cfg(unix)]
     {
         // A link is removed as a name in the folder; what it leads to stays.
         std::os::unix::fs::symlink(dir.join("deck.json"), dir.join("alias.json")).unwrap();
-        assert_eq!(write(addr, "DELETE", "/bundle/alias.json", b"", &ours).status, 204);
+        assert_eq!(write(addr, "DELETE", "/bundle/alias.json", b"", &ours, &token).status, 204);
         assert!(dir.join("deck.json").is_file() && dir.join("alias.json").symlink_metadata().is_err());
         // Nothing is written, nor any folder made, through a link that leads out of the folder.
         let outside = Path::new(env!("CARGO_TARGET_TMPDIR")).join("serve-writes-outside");
         let _ = std::fs::remove_dir_all(&outside);
         std::fs::create_dir_all(&outside).unwrap();
         std::os::unix::fs::symlink(&outside, dir.join("out")).unwrap();
-        assert_eq!(write(addr, "PUT", "/bundle/out/x.png", png, &ours).status, 400);
-        assert_eq!(write(addr, "PUT", "/bundle/out/made/x.png", png, &ours).status, 400);
+        assert_eq!(write(addr, "PUT", "/bundle/out/x.png", png, &ours, &token).status, 400);
+        assert_eq!(write(addr, "PUT", "/bundle/out/made/x.png", png, &ours, &token).status, 400);
         assert_eq!(std::fs::read_dir(&outside).unwrap().count(), 0, "nothing outside the folder");
     }
+}
+
+/// A write takes the token made at launch (lift-up 10-24b SEC-5): 127.0.0.1 is every account's on
+/// the machine, and a client that is no page sends no `Origin`. Only the addresses `scaena serve`
+/// prints carry the token, which `/` and `/edit` pass on and no answer gives.
+#[test]
+fn a_write_takes_the_token_the_printed_address_carries() {
+    let dir = bundle("token");
+    let (addr, _, token) = serve(&dir);
+    assert!(token.len() == 32 && token.bytes().all(|b| b.is_ascii_hexdigit()), "{token}");
+    let port = addr.port();
+    let ours = format!("http://localhost:{port}");
+    let png = b"\x89PNG not really";
+    // Without it, or with another, a page's write is refused, and nothing is written.
+    let bare = format!("PUT /bundle/assets/x.png HTTP/1.1\r\nHost: localhost:{port}\r\nOrigin: {ours}");
+    assert_eq!(request(addr, &bare, png).status, 403);
+    assert_eq!(write(addr, "PUT", "/bundle/assets/x.png", png, &ours, &"0".repeat(32)).status, 403);
+    assert_eq!(write(addr, "PUT", "/bundle/assets/x.png", png, &ours, &token[..31]).status, 403);
+    assert_eq!(write(addr, "DELETE", "/bundle/deck.scn", b"", &ours, "").status, 403);
+    // Another account's client, with no Origin and no token.
+    let curl = format!("DELETE /bundle/deck.scn HTTP/1.1\r\nHost: 127.0.0.1:{port}");
+    assert_eq!(request(addr, &curl, b"").status, 403);
+    assert!(!dir.join("assets/x.png").exists() && dir.join("deck.scn").is_file(), "nothing written");
+    // With it, the write is made, from a page or from a client that is none.
+    assert_eq!(write(addr, "PUT", "/bundle/assets/x.png", png, &ours, &token).status, 204);
+    let tool = format!("DELETE /bundle/assets/x.png HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nX-Scaena-Token: {token}");
+    assert_eq!(request(addr, &tool, b"").status, 204);
+    // `/` and `/edit` pass on the token the address carries, and only hex.
+    let at = |path: &str| get(addr, path).header("location").map(str::to_string);
+    let player = format!("/index.html?bundle=/bundle/&serve={token}");
+    assert_eq!(at(&format!("/?serve={token}")), Some(player));
+    assert_eq!(
+        at(&format!("/edit?painter=cpu&serve={token}")),
+        Some(format!("/editor.html?bundle=/bundle/&serve={token}"))
+    );
+    assert_eq!(at("/").as_deref(), Some("/index.html?bundle=/bundle/&serve"));
+    assert_eq!(at("/?serve=%3Cscript%3E").as_deref(), Some("/index.html?bundle=/bundle/&serve"));
+    // No answer to a request without it says it, and none sends a page's address, which
+    // carries it, as a `Referer` to a site a deck links to.
+    for path in ["/", "/edit", "/scaena/state", "/bundle/deck.json", "/index.html", "/editor.html"] {
+        let answer = get(addr, path);
+        let said = format!("{}{}", answer.head, String::from_utf8_lossy(&answer.body));
+        assert!(!said.contains(&token), "{path} gives the token away");
+        assert_eq!(answer.header("referrer-policy"), Some("no-referrer"), "{path}");
+    }
+    assert_eq!(get(addr, &format!("/?serve={token}")).header("referrer-policy"), Some("no-referrer"));
+    // A name another site rebinds to 127.0.0.1 reaches nothing, the token or no: neither a
+    // write nor the bundle's files.
+    for host in ["attacker.example", &format!("attacker.example:{port}"), "localhost.attacker.example", ""] {
+        let put =
+            format!("PUT /bundle/assets/x.png HTTP/1.1\r\nHost: {host}\r\nOrigin: {ours}\r\nX-Scaena-Token: {token}");
+        assert_eq!(request(addr, &put, png).status, 403, "a write through {host:?}");
+        let read = format!("GET /bundle/deck.json HTTP/1.1\r\nHost: {host}");
+        assert_eq!(request(addr, &read, b"").status, 403, "a read through {host:?}");
+    }
+    assert!(!dir.join("assets/x.png").exists(), "nothing written through another name");
 }
 
 /// A write refused at once is answered once its body is in. A connection closed with a body still
@@ -307,7 +365,7 @@ fn a_page_writes_inside_the_folder_and_is_heard_once() {
 #[test]
 fn a_refused_write_is_answered_once_its_body_is_in() {
     let dir = bundle("refused");
-    let (addr, _) = serve(&dir);
+    let (addr, _, _) = serve(&dir);
     let port = addr.port();
     let ours = format!("http://localhost:{port}");
     let body = vec![b'x'; 4 << 20];
@@ -341,7 +399,7 @@ fn a_refused_write_is_answered_once_its_body_is_in() {
 #[test]
 fn a_source_saved_on_disk_compiles_into_the_deck_and_a_broken_one_keeps_it() {
     let dir = bundle("source");
-    let (addr, mut notes) = serve(&dir);
+    let (addr, mut notes, _) = serve(&dir);
     let mut events = Events::open(addr);
     events.next("hello");
     let source = std::fs::read_to_string(dir.join("deck.scn")).unwrap();

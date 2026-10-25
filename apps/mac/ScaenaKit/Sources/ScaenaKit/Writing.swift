@@ -15,18 +15,24 @@ public struct WritingAsk: Sendable {
     public var state: String
     public var node: String?
     public var finding: Finding?
+    /// For a rewrite, how the person wants it rewritten, in their own words (lift-up FUNC-3).
+    public var instruction: String?
 
-    public init(kind: WritingKind, state: String, node: String? = nil, finding: Finding? = nil) {
+    public init(
+        kind: WritingKind, state: String, node: String? = nil, finding: Finding? = nil, instruction: String? = nil
+    ) {
         self.kind = kind
         self.state = state
         self.node = node
         self.finding = finding
+        self.instruction = instruction
     }
 
     /// As the session takes it.
     var json: JSONValue {
         var out: [String: JSONValue] = ["kind": .string(kind.rawValue), "state": .string(state)]
         if let node { out["node"] = .string(node) }
+        if let instruction { out["instruction"] = .string(instruction) }
         if let finding {
             var f: [String: JSONValue] = [
                 "code": .string(finding.code), "severity": .string(finding.severity.rawValue),
