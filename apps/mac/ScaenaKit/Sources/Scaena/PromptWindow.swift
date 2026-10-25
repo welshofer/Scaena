@@ -229,8 +229,6 @@ struct PromptView: View {
 
         var beat: StoryOutline.Beat { .init(name: name, claim: claim, slides: slides) }
 
-        /// The slides it takes, said.
-        var takes: String { slides == 0 ? "no slides" : slides == 1 ? "1 slide" : "\(slides) slides" }
     }
 
     /// The model chosen for the provider, as the assistant keeps it.
@@ -470,7 +468,14 @@ struct PromptView: View {
                                 .textFieldStyle(.plain)
                                 .accessibilityIdentifier("prompt-beat-name")
                             Spacer()
-                            Text(beat.takes).font(.caption).foregroundStyle(.secondary)
+                            // The slides it takes, a number the person sets (lift-up FUNC-4).
+                            TextField("Slides", value: $beat.slides, format: .number)
+                                .font(.caption)
+                                .frame(width: 44)
+                                .multilineTextAlignment(.trailing)
+                                .accessibilityLabel("The slides the beat takes")
+                                .accessibilityIdentifier("prompt-beat-slides")
+                            Text(beat.slides == 1 ? "slide" : "slides").font(.caption).foregroundStyle(.secondary)
                             Button("Remove") { beats.removeAll { $0.id == beat.id } }
                                 .buttonStyle(.borderless)
                                 .font(.caption)
