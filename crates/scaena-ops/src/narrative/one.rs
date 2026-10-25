@@ -180,7 +180,9 @@ pub fn slide_into(
         truncated: false,
         brief: brief_of(doc),
         icons,
-        sources: Vec::new(),
+        // The deck's sources, so a slide's `sourceRef` cites the one it names in its beat's
+        // evidence, as a made deck's slides do (lift-up 10-25b FUNC-1).
+        sources: sources_of(doc),
         outline: None,
     };
     let (made, built) = assemble(&narrative, theme, &pictures, &BTreeMap::new(), seed, index, total)?;
@@ -567,6 +569,15 @@ pub fn one_asked(
             ))
         })
     };
+    // The beat that lists a state, whole.
+    let beat_entry = |state: &str| -> Option<&Value> {
+        sections.iter().find_map(|section| {
+            section["beats"]
+                .as_array()?
+                .iter()
+                .find(|b| b["states"].as_array().is_some_and(|l| l.iter().any(|x| x == state)))
+        })
+    };
     // What a state shows of its words, as it resolves, in order.
     let words = |state: &str| -> Vec<String> {
         let shown = snaps.iter().find(|s| s.state_id == state);
@@ -592,11 +603,32 @@ pub fn one_asked(
         Some((section, claim)) => (Some(section).filter(|s| !s.trim().is_empty()), here.map(|_| claim)),
         None => (None, None),
     };
+    // The outline the person settled: the deck's one idea, and the claim of the outline's beat the
+    // slide serves, which its slides were written to, rather than the spine's beat's, which is the
+    // old slide's headline (lift-up 10-25b FUNC-1).
+    let outline: Option<scaena_narrato::outline::Outline> =
+        doc.pointer("/meta/narrative/outline").cloned().and_then(|o| serde_json::from_value(o).ok());
+    let outlined = |i: usize| -> Option<String> {
+        let o = outline.as_ref()?;
+        let beat = slides[i].iter().find_map(|k| beat_entry(deck.states[*k].id.as_str()))?;
+        let index = beat.pointer("/media/narrato/beatIndex").and_then(Value::as_u64).map(|b| b as usize);
+        let by_index = index.and_then(|b| o.beats.get(b));
+        let section = beat_of(deck.states[slides[i][0]].id.as_str()).map(|(s, _)| s);
+        let by_name = || o.beats.iter().find(|b| section.as_deref().is_some_and(|s| s == b.name));
+        by_index.or_else(by_name).map(|b| b.claim.clone()).filter(|c| !c.trim().is_empty())
+    };
+    let claim = match here {
+        Some(i) => outlined(i).or(claim),
+        None => claim,
+    };
+    let big_idea = outline.as_ref().map(|o| o.big_idea.trim().to_string()).filter(|i| !i.is_empty());
     Ok(scaena_narrato::one::OneSlide {
         brief: brief_of(doc),
         arc: doc.pointer("/meta/narrative/arc").and_then(Value::as_str).unwrap_or_default().to_string(),
         beat,
         claim: claim.filter(|c| !c.trim().is_empty()),
+        big_idea,
+        sources: grounding(doc, &deck, files),
         before: before.and_then(headline),
         after: after.and_then(headline),
         now: here.map(|i| {
@@ -610,6 +642,51 @@ pub fn one_asked(
         }),
         ask: ask.to_string(),
     })
+}
+
+/// The sources a deck was grounded in (`meta.narrative.sources`), none for a deck made by hand.
+fn sources_of(doc: &Value) -> Vec<scaena_narrato::Provenance> {
+    doc.pointer("/meta/narrative/sources").cloned().and_then(|s| serde_json::from_value(s).ok()).unwrap_or_default()
+}
+
+/// What a deck is grounded in, for a model writing one of its slides (lift-up 10-25b FUNC-1), in
+/// two parts told apart: the sources it credits, named only, since the deck keeps none of their
+/// text; then each data source it keeps, its columns and its first rows as a table reads them,
+/// from `files`, the only figures a model is given. None where the deck credits no source and
+/// keeps no data.
+fn grounding(doc: &Value, deck: &Deck, files: &dyn SourceFiles) -> Option<String> {
+    let mut parts: Vec<String> = Vec::new();
+    let credited: Vec<String> = sources_of(doc)
+        .iter()
+        .map(|s| match &s.url {
+            Some(url) => format!("- {} ({url})", s.name),
+            None => format!("- {}", s.name),
+        })
+        .collect();
+    if !credited.is_empty() {
+        parts.push(format!(
+            "The sources the deck credits, named only (their text is not given here):\n{}",
+            credited.join("\n")
+        ));
+    }
+    let mut kept: Vec<String> = Vec::new();
+    for id in doc["data"].as_object().into_iter().flat_map(|m| m.keys()) {
+        let props = scaena_core::document::Props::from_iter([("data".to_string(), json!(format!("@{id}")))]);
+        let Ok(table) = scaena_core::data::read(deck, files, &props) else { continue };
+        let mut rows = format!("`{id}`: {}", table.columns.join(", "));
+        for row in table.rows.iter().take(ROWS_SHOWN) {
+            rows.push('\n');
+            rows.push_str(&row.iter().map(Datum::label).collect::<Vec<_>>().join(", "));
+        }
+        if table.rows.len() > ROWS_SHOWN {
+            rows.push_str(&format!("\n… and {} rows more", table.rows.len() - ROWS_SHOWN));
+        }
+        kept.push(rows);
+    }
+    if !kept.is_empty() {
+        parts.push(format!("The data the deck keeps, its rows given:\n{}", kept.join("\n\n")));
+    }
+    (!parts.is_empty()).then(|| parts.join("\n\n"))
 }
 
 /// The ops that put `beat` after the beat at `after` (a section's index and a beat's in it), in

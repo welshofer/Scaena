@@ -648,7 +648,13 @@ impl Generating {
                     })
                     .collect();
                 let fit = self.fitting(making, key)?;
-                json!({ "looked": looked, "unlooked": report["unlooked"], "fit": fit, "drawn": drawn })
+                json!({
+                    "looked": looked,
+                    "unlooked": report["unlooked"],
+                    "refused": report["refused"],
+                    "fit": fit,
+                    "drawn": drawn,
+                })
             }
             "fitted" => {
                 // A busy provider: the fit asked again, after the wait Swift is told (lift-up

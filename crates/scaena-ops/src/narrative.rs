@@ -101,6 +101,19 @@ pub struct Generated {
     /// Why the model did not look at the deck drawn, or what it asked was not kept.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub unlooked: Option<String>,
+    /// Each change the model asked that lint found its slide worse for, not kept (lift-up USE-4).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub refused: Vec<Refused>,
+}
+
+/// A change the model asked on a slide it saw, which lint found the slide worse for and which was
+/// not kept (lift-up USE-4): the slide's number, what was asked, and what lint found, each said
+/// in a person's words. The deck keeps them (`meta.narrative.refused`), and its Story says them.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Refused {
+    pub slide: usize,
+    pub what: String,
+    pub why: String,
 }
 
 fn is_zero(n: &usize) -> bool {
@@ -991,9 +1004,16 @@ pub fn looked(
     let Some(after) = make(&changes)? else { return unchanged(before, invalid) };
     let refused = worse((&before.0, &before.1), (&after.0, &after.1));
     if refused.is_empty() {
-        return Ok(adopt(before.0, after, changes, &[]));
+        return Ok(adopt(before.0, after, changes, Vec::new()));
     }
+    // Each change let go, said with what lint found (lift-up USE-4).
+    let said = refusals(&changes, &refused, (&before.0, &before.1), (&after.0, &after.1));
     let kept = kept(changes, &refused);
+    let unchanged = |before: (Generated, Write), why: &str| {
+        let (mut made, mut write) = unchanged(before, why)?;
+        refuse(&mut made, &mut write, said.clone());
+        Ok((made, write))
+    };
     if kept.is_empty() {
         return unchanged(before, &unkept(refused.len()));
     }
@@ -1001,7 +1021,7 @@ pub fn looked(
     if !worse((&before.0, &before.1), (&again.0, &again.1)).is_empty() {
         return unchanged(before, "lint found a slide the model changed worse for it");
     }
-    Ok(adopt(before.0, again, kept, &refused))
+    Ok(adopt(before.0, again, kept, said))
 }
 
 /// What lint finds wrong with each slide of a made deck, in all its states: its errors, and its
@@ -1032,6 +1052,78 @@ pub fn worse(before: (&Generated, &Write), after: (&Generated, &Write)) -> Vec<u
     (0..was.len().min(now.len())).filter(|i| now[*i].0 > was[*i].0 || now[*i].1 > was[*i].1).collect()
 }
 
+/// What `change` asked, in a person's words: "the layout Two Columns and the title “Ready to
+/// scale”".
+pub fn asked(change: &Change) -> String {
+    let mut parts = Vec::new();
+    if let Some(layout) = change.layout.as_deref().filter(|l| !l.is_empty()) {
+        parts.push(format!("the layout {layout}"));
+    }
+    if let Some(title) = &change.title {
+        parts.push(format!("the title \u{201c}{title}\u{201d}"));
+    }
+    if let Some(subtitle) = &change.subtitle {
+        parts.push(format!("the subtitle \u{201c}{subtitle}\u{201d}"));
+    }
+    if change.bullets.is_some() {
+        parts.push("new points".into());
+    }
+    match parts.as_slice() {
+        [] => "a change".into(),
+        [one] => one.clone(),
+        [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
+    }
+}
+
+/// The changes on the slides `refused` names by index, which lint found worse in `after` than in
+/// `before` ([`worse`]), each with what it asked and the first thing lint found on the slide that
+/// it did not before, errors first (lift-up USE-4).
+pub fn refusals(
+    changes: &[Change],
+    refused: &[usize],
+    before: (&Generated, &Write),
+    after: (&Generated, &Write),
+) -> Vec<Refused> {
+    use scaena_core::Severity;
+    let on = |made: &Generated, write: &Write, index: usize| -> Vec<Finding> {
+        let slides = write.deck.slides();
+        let Some(states) = slides.get(index) else { return Vec::new() };
+        let ids: Vec<&str> = states.iter().map(|k| write.deck.states[*k].id.as_str()).collect();
+        (made.created.findings.iter())
+            .filter(|f| f.severity != Severity::Info && f.state.as_deref().is_some_and(|s| ids.contains(&s)))
+            .cloned()
+            .collect()
+    };
+    (refused.iter())
+        .map(|&index| {
+            let was = on(before.0, before.1, index);
+            let mut new: Vec<Finding> = (on(after.0, after.1, index).into_iter())
+                .filter(|f| !was.iter().any(|w| w.code == f.code && w.node == f.node))
+                .collect();
+            scaena_core::sort::by_key(&mut new, |f| f.severity != Severity::Error);
+            let why = (new.first())
+                .map(|f| scaena_core::words::said(&f.code, f.measure.as_ref()).unwrap_or_else(|| f.message.clone()))
+                .unwrap_or_else(|| "lint found the slide worse for it".into());
+            let what = (changes.iter()).find(|c| c.slide == index + 1).map(asked).unwrap_or_else(|| "a change".into());
+            Refused { slide: index + 1, what, why }
+        })
+        .collect()
+}
+
+/// `refused` kept as the report says them and as the deck keeps them, in `meta.narrative.refused`,
+/// which its Story reads (lift-up USE-4).
+pub fn refuse(made: &mut Generated, write: &mut Write, refused: Vec<Refused>) {
+    if refused.is_empty() {
+        return;
+    }
+    let meta = write.deck.meta.get_or_insert_with(Default::default);
+    let narrative = meta.extra.entry("narrative".to_string()).or_insert_with(|| json!({}));
+    if let Some(narrative) = narrative.as_object_mut() {
+        narrative.insert("refused".into(), json!(refused));
+    }
+    made.refused = refused;
+}
+
 /// `changes` less those on the slides `refused` names by index.
 pub fn kept(mut changes: Vec<Change>, refused: &[usize]) -> Vec<Change> {
     changes.retain(|c| !c.slide.checked_sub(1).is_some_and(|index| refused.contains(&index)));
@@ -1060,16 +1152,23 @@ pub fn unkept(n: usize) -> String {
 }
 
 /// The deck `after` made with the model's `kept` changes, standing for `before`'s: the arc's
-/// fallback and the pictures carried over, and `refused` said.
-pub fn adopt(before: Generated, after: (Generated, Write), kept: Vec<Change>, refused: &[usize]) -> (Generated, Write) {
-    let (mut made, write) = after;
+/// fallback and the pictures carried over, and the changes `refused` said and kept with it.
+pub fn adopt(
+    before: Generated,
+    after: (Generated, Write),
+    kept: Vec<Change>,
+    refused: Vec<Refused>,
+) -> (Generated, Write) {
+    let (mut made, mut write) = after;
     made.fallback = before.fallback;
     made.pictures = before.pictures;
     made.unpictured = before.unpictured;
     made.looked = kept;
     if !refused.is_empty() {
-        made.unlooked = Some(as_made(refused));
+        let slides: Vec<usize> = refused.iter().map(|r| r.slide - 1).collect();
+        made.unlooked = Some(as_made(&slides));
     }
+    refuse(&mut made, &mut write, refused);
     (made, write)
 }
 
@@ -1625,6 +1724,7 @@ pub fn making(
         unpictured: Vec::new(),
         looked: Vec::new(),
         unlooked: None,
+        refused: Vec::new(),
     };
     let Some(mut write) = write else { return Ok((made, None)) };
     let nothing = scaena_store::Files::Zip(Default::default());
@@ -9294,6 +9394,39 @@ mod tests {
         after.created.findings.push(long);
         assert_eq!(worse((&made, &write), (&after, &write)), vec![3]);
         assert_eq!(kept(made.looked.clone(), &[13]).len(), 1);
+        // The change let go is said with what lint found, and kept by the deck, whose Story says
+        // it (lift-up USE-4).
+        let asked_for = Change {
+            slide: 4,
+            layout: Some("Two Columns".into()),
+            title: Some("Heat, mapped".into()),
+            bullets: Some(vec!["Hotter".into()]),
+            why: "Two sides.".into(),
+            ..Change::default()
+        };
+        assert_eq!(asked(&asked_for), "the layout Two Columns, the title \u{201c}Heat, mapped\u{201d} and new points");
+        let said = refusals(&[asked_for], &[3], (&made, &write), (&after, &write));
+        let why = scaena_core::words::said("W203", None).unwrap();
+        assert_eq!(
+            said,
+            [Refused {
+                slide: 4,
+                what: "the layout Two Columns, the title \u{201c}Heat, mapped\u{201d} and new points".into(),
+                why: why.clone(),
+            }]
+        );
+        let (mut kept_made, mut kept_write) = (made.clone(), write.clone());
+        refuse(&mut kept_made, &mut kept_write, said.clone());
+        assert_eq!(kept_made.refused, said);
+        let meta = &kept_write.deck.meta.as_ref().unwrap().extra["narrative"];
+        assert_eq!(meta["refused"][0]["slide"], 4);
+        assert_eq!(meta["arc"], deck["meta"]["narrative"]["arc"], "the rest of the narrative stands");
+        let story = crate::health::health(&kept_write.deck).unwrap();
+        let look: Vec<_> = story.findings.iter().filter(|f| f.kind == crate::health::Kind::Look).collect();
+        assert_eq!(look.len(), 1);
+        assert_eq!((look[0].slide, look[0].severity), (4, scaena_core::Severity::Info));
+        assert!(look[0].says.starts_with("Slide 4 was kept as made: the model asked for the layout Two Columns"));
+        assert!(look[0].says.ends_with(&why), "{}", look[0].says);
     }
 
     /// A long deck is shown to the model a dozen slides at a time (narrative PERF-5): each round
@@ -10588,6 +10721,60 @@ mod tests {
         let after = patched(&doc, &written.patch);
         assert_eq!(after["spine"]["sections"][0]["beats"][0]["states"], json!(written.states));
         assert_eq!(firsts(&after), [written.states[0].clone()]);
+    }
+
+    /// A slide written for a grounded deck is asked with the deck's one idea, the claim its
+    /// outline settled for the slide's beat (not the spine's, the old headline), the sources it
+    /// credits, named only, and the rows of the data it keeps, told apart (lift-up 10-25b FUNC-1).
+    #[test]
+    fn a_slide_for_a_grounded_deck_is_asked_with_its_idea_its_settled_claim_and_its_sources() {
+        let (mut doc, files) = deck_at("docs/examples/revenue.deck.json");
+        // A deck made by hand credits no source, and its data's rows are given all the same.
+        let plain = one_asked(&doc, &Place::Replace("revenue".into()), "", &read_by(&files)).unwrap();
+        assert_eq!(plain.big_idea, None);
+        let rows = plain.sources.unwrap();
+        assert!(rows.starts_with("The data the deck keeps, its rows given:\n`q3`: quarter, product"), "{rows}");
+        doc["meta"]["narrative"] = json!({
+            "sources": [{ "name": "Q3 board pack", "kind": "file", "url": "https://example.com/q3", "bytes": 10, "truncated": false }],
+            "outline": { "bigIdea": "Pro carries the business now.", "beats": [
+                { "name": "Open", "claim": "The quarter changed us", "slides": 1 },
+                { "name": "Growth", "claim": "Pro tripled while Core held", "slides": 2 },
+            ] },
+        });
+        let asked = one_asked(&doc, &Place::Replace("revenue".into()), "", &read_by(&files)).unwrap();
+        assert_eq!(asked.big_idea.as_deref(), Some("Pro carries the business now."));
+        assert_eq!(asked.claim.as_deref(), Some("Pro tripled while Core held"), "the outline's, by its section");
+        let sources = asked.sources.unwrap();
+        // The credited sources, named only, then the data the deck keeps, told apart.
+        assert!(
+            sources.starts_with(
+                "The sources the deck credits, named only (their text is not given here):\n- Q3 board pack (https://example.com/q3)"
+            ),
+            "{sources}"
+        );
+        assert!(
+            sources
+                .contains("\n\nThe data the deck keeps, its rows given:\n`q3`: quarter, product, revenue, customers")
+        );
+        // By the beat's index into the outline, where Narrato's fields keep one.
+        doc["spine"]["sections"][1]["beats"][0]["media"]["narrato"] = json!({ "beatIndex": 0 });
+        let indexed = one_asked(&doc, &Place::Replace("revenue".into()), "", &read_by(&files)).unwrap();
+        assert_eq!(indexed.claim.as_deref(), Some("The quarter changed us"));
+    }
+
+    /// A slide written into a grounded deck cites the source its `sourceRef` names in its beat's
+    /// evidence, as a made deck's slides do (lift-up 10-25b FUNC-1).
+    #[test]
+    fn a_slide_written_into_a_grounded_deck_cites_its_source() {
+        let (mut doc, theme, slides) = made_of(&[0, 8]);
+        doc["meta"]["narrative"]["sources"] = json!([{ "name": "Q3 board pack", "kind": "file", "url": "https://example.com/q3", "bytes": 10, "truncated": false }]);
+        let mut slide = slides[12].clone();
+        slide.source_ref = Some("Q3 board pack".into());
+        let written = slide_into(&doc, &theme, slide, &Place::End, None, BTreeMap::new(), &no_files()).unwrap();
+        let after = patched(&doc, &written.patch);
+        let (s, b, _) = beat_of(&after, &written.states[0]);
+        let evidence = &after["spine"]["sections"][s]["beats"][b]["evidence"];
+        assert!(evidence.as_array().unwrap().iter().any(|e| e == "https://example.com/q3"), "{evidence}");
     }
 
     #[test]
