@@ -6190,7 +6190,7 @@ mod tests {
     fn bars_of_years_light_where_the_takeaway_lands() {
         let wait = ChartData {
             categories: ["2022", "2023", "2024", "2025"].map(String::from).to_vec(),
-            series: vec![answer::Series { name: None, values: vec![11.0, 17.0, 26.0, 34.0] }],
+            series: vec![answer::Series { name: None, values: vec![Some(11.0), Some(17.0), Some(26.0), Some(34.0)] }],
             ..Default::default()
         };
         assert_eq!(signal(&wait, Some("The wait has tripled since 2022")), Some(3));
