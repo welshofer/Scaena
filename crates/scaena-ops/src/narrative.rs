@@ -367,6 +367,11 @@ fn asked_again(requests: &[Request], transport: &mut dyn Transport, say: &mut dy
     replies
 }
 
+/// How a look draws the slides it shows the model, a round of them at a time (lift-up 10-25
+/// PERF-5): the slides the range names by index, as JPEGs. Shared with the thread that draws
+/// ahead, so `Sync`.
+pub type Draw<'a> = dyn Fn(&Write, std::ops::Range<usize>) -> Result<Vec<Picture>, OpsError> + Sync + 'a;
+
 /// The rounds a look at `slides` slides goes in: each the indices of [`LOOK_BATCH`] slides at
 /// most, in order.
 pub fn look_rounds(slides: usize) -> impl Iterator<Item = std::ops::Range<usize>> {
@@ -558,7 +563,7 @@ pub fn generate_drawn(
     font: &dyn Fn(&str) -> Result<Vec<u8>, OpsError>,
     transport: &mut dyn Transport,
     say: &mut dyn FnMut(Progress),
-    draw: &(dyn Fn(&Write, std::ops::Range<usize>) -> Result<Vec<Picture>, OpsError> + Sync),
+    draw: &Draw<'_>,
 ) -> Result<(Generated, Option<Write>), OpsError> {
     while let Some(request) = key.and_then(|key| generation.request(key, documents)) {
         let step = generation.step();
