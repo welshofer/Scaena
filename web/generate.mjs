@@ -618,12 +618,12 @@ try {
   });
   await opened();
   await page.check("#prompting-show-outline");
-  const before = requests.length;
+  const unreadFrom = requests.length;
   await page.click("#prompting-go");
   await page.waitForSelector("#prompting-unread:not([hidden])", { timeout: 120000 }).catch(() => {});
   const unreadSaid = (await page.textContent("#prompting-unread-why")) ?? "";
   check(unreadSaid.includes("asked twice") && !unreadSaid.includes("asked 2 times") && unreadSaid.includes("Problem–Solution"), `the dialog says why, the count once, and the arc kept: ${unreadSaid}`);
-  const since = requests.slice(before);
+  const since = requests.slice(unreadFrom);
   check(since.filter((r) => r.asked === "outline").length === 2 && since.filter((r) => r.asked === "arc").length === 1, `the outline was asked twice, the arc once: ${since.map((r) => r.asked)}`);
   check(await page.isHidden("#prompting-outline"), "no outline is shown to settle");
   const unoutlinedWas = await page.evaluate(() => window.scaena.source());
@@ -631,8 +631,8 @@ try {
   await page
     .waitForFunction((was) => window.scaena.source() !== was && window.scaena.last(), unoutlinedWas, { timeout: 180000 })
     .catch(() => {});
-  const written = requests.slice(before).find((r) => r.asked === "slides")?.prompt ?? "";
-  check(written.includes("**Narrative Framework**: Problem–Solution") && !written.includes("**Outline (Scaena)**"), "the slides are written without an outline, on the arc chosen");
+  const unoutlined = requests.slice(unreadFrom).find((r) => r.asked === "slides")?.prompt ?? "";
+  check(unoutlined.includes("**Narrative Framework**: Problem–Solution") && !unoutlined.includes("**Outline (Scaena)**"), "the slides are written without an outline, on the arc chosen");
   check((await page.evaluate(() => window.scaena.source())) !== unoutlinedWas, "and the deck is made");
   state.unreadable = false;
 } catch (e) {
