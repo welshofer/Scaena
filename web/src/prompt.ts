@@ -48,6 +48,8 @@ export function said(event: GeneratingEvent): string {
       return `The provider is busy or did not answer: asking again in ${Math.round(event.seconds)} s (try ${event.tried + 1} of 6)…`;
     case "wrote":
       return `${event.slides} slides written${event.truncated ? ", the answer cut short" : ""}`;
+    case "unIconed":
+      return `The slides that name icons are set without them: ${event.why}`;
     case "painting":
       return `Making ${event.pictures} pictures with ${event.model}… (a minute or two)`;
     case "painted":
