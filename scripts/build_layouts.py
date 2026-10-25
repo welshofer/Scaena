@@ -1817,7 +1817,8 @@ def checked(theme, name, slots, new):
 # slot under it stand that far clear of them and a gutter more: the slot under it takes the
 # descent its own inset and the inset of the slot over it leave, at its top (theme format 0.26).
 # The descent is the font's own, as the engine reads it, at the role's size, the deepest of the
-# family's themes, so the themes of one family draw one library.
+# family's themes, so the themes of one family draw one library: each of them stands at least its
+# own descent and a gutter clear, and those with shallower descenders a little more.
 
 _FAMILIES = {}
 
