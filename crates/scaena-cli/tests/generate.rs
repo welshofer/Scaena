@@ -411,6 +411,49 @@ fn sources_ground_the_slides_a_pdf_beside_them_and_a_sheet_kept_as_data() {
     assert_eq!(scaena(&["validate", dir.to_str().unwrap()]).status.code(), Some(0));
 }
 
+/// A deck grounded in a PDF has its outline written with the PDF beside the prompt, the brief's
+/// voice and modality, and a hook asked of its first beat (lift-up FUNC-3).
+#[test]
+fn the_outline_is_grounded_in_the_sources_and_the_brief_whole() {
+    let (base, asked) = serve(narrato);
+    let dir = place("outline-grounded");
+    let outline = place("outline-grounded-outline").with_extension("json");
+    let _ = std::fs::remove_file(&outline);
+    let given = place("outline-grounded-sources");
+    std::fs::create_dir_all(&given).unwrap();
+    std::fs::write(given.join("deck.pdf"), b"%PDF-1.7\n% a test\n").unwrap();
+    std::fs::write(given.join("notes.md"), "# Tidewater\nPort calls doubled in Q3.").unwrap();
+    let source = |f: &str| given.join(f).to_string_lossy().into_owned();
+    let mut c = Command::new(env!("CARGO_BIN_EXE_scaena"));
+    for k in KEYS.into_iter().chain(PROXIES) {
+        c.env_remove(k);
+    }
+    let out = c
+        .env("ANTHROPIC_API_KEY", "sk-test")
+        .args(["--json", "generate", dir.to_str().unwrap(), "Tidewater's Series A"])
+        .args(["--provider", "anthropic", "--model", "a-model", "--base", &base])
+        .args(["--voice", "Plain, warm, no jargon", "--modality", "keynote"])
+        .args(["--source", &source("notes.md"), "--source", &source("deck.pdf")])
+        .args(["--outline", outline.to_str().unwrap()])
+        .output()
+        .unwrap();
+    let said = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+    assert_eq!(out.status.code(), Some(0), "{said}");
+    let calls = asked.lock().unwrap();
+    let posts: Vec<&Asked> = calls.iter().filter(|a| a.method == "POST").collect();
+    assert_eq!(posts.len(), 2, "the arc, then the outline");
+    assert!(!posts[0].body.contains("\"document\""), "the arc sees no document");
+    let body: Value = serde_json::from_str(&posts[1].body).unwrap();
+    let content = body["messages"][0]["content"].as_array().unwrap();
+    assert_eq!(content[0]["type"], "document", "the PDF beside the outline's prompt");
+    assert_eq!(content[0]["source"]["data"], "JVBERi0xLjcKJSBhIHRlc3QK");
+    let prompt = content.last().unwrap()["text"].as_str().unwrap();
+    assert!(prompt.contains(" Its voice: Plain, warm, no jargon."), "{prompt}");
+    assert!(prompt.contains(" It is given as: Keynote"), "{prompt}");
+    assert!(prompt.contains("make it a hook drawn from the material"), "{prompt}");
+    assert!(prompt.contains("=== SOURCE: notes.md ===") && prompt.contains("=== SOURCE: deck.pdf ==="), "{prompt}");
+}
+
 /// The outline before the slides (narrative FUNC-1): `--outline FILE` asks the arc and the
 /// outline, writes it, and makes nothing; edited, `--from-outline FILE` writes the slides to it,
 /// Scaena's block carrying the edits into the slides' prompt and the deck's sections following
@@ -694,11 +737,11 @@ fn pictures_are_made_by_the_users_image_model_and_kept_in_the_bundle() {
     let said = String::from_utf8_lossy(&out.stdout).into_owned() + &String::from_utf8_lossy(&out.stderr);
     assert_eq!(out.status.code(), Some(0), "{said}");
     let made = json(&out);
-    // Two in five slides want one: the cover and the ending. The cover's, refused, leaves it a
-    // cover that waits for no picture, and says why.
+    // Two in five slides want one: the cover and the ending, which ends over its picture. The
+    // cover's, refused, leaves it a cover that waits for no picture, and says why.
     assert_eq!(made["pictures"], 1, "{said}");
     let layouts: Vec<&str> = made["layouts"].as_array().unwrap().iter().filter_map(Value::as_str).collect();
-    assert_eq!((layouts[0], layouts[4]), ("title-center", "title-split"), "{layouts:?}");
+    assert_eq!((layouts[0], layouts[4]), ("title-center", "poster"), "{layouts:?}");
     let unpictured = made["unpictured"][0].as_str().unwrap_or_default();
     assert!(unpictured.starts_with("slide 1:") && unpictured.contains("safety system"), "{unpictured}");
     let asked = asked.lock().unwrap();

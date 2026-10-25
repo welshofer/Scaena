@@ -151,6 +151,12 @@ fn no_key(provider: Provider) -> anyhow::Error {
 /// The client every call goes through: an error status read as an answer, the environment's
 /// proxy, the system's certificates, and room for an answer that takes minutes to write.
 pub(crate) fn agent() -> ureq::Agent {
+    config().new_agent()
+}
+
+/// The configuration [`agent`] is made with, which the agent a web source is fetched through
+/// shares (`sources::agent`).
+pub(crate) fn config() -> ureq::config::Config {
     let tls = ureq::tls::TlsConfig::builder().root_certs(ureq::tls::RootCerts::PlatformVerifier).build();
     ureq::Agent::config_builder()
         .http_status_as_error(false)
@@ -158,7 +164,6 @@ pub(crate) fn agent() -> ureq::Agent {
         .timeout_global(Some(Duration::from_secs(20 * 60)))
         .tls_config(tls)
         .build()
-        .new_agent()
 }
 
 /// The font a deck in `script` takes (PLAN G.22, ADR-0027): kept by its digest in this user's
@@ -722,11 +727,12 @@ pub fn run(a: GenerateArgs, json: bool) -> Result<ExitCode> {
         browser: false,
     };
     let mut read = Vec::new();
+    let sourcing = crate::sources::agent();
     for spec in &a.source {
         if !json {
             eprintln!("reading {spec}…");
         }
-        read.push(crate::sources::read(spec, &agent, &reach).with_context(|| format!("--source {spec}"))?);
+        read.push(crate::sources::read(spec, &sourcing, &reach).with_context(|| format!("--source {spec}"))?);
     }
     // What the costliest answers give is kept as it arrives, so a run that fails after them goes
     // on from it (narrative REL-2).

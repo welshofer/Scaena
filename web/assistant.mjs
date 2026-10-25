@@ -446,10 +446,10 @@ try {
     if (id === "anthropic") {
       await tab(page, "story");
       await page.waitForFunction(() => document.querySelector("#story [data-ask]"), null, { timeout: 60000 });
-      const asked = await page.evaluate(() => {
-        document.querySelector("#story [data-ask]").click();
-        return { question: document.querySelector("#question").value, shown: document.querySelector("#tab-assistant").getAttribute("aria-selected") };
-      });
+      // The slide it is about is shown first (lift-up USE-5), then the question goes in the box.
+      await page.evaluate(() => document.querySelector("#story [data-ask]").click());
+      await page.waitForFunction(() => document.querySelector("#question").value.length > 20, null, { timeout: 30000 }).catch(() => {});
+      const asked = await page.evaluate(() => ({ question: document.querySelector("#question").value, shown: document.querySelector("#tab-assistant").getAttribute("aria-selected") }));
       check(asked.shown === "true" && asked.question.length > 20, `the Story tab's Ask puts its question to the assistant: ${asked.question.slice(0, 80)}`);
     }
 

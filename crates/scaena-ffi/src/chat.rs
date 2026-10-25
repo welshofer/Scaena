@@ -261,7 +261,7 @@ fn facts(s: &Session) -> Result<Facts, Failure> {
 fn skills(s: &Session) -> Vec<String> {
     (s.files().iter())
         .filter_map(|path| path.strip_prefix("skills/")?.strip_suffix("/SKILL.md"))
-        .filter(|name| !name.is_empty() && !name.contains('/'))
+        .filter(|name| scaena_chat::skill_name(name))
         .map(str::to_string)
         .collect()
 }
@@ -316,7 +316,7 @@ fn read(s: &Session, args: &Value) -> (String, bool) {
     let Some(uri) = args.get("uri").and_then(Value::as_str) else {
         return (json!({ "message": "resource_read takes `uri`, a string" }).to_string(), true);
     };
-    let skill = uri.strip_prefix("bundle://skills/").filter(|name| !name.is_empty() && !name.contains('/'));
+    let skill = uri.strip_prefix("bundle://skills/").filter(|name| scaena_chat::skill_name(name));
     if uri == "bundle://theme" {
         // The theme the deck is drawn in, as theme_edit edits it (PLAN 2.61).
         if let Some(text) = s.theme_text().and_then(|held| held["text"].as_str().map(str::to_string)) {

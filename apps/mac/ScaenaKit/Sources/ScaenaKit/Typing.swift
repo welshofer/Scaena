@@ -302,6 +302,49 @@ public final class Typing {
         return true
     }
 
+    /// Tab, Shift+Tab, or Return in code, as a code editor answers it (PLAN 2.139): `key` is the
+    /// session's name for it. Tab indents to the next stop, or each line a selection touches;
+    /// Shift+Tab takes a stop away; Return breaks the line at its indentation, a stop more after an
+    /// opening bracket, leaving no line of indentation alone. The change is typed as any is: one
+    /// `replace_text` of what differs, in the burst of typing it joins. Whether code answered it:
+    /// where it does not (words, a composition, a key code leaves), the key goes on as before.
+    @discardableResult
+    public func codeKey(_ key: String) -> Bool {
+        guard inCode, marked == nil, let carets else { return false }
+        let tab = carets.code?.tab ?? 4
+        guard
+            let keyed = try? editor.session.keyed(
+                text: carets.text, from: from, to: to, key: key, tab: tab, language: carets.code?.language)
+        else { return false }
+        let (range, text) = Self.change(from: carets.text, to: keyed.text)
+        if range.length > 0 || !text.isEmpty {
+            guard replace(range, with: text) else { return true }
+        }
+        let length = self.carets?.length ?? 0
+        anchor = min(max(keyed.from, 0), length)
+        head = min(max(keyed.to, 0), length)
+        on = nil
+        goal = nil
+        return true
+    }
+
+    /// What differs from `old` in `new`: the range of `old` it replaces and what it puts there,
+    /// UTF-16 offsets, never parting a surrogate pair.
+    static func change(from old: String, to new: String) -> (NSRange, String) {
+        let was = Array(old.utf16)
+        let now = Array(new.utf16)
+        var head = 0
+        while head < was.count, head < now.count, was[head] == now[head] { head += 1 }
+        if head > 0, UTF16.isLeadSurrogate(was[head - 1]) { head -= 1 }
+        var tail = 0
+        while tail < was.count - head, tail < now.count - head, was[was.count - 1 - tail] == now[now.count - 1 - tail] {
+            tail += 1
+        }
+        if tail > 0, UTF16.isTrailSurrogate(was[was.count - tail]) { tail -= 1 }
+        let put = String(decoding: now[head..<(now.count - tail)], as: UTF16.self)
+        return (NSRange(location: head, length: was.count - head - tail), put)
+    }
+
     // MARK: Where the caret goes
 
     /// How far a move goes.
@@ -463,9 +506,14 @@ public final class Typing {
 
     // MARK: A look for the characters selected
 
+    /// Whether the text typed in is code (PLAN 2.131): set as written in its theme's colors, which
+    /// no look of its own, list, or writing tool changes, its keys a code editor's (PLAN 2.139).
+    public var inCode: Bool { box?.code != nil }
+
     /// ⌘B: the characters selected bold, or, all bold already, not (PLAN 2.38), as the engine reads
-    /// the weight it sets each in.
+    /// the weight it sets each in. Code takes none: its theme colors it (PLAN 2.139).
     public func bold() {
+        guard !inCode else { return say("Code is set in its theme's colors, not in bold") }
         guard let node, let state, let carets, from < to else { return say("Select some words to make them bold") }
         do {
             let look = try editor.session.bolding(
@@ -477,8 +525,10 @@ public final class Typing {
     }
 
     /// ⌘I: the characters selected in italic, or, all italic already, not (PLAN 2.40), as each
-    /// asks for it: a family without an italic face sets them upright all the same (W231).
+    /// asks for it: a family without an italic face sets them upright all the same (W231). Code takes
+    /// none (PLAN 2.139).
     public func italic() {
+        guard !inCode else { return say("Code is set in its theme's colors, not in italic") }
         guard let node, let state, let carets, from < to else {
             return say("Select some words to set them in italic")
         }
@@ -622,6 +672,11 @@ public final class Typing {
     /// One `list` patch, one step to undo; `done` is what the status says. Whether it was made.
     @discardableResult
     public func list(kind: String? = nil, by: Int? = nil, done: String) -> Bool {
+        // Code keeps no list: its lines are as written (PLAN 2.139).
+        guard !inCode else {
+            say("Code keeps its lines as written, in no list")
+            return false
+        }
         guard let node, let state, let carets else { return false }
         var op: [String: JSONValue] = [
             "op": "list", "node": .string(node), "state": .string(state),

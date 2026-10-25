@@ -47,11 +47,19 @@ fn serve_says_where_it_serves_or_what_it_needs() {
             break v;
         }
     };
+    // Each address carries the launch's token (lift-up 10-24b SEC-5): 32 hex digits, the same in both.
     let player = served["player"].as_str().unwrap();
-    assert_eq!(served["editor"].as_str(), Some(format!("{player}edit").as_str()));
-    let port: u16 = player.trim_start_matches("http://localhost:").trim_end_matches('/').parse().unwrap();
+    let (root, token) = player.split_once("?serve=").expect("the player's address carries its token");
+    assert!(token.len() == 32 && token.bytes().all(|b| b.is_ascii_hexdigit()), "{player}");
+    assert_eq!(served["editor"].as_str(), Some(format!("{root}edit?serve={token}").as_str()));
+    let port: u16 = root.trim_start_matches("http://localhost:").trim_end_matches('/').parse().unwrap();
     let mut stream = TcpStream::connect(("127.0.0.1", port)).unwrap();
-    write!(stream, "GET /bundle/deck.json HTTP/1.1\r\nHost: localhost:{port}\r\nConnection: close\r\n\r\n").unwrap();
+    // A read takes the token too (lift-up R1), as the pages send it.
+    write!(
+        stream,
+        "GET /bundle/deck.json?serve={token} HTTP/1.1\r\nHost: localhost:{port}\r\nConnection: close\r\n\r\n"
+    )
+    .unwrap();
     let mut answer = Vec::new();
     stream.read_to_end(&mut answer).unwrap();
     let _ = child.kill();

@@ -126,8 +126,8 @@ const provider = createServer(async (req, res) => {
     const look = { slides: [{ slide: 1, layout: "", title: "Carbon-negative cargo, ready to scale", subtitle: "", bullets: [], why: "One idea, one line." }] };
     return reply(200, { content: [{ type: "text", text: JSON.stringify(look) }], stop_reason: "end_turn" });
   }
-  // Each text asked for shorter, cut to the most characters it may have.
-  const texts = [...prompt.matchAll(/id: (.+)\nat most: (\d+) characters\ntext:\n([^\n]*)/g)].map(([, id, most, said]) => ({
+  // Each text asked for shorter, its words read back from their fence, cut to the most characters it may have.
+  const texts = [...prompt.matchAll(/id: (.+)\nat most: (\d+) characters\ntext:\n<data label="text">\n([^\n]*)/g)].map(([, id, most, said]) => ({
     id,
     text: said.slice(0, Math.max(1, Number(most) - 1)).trim(),
   }));
@@ -515,15 +515,24 @@ try {
   ).catch(() => {});
   const back = await page.evaluate(() => window.scaena.story.health()?.findings.map((f) => `${f.slide} ${f.kind}`));
   check(back.includes(`${slide} ${kind}`), `undone, the finding is back: ${back}`);
-  // A row's questions are asked together.
+  // A row's questions are asked together, with the slide they are about shown, whichever was
+  // (lift-up USE-5): another slide is shown first.
   const asked = page.locator("#story [data-findings] li [data-ask]").first();
-  const question = await page.evaluate(() => {
+  const { question, about } = await page.evaluate(() => {
     const { findings } = window.scaena.story.health();
-    return findings.filter((f) => f.slide === findings[0].slide).map((f) => f.ask).join(" ");
+    const run = findings.filter((f) => f.slide === findings[0].slide);
+    return { question: run.map((f) => f.ask).join(" "), about: window.scaena.last().states.findIndex(([id]) => id === run[0].state) };
   });
+  const other = await page.evaluate((i) => (i === 0 ? window.scaena.last().states.length - 1 : 0), about);
+  const elsewhere = await page.evaluate((i) => window.scaena.last().states[i][1], other);
+  await page.evaluate((offset) => window.scaena.cursor(offset), elsewhere);
+  await page.waitForFunction((i) => window.scaena.shown() === i, other, { timeout: 30000 }).catch(() => {});
   await asked.click();
+  await page.waitForFunction((q) => document.querySelector("#question")?.value === q, question, { timeout: 30000 }).catch(() => {});
   check((await page.getAttribute("#tab-assistant", "aria-selected")) === "true", "a question opens the assistant's tab");
   check((await page.inputValue("#question")) === question, `the question is in its box: ${question}`);
+  const shown = await page.evaluate(() => window.scaena.shown());
+  check(shown === about && about !== other, `with the slide it is about shown, not the one that was: ${shown} (about ${about}, was ${other})`);
   // The slide moved goes back, so what follows reads the deck as made.
   await page.locator("#overlay").focus();
   await page.keyboard.press("Control+z");

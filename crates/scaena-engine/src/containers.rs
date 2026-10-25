@@ -434,9 +434,13 @@ impl Flow<'_> {
             .and_then(|at| at.get("offset"))
             .and_then(|o| serde_json::from_value(o.clone()).ok())
             .unwrap_or([0.0f32; 2]);
-        let inset = at.and_then(|at| at.get("inset")).and_then(Value::as_f64).unwrap_or(0.0) as f32;
         let (x, y) = (origin[0] + layout.location.x + dx, origin[1] + layout.location.y + dy);
         let (w, h) = (layout.size.width, layout.size.height);
+        // Its inset, in canvas units or a theme token (`space.N`), as any length (SPEC §3.2).
+        let inset = match at.and_then(|at| at.get("inset")) {
+            Some(inset) => self.theme.length(inset, w.min(h)).map_err(|e| in_node(id, e.to_string()))?,
+            None => 0.0,
+        };
         boxes.insert(id.clone(), [x + inset, y + inset, w - 2.0 * inset, h - 2.0 * inset]);
         // A grid's tracks stand from its box's corner, as its children do.
         if let taffy::DetailedLayoutInfo::Grid(grid) = self.tree.detailed_layout_info(node) {
