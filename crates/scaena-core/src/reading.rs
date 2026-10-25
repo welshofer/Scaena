@@ -275,7 +275,7 @@ impl Reader<'_> {
         let mut said = say(0..words.len());
         // Verse is one paragraph, its lines set apart (PLAN O.4b).
         if reading.is_some_and(|r| r.verse && r.alt.is_none()) {
-            said = said.replace("\r\n", "\n").replace(['\r', '\u{2028}', '\u{2029}'], "\n").replace('\n', "<br>");
+            said = said.replace("\r\n", "\n").replace(crate::lists::breaks, "<br>");
         }
         let _ = write!(out, r#"<{tag} data-node="{}"{}>{said}</{tag}>"#, attr(id), self.lang(reading));
     }

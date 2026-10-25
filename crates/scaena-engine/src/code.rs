@@ -69,12 +69,16 @@ pub struct CardLook {
 }
 
 /// A code text's line numbers (PLAN 2.136): the number its first line goes by, their color, held
-/// to read on its ground, and the room between them and the code, in ems of its size.
+/// to read on its ground, the room between them and the code, in ems of its size, and the color
+/// of those whose lines are out of focus (PLAN 2.140).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Numbers {
     pub start: u32,
     pub color: [u8; 4],
     pub gap: f32,
+    /// The color of a line's number where its line is out of focus (PLAN 2.140): `color` set
+    /// back as its line's tokens are. None where no line is.
+    pub dimmed: Option<[u8; 4]>,
 }
 
 /// What a code text's `code` says of its card and numbers: whether it stands on a card (on where
@@ -104,6 +108,15 @@ pub struct CodeSpec {
     pub card: Option<CardLook>,
     /// Its line numbers, where its lines are numbered.
     pub numbers: Option<Numbers>,
+    /// The lines in focus (PLAN 2.140), counted from 0, each the first and the last of a run, in
+    /// the order written; none where every line is.
+    pub focus: Option<Vec<(usize, usize)>>,
+    /// How each class of its tokens is drawn on the lines out of focus: [`CodeSpec::looks`] on
+    /// its ground, each color set back toward it, never under 3:1. None where none is set back.
+    pub dimmed: Option<Box<Looks>>,
+    /// The color of the band behind its lines in focus, opaque, where the theme draws one and a
+    /// focus names lines.
+    pub band: Option<[u8; 4]>,
 }
 
 impl CodeSpec {
@@ -123,7 +136,15 @@ impl CodeSpec {
             looks: None,
             card: None,
             numbers: None,
+            focus: focus(code.get("focus")),
+            dimmed: None,
+            band: None,
         })
+    }
+
+    /// Whether its line `line`, counted from 0, is in focus: every line is where it names none.
+    pub fn in_focus(&self, line: usize) -> bool {
+        self.focus.as_ref().is_none_or(|spans| in_spans(spans, line))
     }
 
     /// The runs of `written`, its words as written, that its tokens draw in another look than its
@@ -142,22 +163,67 @@ impl CodeSpec {
         let plain = looks[Class::Plain as usize];
         // Where a character as written starts in the text as laid out: a token ends on one.
         let at = |w: usize| offsets.get(offsets.partition_point(|o| o.0 < w)).map_or(usize::MAX, |o| o.1);
+        // Where each line starts as written, for the looks of the lines out of focus (PLAN 2.140):
+        // a token is cut where a line breaks inside it, a block comment's lines each in its own.
+        let starts = match (&self.focus, &self.dimmed) {
+            (Some(_), Some(_)) => line_starts(written),
+            _ => vec![0],
+        };
         let mut out: Vec<(Range<usize>, TokenLook)> = Vec::new();
         let mut start = 0;
         for token in highlight(written, lang) {
-            let (from, look) = (start, looks[token.class as usize]);
+            let from = start;
             start = token.end;
-            let range = at(from)..at(token.end);
-            if look == plain || range.is_empty() || range.end == usize::MAX {
-                continue;
-            }
-            match out.last_mut() {
-                Some((last, was)) if last.end == range.start && *was == look => last.end = range.end,
-                _ => out.push((range, look)),
+            let first = starts.partition_point(|&s| s <= from).saturating_sub(1);
+            let mut cut = from;
+            for line in first..starts.len() {
+                let end = starts.get(line + 1).map_or(token.end, |&next| next.min(token.end));
+                if cut >= token.end {
+                    break;
+                }
+                let look = match self.dimmed.as_deref() {
+                    Some(dimmed) if !self.in_focus(line) => dimmed[token.class as usize],
+                    _ => looks[token.class as usize],
+                };
+                let range = at(cut)..at(end);
+                cut = end;
+                if look == plain || range.is_empty() || range.end == usize::MAX {
+                    continue;
+                }
+                match out.last_mut() {
+                    Some((last, was)) if last.end == range.start && *was == look => last.end = range.end,
+                    _ => out.push((range, look)),
+                }
             }
         }
         Ok(out)
     }
+}
+
+/// A code text's `code.focus` (PLAN 2.140) as runs of lines counted from 0: each span, one line
+/// or the first and the last, in the order written. A span that names no line (0) or runs
+/// backward (E106) is passed over; none where it names none, or none of it reads.
+fn focus(value: Option<&Value>) -> Option<Vec<(usize, usize)>> {
+    let line = |v: &Value| v.as_u64().filter(|&n| n >= 1).map(|n| n as usize - 1);
+    let spans: Vec<(usize, usize)> = (value?.as_array()?.iter())
+        .filter_map(|span| match span {
+            Value::Array(pair) if pair.len() == 2 => Some((line(&pair[0])?, line(&pair[1])?)),
+            one => line(one).map(|n| (n, n)),
+        })
+        .filter(|(a, b)| a <= b)
+        .collect();
+    (!spans.is_empty()).then_some(spans)
+}
+
+/// Whether `line` falls in one of `spans`.
+pub(crate) fn in_spans(spans: &[(usize, usize)], line: usize) -> bool {
+    spans.iter().any(|&(a, b)| (a..=b).contains(&line))
+}
+
+/// Where each of `written`'s lines starts, as written: at 0, and after each character that
+/// breaks a line, a CRLF once, as [`laid`] breaks them and the deck counts them.
+fn line_starts(written: &str) -> Vec<usize> {
+    scaena_core::lists::paragraphs(written).into_iter().map(|r| r.start).collect()
 }
 
 /// The SHA-256 of each file of the tables the scanners read (`scaena_core::code::tables`, in

@@ -42,6 +42,8 @@ export async function health(deck: string, lint?: string): Promise<Health> {
 export interface SlidePlace {
   after?: string;
   replace?: string;
+  /** The beat of the spine the slide tells, which its states join (lift-up M1). */
+  beat?: string;
 }
 
 /** The generator's writer of one slide (lift-up FUNC-1), the bundle's data `files` handed to it:
@@ -422,7 +424,7 @@ async function paint(
 async function painting(
   g: Generator,
   asked: string,
-  pictures: { provider: "openai" | "gemini"; key: string; base?: string },
+  pictures: { provider: "openai" | "gemini"; key: string; base?: string; quality?: "low" | "medium" | "high" },
   hear: (event: GeneratingEvent) => void,
   heard?: (reply: { status: number; body: string }) => void,
 ): Promise<{ placed: string; bytes: Map<string, Uint8Array>; made: number; unmade: string[]; model: string } | undefined> {
@@ -448,7 +450,7 @@ async function painting(
     return undefined;
   }
   hear({ kind: "painting", pictures: wanted, model });
-  const settings = JSON.stringify({ provider: pictures.provider, model, base: pictures.base, quality: "medium" });
+  const settings = JSON.stringify({ provider: pictures.provider, model, base: pictures.base, quality: pictures.quality ?? "medium" });
   const painting = new g.Painting(asked, settings);
   let finished: ReturnType<typeof painting.finish> | undefined;
   try {

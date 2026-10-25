@@ -548,6 +548,59 @@ async fn an_agent_starts_a_slide_sets_a_background_and_builds_from_written_slide
     )
     .await;
     assert!(text(&no_arc).contains("no arc of Narrato's"), "{}", text(&no_arc));
+
+    // An agent's deck, written slide by slide (lift-up M1): `deck_create`'s blank slide taken by
+    // the first, the spine begun, each slide's beat with its notes and the fields health reads.
+    let read = |dir: &std::path::Path| -> Value {
+        serde_json::from_str(&std::fs::read_to_string(dir.join("deck.json")).unwrap()).unwrap()
+    };
+    let beats = |d: &Value| -> Vec<Value> {
+        (d["spine"]["sections"].as_array().into_iter().flatten())
+            .flat_map(|s| s["beats"].as_array().cloned().unwrap_or_default())
+            .collect()
+    };
+    let agent = scratch("editors-ops").join("agent");
+    ok(&client, "deck_create", json!({ "bundle": path(&agent), "theme": "ember", "title": "Tidewater" })).await;
+    for k in 0..3 {
+        let w = ok(&client, "slide_write", json!({ "bundle": path(&agent), "slide": slides["slides"][k] })).await;
+        assert_eq!((w["applied"].clone(), w["errors"].clone()), (json!(true), json!(0)), "{w:#}");
+    }
+    let d = read(&agent);
+    assert!(d["states"].as_array().unwrap().iter().all(|s| s["id"] != "start"), "the blank slide is gone");
+    let told = beats(&d);
+    assert_eq!(told.len(), 3, "{:#}", d["spine"]);
+    for (k, beat) in told.iter().enumerate() {
+        // Its notes, as the typesetter sets them.
+        let notes = beat["notes"].as_str().unwrap_or_default();
+        let written = slides["slides"][k]["speakerNotes"].as_str().unwrap();
+        assert!(!notes.is_empty() && notes.replace('\u{2019}', "'") == written, "{beat:#}");
+        assert!(beat["media"]["narrato"]["intensity"].is_number(), "{beat:#}");
+    }
+    // A spine planned first, each slide told in its beat, which keeps its claim.
+    let planned = scratch("editors-ops").join("planned");
+    ok(&client, "deck_create", json!({ "bundle": path(&planned), "theme": "ember", "title": "Tidewater" })).await;
+    let spine = json!({ "sections": [{ "id": "why", "title": "Why now", "beats": [
+        { "id": "stakes", "claim": "Coastal towns lose a season to every storm", "states": [] },
+        { "id": "answer", "claim": "Tidewater keeps the harbor open", "states": [] },
+    ] }] });
+    ok(&client, "spine_update", json!({ "bundle": path(&planned), "spine": spine })).await;
+    for (k, beat) in [(0, "stakes"), (1, "answer")] {
+        let w =
+            ok(&client, "slide_write", json!({ "bundle": path(&planned), "slide": slides["slides"][k], "beat": beat }))
+                .await;
+        assert_eq!((w["beat"].clone(), w["errors"].clone()), (json!(beat), json!(0)), "{w:#}");
+    }
+    let told = beats(&read(&planned));
+    let claims: Vec<&str> = told.iter().map(|b| b["claim"].as_str().unwrap()).collect();
+    assert_eq!(claims, ["Coastal towns lose a season to every storm", "Tidewater keeps the harbor open"]);
+    assert!(told.iter().all(|b| !b["states"].as_array().unwrap().is_empty()), "{told:#?}");
+    let unknown = call(
+        &client,
+        "slide_write",
+        json!({ "bundle": path(&planned), "slide": slides["slides"][2], "beat": "nowhere" }),
+    )
+    .await;
+    assert!(text(&unknown).contains("no beat `nowhere`"), "{}", text(&unknown));
     client.cancel().await.unwrap();
 }
 
@@ -687,6 +740,14 @@ async fn a_tool_writes_only_under_its_folder_or_beside_the_bundle() {
     assert_eq!(read.is_error, Some(true));
     assert!(text(&read).contains("is outside where this server reads"), "{}", text(&read));
     assert!(!here.join("q3/data/credentials").exists());
+    // Nor by deck_create, which makes no bundle of it (lift-up 20261025b SEC-1).
+    let attached = json!([{ "id": "keys", "file": path(&elsewhere.join("credentials")) }]);
+    let made =
+        call(&client, "deck_create", json!({ "bundle": path(&here.join("q4")), "theme": "dusk", "data": attached }))
+            .await;
+    assert_eq!(made.is_error, Some(true));
+    assert!(text(&made).contains("is outside where this server reads"), "{}", text(&made));
+    assert!(!here.join("q4").exists());
     // Nor muxed into a video as its sound (lift-up 20261025b SEC-2).
     let audio = path(&elsewhere.join("credentials"));
     let out = path(&here.join("q3.mp4"));
@@ -708,6 +769,13 @@ async fn a_tool_writes_only_under_its_folder_or_beside_the_bundle() {
     let read = call(&client, "data_attach", hidden).await;
     assert_eq!(read.is_error, Some(true));
     assert!(text(&read).contains("is outside where this server reads"), "{}", text(&read));
+    let hidden = json!([{ "id": "aws", "file": path(&here.join(".aws/credentials.csv")) }]);
+    let made =
+        call(&client, "deck_create", json!({ "bundle": path(&here.join("q5")), "theme": "dusk", "data": hidden }))
+            .await;
+    assert_eq!(made.is_error, Some(true));
+    assert!(text(&made).contains("is outside where this server reads"), "{}", text(&made));
+    assert!(!here.join("q5").exists());
     // And only what the tool writes, by its name: no notes, no shell's start-up file.
     let notes = call(&client, "deck_render", json!({ "bundle": deck, "state": "revenue", "out": "notes.txt" })).await;
     assert_eq!(notes.is_error, Some(true));

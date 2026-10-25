@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://scaena.dev/schema/deck-0.39.json",
+  "$id": "https://scaena.dev/schema/deck-0.40.json",
   "title": "Scaena deck document",
   "description": "Canonical deck.json. A deck is a scene graph (nodes) plus an ordered cue list (states) over a narrative spine, rendered against a theme. See docs/SPEC.md §3.",
   "type": "object",
@@ -10,7 +10,7 @@
     "scaena": {
       "description": "Format version (semver, major.minor[.patch]).",
       "type": "string",
-      "pattern": "^0\\.39(\\.[0-9]+)?$"
+      "pattern": "^0\\.40(\\.[0-9]+)?$"
     },
     "meta": { "$ref": "#/$defs/Meta" },
     "canvas": { "$ref": "#/$defs/Canvas" },
@@ -1423,6 +1423,12 @@
         "card": {
           "description": "Whether it stands on a card that hugs it and its gutter, in the theme's `code.card`: on where unset. A deck saved before 0.39 reads with it off, and draws as it did.",
           "type": "boolean"
+        },
+        "focus": {
+          "description": "The lines in focus (PLAN 2.140, deck format 0.40), counted from 1 as `paragraphs` counts paragraphs: each one line, or the first and the last of a run. The rest are set back toward their ground by the theme's `code.focus.dim`, never under 3:1, so a state names the lines a talk is on and a walkthrough is a step for each. Without it, every line.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/Range2" },
+          "minItems": 1
         }
       }
     },
@@ -2278,7 +2284,10 @@
         "language": { "anyOf": [{ "pattern": "^[a-z0-9][a-z0-9+#._-]{0,31}$", "type": "string" }, { "type": "null" }] },
         "numbers": { "type": ["boolean", "null"] },
         "start": { "anyOf": [{ "maximum": 999999, "type": "integer", "minimum": 1 }, { "type": "null" }] },
-        "card": { "type": ["boolean", "null"] }
+        "card": { "type": ["boolean", "null"] },
+        "focus": {
+          "anyOf": [{ "minItems": 1, "type": "array", "items": { "$ref": "#/$defs/Range2" } }, { "type": "null" }]
+        }
       }
     },
     "ConnectDelta": {

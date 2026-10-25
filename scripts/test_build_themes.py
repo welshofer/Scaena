@@ -34,13 +34,15 @@ def spec(**over) -> dict:
 
 class FromSpec(unittest.TestCase):
     def test_a_spec_makes_a_theme_file_on_the_base(self):
-        theme = themes.themed("basel", spec(), BASE)
+        s = spec()
+        theme = themes.themed("basel", s, BASE)
         self.assertEqual(theme["name"], "Basel")
         self.assertEqual(theme["tokens"]["color"], BASEL)
         self.assertEqual(theme["motion"], BASE["motion"])
         self.assertEqual(theme["type"]["roles"], BASE["voices"]["dusk"]["roles"])
-        # Each key where the four put it; the base's empty places left out.
-        self.assertEqual(list(theme), [k for k, v in BASE.items() if k not in ("voices", "layouts") and v is not None or k in ("name", "description")])
+        # Each key where the four put it; the base's empty places left out, unless the spec fills
+        # them, as Daybreak's fills `code` with its walkthrough's focus (PLAN 2.140).
+        self.assertEqual(list(theme), [k for k, v in BASE.items() if k not in ("voices", "layouts") and (v is not None or k in s) or k in ("name", "description")])
         self.assertNotIn("null", json.dumps(theme))
         text = themes.written(theme, None, BASE)
         out = json.loads(text)

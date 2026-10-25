@@ -913,7 +913,14 @@ fn drawing_in_step(
     let drawn = |state: &Value| {
         state.get("props").and_then(|p| p.get(node)).and_then(|p| p.get("paragraphs")).filter(|p| !p.is_null()).cloned()
     };
-    if !d.states().iter().any(|s| drawn(s).is_some()) {
+    // A code text's lines in focus (PLAN 2.140), as a state's delta writes them, and as its node
+    // does.
+    let focus = |props: Option<&Value>| {
+        props.and_then(|p| p.get("code")).and_then(|c| c.get("focus")).filter(|f| !f.is_null()).cloned()
+    };
+    let focused = |state: &Value| focus(state.get("props").and_then(|p| p.get(node)));
+    let own = focus(d.0.get("nodes").and_then(|n| n.get(node)));
+    if !d.states().iter().any(|s| drawn(s).is_some() || focused(s).is_some()) && own.is_none() {
         return Vec::new();
     }
     let now = format!("{}{text}{}", &written[..range.start], &written[range.end..]);
@@ -928,15 +935,36 @@ fn drawing_in_step(
     };
     let mut out = Vec::new();
     for (i, state) in d.states().iter().enumerate() {
-        let Some(was) = drawn(state) else { continue };
         if !says(&before, i, written) || !says(&edited, i, &now) {
             continue;
         }
-        if let Some(value) = crate::lists::redrawn(&was, written, range.clone(), text)
+        if let Some(was) = drawn(state)
+            && let Some(value) = crate::lists::redrawn(&was, written, range.clone(), text)
             && value != was
         {
             out.push(JsonOp::Replace { path: format!("/states/{i}/props/{}/paragraphs", esc(node)), value });
         }
+        if let Some(was) = focused(state)
+            && let Some(value) = crate::lists::refocused(&was, written, range.clone(), text)
+            && value != was
+        {
+            out.push(JsonOp::Replace { path: format!("/states/{i}/props/{}/code/focus", esc(node)), value });
+        }
+    }
+    // The node's own focus, where the edit is written in the node's own text.
+    let base = format!("/nodes/{}/", esc(node));
+    let in_node = ops.iter().any(|op| {
+        let path = match op {
+            JsonOp::Add { path, .. } | JsonOp::Replace { path, .. } => path,
+            _ => return false,
+        };
+        path.strip_prefix(&base).is_some_and(|rest| rest == "text" || rest == "runs" || rest.starts_with("runs/"))
+    });
+    if let Some(was) = own.filter(|_| in_node)
+        && let Some(value) = crate::lists::refocused(&was, written, range.clone(), text)
+        && value != was
+    {
+        out.push(JsonOp::Replace { path: format!("/nodes/{}/code/focus", esc(node)), value });
     }
     out
 }

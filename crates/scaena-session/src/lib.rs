@@ -3636,6 +3636,38 @@ mod tests {
         assert!(e.contains("a node goes into nothing it holds"), "{e}");
     }
 
+    /// A burst of typing that takes a headline away from its beat's claim is reported once it
+    /// ends, against the source as it began, with the patch that restates the claim; a keystroke
+    /// within it is no report of its own (lift-up FUNC-2).
+    #[cfg(feature = "editor")]
+    #[test]
+    fn a_typed_headline_that_leaves_its_claim_is_reported_once() {
+        let mut s = revenue();
+        let begun = s.source();
+        assert!(s.compile(&begun).valid);
+        for (from, to, text) in [(8, 15, "t"), (9, 9, "ripled")] {
+            let op = serde_json::json!([{ "op": "replace_text", "node": "title", "state": "revenue", "from": from, "to": to, "text": text }]);
+            assert!(s.typed(&op, None).unwrap());
+        }
+        let found = s.restated(&begun);
+        assert_eq!(found.len(), 1, "one beat, for the whole burst: {found:?}");
+        assert_eq!((found[0].beat.as_str(), found[0].says.as_deref()), ("doubled", Some("Revenue tripled")));
+        assert_eq!(found[0].path, "/spine/sections/1/beats/0/claim");
+        // Against the source the burst left, nothing more is stale; and a source that makes no deck
+        // reports nothing.
+        assert!(s.restated(&s.source()).is_empty());
+        assert!(s.restated("not a deck").is_empty());
+        // The fix restates it as a patch, which leaves nothing stale behind it.
+        let fix = serde_json::Value::Array(found[0].fix.clone());
+        let before = s.source();
+        let by = assistant::Caller { author: "user", at: None };
+        let called = s.tool("deck_patch", serde_json::json!({ "ops": fix }), by).unwrap();
+        assert!(called.edited, "{}", called.result);
+        assert!(!called.result.contains("\"restated\""), "{}", called.result);
+        assert!(s.restated(&before).is_empty());
+        assert_eq!(s.deck.spine.as_ref().unwrap().sections[1].beats[0].claim, "Revenue tripled");
+    }
+
     /// Text on the canvas (ADR-0013, PLAN 2.32): where a caret stands in a text, from the
     /// layout the frames at rest draw; and typing, a `replace_text` written where the text
     /// lives, which the next frame shows. A keystroke the deck cannot take says why.
@@ -5910,7 +5942,7 @@ mod tests {
         s.set_deck(rename(&s.deck, "assets/copy.png", "assets/absent.png"));
         let err = s.frame("images", f64::INFINITY).unwrap_err();
         assert!(matches!(&err, Error::Missing(p) if p == "assets/absent.png"), "{err}");
-        assert_eq!(s.states().len(), 70);
+        assert_eq!(s.states().len(), 71);
     }
 
     /// A pen's drawing and an icon are each a path on a view (PLAN 2.104, 2.114): the drawing,
