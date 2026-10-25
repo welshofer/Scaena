@@ -41,7 +41,7 @@ try {
       ),
     ),
   ]);
-  const { name, states } = JSON.parse($("#scaena-deck").textContent!) as { name: string; states: string[] };
+  const { name, states, notes } = JSON.parse($("#scaena-deck").textContent!) as { name: string; states: string[]; notes?: boolean };
   await start(
     { files: Object.fromEntries(files), name, states },
     {
@@ -51,6 +51,8 @@ try {
       state: params.get("state"),
       read: (state) => readings.get(state) ?? "",
       fit: params.get("fit") === "own" ? "own" : null,
+      // Exported without the speaker notes, the file says so (lift-up 20261025 SEC-3).
+      unnoted: notes === false,
     },
   );
 } catch (e) {

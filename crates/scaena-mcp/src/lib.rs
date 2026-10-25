@@ -716,9 +716,11 @@ pub struct DeckExport {
     /// each state's hold alone, as a player auto-advances.
     #[serde(default)]
     pub pace: scaena_core::spine::Pace,
-    /// A PDF with the presenter's notes: each slide drawn smaller at the head of a page, the
+    /// The presenter's notes: a PDF with each slide drawn smaller at the head of a page, the
     /// notes a presenter reads for it under it, notes too long for it going on to pages of
-    /// their own. Only a PDF.
+    /// their own; a single HTML file with each state's and beat's notes, each beat's evidence,
+    /// and what Narrato planned, the presenter's own copy. Without it a single file leaves them
+    /// out, for the room. Only a PDF or a single file.
     #[serde(default)]
     pub notes: bool,
 }
@@ -1003,13 +1005,19 @@ impl Scaena {
         // A new bundle has no folder yet: the theme is read under this server's own.
         let bundle = self.new_bundle(&a.bundle).map_err(failure)?;
         let (theme, fonts_within) = self.theme_readable(&a.theme, &a.bundle).map_err(failure)?;
+        // Each data file is held as `data_attach` holds one: nothing else the user can read is
+        // copied into a bundle made to be shared (lift-up 20261025b SEC-1).
+        let mut data = a.data;
+        for d in &mut data {
+            d.file = self.readable(&d.file, &a.bundle).map_err(failure)?;
+        }
         let req = scaena_ops::create::Create {
             theme,
             fonts_within,
             deck: a.deck.map(Value::Object),
             scn: a.scn,
             title: a.title,
-            data: a.data,
+            data,
             ..Default::default()
         };
         blocking(move || {
