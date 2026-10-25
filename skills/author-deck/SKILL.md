@@ -90,7 +90,7 @@ Errors:
      - **intensity** and **tone**: how closely each slide's words carry what it declares; English only, never in the score.
    - `score` weighs pacing, balance, and fidelity. `slides` reads each slide: its beat, its headline, where the arc's curve stands at its place, what it declares, what its words read, and how it stands (`ok`, `bends`, `drifted`).
    - Each finding names a slide and says what to look at; its `ask` is a question to answer in the deck, not a fix to apply blindly: a slide that reads flatter than its place in the arc wants stronger words or a move, not a number changed. Where a finding carries a `fix`, it only declares what the words already read, or the beat a moved slide now stands in; apply it with `deck_patch`.
-   - A deck with no `meta.narrative` is measured against a talk's curve. Give it an arc with `scaena generate --slides`, which writes `meta.narrative` as Narrato's decks carry it, or leave fidelity aside and read pacing, balance, and the findings.
+   - A deck with no `meta.narrative` is measured against a talk's curve. Give it an arc with a patch, `{ "op": "add", "path": "/meta/narrative", "value": { "generator": "narrato", "arc": "Problem–Solution", "brief": { "topic": "…", "audience": "…", "goal": "Persuade", "length": "11-15 slides" } } }` (`deck_patch`; `scaena generate` makes a new deck and refuses a folder that holds one), or leave fidelity aside and read pacing, balance, and the findings.
 7. **Inspect.**
    - `inspect --state <id>` confirms tracking did what you meant.
    - `--timeline` shows when each motion runs, and over how many words, lines, or marks.
