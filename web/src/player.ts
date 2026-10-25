@@ -133,7 +133,8 @@ const still = () => {
   return motion === "reduce" || (motion !== "full" && reduced.matches);
 };
 
-type Acting = "on" | "back" | "first" | "last" | "full" | "present" | "black" | "white" | "laser" | "leave" | "larger" | "smaller";
+type Acting =
+  | "on" | "back" | "first" | "last" | "full" | "present" | "black" | "white" | "laser" | "leave" | "larger" | "smaller" | "navigate";
 /** What the keys do on a page: each its action, where the page has it, and a slide by its number. */
 type Act = Partial<Record<Acting, () => void>> & { slide?: (number: number) => void };
 
@@ -150,6 +151,8 @@ function keys(act: Act) {
     Escape: "leave",
     // The presenter's notes larger or smaller, as a presentation app's A↑ and A↓ (lift-up USE-4).
     "+": "larger", "=": "larger", "-": "smaller",
+    // The presenter's slides, to go to one, as a presentation app's navigator (lift-up 10-24b USE-1).
+    n: "navigate", N: "navigate",
   };
   const list = keyList(act);
   const number = numbering(act.slide);
@@ -256,6 +259,7 @@ function keyList(act: Act) {
     ["<kbd>P</kbd>", "The presenter view, in a window of its own", act.present],
     ["<kbd>Escape</kbd>", "At the end of the show, leave it", act.leave],
     ["<kbd>+</kbd> <kbd>−</kbd>", "The notes larger, or smaller", act.larger],
+    ["<kbd>N</kbd>", "The slides, to go to one", act.navigate],
     ["<kbd>?</kbd>", "These keys", true],
   ];
   const dialog = document.createElement("dialog");
@@ -814,6 +818,130 @@ function outline(picker: HTMLSelectElement, slots: Slot[], sections: Section[]) 
   );
 }
 
+/** The height a slide is drawn in the navigator, CSS pixels. */
+const NAVIGATED = 90;
+
+/** The presenter's slide navigator (lift-up 10-24b USE-1), as a presentation app's: every slide
+ * drawn small at its last state by `stage`, in the format the player shows, each with its number
+ * and its headline, the one the room sees marked. The arrows, Home, and End move through them, and
+ * Return or a click goes to one, through `go`, as its number typed does; N or Escape closes it. */
+function slideNavigator(
+  stage: Stage,
+  slots: () => Slot[],
+  shown: () => [number, string | undefined],
+  go: (number: number) => void,
+) {
+  const dialog = document.createElement("dialog");
+  dialog.className = "navigator";
+  dialog.setAttribute("aria-labelledby", "navigator-title");
+  // The words are the page's own; a slide's headline is set as text.
+  dialog.innerHTML = `<h2 id="navigator-title">Slides</h2><ol role="listbox" tabindex="0" aria-labelledby="navigator-title"></ol>`;
+  document.body.append(dialog);
+  const list = dialog.querySelector("ol")!;
+  /** Each slide: its first state, its last, and what it is called. */
+  const slides = () => {
+    const out: { first: string; last: string; said: string; headline?: string }[] = [];
+    let slide: string | undefined;
+    for (const s of slots()) {
+      const of = s.slide ?? s.state;
+      if (out.length && of === slide) out[out.length - 1].last = s.state;
+      else out.push({ first: s.state, last: s.state, said: `Slide ${out.length + 1}`, headline: s.headline });
+      slide = of;
+    }
+    return out;
+  };
+  /** What the list was drawn for: its slides' last states and the format. */
+  let drawn = "";
+  let focus = 0;
+  const options = () => [...list.querySelectorAll<HTMLLIElement>("li")];
+  const mark = (i: number) => {
+    const all = options();
+    if (!all.length) return;
+    focus = Math.max(0, Math.min(all.length - 1, i));
+    all.forEach((li, n) => li.setAttribute("aria-selected", String(n === focus)));
+    list.setAttribute("aria-activedescendant", all[focus].id);
+    all[focus].scrollIntoView({ block: "nearest" });
+  };
+  const choose = (i: number) => {
+    dialog.close();
+    go(i + 1);
+  };
+  const build = async (format: string | undefined) => {
+    const all = slides();
+    const key = JSON.stringify([format ?? "", all.map((s) => s.last)]);
+    if (key === drawn) return;
+    drawn = key;
+    list.replaceChildren(
+      ...all.map((s, i) => {
+        const li = document.createElement("li");
+        li.id = `navigator-${i + 1}`;
+        li.setAttribute("role", "option");
+        li.setAttribute("aria-label", s.headline ? `${s.said}: ${s.headline}` : s.said);
+        li.dataset.state = s.last;
+        const canvas = document.createElement("canvas");
+        canvas.setAttribute("aria-hidden", "true");
+        const name = document.createElement("span");
+        name.textContent = s.headline ? `${i + 1}  ${s.headline}` : String(i + 1);
+        li.append(canvas, name);
+        return li;
+      }),
+    );
+    const height = Math.round(NAVIGATED * devicePixelRatio);
+    const byState = new Map(options().map((li) => [li.dataset.state, li]));
+    await stage.thumbnails(height, {}, format, all.map((s) => s.last), (thumb) => {
+      const canvas = byState.get(thumb.state)?.querySelector("canvas");
+      if (!canvas || !thumb.pixels || !thumb.width || !thumb.height) return;
+      canvas.width = thumb.width;
+      canvas.height = thumb.height;
+      canvas.getContext("2d")?.putImageData(new ImageData(new Uint8ClampedArray(thumb.pixels), thumb.width), 0, 0);
+    });
+  };
+  // Its keys are its own while it is open: none reaches the player's.
+  list.addEventListener("keydown", (e) => {
+    const last = options().length - 1;
+    const to: Record<string, number> = {
+      ArrowRight: focus + 1, ArrowDown: focus + 1, ArrowLeft: focus - 1, ArrowUp: focus - 1, Home: 0, End: last,
+    };
+    if (e.key in to) mark(to[e.key]);
+    else if (e.key === "Enter" || e.key === " ") choose(focus);
+    else if (e.key === "n" || e.key === "N") dialog.close();
+    else return;
+    e.preventDefault();
+  });
+  dialog.addEventListener("keydown", (e) => e.stopPropagation());
+  list.addEventListener("click", (e) => {
+    const li = (e.target as HTMLElement).closest("li");
+    if (li) choose(options().indexOf(li as HTMLLIElement));
+  });
+  // A click outside the list, on the dialog's backdrop, closes it.
+  dialog.addEventListener("click", (e) => e.target === dialog && dialog.close());
+  const open = async () => {
+    const [index, format] = shown();
+    const state = slots()[index];
+    const of = state?.slide ?? state?.state;
+    dialog.showModal();
+    list.focus();
+    const built = build(format);
+    const at = slides().findIndex((s) => s.first === of);
+    mark(at < 0 ? 0 : at);
+    await built;
+    mark(focus);
+  };
+  return {
+    /** Open it on the slide the room sees, or close it. */
+    toggle: () => (dialog.open ? dialog.close() : open()),
+    /** Its slides as each is named, which is marked, and how many are drawn, or null while closed. */
+    reads: () =>
+      dialog.open
+        ? {
+            slides: options().map((li) => li.getAttribute("aria-label")),
+            marked: focus,
+            drawn: options().filter((li) => li.querySelector("canvas")!.width > 0).length,
+          }
+        : null,
+  };
+}
+
 /** The presenter view: the deck as the player shows it, the next state, the notes, a timer that
  * pauses and resets, and the time of day. It steers the player, and follows it. */
 async function presentView(deck: Source, how: Play, channel: BroadcastChannel) {
@@ -828,7 +956,7 @@ async function presentView(deck: Source, how: Play, channel: BroadcastChannel) {
       <p id="where"></p>
       <p class="notesize"><span>Notes</span><button id="smaller" type="button" aria-label="Smaller notes" title="Smaller notes (−)">A−</button><button id="larger" type="button" aria-label="Larger notes" title="Larger notes (+)">A+</button></p>
       <div id="notes" class="notes"></div>
-      <p class="buttons"><button id="back" aria-label="Back" disabled><span aria-hidden="true">◀</span> Back</button><button id="on" aria-label="Next" disabled><span aria-hidden="true">▶</span> Next</button></p>
+      <p class="buttons"><button id="back" aria-label="Back" disabled><span aria-hidden="true">◀</span> Back</button><button id="on" aria-label="Next" disabled><span aria-hidden="true">▶</span> Next</button><button id="navigate" type="button" aria-haspopup="dialog" title="Every slide, to go to one (N)" disabled>Slides</button></p>
       <p id="status" role="status">Loading…</p>
     </aside>`;
   const status = $("#status");
@@ -870,7 +998,15 @@ async function presentView(deck: Source, how: Play, channel: BroadcastChannel) {
     slide: (number) => (numbered(slots, String(number)) ? steer({ type: "slide", number }) : typing.say(noSlide(slots, number))),
     larger: () => sizeNotes(1),
     smaller: () => sizeNotes(-1),
+    navigate: () => heard && void navigating.toggle(),
   });
+  // Every slide, to go to one (lift-up 10-24b USE-1): drawn small by the next state's stage, the
+  // one the room sees marked, and the one chosen gone to as its number typed goes.
+  /** The state the player shows, and the format it shows it in. */
+  let shownAt = 0;
+  let shownFormat: string | undefined;
+  const navigating = slideNavigator(upNext, () => slots, () => [shownAt, shownFormat], (number) => steer({ type: "slide", number }));
+  $("#navigate").onclick = () => void navigating.toggle();
   // The notes' size (lift-up USE-4): a step up or down the sizes a speaker reads at, kept in this
   // browser for the next show.
   const sizeNotes = (by: number) => {
@@ -899,7 +1035,7 @@ async function presentView(deck: Source, how: Play, channel: BroadcastChannel) {
   $("#back").onclick = () => steer({ type: "back" });
   // Without a player to follow, this view says so, and how to have one: none answered its hello,
   // or the one it followed is gone. Its buttons wait until a player is heard.
-  const buttons = [$<HTMLButtonElement>("#back"), $<HTMLButtonElement>("#on")];
+  const buttons = [$<HTMLButtonElement>("#back"), $<HTMLButtonElement>("#on"), $<HTMLButtonElement>("#navigate")];
   let heard = false;
   const alone = (words: string, again: string) => {
     if (heard) return;
@@ -1050,6 +1186,7 @@ async function presentView(deck: Source, how: Play, channel: BroadcastChannel) {
     blanked.textContent = sees;
     document.body.classList.toggle("blanking", !!sees);
     document.body.classList.toggle("lasering", !!data.laser);
+    [shownAt, shownFormat] = [data.index, data.format];
     latest = data;
     void follow();
   };
@@ -1087,6 +1224,8 @@ async function presentView(deck: Source, how: Play, channel: BroadcastChannel) {
       /** The size the next state is painted at, in the format the player shows, or null after the
        * last. */
       coming: () => nextSize,
+      /** The navigator as it stands, or null while it is closed (lift-up 10-24b USE-1). */
+      navigator: () => navigating.reads(),
     },
   });
 }

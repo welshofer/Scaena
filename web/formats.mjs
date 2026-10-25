@@ -224,12 +224,22 @@ try {
   await page.waitForFunction(() => document.querySelector("#format option")?.textContent === "16:9", null, { timeout: 30000 }).catch(() => {});
   check(JSON.stringify(await page.locator("#format option").allTextContents()) === JSON.stringify(["16:9", "9:16"]), "put back, the menu is as it was");
 
-  // Hidden again: none is painted.
+  // Hidden again: none is painted. The count is taken once the strip is hidden and its last paint,
+  // one asked before it hid, has landed: two reads 300 ms apart that agree.
   await page.click("#formats-open");
+  await page.waitForFunction(() => document.querySelector("#formats")?.offsetParent === null, null, { timeout: 5000 }).catch(() => {});
   count = (await painted()).count;
+  for (let i = 0; i < 20; i++) {
+    await page.waitForTimeout(300);
+    const again = (await painted()).count;
+    if (again === count) break;
+    count = again;
+  }
   await page.selectOption("#state", "intro");
   await page.waitForTimeout(800);
-  check((await page.locator("#formats").isHidden()) && (await painted()).count === count, "hidden again, none is painted");
+  const hidden = await page.locator("#formats").isHidden();
+  const after = (await painted()).count;
+  check(hidden && after === count, `hidden again, none is painted: ${JSON.stringify({ hidden, before: count, after })}`);
   await context.close();
 } catch (e) {
   failures.push(String(e));
