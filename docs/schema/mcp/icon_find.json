@@ -1,6 +1,6 @@
 {
   "name": "icon_find",
-  "description": "Find the icons that ship (Phosphor, MIT) by words: each word begins a word of an icon's name, its tags, or its categories, and its name asked whole comes first. Each icon is its path data on a view 256 square, which deck_patch's add_node adds as a shape: {\"type\": \"shape\", \"path\": …, \"view\": [0, 0, 256, 256], \"fill\": \"accent\"}, so icons beside each other keep one weight.",
+  "description": "Find the icons that ship (Phosphor, MIT) by words: each word begins a word of an icon's name, its tags, or its categories, and its name asked whole comes first; 50 at most. With `paths`, each icon is its path data on a view 256 square, which deck_patch's add_node adds as a shape: {\"type\": \"shape\", \"path\": …, \"view\": [0, 0, 256, 256], \"fill\": \"accent\"}, so icons beside each other keep one weight; without it, the names alone: search so, then ask for the one chosen by its name with `paths`.",
   "inputSchema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "$defs": {
@@ -25,10 +25,15 @@
         "default": "regular"
       },
       "limit": {
-        "description": "At most this many; 20 when not given.",
+        "description": "At most this many, 50 at most; 20 when not given.",
         "type": ["integer", "null"],
         "minimum": 0,
         "default": null
+      },
+      "paths": {
+        "description": "Each icon's path too, which add_node draws it from. Without it, the names, tags, and\ncategories alone: search so, then ask for the one chosen by its name with `paths`.",
+        "type": "boolean",
+        "default": false
       }
     },
     "additionalProperties": false
@@ -37,15 +42,15 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "$defs": {
       "Found": {
-        "description": "An icon found: its name, its tags and categories, and the icon to insert in the weight asked.",
+        "description": "An icon found: its name, its tags and categories, and the icon to insert in the weight asked,\nleft out where only names were asked for ([`Icons::names_only`]).",
         "type": "object",
         "properties": {
           "name": { "type": "string" },
           "tags": { "type": "array", "items": { "type": "string" } },
           "categories": { "type": "array", "items": { "type": "string" } },
-          "icon": { "$ref": "#/$defs/Icon" }
+          "icon": { "anyOf": [{ "$ref": "#/$defs/Icon" }, { "type": "null" }] }
         },
-        "required": ["name", "tags", "categories", "icon"]
+        "required": ["name", "tags", "categories"]
       },
       "Icon": {
         "description": "An icon to insert (PLAN 2.104): its name, its path data, and the view it is drawn on.",

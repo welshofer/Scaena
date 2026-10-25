@@ -673,11 +673,14 @@ fn the_assistant_is_given_each_tool_its_prompt_names() {
         }
     }
     let s = open(B1);
-    let found = tool(s, "icon_find", json!({ "query": "rocket", "weight": "fill", "limit": 2 }));
+    let found = tool(s, "icon_find", json!({ "query": "rocket", "weight": "fill", "limit": 2, "paths": true }));
     let icons = found["ok"]["icons"].as_array().unwrap_or_else(|| panic!("{found}"));
     assert_eq!((icons.len(), icons[0]["name"].as_str()), (2, Some("rocket")), "{found}");
     assert_eq!(icons[0]["icon"]["view"], json!([0.0, 0.0, 256.0, 256.0]), "{found}");
     assert_eq!(found["edited"], false);
+    let named = tool(s, "icon_find", json!({ "query": "rocket", "limit": 2 }));
+    assert_eq!(named["ok"]["icons"][0]["name"], "rocket", "{named}");
+    assert!(named["ok"]["icons"][0].get("icon").is_none(), "names alone without `paths`: {named}");
     unsafe { scaena_session_free(s) };
 }
 
