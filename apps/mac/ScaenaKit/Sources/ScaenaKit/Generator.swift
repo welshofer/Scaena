@@ -5,8 +5,15 @@ import os
 private let generatingLog = Logger(subsystem: "com.welshofer.Scaena", category: "generating")
 
 /// What a brief may ask, as Narrato knows it (PLAN G.6): its goals, lengths, and ways a deck is
-/// delivered, the audiences its personas name, its arcs, and the defaults a field left empty takes.
+/// delivered, the audiences its personas name, each persona by its id, its arcs, and the defaults a
+/// field left empty takes.
 public struct BriefChoices: Decodable, Sendable {
+    /// A persona a brief may speak to, by its id (lift-up FUNC-5).
+    public struct Persona: Decodable, Sendable, Hashable {
+        public let id: String
+        public let name: String
+    }
+
     public struct Modality: Decodable, Sendable, Hashable {
         public let id: String
         public let label: String
@@ -22,6 +29,7 @@ public struct BriefChoices: Decodable, Sendable {
     public let lengths: [String]
     public let modalities: [Modality]
     public let audiences: [String]
+    public let personas: [Persona]
     public let arcs: [String]
     public let defaults: Defaults
     /// The themes that ship, to make the deck in, each with its family (PLAN T.0d).
@@ -39,10 +47,13 @@ public struct Brief: Encodable, Sendable {
     public var desiredOutcomes: String?
     public var language: String?
     public var voice: String?
+    /// The persona it speaks to, by its id, where the audience is in the user's own words; else the
+    /// one the audience names, if any (lift-up FUNC-5).
+    public var personaId: String?
 
     public init(
         topic: String, audience: String? = nil, goal: String? = nil, length: String? = nil, modality: String? = nil,
-        desiredOutcomes: String? = nil, language: String? = nil, voice: String? = nil
+        desiredOutcomes: String? = nil, language: String? = nil, voice: String? = nil, personaId: String? = nil
     ) {
         self.topic = topic
         self.audience = audience
@@ -52,6 +63,7 @@ public struct Brief: Encodable, Sendable {
         self.desiredOutcomes = desiredOutcomes
         self.language = language
         self.voice = voice
+        self.personaId = personaId
     }
 }
 
@@ -149,6 +161,8 @@ public enum GeneratingStep: Equatable, Sendable {
     case looking(slides: Int)
     case looked(slides: Int)
     case unlooked(String)
+    /// A change the model asked that lint found its slide worse for, let go (lift-up USE-4).
+    case refused(slide: Int, what: String, why: String)
     case fitting(texts: Int)
     case fitted(texts: Int)
     case unfitted(String)
@@ -187,6 +201,7 @@ public enum GeneratingStep: Equatable, Sendable {
         case .looked(let slides) where slides == 0: "The model saw nothing to change"
         case .looked(let slides): "\(slides) \(slides == 1 ? "slide" : "slides") changed by what the model saw"
         case .unlooked(let why): "Not changed by what the model saw: \(why)"
+        case .refused(let slide, let what, let why): "Slide \(slide) kept as made: the model asked for \(what). \(why)"
         case .fitting(let texts): "\(texts) \(texts == 1 ? "text runs" : "texts run") past their place: asking for them shorter…"
         case .fitted(let texts): "\(texts) rewritten to fit"
         case .unfitted(let why): "Not rewritten to fit: \(why)"
@@ -213,6 +228,15 @@ public struct Generated: Decodable, Sendable {
     /// What the model changed on the deck it saw drawn (PLAN G.13), slide by slide, or why not.
     public let looked: [Looked]?
     public let unlooked: String?
+    /// Each change the model asked that lint found its slide worse for, let go (lift-up USE-4).
+    public let refused: [Refused]?
+
+    /// A change let go: its slide's number, what the model asked, and what lint found.
+    public struct Refused: Decodable, Sendable, Equatable {
+        public let slide: Int
+        public let what: String
+        public let why: String
+    }
 
     /// A slide the model changed: its number, the layout it gave it, and why.
     public struct Looked: Decodable, Sendable {
@@ -226,7 +250,8 @@ public struct Generated: Decodable, Sendable {
         let errors = created.errors == 0 ? "" : ", \(created.errors) \(created.errors == 1 ? "error" : "errors") to look at"
         let made = pictures.map { $0 == 0 ? "" : ", \($0) \($0 == 1 ? "picture" : "pictures")" } ?? ""
         let seen = (looked?.count).map { $0 == 0 ? "" : ", \($0) changed by what the model saw" } ?? ""
-        return "Made \(layouts.count) slides on the arc \(arc)\(made)\(seen)\(errors)"
+        let letGo = (refused?.count).map { $0 == 0 ? "" : ", \($0) of its changes let go" } ?? ""
+        return "Made \(layouts.count) slides on the arc \(arc)\(made)\(seen)\(letGo)\(errors)"
     }
 }
 
@@ -678,9 +703,11 @@ public final class Generator {
     }
 
     private struct Making: Decodable, Sendable {
+        /// The look's every round, which are asked `atOnce` at a time (lift-up 20261025 PERF-2).
         struct Look: Decodable, Sendable {
-            let request: GeneratorRequest
+            let rounds: [GeneratorRequest]
             let slides: Int
+            let atOnce: Int
         }
 
         let look: Look?
@@ -694,12 +721,13 @@ public final class Generator {
         let texts: Int
     }
 
-    /// One round of the look answered: the next round where one is left (narrative PERF-5), else
-    /// what the look came to and the fit asked for.
+    /// The look's rounds answered: what it came to, and the fit asked for.
     private struct Looking: Decodable, Sendable {
+        /// The rounds a busy provider answered for now, handed back to be asked again.
         let look: Making.Look?
         let looked: Int?
         let unlooked: String?
+        let refused: [Generated.Refused]?
         let fit: Fit?
         /// The slides the model's kept changes touched, drawn again, each by its index, a JPEG in
         /// base64; none where nothing changed (lift-up ATTR-1).
@@ -735,12 +763,18 @@ public final class Generator {
         public let key: String
         public let base: String?
         public let look: String
+        /// How much care each picture is made with, and what it costs: `low`, `medium`, or `high`
+        /// (lift-up FUNC-5).
+        public let quality: String
 
-        public init(provider: Provider, key: String, base: String? = nil, look: String = "illustration") {
+        public init(
+            provider: Provider, key: String, base: String? = nil, look: String = "illustration", quality: String = "medium"
+        ) {
             self.provider = provider
             self.key = key
             self.base = base
             self.look = look
+            self.quality = quality
         }
     }
 
@@ -807,6 +841,30 @@ public final class Generator {
         return .model(model)
     }
 
+    /// `requests` sent `atOnce` at a time, each group's answered before the next is sent, the
+    /// replies in the order the requests came.
+    nonisolated static func asked(_ requests: [GeneratorRequest], atOnce: Int, send: @escaping Send) async -> [GeneratorReply] {
+        var replies = [GeneratorReply?](repeating: nil, count: requests.count)
+        let step = max(1, atOnce)
+        for start in stride(from: 0, to: requests.count, by: step) {
+            let some = Array(requests.enumerated())[start..<min(start + step, requests.count)]
+            let got = await withTaskGroup(of: (Int, GeneratorReply).self) { group in
+                for (i, request) in some {
+                    group.addTask { (i, await send(request)) }
+                }
+                var got: [(Int, GeneratorReply)] = []
+                for await answer in group {
+                    got.append(answer)
+                }
+                return got
+            }
+            for (i, reply) in got {
+                replies[i] = reply
+            }
+        }
+        return replies.map { $0 ?? GeneratorReply(status: 0, body: Data("no answer".utf8)) }
+    }
+
     /// The pictures asked for made by `painter`, every one at once, a busy provider asked again
     /// after the wait the engine says: the last answer the provider gave, which says why where a
     /// picture was not made.
@@ -855,7 +913,7 @@ public final class Generator {
         }
         var asking: [String: JSONValue] = [
             "theme": .string(theme), "look": .string(painter.look), "provider": .string(painter.provider.rawValue),
-            "model": .string(model),
+            "model": .string(model), "quality": .string(painter.quality),
         ]
         if let base = painter.base { asking["base"] = .string(base) }
         let asked: Asked = try step("pictures", asking)
@@ -991,22 +1049,26 @@ public final class Generator {
         }
         // The deck shown to the model as it is drawn (PLAN G.13), each slide's change kept where
         // lint finds the slide no worse; then the fit, asked after it.
-        // The look goes a dozen slides a round (narrative PERF-5): each answer asks the next
-        // round, until the engine says what the look came to.
+        // The look goes a dozen slides a round (narrative PERF-5), the rounds asked a few at a
+        // time, as the CLI and the browser ask them (lift-up 20261025 PERF-2), and every answer
+        // handed back in the rounds' order. A round a busy provider answered for now is handed
+        // back alone, asked again after the wait the engine says (lift-up REL-1).
         var seeing = making.look
         if let first = seeing { hear(.looking(slides: first.slides)) }
+        var refused: GeneratorReply?
         while let round = seeing {
-            let reply = await send(round.request)
-            var answered: [String: JSONValue] = [
-                "status": .number(Double(reply.status)),
-                "statusText": .string(reply.status == 0 ? reply.text : HTTPURLResponse.localizedString(forStatusCode: reply.status)),
-                "body": .string(reply.status == 0 ? "" : reply.text),
-                "key": .string(key),
-            ]
-            if let after = reply.after { answered["after"] = .string(after) }
-            let looking: Looking = try await stepAway("looked", answered)
-            // A busy provider: the same round asked again after the wait the engine says, as the
-            // slides are (lift-up REL-1).
+            let replies = await Self.asked(round.rounds, atOnce: round.atOnce, send: send)
+            refused = replies.last { !(200..<300).contains($0.status) } ?? refused
+            let answers: [JSONValue] = replies.map { reply -> JSONValue in
+                var answered: [String: JSONValue] = [
+                    "status": .number(Double(reply.status)),
+                    "statusText": .string(reply.status == 0 ? reply.text : HTTPURLResponse.localizedString(forStatusCode: reply.status)),
+                    "body": .string(reply.status == 0 ? "" : reply.text),
+                ]
+                if let after = reply.after { answered["after"] = .string(after) }
+                return .object(answered)
+            }
+            let looking: Looking = try await stepAway("looked", ["replies": .array(answers), "key": .string(key)])
             if let wait = looking.wait {
                 hear(.retrying(seconds: wait, tried: looking.tried ?? 0))
                 try await Task.sleep(for: .seconds(wait))
@@ -1017,10 +1079,12 @@ public final class Generator {
                 if let data = Data(base64Encoded: again.jpeg) { drawn(again.slide, data) }
             }
             if let why = looking.unlooked {
-                hear(.unlooked(unanswered(why, provider, reply)))
+                hear(.unlooked(unanswered(why, provider, refused ?? replies[0])))
             } else {
                 hear(.looked(slides: looking.looked ?? 0))
             }
+            // Each change let go, and what lint found (lift-up USE-4).
+            for r in looking.refused ?? [] { hear(.refused(slide: r.slide, what: r.what, why: r.why)) }
             fit = looking.fit
         }
         // Each answer may ask once more for what the rewrite left too long (STAB-4), or, from a

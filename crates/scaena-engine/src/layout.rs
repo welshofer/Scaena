@@ -169,9 +169,10 @@ impl Grid {
                         |r: &Option<Range>| r.as_ref().map(|r| serde_json::to_value(r).expect("a range is JSON"));
                     let cells = self.cells(range(&slot.col).as_ref(), range(&slot.row).as_ref())?;
                     let [x, y, w, h] = if slot.bleed == Some(true) { self.bled(cells) } else { cells };
-                    // Its inset pulls each side in: words on a card that fills the same cells.
-                    let inset = slot.inset.unwrap_or(0.0) as f32;
-                    [x + inset, y + inset, (w - 2.0 * inset).max(0.0), (h - 2.0 * inset).max(0.0)]
+                    // Its inset pulls each side in: words on a card that fills the same cells, or
+                    // words under a text kept clear of its descenders.
+                    let [top, right, bottom, left] = slot.inset.map_or([0.0; 4], |i| i.sides()).map(|n| n as f32);
+                    [x + left, y + top, (w - left - right).max(0.0), (h - top - bottom).max(0.0)]
                 }
             }
         } else {
@@ -311,6 +312,7 @@ fn span(tracks: &[(f32, f32)], range: Option<&Value>, axis: &str) -> Result<(f32
 #[cfg(test)]
 mod tests {
     use super::*;
+    use scaena_core::model::theme::SlotInset;
     use serde_json::json;
 
     fn torture() -> Theme {
@@ -350,6 +352,23 @@ mod tests {
         let bare = grid.place(&dusk, None, Some(&json!({"col": [1, 4], "row": [3, 6]}))).unwrap();
         assert_eq!(units, [bare[0] + 24.0, bare[1] + 24.0, bare[2] - 48.0, bare[3] - 48.0]);
         assert!(place(json!("space.99")).unwrap_err().to_string().contains("no step 99"));
+    }
+
+    /// A slot's inset gives each side its own where it names them (theme format 0.27): words under
+    /// a quote set on the foot of its cells stand clear of its descenders, their left edge on the
+    /// quote's.
+    #[test]
+    fn a_slots_inset_may_give_each_side_its_own() {
+        let dusk = Theme::from_json(include_str!("../../../docs/examples/themes/dusk.theme.json")).unwrap();
+        let grid = Grid::from_theme(&dusk, [1920.0, 1080.0]).unwrap();
+        let cells = grid.place(&dusk, None, Some(&json!({"col": [2, 11], "row": [9, 10]}))).unwrap();
+        let who = grid.place(&dusk, Some("quote"), Some(&json!({"in": "who"}))).unwrap();
+        let top = match dusk.slots("quote").unwrap()["who"].inset {
+            Some(SlotInset::Sides(s)) => s.top.unwrap() as f32,
+            ref other => panic!("Dusk's quote credit has no top of its own: {other:?}"),
+        };
+        assert!(top > 0.0);
+        assert_eq!(who, [cells[0], cells[1] + top, cells[2], cells[3] - top]);
     }
 
     #[test]
