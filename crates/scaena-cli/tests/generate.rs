@@ -465,6 +465,8 @@ fn an_outline_is_written_first_and_the_slides_follow_the_edited_one() {
     beats[1]["claim"] = Value::String("Carriers cannot cut it with today's ships.".into());
     beats.pop();
     beats.push(serde_json::json!({ "name": "Thanks", "claim": "Thank you for listening.", "slides": 0 }));
+    // The beat moved first given three slides, which the slides keep (lift-up FUNC-4).
+    beats[0]["slides"] = serde_json::json!(3);
     std::fs::write(&outline, serde_json::to_string_pretty(&edited).unwrap()).unwrap();
     asked.lock().unwrap().clear();
     let out = run(&["--from-outline", outline.to_str().unwrap()]);
@@ -482,7 +484,10 @@ fn an_outline_is_written_first_and_the_slides_follow_the_edited_one() {
     let block = &prompt[prompt.find("**Outline (Scaena)**").expect("the outline's block")..];
     assert!(block.contains("The big idea, which every slide serves: \"Cargo can pay for its carbon.\""), "{block}");
     let moved = written["beats"][2]["name"].as_str().unwrap();
-    assert!(block.contains(&format!("Beat 1 \"{moved}\"")), "the beat moved first: {block}");
+    assert!(
+        block.contains(&format!("Beat 1 \"{moved}\" \u{2192} slides 1\u{2013}3:")),
+        "the beat moved first, its three slides kept: {block}"
+    );
     assert!(block.contains("Beat 2 \"Problem: Define core challenge and stakes\" \u{2192} slide"), "{block}");
     assert!(block.contains(": Carriers cannot cut it with today's ships.\n"), "the claim rewritten: {block}");
     assert!(block.contains("Beat 6 \"Thanks\" \u{2192} slide"), "the beat added: {block}");

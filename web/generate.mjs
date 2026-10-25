@@ -384,6 +384,8 @@ try {
   await page.locator("#prompting-beats li").last().locator(".name").fill("Thanks");
   await page.locator("#prompting-beats li").last().locator(".claim").fill("Thank you for listening.");
   await page.fill("#prompting-big-idea", "Cargo pays for its carbon.");
+  // The first beat given three slides, a number the person sets (lift-up FUNC-4).
+  await page.locator("#prompting-beats li").first().locator(".slides").fill("3");
   await mkdir("target/web-generate", { recursive: true });
   await page.locator("#prompting").screenshot({ path: "target/web-generate/outline.png" });
   await page.click("#prompting-write");
@@ -395,6 +397,7 @@ try {
   check(toOutline.includes("**Slot shapes (Scaena)**") && block.length > 0, "the slides' prompt carries Narrato's text, then the outline's block");
   check(block.includes("\"Cargo pays for its carbon.\""), "with the big idea as typed");
   check(/Beat 1 "Existing Approaches[^\n]*\n\s+Beat 2 "Problem/.test(block), `the beats in the order settled: ${block.slice(0, 400)}`);
+  check(/Beat 1 "Existing Approaches[^"]*" → slides 1–3:/.test(block), `the first beat takes the three slides set: ${block.slice(0, 300)}`);
   check(block.includes(": No carrier can cut it alone.\n") && block.includes("Beat 6 \"Thanks\"") && !block.includes("Claim 6:"), "the claim rewritten, the beat added, the beat removed");
   check(await page.locator("#prompting").evaluate((d) => !d.open), "the deck made, the dialog closed");
   const made = await page.evaluate(() => window.scaena.where());
