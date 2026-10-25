@@ -13,6 +13,7 @@ use crate::create::{Attach, Create, Created, attaching, creating};
 use crate::lint::{View, Write, lint_in};
 use crate::{Context, OpsError};
 use base64::Engine;
+use scaena_core::document::NodeType;
 use scaena_core::inserts::slug;
 use scaena_core::model::nodes::TextFit;
 use scaena_core::model::theme::{Example, Prompt, PromptItems, PromptShapeKind, Slot, Theme};
@@ -37,6 +38,7 @@ use std::path::{Path, PathBuf};
 
 mod one;
 pub use one::{Place, SlideWritten, Written, one_asked, slide_into, slide_polishing, slide_write, slide_writing};
+mod quoting;
 
 /// The canvas a made deck draws on.
 const CANVAS: [u32; 2] = [1920, 1080];
@@ -403,6 +405,9 @@ pub struct Kept {
     pub rows: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub why: Option<String>,
+    /// How many figures the deck's slides write quote it (G1).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub quoted: Option<usize>,
 }
 
 /// `write`, a bundle not yet written, with each sheet given kept as a data source
@@ -411,7 +416,14 @@ pub struct Kept {
 pub fn keeping(mut write: Write, tables: &[Table]) -> Result<(Write, Vec<Kept>), OpsError> {
     let mut kept = Vec::new();
     for table in tables {
-        let not = |why: String| Kept { sheet: table.named.clone(), id: None, source: None, rows: None, why: Some(why) };
+        let not = |why: String| Kept {
+            sheet: table.named.clone(),
+            id: None,
+            source: None,
+            rows: None,
+            why: Some(why),
+            quoted: None,
+        };
         let Some(csv) = table.csv.clone() else {
             kept.push(not("no row under its header".into()));
             continue;
@@ -428,12 +440,25 @@ pub fn keeping(mut write: Write, tables: &[Table]) -> Result<(Write, Vec<Kept>),
                 write.deck = w.deck;
                 write.files.extend(w.files);
                 let (source, rows) = (Some(attached.source), Some(attached.rows));
-                kept.push(Kept { sheet: table.named.clone(), id: Some(id), source, rows, why: None });
+                kept.push(Kept { sheet: table.named.clone(), id: Some(id), source, rows, why: None, quoted: None });
             }
             Ok((attached, _)) => {
                 kept.push(not(attached.added.first().map_or("it would not validate".into(), |f| f.message.clone())))
             }
             Err(e) => kept.push(not(e.to_string())),
+        }
+    }
+    // Each figure a slide writes that is one kept cell's value quotes it, so the slide follows
+    // the data (G1, ADR-0019).
+    let ids: Vec<String> = kept.iter().filter_map(|k| k.id.clone()).collect();
+    if !ids.is_empty() {
+        let mut doc = write.deck.to_value().context("the deck")?;
+        let counts = quoting::quoting(&mut doc, &write.files, &ids);
+        if counts.iter().any(|(_, n)| *n > 0) {
+            write.deck = Deck::from_json(&doc.to_string()).context("the deck")?;
+        }
+        for k in &mut kept {
+            k.quoted = counts.iter().find(|(id, _)| k.id.as_ref() == Some(id)).map(|(_, n)| *n);
         }
     }
     Ok((write, kept))
@@ -1531,6 +1556,7 @@ pub fn making(
     theme: String,
     font: &dyn Fn(&str) -> Result<Vec<u8>, OpsError>,
 ) -> Result<(Generated, Option<Write>), OpsError> {
+    let model: Theme = serde_json::from_str(&theme).context("the theme")?;
     let req =
         Create { theme: PathBuf::from(theme_file), deck: Some(made.deck), assets: made.assets, ..Create::default() };
     let none = |path: &Path| -> Result<Vec<u8>, OpsError> {
@@ -1575,6 +1601,12 @@ pub fn making(
         let deck = Deck::from_json(&doc.to_string()).context("the deck set clear")?;
         created.findings = lint_in(&deck, &view)?.findings;
     }
+    // The cover and the close, where no picture was made for them, on the theme's backdrop.
+    if let Some(grounded) = grounded(&doc, &model, &view)? {
+        doc = grounded;
+        let deck = Deck::from_json(&doc.to_string()).context("the deck on its backdrop")?;
+        created.findings = lint_in(&deck, &view)?.findings;
+    }
     // Then each fix lint offers, each checked by laying its state out again with it; a fix that
     // makes a text of a set shrink, the set held to one size again.
     let mut settled = settle(doc, created.findings, &view)?;
@@ -1588,6 +1620,52 @@ pub fn making(
     made.created.findings = settled.findings;
     write.deck = settled.deck;
     Ok((made, Some(write)))
+}
+
+/// The theme's shader preset a made deck's cover and close stand on where no picture was made for
+/// them (Jay's call, 2026-10-25).
+const GROUND: &str = "backdrop";
+
+/// `doc` with its cover and its closing slide each on the theme's [`GROUND`], as a person sets a
+/// slide's background ([`crate::backgrounds::setting`]), the texts it would leave too faint to read
+/// set in the theme's color that reads over it; none where neither takes it (lift-up 10-24 ATTR-1,
+/// Jay's call, 2026-10-25). A slide with a picture made for it keeps its picture, and one that
+/// shows a chart or a table its plain surface (W311); no slide between them changes. A background
+/// is not a stand-in for a picture (PLAN G.10): a slide that waits for one still waits.
+fn grounded(doc: &Value, theme: &Theme, view: &View) -> Result<Option<Value>, OpsError> {
+    if !theme.shaders.as_ref().and_then(|s| s.presets.as_ref()).is_some_and(|p| p.contains_key(GROUND)) {
+        return Ok(None);
+    }
+    let mut doc = doc.clone();
+    let mut changed = false;
+    let ends: Vec<String> = {
+        let deck = Deck::from_json(&doc.to_string()).context("the deck")?;
+        let slides = deck.slides();
+        let first = |states: &Vec<usize>| deck.states[states[0]].id.clone();
+        let mut ends: Vec<String> = slides.first().map(first).into_iter().collect();
+        ends.extend(slides.last().filter(|_| slides.len() > 1).map(first));
+        ends
+    };
+    for state in ends {
+        let deck = Deck::from_json(&doc.to_string()).context("the deck")?;
+        let snaps = scaena_core::resolve_states(&deck).context("tracking")?;
+        let slide = deck.state_index(&state).map(|i| deck.slide_of(&deck.states[i]).to_string());
+        let shown = |types: &[NodeType]| {
+            (deck.states.iter().zip(&snaps)).any(|(st, snap)| {
+                Some(deck.slide_of(st)) == slide.as_deref()
+                    && snap.nodes.keys().any(|id| deck.nodes.get(id).is_some_and(|n| types.contains(&n.node_type)))
+            })
+        };
+        if shown(&[NodeType::Image, NodeType::Shader, NodeType::Chart, NodeType::Table]) {
+            continue;
+        }
+        let patch = crate::backgrounds::setting(&deck, theme, view, &state, Some(GROUND))?;
+        let after = scaena_core::patch::compile(&doc, &patch, view)
+            .map_err(|e| OpsError::new(format!("the {GROUND} behind `{state}`: {e}")))?;
+        doc = after.doc;
+        changed = true;
+    }
+    Ok(changed.then_some(doc))
 }
 
 /// `doc` with the characters an E120 finding names written as plain text writes them, where the
@@ -2721,16 +2799,44 @@ fn holds(theme: &Theme, layout: &str, n: usize) -> bool {
 
 /// `text` as a sentence begins: its first word capitalized where it is all lower case, as the
 /// detail after a label begins ("cuts emissions 80%"); a word that has a capital of its own
-/// ("iPhone") left as it is.
+/// ("iPhone"), and code or an identifier ("prices, err :=", "p99", "k8s"), left as written
+/// (DF7-2).
 fn sentence(text: &str) -> String {
     let word = text.split_whitespace().next().unwrap_or_default();
     let mut chars = text.chars();
     match chars.next() {
-        Some(first) if first.is_lowercase() && word.chars().all(|c| !c.is_uppercase()) => {
+        Some(first)
+            if first.is_lowercase()
+                && word.chars().all(|c| !c.is_uppercase())
+                && !identifier(word)
+                && !reads_as_code(text) =>
+        {
             first.to_uppercase().chain(chars).collect()
         }
         _ => text.to_string(),
     }
+}
+
+/// Whether `word` is an identifier, not a word of a sentence: it holds an underscore, a dot
+/// inside it, a bracket, a backtick, or a digit ("snake_case", "pricing.GetMany", "p99", "k8s").
+fn identifier(word: &str) -> bool {
+    let word = word.trim_end_matches([',', ';', ':', '.', '!', '?']);
+    word.contains(['_', '(', ')', '[', ']', '`']) || word.contains('.') || word.chars().any(|c| c.is_ascii_digit())
+}
+
+/// Whether `text` reads as code rather than prose: it holds a backtick, a brace, an angle
+/// bracket a letter, `/`, or `=` follows ("<div>", "Vec<T>", "<="), or one of code's operators
+/// (`:=`, `=>`, `->`, `==`, `!=`, `()`, `::`), or it ends in a semicolon. A comparison of figures,
+/// "<100 ms" or "> 5%", is prose. Its case and its marks are kept as written (DF7-2).
+fn reads_as_code(text: &str) -> bool {
+    let tagged = text
+        .char_indices()
+        .filter(|(_, c)| matches!(c, '<' | '>'))
+        .any(|(i, _)| text[i + 1..].chars().next().is_some_and(|n| n.is_alphabetic() || n == '/' || n == '='));
+    tagged
+        || text.contains(['`', '{', '}'])
+        || [":=", "=>", "->", "==", "!=", "()", "::"].iter().any(|op| text.contains(op))
+        || text.trim_end().ends_with(';')
 }
 
 /// A slide as the deck plans it before any is built: its beat, its items, the icons they stand
@@ -3177,6 +3283,9 @@ impl Slots<'_> {
             (Some((_, "title")), "title") if self.layout.starts_with("team-names") => {
                 self.under_headline().filter(|most| size(role).is_some_and(|own| *most > own))
             }
+            // A checklist's states are what it is for: as large as their places take, toward the
+            // lede, never left the smallest words on the slide (dogfood pass 7).
+            (Some((_, "state")), "label") if self.layout == "checklist" => at_least("lede"),
             (Some((_, "figure")), "figure") => at_least("numeral"),
             // A tier's price is its card's point: as large as its place takes, up to the hero's
             // size, the set's held to one (dogfood pass 4).
@@ -4506,7 +4615,8 @@ fn typeset_all(narrative: &Narrative) -> Narrative {
 /// one reads as an apostrophe. A short parenthetical, "P(E | H)", is kept on one line, its spaces
 /// ones no line breaks at (U+00A0).
 fn typeset(text: &str, lang: &str) -> String {
-    if text.contains(['`', '{', '}', '<', '>']) {
+    // An angle bracket anywhere keeps a text as it is, as it did before [`reads_as_code`].
+    if text.contains(['<', '>']) || reads_as_code(text) {
         return text.to_string();
     }
     let marks = Marks::of(lang);
@@ -4548,16 +4658,13 @@ fn typeset(text: &str, lang: &str) -> String {
                 i += 3;
                 continue;
             }
-            '-' if (i > 0 && digit(i - 1) && digit(i + 1) && !chained(&chars, i))
+            '-' if (i > 0 && digit(i - 1) && digit(i + 1) && !chained(&chars, i) && !dialed(&chars, i))
                 || (before == Some(' ') && after == Some(' ')) =>
             {
                 out.push('\u{2013}')
             }
-            // A figure keeps its percent or degree sign on its line, as German sets "+41 %"
-            // (dogfood pass 7): the space between them one no line breaks at.
-            ' ' if i > 0 && digit(i - 1) && after.is_some_and(|a| matches!(a, '%' | '\u{2030}' | '\u{b0}')) => {
-                out.push('\u{a0}')
-            }
+            // A figure and its unit, and a day and its month, stay on one line (DF7-2).
+            ' ' if joined(&chars, i) => out.push('\u{a0}'),
             '(' => match short_parenthetical(&chars[i..]) {
                 Some(len) => {
                     out.extend(chars[i..i + len].iter().map(|c| if *c == ' ' { '\u{a0}' } else { *c }));
@@ -4581,6 +4688,73 @@ fn short_parenthetical(chars: &[char]) -> Option<usize> {
     let inside = &chars[1..close];
     (inside.len() <= 12 && inside.contains(&' ') && !inside.contains(&'(')).then_some(close + 1)
 }
+
+/// Whether the hyphen at `at` is a phone number's or a postcode's, which no range is (DF7-2): three
+/// digits then four, "(555) 014-2200" or "555-0142", unless both end in 0 and the four do not
+/// begin with one, as a deck's round ranges do ("500-1000"); five then four, a ZIP+4; or digits
+/// after a `+`, "+49 30 1234-5678".
+fn dialed(chars: &[char], at: usize) -> bool {
+    let start = chars[..at].iter().rposition(|c| !c.is_ascii_digit()).map_or(0, |p| p + 1);
+    let end = chars[at + 1..].iter().position(|c| !c.is_ascii_digit()).map_or(chars.len(), |p| at + 1 + p);
+    let (before, after) = (at - start, end - at - 1);
+    // Back over the number's digits, spaces, and brackets, to a `+` that opens it.
+    let opened = chars[..start]
+        .iter()
+        .rev()
+        .find(|c| !(c.is_ascii_digit() || matches!(c, ' ' | '(' | ')' | '.' | '-')))
+        .is_some_and(|c| *c == '+');
+    let round = chars[at - 1] == '0' && chars[end - 1] == '0' && chars[at + 1] != '0';
+    ((before, after) == (3, 4) && !round) || (before, after) == (5, 4) || opened
+}
+
+/// Whether the space at `at` joins a figure to its unit ("140 ms", "+18 %", "48,6 Mio. €"), or a
+/// day to its month ("12. November"), so that no line breaks between them (DF7-2).
+fn joined(chars: &[char], at: usize) -> bool {
+    let word_start = chars[..at].iter().rposition(|c| c.is_whitespace()).map_or(0, |p| p + 1);
+    let word_end = chars[at + 1..].iter().position(|c| c.is_whitespace()).map_or(chars.len(), |p| at + 1 + p);
+    let before: String = chars[word_start..at].iter().collect();
+    let after: String = chars[at + 1..word_end].iter().collect();
+    let bare = after.trim_end_matches([',', ';', ':', ')', '!', '?']);
+    let unit = |w: &str| UNITS.contains(&w) || UNITS.contains(&w.trim_end_matches('.'));
+    let figure = before.chars().last().is_some_and(|c| c.is_ascii_digit());
+    let scale = SCALES.contains(&before.as_str());
+    let day =
+        before.len() <= 3 && before.ends_with('.') && before.trim_end_matches('.').bytes().all(|b| b.is_ascii_digit());
+    (figure && unit(bare))
+        || (scale && SCALED_CURRENCIES.contains(&bare))
+        || (day && !before.trim_end_matches('.').is_empty() && MONTHS.contains(&bare))
+}
+
+/// The units a figure is written before, with a space, which no line breaks at (DF7-2).
+const UNITS: &[&str] = &[
+    "%", "\u{2030}", "\u{b0}", "\u{b0}C", "\u{b0}F", "ms", "\u{b5}s", "ns", "s", "min", "h", "hrs", "km", "m", "cm",
+    "mm", "kg", "g", "t", "kWh", "MWh", "GWh", "TWh", "kW", "MW", "GW", "Hz", "kHz", "MHz", "GHz", "KB", "MB", "GB",
+    "TB", "PB", "Mbps", "Gbps", "rps", "qps", "fps", "px", "ppm", "mph", "km/h", "\u{20ac}", "$", "\u{a3}", "\u{a5}",
+    "EUR", "USD", "GBP", "CHF", "Mio", "Mrd", "Tsd", "bn", "mn",
+];
+
+/// The scale words a currency follows, "Mio. €", with a space no line breaks at (DF7-2).
+const SCALES: &[&str] = &["Mio.", "Mrd.", "Tsd.", "Mio", "Mrd", "bn", "mn"];
+
+/// The currencies written after a figure or its scale.
+const SCALED_CURRENCIES: &[&str] = &["\u{20ac}", "$", "\u{a3}", "\u{a5}", "EUR", "USD", "GBP", "CHF"];
+
+/// The months a day is written before, "12. November", as German writes a date.
+const MONTHS: &[&str] = &[
+    "Januar",
+    "J\u{e4}nner",
+    "Februar",
+    "M\u{e4}rz",
+    "April",
+    "Mai",
+    "Juni",
+    "Juli",
+    "August",
+    "September",
+    "Oktober",
+    "November",
+    "Dezember",
+];
 
 /// Whether the hyphen at `at` joins one of several runs of digits, as a date's do: 2024-10-12.
 fn chained(chars: &[char], at: usize) -> bool {
@@ -4635,14 +4809,24 @@ fn at_places(value: f64, places: usize, unit: Option<&str>) -> String {
 }
 
 /// Which of a single series' categories the slide is about, by index: the one its takeaway
-/// names; else, where the categories are years, the latest; else the largest.
+/// names; else, where the categories are years, the latest; else the largest. A year the
+/// takeaway runs on from ("since 2022", "after", "from") is where the story starts, not where it
+/// lands: the latest is lit, as a line's band runs from that year to the last (dogfood pass 7).
 fn signal(chart: &ChartData, takeaway: Option<&str>) -> Option<usize> {
     let named: Vec<usize> = (0..chart.categories.len())
         .filter(|i| takeaway.is_some_and(|t| t.to_lowercase().contains(&chart.categories[*i].to_lowercase())))
         .collect();
     let years = chart.categories.iter().all(|c| c.len() == 4 && c.chars().all(|d| d.is_ascii_digit()));
     let values = chart.series.first().map(|s| s.values.as_slice()).unwrap_or_default();
+    let runs_on = |year: &str| {
+        let words: Vec<String> = (takeaway.unwrap_or_default().split(|c: char| !c.is_alphanumeric()))
+            .filter(|w| !w.is_empty())
+            .map(str::to_lowercase)
+            .collect();
+        words.windows(2).any(|w| matches!(w[0].as_str(), "since" | "after" | "from") && w[1] == year)
+    };
     match named.as_slice() {
+        [one] if years && runs_on(&chart.categories[*one]) => chart.categories.len().checked_sub(1),
         [one] => Some(*one),
         _ if years => chart.categories.len().checked_sub(1),
         _ => (values.iter().enumerate()).max_by(|a, b| a.1.total_cmp(b.1)).map(|(i, _)| i),
@@ -5114,6 +5298,24 @@ mod tests {
         assert_eq!(period(&line(&["Q1", "Q2", "Q3"]), [Some("Since 1980"), None]), None);
     }
 
+    /// Bars of years light the year the takeaway lands on: one it names bare, or the latest where
+    /// the words run on from the one named ("since 2022"), never the start (dogfood pass 7).
+    #[test]
+    fn bars_of_years_light_where_the_takeaway_lands() {
+        let wait = ChartData {
+            categories: ["2022", "2023", "2024", "2025"].map(String::from).to_vec(),
+            series: vec![answer::Series { name: None, values: vec![11.0, 17.0, 26.0, 34.0] }],
+            ..Default::default()
+        };
+        assert_eq!(signal(&wait, Some("The wait has tripled since 2022")), Some(3));
+        assert_eq!(signal(&wait, Some("From 2023, it climbed")), Some(3));
+        assert_eq!(signal(&wait, Some("2023 was the turn")), Some(1));
+        assert_eq!(signal(&wait, Some("Longer every year")), Some(3));
+        // Categories that are no years keep the one named.
+        let stages = ChartData { categories: ["Gateway", "Pricing"].map(String::from).to_vec(), ..wait.clone() };
+        assert_eq!(signal(&stages, Some("Since Pricing fell")), Some(1));
+    }
+
     fn typeset_en(text: &str) -> String {
         typeset(text, "en")
     }
@@ -5141,6 +5343,68 @@ mod tests {
         let i = item("-13%: Arctic summer ice per decade");
         assert_eq!((i.label.as_deref(), i.figure().as_deref()), (Some("-13%"), Some("-13%")));
         assert_eq!(item("- Measure our travel").whole, "Measure our travel");
+    }
+
+    /// A detail that is code or an identifier keeps its case (DF7-2, deepdive 6): Go stays Go,
+    /// and "p99" and "k8s" stay as written; a sentence's first word is still capitalized.
+    #[test]
+    fn code_and_identifiers_are_never_capitalized() {
+        assert_eq!(
+            sentence("for _, item := range cart.Items { total += item.Price }"),
+            "for _, item := range cart.Items { total += item.Price }"
+        );
+        assert_eq!(sentence("prices, err := pricing.GetMany(ctx, ids)"), "prices, err := pricing.GetMany(ctx, ids)");
+        assert_eq!(sentence("p99 fell from 1,840 ms to 740 ms"), "p99 fell from 1,840 ms to 740 ms");
+        assert_eq!(sentence("k8s autoscaling held"), "k8s autoscaling held");
+        assert_eq!(sentence("cart_items is read once"), "cart_items is read once");
+        assert_eq!(sentence("`fetch` runs once per cart"), "`fetch` runs once per cart");
+        assert_eq!(sentence("iPhone sales held"), "iPhone sales held");
+        assert_eq!(sentence("cuts emissions 80%"), "Cuts emissions 80%");
+        // A comparison of figures is prose; a tag or a type's brackets are code.
+        assert_eq!(sentence("reduced latency to <100 ms"), "Reduced latency to <100 ms");
+        assert_eq!(sentence("churn >5% in EMEA"), "Churn >5% in EMEA");
+        assert_eq!(sentence("churn > 5% in EMEA"), "Churn > 5% in EMEA");
+        assert_eq!(sentence("returns Vec<Price> once"), "returns Vec<Price> once");
+        assert_eq!(sentence("wrap it in <div> tags"), "wrap it in <div> tags");
+        // Code keeps its marks, as it keeps its case.
+        assert_eq!(typeset_en("prices, err := pricing.GetMany(\"a\")"), "prices, err := pricing.GetMany(\"a\")");
+    }
+
+    /// A phone number's hyphen, and a ZIP+4's, are no range (DF7-2, appeal 11).
+    #[test]
+    fn a_phone_number_keeps_its_hyphens() {
+        assert_eq!(
+            typeset_en("harborhouse.org/winter \u{b7} (555) 014-2200"),
+            "harborhouse.org/winter \u{b7} (555) 014-2200"
+        );
+        assert_eq!(typeset_en("Call 555-0142"), "Call 555-0142");
+        assert_eq!(typeset_en("Portland, ME 04101-3102"), "Portland, ME 04101-3102");
+        assert_eq!(typeset_en("+49 30 1234-5678"), "+49 30 1234-5678");
+        // A range of figures is still a range, a round one of three digits then four too.
+        assert_eq!(typeset_en("2021-2024, 70-90%"), "2021\u{2013}2024, 70\u{2013}90%");
+        assert_eq!(typeset_en("500-1000 employees"), "500\u{2013}1000 employees");
+        assert_eq!(typeset_en("250-1000 ms"), "250\u{2013}1000\u{a0}ms");
+        assert_eq!(typeset_en("Call 555-1234 or 555-0140"), "Call 555-1234 or 555-0140");
+    }
+
+    /// A figure never parts from its unit, nor a scale from its currency, nor a German day from its
+    /// month (DF7-2, deepdive 8, board-de 1 and 9): the spaces between are ones no line breaks at,
+    /// and every other space is as written.
+    #[test]
+    fn a_figure_keeps_its_unit_and_a_date_its_month() {
+        assert_eq!(typeset_en("to 140 ms at p99"), "to 140\u{a0}ms at p99");
+        assert_eq!(typeset("60 Mio. \u{20ac} Quartalsumsatz", "de"), "60\u{a0}Mio.\u{a0}\u{20ac} Quartalsumsatz");
+        assert_eq!(
+            typeset("1,2 Mio. \u{20ac}: EBITDA, +18 %", "de"),
+            "1,2\u{a0}Mio.\u{a0}\u{20ac}: EBITDA, +18\u{a0}%"
+        );
+        assert_eq!(typeset("am 12. November 2026", "de"), "am 12.\u{a0}November 2026");
+        // Words after a figure that are no unit, and a sentence's full stop before a month, keep their space.
+        assert_eq!(typeset_en("3 teams in 2 weeks"), "3 teams in 2 weeks");
+        assert_eq!(typeset("Ende 2026. November war gut", "de"), "Ende 2026. November war gut");
+        // Set once, words stay as they are.
+        let once = typeset("1,2 Mio. \u{20ac} am 12. November", "de");
+        assert_eq!(typeset(&once, "de"), once);
     }
 
     /// A quotation is marked as the deck's language marks one, a model's curled marks too, and set
@@ -6062,6 +6326,12 @@ mod tests {
         assert!(!section.iter().any(|(slot, _)| slot == "number"), "{section:?}");
         assert_eq!(sentence("iPhone sales"), "iPhone sales");
         assert_eq!(sentence("cuts emissions 80%"), "Cuts emissions 80%");
+        // A comparison of figures is prose; a tag or a type's brackets are code.
+        assert_eq!(sentence("reduced latency to <100 ms"), "Reduced latency to <100 ms");
+        assert_eq!(sentence("churn >5% in EMEA"), "Churn >5% in EMEA");
+        assert_eq!(sentence("churn > 5% in EMEA"), "Churn > 5% in EMEA");
+        assert_eq!(sentence("returns Vec<Price> once"), "returns Vec<Price> once");
+        assert_eq!(sentence("wrap it in <div> tags"), "wrap it in <div> tags");
     }
 
     /// A talk on climate change for colleagues, 25 slides as Narrato writes them.
@@ -6850,7 +7120,7 @@ mod tests {
         // A line chart's callout is its latest figure, and its takeaway stands under it.
         let co2 = said(5);
         has(&co2, "callout", "424 ppm");
-        has(&co2, "note", "From 280 ppm before industry to 424 ppm in 2024");
+        has(&co2, "note", "From 280\u{a0}ppm before industry to 424\u{a0}ppm in 2024");
         has(&said(4), "callout", "1.55\u{b0}C");
         // A line along years runs on time, 2010 to 2024 as long as fourteen years are (G.18); bars
         // of years stay a step apart.
@@ -6905,11 +7175,32 @@ mod tests {
         has(&invest, "note", "Global energy investment in 2024, trillions of dollars");
         assert!(placed(&made.deck, 18, "first-figure").get("style").is_none());
         assert_eq!(placed(&made.deck, 18, "second-figure")["style"], json!({ "color": "onSurfaceMuted" }));
-        // With no picture made, a slide waits for none: no theme art stands in for one.
+        // With no picture made, a slide waits for none: no theme art stands in for one, and a
+        // layout chosen for a picture is none of them.
         assert!(
             made.deck["nodes"].as_object().unwrap().values().all(|n| n["type"] != "shader" && n["type"] != "image")
         );
         assert_eq!((made.layouts[0].as_str(), made.layouts[20].as_str()), ("title-center", "myth-fact"));
+        // Made a bundle, its cover and its close stand on the theme's backdrop, and no other slide
+        // does (lift-up 10-24 ATTR-1, Jay's call, 2026-10-25): a background, not a stand-in for a
+        // picture (PLAN G.10), so the layouts stay as chosen and the bundle holds no picture.
+        let layouts = made.layouts.clone();
+        let again = deck(&climate(), &theme, &Pictures::new()).unwrap();
+        let (bundled, write) = making(again, "Data Storytelling", Path::new("dusk.theme.json"), dusk(), &font).unwrap();
+        let deck = write.unwrap().deck;
+        assert_eq!(bundled.layouts, layouts);
+        assert!(bundled.created.errors == 0, "{:#?}", bundled.created.findings);
+        let grounds: Vec<(&str, &str)> = (deck.nodes.iter())
+            .filter(|(_, n)| n.node_type == NodeType::Shader)
+            .map(|(id, n)| (id.as_str(), n.props.get("preset").and_then(Value::as_str).unwrap_or_default()))
+            .collect();
+        let first = deck.states.first().unwrap().id.clone();
+        let last = deck.slides().last().map(|s| deck.states[s[0]].id.clone()).unwrap();
+        assert_eq!(
+            grounds,
+            [(format!("{first}-background").as_str(), "backdrop"), (format!("{last}-background").as_str(), "backdrop")]
+        );
+        assert!(deck.nodes.values().all(|n| n.node_type != NodeType::Image));
         // Four next steps written as labelled items are numbered cards; a Q&A stays one.
         assert_eq!((made.layouts[22].as_str(), made.layouts[23].as_str()), ("numbered-cards", "qa"));
         assert_eq!(made.layouts[19], "numbered-cards");
