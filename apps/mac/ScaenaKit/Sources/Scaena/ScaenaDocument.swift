@@ -246,6 +246,7 @@ final class ScaenaDocument: ReferenceFileDocument {
     /// edit is one step to undo, which makes the source as it was and writes back the files `edit`
     /// gives as they were.
     func beside(_ edit: () throws -> [Rewritten], undo: UndoManager?) throws {
+        try editor.unassisted()
         let before = editor.source
         let files = try edit()
         editor.reread()
@@ -256,6 +257,7 @@ final class ScaenaDocument: ReferenceFileDocument {
     /// one step to undo, the session's own, which puts the file back as it was, and the source as
     /// it was where the edit set a quote of the data again; redone, it is written again.
     func data(_ edit: () throws -> Void, undo: UndoManager?) throws {
+        try editor.unassisted()
         let before = editor.source
         try edit()
         editor.reread()

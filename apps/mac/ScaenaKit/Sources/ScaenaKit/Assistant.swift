@@ -62,8 +62,11 @@ public final class Assistant {
 
     public let editor: DeckEditor
     public private(set) var entries: [Entry] = []
-    /// Whether a question is being answered.
-    public private(set) var working = false
+    /// Whether a question is being answered: while one is, the deck is the assistant's alone
+    /// (lift-up STAB-5).
+    public private(set) var working = false {
+        didSet { editor.assisting = working }
+    }
     /// Tokens in and out since the conversation began.
     public private(set) var usage = Usage(input: 0, output: 0)
     /// A question another panel drafted for the user to send (the story's, PLAN G.9): the
