@@ -114,6 +114,9 @@ struct Run {
     size: f32,
     /// Whether it is a code text's (ADR-0029): a token in the color its kind is drawn in.
     code: bool,
+    /// Whether it is a code text's that stands on no card (PLAN 2.136), which a card would
+    /// give the ground its colors are held to.
+    bare: bool,
 }
 
 /// Each run of `t` placed at `origin`, as boxes from its glyphs' advances and its line's
@@ -146,6 +149,7 @@ fn texts(cx: &Cx, state: &Laid) -> (Vec<Run>, BTreeSet<String>, Charts) {
     let screen = to_screen(cx);
     let mut out = Vec::new();
     let (mut ids, mut charts, mut pictures) = (BTreeSet::new(), BTreeSet::new(), BTreeSet::new());
+    let mut carded = BTreeSet::new();
     // A node's opacity times its groups'.
     let composite = |id: &str| {
         let mut alpha = 1.0_f64;
@@ -173,7 +177,13 @@ fn texts(cx: &Cx, state: &Laid) -> (Vec<Run>, BTreeSet<String>, Charts) {
         // Each text the node sets: where, at what opacity of its own, and in a chart,
         // what it is for.
         let placed: Vec<(&TextLayout, [f32; 2], f32, Option<ChartText>)> = match &node.content {
-            Content::Text(placed) => vec![(&placed.text, placed.origin, 1.0, None)],
+            // Code's line numbers are judged with its words (PLAN 2.136).
+            Content::Text(placed) => {
+                let gutter = placed.frame.as_ref().and_then(|f| f.gutter.as_ref());
+                let mut texts = vec![(&placed.text, placed.origin, 1.0, None)];
+                texts.extend(gutter.map(|(at, numbers)| (numbers, *at, 1.0, None)));
+                texts
+            }
             Content::Table { cell, table } => {
                 table.header.iter().chain(&table.cells).map(|c| (&c.text, at(cell, c.origin), 1.0, None)).collect()
             }
@@ -198,9 +208,12 @@ fn texts(cx: &Cx, state: &Laid) -> (Vec<Run>, BTreeSet<String>, Charts) {
         };
         // What is under a chart's text, or a picture's, is the rest of it: only its glyphs, or
         // its words' layers, are taken away.
+        // Code's card is under its words (PLAN 2.136): only its glyphs are taken away.
+        let card = matches!(&node.content, Content::Text(p) if p.frame.as_ref().is_some_and(|f| f.card.is_some()));
         match node.content {
             Content::Chart { .. } => charts.insert(node.id.clone()),
             Content::Image(_) => pictures.insert(node.id.clone()),
+            _ if card => carded.insert(node.id.clone()),
             _ => ids.insert(node.id.clone()),
         };
         let code = shows_code(cx, state, &node.id);
@@ -221,18 +234,21 @@ fn texts(cx: &Cx, state: &Laid) -> (Vec<Run>, BTreeSet<String>, Charts) {
                     display: px >= 24.0 || (px >= 18.67 && t.weight >= 700.0 && t.lighter.is_empty()),
                     size: px,
                     code,
+                    bare: code && !card,
                 });
             }
         }
     }
-    (out, ids, Charts { charts, pictures })
+    (out, ids, Charts { charts, pictures, carded })
 }
 
-/// What the backdrop takes the text out of: charts, whose glyphs go, and pictures, whose words'
-/// layers go, underlines and all.
+/// What the backdrop takes the text out of: charts and code on a card, whose glyphs go, and
+/// pictures, whose words' layers go, underlines and all.
 struct Charts {
     charts: BTreeSet<String>,
     pictures: BTreeSet<String>,
+    /// Code on a card (PLAN 2.136), whose glyphs go and whose card stays.
+    carded: BTreeSet<String>,
 }
 
 impl Charts {
@@ -255,7 +271,9 @@ fn strip(ops: &mut Vec<Op>, ids: &BTreeSet<String>, charts: &Charts) {
     ops.retain(|op| !matches!(op, Op::Layer { node: Some(id), .. } if ids.contains(id)));
     for op in ops {
         match op {
-            Op::Layer { node: Some(id), ops, .. } if charts.charts.contains(id) => unglyph(ops),
+            Op::Layer { node: Some(id), ops, .. } if charts.charts.contains(id) || charts.carded.contains(id) => {
+                unglyph(ops)
+            }
             Op::Layer { node: Some(id), ops, .. } if charts.pictures.contains(id) => unword(ops),
             Op::Layer { ops, .. } => strip(ops, ids, charts),
             _ => {}
@@ -449,6 +467,8 @@ struct Worst {
     size: f32,
     /// Whether its text is code, which takes the theme's code colors (ADR-0029).
     code: bool,
+    /// Whether it is code that stands on no card (PLAN 2.136).
+    bare: bool,
     states: Vec<String>,
 }
 
@@ -515,6 +535,7 @@ pub fn check(
                     text: run.color,
                     size: run.size,
                     code: run.code,
+                    bare: run.bare,
                     states: Vec::new(),
                 };
                 match worst.get_mut(&run.subject) {
@@ -536,7 +557,7 @@ pub fn check(
     let hex = |c: [u8; 3]| format!("#{:02X}{:02X}{:02X}", c[0], c[1], c[2]);
     Ok(worst
         .into_iter()
-        .map(|((node, part), Worst { ratio: r, said, needs, index, background: bg, text: fg, size, code: coded, states })| {
+        .map(|((node, part), Worst { ratio: r, said, needs, index, background: bg, text: fg, size, code: coded, bare, states })| {
             let (code, class) = if needs > 3.0 { ("E110", "body") } else { ("E111", "display") };
             let fg = hex(fg.map(|c| (c * 255.0).round() as u8));
             let reads = format!("{r:.2}:1 contrast with what is behind it; {class} text needs {needs}:1");
@@ -578,10 +599,19 @@ pub fn check(
                 "ratio": (r * 100.0).round() / 100.0, "needs": needs, "text": fg, "background": hex(bg),
                 "size": size, "states": states,
             });
+            // Code on no card: its card is its fix (PLAN 2.136), the ground its colors are held to.
+            let card = (bare && part.is_none())
+                .then(|| {
+                    let op = json!({ "op": "choose", "node": node, "state": states.first(), "prop": "code/card", "value": true });
+                    let doc = serde_json::to_value(cx.deck).ok()?;
+                    let patch = scaena_core::patch::compile_alone(&doc, &[op], &Nothing).ok()?.patch;
+                    Some(patch.iter().filter_map(|op| serde_json::to_value(op).ok()).collect::<Vec<Value>>())
+                })
+                .flatten();
             let hint = match part {
-                // Code's colors are held to read on the slide's surface (ADR-0029): what is behind
-                // this is something else.
-                None if coded => "Its colors are the theme's code colors, which read on the slide's surface: set it where the surface is behind it, or change what is behind it.",
+                None if bare => "Its colors are the theme's code colors, held to read on the slide's surface: stand it on its card, which they are held to read on, or change what is behind it.",
+                // Code's colors are held to read on its card (PLAN 2.136): something lies over it.
+                None if coded => "Its colors are the theme's code colors, held to read on its card: change what lies over the card.",
                 None => "Set it in a color role with more contrast against what is behind it, or change what is behind it.",
                 Some(part) => {
                     measure["part"] = part.name().into();
@@ -589,7 +619,11 @@ pub fn check(
                     "Set the chart's text in a color that reads against what is behind it (the theme's `charts` roles, its palette for series names, `charts.annotation.dimmed` for text a highlight dims), or change what is behind it."
                 }
             };
-            finding.at(cx.node_path(&node)).node(node).measure(measure).hint(hint)
+            let finding = finding.at(cx.node_path(&node)).node(node).measure(measure).hint(hint);
+            match card {
+                Some(fix) => finding.fix(fix),
+                None => finding,
+            }
         })
         .collect())
 }
