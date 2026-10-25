@@ -375,7 +375,7 @@ private struct EntryRow: View {
                 read[run.range].link = URL(string: "scaena-state:\(String(read[run.range].characters))")
             }
         }
-        return read
+        return MarkdownBlocks.hosted(read)
     }
 
     /// The states the deck has, which an answer may link to.

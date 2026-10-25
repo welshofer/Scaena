@@ -237,8 +237,8 @@ async function provider(wire) {
   const requests = [];
   /** `busy`: that many requests answered 429 with Retry-After: 1 before the answer; `hang`: that
    * many whose answer stops after its first word, the socket left open, before the answer
-   * (narrative REL-3). */
-  const state = { slow: 0, trickle: 0, busy: 0, hang: 0 };
+   * (narrative REL-3); `long`: that many answered 400, the prompt too long (lift-up PERF-3). */
+  const state = { slow: 0, trickle: 0, busy: 0, hang: 0, long: 0 };
   const hung = [];
   const server = createServer(async (req, res) => {
     const cors = {
@@ -262,6 +262,10 @@ async function provider(wire) {
     if (state.busy > 0) {
       state.busy--;
       return res.writeHead(429, { ...cors, "content-type": "application/json", "retry-after": "1" }).end(JSON.stringify({ error: { type: "rate_limit_error", message: "Rate limited" } }));
+    }
+    if (state.long > 0) {
+      state.long--;
+      return reply(400, { type: "error", error: { type: "invalid_request_error", message: "prompt is too long: 214012 tokens > 200000 maximum" } });
     }
     if (state.slow) await new Promise((ok) => setTimeout(ok, state.slow));
     const i = wire.answered(body);
@@ -594,6 +598,28 @@ try {
       const stopped = await page.evaluate(() => window.asked);
       check(stopped.kind === "done" && stopped.stop === "stopped" && Date.now() - stoppedAt < 1500, `${id}: Stop during the wait stops at once (${JSON.stringify(stopped)})`);
       scripted.state.busy = 0;
+    }
+
+    // A conversation too long for the model is sent again once with half as much of tools'
+    // results, never more than it sent, and answered (lift-up PERF-3); a second refusal is said.
+    {
+      const before = scripted.requests.length;
+      scripted.state.long = 1;
+      const shorter = await page.evaluate(() => window.scaena.assistant.ask("Shorter now."));
+      const sent = (r) => JSON.stringify(r.body.messages ?? r.body.contents).length;
+      const [long, again] = scripted.requests.slice(before);
+      check(
+        shorter.kind === "done" && shorter.stop === "end" && scripted.requests.length === before + 2 && sent(again) <= sent(long),
+        `${id}: a conversation too long is asked again once, sending no more than it did, and answered (${JSON.stringify(shorter)}, ${scripted.requests.length - before} requests)`,
+      );
+      const asked = scripted.requests.length;
+      scripted.state.long = 2;
+      const refused = await page.evaluate(() => window.scaena.assistant.ask("Still shorter."));
+      scripted.state.long = 0;
+      check(
+        refused.kind === "failed" && /more than .*'s model takes at once/.test(refused.message) && scripted.requests.length === asked + 2,
+        `${id}: and too long again, it is said, once asked again (${JSON.stringify(refused)}, ${scripted.requests.length - asked} requests)`,
+      );
     }
 
     if (id === "anthropic") {
