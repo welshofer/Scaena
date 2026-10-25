@@ -220,13 +220,14 @@ function folders<T>(mode: IDBTransactionMode, act: (store: IDBObjectStore) => ID
   });
 }
 
+/** The dialog that makes a deck from a prompt, once wired: whether one is being made. */
+let generating: { running: () => boolean } | undefined;
+
 /** What the editor has open, to close when it opens another bundle; `say` puts a line in its
  * status that stays, before what lint finds, until the source is edited by hand. `kept` is the
  * name the browser keeps it under, if it does, and `rekeep` renames a bundle the browser keeps, or
  * deletes it, through the bundle's worker, which writes where the page may not (PLAN 2.124).
  * `unsaved` says whether closing it loses something: an edit not saved, or a deck kept nowhere. */
-/** The dialog that makes a deck from a prompt, once wired: whether one is being made. */
-let generating: { running: () => boolean } | undefined;
 let current:
   | {
       close: () => void;
