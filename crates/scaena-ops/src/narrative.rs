@@ -3345,7 +3345,13 @@ fn at_places(value: f64, places: usize, unit: Option<&str>, lang: &str) -> Strin
         Some(u) if u.starts_with(['%', '\u{b0}', '/', '\u{d7}']) => format!("{n}{u}"),
         // A unit written in a script set without spaces sits against its figure: "2時間", "340ドル".
         Some(u) if u.chars().next().is_some_and(unspaced) => format!("{n}{u}"),
-        Some(u) => format!("{n} {u}"),
+        // Held to its figure by a space no line breaks at, as the typesetter holds one (DF7-2):
+        // "1,840\u{a0}ms", "48,6\u{a0}Mio.\u{a0}\u{20ac}"; "2 hours" as it is.
+        Some(u) => {
+            let spaced: Vec<char> = format!("{n} {u}").chars().collect();
+            let space = if joined(&spaced, n.chars().count()) { '\u{a0}' } else { ' ' };
+            format!("{n}{space}{u}")
+        }
     }
 }
 
@@ -5733,18 +5739,19 @@ mod tests {
             made.deck["nodes"][node]["text"].as_str().unwrap_or_default().to_string()
         };
         assert_eq!(said("appeal", "she-is-one-of-many-number"), "1 in 7");
-        assert_eq!(said("board-de", "ein-starkes-quartal-in-vier-first-figure"), "48,6 Mio. \u{20ac}");
-        assert_eq!(said("board-de", "ein-starkes-quartal-in-vier-second-figure"), "1,2 Mio. \u{20ac}");
-        // A figure the builder writes is written as its chart's labels write it, in the deck's language.
-        assert_eq!(said("board-de", "der-umsatz-w-chst-seit-f-nf-callout"), "48,6 Mio. \u{20ac}");
-        assert_eq!(said("deepdive", "latency-climbed-every-week-as-callout"), "1,840 ms");
+        assert_eq!(said("board-de", "ein-starkes-quartal-in-vier-first-figure"), "48,6\u{a0}Mio.\u{a0}\u{20ac}");
+        assert_eq!(said("board-de", "ein-starkes-quartal-in-vier-second-figure"), "1,2\u{a0}Mio.\u{a0}\u{20ac}");
+        // A figure the builder writes is written as its chart's labels write it, in the deck's language,
+        // its unit held to it by a space that never breaks, as the typesetter sets it (DF7-2).
+        assert_eq!(said("board-de", "der-umsatz-w-chst-seit-f-nf-callout"), "48,6\u{a0}Mio.\u{a0}\u{20ac}");
+        assert_eq!(said("deepdive", "latency-climbed-every-week-as-callout"), "1,840\u{a0}ms");
     }
 
     #[test]
     fn a_figure_the_builder_writes_is_written_as_the_charts_write_it() {
         // Thousands set apart as the axis sets them, in the deck's language (DF7-1).
-        assert_eq!(at_places(1840.0, 0, Some("ms"), "en"), "1,840 ms");
-        assert_eq!(at_places(48.6, 1, Some("Mio. \u{20ac}"), "de"), "48,6 Mio. \u{20ac}");
+        assert_eq!(at_places(1840.0, 0, Some("ms"), "en"), "1,840\u{a0}ms");
+        assert_eq!(at_places(48.6, 1, Some("Mio.\u{a0}\u{20ac}"), "de"), "48,6\u{a0}Mio.\u{a0}\u{20ac}");
         assert_eq!(at_places(1234.5, 1, None, "de"), "1.234,5");
         assert_eq!(at_places(27.0, 0, Some("%"), "fr"), "27\u{a0}%");
         assert_eq!(at_places(2.0, 1, Some("$T"), "en"), "$2.0T");
@@ -7296,7 +7303,7 @@ mod tests {
         has(&hottest, "under", "WMO State of the Global Climate 2024");
         // A line chart's callout is its latest figure, and its takeaway stands under it.
         let co2 = said(5);
-        has(&co2, "callout", "424 ppm");
+        has(&co2, "callout", "424\u{a0}ppm");
         has(&co2, "note", "From 280\u{a0}ppm before industry to 424\u{a0}ppm in 2024");
         has(&said(4), "callout", "1.55\u{b0}C");
         // A line along years runs on time, 2010 to 2024 as long as fourteen years are (G.18); bars
