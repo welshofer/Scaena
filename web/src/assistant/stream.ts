@@ -6,6 +6,18 @@
 // (ADR-0022).
 import type { ProviderId } from "../protocol";
 
+/** The most blocks, or tool calls, an answer is assembled from: an `index` past it is no answer a
+ * provider sends, and taken as given it would have the reader fill every slot before it, without
+ * bound (lift-up 20261025b SEC-3). Such an answer ends as an error, the provider's answer did not
+ * read. `scaena-chat`'s `stream.rs` holds the same. */
+export const MOST_BLOCKS = 256;
+
+/** The error a stream past `MOST_BLOCKS` ends in, as a provider's error object. */
+const unread = () => ({ type: "error", error: { type: "unread", message: "the provider's answer did not read" } });
+
+/** Whether `index` is a block's or a call's a provider may send. */
+const readable = (index: number) => Number.isInteger(index) && index >= 0 && index < MOST_BLOCKS;
+
 /** One streamed answer being assembled: fed the body in whatever pieces the network hands it,
  * it gives the words each piece completes, and at the end the answer as JSON. */
 export class Stream {
@@ -115,6 +127,10 @@ export class Stream {
   private anthropicEvent(event: string | undefined, v: any): string {
     const kind = event ?? v.type ?? "";
     const index = typeof v.index === "number" ? v.index : 0;
+    if (!readable(index)) {
+      this.error = unread();
+      return "";
+    }
     const a = this.anthropic;
     switch (kind) {
       case "message_start":
@@ -171,6 +187,10 @@ export class Stream {
       }
       for (const call of delta.tool_calls ?? []) {
         const index = typeof call.index === "number" ? call.index : 0;
+        if (!readable(index)) {
+          this.error = unread();
+          break;
+        }
         while (o.calls.length <= index) o.calls.push(["", "", ""]);
         const slot = o.calls[index];
         if (typeof call.id === "string") slot[0] = call.id;
