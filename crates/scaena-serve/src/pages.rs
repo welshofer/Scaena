@@ -23,6 +23,13 @@ pub fn gzipped(path: &str) -> Option<&'static [u8]> {
     PAGES.iter().find(|(p, _)| *p == path).map(|(_, bytes)| *bytes)
 }
 
+/// Whether a browser would run a file of this name as a page or a script: such a file of a
+/// bundle's is sent as a download, never opened on the server's origin (lift-up 10-24b SEC-2).
+pub fn live(path: &str) -> bool {
+    let ext = path.rsplit_once('.').map(|(_, ext)| ext.to_ascii_lowercase());
+    matches!(ext.as_deref(), Some("html" | "htm" | "xhtml" | "svg" | "xml" | "js" | "mjs"))
+}
+
 /// What a file is, by its name, for `Content-Type`.
 pub fn media_type(path: &str) -> &'static str {
     let ext = path.rsplit_once('.').map(|(_, ext)| ext.to_ascii_lowercase());

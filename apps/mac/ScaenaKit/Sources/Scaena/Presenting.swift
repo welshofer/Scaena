@@ -459,6 +459,15 @@ final class Showing {
         }
     }
 
+    /// The slide numbered `number`, as typing its number then Return goes there (PLAN 2.105): what
+    /// a remote's Go to Slide asks (lift-up FUNC-5).
+    func go(slide number: Int) {
+        guard number > 0 else { return }
+        show.untype(all: true)
+        for digit in String(number) { show.type(digit.wholeNumberValue ?? 0) }
+        enter()
+    }
+
     /// Delete: the last digit typed taken back; with none typed, back.
     func delete() {
         if show.typed.isEmpty { back() } else { show.untype() }
@@ -565,9 +574,11 @@ final class Showing {
         if rests { rested() }
     }
 
-    /// The state shown at rest: where it holds, it goes on by itself once its hold is over.
+    /// The state shown at rest: where it holds, it goes on by itself once its hold is over. The
+    /// next state's cue is laid out meanwhile, so going on moves at once (lift-up PERF-1).
     private func rested() {
         holding?.cancel()
+        if let next = show.next, next.span > 0 { try? editor.session.prepare(next.state) }
         guard let hold = show.rested() else { return }
         waits(hold)
     }
@@ -938,7 +949,7 @@ struct KeyList: View {
         }
         .font(.title3)
         .padding(24)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
+        .floating(in: RoundedRectangle(cornerRadius: 14))
         .environment(\.colorScheme, .dark)
         .frame(maxWidth: 640)
         .accessibilityElement(children: .contain)

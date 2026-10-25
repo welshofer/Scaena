@@ -102,10 +102,12 @@ public struct ProviderRequest: Decodable, Sendable {
     /// The JSON to send; none for a GET.
     public let body: String?
 
-    /// The request as `URLSession` makes it. A model may think for minutes before it answers.
-    public func urlRequest() throws -> URLRequest {
+    /// The request as `URLSession` makes it, given up on after `timeoutInterval` seconds with
+    /// nothing from the provider. A model may think for minutes before it answers; an assistant
+    /// that reads the answer as it is written gives it two minutes of silence (narrative REL-3).
+    public func urlRequest(timeoutInterval: TimeInterval = 600) throws -> URLRequest {
         guard let address = URL(string: url) else { throw ScaenaError(message: "\(url) is no address") }
-        var request = URLRequest(url: address, timeoutInterval: 600)
+        var request = URLRequest(url: address, timeoutInterval: timeoutInterval)
         request.httpMethod = method
         for (name, value) in headers {
             request.setValue(value, forHTTPHeaderField: name)
@@ -312,6 +314,14 @@ public final class ScaenaChat {
     /// The request for the model's next turn, `key` in its headers.
     public func request(key: String) throws -> ProviderRequest {
         try step("request", ["key": .string(key)])
+    }
+
+    /// The answer as it is written (narrative ATTR-3): `chunk`, the next piece of the body the
+    /// client reads, in whatever pieces the network hands it; the words it completes, for the
+    /// window to show. `answer` then reads the body whole.
+    public func heard(_ chunk: String) throws -> String {
+        let said: JSONValue = try step("heard", ["chunk": .string(chunk)])
+        return said["text"]?.string ?? ""
     }
 
     /// Read the answer to `request`: what comes next. A provider's refusal is thrown, and the

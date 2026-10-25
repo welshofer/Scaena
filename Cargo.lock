@@ -3198,6 +3198,7 @@ dependencies = [
 name = "scaena-chat"
 version = "0.1.0"
 dependencies = [
+ "scaena-fence",
  "scaena-resources",
  "serde",
  "serde_json",
@@ -3453,6 +3454,7 @@ version = "0.1.0"
 dependencies = [
  "bytes",
  "flate2",
+ "getrandom 0.3.4",
  "http-body-util",
  "hyper",
  "hyper-util",

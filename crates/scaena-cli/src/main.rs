@@ -405,6 +405,9 @@ enum Cmd {
         /// Without it, the slide joins that beat.
         #[arg(long)]
         claim: Option<String>,
+        /// The new state's id, and its nodes' after it. Without it, the layout's name.
+        #[arg(long)]
+        id: Option<String>,
         /// Say what would change, and write nothing.
         #[arg(long)]
         dry_run: bool,
@@ -856,8 +859,8 @@ fn run(cli: Cli) -> Result<ExitCode> {
             };
             map(&a, cli.json)
         }
-        Cmd::Start { bundle, state, layout, claim, dry_run } => {
-            start(&bundle, &state, layout.as_deref(), claim.as_deref(), dry_run, cli.json)
+        Cmd::Start { bundle, state, layout, claim, id, dry_run } => {
+            start(&bundle, &state, layout.as_deref(), claim.as_deref(), id.as_deref(), dry_run, cli.json)
         }
         Cmd::Background { bundle, state, preset, none, dry_run } => {
             background(&bundle, &state, preset.as_deref(), none, dry_run, cli.json)
@@ -904,14 +907,18 @@ fn serve(bundle: &Path, port: u16, json: bool) -> Result<ExitCode> {
         return Ok(fail(json, 3, message, Some("2.11")));
     }
     let shown = bundle.display().to_string();
-    let started = |addr: std::net::SocketAddr| {
+    // Each address carries the launch's token, which the pages send with each write: another
+    // account on this machine reaches 127.0.0.1 too, but not what this one prints (lift-up 10-24b
+    // SEC-5).
+    let started = |addr: std::net::SocketAddr, token: &str| {
         let url = format!("http://localhost:{}/", addr.port());
+        let (player, editor) = (format!("{url}?serve={token}"), format!("{url}edit?serve={token}"));
         if json {
-            let v = serde_json::json!({ "bundle": shown, "player": url, "editor": format!("{url}edit") });
+            let v = serde_json::json!({ "bundle": shown, "player": player, "editor": editor });
             println!("{}", serde_json::to_string_pretty(&v).expect("JSON"));
         } else {
             eprintln!(
-                "Serving {shown} on this machine only.\n  The player: {url}\n  The editor: {url}edit\nCtrl-C stops it."
+                "Serving {shown} on this machine only.\n  The player: {player}\n  The editor: {editor}\nCtrl-C stops it."
             );
         }
     };
@@ -1330,11 +1337,12 @@ fn start(
     state: &str,
     layout: Option<&str>,
     claim: Option<&str>,
+    id: Option<&str>,
     dry_run: bool,
     json: bool,
 ) -> Result<ExitCode> {
     let b = open(bundle)?;
-    let s = scaena_ops::states::start(&b, state, layout, claim, dry_run)?;
+    let s = scaena_ops::states::start(&b, state, layout, claim, id, dry_run)?;
     if json {
         println!("{}", serde_json::to_string_pretty(&s)?);
     } else {
@@ -1343,6 +1351,12 @@ fn start(
             (true, _) => println!("refused: the slide would make the deck invalid; nothing was written"),
             (false, true) => println!("would add {} after {state}'s slide, {} ops as JSON Patch", s.id, p.patch.len()),
             (false, false) => println!("added {} after {state}'s slide, {} ops as JSON Patch", s.id, p.patch.len()),
+        }
+        for f in &s.filled {
+            println!("  {}: {}", f.slot, f.node);
+        }
+        for e in &s.empty {
+            println!("  {}: empty, for {}", e.slot, e.waits);
         }
         print_delta(&p.added, &p.removed);
     }
