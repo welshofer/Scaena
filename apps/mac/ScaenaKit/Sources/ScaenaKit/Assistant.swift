@@ -117,6 +117,9 @@ public final class Assistant {
     public private(set) var entries: [Entry] = []
     /// Whether a question is being answered.
     public private(set) var working = false
+    /// Whether the last answer edited the deck: one step of the window's undo, which Undo This
+    /// Answer takes back (lift-up 10-25 FUNC-4).
+    public private(set) var answered = false
     /// Tokens in and out since the conversation began.
     public private(set) var usage = Usage(input: 0, output: 0)
     /// A question another panel drafted for the user to send (the story's, PLAN G.9): the
@@ -132,9 +135,12 @@ public final class Assistant {
     public var silence: TimeInterval = 120
     /// The waits before asking again, in seconds; a test shortens them.
     public var waits: [TimeInterval] = [2, 4, 8]
-    /// Hears each change the assistant makes to the deck: the source it replaced and the files it
-    /// wrote beside the deck, for an undo.
+    /// Hears what an answer changed in the deck, once it ends (lift-up 10-25 FUNC-4): the source
+    /// as it was asked and each file its calls wrote beside the deck, as the answer found it and
+    /// left it, for one step of undo however many calls edited.
     @ObservationIgnored public var edited: (_ before: String, _ files: [Rewritten]) -> Void = { _, _ in }
+    /// What the answer being given has changed so far.
+    @ObservationIgnored private var answer: (before: String, files: [Rewritten])?
     /// The Geoapify key `map_fetch` fetches a map with (ADR-0030, PLAN O.1d): the Keychain's.
     @ObservationIgnored public var mapKey: () -> String? = { Keychain().geoapify }
     /// How `map_fetch` makes each of Geoapify's requests: `URLSession` in the app.
@@ -201,12 +207,32 @@ public final class Assistant {
         }
         add(.question(text))
         working = true
+        answered = false
         asking = Task { await converse(key: key) }
     }
 
     /// Stop the question being answered: a call not yet run is answered as stopped.
     public func stop() {
         asking?.cancel()
+    }
+
+    /// The last answer taken back by the window's undo: there is none to take back now.
+    public func answerUndone() {
+        answered = false
+    }
+
+    /// A call's edit, gathered into the answer's: the source as the answer found it, and each file
+    /// with its text as the answer found it and as this call left it.
+    private func gather(_ before: String, _ files: [Rewritten]) {
+        var made = answer ?? (before: before, files: [])
+        for file in files {
+            if let at = made.files.firstIndex(where: { $0.path == file.path }) {
+                made.files[at] = Rewritten(path: file.path, before: made.files[at].before, after: file.after)
+            } else {
+                made.files.append(file)
+            }
+        }
+        answer = made
     }
 
     /// Start again: the next question is the first.
@@ -233,6 +259,12 @@ public final class Assistant {
     /// The model asked, and each call it makes run, until it answers.
     private func converse(key: String) async {
         defer {
+            // The answer's edits, stopped or not, one step of undo.
+            if let made = answer {
+                answer = nil
+                edited(made.before, made.files)
+                answered = true
+            }
             working = false
             asking = nil
         }
@@ -279,7 +311,7 @@ public final class Assistant {
                         }
                         entries[at].kind = .call(name: call.name, args: call.args, ran: ran)
                         if ran.edited || !ran.rewritten.isEmpty, let before = editor.reread() {
-                            edited(before, ran.rewritten)
+                            gather(before, ran.rewritten)
                         }
                     }
                     guard try chat.next() else {

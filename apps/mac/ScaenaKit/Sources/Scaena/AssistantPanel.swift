@@ -27,6 +27,8 @@ struct AssistantPanel: View {
     @State private var keyless = false
     /// Bumped as the keys sheet closes, so that the models are listed again with the key kept.
     @State private var keysChanged = 0
+    /// The window's undo, whose step Undo This Answer takes back (lift-up 10-25 FUNC-4).
+    @Environment(\.undoManager) private var undoManager
 
     private let keychain = Keychain()
 
@@ -147,6 +149,18 @@ struct AssistantPanel: View {
                     }
                     ForEach(assistant.entries) { entry in
                         EntryRow(entry: entry, assistant: assistant).id(entry.id)
+                    }
+                    // The answer's edits, one step: taken back here as the Edit menu's Undo
+                    // takes it, while it is still the last step (lift-up 10-25 FUNC-4).
+                    if assistant.answered, !assistant.working,
+                        undoManager?.undoActionName == ScaenaDocument.answerStep
+                    {
+                        Button("Undo This Answer") {
+                            // Read again as it is pressed: the view does not hear the undo's steps.
+                            if undoManager?.undoActionName == ScaenaDocument.answerStep { undoManager?.undo() }
+                            assistant.answerUndone()
+                        }
+                        .accessibilityIdentifier("undo-answer")
                     }
                     // What it is doing while it works: the call running says so itself; a
                     // provider asked again, the wait (narrative REL-3).

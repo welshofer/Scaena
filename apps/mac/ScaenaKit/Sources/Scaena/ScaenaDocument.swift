@@ -238,8 +238,12 @@ final class ScaenaDocument: ReferenceFileDocument {
     /// as the user's own edit is: the source made the deck again, and the files written back.
     func took(_ before: String, files: [Rewritten], undo: UndoManager?) {
         keep(before, files: files, undo: undo)
-        undo?.setActionName("Assistant’s Edit")
+        undo?.setActionName(Self.answerStep)
     }
+
+    /// What an answer's step of undo is called (lift-up 10-25 FUNC-4): the Edit menu's Undo
+    /// Assistant’s Edits takes back every edit of the answer.
+    static let answerStep = "Assistant’s Edits"
 
     /// An edit a panel makes on the session beside the source (PLAN 3.15): the theme edited or
     /// another taken, a version restored, rows written inline. The deck is read again, and the

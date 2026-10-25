@@ -764,6 +764,12 @@ async function edit(source: Source, opened?: Stage) {
   /** Whether the source takes typing: not while the assistant works. */
   const locked = new Compartment();
   let assisting = false;
+  /** The answer the assistant is giving (lift-up 10-25 FUNC-4): the source as it was asked, and
+   * each file its edits wrote, with its text as the answer found it and as the answer left it. */
+  let answer: { from: string; files: Map<string, Rewritten> } | undefined;
+  /** How deep the source's history stood once the last answer made its step: while it stands
+   * there, Undo this answer takes it back. */
+  let answered: number | undefined;
   /** The source the assistant's last edit, or the canvas's, made, and what the worker found in
    * it: the lint of that source takes it as it is, rather than asking the worker again. With it,
    * how many states had been shown then (`showings`): one shown since is where the lint leaves
@@ -2334,6 +2340,10 @@ async function edit(source: Source, opened?: Stage) {
     states: () => last?.states.map(([id]) => id) ?? [],
     apply: (source, edited, touched, files = []) => {
       touching = touched?.length ? { source, nodes: touched } : undefined;
+      // An answer's edits go in the source's history as one step once it ends (lift-up 10-25
+      // FUNC-4): until then, none of them, each file's text as the answer found it kept.
+      if (answer) for (const f of files) answer.files.set(f.path, { ...f, before: answer.files.get(f.path)?.before ?? f.before });
+      const quiet = answer ? [Transaction.addToHistory.of(false)] : [isolateHistory.of("full")];
       // A theme it edited goes in the source's history with the theme's text before and after,
       // as the Theme tab's edit does (PLAN 2.61): ⌘Z writes the theme back.
       const effects = [...(files.length ? [filesWritten.of(files)] : []), described.of("the assistant’s edit")];
@@ -2342,13 +2352,43 @@ async function edit(source: Source, opened?: Stage) {
       if (source === view.state.doc.toString()) {
         if (files.length) {
           anchor();
-          view.dispatch({ effects, annotations: isolateHistory.of("full") });
+          view.dispatch({ effects, annotations: quiet });
         }
         return wrote(edited);
       }
       anchor();
       taken = { source, edited, showings };
-      view.dispatch({ changes: change(view.state.doc.toString(), source), effects, userEvent: "input.assistant" });
+      view.dispatch({ changes: change(view.state.doc.toString(), source), effects, userEvent: "input.assistant", annotations: answer ? quiet : [] });
+    },
+    answering: (on) => {
+      if (on) {
+        answer = { from: view.state.doc.toString(), files: new Map() };
+        return false;
+      }
+      const ended = answer;
+      answer = undefined;
+      const now = view.state.doc.toString();
+      if (!ended || (now === ended.from && !ended.files.size)) return (answered = undefined), false;
+      // The answer made one step: the source as it was asked, put back without a step, then the
+      // source as the answer left it, with every file it wrote, its before and after.
+      if (now !== ended.from) view.dispatch({ changes: change(now, ended.from), annotations: Transaction.addToHistory.of(false) });
+      const files = [...ended.files.values()];
+      view.dispatch({
+        changes: now === ended.from ? undefined : change(ended.from, now),
+        effects: [...(files.length ? [filesWritten.of(files)] : []), described.of("the assistant’s answer")],
+        userEvent: "input.assistant",
+        annotations: isolateHistory.of("full"),
+      });
+      answered = undoDepth(view.state);
+      return true;
+    },
+    undoAnswer: () => {
+      // The answer's step, while it is the last: one undo takes it back, files and all.
+      if (assisting || answered === undefined || undoDepth(view.state) !== answered) return false;
+      const undone = undo(view);
+      if (undone) forceLinting(view);
+      answered = undefined;
+      return undone;
     },
     seeing,
     lock: (on) => {

@@ -24,6 +24,11 @@ export interface Editor {
   seeing(): Seeing | undefined;
   /** Make the source read-only, or not. */
   lock(on: boolean): void;
+  /** An answer begins, or ends (lift-up 10-25 FUNC-4): its edits make one step of the source's
+   * history once it ends. Ended, whether it edited anything. */
+  answering(on: boolean): boolean;
+  /** Take the last answer back, while its step is the last: whether it was. */
+  undoAnswer(): boolean;
   /** Each state's picture as the strip holds it once it has drawn the deck as it stands, by
    * state, and how many pixels high they are; and the deck's states (PLAN 2.93). */
   drawings(): Promise<{ height: number; drawn: Map<string, Drawing>; states: string[] }>;
@@ -406,6 +411,7 @@ export function panel(stage: Stage, editor: Editor): Panel {
     thinking.textContent = "Working…";
     thinking.hidden = false;
     editor.lock(true);
+    editor.answering(true);
     askButton.disabled = true;
     stop.hidden = false;
     try {
@@ -436,9 +442,23 @@ export function panel(stage: Stage, editor: Editor): Panel {
       working = false;
       thinking.hidden = true;
       editor.lock(false);
+      if (editor.answering(false)) undoable();
       askButton.disabled = false;
       stop.hidden = true;
     }
+  }
+
+  /** The answer that edited the deck, one step: Undo this answer under it, which an earlier
+   * answer's gives way to (lift-up 10-25 FUNC-4). */
+  function undoable() {
+    for (const was of transcript.querySelectorAll<HTMLButtonElement>(".undo-answer button")) was.closest("li")?.remove();
+    const li = entry("undo-answer");
+    const button = Object.assign(document.createElement("button"), { type: "button", textContent: "Undo this answer" });
+    button.onclick = () => {
+      if (editor.undoAnswer()) li.replaceChildren("Answer undone. Redo makes it again.");
+      else li.replaceChildren("Not undone: the deck was edited after this answer. Undo those edits first, or undo step by step.");
+    };
+    li.append(button);
   }
 
   function failure(message: string): AssistantEvent {
