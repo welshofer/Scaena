@@ -111,10 +111,26 @@ macro_rules! from {
     ($($error:ty),*) => {$(
         impl From<$error> for OpsError {
             fn from(e: $error) -> OpsError {
-                OpsError::new(e.to_string())
+                OpsError::new(said(&e))
             }
         }
     )*};
+}
+
+/// What `e` says, with each cause behind it that it does not already say: "reading x" then
+/// "permission denied", so an agent or a person can tell a refusal from a typo (lift-up 10-24b
+/// USE-3).
+fn said(e: &dyn std::error::Error) -> String {
+    let mut said = e.to_string();
+    let mut cause = e.source();
+    while let Some(c) = cause {
+        let more = c.to_string();
+        if !said.contains(&more) {
+            said = format!("{said}: {more}");
+        }
+        cause = c.source();
+    }
+    said
 }
 from!(
     scaena_store::StoreError,
@@ -165,6 +181,29 @@ pub fn theme(b: &Bundle) -> Result<scaena_engine::theme::Theme, OpsError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// An error's causes reach what an operation says, once each (lift-up 10-24b USE-3).
+    #[test]
+    fn an_error_says_each_cause_once() {
+        use std::path::PathBuf;
+        let denied = || std::io::Error::new(std::io::ErrorKind::PermissionDenied, "permission denied");
+        let read = scaena_store::StoreError::Read { path: PathBuf::from("/b/deck.json"), source: denied() };
+        assert_eq!(OpsError::from(read).message, "reading /b/deck.json: permission denied");
+        // A cause the message leaves out is added.
+        #[derive(Debug)]
+        struct Opening(std::io::Error);
+        impl std::fmt::Display for Opening {
+            fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                f.write_str("opening the bundle")
+            }
+        }
+        impl std::error::Error for Opening {
+            fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+                Some(&self.0)
+            }
+        }
+        assert_eq!(said(&Opening(denied())), "opening the bundle: permission denied");
+    }
 
     #[test]
     fn a_message_names_its_plan_task() {

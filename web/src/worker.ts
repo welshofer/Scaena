@@ -29,6 +29,7 @@ import { deleteKept, keptBundle, newBundle, readAll, remove, renameKept, write }
 import type { Decision, Outlined } from "./generate";
 import { finding } from "./words";
 import type {
+  SlideWritten,
   Added,
   Asking,
   AssistantEvent,
@@ -216,6 +217,7 @@ const READS = new Set<ToWorker["type"]>([
   "words",
   "writing",
   "written",
+  "slideAsk",
 ]);
 
 self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
@@ -853,6 +855,35 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
       case "models": {
         const { providers } = await import("@scaena/assistant");
         return post({ type: "models", id: data.id, models: await providers[data.provider].models(data.key, data.base) });
+      }
+      case "slideAsk": {
+        const { oneAsked } = await import("@scaena/generate");
+        const read = player.tool("deck_read", "{}");
+        let deck: string;
+        try {
+          if (read.error) throw new Error((JSON.parse(read.json) as { message?: string }).message ?? read.json);
+          deck = JSON.stringify((JSON.parse(read.json) as { deck: unknown }).deck);
+        } finally {
+          read.free();
+        }
+        // The files its data sources read, for the rows of a chart the slide draws.
+        const sources = Object.values((JSON.parse(deck) as { data?: Record<string, { source?: unknown }> }).data ?? {});
+        const files = sources.flatMap(({ source }) => {
+          const bytes = typeof source === "string" ? player.file(source) : undefined;
+          return bytes ? [[source as string, bytes] as [string, Uint8Array]] : [];
+        });
+        return post({ type: "slideAsked", id: data.id, asked: await oneAsked(deck, data.place, data.ask, files) });
+      }
+      case "slideWrite": {
+        const { oneAnswered } = await import("@scaena/generate");
+        const { slideWrite } = await import("@scaena/assistant");
+        const slide = await oneAnswered(data.answer);
+        const [json, error] = await slideWrite(player, { slide, ...data.place }, data.author);
+        if (error) throw new Error((JSON.parse(json) as { message?: string }).message ?? json);
+        const written = JSON.parse(json) as SlideWritten;
+        if (!written.applied) throw new Error(`the slide was refused: ${written.left.map((f) => f.message).join("; ")}`);
+        const source = player.source();
+        return post({ type: "slideWritten", id: data.id, written, source, edited: await edit(source, data.index, data.format) });
       }
       case "write": {
         const { write } = await import("@scaena/assistant");
