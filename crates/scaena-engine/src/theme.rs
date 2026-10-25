@@ -259,6 +259,43 @@ impl Theme {
         Ok(looks)
     }
 
+    /// The card a code text stands on (PLAN 2.136, ADR-0029): the theme's `code.card`, its fill
+    /// taken as it lies on the surface, else `surface-2` stepped from the surface by the least
+    /// lightness to stand 1.3:1 off it, so it shows on a projector.
+    pub fn code_card(&self) -> Result<crate::code::CardLook, EngineError> {
+        use scaena_core::palette;
+        let [r, g, b, _] = self.color("surface")?.0;
+        let surface = [r, g, b];
+        let card = self.code.as_ref().and_then(|c| c.card.as_ref());
+        let fill = match card.and_then(|c| c.fill.as_deref()) {
+            Some(name) => over(self.color(name)?, surface),
+            None => palette::held(
+                self.color("surface-2").map_or(surface, |c| over(c, surface)),
+                surface,
+                crate::code::CARD_STEP,
+            ),
+        };
+        Ok(crate::code::CardLook {
+            fill: [fill[0], fill[1], fill[2], 255],
+            radius: card.and_then(|c| c.radius.as_ref()).map(|r| serde_json::to_value(r).unwrap_or_default()),
+            inset: card.and_then(|c| c.inset).map_or(crate::code::INSET, |i| i as f32),
+            stroke: card.and_then(|c| c.stroke.clone()),
+            shadow: card.and_then(|c| c.shadow.clone()),
+        })
+    }
+
+    /// How a code text set in `text` numbers its lines on `ground`, its first line going by
+    /// `start` (PLAN 2.136): in the theme's `code.numbers.color`, else the muted text color, held
+    /// to read on `ground` as its code is, `code.numbers.gap` ems from the code.
+    pub fn code_numbers(&self, ground: [u8; 3], start: u32) -> Result<crate::code::Numbers, EngineError> {
+        use scaena_core::palette;
+        let numbers = self.code.as_ref().and_then(|c| c.numbers.as_ref());
+        let color = over(self.color(numbers.and_then(|n| n.color.as_deref()).unwrap_or("onSurfaceMuted"))?, ground);
+        let [r, g, b] = palette::held(color, ground, palette::READS);
+        let gap = numbers.and_then(|n| n.gap).map_or(crate::code::GAP, |g| g as f32);
+        Ok(crate::code::Numbers { start, color: [r, g, b, 255], gap })
+    }
+
     /// A typographic role, as text is set in it.
     pub fn text_role(&self, name: &str) -> Result<TextRole, EngineError> {
         let role =
@@ -426,6 +463,13 @@ impl Theme {
             .map(|w| w.0 as f32)
             .ok_or_else(|| EngineError::Theme(format!("unknown stroke token `{name}`")))
     }
+}
+
+/// `c` as it lies on `ground`, its alpha composited.
+fn over(c: Color, ground: [u8; 3]) -> [u8; 3] {
+    let [r, g, b, a] = c.0.map(u32::from);
+    let mix = |c: u32, g: u8| ((c * a + u32::from(g) * (255 - a) + 127) / 255) as u8;
+    [mix(r, ground[0]), mix(g, ground[1]), mix(b, ground[2])]
 }
 
 #[cfg(test)]

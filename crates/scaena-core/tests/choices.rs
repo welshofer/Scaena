@@ -1070,3 +1070,27 @@ fn a_code_text_offers_its_language() {
     // A text that is no code offers none.
     assert!(offered(&example(), "revenue", "title").fields.iter().all(|f| f.prop != "code/language"));
 }
+
+/// A code text offers its line numbers, the number its first line goes by, and its card, each
+/// as code stands where nothing says (PLAN 2.136); prose offers none of them.
+#[test]
+fn a_code_text_offers_its_numbers_and_its_card() {
+    let mut doc = example();
+    doc["nodes"]["title"]["code"] = json!({ "language": "rust", "numbers": true });
+    let c = offered(&doc, "revenue", "title");
+    let shown = |prop: &str| {
+        let f = field(&c, prop);
+        (f.value.clone(), f.theme.clone())
+    };
+    assert_eq!(shown("code/numbers"), (Some(json!(true)), Some(json!(false))));
+    assert_eq!(shown("code/start"), (None, Some(json!(1))));
+    assert_eq!(shown("code/card"), (None, Some(json!(true))));
+    let theme = Theme::from_json(DUSK).unwrap();
+    let labels: Vec<String> = ["code/numbers", "code/start", "code/card"]
+        .iter()
+        .map(|p| scaena_core::words::field(field(&c, p), &theme).label)
+        .collect();
+    assert_eq!(labels, ["Line Numbers", "First Line Number", "Card"]);
+    let prose = offered(&example(), "revenue", "title");
+    assert!(prose.fields.iter().all(|f| !f.prop.starts_with("code/")));
+}
