@@ -273,7 +273,7 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         const start = performance.now();
         layOut(data.format);
         await paint(data.state, data.t ?? Infinity);
-        return post({ type: "shown", id: data.id, size: [canvas.width, canvas.height], ms: performance.now() - start });
+        return answerShown(data.id, start);
       }
       case "timeline":
         layOut(data.format);
@@ -399,7 +399,7 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         player.preview(undefined);
         const start = performance.now();
         await paint(data.state, Infinity);
-        return post({ type: "shown", id: data.id, size: [canvas.width, canvas.height], ms: performance.now() - start });
+        return answerShown(data.id, start);
       }
       case "make":
         return post({ type: "made", id: data.id, ...(await make(data.source, data.ops, data.index, data.format)) });
@@ -460,7 +460,7 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         const start = performance.now();
         // The formats beside show the deck as it is: nothing is made.
         await paint(data.state, Infinity, "keep");
-        return post({ type: "shown", id: data.id, size: [canvas.width, canvas.height], ms: performance.now() - start });
+        return answerShown(data.id, start);
       }
       case "look":
         current(data.source);
@@ -1926,6 +1926,16 @@ type Beside = "paint" | "pace" | "keep";
 /** `state` `t` ms into its cue, on the canvas, sized to the format first, then in each format
  * beside it as `beside` says. Past its span, it is at rest; its shaders keep the timeline's time
  * (SPEC §3.8). */
+/** Request `id` answered, a frame painted since `start`, once the GPU has done the frame: a
+ * page that screenshots the canvas when it hears gets the frame asked for, not the last one the
+ * compositor had whole (a large picture's first upload, on a slow adapter, outlasting the page's
+ * next frames). `ms` is the painting alone. */
+async function answerShown(id: number, start: number) {
+  const ms = performance.now() - start;
+  await gpu?.settled();
+  post({ type: "shown", id, size: [canvas.width, canvas.height], ms });
+}
+
 async function paint(state: string, t: number, beside: Beside = "paint") {
   lastPainted = { state, t };
   sized(true);
