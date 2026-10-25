@@ -26,6 +26,7 @@ const MCP: &[(&str, &str)] = &[
     ("deck_render", include_str!("../../../docs/schema/mcp/deck_render.json")),
     ("icon_find", include_str!("../../../docs/schema/mcp/icon_find.json")),
     ("map_fetch", include_str!("../../../docs/schema/mcp/map_fetch.json")),
+    ("slide_write", include_str!("../../../docs/schema/mcp/slide_write.json")),
     ("spine_read", include_str!("../../../docs/schema/mcp/spine_read.json")),
     ("spine_update", include_str!("../../../docs/schema/mcp/spine_update.json")),
     ("state_start", include_str!("../../../docs/schema/mcp/state_start.json")),
@@ -100,7 +101,7 @@ pub fn summary(name: &str, json: &str, error: bool) -> String {
         };
     }
     match name {
-        "deck_patch" | "spine_update" | "state_start" | "background_set" => {
+        "deck_patch" | "spine_update" | "state_start" | "background_set" | "slide_write" => {
             let done = if truthy(&r["applied"]) {
                 "Done"
             } else if any(&r["added"]) {
@@ -212,7 +213,9 @@ pub fn made(name: &str, json: &str, error: bool) -> bool {
     }
     let Ok(r) = serde_json::from_str::<Value>(json) else { return true };
     match name {
-        "deck_patch" | "spine_update" | "state_start" | "background_set" | "theme_apply" => truthy(&r["applied"]),
+        "deck_patch" | "spine_update" | "state_start" | "background_set" | "slide_write" | "theme_apply" => {
+            truthy(&r["applied"])
+        }
         "theme_edit" => truthy(&r["applied"]) && !truthy(&r["refused"]),
         "data_attach" => truthy(&r["attached"]),
         "data_edit" => truthy(&r["edited"]),

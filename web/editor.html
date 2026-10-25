@@ -1262,6 +1262,19 @@
         </menu>
       </form>
     </dialog>
+    <dialog id="slide-ask" aria-labelledby="slide-ask-title">
+      <form method="dialog">
+        <h2 id="slide-ask-title">Write a slide</h2>
+        <label><span id="slide-ask-label">What the new slide is about</span> <textarea id="slide-ask-text" name="ask" rows="3"></textarea></label>
+        <p id="slide-ask-thinking" aria-live="polite"></p>
+        <p class="note" id="slide-ask-by"></p>
+        <menu>
+          <button type="button" id="slide-ask-key" hidden>Add a key…</button>
+          <button value="cancel" formnovalidate>Cancel</button>
+          <button type="button" id="slide-ask-go">Write the slide</button>
+        </menu>
+      </form>
+    </dialog>
     <dialog id="picturing" aria-labelledby="picturing-title">
       <form method="dialog">
         <h2 id="picturing-title">Make a picture</h2>
