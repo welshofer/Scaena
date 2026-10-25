@@ -138,7 +138,7 @@ async fn a_theme_is_its_parts() {
         // In the file's order, as the parts keep it.
         let layouts: Map<String, Value> =
             file["layouts"].as_object().unwrap().keys().map(|name| (name.clone(), layouts[name].clone())).collect();
-        assert_eq!(parts.len(), 16, "{uri}: a part for each section");
+        assert_eq!(parts.len(), 17, "{uri}: a part for each section");
         let listed: Vec<String> = client.list_all_resources().await.unwrap().iter().map(|r| r.uri.clone()).collect();
         assert!(parts.keys().all(|p| !listed.contains(p)), "{uri}: read by the index, not listed");
         theme["layouts"] = Value::Object(layouts);

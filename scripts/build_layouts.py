@@ -56,6 +56,7 @@ SECTIONS = [
     "People",
     "Editorial",
     "Diagrams",
+    "Code",
     "Briefing",
     "Classroom",
     "Closing",
@@ -1494,6 +1495,44 @@ layout("Diagrams", "seating-chart", "Tables as circles, each its number in the m
     for o, (c, r) in zip(ORDINALS, SEATS) for k in ["-table", "", "-left", "-right"]
 })
 
+# Code ------------------------------------------------------------------------------------------
+
+# Code on a slide (PLAN 2.138, ADR-0029): each code slot set in the theme's code role, which starts
+# a Plain Text code block its prompt's words are typed over, so every code slide of a deck sits at
+# one size and in one place. Two blocks stand side by side where their lines are short, and one
+# above the other, each the full width, where they are long: a made deck takes the stacked one
+# where its longest line, side by side, would set too small to read across a room.
+CODE = "Paste or type code"
+
+layout("Code", "title-code", "A headline over one block of code, as wide as the slide.", {
+    "kicker": KICKER,
+    "header": header("What this code does"),
+    "code": slot((1, 12), (3, 10), "code", CODE),
+})
+
+layout("Code", "code-notes", "A block of code beside what to notice in it.", {
+    "kicker": KICKER,
+    "header": header("What this code does"),
+    "code": slot((1, 8), (3, 10), "code", CODE),
+    "notes": slot((9, 12), (3, 10), "body", "What to notice in it"),
+})
+
+layout("Code", "two-code", "Two blocks of code side by side, each named over it: before and after, or one way and another.", {
+    "kicker": KICKER,
+    "header": header("Before and after"),
+    **{f"{o}-title": slot(c, (3, 3), "label", w) for o, c, w in zip(ORDINALS, HALVES, ["Before", "After"])},
+    **{o: slot(c, (4, 10), "code", CODE) for o, c in zip(ORDINALS, HALVES)},
+})
+
+layout("Code", "two-code-stacked", "Two blocks of code one above the other, each the slide's width and named over it: for lines too long to stand side by side.", {
+    "kicker": KICKER,
+    "header": header("Before and after"),
+    "first-title": slot((1, 12), (3, 3), "label", "Before"),
+    "first": slot((1, 12), (4, 6), "code", CODE),
+    "second-title": slot((1, 12), (7, 7), "label", "After"),
+    "second": slot((1, 12), (8, 10), "code", CODE),
+})
+
 # Pictures --------------------------------------------------------------------------------------
 
 # The page at the left, its passage ringed, and the passage enlarged beside it.
@@ -1717,6 +1756,9 @@ NAMES = {
     "buyer-persona": "Buyer Persona",
     # S.3's first five
     "seating-chart": "Seating Chart", "exhibit-callout": "Exhibit Callout",
+    # Code
+    "title-code": "Title and Code", "code-notes": "Code beside Notes", "two-code": "Two Code Blocks",
+    "two-code-stacked": "Two Code Blocks, Stacked",
     "concept-of-operations": "Concept of Operations", "brand-board": "Brand Board", "fine-print": "Fine Print",
     # Maps (PLAN O.1e)
     "map": "Map", "map-words": "Map and Words", "map-full": "Full-Bleed Map",

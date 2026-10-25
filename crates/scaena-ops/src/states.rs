@@ -177,6 +177,7 @@ pub fn starting_as(
             }
             continue;
         };
+        coded(&mut node, s, theme);
         told(slot, s, layout.unwrap_or_default(), theme, &mut node, &mut claimed);
         let node_id = named(deck, &format!("{id}-{}", slug(slot, "slot")), &ids);
         filled.push(SlotFilled { slot: slot.clone(), node: node_id.clone() });
@@ -608,6 +609,14 @@ fn slot_node(slot: &str, s: &Slot, mirrored: bool) -> Option<Value> {
     }
 }
 
+/// A text a slot set in the theme's code role starts (PLAN 2.138, ADR-0029): a Plain Text code
+/// block, its prompt's words its code, which a paste or the language chip then names.
+fn coded(node: &mut Value, s: &Slot, theme: &Theme) {
+    if node["type"] == "text" && s.role.is_some() && s.role.as_deref() == theme.code_role() {
+        node["code"] = json!({ "language": "plain" });
+    }
+}
+
 /// The first of `base`, `base-2`, `base-3`, … that names no node of `deck` nor any of `ids`.
 fn named(deck: &Deck, base: &str, ids: &[String]) -> String {
     let taken = |n: &str| deck.nodes.contains_key(n) || ids.iter().any(|i| i == n);
@@ -639,9 +648,11 @@ pub fn filling(deck: &Deck, theme: &Theme, state: &str, slot: &str) -> Result<Fi
         .get(layout)
         .and_then(|l| l.slots.get(slot))
         .ok_or_else(|| OpsError::new(format!("the layout `{layout}` has no slot `{slot}`")))?;
-    let node = slot_node(slot, s, scaena_core::direction::mirrored(deck)).filter(|n| n["type"] == "text").ok_or_else(
-        || OpsError::new(format!("the slot `{slot}` waits for no words: a picture or a figure goes there")),
-    )?;
+    let mut node =
+        slot_node(slot, s, scaena_core::direction::mirrored(deck)).filter(|n| n["type"] == "text").ok_or_else(
+            || OpsError::new(format!("the slot `{slot}` waits for no words: a picture or a figure goes there")),
+        )?;
+    coded(&mut node, s, theme);
     let i = deck.state_index(state).ok_or_else(|| OpsError::unknown_state(deck, state))?;
     let slide = deck.slide_of(&deck.states[i]);
     let id = named(deck, &format!("{slide}-{}", slug(slot, "slot")), &[]);

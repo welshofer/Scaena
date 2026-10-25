@@ -287,3 +287,30 @@ fn a_haiku_slide_counts_5_7_5_in_every_theme() {
         assert_eq!(at("haiku"), at("key-point") + 1, "{name}: after Key Point");
     }
 }
+
+/// The Code section (PLAN 2.138, ADR-0029): in every shipped theme, a slide started in each code
+/// layout sets each slot in the theme's code role as a Plain Text code block, its prompt's words its
+/// code, which the slide draws on its card; and lint finds nothing in it (the test above).
+#[test]
+fn a_code_layout_starts_each_code_slot_as_a_plain_text_code_block() {
+    for (name, theme) in shipped() {
+        let b = scaena_ops::open(&made(&format!("code-{name}"), &theme)).unwrap();
+        let t = scaena_ops::theme(&b).unwrap();
+        let first = b.deck.states[0].id.clone();
+        for layout in ["title-code", "code-notes", "two-code", "two-code-stacked"] {
+            let template = t.layouts.get(layout).unwrap_or_else(|| panic!("{name} has {layout}"));
+            let code = template.slots.iter().filter(|(_, s)| s.role.as_deref() == t.code_role()).count();
+            assert!(code >= 1, "{name}'s {layout} has a code slot");
+            let started = starting(&b.deck, &t, &first, Some(layout)).unwrap();
+            let blocks: Vec<&serde_json::Value> = (started.patch.iter())
+                .filter(|op| op["op"] == "add_node" && op["node"]["code"].is_object())
+                .map(|op| &op["node"])
+                .collect();
+            assert_eq!(blocks.len(), code, "{name}'s {layout}: {:?}", started.patch);
+            for block in blocks {
+                assert_eq!(block["code"], serde_json::json!({ "language": "plain" }), "{name}'s {layout}");
+                assert_eq!(block["text"], "Paste or type code", "{name}'s {layout}");
+            }
+        }
+    }
+}
