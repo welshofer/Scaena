@@ -114,7 +114,7 @@ const WIRE = {
     }),
     answer: () => ({ content: [{ type: "text", text: ANSWER }], stop_reason: "end_turn", usage: { input_tokens: 1200, output_tokens: 20 } }),
     key: (h) => h["x-api-key"],
-    system: (b) => b.system?.[0]?.text ?? "",
+    system: (b) => (b.system ?? []).map((s) => s.text).join(""),
     tools: (b) => b.tools.map((t) => ({ name: t.name, schema: t.input_schema })),
   },
   openai: {
