@@ -105,7 +105,7 @@ import { rehearsal, rehearsalKeys } from "./rehearse";
 import { scn, scnHighlight } from "./scn";
 import { client, listen, served, serving, status as onDisk, token } from "./served";
 import { worker } from "./spawn";
-import { EngineStopped, Stage } from "./stage";
+import { EngineStopped, PROBE, Stage } from "./stage";
 import { toolbar } from "./toolbar";
 import { slides as lightTable, slidesKeys } from "./slides";
 import { strip, stripKeys } from "./strip";
@@ -570,6 +570,7 @@ async function edit(source: Source, opened?: Stage) {
   // 10-24b STAB-2): the stage is started again from the deck as last kept, or as it came, with the
   // source as it stands here, and the files written since the save, which went with it, are named.
   stage.onDied = (death) => void restarted(death);
+  stage.onStalled = (message) => say(`The engine stopped answering after an error (${message}): waiting up to ${PROBE / 1000} seconds for it before starting it again…`);
   // What waited on the engine when it stopped is refused, and the restart says so: a request
   // fired and forgotten has nothing more to say.
   addEventListener("unhandledrejection", (e) => {

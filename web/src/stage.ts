@@ -259,6 +259,10 @@ export class Stage {
    * which went with it, each by the name it was dropped as, where it was. A page that does not
    * start the stage again (`restart`) hears an error. */
   onDied: (death: { message: string; lost: string[] }) => void = (death) => this.onError(new Error(`the engine stopped: ${death.message}`));
+  /** Called when a worker that failed outside a message is given `PROBE` ms to say anything
+   * (lift-up 10-24b STAB-2), with what failed: the page says it is waiting, before it hears the
+   * error the worker lived through (`onError`) or the stage stopped (`onDied`). */
+  onStalled: (message: string) => void = () => {};
   /** Called on each message the worker sends, while a worker that failed is asked whether it
    * lives. */
   private heard?: () => void;
@@ -323,6 +327,7 @@ export class Stage {
   private async failed(worker: Worker, message: string) {
     if (worker !== this.worker || this.probing) return;
     this.probing = true;
+    this.onStalled(message);
     const alive = await this.probe();
     this.probing = false;
     if (worker !== this.worker) return;

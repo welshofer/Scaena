@@ -205,6 +205,11 @@ try {
     await new Promise((r) => setTimeout(r, 300));
     return window.scaena.reading().then(() => "read", (e) => `refused: ${e.message}`);
   });
+  // While the stage waits for it to say anything, the status says so.
+  const stalled = await page
+    .waitForFunction(() => document.querySelector("#status").textContent.includes("stopped answering"), null, { timeout: 10000 })
+    .then(() => page.locator("#status").textContent(), () => "");
+  check(stalled.includes("waiting up to 20 seconds"), `while it waits, the status says the engine stopped answering: ${stalled}`);
   const late = await Promise.race([waited, new Promise((r) => setTimeout(() => r("waiting"), 30000))]);
   check(late.startsWith("refused: the engine stopped"), `a request waiting on a worker that died is refused, within the 20 s it is given to say anything: ${late}`);
   await page.waitForFunction(() => window.scaena.restarts() === 3, null, { timeout: 60000 }).catch(() => {});

@@ -1966,9 +1966,6 @@ let painting: Promise<void> = Promise.resolve();
  * canvas changes (a drag, a zoom). */
 type Beside = "paint" | "pace" | "keep";
 
-/** `state` `t` ms into its cue, on the canvas, sized to the format first, then in each format
- * beside it as `beside` says. Past its span, it is at rest; its shaders keep the timeline's time
- * (SPEC §3.8). */
 /** Request `id` answered, a frame painted since `start`, once the GPU has done the frame: a
  * page that screenshots the canvas when it hears gets the frame asked for, not the last one the
  * compositor had whole (a large picture's first upload, on a slow adapter, outlasting the page's
@@ -1979,6 +1976,9 @@ async function answerShown(id: number, start: number) {
   post({ type: "shown", id, size: [canvas.width, canvas.height], ms });
 }
 
+/** `state` `t` ms into its cue, on the canvas, sized to the format first, then in each format
+ * beside it as `beside` says. Past its span, it is at rest; its shaders keep the timeline's time
+ * (SPEC §3.8). */
 async function paint(state: string, t: number, beside: Beside = "paint") {
   lastPainted = { state, t };
   sized(true);
