@@ -13,6 +13,7 @@ use crate::create::{Attach, Create, Created, attaching, creating};
 use crate::lint::{View, Write, lint_in};
 use crate::{Context, OpsError};
 use base64::Engine;
+use scaena_core::code;
 use scaena_core::document::NodeType;
 use scaena_core::format::{Locale, NumberFormat};
 use scaena_core::inserts::slug;
@@ -1250,16 +1251,22 @@ fn growing(doc: &Value, theme: &scaena_engine::theme::Theme) -> Vec<(String, Str
         for node in shown.keys() {
             let n = &doc["nodes"][node];
             let (Some(slot), Some(role)) = (n["at"]["in"].as_str(), n["role"].as_str()) else { continue };
+            // Code shrinks as code does, on its own lines, and code side by side is a set of its
+            // own, held to the size the one with the least room reached, so a before and after
+            // compare like with like (dogfood 8a).
+            let code = n.get("code").is_some();
             let slotted = || theme.layouts.get(layout).and_then(|l| l.slots.get(slot)).and_then(|s| s.fit);
-            let fits = match n["fit"].as_str() {
-                Some(fit) => matches!(fit, "grow" | "shrink"),
-                None => matches!(slotted(), Some(TextFit::Grow | TextFit::Shrink)),
-            };
+            let fits = code
+                || match n["fit"].as_str() {
+                    Some(fit) => matches!(fit, "grow" | "shrink"),
+                    None => matches!(slotted(), Some(TextFit::Grow | TextFit::Shrink)),
+                };
             if !fits {
                 continue;
             }
             let Some(size) = theme.typography.roles.get(role).map(|r| r.size) else { continue };
             let set = match ordinal(slot) {
+                Some(_) if code => format!("{id}\u{1f}code"),
                 Some((_, part)) => format!("{id}\u{1f}{part}\u{1f}{role}"),
                 None if slot == "title" && layout.starts_with("section") => format!("\u{1f}{layout}\u{1f}{role}"),
                 // A journey's cells, every lane's, one set: the map reads at one size.
@@ -3614,6 +3621,30 @@ fn reads_as_code(text: &str) -> bool {
         || text.trim_end().ends_with(';')
 }
 
+/// The languages whose blocks a brace opens and closes.
+const BRACED: [&str; 11] =
+    ["c", "cpp", "csharp", "go", "java", "javascript", "kotlin", "php", "rust", "swift", "typescript"];
+
+/// `text`, code in `language` written on one line, set as it would be written (dogfood 8a): a
+/// block a brace opens and closes at its end, `for … { p, err := … }`, on lines of its own, each
+/// statement in it on one, indented a tab in Go and four spaces elsewhere. Anything else as it is.
+fn blocked(text: &str, language: &str) -> String {
+    let one = text.trim();
+    let (Some(open), true) = (one.find(" { "), BRACED.contains(&language)) else { return text.to_string() };
+    let Some(inner) = one[open + 3..].strip_suffix('}').map(str::trim) else { return text.to_string() };
+    if one.contains('\n') || inner.is_empty() || inner.contains(['{', '}']) {
+        return text.to_string();
+    }
+    // Each statement keeps the semicolon written after it, but Go's, which its lines leave out.
+    let go = language == "go";
+    let indent = if go { "\t" } else { "    " };
+    let body: Vec<String> = (inner.split_inclusive("; "))
+        .map(|s| s.trim())
+        .map(|s| format!("{indent}{}", if go { s.trim_end_matches(';') } else { s }))
+        .collect();
+    format!("{} {{\n{}\n}}", one[..open].trim_end(), body.join("\n"))
+}
+
 /// A slide as the deck plans it before any is built: its beat, its items, the icons they stand
 /// under, and its layout.
 struct Planned<'n> {
@@ -3976,6 +4007,29 @@ impl Slots<'_> {
         Some(self.slide.subtitle.clone())
             .filter(|t| !t.is_empty())
             .or_else(|| Some(self.body.to_string()).filter(|b| !b.is_empty() && !b.starts_with('\u{2022}')))
+    }
+
+    /// The language `text`, an item's words, is written in, where it is code (dogfood 8a): it
+    /// reads as code ([`reads_as_code`]), and [`code::detect`] names its language by the file the
+    /// subtitle names ("checkout/price.go"), or finds it likely in the slide's items that read as
+    /// code read together, since one line alone is prose to it. None for prose, "p99 fell 60%".
+    fn coded(&self, text: &str) -> Option<&'static str> {
+        if !reads_as_code(text) {
+            return None;
+        }
+        let subtitle = self.slide.subtitle.trim();
+        let file = (!subtitle.contains(char::is_whitespace) && subtitle.contains('.')).then_some(subtitle);
+        let hints = code::Hints { file, ..Default::default() };
+        if let Some(language) = code::detect(text, &hints).language() {
+            return Some(language.name);
+        }
+        let lines: Vec<&str> = (self.items.iter())
+            .map(|i| if i.label.is_some() { i.detail.as_str() } else { i.whole.as_str() })
+            .filter(|l| reads_as_code(l))
+            .collect();
+        let language = code::detect(&lines.join("\n"), &code::Hints::default()).language()?;
+        // Plain text names no language a card colors: the words stay words.
+        (language.name != "plain").then_some(language.name)
     }
 
     /// A chart's caption: its source, else the slide's supporting fact. What it shows is its
@@ -4902,10 +4956,22 @@ impl Builder {
                         _ => role.as_str(),
                     };
                     let mut node = json!({ "type": "text", "role": role, "text": text, "at": at });
+                    // An item written in code is set as code, in its language, on its card, in the
+                    // theme's code role, its lines as written and fitted as code fits (dogfood 8a).
+                    let coded = ordinal(name).filter(|(_, part)| part.is_empty()).and_then(|_| s.coded(&text));
+                    if let Some(language) = coded {
+                        node["text"] = json!(blocked(&text, language));
+                        node["code"] = json!({ "language": language });
+                        match s.theme.code_role() {
+                            Some(role) => node["role"] = json!(role),
+                            None => drop(node.as_object_mut().map(|n| n.remove("role"))),
+                        }
+                    }
                     // Set as large as its place allows, up to its ceiling (`making` holds a set
                     // of them to one size).
-                    let most = s
-                        .grown(name, slot.role.as_deref().unwrap_or(role))
+                    let most = (coded.is_none())
+                        .then(|| s.grown(name, slot.role.as_deref().unwrap_or(role)))
+                        .flatten()
                         .or_else(|| short(&text).then(|| s.alone(name, role)).flatten())
                         .map(|most| {
                             // A few short lines of words alone in a large place, a card's own words
@@ -4944,6 +5010,10 @@ impl Builder {
                     // as it grows to fill the card (G.20); the running head stands on the slide's
                     // foot, as a footer does.
                     match (s.layout, ordinal(name)) {
+                        // Code stands in the middle of its side's card, as the words it stands for
+                        // would.
+                        ("myth-fact", Some((_, ""))) if coded.is_some() => node["align"] = json!({ "y": "center" }),
+                        _ if coded.is_some() => {}
                         // A statement with nothing under it takes the rows its support leaves, and
                         // stands in the middle of them.
                         ("statement", None) if name == "statement" && s.subtitle().is_none() && s.items.is_empty() => {
@@ -6338,6 +6408,106 @@ mod tests {
         assert_eq!(typeset_en("prices, err := pricing.GetMany(\"a\")"), "prices, err := pricing.GetMany(\"a\")");
     }
 
+    /// An item written in code is set as code in its language, on its card, in the theme's code
+    /// role and fitted as code fits (dogfood 8a F1, deepdive 6): its language named by the file the
+    /// subtitle names, else found in the slide's code read together, a block on one line set on
+    /// lines of its own. An item in words stays words, a percentile's name among them.
+    #[test]
+    fn an_item_written_in_code_is_set_as_code() {
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let made = |layout: &str, items: Vec<String>, subtitle: &str| -> Vec<Value> {
+            let slide = Slide {
+                slide_title: "We changed one loop".into(),
+                subtitle: subtitle.into(),
+                layout_suggestion: layout.into(),
+                key_bullets: items,
+                ..Slide::default()
+            };
+            let made = deck(&narrative("", vec![slide]), &theme, &Pictures::new()).unwrap();
+            made.deck["nodes"].as_object().unwrap().values().filter(|n| n["type"] == "text").cloned().collect()
+        };
+        let texts = |before: &str, after: &str, subtitle: &str| {
+            made("Before / After", vec![format!("Before: {before}"), format!("After: {after}")], subtitle)
+        };
+        let coded = |texts: &[Value]| -> Vec<(String, String)> {
+            (texts.iter())
+                .filter_map(|n| Some((n["code"]["language"].as_str()?.into(), n["text"].as_str()?.into())))
+                .collect()
+        };
+        let (loop_, batch) = (
+            "for _, item := range cart.Items { p, err := pricing.Get(ctx, item.SKU) }",
+            "prices, err := pricing.GetMany(ctx, cart.SKUs())",
+        );
+        let go = vec![
+            (
+                "go".to_string(),
+                "for _, item := range cart.Items {\n\tp, err := pricing.Get(ctx, item.SKU)\n}".to_string(),
+            ),
+            ("go".to_string(), batch.to_string()),
+        ];
+        let named = texts(loop_, batch, "checkout/price.go");
+        assert_eq!(coded(&named), go);
+        for code in named.iter().filter(|n| n.get("code").is_some()) {
+            assert_eq!(code["role"], "code", "{code:#}");
+            assert!(["fit", "maxLines"].iter().all(|k| code.get(k).is_none()), "{code:#}");
+            assert_eq!(code["align"]["y"], "center", "{code:#}");
+        }
+        // Before and after, side by side, set at one size: the smaller of their fits, so each
+        // fits and the two compare like with like (dogfood 8a), as the deck is made and laid out.
+        let slide = Slide {
+            slide_title: "We changed one loop".into(),
+            subtitle: "checkout/price.go".into(),
+            layout_suggestion: "Before / After".into(),
+            key_bullets: vec![format!("Before: {loop_}"), format!("After: {batch}")],
+            ..Slide::default()
+        };
+        let built = deck(&narrative("", vec![slide]), &theme, &Pictures::new()).unwrap();
+        let (generated, write) =
+            making(built, "Problem\u{2013}Solution", Path::new("dusk.theme.json"), dusk(), &font).unwrap();
+        assert!(generated.created.created, "{:#?}", generated.created.findings);
+        let write = write.unwrap();
+        let nothing = scaena_store::Files::Zip(Default::default());
+        let view = View { base: &nothing, pending: write.files.clone() };
+        let looks = scaena_engine::theme::Theme::from_json(&dusk()).unwrap();
+        let mut engine = crate::lint::engine_in(&write.deck, &view, &looks, None).unwrap();
+        let data = crate::lint::data_in(&write.deck, &view).unwrap();
+        let laid = write.deck.to_value().unwrap();
+        let state = laid["states"][0]["id"].as_str().unwrap().to_string();
+        let ids = [format!("{state}-first"), format!("{state}-second")];
+        let ids: Vec<&str> = ids.iter().map(String::as_str).collect();
+        let req = scaena_engine::FrameRequest {
+            deck: &write.deck,
+            theme: &looks,
+            data: &data,
+            state: &state,
+            t_ms: f64::INFINITY,
+            format: None,
+        };
+        let sizes: Vec<f64> = (engine.text_layouts(&req, &ids).unwrap().iter())
+            .map(|p| (f64::from(p.scale) * looks.typography.roles["code"].size * 4.0).round() / 4.0)
+            .collect();
+        assert!(laid["nodes"][ids[0]]["code"].is_object() && laid["nodes"][ids[1]]["code"].is_object(), "{laid:#}");
+        assert!((sizes[0] - sizes[1]).abs() < 0.3, "before and after at one size: {sizes:?}");
+        // Neither under 12 pt at presentation size, W205's floor.
+        assert!(sizes.iter().all(|s| *s >= 24.0), "{sizes:?}");
+        // With no file named, the slide's code read together: two lines score too little for Go,
+        // and stay words, as `detect` reads them; three are Go's.
+        assert!(coded(&texts(loop_, batch, "")).is_empty());
+        let steps =
+            ["Read: rows, err := db.Query(ctx, q)", "Check: if err != nil { return err }", "Close: defer rows.Close()"];
+        let read = made("Two Column", steps.map(String::from).to_vec(), "");
+        let languages: Vec<String> = coded(&read).into_iter().map(|(l, _)| l).collect();
+        assert_eq!(languages, ["go", "go", "go"], "{read:#?}");
+        // Words stay words, and the slide sets them as it did.
+        let words = texts("p99 fell 60%", "p99 holds at 740 ms", "");
+        assert!(coded(&words).is_empty(), "{words:#?}");
+        assert!(words.iter().all(|n| n.get("code").is_none() && n["role"] != "code"));
+        // A block on one line is set on lines of its own in a language of braces, else as written.
+        assert_eq!(blocked("if (ok) { run(); stop(); }", "javascript"), "if (ok) {\n    run();\n    stop();\n}");
+        assert_eq!(blocked("for x in xs { go(x) }", "python"), "for x in xs { go(x) }");
+        assert_eq!(blocked("let v = { a: 1 }; f(v)", "javascript"), "let v = { a: 1 }; f(v)");
+    }
+
     /// A phone number's hyphen, and a ZIP+4's, are no range (DF7-2, appeal 11).
     #[test]
     fn a_phone_number_keeps_its_hyphens() {
@@ -6568,6 +6738,11 @@ mod tests {
         // its unit held to it by a space that never breaks, as the typesetter sets it (DF7-2).
         assert_eq!(said("board-de", "der-umsatz-w-chst-seit-f-nf-callout"), "48,6\u{a0}Mio.\u{a0}\u{20ac}");
         assert_eq!(said("deepdive", "latency-climbed-every-week-as-callout"), "1,840\u{a0}ms");
+        // Its Go set as Go, on its card (dogfood 8a F1).
+        let deepdive = &decks.iter().find(|(n, _)| *n == "deepdive").unwrap().1.deck;
+        for side in ["we-changed-one-loop-first", "we-changed-one-loop-second"] {
+            assert_eq!(deepdive["nodes"][side]["code"]["language"], "go", "{side}");
+        }
     }
 
     #[test]
@@ -7354,12 +7529,6 @@ mod tests {
         assert!(!section.iter().any(|(slot, _)| slot == "number"), "{section:?}");
         assert_eq!(sentence("iPhone sales"), "iPhone sales");
         assert_eq!(sentence("cuts emissions 80%"), "Cuts emissions 80%");
-        // A comparison of figures is prose; a tag or a type's brackets are code.
-        assert_eq!(sentence("reduced latency to <100 ms"), "Reduced latency to <100 ms");
-        assert_eq!(sentence("churn >5% in EMEA"), "Churn >5% in EMEA");
-        assert_eq!(sentence("churn > 5% in EMEA"), "Churn > 5% in EMEA");
-        assert_eq!(sentence("returns Vec<Price> once"), "returns Vec<Price> once");
-        assert_eq!(sentence("wrap it in <div> tags"), "wrap it in <div> tags");
     }
 
     /// A talk on climate change for colleagues, 25 slides as Narrato writes them.
@@ -9909,6 +10078,7 @@ mod tests {
             &theme,
             slides[20].clone(),
             &Place::After(before[1].clone()),
+            None,
             BTreeMap::new(),
             &no_files(),
         )
@@ -9937,7 +10107,8 @@ mod tests {
         let story: Vec<_> = found.iter().filter(|f| matches!(f.code.as_str(), "W426" | "W429")).collect();
         assert!(story.is_empty(), "{story:#?}");
         // At the end, it goes after every slide, in the last section.
-        let end = slide_into(&doc, &theme, slides[20].clone(), &Place::End, BTreeMap::new(), &no_files()).unwrap();
+        let end =
+            slide_into(&doc, &theme, slides[20].clone(), &Place::End, None, BTreeMap::new(), &no_files()).unwrap();
         let after = patched(&doc, &end.patch);
         assert_eq!(firsts(&after).last(), Some(&end.states[0]));
     }
@@ -9961,6 +10132,7 @@ mod tests {
             &theme,
             slides[8].clone(),
             &Place::Replace(before[1].clone()),
+            None,
             BTreeMap::new(),
             &no_files(),
         )
@@ -10028,7 +10200,8 @@ mod tests {
         let (_, slides) = catalog();
         let first = doc["states"][0]["id"].as_str().unwrap().to_string();
         let written =
-            slide_into(&doc, &theme, slides[8].clone(), &Place::After(first), BTreeMap::new(), &no_files()).unwrap();
+            slide_into(&doc, &theme, slides[8].clone(), &Place::After(first), None, BTreeMap::new(), &no_files())
+                .unwrap();
         let files = scaena_store::Files::Dir(root().join("docs/examples"));
         let view = View { base: &files, pending: BTreeMap::new() };
         let after = scaena_core::patch::compile(&doc, &written.patch, &view).unwrap().doc;
@@ -10046,9 +10219,16 @@ mod tests {
         let (doc, files) = deck_at("tests/bench/b3.scaena/deck.json");
         let theme: Theme = serde_json::from_str(&dusk()).unwrap();
         let (_, slides) = catalog();
-        let written =
-            slide_into(&doc, &theme, slides[8].clone(), &Place::Replace("s1".into()), BTreeMap::new(), &no_files())
-                .unwrap();
+        let written = slide_into(
+            &doc,
+            &theme,
+            slides[8].clone(),
+            &Place::Replace("s1".into()),
+            None,
+            BTreeMap::new(),
+            &no_files(),
+        )
+        .unwrap();
         let after = patched_in(&doc, &written.patch, &files);
         others_kept(&doc, &after, &["s1"]);
         for id in ["grain", "kicker", "quote"] {
@@ -10056,16 +10236,30 @@ mod tests {
         }
         // The charts example's later slides keep the note the first shows them.
         let (doc, files) = deck_at("docs/examples/charts.deck.json");
-        let written =
-            slide_into(&doc, &theme, slides[20].clone(), &Place::Replace("bars".into()), BTreeMap::new(), &no_files())
-                .unwrap();
+        let written = slide_into(
+            &doc,
+            &theme,
+            slides[20].clone(),
+            &Place::Replace("bars".into()),
+            None,
+            BTreeMap::new(),
+            &no_files(),
+        )
+        .unwrap();
         let after = patched_in(&doc, &written.patch, &files);
         others_kept(&doc, &after, &["bars"]);
         assert!(after["nodes"].get("note").is_some());
         // And one written after a slide changes none of the rest.
-        let written =
-            slide_into(&doc, &theme, slides[20].clone(), &Place::After("stack".into()), BTreeMap::new(), &no_files())
-                .unwrap();
+        let written = slide_into(
+            &doc,
+            &theme,
+            slides[20].clone(),
+            &Place::After("stack".into()),
+            None,
+            BTreeMap::new(),
+            &no_files(),
+        )
+        .unwrap();
         others_kept(&doc, &patched_in(&doc, &written.patch, &files), &[]);
     }
 
@@ -10084,7 +10278,7 @@ mod tests {
         slide.chart_data = None;
         let read = read_by(&files);
         let written =
-            slide_into(&doc, &theme, slide, &Place::Replace("revenue".into()), BTreeMap::new(), &read).unwrap();
+            slide_into(&doc, &theme, slide, &Place::Replace("revenue".into()), None, BTreeMap::new(), &read).unwrap();
         let after = patched_in(&doc, &written.patch, &files);
         let first = &written.states[0];
         // Every other slide shows what it showed, the link now to the slide written.
@@ -10120,6 +10314,7 @@ mod tests {
             &theme,
             slides[20].clone(),
             &Place::After(before[1].clone()),
+            None,
             BTreeMap::new(),
             &no_files(),
         )
@@ -10129,17 +10324,111 @@ mod tests {
         assert!(state.get("transition").is_some(), "it enters after the slide before it: {state:#}");
     }
 
+    /// A deck made by hand with slides and no spine keeps none; the slide's notes, which a beat
+    /// would hold, go on its first state, so none are dropped (lift-up M1, changed from #637's
+    /// "makes none" with no notes kept).
     #[test]
-    fn a_slide_added_to_a_deck_with_no_spine_makes_none() {
+    fn a_slide_added_to_a_hand_made_deck_with_no_spine_makes_none_and_keeps_its_notes() {
         let (doc, files) = deck_at("docs/examples/charts.deck.json");
         let theme: Theme = serde_json::from_str(&dusk()).unwrap();
         let (_, slides) = catalog();
+        let slide = slides[20].clone();
+        assert!(!slide.speaker_notes.is_empty());
         let written =
-            slide_into(&doc, &theme, slides[20].clone(), &Place::After("bars".into()), BTreeMap::new(), &no_files())
+            slide_into(&doc, &theme, slide.clone(), &Place::After("bars".into()), None, BTreeMap::new(), &no_files())
                 .unwrap();
         let after = patched_in(&doc, &written.patch, &files);
         assert!(after.get("spine").is_none());
         assert_eq!(written.beat, "");
+        let first = after["states"].as_array().unwrap().iter().find(|s| s["id"] == written.states[0].as_str()).unwrap();
+        assert_eq!(first["notes"], json!(slide.speaker_notes));
+    }
+
+    /// `deck_create`'s deck, as an agent over MCP starts one: its blank slide, and no spine.
+    fn blank(doc: &Value) -> Value {
+        let mut blank = doc.clone();
+        let fields = blank.as_object_mut().unwrap();
+        fields.remove("spine");
+        fields.remove("data");
+        fields.insert("nodes".into(), json!({}));
+        fields.insert("states".into(), json!([{ "id": "start" }]));
+        blank
+    }
+
+    /// A deck written slide by slide over MCP has its story (lift-up M1): the first slide takes the
+    /// place of `deck_create`'s blank one and begins the spine, a section holding its beat, with
+    /// its claim and its notes; the next slide's beat follows it there.
+    #[test]
+    fn a_slide_written_into_a_blank_deck_takes_its_place_and_begins_the_spine() {
+        let (doc, theme, slides) = made_of(&[0]);
+        let doc = blank(&doc);
+        let written =
+            slide_into(&doc, &theme, slides[0].clone(), &Place::End, None, BTreeMap::new(), &no_files()).unwrap();
+        let after = patched(&doc, &written.patch);
+        assert_eq!(firsts(&after), [written.states[0].clone()], "the blank slide is gone");
+        let beats = after["spine"]["sections"][0]["beats"].as_array().unwrap();
+        assert_eq!(beats.len(), 1);
+        assert_eq!(beats[0]["id"], json!(written.beat));
+        assert_eq!(beats[0]["states"], json!(written.states));
+        assert_eq!(beats[0]["notes"], json!(slides[0].speaker_notes));
+        assert!(beats[0]["media"]["narrato"].is_object(), "what health reads: {:#}", beats[0]);
+        // The next one at the end gets a beat after it, in the spine begun.
+        let next =
+            slide_into(&after, &theme, slides[8].clone(), &Place::End, None, BTreeMap::new(), &no_files()).unwrap();
+        let after = patched(&after, &next.patch);
+        let ids: Vec<&str> = (after["spine"]["sections"].as_array().unwrap().iter())
+            .flat_map(|s| s["beats"].as_array().unwrap())
+            .map(|b| b["id"].as_str().unwrap())
+            .collect();
+        assert_eq!(ids, [written.beat.as_str(), next.beat.as_str()]);
+        assert_eq!(firsts(&after).len(), 2);
+    }
+
+    /// A slide told in a beat the spine planned joins it (lift-up M1): the beat keeps its claim
+    /// and what else it says, and takes the slide's notes and Narrato's fields where it has none;
+    /// no beat of the slide's own is added. A beat the spine lacks, or one with `replace`, refuses.
+    #[test]
+    fn a_slide_written_in_a_planned_beat_joins_it() {
+        let (doc, theme, slides) = made_of(&[0]);
+        let mut doc = blank(&doc);
+        doc["spine"] = json!({ "sections": [{ "id": "why", "title": "Why", "beats": [
+            { "id": "stakes", "claim": "The stakes are higher than they look", "states": [] },
+            { "id": "answer", "claim": "One change answers it", "states": [], "evidence": ["the audit"] },
+        ] }] });
+        let written =
+            slide_into(&doc, &theme, slides[8].clone(), &Place::End, Some("answer"), BTreeMap::new(), &no_files())
+                .unwrap();
+        assert_eq!(written.beat, "answer");
+        let after = patched(&doc, &written.patch);
+        let beats = after["spine"]["sections"][0]["beats"].as_array().unwrap();
+        assert_eq!(beats.len(), 2, "no beat of its own: {beats:#?}");
+        let answer = &beats[1];
+        assert_eq!(answer["claim"], "One change answers it");
+        assert_eq!(answer["evidence"], json!(["the audit"]));
+        assert_eq!(answer["states"], json!(written.states));
+        assert_eq!(answer["notes"], json!(slides[8].speaker_notes));
+        assert!(answer["media"]["narrato"].is_object());
+        assert_eq!(beats[0]["states"], json!([]), "the other beat is as it was");
+        assert_eq!(firsts(&after), [written.states[0].clone()], "it takes the blank slide's place");
+        let refused = |place: &Place, beat: &str| {
+            slide_into(&doc, &theme, slides[8].clone(), place, Some(beat), BTreeMap::new(), &no_files()).unwrap_err()
+        };
+        assert!(refused(&Place::End, "nowhere").to_string().contains("no beat `nowhere`"));
+        assert!(refused(&Place::Replace("start".into()), "answer").to_string().contains("not both"));
+        // A spine planned with the blank slide in its first beat, as `spine_update` sees the deck
+        // `deck_create` made: the blank leaves the beat as it leaves the deck, the slide takes its
+        // place there, and the beat names no state the deck lacks.
+        doc["spine"]["sections"][0]["beats"][0]["states"] = json!(["start"]);
+        let written =
+            slide_into(&doc, &theme, slides[0].clone(), &Place::End, Some("stakes"), BTreeMap::new(), &no_files())
+                .unwrap();
+        // The beat as the patch writes it, before `remove_slide` runs, already lists the slide's
+        // states and not the blank's (the review of #741).
+        let op = written.patch.iter().find(|op| op["path"] == "/spine/sections/0/beats/0").unwrap();
+        assert_eq!(op["value"]["states"], json!(written.states), "{op:#}");
+        let after = patched(&doc, &written.patch);
+        assert_eq!(after["spine"]["sections"][0]["beats"][0]["states"], json!(written.states));
+        assert_eq!(firsts(&after), [written.states[0].clone()]);
     }
 
     /// A slide written for a grounded deck is asked with the deck's one idea, the claim its
