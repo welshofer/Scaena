@@ -314,6 +314,60 @@ public struct GeneratorReply: Sendable {
         let numbers = last.allSatisfy(\.isNumber) || last.hasPrefix("0x") || host.contains(":")
         return host.contains(".") && !numbers && host != "localhost" && !host.hasSuffix(".localhost")
     }
+
+    /// Whether `host` resolves only to addresses the public internet reaches, as
+    /// `scaena_sources::fetch::reached` holds them (lift-up 10-24b SEC-3): a public name may
+    /// resolve to this machine or its network (`127.0.0.1.nip.io`). A host that does not resolve
+    /// passes: its request fails on its own. It blocks while the name is looked up.
+    public static func resolvesPublic(_ host: String) -> Bool {
+        var hints = addrinfo()
+        hints.ai_socktype = SOCK_STREAM
+        var found: UnsafeMutablePointer<addrinfo>?
+        let bare = host.trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
+        guard getaddrinfo(bare, nil, &hints, &found) == 0, let first = found else { return true }
+        defer { freeaddrinfo(first) }
+        var each: UnsafeMutablePointer<addrinfo>? = first
+        while let node = each {
+            if let address = node.pointee.ai_addr, !reached(address) { return false }
+            each = node.pointee.ai_next
+        }
+        return true
+    }
+
+    /// Whether the public internet reaches `address`, an IPv4 or IPv6 one.
+    private static func reached(_ address: UnsafeMutablePointer<sockaddr>) -> Bool {
+        switch Int32(address.pointee.sa_family) {
+        case AF_INET:
+            let v4 = address.withMemoryRebound(to: sockaddr_in.self, capacity: 1) { $0.pointee.sin_addr }
+            return reached(v4: withUnsafeBytes(of: v4) { Array($0) })
+        case AF_INET6:
+            let b = address.withMemoryRebound(to: sockaddr_in6.self, capacity: 1) { p in
+                withUnsafeBytes(of: p.pointee.sin6_addr) { Array($0) }
+            }
+            // An IPv4 address mapped into IPv6 is that address.
+            if b[0..<10].allSatisfy({ $0 == 0 }) && b[10] == 0xff && b[11] == 0xff { return reached(v4: Array(b[12...])) }
+            let loopback = b[0..<15].allSatisfy { $0 == 0 } && b[15] == 1
+            let unspecified = b.allSatisfy { $0 == 0 }
+            let multicast = b[0] == 0xff
+            let local = (b[0] & 0xfe) == 0xfc || (b[0] == 0xfe && (b[1] & 0xc0) == 0x80)
+            return !(loopback || unspecified || multicast || local)
+        default:
+            return false
+        }
+    }
+
+    /// Whether the public internet reaches the IPv4 address of bytes `b`, in order.
+    static func reached(v4 b: [UInt8]) -> Bool {
+        let isPrivate = b[0] == 10 || (b[0] == 172 && (16...31).contains(b[1])) || (b[0] == 192 && b[1] == 168)
+        let documentation =
+            (b[0] == 192 && b[1] == 0 && b[2] == 2) || (b[0] == 198 && b[1] == 51 && b[2] == 100)
+            || (b[0] == 203 && b[1] == 0 && b[2] == 113)
+        let shared = b[0] == 100 && (64..<128).contains(b[1])
+        let reserved =
+            b[0] == 0 || b[0] == 127 || (b[0] == 169 && b[1] == 254) || (224...239).contains(b[0])
+            || b == [255, 255, 255, 255]
+        return !(isPrivate || documentation || shared || reserved)
+    }
 }
 
 /// Holds each redirect a request meets to ``GeneratorReply/follows(_:)``.
@@ -322,7 +376,9 @@ private final class Redirects: NSObject, URLSessionTaskDelegate, Sendable {
         _ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
         newRequest request: URLRequest
     ) async -> URLRequest? {
-        guard let url = request.url, GeneratorReply.follows(url) else { return nil }
+        guard let url = request.url, GeneratorReply.follows(url), let host = url.host(percentEncoded: false),
+            GeneratorReply.resolvesPublic(host)
+        else { return nil }
         return request
     }
 }
@@ -522,6 +578,13 @@ public final class Generator {
         if let token { args["token"] = .string(token) }
         var next: Fetched = try step("fetch", args)
         while let get = next.get {
+            // Where the host resolves, off the main actor: never this machine or its network.
+            if let host = URL(string: get.url)?.host(percentEncoded: false),
+                !(await Task.detached { GeneratorReply.resolvesPublic(host) }.value)
+            {
+                throw ScaenaError(
+                    message: "\(get.url): \(host) resolves to this machine or its network: a web source is a public address")
+            }
             let reply = await send(get)
             if reply.status == 0 { throw ScaenaError(message: "\(get.url) could not be reached: \(reply.text)") }
             next = try step("fetched", ["status": .number(Double(reply.status)), "kind": .string(reply.kind)], bytes: reply.body)
