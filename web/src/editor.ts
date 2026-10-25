@@ -220,6 +220,9 @@ function folders<T>(mode: IDBTransactionMode, act: (store: IDBObjectStore) => ID
   });
 }
 
+/** The dialog that makes a deck from a prompt, once wired: whether one is being made. */
+let generating: { running: () => boolean } | undefined;
+
 /** What the editor has open, to close when it opens another bundle; `say` puts a line in its
  * status that stays, before what lint finds, until the source is edited by hand. `kept` is the
  * name the browser keeps it under, if it does, and `rekeep` renames a bundle the browser keeps, or
@@ -445,7 +448,7 @@ async function controls() {
       .catch(failed);
   };
   // From a prompt (PLAN G.5): a deck Narrato writes, made in a worker of its own.
-  prompting(
+  generating = prompting(
     worker,
     $("#new-prompt"),
     () => current?.unsaved() ?? false,
@@ -2996,7 +2999,9 @@ async function edit(source: Source, opened?: Stage) {
     const field = document.activeElement;
     const unsettled =
       board.unsettled() || ((field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement) && $("#look").contains(field) && field.value !== field.defaultValue);
-    if (unsaved() || unsettled) e.preventDefault();
+    // And a deck being made from a prompt, whose calls are paid for and lost with the page (lift-up
+    // 10-25 REL-4).
+    if (unsaved() || unsettled || generating?.running()) e.preventDefault();
   };
   current = {
     close: () => {

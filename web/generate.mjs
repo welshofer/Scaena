@@ -317,9 +317,19 @@ try {
 
   // Cancel stops it, once asked (lift-up 10-24 USE-2): kept making, Cancel and Escape leave it
   // running; stopped, the deck open stays open.
+  // Leaving or reloading the page asks first while it runs (lift-up 10-25 REL-4): its
+  // `beforeunload` is cancelled then, and neither before nor once the deck is stopped.
+  const leaving = () =>
+    page.evaluate(() => {
+      const leave = new Event("beforeunload", { cancelable: true });
+      dispatchEvent(leave);
+      return leave.defaultPrevented;
+    });
+  check(!(await leaving()), "before a deck is made, leaving the page asks nothing of it");
   state.slow = 4000;
   await page.click("#prompting-go");
   await page.waitForFunction(() => [...document.querySelectorAll("#prompting-progress li")].some((l) => l.textContent.startsWith("Choosing the arc")), null, { timeout: 60000 });
+  check(await leaving(), "leaving the page while a deck is being made asks first");
   page.off("dialog", accepting);
   const askedFirst = [];
   const declining = (d) => (askedFirst.push(d.message()), d.dismiss());
@@ -337,6 +347,7 @@ try {
   check(!(await page.locator("#prompting").evaluate((d) => d.open)), "Cancel closes the dialog");
   await page.waitForTimeout(5000);
   check((await page.evaluate(() => window.scaena.where().name)) === "revenue", "the deck open stays open");
+  check(!(await leaving()), "stopped, leaving the page asks nothing more of it");
   state.slow = 0;
 
   // Grounded in a Markdown file, a CSV, and a web page, each slide naming the source its facts
