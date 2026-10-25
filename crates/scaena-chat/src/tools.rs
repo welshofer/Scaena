@@ -278,6 +278,10 @@ fn delta(p: &Value) -> String {
 mod tests {
     use super::*;
 
+    /// The server's tools no assistant in an editor is offered: `image_add` reads a file by its path,
+    /// which an editor's assistant has none of; a picture comes in by a drop or a paste there.
+    const SERVER_ONLY: &[&str] = &["image_add"];
+
     #[test]
     fn every_mcp_tool_is_known() {
         let mut files: Vec<String> = std::fs::read_dir("../../docs/schema/mcp")
@@ -285,6 +289,10 @@ mod tests {
             .map(|e| e.unwrap().file_name().to_string_lossy().trim_end_matches(".json").to_string())
             .collect();
         files.sort();
+        for only in SERVER_ONLY {
+            assert!(files.iter().any(|f| f == only), "{only} is no tool of the server's");
+        }
+        files.retain(|f| !SERVER_ONLY.contains(&f.as_str()));
         let known: Vec<&str> = MCP.iter().map(|(n, _)| *n).collect();
         assert_eq!(files, known, "docs/schema/mcp's tools, each in MCP");
     }
