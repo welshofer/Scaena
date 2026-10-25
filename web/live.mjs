@@ -48,7 +48,12 @@ const where = await new Promise((resolve, reject) => {
   });
   server.once("exit", (code) => reject(new Error(`scaena serve exited ${code}: ${said}`)));
 });
-check(where.player?.startsWith("http://localhost:") && where.editor === `${where.player}edit`, `served at ${where.player}`);
+// Each address carries the launch's token, which the pages' writes send (lift-up 10-24b SEC-5).
+const token = new URL(where.player ?? "http://x").searchParams.get("serve") ?? "";
+check(
+  where.player?.startsWith("http://localhost:") && /^[0-9a-f]{32}$/.test(token) && where.editor === new URL(`/edit?serve=${token}`, where.player).href,
+  `served at ${where.player}`,
+);
 const at = (path) => new URL(path, where.player).href;
 
 const browser = await launch();
@@ -57,7 +62,7 @@ try {
   const player = await context.newPage();
   player.on("pageerror", (e) => check(false, `the player: ${e.message}`));
   // The address `/` sends a browser to, with the CPU painting.
-  await player.goto(at("/index.html?bundle=/bundle/&serve&painter=cpu&state=revenue"));
+  await player.goto(at(`/index.html?bundle=/bundle/&serve=${token}&painter=cpu&state=revenue`));
   await player.waitForFunction(() => window.scaena?.at, null, { timeout: 120_000 });
   const reading = () => player.locator("#reading").innerText();
   await player.waitForFunction(() => document.querySelector("#reading")?.textContent?.includes("Revenue doubled"), null, { timeout: 30_000 });
@@ -89,7 +94,7 @@ try {
   const editor = await context.newPage();
   editor.on("pageerror", (e) => check(false, `the editor: ${e.message}`));
   editor.on("dialog", (d) => d.accept());
-  await editor.goto(at("/editor.html?bundle=/bundle/&serve&painter=cpu"));
+  await editor.goto(at(`/editor.html?bundle=/bundle/&serve=${token}&painter=cpu`));
   await editor.waitForFunction(() => window.scaena?.source, null, { timeout: 120_000 });
   check((await editor.evaluate(() => window.scaena.source())) === source, "the editor opens deck.scn as its source");
   const told = await editor.locator("#where").innerText();

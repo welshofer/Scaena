@@ -156,12 +156,23 @@ enum Writer {
         let reads = ask.kind == .explain
         // A picture goes to the assistant's model alone, which the sheet says.
         let byKey = byKey().map { "Written by \($0.model), with your \($0.provider.name) key: it was shown the picture." }
+        // A rewrite is asked again in the person's own words for how (lift-up FUNC-3).
+        let again: ((String) -> Asked)? =
+            ask.kind == .rewrite
+            ? { how in
+                var next = ask
+                let how = how.trimmingCharacters(in: .whitespacesAndNewlines)
+                next.instruction = how.isEmpty ? nil : how
+                return asking(next, of: session)
+            } : nil
         return Asked(
             title: writing.title,
             ask: { try await Writer.respond(instructions: instructions, prompt: prompt, picture: picture) },
             shown: { answer in (try? session.written(ask, answer: answer).text) ?? answer },
             take: reads ? nil : { answer in try session.taking(ask, answer: answer) },
-            whence: picture == nil ? whence : byKey ?? whence)
+            whence: picture == nil ? whence : byKey ?? whence,
+            instruction: ask.instruction ?? "",
+            again: again)
     }
 
     /// Why nothing was asked.
@@ -181,6 +192,10 @@ struct Asked: Identifiable {
     let take: ((String) throws -> [JSONValue]?)?
     /// Where the answer comes from.
     var whence = Writer.whence
+    /// For a rewrite, the person's own words for how it was asked, and the question asked again in
+    /// others (lift-up FUNC-3).
+    var instruction = ""
+    var again: ((String) -> Asked)?
 }
 
 /// The model's answer as it comes: thinking, then the answer to take or leave, or why none came.
@@ -194,6 +209,10 @@ struct OfferSheet: View {
     let take: ((String) throws -> [JSONValue]?)?
     /// Where the answer comes from.
     var whence = Writer.whence
+    /// For a rewrite, the person's own words for how it was asked, and what asks it again in the
+    /// words in the field (lift-up FUNC-3).
+    var instruction = ""
+    var again: ((String) -> Void)?
     /// The answer taken: its patch, or none where it changes nothing.
     let make: ([JSONValue]?) -> Void
     @Environment(\.dismiss) private var dismiss
@@ -206,6 +225,8 @@ struct OfferSheet: View {
     /// What the device declined, and the user's own model offered in its place, asked only when the
     /// person presses its button (lift-up STAB-4).
     @State private var declined: (said: String, elsewhere: Answering.Elsewhere)?
+    /// How to rewrite it, as the person types it.
+    @State private var how = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -228,6 +249,19 @@ struct OfferSheet: View {
             } else {
                 // Once the person has agreed to ask their own model, it is that model thinking.
                 ProgressView(OnDevice.available && answered == nil ? "Thinking on this \(Words.device)…" : "Asking…")
+            }
+            if let again {
+                // How to rewrite it, in the person's own words, asked again on Return or the button.
+                HStack {
+                    TextField("How to rewrite it", text: $how, prompt: Text("More formal; shorter, for executives"))
+                        .textFieldStyle(.roundedBorder)
+                        .onSubmit { again(how) }
+                        .accessibilityIdentifier("writingHow")
+                    Button("Rewrite Again") { again(how) }
+                        .disabled(how.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        .accessibilityIdentifier("writingAgain")
+                }
+                .onAppear { how = instruction }
             }
             if let refused { Text(refused).font(.callout).foregroundStyle(.red) }
             if declined == nil { Text(answered ?? whence).font(.caption).foregroundStyle(.secondary) }
