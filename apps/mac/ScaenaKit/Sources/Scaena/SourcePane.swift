@@ -16,6 +16,8 @@ import SwiftUI
 struct SourcePane: NSViewRepresentable {
     /// The source as the editor has it.
     let text: String
+    /// Whether it takes typing: not while the assistant is at work on the deck (lift-up STAB-5).
+    var editable = true
     /// Told the pane's text once typing pauses.
     let typed: (String) -> Void
 
@@ -45,6 +47,7 @@ struct SourcePane: NSViewRepresentable {
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         context.coordinator.typed = typed
         guard let view = scroll.documentView as? NSTextView else { return }
+        if view.isEditable != editable { view.isEditable = editable }
         // The deck changed elsewhere: its source is written back, the selection kept where it can be.
         guard !context.coordinator.typing, view.string != text else { return }
         let selected = view.selectedRange()
@@ -78,6 +81,8 @@ struct SourcePane: NSViewRepresentable {
 struct SourcePane: UIViewRepresentable {
     /// The source as the editor has it.
     let text: String
+    /// Whether it takes typing: not while the assistant is at work on the deck (lift-up STAB-5).
+    var editable = true
     /// Told the pane's text once typing pauses.
     let typed: (String) -> Void
 
@@ -101,6 +106,7 @@ struct SourcePane: UIViewRepresentable {
 
     func updateUIView(_ view: UITextView, context: Context) {
         context.coordinator.typed = typed
+        if view.isEditable != editable { view.isEditable = editable }
         // The deck changed elsewhere: its source is written back, the selection kept where it can be.
         guard !context.coordinator.typing, view.text != text else { return }
         let selected = view.selectedRange

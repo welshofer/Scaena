@@ -148,8 +148,12 @@ pub enum Kind {
     /// It shows something, and gives the speaker nothing to say about it.
     Notes,
     /// The deck runs past the range of slides its brief asked for; this slide turns least from
-    /// the one before, and is the first to cut.
+    /// the one before, and is the first to cut. Or its beats' time runs short of, or past, the
+    /// slot its brief's slides are given; this slide's beat runs shortest, or longest.
     Pacing,
+    /// A change the model asked once it saw the slide drawn was not kept, lint having found the
+    /// slide worse for it (`meta.narrative.refused`, lift-up USE-4).
+    Look,
 }
 
 /// Something to look at on one slide: what it says, what to ask the assistant, and, where one
@@ -450,6 +454,106 @@ fn pacing(count: usize, asked: Option<(usize, Option<usize>)>, m: &LocalHealthMe
     Measure { score: Some(100u32.saturating_sub(5 * outside as u32)), says }
 }
 
+/// How fast a talk is spoken: about 140 words a minute, a presenter's pace with its pauses; and
+/// in a script set without spaces between its words (Chinese, Japanese, Korean), about 300 of its
+/// characters a minute (lift-up FUNC-1).
+const WORDS_A_MINUTE: f64 = 140.0;
+const CHARACTERS_A_MINUTE: f64 = 300.0;
+
+/// Whether `c` is a letter of a script read by the character: kana, Han, and Hangul.
+fn by_character(c: char) -> bool {
+    matches!(c as u32, 0x3040..=0x30FF | 0x3400..=0x4DBF | 0x4E00..=0x9FFF | 0xAC00..=0xD7AF | 0xF900..=0xFAFF)
+}
+
+/// The seconds `notes` take to say aloud: each word at [`WORDS_A_MINUTE`], and each letter of a
+/// script read by the character at [`CHARACTERS_A_MINUTE`].
+fn spoken(notes: &str) -> f64 {
+    let (mut words, mut characters) = (0usize, 0usize);
+    for word in notes.split_whitespace() {
+        match word.chars().filter(|&c| by_character(c)).count() {
+            0 => words += 1,
+            n => characters += n,
+        }
+    }
+    60.0 * (words as f64 / WORDS_A_MINUTE + characters as f64 / CHARACTERS_A_MINUTE)
+}
+
+/// What gives a beat its time: the `duration` it is given, its states' holds, or its notes said
+/// aloud, whichever comes to most.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Timed {
+    Given,
+    Held,
+    Noted,
+}
+
+/// A beat as the talk times it: the index of the first slide it tells, its seconds, and what
+/// gives them.
+type Beaten = (usize, f64, Timed);
+
+/// How long the talk runs, by its beats (lift-up FUNC-1): each beat the most of its `duration`,
+/// the holds of its states, as a video paces it, and its notes and its states' own said aloud,
+/// so that notes deepened lengthen the talk; and each beat's seconds, and what gives them, by the
+/// index of the first slide it tells. None where a beat has neither a `duration` nor a hold on
+/// every state, or a slide neither a beat nor holds, as a deck written by hand with no spine.
+fn talk(deck: &Deck, slides: &[Slide]) -> Option<(f64, Vec<Beaten>)> {
+    let state = |id: &str| deck.states.iter().find(|s| s.id == id);
+    let mut told: Vec<((usize, usize), usize, f64, Timed)> = Vec::new();
+    let mut seconds = 0.0;
+    for (k, slide) in slides.iter().enumerate() {
+        match slide.beat {
+            Some((i, j, _)) if told.iter().any(|(at, ..)| *at == (i, j)) => {}
+            Some((i, j, beat)) => {
+                let holds: Vec<Option<f64>> = beat.states.iter().map(|s| state(s).and_then(|s| s.hold)).collect();
+                let held = holds.iter().flatten().sum::<f64>() / 1000.0;
+                let given = match beat.duration {
+                    Some(d) => d,
+                    None if holds.iter().all(Option::is_some) => 0.0,
+                    None => return None,
+                };
+                let noted = spoken(beat.notes.as_deref().unwrap_or_default())
+                    + (beat.states.iter())
+                        .filter_map(|s| state(s).and_then(|s| s.notes.as_deref()))
+                        .map(spoken)
+                        .sum::<f64>();
+                let (own, by) = [(held, Timed::Held), (noted, Timed::Noted)]
+                    .into_iter()
+                    .fold((given, Timed::Given), |most, (t, by)| if t > most.0 { (t, by) } else { most });
+                told.push(((i, j), k, own, by));
+                seconds += own;
+            }
+            None => {
+                let holds: Option<Vec<f64>> = slide.states.iter().map(|&s| deck.states[s].hold).collect();
+                seconds += holds?.iter().sum::<f64>() / 1000.0;
+            }
+        }
+    }
+    (!told.is_empty()).then(|| (seconds, told.into_iter().map(|(_, k, s, by)| (k, s, by)).collect()))
+}
+
+/// A talk's minutes, rounded, as a person says them: "about 8 minutes", "under a minute".
+fn minutes(seconds: f64) -> String {
+    match (seconds / 60.0).round() as usize {
+        0 => "under a minute".to_string(),
+        m => format!("about {}", counted(m, "minute")),
+    }
+}
+
+/// A beat's time: "40 seconds" under a minute and a half, else "about 3 minutes".
+fn span(seconds: f64) -> String {
+    if seconds < 90.0 { counted(seconds.round() as usize, "second") } else { minutes(seconds) }
+}
+
+/// The slot a brief's slides are given, as a person says it: "a 16–30 minute slot", "a slot of
+/// up to 15 minutes", "a slot of 46 minutes or more".
+fn slot((lo, hi): (u32, Option<u32>)) -> String {
+    match (lo, hi) {
+        (0, Some(hi)) => format!("a slot of up to {hi} minutes"),
+        (lo, Some(hi)) => format!("a {lo}\u{2013}{hi} minute slot"),
+        (lo, None) => format!("a slot of {lo} minutes or more"),
+    }
+}
+
 /// Whether a deck in `language` is in English, by its name or its tag's first part, as the
 /// lexicons judge a language named (`scaena_narrato::health`'s `english`): one that names none is.
 fn in_english(language: Option<&str>) -> bool {
@@ -522,6 +626,29 @@ fn closing(deck: &Deck, slides: &[Slide], read: &[SlideForHealth]) -> Vec<String
     (0..n).rev().take_while(|&i| closes(i)).map(|i| read[i].id.clone()).collect()
 }
 
+/// The opening of a slide's notes: their first line or item, cut at its first sentence's end, a
+/// stop that white space or the line's end follows, so a figure's point ("3.5%") ends nothing.
+fn opening(notes: &str) -> &str {
+    let first = notes.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or_default();
+    let mut chars = first.char_indices().peekable();
+    while let Some((at, c)) = chars.next() {
+        if matches!(c, '.' | '!' | '?') && chars.peek().is_none_or(|&(_, next)| next.is_whitespace()) {
+            return &first[..at + c.len_utf8()];
+        }
+    }
+    first
+}
+
+/// Whether `next`'s notes open by carrying `before` across (narrative dogfood H4): a word of
+/// `before`'s headline and body that `next`'s do not use, as coherence reads words, in the
+/// opening of `next`'s notes. A word both slides use, a product's name, carries nothing over.
+fn bridges(before: &SlideForHealth, next: &SlideForHealth) -> bool {
+    let words = |s: &SlideForHealth| health::coherence::keywords(&format!("{} {}", s.title, s.body));
+    let carried: Vec<String> = words(before).difference(&words(next)).cloned().collect();
+    let opened = health::coherence::keywords(opening(&next.notes));
+    carried.iter().any(|w| opened.contains(w))
+}
+
 /// The narrative health of `deck`, as its words and its plan read: [`health_in`] with nothing
 /// lint found.
 pub fn health(deck: &Deck) -> Result<Health, OpsError> {
@@ -587,7 +714,19 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
     let bends: Vec<_> = bends.into_iter().filter(|d| !(d.delta < 0.0 && closing.contains(&d.slide_id))).collect();
 
     // Pacing against the brief's range, where it asked one, and the overall again with it.
-    let pacing = pacing(n, asked, &m);
+    let mut pacing = pacing(n, asked, &m);
+    // The time its beats take, beside the count (lift-up FUNC-1): Vzestup's score is the count's.
+    let talk = talk(deck, &slides);
+    let given = asked.map(|(lo, hi)| (range(lo, hi), scaena_narrato::brief::minutes_for_slides(lo)));
+    if let Some((seconds, _)) = talk {
+        let said = capitalized(&minutes(seconds));
+        pacing.says = match &given {
+            Some((count, given)) => {
+                format!("{} {said} of talk, where {count} slides is {}.", pacing.says, slot(*given))
+            }
+            None => format!("{} {said} of talk.", pacing.says),
+        };
+    }
     let score = match (asked, &arc_name) {
         (None, None) => m.overall_score as u32,
         _ => {
@@ -622,6 +761,11 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
             }
         },
     };
+    // A turn the next slide's notes open by carrying the slide before it across is bridged: the
+    // speaker says what the slides' words do not (narrative dogfood H4).
+    let bridged: Vec<&String> = (m.coherence.weak_transitions.iter())
+        .filter(|id| read.iter().position(|s| &s.id == *id).is_some_and(|i| i > 0 && bridges(&read[i - 1], &read[i])))
+        .collect();
     let hard = m.coherence.breaks.iter().filter(|b| b.severity == health::coherence::Severity::Hard).count();
     let soft = m.coherence.breaks.len() - hard;
     // By words alone, neighbouring slides share few even where one follows from the other: no
@@ -634,9 +778,13 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         says: match (hard, soft) {
             (0, 0) => "No slide breaks from the one before it, read by their words.".into(),
             _ => format!(
-                "Read by their words: {} where the talk turns sharply, {} at a beat's turn.",
+                "Read by their words: {} where the talk turns sharply, {} at a beat's turn{}.",
                 counted(hard, "slide"),
-                soft
+                soft,
+                match bridged.len() {
+                    0 => String::new(),
+                    n => format!("; the notes bridge {n} of them"),
+                }
             ),
         },
     };
@@ -794,7 +942,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
             );
         }
     }
-    for id in &m.coherence.weak_transitions {
+    for id in m.coherence.weak_transitions.iter().filter(|id| !bridged.contains(id)) {
         let Some(&i) = place.get(id.as_str()) else { continue };
         let (k, before) = (i + 1, i);
         find(
@@ -802,9 +950,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
             Severity::Warning,
             Kind::Turn,
             format!("Slide {k} shares little with slide {before}: the turn between them may lose the room."),
-            format!(
-                "Write the line that carries the talk from slide {before} to slide {k}, and put it in slide {k}'s notes."
-            ),
+            format!("Open slide {k}'s notes with the line that carries the talk from slide {before}."),
             None,
         );
     }
@@ -812,7 +958,91 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
     // so its plan, or its place, is what moves it, never its words, which the gap below judges
     // (ADR-0032, item 4). How far each slide's plan is from what its place calls for.
     let bent: HashMap<&str, f64> = bends.iter().map(|d| (d.slide_id.as_str(), d.delta)).collect();
-    for d in &bends {
+    // Three or more neighbouring slides planned off the curve the same way are one pattern, found
+    // once on the first of them (narrative dogfood H5): each slide's plan and what its place calls
+    // for, as ranges, and where the talk peaks against where the arc does. The graph still marks
+    // each slide that bends.
+    let planned_at = |i: usize| {
+        read[i]
+            .narrative_meta
+            .as_ref()
+            .and_then(|n| n.expected_intensity)
+            .filter(|v| v.is_finite())
+            .map(|v| v.clamp(0.0, 1.0))
+    };
+    let mut placed: Vec<(usize, f64)> =
+        bends.iter().filter_map(|d| place.get(d.slide_id.as_str()).map(|&i| (i, d.delta))).collect();
+    scaena_core::sort::by_key(&mut placed, |&(i, _)| i);
+    let mut runs: Vec<Vec<(usize, f64)>> = Vec::new();
+    for (i, delta) in placed {
+        match runs.last_mut() {
+            Some(run) if run.last().is_some_and(|&(j, d)| j + 1 == i && (d > 0.0) == (delta > 0.0)) => {
+                run.push((i, delta))
+            }
+            _ => runs.push(vec![(i, delta)]),
+        }
+    }
+    let runs: Vec<Vec<(usize, f64)>> =
+        runs.into_iter().filter(|run| run.len() >= 3 && run.iter().all(|&(i, _)| planned_at(i).is_some())).collect();
+    let folded: Vec<&str> = runs.iter().flatten().map(|&(i, _)| read[i].id.as_str()).collect();
+    // The first slide the talk is planned most intense at, and the first the arc's curve peaks at.
+    let peak_of = |values: &[Option<f64>]| {
+        (values.iter().enumerate()).filter_map(|(i, v)| v.map(|v| (i, v))).fold(
+            None,
+            |most: Option<(usize, f64)>, (i, v)| match most {
+                Some((_, m)) if m >= v => most,
+                _ => Some((i, v)),
+            },
+        )
+    };
+    let talk_peak = peak_of(&(0..read.len()).map(planned_at).collect::<Vec<_>>());
+    let arc_peak = peak_of(&curve.iter().map(|&c| Some(c)).collect::<Vec<_>>()).map(|(i, _)| i);
+    for run in &runs {
+        let (first, last) = (run[0].0, run[run.len() - 1].0);
+        let hotter = run[0].1 > 0.0;
+        let span = |values: Vec<f64>| {
+            let lo = values.iter().copied().fold(f64::INFINITY, f64::min);
+            let hi = values.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+            if level(lo) == level(hi) { level(lo) } else { format!("{}\u{2013}{}", level(lo), level(hi)) }
+        };
+        let plans: Vec<f64> = run.iter().filter_map(|&(i, _)| planned_at(i)).collect();
+        let calls: Vec<f64> = run.iter().filter_map(|&(i, d)| planned_at(i).map(|p| p - d)).collect();
+        let slides = format!("Slides {}\u{2013}{}", first + 1, last + 1);
+        let builds = match arc_peak {
+            Some(p) if p + 1 == read.len() => format!("where {curve_of} builds to its end"),
+            Some(p) => format!("where {curve_of} peaks at slide {}", p + 1),
+            None => format!("against {curve_of}"),
+        };
+        let peaks = match talk_peak {
+            Some((p, v)) => format!("it peaks at slide {} ({}), {builds}", p + 1, level(v)),
+            None => builds,
+        };
+        let says = format!(
+            "{slides} were planned {} than their places in the talk ({}, where {} is called for): {peaks}.",
+            if hotter { "hotter" } else { "cooler" },
+            span(plans),
+            span(calls)
+        );
+        let later = match (talk_peak, arc_peak) {
+            (Some((t, _)), Some(a)) if a > t => ", or move its peak later",
+            (Some((t, _)), Some(a)) if a < t => ", or move its peak earlier",
+            _ => "",
+        };
+        let ask = match hotter {
+            true => format!(
+                "Plan slides {}\u{2013}{} calmer, so the talk builds as its arc does{later}.",
+                first + 1,
+                last + 1
+            ),
+            false => format!(
+                "Plan slides {}\u{2013}{} more intense, so the talk carries what their places call for{later}.",
+                first + 1,
+                last + 1
+            ),
+        };
+        find(&read[first].id, Severity::Info, Kind::Arc, says, ask, None);
+    }
+    for d in bends.iter().filter(|d| !folded.contains(&d.slide_id.as_str())) {
         let Some(&i) = place.get(d.slide_id.as_str()) else { continue };
         let k = i + 1;
         let planned = read[i].narrative_meta.as_ref().and_then(|n| n.expected_intensity).filter(|v| v.is_finite());
@@ -1098,6 +1328,64 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
             }
         }
     }
+    // A talk that runs short of the slot its slides are given, or past it, found on its shortest
+    // beat or its longest, with the beats that run so named (lift-up FUNC-1).
+    if let (Some((seconds, beats)), Some((count, (lo, hi)))) = (&talk, &given) {
+        let said = (seconds / 60.0).round() as u32;
+        let under = said < *lo;
+        if under || hi.is_some_and(|hi| said > hi) {
+            let mut by: Vec<Beaten> = beats.clone();
+            scaena_core::sort::by_key(&mut by, |&(_, s, _)| (s * 1000.0) as i64);
+            let ((short, shortest, _), (long, longest, timed)) = (by[0], by[by.len() - 1]);
+            if !under {
+                by.reverse();
+            }
+            let mut first: Vec<usize> = by.iter().take(3).map(|&(k, ..)| k).collect();
+            scaena_core::sort::by_key(&mut first, |&k| k);
+            let (named, many) = slides_named(&first);
+            let given = slot((*lo, *hi));
+            let (at, says, ask) = if under {
+                (
+                    short,
+                    format!(
+                        "The talk runs {}, short of {given} for {count} slides. Its shortest beat, slide {}'s, runs {}; its longest, slide {}'s, {}.",
+                        minutes(*seconds),
+                        short + 1,
+                        span(shortest),
+                        long + 1,
+                        span(longest)
+                    ),
+                    format!(
+                        "Deepen the notes of {named}, the shortest {}, until the talk fills {given}: what to tell the room beyond what {} shows.",
+                        if many { "beats" } else { "beat" },
+                        if many { "each" } else { "it" }
+                    ),
+                )
+            } else {
+                (
+                    long,
+                    format!(
+                        "The talk runs {}, past {given} for {count} slides. Its longest beat, slide {}'s, runs {} {}; its shortest, slide {}'s, {}.",
+                        minutes(*seconds),
+                        long + 1,
+                        span(longest),
+                        match timed {
+                            Timed::Given => "by the time it is given",
+                            Timed::Held => "by its holds",
+                            Timed::Noted => "by its notes",
+                        },
+                        short + 1,
+                        span(shortest)
+                    ),
+                    format!(
+                        "Bring the talk within {given}, the longest {} first: tighten or cut {named}.",
+                        if many { "beats" } else { "beat" }
+                    ),
+                )
+            };
+            find(&read[at].id, Severity::Warning, Kind::Pacing, says, ask, None);
+        }
+    }
     // A slide lint finds an error on: what the first says, and how many more there are.
     for (i, slide) in slides.iter().enumerate() {
         let k = i + 1;
@@ -1119,6 +1407,23 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
             Kind::Layout,
             format!("Slide {k} does not stand as it is to be read: {what}{more}"),
             format!("Fix what lint finds wrong on slide {k}, so it reads as it should: {what}"),
+            None,
+        );
+    }
+    // Each change the model asked once it saw the deck drawn that was let go, and why (lift-up
+    // USE-4): what the person may try again, by hand or with the assistant.
+    let refused = narrative.and_then(|n| n.get("refused")).and_then(Value::as_array).into_iter().flatten();
+    for r in refused {
+        let text = |key: &str| r.get(key).and_then(Value::as_str).unwrap_or_default();
+        let Some(k) = r.get("slide").and_then(Value::as_u64).map(|k| k as usize) else { continue };
+        let Some(slide) = k.checked_sub(1).and_then(|i| slides.get(i)) else { continue };
+        let (what, why) = (text("what"), text("why"));
+        find(
+            &deck.states[slide.states[0]].id,
+            Severity::Info,
+            Kind::Look,
+            format!("Slide {k} was kept as made: the model asked for {what}, and lint found it worse for that. {why}"),
+            format!("The model asked slide {k} for {what}. Make that change without what lint found it caused: {why}"),
             None,
         );
     }
@@ -1200,6 +1505,112 @@ mod tests {
         health(&Deck::from_value(deck).unwrap()).unwrap()
     }
 
+    /// Every beat of `deck` given `seconds`.
+    fn timed(deck: &mut Value, seconds: f64) {
+        for section in deck["spine"]["sections"].as_array_mut().unwrap() {
+            for beat in section["beats"].as_array_mut().unwrap() {
+                beat["duration"] = json!(seconds);
+            }
+        }
+    }
+
+    /// The talk's time beside the count (lift-up FUNC-1): its beats' durations, or their states'
+    /// holds where those come to more, said in the pacing line against the slot the brief's
+    /// slides are given; a talk short of it found on its shortest beat, and one past it on its
+    /// longest, with Vzestup's score as it was.
+    #[test]
+    fn health_paces_a_talk_by_its_time() {
+        let mut deck = climate();
+        // What the notes take to say is counted too: here, at first, none.
+        for section in deck["spine"]["sections"].as_array_mut().unwrap() {
+            for beat in section["beats"].as_array_mut().unwrap() {
+                beat.as_object_mut().unwrap().remove("notes");
+            }
+        }
+        for state in deck["states"].as_array_mut().unwrap() {
+            state.as_object_mut().unwrap().remove("notes");
+        }
+        let n = of(&deck).slides.len();
+        assert!((16..=25).contains(&n), "{n}");
+        let timing =
+            |h: &Health| h.findings.iter().filter(|f| f.says.starts_with("The talk runs")).cloned().collect::<Vec<_>>();
+        let slot =
+            |m: usize| format!(" About {m} minutes of talk, where 16\u{2013}25 slides is a 31\u{2013}45 minute slot.");
+
+        // In the slot: said, and nothing found.
+        timed(&mut deck, 38.0 * 60.0 / n as f64);
+        let h = of(&deck);
+        assert!(h.pacing.says.ends_with(&slot(38)), "{}", h.pacing.says);
+        assert!(timing(&h).is_empty(), "{:?}", h.findings);
+        let score = (h.score, h.pacing.score);
+
+        // Short of it: found on the shortest beat, the three shortest named.
+        timed(&mut deck, 30.0);
+        let short = beat_of(&deck, &h.slides[4].state);
+        *deck.pointer_mut(&format!("{short}/duration")).unwrap() = json!(10.0);
+        let h = of(&deck);
+        assert_eq!((h.score, h.pacing.score), score, "the score is Vzestup's");
+        let found = timing(&h);
+        assert_eq!(found.len(), 1, "{:?}", h.findings);
+        assert_eq!((found[0].slide, found[0].kind, found[0].severity), (5, Kind::Pacing, Severity::Warning));
+        assert!(found[0].says.starts_with(&format!("The talk runs about {} minutes, short of a 31\u{2013}45 minute slot for 16\u{2013}25 slides. Its shortest beat, slide 5's, runs 10 seconds; its longest, slide ", (10 + 30 * (n - 1)) / 60)), "{}", found[0].says);
+        assert!(
+            found[0].ask.starts_with("Deepen the notes of slides 1, 2 and 5, the shortest beats,"),
+            "{}",
+            found[0].ask
+        );
+
+        // Doing what it asks clears it: the shortest beat's notes deepened, 3,000 words at 140 a
+        // minute, lift the talk into the slot, and the line's minutes with it.
+        let words = |n: usize| "word ".repeat(n).trim_end().to_string();
+        deck.pointer_mut(&short).unwrap()["notes"] = json!(words(3000));
+        let h = of(&deck);
+        assert!(timing(&h).is_empty(), "{:?}", h.findings);
+        let m = ((30.0 * (n - 1) as f64 + 3000.0 * 60.0 / WORDS_A_MINUTE) / 60.0).round() as usize;
+        assert!(h.pacing.says.ends_with(&slot(m)), "{} for {m}", h.pacing.says);
+        // Pacing's score is Vzestup's count; the overall moves only as notes fill out balance.
+        assert_eq!(h.pacing.score, score.1, "pacing's score is Vzestup's");
+
+        // A beat long by its notes alone: past the slot, found on it, by its notes.
+        deck.pointer_mut(&short).unwrap()["notes"] = json!(words(7000));
+        let h = of(&deck);
+        let found = timing(&h);
+        assert_eq!(found.len(), 1, "{:?}", h.findings);
+        assert_eq!(found[0].slide, 5);
+        assert!(found[0].says.contains(", past a 31\u{2013}45 minute slot for 16\u{2013}25 slides. Its longest beat, slide 5's, runs about 50 minutes by its notes;"), "{}", found[0].says);
+        assert!(
+            found[0].ask.starts_with(
+                "Bring the talk within a 31\u{2013}45 minute slot, the longest beats first: tighten or cut slides "
+            ),
+            "{}",
+            found[0].ask
+        );
+        deck.pointer_mut(&short).unwrap().as_object_mut().unwrap().remove("notes");
+
+        // A hold that comes to more wins, as a video paces it: past the slot, found on the
+        // longest beat, by its holds.
+        let state = h.slides[2].state.clone();
+        let at = deck["states"].as_array().unwrap().iter().position(|s| s["id"] == state).unwrap();
+        deck["states"][at]["hold"] = json!(50.0 * 60_000.0);
+        let h = of(&deck);
+        let found = timing(&h);
+        assert_eq!(found.len(), 1, "{:?}", h.findings);
+        assert_eq!(found[0].slide, 3);
+        assert!(found[0].says.contains(", past a 31\u{2013}45 minute slot for 16\u{2013}25 slides. Its longest beat, slide 3's, runs about 50 minutes by its holds;"), "{}", found[0].says);
+
+        // A beat with no time of its own: the talk's time is not known, and nothing is said.
+        let beat = beat_of(&deck, &h.slides[0].state);
+        deck.pointer_mut(&beat).unwrap().as_object_mut().unwrap().remove("duration");
+        let h = of(&deck);
+        assert!(!h.pacing.says.contains("of talk"), "{}", h.pacing.says);
+        assert!(timing(&h).is_empty());
+
+        // Notes are said a word at a time, and a script without spaces a character at a time.
+        assert_eq!(spoken("one two  three\nfour"), 4.0 * 60.0 / WORDS_A_MINUTE);
+        assert_eq!(spoken("ありがとうございます"), 10.0 * 60.0 / CHARACTERS_A_MINUTE);
+        assert_eq!(spoken("감사합니다 여러분"), 8.0 * 60.0 / CHARACTERS_A_MINUTE);
+    }
+
     /// The first slide past the cover whose words read an intensity, the lexicons not silent on
     /// them (ADR-0032 item 2), and the plan at the far end from what they read: the peak for words
     /// that read calmer than the middle, else rest.
@@ -1214,6 +1625,88 @@ mod tests {
     fn planned(deck: &mut Value, state: &str, intensity: f64) {
         let beat = beat_of(deck, state);
         *deck.pointer_mut(&format!("{beat}/media/narrato/intensity")).unwrap() = json!(intensity);
+    }
+
+    /// A turn the notes bridge is not found (narrative dogfood H4): coherence reads a slide's
+    /// headline and body, so the finding asks for the line that carries the talk over in the
+    /// next slide's notes, and notes that open by carrying a word of the slide before across,
+    /// one the next slide's words do not use, answer it. A word further in, or one both slides
+    /// use, does not. No figure moves.
+    #[test]
+    fn a_turn_the_notes_bridge_is_not_found() {
+        let mut deck = climate();
+        let before = of(&deck);
+        let turn = before.findings.iter().find(|f| f.kind == Kind::Turn).expect("a turn its words do not make").clone();
+        let k = turn.slide;
+        assert_eq!(
+            turn.ask,
+            format!("Open slide {k}'s notes with the line that carries the talk from slide {}.", k - 1)
+        );
+        let d = Deck::from_value(&deck).unwrap();
+        let read = readings(&d, &slides(&d)).unwrap().0;
+        let words = |s: &SlideForHealth| health::coherence::keywords(&format!("{} {}", s.title, s.body));
+        let (was, next) = (words(&read[k - 2]), words(&read[k - 1]));
+        let carried = was.difference(&next).next().cloned().expect("a word of the slide before");
+        let shared = was.intersection(&next).next().cloned();
+        let beat = beat_of(&deck, &turn.state);
+        let at = deck["states"].as_array().unwrap().iter().position(|s| s["id"] == turn.state.as_str()).unwrap();
+        let noted = |deck: &mut Value, notes: String| {
+            deck.pointer_mut(&beat).unwrap()["notes"] = json!(notes);
+            deck["states"][at].as_object_mut().unwrap().remove("notes");
+            of(deck)
+        };
+        let found = |h: &Health| h.findings.iter().any(|f| f.kind == Kind::Turn && f.state == turn.state);
+
+        let h = noted(&mut deck, format!("From {carried} we turn to what comes next.\nThen the rest."));
+        assert!(!found(&h), "{:#?}", h.findings);
+        assert!(h.coherence.says.contains("; the notes bridge "), "{}", h.coherence.says);
+        assert_eq!(h.coherence.score, before.coherence.score, "no figure moves");
+        // A figure's point ends no sentence: the opening runs on past "3.5" to the word carried.
+        let h = noted(&mut deck, format!("Retention rose 3.5% since {carried}. Then the rest."));
+        assert!(!found(&h), "{:#?}", h.findings);
+        assert_eq!(opening("Rose 3.5% since then. Later."), "Rose 3.5% since then.");
+        assert_eq!(opening("\n  - Up 2.1x!\nMore"), "- Up 2.1x!");
+        let h = noted(&mut deck, format!("We turn to what comes next. Later, {carried}."));
+        assert!(found(&h), "a word past the notes' opening carries nothing over");
+        if let Some(shared) = shared {
+            let h = noted(&mut deck, format!("{shared} again, and onward."));
+            assert!(found(&h), "a word both slides use carries nothing over");
+        }
+    }
+
+    /// One pattern, one finding (narrative dogfood H5): three or more neighbouring slides planned
+    /// hotter than their places are found once, on the first, saying the run, its plans and what
+    /// its places call for, and where the talk peaks against the arc; the graph still marks each
+    /// slide that bends, and two in a row stay a finding each.
+    #[test]
+    fn a_run_of_bends_is_one_finding() {
+        let mut deck = climate();
+        let ids: Vec<String> = of(&deck).slides.iter().map(|s| s.state.clone()).collect();
+        let plan = |deck: &mut Value, i: usize, v: f64| {
+            let beat = beat_of(deck, &ids[i]);
+            *deck.pointer_mut(&format!("{beat}/media/narrato/intensity")).unwrap() = json!(v);
+        };
+        for i in 1..=4 {
+            plan(&mut deck, i, 1.0);
+        }
+        let h = of(&deck);
+        let arcs: Vec<&Finding> = h.findings.iter().filter(|f| f.kind == Kind::Arc).collect();
+        let run = arcs.iter().find(|f| f.says.starts_with("Slides 2\u{2013}")).expect("the run, found once");
+        assert_eq!(run.slide, 2);
+        // The plans as a range up to the 1.00 set here, a neighbour already bending joining it.
+        assert!(run.says.contains(" were planned hotter than their places in the talk ("), "{}", run.says);
+        assert!(run.says.contains("1.00, where "), "{}", run.says);
+        assert!(run.says.contains("it peaks at slide 2 (1.00)"), "{}", run.says);
+        assert!(run.ask.starts_with("Plan slides 2\u{2013}"), "{}", run.ask);
+        let end: usize = run.says["Slides 2\u{2013}".len()..].split(' ').next().unwrap().parse().unwrap();
+        assert!(end >= 4, "{}", run.says);
+        for k in 2..=end {
+            assert!(
+                !arcs.iter().any(|f| f.says.starts_with(&format!("Slide {k} "))),
+                "slide {k} is the run's: {arcs:#?}"
+            );
+            assert_eq!(h.slides[k - 1].standing, Standing::Bends, "the graph marks slide {k}");
+        }
     }
 
     /// The spine's beat that tells the state `id`: its place, as a JSON pointer.
@@ -1383,10 +1876,13 @@ mod tests {
             assert_eq!(read.title, beat["claim"]);
             assert_eq!(read.declared, beat["media"]["narrato"]["intensity"].as_f64());
         }
-        // Asked for 16 to 25 slides, it has 25: paced as asked.
+        // Asked for 16 to 25 slides, it has 25: paced as asked, its beats a short talk for them.
         assert_eq!(
             h.pacing,
-            Measure { score: Some(100), says: "25 slides, as the brief asked (16\u{2013}25).".into() }
+            Measure {
+                score: Some(100),
+                says: "25 slides, as the brief asked (16\u{2013}25). About 8 minutes of talk, where 16\u{2013}25 slides is a 31\u{2013}45 minute slot.".into()
+            }
         );
         // Read by its words alone, coherence gets no number.
         assert_eq!(h.coherence.score, None);
@@ -1398,7 +1894,13 @@ mod tests {
         assert!(h.slides[0].after.is_none() && h.slides[1].after.is_some());
         // Every finding is on a slide, in order, and says what to ask.
         assert!(h.findings.windows(2).all(|w| w[0].slide <= w[1].slide), "{:#?}", h.findings);
-        assert!(h.findings.iter().all(|f| !f.ask.is_empty() && f.says.starts_with("Slide ")), "{:#?}", h.findings);
+        // A finding names its slide, or the run of slides it folds ("Slides 2–7"), or is the talk's
+        // pacing.
+        assert!(
+            (h.findings.iter()).all(|f| !f.ask.is_empty() && (f.says.starts_with("Slide") || f.kind == Kind::Pacing)),
+            "{:#?}",
+            h.findings
+        );
     }
 
     /// Each slide names the sources its beat cites of those the deck was grounded in (narrative

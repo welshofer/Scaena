@@ -42,6 +42,8 @@ export async function health(deck: string, lint?: string): Promise<Health> {
 export interface SlidePlace {
   after?: string;
   replace?: string;
+  /** The beat of the spine the slide tells, which its states join (lift-up M1). */
+  beat?: string;
 }
 
 /** The generator's writer of one slide (lift-up FUNC-1), the bundle's data `files` handed to it:
@@ -370,6 +372,8 @@ export async function generate(
         if (painted) making.painted(painted.made, JSON.stringify(painted.unmade));
         const name = WRITERS[job.provider];
         if (job.look !== false) await look(generation, making, job.key, name, theme, painted?.placed ?? "{}", hear);
+        // Each change let go, and what lint found (lift-up USE-4).
+        for (const r of (JSON.parse(making.report()) as Generated).refused ?? []) hear({ kind: "refused", ...r });
         await fit(generation, making, job.key, name, hear);
         making.keep(sources.tables());
         const made = { ...JSON.parse(making.report()), sources: JSON.parse(generation.given()) } as Generated;

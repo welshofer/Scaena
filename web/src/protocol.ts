@@ -57,7 +57,7 @@ export type Export =
   | { kind: "png"; state: string; width: number; format?: string }
   | { kind: "slides"; width: number; format?: string; name: string }
   | { kind: "pdf"; notes?: boolean }
-  | { kind: "html"; page: string; name: string };
+  | { kind: "html"; page: string; name: string; /** The presenter's words kept, or left out of a file sent to the room, as they are by default (lift-up 20261025 SEC-3). */ notes: boolean };
 
 /** Where an open bundle is kept, and saves to: a folder on disk, the browser's storage, or the
  * folder `scaena serve` serves it from (PLAN 2.11), by name. A bundle read from any other URL is
@@ -83,9 +83,21 @@ export interface Slot {
   /** The words that head it, where a text does: what the presenter's navigator names its slide by
    * (lift-up 10-24b USE-1, USE-4). */
   headline?: string;
+  /** Its place in the talk, where a beat names it (lift-up FUNC-2). */
+  story?: StoryPlace;
   start: number;
   span: number;
   hold: number;
+}
+
+/** A state's place in the talk (lift-up FUNC-2, `Session::story_place`): its section's title, its
+ * beat's claim, the seconds the beat is planned to take, and the seconds planned before the state
+ * comes up, the deck paced by its beats. */
+export interface StoryPlace {
+  section?: string;
+  claim: string;
+  planned?: number;
+  before: number;
 }
 
 /** A box, canvas units: `[x, y, width, height]`. */
@@ -1518,6 +1530,7 @@ export type GeneratingEvent =
   | { kind: "looking"; slides: number }
   | { kind: "looked"; slides: number }
   | { kind: "unlooked"; why: string }
+  | { kind: "refused"; slide: number; what: string; why: string }
   | { kind: "fitting"; texts: number }
   | { kind: "fitted"; texts: number }
   | { kind: "unfitted"; why: string };
@@ -1550,6 +1563,8 @@ export interface Generated {
   /** What the model changed on the deck it saw drawn, slide by slide (PLAN G.13), or why not. */
   looked?: { slide: number; layout?: string; title?: string; subtitle?: string; bullets?: string[]; why: string }[];
   unlooked?: string;
+  /** Each change the model asked that lint found its slide worse for, let go (lift-up USE-4). */
+  refused?: { slide: number; what: string; why: string }[];
   /** Each sheet given, kept as a data source, or why not. */
   data: { sheet: string; id?: string; rows?: number; why?: string }[];
   /** What each source gave the prompt, and whether it was cut short to fit. */

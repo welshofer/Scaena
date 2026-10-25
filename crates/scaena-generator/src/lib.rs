@@ -803,6 +803,12 @@ pub fn keyed_url(get: &str, key: &str) -> Result<String, JsError> {
 /// Where a slide goes, as the page names it: `{ "after": STATE }`, `{ "replace": STATE }`, or
 /// `{}` for the end (lift-up FUNC-1).
 fn place(place: &str) -> Result<scaena_ops::narrative::Place, JsError> {
+    placed(place).map(|(place, _)| place)
+}
+
+/// Where a slide goes, from `{ "after" }`, `{ "replace" }`, or neither, and the beat of the spine it
+/// joins, from `{ "beat" }` (lift-up M1).
+fn placed(place: &str) -> Result<(scaena_ops::narrative::Place, Option<String>), JsError> {
     #[derive(Deserialize)]
     #[serde(deny_unknown_fields)]
     struct Named {
@@ -810,14 +816,17 @@ fn place(place: &str) -> Result<scaena_ops::narrative::Place, JsError> {
         after: Option<String>,
         #[serde(default)]
         replace: Option<String>,
+        #[serde(default)]
+        beat: Option<String>,
     }
     let named: Named = serde_json::from_str(place).map_err(|e| error(format!("where the slide goes: {e}")))?;
-    match (named.after, named.replace) {
-        (Some(_), Some(_)) => Err(error("give `after` or `replace`, not both")),
-        (Some(state), None) => Ok(scaena_ops::narrative::Place::After(state)),
-        (None, Some(state)) => Ok(scaena_ops::narrative::Place::Replace(state)),
-        (None, None) => Ok(scaena_ops::narrative::Place::End),
-    }
+    let place = match (named.after, named.replace) {
+        (Some(_), Some(_)) => return Err(error("give `after` or `replace`, not both")),
+        (Some(state), None) => scaena_ops::narrative::Place::After(state),
+        (None, Some(state)) => scaena_ops::narrative::Place::Replace(state),
+        (None, None) => scaena_ops::narrative::Place::End,
+    };
+    Ok((place, named.beat))
 }
 
 /// One slide written for a deck (lift-up FUNC-1), as Write This Slide Again… and Add a Slide
@@ -869,9 +878,10 @@ impl SlideWriting {
         let slide: scaena_ops::narrative::Slide =
             serde_json::from_str(slide).map_err(|e| error(format!("the slide: {e}")))?;
         let icons = serde_json::from_str(icons).map_err(|e| error(format!("the icons: {e}")))?;
-        let place = place(place_json)?;
+        let (place, beat) = placed(place_json)?;
         let written =
-            scaena_ops::narrative::slide_into(&doc, &theme, slide, &place, icons, &self.files).map_err(error)?;
+            scaena_ops::narrative::slide_into(&doc, &theme, slide, &place, beat.as_deref(), icons, &self.files)
+                .map_err(error)?;
         serde_json::to_string(&written).map_err(error)
     }
 }
