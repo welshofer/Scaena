@@ -1016,15 +1016,18 @@ async function edit(source: Source, opened?: Stage) {
   const restate = $<HTMLButtonElement>("#restate");
   let restating: { said: string; fix: unknown[] } | undefined;
   const quoted = (words: string) => `“${words.length > 60 ? `${words.slice(0, 59)}…` : words}”`;
-  async function restated(before: string, after: string) {
+  /** `kept`: the status the edit's own gesture said goes first, so what it did is still said. */
+  async function restated(before: string, after: string, kept = false) {
     const found = await stage.restated(after, before).catch(() => [] as Restated[]);
     const one = found[0];
     if (!one || view.state.doc.toString() !== after) return;
     const slide = slideOf(one.state).replace(/, step \d+$/, "");
-    const said =
+    const offer =
       one.says !== undefined && one.fix?.length
         ? `${slide}'s story still says ${quoted(one.claim)}. Update it to ${quoted(one.says)}?`
         : `${slide}'s story still says ${quoted(one.claim)}, which the slide no longer says: restate it in the Story tab`;
+    const gesture = kept ? status.textContent?.trim() : "";
+    const said = gesture ? `${gesture} · ${offer}` : offer;
     say(said);
     restating = one.fix?.length ? { said, fix: one.fix } : undefined;
     restate.hidden = restating === undefined;
@@ -1074,7 +1077,7 @@ async function edit(source: Source, opened?: Stage) {
     const changes = change(before, source);
     const effects = said ? [described.of(describing(said))] : [];
     view.dispatch({ changes, effects, userEvent: "input.canvas", annotations: isolateHistory.of("full") });
-    void restated(before, source);
+    void restated(before, source, true);
   };
   /** The node selected, its look chosen from the theme in the inspector (PLAN 2.33): each choice a
    * patch, as each gesture on the canvas is. */
