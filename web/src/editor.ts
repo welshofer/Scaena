@@ -2127,8 +2127,13 @@ async function edit(source: Source, opened?: Stage) {
     const saved = `Saved, ${many(done.files, "file")}${done.recorded ? ", and the changes kept in its history" : ""}`;
     say(saved);
     // Kept in this browser: the browser is asked to keep it for good (lift-up 10-24b REL-4), and a
-    // refusal is said after what was saved, never in its place.
-    if (done.where.kind === "opfs") void persist((refused) => say(status.textContent === saved ? `${saved}. ${refused}` : refused));
+    // refusal is said after whatever the status says by then (what was saved, or what Play said of
+    // keeping the deck to play it), never in its place.
+    if (done.where.kind === "opfs")
+      void persist((refused) => {
+        const now = status.textContent ?? "";
+        if (!now.includes(refused)) say(now ? `${now}. ${refused}` : refused);
+      });
     return done;
   }
 
