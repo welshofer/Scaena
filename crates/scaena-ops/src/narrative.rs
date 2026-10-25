@@ -1830,7 +1830,7 @@ pub fn writable(
     font: &dyn Fn(&str) -> Result<Vec<u8>, OpsError>,
 ) -> Result<(), OpsError> {
     let Some((language, letters)) =
-        language.and_then(|l| LETTERS.iter().find(|(name, _)| name.eq_ignore_ascii_case(l.trim())))
+        language.and_then(scaena_narrato::brief::named).and_then(|l| LETTERS.iter().find(|(name, _)| *name == l))
     else {
         return Ok(());
     };
@@ -2101,6 +2101,11 @@ fn assemble(
             meta["narrative"]["brief"][key] = json!(value);
         }
     }
+    // Its language too, by the name Narrato knows it by, so health, the assistant, and the
+    // notes read the deck in it (lift-up 10-25b STAB-2).
+    if let Some(language) = brief.language.as_deref().map(str::trim).filter(|l| !l.is_empty()) {
+        meta["narrative"]["brief"]["language"] = json!(scaena_narrato::brief::named(language).unwrap_or(language));
+    }
     if narrative.truncated {
         meta["narrative"]["truncated"] = json!(true);
     }
@@ -2307,7 +2312,7 @@ fn media(slide: &Slide) -> Value {
 
 /// The BCP 47 tag of a language the brief names by its English name.
 fn language_tag(language: &str) -> Option<&'static str> {
-    Some(match language {
+    Some(match scaena_narrato::brief::named(language)? {
         "English" => "en",
         "Spanish" => "es",
         "French" => "fr",
@@ -8727,6 +8732,25 @@ mod tests {
                 .values()
                 .all(|n| n.get("runs").is_none() || n.get("text").is_none())
         );
+    }
+
+    /// A language named as a person writes it ("german", "Deutsch", "de") sets the deck's tag
+    /// and is kept in its brief by the name Narrato knows (lift-up 10-25b STAB-2).
+    #[test]
+    fn a_language_named_any_way_sets_the_decks_tag_and_stays_in_its_brief() {
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        for said in ["german", "Deutsch", "de", " GERMAN "] {
+            let mut talk = climate();
+            talk.brief.language = Some(said.into());
+            let made = deck_as(&talk, &theme, &Pictures::new(), &BTreeMap::new()).unwrap();
+            assert_eq!(made.deck["meta"]["lang"], "de", "{said}");
+            assert_eq!(made.deck["meta"]["narrative"]["brief"]["language"], "German", "{said}");
+        }
+        let mut talk = climate();
+        talk.brief.language = Some("Klingon".into());
+        let made = deck_as(&talk, &theme, &Pictures::new(), &BTreeMap::new()).unwrap();
+        assert!(made.deck["meta"].get("lang").is_none());
+        assert_eq!(made.deck["meta"]["narrative"]["brief"]["language"], "Klingon");
     }
 
     /// A deck in another language keeps no English word of the theme's or the generator's own: no
