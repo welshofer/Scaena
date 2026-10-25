@@ -124,6 +124,10 @@ function sentence(f: HealthFinding): string {
 
 const SEVERITY = ["info", "warning", "error"] as const;
 
+/** How long the panel waits after an edit before it reads the deck again, in ms: the Mac's
+ * Story panel's pause (lift-up PERF-1). */
+const PAUSE = 700;
+
 /** The arc as the graph draws it, `width` by `height`: the curve, what each slide declares, and
  * what its words read, a mark for each slide. */
 export function arcGraph(h: Health, width = 300, height = 120): string {
@@ -166,10 +170,27 @@ export function storyPanel(stage: Stage, into: HTMLElement, editor: StoryEditor)
   /** Readings asked for: the last answer wins. */
   let asking = 0;
 
-  /** Read the deck's health again, and show it, while the panel is shown. */
-  async function refresh() {
+  /** Whether the panel has read the deck once, its health or why not. */
+  let read = false;
+  /** How many times it has asked the worker. */
+  let reads = 0;
+  let pausing: ReturnType<typeof setTimeout> | undefined;
+  /** Read the deck's health again: at once as the panel shows or before it has read anything,
+   * else once edits stop for `PAUSE`, so a burst of typing asks the worker once, as the Mac's
+   * Story panel waits (lift-up PERF-1). An edit made while it is read drops that answer. */
+  function refresh(now = false) {
+    clearTimeout(pausing);
     if (into.hidden) return;
     const asked = ++asking;
+    if (now || !read) void reading(asked);
+    else pausing = setTimeout(() => void reading(asked), PAUSE);
+  }
+
+  /** Read the deck's health, and show it, while the panel is shown and nothing newer is asked. */
+  async function reading(asked: number) {
+    if (asked !== asking || into.hidden) return;
+    read = true;
+    reads++;
     try {
       const got = await stage.health(editor.source());
       if (asked !== asking) return;
@@ -303,11 +324,14 @@ export function storyPanel(stage: Stage, into: HTMLElement, editor: StoryEditor)
     return li;
   }
 
-  observing(new MutationObserver(() => void refresh())).observe(into, { attributes: true, attributeFilter: ["hidden"] });
+  observing(new MutationObserver(() => refresh(true))).observe(into, { attributes: true, attributeFilter: ["hidden"] });
   return {
-    refresh,
+    /** Read the deck again once edits stop. */
+    refresh: () => refresh(),
     /** What the panel last read. */
     health: () => health,
+    /** How many times it has asked the worker to read the deck. */
+    reads: () => reads,
     /** What it leads with and what it folds, as it last drew them. */
     triaged: () => (health ? triage(health) : undefined),
     /** What folded findings of these kinds would come to, as the panel names them. */
