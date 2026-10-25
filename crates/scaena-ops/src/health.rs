@@ -244,6 +244,20 @@ fn declared(beat: &Beat) -> Option<NarrativeMeta> {
     })
 }
 
+/// The shipped themes' layouts that make one point by design, whose slides are left out of the
+/// points a slide makes on average (ADR-0032 item 3, Jay's call, 2026-10-25).
+const ONE_IDEA: [&str; 9] = [
+    "big-number",
+    "number-photo",
+    "stat",
+    "quote",
+    "photo-quote",
+    "quote-portrait",
+    "statement",
+    "thesis",
+    "big-question",
+];
+
 /// The slides of `deck` as health reads them, each by its first state's id, and the most points
 /// any one of its texts makes: its list's items, or its paragraphs (lift-up 10-24b FUNC-2). A
 /// grid of short places, a SWOT or a timeline, makes few in each.
@@ -313,6 +327,12 @@ fn readings(deck: &Deck, slides: &[Slide]) -> Result<(Vec<SlideForHealth>, Vec<u
             body: lines.into_iter().map(|(_, l)| l).collect::<Vec<_>>().join("\n"),
             notes: notes.join("\n"),
             narrative_meta: beat.and_then(declared),
+            one_idea: snaps[last].layout.as_deref().is_some_and(|l| ONE_IDEA.contains(&l)),
+            drawn: (shown.keys()).any(|id| {
+                deck.nodes
+                    .get(id.as_str())
+                    .is_some_and(|n| matches!(n.node_type, NodeType::Image | NodeType::Chart | NodeType::Table))
+            }),
             ..SlideForHealth::default()
         });
         most.push(points);
@@ -508,9 +528,6 @@ pub fn health(deck: &Deck) -> Result<Health, OpsError> {
     health_in(deck, &[])
 }
 
-/// The narrative health of `deck`, with what lint finds in it (`lint`, over its bundle): health
-/// lays nothing out, so a slide that does not stand as it is to be read is lint's to say. Each
-/// slide with an error in one of its states is a finding of its own, ahead of every other: what
 /// The slides at `indices`, from 0, as a person names them: "slide 3", or "slides 3, 5 and 8";
 /// and whether there are several.
 fn slides_named(indices: &[usize]) -> (String, bool) {
@@ -528,7 +545,11 @@ fn capitalized(text: &str) -> String {
     chars.next().map(|c| c.to_uppercase().chain(chars).collect()).unwrap_or_default()
 }
 
-/// lint says of it, and the assistant asked to fix it. The scores are Vzestup's, as without them.
+/// The narrative health of `deck`, with what lint finds in it (`lint`, over its bundle): health
+/// lays nothing out, so a slide that does not stand as it is to be read is lint's to say. Each
+/// slide with an error in one of its states is a finding of its own, ahead of every other: what
+/// lint says of it, and the assistant asked to fix it, and the score is capped by the slides that
+/// stand (ADR-0032 item 1).
 pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Health, OpsError> {
     let narrative = deck.meta.as_ref().and_then(|m| m.extra.get("narrative"));
     let arc_name = narrative.and_then(|n| n.get("arc")).and_then(Value::as_str).map(str::to_string);
@@ -1104,6 +1125,13 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
     // A slide that does not stand first, then in the order the slides stand, and on each slide in
     // the order health found them.
     scaena_core::sort::by_key(&mut findings, |f| (f.kind != Kind::Layout, f.slide));
+    // A slide that does not stand caps the score at the clean slides' share, less ten for each
+    // that does not (ADR-0032 item 1, Jay's call, 2026-10-25).
+    let broken = findings.iter().filter(|f| f.kind == Kind::Layout).count();
+    let score = match broken {
+        0 => score,
+        b => score.min(((100.0 * (n - b) as f64 / n as f64).round() as u32).saturating_sub(10 * b as u32)),
+    };
 
     Ok(Health {
         score,
@@ -1575,13 +1603,37 @@ mod tests {
             ]
         );
         assert!(h.findings[0].ask.starts_with("Fix what lint finds wrong on slide 7"), "{}", h.findings[0].ask);
-        // Every other finding as it was, and every figure.
+        // Every other finding as it was, and every figure but the score.
         assert_eq!(h.findings[2..], plain.findings[..]);
-        let figures = |h: &Health| {
-            (h.score, h.pacing.clone(), h.balance.clone(), h.fidelity.clone(), h.intensity.clone(), h.tone.clone())
-        };
+        let figures =
+            |h: &Health| (h.pacing.clone(), h.balance.clone(), h.fidelity.clone(), h.intensity.clone(), h.tone.clone());
         assert_eq!(figures(&h), figures(&plain));
         assert_eq!(h.slides, plain.slides);
+        // The score capped by the slides that stand: 23 of 25, less ten for each of the two that
+        // do not (ADR-0032 item 1).
+        assert_eq!((plain.score, h.slides.len(), h.score), (84, 25, 72));
+    }
+
+    /// A slide that does not stand caps the score at the clean slides' share, less ten for each:
+    /// one in 25 leaves a cap over the score, two bring it down, a warning moves nothing, and a
+    /// deck no slide of which stands scores nothing (ADR-0032 item 1).
+    #[test]
+    fn the_score_is_capped_by_the_slides_that_stand() {
+        use scaena_core::lint::Finding as Linted;
+        let deck = climate();
+        let d = Deck::from_value(&deck).unwrap();
+        let id = |k: usize| deck["states"][k]["id"].as_str().unwrap().to_string();
+        let one = [Linted::new("E100", Severity::Error, "text overflows").state(id(6))];
+        // 24 of 25 stand: a cap of 86, over the score's 84.
+        assert_eq!(health_in(&d, &one).unwrap().score, 84);
+        let two = [one[0].clone(), Linted::new("E100", Severity::Error, "text overflows").state(id(9))];
+        assert_eq!(health_in(&d, &two).unwrap().score, 72);
+        let warned = [Linted::new("W210", Severity::Warning, "too many words").state(id(6))];
+        assert_eq!(health_in(&d, &warned).unwrap().score, 84);
+        let every: Vec<Linted> = (0..deck["states"].as_array().unwrap().len())
+            .map(|k| Linted::new("E100", Severity::Error, "text overflows").state(id(k)))
+            .collect();
+        assert_eq!(health_in(&d, &every).unwrap().score, 0);
     }
 
     #[test]
@@ -1708,13 +1760,15 @@ mod tests {
         assert!(moved(&some).is_empty());
     }
 
-    /// The climate talk's figures, Vzestup's to the last bit (PLAN G.9): what a change to how
-    /// health reads a deck must not move without saying so.
+    /// The climate talk's figures, Vzestup's to the last bit (PLAN G.9) but where ADR-0032 departs
+    /// from them: what a change to how health reads a deck must not move without saying so.
     #[test]
     fn a_generated_talks_figures_are_vzestups() {
         let h = of(&climate());
         let scores = [&h.pacing, &h.balance, &h.fidelity, &h.intensity, &h.tone].map(|m| m.score);
-        assert_eq!((h.score, scores), (83, [Some(100), Some(69), Some(83), Some(83), Some(82)]));
+        // Balance leaves out the one-idea slides' points and counts a slide that draws a figure as
+        // showing something (ADR-0032 items 1 and 3, Jay's call, 2026-10-25): 69 and 83 were Vzestup's.
+        assert_eq!((h.score, scores), (84, [Some(100), Some(71), Some(83), Some(83), Some(82)]));
     }
 
     #[test]

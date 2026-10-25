@@ -53,6 +53,9 @@ pub struct Request {
     /// How a video and the spine pace the timeline (SPEC §2.4, §10): by the beats' durations
     /// where a state has no hold (the default), or by the holds alone.
     pub pace: scaena_core::spine::Pace,
+    /// A PDF with the presenter's notes: each slide drawn smaller at the head of a page, its
+    /// notes under it, as Keynote's "Include presenter notes" prints them (SPEC §10). Only a PDF.
+    pub notes: bool,
 }
 
 /// What an export wrote (SPEC §7.1).
@@ -198,6 +201,9 @@ pub fn export_watched(b: &Bundle, req: &Request, progress: &Progress) -> Result<
     if req.size.is_some() && !matches!(format, Format::Png | Format::Svg | Format::Spine) && video.is_none() {
         return Err(OpsError::new("--size sets the pixels of png, svg, video, and the spine's thumbnails"));
     }
+    if req.notes && format != Format::Pdf {
+        return Err(OpsError::new("--notes prints the presenter's notes under each slide of a PDF: --format pdf"));
+    }
     if req.fps.is_some() && video.is_none() {
         return Err(OpsError::new("--fps sets a video's frame rate: mp4, webm, or prores"));
     }
@@ -227,7 +233,7 @@ pub fn export_watched(b: &Bundle, req: &Request, progress: &Progress) -> Result<
         }
         Format::Pdf => {
             let out = out.ok_or_else(|| OpsError::new("`export --format pdf` writes a file: give it --out FILE"))?;
-            let (bytes, pages) = document(b, states, &PdfSettings::default(), progress)?;
+            let (bytes, pages) = document(b, states, req.notes, &PdfSettings::default(), progress)?;
             write(out, &bytes)?;
             Ok(Exported {
                 format: format_name,
@@ -534,16 +540,17 @@ pub fn pdf_document(
     states: Option<&[String]>,
     settings: &PdfSettings,
 ) -> Result<(Vec<u8>, Vec<String>), OpsError> {
-    document(b, states, settings, &Progress::default())
+    document(b, states, false, settings, &Progress::default())
 }
 
 fn document(
     b: &Bundle,
     states: Option<&[String]>,
+    notes: bool,
     settings: &PdfSettings,
     progress: &Progress,
 ) -> Result<(Vec<u8>, Vec<String>), OpsError> {
-    let (laid, pages) = pdf_laid_out(b, states, progress)?;
+    let (laid, pages) = pdf_laid_out(b, states, notes, progress)?;
     let bytes = prepared(&laid, settings).map_err(|e| OpsError::new(e.to_string()))?;
     Ok((bytes, pages))
 }
@@ -551,23 +558,42 @@ fn document(
 /// The deck's PDF laid out, and the state each page draws (PLAN 2.54): its pages at rest, as
 /// [`pdf_pages`] orders them, and the bytes of the fonts and images they name. Drawn here, it is
 /// `export --format pdf`; in the browser, the editor's module lays it out and the PDF's own
-/// module draws it ([`scaena_export::pdf::prepared`]), the same bytes.
+/// module draws it ([`scaena_export::pdf::prepared`]), the same bytes. With `notes`, each slide's
+/// page is the slide drawn smaller with the notes a presenter reads for it under it
+/// ([`scaena_core::notes::of`], set by the engine, [`scaena_engine::notes`]), notes too long for
+/// it going on to pages of their own: the state each draws is said once for each.
 pub fn pdf_laid_out(
     b: &Bundle,
     states: Option<&[String]>,
+    notes: bool,
     progress: &Progress,
 ) -> Result<(Prepared, Vec<String>), OpsError> {
-    let pages = pdf_pages(&b.deck, states)?;
-    progress.start(pages.len());
+    let slides = pdf_pages(&b.deck, states)?;
+    progress.start(slides.len());
     let theme = crate::theme(b)?;
     let data = data_files(b)?;
     let (mut engine, named) = engine_files(b, &theme)?;
-    let mut drawn = Vec::with_capacity(pages.len());
-    engine.frames_at_rest(&b.deck, &theme, &data, None, &pages, |state, list| {
-        drawn.push(Page { state: state.to_string(), list });
+    // Every slide at rest in one pass (#673), then, with notes, each set under its slide.
+    let mut lists = Vec::with_capacity(slides.len());
+    engine.frames_at_rest(&b.deck, &theme, &data, None, &slides, |state, list| {
+        lists.push((state.to_string(), list));
         progress.step();
         Ok::<(), OpsError>(())
     })?;
+    let mut drawn = Vec::with_capacity(lists.len());
+    let mut pages = Vec::with_capacity(lists.len());
+    for (state, list) in lists {
+        let lists = if notes {
+            let said = scaena_core::notes::of(&b.deck, &state).map(|n| scaena_core::notes::plain(&n.blocks));
+            engine.notes_pages(&b.deck, &theme, &list, said.as_deref().unwrap_or(""))?
+        } else {
+            vec![list]
+        };
+        for list in lists {
+            drawn.push(Page { state: state.clone(), list });
+            pages.push(state.clone());
+        }
+    }
     let laid = Prepared { deck: b.deck.clone(), pages: drawn, fonts: named.fonts, images: named.images };
     Ok((laid, pages))
 }
