@@ -31,9 +31,10 @@ const said = (e: unknown) => (e instanceof Error ? e.message : String(e));
 /** Who makes pictures, by name, as a person reads it. */
 const PAINTERS = { openai: "OpenAI", gemini: "Gemini" } as const;
 
-/** The narrative health of `deck`, as `deck.json` holds it (PLAN G.9, SPEC §7.7). */
-export async function health(deck: string): Promise<Health> {
-  return JSON.parse((await generator()).health(deck)) as Health;
+/** The narrative health of `deck`, as `deck.json` holds it (PLAN G.9, SPEC §7.7), beside `lint`, the
+ * findings the last lint gave, as JSON (lift-up 10-24b STAB-1). */
+export async function health(deck: string, lint?: string): Promise<Health> {
+  return JSON.parse((await generator()).health(deck, lint)) as Health;
 }
 
 /** What a brief may ask, as Narrato knows it. */
