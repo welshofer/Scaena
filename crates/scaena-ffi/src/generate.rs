@@ -545,7 +545,9 @@ impl Generating {
                 let key = args.get("key").and_then(Value::as_str);
                 let looking = key.filter(|_| args.get("look").and_then(Value::as_bool) != Some(false));
                 if let Some(key) = looking {
-                    let seen = scaena_ops::narrative::seeing(narrative, &model, &placed, making.layouts());
+                    let mut seen = scaena_ops::narrative::seeing(narrative, &model, &placed, making.layouts());
+                    // Each title's room, so a topic may become its claim (lift-up FUNC-2).
+                    scaena_ops::narrative::roomed(&mut seen, &making.rooms());
                     // A slide that would not draw for the model to see leaves the deck as made,
                     // saying why (narrative STAB-3): the look is a polish, never the deck.
                     match making.drawn(scaena_ops::narrative::LOOK_WIDTH) {
