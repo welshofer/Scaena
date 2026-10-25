@@ -18,13 +18,15 @@ use scaena_core::model::nodes::TextFit;
 use scaena_core::model::theme::{Example, Prompt, PromptItems, PromptShapeKind, Slot, Theme};
 use scaena_core::model::values::Range;
 use scaena_core::{Deck, Finding};
+pub use scaena_narrato::Slide;
 pub use scaena_narrato::brief::Brief;
+use scaena_narrato::figures;
 use scaena_narrato::fit::Long;
 use scaena_narrato::layouts::{self, Varied};
 use scaena_narrato::look::{Change, Choice, Seen};
 use scaena_narrato::pictures::{self, Frame, Look, Palette};
 use scaena_narrato::{
-    ChartData, Document, Generation, Icon, Narrative, Picture, Provenance, Provider, Request, Settings, Slide, Step,
+    ChartData, Document, Generation, Icon, Narrative, Picture, Provenance, Provider, Request, Settings, Step,
 };
 pub use scaena_sources::Given;
 use scaena_sources::{Source, Table};
@@ -32,6 +34,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
+
+mod one;
+pub use one::{Place, SlideWritten, Written, one_asked, slide_into, slide_polishing, slide_write, slide_writing};
 
 /// The canvas a made deck draws on.
 const CANVAS: [u32; 2] = [1920, 1080];
@@ -732,11 +737,27 @@ pub fn seeing(narrative: &Narrative, theme: &Theme, pictures: &Pictures, layouts
         }
     };
     let varied = varied(narrative);
+    let count = narrative.slides.len();
+    // What each slide must leave the audience with (lift-up ATTR-2): its beat's claim in the
+    // outline the person settled, by the beat the deck's sections give it. A slide that names its
+    // part takes none, so its title stays the part's name: a divider is numbered by its title
+    // naming an agenda item, and the spine's sections are titled by the dividers.
+    let claim = |i: usize, slide: &Slide| {
+        let outlined = narrative.outline.as_ref().and_then(|o| {
+            let beat = (slide.beat_index.filter(|b| *b < o.beats.len()))
+                .unwrap_or_else(|| scaena_narrato::beats::beat_of(i, count, o.beats.len()));
+            o.beats.get(beat).map(|b| b.claim.clone())
+        });
+        outlined.filter(|c| !c.trim().is_empty()).unwrap_or_default()
+    };
     (narrative.slides.iter().zip(&varied).zip(layouts).enumerate())
         .map(|(i, ((slide, v), own))| {
             let items = items(slide, v);
             let iconed = icons_of(narrative, slide, &items).is_some();
             let options = others(v.layout.identity(), slide, &items, theme, pictures.contains_key(&i), iconed, own);
+            // The cover, a divider (a Q&A's among them, by its structural layout), the agenda,
+            // and the close.
+            let framing = matches!(v.layout.layout, "title" | "section" | "agenda" | "closing");
             Seen {
                 slide: i + 1,
                 layout: choice(own),
@@ -744,6 +765,9 @@ pub fn seeing(narrative: &Narrative, theme: &Theme, pictures: &Pictures, layouts
                 title: slide.slide_title.clone(),
                 subtitle: slide.subtitle.clone(),
                 bullets: slide.key_bullets.clone(),
+                claim: if framing { String::new() } else { claim(i, slide) },
+                // What it does, said as that where no claim is known.
+                purpose: if framing { String::new() } else { slide.purpose.clone().unwrap_or_default() },
             }
         })
         .collect()
@@ -1728,6 +1752,23 @@ pub fn deck_as(
     pictures: &Pictures,
     layouts: &BTreeMap<usize, String>,
 ) -> Result<Made, OpsError> {
+    let count = narrative.slides.len();
+    assemble(narrative, theme, pictures, layouts, Builder::default(), 0, count).map(|(made, _)| made)
+}
+
+/// [`deck_as`], the slides built into `deck`, which may hold a deck's nodes, states, data, and
+/// spine ids already, so what is built takes ids none of them has (lift-up FUNC-1): the narrative's
+/// first slide stands at index `first` of a deck of `total` slides, which its layout and its
+/// entrance read. The deck made, and the builder as it ends.
+fn assemble(
+    narrative: &Narrative,
+    theme: &Theme,
+    pictures: &Pictures,
+    layouts: &BTreeMap<usize, String>,
+    mut deck: Builder,
+    first: usize,
+    total: usize,
+) -> Result<(Made, Builder), OpsError> {
     if narrative.slides.is_empty() {
         return Err(OpsError::new("a narrative with no slides makes no deck"));
     }
@@ -1744,8 +1785,7 @@ pub fn deck_as(
     let varied = varied(narrative);
 
     let lang = deck_lang(&narrative.brief);
-    let rtl = lang.is_some_and(scaena_core::direction::right_to_left);
-    let mut deck = Builder { mirrored: rtl, ..Builder::default() };
+    deck.mirrored = lang.is_some_and(scaena_core::direction::right_to_left);
     let mut sections: Vec<Value> = Vec::new();
     let mut last_beat = None;
     let mut chosen = Vec::with_capacity(count);
@@ -1763,9 +1803,15 @@ pub fn deck_as(
             });
             let layout = match given {
                 Some(layout) => layout.clone(),
-                None => {
-                    layout_for(v.layout.identity(), slide, &items, i, theme, pictures.contains_key(&i), icons.is_some())
-                }
+                None => layout_for(
+                    v.layout.identity(),
+                    slide,
+                    &items,
+                    first + i,
+                    theme,
+                    pictures.contains_key(&i),
+                    icons.is_some(),
+                ),
             };
             Planned { beat, items, icons, layout }
         })
@@ -1778,7 +1824,8 @@ pub fn deck_as(
     let mut running: Option<(String, usize)> = None;
     // Whether the section open is titled by a divider of its own.
     let mut divided = false;
-    let mut previous: Option<(String, &Slide)> = None;
+    let before = deck.previous.take();
+    let mut previous: Option<(String, &Slide)> = before.as_ref().map(|(layout, slide)| (layout.clone(), slide));
     for (i, ((slide, v), Planned { beat, items, icons, layout })) in
         narrative.slides.iter().zip(&varied).zip(planned).enumerate()
     {
@@ -1798,10 +1845,12 @@ pub fn deck_as(
             section: numbers.get(&i).copied(),
             running: running.as_ref().map(|(r, _)| r.as_str()),
             picture,
+            idea: (narrative.outline.as_ref()).map(|o| o.big_idea.trim()).filter(|i| !i.is_empty()),
             icons,
             lang: lang.unwrap_or("en"),
         };
-        let entrance = entrance(&layout, slide, previous.as_ref().map(|(l, s)| (l.as_str(), *s)), i + 1 == count);
+        let entrance =
+            entrance(&layout, slide, previous.as_ref().map(|(l, s)| (l.as_str(), *s)), first + i + 1 == total);
         let made = deck.slide(slots, entrance)?;
         let divider = layout.starts_with("section") && !slide.slide_title.is_empty();
         if divider {
@@ -1838,7 +1887,8 @@ pub fn deck_as(
             sections.last_mut().expect("opened above")["title"] = json!(slide.slide_title);
             divided = true;
         }
-        let claim = if slide.slide_title.is_empty() { format!("Slide {}", i + 1) } else { slide.slide_title.clone() };
+        let claim =
+            if slide.slide_title.is_empty() { format!("Slide {}", first + i + 1) } else { slide.slide_title.clone() };
         let beat_id = deck.unique(&slug(&claim, "beat"), Taken::Beat);
         let seconds = scaena_narrato::duration::seconds(
             &slide.speaker_notes,
@@ -1910,13 +1960,13 @@ pub fn deck_as(
         "meta": meta,
         "canvas": { "width": CANVAS[0], "height": CANVAS[1] },
         "spine": { "sections": sections },
-        "nodes": Value::Object(deck.nodes),
-        "states": deck.states,
+        "nodes": Value::Object(deck.nodes.clone()),
+        "states": deck.states.clone(),
     });
     if !deck.data.is_empty() {
-        out["data"] = Value::Object(deck.data);
+        out["data"] = Value::Object(deck.data.clone());
     }
-    Ok(Made { deck: out, layouts: chosen, assets: BTreeMap::new() })
+    Ok((Made { deck: out, layouts: chosen, assets: BTreeMap::new() }, deck))
 }
 
 /// `planned` with no three slides in a row on one of the theme's layouts (lift-up ATTR-2):
@@ -2393,7 +2443,14 @@ fn layout_for(
         "section" => "section",
         "agenda" if pictured => "agenda-photo",
         "agenda" => "agenda",
+        // A deck ends on what it leaves the room with (lift-up ATTR-3): its takeaways on cards, an
+        // ask with its button, or its last words over its picture, never the cover's layout.
+        "closing" | "thanks" if n == 3 && theme.layouts.contains_key("takeaways") => "takeaways",
+        "closing" | "thanks" if pictured && theme.layouts.contains_key("poster") => "poster",
         "closing" | "thanks" if pictured => "title-split",
+        // A bare "Thank you" or "Questions?" that carries an ask: the ask its words, its address
+        // the button. A closing that says something stays as it is said.
+        "closing" | "thanks" if bare(&slide.slide_title) && calling(slide, items).is_some() => "call-to-action",
         "closing" | "thanks" => "closing",
         "body" if pictured => "bullets-photo",
         "body" => "bullets",
@@ -2546,6 +2603,74 @@ fn layout_for(
         .to_string()
 }
 
+/// Whether a closing's title only thanks the room or opens the floor ("Thank you", "Questions?",
+/// "Q&A"), in the languages Scaena can tell: an ending that says nothing of the talk (lift-up
+/// ATTR-3).
+fn bare(title: &str) -> bool {
+    const BARE: [&str; 24] = [
+        "thank you",
+        "thanks",
+        "thank you for listening",
+        "thanks for listening",
+        "questions",
+        "any questions",
+        "q&a",
+        "q & a",
+        "questions and answers",
+        "merci",
+        "gracias",
+        "danke",
+        "grazie",
+        "obrigado",
+        "obrigada",
+        "dank u",
+        "tack",
+        "questions ?",
+        "preguntas",
+        "fragen",
+        "ありがとうございました",
+        "ありがとうございます",
+        "谢谢",
+        "감사합니다",
+    ];
+    let t = title.trim().trim_end_matches(['!', '?', '.', '！', '？', '。']).trim().to_lowercase();
+    !t.is_empty() && BARE.contains(&t.as_str())
+}
+
+/// What a bare closing asks of the room, and where: its subtitle and its items, an ask that
+/// starts with an asking verb (book, contact, sign up, join, start, register, subscribe, try,
+/// visit, apply) and an address (a site and its page, or an email), either in one line or each
+/// its own. None where it has not both. The verbs are English: another language keeps its
+/// closing (lift-up ATTR-3).
+fn calling(slide: &Slide, items: &[Item]) -> Option<(String, String)> {
+    const ASKING: [&str; 10] =
+        ["book", "contact", "sign", "join", "start", "register", "subscribe", "try", "visit", "apply"];
+    let dotted = |w: &str| w.rsplit_once('.').is_some_and(|(_, tail)| tail.starts_with(|c: char| c.is_alphabetic()));
+    let address_of = |line: &str| {
+        (line.split_whitespace())
+            .map(|w| {
+                w.trim_matches(|c: char| matches!(c, ',' | ';' | '(' | ')' | '!' | '?')).trim_end_matches(['.', ':'])
+            })
+            .find(|w| w.contains('@') || dotted(w))
+            .map(str::to_string)
+    };
+    let lines: Vec<String> = std::iter::once(slide.subtitle.trim().to_string())
+        .chain(items.iter().map(|i| i.whole.clone()))
+        .filter(|l| !l.is_empty())
+        .collect();
+    let address = lines.iter().find_map(|l| address_of(l))?;
+    let ask = lines.iter().find_map(|l| {
+        // The ask without its address: "Book a demo at relay.app/demo" asks "Book a demo".
+        let rest = l.replace(&address, "");
+        let rest = rest.trim().trim_end_matches([':', '-', '\u{2013}', '\u{2014}', ',']).trim();
+        let rest = rest.strip_suffix(" at").unwrap_or(rest).trim();
+        let words: Vec<&str> = rest.split_whitespace().collect();
+        let first = words.first()?.trim_matches(|c: char| !c.is_alphanumeric()).to_lowercase();
+        (ASKING.contains(&first.as_str()) && words.len() <= 8).then(|| rest.to_string())
+    })?;
+    Some((ask, address))
+}
+
 /// Whether `layout` has a place for each of `n` items: a list or a body holds any number; a
 /// layout of places, one item for each ordinal; a line with its support, one; a quote, a number,
 /// or a definition, the two it sets beside it. A chart takes its takeaway alone, its figures in
@@ -2682,6 +2807,9 @@ struct Slots<'a> {
     running: Option<&'a str>,
     /// The picture made for the slide, if one was.
     picture: Option<&'a Placed>,
+    /// The deck's big idea, where the person settled an outline (narrative FUNC-1): what a closing
+    /// that only thanks the room heads its takeaways with (lift-up ATTR-3).
+    idea: Option<&'a str>,
     /// The icon each item is set under, where each has one (G.23).
     icons: Option<Vec<&'a Icon>>,
     /// The deck's language (BCP 47).
@@ -3186,12 +3314,21 @@ impl Slots<'_> {
         text(match name {
             // A slide's foot names the part of the talk it is in, as a running head does.
             "kicker" if self.foot(slot) => self.running.map(str::to_string),
+            // A bare thanks's takeaways under the deck's big idea, where it has one (lift-up ATTR-3).
+            "header" if layout == "takeaways" && self.title().is_some_and(|t| bare(&t)) => {
+                self.idea.map(str::to_string).or_else(|| self.title())
+            }
+            // A call to action's words: a bare closing's ask, not its thanks (lift-up ATTR-3).
+            "statement" if layout == "call-to-action" => calling(self.slide, self.items).map(|(ask, _)| ask),
             "header" | "title" | "statement" | "claim" | "ask" | "question" | "term" | "headline" | "point"
             | "name" | "thanks" | "top" => self.title(),
             "subtitle" | "support" | "dek" | "follow" | "talk" | "lede" | "role" => {
                 self.subtitle().or_else(|| self.item(0).map(|i| i.whole.clone()))
             }
             "hub" => self.subtitle().or_else(|| self.title()),
+            // A call to action's button: what it asks, as the slide says it (lift-up ATTR-3).
+            // A call to action's button: a bare closing's address (lift-up ATTR-3).
+            "button" => calling(self.slide, self.items).map(|(_, address)| address),
             "number" if matches!(layout, "section" | "section-photo") => self.section.map(|n| format!("{n:02}")),
             // A figure with its unit is set whole: "11 days", not "11".
             "number" => self.item(0).map(|i| match numeric(&i.whole) {
@@ -3639,6 +3776,9 @@ struct Builder {
     beats: Vec<String>,
     /// The deck reads right to left (PLAN T.5a): a theme's shapes stand mirrored in their boxes.
     mirrored: bool,
+    /// The slide before the first one made, by its layout: an open deck's, which a slide written
+    /// into it enters after (lift-up FUNC-1).
+    previous: Option<(String, Slide)>,
 }
 
 impl Builder {
@@ -4628,15 +4768,6 @@ fn restates(headline: &str, note: &str) -> bool {
     let (said, again) = (figures(headline), figures(note));
     let named = |f: &f64| again.contains(f);
     said.len() >= 2 && said.first().is_some_and(named) && said.last().is_some_and(named)
-}
-
-/// The figures `text` writes, as numbers: "$1,140" is 1140, "4.9%" is 4.9.
-fn figures(text: &str) -> Vec<f64> {
-    text.split(|c: char| !(c.is_ascii_digit() || c == '.' || c == ','))
-        .map(|w| w.trim_matches(['.', ',']).replace(',', ""))
-        .filter(|w| !w.is_empty())
-        .filter_map(|w| w.parse().ok())
-        .collect()
 }
 
 /// `value` with `places` decimals and its thousands grouped, as the chart's own labels write it.
@@ -6035,6 +6166,90 @@ mod tests {
     }
 
     #[test]
+    fn a_deck_ends_on_what_it_leaves_the_room_with() {
+        // A closing's layout follows what it says (lift-up ATTR-3): three takeaways on numbered
+        // cards; a bare thanks that carries an ask, the ask with its address on a button; its last
+        // words over its picture; else the closing as it was said. A layout the person chose stays.
+        let deck_of = |closing: serde_json::Value| {
+            let text = serde_json::json!({
+                "executiveSummary": "Proof is the product.",
+                "slides": [
+                    { "slideTitle": "Proof is the product", "subtitle": "A talk", "layoutSuggestion": "Title",
+                      "keyBullets": [], "beatIndex": 0, "beatName": "Hook" },
+                    { "slideTitle": "Why green freight stalls", "subtitle": "", "layoutSuggestion": "Bullet List",
+                      "keyBullets": ["Verification is slow", "Offsets are opaque"], "beatIndex": 1, "beatName": "Problem" },
+                    closing,
+                ]
+            })
+            .to_string();
+            let written = answer::slides(&text).unwrap();
+            narrative(&written.executive_summary, written.slides)
+        };
+        let closing = |title: &str, subtitle: &str, bullets: &[&str]| {
+            serde_json::json!({ "slideTitle": title, "subtitle": subtitle, "layoutSuggestion": "Closing",
+              "keyBullets": bullets, "beatIndex": 2, "beatName": "Close" })
+        };
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let last = |n: &Narrative, pictures: &Pictures, chosen: &BTreeMap<usize, String>| {
+            let made = deck_as(n, &theme, pictures, chosen).unwrap();
+            let state = made.deck["states"][2]["id"].as_str().unwrap().to_string();
+            (made.layouts[2].clone(), shown(&made.deck, &state))
+        };
+        let none = BTreeMap::new();
+        let has = |said: &[(String, String)], slot: &str, words: &str| {
+            assert!(said.iter().any(|(s, w)| s == slot && w == words), "{slot} = {words:?} in {said:#?}");
+        };
+        // Three takeaways, each on its card.
+        let three =
+            deck_of(closing("What to remember", "", &["Proof is slow", "Ledgers are closed", "Shippers pay twice"]));
+        let (layout, said) = last(&three, &Pictures::new(), &none);
+        assert_eq!(layout, "takeaways");
+        has(&said, "third", "Shippers pay twice");
+        // A bare thanks with three points heads them with the deck's big idea, where the person
+        // settled an outline, else keeps its thanks.
+        let mut thanks =
+            deck_of(closing("Thank you", "", &["Proof is slow", "Ledgers are closed", "Shippers pay twice"]));
+        let (layout, said) = last(&thanks, &Pictures::new(), &none);
+        assert_eq!(layout, "takeaways");
+        has(&said, "header", "Thank you");
+        let beat = |name: &str| scaena_narrato::outline::Beat { name: name.into(), ..Default::default() };
+        thanks.outline = Some(scaena_narrato::outline::Outline {
+            big_idea: "Proof, not offsets, will clean up freight".into(),
+            beats: vec![beat("Hook"), beat("Problem"), beat("Close")],
+        });
+        let (layout, said) = last(&thanks, &Pictures::new(), &none);
+        assert_eq!(layout, "takeaways");
+        has(&said, "header", "Proof, not offsets, will clean up freight");
+        // A bare thanks that carries an ask: the ask its words, the address its button.
+        let ask = deck_of(closing("Thank you!", "Book a pilot at tidewater.io/pilot", &[]));
+        let (layout, said) = last(&ask, &Pictures::new(), &none);
+        assert_eq!(layout, "call-to-action");
+        has(&said, "statement", "Book a pilot");
+        has(&said, "button", "tidewater.io/pilot");
+        let questions = deck_of(closing("Questions?", "", &["Contact us: hello@tidewater.io"]));
+        let (layout, said) = last(&questions, &Pictures::new(), &none);
+        assert_eq!(layout, "call-to-action");
+        has(&said, "statement", "Contact us");
+        has(&said, "button", "hello@tidewater.io");
+        // A closing that says something stays as it is said, its ask and address and all.
+        let strong = deck_of(closing("Go home and find your twelve people", "portalderpower.org/playbook", &[]));
+        assert_eq!(last(&strong, &Pictures::new(), &none).0, "closing");
+        // A bare thanks with no ask, or an ask with nowhere to go, stays as it was.
+        for (title, subtitle) in [("Thank you", ""), ("Thank you", "relay.app"), ("Thanks", "Book a demo today")] {
+            let bare = deck_of(closing(title, subtitle, &[]));
+            assert_eq!(last(&bare, &Pictures::new(), &none).0, "closing", "{title} / {subtitle}");
+        }
+        // Its last words over its picture, not the cover's layout.
+        let plain = deck_of(closing("Every invoice checked before it is paid", "", &[]));
+        let pictured: Pictures = [(2, Placed { src: "assets/picture-2.jpg".into(), alt: "A port".into() })].into();
+        assert_eq!(last(&plain, &pictured, &none).0, "poster");
+        assert_eq!(last(&plain, &Pictures::new(), &none).0, "closing");
+        // The person's own closing stays as they chose it.
+        let chosen: BTreeMap<usize, String> = [(2, "closing".to_string())].into();
+        assert_eq!(last(&ask, &Pictures::new(), &chosen).0, "closing");
+    }
+
+    #[test]
     fn a_text_that_cannot_come_clear_of_what_lies_across_it_is_left_as_it_was() {
         // A picture over the whole of a divider: its title, grown to its place, collides with it
         // however small it is set, the collision as large for its size. One step shows it, and
@@ -6735,7 +6950,8 @@ mod tests {
             .collect();
         let made = deck(&climate(), &theme, &pictures).unwrap();
         let layouts: Vec<&str> = [0, 1, 2, 3, 24].iter().map(|i| made.layouts[*i].as_str()).collect();
-        assert_eq!(layouts, ["title-split", "agenda-photo", "section-photo", "number-photo", "title-split"]);
+        // The closing's last words over its picture, not the cover's layout (lift-up ATTR-3).
+        assert_eq!(layouts, ["title-split", "agenda-photo", "section-photo", "number-photo", "poster"]);
         let art = placed(&made.deck, 2, "art");
         assert_eq!(
             (art["type"].as_str(), art["src"].as_str(), art["alt"].as_str()),
@@ -7014,6 +7230,42 @@ mod tests {
             texts.push(json!({ "id": id, "text": cut }));
         }
         json!({ "texts": texts }).to_string()
+    }
+
+    /// A content slide is shown its beat's claim as what it must leave the audience with, and,
+    /// where no outline was settled, its purpose as what it does; a slide that names its part
+    /// (the cover, a divider, a Q&A, the agenda, the close) is shown neither, so nothing pushes
+    /// a takeaway into its title (lift-up ATTR-2).
+    #[test]
+    fn a_content_slide_is_shown_its_claim_and_one_that_names_its_part_none() {
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let mut narrative = climate();
+        let pictures = Pictures::new();
+        let layouts = deck(&narrative, &theme, &pictures).unwrap().layouts;
+        let framing = |k: usize| [0, 1, 2, 7, 11, 15, 21, 23, 24].contains(&k);
+        let captions = |n: &Narrative| -> Vec<String> {
+            seeing(n, &theme, &pictures, &layouts).iter().map(|s| scaena_narrato::look::caption(s, 25)).collect()
+        };
+        // No outline: each content slide's purpose, said as what it does, never as a takeaway.
+        for (k, c) in captions(&narrative).iter().enumerate() {
+            assert!(!c.contains("leave the audience"), "slide {}: {c}", k + 1);
+            assert_eq!(!framing(k), c.contains("\nWhat it does in the talk: "), "slide {}: {c}", k + 1);
+        }
+        assert!(captions(&narrative)[3].ends_with("\nWhat it does in the talk: Evidence"));
+        // An outline settled: each content slide's beat's claim, and no purpose beside it.
+        let beats = (0..5)
+            .map(|b| scaena_narrato::outline::Beat {
+                name: format!("Beat {b}"),
+                claim: format!("Claim {b}"),
+                slides: 5,
+            })
+            .collect();
+        narrative.outline = Some(scaena_narrato::outline::Outline { big_idea: "We can halve it".into(), beats });
+        for (k, c) in captions(&narrative).iter().enumerate() {
+            assert!(!c.contains("What it does in the talk"), "slide {}: {c}", k + 1);
+            assert_eq!(!framing(k), c.contains("\nIt must leave the audience with: Claim "), "slide {}: {c}", k + 1);
+        }
+        assert!(captions(&narrative)[8].ends_with("\nIt must leave the audience with: Claim 2"));
     }
 
     #[test]
@@ -7741,5 +7993,333 @@ mod tests {
             .map(|(_, s)| s.key_bullets.len() - 1)
             .sum::<usize>();
         assert!(steps > 0 && steps == bulleted, "{steps} steps, {bulleted} points past the first");
+    }
+
+    /// A deck made of `picks` of the catalog's slides in Dusk, as JSON, with its theme.
+    fn made_of(picks: &[usize]) -> (Value, Theme, Vec<Slide>) {
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let (summary, slides) = catalog();
+        let chosen: Vec<Slide> = picks.iter().map(|i| slides[*i].clone()).collect();
+        let made = deck(&narrative(&summary, chosen), &theme, &Pictures::new()).unwrap();
+        (made.deck, theme, slides)
+    }
+
+    /// No files: a deck whose data are written inline, or none.
+    fn no_files() -> BTreeMap<String, Vec<u8>> {
+        BTreeMap::new()
+    }
+
+    /// The deck at `path` from the repository's root, as JSON, and its folder's files.
+    fn deck_at(path: &str) -> (Value, scaena_store::Files) {
+        let path = root().join(path);
+        let doc = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        (doc, scaena_store::Files::Dir(path.parent().unwrap().to_path_buf()))
+    }
+
+    /// The revenue example's data file, from `files`, as its source reads it.
+    fn read_by(files: &scaena_store::Files) -> BTreeMap<String, Vec<u8>> {
+        let path = "data/q3-revenue.csv";
+        files.read(path).map(|bytes| BTreeMap::from([(path.to_string(), bytes)])).unwrap_or_default()
+    }
+
+    /// `doc` with `patch` compiled and applied in `files`, as `deck_patch` applies one.
+    fn patched_in(doc: &Value, patch: &[Value], files: &scaena_store::Files) -> Value {
+        let view = View { base: files, pending: BTreeMap::new() };
+        scaena_core::patch::compile(doc, patch, &view).unwrap().doc
+    }
+
+    /// Every state of `before` but those of `gone` shows in `after` what it showed, its own nodes
+    /// with each value it had: a slide written in or written again changes no other slide.
+    fn others_kept(before: &Value, after: &Value, gone: &[&str]) {
+        let snaps =
+            |d: &Value| scaena_core::tracking::resolve_states(&Deck::from_json(&d.to_string()).unwrap()).unwrap();
+        let now = snaps(after);
+        for was in snaps(before).iter().filter(|s| !gone.contains(&s.state_id.as_str())) {
+            let is = now.iter().find(|s| s.state_id == was.state_id).expect("the state stays");
+            let theirs: Vec<(&String, &scaena_core::document::Props)> =
+                is.nodes.iter().filter(|(id, _)| before["nodes"].get(id.as_str()).is_some()).collect();
+            let mine: Vec<(&String, &scaena_core::document::Props)> = was.nodes.iter().collect();
+            assert_eq!(theirs, mine, "`{}` shows what it showed", was.state_id);
+        }
+    }
+
+    /// `doc` with `patch` compiled and applied, as `deck_patch` applies one.
+    fn patched(doc: &Value, patch: &[Value]) -> Value {
+        let nothing = scaena_store::Files::Zip(Default::default());
+        let view = View { base: &nothing, pending: BTreeMap::new() };
+        scaena_core::patch::compile(doc, patch, &view).unwrap().doc
+    }
+
+    /// Each slide's first state, in order.
+    fn firsts(doc: &Value) -> Vec<String> {
+        let deck = Deck::from_json(&doc.to_string()).unwrap();
+        deck.slides().iter().map(|s| deck.states[s[0]].id.clone()).collect()
+    }
+
+    /// The section and the beat that list `state`.
+    fn beat_of(doc: &Value, state: &str) -> (usize, usize, String) {
+        for (s, section) in doc["spine"]["sections"].as_array().unwrap().iter().enumerate() {
+            for (b, beat) in section["beats"].as_array().unwrap().iter().enumerate() {
+                if beat["states"].as_array().unwrap().iter().any(|x| x == state) {
+                    return (s, b, beat["id"].as_str().unwrap().to_string());
+                }
+            }
+        }
+        panic!("no beat lists `{state}`")
+    }
+
+    #[test]
+    fn a_slide_written_after_another_stands_after_it_and_in_its_beats_section() {
+        let (doc, theme, slides) = made_of(&[0, 8, 12, 55]);
+        let before = firsts(&doc);
+        let written = slide_into(
+            &doc,
+            &theme,
+            slides[20].clone(),
+            &Place::After(before[1].clone()),
+            BTreeMap::new(),
+            &no_files(),
+        )
+        .unwrap();
+        let after = patched(&doc, &written.patch);
+        let now = firsts(&after);
+        assert_eq!(now.len(), before.len() + 1);
+        assert_eq!(now[2], written.states[0], "it stands after the slide it follows");
+        assert_eq!((&now[..2], &now[3..]), (&before[..2], &before[2..]), "every other slide stays where it was");
+        // Its beat follows the beat of the slide before it, in that beat's section, its claim
+        // the slide's title.
+        let (s, b, _) = beat_of(&doc, &before[1]);
+        let (s2, b2, id) = beat_of(&after, &written.states[0]);
+        assert_eq!((s2, b2), (s, b + 1));
+        assert_eq!(id, written.beat);
+        let beat = &after["spine"]["sections"][s2]["beats"][b2];
+        assert_eq!(beat["claim"], json!(slides[20].slide_title.replace('\'', "\u{2019}")));
+        // Every id it takes is new, and the deck reads as a deck, its story in order and told.
+        for id in after["nodes"].as_object().unwrap().keys() {
+            assert!(doc["nodes"].get(id).is_none() || doc["nodes"][id] == after["nodes"][id], "{id} kept as it was");
+        }
+        let deck = Deck::from_json(&after.to_string()).unwrap();
+        let nothing = scaena_store::Files::Zip(Default::default());
+        let view = View { base: &nothing, pending: BTreeMap::new() };
+        let found = lint_in(&deck, &view).unwrap().findings;
+        let story: Vec<_> = found.iter().filter(|f| matches!(f.code.as_str(), "W426" | "W429")).collect();
+        assert!(story.is_empty(), "{story:#?}");
+        // At the end, it goes after every slide, in the last section.
+        let end = slide_into(&doc, &theme, slides[20].clone(), &Place::End, BTreeMap::new(), &no_files()).unwrap();
+        let after = patched(&doc, &end.patch);
+        assert_eq!(firsts(&after).last(), Some(&end.states[0]));
+    }
+
+    #[test]
+    fn a_slide_written_again_takes_its_place_and_beat_and_leaves_what_another_slide_shows() {
+        let (mut doc, theme, slides) = made_of(&[0, 8, 12, 55]);
+        let before = firsts(&doc);
+        // The third slide shows the second's headline too: it is the third's still once the
+        // second is written again.
+        let second = doc["states"].as_array().unwrap().iter().find(|s| s["id"] == before[1]).unwrap().clone();
+        let header = second["props"].as_object().unwrap().keys().find(|k| k.ends_with("-header")).unwrap().clone();
+        let third = doc["states"].as_array_mut().unwrap().iter_mut().find(|s| s["id"] == before[2]).unwrap();
+        third["props"][&header] = second["props"][&header].clone();
+        let gone: Vec<String> =
+            second["props"].as_object().unwrap().keys().filter(|k| **k != header).cloned().collect();
+        let (_, _, old_beat) = beat_of(&doc, &before[1]);
+
+        let written = slide_into(
+            &doc,
+            &theme,
+            slides[8].clone(),
+            &Place::Replace(before[1].clone()),
+            BTreeMap::new(),
+            &no_files(),
+        )
+        .unwrap();
+        let after = patched(&doc, &written.patch);
+        let now = firsts(&after);
+        assert_eq!(now.len(), before.len());
+        assert_eq!(now[1], written.states[0], "it stands in the old slide's place");
+        assert!(!now.contains(&before[1]));
+        let (_, _, beat) = beat_of(&after, &written.states[0]);
+        assert_eq!(
+            (beat.as_str(), written.beat.as_str()),
+            (old_beat.as_str(), old_beat.as_str()),
+            "the beat keeps its id"
+        );
+        assert!(after["nodes"].get(&header).is_some(), "what another slide shows stays");
+        for id in &gone {
+            assert!(after["nodes"].get(id).is_none(), "{id} went with its slide");
+        }
+        // Written again from the same slide, it says what it said, in the same layout.
+        let original = made_of(&[0, 8, 12, 55]).0;
+        let texts = |d: &Value, state: &str| -> Vec<String> {
+            let mut t: Vec<String> =
+                shown(d, state).into_iter().filter(|(slot, _)| !slot.ends_with("card")).map(|(_, said)| said).collect();
+            t.sort();
+            t
+        };
+        assert_eq!(texts(&after, &written.states[0]), texts(&original, &before[1]));
+        let layout = |d: &Value, state: &str| {
+            d["states"].as_array().unwrap().iter().find(|s| s["id"] == state).unwrap()["layout"].clone()
+        };
+        assert_eq!(layout(&after, &written.states[0]), layout(&original, &before[1]));
+    }
+
+    #[test]
+    fn what_a_model_is_asked_for_one_slide_is_its_place_in_the_deck() {
+        let (doc, _, slides) = made_of(&[0, 8, 12, 55]);
+        let firsts = firsts(&doc);
+        let claim = |state: &str| {
+            let (s, b, _) = beat_of(&doc, state);
+            doc["spine"]["sections"][s]["beats"][b]["claim"].as_str().unwrap().to_string()
+        };
+        let again = one_asked(&doc, &Place::Replace(firsts[1].clone()), "Shorter", &no_files()).unwrap();
+        assert_eq!(again.brief.audience, "Investors");
+        assert_eq!(again.arc, "Problem\u{2013}Solution");
+        assert_eq!(again.before.as_deref(), Some(claim(&firsts[0]).as_str()));
+        assert_eq!(again.after.as_deref(), Some(claim(&firsts[2]).as_str()));
+        assert_eq!(again.claim.as_deref(), Some(claim(&firsts[1]).as_str()));
+        let now = again.now.unwrap();
+        assert!(now.contains(&slides[8].key_bullets[0].split(':').next().unwrap().trim().to_string()), "{now}");
+        let added = one_asked(&doc, &Place::After(firsts[3].clone()), "What comes next", &no_files()).unwrap();
+        assert_eq!((added.after, added.now, added.claim), (None, None, None));
+        assert_eq!(added.before.as_deref(), Some(claim(&firsts[3]).as_str()));
+    }
+
+    #[test]
+    fn a_slide_written_into_a_deck_whose_next_slide_tracks_from_it_stays_on_its_own_slide() {
+        // The revenue example's slides each start from the state before: what a slide written
+        // between two of them adds would show on the next one but for a hide, as a node inserted
+        // on a slide stays on it (PLAN 3.24).
+        let doc: Value =
+            serde_json::from_str(&std::fs::read_to_string(root().join("docs/examples/revenue.deck.json")).unwrap())
+                .unwrap();
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let (_, slides) = catalog();
+        let first = doc["states"][0]["id"].as_str().unwrap().to_string();
+        let written =
+            slide_into(&doc, &theme, slides[8].clone(), &Place::After(first), BTreeMap::new(), &no_files()).unwrap();
+        let files = scaena_store::Files::Dir(root().join("docs/examples"));
+        let view = View { base: &files, pending: BTreeMap::new() };
+        let after = scaena_core::patch::compile(&doc, &written.patch, &view).unwrap().doc;
+        let deck = Deck::from_json(&after.to_string()).unwrap();
+        let errors: Vec<_> = (lint_in(&deck, &view).unwrap().findings.into_iter())
+            .filter(|f| f.severity == scaena_core::Severity::Error)
+            .collect();
+        assert!(errors.is_empty(), "{errors:#?}");
+    }
+
+    #[test]
+    fn a_slide_written_again_keeps_what_the_slides_after_it_inherit() {
+        // Review of #637, finding 1: B3's slides each start from the one before, and its first
+        // slide's grain, kicker, and quote are every later slide's too.
+        let (doc, files) = deck_at("tests/bench/b3.scaena/deck.json");
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let (_, slides) = catalog();
+        let written =
+            slide_into(&doc, &theme, slides[8].clone(), &Place::Replace("s1".into()), BTreeMap::new(), &no_files())
+                .unwrap();
+        let after = patched_in(&doc, &written.patch, &files);
+        others_kept(&doc, &after, &["s1"]);
+        for id in ["grain", "kicker", "quote"] {
+            assert!(after["nodes"].get(id).is_some(), "`{id}` stays");
+        }
+        // The charts example's later slides keep the note the first shows them.
+        let (doc, files) = deck_at("docs/examples/charts.deck.json");
+        let written =
+            slide_into(&doc, &theme, slides[20].clone(), &Place::Replace("bars".into()), BTreeMap::new(), &no_files())
+                .unwrap();
+        let after = patched_in(&doc, &written.patch, &files);
+        others_kept(&doc, &after, &["bars"]);
+        assert!(after["nodes"].get("note").is_some());
+        // And one written after a slide changes none of the rest.
+        let written =
+            slide_into(&doc, &theme, slides[20].clone(), &Place::After("stack".into()), BTreeMap::new(), &no_files())
+                .unwrap();
+        others_kept(&doc, &patched_in(&doc, &written.patch, &files), &[]);
+    }
+
+    #[test]
+    fn a_slide_written_again_keeps_its_chart_its_beat_its_links_and_how_it_enters() {
+        // Review of #637, findings 4 and 6, on the revenue example: its slide's chart and data,
+        // its beat's evidence, media, notes, and time, the links to it, and its own fields.
+        let (mut doc, files) = deck_at("docs/examples/revenue.deck.json");
+        doc["nodes"]["title"]["runs"] = json!([{ "text": "Q3 Review", "link": { "state": "mix" } }]);
+        doc["nodes"]["title"].as_object_mut().unwrap().remove("text");
+        doc["states"][1]["notes"] = json!("Pause on the bar.");
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let (_, slides) = catalog();
+        // A chart slide written with no rows of its own: the old slide's chart's are carried.
+        let mut slide = slides.iter().find(|s| s.chart_data.is_some()).unwrap().clone();
+        slide.chart_data = None;
+        let read = read_by(&files);
+        let written =
+            slide_into(&doc, &theme, slide, &Place::Replace("revenue".into()), BTreeMap::new(), &read).unwrap();
+        let after = patched_in(&doc, &written.patch, &files);
+        let first = &written.states[0];
+        // Every other slide shows what it showed, the link now to the slide written.
+        let mut linked = doc.clone();
+        linked["nodes"]["title"]["runs"][0]["link"]["state"] = json!(first);
+        others_kept(&linked, &after, &["revenue", "mix"]);
+        // The beat stays the beat it was, the new slide's states in it.
+        let (s, b, id) = beat_of(&after, first);
+        assert_eq!(id, "doubled");
+        let beat = &after["spine"]["sections"][s]["beats"][b];
+        let was = &doc["spine"]["sections"][1]["beats"][0];
+        for key in ["claim", "evidence", "notes", "duration", "media"] {
+            assert_eq!(beat[key], was[key], "the beat keeps its {key}");
+        }
+        // The data stays, and the slide draws a chart from its rows.
+        assert!(after["data"].get("q3").is_some(), "the beat's evidence keeps its source");
+        let state = after["states"].as_array().unwrap().iter().find(|s| s["id"] == first.as_str()).unwrap();
+        let charted = state["props"].as_object().unwrap().keys().any(|id| after["nodes"][id]["type"] == "chart");
+        assert!(charted, "the chart is drawn again");
+        // Its transition, hold, and notes are the old slide's, and a link to it goes to it.
+        assert_eq!(state["transition"], doc["states"][1]["transition"]);
+        assert_eq!(state["hold"], doc["states"][1]["hold"]);
+        assert_eq!(state["notes"], json!("Pause on the bar."));
+        assert_eq!(after["nodes"]["title"]["runs"][0]["link"]["state"], json!(first));
+    }
+
+    #[test]
+    fn a_slide_written_after_another_enters_as_a_made_decks_slides_do() {
+        let (doc, theme, slides) = made_of(&[0, 8, 12, 55]);
+        let before = firsts(&doc);
+        let written = slide_into(
+            &doc,
+            &theme,
+            slides[20].clone(),
+            &Place::After(before[1].clone()),
+            BTreeMap::new(),
+            &no_files(),
+        )
+        .unwrap();
+        let after = patched(&doc, &written.patch);
+        let state = after["states"].as_array().unwrap().iter().find(|s| s["id"] == written.states[0].as_str()).unwrap();
+        assert!(state.get("transition").is_some(), "it enters after the slide before it: {state:#}");
+    }
+
+    #[test]
+    fn a_slide_added_to_a_deck_with_no_spine_makes_none() {
+        let (doc, files) = deck_at("docs/examples/charts.deck.json");
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let (_, slides) = catalog();
+        let written =
+            slide_into(&doc, &theme, slides[20].clone(), &Place::After("bars".into()), BTreeMap::new(), &no_files())
+                .unwrap();
+        let after = patched_in(&doc, &written.patch, &files);
+        assert!(after.get("spine").is_none());
+        assert_eq!(written.beat, "");
+    }
+
+    #[test]
+    fn a_model_is_shown_the_slide_as_it_shows_with_its_charts_rows() {
+        // Review of #637, finding 7: the revenue slide's words as it resolves, not the cover's.
+        let (doc, files) = deck_at("docs/examples/revenue.deck.json");
+        let asked = one_asked(&doc, &Place::Replace("revenue".into()), "", &read_by(&files)).unwrap();
+        let now = asked.now.unwrap();
+        let cover = doc["nodes"]["title"]["text"].as_str().unwrap();
+        let mix = &doc["states"][2]["props"]["title"]["text"];
+        assert!(!now.contains(cover), "{now}");
+        assert!(mix.as_str().is_none_or(|t| now.contains(t)), "{now}");
+        assert!(now.contains("quarter, product, revenue, customers"), "{now}");
     }
 }

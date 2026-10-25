@@ -919,12 +919,14 @@ layout("Closing", "takeaways", "What to remember: three takeaways, each on its c
     **{o: slot(c, (5, 10), "lede", "The thing to remember", inset=32) for o, c in zip(ORDINALS, THIRDS)},
 })
 
-layout("Closing", "call-to-action", "One thing to do next, set large, and a button that says how.", {
+# The ask stands centred over its button, its foot a row above it, the two together in the
+# middle of the slide, so a short ask ("Book a demo") holds it; a long one shrinks to fit its rows.
+layout("Closing", "call-to-action", "One thing to do next, set large, and a button under it that says how.", {
     "kicker": KICKER,
-    "statement": slot((1, 10), (3, 7), "display", "One thing to do next", align={"y": "cap"}),
-    "button-card": ring((1, 4), (9, 10), shape="rect"),
-    "button": slot((1, 4), (9, 10), "title", "Start here", inset=24, align={"x": "center", "y": "center"}),
-}, ember={"statement": ((1, 10), (3, 8)), "button-card": ((1, 4), (10, 11)), "button": ((1, 4), (10, 11))})
+    "statement": slot((1, 12), (2, 6), "display", "One thing to do next", align={"x": "center", "y": "end"}, fit="shrink"),
+    "button-card": ring((5, 8), (8, 9), shape="rect"),
+    "button": slot((5, 8), (8, 9), "title", "Start here", inset=24, align={"x": "center", "y": "center"}),
+}, ember={"statement": ((1, 12), (2, 6)), "button-card": ((5, 8), (8, 9)), "button": ((5, 8), (8, 9))})
 
 # ---------------------------------------------------------------------------------------------
 # The first sixteen of ADR-0031's slide types (PLAN S.1), each drawn as its table says.

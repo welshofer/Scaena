@@ -21,6 +21,7 @@ pub mod heuristic;
 mod js;
 pub mod layouts;
 pub mod look;
+pub mod one;
 pub mod outline;
 pub mod pictures;
 pub mod prompt;
@@ -53,6 +54,27 @@ pub const LOOK_MAX_TOKENS: u32 = 16_000;
 pub const TRIES: usize = 6;
 /// The longest wait before a step is asked again, in seconds.
 pub const LONGEST_WAIT: f64 = 60.0;
+
+/// The figures `text` writes, as numbers: "$1,140" is 1140, "4.9%" is 4.9, "2024" is 2024.
+pub fn figures(text: &str) -> Vec<f64> {
+    text.split(|c: char| !(c.is_ascii_digit() || c == '.' || c == ','))
+        .map(|w| w.trim_matches(['.', ',']).replace(',', ""))
+        .filter(|w| !w.is_empty())
+        .filter_map(|w| w.parse().ok())
+        .collect()
+}
+
+/// Whether `now` writes the figures `was` does, each as often: none dropped, none added, none
+/// changed (lift-up REL-2). A rewrite that rounds 41% to "about 40%" or drops a year says
+/// something else, however much shorter it is.
+pub fn same_figures(was: &str, now: &str) -> bool {
+    let sorted = |text: &str| {
+        let mut f = figures(text);
+        f.sort_unstable_by(f64::total_cmp);
+        f
+    };
+    sorted(was) == sorted(now)
+}
 
 /// Whether `status` answers for now, not for good: no answer (0), a timeout, a rate limit, or a
 /// server's failure, Anthropic's 529 and Cloudflare's edge among them.
@@ -461,7 +483,8 @@ impl Generation {
             .collect();
         let brief = &narrative.brief;
         let shown = (slides[0].slide, slides[slides.len() - 1].slide);
-        let mut prompt = look::prompt(&brief.topic, &brief.audience, count, brief.language.as_deref(), shown);
+        let big_idea = narrative.outline.as_ref().map(|o| o.big_idea.as_str());
+        let mut prompt = look::prompt(&brief.topic, &brief.audience, count, brief.language.as_deref(), shown, big_idea);
         prompt.push_str(&look::edges(edges));
         let max_tokens = if s.provider == Provider::Gemini { GEMINI_MAX_TOKENS } else { LOOK_MAX_TOKENS };
         Some(s.provider.structured(&providers::Call {
