@@ -2425,8 +2425,16 @@ fn faithful(items: &[Item], drawn: &[&Value]) -> bool {
             runs
         })
         .collect();
-    let texts: Vec<(&str, &str)> =
-        (drawn.iter()).filter_map(|n| Some((n["role"].as_str().unwrap_or_default(), n["text"].as_str()?))).collect();
+    // Each text's words, its runs' joined where it is set in runs (a link's, a source's).
+    let texts: Vec<(&str, String)> = (drawn.iter())
+        .filter_map(|n| {
+            let said = match n["runs"].as_array() {
+                Some(runs) => runs.iter().filter_map(|r| r["text"].as_str()).collect(),
+                None => n["text"].as_str()?.to_string(),
+            };
+            Some((n["role"].as_str().unwrap_or_default(), said))
+        })
+        .collect();
     // `f` is the head of `w` and not all of it: "1" of "1 in 7", never "1" of "10%".
     let part = |w: &str, f: &str| {
         w.len() > f.len()
@@ -2496,7 +2504,7 @@ fn figure_at(chars: &[char], start: usize, end: usize) -> String {
     {
         begin -= 1;
     }
-    let end = joined(chars, end).unwrap_or(end);
+    let end = paired(chars, end).unwrap_or(end);
     let at = |from: usize, n: usize| -> String { chars[from.min(chars.len())..].iter().take(n).collect() };
     // A magnitude a language without spaces writes after its figure, and its currency after
     // that: "41.2\u{4e07}\u{30c9}\u{30eb}" is $412K, never "41.2".
@@ -2554,8 +2562,9 @@ fn figure_at(chars: &[char], start: usize, end: usize) -> String {
 
 /// Where the second of two numbers ends, where a range's dash, a ratio's slash, or a ratio's word
 /// joins it to the one that ends at `end`: "2\u{2013}3\u{d7}", "24/7", "1 in 7", "3 of 4"; none where
-/// a third follows, as a date's or a telephone number's does, or the second is a year ("5 in 2024").
-fn joined(chars: &[char], end: usize) -> Option<usize> {
+/// a third follows, as a date's or a telephone number's does, the second is a year ("5 in 2024"),
+/// or a word joins a duration to it ("2 in 3 weeks").
+fn paired(chars: &[char], end: usize) -> Option<usize> {
     let digit = |at: usize| chars.get(at).is_some_and(char::is_ascii_digit);
     let dashed = matches!(chars.get(end), Some('-' | '\u{2013}' | '/')) && digit(end + 1);
     let second = if dashed {
@@ -2575,13 +2584,67 @@ fn joined(chars: &[char], end: usize) -> Option<usize> {
     let stop = digits(chars, second);
     let year = stop - second == 4 && matches!((chars[second], chars[second + 1]), ('1', '9') | ('2', '0'));
     let third = matches!(chars.get(stop), Some('-' | '\u{2013}' | '/')) && digit(stop + 1);
-    // A ratio counts in whole numbers: "1 in 7", never "1 in 7%" or "5 in 2024".
-    let counts = dashed || !(year || chars.get(stop) == Some(&'%'));
+    // The word after the second, for a duration: "2 in 3 weeks" is no ratio.
+    let after: String = (chars[stop..].iter())
+        .skip_while(|c| spacing(**c))
+        .take_while(|c| c.is_alphabetic())
+        .flat_map(|c| c.to_lowercase())
+        .collect();
+    let lasting = stop < chars.len() && spacing(chars[stop]) && DURATIONS.contains(&after.as_str());
+    // A ratio counts in whole numbers: "1 in 7", never "1 in 7%", "5 in 2024", or "2 in 3 weeks".
+    let counts = dashed || !(year || lasting || chars.get(stop) == Some(&'%'));
     (!third && counts).then_some(stop)
 }
 
 /// The words that join a ratio's two numbers: "1 in 7", "3 of 4", "1 von 7", "1 sur 7".
 const RATIOS: [&str; 10] = [" in ", " of ", " out of ", " von ", " sur ", " de cada ", " de ", " su ", " op ", " na "];
+
+/// The words of a duration, which a ratio's second number never counts ("2 in 3 weeks").
+const DURATIONS: [&str; 43] = [
+    "second",
+    "seconds",
+    "minute",
+    "minutes",
+    "hour",
+    "hours",
+    "day",
+    "days",
+    "week",
+    "weeks",
+    "month",
+    "months",
+    "quarter",
+    "quarters",
+    "year",
+    "years",
+    "sekunden",
+    "minuten",
+    "stunde",
+    "stunden",
+    "tag",
+    "tage",
+    "tagen",
+    "woche",
+    "wochen",
+    "monat",
+    "monate",
+    "monaten",
+    "quartal",
+    "quartale",
+    "jahr",
+    "jahre",
+    "jahren",
+    "heure",
+    "heures",
+    "jour",
+    "jours",
+    "semaine",
+    "semaines",
+    "mois",
+    "an",
+    "ans",
+    "trimestre",
+];
 
 /// Whether `c` sets a unit apart from its figure: a space, or a space that never breaks.
 fn spacing(c: char) -> bool {
@@ -5371,6 +5434,11 @@ mod tests {
         assert!(numeric("1 in 7") && numeric("2\u{2013}3\u{d7}"));
         // No ratio of a year, a percent, or a date's three parts.
         assert_eq!(figure("5 in 2024").as_deref(), Some("5"));
+        // Nor of a duration: "2 in 3 weeks" is two figures, in German and French too.
+        assert_eq!(figure("2 in 3 weeks: from commit to customer").as_deref(), Some("2"));
+        assert_eq!(figure("1 von 3 Wochen").as_deref(), Some("1"));
+        assert_eq!(figure("1 sur 4\u{a0}ans").as_deref(), Some("1"));
+        assert_eq!(figure("3 of 4 teams").as_deref(), Some("3 of 4"));
         assert_eq!(figure("on 2025-11-28").as_deref(), Some("2025"));
         // German figures, their magnitude and their currency spaced, and a spaced percent.
         assert_eq!(figure("48,6 Mio. \u{20ac}: Umsatz").as_deref(), Some("48,6 Mio. \u{20ac}"));
@@ -5422,6 +5490,12 @@ mod tests {
         assert!(faithful_of(&scorecard, &drawn("48,6 Mio. \u{20ac}", "1,2 Mio. \u{20ac}")));
         // A figure that is not shown at all.
         assert!(!faithful_of(&scorecard, &[text("figure", "48,6 Mio. \u{20ac}"), words[1].clone()]));
+        // A text set in runs, as a link's is, is read by its runs' words.
+        let linked = json!({ "type": "text", "role": "body", "runs": [
+            { "text": "$50: feeds a family for a week at " },
+            { "text": "harborhouse.org", "link": "https://harborhouse.org" },
+        ] });
+        assert!(faithful_of(&["$50: feeds a family for a week at harborhouse.org"], &[linked]));
         // A card's number is no part of a figure it does not begin.
         assert!(faithful_of(&["10% churn"], &[text("figure", "1"), text("body", "10% churn")]));
     }
