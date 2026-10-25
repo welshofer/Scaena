@@ -651,6 +651,12 @@ impl Session {
         self.deck.states.iter().map(|s| s.id.clone()).collect()
     }
 
+    /// The deck's title, as its `meta` gives it: what an export's file is named by, read without
+    /// a whole `deck_read` (lift-up 10-25b ATTR-3).
+    pub fn title(&self) -> Option<String> {
+        self.deck.meta.as_ref().and_then(|m| m.title.clone())
+    }
+
     /// The formats the deck is also laid out in, as it writes them (`9:16`).
     pub fn formats(&self) -> Vec<String> {
         self.deck.formats.clone()
@@ -707,9 +713,11 @@ impl Session {
     /// "headline", "start", "span", "hold" }]`, ms (SPEC §2.4), `slide` the slide each builds on,
     /// `said` the state as a person counts it, `Slide 3, step 2` (PLAN 2.99), and `headline` the
     /// words that head it, where a text does (`reading::headline`), which a slide list reads its
-    /// rows by (lift-up 10-24b USE-4). What a player auto-advances by, and a video samples.
+    /// rows by (lift-up 10-24b USE-4), and `story` its place in the talk, where a beat names it
+    /// ([`Session::story_place`]). What a player auto-advances by, and a video samples.
     pub fn slots(&mut self) -> Result<serde_json::Value, Error> {
         let timeline = self.timeline()?;
+        let story = story_places(&self.deck, &timeline);
         let deck = &self.deck;
         let slide = |id: &str| deck.states.iter().find(|s| s.id == id).map_or(id, |s| deck.slide_of(s)).to_string();
         // Each as a person counts it (PLAN 2.99): `Slide 3, step 2`.
@@ -724,10 +732,23 @@ impl Session {
                 let slide = slide(&s.state);
                 let said = said(&s.state);
                 let headline = headline(&s.state);
-                serde_json::json!({ "state": s.state, "slide": slide, "said": said, "headline": headline, "start": s.start, "span": s.span, "hold": s.hold })
+                let mut slot = serde_json::json!({ "state": s.state, "slide": slide, "said": said, "headline": headline, "start": s.start, "span": s.span, "hold": s.hold });
+                if let Some(place) = story.get(&s.state) {
+                    slot["story"] = place.json();
+                }
+                slot
             })
             .collect();
         Ok(serde_json::Value::Array(slots))
+    }
+
+    /// Where `state` stands in the talk (lift-up FUNC-2): its section's title, its beat's claim, the
+    /// seconds the beat is planned to take, and the seconds planned before the state comes up, as
+    /// the spine paces the deck by its beats ([`scaena_core::spine::paced`]); none where no beat
+    /// names it. What a presenter's view reads to say "ahead" or "behind".
+    pub fn story_place(&mut self, state: &str) -> Result<Option<StoryPlace>, Error> {
+        let timeline = self.timeline()?;
+        Ok(story_places(&self.deck, &timeline).remove(state))
     }
 
     /// The span of `state`, ms: its transition and every motion of its cue. Past it, the
@@ -2748,6 +2769,54 @@ pub struct CodeColor {
     pub moved: bool,
 }
 
+/// A state's place in the talk ([`Session::story_place`]).
+#[derive(Debug, Clone, PartialEq)]
+pub struct StoryPlace {
+    /// The title of the section its beat is in, where it has one.
+    pub section: Option<String>,
+    /// Its beat's claim.
+    pub claim: String,
+    /// The seconds its beat is planned to take, where the beat says.
+    pub planned: Option<f64>,
+    /// The seconds planned before the state comes up, the deck paced by its beats.
+    pub before: f64,
+}
+
+impl StoryPlace {
+    /// As a client reads it: `{ "section"?, "claim", "planned"?, "before" }`.
+    pub fn json(&self) -> serde_json::Value {
+        let mut out = serde_json::json!({ "claim": self.claim, "before": self.before });
+        if let Some(section) = &self.section {
+            out["section"] = serde_json::json!(section);
+        }
+        if let Some(planned) = self.planned {
+            out["planned"] = serde_json::json!(planned);
+        }
+        out
+    }
+}
+
+/// Each state's place in the talk, by its id: the first beat, in spine order, that names it, as a
+/// chapter takes a state two beats name ([`scaena_core::spine::paced`]).
+fn story_places(deck: &Deck, timeline: &Timeline) -> HashMap<String, StoryPlace> {
+    let paced = scaena_core::spine::paced(deck, timeline, scaena_core::spine::Pace::Beats);
+    let mut out = HashMap::new();
+    for section in deck.spine.iter().flat_map(|s| &s.sections) {
+        for beat in &section.beats {
+            for state in &beat.states {
+                let Some(slot) = paced.slot(state) else { continue };
+                out.entry(state.clone()).or_insert_with(|| StoryPlace {
+                    section: section.title.clone().filter(|t| !t.trim().is_empty()),
+                    claim: beat.claim.clone(),
+                    planned: beat.duration.filter(|d| *d > 0.0),
+                    before: slot.start / 1000.0,
+                });
+            }
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     /// The files' edition counts each write and each file taken out, and nothing else (lift-up
@@ -2764,6 +2833,38 @@ mod tests {
         assert_eq!(s.files_edition(), was + 2, "written again");
         s.remove_file("data/extra.csv").unwrap();
         assert_eq!(s.files_edition(), was + 3, "taken out");
+    }
+
+    /// The deck's title, read without a whole `deck_read`: what an export is named by (lift-up
+    /// 10-25b ATTR-3).
+    #[test]
+    fn the_title_is_the_decks_meta_title() {
+        let revenue = revenue();
+        let meta: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string("../../docs/examples/revenue.deck.json").unwrap()).unwrap();
+        assert_eq!(revenue.title().as_deref(), meta["meta"]["title"].as_str());
+        assert!(revenue.title().is_some());
+    }
+
+    /// Each state's place in the talk (lift-up FUNC-2): its section, its beat's claim and planned
+    /// seconds, and the seconds planned before it, the deck paced by its beats; what the slots say.
+    #[test]
+    fn a_state_says_its_place_in_the_talk() {
+        let mut s = revenue();
+        let timeline = s.timeline().unwrap();
+        let intro = s.story_place("intro").unwrap().expect("a beat names it");
+        assert_eq!((intro.section.as_deref(), intro.planned, intro.before), (Some("Open"), Some(15.0), 0.0));
+        let mix = s.story_place("mix").unwrap().expect("a beat names it");
+        assert_eq!((mix.section.as_deref(), mix.planned), (Some("Growth"), Some(60.0)));
+        assert!(mix.claim.starts_with("Revenue doubled"), "{}", mix.claim);
+        // Each state here holds as the deck says, which a beat's share never overrides.
+        assert_eq!(mix.before, timeline.slot("mix").unwrap().start / 1000.0);
+        assert!(mix.before > 0.0);
+        assert_eq!(s.story_place("nowhere").unwrap(), None);
+        let slots = s.slots().unwrap();
+        let said = slots.as_array().unwrap().iter().find(|slot| slot["state"] == "mix").unwrap();
+        assert_eq!(said["story"]["section"], "Growth");
+        assert_eq!(said["story"]["planned"], 60.0);
     }
 
     use super::*;
@@ -3634,6 +3735,38 @@ mod tests {
         let e = s.arranging("containers", &["stats".into()], How::Into { holder: "stat-a".into() }, false);
         let e = e.unwrap_err().to_string();
         assert!(e.contains("a node goes into nothing it holds"), "{e}");
+    }
+
+    /// A burst of typing that takes a headline away from its beat's claim is reported once it
+    /// ends, against the source as it began, with the patch that restates the claim; a keystroke
+    /// within it is no report of its own (lift-up FUNC-2).
+    #[cfg(feature = "editor")]
+    #[test]
+    fn a_typed_headline_that_leaves_its_claim_is_reported_once() {
+        let mut s = revenue();
+        let begun = s.source();
+        assert!(s.compile(&begun).valid);
+        for (from, to, text) in [(8, 15, "t"), (9, 9, "ripled")] {
+            let op = serde_json::json!([{ "op": "replace_text", "node": "title", "state": "revenue", "from": from, "to": to, "text": text }]);
+            assert!(s.typed(&op, None).unwrap());
+        }
+        let found = s.restated(&begun);
+        assert_eq!(found.len(), 1, "one beat, for the whole burst: {found:?}");
+        assert_eq!((found[0].beat.as_str(), found[0].says.as_deref()), ("doubled", Some("Revenue tripled")));
+        assert_eq!(found[0].path, "/spine/sections/1/beats/0/claim");
+        // Against the source the burst left, nothing more is stale; and a source that makes no deck
+        // reports nothing.
+        assert!(s.restated(&s.source()).is_empty());
+        assert!(s.restated("not a deck").is_empty());
+        // The fix restates it as a patch, which leaves nothing stale behind it.
+        let fix = serde_json::Value::Array(found[0].fix.clone());
+        let before = s.source();
+        let by = assistant::Caller { author: "user", at: None };
+        let called = s.tool("deck_patch", serde_json::json!({ "ops": fix }), by).unwrap();
+        assert!(called.edited, "{}", called.result);
+        assert!(!called.result.contains("\"restated\""), "{}", called.result);
+        assert!(s.restated(&before).is_empty());
+        assert_eq!(s.deck.spine.as_ref().unwrap().sections[1].beats[0].claim, "Revenue tripled");
     }
 
     /// Text on the canvas (ADR-0013, PLAN 2.32): where a caret stands in a text, from the
@@ -5910,7 +6043,7 @@ mod tests {
         s.set_deck(rename(&s.deck, "assets/copy.png", "assets/absent.png"));
         let err = s.frame("images", f64::INFINITY).unwrap_err();
         assert!(matches!(&err, Error::Missing(p) if p == "assets/absent.png"), "{err}");
-        assert_eq!(s.states().len(), 70);
+        assert_eq!(s.states().len(), 71);
     }
 
     /// A pen's drawing and an icon are each a path on a view (PLAN 2.104, 2.114): the drawing,

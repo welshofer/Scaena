@@ -42,6 +42,8 @@ export async function health(deck: string, lint?: string): Promise<Health> {
 export interface SlidePlace {
   after?: string;
   replace?: string;
+  /** The beat of the spine the slide tells, which its states join (lift-up M1). */
+  beat?: string;
 }
 
 /** The generator's writer of one slide (lift-up FUNC-1), the bundle's data `files` handed to it:
@@ -355,6 +357,8 @@ export async function generate(
         if (painted) making.painted(painted.made, JSON.stringify(painted.unmade));
         const name = WRITERS[job.provider];
         if (job.look !== false) await look(generation, making, job.key, name, theme, painted?.placed ?? "{}", hear);
+        // Each change let go, and what lint found (lift-up USE-4).
+        for (const r of (JSON.parse(making.report()) as Generated).refused ?? []) hear({ kind: "refused", ...r });
         await fit(generation, making, job.key, name, hear);
         making.keep(sources.tables());
         const made = { ...JSON.parse(making.report()), sources: JSON.parse(generation.given()) } as Generated;
@@ -422,7 +426,7 @@ async function paint(
 async function painting(
   g: Generator,
   asked: string,
-  pictures: { provider: "openai" | "gemini"; key: string; base?: string },
+  pictures: { provider: "openai" | "gemini"; key: string; base?: string; quality?: "low" | "medium" | "high" },
   hear: (event: GeneratingEvent) => void,
   heard?: (reply: { status: number; body: string }) => void,
 ): Promise<{ placed: string; bytes: Map<string, Uint8Array>; made: number; unmade: string[]; model: string } | undefined> {
@@ -448,7 +452,7 @@ async function painting(
     return undefined;
   }
   hear({ kind: "painting", pictures: wanted, model });
-  const settings = JSON.stringify({ provider: pictures.provider, model, base: pictures.base, quality: "medium" });
+  const settings = JSON.stringify({ provider: pictures.provider, model, base: pictures.base, quality: pictures.quality ?? "medium" });
   const painting = new g.Painting(asked, settings);
   let finished: ReturnType<typeof painting.finish> | undefined;
   try {
@@ -646,7 +650,9 @@ async function look(
   hear: (event: GeneratingEvent) => void,
 ) {
   const layouts = JSON.stringify((JSON.parse(making.report()) as { layouts: string[] }).layouts);
-  const seen = generation.seeing(theme.text, placed, layouts);
+  // Each title's room, measured by the engine's module, so a topic may become its claim (lift-up
+  // FUNC-2).
+  const seen = generation.seeing(theme.text, placed, layouts, making.rooms());
   // A slide that would not draw for the model to see, as a deck the model asked for that cannot be
   // made again, leaves the deck as it was, saying why (narrative STAB-3): the look is a polish.
   try {

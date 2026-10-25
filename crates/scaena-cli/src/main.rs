@@ -259,8 +259,11 @@ enum Cmd {
         /// state's hold alone, as a player auto-advances.
         #[arg(long, value_enum, default_value_t = PaceArg::Beats)]
         pace: PaceArg,
-        /// A PDF with the presenter's notes: each slide drawn smaller at the head of a page, the
-        /// notes a presenter reads for it under it, as Keynote's "Include presenter notes".
+        /// The presenter's notes, as Keynote's "Include presenter notes": a PDF with each slide
+        /// drawn smaller at the head of a page and the notes a presenter reads for it under it; a
+        /// single HTML file with each state's and beat's notes, each beat's evidence, and what
+        /// Narrato planned, the presenter's own copy. Without it a single file is the room's,
+        /// sent after a talk, those left out. Only a PDF or a single file.
         #[arg(long)]
         notes: bool,
     },

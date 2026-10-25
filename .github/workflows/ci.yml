@@ -592,6 +592,8 @@ jobs:
       # A deck made from a prompt, grounded in files and a page, Narrato played by a scripted
       # server: the generator's own module, and the deck opened in the editor (PLAN G.5).
       - run: node web/generate.mjs
+      # The Story tab leads with what to do first and folds the rest, counted by kind (lift-up S1).
+      - run: node web/story.mjs
       # A first deck as a person makes one, from New to a deck that plays, exports, and opens
       # again, by the editor's buttons, menus, keys, and drops alone (PLAN 2.76).
       - run: node web/first-deck.mjs
@@ -696,3 +698,7 @@ jobs:
       - run: node --experimental-strip-types web/exchanges.mjs
       # The assistant's answers render as they read (narrative ATTR-4): the blocks and elements.
       - run: node --experimental-strip-types web/markdown.mjs
+      # A source's body is read no further than its plan's `most` (the 20261024 plan's SEC-2).
+      - run: node --experimental-strip-types web/most.mjs
+      # Every call the model makes is answered, an error included (the 20261025b plan's STAB-3).
+      - run: node --experimental-strip-types web/answered.mjs

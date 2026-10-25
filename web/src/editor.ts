@@ -53,7 +53,7 @@ import {
   lineNumbers,
 } from "@codemirror/view";
 import { themes } from "@scaena/themes";
-import { familySections } from "./theme-families";
+import { themeGallery } from "./theme-gallery";
 import { panel } from "./assistant/panel";
 import { TOOLS, writer } from "./writing";
 import { load } from "./assistant/keys";
@@ -89,6 +89,7 @@ import type {
   Linted,
   Painter,
   ProviderId,
+  Restated,
   Rewritten,
   SaveTo,
   Seeing,
@@ -426,19 +427,9 @@ async function controls() {
   // New (PLAN 2.12): a title and a theme that ships.
   const making = $<HTMLDialogElement>("#making");
   const title = $<HTMLInputElement>("#making-name");
-  const theme = $<HTMLSelectElement>("#making-theme");
-  theme.replaceChildren(...familySections());
-  // The theme chosen, as its title slide drawn at build (PLAN T.0c).
-  const preview = $<HTMLImageElement>("#making-preview");
-  const previewed = () => {
-    const chosen = themes[theme.value];
-    preview.hidden = !chosen;
-    if (!chosen) return;
-    preview.src = chosen.thumbnail;
-    preview.alt = `A title slide in ${theme.value}`;
-  };
-  theme.onchange = previewed;
-  previewed();
+  // The themes that ship, chosen by their title slides drawn at build (PLAN T.0c, lift-up 10-25b
+  // ATTR-1).
+  const theme = themeGallery($("#making-themes"), "making-theme");
   $<HTMLButtonElement>("#new-deck").onclick = () => {
     making.returnValue = "";
     making.showModal();
@@ -1024,14 +1015,74 @@ async function edit(source: Source, opened?: Stage) {
   /** The words for the state shown (PLAN 2.99): its objects by what they show, the theme's names
    * said. Asked for each time the state shown is inspected. */
   let lexicon: Lexicon | undefined;
+  /** A beat's claim its slide said before an edit and says no more (lift-up FUNC-2): the status
+   * says so in a person's words and Update, beside it, restates the claim in the slide's words, a
+   * patch by the user, one step to undo. A headline taken away has no words to restate it in. */
+  const restate = $<HTMLButtonElement>("#restate");
+  let restating: { said: string; fix: unknown[] } | undefined;
+  const quoted = (words: string) => `“${words.length > 60 ? `${words.slice(0, 59)}…` : words}”`;
+  /** `kept`: the status the edit's own gesture said goes first, so what it did is still said. */
+  async function restated(before: string, after: string, kept = false) {
+    const found = await stage.restated(after, before).catch(() => [] as Restated[]);
+    const one = found[0];
+    if (!one || view.state.doc.toString() !== after) return;
+    const slide = slideOf(one.state).replace(/, step \d+$/, "");
+    const offer =
+      one.says !== undefined && one.fix?.length
+        ? `${slide}'s story still says ${quoted(one.claim)}. Update it to ${quoted(one.says)}?`
+        : `${slide}'s story still says ${quoted(one.claim)}, which the slide no longer says: restate it in the Story tab`;
+    const gesture = kept ? status.textContent?.trim() : "";
+    const said = gesture ? `${gesture} · ${offer}` : offer;
+    say(said);
+    restating = one.fix?.length ? { said, fix: one.fix } : undefined;
+    restate.hidden = restating === undefined;
+  }
+  /** The status says something else: what Update would restate goes with it. */
+  observing(new MutationObserver(() => {
+    if (restating && status.textContent !== restating.said) [restating, restate.hidden] = [undefined, true];
+  })).observe(status, { childList: true, characterData: true, subtree: true });
+  restate.addEventListener("click", async () => {
+    const now = showing();
+    const ask = restating;
+    if (!now || !ask) return;
+    [restating, restate.hidden] = [undefined, true];
+    try {
+      const { source, edited } = await stage.make(() => view.state.doc.toString(), ask.fix, now.index, format());
+      made(source, edited, "the story's claim");
+      say("The story says what the slide says");
+    } catch (e) {
+      say(`Not updated: ${said(e)}`);
+    }
+  });
+  /** The source as a burst of typing on the canvas began, asked about once the burst ends: typing
+   * is validated but not linted, so its end is where a claim it left behind is told (FUNC-2). */
+  let burst: { from: string; timer?: ReturnType<typeof setTimeout> } | undefined;
+  const BURST = 1000;
+  const typedAway = (joins: boolean) => {
+    const before = view.state.doc.toString();
+    if (burst && !joins) {
+      clearTimeout(burst.timer);
+      void restated(burst.from, before);
+      burst = undefined;
+    }
+    burst ??= { from: before };
+    clearTimeout(burst.timer);
+    const was = burst;
+    was.timer = setTimeout(() => {
+      if (burst === was) burst = undefined;
+      void restated(was.from, view.state.doc.toString());
+    }, BURST);
+  };
   /** Take `source`, a patch made on the canvas or in the inspector: one change, one step to undo,
    * which `said`, the change in a person's words, names when it is undone (lift-up USE-4). */
   const made = (source: string, edited: Edited, said?: string) => {
     taken = { source, edited, showings };
     anchor();
-    const changes = change(view.state.doc.toString(), source);
+    const before = view.state.doc.toString();
+    const changes = change(before, source);
     const effects = said ? [described.of(describing(said))] : [];
     view.dispatch({ changes, effects, userEvent: "input.canvas", annotations: isolateHistory.of("full") });
+    void restated(before, source, true);
   };
   /** The node selected, its look chosen from the theme in the inspector (PLAN 2.33): each choice a
    * patch, as each gesture on the canvas is. */
@@ -1104,6 +1155,7 @@ async function edit(source: Source, opened?: Stage) {
     typed: (source, edited, joins) => {
       taken = { source, edited, showings };
       if (!joins) anchor();
+      typedAway(joins);
       const changes = change(view.state.doc.toString(), source);
       // A burst of typing is one step to undo. CodeMirror's history joins a change to the one
       // before it when both are `input.type.compose`; the burst's first starts a step of its own.
@@ -2201,7 +2253,9 @@ async function edit(source: Source, opened?: Stage) {
    * `slides`, every slide once its steps have played, so, in one zip, each named by its number
    * (PLAN 2.122); `pdf`, each slide at its last state, with `notes` each with the presenter's
    * notes under it; `html`, the deck as one file that plays offline, the single-file player's
-   * page beside this one filled in. Each is made in the worker: nothing is sent anywhere. */
+   * page beside this one filled in, with `notes` the presenter's own copy, else the room's, the
+   * speaker notes left out (lift-up 20261025 SEC-3). Each is made in the worker: nothing is
+   * sent anywhere. */
   async function exportAs(
     as: "png" | "slides" | "pdf" | "html",
     width?: number,
@@ -2234,7 +2288,7 @@ async function edit(source: Source, opened?: Stage) {
         say("Not exported: this copy of the editor has no page to play a single file (build it with `just web`)");
         return;
       }
-      what = { kind: "html", page: await page.text(), name };
+      what = { kind: "html", page: await page.text(), name, notes };
       file = `${name}.html`;
     }
     say(`Exporting ${file}…`);
@@ -2927,7 +2981,10 @@ async function edit(source: Source, opened?: Stage) {
     const sized = as === "png" || as === "slides";
     $("#exporting-size").hidden = !sized;
     exportWidth.disabled = !sized;
-    $("#exporting-notes").hidden = as !== "pdf";
+    // A PDF prints the presenter's notes, and a single file keeps them, only where they are asked
+    // for: a single file is what a speaker sends the room (lift-up 20261025 SEC-3; Jay's call,
+    // 2026-10-25).
+    $("#exporting-notes").hidden = as !== "pdf" && as !== "html";
     const notes = withNotes.checked;
     const [w, h] = board.size();
     const width = Number(exportWidth.value);
@@ -2947,13 +3004,23 @@ async function edit(source: Source, opened?: Stage) {
       pdf: notes
         ? "A page for each slide at its last state, drawn smaller, the notes you read for it under it, notes too long for the page going on to the next: text that copies and searches, tagged for a screen reader."
         : "A page for each slide at its last state: vector paths, text in subset fonts that copies and searches as the deck reads, tagged for a screen reader.",
-      html: "The player and the deck in one file that plays in a browser with no network, its fonts subset to what the deck draws.",
+      html: `The player and the deck in one file that plays in a browser with no network, its fonts subset to what the deck draws${
+        notes
+          ? ", with the speaker notes, the sources each beat cites, and what was planned for it, which anyone who opens the file can read"
+          : ", without the speaker notes, the sources each beat cites, or what was planned for it"
+      }.`,
     }[as];
   };
-  exporting.oninput = noteExport;
-  /** Open Export…, `as` chosen. */
+  // The notes are asked for each time, never carried over from a PDF to a single file sent to the
+  // room (lift-up 20261025 SEC-3).
+  exporting.oninput = (e) => {
+    if ((e.target as HTMLInputElement).name === "as") withNotes.checked = false;
+    noteExport();
+  };
+  /** Open Export…, `as` chosen, the presenter's notes not asked for. */
   const openExport = (as: ExportAs = "png") => {
     exporting.querySelector<HTMLInputElement>(`input[name=as][value=${as}]`)!.checked = true;
+    withNotes.checked = false;
     exportWidth.value = String(Math.round(board.size()[0]));
     noteExport();
     exporting.returnValue = "";
@@ -2964,7 +3031,7 @@ async function edit(source: Source, opened?: Stage) {
   exporting.onclose = () => {
     if (exporting.returnValue !== "export") return;
     const as = chosenExport();
-    void exportAs(as, as === "png" || as === "slides" ? Number(exportWidth.value) : undefined, as === "pdf" && withNotes.checked).catch(
+    void exportAs(as, as === "png" || as === "slides" ? Number(exportWidth.value) : undefined, (as === "pdf" || as === "html") && withNotes.checked).catch(
       failed,
     );
   };

@@ -288,7 +288,9 @@ struct DeckView: View {
     private var divided: some View {
         Panes(axis: .horizontal) {
             if showsSource {
-                SourcePane(text: editor.source) { typed in document.type(typed, undo: undo) }
+                SourcePane(text: editor.source, editable: !editor.assisting) { typed in
+                    document.type(typed, undo: undo)
+                }
                     .frame(minWidth: 280, idealWidth: 420)
             }
             Panes(axis: .vertical) {
@@ -386,7 +388,7 @@ struct DeckView: View {
             #if !os(macOS)
             // Undo by touch, as a presentation app's on the iPad (PLAN 4.11), and Select, which lets
             // a touch alone select several (lift-up FUNC-4).
-            UndoButton(undo: undo)
+            UndoButton(undo: undo, locked: editor.assisting) { said = DeckEditor.atWork }
             SelectButton(touch: touch)
             #endif
         }
@@ -816,6 +818,11 @@ struct DeckView: View {
         view
             .onReceive(NotificationCenter.default.publisher(for: .NSUndoManagerDidUndoChange), perform: unsaid)
             .onReceive(NotificationCenter.default.publisher(for: .NSUndoManagerDidRedoChange), perform: unsaid)
+            #if os(macOS)
+            // While the assistant is at work on the deck, Undo and Redo say so and take nothing
+            // back, as the browser's do (lift-up STAB-5).
+            .background(UndoGuard(locked: editor.assisting) { said = DeckEditor.atWork })
+            #endif
     }
 
     /// What the canvas says, taken away as this window's undo takes a step back or makes it again.
@@ -924,6 +931,12 @@ struct DeckView: View {
                 choosingFirst = !offeredThemes.isEmpty
                 document.startsNew = false
             }
+            // An undo or a redo that could not be made says why here (lift-up 10-25b STAB-4).
+            .onChange(of: editor.undoFailed) { _, why in
+                guard let why else { return }
+                failure = why
+                editor.undoFailed = nil
+            }
             .alert("Couldn’t Make That Change", isPresented: failing, presenting: failure) { _ in
                 Button("OK") { failure = nil }
             } message: { said in
@@ -1031,6 +1044,17 @@ struct DeckView: View {
                 // What the canvas says, on the desk under the slide, not on it (PLAN 3.18).
                 .overlayPreferenceValue(CanvasHint.Key.self) { hint in
                     DeskHint(hint: hint, desk: room.size, slide: slide, visible: visible)
+                }
+                // A beat's claim the last edit left behind, offered restated in the slide's words
+                // (lift-up FUNC-2): one step to undo.
+                .overlay(alignment: .top) {
+                    if let words = editor.restatingSaid, let restating = editor.restating {
+                        RestateBar(words: words, fixable: !restating.fix.isEmpty) {
+                            perform { try document.make(restating.fix, undo: undo, named: "Update Story") }
+                        } keep: {
+                            editor.keepClaim()
+                        }
+                    }
                 }
                 #if os(macOS)
                 // The wheel and a pinch anywhere on the desk, as the browser's preview takes them
@@ -2044,6 +2068,35 @@ struct DeckView: View {
         } catch {
             failure = Why.said(error)
         }
+    }
+}
+
+/// A beat's claim the last edit left behind (lift-up FUNC-2), said as the window says things
+/// (PLAN 2.99), with Update, which restates it in the slide's words, and Keep, which leaves it.
+struct RestateBar: View {
+    let words: String
+    let fixable: Bool
+    let update: () -> Void
+    let keep: () -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Text(words)
+                .font(.callout)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+            if fixable {
+                Button("Update", action: update)
+                    .accessibilityIdentifier("restate")
+            }
+            Button(fixable ? "Keep" : "OK", action: keep)
+                .accessibilityIdentifier("keepClaim")
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(.regularMaterial, in: Capsule())
+        .padding(.top, 8)
+        .padding(.horizontal, 16)
     }
 }
 

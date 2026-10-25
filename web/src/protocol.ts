@@ -57,7 +57,7 @@ export type Export =
   | { kind: "png"; state: string; width: number; format?: string }
   | { kind: "slides"; width: number; format?: string; name: string }
   | { kind: "pdf"; notes?: boolean }
-  | { kind: "html"; page: string; name: string };
+  | { kind: "html"; page: string; name: string; /** The presenter's words kept, or left out of a file sent to the room, as they are by default (lift-up 20261025 SEC-3). */ notes: boolean };
 
 /** Where an open bundle is kept, and saves to: a folder on disk, the browser's storage, or the
  * folder `scaena serve` serves it from (PLAN 2.11), by name. A bundle read from any other URL is
@@ -83,9 +83,21 @@ export interface Slot {
   /** The words that head it, where a text does: what the presenter's navigator names its slide by
    * (lift-up 10-24b USE-1, USE-4). */
   headline?: string;
+  /** Its place in the talk, where a beat names it (lift-up FUNC-2). */
+  story?: StoryPlace;
   start: number;
   span: number;
   hold: number;
+}
+
+/** A state's place in the talk (lift-up FUNC-2, `Session::story_place`): its section's title, its
+ * beat's claim, the seconds the beat is planned to take, and the seconds planned before the state
+ * comes up, the deck paced by its beats. */
+export interface StoryPlace {
+  section?: string;
+  claim: string;
+  planned?: number;
+  before: number;
 }
 
 /** A box, canvas units: `[x, y, width, height]`. */
@@ -884,6 +896,8 @@ export interface Measure {
 export interface HealthRead {
   state: string;
   beat?: string;
+  /** The beat of the arc it was written for, by its place in `Health.beats` (lift-up ATTR-4). */
+  part?: number;
   title: string;
   curve: number;
   declared?: number;
@@ -909,6 +923,18 @@ export interface HealthFinding {
 }
 
 /** The deck's narrative health (PLAN G.9), as `scaena health --json` gives it. */
+/** A beat whose claim its slide said before an edit and says no more (lift-up FUNC-2,
+ * `scaena_core::claims::Restated`): the slide's state whose words it says now, the claim, those
+ * words (none where the slide's headline was taken away), and the patch that restates it. */
+export interface Restated {
+  beat: string;
+  state: string;
+  path: string;
+  claim: string;
+  says?: string;
+  fix?: unknown[];
+}
+
 export interface Health {
   score: number;
   arc?: string;
@@ -1311,6 +1337,10 @@ export type ToWorker =
   /** The narrative health of the deck `source` compiles to (PLAN G.9), read by the generator's
    * module. */
   | { type: "health"; id: number; source: string }
+  /** The beats whose claim a slide said in the deck `before` compiles to and says no longer in
+   * the deck `source` compiles to (lift-up FUNC-2): what the editor asks once a burst of typing
+   * ends, `before` the source as it began. */
+  | { type: "restated"; id: number; source: string; before: string }
   /** A picture made by the user's image model, in the deck's theme (PLAN 2.107), by the
    * generator's module. */
   | { type: "makePicture"; id: number; picture: PictureJob }
@@ -1425,7 +1455,15 @@ export interface Generate {
   research: boolean;
   /** Who makes the slides' pictures (PLAN G.10): an image model the key lists, best first,
    * made as illustrations in the theme's colors or as photographs; none where it is not given. */
-  pictures?: { provider: "openai" | "gemini"; key: string; base?: string; look: "illustration" | "photo" };
+  pictures?: {
+    provider: "openai" | "gemini";
+    key: string;
+    base?: string;
+    look: "illustration" | "photo";
+    /** How much care each picture is made with, and what it costs (lift-up FUNC-5); medium where
+     * it is not given. */
+    quality?: "low" | "medium" | "high";
+  };
   /** Whether the model is shown each slide as it is drawn, and may give one another of its
    * layouts and tighten its words (PLAN G.13); yes where it is not given. */
   look?: boolean;
@@ -1444,16 +1482,20 @@ export interface Brief {
   modality?: string;
   desiredOutcomes?: string;
   language?: string;
+  /** The persona it speaks to, by its id, where the audience is in the user's own words; else
+   * the one the audience names, if any (lift-up FUNC-5). */
+  personaId?: string;
   voice?: string;
 }
 
 /** What a brief may ask, as Narrato knows it: its goals, lengths, and ways a deck is delivered,
- * the audiences its personas name, its arcs, and the defaults. */
+ * the audiences its personas name, each persona by its id, its arcs, and the defaults. */
 export interface Choices {
   goals: string[];
   lengths: string[];
   modalities: { id: string; label: string }[];
   audiences: string[];
+  personas: { id: string; name: string }[];
   arcs: string[];
   defaults: { audience: string; goal: string; length: string };
 }
@@ -1488,6 +1530,7 @@ export type GeneratingEvent =
   | { kind: "looking"; slides: number }
   | { kind: "looked"; slides: number }
   | { kind: "unlooked"; why: string }
+  | { kind: "refused"; slide: number; what: string; why: string }
   | { kind: "fitting"; texts: number }
   | { kind: "fitted"; texts: number }
   | { kind: "unfitted"; why: string };
@@ -1520,6 +1563,8 @@ export interface Generated {
   /** What the model changed on the deck it saw drawn, slide by slide (PLAN G.13), or why not. */
   looked?: { slide: number; layout?: string; title?: string; subtitle?: string; bullets?: string[]; why: string }[];
   unlooked?: string;
+  /** Each change the model asked that lint found its slide worse for, let go (lift-up USE-4). */
+  refused?: { slide: number; what: string; why: string }[];
   /** Each sheet given, kept as a data source, or why not. */
   data: { sheet: string; id?: string; rows?: number; why?: string }[];
   /** What each source gave the prompt, and whether it was cut short to fit. */
@@ -2152,6 +2197,7 @@ export type FromWorker =
   | { type: "sheet"; id: number; sources: DataSource[]; name?: string; sheet?: Sheet; file?: string; why?: string }
   | { type: "bundleFiles"; id: number; files: BundleFile[]; grounded: Grounded[] }
   | { type: "health"; id: number; health: Health }
+  | { type: "restated"; id: number; restated: Restated[] }
   /** A picture made: its bytes, its file's kind (`png`, `jpg`), what it shows, and the model. */
   | { type: "pictureMade"; id: number; bytes: ArrayBuffer; ext: string; alt: string; model: string }
   /** A file taken out: what the deck came to, shown and linted as an edit is. */

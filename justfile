@@ -105,12 +105,14 @@ schema:
 # The scripts' own tests: the bench gate's judgment (PLAN 1.24); the browser's assistant, held to
 # the exchanges scaena-chat's tests hold the Mac's to (ADR-0022); the assistant's markdown split
 # into the blocks the Mac's `MarkdownBlocks` makes (narrative ATTR-4); and a source's body read no
-# further than its plan's `most` (the 20261024 plan's SEC-2).
+# further than its plan's `most` (the 20261024 plan's SEC-2); and every call the model makes
+# answered, an error included (the 20261025b plan's STAB-3).
 scripts:
     python3 -m unittest discover -s scripts -p 'test_*.py'
     node --experimental-strip-types web/exchanges.mjs
     node --experimental-strip-types web/markdown.mjs
     node --experimental-strip-types web/most.mjs
+    node --experimental-strip-types web/answered.mjs
 
 # CI runs these on each runner, and fails a pull request on a bench slower than its base, timed
 # beside it on the same machine, by more than the run's floor every time: 10%, or 2.5 times the
@@ -297,6 +299,7 @@ web-smoke: site
     node web/live.mjs
     node web/new.mjs
     node web/generate.mjs
+    node web/story.mjs
     node web/first-deck.mjs
     node web/edit-deck.mjs
     node web/present-deck.mjs
