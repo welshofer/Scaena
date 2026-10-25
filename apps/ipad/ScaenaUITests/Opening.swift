@@ -8,13 +8,14 @@ struct Unseen: Error, CustomStringConvertible {
 /// What every test of the app does first: launch it, open B1, and keep what it shows.
 extension XCTestCase {
     /// The app launched, the iPad held landscape, as a deck is edited, with `environment` among
-    /// its environment's variables.
+    /// its environment's variables. B1 is put back as it shipped as the app starts (`-b1AsShipped`),
+    /// so this test sees none of what the tests before it did to B1, saved or not.
     @MainActor
     func launched(environment: [String: String] = [:], arguments: [String] = []) -> XCUIApplication {
         XCUIDevice.shared.orientation = .landscapeLeft
         let app = XCUIApplication()
         app.launchEnvironment.merge(environment) { _, given in given }
-        app.launchArguments += arguments
+        app.launchArguments += ["-b1AsShipped", "YES"] + arguments
         app.launch()
         return app
     }
