@@ -401,3 +401,34 @@ fn code_that_shrinks_keeps_one_size_across_its_states() {
     assert!(two < 1.0, "the long text shrinks: {two}");
     assert_eq!(one, two, "both states at one size");
 }
+
+#[test]
+fn a_line_inserted_above_its_twin_never_takes_a_token_of_it() {
+    // PLAN 2.141: code pairs its lines first, as a diff does, and tokens only inside the lines
+    // edited, added, or taken away. `.filter` written above `.sort` never takes `.sort`'s dot,
+    // though the two dots tie: every line both sides write moves whole, one offset for each of its
+    // glyphs, and only `.filter`'s line fades in.
+    let nodes = json!({ "c": {
+        "type": "text", "role": "body", "code": { "language": "typescript" },
+        "text": "return [...talks]\n\t.sort(byVotes)\n\t.map(title);",
+        "at": { "rect": [100, 100, 1600, 700] }
+    } });
+    let states = json!([
+        { "id": "one", "layout": "specimen", "props": { "c": {} } },
+        { "id": "two", "transition": "standard", "props": { "c": {
+            "text": "return [...talks]\n\t.filter(seated)\n\t.sort(byVotes)\n\t.map(title);"
+        } } }
+    ]);
+    let mut fx = Fx::new(nodes, states);
+    let mid = code_words(&fx.dl("two", 300.0));
+    let fading: Vec<&(f32, f32, usize)> = mid.iter().filter(|w| w.0 > 0.0 && w.0 < 1.0).collect();
+    // `return [...talks]` stays; `.sort(byVotes)` and `.map(title);` move down a line, together.
+    let opaque: Vec<&(f32, f32, usize)> = mid.iter().filter(|w| w.0 == 1.0).collect();
+    let still: usize = opaque.iter().filter(|w| w.1.abs() < 1e-3).map(|w| w.2).sum();
+    let moved: Vec<f32> = opaque.iter().map(|w| w.1).filter(|dy| dy.abs() >= 1e-3).collect();
+    assert_eq!(still, "return[...talks]".len(), "only the first line stays: {mid:?}");
+    assert!(moved.iter().all(|dy| (dy - moved[0]).abs() < 1e-3 && *dy < -1.0), "one offset: {moved:?}");
+    // `.`, `filter`, `(`, `seated`, and `)` fade in where they stand.
+    assert_eq!(fading.len(), 5, "`.filter`'s line alone fades in: {mid:?}");
+    assert!(fading.iter().all(|w| w.1.abs() < 1e-3), "{fading:?}");
+}

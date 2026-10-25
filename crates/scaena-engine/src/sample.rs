@@ -872,7 +872,7 @@ impl Transition {
                         Track::Words {
                             from: i,
                             to: j,
-                            plan: Box::new(WordPlan::of(tokens(&x.text, lang(cx)), tokens(&y.text, lang(cy)))),
+                            plan: Box::new(WordPlan::lined(lines(&x.text, lang(cx)), lines(&y.text, lang(cy)))),
                             numbers: match (gutter(x), gutter(y)) {
                                 (Some(a), Some(b)) if a.text != b.text => Some(Box::new(WordPlan::new(a, b))),
                                 _ => None,
@@ -1497,6 +1497,9 @@ struct WordPlan {
     came: Vec<Word>,
 }
 
+/// A text's units, each by its text, in order: what [`WordPlan::of`] pairs.
+type Units = Vec<(String, Word)>;
+
 /// One word's glyphs, run by run, what each run says, and its box: relative to its
 /// text's top-left corner.
 #[derive(Debug, Clone, PartialEq)]
@@ -1599,6 +1602,67 @@ impl WordPlan {
         plan
     }
 
+    /// The plan for two code texts, by their lines (PLAN 2.141), as a diff pairs them: their lines
+    /// first, by their text, the longest common subsequence of them; a line both sides write pairs
+    /// each of its units with its twin, so it moves whole; and only the runs of lines between those,
+    /// the lines edited, added, or taken away, pair their units by [`WordPlan::of`]. So a line
+    /// written above its twin never takes a unit of it, as a tie among its tokens could.
+    fn lined(la: Vec<(String, Units)>, lb: Vec<(String, Units)>) -> WordPlan {
+        let (n, m) = (la.len(), lb.len());
+        let w = m + 1;
+        let flat = |l: Vec<(String, Units)>| l.into_iter().flat_map(|(_, u)| u).collect::<Units>();
+        if (n + 1).saturating_mul(w) > MAX_CELLS {
+            return WordPlan::of(flat(la), flat(lb));
+        }
+        let mut lcs = vec![0u32; (n + 1) * w];
+        for i in (0..n).rev() {
+            for j in (0..m).rev() {
+                lcs[i * w + j] = if la[i].0 == lb[j].0 {
+                    lcs[(i + 1) * w + j + 1] + 1
+                } else {
+                    lcs[(i + 1) * w + j].max(lcs[i * w + j + 1])
+                };
+            }
+        }
+        let mut plan = WordPlan { pairs: Vec::new(), gone: Vec::new(), came: Vec::new() };
+        let (mut hunk_a, mut hunk_b): (Units, Units) = (Vec::new(), Vec::new());
+        let flush = |plan: &mut WordPlan, a: &mut Units, b: &mut Units| {
+            if a.is_empty() && b.is_empty() {
+                return;
+            }
+            let part = WordPlan::of(std::mem::take(a), std::mem::take(b));
+            plan.pairs.extend(part.pairs);
+            plan.gone.extend(part.gone);
+            plan.came.extend(part.came);
+        };
+        let mut la = la.into_iter().peekable();
+        let mut lb = lb.into_iter().peekable();
+        let (mut i, mut j) = (0, 0);
+        while i < n || j < m {
+            let same = i < n && j < m && la.peek().map(|l| &l.0) == lb.peek().map(|l| &l.0);
+            if same {
+                let ((_, ua), (_, ub)) = (la.next().unwrap_or_default(), lb.next().unwrap_or_default());
+                // The same line: each unit with its twin, where both read it alike, as they do.
+                if ua.len() == ub.len() && ua.iter().zip(&ub).all(|(x, y)| x.0 == y.0) {
+                    flush(&mut plan, &mut hunk_a, &mut hunk_b);
+                    plan.pairs.extend(ua.into_iter().zip(ub).map(|(x, y)| WordPair::new(x.1, y.1)));
+                } else {
+                    hunk_a.extend(ua);
+                    hunk_b.extend(ub);
+                }
+                (i, j) = (i + 1, j + 1);
+            } else if j < m && (i == n || lcs[i * w + j + 1] >= lcs[(i + 1) * w + j]) {
+                hunk_b.extend(lb.next().map(|l| l.1).unwrap_or_default());
+                j += 1;
+            } else {
+                hunk_a.extend(la.next().map(|l| l.1).unwrap_or_default());
+                i += 1;
+            }
+        }
+        flush(&mut plan, &mut hunk_a, &mut hunk_b);
+        plan
+    }
+
     /// The plan for two texts too long to pair word by word: a table for every pair of
     /// their words would hold more than `MAX_CELLS`. The words they share at their start
     /// and at their end pair, as an edit inside a long text leaves them; the rest leave and
@@ -1684,10 +1748,10 @@ impl WordPlan {
     }
 }
 
-/// A code text's units, each by its text (PLAN 2.141, ADR-0029 item 7): its tokens as `lang`
-/// colors it, each cut at its white space, so a comment or a string pairs word by word, and a
-/// token both sides share moves to where it now stands while one edited fades on its own.
-fn tokens(t: &TextLayout, lang: scaena_core::code::Lang) -> Vec<(String, Word)> {
+/// A code text's lines as written, each its text and its units (PLAN 2.141, ADR-0029 item 7): its
+/// tokens as `lang` colors it, each cut at its white space, so a comment or a string pairs word by
+/// word; each by its text, in the line it starts on.
+fn lines(t: &TextLayout, lang: scaena_core::code::Lang) -> Vec<(String, Units)> {
     // Where a character of the text as written stands in the text as laid out.
     let laid = |w: usize| {
         let k = t.offsets.partition_point(|o| o.0 <= w);
@@ -1700,7 +1764,10 @@ fn tokens(t: &TextLayout, lang: scaena_core::code::Lang) -> Vec<(String, Word)> 
         .collect();
     scaena_core::sort::by(&mut glyphs, |a, b| a.cmp(b));
     let starts = t.cluster_starts();
-    let mut out = Vec::new();
+    let mut out: Vec<(String, Units)> =
+        t.written.split('\n').map(|line| (line.trim_end_matches('\r').to_string(), Vec::new())).collect();
+    // The line each byte of the text as written stands on.
+    let breaks: Vec<usize> = t.written.match_indices('\n').map(|(i, _)| i).collect();
     let mut from = 0;
     for token in scaena_core::code::highlight(&t.written, lang) {
         let written = &t.written[from..token.end];
@@ -1711,6 +1778,7 @@ fn tokens(t: &TextLayout, lang: scaena_core::code::Lang) -> Vec<(String, Word)> 
             if piece.is_empty() {
                 continue;
             }
+            let line = breaks.partition_point(|&b| b < lo);
             let (lo, hi) = (laid(lo), laid(hi));
             let first = glyphs.partition_point(|g| g.0 < lo);
             let last = glyphs.partition_point(|g| g.0 < hi);
@@ -1720,7 +1788,9 @@ fn tokens(t: &TextLayout, lang: scaena_core::code::Lang) -> Vec<(String, Word)> 
             }
             let runs = subset(t, |r, g| picked.contains(&(r, g)));
             let said = runs.iter().map(|run| said(&t.text, &starts, run)).collect();
-            out.push((piece.to_string(), Word { runs, said, rect: unit_box(t, &picked) }));
+            if let Some((_, units)) = out.get_mut(line) {
+                units.push((piece.to_string(), Word { runs, said, rect: unit_box(t, &picked) }));
+            }
         }
         from = token.end;
     }
