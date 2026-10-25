@@ -448,15 +448,18 @@ impl Generation {
 
     /// The request that shows the model `seen` (as `seeing` gives it), each slide drawn as
     /// `drawn` holds it (JSON `[{ mediaType, data }]`, its bytes in base64), and asks what it
-    /// would change (PLAN G.13); none before the narrative is written.
+    /// would change (PLAN G.13); none before the narrative is written. `edges` is the slides just
+    /// before and after them, as `seeing` gives each, or null (JSON `[before, after]`, lift-up
+    /// PERF-1).
     #[wasm_bindgen(js_name = lookRequest)]
-    pub fn look_request(&self, key: &str, seen: &str, drawn: &str) -> Result<Option<String>, JsError> {
+    pub fn look_request(&self, key: &str, seen: &str, drawn: &str, edges: &str) -> Result<Option<String>, JsError> {
         let seen: Vec<scaena_narrato::look::Seen> = serde_json::from_str(seen).map_err(error)?;
+        let [before, after]: [Option<scaena_narrato::look::Seen>; 2] = serde_json::from_str(edges).map_err(error)?;
         let drawn: Vec<Drawn> = serde_json::from_str(drawn).map_err(error)?;
         let pictures: Vec<scaena_narrato::Picture> = (drawn.into_iter())
             .map(|d| scaena_narrato::Picture { caption: String::new(), media_type: d.media_type, data: d.data })
             .collect();
-        let request = self.inner.look_request(key, &seen, &pictures);
+        let request = self.inner.look_request(key, &seen, &pictures, [before.as_ref(), after.as_ref()]);
         Ok(request.map(|r| serde_json::to_string(&r).expect("a request is JSON")))
     }
 
