@@ -138,6 +138,8 @@ final class RemoteHost {
         let notes = showing.notes(slot.state)
         let (editor, state, coming, began) = (showing.editor, slot.state, show.next?.state, showing.began)
         let (deck, index, count) = (deck, show.index, show.slots.count)
+        // The slide and the step, as the room's slides are counted (lift-up USE-2).
+        let counted = RemotePlace.counted(show.slots.map(\.slide), at: index)
         // What the room sees, mirrored (lift-up FUNC-5): a black or white screen, the end, and the
         // presenter's own timer, paused where it is.
         let now = Date()
@@ -155,7 +157,8 @@ final class RemoteHost {
                 RemotePlace(
                     deck: deck, showing: true, state: state, index: index, count: count,
                     ms: rest ? 0 : ms, rest: rest, notes: notes.text, read: notes.blocks,
-                    slide: slide, next: next, began: began, blank: blank, over: over, timer: timer))
+                    slide: slide, next: next, began: began, blank: blank, over: over, timer: timer,
+                    number: counted?.number, slides: counted?.slides, step: counted?.step))
         }
     }
 
