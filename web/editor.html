@@ -559,6 +559,8 @@
       #story li[data-severity="error"] [data-show] { color: var(--error); }
       #story li[data-severity="warning"] [data-show] { color: var(--warning); }
       #story li .actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 5px; }
+      #story li[data-more] summary { cursor: pointer; color: var(--muted); }
+      #story li[data-more] ol { margin-top: 4px; }
       /* The versions (PLAN 2.60): the history's changes, the newest first; one shown as it was. */
       #versions { padding: 6px 12px; }
       #versions [data-summary] { color: var(--muted); font-size: 12px; margin: 0 0 6px; }
@@ -1100,6 +1102,11 @@
             <option value="illustration">Illustrations in the theme's colors</option>
             <option value="photo">Photographs</option>
           </select></label>
+          <label>Quality <select id="prompting-quality" name="quality">
+            <option value="low">Low, the least each costs</option>
+            <option value="medium" selected>Medium</option>
+            <option value="high">High, the most each costs</option>
+          </select></label>
         </div>
         <p class="note" id="prompting-painter"></p>
         <details>
@@ -1110,10 +1117,12 @@
             <label>What it should achieve <input id="prompting-outcome" name="outcome" autocomplete="off" /></label>
             <label>Language <input id="prompting-language" name="language" placeholder="English" autocomplete="off" /></label>
             <label>Voice <input id="prompting-voice" name="voice" placeholder="Plain, confident, no jargon" autocomplete="off" /></label>
+            <label>Speak to them as <select id="prompting-persona" name="persona"></select></label>
             <label>GitHub token, for a private repository <input id="prompting-github" type="password" autocomplete="off" /></label>
           </div>
         </details>
         <label class="check"><input id="prompting-show-outline" type="checkbox" checked /> Show the outline first: the big idea and what each beat says, to change before the slides are written</label>
+        <label class="check"><input id="prompting-see" type="checkbox" checked /> Let the model see the slides once they are drawn, and tighten them: another call to your provider</label>
         <p class="note" id="prompting-who"></p>
         <fieldset id="prompting-key" hidden>
           <legend>Your key</legend>

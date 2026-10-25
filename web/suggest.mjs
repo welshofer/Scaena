@@ -6,7 +6,7 @@
 // On the trails example, with nothing selected:
 // - `budget` is drawn in each layout it may take, best first by what lint finds there: `figure`,
 //   the one it takes now, which `poster`, `table`, `full`, and `photo-caption` draw alike, then
-//   seven that each find something, last `narrow-figure`, which sets its note over the table.
+//   eight that each find something, last `narrow-figure`, which sets its note over the table.
 // - `storm`: a pointer over `narrow-figure` shows the state laid out in it on the canvas, nothing
 //   made, and the canvas is as it was once the pointer leaves. A click gives the state that
 //   layout: one `set_state` by the user, written where the layout lives, one step to undo; the
@@ -98,7 +98,7 @@ try {
   await showState("budget");
   await suggestedFor("budget", "figure");
   const shown = await buttons();
-  const best = "figure,map,bar-chart,venn,line-chart,positioning-map,panorama,metric-trend,narrow-figure";
+  const best = "figure,map,pictograph,bar-chart,venn,line-chart,positioning-map,panorama,metric-trend,narrow-figure";
   check(shown.map((b) => b.layout).join() === best, `best first: ${shown.map((b) => b.layout).join(", ")}`);
   check(shown[0]?.pressed === "true" && shown.slice(1).every((b) => b.pressed === "false"), "the layout it takes now is pressed");
   check(
@@ -122,7 +122,7 @@ try {
       return { width: c.width, height: c.height, css: c.getBoundingClientRect().height, lit, sum: data.reduce((a, b) => (a * 31 + b) % 1000000007, 0) };
     }),
   );
-  check(drawn.length === 9 && drawn.every((d) => d.height === 72 && d.width === 128 && d.css === 72), `each is drawn 72 pixels high: ${JSON.stringify(drawn.map((d) => [d.width, d.height]))}`);
+  check(drawn.length === 10 && drawn.every((d) => d.height === 72 && d.width === 128 && d.css === 72), `each is drawn 72 pixels high: ${JSON.stringify(drawn.map((d) => [d.width, d.height]))}`);
   const sums = new Set(drawn.map((d) => d.sum));
   check(drawn.every((d) => d.lit > 200) && sums.size === drawn.length, `each draws the slide its own way: ${drawn.map((d) => d.lit).join(", ")} pixels lit`);
 
@@ -132,8 +132,8 @@ try {
   const storm = await buttons();
   check(
     storm.map((b) => b.says).join(" | ") ===
-      "Full Bleed · No issues · also Poster, Chart, Table, Photo and Caption | Narrow Chart · No issues | Panorama · No issues | Map · No issues · also Two Figures, Pictograph | Venn Diagram · No issues | Number and Trend · No issues | Bar Chart · 1 issue | Line Chart · 1 issue | Positioning Map · 2 issues · also Risk Matrix" &&
-      storm.map((b) => b.found).join() === ",,,,,,error,error,error",
+      "Full Bleed · No issues · also Poster, Chart, Table, Photo and Caption | Narrow Chart · No issues | Panorama · No issues | Map · No issues · also Two Figures | Pictograph · No issues | Venn Diagram · No issues | Number and Trend · No issues | Bar Chart · 1 issue | Line Chart · 1 issue | Positioning Map · 2 issues · also Risk Matrix" &&
+      storm.map((b) => b.found).join() === ",,,,,,,error,error,error",
     `storm: ${storm.map((b) => `${b.says}${b.found ? ` (${b.found})` : ""}`).join(" | ")}`,
   );
   const before = await shot();

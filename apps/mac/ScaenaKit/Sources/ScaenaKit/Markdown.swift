@@ -136,3 +136,46 @@ public enum MarkdownBlocks {
         return (level, ordered, text)
     }
 }
+
+extension MarkdownBlocks {
+    /// `text` with each link to a web address saying where it goes: its host after its words,
+    /// where they do not name it, as the browser's `webLink` shows it. A deck's words and a tool's
+    /// results reach the model, and a link it echoes from them would read as the app's own
+    /// (lift-up 20261025 SEC-5).
+    public static func hosted(_ text: AttributedString) -> AttributedString {
+        var out = AttributedString()
+        for (link, range) in text.runs[\.link] {
+            out.append(text[range])
+            guard let link, let going = Self.host(of: link), !Self.names(String(text[range].characters), going)
+            else { continue }
+            var said = AttributedString(" (\(going))")
+            said.link = link
+            out.append(said)
+        }
+        return out
+    }
+
+    /// The host `url` goes to, in lower case, without a port or `www.`: none where it is no web
+    /// address.
+    public static func host(of url: URL) -> String? {
+        guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https",
+            var host = url.host(percentEncoded: false)?.lowercased(), !host.isEmpty
+        else { return nil }
+        if host.hasPrefix("www.") { host.removeFirst(4) }
+        return host
+    }
+
+    /// Whether `words` name `host` whole, as the browser's `names` reads them: one of their
+    /// tokens, split at white space and at every mark but `.` and `-`, a trailing `.` and a `www.`
+    /// taken off, is the host. A host the words only hold part of is said (`pal.com` under the
+    /// words "paypal.com").
+    public static func names(_ words: String, _ host: String) -> Bool {
+        let tokens = words.lowercased().split { !($0.isLetter || $0.isNumber || $0 == "." || $0 == "-") }
+        return tokens.contains { token in
+            var name = token
+            while name.hasSuffix(".") { name = name.dropLast() }
+            if name.hasPrefix("www.") { name = name.dropFirst(4) }
+            return name == host
+        }
+    }
+}
