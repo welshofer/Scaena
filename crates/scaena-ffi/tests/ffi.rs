@@ -2045,7 +2045,11 @@ fn a_writing_tool_asks_once_and_its_answer_is_one_patch() {
     let finding = json!({ "code": "E100", "severity": "error", "message": "text `title` overflows", "node": "title" });
     let explain = json!({ "kind": "explain", "state": "cover", "finding": finding });
     let asked = call(s, "writing", explain.clone());
-    assert_eq!(asked["prompt"], "Finding E100 (error): text `title` overflows\nIts words: Scaena", "{asked}");
+    assert_eq!(
+        asked["prompt"],
+        "Finding E100 (error): text `title` overflows\nIts words:\n<data label=\"words\">\nScaena\n</data>",
+        "{asked}"
+    );
     assert_eq!(
         call(s, "written", json!({ "ask": explain, "answer": "It runs out of its box." }))["patch"],
         Value::Null
