@@ -2561,8 +2561,11 @@ fn joined(chars: &[char], end: usize) -> Option<usize> {
     let second = if dashed {
         end + 1
     } else {
-        let rest: String = chars[end..].iter().take(10).collect();
-        let word = RATIOS.iter().find(|w| rest.starts_with(**w))?;
+        // Its spaces any kind, as the typesetter may set them: "1\u{a0}in\u{a0}7".
+        let matches = |w: &str| {
+            w.chars().enumerate().all(|(k, p)| chars.get(end + k).is_some_and(|&c| c == p || (p == ' ' && spacing(c))))
+        };
+        let word = RATIOS.iter().find(|w| matches(w))?;
         let at = end + word.chars().count();
         if !digit(at) {
             return None;
@@ -5377,6 +5380,13 @@ mod tests {
         assert_eq!(figure("raised 1.2 million").as_deref(), Some("1.2 million"));
         assert_eq!(figure("1\u{202f}200\u{a0}\u{20ac}").as_deref(), Some("1\u{202f}200\u{a0}\u{20ac}"));
         assert!(numeric("48,6 Mio. \u{20ac}") && numeric("94 %") && numeric("+18 %"));
+        // As the typesetter sets them, a space that never breaks between a figure and its unit.
+        let set = "48,6\u{a0}Mio.\u{a0}\u{20ac}: Umsatz";
+        assert_eq!(figure(set).as_deref(), Some("48,6\u{a0}Mio.\u{a0}\u{20ac}"));
+        assert_eq!(figure("EBITDA, +18\u{a0}%").as_deref(), Some("+18\u{a0}%"));
+        assert_eq!(figure("from 1,210\u{a0}ms").as_deref(), Some("1,210"));
+        assert_eq!(figure("1\u{a0}in\u{a0}7").as_deref(), Some("1\u{a0}in\u{a0}7"));
+        assert!(numeric("94\u{a0}%") && numeric("140\u{a0}ms"));
         let i = item("48,6 Mio. \u{20ac}: Umsatz im Q3, +9 %");
         assert!(i.figure_first());
         assert_eq!(i.figure().as_deref(), Some("48,6 Mio. \u{20ac}"));
