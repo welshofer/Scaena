@@ -25,6 +25,7 @@ pub(super) fn rules() -> Vec<Box<dyn Rule>> {
         Box::new(I402OverrideCount),
         Box::new(I403UncoloredLanguage),
         Box::new(I404Haiku),
+        Box::new(W204FocusPastLast),
     ]
 }
 
@@ -862,6 +863,88 @@ impl Rule for I403UncoloredLanguage {
         }
         out
     }
+}
+
+/// W204: a code text's lines in focus (PLAN 2.140) that name a line past its last, which nothing
+/// draws: the lines it has are set back for a line that is not there. One finding a text and the
+/// place its focus is written, in the first state it is so in, with every state it is so in. The
+/// fix holds each span to the lines the text has in that state, and takes away a span past them
+/// all, and the focus where none is left.
+struct W204FocusPastLast;
+impl Rule for W204FocusPastLast {
+    fn code(&self) -> &'static str {
+        "W204"
+    }
+    fn severity(&self) -> Severity {
+        Severity::Warning
+    }
+    fn check(&self, cx: &Context) -> Vec<Finding> {
+        use crate::tracking::{Lives, lives};
+        let mut out: Vec<Finding> = Vec::new();
+        let mut seen: Vec<(String, String, usize)> = Vec::new();
+        for (i, snap) in cx.snapshots.iter().enumerate() {
+            for (id, props) in &snap.nodes {
+                if cx.deck.nodes.get(id).is_none_or(|n| n.node_type != NodeType::Text) {
+                    continue;
+                }
+                // The focus as the state shows it, the deck's overrides over it.
+                let over = cx.deck.overrides.get(id).and_then(|o| o.get("code")).and_then(|c| c.get("focus"));
+                let shown = props.get("code").and_then(|c| c.get("focus"));
+                let Some(spans) = over.or(shown).and_then(Value::as_array) else { continue };
+                let lines = crate::lists::paragraphs(&crate::reading::words(props)).len() as u64;
+                let ends: Vec<(u64, u64)> = spans.iter().filter_map(span).collect();
+                let Some(past) = ends.iter().map(|&(_, b)| b).filter(|&b| b > lines).max() else { continue };
+                let at = match (over.is_some(), lives(cx.deck, i, id, "code", &["focus"])) {
+                    (true, _) => format!("/overrides/{}", token(id)),
+                    (false, Lives::State(j)) => format!("/states/{j}/props/{}", token(id)),
+                    (false, Lives::Node) => format!("/nodes/{}", token(id)),
+                };
+                if let Some((_, _, k)) = seen.iter().find(|(n, a, _)| n == id && *a == at) {
+                    if let Some(states) = out[*k].measure.as_mut().and_then(|m| m["states"].as_array_mut()) {
+                        states.push(snap.state_id.clone().into());
+                    }
+                    continue;
+                }
+                let held: Vec<Value> = (ends.iter())
+                    .filter(|&&(a, _)| a <= lines)
+                    .map(|&(a, b)| match b.min(lines) {
+                        b if b == a => Value::from(a),
+                        b => Value::from(vec![a, b]),
+                    })
+                    .collect();
+                let pointer = format!("{at}/code/focus");
+                let fix = match held.is_empty() {
+                    true => serde_json::json!({ "op": "remove", "path": pointer }),
+                    false => serde_json::json!({ "op": "replace", "path": pointer, "value": held }),
+                };
+                seen.push((id.clone(), at.clone(), out.len()));
+                out.push(
+                    Finding::new(
+                        self.code(),
+                        self.severity(),
+                        format!("`{id}` has line {past} in focus, past its last, line {lines}: nothing draws it"),
+                    )
+                    .at(pointer)
+                    .state(snap.state_id.clone())
+                    .node(id.clone())
+                    .measure(serde_json::json!({ "line": past, "lines": lines, "states": [snap.state_id] }))
+                    .hint("Name the lines the text has, or take the focus away to show every line.")
+                    .fix(vec![fix]),
+                );
+            }
+        }
+        out
+    }
+}
+
+/// A span of a code text's lines in focus as its first and last line, counted from 1: none where
+/// it names no line (0) or runs backward (E106).
+fn span(v: &Value) -> Option<(u64, u64)> {
+    let (a, b) = match v {
+        Value::Array(pair) if pair.len() == 2 => (pair[0].as_u64()?, pair[1].as_u64()?),
+        one => (one.as_u64()?, one.as_u64()?),
+    };
+    (a >= 1 && a <= b).then_some((a, b))
 }
 
 /// The language Scaena knows by a name or an alias within two letters of `name`, as edits of one

@@ -1,0 +1,14 @@
+{
+  "scaena": "0.40",
+  "_comment": "W204 trigger: four lines of code, and a step that brings lines 2 to 6 into focus, two past its last line, line 4.",
+  "canvas": {"width": 1920, "height": 1080},
+  "theme": "theme.json",
+  "fonts": [{"family": "Roboto Serif", "file": "fonts/RobotoSerif-VF.ttf"}, {"family": "EB Garamond", "file": "fonts/EBGaramond-VF.ttf"}],
+  "nodes": {
+    "code": {"type": "text", "role": "body", "code": {"language": "rust"}, "text": "let total = 0;\nfor vote in votes {\n    total += weigh(vote);\n}", "at": {"in": "main"}}
+  },
+  "states": [
+    {"id": "a", "layout": "figure", "props": {"code": {}}},
+    {"id": "b", "props": {"code": {"code": {"focus": [[2, 6]]}}}}
+  ]
+}

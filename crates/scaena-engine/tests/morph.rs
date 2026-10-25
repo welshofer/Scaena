@@ -279,3 +279,52 @@ fn code_moves_its_card_and_fades_its_numbers_in() {
     assert!(before < mid && mid < after, "the card moves: {mid}");
     assert!(numbers.len() == 1 && numbers[0] > 0.0 && numbers[0] < 1.0, "the numbers fade in: {numbers:?}");
 }
+
+#[test]
+fn a_change_of_focus_alone_glides_every_word() {
+    // PLAN 2.140: a walkthrough's step changes only color, so every word pairs with its twin and
+    // mixes its color in place, its numbers likewise: nothing fades, nothing scales.
+    let code = "fn main() {\n    let total = 0;\n    run(total);\n}";
+    let nodes = json!({ "c": {
+        "type": "text", "role": "body", "code": { "language": "rust", "numbers": true }, "text": code,
+        "at": { "rect": [100, 100, 1600, 700] }
+    } });
+    let states = json!([
+        { "id": "one", "layout": "specimen", "props": { "c": {} } },
+        { "id": "two", "transition": "standard", "props": { "c": { "code": { "focus": [2] } } } }
+    ]);
+    let mut fx = Fx::new(nodes, states);
+    let mid = words(&fx.dl("two", 210.0), "c");
+    assert!(mid.len() > 10, "{mid:?}");
+    // The torture theme bands the lines in focus: of the layers with no glyphs, the card stays
+    // and the band fades in behind line 2, and every word glides.
+    let (frame, mid): (Vec<WordLayer>, Vec<WordLayer>) = mid.into_iter().partition(|w| w.2.is_empty());
+    let fading: Vec<f32> = frame.iter().map(|w| w.1).filter(|o| *o < 1.0).collect();
+    assert!(fading.len() == 1 && fading[0] > 0.0, "the band fades in, the card stays: {frame:?}");
+    for (transform, opacity, glyphs, _) in &mid {
+        assert_eq!(*opacity, 1.0, "nothing fades: {glyphs:?}");
+        assert_eq!((transform[0], transform[3]), (1.0, 1.0), "nothing scales: {glyphs:?}");
+    }
+    // The lines out of focus are on their way to their set-back colors: some paint is neither
+    // side's.
+    let (one, two) = (words(&fx.dl("one", f64::INFINITY), "c"), words(&fx.dl("two", f64::INFINITY), "c"));
+    let paints = |w: &[WordLayer]| -> Vec<Paint> { w.iter().flat_map(|l| l.3.clone()).collect() };
+    let (a, m, b) = (paints(&one), paints(&mid), paints(&two));
+    assert!(m.iter().any(|p| !a.contains(p) && !b.contains(p)), "colors mid-glide");
+}
+
+#[test]
+fn a_word_whose_runs_part_in_one_state_still_moves() {
+    // PLAN 2.140: "Revenue" one run in the first state and two in the second, its last letters
+    // colored, is the same drawing: it glides, its colors mixing, glyph by glyph across the runs
+    // either side cuts it into, rather than fading one drawing into the other.
+    let mut fx = two_states(
+        json!({ "runs": [{ "text": "Revenue grew" }] }),
+        json!({ "runs": [{ "text": "Rev" }, { "text": "enue", "style": { "color": "accent" } }, { "text": " grew" }] }),
+    );
+    let mid = words(&fx.dl("two", 210.0), "t");
+    assert_eq!(mid.len(), 2, "two words, each one drawing: {mid:?}");
+    assert!(mid.iter().all(|w| w.1 == 1.0), "{mid:?}");
+    // The colored letters are their own runs mid-glide, the rest as they were.
+    assert!(mid[0].3.len() >= 2, "{:?}", mid[0].3);
+}

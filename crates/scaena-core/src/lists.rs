@@ -199,6 +199,22 @@ pub fn redrawn(
     Some(if one && a == b { serde_json::Value::from(a + 1) } else { serde_json::Value::from(vec![a + 1, b + 1]) })
 }
 
+/// A code text's `code.focus` (PLAN 2.140), the lines in focus, once bytes `range` of `written`
+/// are `text`, each span kept as [`redrawn`] keeps the paragraphs a state draws: a line typed
+/// into stays in focus with what is typed, and the lines after the edit move with those it adds
+/// or takes away. None where it names no line.
+pub fn refocused(
+    focus: &serde_json::Value,
+    written: &str,
+    range: Range<usize>,
+    text: &str,
+) -> Option<serde_json::Value> {
+    let spans = focus.as_array()?;
+    let kept: Option<Vec<serde_json::Value>> =
+        spans.iter().map(|span| redrawn(span, written, range.clone(), text)).collect();
+    kept.map(serde_json::Value::Array)
+}
+
 /// `list` with the paragraphs that characters `range` of `written` touch (bytes) marked as
 /// `how` says: each set to `kind` (none takes it out of the list) at `level`, or, with `by`,
 /// each item moved that many levels deeper, from 0 to 8. A paragraph that is no item and
@@ -310,6 +326,23 @@ mod tests {
         // Pasted lines in the last move none before them.
         assert_eq!(redrawn(&json!([1, 2]), text, 13..13, "\nfour\nfive"), Some(json!([1, 2])));
         assert_eq!(redrawn(&json!(0), text, 0..0, "x"), None);
+    }
+
+    #[test]
+    fn a_focus_keeps_each_span_in_step_with_typed_lines() {
+        use serde_json::json;
+        let text = "one\ntwo\nthree";
+        // A line broken at the end of the first, which is in focus: the line it makes is in focus
+        // with it, and the spans after it move down.
+        assert_eq!(refocused(&json!([1, [2, 3]]), text, 3..3, "\nnew"), Some(json!([[1, 2], [3, 4]])));
+        // A line typed before the second: the span from it moves down.
+        assert_eq!(refocused(&json!([[2, 3]]), text, 0..0, "zero\n"), Some(json!([[3, 4]])));
+        // A line taken away: the span over it closes up.
+        assert_eq!(refocused(&json!([[2, 3]]), text, 3..7, ""), Some(json!([[1, 2]])));
+        // A line typed into a line in focus stays in focus with it.
+        assert_eq!(refocused(&json!([2]), text, 7..7, "\nmore"), Some(json!([[2, 3]])));
+        assert_eq!(refocused(&json!(2), text, 0..0, "x"), None);
+        assert_eq!(refocused(&json!([0]), text, 0..0, "x"), None);
     }
 
     #[test]

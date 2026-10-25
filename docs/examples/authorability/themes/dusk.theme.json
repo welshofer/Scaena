@@ -1,5 +1,5 @@
 {
-  "scaena-theme": "0.26",
+  "scaena-theme": "0.28",
   "name": "Dusk",
   "description": "Dark surface, warm paper-white ink, one accent. Display type set tight with optical sizing; body set loose.",
   "tokens": {
@@ -1123,6 +1123,11 @@
   },
   "density": {
     "maxWordsPerState": 40
+  },
+  "code": {
+    "focus": {
+      "dim": 0.55
+    }
   },
   "pictures": {
     "frame": "none"

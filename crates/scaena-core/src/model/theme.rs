@@ -1033,6 +1033,25 @@ pub struct CodeLook {
     /// code (PLAN 2.136, theme format 0.26).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub numbers: Option<CodeNumbers>,
+    /// How the lines out of a code text's focus are set back, and what marks those in it (PLAN
+    /// 2.140, theme format 0.28).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub focus: Option<CodeFocus>,
+}
+
+/// How a walkthrough sets back the lines out of focus (ADR-0029): each token's color mixed toward
+/// its ground, never under 3:1, and the band behind the lines in focus.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CodeFocus {
+    /// How far each token out of focus is mixed toward its ground, 0 to 1: 0.55 where unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(range(min = 0.0, max = 1.0))]
+    pub dim: Option<f64>,
+    /// The color of a band behind the lines in focus, a color token or role: none where unset.
+    /// The code in focus is held to read on it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub band: Option<String>,
 }
 
 /// The card a code text stands on (ADR-0029): a rect that hugs the code and its gutter, `inset`

@@ -1621,10 +1621,9 @@ impl WordPlan {
             let end = [to[0] + rb[0], to[1] + rb[1], rb[2], rb[3]];
             let now = [0, 1, 2, 3].map(|k| lerp(start[k], end[k], geo));
             if pair.same {
-                let runs: Vec<GlyphRun> = (pair.a.runs.iter().zip(&pair.b.runs))
-                    .map(|(x, y)| GlyphRun { color: mix(x.color, y.color, p), ..y.clone() })
-                    .collect();
-                ops.push(word(dl, &runs, &pair.b, shift([now[0] - rb[0], now[1] - rb[1]]), 1.0));
+                let (runs, said) = blended(&pair.a, &pair.b, p);
+                let cut = Word { runs: runs.clone(), said, rect: rb };
+                ops.push(word(dl, &runs, &cut, shift([now[0] - rb[0], now[1] - rb[1]]), 1.0));
             } else {
                 // Each drawing scaled from its own box onto the box between.
                 let onto = |r: Rect| {
@@ -1639,21 +1638,70 @@ impl WordPlan {
     }
 }
 
-/// Whether two words draw the same glyphs the same way, colors aside: run by run, the
-/// same font, size, and instance, and each glyph the same where it stands in its box.
+/// Whether two words draw the same glyphs the same way, colors aside: glyph by glyph, across
+/// the runs either side cuts them into (PLAN 2.140), the same font, size, and instance, and
+/// each glyph the same where it stands in its box. A change of color alone, as a walkthrough
+/// sets lines back, cuts a word's runs where its colors change, and is still the same drawing.
 fn same_glyphs(a: &Word, b: &Word) -> bool {
-    a.runs.len() == b.runs.len()
-        && a.runs.iter().zip(&b.runs).all(|(x, y)| {
+    let count = |w: &Word| w.runs.iter().map(|r| r.glyphs.len()).sum::<usize>();
+    count(a) == count(b)
+        && each_glyph(a).zip(each_glyph(b)).all(|((x, i), (y, j))| {
+            let (g, h) = (&x.glyphs[i], &y.glyphs[j]);
             x.font == y.font
                 && x.size == y.size
                 && x.coords == y.coords
-                && x.glyphs.len() == y.glyphs.len()
-                && x.glyphs.iter().zip(&y.glyphs).all(|(g, h)| {
-                    g.id == h.id
-                        && ((g.x - a.rect[0]) - (h.x - b.rect[0])).abs() < 1e-3
-                        && ((g.y - a.rect[1]) - (h.y - b.rect[1])).abs() < 1e-3
-                })
+                && g.id == h.id
+                && ((g.x - a.rect[0]) - (h.x - b.rect[0])).abs() < 1e-3
+                && ((g.y - a.rect[1]) - (h.y - b.rect[1])).abs() < 1e-3
         })
+}
+
+/// Each glyph of `w`, in order: its run, and its index in it.
+fn each_glyph(w: &Word) -> impl Iterator<Item = (&GlyphRun, usize)> {
+    w.runs.iter().flat_map(|r| (0..r.glyphs.len()).map(move |g| (r, g)))
+}
+
+/// Two words that draw the same glyphs ([`same_glyphs`]) as `b` draws them, `p` of the way from
+/// `a`'s colors to `b`'s: `b`'s runs cut wherever either side's runs break, each piece in the mix
+/// of the colors either side draws it in, with what it says.
+fn blended(a: &Word, b: &Word, p: f32) -> (Vec<GlyphRun>, Vec<(String, Vec<u32>)>) {
+    // Which run of `a` each glyph is in, in order.
+    let from: Vec<usize> =
+        (a.runs.iter().enumerate()).flat_map(|(k, r)| std::iter::repeat_n(k, r.glyphs.len())).collect();
+    let (mut runs, mut said) = (Vec::new(), Vec::new());
+    let mut at = 0;
+    for (k, run) in b.runs.iter().enumerate() {
+        let mut start = 0;
+        while start < run.glyphs.len() {
+            let source = from.get(at + start).copied().unwrap_or_default();
+            let mut end = start + 1;
+            while end < run.glyphs.len() && from.get(at + end).copied().unwrap_or_default() == source {
+                end += 1;
+            }
+            let color = a.runs.get(source).map_or(run.color, |x| mix(x.color, run.color, p));
+            runs.push(GlyphRun {
+                color,
+                glyphs: run.glyphs[start..end].to_vec(),
+                clusters: run.clusters[start..end].to_vec(),
+                advances: run.advances[start..end].to_vec(),
+                ..run.clone()
+            });
+            said.push(b.said.get(k).map_or_else(Default::default, |s| cut_said(s, start..end)));
+            start = end;
+        }
+        at += run.glyphs.len();
+    }
+    (runs, said)
+}
+
+/// What glyphs `range` of a run say, from what the whole run says: the text from the first
+/// glyph's cluster to the next cluster past the last's, and each glyph's cluster start in it.
+fn cut_said((text, clusters): &(String, Vec<u32>), range: std::ops::Range<usize>) -> (String, Vec<u32>) {
+    let part = &clusters[range.start.min(clusters.len())..range.end.min(clusters.len())];
+    let (Some(&lo), Some(&last)) = (part.iter().min(), part.iter().max()) else { return Default::default() };
+    let hi = clusters.iter().copied().filter(|&c| c > last).min().map_or(text.len(), |c| c as usize);
+    let cut = text.get(lo as usize..hi).unwrap_or_default().to_string();
+    (cut, part.iter().map(|&c| c - lo).collect())
 }
 
 /// A text node's glyphs as its cue's units, each in its own layer through its look,
@@ -2947,13 +2995,14 @@ fn text_layer(dl: &mut DisplayList, id: &str, placed: &PlacedText, origin: Point
 }
 
 /// What a code text stands on and beside (PLAN 2.136), in its layer, whose origin is the text's:
-/// its card, then its line numbers, each in a layer of its own that no reader or unit takes.
+/// its card, the bands behind its lines in focus (PLAN 2.140), then its line numbers, each in a
+/// layer of its own that no reader or unit takes.
 fn frame_ops(dl: &mut DisplayList, placed: &PlacedText) -> Vec<Op> {
     let Some(frame) = &placed.frame else { return Vec::new() };
     let [x, y] = placed.origin;
     let mut ops = Vec::new();
-    if let Some(card) = &frame.card {
-        ops.push(layer(None, [card.rect[0] - x, card.rect[1] - y], 1.0, card.ops()));
+    for shape in frame.card.iter().chain(&frame.bands) {
+        ops.push(layer(None, [shape.rect[0] - x, shape.rect[1] - y], 1.0, shape.ops()));
     }
     if let Some((at, gutter)) = &frame.gutter {
         ops.push(layer(None, [at[0] - x, at[1] - y], 1.0, text_ops(dl, gutter)));
@@ -2972,6 +3021,9 @@ fn frame_between(dl: &mut DisplayList, a: &PlacedText, b: &PlacedText, origin: P
     fn gutter(t: &PlacedText) -> Option<&([f32; 2], TextLayout)> {
         t.frame.as_ref().and_then(|f| f.gutter.as_ref())
     }
+    fn bands(t: &PlacedText) -> &[ShapeNode] {
+        t.frame.as_ref().map_or(&[], |f| &f.bands)
+    }
     let mut ops = Vec::new();
     let mut put = |shape: &ShapeNode, alpha: f32| {
         ops.push(layer(None, [shape.rect[0] - origin[0], shape.rect[1] - origin[1]], alpha, shape.ops()));
@@ -2987,11 +3039,31 @@ fn frame_between(dl: &mut DisplayList, a: &PlacedText, b: &PlacedText, origin: P
             }
         }
     }
+    // The bands behind the lines in focus (PLAN 2.140): each moving and resizing to its twin as a
+    // walkthrough steps, where both sides band as many runs; else each side's fading.
+    let (from, to) = (bands(a), bands(b));
+    match from.len() == to.len() && from.iter().zip(to).all(|(x, y)| x.morphs_to(y)) {
+        true => from.iter().zip(to).for_each(|(x, y)| put(&ShapeNode::lerp(x, y, geo, p), 1.0)),
+        false => {
+            from.iter().for_each(|x| put(x, 1.0 - p));
+            to.iter().for_each(|y| put(y, p));
+        }
+    }
     // Where the numbers stand from their text's origin, which moves as the text does.
     let from = |t: &PlacedText, at: &[f32; 2]| [at[0] - t.origin[0], at[1] - t.origin[1]];
     match (gutter(a), gutter(b)) {
-        (Some((x_at, x)), Some((y_at, y))) if x.text == y.text && x.runs == y.runs => {
-            ops.push(layer(None, lerp2(from(a, x_at), from(b, y_at), geo), 1.0, text_ops(dl, y)));
+        // The same numbers: where only their colors differ, as a walkthrough sets lines back, each
+        // glides from one to the other (PLAN 2.140).
+        (Some((x_at, x)), Some((y_at, y)))
+            if x.text == y.text
+                && x.runs.len() == y.runs.len()
+                && x.runs.iter().zip(&y.runs).all(|(r, s)| GlyphRun { color: s.color, ..r.clone() } == *s) =>
+        {
+            let mut numbers = y.clone();
+            for (run, was) in numbers.runs.iter_mut().zip(&x.runs) {
+                run.color = mix(was.color, run.color, p);
+            }
+            ops.push(layer(None, lerp2(from(a, x_at), from(b, y_at), geo), 1.0, text_ops(dl, &numbers)));
         }
         (x, y) => {
             if let Some((at, numbers)) = x {

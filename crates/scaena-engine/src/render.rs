@@ -845,6 +845,7 @@ impl Engine {
             natural: None,
             code: None,
             frame: None,
+            focus: None,
         };
         Ok(SceneNode {
             id: id.into(),
@@ -969,6 +970,13 @@ impl Engine {
         for (line, dy) in gutter.lines.iter_mut().zip(&shift) {
             line.baseline += dy;
         }
+        // A number whose line is out of focus is set back with it (PLAN 2.140).
+        let focus = code.code.as_ref().and_then(|c| c.focus.as_deref());
+        if let (Some(dimmed), Some(spans)) = (numbers.dimmed, focus) {
+            for run in gutter.runs.iter_mut().filter(|r| !crate::code::in_spans(spans, r.line)) {
+                run.color = Color(dimmed);
+            }
+        }
         Ok(gutter)
     }
 
@@ -1025,7 +1033,7 @@ impl Engine {
         let framed = spec
             .code
             .as_ref()
-            .filter(|c| c.card.is_some() || c.numbers.is_some())
+            .filter(|c| c.card.is_some() || c.numbers.is_some() || c.band.is_some())
             .map(|c| (c.card.as_ref().map_or(0.0, |card| card.inset), c.numbers.clone()));
         let gutter_at_one = match framed.as_ref().and_then(|(_, n)| n.as_ref()) {
             Some(numbers) => {
@@ -1136,8 +1144,21 @@ impl Engine {
             from: (props.get("code").and_then(|c| c.get("start")).and_then(Value::as_u64)).map_or(1, |n| n as usize),
             language: c.language.clone(),
         });
+        let focus = spec.code.as_ref().and_then(|c| c.focus.clone());
         let Some((inset, numbers)) = framed else {
-            return Ok(PlacedText { cell, origin, text, scale, overflow, clip, fit, natural, code, frame: None });
+            return Ok(PlacedText {
+                cell,
+                origin,
+                text,
+                scale,
+                overflow,
+                clip,
+                fit,
+                natural,
+                code,
+                frame: None,
+                focus,
+            });
         };
         // The frame: the gutter's numbers, then the card that hugs them and the code, placed in
         // the box by `align` as one block.
@@ -1179,8 +1200,33 @@ impl Engine {
             None => None,
         };
         let gutter = gutter.map(|g| ([x + inset, origin[1]], g));
-        let frame = Some(Box::new(CodeFrame { card, gutter }));
-        Ok(PlacedText { cell, origin, text, scale, overflow, clip, fit, natural, code, frame })
+        // The band behind each run of lines in focus (PLAN 2.140): as tall as the lines, and as
+        // wide as the code, half the card's inset past it each side, else a quarter of its size.
+        let mut bands = Vec::new();
+        if let (Some([r, g, b, _]), Some(spans)) = (spec.code.as_ref().and_then(|c| c.band), &focus) {
+            let pad = if inset > 0.0 { 0.5 * inset } else { 0.25 * spec.role.size * scale };
+            let lines = &text.lines;
+            let mut k = 0;
+            while k < lines.len() {
+                if !crate::code::in_spans(spans, k) {
+                    k += 1;
+                    continue;
+                }
+                let first = k;
+                while k + 1 < lines.len() && crate::code::in_spans(spans, k + 1) {
+                    k += 1;
+                }
+                let top = origin[1] + lines[first].baseline - lines[first].ascent;
+                let bottom = origin[1] + lines[k].baseline + lines[k].descent;
+                let rect = [origin[0] - pad, top, text.width + 2.0 * pad, bottom - top];
+                let shape = serde_json::json!({ "kind": "rect", "fill": format!("#{r:02x}{g:02x}{b:02x}") });
+                let props: Props = serde_json::from_value(shape).map_err(|e| EngineError::Theme(e.to_string()))?;
+                bands.push(ShapeNode::resolve(&props, theme, rect).map_err(|e| in_node(id, e))?);
+                k += 1;
+            }
+        }
+        let frame = Some(Box::new(CodeFrame { card, bands, gutter }));
+        Ok(PlacedText { cell, origin, text, scale, overflow, clip, fit, natural, code, frame, focus })
     }
 }
 
@@ -1304,6 +1350,9 @@ pub struct PlacedText {
     /// Where it is code on a card or with its lines numbered, the card and the gutter (PLAN
     /// 2.136): drawn under it, the card first.
     pub frame: Option<Box<CodeFrame>>,
+    /// Where it is code with lines in focus (PLAN 2.140), those lines, counted from 0, each the
+    /// first and the last of a run: the rest are set back, which lint judges at 3:1.
+    pub focus: Option<Vec<(usize, usize)>>,
 }
 
 /// What a code text stands on and beside (PLAN 2.136, ADR-0029): the card that hugs it and its
@@ -1313,6 +1362,8 @@ pub struct PlacedText {
 #[derive(Debug, Clone, PartialEq)]
 pub struct CodeFrame {
     pub card: Option<ShapeNode>,
+    /// The bands behind its runs of lines in focus (PLAN 2.140), over the card, in order.
+    pub bands: Vec<ShapeNode>,
     pub gutter: Option<([f32; 2], TextLayout)>,
 }
 
@@ -1647,6 +1698,23 @@ fn text_spec(deck: &Deck, theme: &Theme, props: &Props, slot_role: Option<&str>)
         };
         code.looks = Some(Box::new(theme.code_looks([r, g, b], &role)?));
         code.numbers = numbered.map(|start| theme.code_numbers([r, g, b], start)).transpose()?;
+        // A walkthrough (PLAN 2.140): the lines out of focus set back toward the ground, their
+        // numbers with them, never under 3:1; the lines in focus held to read on the band behind
+        // them, where the theme draws one.
+        if code.focus.is_some() {
+            let ground = [r, g, b];
+            let looks = code.looks.as_deref().copied().unwrap_or_else(|| unreachable!("looks were just set"));
+            code.dimmed = Some(Box::new(theme.dimmed_looks(&looks, ground)));
+            if let Some(numbers) = &mut code.numbers {
+                let [r, g, b, a] = numbers.color;
+                let [r, g, b] = scaena_core::palette::dimmed([r, g, b], ground, theme.code_dim());
+                numbers.dimmed = Some([r, g, b, a]);
+            }
+            if let Some(band) = theme.code_band(ground)? {
+                code.looks = Some(Box::new(theme.code_looks(band, &role)?));
+                code.band = Some([band[0], band[1], band[2], 255]);
+            }
+        }
     }
     let (role_measure, hanging, optical, hyphenate) =
         (role.measure, role.hanging_punctuation, role.optical_margins, role.hyphenate);
