@@ -172,8 +172,9 @@ const BY_SUGGESTION: [(&str, &str); 144] = [
 ];
 
 /// The rich layouts a name may canonically name: each id, its name, the name Narrato's catalog
-/// gives it, and what models have been seen to call it instead.
-const SPECS: [(&str, &str, Option<&str>, &[&str]); 37] = [
+/// gives it, and what models have been seen to call it instead. The last four are Scaena's own,
+/// which Narrato's catalog lacks and Scaena's slot shapes name (dogfood pass 7).
+const SPECS: [(&str, &str, Option<&str>, &[&str]); 41] = [
     ("roadmap", "Roadmap", Some("Roadmap"), &["road map", "product roadmap"]),
     ("timeline", "Timeline", Some("Timeline"), &["chronology", "history timeline"]),
     (
@@ -216,6 +217,10 @@ const SPECS: [(&str, &str, Option<&str>, &[&str]); 37] = [
     ("thanks", "Thank you", None, &[]),
     ("chyron", "Chyron", None, &[]),
     ("recipe-card", "Recipe", Some("Playbook"), &["playbook", "recipe"]),
+    ("architecture", "Architecture", None, &["system architecture", "architecture diagram", "system diagram"]),
+    ("decision-brief", "Decision brief", None, &["decision memo"]),
+    ("quiz", "Quiz", None, &["knowledge check", "pop quiz", "check yourself"]),
+    ("risk-matrix", "Risk matrix", None, &["risk register", "risk heat map", "heat map", "risk map"]),
 ];
 
 /// `name`'s structural layout (`layoutFromSuggestion`): an exact, case-folded lookup.
