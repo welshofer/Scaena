@@ -304,7 +304,13 @@ impl Generating {
                 let w = self.written()?;
                 let step = w.generation.step();
                 match w.generation.request(arg("key")?, &w.documents) {
-                    Some(r) => json!({ "step": step, "slides": w.generation.target(), "request": request(r) }),
+                    // The slides written so far, where the rest is asked for (lift-up 10-25 REL-2).
+                    Some(r) => json!({
+                        "step": step,
+                        "slides": w.generation.target(),
+                        "partial": w.generation.partial(),
+                        "request": request(r),
+                    }),
                     None => json!({ "step": step }),
                 }
             }
