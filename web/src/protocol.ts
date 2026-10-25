@@ -1368,6 +1368,9 @@ export type ToWorker =
   | { type: "models"; id: number; provider: ProviderId; key: string; base?: string }
   /** Ask a model once, with the user's key and nothing to call (PLAN 2.101): its words. */
   | { type: "write"; id: number; call: WritingCall }
+  /** Stop the `write` asked as `id`, its dialog closed (lift-up PERF-4): the provider's request is
+   * aborted, so a long answer no one will read is not run to its end and paid for. */
+  | { type: "stopWrite"; id: number }
   /** What to ask a model for one slide at `place`, with the person's `ask` (lift-up FUNC-1). */
   | { type: "slideAsk"; id: number; place: SlidePlace; ask: string }
   /** The slide a model's `answer` holds, written at `place` by `author` as the deck's generator
@@ -1422,7 +1425,15 @@ export interface Generate {
   research: boolean;
   /** Who makes the slides' pictures (PLAN G.10): an image model the key lists, best first,
    * made as illustrations in the theme's colors or as photographs; none where it is not given. */
-  pictures?: { provider: "openai" | "gemini"; key: string; base?: string; look: "illustration" | "photo" };
+  pictures?: {
+    provider: "openai" | "gemini";
+    key: string;
+    base?: string;
+    look: "illustration" | "photo";
+    /** How much care each picture is made with, and what it costs (lift-up FUNC-5); medium where
+     * it is not given. */
+    quality?: "low" | "medium" | "high";
+  };
   /** Whether the model is shown each slide as it is drawn, and may give one another of its
    * layouts and tighten its words (PLAN G.13); yes where it is not given. */
   look?: boolean;
@@ -1441,16 +1452,20 @@ export interface Brief {
   modality?: string;
   desiredOutcomes?: string;
   language?: string;
+  /** The persona it speaks to, by its id, where the audience is in the user's own words; else
+   * the one the audience names, if any (lift-up FUNC-5). */
+  personaId?: string;
   voice?: string;
 }
 
 /** What a brief may ask, as Narrato knows it: its goals, lengths, and ways a deck is delivered,
- * the audiences its personas name, its arcs, and the defaults. */
+ * the audiences its personas name, each persona by its id, its arcs, and the defaults. */
 export interface Choices {
   goals: string[];
   lengths: string[];
   modalities: { id: string; label: string }[];
   audiences: string[];
+  personas: { id: string; name: string }[];
   arcs: string[];
   defaults: { audience: string; goal: string; length: string };
 }
@@ -1479,6 +1494,9 @@ export type GeneratingEvent =
   | { kind: "painting"; pictures: number; model: string }
   | { kind: "painted"; pictures: number; unmade: string[] }
   | { kind: "making" }
+  /** A slide drawn for the model to see, as it is drawn: its index, how many the deck has, and
+   * the JPEG in base64, which the dialog shows as it comes (lift-up ATTR-1). */
+  | { kind: "drawn"; slide: number; of: number; jpeg: string }
   | { kind: "looking"; slides: number }
   | { kind: "looked"; slides: number }
   | { kind: "unlooked"; why: string }

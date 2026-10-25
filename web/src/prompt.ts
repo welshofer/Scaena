@@ -54,6 +54,8 @@ export function said(event: GeneratingEvent): string {
         : `${event.pictures} pictures made`;
     case "making":
       return "Making the deck in the theme…";
+    case "drawn":
+      return `Slide ${event.slide + 1} of ${event.of} drawn`;
     case "looking":
       return `Showing the model the ${event.slides} slides as drawn…`;
     case "looked":
@@ -110,6 +112,9 @@ export function prompting(
   const outcome = $<HTMLInputElement>("#prompting-outcome");
   const language = $<HTMLInputElement>("#prompting-language");
   const voice = $<HTMLInputElement>("#prompting-voice");
+  const persona = $<HTMLSelectElement>("#prompting-persona");
+  const see = $<HTMLInputElement>("#prompting-see");
+  const quality = $<HTMLSelectElement>("#prompting-quality");
   const arc = $<HTMLSelectElement>("#prompting-arc");
   const github = $<HTMLInputElement>("#prompting-github");
   const research = $<HTMLInputElement>("#prompting-research");
@@ -121,6 +126,7 @@ export function prompting(
   const list = $<HTMLUListElement>("#prompting-sources");
   const who = $<HTMLParagraphElement>("#prompting-who");
   const progress = $<HTMLOListElement>("#prompting-progress");
+  const film = $<HTMLOListElement>("#prompting-film");
   const go = $<HTMLButtonElement>("#prompting-go");
   const keying = $<HTMLFieldSetElement>("#prompting-key");
   const keyProvider = $<HTMLSelectElement>("#prompting-key-provider");
@@ -251,6 +257,9 @@ export function prompting(
     options(length, choices.lengths.map((l) => [l, l.replaceAll("-", "\u2013")]), choices.defaults.length);
     options(modality, choices.modalities.map((m) => [m.id, m.label]), choices.modalities[0]?.id ?? "");
     options(arc, [["", "The model's choice"], ...choices.arcs.map((a): [string, string] => [a, a])], "");
+    // A persona chosen where the audience is in the person's own words; by default the one the
+    // audience names (lift-up FUNC-5).
+    options(persona, [["", "As the audience suggests"], ...choices.personas.map((p): [string, string] => [p.id, p.name])], "");
     audience.placeholder = choices.defaults.audience;
     $<HTMLDataListElement>("#prompting-audiences").replaceChildren(...choices.audiences.map((a) => new Option(a)));
   };
@@ -260,6 +269,7 @@ export function prompting(
   const whoPaints = () => {
     const chosen = pictures.value as "openai" | "gemini" | "";
     look.disabled = running || !chosen;
+    quality.disabled = running || !chosen;
     if (!chosen) {
       painter.textContent = "No pictures: each slide is set in a layout that waits for none.";
     } else if (!painters[chosen]) {
@@ -371,6 +381,23 @@ export function prompting(
     item.scrollIntoView({ block: "nearest" });
   };
 
+  // Each slide as it is drawn for the model, in a strip under the progress, so the wait shows the
+  // deck coming together (lift-up ATTR-1); a slide drawn again takes its own place.
+  const drawn = (event: Extract<GeneratingEvent, { kind: "drawn" }>) => {
+    while (film.children.length > event.of) film.lastElementChild!.remove();
+    while (film.children.length < event.of) {
+      const item = document.createElement("li");
+      const picture = document.createElement("img");
+      picture.alt = `Slide ${film.children.length + 1}`;
+      item.append(picture);
+      film.append(item);
+    }
+    const item = film.children[event.slide] as HTMLLIElement;
+    item.querySelector("img")!.src = `data:image/jpeg;base64,${event.jpeg}`;
+    item.classList.add("drawn");
+    item.scrollIntoView({ block: "nearest", inline: "nearest" });
+  };
+
   const busy = (on: boolean) => {
     running = on;
     for (const field of form.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement | HTMLButtonElement>(
@@ -384,6 +411,7 @@ export function prompting(
 
   opener.onclick = () => {
     progress.replaceChildren();
+    film.replaceChildren();
     outlinePane.hidden = true;
     dialog.returnValue = "";
     dialog.showModal();
@@ -461,6 +489,7 @@ export function prompting(
         desiredOutcomes: outcome.value.trim() || undefined,
         language: language.value.trim() || undefined,
         voice: voice.value.trim() || undefined,
+        personaId: persona.value || undefined,
       },
       arc: arc.value || undefined,
       theme: theme.value,
@@ -475,18 +504,28 @@ export function prompting(
       github: github.value.trim() || undefined,
       research: research.checked,
       outline: showOutline.checked,
+      look: see.checked,
       pictures: (() => {
         const chosen = pictures.value as "openai" | "gemini" | "";
         const kept = chosen ? painters[chosen] : undefined;
-        return chosen && kept ? { provider: chosen, key: kept.key, base: kept.base, look: look.value as "illustration" | "photo" } : undefined;
+        return chosen && kept
+          ? {
+              provider: chosen,
+              key: kept.key,
+              base: kept.base,
+              look: look.value as "illustration" | "photo",
+              quality: quality.value as "low" | "medium" | "high",
+            }
+          : undefined;
       })(),
     };
     progress.replaceChildren();
+    film.replaceChildren();
     busy(true);
     const making = worker;
     const done = new Promise<{ files: Record<string, ArrayBuffer>; name: string; made: Generated }>((resolve, reject) => {
       making.onmessage = ({ data }: MessageEvent<FromWorker>) => {
-        if (data.type === "generating") step(said(data.event));
+        if (data.type === "generating") data.event.kind === "drawn" ? drawn(data.event) : step(said(data.event));
         else if (data.type === "storyOutlined") showOutlined(data);
         else if (data.type === "generated") resolve(data);
         else if (data.type === "error") reject(new Error(data.message));

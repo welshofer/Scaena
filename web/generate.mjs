@@ -26,6 +26,8 @@
 //   OpenAI key in OpenAI's header alone, and each shown in its slide's picture place.
 // - The deck shown to the model as it is drawn (PLAN G.13): each slide a JPEG after what is said
 //   of it, and the cover's title as the model tightened it.
+// - The persona chosen, the pictures' quality, and the look turned off reach what is asked
+//   (lift-up FUNC-5).
 // - Its story (PLAN G.9): the Story tab reads it as Vzestup measures a talk, by the generator's
 //   module: its score and the arc it was written to, the six measures, coherence by words
 //   unscored, a mark on the arc for each slide. No fix rewrites the plan's intensity or tone. A
@@ -77,7 +79,7 @@ const PAGE = "<h1>Tidewater in the press</h1><p>The Gulf's first carbon-negative
 /** Anthropic, scripted: what each request asks, and the state the walk sets (`slow`, `fail`, and
  * the `slides` it answers with, the recorded ones where none is set). */
 const requests = [];
-const state = { slow: 0, fail: false, slides: undefined };
+const state = { slow: 0, fail: false, slides: undefined, looking: 0 };
 const provider = createServer(async (req, res) => {
   const cors = {
     "access-control-allow-origin": req.headers.origin ?? "*",
@@ -113,6 +115,7 @@ const provider = createServer(async (req, res) => {
           : "slides";
   requests.push({ headers: req.headers, body, prompt, asked });
   if (state.slow) await new Promise((ok) => setTimeout(ok, state.slow));
+  if (asked === "look" && state.looking) await new Promise((ok) => setTimeout(ok, state.looking));
   if (state.fail) return reply(401, { type: "error", error: { type: "authentication_error", message: "invalid x-api-key" } });
   if (asked === "arc") return reply(200, ARC);
   // The outline before the slides (narrative FUNC-1): the big idea and a claim for each of the
@@ -399,7 +402,13 @@ try {
   await page.locator("#prompting-beats li").first().locator(".slides").fill("3");
   await mkdir("target/web-generate", { recursive: true });
   await page.locator("#prompting").screenshot({ path: "target/web-generate/outline.png" });
+  // The look answered slowly, so the strip of slides drawn for it can be seen while it waits
+  // (lift-up ATTR-1).
+  state.looking = 4000;
   await page.click("#prompting-write");
+  await page.waitForFunction(() => document.querySelectorAll("#prompting-film li.drawn").length === 5, null, { timeout: 180000 }).catch(() => {});
+  await page.locator("#prompting").screenshot({ path: "target/web-generate/drawn.png" });
+  state.looking = 0;
   await page.waitForFunction(() => window.scaena.where().name !== "revenue" && window.scaena.last(), null, { timeout: 180000 });
   const outlined = requests.filter((r) => r.asked === "outline");
   check(outlined.length === 1 && outlined[0].prompt.includes("Beat 1 \"Problem: Define core challenge and stakes\" → 1 slide"), `the outline was asked once, each beat with its slides: ${outlined[0]?.prompt.slice(0, 120)}`);
@@ -450,6 +459,12 @@ try {
     `each slide shown to the model as a JPEG: ${drawn.length}`,
   );
   check(look?.prompt.startsWith("Slide 1 of 5, drawn as"), "each after what is said of it");
+  // The person sees each slide as it is drawn for the model (lift-up ATTR-1).
+  const film = await page.locator("#prompting-film li.drawn img").evaluateAll((pictures) => pictures.map((p) => p.src));
+  check(
+    film.length === 5 && film.every((src) => src.startsWith("data:image/jpeg;base64,/9j/")),
+    `the dialog shows each slide as drawn: ${film.length}`,
+  );
   const source = await page.evaluate(() => window.scaena.source());
   const states = (source.match(/^state /gm) ?? []).length;
   check(states === 5, `the deck has the recorded answer's five slides: ${states}`);
@@ -479,11 +494,18 @@ try {
   const cited = await page.evaluate(() => window.scaena.story.health().slides.map((s) => (s.sources ?? []).join()));
   check(slides?.prompt.includes("`sourceRef`"), "the slides' prompt asks each slide for its source");
   check(cited[0] === "notes.md" && cited[1] === `${press}/press.html` && cited.every((c) => c), `each slide cites its source: ${cited.join(" | ")}`);
-  const from = await page.evaluate(() => [...document.querySelectorAll("#story [data-findings] li")].map((li) => [li.dataset.slide, li.querySelector("[data-sources]")?.textContent]));
+  const from = await page.evaluate(() => [...document.querySelectorAll("#story [data-findings] li[data-slide]")].map((li) => [li.dataset.slide, li.querySelector("[data-sources]")?.textContent]));
   check(from.length > 0 && from.every(([n, f]) => f === `From ${cited[Number(n) - 1]}`), `each row says what its slide came from: ${JSON.stringify(from)}`);
-  const rows = await page.evaluate(() => [...document.querySelectorAll("#story [data-findings] li")].map((li) => li.dataset.slide));
-  const looked = await page.evaluate(() => [...new Set(window.scaena.story.health().findings.map((f) => String(f.slide)))]);
-  check(rows.join() === looked.join(), `a row for each slide with something to look at, in order: ${rows}`);
+  // What to do first open, the rest folded (lift-up S1): a row for each slide in each, every
+  // finding in one of them once.
+  const rows = await page.evaluate(() => [...document.querySelectorAll("#story [data-findings] li[data-slide]")].map((li) => li.querySelectorAll("p[data-kind]").length));
+  const looked = await page.evaluate(() => window.scaena.story.health().findings.length);
+  check(rows.reduce((a, b) => a + b, 0) === looked, `every finding has its row once: ${rows} of ${looked}`);
+  // Opened, so a fix or a question folded with the rest can be reached.
+  await page.evaluate(() => {
+    const more = document.querySelector("#story [data-more] details");
+    if (more) more.open = true;
+  });
   check(!said.some((s) => /\d\.\d\d/.test(s)), `in a person's words, no figure: ${said.join(" | ")}`);
   // The words are to carry the plan's intensity and tone: a gap is asked of the assistant, and
   // no fix declares what the words read in the plan's place.
@@ -499,7 +521,7 @@ try {
   await page
     .waitForFunction(() => window.scaena.story.health()?.findings.some((f) => f.kind === "drift"), null, { timeout: 30000 })
     .catch(() => {});
-  const fixable = page.locator("#story [data-findings] li:has([data-fix])").first();
+  const fixable = page.locator("#story [data-findings] li[data-slide]:has([data-fix])").first();
   check((await fixable.count()) === 1, `a finding offers its fix: ${said.join(" | ")}`);
   const slide = Number((await fixable.locator("[data-show]").textContent()).replace("Slide ", ""));
   await fixable.locator("[data-show]").click();
@@ -531,10 +553,11 @@ try {
   check(back.includes(`${slide} ${kind}`), `undone, the finding is back: ${back}`);
   // A row's questions are asked together, with the slide they are about shown, whichever was
   // (lift-up USE-5): another slide is shown first.
-  const asked = page.locator("#story [data-findings] li [data-ask]").first();
+  const asked = page.locator("#story [data-findings] li[data-slide] [data-ask]").first();
   const { question, about } = await page.evaluate(() => {
-    const { findings } = window.scaena.story.health();
-    const run = findings.filter((f) => f.slide === findings[0].slide);
+    // The first row's questions: the open findings of the slide that leads.
+    const { open } = window.scaena.story.triaged();
+    const run = open.filter((f) => f.slide === open[0].slide);
     return { question: run.map((f) => f.ask).join(" "), about: window.scaena.last().states.findIndex(([id]) => id === run[0].state) };
   });
   const other = await page.evaluate((i) => (i === 0 ? window.scaena.last().states.length - 1 : 0), about);
@@ -620,6 +643,37 @@ try {
   check(dashed.includes("alt:Compass"), "the other list is still set under its icons");
   check(!dashed.includes("alt:Acorn") && !dashed.includes("alt:Lightning"), "the dashed list keeps its words, under no icon");
   state.slides = undefined;
+
+  // The brief's other controls, as `scaena generate` takes them (lift-up FUNC-5): a persona chosen
+  // for an audience in the person's own words, pictures made with high care, and the slides not
+  // shown to the model.
+  requests.length = 0;
+  painted.length = 0;
+  // The copy the editor kept of the deck before is offered as the last one opened, a modal over the
+  // page (lift-up REL-4): discarded, since the brief's controls are what is checked here.
+  await page
+    .waitForSelector("#recovering[open]", { timeout: 5000 })
+    .then(() => page.click("#recovering [value=discard]"))
+    .catch(() => {});
+  await opened();
+  await page.uncheck("#prompting-show-outline");
+  await page.fill("#prompting-audience", "the co-op's board");
+  await page.click("#prompting details > summary");
+  const personas = await page.locator("#prompting-persona option").allTextContents();
+  check(personas[0] === "As the audience suggests" && personas.includes("Students & Educators"), `the personas are offered, the audience's first: ${personas.join(", ")}`);
+  await page.selectOption("#prompting-persona", "students-educators");
+  await page.click("#prompting details > summary");
+  await page.selectOption("#prompting-quality", "high");
+  await page.uncheck("#prompting-see");
+  const unbriefed = await page.evaluate(() => window.scaena.source());
+  await page.click("#prompting-go");
+  await page
+    .waitForFunction((was) => window.scaena.source() !== was && window.scaena.last(), unbriefed, { timeout: 180000 })
+    .catch(() => {});
+  const briefed = requests.find((r) => r.asked === "slides")?.prompt ?? "";
+  check(briefed.includes("presentation for: Students & Educators"), `the slides are written for the persona chosen: ${briefed.match(/presentation for: [^\n]*/)?.[0]}`);
+  check(painted.length > 0 && painted.every((p) => p.body.quality === "high"), `each picture asked for with high care: ${painted.map((p) => p.body.quality)}`);
+  check(!requests.some((r) => r.asked === "look"), `the slides are not shown to the model: ${requests.map((r) => r.asked)}`);
 } catch (e) {
   failures.push(String(e?.stack ?? e));
 } finally {

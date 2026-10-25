@@ -961,13 +961,14 @@ async function presentView(deck: Source, how: Play, channel: BroadcastChannel) {
     <main><canvas id="stage"></canvas><p id="blanked" class="blanked" hidden></p></main>
     <aside>
       <div class="next"><canvas id="upnext"></canvas><p id="nextName"></p></div>
-      <div class="clock"><span id="clock" title="The time since the show began: it starts when the deck first goes on">0:00</span><button id="pause" type="button" title="Pause the timer">Pause</button><button id="reset" type="button" title="Put the timer back to 0:00">Reset</button><span id="now" title="The time of day"></span></div>
-      <p id="where"></p>
+      <div class="clock"><span id="clock" role="timer" aria-label="Time since the show began" title="The time since the show began: it starts when the deck first goes on">0:00</span><button id="pause" type="button" title="Pause the timer">Pause</button><button id="reset" type="button" title="Put the timer back to 0:00">Reset</button><span id="now" title="The time of day"></span></div>
+      <p id="where" aria-live="polite"></p>
       <p class="notesize"><span>Notes</span><button id="smaller" type="button" aria-label="Smaller notes" title="Smaller notes (−)">A−</button><button id="larger" type="button" aria-label="Larger notes" title="Larger notes (+)">A+</button></p>
-      <div id="notes" class="notes"></div>
+      <div id="notes" class="notes" role="region" aria-label="Speaker notes"></div>
       <p class="buttons"><button id="back" aria-label="Back" disabled><span aria-hidden="true">◀</span> Back</button><button id="on" aria-label="Next" disabled><span aria-hidden="true">▶</span> Next</button><button id="navigate" type="button" aria-haspopup="dialog" title="Every slide, to go to one (N)" disabled>Slides</button></p>
       <p id="status" role="status">Loading…</p>
-    </aside>`;
+    </aside>
+    <section id="reading" class="reading" aria-live="polite" aria-label="The slide"></section>`;
   const status = $("#status");
   saysRejections(status);
   // One stage, the slide shown: the next is a still it draws at rest, so presenting runs no
@@ -990,6 +991,9 @@ async function presentView(deck: Source, how: Play, channel: BroadcastChannel) {
   title();
   // Each state as a person counts it (PLAN 2.99).
   let slots: Slot[] = await now.timeline();
+  // How the state the room sees reads, as the player keeps it (lift-up USE-1): a speaker who
+  // does not see the slide hears which is up and what it says.
+  const read = reader($("#reading"), how.read ?? ((state, format) => now.reading(state, format)));
   const steer = (message: Steer) => channel.postMessage(message);
   // The player's own keys, Home and End among them, steer it from here; and the presenter's
   // (PLAN 2.105): the room's screen black or white, a slide by its number, and the laser.
@@ -1167,6 +1171,7 @@ async function presentView(deck: Source, how: Play, channel: BroadcastChannel) {
         latest = undefined;
         const shown = await now.show(states[at.index], at.t, at.format);
         $("#where").textContent = place(slots, at.index);
+        void read(states[at.index], at.format);
         // Other notes start at their top, however far the last were scrolled; a step that keeps its
         // slide's notes keeps them where they stood. They are drawn as a speaker reads them
         // (SPEC §2.6): lines, a list, or a table, never a `- ` or a `|`.

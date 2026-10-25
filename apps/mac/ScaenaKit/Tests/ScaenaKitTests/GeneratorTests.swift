@@ -85,10 +85,12 @@ private func anthropic(_ text: String) -> Data {
     generator.away = { away.add($0, main: Thread.isMainThread, stack: Thread.current.stackSize) }
 
     var heard: [GeneratingStep] = []
+    var film: [(slide: Int, jpeg: Data)] = []
     let (session, made) = try await generator.generate(
         brief: Brief(topic: "Carbon-negative cargo is ready to scale", audience: "Investors"),
         provider: .anthropic, model: "a-model", key: "sk-writer", theme: "dusk",
-        painter: Generator.Painter(provider: .openai, key: "sk-pictures")
+        painter: Generator.Painter(provider: .openai, key: "sk-pictures", quality: "high"),
+        drawn: { film.append(($0, $1)) }
     ) { heard.append($0) }
 
     #expect(made.created.created && made.created.errors == 0)
@@ -112,6 +114,10 @@ private func anthropic(_ text: String) -> Data {
     #expect(looked.count == 1)
     #expect((looked.first?.body ?? "").components(separatedBy: "image/jpeg").count - 1 == made.layouts.count)
     #expect(made.words.contains("\(pictures) picture"))
+    // The window is shown each slide as drawn for the model, in order, then the one its look
+    // changed, the cover, drawn again (lift-up ATTR-1): each a JPEG.
+    #expect(film.map { $0.slide } == Array(0..<made.layouts.count) + [0], "drawn: \(film.map { $0.slide })")
+    #expect(film.allSatisfy { $0.jpeg.starts(with: [0xFF, 0xD8, 0xFF]) })
     // Built and drawn, then drawn again as the model's look changed it; fitted where a text ran on.
     let slow = away.steps.map(\.step)
     #expect(Array(slow.prefix(2)) == ["make", "looked"], "the slow steps: \(slow)")
@@ -134,7 +140,10 @@ private func anthropic(_ text: String) -> Data {
     }
 
     let requests = await asked.requests
-    #expect(requests.filter { $0.url == "https://api.openai.com/v1/images/generations" }.count == pictures)
+    let painted = requests.filter { $0.url == "https://api.openai.com/v1/images/generations" }
+    #expect(painted.count == pictures)
+    // Made with the care the window chose (lift-up FUNC-5).
+    #expect(painted.allSatisfy { ($0.body ?? "").contains(#""quality":"high""#) })
     for request in requests {
         let body = request.body ?? ""
         #expect(!body.contains("sk-writer") && !body.contains("sk-pictures"), "no key in a body")
