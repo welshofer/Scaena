@@ -286,8 +286,12 @@ pub fn slide_into(
     };
     let beat_id = if let Some((s, b)) = planned {
         let was = &sections[s]["beats"][b];
-        let listed: Vec<Value> =
-            (was["states"].as_array().into_iter().flatten()).cloned().chain(states.iter().map(|s| json!(s))).collect();
+        // The blank slide it takes the place of leaves with `remove_slide`, after this, as a
+        // replaced slide's states leave its beat.
+        let kept = (was["states"].as_array().into_iter().flatten())
+            .filter(|x| x.as_str().is_some_and(|x| !old_states.contains(&x)))
+            .cloned();
+        let listed: Vec<Value> = kept.chain(states.iter().map(|s| json!(s))).collect();
         let merged = merge(was, listed, &beat);
         patch.push(json!({ "op": "replace", "path": format!("/spine/sections/{s}/beats/{b}"), "value": merged }));
         was["id"].as_str().unwrap_or_default().to_string()

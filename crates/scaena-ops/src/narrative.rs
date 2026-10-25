@@ -10215,6 +10215,20 @@ mod tests {
         };
         assert!(refused(&Place::End, "nowhere").to_string().contains("no beat `nowhere`"));
         assert!(refused(&Place::Replace("start".into()), "answer").to_string().contains("not both"));
+        // A spine planned with the blank slide in its first beat, as `spine_update` sees the deck
+        // `deck_create` made: the blank leaves the beat as it leaves the deck, the slide takes its
+        // place there, and the beat names no state the deck lacks.
+        doc["spine"]["sections"][0]["beats"][0]["states"] = json!(["start"]);
+        let written =
+            slide_into(&doc, &theme, slides[0].clone(), &Place::End, Some("stakes"), BTreeMap::new(), &no_files())
+                .unwrap();
+        // The beat as the patch writes it, before `remove_slide` runs, already lists the slide's
+        // states and not the blank's (the review of #741).
+        let op = written.patch.iter().find(|op| op["path"] == "/spine/sections/0/beats/0").unwrap();
+        assert_eq!(op["value"]["states"], json!(written.states), "{op:#}");
+        let after = patched(&doc, &written.patch);
+        assert_eq!(after["spine"]["sections"][0]["beats"][0]["states"], json!(written.states));
+        assert_eq!(firsts(&after), [written.states[0].clone()]);
     }
 
     #[test]
