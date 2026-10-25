@@ -574,7 +574,27 @@ fn a_pdf_with_notes_prints_each_slide_with_its_notes_under_it() {
     let before = structure(&plain).iter().filter(|l| l.trim() == "P").count();
     assert_eq!(notes, before + laid.pages.iter().filter(|p| !said(&p.list).is_empty()).count(), "{lines:#?}");
 
+    // It says what the deck says of itself, as the PDF without notes does (#674).
+    let title = bundle.deck.meta.as_ref().and_then(|m| m.title.clone()).expect("the revenue deck has a title");
+    assert!(String::from_utf8_lossy(&bytes).contains(&title), "the PDF with notes says the deck's title, {title:?}");
+
     // Only a PDF prints notes.
     let req = Export { format: "png".into(), out: Some(out.with_extension("d")), notes: true, ..Export::default() };
     assert!(export(&bundle, &req).unwrap_err().to_string().contains("--notes"));
+}
+
+/// A PDF says what the deck says of itself (lift-up 10-24b ATTR-4): its title, its author, its
+/// description as the subject, and when it was made, as the deck's `meta` gives them.
+#[test]
+fn a_pdf_says_who_wrote_the_deck_what_it_is_and_when() {
+    let mut bundle = scaena_ops::open(Path::new("../../docs/examples/trails.deck.json")).unwrap();
+    let meta = bundle.deck.meta.as_mut().expect("the trails deck has meta");
+    meta.author = Some("Ana Ortiz".into());
+    meta.created = Some("2026-10-03T14:05:09Z".into());
+    let (bytes, _) = exported(&bundle, Some(&["cover".to_string()]), "meta");
+    let text = String::from_utf8_lossy(&bytes);
+    for said in ["High Country Trails: the 2026 season", "Ana Ortiz", "a trail conservancy", "2026-10-03T14:05:09"] {
+        assert!(text.contains(said), "the PDF says {said:?}");
+    }
+    assert!(text.contains("/CreationDate(D:20261003140509Z)"), "the deck's own time, never the clock's");
 }

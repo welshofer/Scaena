@@ -260,7 +260,7 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         if (!("url" in from)) throw new Error("only a bundle read from a URL is read again");
         latest++;
         const was = player;
-        player = await fetched(from.url);
+        player = await fetched(from.url, from.serve);
         await library();
         // A frame in flight finishes on the engine it began with.
         await painting;
@@ -1094,11 +1094,13 @@ function served(deck: string, serve: Serving, folder: string): Home {
  * kept there from then on. */
 async function load(source: Source) {
   if ("url" in source) {
-    player = await fetched(source.url);
+    player = await fetched(source.url, source.serve);
     name = nameOf(source.url);
     if (source.serve) {
       // The folder's own name, as `scaena serve` says it.
-      const state = await fetch(new URL("/scaena/state", source.url)).then((r) => r.json() as Promise<{ name?: string }>);
+      const state = await fetch(new URL("/scaena/state", source.url), { headers: { "X-Scaena-Token": source.serve.token } }).then(
+        (r) => r.json() as Promise<{ name?: string }>,
+      );
       name = state.name || name;
       home = served(source.url, source.serve, name);
     }
@@ -1137,10 +1139,11 @@ async function load(source: Source) {
 
 /** The bundle whose deck file is at `deck`: every file is where the deck names it, from the
  * deck's directory (SPEC §3.1). A saved bundle's manifest lists the rest: licenses, the
- * history. */
-async function fetched(deck: string): Promise<Player> {
+ * history. `scaena serve` reads each only with the token its address carried (lift-up R1). */
+async function fetched(deck: string, serve?: Serving): Promise<Player> {
+  const headers: Record<string, string> = serve ? { "X-Scaena-Token": serve.token } : {};
   const get = async (path: string) => {
-    const response = await fetch(new URL(path, deck));
+    const response = await fetch(new URL(path, deck), { headers });
     if (!response.ok) throw new Error(`${path}: HTTP ${response.status}`);
     return response;
   };
@@ -1151,7 +1154,7 @@ async function fetched(deck: string): Promise<Player> {
   const data = Object.values(files.data ?? {}).flatMap(({ source }) => (typeof source === "string" ? [source] : []));
   const paths = new Set([...(files.fonts ?? []).map((f) => f.file), ...data, ...fetchedPlayer.imageFiles()]);
   if (new URL(deck).pathname.endsWith("/deck.json")) {
-    const manifest = await fetch(new URL("manifest.json", deck)).catch(() => undefined);
+    const manifest = await fetch(new URL("manifest.json", deck), { headers }).catch(() => undefined);
     if (manifest?.ok) {
       const bytes = new Uint8Array(await manifest.arrayBuffer());
       fetchedPlayer.addFile("manifest.json", bytes);
