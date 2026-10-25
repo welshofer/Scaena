@@ -121,6 +121,26 @@
             "const": "bigIdea"
           },
           {
+            "description": "A break in its story the narrative lint finds: no claim shown, evidence with no claim,\nmore than one claim, or the claim of the slide before it again (W420, W421, W424, W425).",
+            "type": "string",
+            "const": "story"
+          },
+          {
+            "description": "It makes more points, or shows more words, than a room takes in.",
+            "type": "string",
+            "const": "dense"
+          },
+          {
+            "description": "It shows something, and gives the speaker nothing to say about it.",
+            "type": "string",
+            "const": "notes"
+          },
+          {
+            "description": "The deck runs past the range of slides its brief asked for; this slide turns least from\nthe one before, and is the first to cut.",
+            "type": "string",
+            "const": "pacing"
+          },
+          {
             "description": "A change the model asked once it saw the slide drawn was not kept, lint having found the\nslide worse for it (`meta.narrative.refused`, lift-up USE-4).",
             "type": "string",
             "const": "look"
