@@ -134,6 +134,10 @@ fn a_deck_is_made_from_a_prompt_as_swift_makes_one_its_pictures_with_it() {
     assert!(drawn.iter().all(|d| d["source"]["media_type"] == "image/jpeg"));
     assert!(content[0]["text"].as_str().unwrap().starts_with("Slide 1 of "), "{}", content[0]);
     assert!(body["system"][0]["text"].as_str().unwrap().contains("art director"));
+    // The same slides handed back for the window to show while the model looks (lift-up ATTR-1).
+    let shown = making["drawn"].as_array().unwrap();
+    assert_eq!(shown.len(), drawn.len());
+    assert!(shown.iter().zip(&drawn).all(|(s, d)| *s == d["source"]["data"]), "the window is shown what the model is");
     // The model tightens the cover's title; then a text that runs past its place is asked for
     // shorter.
     let tightened = anthropic(
@@ -143,6 +147,8 @@ fn a_deck_is_made_from_a_prompt_as_swift_makes_one_its_pictures_with_it() {
     let looked =
         step(g, "looked", json!({ "status": 200, "statusText": "OK", "body": tightened, "key": "sk-writer" }), &[]);
     assert_eq!(looked["looked"], 1, "{looked}");
+    // Drawn again as the look changed them, for the window.
+    assert_eq!(looked["drawn"].as_array().unwrap().len(), drawn.len(), "{}", looked["drawn"]);
     // Each rewrite asked for answered with none: asked once more, no more, then said (STAB-4).
     let (mut fit, mut rounds) = (looked["fit"].clone(), 0);
     while let Some(asked) = fit.as_object() {

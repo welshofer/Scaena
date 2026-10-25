@@ -740,6 +740,14 @@
       #prompting-progress { margin: 0; padding-left: 1.4em; max-height: 9em; overflow: auto; font-size: 13px; }
       #prompting-progress:empty { display: none; }
       #prompting-progress .failed { color: var(--error); }
+      #prompting-film { margin: 0; padding: 0 0 4px; list-style: none; display: flex; gap: 6px; overflow-x: auto; }
+      #prompting-film:empty { display: none; }
+      #prompting-film li { flex: none; height: 72px; aspect-ratio: 16 / 9; border-radius: 4px; background: var(--line); overflow: hidden; }
+      #prompting-film img { display: block; height: 100%; width: 100%; object-fit: contain; }
+      #prompting-film li:not(.drawn) img { visibility: hidden; }
+      #prompting-film li.drawn img { animation: prompting-drawn 240ms ease-out; }
+      @keyframes prompting-drawn { from { opacity: 0; transform: translateY(6px); } }
+      @media (prefers-reduced-motion: reduce) { #prompting-film li.drawn img { animation: none; } }
       #prompting-outline { border-top: 1px solid var(--line); padding-top: 8px; display: flex; flex-direction: column; gap: 8px; }
       #prompting-outline h3 { margin: 0; font-size: 14px; }
       #prompting-outline .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: end; }
@@ -1111,6 +1119,7 @@
           <p class="note" id="prompting-key-said" aria-live="polite"></p>
         </fieldset>
         <ol id="prompting-progress" aria-live="polite" aria-label="How far it has come"></ol>
+        <ol id="prompting-film" aria-label="The slides as drawn"></ol>
         <section id="prompting-outline" hidden aria-labelledby="prompting-outline-title">
           <h3 id="prompting-outline-title">The outline</h3>
           <p class="note" id="prompting-outline-arc"></p>

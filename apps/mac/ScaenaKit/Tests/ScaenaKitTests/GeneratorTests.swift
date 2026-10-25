@@ -85,10 +85,12 @@ private func anthropic(_ text: String) -> Data {
     generator.away = { away.add($0, main: Thread.isMainThread, stack: Thread.current.stackSize) }
 
     var heard: [GeneratingStep] = []
+    var film: [[Data]] = []
     let (session, made) = try await generator.generate(
         brief: Brief(topic: "Carbon-negative cargo is ready to scale", audience: "Investors"),
         provider: .anthropic, model: "a-model", key: "sk-writer", theme: "dusk",
-        painter: Generator.Painter(provider: .openai, key: "sk-pictures")
+        painter: Generator.Painter(provider: .openai, key: "sk-pictures"),
+        drawn: { film.append($0) }
     ) { heard.append($0) }
 
     #expect(made.created.created && made.created.errors == 0)
@@ -112,6 +114,11 @@ private func anthropic(_ text: String) -> Data {
     #expect(looked.count == 1)
     #expect((looked.first?.body ?? "").components(separatedBy: "image/jpeg").count - 1 == made.layouts.count)
     #expect(made.words.contains("\(pictures) picture"))
+    // The window is shown each slide as drawn for the model, then again as its look changed it
+    // (lift-up ATTR-1): JPEGs, one for each slide.
+    #expect(film.count == 2, "drawn \(film.count) times")
+    #expect(film.allSatisfy { $0.count == made.layouts.count })
+    #expect(film.joined().allSatisfy { $0.starts(with: [0xFF, 0xD8, 0xFF]) })
     // Built and drawn, then drawn again as the model's look changed it; fitted where a text ran on.
     let slow = away.steps.map(\.step)
     #expect(Array(slow.prefix(2)) == ["make", "looked"], "the slow steps: \(slow)")

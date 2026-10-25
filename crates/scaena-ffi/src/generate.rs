@@ -539,11 +539,14 @@ impl Generating {
                     // saying why (narrative STAB-3): the look is a polish, never the deck.
                     match making.drawn(scaena_ops::narrative::LOOK_WIDTH) {
                         Ok(drawn) => {
+                            // Each slide as drawn, which the window shows while the model looks
+                            // (lift-up ATTR-1).
+                            let shown: Vec<String> = drawn.iter().map(|p| p.data.clone()).collect();
                             let mut look = Look { seen, drawn, ..Look::default() };
                             if let Some(round) = look.round(&w.generation, key) {
                                 self.look = look;
                                 self.making = Some((making, Vec::new()));
-                                return Ok(json!({ "look": round }));
+                                return Ok(json!({ "look": round, "drawn": shown }));
                             }
                         }
                         Err(why) => making.unlooked(format!("the slides could not be drawn for the model: {why}")),
@@ -595,8 +598,20 @@ impl Generating {
                     making.unlooked(was.map_or(why.clone(), |was| format!("{was}; {why}")));
                 }
                 let report = making.report();
+                let looked = report["looked"].as_array().map_or(0, Vec::len);
+                // The slides the model changed, drawn again for the window (lift-up ATTR-1); none
+                // where nothing changed, or where they would not draw.
+                let drawn: Vec<String> = match looked {
+                    0 => Vec::new(),
+                    _ => making
+                        .drawn(scaena_ops::narrative::LOOK_WIDTH)
+                        .unwrap_or_default()
+                        .into_iter()
+                        .map(|p| p.data)
+                        .collect(),
+                };
                 let fit = self.fitting(making, key)?;
-                json!({ "looked": report["looked"].as_array().map_or(0, Vec::len), "unlooked": report["unlooked"], "fit": fit })
+                json!({ "looked": looked, "unlooked": report["unlooked"], "fit": fit, "drawn": drawn })
             }
             "fitted" => {
                 let key = args.get("key").and_then(Value::as_str);

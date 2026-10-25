@@ -1476,6 +1476,9 @@ export type GeneratingEvent =
   | { kind: "painting"; pictures: number; model: string }
   | { kind: "painted"; pictures: number; unmade: string[] }
   | { kind: "making" }
+  /** A slide drawn for the model to see, as it is drawn: its index, how many the deck has, and
+   * the JPEG in base64, which the dialog shows as it comes (lift-up ATTR-1). */
+  | { kind: "drawn"; slide: number; of: number; jpeg: string }
   | { kind: "looking"; slides: number }
   | { kind: "looked"; slides: number }
   | { kind: "unlooked"; why: string }

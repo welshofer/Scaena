@@ -436,6 +436,12 @@ try {
     `each slide shown to the model as a JPEG: ${drawn.length}`,
   );
   check(look?.prompt.startsWith("Slide 1 of 5, drawn as"), "each after what is said of it");
+  // The person sees each slide as it is drawn for the model (lift-up ATTR-1).
+  const film = await page.locator("#prompting-film li.drawn img").evaluateAll((pictures) => pictures.map((p) => p.src));
+  check(
+    film.length === 5 && film.every((src) => src.startsWith("data:image/jpeg;base64,/9j/")),
+    `the dialog shows each slide as drawn: ${film.length}`,
+  );
   const source = await page.evaluate(() => window.scaena.source());
   const states = (source.match(/^state /gm) ?? []).length;
   check(states === 5, `the deck has the recorded answer's five slides: ${states}`);
