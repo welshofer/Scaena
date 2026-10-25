@@ -44,7 +44,7 @@
         "type": "string"
       },
       "slides": {
-        "description": "The slides, as Narrato writes them: `executiveSummary`, and `slides`, each with\n`slideTitle`, `subtitle`, `layoutSuggestion` (`Title`, `Bullet List`, `Big Number`,\n`Chart`, `Two Column`, `Quote`, `Section Divider`, `Closing`, …), `keyBullets`,\n`speakerNotes`, `beatIndex` and `beatName` (the arc's beat it belongs to), `intensity`\n(0–1), `tone` (−1–1), and `visualDescription`; `chartData` where a chart is drawn.",
+        "description": "The slides, as Narrato writes them: `executiveSummary`, and `slides`, each with\n`slideTitle`, `subtitle`, `layoutSuggestion` (`Title`, `Bullet List`, `Big Number`,\n`Chart`, `Two Column`, `Quote`, `Section Divider`, `Closing`, …), `keyBullets`,\n`speakerNotes`, `beatIndex` and `beatName` (the arc's beat it belongs to),\n`expectedIntensity` (0–1), `expectedValence` (its tone, −1–1), and `visualDescription`;\n`chartData` where a chart is drawn.",
         "type": "object",
         "additionalProperties": true
       },

@@ -94,6 +94,10 @@ pub struct Scaena {
     dir: Option<PathBuf>,
     /// The home folder, which is never such a place; `$HOME` without it.
     home: Option<PathBuf>,
+    /// What lint last found in the whole of each bundle, by what it read of it
+    /// (`scaena_ops::lint::digest`): what `deck_health` reads after a `deck_lint` of the deck as
+    /// it stands, rather than lay it out again (lift-up 20261025b PERF-3).
+    lints: Arc<Mutex<HashMap<PathBuf, (String, scaena_ops::lint::Linted)>>>,
 }
 
 impl Default for Scaena {
@@ -110,6 +114,7 @@ impl Default for Scaena {
             reach: Reach::default(),
             dir: None,
             home: None,
+            lints: Arc::default(),
         }
     }
 }
@@ -462,13 +467,49 @@ fn open_by(bundle: &str, author: String) -> Result<Held, OpsError> {
     let lock = writing(Path::new(bundle)).blocking_lock_owned();
     let mut b = open(bundle)?;
     b.author = author;
-    Ok(Held { bundle: b, _lock: lock })
+    Ok(Held { bundle: b, _lock: Some(lock) })
 }
 
-/// A bundle open for one tool to write, and the lock that keeps it so.
+/// What lint last found in the whole of each bundle, kept by what it read of it.
+struct Lints(Arc<Mutex<HashMap<PathBuf, (String, scaena_ops::lint::Linted)>>>);
+
+impl Lints {
+    /// What lint finds in the whole of `b`, with no date judged (`dated` judges them, and reads
+    /// the clock it is handed): kept from the last time, where no file of it has changed since,
+    /// else linted and kept, one for each bundle. Never what a fix writes. Run where blocking is.
+    fn linted(&self, b: &scaena_ops::Bundle) -> Result<scaena_ops::lint::Linted, OpsError> {
+        let digest = scaena_ops::lint::digest(b)?;
+        let kept = self.0.lock().unwrap_or_else(|e| e.into_inner()).get(&b.root).cloned();
+        if let Some((was, linted)) = kept
+            && was == digest
+        {
+            return Ok(linted);
+        }
+        let linted = scaena_ops::lint::lint(b)?;
+        self.0.lock().unwrap_or_else(|e| e.into_inner()).insert(b.root.clone(), (digest, linted.clone()));
+        Ok(linted)
+    }
+}
+
+/// The bundle, held as [`open_by`] holds it where the tool `writes`, else only read: a read takes
+/// no lock, so an agent's writes in parallel do not wait on a lint or a search (lift-up 20261025c
+/// PERF-3). Run where blocking is.
+fn held_if(writes: bool, bundle: &str, author: String) -> Result<Held, OpsError> {
+    match writes {
+        true => open_by(bundle, author),
+        false => {
+            let mut b = open(bundle)?;
+            b.author = author;
+            Ok(Held { bundle: b, _lock: None })
+        }
+    }
+}
+
+/// A bundle open for one tool to write, and the lock that keeps it so; or open to read alone,
+/// with none.
 struct Held {
     bundle: scaena_ops::Bundle,
-    _lock: tokio::sync::OwnedMutexGuard<()>,
+    _lock: Option<tokio::sync::OwnedMutexGuard<()>>,
 }
 
 impl std::ops::Deref for Held {
@@ -629,7 +670,8 @@ pub enum SeverityArg {
 pub struct DeckLint {
     /// The bundle: a directory, a `.scaena` zip, or a `deck.json`.
     pub bundle: String,
-    /// Only the findings in this state.
+    /// Only the findings in this state, laying out it alone, a finding that holds there from an
+    /// earlier state reported at it; with `fix`, only its fixes.
     #[serde(default)]
     pub state: Option<String>,
     #[serde(default)]
@@ -703,8 +745,8 @@ pub struct DeckExport {
     /// A video's frames a second; 60 without it.
     #[serde(default)]
     pub fps: Option<u32>,
-    /// A video's sound track, any file ffmpeg reads, from the first frame: cut where the
-    /// video ends, or carried on in silence until it does.
+    /// A video's sound track, a file ffmpeg reads under this server's folder or the bundle's,
+    /// from the first frame: cut where the video ends, or carried on in silence until it does.
     #[serde(default)]
     pub audio: Option<String>,
     /// What paints a video's frames: `gpu` is vello on the GPU, in a server built with the
@@ -897,8 +939,9 @@ pub struct DeckGenerate {
     /// The slides, as Narrato writes them: `executiveSummary`, and `slides`, each with
     /// `slideTitle`, `subtitle`, `layoutSuggestion` (`Title`, `Bullet List`, `Big Number`,
     /// `Chart`, `Two Column`, `Quote`, `Section Divider`, `Closing`, …), `keyBullets`,
-    /// `speakerNotes`, `beatIndex` and `beatName` (the arc's beat it belongs to), `intensity`
-    /// (0–1), `tone` (−1–1), and `visualDescription`; `chartData` where a chart is drawn.
+    /// `speakerNotes`, `beatIndex` and `beatName` (the arc's beat it belongs to),
+    /// `expectedIntensity` (0–1), `expectedValence` (its tone, −1–1), and `visualDescription`;
+    /// `chartData` where a chart is drawn.
     pub slides: Map<String, Value>,
     /// The theme to make it in: one that ships, by name (`dusk`, `daybreak`, `ember`, `salon`),
     /// or a theme file. `dusk` without it.
@@ -1113,7 +1156,8 @@ impl Scaena {
         let query = Query { find: a.find, case: a.case, words: a.words };
         let author = author(&context);
         blocking(move || {
-            scaena_ops::find::search(&*open_by(&a.bundle, author)?, &query, a.replace.as_deref(), a.dry_run)
+            let b = held_if(a.replace.is_some(), &a.bundle, author)?;
+            scaena_ops::find::search(&b, &query, a.replace.as_deref(), a.dry_run)
         })
         .await
         .map(Json)
@@ -1133,6 +1177,7 @@ impl Scaena {
             SeverityArg::Info => scaena_core::Severity::Info,
         };
         let author = author(&context);
+        let lints = Lints(self.lints.clone());
         blocking(move || {
             let now = match a.now.as_deref() {
                 Some(now) => Some(scaena_core::fetched::moment(now).ok_or_else(|| {
@@ -1142,14 +1187,21 @@ impl Scaena {
                 })?),
                 None => None,
             };
-            let b = open_by(&a.bundle, author)?;
+            let b = held_if(a.fix, &a.bundle, author)?;
+            let state = a.state.as_deref();
             let (findings, fixed, laid) = match a.fix {
                 true => {
-                    let f = scaena_ops::lint::lint_fix(&b)?;
+                    let f = scaena_ops::lint::lint_fix_at(&b, state, now)?;
                     (f.findings, Some(f.fixed), true)
                 }
+                // The whole deck as lint last found it where nothing it reads has changed, its
+                // dates judged afresh.
+                false if state.is_none() => {
+                    let l = scaena_ops::lint::dated(lints.linted(&b)?, &b.deck, now);
+                    (l.findings, None, l.laid)
+                }
                 false => {
-                    let l = scaena_ops::lint::lint_at(&b, now)?;
+                    let l = scaena_ops::lint::lint_scoped_at(&b, state, now)?;
                     (l.findings, None, l.laid)
                 }
             };
@@ -1241,7 +1293,9 @@ impl Scaena {
             },
             size: a.size.clone(),
             fps: a.fps,
-            audio: a.audio.clone().map(Into::into),
+            // A sound track is held as a data file is: nothing else the user can read goes into a
+            // video made to be shared (lift-up 20261025b SEC-2).
+            audio: a.audio.as_deref().map(|f| self.readable(Path::new(f), &a.bundle)).transpose().map_err(failure)?,
             painter: a.painter,
             pace: a.pace,
             notes: a.notes,
@@ -1453,7 +1507,8 @@ impl Scaena {
         context: RequestContext<RoleServer>,
     ) -> Result<Json<scaena_ops::history::History>, String> {
         let author = author(&context);
-        blocking(move || scaena_ops::history::history(&*open_by(&a.bundle, author)?, &a.ask)).await.map(Json)
+        let writes = a.ask.begin || a.ask.restore.is_some();
+        blocking(move || scaena_ops::history::history(&*held_if(writes, &a.bundle, author)?, &a.ask)).await.map(Json)
     }
 
     #[tool(description = "The deck's spine (SPEC §2.6, §10): its sections and beats, each beat's claim, evidence, \
@@ -1478,9 +1533,10 @@ impl Scaena {
         &self,
         Parameters(a): Parameters<BundleArg>,
     ) -> Result<Json<scaena_ops::health::Health>, String> {
+        let lints = Lints(self.lints.clone());
         blocking(move || {
             let b = open(&a.bundle)?;
-            scaena_ops::health::health_in(&b.deck, &scaena_ops::lint::lint(&b)?.findings)
+            scaena_ops::health::health_in(&b.deck, &lints.linted(&b)?.findings)
         })
         .await
         .map(Json)
@@ -1584,8 +1640,8 @@ impl Scaena {
     ) -> Result<Json<scaena_ops::narrative::SlideWritten>, String> {
         let author = author(&context);
         blocking(move || {
-            let slide: scaena_ops::narrative::Slide =
-                serde_json::from_value(Value::Object(a.slide)).map_err(|e| OpsError::new(format!("the slide: {e}")))?;
+            let slide =
+                scaena_ops::narrative::slide_from(&Value::Object(a.slide)).map_err(|e| e.context("the slide"))?;
             let place = match (a.replace, a.after) {
                 (Some(_), Some(_)) => return Err(OpsError::new("give `after` or `replace`, not both")),
                 (Some(state), None) => scaena_ops::narrative::Place::Replace(state),

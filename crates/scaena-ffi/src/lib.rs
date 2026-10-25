@@ -91,6 +91,15 @@ fn said(message: impl std::fmt::Display) -> Failure {
     json!({ "message": message.to_string() })
 }
 
+/// The API address `args` give as `base`, where they give one the key may go to: refused where it
+/// is plain `http` off this machine (lift-up 20261025 SEC-2).
+fn base(args: &Value) -> Result<Option<&str>, Failure> {
+    match args.get("base").and_then(Value::as_str).filter(|b| !b.is_empty()) {
+        Some(b) => scaena_narrato::providers::checked_base(b).map(Some).map_err(said),
+        None => Ok(None),
+    }
+}
+
 /// `f`'s result, with a panic caught and said.
 /// The stack a call that lays out and lints a deck takes, at most, and the room left on the
 /// caller's stack below which [`deep`] adds a segment of [`DEEP`] for it (#533). A re-theme lints
@@ -1697,6 +1706,7 @@ fn call(s: &mut Session, method: &str, args: &Value) -> Result<Value, Failure> {
     };
     Ok(match method {
         "states" => json!(s.states()),
+        "title" => json!(s.title()),
         "formats" => json!(s.formats()),
         "sizes" => json!(s.sizes()),
         "setFormat" => {
