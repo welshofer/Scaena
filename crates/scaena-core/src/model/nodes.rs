@@ -260,6 +260,19 @@ pub struct Code {
     /// scanner colors (`scaena_core::code`).
     #[schemars(regex(pattern = r"^[a-z0-9][a-z0-9+#._-]{0,31}$"))]
     pub language: String,
+    /// Whether its lines are numbered, each in a gutter beside it that no caret, word, or reader
+    /// takes (PLAN 2.136, deck format 0.39): off where unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub numbers: Option<bool>,
+    /// The number its first line goes by in the gutter, 1 to 999,999: 1 where unset. It only
+    /// labels the gutter; a line is named by its place, counted from 1, everywhere else.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(range(min = 1, max = 999_999))]
+    pub start: Option<u32>,
+    /// Whether it stands on a card that hugs it and its gutter, in the theme's `code.card`: on
+    /// where unset. A deck saved before 0.39 reads with it off, and draws as it did.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub card: Option<bool>,
 }
 
 /// What a text node does when its text does not fit (SPEC §3.4).
