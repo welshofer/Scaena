@@ -85,21 +85,25 @@ private func alike(_ a: CGRect, _ b: CGRect) -> Bool {
     let middle = CGPoint(x: zoom.shown.midX, y: zoom.shown.midY)
 
     var reopened = Zoom(canvas: CGSize(width: 1920, height: 1080), desk: CGSize(width: 1016, height: 596))
-    #expect(reopened.restore(kept))
+    let took = reopened.restore(kept)
+    #expect(took)
     #expect(reopened.level == 3)
     #expect(abs(reopened.shown.midX - middle.x) < 0.5 && abs(reopened.shown.midY - middle.y) < 0.5)
 
     // In a larger window, what showed in the middle shows there still.
     var larger = Zoom(canvas: CGSize(width: 1920, height: 1080), desk: CGSize(width: 1400, height: 800))
-    #expect(larger.restore(kept))
+    let tookLarger = larger.restore(kept)
+    #expect(tookLarger)
     #expect(abs(larger.shown.midX - middle.x) < 0.5 && abs(larger.shown.midY - middle.y) < 0.5)
 
     // Nothing kept, fitted, a point that is no number, or no desk yet: as it was.
     var fitted = Zoom(canvas: CGSize(width: 1920, height: 1080), desk: CGSize(width: 1016, height: 596))
-    #expect(!fitted.restore("") && !fitted.restore("1 960 540") && !fitted.restore("3 nan 540"))
+    let none = fitted.restore(""), plain = fitted.restore("1 960 540"), nan = fitted.restore("3 nan 540")
+    #expect(!none && !plain && !nan)
     #expect(fitted.level == 1)
     var deskless = Zoom(canvas: CGSize(width: 1920, height: 1080))
-    #expect(!deskless.restore(kept) && deskless.level == 1)
+    let deskTook = deskless.restore(kept)
+    #expect(!deskTook && deskless.level == 1)
 }
 
 @Test func theArrowsPanATenthOfWhatShowsOrHalfWithShift() {
