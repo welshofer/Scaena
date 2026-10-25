@@ -60,6 +60,8 @@ export function said(event: GeneratingEvent): string {
         : "The model saw nothing to change";
     case "unlooked":
       return `Not changed by what the model saw: ${event.why}`;
+    case "refused":
+      return `Slide ${event.slide} kept as made: the model asked for ${event.what}. ${event.why}`;
     case "fitting":
       return `${event.texts} ${event.texts === 1 ? "text runs" : "texts run"} past ${event.texts === 1 ? "its place" : "their places"}: asking for them shorter…`;
     case "fitted":
@@ -75,7 +77,8 @@ export function made(m: Generated): string {
   const errors = m.created.errors ? `, ${m.created.errors} ${m.created.errors === 1 ? "problem" : "problems"} to look at` : "";
   const pictures = m.pictures ? `, ${m.pictures} ${m.pictures === 1 ? "picture" : "pictures"}` : "";
   const looked = m.looked?.length ? `, ${m.looked.length} changed by what the model saw` : "";
-  return `Made: ${m.layouts.length} slides on the arc ${m.arc}${pictures}${looked}${fixed}${errors}`;
+  const refused = m.refused?.length ? `, ${m.refused.length} of its changes let go` : "";
+  return `Made: ${m.layouts.length} slides on the arc ${m.arc}${pictures}${looked}${refused}${fixed}${errors}`;
 }
 
 /** A source given: a file, or a link. */

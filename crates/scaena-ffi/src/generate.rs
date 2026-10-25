@@ -596,7 +596,12 @@ impl Generating {
                 }
                 let report = making.report();
                 let fit = self.fitting(making, key)?;
-                json!({ "looked": report["looked"].as_array().map_or(0, Vec::len), "unlooked": report["unlooked"], "fit": fit })
+                json!({
+                    "looked": report["looked"].as_array().map_or(0, Vec::len),
+                    "unlooked": report["unlooked"],
+                    "refused": report["refused"],
+                    "fit": fit,
+                })
             }
             "fitted" => {
                 let key = args.get("key").and_then(Value::as_str);

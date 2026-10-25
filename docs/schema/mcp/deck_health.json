@@ -119,6 +119,11 @@
             "description": "The closing it opens never lands the big idea the outline settled.",
             "type": "string",
             "const": "bigIdea"
+          },
+          {
+            "description": "A change the model asked once it saw the slide drawn was not kept, lint having found the\nslide worse for it (`meta.narrative.refused`, lift-up USE-4).",
+            "type": "string",
+            "const": "look"
           }
         ]
       },

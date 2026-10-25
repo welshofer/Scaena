@@ -14,7 +14,8 @@ use scaena_narrato::look::Change;
 use scaena_ops::OpsError;
 use scaena_ops::lint::Write;
 use scaena_ops::narrative::{
-    Generated, Kept, Made, Shown, adopt, fitted, keeping, kept, looked, making, overflowing, unkept, worse,
+    Generated, Kept, Made, Shown, adopt, fitted, keeping, kept, looked, making, overflowing, refusals, refuse, unkept,
+    worse,
 };
 use scaena_sources::Table;
 use std::collections::BTreeMap;
@@ -148,10 +149,17 @@ impl Making {
         };
         let found = worse((&self.made, write), (&made, &after));
         if !found.is_empty() {
+            // Each change let go, said with what lint found, kept by the deck that stands until
+            // one without them is (lift-up USE-4).
+            let said = refusals(&changes, &found, (&self.made, write), (&made, &after));
+            if let Some(write) = &mut self.write {
+                refuse(&mut self.made, write, said);
+            }
             return Ok(Relooked::Worse(found));
         }
+        let said = std::mem::take(&mut self.made.refused);
         let before = std::mem::replace(&mut self.made, made.clone());
-        let (made, write) = adopt(before, (made, after), kept(changes, refused), refused);
+        let (made, write) = adopt(before, (made, after), kept(changes, refused), said);
         self.made = made;
         self.write = Some(write);
         Ok(Relooked::Kept)

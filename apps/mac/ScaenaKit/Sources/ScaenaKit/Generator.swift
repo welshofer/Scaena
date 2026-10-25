@@ -147,6 +147,8 @@ public enum GeneratingStep: Equatable, Sendable {
     case looking(slides: Int)
     case looked(slides: Int)
     case unlooked(String)
+    /// A change the model asked that lint found its slide worse for, let go (lift-up USE-4).
+    case refused(slide: Int, what: String, why: String)
     case fitting(texts: Int)
     case fitted(texts: Int)
     case unfitted(String)
@@ -183,6 +185,7 @@ public enum GeneratingStep: Equatable, Sendable {
         case .looked(let slides) where slides == 0: "The model saw nothing to change"
         case .looked(let slides): "\(slides) \(slides == 1 ? "slide" : "slides") changed by what the model saw"
         case .unlooked(let why): "Not changed by what the model saw: \(why)"
+        case .refused(let slide, let what, let why): "Slide \(slide) kept as made: the model asked for \(what). \(why)"
         case .fitting(let texts): "\(texts) \(texts == 1 ? "text runs" : "texts run") past their place: asking for them shorter…"
         case .fitted(let texts): "\(texts) rewritten to fit"
         case .unfitted(let why): "Not rewritten to fit: \(why)"
@@ -209,6 +212,15 @@ public struct Generated: Decodable, Sendable {
     /// What the model changed on the deck it saw drawn (PLAN G.13), slide by slide, or why not.
     public let looked: [Looked]?
     public let unlooked: String?
+    /// Each change the model asked that lint found its slide worse for, let go (lift-up USE-4).
+    public let refused: [Refused]?
+
+    /// A change let go: its slide's number, what the model asked, and what lint found.
+    public struct Refused: Decodable, Sendable, Equatable {
+        public let slide: Int
+        public let what: String
+        public let why: String
+    }
 
     /// A slide the model changed: its number, the layout it gave it, and why.
     public struct Looked: Decodable, Sendable {
@@ -222,7 +234,8 @@ public struct Generated: Decodable, Sendable {
         let errors = created.errors == 0 ? "" : ", \(created.errors) \(created.errors == 1 ? "error" : "errors") to look at"
         let made = pictures.map { $0 == 0 ? "" : ", \($0) \($0 == 1 ? "picture" : "pictures")" } ?? ""
         let seen = (looked?.count).map { $0 == 0 ? "" : ", \($0) changed by what the model saw" } ?? ""
-        return "Made \(layouts.count) slides on the arc \(arc)\(made)\(seen)\(errors)"
+        let letGo = (refused?.count).map { $0 == 0 ? "" : ", \($0) of its changes let go" } ?? ""
+        return "Made \(layouts.count) slides on the arc \(arc)\(made)\(seen)\(letGo)\(errors)"
     }
 }
 
@@ -694,6 +707,7 @@ public final class Generator {
         let look: Making.Look?
         let looked: Int?
         let unlooked: String?
+        let refused: [Generated.Refused]?
         let fit: Fit?
     }
 
@@ -982,6 +996,8 @@ public final class Generator {
             } else {
                 hear(.looked(slides: looking.looked ?? 0))
             }
+            // Each change let go, and what lint found (lift-up USE-4).
+            for r in looking.refused ?? [] { hear(.refused(slide: r.slide, what: r.what, why: r.why)) }
             fit = looking.fit
         }
         // Each answer may ask once more for what the rewrite left too long (STAB-4).
