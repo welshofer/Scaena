@@ -173,7 +173,8 @@ fn a_damaged_history_is_kept_aside_and_begun_again() {
     assert!(said.contains(scaena_store::DAMAGED) && said.contains("begins the history again"), "{said}");
     // A patch writes the deck, keeps the damaged history aside, and begins the history again.
     let b = scaena_ops::open(&dir).unwrap();
-    let patched = scaena_ops::patch::patch(&b, &json!([{ "op": "rename_node", "id": "title", "to": "headline" }]), false);
+    let patched =
+        scaena_ops::patch::patch(&b, &json!([{ "op": "rename_node", "id": "title", "to": "headline" }]), false);
     assert!(patched.unwrap().applied);
     let aside = dir.join(scaena_store::aside(&damaged));
     assert_eq!(std::fs::read(&aside).unwrap(), damaged, "kept aside as it was");
