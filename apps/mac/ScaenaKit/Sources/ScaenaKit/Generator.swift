@@ -708,9 +708,12 @@ public final class Generator {
         let fit: Fit?
     }
 
+    /// A rewrite answered: what it came to, and the next round's request where the rewrite left
+    /// a text too long (STAB-4).
     private struct Fitting: Decodable, Sendable {
         let fitted: Int?
         let unfitted: String?
+        let fit: Fit?
     }
 
     /// Who makes a deck's pictures (PLAN G.10): an image provider, the user's key for it, where
@@ -1000,18 +1003,21 @@ public final class Generator {
             }
             fit = looking.fit
         }
-        if let fit {
-            hear(.fitting(texts: fit.texts))
-            let reply = await send(fit.request)
+        // Each answer may ask once more for what the rewrite left too long (STAB-4).
+        while let asked = fit {
+            hear(.fitting(texts: asked.texts))
+            let reply = await send(asked.request)
             let fitting: Fitting = try await stepAway(
                 "fitted",
                 [
                     "status": .number(Double(reply.status)),
                     "statusText": .string(HTTPURLResponse.localizedString(forStatusCode: reply.status)),
                     "body": .string(reply.text),
+                    "key": .string(key),
                 ])
             if let n = fitting.fitted { hear(.fitted(texts: n)) }
             if let why = fitting.unfitted { hear(.unfitted(unanswered(why, provider, reply))) }
+            fit = fitting.fit
         }
         let generated: Generated = try step("report")
         var error: UnsafeMutablePointer<CChar>?

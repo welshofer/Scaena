@@ -96,26 +96,47 @@ export function strip(stage: Stage, into: HTMLElement, editor: StripEditor) {
     return `<span class="found ${worst(all)}" title="${html(said)}"><span aria-hidden="true">${all.length}</span><span class="sr">, ${html(said)}</span></span>`;
   }
 
-  /** The states as `edited` says the deck has them, `shown` the one shown. */
+  /** The item for slot `s`, selected where `on`: its canvas empty. */
+  function tile(s: Slot, on: boolean): HTMLLIElement {
+    // A slide by its number, a step after its first by its place in the slide.
+    const said = s.said ?? s.state;
+    const step = said.split(", ")[1];
+    const name = step ? `${step[0].toUpperCase()}${step.slice(1)}` : said;
+    const made = document.createElement("template");
+    made.innerHTML = `<li role="option" id="strip-${html(s.state)}" data-state="${html(s.state)}" aria-selected="${on}" tabindex="${on ? 0 : -1}" draggable="true" title="${html(said)}: it plays for ${seconds(s.span)}">
+          <canvas aria-hidden="true"></canvas><span class="id"${step ? ` aria-label="${html(said)}"` : ""}>${html(name)}</span><span class="cue">${seconds(s.span)}</span>${tally(s.state)}</li>`;
+    return made.content.firstElementChild as HTMLLIElement;
+  }
+
+  /** The states as `edited` says the deck has them, `shown` the one shown. Each state's item that
+   * stays is kept, its canvas and what it drew with it, its words, cue, and selection said again
+   * in place; only the items of states new to the strip are made and drawn (lift-up 10-24b
+   * PERF-5), and a drawing that changed is drawn again as `paint` takes it. */
   function states(next: Slot[], shown: number) {
     slots = next;
     for (const id of [...thumbs.keys()]) if (!next.some((s) => s.state === id)) thumbs.delete(id);
     const focused = list.contains(document.activeElement);
-    list.innerHTML = next
-      .map((s, i) => {
-        const on = i === shown;
-        // A slide by its number, a step after its first by its place in the slide.
-        const said = s.said ?? s.state;
-        const step = said.split(", ")[1];
-        const name = step ? `${step[0].toUpperCase()}${step.slice(1)}` : said;
-        return `<li role="option" id="strip-${html(s.state)}" data-state="${html(s.state)}" aria-selected="${on}" tabindex="${on ? 0 : -1}" draggable="true" title="${html(said)}: it plays for ${seconds(s.span)}">
-          <canvas aria-hidden="true"></canvas><span class="id"${step ? ` aria-label="${html(said)}"` : ""}>${html(name)}</span><span class="cue">${seconds(s.span)}</span>${tally(s.state)}</li>`;
-      })
-      .join("");
-    for (const s of next) draw(s.state);
-    const item = list.children[shown] as HTMLElement | undefined;
-    inView(item);
-    if (focused) item?.focus();
+    const had = new Map([...list.querySelectorAll<HTMLLIElement>(":scope > li[data-state]")].map((li) => [li.dataset.state!, li]));
+    const made: string[] = [];
+    const items = next.map((s, i) => {
+      const fresh = tile(s, i === shown);
+      const kept = had.get(s.state);
+      if (!kept) {
+        made.push(s.state);
+        return fresh;
+      }
+      for (const name of ["aria-selected", "tabindex", "title"]) kept.setAttribute(name, fresh.getAttribute(name)!);
+      // Its canvas stays, with the mark of a slide that could not be painted; the rest is said again.
+      const canvas = kept.querySelector(":scope > canvas")!;
+      const mark = kept.querySelector(":scope > .unpainted");
+      kept.replaceChildren(canvas, ...(mark ? [mark] : []), ...[...fresh.children].filter((c) => c.tagName !== "CANVAS"));
+      return kept;
+    });
+    if (items.length !== list.children.length || items.some((li, i) => list.children[i] !== li)) list.replaceChildren(...items);
+    for (const state of made) draw(state);
+    const shownItem = list.children[shown] as HTMLElement | undefined;
+    inView(shownItem);
+    if (focused) shownItem?.focus();
   }
 
   /** `item` scrolled into the strip's view, as `scrollIntoView` scrolls it to the nearest edge, by

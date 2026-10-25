@@ -176,6 +176,27 @@ fn an_unreadable_outline_is_asked_again_then_passed_over() {
     assert_eq!(again.unread(), None, "one unreadable answer since it was asked afresh");
 }
 
+/// A deck grounded in a PDF has its outline written with the PDF beside the prompt, as its slides
+/// are (lift-up FUNC-3); the arc sees none.
+#[test]
+fn the_outline_is_asked_with_the_documents_beside_it() {
+    let mut g = Generation::new(brief(), settings(Provider::Anthropic)).unwrap();
+    let pdf = scaena_narrato::Document {
+        name: "deck.pdf".into(),
+        media_type: "application/pdf".into(),
+        data: "JVBERi0xLjcK".into(),
+    };
+    let arc = g.request("sk-test", std::slice::from_ref(&pdf)).unwrap();
+    assert!(!serde_json::to_string(&arc.body).unwrap().contains("\"document\""), "the arc sees no document");
+    g.answer(200, "OK", &answer("anthropic-arc"), None).unwrap();
+    g.outline_first().unwrap();
+    let outline = g.request("sk-test", std::slice::from_ref(&pdf)).unwrap().body.unwrap();
+    let content = outline["messages"][0]["content"].as_array().unwrap();
+    assert_eq!(content[0]["type"], "document", "{content:?}");
+    assert_eq!(content[0]["source"]["data"], "JVBERi0xLjcK");
+    assert_eq!(outline["system"][0]["text"].as_str().unwrap(), scaena_narrato::outline::OUTLINE_SYSTEM);
+}
+
 /// The words the slides name icons by are asked for once each (PLAN G.23), and the icons the
 /// client finds for them are kept with the narrative, for the deck it makes.
 #[test]

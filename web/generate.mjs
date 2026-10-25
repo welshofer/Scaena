@@ -130,8 +130,8 @@ const provider = createServer(async (req, res) => {
     const look = { slides: [{ slide: 1, layout: "", title: "Carbon-negative cargo, ready to scale", subtitle: "", bullets: [], why: "One idea, one line." }] };
     return reply(200, { content: [{ type: "text", text: JSON.stringify(look) }], stop_reason: "end_turn" });
   }
-  // Each text asked for shorter, cut to the most characters it may have.
-  const texts = [...prompt.matchAll(/id: (.+)\nat most: (\d+) characters\ntext:\n([^\n]*)/g)].map(([, id, most, said]) => ({
+  // Each text asked for shorter, its words read back from their fence, cut to the most characters it may have.
+  const texts = [...prompt.matchAll(/id: (.+)\nat most: (\d+) characters\ntext:\n<data label="text">\n([^\n]*)/g)].map(([, id, most, said]) => ({
     id,
     text: said.slice(0, Math.max(1, Number(most) - 1)).trim(),
   }));

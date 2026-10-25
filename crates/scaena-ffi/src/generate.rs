@@ -74,6 +74,8 @@ pub struct Generating {
     /// The pictures made: where each slide's is kept, their bytes, and why each other was not.
     painted: Option<Painted>,
     making: Option<(Making, Vec<Long>)>,
+    /// How many times the model has been asked to rewrite what runs past its place (STAB-4).
+    fit_rounds: usize,
     /// What the model is shown of the deck made, while it is asked what it would change on it
     /// (PLAN G.13), a dozen slides a round (narrative PERF-5), and the theme it is made in.
     look: Look,
@@ -603,16 +605,32 @@ impl Generating {
                 json!({ "looked": report["looked"].as_array().map_or(0, Vec::len), "unlooked": report["unlooked"], "fit": fit })
             }
             "fitted" => {
+                let key = args.get("key").and_then(Value::as_str);
                 let w = self.generation.as_ref().ok_or_else(|| said("fitted: no narrative is written"))?;
-                let (making, longs) = self.making.as_mut().ok_or_else(|| said("fitted: no deck is made"))?;
-                match w.generation.fit_answer(status(), &status_text(), arg("body")?, longs) {
+                let (mut making, longs) = self.making.take().ok_or_else(|| said("fitted: no deck is made"))?;
+                match w.generation.fit_answer(status(), &status_text(), arg("body")?, &longs) {
                     Ok(rewrites) => {
                         let n = rewrites.len();
                         making.fitted(rewrites).map_err(said)?;
-                        json!({ "fitted": n })
+                        // Asked once more for what the rewrite left too long, then said (STAB-4).
+                        self.fit_rounds += 1;
+                        let fit = match self.fit_rounds < scaena_narrato::fit::ROUNDS {
+                            true => self.fitting(making, key)?,
+                            false => {
+                                self.making = Some((making, Vec::new()));
+                                Value::Null
+                            }
+                        };
+                        if fit.is_null()
+                            && let Some((making, _)) = self.making.as_mut()
+                        {
+                            making.still_long().map_err(said)?;
+                        }
+                        json!({ "fitted": n, "fit": fit })
                     }
                     Err(why) => {
                         making.unfitted(why.to_string());
+                        self.making = Some((making, longs));
                         json!({ "unfitted": why.to_string() })
                     }
                 }

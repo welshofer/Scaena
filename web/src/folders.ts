@@ -2,6 +2,30 @@
 // (File System Access), or one in the browser's own storage, the origin-private file system,
 // which keeps bundles under `bundles/`. The same calls read and write both.
 
+/** The browser's answer, once asked, whether it keeps what this page stores for good. */
+let persisting: Promise<boolean> | undefined;
+
+/** Ask the browser once to keep what this page stores, the decks it keeps and their recovery
+ * copies (lift-up 10-24b REL-4): left best-effort, a browser short of room may clear them. Where it
+ * will not, `say` is told once, with the way to keep a copy. Whether it keeps them. */
+export function persist(say: (text: string) => void): Promise<boolean> {
+  persisting ??= (async () => {
+    // A page's own, which a worker's types, this file being in both, do not name.
+    const storage = navigator.storage as StorageManager & { persist?: () => Promise<boolean> };
+    if (!storage?.persist) return false;
+    if (await storage.persisted().catch(() => false)) return true;
+    const kept = await storage.persist().catch(() => false);
+    if (!kept) say("This browser may clear the decks it keeps when it runs short of room: Download keeps a copy of your own.");
+    return kept;
+  })();
+  return persisting;
+}
+
+/** Whether the browser keeps what this page stores for good, as it says now. */
+export async function persisted(): Promise<boolean> {
+  return (await navigator.storage?.persisted?.().catch(() => false)) ?? false;
+}
+
 /** Where the browser keeps bundles: `bundles/` in the origin-private file system. */
 export async function kept(): Promise<FileSystemDirectoryHandle> {
   return (await navigator.storage.getDirectory()).getDirectoryHandle("bundles", { create: true });
