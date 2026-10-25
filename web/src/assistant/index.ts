@@ -31,6 +31,9 @@ export interface Session {
   mapAiming(aim: string): string;
   mapRefreshing(state: string, node: string, zoom?: number, lat?: number, lon?: number): string;
   mapping(target: string, fetched: string, pin: string, label: string | undefined, png: Uint8Array): string;
+  /** `slide_write`'s second half (lift-up FUNC-1): the slide the generator's module built, made
+   * one patch with its set held alike and set clear and lint's fixes on it taken. */
+  slidePolishing(written: string, dryRun: boolean, author?: string, at?: string): Called;
 }
 
 /** What a tool returned (`ToolResult`). */
@@ -209,6 +212,11 @@ async function run(
   if (call.name === "icon_find") return answer(...(await iconFind(call.args)));
   if (call.name === "deck_health") return answer(...(await deckHealth(session, call.args)));
   if (call.name === "map_fetch") return mapFetch(session, call, edited, author, mapKey);
+  if (call.name === "slide_write") {
+    const [json, error, changed] = await slideWrite(session, call.args, author);
+    if (changed) await edited(session.source(), []);
+    return answer(json, error);
+  }
   let out: { result: Result; summary: string; made: boolean };
   let changed: boolean;
   let files: Rewritten[] = [];
@@ -319,6 +327,64 @@ async function mapFetch(
     const patched = await run(session, { id: call.id, name: "deck_patch", args: { ops: mapped.ops } }, edited, author);
     const json = JSON.stringify({ target, placed: { node: mapped.node, src: mapped.src, place: mapped.place, said: mapped.said, ...(JSON.parse(patched.result.json) as object) } });
     return { result: { id: call.id, name: call.name, json, error: patched.result.error }, summary: patched.result.error ? patched.summary : mapped.said, made: patched.made };
+  } catch (e) {
+    return stop(e instanceof Error ? e.message : String(e));
+  }
+}
+
+/** `slide_write` (lift-up FUNC-1): one slide built as the deck's generator builds slides, by the
+ * generator's module, the icons its words name found in the set the page carries; then made one
+ * patch by the session in the editor's module, its set held to one size and set clear and lint's
+ * fixes on its own states taken, as the Mac's session writes one, by `author`. The editor's module
+ * carries none of the slide builder (SPEC §15). Its answer is the MCP tool's, and whether the deck
+ * changed; or why it did not. */
+export async function slideWrite(session: Session, args: unknown, author: string): Promise<[string, boolean, boolean]> {
+  const stop = (message: string): [string, boolean, boolean] => [JSON.stringify({ message }), true, false];
+  const a = (args ?? {}) as { slide?: unknown; after?: unknown; replace?: unknown; dry_run?: unknown };
+  const known = Object.keys(a).every((k) => ["slide", "after", "replace", "dry_run"].includes(k));
+  const place = (v: unknown) => v === undefined || v === null || typeof v === "string";
+  if (!known || typeof a.slide !== "object" || a.slide === null || !place(a.after) || !place(a.replace)) {
+    return stop("slide_write takes `slide`, a slide as Narrato writes one; `after` or `replace`, a state; and `dry_run`");
+  }
+  if (a.after && a.replace) return stop("slide_write: give `after` or `replace`, not both");
+  const read = session.tool("deck_read", "{}");
+  let deck: string;
+  try {
+    if (read.error) return [read.json, true, false];
+    deck = JSON.stringify((JSON.parse(read.json) as { deck: unknown }).deck);
+  } finally {
+    read.free();
+  }
+  const held = session.themeText();
+  if (!held) return stop("slide_write: the deck names no theme");
+  const slide = a.slide as Record<string, unknown>;
+  try {
+    // The icons its words name, from the set the page carries.
+    const words = Array.isArray(slide.icons) ? (slide.icons as unknown[]).filter((w): w is string => typeof w === "string") : [];
+    const found: Record<string, { name: string; path: string; view: number[] }> = {};
+    if (words.length) {
+      const set = await iconSet();
+      for (const word of words) {
+        const [first] = findIcons(set, word);
+        if (first) found[word] = { name: first.name, path: first.regular, view: set.view };
+      }
+    }
+    // The files its data sources read, for the chart of a slide written again.
+    const sources = Object.values((JSON.parse(deck) as { data?: Record<string, { source?: unknown }> }).data ?? {});
+    const files = sources.flatMap(({ source }) => {
+      const bytes = typeof source === "string" ? session.file(source) : undefined;
+      return bytes ? [[source as string, bytes] as [string, Uint8Array]] : [];
+    });
+    const { slideBuilt } = await import("@scaena/generate");
+    const where = a.replace ? { replace: a.replace as string } : a.after ? { after: a.after as string } : {};
+    const built = await slideBuilt(deck, (JSON.parse(held) as { text: string }).text, slide, where, found, files);
+    const called = session.slidePolishing(built, a.dry_run === true, author, new Date().toISOString());
+    try {
+      const applied = !called.error && (JSON.parse(called.json) as { applied?: boolean }).applied === true;
+      return [called.json, called.error, applied && called.edited];
+    } finally {
+      called.free();
+    }
   } catch (e) {
     return stop(e instanceof Error ? e.message : String(e));
   }

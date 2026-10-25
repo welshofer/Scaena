@@ -71,7 +71,8 @@ impl Bundle {
     pub fn save(&self, to: &Path, opts: &SaveOptions) -> Result<Saved, StoreError> {
         let Saving { files, replaced, saved } = self.saving(opts)?;
         if to.extension().and_then(|e| e.to_str()) == Some("scaena") && !to.is_dir() {
-            crate::write_whole(to, &zip(&files)?)?;
+            crate::write_whole(to, &zip(&files)?)
+                .map_err(|source| StoreError::Write { path: to.to_path_buf(), source })?;
         } else {
             self.write_dir(to, &files, &replaced)?;
         }
@@ -291,7 +292,9 @@ impl Bundle {
         replaced: &BTreeSet<String>,
     ) -> Result<(), StoreError> {
         let in_place = matches!(&self.files, Files::Dir(root) if same_dir(root, to)) && self.deck_file == "deck.json";
-        if to.exists() && !in_place && std::fs::read_dir(to)?.next().is_some() {
+        let listed =
+            |to: &Path| std::fs::read_dir(to).map_err(|source| StoreError::Read { path: to.to_path_buf(), source });
+        if to.exists() && !in_place && listed(to)?.next().is_some() {
             return Err(StoreError::Occupied(to.to_path_buf()));
         }
         let files: Vec<(std::path::PathBuf, &[u8])> =
@@ -299,7 +302,8 @@ impl Bundle {
         crate::write_all(&files)?;
         if in_place {
             for rel in replaced.iter().filter(|rel| !out.contains_key(*rel)) {
-                std::fs::remove_file(to.join(rel))?;
+                let path = to.join(rel);
+                std::fs::remove_file(&path).map_err(|source| StoreError::Write { path, source })?;
             }
         }
         Ok(())
@@ -319,15 +323,15 @@ impl Bundle {
                 for (rel, bytes) in self.in_order(files) {
                     paths.push((crate::inside(root, rel)?, bytes.as_slice()));
                 }
-                Ok(crate::write_all(&paths)?)
+                crate::write_all(&paths)
             }
             Files::Zip(entries) => {
                 let mut all = (**entries).clone();
                 for (rel, bytes) in files {
                     all.insert(crate::normal(rel)?, bytes.clone());
                 }
-                crate::write_whole(&self.root, &zip(&all)?)?;
-                Ok(())
+                crate::write_whole(&self.root, &zip(&all)?)
+                    .map_err(|source| StoreError::Write { path: self.root.clone(), source })
             }
         }
     }
@@ -349,10 +353,12 @@ impl Bundle {
         match &self.files {
             Files::Dir(root) => {
                 for rel in paths {
-                    std::fs::remove_file(crate::inside(root, rel)?)?;
+                    let path = crate::inside(root, rel)?;
+                    std::fs::remove_file(&path).map_err(|source| StoreError::Write { path, source })?;
                 }
                 if let Some(bytes) = manifest {
-                    crate::write_whole(&crate::inside(root, "manifest.json")?, &bytes)?;
+                    let path = crate::inside(root, "manifest.json")?;
+                    crate::write_whole(&path, &bytes).map_err(|source| StoreError::Write { path, source })?;
                 }
                 Ok(())
             }
@@ -364,8 +370,8 @@ impl Bundle {
                 if let Some(bytes) = manifest {
                     all.insert("manifest.json".into(), bytes);
                 }
-                crate::write_whole(&self.root, &zip(&all)?)?;
-                Ok(())
+                crate::write_whole(&self.root, &zip(&all)?)
+                    .map_err(|source| StoreError::Write { path: self.root.clone(), source })
             }
         }
     }

@@ -64,6 +64,7 @@ export function made(name: string, json: string, error: boolean): boolean {
     case "spine_update":
     case "state_start":
     case "background_set":
+    case "slide_write":
     case "theme_apply":
       return Boolean(r?.applied);
     case "theme_edit":
@@ -103,6 +104,7 @@ export function summary(name: string, json: string, error: boolean): string {
     case "spine_update":
     case "state_start":
     case "background_set":
+    case "slide_write":
       return (r.applied ? "Done" : r.added?.length ? "Refused" : "Tried, not made") + delta();
     case "deck_find": {
       const texts = r.found?.length ?? 0;

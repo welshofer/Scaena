@@ -169,3 +169,21 @@ fn scaena_save_keeps_a_family_its_theme_keeps_whole() {
         "kept whole, byte for byte"
     );
 }
+
+/// A save the system refuses says which file and why, each once (lift-up 10-24b USE-3): onto a
+/// path through a file, where a folder goes.
+#[test]
+fn a_save_the_system_refuses_says_where_and_why_once() {
+    let dir = scratch("refused");
+    let blocked = dir.join("a-file");
+    std::fs::write(&blocked, b"not a folder").unwrap();
+    let to = blocked.join("out");
+    let out = Command::new(env!("CARGO_BIN_EXE_scaena"))
+        .args(["save", "../../tests/bench/b1.scaena", "--to", to.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(!out.status.success(), "a save through a file fails");
+    let said = String::from_utf8_lossy(&out.stderr).to_ascii_lowercase();
+    assert!(said.contains(&format!("writing {}", to.display()).to_ascii_lowercase()), "{said}");
+    assert_eq!(said.matches("not a directory").count(), 1, "the reason once: {said}");
+}
