@@ -2504,8 +2504,8 @@ fn figure(text: &str) -> Option<String> {
 }
 
 /// Whether a slide whose nodes are `drawn` draws its `items`' figures as they are written (DF7-1):
-/// each item's own figure somewhere on it, and in its figures' places none that is only a part of
-/// one ("1" of "1 in 7", "+18" of "+18 %") or the digits of a name ("3" of "Q3").
+/// the figure of each item that is one somewhere on it, and in its figures' places none that is
+/// only a part of one ("1" of "1 in 7", "+18" of "+18 %") or the digits of a name ("3" of "Q3").
 fn faithful(items: &[Item], drawn: &[&Value]) -> bool {
     // Set as compared: case, spaces, and the kinds of dash and minus set aside.
     let plain = |text: &str| -> String {
@@ -2515,10 +2515,16 @@ fn faithful(items: &[Item], drawn: &[&Value]) -> bool {
             .collect()
     };
     let written: Vec<String> = items.iter().flat_map(|i| figures_in(&i.whole)).map(|f| plain(&f)).collect();
-    // Each item's own figure, which a layout may set apart but never leaves out; the figures its
-    // detail goes on to give a layout may leave to the notes ("$180B of it, 14,000 companies").
-    let led: Vec<String> =
-        items.iter().filter_map(Item::figure).filter_map(|f| figure(&f)).map(|f| plain(&f)).collect();
+    // The figure of each item that is one, led by it ("48,6 Mio. \u{20ac}: Umsatz") or nothing but it
+    // ("1 in 7"), which a layout may set apart but never leaves out. A figure in the detail of an
+    // item a name leads ("Checkout service: Go, 40 pods") a layout may leave to the notes: an
+    // architecture's cards and a funnel's stages show names alone (DF7-5).
+    let led: Vec<String> = (items.iter())
+        .filter(|i| i.figure_first() || numeric(&i.whole))
+        .filter_map(Item::figure)
+        .filter_map(|f| figure(&f))
+        .map(|f| plain(&f))
+        .collect();
     let names: Vec<String> = (items.iter())
         .flat_map(|i| {
             let chars: Vec<char> = i.whole.chars().collect();
