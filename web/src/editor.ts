@@ -1447,6 +1447,7 @@ async function edit(source: Source, opened?: Stage) {
   const rehearsing = rehearsal(stage, $("#rehearsing"), $("#rehearsal-notes"), $<HTMLDialogElement>("#rehearsed"), $("#preview"), {
     slots: async () => (showing() || last?.valid ? stage.timeline(format()) : undefined),
     format,
+    at: () => shown,
     notes: (state) => stage.notes(state),
     show: (index) => void show(index),
     keep: async (ops, what) => {

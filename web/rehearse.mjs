@@ -3,8 +3,8 @@
 //
 //   node web/rehearse.mjs     (after `just web`; from the repository's root)
 //
-// - Rehearse plays the deck from its first state, a state's cue then the state at rest; → goes on
-//   and ← goes back; the bar says where the rehearsal is.
+// - Rehearse plays the deck from the slide shown, a state's cue then the state at rest; → goes on
+//   and ← goes back; P pauses its clock; the bar says where the rehearsal is.
 // - Escape stops it. The table says what each state took, a state shown twice both times, its cue,
 //   and the hold the time keeps (the time less the cue, to a tenth of a second); a state not
 //   reached keeps its hold. Nothing changes the deck until Keep.
@@ -92,6 +92,42 @@ try {
   await page.locator("#rehearsed button[value=cancel]").click();
   await page.waitForTimeout(500);
   check((await source()) === was, "Discard keeps nothing");
+
+  // From the slide shown, and paused (lift-up 10-25b USE-2): stopped on Slide 2, the canvas shows
+  // it, and the next rehearsal begins there; P pauses the clock, which counts nothing until P goes
+  // on with it.
+  await rehearse();
+  await press("ArrowRight", 100);
+  await page.waitForFunction(() => window.scaena.at().index === 1, null, { timeout: 5000 }).catch(() => {});
+  await press("Escape", 100);
+  await stopped();
+  await page.locator("#rehearsed button[value=cancel]").click();
+  await page.waitForTimeout(300);
+  await rehearse();
+  check((await at()) === 1, `a rehearsal begins at the slide shown: ${await at()}`);
+  const bar = () => page.locator("#rehearsing [data-where]").textContent();
+  check((await bar()).startsWith("Rehearsing Slide 2 · "), `the bar says so: ${await bar()}`);
+  await press("p", 300);
+  check(await page.evaluate(() => window.scaena.rehearsal.paused()), "P pauses it");
+  const pausedAt = await bar();
+  await page.waitForTimeout(1200);
+  check(pausedAt.startsWith("Paused on Slide 2 · ") && (await bar()) === pausedAt, `and its clock stands: ${pausedAt} → ${await bar()}`);
+  check((await page.locator("#rehearsing [data-pause]").getAttribute("aria-pressed")) === "true", "Pause reads as pressed");
+  await page.click("#rehearsing [data-pause]");
+  check(!(await page.evaluate(() => window.scaena.rehearsal.paused())), "Pause again goes on with it");
+  await press("Escape", 400);
+  await stopped();
+  const paused = await page.evaluate(() => window.scaena.rehearsal.kept());
+  const revenue = paused.find((k) => k.state === "revenue");
+  check(
+    paused[0].spent === 0 && revenue.spent > 300 && revenue.spent < 300 + 400 + SLACK,
+    `the slide before was not rehearsed, and the pause counts toward none: ${paused.map((k) => `${k.state} ${k.spent.toFixed(0)}`).join(", ")}`,
+  );
+  await page.locator("#rehearsed button[value=cancel]").click();
+  await page.waitForTimeout(300);
+  // Back to the first, for what follows.
+  await page.selectOption("#state", "intro");
+  await page.waitForFunction(() => window.scaena.at().index === 0, null, { timeout: 5000 }).catch(() => {});
 
   // A second Escape keeps the timings safe (lift-up USE-2): Escape stops the run and opens the
   // results; Escape on them is held off once, the status saying they stay; the next closes them;
