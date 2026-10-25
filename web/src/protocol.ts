@@ -57,7 +57,7 @@ export type Export =
   | { kind: "png"; state: string; width: number; format?: string }
   | { kind: "slides"; width: number; format?: string; name: string }
   | { kind: "pdf"; notes?: boolean }
-  | { kind: "html"; page: string; name: string };
+  | { kind: "html"; page: string; name: string; /** The presenter's words kept, or left out of a file sent to the room, as they are by default (lift-up 20261025 SEC-3). */ notes: boolean };
 
 /** Where an open bundle is kept, and saves to: a folder on disk, the browser's storage, or the
  * folder `scaena serve` serves it from (PLAN 2.11), by name. A bundle read from any other URL is
@@ -909,6 +909,18 @@ export interface HealthFinding {
 }
 
 /** The deck's narrative health (PLAN G.9), as `scaena health --json` gives it. */
+/** A beat whose claim its slide said before an edit and says no more (lift-up FUNC-2,
+ * `scaena_core::claims::Restated`): the slide's state whose words it says now, the claim, those
+ * words (none where the slide's headline was taken away), and the patch that restates it. */
+export interface Restated {
+  beat: string;
+  state: string;
+  path: string;
+  claim: string;
+  says?: string;
+  fix?: unknown[];
+}
+
 export interface Health {
   score: number;
   arc?: string;
@@ -1311,6 +1323,10 @@ export type ToWorker =
   /** The narrative health of the deck `source` compiles to (PLAN G.9), read by the generator's
    * module. */
   | { type: "health"; id: number; source: string }
+  /** The beats whose claim a slide said in the deck `before` compiles to and says no longer in
+   * the deck `source` compiles to (lift-up FUNC-2): what the editor asks once a burst of typing
+   * ends, `before` the source as it began. */
+  | { type: "restated"; id: number; source: string; before: string }
   /** A picture made by the user's image model, in the deck's theme (PLAN 2.107), by the
    * generator's module. */
   | { type: "makePicture"; id: number; picture: PictureJob }
@@ -2152,6 +2168,7 @@ export type FromWorker =
   | { type: "sheet"; id: number; sources: DataSource[]; name?: string; sheet?: Sheet; file?: string; why?: string }
   | { type: "bundleFiles"; id: number; files: BundleFile[]; grounded: Grounded[] }
   | { type: "health"; id: number; health: Health }
+  | { type: "restated"; id: number; restated: Restated[] }
   /** A picture made: its bytes, its file's kind (`png`, `jpg`), what it shows, and the model. */
   | { type: "pictureMade"; id: number; bytes: ArrayBuffer; ext: string; alt: string; model: string }
   /** A file taken out: what the deck came to, shown and linted as an edit is. */

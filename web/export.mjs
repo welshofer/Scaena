@@ -208,6 +208,35 @@ try {
   check(JSON.stringify(plays) === '["intro","revenue","mix","close"]', `the file plays offline: ${JSON.stringify(plays)}`);
   await offline.close();
 
+  // The file above is the room's: the speaker notes left out unless asked for, as the CLI leaves
+  // them out by default (lift-up 20261025 SEC-3; Jay's call, 2026-10-25). Asked for, they are
+  // the CLI's --notes.
+  await page.click("#export");
+  await page.check("#exporting input[name=as][value=html]");
+  // Asked for each time: the PDF's choice above is not carried over to a file sent to the room.
+  const notesOffered = (await page.locator("#exporting-notes").isVisible()) && !(await page.isChecked("#exporting-with-notes"));
+  const roomNote = await page.evaluate(() => document.querySelector("#exporting-note").textContent);
+  await page.check("#exporting-with-notes");
+  const keptNote = await page.evaluate(() => document.querySelector("#exporting-note").textContent);
+  const kept = await downloaded(() => page.click("#exporting-go"));
+  scaena("export", bundle, "--format", "html", "--notes", "--out", join(out, "kept.html"));
+  const cliKept = readFileSync(join(out, "kept.html"));
+  check(
+    notesOffered && roomNote.includes("without the speaker notes") && keptNote.includes("with the speaker notes"),
+    `Export… offers the speaker notes, left out until asked for: ${roomNote} / ${keptNote}`,
+  );
+  check(
+    kept.bytes.equals(cliKept) && !kept.bytes.equals(cliHtml),
+    `with the notes, it is the CLI's --notes byte for byte (${kept.bytes.length} B), and not the room's (${cliHtml.length} B)`,
+  );
+  await page.click("#export");
+  await page.check("#exporting input[name=as][value=pdf]");
+  await page.check("#exporting-with-notes");
+  await page.check("#exporting input[name=as][value=html]");
+  const notCarried = !(await page.isChecked("#exporting-with-notes"));
+  await page.keyboard.press("Escape");
+  check(notCarried, "the notes asked for a PDF are not carried over to a single file");
+
   // A right click on a state in the strip.
   const li = page.locator(`#strip li[data-state="${state}"]`);
   await li.click({ button: "right" });

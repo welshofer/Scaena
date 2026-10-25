@@ -716,9 +716,11 @@ pub struct DeckExport {
     /// each state's hold alone, as a player auto-advances.
     #[serde(default)]
     pub pace: scaena_core::spine::Pace,
-    /// A PDF with the presenter's notes: each slide drawn smaller at the head of a page, the
+    /// The presenter's notes: a PDF with each slide drawn smaller at the head of a page, the
     /// notes a presenter reads for it under it, notes too long for it going on to pages of
-    /// their own. Only a PDF.
+    /// their own; a single HTML file with each state's and beat's notes, each beat's evidence,
+    /// and what Narrato planned, the presenter's own copy. Without it a single file leaves them
+    /// out, for the room. Only a PDF or a single file.
     #[serde(default)]
     pub notes: bool,
 }
@@ -875,6 +877,13 @@ pub struct SlideWrite {
     /// its beat. Without it or `after`, the slide goes after every slide.
     #[serde(default)]
     pub replace: Option<String>,
+    /// The id of a beat of the spine whose claim this slide tells, as `spine_update` planned it:
+    /// the slide's states join it, and it keeps what it says, the slide giving only what it lacks
+    /// (its notes, Narrato's fields). Without it, the slide gets a beat of its own after the slide
+    /// before it, and a deck with no spine yet begins one. Not with `replace`, which keeps the
+    /// beat of the slide it takes the place of.
+    #[serde(default)]
+    pub beat: Option<String>,
     /// Say what would change, and write nothing.
     #[serde(default)]
     pub dry_run: bool,
@@ -1026,7 +1035,9 @@ impl Scaena {
         show_node, hide_node, add_state, …; SPEC §7.3), all or none. A patch that would make the deck invalid is refused. \
         Reports the semantic ops given, what changed in the slides and the story (`summary`: slides and beats \
         added, removed, and moved, and beats told otherwise), and what lint finds that it did not (`added`) and finds \
-        no more (`removed`); with `verbose`, the patch compiled to JSON Patch too.")]
+        no more (`removed`); with `verbose`, the patch compiled to JSON Patch too. Each beat whose claim a slide said \
+        before and says no more is `restated`, with a `fix` that sets the claim to the slide's words, or none where its \
+        headline was taken away: restate the claim, or ask the user.")]
     async fn deck_patch(
         &self,
         Parameters(a): Parameters<DeckPatch>,
@@ -1512,7 +1523,10 @@ impl Scaena {
         slide in the JSON Narrato writes (`deck_generate`'s `slides`): its layout chosen for its items, each place \
         filled, its figures, builds, and icons, in the deck's theme and the brief it keeps. After the slide that \
         holds `after`, in place of the slide that holds `replace` (its beat kept, its picture shown again, the nodes \
-        no other slide shows taken away with it), or at the end. Its set of texts held to one size and lint's fixes \
+        no other slide shows taken away with it), or at the end. Its states join `beat`, a beat of the spine whose \
+        claim it tells (plan the spine with `spine_update` first), which keeps what it says; with none, it gets a \
+        beat of its own, and a deck with no spine yet begins one, the slide taking the place of `deck_create`'s \
+        blank slide. Its set of texts held to one size and lint's fixes \
         taken, as a made deck's are; what no fix mends is in `left`, a text past its place first. One patch, \
         refused as `deck_patch` refuses one, reported as `deck_patch` reports one, with the slide's states, layout, \
         and beat.")]
@@ -1533,7 +1547,7 @@ impl Scaena {
             };
             let icons = scaena_ops::narrative::icons_found(&slide.icons);
             let b = open_by(&a.bundle, author)?;
-            scaena_ops::narrative::slide_write(&b, slide, &place, icons, a.dry_run)
+            scaena_ops::narrative::slide_write(&b, slide, &place, a.beat.as_deref(), icons, a.dry_run)
         })
         .await
         .map(Json)
@@ -1593,9 +1607,12 @@ pub const INSTRUCTIONS: &str = "Scaena decks are states over one scene graph: no
     pixels. A deck is a story: its spine's beats each carry one claim, and every slide serves one. On a deck that \
     exists, read the spine first (spine_read) and its narrative health (deck_health: pacing, balance, how the \
     slides follow the arc, and a finding on each slide with what to ask of it), then edit toward the claims, and \
-    change the spine (spine_update) when the claims are wrong. Make a bundle with deck_create (a theme that ships, \
-    dusk, daybreak, ember, or salon, needs no file), attach data with data_attach, edit with deck_patch, check with \
-    deck_lint, read the story again with deck_health, and look with deck_render. The resources hold the schemas, the lint \
+    change the spine (spine_update) when the claims are wrong. To make a whole deck, write its slides in \
+    Narrato's JSON and call deck_generate (no model is called): it gives the spine, beats, notes, layouts, and \
+    figures. To add one slide to a deck that exists, slide_write it, in the beat it tells (`beat`). To write a \
+    deck by hand, deck_create it (a theme that ships, dusk, daybreak, ember, or salon, needs no file) and edit \
+    with deck_patch. Attach data with data_attach, check with deck_lint, read the story again with deck_health, \
+    and look with deck_render. The resources hold the schemas, the lint \
     catalog, the specification by section (scaena://spec is its index), the skills (procedures to follow: \
     scaena://skills/author-deck first), and examples.";
 

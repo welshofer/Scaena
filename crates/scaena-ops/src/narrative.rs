@@ -2949,7 +2949,15 @@ fn layout_for(
         "quadrant" => "quadrants",
         // A system's parts in tiers, each joined to what it calls (dogfood pass 7).
         "architecture" if tiers(items).is_some() => "architecture",
-        // A decision put to the room: its items the brief's parts, else what they are.
+        // A decision put to the room: its items the brief's parts, else what they are. With no
+        // bottom line (`supportingFacts`), its band under the headline would stand empty: its four
+        // parts go on four cards, each titled by its label (dogfood 8a F2).
+        "decision-brief"
+            if briefed(items) && slide.supporting_facts.as_deref().is_some_and(|f| !f.trim().is_empty()) =>
+        {
+            "decision-brief"
+        }
+        "decision-brief" if briefed(items) && n == 4 && theme.layouts.contains_key("four-cards") => "four-cards",
         "decision-brief" if briefed(items) => "decision-brief",
         // Questions each with its answer are an FAQ's; one question with answers to choose from,
         // a quiz.
@@ -3016,6 +3024,8 @@ fn layout_for(
         "manifesto" => "manifesto",
         // With no picture to show, the people stand by name, under the headline, with no band
         // left empty for their faces.
+        // Three or fewer by name, each on a card down the slide; more, three by two.
+        "team" if !pictured && n <= 3 => "team-names-three",
         "team" if !pictured => "team-names",
         "team" => match n {
             0..=3 => "team",
@@ -4130,6 +4140,11 @@ impl Slots<'_> {
             (Some((_, "title" | "criterion")), "label") => at_least("body"),
             // A journey's phases and lanes, over and beside its cells, likewise.
             (Some((_, "phase" | "lane")), "label") if self.layout == "journey" => at_least("body"),
+            // A team's names, as large as their cards take, toward three-quarters of the
+            // headline, so four names never outshout the slide's title; the set held to one.
+            (Some((_, "title")), "title") if self.layout.starts_with("team-names") => {
+                self.under_headline().filter(|most| size(role).is_some_and(|own| *most > own))
+            }
             // A checklist's states are what it is for: as large as their places take, toward the
             // lede, never left the smallest words on the slide (dogfood pass 7).
             (Some((_, "state")), "label") if self.layout == "checklist" => at_least("lede"),
@@ -4651,7 +4666,7 @@ impl Slots<'_> {
                 })
             }
             // "Name, role: credit".
-            ("team" | "team-four" | "team-six" | "team-names", _, Some((k, part)))
+            ("team" | "team-four" | "team-six" | "team-names" | "team-names-three", _, Some((k, part)))
                 if part != "art" && part != "card" =>
             {
                 let item = self.item(k)?;
@@ -4977,7 +4992,10 @@ impl Builder {
                             // A few short lines of words alone in a large place, a card's own words
                             // or a term's meaning, grow toward three-quarters of the headline, never
                             // past it, as a short list does (dogfood pass 4).
-                            let own = (matches!(ordinal(name), Some((_, ""))) && !s.figured(name))
+                            // What a team's person does stays a step under their name: to the lede.
+                            let own = (matches!(ordinal(name), Some((_, "")))
+                                && !s.figured(name)
+                                && !s.layout.starts_with("team-names"))
                                 || s.alone(name, role).is_some();
                             let most = match own && words_role(role) && short(&text) {
                                 true => s.under_headline().map_or(most, |h| h.max(most)),
@@ -7079,6 +7097,60 @@ mod tests {
         assert!(caps[0] == caps[1] && caps[0] < 48.0 && held[2].is_none(), "shrunk together: {held:?}");
     }
 
+    /// A team by name fills its place: its names grow toward three-quarters of the headline and
+    /// what each person does to the lede, each set held to one size; a team of three or fewer
+    /// takes Small Team by Name, each card down the slide, so it never sits in the slide's top
+    /// half. Six stand three by two.
+    #[test]
+    fn a_team_by_name_grows_and_a_small_one_takes_cards_down_the_slide() {
+        let people = [
+            "Maya Chen, CEO: ran Gulf operations at a top-three carrier",
+            "Ade Okafor, CTO: built direct air capture at scale",
+            "Luis Ortega, COO: scaled ports across three continents",
+            "Priya Nair, CFO: took two climate funds public",
+            "Tom Becker, VP Sales: sold freight to the Fortune 100",
+            "Ana Silva, Head of Science: led the ocean storage trials",
+        ];
+        let (summary, slides) = catalog();
+        for file in ["dusk", "ember"] {
+            let theme: Theme = serde_json::from_str(
+                &std::fs::read_to_string(root().join(format!("docs/examples/themes/{file}.theme.json"))).unwrap(),
+            )
+            .unwrap();
+            let size = |r: &str| theme.typography.roles[r].size;
+            for n in [2, 3, 6] {
+                let mut slide = slides.iter().find(|s| s.layout_suggestion == "Team").unwrap().clone();
+                slide.key_bullets = people[..n].iter().map(|p| p.to_string()).collect();
+                let made = deck(
+                    &narrative(&summary, vec![slides[0].clone(), slide, slides[55].clone()]),
+                    &theme,
+                    &Pictures::new(),
+                )
+                .unwrap();
+                let layout = if n <= 3 { "team-names-three" } else { "team-names" };
+                assert_eq!(made.layouts[1], layout, "{file}, {n}");
+                let state = made.deck["states"][1]["id"].as_str().unwrap();
+                let node = |slot: &str| made.deck["nodes"][format!("{state}-{slot}")].clone();
+                let (name, does) = (node("first-title"), node("first"));
+                // Each in its slot, as health, tracking, and the inspectors read it.
+                assert_eq!(name["at"], json!({ "in": "first-title" }), "{file}, {n}");
+                assert_eq!(does["at"], json!({ "in": "first" }), "{file}, {n}");
+                // A name grows only where the theme sets it under three-quarters of the headline.
+                let grows = (size("headline") * 0.75 > size("title")).then_some(size("headline") * 0.75);
+                assert_eq!(name["maxSize"].as_f64(), grows, "{file}, {n}: {name:#}");
+                assert_eq!(does["maxSize"].as_f64(), Some(size("lede").min(size("title"))), "{file}, {n}: {does:#}");
+            }
+            // The small team's cards run down both of Team by Name's rows of cards, the name over
+            // the split its rows of cards make and what they do under it.
+            let rows = |layout: &str, slot: &str| json!(theme.layouts[layout].slots[slot].row);
+            let span = |slot: &str| serde_json::from_value::<[u32; 2]>(rows("team-names", slot)).unwrap();
+            let ([top, upper], [lower, foot]) = (span("first-card"), span("fourth-card"));
+            assert_eq!(rows("team-names-three", "first-card"), json!([top, foot]), "{file}");
+            assert_eq!(rows("team-names-three", "first-title"), json!([top, upper]), "{file}");
+            assert_eq!(rows("team-names-three", "first"), json!([lower, foot]), "{file}");
+        }
+    }
+
     /// Short words in a large place grow to fill it (dogfood pass 4): each side's list of a
     /// pros and cons, each month's of a roadmap, as one set; a slide's one short list past the
     /// lede, under its headline still. Prices each with a tier go on a pricing slide, the tier
@@ -7849,21 +7921,28 @@ mod tests {
         has(&said, "client-second", "iOS app");
         has(&said, "service-second", "Billing");
         has(&said, "second-call", "shape");
-        // A decision brief: each card titled by its label, the bottom line the slide's fact.
-        let (layout, said) = made(
-            serde_json::json!({ "slideTitle": "We keep the cache in-process, not in Redis", "layoutSuggestion": "Decision Brief",
-                "keyBullets": ["Decision: keep hot prices in each pod's memory for 30 seconds",
-                    "Why: one network hop fewer, and no new cluster to run",
-                    "Trade-off: a price change can take up to 30 seconds to reach every pod",
-                    "Ask: approve 30 s as the standard staleness for pricing"] }),
-            "en",
-        );
-        assert_eq!(layout, "decision-brief");
+        // A decision brief with no bottom line would leave the band under its headline empty: its
+        // four parts go on four cards instead, each titled by its label (dogfood 8a F2).
+        let briefless = serde_json::json!({ "slideTitle": "We keep the cache in-process, not in Redis",
+            "layoutSuggestion": "Decision Brief",
+            "keyBullets": ["Decision: keep hot prices in each pod's memory for 30 seconds",
+                "Why: one network hop fewer, and no new cluster to run",
+                "Trade-off: a price change can take up to 30 seconds to reach every pod",
+                "Ask: approve 30 s as the standard staleness for pricing"] });
+        let (layout, said) = made(briefless.clone(), "en");
+        assert_eq!(layout, "four-cards");
         has(&said, "first-title", "Decision");
         has(&said, "first", "Keep hot prices in each pod\u{2019}s memory for 30 seconds");
         has(&said, "fourth-title", "Ask");
-        lacks(&said, "bottom");
-        lacks(&said, "bottom-card");
+        // With its bottom line, it is a decision brief: each card titled by its label, the bottom
+        // line the slide's fact.
+        let mut bottomed = briefless;
+        bottomed["supportingFacts"] = serde_json::json!("Thirty seconds of staleness, for one hop and no cluster.");
+        let (layout, said) = made(bottomed, "en");
+        assert_eq!(layout, "decision-brief");
+        has(&said, "first-title", "Decision");
+        has(&said, "fourth-title", "Ask");
+        has(&said, "bottom", "Thirty seconds of staleness, for one hop and no cluster.");
         // The theme's mark over the third card marks a recommendation, which "Trade-off" is not.
         lacks(&said, "mark");
         let (_, said) = made(
@@ -10078,6 +10157,7 @@ mod tests {
             &theme,
             slides[20].clone(),
             &Place::After(before[1].clone()),
+            None,
             BTreeMap::new(),
             &no_files(),
         )
@@ -10106,7 +10186,8 @@ mod tests {
         let story: Vec<_> = found.iter().filter(|f| matches!(f.code.as_str(), "W426" | "W429")).collect();
         assert!(story.is_empty(), "{story:#?}");
         // At the end, it goes after every slide, in the last section.
-        let end = slide_into(&doc, &theme, slides[20].clone(), &Place::End, BTreeMap::new(), &no_files()).unwrap();
+        let end =
+            slide_into(&doc, &theme, slides[20].clone(), &Place::End, None, BTreeMap::new(), &no_files()).unwrap();
         let after = patched(&doc, &end.patch);
         assert_eq!(firsts(&after).last(), Some(&end.states[0]));
     }
@@ -10130,6 +10211,7 @@ mod tests {
             &theme,
             slides[8].clone(),
             &Place::Replace(before[1].clone()),
+            None,
             BTreeMap::new(),
             &no_files(),
         )
@@ -10197,7 +10279,8 @@ mod tests {
         let (_, slides) = catalog();
         let first = doc["states"][0]["id"].as_str().unwrap().to_string();
         let written =
-            slide_into(&doc, &theme, slides[8].clone(), &Place::After(first), BTreeMap::new(), &no_files()).unwrap();
+            slide_into(&doc, &theme, slides[8].clone(), &Place::After(first), None, BTreeMap::new(), &no_files())
+                .unwrap();
         let files = scaena_store::Files::Dir(root().join("docs/examples"));
         let view = View { base: &files, pending: BTreeMap::new() };
         let after = scaena_core::patch::compile(&doc, &written.patch, &view).unwrap().doc;
@@ -10215,9 +10298,16 @@ mod tests {
         let (doc, files) = deck_at("tests/bench/b3.scaena/deck.json");
         let theme: Theme = serde_json::from_str(&dusk()).unwrap();
         let (_, slides) = catalog();
-        let written =
-            slide_into(&doc, &theme, slides[8].clone(), &Place::Replace("s1".into()), BTreeMap::new(), &no_files())
-                .unwrap();
+        let written = slide_into(
+            &doc,
+            &theme,
+            slides[8].clone(),
+            &Place::Replace("s1".into()),
+            None,
+            BTreeMap::new(),
+            &no_files(),
+        )
+        .unwrap();
         let after = patched_in(&doc, &written.patch, &files);
         others_kept(&doc, &after, &["s1"]);
         for id in ["grain", "kicker", "quote"] {
@@ -10225,16 +10315,30 @@ mod tests {
         }
         // The charts example's later slides keep the note the first shows them.
         let (doc, files) = deck_at("docs/examples/charts.deck.json");
-        let written =
-            slide_into(&doc, &theme, slides[20].clone(), &Place::Replace("bars".into()), BTreeMap::new(), &no_files())
-                .unwrap();
+        let written = slide_into(
+            &doc,
+            &theme,
+            slides[20].clone(),
+            &Place::Replace("bars".into()),
+            None,
+            BTreeMap::new(),
+            &no_files(),
+        )
+        .unwrap();
         let after = patched_in(&doc, &written.patch, &files);
         others_kept(&doc, &after, &["bars"]);
         assert!(after["nodes"].get("note").is_some());
         // And one written after a slide changes none of the rest.
-        let written =
-            slide_into(&doc, &theme, slides[20].clone(), &Place::After("stack".into()), BTreeMap::new(), &no_files())
-                .unwrap();
+        let written = slide_into(
+            &doc,
+            &theme,
+            slides[20].clone(),
+            &Place::After("stack".into()),
+            None,
+            BTreeMap::new(),
+            &no_files(),
+        )
+        .unwrap();
         others_kept(&doc, &patched_in(&doc, &written.patch, &files), &[]);
     }
 
@@ -10253,7 +10357,7 @@ mod tests {
         slide.chart_data = None;
         let read = read_by(&files);
         let written =
-            slide_into(&doc, &theme, slide, &Place::Replace("revenue".into()), BTreeMap::new(), &read).unwrap();
+            slide_into(&doc, &theme, slide, &Place::Replace("revenue".into()), None, BTreeMap::new(), &read).unwrap();
         let after = patched_in(&doc, &written.patch, &files);
         let first = &written.states[0];
         // Every other slide shows what it showed, the link now to the slide written.
@@ -10289,6 +10393,7 @@ mod tests {
             &theme,
             slides[20].clone(),
             &Place::After(before[1].clone()),
+            None,
             BTreeMap::new(),
             &no_files(),
         )
@@ -10298,17 +10403,111 @@ mod tests {
         assert!(state.get("transition").is_some(), "it enters after the slide before it: {state:#}");
     }
 
+    /// A deck made by hand with slides and no spine keeps none; the slide's notes, which a beat
+    /// would hold, go on its first state, so none are dropped (lift-up M1, changed from #637's
+    /// "makes none" with no notes kept).
     #[test]
-    fn a_slide_added_to_a_deck_with_no_spine_makes_none() {
+    fn a_slide_added_to_a_hand_made_deck_with_no_spine_makes_none_and_keeps_its_notes() {
         let (doc, files) = deck_at("docs/examples/charts.deck.json");
         let theme: Theme = serde_json::from_str(&dusk()).unwrap();
         let (_, slides) = catalog();
+        let slide = slides[20].clone();
+        assert!(!slide.speaker_notes.is_empty());
         let written =
-            slide_into(&doc, &theme, slides[20].clone(), &Place::After("bars".into()), BTreeMap::new(), &no_files())
+            slide_into(&doc, &theme, slide.clone(), &Place::After("bars".into()), None, BTreeMap::new(), &no_files())
                 .unwrap();
         let after = patched_in(&doc, &written.patch, &files);
         assert!(after.get("spine").is_none());
         assert_eq!(written.beat, "");
+        let first = after["states"].as_array().unwrap().iter().find(|s| s["id"] == written.states[0].as_str()).unwrap();
+        assert_eq!(first["notes"], json!(slide.speaker_notes));
+    }
+
+    /// `deck_create`'s deck, as an agent over MCP starts one: its blank slide, and no spine.
+    fn blank(doc: &Value) -> Value {
+        let mut blank = doc.clone();
+        let fields = blank.as_object_mut().unwrap();
+        fields.remove("spine");
+        fields.remove("data");
+        fields.insert("nodes".into(), json!({}));
+        fields.insert("states".into(), json!([{ "id": "start" }]));
+        blank
+    }
+
+    /// A deck written slide by slide over MCP has its story (lift-up M1): the first slide takes the
+    /// place of `deck_create`'s blank one and begins the spine, a section holding its beat, with
+    /// its claim and its notes; the next slide's beat follows it there.
+    #[test]
+    fn a_slide_written_into_a_blank_deck_takes_its_place_and_begins_the_spine() {
+        let (doc, theme, slides) = made_of(&[0]);
+        let doc = blank(&doc);
+        let written =
+            slide_into(&doc, &theme, slides[0].clone(), &Place::End, None, BTreeMap::new(), &no_files()).unwrap();
+        let after = patched(&doc, &written.patch);
+        assert_eq!(firsts(&after), [written.states[0].clone()], "the blank slide is gone");
+        let beats = after["spine"]["sections"][0]["beats"].as_array().unwrap();
+        assert_eq!(beats.len(), 1);
+        assert_eq!(beats[0]["id"], json!(written.beat));
+        assert_eq!(beats[0]["states"], json!(written.states));
+        assert_eq!(beats[0]["notes"], json!(slides[0].speaker_notes));
+        assert!(beats[0]["media"]["narrato"].is_object(), "what health reads: {:#}", beats[0]);
+        // The next one at the end gets a beat after it, in the spine begun.
+        let next =
+            slide_into(&after, &theme, slides[8].clone(), &Place::End, None, BTreeMap::new(), &no_files()).unwrap();
+        let after = patched(&after, &next.patch);
+        let ids: Vec<&str> = (after["spine"]["sections"].as_array().unwrap().iter())
+            .flat_map(|s| s["beats"].as_array().unwrap())
+            .map(|b| b["id"].as_str().unwrap())
+            .collect();
+        assert_eq!(ids, [written.beat.as_str(), next.beat.as_str()]);
+        assert_eq!(firsts(&after).len(), 2);
+    }
+
+    /// A slide told in a beat the spine planned joins it (lift-up M1): the beat keeps its claim
+    /// and what else it says, and takes the slide's notes and Narrato's fields where it has none;
+    /// no beat of the slide's own is added. A beat the spine lacks, or one with `replace`, refuses.
+    #[test]
+    fn a_slide_written_in_a_planned_beat_joins_it() {
+        let (doc, theme, slides) = made_of(&[0]);
+        let mut doc = blank(&doc);
+        doc["spine"] = json!({ "sections": [{ "id": "why", "title": "Why", "beats": [
+            { "id": "stakes", "claim": "The stakes are higher than they look", "states": [] },
+            { "id": "answer", "claim": "One change answers it", "states": [], "evidence": ["the audit"] },
+        ] }] });
+        let written =
+            slide_into(&doc, &theme, slides[8].clone(), &Place::End, Some("answer"), BTreeMap::new(), &no_files())
+                .unwrap();
+        assert_eq!(written.beat, "answer");
+        let after = patched(&doc, &written.patch);
+        let beats = after["spine"]["sections"][0]["beats"].as_array().unwrap();
+        assert_eq!(beats.len(), 2, "no beat of its own: {beats:#?}");
+        let answer = &beats[1];
+        assert_eq!(answer["claim"], "One change answers it");
+        assert_eq!(answer["evidence"], json!(["the audit"]));
+        assert_eq!(answer["states"], json!(written.states));
+        assert_eq!(answer["notes"], json!(slides[8].speaker_notes));
+        assert!(answer["media"]["narrato"].is_object());
+        assert_eq!(beats[0]["states"], json!([]), "the other beat is as it was");
+        assert_eq!(firsts(&after), [written.states[0].clone()], "it takes the blank slide's place");
+        let refused = |place: &Place, beat: &str| {
+            slide_into(&doc, &theme, slides[8].clone(), place, Some(beat), BTreeMap::new(), &no_files()).unwrap_err()
+        };
+        assert!(refused(&Place::End, "nowhere").to_string().contains("no beat `nowhere`"));
+        assert!(refused(&Place::Replace("start".into()), "answer").to_string().contains("not both"));
+        // A spine planned with the blank slide in its first beat, as `spine_update` sees the deck
+        // `deck_create` made: the blank leaves the beat as it leaves the deck, the slide takes its
+        // place there, and the beat names no state the deck lacks.
+        doc["spine"]["sections"][0]["beats"][0]["states"] = json!(["start"]);
+        let written =
+            slide_into(&doc, &theme, slides[0].clone(), &Place::End, Some("stakes"), BTreeMap::new(), &no_files())
+                .unwrap();
+        // The beat as the patch writes it, before `remove_slide` runs, already lists the slide's
+        // states and not the blank's (the review of #741).
+        let op = written.patch.iter().find(|op| op["path"] == "/spine/sections/0/beats/0").unwrap();
+        assert_eq!(op["value"]["states"], json!(written.states), "{op:#}");
+        let after = patched(&doc, &written.patch);
+        assert_eq!(after["spine"]["sections"][0]["beats"][0]["states"], json!(written.states));
+        assert_eq!(firsts(&after), [written.states[0].clone()]);
     }
 
     #[test]

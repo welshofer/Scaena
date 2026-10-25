@@ -42,6 +42,7 @@
 
 pub mod builds;
 pub mod choices;
+pub mod claims;
 pub mod code;
 pub mod color;
 pub mod data;
