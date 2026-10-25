@@ -560,6 +560,20 @@ fn tool_call(r: &mut Rng, b: &Bundle, states: &[String], values: &BTreeMap<Strin
             set!("weight", json!(r.pick(&["regular", "fill", "bold", ""])));
             set!("limit", r.pick(&[json!(0), json!(3), json!(u64::MAX), json!(-1), json!(null)]).clone());
         }
+        "slide_write" => {
+            let slide = json!({
+                "slideTitle": r.pick(&["Three reasons", "", "\u{1F680}"]),
+                "layoutSuggestion": r.pick(&["Bullet List", "Big Number", "Quote", "Nothing like it"]),
+                "keyBullets": r.pick(&[json!(["Fast: drafts in seconds", "Safe: never sends alone"]), json!([]), json!(["42%"]), json!(null)]).clone(),
+            });
+            set!("slide", if r.below(6) == 0 { junk(r) } else { slide });
+            if r.below(2) == 0 {
+                set!("after", state(r));
+            } else {
+                set!("replace", state(r));
+            }
+            set!("dry_run", flag(r));
+        }
         _ => set!("state", state(r)),
     }
     if r.below(12) == 0 {
@@ -891,4 +905,47 @@ fn the_deepest_deck_a_person_may_write_fits_a_workers_stack() {
         .unwrap()
         .join()
         .expect("drawn and linted within the stack");
+}
+
+/// A theme whose grid cannot be laid out, four billion columns or margins past the canvas, says
+/// why wherever the deck is used: validation, lint, a render, and the session's frames, as the
+/// editor's worker draws them; never a panic, and never the engine run out of memory (lift-up
+/// 10-24b STAB-3).
+#[test]
+fn a_grid_that_cannot_be_laid_out_says_why_wherever_the_deck_is_used() {
+    let bundles = bundles(false);
+    let revenue = bundles.iter().find(|b| b.name == "revenue").unwrap();
+    let state = revenue.deck["states"][0]["id"].as_str().unwrap().to_string();
+    let by = || Caller { author: "agent:test", at: None };
+    for (key, value, said) in [
+        ("columns", json!(4_000_000_000u32), "4000000000 columns: a grid has 1 to 1000 of them"),
+        ("margin", json!(1200), "margins leave its columns no room"),
+    ] {
+        let mut theme: Value = serde_json::from_str(&revenue.theme).unwrap();
+        theme["grid"][key] = value;
+        let theme = theme.to_string();
+        let mut files: BTreeMap<String, Vec<u8>> = revenue.files.iter().cloned().collect();
+        files.insert("deck.json".into(), revenue.deck.to_string().into_bytes());
+        files.insert(revenue.deck["theme"].as_str().unwrap().into(), theme.clone().into_bytes());
+        let bundle = scaena_store::Bundle::in_memory(files).unwrap();
+        let found = scaena_core::validate::validate_bundle(&revenue.deck.to_string(), &bundle.files).unwrap();
+        let grid = found.iter().find(|f| f.code == "E106" && f.message.contains(said));
+        assert!(
+            grid.is_some_and(|f| f.path.as_deref().is_some_and(|p| p.ends_with(&format!("/grid/{key}")))),
+            "{key}: {found:?}"
+        );
+        let mut s = Session::new(&revenue.deck.to_string(), &theme).unwrap();
+        let named = revenue.deck["theme"].as_str().unwrap();
+        for (path, bytes) in revenue.files.iter().filter(|(path, _)| path != named) {
+            s.add_file(path, bytes.clone());
+        }
+        let linted = s.tool("deck_lint", json!({}), by());
+        let linted = linted.map(|c| c.result).unwrap_or_else(|e| e.to_string());
+        assert!(linted.contains(said), "{key}: lint {linted}");
+        let rendered = s.tool("deck_render", json!({ "state": state }), by());
+        let rendered = rendered.map(|c| c.result).unwrap_or_else(|e| e.to_string());
+        assert!(rendered.contains(said), "{key}: render {rendered}");
+        let frame = s.frame(&state, 0.0).map(|_| ()).unwrap_err().to_string();
+        assert!(frame.contains(&format!("grid.{key}")) && frame.contains(said), "{key}: frame {frame}");
+    }
 }
