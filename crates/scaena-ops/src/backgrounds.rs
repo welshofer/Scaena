@@ -241,15 +241,11 @@ fn placing(
 ) -> Result<Vec<Value>, OpsError> {
     let presets = theme.shaders.as_ref().and_then(|sh| sh.presets.as_ref());
     let made = match preset {
-        Some(name) => Some(
-            presets
-                .and_then(|p| p.get(name))
-                .ok_or_else(|| {
-                    let known = presets.into_iter().flat_map(|p| p.keys()).map(String::as_str);
-                    let near = scaena_core::patch::nearest_in("the theme", "shader presets", name, known);
-                    OpsError::new(format!("the theme has no shader preset `{name}`{near}"))
-                })?,
-        ),
+        Some(name) => Some(presets.and_then(|p| p.get(name)).ok_or_else(|| {
+            let known = presets.into_iter().flat_map(|p| p.keys()).map(String::as_str);
+            let near = scaena_core::patch::nearest_in("the theme", "shader presets", name, known);
+            OpsError::new(format!("the theme has no shader preset `{name}`{near}"))
+        })?),
         None => None,
     };
     let s = first_of(deck, state)?;

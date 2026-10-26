@@ -91,7 +91,10 @@ pub fn slide_into(
                     let known = (sections.iter())
                         .flat_map(|s| s["beats"].as_array().into_iter().flatten())
                         .filter_map(|b| b["id"].as_str());
-                    OpsError::new(format!("no beat `{id}` in the spine{}", scaena_core::patch::nearest("beats", id, known)))
+                    OpsError::new(format!(
+                        "no beat `{id}` in the spine{}",
+                        scaena_core::patch::nearest("beats", id, known)
+                    ))
                 })?,
         ),
         None => None,
