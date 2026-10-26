@@ -23,7 +23,7 @@ Cut until each slide says its one thing. Cut words, not points: `scaena health` 
 
 ## Procedure
 
-1. **Read the claims.** The spine's beats carry them: `spine_read`, or from the CLI `scaena export <bundle> --format spine` (the spine lives in `deck.json`, or in `spine.json` beside it). Each beat's claim is the sentence its slides must make. Copy that does not serve a claim goes.
+1. **Read the claims.** The spine's beats carry them: `spine_read`, or from the CLI `scaena export <bundle> --format spine`. The spine lives in `deck.json`, under `spine`, and only there: change it with `spine_update`, or `scaena patch` at `/spine`. Each beat's claim is the sentence its slides must make. Copy that does not serve a claim goes.
    - With no spine, the claims are the nodes marked `semantic: claim`. W420, W423, and W425 judge beats, so without a spine they find nothing.
    - A label marked as a claim ("Process", "Storm damage") claims nothing. Make it a sentence, or mark it `navigation`.
 2. **Fix what lint finds.** Fix overflow first: an E101 overlap often follows from an E100, text grown out of its box.

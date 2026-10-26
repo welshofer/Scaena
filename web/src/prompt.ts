@@ -3,7 +3,7 @@
 // makes one. It is made in an engine's worker of its own, which starts as the dialog opens and
 // loads the generator's module while the brief is written; Cancel stops it, asking first while it
 // runs, and the deck open is untouched until the new one opens, kept nowhere until it is saved.
-import { familySections } from "./theme-families";
+import { themeGallery } from "./theme-gallery";
 import { keep, load, settings, store, verdict } from "./assistant/keys";
 import type { Choices, FromWorker, Generate, Generated, GeneratingEvent, ProviderId, Source, StoryOutline, ToWorker } from "./protocol";
 import type { Engine } from "./stage";
@@ -112,7 +112,8 @@ export function prompting(
   const audience = $<HTMLInputElement>("#prompting-audience");
   const goal = $<HTMLSelectElement>("#prompting-goal");
   const length = $<HTMLSelectElement>("#prompting-length");
-  const theme = $<HTMLSelectElement>("#prompting-theme");
+  // The themes that ship, chosen by their title slides (lift-up 10-25b ATTR-1).
+  const theme = themeGallery($("#prompting-themes"), "prompting-theme");
   const modality = $<HTMLSelectElement>("#prompting-modality");
   const outcome = $<HTMLInputElement>("#prompting-outcome");
   const language = $<HTMLInputElement>("#prompting-language");
@@ -140,7 +141,6 @@ export function prompting(
   const keyKeep = $<HTMLInputElement>("#prompting-key-keep");
   const keySaid = $<HTMLParagraphElement>("#prompting-key-said");
   const showOutline = $<HTMLInputElement>("#prompting-show-outline");
-  theme.replaceChildren(...familySections());
   // The outline before the slides (narrative FUNC-1): the arc, the big idea, and each beat's claim,
   // shown once the model writes it, to change before the slides are written.
   const outlinePane = $<HTMLElement>("#prompting-outline");
