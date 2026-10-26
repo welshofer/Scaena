@@ -3,7 +3,7 @@
 // makes one. It is made in an engine's worker of its own, which starts as the dialog opens and
 // loads the generator's module while the brief is written; Cancel stops it, asking first while it
 // runs, and the deck open is untouched until the new one opens, kept nowhere until it is saved.
-import { familySections } from "./theme-families";
+import { themeGallery } from "./theme-gallery";
 import { keep, load, settings, store, verdict } from "./assistant/keys";
 import type { Choices, FromWorker, Generate, Generated, GeneratingEvent, ProviderId, Source, StoryOutline, ToWorker } from "./protocol";
 import type { Engine } from "./stage";
@@ -38,6 +38,8 @@ export function said(event: GeneratingEvent): string {
       return `Outline: ${event.beats} beats. Read it below, change what you will, then Write the slides.`;
     case "settled":
       return `Outline settled: ${event.beats} beats`;
+    case "unoutlined":
+      return "Writing the slides without an outline";
     case "writing":
       return `Writing the slides, at least ${event.slides}…`;
     case "retrying":
@@ -110,7 +112,8 @@ export function prompting(
   const audience = $<HTMLInputElement>("#prompting-audience");
   const goal = $<HTMLSelectElement>("#prompting-goal");
   const length = $<HTMLSelectElement>("#prompting-length");
-  const theme = $<HTMLSelectElement>("#prompting-theme");
+  // The themes that ship, chosen by their title slides (lift-up 10-25b ATTR-1).
+  const theme = themeGallery($("#prompting-themes"), "prompting-theme");
   const modality = $<HTMLSelectElement>("#prompting-modality");
   const outcome = $<HTMLInputElement>("#prompting-outcome");
   const language = $<HTMLInputElement>("#prompting-language");
@@ -138,7 +141,6 @@ export function prompting(
   const keyKeep = $<HTMLInputElement>("#prompting-key-keep");
   const keySaid = $<HTMLParagraphElement>("#prompting-key-said");
   const showOutline = $<HTMLInputElement>("#prompting-show-outline");
-  theme.replaceChildren(...familySections());
   // The outline before the slides (narrative FUNC-1): the arc, the big idea, and each beat's claim,
   // shown once the model writes it, to change before the slides are written.
   const outlinePane = $<HTMLElement>("#prompting-outline");
@@ -146,8 +148,11 @@ export function prompting(
   const bigIdea = $<HTMLTextAreaElement>("#prompting-big-idea");
   const beats = $<HTMLOListElement>("#prompting-beats");
   const outlineArcs = $<HTMLSelectElement>("#prompting-outline-arcs");
-  /** The outline pane's own fields, which stay live while the deck is made. */
-  const outlining = (field: Element) => field.closest("#prompting-outline") !== null;
+  // The outline twice unreadable (lift-up REL-3): why, and a choice to write without one or stop.
+  const unreadPane = $<HTMLElement>("#prompting-unread");
+  const unreadWhy = $<HTMLParagraphElement>("#prompting-unread-why");
+  /** The outline panes' own fields, which stay live while the deck is made. */
+  const outlining = (field: Element) => field.closest("#prompting-outline, #prompting-unread") !== null;
 
   /** A beat as a row: its name, its claim to type over, the slides it takes, a number to set
    * (lift-up FUNC-4), and Up, Down, and Remove. */
@@ -198,8 +203,18 @@ export function prompting(
     })),
   });
 
-  /** The outline shown, to settle: the arc and why, the big idea, and the beats. */
-  const showOutlined = (outlined: { outline: StoryOutline; arc: string; reasoning: string; fallback?: string }) => {
+  /** The outline shown, to settle: the arc and why, the big idea, and the beats; or, where it did
+   * not read, why, to write without one or stop. */
+  const showOutlined = (outlined: { outline: StoryOutline; arc: string; reasoning: string; fallback?: string; unread?: string }) => {
+    if (outlined.unread) {
+      // The count said once, by the sentence: the reason's own "(asked 2 times)" is the CLI's.
+      const why = outlined.unread.replace(/ \(asked \d+ times\)$/, "").replace(/^./, (c) => c.toLowerCase());
+      unreadWhy.textContent = `It was asked twice, and ${why}. Write the slides without one, on the ${outlined.arc} arc already chosen, or stop.`;
+      unreadPane.hidden = false;
+      for (const button of unreadPane.querySelectorAll("button")) button.disabled = false;
+      $<HTMLButtonElement>("#prompting-without").focus();
+      return;
+    }
     outlineArc.textContent = outlined.fallback
       ? `Arc: ${outlined.arc}, the heuristic's (${outlined.fallback}).`
       : `Arc: ${outlined.arc}. ${outlined.reasoning}`.trim();
@@ -410,12 +425,14 @@ export function prompting(
     go.disabled = on;
     go.textContent = on ? "Generating…" : "Generate";
     if (!on) outlinePane.hidden = true;
+    if (!on) unreadPane.hidden = true;
   };
 
   opener.onclick = () => {
     progress.replaceChildren();
     film.replaceChildren();
     outlinePane.hidden = true;
+    unreadPane.hidden = true;
     dialog.returnValue = "";
     dialog.showModal();
     topic.focus();
@@ -546,6 +563,12 @@ export function prompting(
       outlinePane.hidden = true;
       making.postMessage({ type: "outlineAgain", arc: outlineArcs.value || undefined } satisfies ToWorker);
     };
+    // The outline that did not read passed over, or the deck stopped (lift-up REL-3).
+    $<HTMLButtonElement>("#prompting-without").onclick = () => {
+      unreadPane.hidden = true;
+      making.postMessage({ type: "outlinePassed" } satisfies ToWorker);
+    };
+    $<HTMLButtonElement>("#prompting-unread-stop").onclick = () => dialog.close("cancel");
     making.postMessage(
       { type: "generate", generate: job, engine: engine.module } satisfies ToWorker,
       job.files.map((f) => f.bytes),

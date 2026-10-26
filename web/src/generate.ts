@@ -249,6 +249,9 @@ async function scriptFont(script: Script, hear: (event: GeneratingEvent) => void
  * chosen for `reasoning`, or the heuristic's where `fallback` says why. */
 export interface Outlined {
   outline: StoryOutline;
+  /** Why the outline did not read, once it was asked twice (lift-up REL-3): the person writes the
+   * slides without one, or stops. */
+  unread?: string;
   arc: string;
   reasoning: string;
   fallback?: string;
@@ -256,7 +259,7 @@ export interface Outlined {
 
 /** What the person decided of an outline: settled, so the slides are written to it; or another
  * arc, by name or the heuristic's where none, to outline again. */
-export type Decision = { settled: StoryOutline } | { arc?: string };
+export type Decision = { settled: StoryOutline } | { arc?: string } | { without: true };
 
 /** The deck `job` asks for, made in `given`: the bundle's files by their paths, what it came
  * to, and its title. `hear` hears how far it has come. With `job.outline`, the outline is
@@ -318,6 +321,7 @@ export async function generate(
           written?: number | null;
           truncated?: boolean | null;
           outline?: StoryOutline | null;
+          unread?: string | null;
           wait?: number | null;
           tried?: number | null;
         };
@@ -333,10 +337,16 @@ export async function generate(
           // The outline before the slides (narrative FUNC-1): the next request is the outline's.
           if (outlining) generation.outlineFirst();
         } else if (step === "outline") {
+          // Back but unreadable once: asked again at once; twice, the person decides (lift-up REL-3).
+          if (!at.outline && !at.unread) continue;
           const outline = at.outline ?? { bigIdea: "", beats: [] };
-          hear({ kind: "outlined", beats: outline.beats.length });
-          const decided = await settle!({ outline, arc: at.arc ?? "", reasoning: at.reasoning ?? "", fallback: at.fallback ?? undefined });
-          if ("settled" in decided) {
+          if (at.outline) hear({ kind: "outlined", beats: outline.beats.length });
+          const shown = { outline, arc: at.arc ?? "", reasoning: at.reasoning ?? "", fallback: at.fallback ?? undefined };
+          const decided = await settle!(at.unread ? { ...shown, unread: at.unread } : shown);
+          if ("without" in decided) {
+            generation.skipOutline();
+            hear({ kind: "unoutlined" });
+          } else if ("settled" in decided) {
             const now = JSON.parse(generation.settle(JSON.stringify(decided.settled))) as { outline?: StoryOutline | null };
             hear({ kind: "settled", beats: now.outline?.beats.length ?? 0 });
           } else {
@@ -650,33 +660,46 @@ async function look(
   hear: (event: GeneratingEvent) => void,
 ) {
   const layouts = JSON.stringify((JSON.parse(making.report()) as { layouts: string[] }).layouts);
-  const seen = generation.seeing(theme.text, placed, layouts);
+  // Each title's room, measured by the engine's module, so a topic may become its claim (lift-up
+  // FUNC-2).
+  const seen = generation.seeing(theme.text, placed, layouts, making.rooms());
   // A slide that would not draw for the model to see, as a deck the model asked for that cannot be
   // made again, leaves the deck as it was, saying why (narrative STAB-3): the look is a polish.
   try {
-    const drawn = await drawing(making, hear);
     // A dozen slides a round (narrative PERF-5), each numbered as it stands in the deck; the
     // changes answered folded into one, and a round not answered losing its own slides' changes
     // alone.
     const slides = JSON.parse(seen) as { slide: number }[];
     const changes: { slide: number }[] = [];
     let unanswered: string | undefined;
-    // Every round asked at once, a few at a time so that no provider's rate limit is tripped,
-    // each told the slides just outside it, and each answer read in its round's order (lift-up
-    // PERF-1).
-    const rounds: { round: { slide: number }[]; part: string; asked: string }[] = [];
+    // Every round asked as soon as its slides are drawn, while the next are drawn (lift-up
+    // 10-25 PERF-5), a few at a time so that no provider's rate limit is tripped, each told the
+    // slides just outside it, and each answer read in its round's order (lift-up PERF-1).
+    const rounds: { round: { slide: number }[]; part: string }[] = [];
+    const replies: ReturnType<typeof send>[] = [];
     for (let start = 0; start < slides.length; start += LOOK_BATCH) {
       const round = slides.slice(start, start + LOOK_BATCH);
+      const drawn = [];
+      for (let i = start; i < Math.min(start + LOOK_BATCH, making.count); i++) {
+        // Each slide shown to the person as it is drawn, round by round (lift-up ATTR-1).
+        const picture = await jpeg(making.pixels(i, LOOK_WIDTH));
+        drawn.push(picture);
+        hear({ kind: "drawn", slide: i, of: making.count, jpeg: picture.data });
+      }
       const part = JSON.stringify(round);
       const edges = JSON.stringify([slides[start - 1] ?? null, slides[start + LOOK_BATCH] ?? null]);
-      const asked = generation.lookRequest(key, part, JSON.stringify(drawn.slice(start, start + LOOK_BATCH)), edges);
-      if (asked) rounds.push({ round, part, asked });
+      const asked = generation.lookRequest(key, part, JSON.stringify(drawn), edges);
+      if (!asked) continue;
+      if (!rounds.length) hear({ kind: "looking", slides: making.count });
+      // No more than a few in flight: the one asked LOOKS_AT_ONCE rounds before answered first.
+      if (replies.length >= LOOKS_AT_ONCE) await replies[replies.length - LOOKS_AT_ONCE];
+      rounds.push({ round, part });
+      // A busy provider's answer asked again, after its wait (lift-up REL-1).
+      replies.push(askedAgain(generation, [JSON.parse(asked) as Request], hear).then(([reply]) => reply));
     }
     const looking = rounds.length > 0;
-    if (looking) hear({ kind: "looking", slides: drawn.length });
-    const replies = await askedAgain(generation, rounds.map((r) => JSON.parse(r.asked) as Request), hear);
     for (const [i, { round, part }] of rounds.entries()) {
-      const reply = replies[i];
+      const reply = await replies[i];
       try {
         changes.push(...(JSON.parse(read(name, reply, () => generation.lookAnswer(reply.status, reply.statusText, reply.body, part))) as { slide: number }[]));
       } catch (e) {

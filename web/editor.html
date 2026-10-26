@@ -544,6 +544,14 @@
       #story [data-legend] .read { width: 5px; height: 5px; border: 1px solid var(--ink); border-radius: 50%; }
       #story [data-legend] .curve { width: 14px; border-top: 1px dashed var(--muted); }
       #story [data-legend] .bends { width: 7px; height: 7px; border-radius: 50%; background: var(--warning); }
+      #story [data-legend] .drifted { width: 7px; height: 7px; border-radius: 50%; background: var(--error); }
+      #story [data-legend] .tone { width: 14px; border-top: 1px solid var(--ink); }
+      #story [data-legend] .tone-read { width: 4px; height: 4px; border: 1px solid var(--ink); }
+      #story .beat rect { fill: var(--line); opacity: 0.35; }
+      #story .beat[data-odd] rect { opacity: 0.15; }
+      #story .beat text { font-size: 7px; fill: var(--muted); text-anchor: middle; }
+      #story .tone { fill: none; stroke: var(--ink); stroke-width: 0.75; opacity: 0.7; }
+      #story .tone-read { fill: none; stroke: var(--ink); stroke-width: 0.75; }
       #story ol { list-style: none; margin: 8px 0 0; padding: 0; }
       #story li { padding: 6px 0; border-top: 1px solid var(--line); }
       #story li .headline { margin-left: 6px; color: var(--muted); }
@@ -713,7 +721,20 @@
       #exporting-notes[hidden] { display: none; }
       #exporting-width { width: 7em; }
       dialog input, dialog select { font: inherit; font-size: 14px; background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 4px; padding: 4px 6px; }
-      #making-preview { width: 100%; height: auto; aspect-ratio: 16 / 9; border: 1px solid var(--line); border-radius: 4px; }
+      /* The themes that ship, chosen by their title slides, each family a section, the sections
+         side by side as they fit (lift-up 10-25b ATTR-1): one radio group, its radio drawn as the
+         tile's ring. */
+      #making { width: min(42em, 94vw); }
+      .theme-field { display: flex; flex-direction: column; gap: 4px; color: var(--muted); font-size: 12px; }
+      .theme-gallery { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: flex-start; max-height: min(46vh, 30em); overflow-y: auto; padding: 2px; }
+      .theme-gallery fieldset { border: 0; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+      .theme-gallery .tile { width: 136px; }
+      .theme-gallery legend { padding: 0 0 4px; color: var(--muted); font-size: 12px; }
+      .theme-gallery .tile { position: relative; display: flex; flex-direction: column; gap: 4px; color: var(--ink); font-size: 13px; cursor: pointer; }
+      .theme-gallery .tile input { position: absolute; opacity: 0; width: 1px; height: 1px; margin: 0; }
+      .theme-gallery .tile img { width: 100%; height: auto; aspect-ratio: 16 / 9; border: 1px solid var(--line); border-radius: 4px; }
+      .theme-gallery .tile:has(input:checked) img { outline: 3px solid var(--info); outline-offset: 1px; }
+      .theme-gallery .tile:has(input:focus-visible) img { outline: 3px solid var(--info); outline-offset: 3px; }
       dialog menu { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; margin: 4px 0 0; padding: 0; }
       #skip { position: fixed; left: 8px; top: -100px; z-index: 30; padding: 6px 10px; background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 4px; }
       #skip:focus { top: 8px; }
@@ -758,6 +779,11 @@
       #prompting-outline .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: end; }
       #prompting-outline .row.end { justify-content: flex-end; }
       #prompting-outline .row > label { flex: 1 1 10em; }
+      #prompting-unread { border-top: 1px solid var(--line); padding-top: 8px; display: flex; flex-direction: column; gap: 8px; }
+      #prompting-unread h3 { margin: 0; font-size: 14px; }
+      #prompting-unread .row { display: flex; gap: 8px; justify-content: flex-end; }
+      /* Each pane is a flex column, which would show it though hidden. */
+      #prompting-outline[hidden], #prompting-unread[hidden] { display: none; }
       #prompting-beats { margin: 0; padding-left: 1.4em; display: flex; flex-direction: column; gap: 6px; max-height: 40vh; overflow: auto; }
       #prompting-beats li { display: grid; grid-template-columns: 1fr auto; gap: 4px 8px; align-items: start; }
       #prompting-beats .name { font-size: 12px; font-weight: 600; }
@@ -910,7 +936,9 @@
         </div>
         <p class="statusline">
           <span id="status" role="status">Loading…</span>
+          <span id="offer" role="status" hidden></span>
           <button type="button" id="restate" hidden title="Set the story's claim for this slide to what its headline says now, one step to undo">Update</button>
+          <button type="button" id="keep-claim" hidden title="Keep the story's claim for this slide as it is">Keep</button>
           <span id="where"></span>
           <span id="offline" class="offline" hidden title="The site keeps every file it needs in this browser: it opens, plays, and edits with no network">Works offline</span>
           <button type="button" id="update" hidden title="A newer version of the site is kept in this browser: reload to use it; every open page of the site reloads too, each asking about unsaved changes">A new version is ready: reload</button>
@@ -1014,7 +1042,7 @@
             <dl data-measures></dl>
             <p data-big-idea hidden></p>
             <div data-arc></div>
-            <p data-legend><i class="declared"></i>as written <i class="read"></i>as its words read <i class="curve"></i>the arc's curve <i class="bends"></i>off it; higher is more intense</p>
+            <p data-legend><i class="declared"></i>intensity as written <i class="read"></i>as its words read <i class="curve"></i>the arc's curve <i class="bends"></i>off it <i class="drifted"></i>out of its beat; higher is more intense. <i class="tone"></i>tone as written <i class="tone-read"></i>as its words read; higher is more hopeful</p>
             <ol data-findings aria-label="What to look at, slide by slide"></ol>
           </section>
         </div>
@@ -1055,8 +1083,7 @@
       <form method="dialog">
         <h2 id="making-title">New deck</h2>
         <label>Title <input id="making-name" name="title" required autocomplete="off" value="Untitled" /></label>
-        <label>Theme <select id="making-theme" name="theme"></select></label>
-        <img id="making-preview" width="240" height="135" alt="" />
+        <div class="theme-field"><span id="making-theme-label">Theme</span><div id="making-themes" class="theme-gallery" aria-labelledby="making-theme-label"></div></div>
         <p class="note">A title slide to type over, on a 16:9 canvas, with the theme and its fonts. It is kept nowhere until you save it; what you change meanwhile is kept in this browser, to recover.</p>
         <menu>
           <button value="cancel" formnovalidate>Cancel</button>
@@ -1072,8 +1099,8 @@
           <label>Audience <input id="prompting-audience" name="audience" list="prompting-audiences" autocomplete="off" /></label>
           <label>Goal <select id="prompting-goal" name="goal"></select></label>
           <label>Length <select id="prompting-length" name="length"></select></label>
-          <label>Theme <select id="prompting-theme" name="theme"></select></label>
         </div>
+        <div class="theme-field"><span id="prompting-theme-label">Theme</span><div id="prompting-themes" class="theme-gallery" aria-labelledby="prompting-theme-label"></div></div>
         <fieldset>
           <legend>Grounded in</legend>
           <ul id="prompting-sources" aria-label="What it is grounded in"></ul>
@@ -1145,6 +1172,14 @@
           </div>
           <div class="row end">
             <button type="button" id="prompting-write">Write the slides</button>
+          </div>
+        </section>
+        <section id="prompting-unread" hidden aria-labelledby="prompting-unread-title">
+          <h3 id="prompting-unread-title">The outline didn't come back readable</h3>
+          <p class="note" id="prompting-unread-why"></p>
+          <div class="row end">
+            <button type="button" id="prompting-unread-stop">Stop</button>
+            <button type="button" id="prompting-without">Write without an outline</button>
           </div>
         </section>
         <menu>

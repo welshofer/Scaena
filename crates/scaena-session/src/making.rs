@@ -90,11 +90,25 @@ impl Making {
         self.write.as_ref().map_or(0, |w| w.deck.slides().len())
     }
 
+    /// How many characters each slide's title place holds at its role's size (lift-up FUNC-2),
+    /// by slide, as `scaena_ops::narrative::rooms` measures them: what the look lets a topic title
+    /// grow to. None where the deck would not validate.
+    pub fn rooms(&self) -> Vec<Option<usize>> {
+        self.write.as_ref().map(scaena_ops::narrative::rooms).unwrap_or_default()
+    }
+
     /// Each slide drawn `width` pixels wide, at rest, as a JPEG, for the model to see (PLAN
     /// G.13); none where the deck would not validate.
     pub fn drawn(&self, width: u32) -> Result<Vec<Picture>, Error> {
         let Some(write) = &self.write else { return Ok(Vec::new()) };
         scaena_ops::narrative::drawn(write, width).map_err(ops)
+    }
+
+    /// The slides `slides` names by index, drawn as [`Making::drawn`] draws each: a round of the
+    /// look, drawn while the one before is asked (lift-up 10-25 PERF-5).
+    pub fn drawn_in(&self, width: u32, slides: std::ops::Range<usize>) -> Result<Vec<Picture>, Error> {
+        let Some(write) = &self.write else { return Ok(Vec::new()) };
+        scaena_ops::narrative::drawn_in(write, width, slides).map_err(ops)
     }
 
     /// The `index`th slide, whole at its last state, drawn `width` pixels wide, at rest, by the

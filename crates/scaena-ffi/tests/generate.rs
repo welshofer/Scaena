@@ -147,6 +147,9 @@ fn a_deck_is_made_from_a_prompt_as_swift_makes_one_its_pictures_with_it() {
         &json!({ "slides": [{ "slide": 1, "layout": "", "title": "Carbon-negative cargo, ready to scale", "subtitle": "", "bullets": [], "why": "One idea, one line." }] })
             .to_string(),
     );
+    // The next batch drawn while this one is out, as Swift asks it (lift-up 10-25 PERF-5): none
+    // is left of a deck one round long, so none is drawn for the window.
+    assert_eq!(step(g, "drawAhead", json!({}), &[]), json!({ "drawn": [] }));
     let answered = json!([{ "status": 200, "statusText": "OK", "body": tightened }]);
     let looked = step(g, "looked", json!({ "replies": answered, "key": "sk-writer" }), &[]);
     assert_eq!(looked["looked"], 1, "{looked}");
@@ -242,6 +245,46 @@ fn a_deck_is_made_from_a_prompt_as_swift_makes_one_its_pictures_with_it() {
 /// The icons the slides name are found in the set that ships as the deck is made, as the CLI
 /// finds them (PLAN G.23): a slide whose items each name one sets each under it, and Swift does
 /// nothing more for it.
+/// An outline that does not read, as Swift's loop meets it (lift-up REL-3): the first answer
+/// leaves the step to ask again, the second stands as `unread`, and `skipOutline` writes the
+/// slides without one, on the arc chosen.
+#[test]
+fn an_unreadable_outline_is_asked_again_then_passed_over_as_swift_asks_it() {
+    let arc = std::fs::read_to_string(format!("{ANSWERS}/anthropic-arc.json")).unwrap();
+    let slides = std::fs::read_to_string(format!("{ANSWERS}/anthropic-slides.json")).unwrap();
+    let g = scaena_generator_new();
+    let brief = json!({ "topic": "Carbon-negative cargo is ready to scale", "audience": "Investors" });
+    step(g, "begin", json!({ "brief": brief, "provider": "anthropic", "model": "a-model" }), &[]);
+    let asked = step(g, "request", json!({ "key": "sk-writer" }), &[]);
+    let chose = step(g, "answer", json!({ "status": 200, "statusText": "OK", "body": arc }), &[]);
+    assert_eq!(asked["step"], "arc");
+    assert_eq!(chose["step"], "slides");
+    assert_eq!(step(g, "outline", json!({}), &[])["step"], "outline");
+    let prose = anthropic("I would be glad to outline this talk.");
+    let first = step(g, "request", json!({ "key": "sk-writer" }), &[]);
+    let once = step(g, "answer", json!({ "status": 200, "statusText": "OK", "body": prose }), &[]);
+    assert_eq!((once["step"].as_str(), once.get("unread")), (Some("outline"), Some(&Value::Null)), "{once}");
+    assert!(once["wait"].is_null(), "asked again at once: {once}");
+    let again = step(g, "request", json!({ "key": "sk-writer" }), &[]);
+    assert_eq!(again["request"], first["request"], "the same outline asked once more");
+    let twice = step(g, "answer", json!({ "status": 200, "statusText": "OK", "body": prose }), &[]);
+    assert_eq!(twice["step"], "outline");
+    assert!(twice["unread"].as_str().is_some_and(|w| w.ends_with("(asked 2 times)")), "{twice}");
+    assert_eq!(twice["arc"], "Problem\u{2013}Solution", "the arc paid for stands");
+
+    let passed = step(g, "skipOutline", json!({}), &[]);
+    assert_eq!((passed["step"].as_str(), passed["outline"].is_null()), (Some("slides"), true), "{passed}");
+    let writing = step(g, "request", json!({ "key": "sk-writer" }), &[]);
+    let body = writing["request"]["body"].as_str().unwrap();
+    assert!(
+        body.contains("**Narrative Framework**: Problem\u{2013}Solution") && !body.contains("**Outline (Scaena)**")
+    );
+    let wrote = step(g, "answer", json!({ "status": 200, "statusText": "OK", "body": slides }), &[]);
+    assert_eq!(wrote["step"], "done", "{wrote}");
+    assert_eq!(wrote["written"], 5);
+    unsafe { scaena_generator_free(g) };
+}
+
 /// A busy provider's answer to the look or the fit, as Swift's loop hands it over: the same
 /// request handed back with the wait to sleep and the tries so far, and a refusal after it left
 /// as it is (lift-up REL-1).
@@ -444,12 +487,13 @@ fn a_step_out_of_order_is_an_error_that_says_why() {
     unsafe { scaena_generator_free(g) };
 }
 
-/// A long deck's look is asked in every round at once (lift-up 20261025 PERF-2): `make` hands
-/// over each round's request, which ScaenaKit sends three at a time as the CLI and the browser
-/// do, and `looked` takes every answer back in the rounds' order, a round not answered losing
+/// A long deck's look is asked a batch of rounds at a time (lift-up 20261025 PERF-2): `make`
+/// hands over the first three rounds' requests, which ScaenaKit sends at once as the CLI and the
+/// browser do, while `drawAhead` draws the next batch (lift-up 10-25 PERF-5); `looked` takes
+/// every answer back in the rounds' order and hands over that batch, a round not answered losing
 /// its own slides' changes alone.
 #[test]
-fn a_long_decks_look_hands_over_every_round_at_once() {
+fn a_long_decks_look_hands_over_a_batch_of_rounds_while_the_next_is_drawn() {
     let slides = std::fs::read_to_string(format!("{ANSWERS}/catalog.json")).unwrap();
     let g = scaena_generator_new();
     let brief = json!({ "topic": "Tidewater's Series A", "audience": "Investors" });
@@ -460,8 +504,15 @@ fn a_long_decks_look_hands_over_every_round_at_once() {
     let look = &making["look"];
     let rounds = look["rounds"].as_array().unwrap();
     let slides = look["slides"].as_u64().unwrap() as usize;
-    assert_eq!(rounds.len(), scaena_ops::narrative::look_rounds(slides).count(), "{slides} slides");
-    assert!(rounds.len() > 1, "{} rounds", rounds.len());
+    let all = scaena_ops::narrative::look_rounds(slides).count();
+    assert!(all > 3, "{slides} slides make {all} rounds");
+    assert_eq!(rounds.len(), 3, "the first batch, as many as are asked at once");
+    // The first batch's slides shown as drawn; the next batch's drawn while it is out, by index.
+    assert_eq!(making["drawn"].as_array().unwrap().len(), 36, "three rounds of a dozen");
+    let ahead = step(g, "drawAhead", json!({}), &[]);
+    let drawn = ahead["drawn"].as_array().unwrap();
+    assert_eq!((drawn.len(), drawn[0]["slide"].as_u64()), (slides - 36, Some(36)), "{}", drawn.len());
+    assert_eq!(step(g, "drawAhead", json!({}), &[]), json!({ "drawn": [] }), "drawn once, not twice ahead");
     // Each round shows its own slides, in order.
     let first = |r: &Value| {
         let body: Value = serde_json::from_str(r["body"].as_str().unwrap()).unwrap();
@@ -483,15 +534,17 @@ fn a_long_decks_look_hands_over_every_round_at_once() {
     );
     let busy = json!({ "status": 529, "statusText": "", "body": r#"{"error":{"message":"busy"}}"#, "after": "2" });
     let bad = json!({ "status": 400, "statusText": "Bad Request", "body": r#"{"error":{"message":"bad"}}"# });
-    let mut replies = vec![json!({ "status": 200, "statusText": "OK", "body": tightened }), busy, bad];
-    for _ in 3..rounds.len() {
-        replies.push(json!({ "status": 200, "statusText": "OK", "body": anthropic(r#"{"slides": []}"#) }));
-    }
+    let replies = vec![json!({ "status": 200, "statusText": "OK", "body": tightened }), busy, bad];
     let again = step(g, "looked", json!({ "replies": replies }), &[]);
     assert_eq!((again["wait"].as_f64(), again["tried"].as_u64()), (Some(2.0), Some(1)), "{again}");
     assert_eq!(again["look"]["rounds"], json!([rounds[1]]), "the busy round alone, as first handed out");
     let none = json!({ "status": 200, "statusText": "OK", "body": anthropic(r#"{"slides": []}"#) });
-    let looked = step(g, "looked", json!({ "replies": [none] }), &[]);
+    // The first batch answered, the batch drawn ahead is handed over, nothing drawn again.
+    let next = step(g, "looked", json!({ "replies": [none] }), &[]);
+    let later = next["look"]["rounds"].as_array().unwrap();
+    assert_eq!((later.len(), next["drawn"].as_array().map(Vec::len)), (all - 3, Some(0)), "{}", next["look"]);
+    assert!(first(&later[0]).starts_with("Slide 37 of "), "{}", first(&later[0]));
+    let looked = step(g, "looked", json!({ "replies": vec![none; later.len()] }), &[]);
     assert_eq!(looked["looked"], 1, "the first round's change kept: {looked}");
     let unlooked = looked["unlooked"].as_str().unwrap();
     assert!(unlooked.starts_with("slides ") && unlooked.contains("not looked at"), "the refused round's: {unlooked}");
