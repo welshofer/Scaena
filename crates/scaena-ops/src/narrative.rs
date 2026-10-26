@@ -40,6 +40,7 @@ use std::path::{Path, PathBuf};
 
 mod one;
 pub use one::{Place, SlideWritten, Written, one_asked, slide_into, slide_polishing, slide_write, slide_writing};
+mod notes;
 
 /// One slide an agent hands over, as `slide_write` takes it: normalized as a model's slides are,
 /// or refused where it gives none of the fields Narrato's slides are written in (lift-up 10-25b
@@ -48,6 +49,7 @@ pub fn slide_from(raw: &Value) -> Result<Slide, OpsError> {
     scaena_narrato::answer::one(raw).map_err(OpsError::new)
 }
 mod quoting;
+pub use notes::{noted, speaking};
 
 /// The canvas a made deck draws on.
 const CANVAS: [u32; 2] = [1920, 1080];
@@ -108,6 +110,13 @@ pub struct Generated {
     /// Why the model did not look at the deck drawn, or what it asked was not kept.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub unlooked: Option<String>,
+    /// The slides, by number from 1, whose speaker notes the model wrote for the talk (lift-up
+    /// 10-25 ATTR-2).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub noted: Vec<usize>,
+    /// Why the notes were not written for the talk, or some slides' not taken.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unnoted: Option<String>,
     /// Each change the model asked that lint found its slide worse for, not kept (lift-up USE-4).
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub refused: Vec<Refused>,
@@ -334,6 +343,11 @@ pub enum Progress {
     Looking { slides: usize },
     /// What the model asked came back: these many slides changed.
     Looked { slides: usize },
+    /// Each slide's speaker notes are asked to be written for the talk, these many slides
+    /// (lift-up 10-25 ATTR-2).
+    Noting { slides: usize },
+    /// The notes came back: these many slides' taken.
+    Noted { slides: usize },
 }
 
 /// Whether a generation shows the model the deck as it is drawn (PLAN G.13): not at all; by a
@@ -341,6 +355,16 @@ pub enum Progress {
 /// slides.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Looking<'a> {
+    No,
+    Asked,
+    Answered(&'a str),
+}
+
+/// Whether a generation has each slide's speaker notes written for the talk once the deck is
+/// seen (lift-up 10-25 ATTR-2): not at all; by a call, where it has a key; or with what a model
+/// answered elsewhere, as `--slides` gives the slides.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Noting<'a> {
     No,
     Asked,
     Answered(&'a str),
@@ -567,6 +591,7 @@ pub fn generate(
     documents: &[Document],
     painter: Option<&Painter>,
     looking: Looking,
+    noting: Noting,
     theme_file: &Path,
     theme: String,
     font: &dyn Fn(&str) -> Result<Vec<u8>, OpsError>,
@@ -574,7 +599,7 @@ pub fn generate(
     say: &mut dyn FnMut(Progress),
 ) -> Result<(Generated, Option<Write>), OpsError> {
     let draw = |write: &Write, slides: std::ops::Range<usize>| drawn_in(write, LOOK_WIDTH, slides);
-    generate_drawn(generation, key, documents, painter, looking, theme_file, theme, font, transport, say, &draw)
+    generate_drawn(generation, key, documents, painter, looking, noting, theme_file, theme, font, transport, say, &draw)
 }
 
 /// [`generate`], each slide drawn for the model to see by `draw` (the CPU painter's JPEGs, as
@@ -589,6 +614,7 @@ pub fn generate_drawn(
     documents: &[Document],
     painter: Option<&Painter>,
     looking: Looking,
+    noting: Noting,
     theme_file: &Path,
     theme: String,
     font: &dyn Fn(&str) -> Result<Vec<u8>, OpsError>,
@@ -762,6 +788,7 @@ pub fn generate_drawn(
     if let Some(why) = unanswered {
         made.unlooked = Some(made.unlooked.map_or(why.clone(), |was| format!("{was}; {why}")));
     }
+    write = speak(&generation, key, noting, &mut made, write, transport, say)?;
     let Some(key) = key else { return Ok((made, Some(write))) };
     // Asked again for what the first rewrite still left too long, then said (STAB-4).
     for round in 1..=scaena_narrato::fit::ROUNDS {
@@ -853,6 +880,7 @@ pub fn from_slides(
         &[],
         None,
         Looking::No,
+        Noting::No,
         &theme.file,
         theme.text.clone(),
         &font,
@@ -863,6 +891,72 @@ pub fn from_slides(
         crate::create::make(dir, write)?;
     }
     Ok(made)
+}
+
+/// `write` with each slide's speaker notes written for the talk (lift-up 10-25 ATTR-2), as
+/// `noting` says: asked of the model a dozen slides a round ([`LOOK_BATCH`]), a few rounds at once,
+/// a busy provider asked again, as the look is; or read from an answer written elsewhere. Notes
+/// are a polish, as the look is: a round not answered keeps its slides' notes as Narrato wrote
+/// them, said in `unnoted`, and never fails the deck.
+fn speak(
+    generation: &Generation,
+    key: Option<&str>,
+    noting: Noting,
+    made: &mut Generated,
+    write: Write,
+    transport: &mut dyn Transport,
+    say: &mut dyn FnMut(Progress),
+) -> Result<Write, OpsError> {
+    if noting == Noting::No || (noting == Noting::Asked && key.is_none()) {
+        return Ok(write);
+    }
+    let spoken = match speaking(&write.deck) {
+        Ok(spoken) => spoken,
+        Err(why) => {
+            made.unnoted = Some(format!("the slides could not be read for their notes: {why}"));
+            return Ok(write);
+        }
+    };
+    let mut written = Vec::new();
+    let mut unanswered: Option<String> = None;
+    match (noting, key) {
+        (Noting::Answered(text), _) => match scaena_narrato::notes::read(text, &spoken) {
+            Ok(notes) => written = notes,
+            Err(why) => unanswered = Some(why),
+        },
+        (Noting::Asked, Some(key)) => {
+            let asked: Vec<(std::ops::Range<usize>, Request)> = look_rounds(spoken.len())
+                .filter_map(|round| Some((round.clone(), generation.notes_request(key, &spoken[round])?)))
+                .collect();
+            if asked.is_empty() {
+                return Ok(write);
+            }
+            say(Progress::Noting { slides: spoken.len() });
+            let requests: Vec<Request> = asked.iter().map(|(_, r)| r.clone()).collect();
+            let replies = asked_again(&requests, transport, say);
+            for ((round, _), reply) in asked.into_iter().zip(replies) {
+                match generation.notes_answer(reply.status, &reply.status_text, &reply.body, &spoken[round.clone()]) {
+                    Ok(notes) => written.extend(notes),
+                    Err(why) => {
+                        let (first, last) = (spoken[round.start].slide, spoken[round.end - 1].slide);
+                        let why = match round.len() {
+                            1 => format!("slide {first}'s notes not written: {why}"),
+                            _ => format!("slides {first}\u{2013}{last}'s notes not written: {why}"),
+                        };
+                        unanswered = Some(unanswered.map_or(why.clone(), |was| format!("{was}; {why}")));
+                    }
+                }
+            }
+        }
+        _ => return Ok(write),
+    }
+    let taken = written.len();
+    let write = noted(made, write, written)?;
+    if noting == Noting::Asked {
+        say(Progress::Noted { slides: taken });
+    }
+    made.unnoted = unanswered;
+    Ok(write)
 }
 
 /// `write` with `rewrites`, each a text node's id and the words the model rewrote it in to fit
@@ -1872,6 +1966,8 @@ pub fn making(
         unpictured: Vec::new(),
         looked: Vec::new(),
         unlooked: None,
+        noted: Vec::new(),
+        unnoted: None,
         refused: Vec::new(),
     };
     let Some(mut write) = write else { return Ok((made, None)) };
@@ -7126,6 +7222,66 @@ mod tests {
         }
     }
 
+    /// A made deck's notes written for its talk (lift-up 10-25 ATTR-2): the keynote's, as a model
+    /// answered its notes pass, each slide's taken and set as its beat's notes, the beats' times
+    /// counted again, so the talk runs the middle of the 16–30 minute slot its 11–15 slides are
+    /// given, where Narrato's own notes carried it 8 minutes. No slide's words or layout move.
+    #[test]
+    fn a_made_decks_notes_are_written_for_its_talk() {
+        let slides = std::fs::read_to_string(root().join("tests/fixtures/dogfood/keynote.slides.json")).unwrap();
+        let answered = std::fs::read_to_string(root().join("tests/fixtures/dogfood/keynote.notes.json")).unwrap();
+        let make = |noting: Noting| {
+            let mut brief = Brief::new("Keynote: how a Maine fishing town built its own microgrid");
+            brief.length = "11-15 slides".into();
+            let settings = Settings { provider: Provider::Anthropic, model: String::new(), base: None, browser: false };
+            let mut g = Generation::new(brief, settings).unwrap();
+            g.choose_arc(Some("Hero's Journey"));
+            g.written(&slides, false).unwrap();
+            let mut never = |_: &Request| Reply::default();
+            let (made, write) = generate(
+                g,
+                None,
+                &[],
+                None,
+                Looking::No,
+                noting,
+                Path::new("dusk.theme.json"),
+                dusk(),
+                &font,
+                &mut never,
+                &mut |_| {},
+            )
+            .unwrap();
+            (made, write.unwrap().deck)
+        };
+        let beats = |deck: &Deck| -> Vec<(String, f64)> {
+            let spine = deck.spine.as_ref().unwrap();
+            (spine.sections.iter().flat_map(|s| &s.beats))
+                .map(|b| (b.notes.clone().unwrap_or_default(), b.duration.unwrap()))
+                .collect()
+        };
+        let minutes = |deck: &Deck| beats(deck).iter().map(|(_, d)| d).sum::<f64>() / 60.0;
+        let (_, drafted) = make(Noting::No);
+        let (made, spoken) = make(Noting::Answered(&answered));
+        assert!(minutes(&drafted) < 16.0, "Narrato's notes run {:.1} minutes", minutes(&drafted));
+        // The slot's middle, 23 minutes, as the talk is timed: within a minute and a half of it.
+        assert!((21.5..=24.5).contains(&minutes(&spoken)), "the talk runs {:.1} minutes", minutes(&spoken));
+        assert_eq!(made.noted, (1..=13).collect::<Vec<_>>());
+        assert_eq!(made.unnoted, None);
+        let written: Value = serde_json::from_str(&answered).unwrap();
+        for ((notes, _), asked) in beats(&spoken).iter().zip(written["notes"].as_array().unwrap()) {
+            assert_eq!(notes, asked["notes"].as_str().unwrap());
+        }
+        // Notes only: every slide draws as it did.
+        let (was, now) = (drafted.to_value().unwrap(), spoken.to_value().unwrap());
+        assert_eq!((&was["nodes"], &was["states"]), (&now["nodes"], &now["states"]));
+        // The spoken words would be the slides' own figures: notes that write one no slide does are
+        // not taken.
+        let invented = answered.replacen("1,900", "2,400", 1);
+        let (made, _) = make(Noting::Answered(&invented));
+        assert_eq!(made.noted.len(), 12, "{:?}", made.noted);
+    }
+
     #[test]
     fn a_value_the_model_did_not_give_is_no_row_and_moves_no_other() {
         let chart = ChartData {
@@ -9450,6 +9606,7 @@ mod tests {
             &[],
             None,
             Looking::No,
+            Noting::No,
             Path::new("dusk.theme.json"),
             dusk(),
             &font,
@@ -9480,6 +9637,7 @@ mod tests {
             &[],
             None,
             Looking::No,
+            Noting::No,
             Path::new("dusk.theme.json"),
             dusk(),
             &font,
@@ -9709,6 +9867,7 @@ mod tests {
             &[],
             None,
             Looking::Asked,
+            Noting::No,
             Path::new("dusk.theme.json"),
             dusk(),
             &font,
@@ -9796,6 +9955,7 @@ mod tests {
             &[],
             None,
             Looking::Asked,
+            Noting::No,
             Path::new("dusk.theme.json"),
             dusk(),
             &font,
@@ -9866,6 +10026,7 @@ mod tests {
             &[],
             None,
             Looking::Asked,
+            Noting::No,
             Path::new("dusk.theme.json"),
             dusk(),
             &font,
@@ -9996,6 +10157,7 @@ mod tests {
             &[],
             None,
             Looking::Asked,
+            Noting::No,
             Path::new("dusk.theme.json"),
             dusk(),
             &font,
@@ -10088,6 +10250,7 @@ mod tests {
                 &[],
                 None,
                 Looking::No,
+                Noting::No,
                 Path::new("dusk.theme.json"),
                 dusk(),
                 &font,

@@ -167,6 +167,11 @@ public enum GeneratingStep: Equatable, Sendable {
     case looking(slides: Int)
     case looked(slides: Int)
     case unlooked(String)
+    /// Each slide's speaker notes asked to be written for the talk, then these many taken, or
+    /// why some were not (lift-up 10-25 ATTR-2).
+    case noting(slides: Int)
+    case noted(slides: Int)
+    case unnoted(String)
     /// A change the model asked that lint found its slide worse for, let go (lift-up USE-4).
     case refused(slide: Int, what: String, why: String)
     case fitting(texts: Int)
@@ -206,6 +211,9 @@ public enum GeneratingStep: Equatable, Sendable {
         case .looked(let slides) where slides == 0: "The model saw nothing to change"
         case .looked(let slides): "\(slides) \(slides == 1 ? "slide" : "slides") changed by what the model saw"
         case .unlooked(let why): "Not changed by what the model saw: \(why)"
+        case .noting(let slides): "Writing the \(slides) slides' notes for the talk…"
+        case .noted(let slides): "\(slides) \(slides == 1 ? "slide's" : "slides'") notes written for the talk"
+        case .unnoted(let why): "Notes not written for the talk: \(why)"
         case .refused(let slide, let what, let why): "Slide \(slide) kept as made: the model asked for \(what). \(why)"
         case .fitting(let texts): "\(texts) \(texts == 1 ? "text runs" : "texts run") past their place: asking for them shorter…"
         case .fitted(let texts): "\(texts) rewritten to fit"
@@ -717,8 +725,18 @@ public final class Generator {
             let atOnce: Int
         }
 
+        /// A round of the speaker's notes: its request, and how many slides it writes for (lift-up
+        /// 10-25 ATTR-2).
+        struct Noted: Decodable, Sendable {
+            let request: GeneratorRequest
+            let slides: Int
+        }
+
         let look: Look?
         let fit: Fit?
+        /// The first round of each slide's speaker notes, written for the talk, where they are
+        /// asked once the look is done or none is (lift-up 10-25 ATTR-2).
+        let notes: Noted?
         /// Each slide as drawn for the model, a JPEG in base64 (lift-up ATTR-1).
         let drawn: [String]?
     }
@@ -749,6 +767,20 @@ public final class Generator {
         let drawn: [Redrawn]?
         /// Seconds to wait before `look`, the same round, is asked again, and how many times it
         /// was asked so far (lift-up REL-1).
+        let wait: Double?
+        let tried: Int?
+        /// The first round of the speaker notes, where they are asked once the look is done.
+        let notes: Making.Noted?
+    }
+
+    /// One round of the speaker notes answered (lift-up 10-25 ATTR-2): the next round where one
+    /// is left, or the same again after `wait` from a busy provider; else what the notes came to
+    /// and the fit asked for.
+    private struct Noting: Decodable, Sendable {
+        let notes: Making.Noted?
+        let noted: Int?
+        let unnoted: String?
+        let fit: Fit?
         let wait: Double?
         let tried: Int?
     }
@@ -991,7 +1023,7 @@ public final class Generator {
     /// kept changes touched once more, drawn again (lift-up ATTR-1).
     public func generate(
         brief: Brief, arc: String? = nil, provider: Provider, model: String, base: String? = nil, key: String,
-        theme: String, painter: Painter? = nil, look: Bool = true, outline: Settle? = nil,
+        theme: String, painter: Painter? = nil, look: Bool = true, notes: Bool = true, outline: Settle? = nil,
         drawn: (Int, Data) -> Void = { _, _ in },
         hear: (GeneratingStep) -> Void
     ) async throws -> (ScaenaSession, Generated) {
@@ -1064,8 +1096,9 @@ public final class Generator {
         }
         hear(.making)
         let making: Making = try await stepAway(
-            "make", ["theme": .string(theme), "key": .string(key), "look": .bool(look)])
+            "make", ["theme": .string(theme), "key": .string(key), "look": .bool(look), "notes": .bool(notes)])
         var fit = making.fit
+        var noting = making.notes
         // Each slide as drawn for the model, shown while it looks (lift-up ATTR-1).
         for (slide, jpeg) in (making.drawn ?? []).enumerated() {
             if let data = Data(base64Encoded: jpeg) { drawn(slide, data) }
@@ -1119,6 +1152,33 @@ public final class Generator {
             // Each change let go, and what lint found (lift-up USE-4).
             for r in looking.refused ?? [] { hear(.refused(slide: r.slide, what: r.what, why: r.why)) }
             fit = looking.fit
+            noting = looking.notes
+        }
+        // Each slide's speaker notes written for the talk (lift-up 10-25 ATTR-2), a dozen slides a
+        // round as the look goes; then the fit, asked after them.
+        if let first = noting { hear(.noting(slides: first.slides)) }
+        while let round = noting {
+            let reply = await send(round.request)
+            var answered: [String: JSONValue] = [
+                "status": .number(Double(reply.status)),
+                "statusText": .string(reply.status == 0 ? reply.text : HTTPURLResponse.localizedString(forStatusCode: reply.status)),
+                "body": .string(reply.status == 0 ? "" : reply.text),
+                "key": .string(key),
+            ]
+            if let after = reply.after { answered["after"] = .string(after) }
+            let noted: Noting = try await stepAway("noted", answered)
+            if let wait = noted.wait {
+                hear(.retrying(seconds: wait, tried: noted.tried ?? 0))
+                try await Task.sleep(for: .seconds(wait))
+            }
+            noting = noted.notes
+            if noting != nil { continue }
+            if let why = noted.unnoted {
+                hear(.unnoted(unanswered(why, provider, reply)))
+            } else {
+                hear(.noted(slides: noted.noted ?? 0))
+            }
+            fit = noted.fit
         }
         // Each answer may ask once more for what the rewrite left too long (STAB-4), or, from a
         // busy provider, the same fit again after the wait the engine says (lift-up REL-1).
