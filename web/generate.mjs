@@ -716,7 +716,8 @@ try {
   const left = page.locator("#leftovers[open]");
   await left.waitFor({ timeout: 60000 }).catch(() => {});
   const leftList = await page.locator("#leftovers li span").allTextContents();
-  check(leftList.length === 1 && leftList[0].startsWith("Tidewater, changed "), `the editor opened again lists the made deck not saved: ${leftList.join(" | ")}`);
+  const titled = JSON.parse(dashed.match(/^deck (".*?(?<!\\)")/m)?.[1] ?? '""');
+  check(leftList.length === 1 && Boolean(titled) && leftList[0].startsWith(`${titled}, changed `), `the editor opened again lists the made deck not saved, by its title: ${leftList.join(" | ")}`);
   await page.click("#leftovers li button:text('Recover')");
   await page
     .waitForFunction(() => window.scaena.source().includes("Why Tidewater still wins") && window.scaena.last(), null, { timeout: 120000 })
