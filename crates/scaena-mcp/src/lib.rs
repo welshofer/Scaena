@@ -939,8 +939,9 @@ pub struct DeckGenerate {
     /// The slides, as Narrato writes them: `executiveSummary`, and `slides`, each with
     /// `slideTitle`, `subtitle`, `layoutSuggestion` (`Title`, `Bullet List`, `Big Number`,
     /// `Chart`, `Two Column`, `Quote`, `Section Divider`, `Closing`, …), `keyBullets`,
-    /// `speakerNotes`, `beatIndex` and `beatName` (the arc's beat it belongs to), `intensity`
-    /// (0–1), `tone` (−1–1), and `visualDescription`; `chartData` where a chart is drawn.
+    /// `speakerNotes`, `beatIndex` and `beatName` (the arc's beat it belongs to),
+    /// `expectedIntensity` (0–1), `expectedValence` (its tone, −1–1), and `visualDescription`;
+    /// `chartData` where a chart is drawn.
     pub slides: Map<String, Value>,
     /// The theme to make it in: one that ships, by name (`dusk`, `daybreak`, `ember`, `salon`),
     /// or a theme file. `dusk` without it.
@@ -1080,7 +1081,10 @@ impl Scaena {
     }
 
     #[tool(description = "Apply a patch: JSON Patch and semantic ops (add_node, rename_node, set_prop, set_text, \
-        show_node, hide_node, add_state, …; SPEC §7.3), all or none. A patch that would make the deck invalid is refused. \
+        show_node, hide_node, add_state, …; SPEC §7.3), all or none. A slide's own: move_slide, remove_slide, and \
+        duplicate_slide move, take away, and copy a slide with its steps and its beat; set_state sets a state's \
+        layout, transition, hold, and notes; place puts a node where it goes; choose sets a property where its value \
+        lives; replace_text changes words, keeping their runs. A patch that would make the deck invalid is refused. \
         Reports the semantic ops given, what changed in the slides and the story (`summary`: slides and beats \
         added, removed, and moved, and beats told otherwise), and what lint finds that it did not (`added`) and finds \
         no more (`removed`); with `verbose`, the patch compiled to JSON Patch too. Each beat whose claim a slide said \
@@ -1598,8 +1602,8 @@ impl Scaena {
     ) -> Result<Json<scaena_ops::narrative::SlideWritten>, String> {
         let author = author(&context);
         blocking(move || {
-            let slide: scaena_ops::narrative::Slide =
-                serde_json::from_value(Value::Object(a.slide)).map_err(|e| OpsError::new(format!("the slide: {e}")))?;
+            let slide =
+                scaena_ops::narrative::slide_from(&Value::Object(a.slide)).map_err(|e| e.context("the slide"))?;
             let place = match (a.replace, a.after) {
                 (Some(_), Some(_)) => return Err(OpsError::new("give `after` or `replace`, not both")),
                 (Some(state), None) => scaena_ops::narrative::Place::Replace(state),
@@ -1672,8 +1676,9 @@ pub const INSTRUCTIONS: &str = "Scaena decks are states over one scene graph: no
     Narrato's JSON and call deck_generate (no model is called): it gives the spine, beats, notes, layouts, and \
     figures. To add one slide to a deck that exists, slide_write it, in the beat it tells (`beat`). To write a \
     deck by hand, deck_create it (a theme that ships, dusk, daybreak, ember, or salon, needs no file) and edit \
-    with deck_patch. Attach data with data_attach, check with deck_lint, read the story again with deck_health, \
-    and look with deck_render. The resources hold the schemas, the lint \
+    with deck_patch (start a slide in a layout with state_start). Attach data with data_attach, check with \
+    deck_lint, read the story again with deck_health, and look with deck_render; undo with deck_history, which \
+    restores a version. The resources hold the schemas, the lint \
     catalog, the specification by section (scaena://spec is its index), the skills (procedures to follow: \
     scaena://skills/author-deck first), and examples.";
 
