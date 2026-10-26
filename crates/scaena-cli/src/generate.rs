@@ -123,6 +123,10 @@ pub struct GenerateArgs {
     /// taken out, or added), then `--from-outline FILE` writes the slides to it.
     #[arg(long, conflicts_with = "slides")]
     outline: Option<PathBuf>,
+    /// With `--outline`: where the outline twice comes back but does not read, write the slides
+    /// without one, on the arc already chosen, and make the deck, rather than stop.
+    #[arg(long, requires = "outline")]
+    allow_no_outline: bool,
     /// Make the deck from the outline `--outline` wrote, as edited: the slides follow its beats,
     /// in its order, each carrying its claim. With `--slides`, the outline those slides were
     /// written to, each slide's `beatIndex` counting its beats.
@@ -811,14 +815,38 @@ pub fn run(a: GenerateArgs, json: bool) -> Result<ExitCode> {
             eprintln!("outlining…");
         }
         generation.outline_first().map_err(|e| anyhow!(e))?;
-        // Asked again, as the slides are, where the provider is busy (narrative REL-1).
-        while generation.step() == Step::Outline {
+        // Asked again, as the slides are, where the provider is busy (narrative REL-1), and once
+        // more where it comes back but does not read (lift-up REL-3).
+        while generation.step() == Step::Outline && generation.unread().is_none() {
             let request = generation.request(key, &grounding.documents).expect("the outline is asked");
             let reply = fetch(&agent, &request);
             (generation.answer(reply.status, &reply.status_text, &reply.body, reply.after.as_deref()))
                 .map_err(|e| anyhow!("the outline: {e}"))?;
             waited(&generation, json);
         }
+        // Twice unreadable: written without one where the person allowed it, the arc paid for
+        // kept; else stopped, saying the choice (lift-up REL-3).
+        if let Some(why) = generation.unread().map(str::to_string) {
+            if !a.allow_no_outline {
+                bail!(
+                    "the outline did not read: {why}. Write the deck without one, on the arc chosen: scaena generate {} {:?} --arc {:?}, or ask again with --outline {} --allow-no-outline",
+                    dir.display(),
+                    generation.brief().topic,
+                    chosen.selection,
+                    path.display()
+                );
+            }
+            generation.skip_outline().map_err(|e| anyhow!(e))?;
+            if !json {
+                eprintln!("outline: not read ({why}); writing the slides without one");
+            }
+        }
+    }
+    // The outline written, for the person to settle; none where it was passed over.
+    if let Some(path) = &a.outline
+        && generation.outline().is_some()
+    {
+        let chosen = generation.arc().cloned().expect("the arc is chosen");
         let outline = generation.outline().expect("the outline is written");
         let written = serde_json::json!({
             "arc": chosen.selection,

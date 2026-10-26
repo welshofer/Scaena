@@ -102,6 +102,32 @@ private func carets(_ json: String) throws -> Carets {
     #expect(!typing.typing && typing.told == nil)
 }
 
+/// A burst of typing is drawn at once and compiled once, as it ends (lift-up 10-25b PERF-2): each
+/// change is in the deck and its source as it is typed, but the window reads the deck anew, and
+/// lint runs, only once the burst is over.
+@MainActor
+@Test func aBurstOfTypingIsCompiledOnceAsItEnds() throws {
+    let editor = DeckEditor(session: try ScaenaSession(directory: b1))
+    editor.shown = "cover"
+    let typing = Typing(editor: editor)
+    typing.burst = .seconds(60)
+    #expect(typing.enter("title", in: "cover", at: nil))
+    let (revision, edits, redraws) = (editor.revision, editor.edits, editor.redraws)
+    #expect(typing.replace(NSRange(location: 6, length: 0), with: " on"))
+    #expect(typing.replace(NSRange(location: 9, length: 0), with: " the Mac"))
+    #expect(typing.carets?.text == "Scaena on the Mac")
+    #expect(editor.source.contains("Scaena on the Mac"))
+    #expect(editor.revision == revision, "not compiled at each key")
+    #expect(editor.edits == edits + 2 && editor.redraws > redraws, "but drawn")
+
+    // Compiled once the burst ends: the deck it compiles to is the one typed.
+    typing.leave()
+    #expect(editor.revision == revision + 1 && editor.edits == edits + 2)
+    let compiled = try editor.session.source()
+    #expect(editor.valid && compiled == editor.source)
+    #expect(editor.session.laying() != nil, "compiled: the deck is taken to lint")
+}
+
 #if os(macOS)  // the canvas's keys are AppKit's; the iPad's, `UITextInput`'s, are tested below
 /// Keys and an input method through the text input system (PLAN 3.9): each change a
 /// `replace_text` by the user, the burst of typing one step to undo, a composition typed in

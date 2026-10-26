@@ -53,11 +53,18 @@ The theme names what you may use, under `motion` in the theme file the deck name
    - Moving to the next period is a data change in a new state, not an animation you write.
 7. **Write it as a patch** (SPEC §7.3, `docs/schema/patch.schema.json`).
    - `apply_preset` with `motion` sets a node's `enter`, `exit`, or `emphasis`.
-   - No semantic op sets a state's `transition`, `choreography`, or `hold`. Write JSON Patch at `/states/<i>/…`, and guard each with a `test` of the state's id, so a patch made against another order fails rather than lands on the wrong state:
+   - `set_state` sets a state's `transition`, or one key of it (`transition/ease`), and its `hold`, by the state's id, as the editor's inspector does:
+   ```json
+   [
+     { "op": "set_state", "id": "miles", "prop": "transition", "value": "fast" },
+     { "op": "set_state", "id": "miles", "prop": "hold", "value": 4000 }
+   ]
+   ```
+   - `time_motion` sets when a node's motion starts in a state and how long it runs, `delay` in ms and `duration` in ms or a theme duration, written where the motion is: `{ "op": "time_motion", "node": "miles-chart", "motion": "enter", "state": "miles", "delay": 200, "duration": "slow" }`.
+   - No semantic op writes a state's `choreography`. Write it as JSON Patch at `/states/<i>/choreography`, guarded by a `test` of the state's id, so a patch made against another order fails rather than lands on the wrong state:
    ```json
    [
      { "op": "test", "path": "/states/3/id", "value": "miles" },
-     { "op": "add", "path": "/states/3/transition", "value": "fast" },
      { "op": "add", "path": "/states/3/choreography", "value": [
        { "sequence": [ { "target": "miles-title", "enter": "rise" }, { "target": "miles-chart", "enter": "grow" } ] } ] }
    ]
