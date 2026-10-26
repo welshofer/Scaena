@@ -73,3 +73,34 @@ import Testing
     #expect(throws: ScaenaError.self) { try ScaenaSession(files: [:]) }
     #expect(throws: ScaenaError.self) { try ScaenaSession(zip: Data("not a zip".utf8)) }
 }
+
+/// A save on the Mac says what it did with a history it could not read, or one a newer Scaena
+/// wrote, in the words the browser's status line says (lift-up 20261025b REL-1).
+@Test func aSaveSaysWhatItDidWithAHistoryItCouldNotRead() throws {
+    let session = try ScaenaSession(directory: b1)
+    try session.keepHistory()
+    let begun = try session.save(subset: false)
+    var files: [String: Data] = [:]
+    for path in begun.files { files[path] = begun.file(path) }
+    let history = try #require(files["history/deck.loro"])
+    #expect(DeckEditor.said(ofSave: begun.summary) == nil, "a history begun says nothing of it")
+
+    // Cut short: kept aside, and the history begins again.
+    var cut = files
+    cut["history/deck.loro"] = history.prefix(history.count / 2)
+    let damaged = try ScaenaSession(files: cut).save(subset: false)
+    let aside = try #require(damaged.summary["again"]?.string)
+    #expect(damaged.files.contains(aside))
+    #expect(DeckEditor.said(ofSave: damaged.summary)
+        == "Its history could not be read: it is kept aside as \(aside), and the history begins again")
+
+    // A newer Scaena's: left as it is, the save unrecorded in it.
+    var newer = files
+    var future = history
+    future.replaceSubrange(20..<22, with: [0xFF, 0xFF])
+    newer["history/deck.loro"] = future
+    let left = try ScaenaSession(files: newer).save(subset: false)
+    #expect(left.file("history/deck.loro") == future, "the history left as it was")
+    let said = try #require(DeckEditor.said(ofSave: left.summary))
+    #expect(said.hasPrefix("This bundle's history was written by a newer Scaena"), "\(said)")
+}
