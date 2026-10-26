@@ -728,7 +728,15 @@ public final class Generator {
         let texts: Int
     }
 
-    /// The look's rounds answered: what it came to, and the fit asked for.
+    /// The look's next batch drawn: each slide it drew, by its index, for the window (lift-up
+    /// ATTR-1), or why a slide would not draw, where one would not.
+    private struct Ahead: Decodable, Sendable {
+        let drawn: [Redrawn]?
+        let unlooked: String?
+    }
+
+    /// The look's rounds answered: the next batch where one is left (lift-up 10-25 PERF-5), else
+    /// what it came to, and the fit asked for.
     private struct Looking: Decodable, Sendable {
         /// The rounds a busy provider answered for now, handed back to be asked again.
         let look: Making.Look?
@@ -1072,7 +1080,15 @@ public final class Generator {
         if let first = seeing { hear(.looking(slides: first.slides)) }
         var refused: GeneratorReply?
         while let round = seeing {
-            let replies = await Self.asked(round.rounds, atOnce: round.atOnce, send: send)
+            // The batch asked, a few rounds at a time, and the next batch drawn while it is out
+            // (lift-up 10-25 PERF-5); a slide that will not draw is said by `looked`.
+            let send = self.send
+            async let asking = Self.asked(round.rounds, atOnce: round.atOnce, send: send)
+            let ahead: Ahead = try await stepAway("drawAhead")
+            for next in ahead.drawn ?? [] {
+                if let data = Data(base64Encoded: next.jpeg) { drawn(next.slide, data) }
+            }
+            let replies = await asking
             refused = replies.last { !(200..<300).contains($0.status) } ?? refused
             let answers: [JSONValue] = replies.map { reply -> JSONValue in
                 var answered: [String: JSONValue] = [
@@ -1089,10 +1105,12 @@ public final class Generator {
                 try await Task.sleep(for: .seconds(wait))
             }
             seeing = looking.look
-            if seeing != nil { continue }
+            // The slides the next batch drew, where none was drawn ahead, or once the look is done,
+            // those its kept changes touched, drawn again (lift-up ATTR-1).
             for again in looking.drawn ?? [] {
                 if let data = Data(base64Encoded: again.jpeg) { drawn(again.slide, data) }
             }
+            if seeing != nil { continue }
             if let why = looking.unlooked {
                 hear(.unlooked(unanswered(why, provider, refused ?? replies[0])))
             } else {
