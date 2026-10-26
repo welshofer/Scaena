@@ -530,7 +530,9 @@ enum Track {
     /// (PLAN 2.129): those both draw stay, and the others enter and leave by its cues.
     Paragraphs { from: usize, to: usize, parts: Box<Paragraphs> },
     /// Text in both whose layout changed: its words match by their text.
-    Words { from: usize, to: usize, plan: Box<WordPlan> },
+    /// A text's words moving, and, for code numbered in a gutter, its numbers by number (PLAN
+    /// 2.141).
+    Words { from: usize, to: usize, plan: Box<WordPlan>, numbers: Option<Box<WordPlan>> },
 }
 
 /// A text's paragraphs between two states that draw others of it (PLAN 2.129), each part laid
@@ -860,11 +862,28 @@ impl Transition {
                 (Some(i), Policy::Crossfade) => Track::Crossfade { from: i, to: j },
                 (Some(i), Policy::Morph) => match (&source[i].content, &b.content) {
                     (Content::Text(x), Content::Text(y)) if x.text == y.text => Track::Move { from: i, to: j },
+                    // Code moves token by token (PLAN 2.141, ADR-0029 item 7), a line added among
+                    // its lines moving the rest, and its numbers by number.
+                    (Content::Text(x), Content::Text(y)) if let (Some(cx), Some(cy)) = (&x.code, &y.code) => {
+                        let lang = |c: &crate::carets::CaretCode| scaena_core::code::lang(&c.language);
+                        fn gutter(t: &PlacedText) -> Option<&TextLayout> {
+                            t.frame.as_ref().and_then(|f| f.gutter.as_ref()).map(|(_, g)| g)
+                        }
+                        Track::Words {
+                            from: i,
+                            to: j,
+                            plan: Box::new(WordPlan::lined(lines(&x.text, lang(cx)), lines(&y.text, lang(cy)))),
+                            numbers: match (gutter(x), gutter(y)) {
+                                (Some(a), Some(b)) if a.text != b.text => Some(Box::new(WordPlan::new(a, b))),
+                                _ => None,
+                            },
+                        }
+                    }
                     (Content::Text(x), Content::Text(y)) if let Some(parts) = Paragraphs::of(&x.text, &y.text) => {
                         Track::Paragraphs { from: i, to: j, parts: Box::new(parts) }
                     }
                     (Content::Text(x), Content::Text(y)) => {
-                        Track::Words { from: i, to: j, plan: Box::new(WordPlan::new(&x.text, &y.text)) }
+                        Track::Words { from: i, to: j, plan: Box::new(WordPlan::new(&x.text, &y.text)), numbers: None }
                     }
                     (Content::Shader(x), Content::Shader(y)) if x.morphs_to(y) => Track::Move { from: i, to: j },
                     (Content::Shape(x), Content::Shape(y)) if x.morphs_to(y) => Track::Move { from: i, to: j },
@@ -1209,7 +1228,7 @@ impl Transition {
                     let op = match (&from[*i].content, &to[*j].content) {
                         (Content::Text(a), Content::Text(b)) => {
                             let origin = lerp2(a.origin, b.origin, geo);
-                            let mut ops = frame_between(&mut dl, a, b, origin, geo, p);
+                            let mut ops = frame_between(&mut dl, a, b, None, origin, geo, p);
                             ops.extend(item_ops(&mut dl, &b.text));
                             let clip = b.clip.map(|[x, y, w, h]| Path::rect([x - origin[0], y - origin[1], w, h]));
                             let Op::Layer { node, cell, label, transform, opacity, blend, ops, .. } =
@@ -1321,7 +1340,7 @@ impl Transition {
                     let opacity = if moving { lerp(x.opacity, y.opacity, p) } else { y.opacity };
                     // What both draw stays; what comes enters by the text's entrance, else fades
                     // in with the transition; what goes leaves by its exit, else fades out.
-                    let mut ops = frame_between(&mut dl, a, b, origin, geo, p);
+                    let mut ops = frame_between(&mut dl, a, b, None, origin, geo, p);
                     ops.extend(item_ops(&mut dl, &parts.both));
                     let cue = |on: fn(&Motion) -> bool| self.schedule.of(&y.id).find(|c| on(&c.motion));
                     let sides = [
@@ -1347,7 +1366,7 @@ impl Transition {
                     };
                     dl.ops.push(looked(Op::Layer { node, cell, label, transform, opacity, blend, clip, ops }, seen));
                 }
-                Track::Words { from: i, to: j, plan } => {
+                Track::Words { from: i, to: j, plan, numbers } => {
                     let (x, y) = (&from[*i], &to[*j]);
                     let (Some(seen), _) = self.seen(&y.id, false, true, t_ms) else { continue };
                     if !moving {
@@ -1358,7 +1377,7 @@ impl Transition {
                         unreachable!("Words tracks pair text")
                     };
                     let origin = lerp2(a.origin, b.origin, geo);
-                    let mut ops = frame_between(&mut dl, a, b, origin, geo, p);
+                    let mut ops = frame_between(&mut dl, a, b, numbers.as_deref(), origin, geo, p);
                     ops.extend(plan.sample(&mut dl, [a.origin, b.origin], origin, p, geo));
                     // Clipped text stays clipped where it stands at either end.
                     let clip = (a.clip.is_some() && b.clip.is_some())
@@ -1478,6 +1497,9 @@ struct WordPlan {
     came: Vec<Word>,
 }
 
+/// A text's units, each by its text, in order: what [`WordPlan::of`] pairs.
+type Units = Vec<(String, Word)>;
+
 /// One word's glyphs, run by run, what each run says, and its box: relative to its
 /// text's top-left corner.
 #[derive(Debug, Clone, PartialEq)]
@@ -1580,6 +1602,67 @@ impl WordPlan {
         plan
     }
 
+    /// The plan for two code texts, by their lines (PLAN 2.141), as a diff pairs them: their lines
+    /// first, by their text, the longest common subsequence of them; a line both sides write pairs
+    /// each of its units with its twin, so it moves whole; and only the runs of lines between those,
+    /// the lines edited, added, or taken away, pair their units by [`WordPlan::of`]. So a line
+    /// written above its twin never takes a unit of it, as a tie among its tokens could.
+    fn lined(la: Vec<(String, Units)>, lb: Vec<(String, Units)>) -> WordPlan {
+        let (n, m) = (la.len(), lb.len());
+        let w = m + 1;
+        let flat = |l: Vec<(String, Units)>| l.into_iter().flat_map(|(_, u)| u).collect::<Units>();
+        if (n + 1).saturating_mul(w) > MAX_CELLS {
+            return WordPlan::of(flat(la), flat(lb));
+        }
+        let mut lcs = vec![0u32; (n + 1) * w];
+        for i in (0..n).rev() {
+            for j in (0..m).rev() {
+                lcs[i * w + j] = if la[i].0 == lb[j].0 {
+                    lcs[(i + 1) * w + j + 1] + 1
+                } else {
+                    lcs[(i + 1) * w + j].max(lcs[i * w + j + 1])
+                };
+            }
+        }
+        let mut plan = WordPlan { pairs: Vec::new(), gone: Vec::new(), came: Vec::new() };
+        let (mut hunk_a, mut hunk_b): (Units, Units) = (Vec::new(), Vec::new());
+        let flush = |plan: &mut WordPlan, a: &mut Units, b: &mut Units| {
+            if a.is_empty() && b.is_empty() {
+                return;
+            }
+            let part = WordPlan::of(std::mem::take(a), std::mem::take(b));
+            plan.pairs.extend(part.pairs);
+            plan.gone.extend(part.gone);
+            plan.came.extend(part.came);
+        };
+        let mut la = la.into_iter().peekable();
+        let mut lb = lb.into_iter().peekable();
+        let (mut i, mut j) = (0, 0);
+        while i < n || j < m {
+            let same = i < n && j < m && la.peek().map(|l| &l.0) == lb.peek().map(|l| &l.0);
+            if same {
+                let ((_, ua), (_, ub)) = (la.next().unwrap_or_default(), lb.next().unwrap_or_default());
+                // The same line: each unit with its twin, where both read it alike, as they do.
+                if ua.len() == ub.len() && ua.iter().zip(&ub).all(|(x, y)| x.0 == y.0) {
+                    flush(&mut plan, &mut hunk_a, &mut hunk_b);
+                    plan.pairs.extend(ua.into_iter().zip(ub).map(|(x, y)| WordPair::new(x.1, y.1)));
+                } else {
+                    hunk_a.extend(ua);
+                    hunk_b.extend(ub);
+                }
+                (i, j) = (i + 1, j + 1);
+            } else if j < m && (i == n || lcs[i * w + j + 1] >= lcs[(i + 1) * w + j]) {
+                hunk_b.extend(lb.next().map(|l| l.1).unwrap_or_default());
+                j += 1;
+            } else {
+                hunk_a.extend(la.next().map(|l| l.1).unwrap_or_default());
+                i += 1;
+            }
+        }
+        flush(&mut plan, &mut hunk_a, &mut hunk_b);
+        plan
+    }
+
     /// The plan for two texts too long to pair word by word: a table for every pair of
     /// their words would hold more than `MAX_CELLS`. The words they share at their start
     /// and at their end pair, as an edit inside a long text leaves them; the rest leave and
@@ -1663,6 +1746,55 @@ impl WordPlan {
         }
         ops
     }
+}
+
+/// A code text's lines as written, each its text and its units (PLAN 2.141, ADR-0029 item 7): its
+/// tokens as `lang` colors it, each cut at its white space, so a comment or a string pairs word by
+/// word; each by its text, in the line it starts on.
+fn lines(t: &TextLayout, lang: scaena_core::code::Lang) -> Vec<(String, Units)> {
+    // Where a character of the text as written stands in the text as laid out.
+    let laid = |w: usize| {
+        let k = t.offsets.partition_point(|o| o.0 <= w);
+        t.offsets.get(k.saturating_sub(1)).map_or(w, |o| o.1 + (w - o.0))
+    };
+    // Each glyph that draws ink, by where its cluster starts in the text as laid out.
+    let mut glyphs: Vec<(usize, usize, usize)> = (t.runs.iter().enumerate())
+        .flat_map(|(r, run)| run.clusters.iter().enumerate().map(move |(g, &c)| (c, r, g)))
+        .filter(|&(c, _, _)| !t.text[c..].starts_with(char::is_whitespace))
+        .collect();
+    scaena_core::sort::by(&mut glyphs, |a, b| a.cmp(b));
+    let starts = t.cluster_starts();
+    let mut out: Vec<(String, Units)> =
+        t.written.split('\n').map(|line| (line.trim_end_matches('\r').to_string(), Vec::new())).collect();
+    // The line each byte of the text as written stands on.
+    let breaks: Vec<usize> = t.written.match_indices('\n').map(|(i, _)| i).collect();
+    let mut from = 0;
+    for token in scaena_core::code::highlight(&t.written, lang) {
+        let written = &t.written[from..token.end];
+        let mut at = from;
+        for piece in written.split(char::is_whitespace) {
+            let (lo, hi) = (at, at + piece.len());
+            at = hi + written[hi - from..].chars().next().map_or(0, char::len_utf8);
+            if piece.is_empty() {
+                continue;
+            }
+            let line = breaks.partition_point(|&b| b < lo);
+            let (lo, hi) = (laid(lo), laid(hi));
+            let first = glyphs.partition_point(|g| g.0 < lo);
+            let last = glyphs.partition_point(|g| g.0 < hi);
+            let picked: Vec<(usize, usize)> = glyphs[first..last].iter().map(|&(_, r, g)| (r, g)).collect();
+            if picked.is_empty() {
+                continue;
+            }
+            let runs = subset(t, |r, g| picked.contains(&(r, g)));
+            let said = runs.iter().map(|run| said(&t.text, &starts, run)).collect();
+            if let Some((_, units)) = out.get_mut(line) {
+                units.push((piece.to_string(), Word { runs, said, rect: unit_box(t, &picked) }));
+            }
+        }
+        from = token.end;
+    }
+    out
 }
 
 /// Whether two words draw the same glyphs the same way, colors aside: glyph by glyph, across
@@ -3040,7 +3172,15 @@ fn frame_ops(dl: &mut DisplayList, placed: &PlacedText) -> Vec<Op> {
 /// in its layer at `origin` (PLAN 2.136): the card moving and resizing as a shape does, or fading
 /// where only one side stands on one; the numbers moving where both sides set the same, else
 /// each side's fading where its text sets them.
-fn frame_between(dl: &mut DisplayList, a: &PlacedText, b: &PlacedText, origin: Point, geo: f32, p: f32) -> Vec<Op> {
+fn frame_between(
+    dl: &mut DisplayList,
+    a: &PlacedText,
+    b: &PlacedText,
+    numbered: Option<&WordPlan>,
+    origin: Point,
+    geo: f32,
+    p: f32,
+) -> Vec<Op> {
     fn card(t: &PlacedText) -> Option<&ShapeNode> {
         t.frame.as_ref().and_then(|f| f.card.as_ref())
     }
@@ -3078,6 +3218,11 @@ fn frame_between(dl: &mut DisplayList, a: &PlacedText, b: &PlacedText, origin: P
     // Where the numbers stand from their text's origin, which moves as the text does.
     let from = |t: &PlacedText, at: &[f32; 2]| [at[0] - t.origin[0], at[1] - t.origin[1]];
     match (gutter(a), gutter(b)) {
+        // Other numbers, as code with a line added or taken away has (PLAN 2.141): each number
+        // moves to where it now stands, and one on one side alone fades where it stands.
+        (Some((x_at, _)), Some((y_at, _))) if let Some(numbers) = numbered => {
+            ops.extend(numbers.sample(dl, [*x_at, *y_at], origin, p, geo));
+        }
         // The same numbers: where only their colors differ, as a walkthrough sets lines back, each
         // glides from one to the other (PLAN 2.140).
         (Some((x_at, x)), Some((y_at, y)))
