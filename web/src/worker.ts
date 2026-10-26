@@ -273,6 +273,10 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         deciding?.({ arc: data.arc });
         deciding = undefined;
         return;
+      case "outlinePassed":
+        deciding?.({ without: true });
+        deciding = undefined;
+        return;
       case "reload": {
         if (!("url" in from)) throw new Error("only a bundle read from a URL is read again");
         latest++;

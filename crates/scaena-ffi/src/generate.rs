@@ -342,6 +342,12 @@ impl Generating {
                 w.generation.settle(&outline).map_err(said)?;
                 where_it_stands(&w.generation)
             }
+            // The outline passed over, the slides written without one (lift-up REL-3).
+            "skipOutline" => {
+                let w = self.written()?;
+                w.generation.skip_outline().map_err(said)?;
+                where_it_stands(&w.generation)
+            }
             "chooseArc" => {
                 let w = self.written()?;
                 let arc = args.get("arc").and_then(Value::as_str).filter(|a| !a.is_empty());
@@ -772,9 +778,10 @@ fn researched(topic: &str, report: &Report) -> Source {
 }
 
 /// Where a generation stands: `{step, slides, arc?, reasoning?, fallback?, written?, truncated?,
-/// outline?, plan?, wait?}`, the outline once written or settled (narrative FUNC-1), the beats the
-/// slides are spread over once the arc is chosen, and `wait` the seconds to wait before the same
-/// step is asked again, where its last answer was for now (narrative REL-1).
+/// outline?, unread?, plan?, wait?}`, the outline once written or settled (narrative FUNC-1), why
+/// it did not read once asked twice (lift-up REL-3), the beats the slides are spread over once the
+/// arc is chosen, and `wait` the seconds to wait before the same step is asked again, where its
+/// last answer was for now (narrative REL-1).
 fn where_it_stands(g: &Generation) -> Value {
     let narrative = g.narrative();
     let step: Step = g.step();
@@ -787,6 +794,7 @@ fn where_it_stands(g: &Generation) -> Value {
         "written": narrative.map(|n| n.slides.len()),
         "truncated": narrative.map(|n| n.truncated),
         "outline": g.outline(),
+        "unread": g.unread(),
         "plan": g.plan(),
         "wait": g.again(),
         "tried": g.tried(),
