@@ -127,8 +127,9 @@ private func anthropic(_ text: String) -> Data {
     #expect(film.allSatisfy { $0.jpeg.starts(with: [0xFF, 0xD8, 0xFF]) })
     // Built and drawn, then drawn again as the model's look changed it; fitted where a text ran on.
     let slow = away.steps.map(\.step)
-    #expect(Array(slow.prefix(2)) == ["make", "looked"], "the slow steps: \(slow)")
-    #expect(Set(slow).isSubset(of: ["make", "looked", "noted", "fitted"]), "the slow steps: \(slow)")
+    // The next round drawn while the one asked is out (lift-up 10-25 PERF-5).
+    #expect(Array(slow.prefix(3)) == ["make", "drawAhead", "looked"], "the slow steps: \(slow)")
+    #expect(Set(slow).isSubset(of: ["make", "drawAhead", "looked", "noted", "fitted"]), "the slow steps: \(slow)")
     #expect(away.steps.allSatisfy { !$0.main }, "a slow step was made on the main thread: \(away.steps)")
     // On a stack that holds a deck being built: a dispatch queue's 512 KB worker overflows it.
     #expect(away.steps.allSatisfy { $0.stack >= Generator.stack }, "a slow step's stack: \(away.steps)")
@@ -236,6 +237,45 @@ private func anthropic(_ text: String) -> Data {
     let direct2 = await plain.requests.filter { $0.url.hasSuffix("/v1/messages") }
     #expect(direct2.count == 2)
     #expect(!(direct2[1].body ?? "").contains("**Outline (Scaena)**"))
+}
+
+/// An outline that does not read (lift-up REL-3): asked once more at once, then shown as unread,
+/// and passed over, the slides written without one on the arc chosen, and the deck made.
+@MainActor
+@Test func anUnreadableOutlineIsAskedAgainThenPassedOver() async throws {
+    let arc = try Data(contentsOf: answers.appending(path: "anthropic-arc.json"))
+    let slides = try Data(contentsOf: answers.appending(path: "anthropic-slides.json"))
+    let asked = Asked()
+    let generator = Generator { request in
+        await asked.add(request)
+        let body = request.body ?? ""
+        if body.contains("=== CATALOG ===") { return GeneratorReply(status: 200, body: arc) }
+        if body.contains("planning a presentation before its slides") {
+            return GeneratorReply(status: 200, body: anthropic("I would be glad to outline this talk."))
+        }
+        if body.contains("runs past its place") { return GeneratorReply(status: 200, body: anthropic(#"{"texts": []}"#)) }
+        return GeneratorReply(status: 200, body: slides)
+    }
+    var heard: [GeneratingStep] = []
+    var shown: [Outlined] = []
+    let (_, made) = try await generator.generate(
+        brief: Brief(topic: "Carbon-negative cargo is ready to scale", audience: "Investors"),
+        provider: .anthropic, model: "a-model", key: "sk-writer", theme: "dusk", look: false,
+        outline: { outlined in
+            shown.append(outlined)
+            return .withoutOutline
+        }
+    ) { heard.append($0) }
+    #expect(shown.count == 1, "shown once, when it stands unread")
+    #expect(shown.first?.unread?.hasSuffix("(asked 2 times)") == true, "\(shown)")
+    #expect(shown.first?.arc == "Problem–Solution")
+    #expect(heard.contains(.unoutlined))
+    #expect(!heard.contains(where: { if case .outlined = $0 { true } else { false } }))
+    #expect(made.created.created)
+    let requests = await asked.requests.filter { $0.url.hasSuffix("/v1/messages") }
+    #expect(requests.count == 4, "the arc, the outline twice, then the slides")
+    #expect(requests[1].body == requests[2].body, "the same outline asked once more")
+    #expect(!(requests[3].body ?? "").contains("**Outline (Scaena)**"))
 }
 
 /// A provider that refuses says why in a person's words, as the pictures do (lift-up USE-3), its

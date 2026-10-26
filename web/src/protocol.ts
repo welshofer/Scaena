@@ -1055,6 +1055,8 @@ export type ToWorker =
   | { type: "storySettled"; outline: StoryOutline }
   /** Another arc for the outline, by name, or the heuristic's where none: outlined again. */
   | { type: "outlineAgain"; arc?: string }
+  /** The outline, twice unreadable, passed over: the slides written without one (lift-up REL-3). */
+  | { type: "outlinePassed" }
   /** Paint `state` `t` ms into its cue, or at rest without `t`. */
   | { type: "show"; id: number; state: string; t?: number; format?: string }
   /** The deck's timeline. */
@@ -1520,6 +1522,8 @@ export type GeneratingEvent =
   | { kind: "outlining" }
   | { kind: "outlined"; beats: number }
   | { kind: "settled"; beats: number }
+  /** The outline, twice unreadable, passed over: the slides written without one (lift-up REL-3). */
+  | { kind: "unoutlined" }
   | { kind: "writing"; slides: number }
   | { kind: "retrying"; seconds: number; tried: number }
   | { kind: "wrote"; slides: number; truncated: boolean }
@@ -2058,7 +2062,7 @@ export type FromWorker =
   | { type: "generating"; event: GeneratingEvent }
   /** The outline the model wrote (narrative FUNC-1), on `arc`, chosen for `reasoning`: shown for
    * the person to settle (`settled`) or to outline again on another arc (`outlineAgain`). */
-  | { type: "storyOutlined"; outline: StoryOutline; arc: string; reasoning: string; fallback?: string }
+  | { type: "storyOutlined"; outline: StoryOutline; arc: string; reasoning: string; fallback?: string; unread?: string }
   /** The deck made from a prompt: the bundle's files by their paths, its name, and what it came
    * to. Kept nowhere until it is saved. */
   | { type: "generated"; files: Record<string, ArrayBuffer>; name: string; made: Generated }
@@ -2174,7 +2178,19 @@ export type FromWorker =
   | { type: "typed"; id: number; source: string; edited: Edited; carets: Carets | null }
   /** The bundle is saved `where`, and the session goes on from it: the files the save
    * renamed, from and to, each a path the source may name; and how many files it wrote. */
-  | { type: "saved"; id: number; where: Where; renamed: [string, string][]; files: number; recorded: boolean }
+  | {
+      type: "saved";
+      id: number;
+      where: Where;
+      renamed: [string, string][];
+      files: number;
+      recorded: boolean;
+      /** Where a history that could not be read was kept aside, the history begun again beside it
+       * (lift-up 20261025b REL-1). */
+      again?: string;
+      /** Why the save is not recorded in the bundle's history, which a newer Scaena wrote. */
+      unrecorded?: string;
+    }
   /** A bundle the browser keeps is renamed or deleted, and the open bundle is kept `where`. */
   | { type: "rekept"; id: number; where?: Where }
   /** The bundle as a `.scaena` zip, and each font subset: its path, and its size before and

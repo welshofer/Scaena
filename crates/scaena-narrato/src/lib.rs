@@ -55,6 +55,11 @@ pub const NOTES_MAX_TOKENS: u32 = 16_000;
 /// How many times a step is asked while its provider is busy or does not answer (narrative
 /// REL-1): the pictures' six, so that one busy answer on the dearest call ends no run.
 pub const TRIES: usize = 6;
+
+/// How many times the outline is asked where its answer comes back but does not read: once more,
+/// then the person decides (lift-up REL-3).
+pub const OUTLINE_READS: usize = 2;
+
 /// The longest wait before a step is asked again, in seconds.
 pub const LONGEST_WAIT: f64 = 60.0;
 
@@ -223,6 +228,10 @@ pub struct Generation {
     /// The outline the person settled, where they asked to see one (narrative FUNC-1): what the
     /// slides are written to.
     outline: Option<Outline>,
+    /// How many of the outline's answers came back but did not read, and why the last did not,
+    /// once it has been asked twice (lift-up REL-3): the person then writes without one, or stops.
+    misread: usize,
+    unread: Option<String>,
     narrative: Option<Narrative>,
     /// How many times the step was asked and answered for now, not for good.
     tried: usize,
@@ -244,6 +253,8 @@ impl Generation {
             arc: None,
             fallback: None,
             outline: None,
+            misread: 0,
+            unread: None,
             narrative: None,
             tried: 0,
             again: None,
@@ -311,11 +322,36 @@ impl Generation {
         match self.step {
             Step::Slides | Step::Outline if self.arc.is_some() => {
                 self.step = Step::Outline;
+                self.misread = 0;
+                self.unread = None;
                 Ok(())
             }
             Step::Done => Err(NarratoError::Done),
             _ => Err(NarratoError::Answer("the arc is chosen before the outline is asked".into())),
         }
+    }
+
+    /// Why the outline did not read, once it was asked twice and twice came back unreadable
+    /// (lift-up REL-3): the arc paid for stands, and the person writes the slides without an
+    /// outline ([`Generation::skip_outline`]) or stops. None while an outline may still come.
+    pub fn unread(&self) -> Option<&str> {
+        self.unread.as_deref()
+    }
+
+    /// Write the slides without an outline, the arc chosen standing (lift-up REL-3): where the
+    /// outline was asked and did not read, or the person passes it over. Only once the arc is
+    /// chosen and before the slides are written.
+    pub fn skip_outline(&mut self) -> Result<(), NarratoError> {
+        match self.step {
+            Step::Slides | Step::Outline if self.arc.is_some() => {}
+            Step::Done => return Err(NarratoError::Done),
+            _ => return Err(NarratoError::Answer("the arc is chosen before the outline is passed over".into())),
+        }
+        self.outline = None;
+        self.unread = None;
+        self.misread = 0;
+        self.step = Step::Slides;
+        Ok(())
     }
 
     /// The outline as the person settled it (narrative FUNC-1), which the slides are written to:
@@ -651,7 +687,10 @@ impl Generation {
                 Ok(self.step)
             }
             // An outline that fails to come back is an error that says why, and the step stands
-            // to be asked again, or passed over for the slides at once.
+            // to be asked again, or passed over for the slides at once. One that comes back but
+            // does not read (prose around its JSON, no claims) is asked once more, at once; the
+            // second stands as `unread`, for the person to write without one or stop, the arc
+            // paid for kept (lift-up REL-3).
             Step::Outline => {
                 if status == 0 {
                     return Err(NarratoError::Provider(asked(format!("the request did not complete: {status_text}"))));
@@ -661,8 +700,19 @@ impl Generation {
                 let chosen = self.arc.as_ref().expect("the arc is chosen before the outline is asked");
                 let arc = arcs::arc(&chosen.selection);
                 let plan = beats::plan(arc, self.target());
-                self.outline = Some(outline::read(&read.text, arc, &plan).map_err(NarratoError::Answer)?);
-                self.step = Step::Slides;
+                match outline::read(&read.text, arc, &plan) {
+                    Ok(outline) => {
+                        self.outline = Some(outline);
+                        self.misread = 0;
+                        self.step = Step::Slides;
+                    }
+                    Err(why) => {
+                        self.misread += 1;
+                        if self.misread >= OUTLINE_READS {
+                            self.unread = Some(format!("{why} (asked {} times)", self.misread));
+                        }
+                    }
+                }
                 Ok(self.step)
             }
             Step::Slides => {
