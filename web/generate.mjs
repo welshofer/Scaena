@@ -731,6 +731,8 @@ try {
     .then(() => page.click("#recovering [value=discard]"))
     .catch(() => {});
   await opened();
+  // The page was opened again since the brief was last filled in, so its topic is asked anew.
+  await page.fill("#prompting-topic", "Pitch a Series A round for our carbon-negative cargo platform.");
   await page.uncheck("#prompting-show-outline");
   await page.fill("#prompting-audience", "the co-op's board");
   await page.click("#prompting details > summary");
