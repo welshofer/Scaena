@@ -244,7 +244,11 @@ fn placing(
         Some(name) => Some(
             presets
                 .and_then(|p| p.get(name))
-                .ok_or_else(|| OpsError::new(format!("the theme has no shader preset `{name}`")))?,
+                .ok_or_else(|| {
+                    let known = presets.into_iter().flat_map(|p| p.keys()).map(String::as_str);
+                    let near = scaena_core::patch::nearest_in("the theme", "shader presets", name, known);
+                    OpsError::new(format!("the theme has no shader preset `{name}`{near}"))
+                })?,
         ),
         None => None,
     };
