@@ -159,6 +159,10 @@ pub enum Kind {
     /// A change the model asked once it saw the slide drawn was not kept, lint having found the
     /// slide worse for it (`meta.narrative.refused`, lift-up USE-4).
     Look,
+    /// Its headline names a topic ("Q3 by product") where a content slide states its point: in a
+    /// deck health reads in English, three to six words with no verb and no question
+    /// (lift-up 10-25b FUNC-4).
+    Label,
 }
 
 /// Something to look at on one slide: what it says, what to ask the assistant, and, where one
@@ -595,6 +599,99 @@ fn language_named(language: &str) -> Option<String> {
     Some(named.to_string())
 }
 
+/// The layouts that frame a talk rather than make one of its points: covers, dividers, and agendas.
+const FRAMING: [&str; 10] = [
+    "title",
+    "photo-title",
+    "title-center",
+    "title-split",
+    "paper-title",
+    "section",
+    "section-photo",
+    "section-number",
+    "agenda",
+    "agenda-photo",
+];
+
+/// The verbs a headline that states its point carries, each form spelled out, base, -s, past,
+/// and -ing, with the contractions that hold one (lift-up 10-25b FUNC-4), apart by spaces, as
+/// [`labels`] reads it. A word here that is also a noun ("plan", "report") keeps a headline
+/// from being found, which errs toward saying nothing.
+const VERBS: &str = "\
+    add added adding adds allow allowed allowing allows am appear appeared appearing appears are aren't ask asked \
+    asking asks be beat beaten beating beats became become becomes becoming been began begin beginning \
+    begins begun being believe believed believes believing boost boosted boosting boosts bought break breaking \
+    breaks bring bringing brings broke broken brought build building builds built buy buying buys call called \
+    calling calls came can can't cannot change changed changes changing check checked checking checks choose \
+    chooses choosing chose chosen climb climbed climbing climbs close closed closes closing come comes coming \
+    compare compared compares comparing continue continued continues continuing cost costing costs could couldn't \
+    count counted counting counts create created creates creating cross crossed crosses crossing cut cuts cutting \
+    decide decided decides deciding decline declined declines declining deliver delivered delivering delivers \
+    depend depended depending depends did didn't dip dipped dipping dips do does doesn't doing don't done double \
+    doubled doubles doubling drag dragged dragging drags draw drawing drawn draws drew drive driven drives \
+    driving drop dropped dropping drops drove earn earned earning earns end ended ending ends exceed exceeded \
+    exceeding exceeds expect expected expecting expects explain explained explaining explains face faced faces \
+    facing fail failed failing fails fall fallen falling falls feel feeling feels fell felt find finding finds \
+    fix fixed fixes fixing flew flies flown fly flying follow followed following follows forget forgets \
+    forgetting forgot forgotten found gain gained gaining gains gave get gets getting give given gives giving go \
+    goes going gone got gotten grew grow growing grown grows had hadn't halve halved halves halving happen \
+    happened happening happens has hasn't have haven't having held help helped helping helps here's hid hidden \
+    hide hides hiding hit hits hitting hold holding holds i'm improve improved improves improving include \
+    included includes including increase increased increases increasing is isn't it's jump jumped jumping jumps \
+    keep keeping keeps kept knew know knowing known knows lag lagged lagging lags last lasted lasting lasts \
+    launch launched launches launching lead leading leads learn learned learning learns leave leaves \
+    leaving led left let let's lets letting lift lifted lifting lifts like liked likes liking live lived lives \
+    living look looked looking looks lose loses losing lost love loved loves loving lower lowered lowering \
+    lowers made make makes making matter mattered mattering matters may mean meaning means meant meet meeting \
+    meets met might miss missed misses missing move moved moves moving must mustn't need needed needing needs \
+    offer offered offering offers open opened opening opens outgrew outgrow outgrowing outgrown \
+    outgrows outpace outpaced outpaces outpacing outperform outperformed outperforming outperforms outsell \
+    outselling outsells outsold overtake overtaken overtakes overtaking overtook own owned owning owns paid \
+    pass passed passes passing pay paying pays peak peaked peaking peaks plan planned planning plans play played \
+    playing plays plunge plunged plunges plunging point pointed pointing points prove proved proves proving pull \
+    pulled pulling pulls push pushed pushes pushing put puts putting raise raised raises raising ran reach \
+    reached reaches reaching rebound rebounded rebounding rebounds recover recovered recovering recovers reduce \
+    reduced reduces reducing remain remained remaining remains remember remembered remembering remembers replace \
+    replaced replaces replacing report reported reporting reports require required requires requiring return \
+    returned returning returns rise risen rises rising rose run running runs said sank sat save saved saves \
+    saving saw say saying says see seeing seem seemed seeming seems seen sees sell selling sells send sending \
+    sends sent serve served serves serving set sets setting shall shift shifted shifting shifts ship shipped \
+    shipping ships should shouldn't show showed showing shown shows shrank shrink shrinking shrinks \
+    shrunk sink sinking sinks sit sits sitting slid slide slides sliding slip slipped slipping slips slow \
+    slowed slowing slows slump slumped slumping slumps soar soared soaring soars sold solve solved solves solving \
+    speak speaking speaks spend spending spends spent spike spiked spikes spiking spoke spoken spread spreading \
+    spreads stall stalled stalling stalls stand standing stands start started starting starts stay stayed staying \
+    stays stick sticking sticks stood stop stopped stopping stops strike strikes striking struck stuck suggest \
+    suggested suggesting suggests sunk support supported supporting supports surge surged surges surging take \
+    taken takes taking talk talked talking talks taught teach teaches teaching tell telling tells tend tended \
+    tending tends that's there's they'd they'll they're they've think thinking thinks thought told took top \
+    topped topping tops trail trailed trailing trails tried tries triple tripled triples tripling trust trusted \
+    trusting trusts try trying turn turned turning turns understand understanding understands understood use used \
+    uses using wait waited waiting waits want wanted wanting wants was wasn't watch watched watches watching we'd \
+    we'll we're we've went were weren't what's will win winning wins won won't work worked working works worried \
+    worries worry worrying would wouldn't write writes writing written wrote you'll you're you've";
+
+/// Whether `headline` names a topic rather than stating a point (lift-up 10-25b FUNC-4): three
+/// to six words, no question, none of [`VERBS`], and no word of five letters or more in "-ed".
+/// "Q3 by product" names one; "Revenue grew
+/// every quarter" states one. A verb inside a clause ("What families tell us") reads as stated,
+/// so such a label is missed rather than a point found wanting.
+fn labels(headline: &str) -> bool {
+    let headline = headline.trim();
+    if headline.ends_with('?') {
+        return false;
+    }
+    let words: Vec<String> = (headline.split_whitespace())
+        .map(|w| w.replace('\u{2019}', "'").trim_matches(|c: char| !c.is_alphanumeric() && c != '\'').to_lowercase())
+        .filter(|w| !w.is_empty())
+        .collect();
+    // A word of five letters or more in "-ed" is a verb's past or participle, as a point is stated
+    // in ("Margins expanded"); "-ing" is not, a gerund naming many a topic ("Pricing by region").
+    let verb =
+        |w: &String| (w.chars().count() >= 5 && w.ends_with("ed")) || VERBS.split_ascii_whitespace().any(|v| v == w);
+    (3..=6).contains(&words.len()) && !words.iter().any(verb)
+}
+
 /// The layouts a talk closes in (ADR-0032 item 6).
 const CLOSING: [&str; 4] = ["closing", "call-to-action", "takeaways", "poster"];
 
@@ -730,6 +827,12 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
     // a closing, a call to action, takeaways, a poster, or thanks or questions, come down from
     // the climax as a talk does, so a plan cooler than the curve there is not found.
     let closing = closing(deck, &slides, &read);
+    // A slide that frames the talk, a cover, a divider, an agenda, or its close, makes no point of
+    // its own to state.
+    let framing = |i: usize| {
+        let layout = slides[i].states.iter().find_map(|&k| deck.states[k].layout.as_deref());
+        layout.is_some_and(|l| FRAMING.contains(&l) || CLOSING.contains(&l)) || closing.contains(&read[i].id)
+    };
     let bends: Vec<_> = bends.into_iter().filter(|d| !(d.delta < 0.0 && closing.contains(&d.slide_id))).collect();
 
     // Pacing against the brief's range, where it asked one, and the overall again with it.
@@ -948,6 +1051,19 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
                 Kind::Title,
                 format!("Slide {k} has no headline."),
                 format!("Give slide {k} a headline that states its point in a sentence."),
+                None,
+            );
+        } else if english && i > 0 && !framing(i) && labels(&s.title) {
+            // A content slide whose headline names its topic: offered its point, never rewritten.
+            find(
+                &s.id,
+                Severity::Info,
+                Kind::Label,
+                format!(
+                    "Slide {k}'s headline names its topic, \u{201C}{}\u{201D}, where it could state its point.",
+                    s.title.trim()
+                ),
+                format!("Restate slide {k}'s headline as the point it makes: what should the room believe after it?"),
                 None,
             );
         }
@@ -1727,6 +1843,99 @@ mod tests {
             );
             assert_eq!(h.slides[k - 1].standing, Standing::Bends, "the graph marks slide {k}");
         }
+    }
+
+    /// A content slide's headline that names its topic is offered its point (lift-up 10-25b
+    /// FUNC-4): an info finding with no fix, in an English deck, never on the cover, a divider,
+    /// or the close, and never on a question. The cases measured on the dogfood decks and the
+    /// examples hold the heuristic to precision: a false "your headline is a topic" costs more
+    /// than a label missed.
+    #[test]
+    fn a_headline_that_names_its_topic_is_offered_its_point() {
+        // Labels, as the charts example and the deepdive deck wrote them.
+        assert!(labels("Q3 by product"));
+        assert!(labels("Faster checkout, cheaper database, more orders"));
+        // Points, each with its verb: the appeal's, the training's imperative, the charts'.
+        assert!(!labels("Families wait longer every year"));
+        assert!(!labels("Before you publish, check these"));
+        assert!(!labels("Revenue grew every quarter"));
+        assert!(!labels("It\u{2019}s a record quarter"));
+        // A question, a word or two, and a long line are not judged.
+        assert!(!labels("Why did churn rise this year?"));
+        assert!(!labels("Results"));
+        assert!(!labels("A wet start to the week, then sun"));
+        // A documented miss: a verb inside a clause reads as a point stated.
+        assert!(!labels("What families tell us"));
+        // Points stated in a past the list need not spell out, or an irregular one it does.
+        for stated in [
+            "Margins expanded in every region",
+            "Gap widened every year",
+            "Prices lowered across regions",
+            "Rivals outsold us twice",
+            "Share slid in Q3",
+            "Churn collapsed after onboarding",
+        ] {
+            assert!(!labels(stated), "{stated}");
+        }
+        // A gerund names a topic.
+        assert!(labels("Pricing by region"));
+
+        let deck = climate();
+        let h = of(&deck);
+        let layout = |id: &str| {
+            (deck["states"].as_array().unwrap().iter())
+                .find(|s| s["id"] == id)
+                .and_then(|s| s["layout"].as_str())
+                .map(str::to_string)
+        };
+        let labelled = |h: &Health| h.findings.iter().filter(|f| f.kind == Kind::Label).cloned().collect::<Vec<_>>();
+        // The climate deck as Narrato wrote it: the headlines it names a topic by, and none else.
+        let base = labelled(&h);
+        let named: Vec<&str> = base.iter().map(|f| h.slides[f.slide - 1].title.as_str()).collect();
+        assert_eq!(
+            named,
+            [
+                "Who Emits: History Versus Today",
+                "Four Years of Records",
+                "The Path to Net Zero",
+                "Pledges Versus the 1.5°C Path",
+                "Next Steps for Our Team"
+            ],
+            "{base:#?}"
+        );
+        let content = (1..h.slides.len() - 1)
+            .find(|&i| {
+                layout(&h.slides[i].state)
+                    .is_none_or(|l| !FRAMING.contains(&l.as_str()) && !CLOSING.contains(&l.as_str()))
+                    && !base.iter().any(|f| f.slide == i + 1)
+            })
+            .expect("a content slide");
+        let retitled = |deck: &Value, i: usize, to: &str| -> Value {
+            let text = serde_json::to_string(deck).unwrap();
+            let was = serde_json::to_string(&h.slides[i].title).unwrap();
+            serde_json::from_str(&text.replace(&was, &serde_json::to_string(to).unwrap())).unwrap()
+        };
+
+        let titled = retitled(&deck, content, "Emissions by sector");
+        let found: Vec<Finding> = labelled(&of(&titled)).into_iter().filter(|f| !base.contains(f)).collect();
+        assert_eq!(found.len(), 1, "{found:#?}");
+        let k = content + 1;
+        assert_eq!((found[0].slide, found[0].severity, found[0].fix.clone()), (k, Severity::Info, None));
+        assert_eq!(
+            found[0].says,
+            format!(
+                "Slide {k}'s headline names its topic, \u{201C}Emissions by sector\u{201D}, where it could state its point."
+            )
+        );
+        assert_eq!(
+            found[0].ask,
+            format!("Restate slide {k}'s headline as the point it makes: what should the room believe after it?")
+        );
+        // The cover frames the talk, and a deck in another language is not read for it.
+        assert_eq!(labelled(&of(&retitled(&deck, 0, "Emissions by sector"))), base);
+        let mut german = titled.clone();
+        german["meta"]["narrative"]["brief"]["language"] = json!("German");
+        assert!(labelled(&of(&german)).is_empty());
     }
 
     /// The spine's beat that tells the state `id`: its place, as a JSON pointer.

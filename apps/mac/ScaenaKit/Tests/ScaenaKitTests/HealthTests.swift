@@ -71,5 +71,11 @@ import Testing
     #expect(triaged.open.map(\.slide) == [5, 6, 2, 4, 7], "the error, the slide's own warning, then tone's at 72")
     #expect(triaged.more.map(\.slide) == [1, 3, 8, 9, 10], "the rest, in the slides' order")
     #expect(Health.moreSaid(triaged.more) == "5 more: 2 arc, 1 intensity, 1 tone, 1 turn")
+    // Every kind is said by a name a person reads (lift-up 10-25b FUNC-4).
+    let named = ["look", "label", "look"].map { kind in
+        try! JSONDecoder().decode(Health.Finding.self, from: Data(
+            #"{"state": "s1", "slide": 1, "severity": "info", "kind": "\#(kind)", "says": "", "ask": ""}"#.utf8))
+    }
+    #expect(Health.moreSaid(named) == "3 more: 2 change let go, 1 topic headline")
     #expect(health.triaged(open: 0).open.map(\.slide) == [5], "every error stands open")
 }
