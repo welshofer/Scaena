@@ -515,7 +515,7 @@ fn an_unreadable_outline_is_asked_twice_then_written_without() {
     assert!(said.contains("writing the slides without one"), "{said}");
     assert!(!outline.exists(), "no outline written");
     let sent = posts(&asked);
-    assert_eq!(sent.len(), 5, "the arc, the outline twice, the slides, and the look: {said}");
+    assert_eq!(sent.len(), 6, "the arc, the outline twice, the slides, the look, and the notes: {said}");
     assert!(
         sent[3].contains("**Narrative Framework**: Problem\u{2013}Solution")
             && !sent[3].contains("**Outline (Scaena)**")
