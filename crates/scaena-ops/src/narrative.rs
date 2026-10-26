@@ -22,11 +22,12 @@ use scaena_core::model::theme::{Example, Prompt, PromptItems, PromptShapeKind, S
 use scaena_core::model::values::Range;
 use scaena_core::{Deck, Finding};
 pub use scaena_narrato::Slide;
-pub use scaena_narrato::brief::Brief;
+pub use scaena_narrato::brief::{Brief, modality};
 use scaena_narrato::figures;
 use scaena_narrato::fit::Long;
 use scaena_narrato::layouts::{self, Varied};
 use scaena_narrato::look::{Change, Choice, Seen};
+pub use scaena_narrato::outline::{Beat as OutlineBeat, Outline};
 use scaena_narrato::pictures::{self, Frame, Look, Palette};
 use scaena_narrato::{
     ChartData, Document, Generation, Icon, Narrative, Picture, Provenance, Provider, Request, Settings, Step,
@@ -797,7 +798,9 @@ pub fn generate_drawn(
 /// `slides`, each with its `slideTitle`, `subtitle`, `layoutSuggestion`, `keyBullets`,
 /// `speakerNotes`, `beatIndex`, `beatName`, `intensity`, `tone`, …), as an agent writes them;
 /// `brief` says what the deck is about and for whom, which health reads back (PLAN G.9); `arc`
-/// names one of Narrato's, else the heuristic chooses from the brief. The bundle is made at `dir`,
+/// names one of Narrato's, else the heuristic chooses from the brief; `outline`, the big idea and
+/// each beat's claim the slides were written to, settled as a person's is (lift-up 10-25c
+/// FUNC-1), names the deck's sections and is kept where health reads its claims. The bundle is made at `dir`,
 /// a directory not there yet or empty, in `theme`, a theme that ships or a theme file read,
 /// as [`generate`] makes one: the spine, each slide in the theme's layout its layout comes to,
 /// its builds, and the `media.narrato` fields health reads, lint's fixes applied. A deck in a
@@ -809,6 +812,7 @@ pub fn from_slides(
     slides: &str,
     brief: Brief,
     arc: Option<&str>,
+    outline: Option<&Outline>,
 ) -> Result<Generated, OpsError> {
     crate::create::vacant(dir)?;
     // Each slide in the names an agent reaches for read as Narrato's (lift-up 10-25b FUNC-5):
@@ -844,6 +848,9 @@ pub fn from_slides(
     let settings = Settings { provider: Provider::Anthropic, model: String::new(), base: None, browser: false };
     let mut generation = Generation::new(brief, settings).map_err(|e| OpsError::new(e.to_string()))?;
     generation.choose_arc(arc);
+    if let Some(outline) = outline {
+        generation.settle(outline).map_err(|e| OpsError::new(format!("the outline: {e}")))?;
+    }
     generation.written(slides, false).map_err(|e| OpsError::new(format!("the slides: {e}")))?;
     let mut never =
         |_: &Request| Reply { status_text: "no call is made from written slides".into(), ..Reply::default() };
