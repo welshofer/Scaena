@@ -826,6 +826,53 @@ fn deep_research_grounds_the_slides_in_its_report() {
     assert!(out["error"]["message"].as_str().unwrap().contains("--slides makes no call"), "{out:#}");
 }
 
+/// Narrato's answers, deep research refused for good.
+fn unresearched(method: &str, path: &str, body: &str) -> Answer {
+    if method == "POST" && body.contains("\"web_search\"") {
+        let refused = serde_json::json!({ "type": "error", "error": { "type": "permission_error", "message": "web search is off for this organization" } });
+        return (403, "application/json", refused.to_string().into_bytes());
+    }
+    narrato(method, path, body)
+}
+
+#[test]
+fn a_failed_research_goes_on_from_the_sources_given() {
+    let (base, _) = serve(unresearched);
+    let given = place("unresearched-sources");
+    std::fs::create_dir_all(&given).unwrap();
+    let notes = given.join("notes.md");
+    std::fs::write(&notes, "# Tidewater\nQ3 revenue grew 41%.\n").unwrap();
+    let run = |dir: &Path, source: Option<&Path>| {
+        let mut c = Command::new(env!("CARGO_BIN_EXE_scaena"));
+        for k in KEYS.into_iter().chain(PROXIES) {
+            c.env_remove(k);
+        }
+        c.env("ANTHROPIC_API_KEY", "sk-test")
+            .args(["--json", "generate", dir.to_str().unwrap(), "Tidewater's Series A", "--research"])
+            .args(["--provider", "anthropic", "--model", "a-model", "--base", &base]);
+        if let Some(source) = source {
+            c.args(["--source", source.to_str().unwrap()]);
+        }
+        c.output().unwrap()
+    };
+    // With a source, the deck is made from it, and says why the research is not among them.
+    let dir = place("unresearched");
+    let out = run(&dir, Some(&notes));
+    let said = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+    assert_eq!(out.status.code(), Some(0), "{said}");
+    let made = json(&out);
+    let why = made["unresearched"].as_str().unwrap();
+    assert!(why.starts_with("Research stopped: ") && why.contains("web search is off"), "{why}");
+    assert!(why.ends_with("The deck is grounded in what you gave."), "{why}");
+    assert_eq!(made["sources"].as_array().unwrap().len(), 1);
+    assert_eq!(made["sources"][0]["name"], "notes.md");
+    // With none, the research was all it would be grounded in, and its failure stops the run.
+    let dir = place("unresearched-2");
+    let out = json(&run(&dir, None));
+    assert!(out["error"]["message"].as_str().unwrap().contains("web search is off"), "{out:#}");
+    assert!(!dir.exists());
+}
+
 /// An image API on this machine: OpenAI's model list, and a picture for each generation, a
 /// JPEG from the decoder's fixtures; but the cover's, refused as unsafe.
 fn painted(method: &str, path: &str, body: &str) -> Answer {

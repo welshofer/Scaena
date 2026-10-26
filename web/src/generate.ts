@@ -297,7 +297,16 @@ export async function generate(
       const read = JSON.parse(sources.take(fetching)) as { name: string; kind: string };
       hear({ kind: "read", name: read.name, what: read.kind });
     }
-    if (job.research) await research(g, brief, asking, job, sources, hear);
+    if (job.research) {
+      try {
+        await research(g, brief, asking, job, sources, hear);
+      } catch (e) {
+        // A research that fails goes on from the files and links given, where there are any
+        // (lift-up 10-25b REL-4); with none, the deck would be grounded in nothing.
+        if (!sources.count) throw e;
+        hear({ kind: "unresearched", why: said(e) });
+      }
+    }
     const generation = new g.Generation(brief, asking, sources);
     // What each source gave, said before a call is paid for (narrative USE-5): the sources share
     // a million bytes, the first given taking it first, and one cut short, or given no room, says
