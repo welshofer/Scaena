@@ -3,9 +3,10 @@ import ScaenaNotes
 import SwiftUI
 
 /// A rehearsal in the window (PLAN 2.63, 3.14), in place of the canvas: the deck played as
-/// presented, from its first state, each state's cue as it comes, then the state at rest until the
-/// presenter goes on. → ↓ Page Down Space Return or a click go on; ← ↑ Page Up Delete go back;
-/// Escape stops, as does going on from the last state. The bar says which state is shown, how
+/// presented, from the slide shown (lift-up 10-25b USE-2), each state's cue as it comes, then the
+/// state at rest until the presenter goes on. → ↓ Page Down Space Return or a click go on; ← ↑
+/// Page Up Delete go back; P or Pause pauses the clock, and goes on with it; Escape stops, as does
+/// going on from the last state. The screen stays awake while it runs (`Awake`). The bar says which state is shown, how
 /// long it has been shown, and how long the rehearsal has run. Beside the slide, the state's notes
 /// as a speaker reads them and the next slide's name, as the presenter's window shows them (SPEC
 /// §2.6, lift-up USE-3). Nothing changes the deck until Keep, in what each state took
@@ -17,6 +18,8 @@ struct RehearsalStage: View {
     let stopped: () -> Void
     @State private var playhead = Playhead()
     @FocusState private var focused: Bool
+    /// The screen kept awake while the rehearsal runs, as a show keeps it (lift-up 10-25b USE-2).
+    @State private var awake: Awake?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -63,7 +66,18 @@ struct RehearsalStage: View {
             stop()
             return .handled
         }
-        .onAppear { focused = true }
+        .onKeyPress(keys: ["p", "P"]) { _ in
+            pause()
+            return .handled
+        }
+        .onAppear {
+            focused = true
+            awake = Awake(reason: "Scaena is rehearsing a deck")
+        }
+        .onDisappear {
+            awake?.end()
+            awake = nil
+        }
     }
 
     /// Where the rehearsal is, said four times a second, and its buttons.
@@ -74,6 +88,8 @@ struct RehearsalStage: View {
             }
             Spacer()
             Button("Back") { go(-1) }
+            Button(rehearsal.paused ? "Go On" : "Pause") { pause() }
+                .accessibilityIdentifier("rehearsal-pause")
             Button("Next") { go(1) }
             Button("End") { stop() }
         }
@@ -85,8 +101,8 @@ struct RehearsalStage: View {
         let n = rehearsal.slots.count
         let here = rehearsal.slots.indices.contains(rehearsal.index) ? rehearsal.index + 1 : n
         let slide = rehearsal.state.map { Words.slide($0, in: rehearsal.slots) } ?? "the end"
-        return "Rehearsing \(slide) · \(here) of \(n) · \(readable(rehearsal.here())) here · "
-            + "\(readable(rehearsal.total())) in all"
+        return "\(rehearsal.paused ? "Paused on" : "Rehearsing") \(slide) · \(here) of \(n) · "
+            + "\(readable(rehearsal.here())) here · \(readable(rehearsal.total())) in all"
     }
 
     private func go(_ by: Int) {
@@ -94,6 +110,11 @@ struct RehearsalStage: View {
         rehearsal.go(by)
         guard rehearsal.running else { return stopped() }
         playhead = Playhead()
+    }
+
+    private func pause() {
+        guard rehearsal.running else { return }
+        rehearsal.pause()
     }
 
     private func stop() {
