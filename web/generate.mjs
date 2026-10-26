@@ -146,6 +146,22 @@ await new Promise((ok) => provider.once("listening", ok));
 const origin = `http://127.0.0.1:${provider.address().port}`;
 
 const site = await serve();
+/** Each recovery copy the browser keeps, as the paths of its files. */
+const copies = (page) =>
+  page.evaluate(async () => {
+    const all = await (await navigator.storage.getDirectory()).getDirectoryHandle("recovery").catch(() => null);
+    const each = [];
+    const walk = async (dir, at) => {
+      const paths = [];
+      for await (const [name, handle] of dir.entries()) {
+        if (handle.kind === "directory") paths.push(...(await walk(handle, `${at}${name}/`)));
+        else paths.push(`${at}${name}`);
+      }
+      return paths;
+    };
+    if (all) for await (const [, handle] of all.entries()) if (handle.kind === "directory") each.push((await walk(handle, "")).sort().join(","));
+    return each;
+  });
 const browser = await launch();
 try {
   const page = await browser.newPage({ viewport: { width: 1600, height: 1000 }, deviceScaleFactor: 1 });
@@ -689,10 +705,47 @@ try {
   check(!dashed.includes("alt:Acorn") && !dashed.includes("alt:Lightning"), "the dashed list keeps its words, under no icon");
   state.slides = undefined;
 
+  // A made deck edited and kept nowhere, its page gone as a crash takes it: the editor opened
+  // again lists it among the decks not saved, and Recover opens it again with the edit, still
+  // kept nowhere (lift-up REL-4).
+  const trips = await page.evaluate(() => window.scaena.trips().length);
+  await page.evaluate((t) => window.scaena.type(t), dashed.replace("Why Tidewater wins", "Why Tidewater still wins"));
+  await page.waitForFunction((n) => window.scaena.trips().length > n, trips, { timeout: 60000, polling: 50 });
+  await page.evaluate(() => window.scaena.keepCopy());
+  await page.reload();
+  const left = page.locator("#leftovers[open]");
+  await left.waitFor({ timeout: 60000 }).catch(() => {});
+  const leftList = await page.locator("#leftovers li span").allTextContents();
+  const titled = JSON.parse(dashed.match(/^deck (".*?(?<!\\)")/m)?.[1] ?? '""');
+  check(leftList.length === 1 && Boolean(titled) && leftList[0].startsWith(`${titled}, changed `), `the editor opened again lists the made deck not saved, by its title: ${leftList.join(" | ")}`);
+  await page.click("#leftovers li button:text('Recover')");
+  await page
+    .waitForFunction(() => window.scaena.source().includes("Why Tidewater still wins") && window.scaena.last(), null, { timeout: 120000 })
+    .catch(() => {});
+  const recovered = await page.evaluate(() => ({ source: window.scaena.source(), where: window.scaena.where() }));
+  check(
+    recovered.source.includes("Why Tidewater still wins") && recovered.source.includes("alt:Compass") && recovered.where.where === undefined && recovered.where.dirty,
+    `Recover opens it again with the edit, its icons and all, kept nowhere: ${JSON.stringify(recovered.where)}`,
+  );
+
+  // Discarded from the list, the copy goes with the deck's files it carried: nothing of it is
+  // left in the browser's storage.
+  await page.evaluate(() => window.scaena.keepCopy());
+  const carrying = await copies(page);
+  check(carrying.length === 1 && carrying[0].includes("bundle/deck.json"), `the copy carries the deck's files: ${carrying.join(" | ")}`);
+  await page.reload();
+  await left.waitFor({ timeout: 60000 }).catch(() => {});
+  await page.click("#leftovers li button:text('Discard')");
+  await page.waitForFunction(() => !document.querySelector("#leftovers")?.open, null, { timeout: 10000 }).catch(() => {});
+  const discarded = await copies(page);
+  check(discarded.length === 0, `Discard takes the copy away, the deck's files with it: ${discarded.join(" | ") || "none left"}`);
+
   // An outline that never reads (lift-up REL-3): asked twice, then the dialog says why and offers to
   // write the slides without one, on the arc already chosen, which makes the deck.
   state.unreadable = true;
   await opened();
+  // The page was opened again since the brief was last filled in, so its topic is asked anew.
+  await page.fill("#prompting-topic", "Pitch a Series A round for our carbon-negative cargo platform.");
   await page.check("#prompting-show-outline");
   const unreadFrom = requests.length;
   await page.click("#prompting-go");
