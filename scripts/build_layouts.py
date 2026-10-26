@@ -666,6 +666,14 @@ layout("Charts", "line-chart", "A headline over a line chart, the turn it takes 
     "source": slot((10, 12), (9, 10), "caption", "Its source"),
 })
 
+layout("Charts", "price-chart", "A stock's price over a period: the line, its change beside it, and the period under that.", {
+    "kicker": KICKER,
+    "header": header(),
+    "main": slot((1, 9), (3, 10), prompt="A price chart", example=chart("line")),
+    "change": slot((10, 12), (3, 5), "figure", "+7.3%", align={"y": "end"}, fit="shrink"),
+    "period": slot((10, 12), (6, 7), "caption", "Three months to Oct 15"),
+})
+
 layout("Charts", "donut-chart", "Shares of a whole: a donut, and the parts that matter most beside it.", {
     "kicker": KICKER,
     "header": header(),
@@ -1681,7 +1689,7 @@ NAMES = {
     "number-photo": "Number and Photo", "metric-trend": "Number and Trend",
     # Charts
     "figure": "Chart", "narrow-figure": "Narrow Chart", "split": "Chart and Words",
-    "figure-numbers": "Chart and Numbers", "bar-chart": "Bar Chart", "line-chart": "Line Chart",
+    "figure-numbers": "Chart and Numbers", "bar-chart": "Bar Chart", "line-chart": "Line Chart", "price-chart": "Price Chart",
     "donut-chart": "Donut Chart", "table": "Table", "chart-bullets": "Chart and Bullets", "two-charts": "Two Charts",
     # Pictures
     "full": "Full Bleed", "art-left": "Art Left", "art-right": "Art Right", "photo": "Photo",

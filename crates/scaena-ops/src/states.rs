@@ -110,6 +110,7 @@ pub const ALSO_CALLED: &[(&str, &[&str])] = &[
     ("closing", &["Thank You"]),
     ("chyron", &["Lower Third Lyrics"]),
     ("fine-print", &["Disclosures"]),
+    ("price-chart", &["Stock", "Ticker"]),
 ];
 
 /// The other names a layout is searched for by, as [`ALSO_CALLED`] gives them: none for most.
