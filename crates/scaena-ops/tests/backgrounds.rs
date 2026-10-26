@@ -66,7 +66,14 @@ fn a_slide_takes_a_background_and_gives_it_back() {
     // A preset the theme lacks.
     let b = scaena_ops::open(&dir).unwrap();
     let lacks = background(&b, "intro", Some("nowhere")).unwrap_err();
-    assert_eq!(lacks.message, "the theme has no shader preset `nowhere`");
+    assert!(
+        lacks.message.starts_with("the theme has no shader preset `nowhere`; the theme's shader presets include `"),
+        "{}",
+        lacks.message
+    );
+    // One near a preset it has names it (lift-up 10-25c USE-4).
+    let near = background(&b, "intro", Some("auroa")).unwrap_err();
+    assert!(near.message.ends_with("; did you mean `aurora`?"), "{}", near.message);
 }
 
 #[test]

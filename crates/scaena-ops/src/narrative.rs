@@ -10864,6 +10864,19 @@ mod tests {
             slide_into(&doc, &theme, slides[8].clone(), place, Some(beat), BTreeMap::new(), &no_files()).unwrap_err()
         };
         assert!(refused(&Place::End, "nowhere").to_string().contains("no beat `nowhere`"));
+        // A beat near one the spine has, and a state the deck lacks, name the one meant (lift-up
+        // 10-25c USE-4).
+        assert!(refused(&Place::End, "answr").to_string().ends_with("; did you mean `answer`?"));
+        let lost = slide_into(
+            &doc,
+            &theme,
+            slides[8].clone(),
+            &Place::After("strat".into()),
+            None,
+            BTreeMap::new(),
+            &no_files(),
+        );
+        assert!(lost.unwrap_err().to_string().contains("unknown state `strat`; did you mean `start`?"));
         assert!(refused(&Place::Replace("start".into()), "answer").to_string().contains("not both"));
         // A spine planned with the blank slide in its first beat, as `spine_update` sees the deck
         // `deck_create` made: the blank leaves the beat as it leaves the deck, the slide takes its
