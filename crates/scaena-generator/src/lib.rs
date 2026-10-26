@@ -322,6 +322,14 @@ impl Generation {
         self.inner.plan().map(|p| serde_json::to_string(&p).expect("a plan is JSON"))
     }
 
+    /// Write the slides without an outline, the arc chosen standing (lift-up REL-3): where the
+    /// outline was asked twice and did not read (`unread`), and the person passes it over.
+    #[wasm_bindgen(js_name = skipOutline)]
+    pub fn skip_outline(&mut self) -> Result<String, JsError> {
+        self.inner.skip_outline().map_err(error)?;
+        Ok(self.said())
+    }
+
     /// The outline as the person settled it, JSON as `outline` gives it: what the slides are
     /// written to (narrative FUNC-1). Refused with why where no beat keeps a claim.
     pub fn settle(&mut self, outline: &str) -> Result<String, JsError> {
@@ -332,7 +340,7 @@ impl Generation {
     }
 
     /// Where it stands, as `answer` says it, with no answer read: JSON `{ step, slides, arc?,
-    /// reasoning?, fallback?, written?, truncated?, outline? }`.
+    /// reasoning?, fallback?, written?, truncated?, outline?, unread? }`.
     pub fn standing(&self) -> String {
         self.said()
     }
@@ -387,6 +395,7 @@ impl Generation {
             "written": narrative.map(|n| n.slides.len()),
             "truncated": narrative.map(|n| n.truncated),
             "outline": self.inner.outline(),
+            "unread": self.inner.unread(),
             "wait": self.inner.again(),
             "tried": self.inner.tried(),
         })
@@ -443,16 +452,23 @@ impl Generation {
 
     /// What the model is shown of the deck the narrative made in `theme` (the theme's JSON) with
     /// `pictures` (as `deck` takes them), each slide in the layout `layouts` (JSON `[id]`, as
-    /// `Making.report` says them) gives it (PLAN G.13): JSON `[{ slide, layout, options, title,
-    /// subtitle, bullets }]`, which `lookRequest` and `lookAnswer` take.
-    pub fn seeing(&self, theme: &str, pictures: &str, layouts: &str) -> Result<String, JsError> {
+    /// `Making.report` says them) gives it (PLAN G.13), each title's place holding what `rooms`
+    /// says (JSON `[n | null]`, as `Making.rooms` measures them, lift-up FUNC-2): JSON `[{ slide,
+    /// layout, options, title, subtitle, bullets, room? }]`, which `lookRequest` and `lookAnswer`
+    /// take.
+    pub fn seeing(&self, theme: &str, pictures: &str, layouts: &str, rooms: Option<String>) -> Result<String, JsError> {
         let narrative = self.inner.narrative().ok_or_else(|| error("the narrative is not written yet"))?;
         let model: scaena_core::model::theme::Theme =
             serde_json::from_str(theme).map_err(|e| error(format!("the theme: {e}")))?;
         let pictures: scaena_ops::narrative::Pictures =
             serde_json::from_str(pictures).map_err(|e| error(format!("the pictures: {e}")))?;
         let layouts: Vec<String> = serde_json::from_str(layouts).map_err(|e| error(format!("the layouts: {e}")))?;
-        let seen = scaena_ops::narrative::seeing(narrative, &model, &pictures, &layouts);
+        let mut seen = scaena_ops::narrative::seeing(narrative, &model, &pictures, &layouts);
+        if let Some(rooms) = rooms {
+            let rooms: Vec<Option<usize>> =
+                serde_json::from_str(&rooms).map_err(|e| error(format!("the rooms: {e}")))?;
+            scaena_ops::narrative::roomed(&mut seen, &rooms);
+        }
         Ok(serde_json::to_string(&seen).expect("what the model sees is JSON"))
     }
 
@@ -883,8 +899,9 @@ impl SlideWriting {
         let doc: Value = serde_json::from_str(deck).map_err(error)?;
         let theme: scaena_core::model::theme::Theme =
             serde_json::from_str(theme).map_err(|e| error(format!("the theme: {e}")))?;
-        let slide: scaena_ops::narrative::Slide =
-            serde_json::from_str(slide).map_err(|e| error(format!("the slide: {e}")))?;
+        let slide: Value = serde_json::from_str(slide).map_err(|e| error(format!("the slide: {e}")))?;
+        let slide =
+            scaena_ops::narrative::slide_from(&slide).map_err(|e| error(format!("the slide: {}", e.message)))?;
         let icons = serde_json::from_str(icons).map_err(|e| error(format!("the icons: {e}")))?;
         let (place, beat) = placed(place_json)?;
         let written =

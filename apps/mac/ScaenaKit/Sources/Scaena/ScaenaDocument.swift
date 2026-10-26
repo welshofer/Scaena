@@ -265,23 +265,40 @@ final class ScaenaDocument: ReferenceFileDocument {
         if editor.source != before { keep(before, undo: undo) }
     }
 
-    /// Register the session's data undo, or its redo, as the step to undo; done, the other.
+    /// Register the session's data undo, or its redo, as the step to undo; done, the other. One that
+    /// fails says why, and registers no other (lift-up 10-25b STAB-4).
     private func dataStep(redo: Bool, undo: UndoManager?) {
         undo?.registerUndo(withTarget: self) { [weak undo] document in
-            _ = try? document.session.dataUndo(redo: redo)
+            do {
+                _ = try document.session.dataUndo(redo: redo)
+            } catch {
+                document.editor.undoFailed = Why.said(error)
+                return
+            }
             document.editor.reread()
             document.dataStep(redo: !redo, undo: undo)
         }
     }
 
     /// Register making the deck `source` again, `files` written back first, as the step to undo;
-    /// undone, its redo.
+    /// undone, its redo. One that cannot be made, its files not written back or the deck not made
+    /// from `source`, says why and registers no other: what a step registers while it is undone
+    /// is its redo, and a redo of a step that changed nothing would make what was never there
+    /// (lift-up 10-25b STAB-4).
     private func keep(_ source: String, files: [Rewritten] = [], undo: UndoManager?) {
         undo?.registerUndo(withTarget: self) { [weak undo] document in
             if !files.isEmpty {
-                try? document.session.write(files.map { (path: $0.path, text: $0.before) })
+                do {
+                    try document.session.write(files.map { (path: $0.path, text: $0.before) })
+                } catch {
+                    document.editor.undoFailed = Why.said(error)
+                    return
+                }
             }
-            guard let now = document.editor.restore(source) else { return }
+            guard let now = document.editor.restore(source) else {
+                document.editor.undoFailed = "The deck couldn’t be put back as it was."
+                return
+            }
             document.keep(now, files: files.map(\.undone), undo: undo)
         }
     }

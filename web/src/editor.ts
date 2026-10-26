@@ -53,7 +53,7 @@ import {
   lineNumbers,
 } from "@codemirror/view";
 import { themes } from "@scaena/themes";
-import { familySections } from "./theme-families";
+import { themeGallery } from "./theme-gallery";
 import { panel } from "./assistant/panel";
 import { TOOLS, writer } from "./writing";
 import { load } from "./assistant/keys";
@@ -429,19 +429,9 @@ async function controls() {
   // New (PLAN 2.12): a title and a theme that ships.
   const making = $<HTMLDialogElement>("#making");
   const title = $<HTMLInputElement>("#making-name");
-  const theme = $<HTMLSelectElement>("#making-theme");
-  theme.replaceChildren(...familySections());
-  // The theme chosen, as its title slide drawn at build (PLAN T.0c).
-  const preview = $<HTMLImageElement>("#making-preview");
-  const previewed = () => {
-    const chosen = themes[theme.value];
-    preview.hidden = !chosen;
-    if (!chosen) return;
-    preview.src = chosen.thumbnail;
-    preview.alt = `A title slide in ${theme.value}`;
-  };
-  theme.onchange = previewed;
-  previewed();
+  // The themes that ship, chosen by their title slides drawn at build (PLAN T.0c, lift-up 10-25b
+  // ATTR-1).
+  const theme = themeGallery($("#making-themes"), "making-theme");
   $<HTMLButtonElement>("#new-deck").onclick = () => {
     making.returnValue = "";
     making.showModal();
@@ -834,6 +824,8 @@ async function edit(source: Source, opened?: Stage, recovering = false) {
         EditorView.updateListener.of((update) => {
           if (update.docChanged) {
             version++;
+            // A claim the last edit left behind is that source's to restate (lift-up FUNC-2).
+            unoffer();
             clearTimeout(pending);
             // Where each state starts moves with the change until the source is compiled again:
             // the cursor an undo puts back is in the state it was in. The source the worker made
@@ -1049,37 +1041,44 @@ async function edit(source: Source, opened?: Stage, recovering = false) {
   /** The words for the state shown (PLAN 2.99): its objects by what they show, the theme's names
    * said. Asked for each time the state shown is inspected. */
   let lexicon: Lexicon | undefined;
-  /** A beat's claim its slide said before an edit and says no more (lift-up FUNC-2): the status
-   * says so in a person's words and Update, beside it, restates the claim in the slide's words, a
-   * patch by the user, one step to undo. A headline taken away has no words to restate it in. */
+  /** A beat's claim its slide said before an edit and says no more (lift-up FUNC-2): said beside
+   * the status in a person's words, with Update, which restates the claim in the slide's words, a
+   * patch by the user, one step to undo, and Keep, which lets it be. A headline taken away has no
+   * words to restate it in: the offer says to restate it in the Story tab, with OK. The offer is
+   * the source's the edit left, as the Mac's restate bar is: what the status says after it (the
+   * gesture's own words, what lint finds) leaves it standing, and the next change to the source,
+   * an undo among them, takes it away (`unoffer`, from the source's update listener). */
+  const offering = $<HTMLSpanElement>("#offer");
   const restate = $<HTMLButtonElement>("#restate");
-  let restating: { said: string; fix: unknown[] } | undefined;
+  const keepClaim = $<HTMLButtonElement>("#keep-claim");
+  let restating: { fix: unknown[] } | undefined;
   const quoted = (words: string) => `“${words.length > 60 ? `${words.slice(0, 59)}…` : words}”`;
-  /** `kept`: the status the edit's own gesture said goes first, so what it did is still said. */
-  async function restated(before: string, after: string, kept = false) {
+  function unoffer() {
+    restating = undefined;
+    offering.textContent = "";
+    [offering.hidden, restate.hidden, keepClaim.hidden] = [true, true, true];
+  }
+  async function restated(before: string, after: string) {
     const found = await stage.restated(after, before).catch(() => [] as Restated[]);
     const one = found[0];
     if (!one || view.state.doc.toString() !== after) return;
     const slide = slideOf(one.state).replace(/, step \d+$/, "");
-    const offer =
-      one.says !== undefined && one.fix?.length
-        ? `${slide}'s story still says ${quoted(one.claim)}. Update it to ${quoted(one.says)}?`
+    const says = one.fix?.length ? one.says : undefined;
+    offering.textContent =
+      says !== undefined
+        ? `${slide}'s story still says ${quoted(one.claim)}. Update it to ${quoted(says)}?`
         : `${slide}'s story still says ${quoted(one.claim)}, which the slide no longer says: restate it in the Story tab`;
-    const gesture = kept ? status.textContent?.trim() : "";
-    const said = gesture ? `${gesture} · ${offer}` : offer;
-    say(said);
-    restating = one.fix?.length ? { said, fix: one.fix } : undefined;
-    restate.hidden = restating === undefined;
+    restating = says !== undefined && one.fix ? { fix: one.fix } : undefined;
+    keepClaim.textContent = restating ? "Keep" : "OK";
+    keepClaim.title = restating ? "Keep the story's claim for this slide as it is" : "Put this away: the claim stays as it is";
+    [offering.hidden, restate.hidden, keepClaim.hidden] = [false, restating === undefined, false];
   }
-  /** The status says something else: what Update would restate goes with it. */
-  observing(new MutationObserver(() => {
-    if (restating && status.textContent !== restating.said) [restating, restate.hidden] = [undefined, true];
-  })).observe(status, { childList: true, characterData: true, subtree: true });
+  keepClaim.addEventListener("click", unoffer);
   restate.addEventListener("click", async () => {
     const now = showing();
     const ask = restating;
     if (!now || !ask) return;
-    [restating, restate.hidden] = [undefined, true];
+    unoffer();
     try {
       const { source, edited } = await stage.make(() => view.state.doc.toString(), ask.fix, now.index, format());
       made(source, edited, "the story's claim");
@@ -1116,7 +1115,7 @@ async function edit(source: Source, opened?: Stage, recovering = false) {
     const changes = change(before, source);
     const effects = said ? [described.of(describing(said))] : [];
     view.dispatch({ changes, effects, userEvent: "input.canvas", annotations: isolateHistory.of("full") });
-    void restated(before, source, true);
+    void restated(before, source);
   };
   /** The node selected, its look chosen from the theme in the inspector (PLAN 2.33): each choice a
    * patch, as each gesture on the canvas is. */
@@ -2243,7 +2242,12 @@ async function edit(source: Source, opened?: Stage, recovering = false) {
     void listKept();
     // The save recorded the edits since the last: they are versions now.
     void versioning.refresh();
-    const saved = `Saved, ${many(done.files, "file")}${done.recorded ? ", and the changes kept in its history" : ""}`;
+    // A history that could not be read is said once, by the save that kept it aside (REL-1).
+    const saved = done.again
+      ? `Saved, ${many(done.files, "file")}. Its history could not be read: it is kept aside as ${done.again}, and the history begins again`
+      : done.unrecorded
+        ? `Saved, ${many(done.files, "file")}. ${done.unrecorded}`
+        : `Saved, ${many(done.files, "file")}${done.recorded ? ", and the changes kept in its history" : ""}`;
     say(saved);
     // Kept in this browser: the browser is asked to keep it for good (lift-up 10-24b REL-4), and a
     // refusal is said after whatever the status says by then (what was saved, or what Play said of

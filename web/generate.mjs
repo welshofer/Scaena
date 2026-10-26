@@ -30,7 +30,8 @@
 //   (lift-up FUNC-5).
 // - Its story (PLAN G.9): the Story tab reads it as Vzestup measures a talk, by the generator's
 //   module: its score and the arc it was written to, the six measures, coherence by words
-//   unscored, a mark on the arc for each slide. No fix rewrites the plan's intensity or tone. A
+//   unscored, a mark on the arc for each slide, its beats as bands and its tone a line (lift-up
+//   ATTR-4). No fix rewrites the plan's intensity or tone. A
 //   slide moved out of its beat's order has drifted: a finding's slide is shown at a press; its
 //   fix is one change, which ⌘Z takes back; a burst of edits is read once, after it stops (lift-up
 //   PERF-1); and its question goes into the assistant's box.
@@ -80,7 +81,7 @@ const PAGE = "<h1>Tidewater in the press</h1><p>The Gulf's first carbon-negative
 /** Anthropic, scripted: what each request asks, and the state the walk sets (`slow`, `fail`, and
  * the `slides` it answers with, the recorded ones where none is set). */
 const requests = [];
-const state = { slow: 0, fail: false, slides: undefined, looking: 0 };
+const state = { slow: 0, fail: false, slides: undefined, unreadable: false, looking: 0 };
 const provider = createServer(async (req, res) => {
   const cors = {
     "access-control-allow-origin": req.headers.origin ?? "*",
@@ -121,6 +122,10 @@ const provider = createServer(async (req, res) => {
   if (asked === "arc") return reply(200, ARC);
   // The outline before the slides (narrative FUNC-1): the big idea and a claim for each of the
   // arc's six beats.
+  if (asked === "outline" && state.unreadable) {
+    // An outline that comes back but does not read: prose, no JSON (lift-up REL-3).
+    return reply(200, { content: [{ type: "text", text: "I would be glad to outline this talk." }], stop_reason: "end_turn" });
+  }
   if (asked === "outline") {
     const beats = [1, 2, 3, 4, 5, 6].map((beat) => ({ beat, claim: `Claim ${beat}: what this beat's slides leave behind.` }));
     return reply(200, { content: [{ type: "text", text: JSON.stringify({ bigIdea: "Cargo can pay for its carbon.", beats }) }], stop_reason: "end_turn" });
@@ -512,6 +517,21 @@ try {
   check(coherence.startsWith("—"), `coherence by words, unscored: ${coherence}`);
   const marks = await page.locator("#story [data-arc] [data-slide]").count();
   check(marks === 5, `a mark on the arc for each slide: ${marks}`);
+  // The arc's beats as bands under it, each slide in the band of the beat it was written for, and
+  // the tone each declares a line beside the intensity (lift-up ATTR-4).
+  const graph = await page.evaluate(() => {
+    const h = window.scaena.story.health();
+    const bands = [...document.querySelectorAll("#story [data-arc] .beat")].map((g) => ({ part: Number(g.dataset.part), name: g.querySelector("title")?.textContent }));
+    const parts = h.slides.map((s) => s.part);
+    const runs = parts.filter((p, i) => p !== undefined && p !== parts[i - 1]);
+    const tone = document.querySelector("#story [data-arc] .tone")?.getAttribute("points")?.trim().split(/\s+/).length ?? 0;
+    return { bands, runs, beats: h.beats, tone, toned: h.slides.filter((s) => s.tone !== undefined).length };
+  });
+  check(
+    graph.bands.length > 0 && graph.bands.map((b) => b.part).join() === graph.runs.join() && graph.bands.every((b) => b.name === graph.beats[b.part]),
+    `a band for each run of slides in one of the arc's beats, named by it: ${JSON.stringify(graph.bands)} for ${graph.runs}`,
+  );
+  check(graph.toned > 0 && graph.tone === graph.toned, `the tone each slide declares, a line: ${graph.tone} points for ${graph.toned}`);
   const said = await page.locator("#story [data-findings] li").allTextContents();
   // Each slide names what its words came from, and its row says so (narrative FUNC-3).
   const cited = await page.evaluate(() => window.scaena.story.health().slides.map((s) => (s.sources ?? []).join()));
@@ -719,6 +739,30 @@ try {
   const discarded = await copies(page);
   check(discarded.length === 0, `Discard takes the copy away, the deck's files with it: ${discarded.join(" | ") || "none left"}`);
 
+  // An outline that never reads (lift-up REL-3): asked twice, then the dialog says why and offers to
+  // write the slides without one, on the arc already chosen, which makes the deck.
+  state.unreadable = true;
+  await opened();
+  // The page was opened again since the brief was last filled in, so its topic is asked anew.
+  await page.fill("#prompting-topic", "Pitch a Series A round for our carbon-negative cargo platform.");
+  await page.check("#prompting-show-outline");
+  const unreadFrom = requests.length;
+  await page.click("#prompting-go");
+  await page.waitForSelector("#prompting-unread:not([hidden])", { timeout: 120000 }).catch(() => {});
+  const unreadSaid = (await page.textContent("#prompting-unread-why")) ?? "";
+  check(unreadSaid.includes("asked twice") && !unreadSaid.includes("asked 2 times") && unreadSaid.includes("Problem–Solution"), `the dialog says why, the count once, and the arc kept: ${unreadSaid}`);
+  const since = requests.slice(unreadFrom);
+  check(since.filter((r) => r.asked === "outline").length === 2 && since.filter((r) => r.asked === "arc").length === 1, `the outline was asked twice, the arc once: ${since.map((r) => r.asked)}`);
+  check(await page.isHidden("#prompting-outline"), "no outline is shown to settle");
+  const unoutlinedWas = await page.evaluate(() => window.scaena.source());
+  await page.click("#prompting-without");
+  await page
+    .waitForFunction((was) => window.scaena.source() !== was && window.scaena.last(), unoutlinedWas, { timeout: 180000 })
+    .catch(() => {});
+  const unoutlined = requests.slice(unreadFrom).find((r) => r.asked === "slides")?.prompt ?? "";
+  check(unoutlined.includes("**Narrative Framework**: Problem–Solution") && !unoutlined.includes("**Outline (Scaena)**"), "the slides are written without an outline, on the arc chosen");
+  check((await page.evaluate(() => window.scaena.source())) !== unoutlinedWas, "and the deck is made");
+  state.unreadable = false;
   // The brief's other controls, as `scaena generate` takes them (lift-up FUNC-5): a persona chosen
   // for an audience in the person's own words, pictures made with high care, and the slides not
   // shown to the model.
@@ -731,8 +775,6 @@ try {
     .then(() => page.click("#recovering [value=discard]"))
     .catch(() => {});
   await opened();
-  // The page was opened again since the brief was last filled in, so its topic is asked anew.
-  await page.fill("#prompting-topic", "Pitch a Series A round for our carbon-negative cargo platform.");
   await page.uncheck("#prompting-show-outline");
   await page.fill("#prompting-audience", "the co-op's board");
   await page.click("#prompting details > summary");

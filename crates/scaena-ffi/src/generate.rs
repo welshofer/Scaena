@@ -342,6 +342,12 @@ impl Generating {
                 w.generation.settle(&outline).map_err(said)?;
                 where_it_stands(&w.generation)
             }
+            // The outline passed over, the slides written without one (lift-up REL-3).
+            "skipOutline" => {
+                let w = self.written()?;
+                w.generation.skip_outline().map_err(said)?;
+                where_it_stands(&w.generation)
+            }
             "chooseArc" => {
                 let w = self.written()?;
                 let arc = args.get("arc").and_then(Value::as_str).filter(|a| !a.is_empty());
@@ -541,7 +547,9 @@ impl Generating {
                 let key = args.get("key").and_then(Value::as_str);
                 let looking = key.filter(|_| args.get("look").and_then(Value::as_bool) != Some(false));
                 if let Some(key) = looking {
-                    let seen = scaena_ops::narrative::seeing(narrative, &model, &placed, making.layouts());
+                    let mut seen = scaena_ops::narrative::seeing(narrative, &model, &placed, making.layouts());
+                    // Each title's room, so a topic may become its claim (lift-up FUNC-2).
+                    scaena_ops::narrative::roomed(&mut seen, &making.rooms());
                     // A slide that would not draw for the model to see leaves the deck as made,
                     // saying why (narrative STAB-3): the look is a polish, never the deck.
                     match making.drawn(scaena_ops::narrative::LOOK_WIDTH) {
@@ -770,9 +778,10 @@ fn researched(topic: &str, report: &Report) -> Source {
 }
 
 /// Where a generation stands: `{step, slides, arc?, reasoning?, fallback?, written?, truncated?,
-/// outline?, plan?, wait?}`, the outline once written or settled (narrative FUNC-1), the beats the
-/// slides are spread over once the arc is chosen, and `wait` the seconds to wait before the same
-/// step is asked again, where its last answer was for now (narrative REL-1).
+/// outline?, unread?, plan?, wait?}`, the outline once written or settled (narrative FUNC-1), why
+/// it did not read once asked twice (lift-up REL-3), the beats the slides are spread over once the
+/// arc is chosen, and `wait` the seconds to wait before the same step is asked again, where its
+/// last answer was for now (narrative REL-1).
 fn where_it_stands(g: &Generation) -> Value {
     let narrative = g.narrative();
     let step: Step = g.step();
@@ -785,6 +794,7 @@ fn where_it_stands(g: &Generation) -> Value {
         "written": narrative.map(|n| n.slides.len()),
         "truncated": narrative.map(|n| n.truncated),
         "outline": g.outline(),
+        "unread": g.unread(),
         "plan": g.plan(),
         "wait": g.again(),
         "tried": g.tried(),
