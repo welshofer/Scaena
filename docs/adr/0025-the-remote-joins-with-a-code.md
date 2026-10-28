@@ -55,3 +55,12 @@ Now:
 - The code stays four digits, as a presentation app's remote pairs with, and is still shown only in the editor.
 
 Not done, and open: the presenter approving each remote in the sheet before places and commands flow. With the pairing and the limit on tries it is defense in depth, and a call for Jay on how the sheet should read.
+
+## Amendment: eight digits, and waits a join does not shorten (lift-up SEC-5, 2026-10-28)
+
+The first amendment left two weaknesses. Four digits are ten thousand codes, and five tries at each made the code anew, so someone on the network, guessing slowly, found it with a chance of one in two thousand each time; and a remote joining set the waits back to five seconds, so the waits a guesser met stayed short while the presenter's remote came and went. The waits also grew to five minutes, long for a presenter whose own remote has to join again.
+
+Now:
+- **The code is eight digits**, a hundred million codes, drawn from the system's secure random numbers (`Remote.code`). The sheet shows it in two groups of four (`Remote.shown`); the remote's field takes digits alone, typed with the space or pasted (`Remote.typed`), and joins at eight. Five tries at a code are then one chance in twenty million; at a minute a code once the waits have doubled, a guesser needs decades on average. The pairing is unchanged, its version too: SPEKE hashes any code to its point, and the code's length is the presenter's and the remote's to agree on.
+- **A join shortens no wait.** The waits are counted from when Remote… was turned on: five seconds, twice as long each time the code is made anew, up to a minute (`Remote.longest`), whether a remote joined between or not. A remote joined stays joined.
+- **The presenter is never kept out for long.** Each wait is at most a minute, and the code made anew shows only in the editor, so whoever reads it there pairs once the wait is over; the sheet says to wait a moment. Someone on the network can still trip the waits, five wrong codes a minute, and so keep a remote not yet joined waiting, as anyone on a network can keep two devices on it apart. A remote joined before is untouched, and turning the remote off and on begins again. The presenter approving each remote in the sheet, still open, would close that too.

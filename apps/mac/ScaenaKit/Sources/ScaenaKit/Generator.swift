@@ -1,5 +1,6 @@
 import CScaena
 import Foundation
+import Synchronization
 import os
 
 private let generatingLog = Logger(subsystem: "com.welshofer.Scaena", category: "generating")
@@ -268,11 +269,22 @@ public struct GeneratorRequest: Decodable, Sendable {
     public let headers: [String: String]
     public let body: String?
     public let most: Int?
+    /// Whether it may reach only the public internet: a web source's GET (lift-up 10-24b SEC-3),
+    /// which ``GeneratorReply/made(_:by:)`` holds to the address each of its transactions
+    /// connected to, and never answers from a cache. The client sets it; the engine's requests
+    /// come without it.
+    public var reachesPublic = false
+
+    enum CodingKeys: String, CodingKey {
+        case method, url, headers, body, most
+    }
 
     /// The request as `URLSession` makes it. A model may think for minutes before it answers.
     public func urlRequest() throws -> URLRequest {
         guard let address = URL(string: url) else { throw ScaenaError(message: "\(url) is no address") }
         var request = URLRequest(url: address, timeoutInterval: 900)
+        // A cached answer was connected to by no one now: it says nothing of where the host is.
+        if reachesPublic { request.cachePolicy = .reloadIgnoringLocalCacheData }
         request.httpMethod = method
         for (name, value) in headers {
             request.setValue(value, forHTTPHeaderField: name)
@@ -297,15 +309,19 @@ public struct GeneratorReply: Sendable {
     }
 
     /// `request` made by `URLSession`: status 0 where it never came back, saying why. A redirect is
-    /// followed only where ``follows(_:)`` lets it, else answered as it came.
+    /// followed only where ``follows(_:)`` lets it, else answered as it came. One that may reach
+    /// only the public internet (``GeneratorRequest/reachesPublic``) is answered with status 0
+    /// unless every address it connected to, each redirect's among them, is one the public
+    /// internet reaches, whatever its host resolved to when it was checked (lift-up 10-24b SEC-3).
     public static func made(_ request: GeneratorRequest, by session: URLSession = .shared) async -> GeneratorReply {
+        let held = Held()
         do {
             let (data, response): (Data, URLResponse)
             if let most = request.most {
                 // A source's body read no further than its plan's `most`, as it arrives: a page or a
                 // redirect a person names can stream gigabytes, and the app would run out of memory
                 // before a check after the whole (the 20261024 plan's SEC-2), as the CLI reads it.
-                let (bytes, answered) = try await session.bytes(for: try request.urlRequest(), delegate: Redirects())
+                let (bytes, answered) = try await session.bytes(for: try request.urlRequest(), delegate: held)
                 let tooMuch = GeneratorReply(
                     status: 0, kind: "", body: Data("\(request.url) answered with more than \(most >> 20) MB".utf8))
                 if answered.expectedContentLength > Int64(most) {
@@ -322,7 +338,14 @@ public struct GeneratorReply: Sendable {
                 }
                 (data, response) = (read, answered)
             } else {
-                (data, response) = try await session.data(for: try request.urlRequest(), delegate: Redirects())
+                (data, response) = try await session.data(for: try request.urlRequest(), delegate: held)
+            }
+            // Read from where it connected, not where its name pointed when it was checked: an
+            // answer from this machine or its network is let go unread.
+            if request.reachesPublic, !(await held.reachedPublic()) {
+                return GeneratorReply(
+                    status: 0, kind: "",
+                    body: Data("\(request.url) was answered from this machine or its network: a web source is a public address".utf8))
             }
             let http = response as? HTTPURLResponse
             return GeneratorReply(
@@ -349,63 +372,110 @@ public struct GeneratorReply: Sendable {
         return host.contains(".") && !numbers && host != "localhost" && !host.hasSuffix(".localhost")
     }
 
-    /// Whether `host` resolves only to addresses the public internet reaches, as
+    /// Whether `host` resolves, and only to addresses the public internet reaches, as
     /// `scaena_sources::fetch::reached` holds them (lift-up 10-24b SEC-3): a public name may
-    /// resolve to this machine or its network (`127.0.0.1.nip.io`). A host that does not resolve
-    /// passes: its request fails on its own. It blocks while the name is looked up.
+    /// resolve to this machine or its network (`127.0.0.1.nip.io`). A host that does not resolve,
+    /// or resolves to nothing, is refused too, so a failed look-up never lets a request by. It
+    /// blocks while the name is looked up. `URLSession` looks the name up again as it connects, so
+    /// a request that may reach only the public internet is held again to the address it
+    /// connected to (``made(_:by:)``).
     public static func resolvesPublic(_ host: String) -> Bool {
         var hints = addrinfo()
         hints.ai_socktype = SOCK_STREAM
         var found: UnsafeMutablePointer<addrinfo>?
         let bare = host.trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
-        guard getaddrinfo(bare, nil, &hints, &found) == 0, let first = found else { return true }
+        guard getaddrinfo(bare, nil, &hints, &found) == 0, let first = found else { return false }
         defer { freeaddrinfo(first) }
         var each: UnsafeMutablePointer<addrinfo>? = first
         while let node = each {
-            if let address = node.pointee.ai_addr, !reached(address) { return false }
+            guard let address = node.pointee.ai_addr, reached(address) else { return false }
             each = node.pointee.ai_next
         }
         return true
     }
 
-    /// Whether the public internet reaches `address`, an IPv4 or IPv6 one.
+    /// Whether the public internet reaches `address`, an IPv4 or IPv6 one; no other kind.
     private static func reached(_ address: UnsafeMutablePointer<sockaddr>) -> Bool {
         switch Int32(address.pointee.sa_family) {
         case AF_INET:
             let v4 = address.withMemoryRebound(to: sockaddr_in.self, capacity: 1) { $0.pointee.sin_addr }
             return reached(v4: withUnsafeBytes(of: v4) { Array($0) })
         case AF_INET6:
-            let b = address.withMemoryRebound(to: sockaddr_in6.self, capacity: 1) { p in
-                withUnsafeBytes(of: p.pointee.sin6_addr) { Array($0) }
-            }
-            // An IPv4 address mapped into IPv6 is that address.
-            if b[0..<10].allSatisfy({ $0 == 0 }) && b[10] == 0xff && b[11] == 0xff { return reached(v4: Array(b[12...])) }
-            let loopback = b[0..<15].allSatisfy { $0 == 0 } && b[15] == 1
-            let unspecified = b.allSatisfy { $0 == 0 }
-            let multicast = b[0] == 0xff
-            let local = (b[0] & 0xfe) == 0xfc || (b[0] == 0xfe && (b[1] & 0xc0) == 0x80)
-            return !(loopback || unspecified || multicast || local)
+            let v6 = address.withMemoryRebound(to: sockaddr_in6.self, capacity: 1) { $0.pointee.sin6_addr }
+            return reached(v6: withUnsafeBytes(of: v6) { Array($0) })
         default:
             return false
         }
     }
 
-    /// Whether the public internet reaches the IPv4 address of bytes `b`, in order.
+    /// Whether the public internet reaches `address` as `URLSessionTaskTransactionMetrics` writes
+    /// the one a request connected to: IPv4 or IPv6, in brackets or not, a zone after it or not.
+    /// One that reads as neither is not reached.
+    static func reached(address: String) -> Bool {
+        var bare = address.trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
+        if let zone = bare.firstIndex(of: "%") { bare = String(bare[..<zone]) }
+        var v4 = in_addr()
+        if inet_pton(AF_INET, bare, &v4) == 1 { return reached(v4: withUnsafeBytes(of: v4) { Array($0) }) }
+        var v6 = in6_addr()
+        if inet_pton(AF_INET6, bare, &v6) == 1 { return reached(v6: withUnsafeBytes(of: v6) { Array($0) }) }
+        return false
+    }
+
+    /// Whether the public internet reaches the IPv4 address of bytes `b`, in order: not this
+    /// network (`0/8`), a private one, a loopback, link-local, or shared (`100.64/10`) address,
+    /// the IETF's own (`192.0.0/24`), a benchmark's (`198.18/15`), documentation's, multicast,
+    /// or reserved (`240/4`, the broadcast address among them).
     static func reached(v4 b: [UInt8]) -> Bool {
+        guard b.count == 4 else { return false }
         let isPrivate = b[0] == 10 || (b[0] == 172 && (16...31).contains(b[1])) || (b[0] == 192 && b[1] == 168)
         let documentation =
             (b[0] == 192 && b[1] == 0 && b[2] == 2) || (b[0] == 198 && b[1] == 51 && b[2] == 100)
             || (b[0] == 203 && b[1] == 0 && b[2] == 113)
         let shared = b[0] == 100 && (64..<128).contains(b[1])
-        let reserved =
-            b[0] == 0 || b[0] == 127 || (b[0] == 169 && b[1] == 254) || (224...239).contains(b[0])
-            || b == [255, 255, 255, 255]
-        return !(isPrivate || documentation || shared || reserved)
+        let assigned = (b[0] == 192 && b[1] == 0 && b[2] == 0) || (b[0] == 198 && (18...19).contains(b[1]))
+        let reserved = b[0] == 0 || b[0] == 127 || (b[0] == 169 && b[1] == 254) || b[0] >= 224
+        return !(isPrivate || documentation || shared || assigned || reserved)
+    }
+
+    /// Whether the public internet reaches the IPv6 address of bytes `b`, in order. One that
+    /// carries an IPv4 address is held as that address: mapped (`::ffff:a.b.c.d`), compatible
+    /// (`::a.b.c.d`, the unspecified and loopback addresses among them), behind NAT64's
+    /// well-known prefix (`64:ff9b::/96`), or 6to4's (`2002::/16`). The rest of `64:ff9b::/32`,
+    /// NAT64's for local use, is not reached, nor a unique local (`fc00::/7`), link-local
+    /// (`fe80::/10`), or site-local (`fec0::/10`) address, multicast (`ff00::/8`), or
+    /// documentation's (`2001:db8::/32`).
+    static func reached(v6 b: [UInt8]) -> Bool {
+        guard b.count == 16 else { return false }
+        let zeros = { (range: Range<Int>) -> Bool in b[range].allSatisfy { $0 == 0 } }
+        let v4 = Array(b[12...])
+        if zeros(0..<10) && b[10] == 0xff && b[11] == 0xff { return reached(v4: v4) }
+        if zeros(0..<12) { return reached(v4: v4) }
+        if b[0..<4] == [0x00, 0x64, 0xff, 0x9b] { return zeros(4..<12) && reached(v4: v4) }
+        if b[0] == 0x20 && b[1] == 0x02 { return reached(v4: Array(b[2..<6])) }
+        let multicast = b[0] == 0xff
+        let local = (b[0] & 0xfe) == 0xfc || (b[0] == 0xfe && (b[1] & 0x80) == 0x80)
+        let documentation = b[0..<4] == [0x20, 0x01, 0x0d, 0xb8]
+        return !(multicast || local || documentation)
     }
 }
 
-/// Holds each redirect a request meets to ``GeneratorReply/follows(_:)``.
-private final class Redirects: NSObject, URLSessionTaskDelegate, Sendable {
+/// Holds a request to where it may go (lift-up SEC-2, 10-24b SEC-3): each redirect to
+/// ``GeneratorReply/follows(_:)`` and to where its host resolves; and, for a request that may
+/// reach only the public internet, the address each of its transactions connected to, as the
+/// task's metrics say, each redirect's included. `URLSession` looks a name up again as it
+/// connects, so an answer rebound since the check would reach this machine or its network: the
+/// address connected to is the one held. A transaction through a proxy connected to the proxy,
+/// which looks the host up itself; there the check before the request holds, as the CLI's does.
+private final class Held: NSObject, URLSessionTaskDelegate, Sendable {
+    /// What the metrics said, once they have: whether every transaction connected to an address
+    /// the public internet reaches; and who waits to hear it.
+    private struct Told: Sendable {
+        var reached: Bool?
+        var waiting: [CheckedContinuation<Bool, Never>] = []
+    }
+
+    private let told = Mutex(Told())
+
     func urlSession(
         _ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
         newRequest request: URLRequest
@@ -414,6 +484,48 @@ private final class Redirects: NSObject, URLSessionTaskDelegate, Sendable {
             GeneratorReply.resolvesPublic(host)
         else { return nil }
         return request
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didFinishCollecting metrics: URLSessionTaskMetrics) {
+        let transactions = metrics.transactionMetrics
+        settle(
+            !transactions.isEmpty
+                && transactions.allSatisfy { transaction in
+                    transaction.isProxyConnection
+                        || transaction.remoteAddress.map { GeneratorReply.reached(address: $0) } == true
+                })
+    }
+
+    /// Whether every transaction of the task connected to an address the public internet reaches,
+    /// once its metrics are collected: not, where they never were, or have not come `seconds`
+    /// after it is asked, so nothing unchecked is read.
+    func reachedPublic(within seconds: Double = 10) async -> Bool {
+        let late = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(seconds))
+            if !Task.isCancelled { self?.settle(false) }
+        }
+        defer { late.cancel() }
+        return await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
+            let now = told.withLock { told -> Bool? in
+                if let reached = told.reached { return reached }
+                told.waiting.append(done)
+                return nil
+            }
+            if let now { done.resume(returning: now) }
+        }
+    }
+
+    /// The first word on where the task connected, told to each who waits for it; any after it
+    /// is let go.
+    private func settle(_ reached: Bool) {
+        let waiting = told.withLock { told -> [CheckedContinuation<Bool, Never>] in
+            guard told.reached == nil else { return [] }
+            told.reached = reached
+            let waiting = told.waiting
+            told.waiting = []
+            return waiting
+        }
+        for done in waiting { done.resume(returning: reached) }
     }
 }
 
@@ -611,13 +723,19 @@ public final class Generator {
         if let contact { args["contact"] = .string(contact) }
         if let token { args["token"] = .string(token) }
         var next: Fetched = try step("fetch", args)
-        while let get = next.get {
-            // Where the host resolves, off the main actor: never this machine or its network.
-            if let host = URL(string: get.url)?.host(percentEncoded: false),
-                !(await Task.detached { GeneratorReply.resolvesPublic(host) }.value)
-            {
+        while let planned = next.get {
+            // Where the host resolves, off the main actor: never this machine or its network, and
+            // a host that does not resolve is asked nothing. The GET is held again to the address
+            // it connected to, which `URLSession` looks up anew (lift-up 10-24b SEC-3).
+            var get = planned
+            get.reachesPublic = true
+            guard let host = URL(string: get.url)?.host(percentEncoded: false),
+                await Task.detached(operation: { GeneratorReply.resolvesPublic(host) }).value
+            else {
                 throw ScaenaError(
-                    message: "\(get.url): \(host) resolves to this machine or its network: a web source is a public address")
+                    message:
+                        "\(get.url): its host could not be looked up, or resolves to this machine or its network: a web source is a public address"
+                )
             }
             let reply = await send(get)
             if reply.status == 0 { throw ScaenaError(message: "\(get.url) could not be reached: \(reply.text)") }

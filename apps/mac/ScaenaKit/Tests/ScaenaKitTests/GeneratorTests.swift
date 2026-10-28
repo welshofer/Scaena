@@ -368,19 +368,55 @@ private func anthropic(_ text: String) -> Data {
 
 /// What a brief may ask is Narrato's: its goals, lengths, arcs, and defaults.
 /// A source's host is held to where it resolves, not its name alone (lift-up 10-24b SEC-3): an
-/// address on this machine or its network is refused however a name reaches it.
+/// address on this machine or its network is refused however a name reaches it, and a host that
+/// does not resolve is refused too, never let by.
 @Test func aSourceIsHeldToWhereItsHostResolves() {
     for host in [
         "localhost", "127.0.0.1", "10.0.0.1", "172.16.0.1", "192.168.1.1", "169.254.169.254", "100.64.0.1", "0.0.0.0",
-        "::1", "[::1]", "fd00::1", "::ffff:127.0.0.1",
+        "198.18.0.1", "240.0.0.1", "::1", "[::1]", "fd00::1", "fe80::1", "::ffff:127.0.0.1", "::127.0.0.1",
+        "64:ff9b::a00:1", "nowhere.invalid", "",
     ] {
         #expect(!GeneratorReply.resolvesPublic(host), "\(host)")
     }
     // Public addresses, written as such, so no network is asked.
-    for host in ["1.1.1.1", "8.8.8.8", "2606:4700:4700::1111"] {
+    for host in ["1.1.1.1", "8.8.8.8", "2606:4700:4700::1111", "64:ff9b::808:808"] {
         #expect(GeneratorReply.resolvesPublic(host), "\(host)")
     }
     #expect(GeneratorReply.reached(v4: [172, 32, 0, 1]) && !GeneratorReply.reached(v4: [172, 31, 255, 255]))
+}
+
+/// The address a request connected to is held as the CLI holds one (lift-up 10-24b SEC-3,
+/// `scaena_sources::fetch::reached`), as a task's metrics write it: an IPv6 address that carries
+/// an IPv4 one is that one, however it carries it, and every range this machine, its network, or
+/// no one reaches is refused; so is what reads as no address.
+@Test func anAddressConnectedToIsHeldToThePublicInternet() {
+    for refused in [
+        // IPv4: this network, private, loopback, link-local, shared, the IETF's, a benchmark's,
+        // documentation's, multicast, reserved, and the broadcast address.
+        "0.1.2.3", "10.1.2.3", "172.16.0.1", "172.31.255.255", "192.168.0.1", "127.0.0.1", "127.255.255.254",
+        "169.254.169.254", "100.64.0.1", "100.127.255.255", "192.0.0.8", "198.18.0.1", "198.19.255.255",
+        "192.0.2.1", "198.51.100.1", "203.0.113.1", "224.0.0.1", "239.255.255.250", "240.0.0.1",
+        "255.255.255.255",
+        // IPv6: unspecified, loopback, an IPv4 address mapped, compatible, behind NAT64's prefix, or
+        // 6to4's; NAT64's local prefix, unique local, link-local (with its zone too), site-local,
+        // multicast, and documentation's.
+        "::", "::1", "[::1]", "::ffff:127.0.0.1", "::ffff:10.0.0.1", "::ffff:7f00:1", "::127.0.0.1", "::10.0.0.1",
+        "64:ff9b::127.0.0.1", "64:ff9b::a00:1", "64:ff9b::c0a8:101", "64:ff9b:1::808:808", "2002:7f00:1::1",
+        "2002:a9fe:a9fe::1", "fc00::1", "fd12:3456::1", "fe80::1", "fe80::1%en0", "[fe80::1%25en0]", "febf::1",
+        "fec0::1", "ff02::1", "ff05::1:3", "2001:db8::1",
+        // No address at all.
+        "", "example.com", "1.2.3", "1.2.3.4.5", "::ffff:1.2.3", "12345::1",
+    ] {
+        #expect(!GeneratorReply.reached(address: refused), "\(refused)")
+    }
+    for reached in [
+        "1.1.1.1", "8.8.8.8", "93.184.215.14", "100.63.255.255", "100.128.0.1", "172.32.0.1", "198.17.255.255",
+        "198.20.0.1", "223.255.255.255", "2606:4700:4700::1111", "[2606:4700:4700::1111]", "::ffff:8.8.8.8",
+        "64:ff9b::808:808", "2002:808:808::1", "2a00:1450:4001:80b::200e",
+    ] {
+        #expect(GeneratorReply.reached(address: reached), "\(reached)")
+    }
+    #expect(!GeneratorReply.reached(v4: [1, 2, 3]) && !GeneratorReply.reached(v6: [UInt8](repeating: 0x20, count: 15)))
 }
 
 /// A redirect is followed only to a public https address by name: a page a source names cannot
@@ -443,6 +479,49 @@ private final class Endless: URLProtocol {
     Endless.chunks = 8
     let whole = await GeneratorReply.made(request, by: session)
     #expect(whole.status == 200 && whole.body.count == 8 << 16)
+}
+
+/// A server that answers every request with a page of a few bytes, from no address at all: what
+/// a task's metrics say no public internet reached.
+private final class Unplaced: URLProtocol {
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        let response = HTTPURLResponse(
+            url: request.url!, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: ["Content-Type": "text/html"])!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Data("<p>Inside.</p>".utf8))
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
+}
+
+/// A web source's GET is read only where the address it connected to is one the public internet
+/// reaches (lift-up 10-24b SEC-3), whatever its host resolved to when it was checked, so an answer
+/// rebound after the check reads nothing from this machine or its network. One answered from no
+/// such address is let go unread, saying so; the engine's own requests, a provider's or a map's,
+/// are not held to it, and read as they came.
+@Test func aSourceAnsweredFromNoPublicAddressIsLetGo() async throws {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [Unplaced.self]
+    let session = URLSession(configuration: configuration)
+    for most in [#","most":1048576"#, ""] {
+        let asked = Data(#"{"method":"GET","url":"https://example.com/page","headers":{}\#(most)}"#.utf8)
+        var request = try JSONDecoder().decode(GeneratorRequest.self, from: asked)
+        #expect(!request.reachesPublic, "the engine's requests come without it")
+        let read = await GeneratorReply.made(request, by: session)
+        #expect(read.status == 200 && read.text == "<p>Inside.</p>", "\(read.text)")
+        request.reachesPublic = true
+        #expect(try request.urlRequest().cachePolicy == .reloadIgnoringLocalCacheData, "never from a cache")
+        let refused = await GeneratorReply.made(request, by: session)
+        #expect(refused.status == 0, "read \(most.isEmpty ? "whole" : "as it arrives")")
+        #expect(
+            refused.text
+                == "https://example.com/page was answered from this machine or its network: a web source is a public address",
+            "\(refused.text)")
+    }
 }
 
 /// How many requests are in flight at once, and the most there were.
