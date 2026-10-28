@@ -6,8 +6,10 @@ import Network
 /// given a name, pairs with each that has its code (`Pairing`), tells each where the show is as it
 /// goes, and hands on what each asks, every message sealed. A wrong code is one try: after
 /// `Remote.tries` of them the code is made anew, those pairing are let go, and no remote pairs for
-/// a while, longer each time, so the code cannot be guessed online either (lift-up SEC-5). Its work
-/// is done on the main queue.
+/// a while, longer each time up to `Remote.longest`, a join shortening no wait, so the code cannot
+/// be guessed online either (lift-up SEC-5). The wait is bounded and the new code is shown only in
+/// the editor, so whoever reads it there pairs once the wait is over. Its work is done on the main
+/// queue.
 @MainActor
 public final class RemoteServer {
     /// The code a remote joins with: shown where the audience does not see it, in the editor. Made
@@ -40,11 +42,13 @@ public final class RemoteServer {
     private var place: RemotePlace?
     /// Wrong codes tried since the code was made.
     private var wrong = 0
-    /// How often the code was made anew since a remote last joined: each wait before pairing
-    /// goes on doubles.
+    /// How often the code was made anew since the server began: each wait before pairing goes on
+    /// doubles, up to `Remote.longest`. A join leaves it, so a remote joined buys no shorter waits.
     private var rotations = 0
     /// No remote pairs until then, after the code was made anew.
     private var cooling: ContinuousClock.Instant?
+    /// The wait, s, the code last made anew set before a remote pairs: what a test reads.
+    private(set) var waited: Double = 0
     /// When the hellos of the last second came: no more than `Remote.hellos` are worked out a
     /// second, so no one in range keeps the main actor raising points before any pairs.
     private var hellos: [ContinuousClock.Instant] = []
@@ -54,7 +58,7 @@ public final class RemoteServer {
     /// Listen with `code`, offered by Bonjour as `name` on the local network; with no name, only to
     /// one who knows the port; with `loopback`, only on this machine, as a test listens. After
     /// `Remote.tries` wrong codes, no remote pairs for `cooldown` seconds, twice that the next time,
-    /// and so on up to five minutes.
+    /// and so on up to `Remote.longest`.
     public init(name: String?, code: String = Remote.code(), loopback: Bool = false, cooldown: Double = 5) throws {
         self.code = code
         base = try Pairing.base(code)
@@ -220,10 +224,10 @@ public final class RemoteServer {
         joining.sealed = Sealed(keys: keys, side: .presenter)
         joining.timeout?.cancel()
         joining.keys = nil
-        // A join leaves the wrong codes counted: they are counted since the code was made, so a
-        // join, or a connection made to join and dropped, buys no more tries at it.
-        rotations = 0
-        cooling = nil
+        // A join leaves the wrong codes counted, and the waits as long: they are counted since the
+        // code was made, and the waits since the server began, so a join, or a connection made to
+        // join and dropped, buys no more tries at the code and no shorter wait after it is made
+        // anew (lift-up SEC-5).
         joined(count)
         if let place { tell(place, to: joining) }
         hearCommands(id)
@@ -240,7 +244,8 @@ public final class RemoteServer {
         if wrong >= Remote.tries {
             wrong = 0
             rotations += 1
-            cooling = .now + .seconds(min(cooldown * pow(2, Double(rotations - 1)), 300))
+            waited = min(cooldown * pow(2, Double(rotations - 1)), Remote.longest)
+            cooling = .now + .seconds(waited)
             for (id, remote) in remotes where !remote.paired {
                 remote.keys = nil
                 remote.timeout?.cancel()

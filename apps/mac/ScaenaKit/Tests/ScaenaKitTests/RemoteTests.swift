@@ -77,13 +77,13 @@ private func tried(_ endpoint: NWEndpoint, _ parameters: NWParameters, _ seconds
 /// show is as it joins and as it goes, and the presenter hears what it asks. A remote with another
 /// code is never joined, and nothing it asks is heard.
 @MainActor @Test func aRemoteJoinsWithTheCodeAndDrivesTheShow() async throws {
-    let (server, heard) = try await presenter("4821")
+    let (server, heard) = try await presenter("48210937")
     let port = try #require(server.port)
     let cover = RemotePlace(
         deck: "B1", showing: true, state: "cover", index: 0, count: 40, notes: "Begin with why.", slide: Data([1, 2, 3]))
     server.tell(cover)
 
-    let remote = RemoteClient(here(port), code: "4821")
+    let remote = RemoteClient(here(port), code: "48210937")
     guard await waited(10, { remote.status == .joined }) else {
         // Why not, as connections of the test's own find the presenter: TCP alone to either
         // loopback address.
@@ -104,14 +104,14 @@ private func tried(_ endpoint: NWEndpoint, _ parameters: NWParameters, _ seconds
     #expect(await waited { remote.place == goal }, "it hears each place told after")
 
     // Another code is never joined, and is one wrong try (lift-up SEC-5).
-    let stranger = RemoteClient(here(port), code: "1234", seconds: 5)
+    let stranger = RemoteClient(here(port), code: "12345678", seconds: 5)
     #expect(await waited { lost(stranger) != nil }, "another code is never joined: \(stranger.status)")
     #expect(lost(stranger) == "No answer with that code.")
     stranger.send(.end)
     #expect(stranger.place == nil)
     #expect(heard.asked == [.on], "nothing it asks is heard")
     #expect(await waited { heard.tried == 1 }, "the presenter counts the wrong code")
-    #expect(heard.recoded.isEmpty && server.code == "4821", "one wrong code leaves the code")
+    #expect(heard.recoded.isEmpty && server.code == "48210937", "one wrong code leaves the code")
     // The remote joined with the code stays, and hears on.
     let next = RemotePlace(deck: "B1", showing: true, state: "next", index: 2, count: 40)
     server.tell(next)
@@ -125,14 +125,14 @@ private func tried(_ endpoint: NWEndpoint, _ parameters: NWParameters, _ seconds
 /// show, and the presenter's timer, paused where it is; and it asks for them, and for a slide by
 /// its number, as the presenter's keys do.
 @MainActor @Test func aRemoteMirrorsTheScreenTheEndAndTheTimerAndAsksForThem() async throws {
-    let (server, heard) = try await presenter("5307")
+    let (server, heard) = try await presenter("53071946")
     let port = try #require(server.port)
     let at = Date(timeIntervalSince1970: 1_790_000_000)
     let blanked = RemotePlace(
         deck: "B1", showing: true, state: "goal", index: 1, count: 40, blank: .black,
         timer: RemoteTimer(elapsed: 75, paused: true, at: at))
     server.tell(blanked)
-    let remote = RemoteClient(here(port), code: "5307")
+    let remote = RemoteClient(here(port), code: "53071946")
     guard await waited(10, { remote.status == .joined }) else {
         Issue.record("the remote joins with the code: \(remote.status)")
         remote.leave()
@@ -201,26 +201,28 @@ private func tried(_ endpoint: NWEndpoint, _ parameters: NWParameters, _ seconds
 /// joined stays, no remote pairs for a moment, and then the new code joins, so a code can be guessed
 /// neither offline nor online.
 @MainActor @Test func wrongCodesChangeTheCodeAndAJoinedRemoteStays() async throws {
-    let (server, heard) = try await presenter("4821", cooldown: 1.5)
+    let (server, heard) = try await presenter("48210937", cooldown: 1.5)
     let port = try #require(server.port)
-    let remote = RemoteClient(here(port), code: "4821")
+    let remote = RemoteClient(here(port), code: "48210937")
     guard await waited(10, { remote.status == .joined }) else {
         Issue.record("the remote joins with the code: \(remote.status)")
         remote.leave()
         server.stop()
         return
     }
-    for wrong in ["0000", "1111", "2222", "3333"] {
+    for wrong in ["00000000", "11111111", "22222222", "33333333"] {
         let stranger = RemoteClient(here(port), code: wrong, seconds: 5)
         #expect(await waited { lost(stranger) != nil }, "\(wrong) is never joined")
     }
     #expect(await waited { heard.tried == 4 }, "four wrong codes are counted: \(heard.tried)")
-    #expect(heard.recoded.isEmpty && server.code == "4821", "four wrong codes leave the code")
-    let fifth = RemoteClient(here(port), code: "4444", seconds: 5)
+    #expect(heard.recoded.isEmpty && server.code == "48210937", "four wrong codes leave the code")
+    let fifth = RemoteClient(here(port), code: "44444444", seconds: 5)
     #expect(await waited { lost(fifth) != nil }, "the fifth is never joined")
     #expect(await waited { heard.recoded.count == 1 }, "the fifth wrong code makes the code anew")
     let code = server.code
-    #expect(heard.recoded == [code] && code != "4821" && code.count == 4 && code.allSatisfy(\.isNumber), "\(code)")
+    #expect(
+        heard.recoded == [code] && code != "48210937" && code.count == Remote.digits && code.allSatisfy(\.isNumber),
+        "\(code)")
     #expect(heard.tried == 0, "the count begins again with the new code")
     // The remote joined stays joined.
     let goal = RemotePlace(deck: "B1", showing: true, state: "goal", index: 1, count: 40)
@@ -232,7 +234,7 @@ private func tried(_ endpoint: NWEndpoint, _ parameters: NWParameters, _ seconds
     let early = RemoteClient(here(port), code: code, seconds: 5)
     #expect(await waited { lost(early) != nil }, "no remote pairs right after the code changed: \(early.status)")
     try await Task.sleep(for: .seconds(2))
-    let old = RemoteClient(here(port), code: "4821", seconds: 5)
+    let old = RemoteClient(here(port), code: "48210937", seconds: 5)
     #expect(await waited { lost(old) != nil }, "the old code is never joined again")
     let later = RemoteClient(here(port), code: code)
     #expect(await waited { later.status == .joined }, "the new code joins once the moment has passed: \(later.status)")
@@ -246,20 +248,56 @@ private func tried(_ endpoint: NWEndpoint, _ parameters: NWParameters, _ seconds
 /// A join leaves the wrong codes counted (lift-up SEC-5): they are counted since the code was made,
 /// so four wrong, then a join, then one more makes the code anew. A join bought no more tries.
 @MainActor @Test func aJoinLeavesTheWrongCodesCounted() async throws {
-    let (server, heard) = try await presenter("4821", cooldown: 1.5)
+    let (server, heard) = try await presenter("48210937", cooldown: 1.5)
     let port = try #require(server.port)
-    for wrong in ["0000", "1111", "2222", "3333"] {
+    for wrong in ["00000000", "11111111", "22222222", "33333333"] {
         let stranger = RemoteClient(here(port), code: wrong, seconds: 5)
         #expect(await waited { lost(stranger) != nil }, "\(wrong) is never joined")
     }
     #expect(await waited { heard.tried == 4 }, "four wrong codes are counted: \(heard.tried)")
-    let remote = RemoteClient(here(port), code: "4821")
+    let remote = RemoteClient(here(port), code: "48210937")
     #expect(await waited { remote.status == .joined }, "the code joins: \(remote.status)")
-    #expect(heard.recoded.isEmpty && server.code == "4821")
-    let fifth = RemoteClient(here(port), code: "4444", seconds: 5)
+    #expect(heard.recoded.isEmpty && server.code == "48210937")
+    let fifth = RemoteClient(here(port), code: "44444444", seconds: 5)
     #expect(await waited { lost(fifth) != nil }, "the fifth is never joined")
     #expect(await waited { heard.recoded.count == 1 }, "the fifth wrong code, after the join, makes the code anew")
-    #expect(server.code != "4821")
+    #expect(server.code != "48210937")
+    remote.leave()
+    server.stop()
+}
+
+/// A join shortens no wait (lift-up SEC-5): each time wrong codes make the code anew, no remote
+/// pairs for twice as long as the time before, a remote joined in between or not, so someone
+/// guessing gains nothing by it; and never for longer than `Remote.longest`, so the presenter's own
+/// remote, with the new code the editor shows, is kept out no longer than that. The wrong proofs
+/// are handed over as `heard(_:proof:)` takes them; the join is over the loopback.
+@MainActor @Test func aJoinShortensNoWaitAndNoWaitIsLongerThanTheLongest() async throws {
+    let (server, heard) = try await presenter("48210937", cooldown: 0.25)
+    let port = try #require(server.port)
+    /// `Remote.tries` wrong codes, at whatever the code is now: the wait it then sets.
+    func guessed() throws -> Double {
+        let wrong = server.code == "00000000" ? "11111111" : "00000000"
+        for _ in 0..<Remote.tries {
+            let guess = try Pairing(side: .remote, code: wrong)
+            let ours = try Pairing(side: .presenter, code: server.code)
+            let connection = NWConnection(to: here(9), using: Remote.parameters(loopback: true))
+            let id = server.pairing(connection, keys: try ours.keys(from: guess.hello))
+            let tag = try guess.keys(from: ours.hello).tag(.remote)
+            server.heard(id, proof: try JSONEncoder().encode(Pairing.Proof(proof: tag)))
+        }
+        return server.waited
+    }
+    var waits = [try guessed()]
+    #expect(heard.recoded.count == 1 && waits == [0.25])
+    // Once the wait is over, the new code joins.
+    try await Task.sleep(for: .seconds(0.75))
+    let remote = RemoteClient(here(port), code: server.code)
+    #expect(await waited { remote.status == .joined }, "the new code joins after the wait: \(remote.status)")
+    // And the waits go on doubling from where they were, up to the longest.
+    for _ in 0..<9 { waits.append(try guessed()) }
+    #expect(waits == [0.25, 0.5, 1, 2, 4, 8, 16, 32, 60, 60], "\(waits)")
+    #expect(heard.recoded.count == 10 && Set(heard.recoded).count > 1)
+    #expect(remote.status == .joined, "the remote joined stays joined")
     remote.leave()
     server.stop()
 }
@@ -267,7 +305,7 @@ private func tried(_ endpoint: NWEndpoint, _ parameters: NWParameters, _ seconds
 /// Before it pairs, a presenter holds no frame of more than `Remote.small` (lift-up SEC-5): one
 /// that says it is longer is let go unread, and is no try at the code.
 @MainActor @Test func aFrameTooLongToPairIsLetGo() async throws {
-    let (server, heard) = try await presenter("4821")
+    let (server, heard) = try await presenter("48210937")
     let port = try #require(server.port)
     let seen = Seen()
     let connection = NWConnection(to: here(port), using: .tcp)
@@ -282,7 +320,7 @@ private func tried(_ endpoint: NWEndpoint, _ parameters: NWParameters, _ seconds
         MainActor.assumeIsolated { closed.states.append(body == nil ? "closed" : "answered") }
     }
     #expect(await waited { closed.states == ["closed"] }, "it is let go: \(closed.states)")
-    #expect(heard.tried == 0 && heard.recoded.isEmpty && server.code == "4821", "and is no try at the code")
+    #expect(heard.tried == 0 && heard.recoded.isEmpty && server.code == "48210937", "and is no try at the code")
     connection.cancel()
     server.stop()
 }
@@ -292,15 +330,15 @@ private func tried(_ endpoint: NWEndpoint, _ parameters: NWParameters, _ seconds
 /// with them at once, so the guesses at one code stay five, not one for each pairing open. The
 /// proofs are handed over in turn, the right one last, as the loopback cannot order them.
 @MainActor @Test func aProofLateForTheCodeMadeAnewIsNoTry() throws {
-    let server = try RemoteServer(name: nil, code: "4821", loopback: true)
+    let server = try RemoteServer(name: nil, code: "48210937", loopback: true)
     let heard = Heard()
     server.recoded = { heard.recoded.append($0) }
     server.tried = { heard.tried = $0 }
     var ids: [Int] = []
     var proofs: [Data] = []
-    for code in ["0000", "1111", "2222", "3333", "4444", "4821"] {
+    for code in ["00000000", "11111111", "22222222", "33333333", "44444444", "48210937"] {
         let remote = try Pairing(side: .remote, code: code)
-        let presenter = try Pairing(side: .presenter, code: "4821")
+        let presenter = try Pairing(side: .presenter, code: "48210937")
         let connection = NWConnection(to: here(9), using: Remote.parameters(loopback: true))
         ids.append(server.pairing(connection, keys: try presenter.keys(from: remote.hello)))
         let tag = try remote.keys(from: presenter.hello).tag(.remote)
@@ -317,7 +355,7 @@ private func tried(_ endpoint: NWEndpoint, _ parameters: NWParameters, _ seconds
 /// A connection that speaks no pairing is let go and counts as no try (lift-up SEC-5): a port
 /// scanner, or a remote of another version, cannot change the code.
 @MainActor @Test func aConnectionWithoutThePairingIsNoTry() async throws {
-    let (server, heard) = try await presenter("4821")
+    let (server, heard) = try await presenter("48210937")
     let port = try #require(server.port)
     let seen = Seen()
     let connection = NWConnection(to: here(port), using: .tcp)
@@ -333,10 +371,10 @@ private func tried(_ endpoint: NWEndpoint, _ parameters: NWParameters, _ seconds
         MainActor.assumeIsolated { closed.states.append(body == nil ? "closed" : "answered") }
     }
     #expect(await waited { closed.states == ["closed"] }, "it is let go: \(closed.states)")
-    #expect(heard.tried == 0 && heard.recoded.isEmpty && server.code == "4821", "and is no try at the code")
+    #expect(heard.tried == 0 && heard.recoded.isEmpty && server.code == "48210937", "and is no try at the code")
     connection.cancel()
     // The code still joins.
-    let remote = RemoteClient(here(port), code: "4821")
+    let remote = RemoteClient(here(port), code: "48210937")
     #expect(await waited { remote.status == .joined }, "\(remote.status)")
     remote.leave()
     server.stop()
@@ -346,12 +384,12 @@ private func tried(_ endpoint: NWEndpoint, _ parameters: NWParameters, _ seconds
 /// first is a point that is random whatever the code, and only the ends that began with one code
 /// prove themselves to each other.
 @Test func aPairingTellsNothingOfTheCodeAndProvesOnlyItsOwn() throws {
-    let remote = try Pairing(side: .remote, code: "4821")
-    let presenter = try Pairing(side: .presenter, code: "4821")
-    let again = try Pairing(side: .remote, code: "4821")
+    let remote = try Pairing(side: .remote, code: "48210937")
+    let presenter = try Pairing(side: .presenter, code: "48210937")
+    let again = try Pairing(side: .remote, code: "48210937")
     #expect(remote.hello.key.count == 32 && remote.hello.nonce.count == 16 && remote.hello.version == Remote.version)
     #expect(remote.hello.key != again.hello.key, "the same code sends another point each time")
-    #expect(remote.hello.key != Pairing.x(try Pairing.base("4821")), "and never the code's own point")
+    #expect(remote.hello.key != Pairing.x(try Pairing.base("48210937")), "and never the code's own point")
     let ofRemote = try remote.keys(from: presenter.hello)
     let ofPresenter = try presenter.keys(from: remote.hello)
     #expect(ofPresenter.proves(.remote, ofRemote.tag(.remote)), "the ends with one code prove themselves")
@@ -360,7 +398,7 @@ private func tried(_ endpoint: NWEndpoint, _ parameters: NWParameters, _ seconds
     #expect(!ofRemote.proves(.presenter, ofRemote.tag(.remote)), "each end's tag is its own")
     #expect(!ofPresenter.proves(.remote, ofPresenter.tag(.presenter)))
     // Another code: the hellos pass alike, and neither end proves itself.
-    let stranger = try Pairing(side: .remote, code: "1234")
+    let stranger = try Pairing(side: .remote, code: "12345678")
     let ofStranger = try stranger.keys(from: presenter.hello)
     let ofPresenterToStranger = try presenter.keys(from: stranger.hello)
     #expect(!ofPresenterToStranger.proves(.remote, ofStranger.tag(.remote)), "another code proves nothing")
@@ -389,11 +427,15 @@ private func tried(_ endpoint: NWEndpoint, _ parameters: NWParameters, _ seconds
     #expect(throws: (any Error).self, "the other way's key") { try elsewhere.open(try sending.seal(Data("end".utf8))) }
 }
 
-/// Every code of four digits has its point on P-256 (lift-up SEC-5), so no hello says which codes
-/// it could be; and the map from a code to its point is pinned, so no change to it goes unnoticed:
-/// each point's x, as SHA-256 of the label, the code, and the first counter that gives a point.
+/// Every code has its point on P-256 (lift-up SEC-5), so no hello says which codes it could be;
+/// and the map from a code to its point is pinned, so no change to it goes unnoticed: each point's
+/// x, as SHA-256 of the label, the code, and the first counter that gives a point (0 for
+/// `00000000`, 1 for `31415926`, 4 for `27182818`; the codes of four digits from before, alike).
 @Test func everyCodeHasItsPointOnTheCurve() throws {
     let pinned = [
+        "00000000": "82ed22af99017338572adf9a6f889014fadb0b007164dea8f928ab4c5c5721af",
+        "31415926": "5744e98bbce814f170cb2eed50043e45a5e605de1a5f231f05dd964feb81034c",
+        "27182818": "b94b2dfcc6b2630944cfe2b0c3f9ce03ffd72e91cb520760be65cdd8e0c0cf85",
         "0000": "be08c668dc503304e72a59c263a547ceb036013a36ed270d74586beae146a5e7",
         "1111": "eeb07914c80dde656064cc95a8faf91bd03bcb456034dfbed51a359c111e8d72",
         "9999": "c29c84114b4e092152eb6af7d71a7877b6250d95ced934677026eef1d54c679e",
@@ -402,8 +444,9 @@ private func tried(_ endpoint: NWEndpoint, _ parameters: NWParameters, _ seconds
         let made = Pairing.x(try Pairing.base(code)).map { String(format: "%02x", $0) }.joined()
         #expect(made == x, "\(code)'s point")
     }
-    for n in 0..<10_000 {
-        let code = String(format: "%04d", n)
+    // A hundred million codes are too many to walk: ten thousand made as a presenter makes them.
+    for _ in 0..<10_000 {
+        let code = Remote.code()
         #expect((try? Pairing.base(code)) != nil, "\(code) has its point")
     }
 }
@@ -418,12 +461,21 @@ private func tried(_ endpoint: NWEndpoint, _ parameters: NWParameters, _ seconds
     #expect(cut.utf8.count <= 63 && cut.utf8.count > 60 && long.hasPrefix(cut), "\(cut.utf8.count) bytes")
 }
 
-/// A code is four digits, as a presentation app's remote pairs with.
-@Test func aCodeIsFourDigits() {
+/// A code is eight digits (lift-up SEC-5), each drawn anew, shown in two groups of four, and read
+/// back from what a person types, its space and all, as its digits alone.
+@Test func aCodeIsEightDigitsShownInFours() {
+    var made = Set<String>()
     for _ in 0..<20 {
         let code = Remote.code()
-        #expect(code.count == 4 && code.allSatisfy(\.isNumber), "\(code)")
+        #expect(code.count == Remote.digits && code.allSatisfy { $0.isASCII && $0.isWholeNumber }, "\(code)")
+        made.insert(code)
     }
+    #expect(made.count > 1, "each code is drawn anew")
+    #expect(Remote.shown("48210937") == "4821 0937")
+    #expect(Remote.typed("4821 0937") == "48210937", "typed as it is shown")
+    #expect(Remote.typed(" 4821-0937\n") == "48210937", "or pasted")
+    #expect(Remote.typed("482109371234") == "48210937", "never more digits than a code has")
+    #expect(Remote.typed("48٢1") == "481", "digits of other scripts are not the code's")
 }
 
 /// The remote counts the room's slides, not the show's states (lift-up USE-2): a step after a

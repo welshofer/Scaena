@@ -159,30 +159,49 @@ pub fn public(url: &str) -> Result<(), SourceError> {
 /// Whether the public internet reaches `ip`: not a loopback, private, link-local, shared, or
 /// other reserved address. A client that resolves a web source's host holds each address it
 /// connects to to this (lift-up 10-24b SEC-3), since a public name may resolve to any of them.
+/// The Mac and the iPad hold an address alike (`GeneratorReply.reached`).
+///
+/// IPv4: not this network (`0/8`), a private, loopback, link-local, or shared (`100.64/10`)
+/// address, the IETF's own (`192.0.0/24`), a benchmark's (`198.18/15`), documentation's,
+/// multicast, or reserved (`240/4`, the broadcast address among them). IPv6: one that carries an
+/// IPv4 address is held as that address, mapped (`::ffff:a.b.c.d`), compatible (`::a.b.c.d`, the
+/// unspecified and loopback addresses among them), behind NAT64's well-known prefix
+/// (`64:ff9b::/96`), or 6to4's (`2002::/16`); the rest of `64:ff9b::/32`, NAT64's for local use,
+/// is not reached, nor a unique local (`fc00::/7`), link-local (`fe80::/10`), or site-local
+/// (`fec0::/10`) address, multicast, or documentation's (`2001:db8::/32`).
 pub fn reached(ip: std::net::IpAddr) -> bool {
-    use std::net::IpAddr;
+    use std::net::{IpAddr, Ipv4Addr};
     match ip {
         IpAddr::V4(v4) => {
-            let [a, b, ..] = v4.octets();
+            let [a, b, c, _] = v4.octets();
             let shared = a == 100 && (64..128).contains(&b);
+            let assigned = (a == 192 && b == 0 && c == 0) || (a == 198 && (18..20).contains(&b));
             !(v4.is_private()
                 || v4.is_loopback()
                 || v4.is_link_local()
-                || v4.is_unspecified()
-                || v4.is_broadcast()
                 || v4.is_documentation()
-                || v4.is_multicast()
                 || shared
-                || a == 0)
+                || assigned
+                || a == 0
+                || a >= 224)
         }
-        IpAddr::V6(v6) => match v6.to_ipv4_mapped() {
-            Some(v4) => reached(IpAddr::V4(v4)),
-            None => {
-                let first = v6.segments()[0];
-                let local = (first & 0xfe00) == 0xfc00 || (first & 0xffc0) == 0xfe80;
-                !(v6.is_loopback() || v6.is_unspecified() || v6.is_multicast() || local)
+        IpAddr::V6(v6) => {
+            let o = v6.octets();
+            let carried = |at: usize| Ipv4Addr::new(o[at], o[at + 1], o[at + 2], o[at + 3]);
+            // Mapped or compatible: `to_ipv4` reads both, `::` and `::1` as `0.0.0.0` and `0.0.0.1`.
+            if let Some(v4) = v6.to_ipv4() {
+                return reached(IpAddr::V4(v4));
             }
-        },
+            if o[..4] == [0x00, 0x64, 0xff, 0x9b] {
+                return o[4..12].iter().all(|&b| b == 0) && reached(IpAddr::V4(carried(12)));
+            }
+            if o[..2] == [0x20, 0x02] {
+                return reached(IpAddr::V4(carried(2)));
+            }
+            let local = (o[0] & 0xfe) == 0xfc || (o[0] == 0xfe && (o[1] & 0x80) == 0x80);
+            let documentation = o[..4] == [0x20, 0x01, 0x0d, 0xb8];
+            !(v6.is_multicast() || local || documentation)
+        }
     }
 }
 
@@ -632,6 +651,81 @@ mod tests {
         assert_eq!(Google::Presentation.export(id), format!("https://docs.google.com/presentation/d/{id}/export/pptx"));
         assert!(remote("github:nobody").is_err());
         assert!(remote("sec:").is_err());
+    }
+
+    #[test]
+    fn an_address_is_reached_only_where_the_public_internet_reaches_it() {
+        use std::net::IpAddr;
+        // As `GeneratorReply.reached(address:)` holds them on the Mac and the iPad, list for list.
+        for refused in [
+            "0.1.2.3",
+            "10.1.2.3",
+            "172.16.0.1",
+            "172.31.255.255",
+            "192.168.0.1",
+            "127.0.0.1",
+            "127.255.255.254",
+            "169.254.169.254",
+            "100.64.0.1",
+            "100.127.255.255",
+            "192.0.0.8",
+            "198.18.0.1",
+            "198.19.255.255",
+            "192.0.2.1",
+            "198.51.100.1",
+            "203.0.113.1",
+            "224.0.0.1",
+            "239.255.255.250",
+            "240.0.0.1",
+            "255.255.255.255",
+            "::",
+            "::1",
+            "::ffff:127.0.0.1",
+            "::ffff:10.0.0.1",
+            "::ffff:7f00:1",
+            "::127.0.0.1",
+            "::10.0.0.1",
+            "64:ff9b::127.0.0.1",
+            "64:ff9b::a00:1",
+            "64:ff9b::c0a8:101",
+            "64:ff9b:1::808:808",
+            "2002:7f00:1::1",
+            "2002:a9fe:a9fe::1",
+            "fc00::1",
+            "fd12:3456::1",
+            "fe80::1",
+            "febf::1",
+            "fec0::1",
+            "ff02::1",
+            "ff05::1:3",
+            "2001:db8::1",
+        ] {
+            assert!(!reached(refused.parse::<IpAddr>().unwrap()), "{refused}");
+        }
+        for public in [
+            "1.1.1.1",
+            "8.8.8.8",
+            "93.184.215.14",
+            "100.63.255.255",
+            "100.128.0.1",
+            "172.32.0.1",
+            "198.17.255.255",
+            "198.20.0.1",
+            "223.255.255.255",
+            "2606:4700:4700::1111",
+            "::ffff:8.8.8.8",
+            "64:ff9b::808:808",
+            "2002:808:808::1",
+            "2a00:1450:4001:80b::200e",
+        ] {
+            assert!(reached(public.parse::<IpAddr>().unwrap()), "{public}");
+        }
+        // A host written as such an address is no web source either.
+        for refused in
+            ["https://198.18.0.1/a", "https://240.0.0.1/a", "https://[::127.0.0.1]/a", "https://[64:ff9b::a00:1]/a"]
+        {
+            assert!(remote(refused).is_err(), "{refused}");
+        }
     }
 
     #[test]
