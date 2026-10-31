@@ -56,6 +56,7 @@ SECTIONS = [
     "People",
     "Editorial",
     "Diagrams",
+    "Code",
     "Briefing",
     "Classroom",
     "Closing",
@@ -1494,6 +1495,86 @@ layout("Diagrams", "seating-chart", "Tables as circles, each its number in the m
     for o, (c, r) in zip(ORDINALS, SEATS) for k in ["-table", "", "-left", "-right"]
 })
 
+# Code ------------------------------------------------------------------------------------------
+
+# Code on a slide (PLAN 2.138, ADR-0029): each code slot set in the theme's code role, which starts
+# a Plain Text code block its prompt's words are typed over, so every code slide of a deck sits at
+# one size and in one place. Two blocks stand side by side where their lines are short, and one
+# above the other, each the full width, where they are long: a made deck takes the stacked one
+# where its longest line, side by side, would set too small to read across a room.
+CODE = "Paste or type code"
+
+
+def code(text, language="go"):
+    """What a layout's picture shows in a code slot: real-looking code (theme format 0.29)."""
+    return {"code": {"language": language, "text": text}}
+
+
+# A handler, a page of a service as code on a slide shows it.
+HANDLER = code("""func (s *Server) Price(w http.ResponseWriter, r *http.Request) {
+\tcart, err := s.carts.Get(r.Context(), r.URL.Query().Get("cart"))
+\tif err != nil {
+\t\thttp.Error(w, err.Error(), http.StatusNotFound)
+\t\treturn
+\t}
+\ttotal := s.pricing.Total(r.Context(), cart)
+\tjson.NewEncoder(w).Encode(total)
+}""")
+# What to notice beside it: shorter lines, for the narrower place.
+TOTAL = code("""def total(cart, prices):
+    subtotal = sum(prices[i.sku] * i.qty for i in cart.items)
+    discount = best_discount(cart, subtotal)
+    tax = tax_for(cart.address, subtotal - discount)
+    return subtotal - discount + tax""", "python")
+# Before and after: a loop of calls collapsed into one (deepdive's pair).
+BEFORE = code("""var total Money
+for _, item := range cart.Items {
+\tp, err := pricing.Get(ctx, item.SKU)
+\tif err != nil {
+\t\treturn err
+\t}
+\ttotal = total.Add(p.Times(item.Qty))
+}""")
+AFTER = code("""prices, err := pricing.GetMany(ctx, cart.SKUs())
+if err != nil {
+\treturn err
+}
+total := prices.Total(cart.Items)""")
+# One above the other, as lines too long to stand side by side are: a few, each the slide's width.
+BEFORE_WIDE = code("""for _, item := range cart.Items {
+\ttotal = total.Add(pricing.MustGet(ctx, item.SKU, pricing.WithRegion(region)).Times(item.Qty))
+}""")
+AFTER_WIDE = code("""total := pricing.MustGetMany(ctx, cart.SKUs(), pricing.WithRegion(region)).Total(cart.Items)""")
+
+layout("Code", "title-code", "A headline over one block of code, as wide as the slide.", {
+    "kicker": KICKER,
+    "header": header("What this code does"),
+    "code": slot((1, 12), (3, 10), "code", CODE, example=HANDLER),
+})
+
+layout("Code", "code-notes", "A block of code beside what to notice in it.", {
+    "kicker": KICKER,
+    "header": header("What this code does"),
+    "code": slot((1, 8), (3, 10), "code", CODE, example=TOTAL),
+    "notes": slot((9, 12), (3, 10), "body", "What to notice in it"),
+})
+
+layout("Code", "two-code", "Two blocks of code side by side, each named over it: before and after, or one way and another.", {
+    "kicker": KICKER,
+    "header": header("Before and after"),
+    **{f"{o}-title": slot(c, (3, 3), "label", w) for o, c, w in zip(ORDINALS, HALVES, ["Before", "After"])},
+    **{o: slot(c, (4, 10), "code", CODE, example=e) for o, c, e in zip(ORDINALS, HALVES, [BEFORE, AFTER])},
+})
+
+layout("Code", "two-code-stacked", "Two blocks of code one above the other, each the slide's width and named over it: for lines too long to stand side by side.", {
+    "kicker": KICKER,
+    "header": header("Before and after"),
+    "first-title": slot((1, 12), (3, 3), "label", "Before"),
+    "first": slot((1, 12), (4, 6), "code", CODE, example=BEFORE_WIDE),
+    "second-title": slot((1, 12), (7, 7), "label", "After"),
+    "second": slot((1, 12), (8, 10), "code", CODE, example=AFTER_WIDE),
+})
+
 # Pictures --------------------------------------------------------------------------------------
 
 # The page at the left, its passage ringed, and the passage enlarged beside it.
@@ -1717,6 +1798,9 @@ NAMES = {
     "buyer-persona": "Buyer Persona",
     # S.3's first five
     "seating-chart": "Seating Chart", "exhibit-callout": "Exhibit Callout",
+    # Code
+    "title-code": "Title and Code", "code-notes": "Code beside Notes", "two-code": "Two Code Blocks",
+    "two-code-stacked": "Two Code Blocks, Stacked",
     "concept-of-operations": "Concept of Operations", "brand-board": "Brand Board", "fine-print": "Fine Print",
     # Maps (PLAN O.1e)
     "map": "Map", "map-words": "Map and Words", "map-full": "Full-Bleed Map",
