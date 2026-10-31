@@ -1491,7 +1491,8 @@ export interface Brief {
 }
 
 /** What a brief may ask, as Narrato knows it: its goals, lengths, and ways a deck is delivered,
- * the audiences its personas name, each persona by its id, its arcs, and the defaults. */
+ * the audiences its personas name, each persona by its id, its arcs, the languages it writes, and the
+ * defaults. */
 export interface Choices {
   goals: string[];
   lengths: string[];
@@ -1499,6 +1500,8 @@ export interface Choices {
   audiences: string[];
   personas: { id: string; name: string }[];
   arcs: string[];
+  /** The languages Narrato writes, by their English names (lift-up 10-25b STAB-2). */
+  languages: string[];
   defaults: { audience: string; goal: string; length: string };
 }
 

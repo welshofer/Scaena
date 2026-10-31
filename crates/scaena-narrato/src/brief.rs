@@ -63,6 +63,34 @@ pub const LANGUAGES: [&str; 15] = [
     "Hindi",
 ];
 
+/// What each of [`LANGUAGES`] is also called: its own name, and its BCP 47 tags.
+const CALLED: [(&str, &[&str]); 15] = [
+    ("English", &["en", "en-us", "en-gb"]),
+    ("Spanish", &["español", "espanol", "es"]),
+    ("French", &["français", "francais", "fr"]),
+    ("German", &["deutsch", "de"]),
+    ("Portuguese", &["português", "portugues", "pt", "pt-br"]),
+    ("Italian", &["italiano", "it"]),
+    ("Dutch", &["nederlands", "nl"]),
+    ("Czech", &["čeština", "cestina", "cs"]),
+    ("Polish", &["polski", "pl"]),
+    ("Ukrainian", &["українська", "uk"]),
+    ("Japanese", &["日本語", "ja"]),
+    ("Chinese (Simplified)", &["chinese", "简体中文", "中文", "zh", "zh-hans", "zh-cn"]),
+    ("Korean", &["한국어", "ko"]),
+    ("Arabic", &["العربية", "ar"]),
+    ("Hindi", &["हिन्दी", "हिंदी", "hi"]),
+];
+
+/// The one of [`LANGUAGES`] `language` names, however it is written: by its English name or its
+/// own, in any case, or by its tag ("german", "Deutsch", "de"). None for a language Narrato does
+/// not name, which the brief keeps as written (lift-up 10-25b STAB-2).
+pub fn named(language: &str) -> Option<&'static str> {
+    let asked = language.trim().to_lowercase();
+    let asked = asked.replace('_', "-");
+    CALLED.iter().find(|(name, also)| name.to_lowercase() == asked || also.contains(&asked.as_str())).map(|(n, _)| *n)
+}
+
 /// What each field may hold, in UTF-16 units, as Narrato caps them.
 pub mod limits {
     pub const TOPIC: usize = 2000;
@@ -85,7 +113,7 @@ pub const DEFAULT_LENGTH: &str = "5-10 slides";
 
 /// What a brief may ask, as every client offers it: Narrato's goals, lengths, and ways a deck is
 /// delivered (`{ id, label }`), the audiences its personas name, each persona (`{ id, name }`), its
-/// arcs by name, and the defaults a field left empty takes.
+/// arcs by name, the languages it writes, and the defaults a field left empty takes.
 pub fn choices() -> serde_json::Value {
     let modalities: Vec<serde_json::Value> = MODALITIES
         .iter()
@@ -104,6 +132,7 @@ pub fn choices() -> serde_json::Value {
         "audiences": audiences,
         "personas": personas,
         "arcs": arcs,
+        "languages": LANGUAGES,
         "defaults": { "audience": DEFAULT_AUDIENCE, "goal": DEFAULT_GOAL, "length": DEFAULT_LENGTH },
     })
 }
@@ -227,7 +256,9 @@ impl Brief {
             modality: some(&self.modality, limits::MODALITY).or_else(|| Some(MODALITIES[0].1.into())),
             desired_outcomes: some(&self.desired_outcomes, limits::DESIRED_OUTCOMES),
             persona_id: self.persona_id.as_deref().map(|s| js::first_units(s, limits::PERSONA_ID)),
-            language: some(&self.language, limits::LANGUAGE),
+            // A language Narrato names is kept by its English name, however it was written, so
+            // the deck's tag, its health, and its fonts all read it (lift-up 10-25b STAB-2).
+            language: some(&self.language, limits::LANGUAGE).map(|l| named(&l).map_or(l, str::to_string)),
             voice: some(&self.voice, limits::VOICE),
             source_content,
             source_title,
@@ -304,6 +335,31 @@ pub fn minutes_for_slides(least: usize) -> (u32, Option<u32>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A language Narrato names is kept by its English name however it is written; another is
+    /// kept as written (lift-up 10-25b STAB-2).
+    #[test]
+    fn a_language_is_kept_by_its_english_name_however_it_is_written() {
+        for (said, name) in [
+            ("german", "German"),
+            ("Deutsch", "German"),
+            ("de", "German"),
+            ("Français", "French"),
+            ("FRANÇAIS", "French"),
+            ("日本語", "Japanese"),
+            ("zh_Hans", "Chinese (Simplified)"),
+            ("Chinese", "Chinese (Simplified)"),
+            ("pt-BR", "Portuguese"),
+        ] {
+            assert_eq!(named(said), Some(name), "{said}");
+            let b = Brief { topic: "x".into(), language: Some(said.into()), ..Brief::default() }.validated().unwrap();
+            assert_eq!(b.language.as_deref(), Some(name), "{said}");
+        }
+        assert!(LANGUAGES.iter().all(|l| named(l) == Some(*l)));
+        assert_eq!(named("Klingon"), None);
+        let b = Brief { topic: "x".into(), language: Some("Klingon".into()), ..Brief::default() }.validated().unwrap();
+        assert_eq!(b.language.as_deref(), Some("Klingon"));
+    }
 
     #[test]
     fn the_choices_name_each_persona_by_its_id() {

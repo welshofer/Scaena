@@ -218,7 +218,7 @@ struct PromptView: View {
     @State private var modality = ""
     @State private var arc = ""
     @State private var outcome = ""
-    @State private var language = ""
+    @State private var language = "English"
     @State private var voice = ""
     /// The persona the deck speaks to, by its id; none for the one the audience names.
     @State private var persona = ""
@@ -445,7 +445,11 @@ struct PromptView: View {
                             ForEach(choices?.arcs ?? [], id: \.self) { Text($0).tag($0) }
                         }
                         TextField("What it should achieve", text: $outcome)
-                        field("Language", text: $language, prompt: "English")
+                        // A language Scaena sets, never free text a deck's tag and its health
+                        // cannot read (lift-up 10-25b STAB-2).
+                        Picker("Language", selection: $language) {
+                            ForEach(choices?.languages ?? ["English"], id: \.self) { Text($0).tag($0) }
+                        }
                         field("Voice", text: $voice, prompt: "Plain, confident, no jargon")
                         Picker("Speak to Them As", selection: $persona) {
                             Text("As the audience suggests").tag("")
@@ -867,7 +871,7 @@ struct PromptView: View {
             topic: topic.trimmingCharacters(in: .whitespacesAndNewlines),
             audience: audience.isEmpty ? nil : audience, goal: goal.isEmpty ? nil : goal,
             length: length.isEmpty ? nil : length, modality: modality.isEmpty ? nil : modality,
-            desiredOutcomes: outcome.isEmpty ? nil : outcome, language: language.isEmpty ? nil : language,
+            desiredOutcomes: outcome.isEmpty ? nil : outcome, language: language.isEmpty || language == "English" ? nil : language,
             voice: voice.isEmpty ? nil : voice, personaId: persona.isEmpty ? nil : persona)
         let paint = painter.flatMap { made in
             keychain.key(for: made).map { Generator.Painter(provider: made, key: $0, look: look, quality: quality) }

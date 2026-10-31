@@ -681,6 +681,8 @@ mod tests {
         );
         assert!(c["arcs"].as_array().unwrap().iter().any(|a| a == "Problem\u{2013}Solution"));
         assert!(c["audiences"].as_array().unwrap().iter().any(|a| a == "Investors"));
+        assert_eq!(c["languages"][0], "English");
+        assert!(c["languages"].as_array().unwrap().iter().any(|l| l == "German"));
         assert_eq!(c["defaults"]["length"], "5-10 slides");
     }
 

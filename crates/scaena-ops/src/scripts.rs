@@ -183,7 +183,7 @@ pub fn needed(
 ) -> Result<Option<&'static Script>, OpsError> {
     let named = language.map(str::trim).filter(|l| !l.is_empty());
     let script = match named {
-        Some(language) => SCRIPTS.iter().find(|s| s.language.eq_ignore_ascii_case(language)),
+        Some(language) => scaena_narrato::brief::named(language).and_then(|l| SCRIPTS.iter().find(|s| s.language == l)),
         None => written_in(text),
     };
     let Some(script) = script else {

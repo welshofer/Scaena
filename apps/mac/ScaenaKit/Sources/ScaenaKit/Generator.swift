@@ -32,6 +32,8 @@ public struct BriefChoices: Decodable, Sendable {
     public let audiences: [String]
     public let personas: [Persona]
     public let arcs: [String]
+    /// The languages Narrato writes, by their English names (lift-up 10-25b STAB-2).
+    public let languages: [String]
     public let defaults: Defaults
     /// The themes that ship, to make the deck in, each with its family (PLAN T.0d).
     public let themes: [ShippedTheme]

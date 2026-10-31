@@ -116,7 +116,7 @@ export function prompting(
   const theme = themeGallery($("#prompting-themes"), "prompting-theme");
   const modality = $<HTMLSelectElement>("#prompting-modality");
   const outcome = $<HTMLInputElement>("#prompting-outcome");
-  const language = $<HTMLInputElement>("#prompting-language");
+  const language = $<HTMLSelectElement>("#prompting-language");
   const voice = $<HTMLInputElement>("#prompting-voice");
   const persona = $<HTMLSelectElement>("#prompting-persona");
   const see = $<HTMLInputElement>("#prompting-see");
@@ -278,6 +278,9 @@ export function prompting(
     // A persona chosen where the audience is in the person's own words; by default the one the
     // audience names (lift-up FUNC-5).
     options(persona, [["", "As the audience suggests"], ...choices.personas.map((p): [string, string] => [p.id, p.name])], "");
+    // A language Scaena sets, never free text a deck's tag and its health cannot read
+    // (lift-up 10-25b STAB-2).
+    options(language, choices.languages.map((l): [string, string] => [l, l]), "English");
     audience.placeholder = choices.defaults.audience;
     $<HTMLDataListElement>("#prompting-audiences").replaceChildren(...choices.audiences.map((a) => new Option(a)));
   };
@@ -507,7 +510,8 @@ export function prompting(
         length: length.value || undefined,
         modality: modality.value || undefined,
         desiredOutcomes: outcome.value.trim() || undefined,
-        language: language.value.trim() || undefined,
+        // English is Narrato's default, sent as none, so its prompt reads as it did.
+        language: language.value === "English" ? undefined : language.value || undefined,
         voice: voice.value.trim() || undefined,
         personaId: persona.value || undefined,
       },
