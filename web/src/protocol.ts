@@ -1469,6 +1469,10 @@ export interface Generate {
   /** Whether the model is shown each slide as it is drawn, and may give one another of its
    * layouts and tighten its words (PLAN G.13); yes where it is not given. */
   look?: boolean;
+  /** Whether each slide's speaker notes are written for the talk once the deck is seen (lift-up
+   * 10-25 ATTR-2): bridging each slide to the next, at its share of the talk's minutes; yes where
+   * it is not given. */
+  notes?: boolean;
   /** Whether the outline is shown first (narrative FUNC-1): the arc, the big idea, and each beat's
    * claim, which the person settles before the slides are written; the slides at once where not. */
   outline?: boolean;
@@ -1532,6 +1536,11 @@ export type GeneratingEvent =
    * the JPEG in base64, which the dialog shows as it comes (lift-up ATTR-1). */
   | { kind: "drawn"; slide: number; of: number; jpeg: string }
   | { kind: "looking"; slides: number }
+  /** Each slide's notes asked to be written for the talk, then these many taken, or why not
+   * (lift-up 10-25 ATTR-2). */
+  | { kind: "noting"; slides: number }
+  | { kind: "noted"; slides: number }
+  | { kind: "unnoted"; why: string }
   | { kind: "looked"; slides: number }
   | { kind: "unlooked"; why: string }
   | { kind: "refused"; slide: number; what: string; why: string }

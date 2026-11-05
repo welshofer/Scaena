@@ -9,7 +9,7 @@ use scaena_narrato::brief::MODALITIES;
 use scaena_narrato::pictures::{self, Look, Quality};
 use scaena_narrato::{Brief, Generation, Outline, Provider, Request, Settings, Step};
 use scaena_ops::create::ThemeSource;
-use scaena_ops::narrative::{Looking, Painter, Progress, Reply, Transport};
+use scaena_ops::narrative::{Looking, Noting, Painter, Progress, Reply, Transport};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::Duration;
@@ -119,6 +119,16 @@ pub struct GenerateArgs {
     /// the look is answered in: taken with no call, as `--slides` gives the slides.
     #[arg(long)]
     look_answer: Option<PathBuf>,
+    /// Make the deck with each slide's speaker notes as Narrato drafted them, not written again
+    /// for the talk (lift-up 10-25 ATTR-2). Written again, each slide's notes pick up from the
+    /// slide before, carry its claim, hand over to the next, and run to its share of the minutes
+    /// the brief's slot gives the talk.
+    #[arg(long)]
+    no_notes: bool,
+    /// The notes a model wrote for the talk elsewhere, the JSON they are answered in: taken with
+    /// no call, as `--look-answer` takes the look.
+    #[arg(long, conflicts_with = "no_notes")]
+    notes_answer: Option<PathBuf>,
     /// Show the outline before the slides are written: the arc, the big idea, and one claim for
     /// each beat, written to FILE as JSON, and no deck made. Edit it (a claim, a beat moved,
     /// taken out, or added), then `--from-outline FILE` writes the slides to it.
@@ -353,6 +363,8 @@ fn said(p: &Progress) -> String {
         Progress::Painting { pictures } => format!("making {pictures} pictures for the slides… (a minute or two)"),
         Progress::Looking { slides } => format!("showing the model the {slides} slides as drawn…"),
         Progress::Looked { slides } => format!("{slides} slides changed by what the model saw"),
+        Progress::Noting { slides } => format!("writing the {slides} slides' notes for the talk…"),
+        Progress::Noted { slides } => format!("{slides} slides' notes written for the talk"),
         Progress::Painted { pictures, unmade } if unmade.is_empty() => format!("{pictures} pictures made"),
         Progress::Painted { pictures, unmade } => {
             format!("{pictures} pictures made; not made:\n  {}", unmade.join("\n  "))
@@ -512,6 +524,10 @@ impl Kept {
                     args.push("--no-look".into());
                 }
                 flag(&mut args, "look-answer", path(a.look_answer.as_deref()).as_deref());
+                if a.no_notes {
+                    args.push("--no-notes".into());
+                }
+                flag(&mut args, "notes-answer", path(a.notes_answer.as_deref()).as_deref());
                 flag(&mut args, "from-outline", path(a.from_outline.as_deref()).as_deref());
             }
         }
@@ -936,12 +952,22 @@ pub fn run(a: GenerateArgs, json: bool) -> Result<ExitCode> {
         (None, true) => Looking::No,
         (None, false) => Looking::Asked,
     };
+    let spoken = match &a.notes_answer {
+        Some(path) => Some(std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?),
+        None => None,
+    };
+    let noting = match (&spoken, a.no_notes) {
+        (Some(text), _) => Noting::Answered(text),
+        (None, true) => Noting::No,
+        (None, false) => Noting::Asked,
+    };
     let generated = scaena_ops::narrative::generate(
         generation,
         key.as_deref(),
         &grounding.documents,
         painter.as_ref(),
         looking,
+        noting,
         &theme.file,
         theme_text.clone(),
         &font,
@@ -995,6 +1021,12 @@ pub fn run(a: GenerateArgs, json: bool) -> Result<ExitCode> {
             (Some(why), true) => println!("  not changed by what the model saw: {why}"),
             (Some(why), false) => println!("  {why}"),
             (None, _) => {}
+        }
+        if !made.noted.is_empty() {
+            println!("  notes written for the talk: {} slides", made.noted.len());
+        }
+        if let Some(why) = &made.unnoted {
+            println!("  notes not written for the talk: {why}");
         }
         // Each change let go, and what lint found (lift-up USE-4).
         for r in &made.refused {

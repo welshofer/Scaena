@@ -437,7 +437,11 @@ fn sources_ground_the_slides_a_pdf_beside_them_and_a_sheet_kept_as_data() {
     // The arc sees no document; the slides see every source, the PDF beside the prompt.
     let asked = asked.lock().unwrap();
     let calls: Vec<&Asked> = asked.iter().filter(|a| a.method == "POST" && a.path == "/v1/messages").collect();
-    assert_eq!(calls.len(), 3, "the arc, the slides, and the look at them drawn; nothing ran over");
+    assert_eq!(
+        calls.len(),
+        4,
+        "the arc, the slides, the look at them drawn, and the notes for the talk; nothing ran over"
+    );
     let arc: Value = serde_json::from_str(&calls[0].body).unwrap();
     assert!(!calls[0].body.contains("\"document\""), "{}", calls[0].body);
     assert_eq!(arc["model"], "a-model");
@@ -511,7 +515,7 @@ fn an_unreadable_outline_is_asked_twice_then_written_without() {
     assert!(said.contains("writing the slides without one"), "{said}");
     assert!(!outline.exists(), "no outline written");
     let sent = posts(&asked);
-    assert_eq!(sent.len(), 5, "the arc, the outline twice, the slides, and the look: {said}");
+    assert_eq!(sent.len(), 6, "the arc, the outline twice, the slides, the look, and the notes: {said}");
     assert!(
         sent[3].contains("**Narrative Framework**: Problem\u{2013}Solution")
             && !sent[3].contains("**Outline (Scaena)**")
@@ -628,7 +632,7 @@ fn an_outline_is_written_first_and_the_slides_follow_the_edited_one() {
     assert_eq!(made["arc"], "Problem\u{2013}Solution", "the outline's arc, with no call for one");
     let calls = asked.lock().unwrap();
     let posts: Vec<&Asked> = calls.iter().filter(|a| a.method == "POST").collect();
-    assert_eq!(posts.len(), 2, "the slides and the look at them; no arc, no outline: {said}");
+    assert_eq!(posts.len(), 3, "the slides, the look at them, and the notes; no arc, no outline: {said}");
     let slides: Value = serde_json::from_str(&posts[0].body).unwrap();
     let prompt = slides["messages"][0]["content"].as_array().unwrap().last().unwrap()["text"].as_str().unwrap();
     assert!(prompt.contains("**Slot shapes (Scaena)**"), "{prompt}");
@@ -800,7 +804,7 @@ fn deep_research_grounds_the_slides_in_its_report() {
     assert_eq!(made["sources"][0]["kind"], "deep research");
     let asked = asked.lock().unwrap();
     let posts: Vec<&Asked> = asked.iter().filter(|a| a.method == "POST").collect();
-    assert_eq!(posts.len(), 4, "the research, the arc, the slides, and the look at them drawn");
+    assert_eq!(posts.len(), 5, "the research, the arc, the slides, the look at them drawn, and the notes");
     let research: Value = serde_json::from_str(&posts[0].body).unwrap();
     assert_eq!(research["tools"][0]["type"], "web_search_20260209");
     let slides: Value = serde_json::from_str(&posts[2].body).unwrap();

@@ -1801,6 +1801,24 @@ impl Making {
         self.0.unfitted(why);
     }
 
+    /// Each slide as the model is asked to speak it, JSON `[{ slide, title, words, draft, budget,
+    /// before, after }]`: what the generator's `Generation.notesRequest` takes (lift-up 10-25
+    /// ATTR-2).
+    pub fn speaking(&self) -> Result<String, JsError> {
+        serde_json::to_string(&self.0.speaking().map_err(js)?).map_err(js)
+    }
+
+    /// The notes the model wrote, JSON `[[slide, notes]]` as `Generation.notesAnswer` reads them,
+    /// set as each slide's beat's notes.
+    pub fn noted(&mut self, written: &str) -> Result<(), JsError> {
+        self.0.noted(serde_json::from_str(written).map_err(js)?).map_err(js)
+    }
+
+    /// The notes were not written for the talk: why, which the report says.
+    pub fn unnoted(&mut self, why: String) {
+        self.0.unnoted(why);
+    }
+
     /// What still runs past its place once the last rewrite is set, which the report says.
     #[wasm_bindgen(js_name = stillLong)]
     pub fn still_long(&mut self) -> Result<(), JsError> {

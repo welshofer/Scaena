@@ -136,6 +136,9 @@ pub enum Shape {
     /// The outline before the slides: the big idea and each beat's claim (Scaena's own call,
     /// [`crate::outline`], narrative FUNC-1).
     Outline,
+    /// Each slide's speaker notes, written for the talk (Scaena's own call, [`crate::notes`],
+    /// lift-up 10-25 ATTR-2).
+    Notes,
 }
 
 /// A document the model reads beside the prompt: a PDF, sent as itself (ADR-0026).
@@ -224,6 +227,7 @@ impl Provider {
             Shape::Fit => crate::fit::schema_gemini(),
             Shape::Look => crate::look::schema_gemini(),
             Shape::Outline => crate::outline::schema_gemini(),
+            Shape::Notes => crate::notes::schema_gemini(),
         };
         let name = match call.shape {
             Shape::Arc => "arc",
@@ -231,6 +235,7 @@ impl Provider {
             Shape::Fit => "fit",
             Shape::Look => "look",
             Shape::Outline => "outline",
+            Shape::Notes => "notes",
         };
         match self {
             Provider::Anthropic => {

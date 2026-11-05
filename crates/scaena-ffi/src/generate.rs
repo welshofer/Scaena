@@ -99,6 +99,41 @@ impl Look {
     }
 }
 
+/// Each slide's speaker notes, asked of the model a dozen slides a round (lift-up 10-25 ATTR-2),
+/// as the look is asked.
+#[derive(Default)]
+struct Notes {
+    /// Whether they are to be written: yes unless `make` says not.
+    wanted: bool,
+    spoken: Vec<scaena_narrato::notes::Spoken>,
+    next: usize,
+    current: std::ops::Range<usize>,
+    written: Vec<(usize, String)>,
+    unanswered: Option<String>,
+    /// The round last asked, as Swift was handed it, and how many times a busy provider has
+    /// answered it for now (lift-up REL-1).
+    last: Option<Value>,
+    tried: usize,
+}
+
+impl Notes {
+    /// The next round's request, with how many slides the notes are written for in all; none once
+    /// every round is asked.
+    fn round(&mut self, generation: &Generation, key: &str) -> Option<Value> {
+        while let Some(round) = look_rounds(self.spoken.len()).find(|r| r.start == self.next) {
+            self.next = round.end;
+            if let Some(asked) = generation.notes_request(key, &self.spoken[round.clone()]) {
+                self.current = round;
+                self.tried = 0;
+                let next = json!({ "request": request(asked), "slides": self.spoken.len() });
+                self.last = Some(next.clone());
+                return Some(next);
+            }
+        }
+        None
+    }
+}
+
 #[derive(Default)]
 pub struct Generating {
     sources: Vec<Source>,
@@ -125,6 +160,8 @@ pub struct Generating {
     /// answered it for now (lift-up REL-1).
     fit_asked: Option<Value>,
     fit_tried: usize,
+    /// Each slide's speaker notes, while they are asked for (lift-up 10-25 ATTR-2).
+    notes: Notes,
 }
 
 /// A [`Generating`] goes from one thread to another between steps (lift-up narrative PERF-3): the
@@ -579,6 +616,8 @@ impl Generating {
                 // `look` says not; `looked` takes its answer, and then asks for the fit.
                 let key = args.get("key").and_then(Value::as_str);
                 let looking = key.filter(|_| args.get("look").and_then(Value::as_bool) != Some(false));
+                self.notes =
+                    Notes { wanted: args.get("notes").and_then(Value::as_bool) != Some(false), ..Notes::default() };
                 if let Some(key) = looking {
                     let mut seen = scaena_ops::narrative::seeing(narrative, &model, &placed, making.layouts());
                     // Each title's room, so a topic may become its claim (lift-up FUNC-2).
@@ -600,8 +639,7 @@ impl Generating {
                         Err(why) => making.unlooked(format!("the slides could not be drawn for the model: {why}")),
                     }
                 }
-                let fit = self.fitting(making, key)?;
-                json!({ "fit": fit })
+                self.after_look(making, key)?
             }
             // The look's next round drawn while the one asked is out (lift-up 10-25 PERF-5):
             // `{drawn}`, each slide it drew by its index for the window (lift-up ATTR-1), or why a
@@ -717,14 +755,55 @@ impl Generating {
                         Some(json!({ "slide": slide, "jpeg": base64::engine::general_purpose::STANDARD.encode(jpeg) }))
                     })
                     .collect();
+                let mut out = self.after_look(making, key)?;
+                out["looked"] = json!(looked);
+                out["unlooked"] = report["unlooked"].clone();
+                out["refused"] = report["refused"].clone();
+                out["drawn"] = json!(drawn);
+                out
+            }
+            "noted" => {
+                // The model's answer to one round of the notes (lift-up 10-25 ATTR-2): the next
+                // round's request where one is left, `{notes}`; else the notes set in their beats,
+                // then the fit asked for, as `make` asks it: `{noted, unnoted, fit}`. A busy
+                // provider: the same round asked again, after the wait Swift is told, `{notes,
+                // wait, tried}`. A round not answered keeps its slides' notes as Narrato wrote them.
+                let after = args.get("after").and_then(Value::as_str);
+                if let Some(wait) = scaena_narrato::retry_after(status(), arg("body")?, after, self.notes.tried)
+                    && let Some(again) = self.notes.last.clone()
+                {
+                    self.notes.tried += 1;
+                    return Ok(json!({ "notes": again, "wait": wait, "tried": self.notes.tried }));
+                }
+                let w = self.generation.as_ref().ok_or_else(|| said("noted: no narrative is written"))?;
+                let key = args.get("key").and_then(Value::as_str);
+                let round = self.notes.spoken[self.notes.current.clone()].to_vec();
+                match w.generation.notes_answer(status(), &status_text(), arg("body")?, &round) {
+                    Ok(notes) => self.notes.written.extend(notes),
+                    Err(why) => {
+                        let (first, last) = (round[0].slide, round[round.len() - 1].slide);
+                        let why = match round.len() {
+                            1 => format!("slide {first}'s notes not written: {why}"),
+                            _ => format!("slides {first}\u{2013}{last}'s notes not written: {why}"),
+                        };
+                        let was = self.notes.unanswered.take();
+                        self.notes.unanswered = Some(was.map_or(why.clone(), |was| format!("{was}; {why}")));
+                    }
+                }
+                if let Some(key) = key
+                    && let Some(next) = self.notes.round(&w.generation, key)
+                {
+                    return Ok(json!({ "notes": next }));
+                }
+                let (mut making, _) = self.making.take().ok_or_else(|| said("noted: no deck is made"))?;
+                let notes = std::mem::take(&mut self.notes);
+                let taken = notes.written.len();
+                making.noted(notes.written).map_err(said)?;
+                if let Some(why) = &notes.unanswered {
+                    making.unnoted(why.clone());
+                }
                 let fit = self.fitting(making, key)?;
-                json!({
-                    "looked": looked,
-                    "unlooked": report["unlooked"],
-                    "refused": report["refused"],
-                    "fit": fit,
-                    "drawn": drawn,
-                })
+                json!({ "noted": taken, "unnoted": notes.unanswered, "fit": fit })
             }
             "fitted" => {
                 // A busy provider: the fit asked again, after the wait Swift is told (lift-up
@@ -794,6 +873,23 @@ impl Generating {
 
     /// `making` kept, and with `key`, the request that asks for its texts that still run past
     /// their place shorter: `{request, texts}`, or null.
+    /// Once the look is done, or none was asked: each slide's speaker notes asked for, the first
+    /// round's request, `{notes}`, where `make` wants them and a key asks the model (lift-up 10-25
+    /// ATTR-2); else the fit, `{fit}`.
+    fn after_look(&mut self, making: Making, key: Option<&str>) -> Result<Value, Failure> {
+        if self.notes.wanted
+            && let (Some(key), Some(w)) = (key, &self.generation)
+        {
+            let spoken = making.speaking().map_err(said)?;
+            self.notes = Notes { wanted: true, spoken, ..Notes::default() };
+            if let Some(round) = self.notes.round(&w.generation, key) {
+                self.making = Some((making, Vec::new()));
+                return Ok(json!({ "notes": round }));
+            }
+        }
+        Ok(json!({ "fit": self.fitting(making, key)? }))
+    }
+
     fn fitting(&mut self, making: Making, key: Option<&str>) -> Result<Value, Failure> {
         let longs = making.longs().map_err(said)?;
         let fit = match (key, &self.generation) {

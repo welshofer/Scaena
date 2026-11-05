@@ -66,6 +66,12 @@ export function said(event: GeneratingEvent): string {
         : "The model saw nothing to change";
     case "unlooked":
       return `Not changed by what the model saw: ${event.why}`;
+    case "noting":
+      return `Writing the ${event.slides} slides' notes for the talk…`;
+    case "noted":
+      return `${event.slides} ${event.slides === 1 ? "slide's" : "slides'"} notes written for the talk`;
+    case "unnoted":
+      return `Notes not written for the talk: ${event.why}`;
     case "refused":
       return `Slide ${event.slide} kept as made: the model asked for ${event.what}. ${event.why}`;
     case "fitting":
@@ -120,6 +126,7 @@ export function prompting(
   const voice = $<HTMLInputElement>("#prompting-voice");
   const persona = $<HTMLSelectElement>("#prompting-persona");
   const see = $<HTMLInputElement>("#prompting-see");
+  const speak = $<HTMLInputElement>("#prompting-notes");
   const quality = $<HTMLSelectElement>("#prompting-quality");
   const arc = $<HTMLSelectElement>("#prompting-arc");
   const github = $<HTMLInputElement>("#prompting-github");
@@ -525,6 +532,8 @@ export function prompting(
       research: research.checked,
       outline: showOutline.checked,
       look: see.checked,
+      // The speaker's notes written for the talk, or Narrato's drafts kept (lift-up 10-25 ATTR-2).
+      notes: speak.checked,
       pictures: (() => {
         const chosen = pictures.value as "openai" | "gemini" | "";
         const kept = chosen ? painters[chosen] : undefined;
