@@ -20,8 +20,14 @@ export function listen(at: EventTarget, type: string, hear: (e: never) => void, 
   at.addEventListener(type, hear as EventListener, { ...options, signal: open.signal });
 }
 
+/** What ends when the editor opens another bundle, for a target `listen` does not take, such as
+ * a media query's list. */
+export function lifetime(): AbortSignal {
+  return open.signal;
+}
+
 /** `observer`, let go when the editor opens another bundle. */
-export function observing<T extends MutationObserver | ResizeObserver>(observer: T): T {
+export function observing<T extends MutationObserver | ResizeObserver | IntersectionObserver>(observer: T): T {
   open.signal.addEventListener("abort", () => observer.disconnect(), { once: true });
   return observer;
 }

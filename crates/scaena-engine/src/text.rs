@@ -2201,8 +2201,9 @@ fn read_layout(
                 .collect();
             taken.1 += glyphs.len();
             fonts.check_glyphs(run.font(), run.normalized_coords(), glyphs.iter().map(|g| g.id))?;
+            let mut reaches = fonts.reaches_of(run.font(), run.normalized_coords());
             for g in &glyphs {
-                if let Some((up, down)) = fonts.reach(run.font(), run.normalized_coords(), g.id) {
+                if let Some((up, down)) = reaches.reach(g.id) {
                     let size = run.font_size();
                     inked = Some(inked.map_or((g.y - up * size, g.y + down * size), |(top, bottom): (f32, f32)| {
                         (top.min(g.y - up * size), bottom.max(g.y + down * size))
