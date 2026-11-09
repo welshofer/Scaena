@@ -36,7 +36,8 @@ pub struct Health {
     /// The arc the deck was written to (`meta.narrative.arc`), where it names one.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub arc: Option<String>,
-    /// The arc's beats, by name, in order; none for an arc the catalog does not name.
+    /// The deck's beats, by name, in order: its settled outline's where it has one, else its
+    /// arc's; none for an arc the catalog does not name and no outline.
     pub beats: Vec<String>,
     /// The slides against the count its brief asked for.
     pub pacing: Measure,
@@ -78,6 +79,10 @@ pub struct Read {
     /// The beat that tells it, where one does.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub beat: Option<String>,
+    /// The beat of the arc it was written for, by its place in [`Health::beats`], where it names
+    /// one the arc has: the band the graph draws it in (lift-up ATTR-4).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub part: Option<usize>,
     /// Its headline.
     pub title: String,
     /// Where the curve of the arc it was written to stands at its place, 0–1.
@@ -697,7 +702,21 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
     // arc the deck was written to, where it names one, as that graph reads it; else against a
     // talk's curve, as Vzestup's score is.
     let curve = arc::curve(arc_name.as_deref(), n);
-    let beats: Vec<String> = arc::beat_names(arc_name.as_deref()).into_iter().map(str::to_string).collect();
+    // An outlined deck's beats are its outline's, each by the name the person settled, as its
+    // slides were written to them (`beatIndex`, `beatName`); else the arc's (lift-up 10-25b
+    // STAB-1). A beat moved, added, or taken away in the outline is the deck's, not the arc's.
+    let settled: Vec<String> = (narrative.and_then(|n| n.get("outline")).and_then(|o| o.get("beats")))
+        .and_then(Value::as_array)
+        .map(|beats| {
+            (beats.iter())
+                .map(|b| b.get("name").and_then(Value::as_str).unwrap_or_default().trim().to_string())
+                .collect()
+        })
+        .unwrap_or_default();
+    let beats: Vec<String> = match settled.is_empty() {
+        true => arc::beat_names(arc_name.as_deref()).into_iter().map(str::to_string).collect(),
+        false => settled,
+    };
     let beat_name = |k: usize| beats.get(k).cloned().unwrap_or_else(|| format!("beat {}", k + 1));
     let (fidelity_score, bends) = match &arc_name {
         Some(_) => {
@@ -894,6 +913,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
             Read {
                 state: s.id.clone(),
                 beat,
+                part: meta.and_then(|m| m.beat_index).filter(|&k| k < beats.len()),
                 title: s.title.clone(),
                 curve: curve.get(i).copied().unwrap_or(0.5),
                 declared: meta.and_then(|m| m.expected_intensity).filter(|v| v.is_finite()).map(|v| v.clamp(0.0, 1.0)),
@@ -1411,20 +1431,28 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         );
     }
     // Each change the model asked once it saw the deck drawn that was let go, and why (lift-up
-    // USE-4): what the person may try again, by hand or with the assistant.
+    // USE-4): what the person may try again, by hand or with the assistant, or dismiss. Its fix
+    // takes its record away, held to the record as read, so a fix gone stale once another took a
+    // record before it is refused, not another record taken; on a slide with several, the
+    // highest first, so each taken in the order given finds its own.
     let refused = narrative.and_then(|n| n.get("refused")).and_then(Value::as_array).into_iter().flatten();
-    for r in refused {
+    for (i, r) in refused.enumerate().collect::<Vec<_>>().into_iter().rev() {
         let text = |key: &str| r.get(key).and_then(Value::as_str).unwrap_or_default();
         let Some(k) = r.get("slide").and_then(Value::as_u64).map(|k| k as usize) else { continue };
         let Some(slide) = k.checked_sub(1).and_then(|i| slides.get(i)) else { continue };
         let (what, why) = (text("what"), text("why"));
+        let path = format!("/meta/narrative/refused/{i}");
+        let fix = Fix {
+            says: "Dismiss it".into(),
+            patch: vec![json!({ "op": "test", "path": path, "value": r }), json!({ "op": "remove", "path": path })],
+        };
         find(
             &deck.states[slide.states[0]].id,
             Severity::Info,
             Kind::Look,
             format!("Slide {k} was kept as made: the model asked for {what}, and lint found it worse for that. {why}"),
             format!("The model asked slide {k} for {what}. Make that change without what lint found it caused: {why}"),
-            None,
+            Some(fix),
         );
     }
     // A slide that does not stand first, then in the order the slides stand, and on each slide in
@@ -1625,6 +1653,58 @@ mod tests {
     fn planned(deck: &mut Value, state: &str, intensity: f64) {
         let beat = beat_of(deck, state);
         *deck.pointer_mut(&format!("{beat}/media/narrato/intensity")).unwrap() = json!(intensity);
+    }
+
+    /// What the model's look let go is a finding each, which its fix dismisses (lift-up USE-4):
+    /// the record taken away, held to it as read, the highest first; the deck then says nothing
+    /// of it, and a fix gone stale is refused.
+    #[test]
+    fn what_the_look_let_go_is_dismissed_by_its_fix() {
+        let mut deck = climate();
+        let refused = json!([
+            { "slide": 2, "what": "a shorter title", "why": "Its text runs past its place." },
+            { "slide": 3, "what": "another layout", "why": "Two texts overlap." }
+        ]);
+        deck.pointer_mut("/meta/narrative").unwrap()["refused"] = refused.clone();
+        let looks =
+            |deck: &Value| -> Vec<Finding> { of(deck).findings.into_iter().filter(|f| f.kind == Kind::Look).collect() };
+        let found = looks(&deck);
+        assert_eq!(found.iter().map(|f| f.slide).collect::<Vec<_>>(), [2, 3]);
+        let fix = |f: &Finding| f.fix.clone().expect("a fix").patch;
+        assert_eq!(found[0].fix.as_ref().unwrap().says, "Dismiss it");
+        assert_eq!(
+            fix(&found[1]),
+            [
+                json!({ "op": "test", "path": "/meta/narrative/refused/1", "value": refused[1] }),
+                json!({ "op": "remove", "path": "/meta/narrative/refused/1" })
+            ]
+        );
+        // Each taken in turn, as the slides give them: the other still finds its own record.
+        let apply = |deck: &mut Value, patch: &[Value]| -> bool {
+            let mut was = deck.clone();
+            for op in patch {
+                let path = op["path"].as_str().unwrap();
+                match op["op"].as_str().unwrap() {
+                    "test" if was.pointer(path) != Some(&op["value"]) => return false,
+                    "remove" => {
+                        let (parent, at) = path.rsplit_once('/').unwrap();
+                        was.pointer_mut(parent).unwrap().as_array_mut().unwrap().remove(at.parse().unwrap());
+                    }
+                    _ => {}
+                }
+            }
+            *deck = was;
+            true
+        };
+        let stale = fix(&found[1]);
+        assert!(apply(&mut deck, &fix(&found[0])), "the first slide's dismissed");
+        assert_eq!(looks(&deck).iter().map(|f| f.slide).collect::<Vec<_>>(), [3]);
+        let now = fix(&looks(&deck)[0]);
+        assert_eq!(now[1]["path"], "/meta/narrative/refused/0", "read again, the record left is the first");
+        assert!(apply(&mut deck, &now));
+        assert!(looks(&deck).is_empty());
+        assert_eq!(deck["meta"]["narrative"]["refused"], json!([]));
+        assert!(!apply(&mut deck, &stale), "a fix gone stale is refused");
     }
 
     /// A turn the notes bridge is not found (narrative dogfood H4): coherence reads a slide's
@@ -1875,6 +1955,10 @@ mod tests {
             let beat = deck.pointer(&beat_of(&deck, read.state.as_str())).unwrap();
             assert_eq!(read.title, beat["claim"]);
             assert_eq!(read.declared, beat["media"]["narrato"]["intensity"].as_f64());
+            // The arc's beat it was written for, the band the graph draws it in (lift-up ATTR-4).
+            let part = beat["media"]["narrato"]["beatIndex"].as_u64().map(|k| k as usize);
+            assert_eq!(read.part, part);
+            assert!(part.is_some_and(|k| k < h.beats.len()), "{part:?} of {:?}", h.beats);
         }
         // Asked for 16 to 25 slides, it has 25: paced as asked, its beats a short talk for them.
         assert_eq!(
@@ -2136,6 +2220,32 @@ mod tests {
             .map(|k| Linted::new("E100", Severity::Error, "text overflows").state(id(k)))
             .collect();
         assert_eq!(health_in(&d, &every).unwrap().score, 0);
+    }
+
+    /// An outlined deck's beats are its outline's (lift-up 10-25b STAB-1): a person who renamed
+    /// and reordered them sees a drift say the beats the deck has, and its fix write the outline's
+    /// name, not the arc's.
+    #[test]
+    fn an_outlined_decks_beats_are_its_outlines() {
+        let mut deck = climate();
+        let arc = of(&deck).beats;
+        let names: Vec<String> = (0..arc.len()).map(|k| format!("Part {} of ours", k + 1)).collect();
+        let beats: Vec<Value> = names.iter().map(|n| json!({ "name": n, "claim": "", "slides": 1 })).collect();
+        deck["meta"]["narrative"]["outline"] = json!({ "bigIdea": "", "beats": beats });
+        // The agenda, written for the second beat, moved to the end.
+        let states = deck["states"].as_array_mut().unwrap();
+        let agenda = states.remove(1);
+        let id = agenda["id"].as_str().unwrap().to_string();
+        states.push(agenda);
+        let h = of(&deck);
+        assert_eq!(h.beats, names, "the outline's beats, not the arc's: {arc:?}");
+        let drift = h.findings.iter().find(|f| f.state == id && f.kind == Kind::Drift).expect("it drifted");
+        assert!(drift.says.contains("Part ") && drift.says.contains(" of ours"), "{}", drift.says);
+        assert!(arc.iter().all(|a| !drift.says.contains(a.as_str())), "{}", drift.says);
+        let fix = drift.fix.as_ref().expect("a fix");
+        let named = fix.patch[1]["value"].as_str().unwrap();
+        assert!(names.iter().any(|n| n == named), "the fix writes the outline's name: {named}");
+        assert_eq!(fix.says, format!("Make it part of {named}"));
     }
 
     #[test]
