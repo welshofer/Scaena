@@ -190,7 +190,7 @@ impl Session {
                     self.add_file(&path, text.into_bytes());
                 }
                 None => {
-                    self.files_mut().remove(&path);
+                    self.files_mut(&path).remove(&path);
                     self.removed.insert(path);
                 }
             }

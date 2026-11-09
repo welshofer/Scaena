@@ -17,7 +17,7 @@ mod ops;
 
 pub use find::{A_VALUE, Found, Kind, Query, find, matches, replacing};
 pub use ops::{Written, written};
-pub use ops::{deleting, depths, held, nearest, states_kept};
+pub use ops::{deleting, depths, held, nearest, nearest_in, states_kept};
 
 use crate::document::{DataSource, Node, Props, State};
 use crate::model::values::{AnnotationAt, AnnotationKind, Duration, NonNegative, Range, Rect};
