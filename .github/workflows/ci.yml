@@ -355,7 +355,11 @@ jobs:
     # A full run's: a draft skips it.
     needs: changes
     if: needs.changes.outputs.code == 'true' && needs.changes.outputs.full == 'true'
-    runs-on: ubuntu-latest
+    # Ubuntu 24.04 by name: ubuntu-latest moves to 26.04 between 2026-10-19 and 2026-11-19, and
+    # Playwright 1.56.1 (below) knows no 26.04, so `playwright install --with-deps` refuses it and
+    # the job stops in its first minute (the weekly run of 2026-11-02). Move to 26.04 with a
+    # Playwright that knows it (1.61 or later), as its own change.
+    runs-on: ubuntu-24.04
     # With nothing in its cache, #103's run passed every step, then ran out of 45 minutes while
     # saving the cache: its runner took twice as long over the browser tests as #88's. With its
     # cache, #88's took 29. With the walks added since, #445's took 48 and #497's 50, and #466's
