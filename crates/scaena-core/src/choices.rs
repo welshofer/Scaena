@@ -516,7 +516,12 @@ fn shader_params(
     over: Option<&Props>,
     shown: &Props,
 ) -> Vec<Field> {
-    let Some(kind) = shown.get("kind").and_then(Value::as_str).filter(|k| !k.is_empty()) else { return Vec::new() };
+    // A kind is a schema's word, ASCII: any other (a deck validation would flag, which an editor
+    // still opens) names no parameters, and is not sliced inside a letter (lift-up 20261031
+    // STAB-2).
+    let Some(kind) = shown.get("kind").and_then(Value::as_str).filter(|k| !k.is_empty() && k.is_ascii()) else {
+        return Vec::new();
+    };
     let def = format!("{}{}Params", kind[..1].to_ascii_uppercase(), &kind[1..]);
     let checker = Checker::deck();
     let presets = theme.shaders.as_ref().and_then(|s| s.presets.as_ref());
@@ -916,6 +921,24 @@ mod tests {
                     assert!(allowed(schema.unwrap(), overrides).is_some(), "{tag}'s {prop}: {schema:?}");
                 }
             }
+        }
+    }
+
+    /// A shader whose kind is no word of the schema's, a letter past ASCII first among them, offers
+    /// no parameters and panics nothing (lift-up 20261031 STAB-2).
+    #[test]
+    fn a_shader_of_no_kind_offers_no_parameters() {
+        let theme = Theme::from_json(include_str!("../../../docs/examples/themes/dusk.theme.json")).unwrap();
+        let mut doc: Value = serde_json::from_str(include_str!("../../../docs/examples/revenue.deck.json")).unwrap();
+        let files = std::collections::BTreeMap::<String, Vec<u8>>::new();
+        for kind in ["ñoise", "é", "日本", "noise"] {
+            doc["nodes"]["glow"] = json!({ "type": "shader", "kind": kind, "at": { "in": "canvas" } });
+            doc["states"][0]["props"]["glow"] = json!({});
+            let deck: Deck = serde_json::from_value(doc.clone()).unwrap();
+            let state = deck.states[0].id.clone();
+            let fields = choices(&deck, &theme, &state, "glow", &files).unwrap().fields;
+            let params = fields.iter().any(|f| f.prop.starts_with("params/"));
+            assert_eq!(params, kind == "noise", "{kind}");
         }
     }
 

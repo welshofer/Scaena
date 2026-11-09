@@ -205,7 +205,18 @@ impl Scaena {
         let here = self.here()?;
         let home = (self.home.clone()).or_else(|| std::env::var_os("HOME").map(PathBuf::from));
         let home = home.and_then(|h| std::fs::canonicalize(h).ok());
-        let beside = std::fs::canonicalize(bundle).ok().and_then(|b| b.parent().map(Path::to_path_buf));
+        let hidden = |below: &Path| below.components().any(|c| c.as_os_str().to_string_lossy().starts_with('.'));
+        // The bundle's folder is a root only where the bundle itself is in no hidden folder,
+        // counted below this server's folder, else below home, else from the disk's root: a
+        // bundle that is `.aws/empty` makes `.aws` no root (lift-up 20261031 SEC-3).
+        let real_here = std::fs::canonicalize(&here).ok();
+        let shown = |b: &Path| {
+            let below =
+                [real_here.as_deref(), home.as_deref()].into_iter().flatten().find_map(|r| b.strip_prefix(r).ok());
+            !hidden(below.unwrap_or(b))
+        };
+        let beside =
+            std::fs::canonicalize(bundle).ok().filter(|b| shown(b)).and_then(|b| b.parent().map(Path::to_path_buf));
         let roots: Vec<PathBuf> = [Some(here.clone()), beside]
             .into_iter()
             .flatten()
@@ -240,7 +251,6 @@ impl Scaena {
         }
         let mut real = std::fs::canonicalize(there).map_err(|_| refused())?;
         real.extend(made.iter().rev());
-        let hidden = |below: &Path| below.components().any(|c| c.as_os_str().to_string_lossy().starts_with('.'));
         let root = roots.iter().find(|r| real.strip_prefix(r).is_ok_and(|below| !hidden(below)));
         match root {
             Some(root) => Ok((real.clone(), root.clone())),
@@ -966,9 +976,50 @@ pub struct DeckGenerate {
     /// chosen from the brief.
     #[serde(default)]
     pub arc: Option<String>,
+    /// The big idea and each beat's claim the slides were written to, in the beats' order: the
+    /// deck's sections are its beats, a slide's `beatIndex` counting them from 0, and health
+    /// holds each slide to its beat's claim and the closing to the big idea.
+    #[serde(default)]
+    pub outline: Option<GivenOutline>,
+    /// The voice its words take: tone, vocabulary, posture.
+    #[serde(default)]
+    pub voice: Option<String>,
+    /// What it should achieve, in the user's words.
+    #[serde(default, rename = "desiredOutcomes")]
+    pub desired_outcomes: Option<String>,
+    /// How it is delivered: `in-person`, `virtual-live`, `hybrid-live`, `keynote`, `webinar`,
+    /// `recorded-video`, or `asynchronous`.
+    #[serde(default)]
+    pub modality: Option<String>,
+    /// One of Narrato's personas, by its id, for an audience in the user's own words.
+    #[serde(default)]
+    pub persona: Option<String>,
     /// Keep a history, as `deck_create` does: on unless `false`.
     #[serde(default = "yes")]
     pub history: bool,
+}
+
+/// An outline written beside the slides (lift-up 10-25c FUNC-1).
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct GivenOutline {
+    /// The one sentence the audience should remember.
+    pub big_idea: String,
+    /// The beats, in order.
+    pub beats: Vec<GivenBeat>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct GivenBeat {
+    /// Its name ("Problem", "The ask"); `Beat N` without it.
+    #[serde(default)]
+    pub name: String,
+    /// The one sentence its slides leave the audience believing. A beat with none is passed over.
+    pub claim: String,
+    /// The slides it takes; spread from the length without it.
+    #[serde(default)]
+    pub slides: usize,
 }
 
 // --- outputs --------------------------------------------------------------------------
@@ -1081,7 +1132,10 @@ impl Scaena {
     }
 
     #[tool(description = "Apply a patch: JSON Patch and semantic ops (add_node, rename_node, set_prop, set_text, \
-        show_node, hide_node, add_state, …; SPEC §7.3), all or none. A patch that would make the deck invalid is refused. \
+        show_node, hide_node, add_state, …; SPEC §7.3), all or none. A slide's own: move_slide, remove_slide, and \
+        duplicate_slide move, take away, and copy a slide with its steps and its beat; set_state sets a state's \
+        layout, transition, hold, and notes; place puts a node where it goes; choose sets a property where its value \
+        lives; replace_text changes words, keeping their runs. A patch that would make the deck invalid is refused. \
         Reports the semantic ops given, what changed in the slides and the story (`summary`: slides and beats \
         added, removed, and moved, and beats told otherwise), and what lint finds that it did not (`added`) and finds \
         no more (`removed`); with `verbose`, the patch compiled to JSON Patch too. Each beat whose claim a slide said \
@@ -1459,7 +1513,9 @@ impl Scaena {
         says them), the deck's own fields, and the files it is drawn from, data files and the theme, whose bytes \
         changed, each with what it was before (`before`); with `restore`, that version made the deck again, with its data files and its theme as they \
         were: one change, refused as a patch is where the deck would not validate in the bundle as it is \
-        (`dry_run` writes nothing).")]
+        (`dry_run` writes nothing). A version is named by its number, its id, or how far back from the latest it is: \
+        `restore: \"-1\"`, the version before the latest, undoes the last change. With `last`, only the last that \
+        many versions are listed.")]
     async fn deck_history(
         &self,
         Parameters(a): Parameters<DeckHistory>,
@@ -1618,8 +1674,9 @@ impl Scaena {
     #[tool(description = "Make a deck from slides written in the JSON Narrato writes them in (`scaena generate \
         --slides`, ADR-0026), with no model called: the spine, a section for each run of slides in one beat of the \
         arc and a beat for each slide, each slide an absolute state in the theme layout its `layoutSuggestion` comes \
-        to, its builds, and the fields `deck_health` reads (`media.narrato`), lint's fixes applied. A new bundle at \
-        `bundle`, in `theme`, as `deck_create` makes one; a deck in a script the theme's fonts do not draw is \
+        to, its builds, and the fields `deck_health` reads (`media.narrato`), lint's fixes applied. With `outline`, \
+        the big idea and each beat's claim the slides were written to, the sections are its beats and health holds \
+        the deck to its claims. A new bundle at `bundle`, in `theme`, as `deck_create` makes one; a deck in a script the theme's fonts do not draw is \
         refused, since the CLI alone fetches a script's font.")]
     async fn deck_generate(
         &self,
@@ -1635,16 +1692,32 @@ impl Scaena {
             goal: a.goal.unwrap_or_default(),
             length: a.length.unwrap_or_default(),
             language: a.language,
+            modality: a.modality.as_deref().map(scaena_ops::narrative::modality).transpose()?,
+            desired_outcomes: a.desired_outcomes,
+            persona_id: a.persona,
+            voice: a.voice,
             ..scaena_ops::narrative::Brief::default()
         };
+        let outline = a.outline.map(|o| scaena_ops::narrative::Outline {
+            big_idea: o.big_idea,
+            beats: (o.beats.into_iter())
+                .map(|b| scaena_ops::narrative::OutlineBeat { name: b.name, claim: b.claim, slides: b.slides })
+                .collect(),
+        });
         // A new bundle has no folder yet: the theme is read under this server's own, as
         // deck_create reads one.
         let bundle = self.new_bundle(&a.bundle).map_err(failure)?;
         let (theme, within) = self.theme_readable(a.theme.as_deref().unwrap_or("dusk"), &a.bundle).map_err(failure)?;
         blocking(move || {
             let theme = scaena_ops::create::ThemeSource::of(&theme)?.within(within);
-            let made =
-                scaena_ops::narrative::from_slides(&bundle, theme, &slides.to_string(), brief, a.arc.as_deref())?;
+            let made = scaena_ops::narrative::from_slides(
+                &bundle,
+                theme,
+                &slides.to_string(),
+                brief,
+                a.arc.as_deref(),
+                outline.as_ref(),
+            )?;
             if made.created.created && a.history {
                 scaena_ops::history::begin(&made_by(&bundle, author)?, "deck_create")?;
             }
@@ -1673,8 +1746,10 @@ pub const INSTRUCTIONS: &str = "Scaena decks are states over one scene graph: no
     Narrato's JSON and call deck_generate (no model is called): it gives the spine, beats, notes, layouts, and \
     figures. To add one slide to a deck that exists, slide_write it, in the beat it tells (`beat`). To write a \
     deck by hand, deck_create it (a theme that ships, dusk, daybreak, ember, or salon, needs no file) and edit \
-    with deck_patch. Attach data with data_attach, check with deck_lint, read the story again with deck_health, \
-    and look with deck_render. The resources hold the schemas, the lint \
+    with deck_patch (start a slide in a layout with state_start). Attach data with data_attach, check with \
+    deck_lint, read the story again with deck_health, and look with deck_render; deck_history with \
+    `restore: \"-1\"` undoes the last change, so try a better version of a slide and take it back where it \
+    reads worse. The resources hold the schemas, the lint \
     catalog, the specification by section (scaena://spec is its index), the skills (procedures to follow: \
     scaena://skills/author-deck first), and examples.";
 

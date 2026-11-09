@@ -699,6 +699,12 @@ fn run(cli: Cli) -> Result<ExitCode> {
                 for (old, new) in &saved.renamed {
                     println!("  {old} → {new}");
                 }
+                if let Some(aside) = &saved.again {
+                    println!("  the history could not be read: kept aside as {aside}, and begun again");
+                }
+                if let Some(why) = &saved.unrecorded {
+                    println!("  {why}");
+                }
             }
             Ok(ExitCode::SUCCESS)
         }
@@ -890,8 +896,15 @@ fn run(cli: Cli) -> Result<ExitCode> {
         },
         Cmd::Icons { query, fill, limit } => icons(&query.join(" "), fill, limit, cli.json),
         Cmd::History { bundle, at, scn, diff, restore, dry_run } => {
-            let ask =
-                scaena_ops::history::Ask { at, scn, compare: diff.unwrap_or_default(), restore, dry_run, begin: false };
+            let ask = scaena_ops::history::Ask {
+                at,
+                scn,
+                compare: diff.unwrap_or_default(),
+                restore,
+                dry_run,
+                begin: false,
+                last: None,
+            };
             history(&bundle, &ask, cli.json)
         }
         Cmd::Find { bundle, text, case, words, replace, dry_run } => {

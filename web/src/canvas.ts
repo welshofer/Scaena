@@ -4060,7 +4060,9 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
   // A press on the desk around the slide selects nothing, as a click off the slide does in a
   // presentation app: the inspector shows the slide's own settings. The canvas takes the focus,
   // so that its keys go on working.
-  overlay.closest<HTMLElement>("#desk")?.addEventListener("pointerdown", (e) => {
+  const desk = overlay.closest<HTMLElement>("#desk");
+  // Until the editor opens another bundle: the desk stays, and the next canvas listens afresh.
+  if (desk) listen(desk, "pointerdown", (e) => {
     const on = e.target as Element;
     if (e.button !== 0 || overlay.contains(on) || on.closest("#marks") || drag || sketch || turning || cropping || reshaping || slotting) return;
     e.preventDefault();
