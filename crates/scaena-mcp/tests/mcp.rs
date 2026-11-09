@@ -459,7 +459,10 @@ async fn an_agent_starts_a_slide_sets_a_background_and_builds_from_written_slide
     // A layout the theme lacks stops it, saying so.
     let lacks = call(&client, "state_start", json!({ "bundle": bundle, "state": "start", "layout": "nowhere" })).await;
     assert_eq!(lacks.is_error, Some(true));
-    assert!(text(&lacks).contains("no layout `nowhere`"), "{}", text(&lacks));
+    assert!(text(&lacks).contains("no layout `nowhere`; the theme's layouts include `"), "{}", text(&lacks));
+    // One near a layout the theme has names it (lift-up 10-25c USE-4).
+    let near = call(&client, "state_start", json!({ "bundle": bundle, "state": "start", "layout": "bulets" })).await;
+    assert!(text(&near).contains("no layout `bulets`; did you mean `bullets`?"), "{}", text(&near));
 
     // The new slide's background: Texture, kept to its slide; then taken away.
     let set = ok(&client, "background_set", json!({ "bundle": bundle, "state": "bullets", "preset": "texture" })).await;
