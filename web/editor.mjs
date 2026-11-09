@@ -286,6 +286,36 @@ try {
   const home = await tb.evaluate(() => document.activeElement?.id);
   check(right === "export" && home === "file-open", `→ moves along the toolbar and Home to its start: ${right}, ${home}`);
   await tb.close();
+
+  // What a bundle's parts listen for on the page's own elements, and on the document, goes with
+  // it: a deck opened over another leaves as many listeners on them as the first did (the 20261031
+  // plan's STAB-5), so no part of the deck before answers a key or a press on the next.
+  const again = await open("/docs/examples/revenue.deck.json");
+  const cdp = await again.context().newCDPSession(again);
+  const listeners = async () => {
+    const counts = {};
+    for (const at of ["document", "#look", "#desk", "#preview", "#restate", "#keep-claim"]) {
+      const { result } = await cdp.send("Runtime.evaluate", { expression: at === "document" ? "document" : `document.querySelector(${JSON.stringify(at)})` });
+      const { listeners } = await cdp.send("DOMDebugger.getEventListeners", { objectId: result.objectId });
+      counts[at] = listeners.length;
+    }
+    return counts;
+  };
+  // The stage's canvas is another once a deck opens: what tells this open's end from the last's.
+  const reopen = async () => {
+    await again.evaluate((url) => {
+      document.querySelector("#stage").marked = true;
+      return window.scaena.open({ url });
+    }, `${server.origin}/docs/examples/revenue.deck.json`);
+    await again.waitForFunction(() => !document.querySelector("#stage").marked && window.scaena?.last(), null, { timeout: 120000 });
+  };
+  await reopen();
+  const once = await listeners();
+  await reopen();
+  await reopen();
+  const thrice = await listeners();
+  check(JSON.stringify(once) === JSON.stringify(thrice), `a deck opened over another leaves its page's listeners as they were: ${JSON.stringify(once)} → ${JSON.stringify(thrice)}`);
+  await again.close();
 } catch (e) {
   failures.push(String(e));
 } finally {
