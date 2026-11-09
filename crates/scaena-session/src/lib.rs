@@ -44,6 +44,8 @@ mod formats;
 #[cfg(feature = "generate")]
 pub mod making;
 #[cfg(feature = "editor")]
+pub mod movie;
+#[cfg(feature = "editor")]
 pub mod store;
 #[cfg(feature = "editor")]
 mod theme;
@@ -95,6 +97,10 @@ pub struct Session {
     /// state's digest key, so a font or an image handed over again with other bytes draws anew
     /// (lift-up PERF-4).
     files_edition: u64,
+    /// Each path written or taken out since the session began, by the edition it last changed
+    /// at: a client's copy of the files copies again only those changed since its own edition
+    /// (lift-up 20261031 PERF-3).
+    changed: BTreeMap<String, u64>,
     /// The data files the deck names, as the engine reads them.
     data: DataFiles,
     /// The layout engine, built on the first frame from the fonts and images the deck
@@ -359,6 +365,7 @@ impl Session {
             theme,
             files: Arc::new(files),
             files_edition: 0,
+            changed: BTreeMap::new(),
             data: DataFiles::new(),
             engine: None,
             timed: scaena_engine::Timed::default(),
@@ -486,7 +493,7 @@ impl Session {
             self.data.insert(path, bytes.clone());
             self.forget();
         }
-        self.files_mut().insert(path.to_string(), bytes);
+        self.files_mut(path).insert(path.to_string(), bytes);
         // The theme the deck names, edited (ADR-0016): frames are drawn in it from now on.
         if self.deck.theme.as_ref().and_then(|t| t.as_str()) == Some(path) {
             self.follow_theme(&self.deck.clone());
@@ -593,6 +600,12 @@ impl Session {
         self.files_edition
     }
 
+    /// The paths written or taken out since the files were at `edition`, those taken out
+    /// included: what a client's copy made then copies again (lift-up 20261031 PERF-3).
+    pub fn files_changed_since(&self, edition: u64) -> Vec<String> {
+        self.changed.iter().filter(|(_, at)| **at > edition).map(|(path, _)| path.clone()).collect()
+    }
+
     /// Let go of what was laid out: the deck or its files changed. A drag, or a patch
     /// previewed, ends with it.
     fn forget(&mut self) {
@@ -626,13 +639,15 @@ impl Session {
         }
     }
 
-    /// The bundle's files, to change: what validation found in the deck shown no longer holds.
-    fn files_mut(&mut self) -> &mut BTreeMap<String, Vec<u8>> {
+    /// The bundle's files, to change the one at `path`: what validation found in the deck shown
+    /// no longer holds.
+    fn files_mut(&mut self, path: &str) -> &mut BTreeMap<String, Vec<u8>> {
         #[cfg(feature = "editor")]
         {
             self.validated = None;
         }
         self.files_edition += 1;
+        self.changed.insert(path.to_string(), self.files_edition);
         Arc::make_mut(&mut self.files)
     }
 
@@ -2835,6 +2850,23 @@ mod tests {
         assert_eq!(s.files_edition(), was + 3, "taken out");
     }
 
+    /// The paths changed since an edition are those written or taken out after it, and no
+    /// other (lift-up 20261031 PERF-3): what a worker's copy of the files copies again.
+    #[test]
+    fn the_files_changed_since_an_edition_are_those_written_or_taken_out_after_it() {
+        let mut s = revenue();
+        let was = s.files_edition();
+        assert!(s.files_changed_since(was).is_empty(), "nothing changed yet");
+        s.add_file("data/a.csv", b"a,b\n1,2\n".to_vec());
+        let then = s.files_edition();
+        s.add_file("data/b.csv", b"a,b\n3,4\n".to_vec());
+        assert_eq!(s.files_changed_since(was), ["data/a.csv", "data/b.csv"]);
+        assert_eq!(s.files_changed_since(then), ["data/b.csv"], "only what changed after it");
+        s.remove_file("data/a.csv").unwrap();
+        assert_eq!(s.files_changed_since(then), ["data/a.csv", "data/b.csv"], "a file taken out is changed");
+        assert!(s.files_changed_since(s.files_edition()).is_empty(), "nothing after the last");
+    }
+
     /// The deck's title, read without a whole `deck_read`: what an export is named by (lift-up
     /// 10-25b ATTR-3).
     #[test]
@@ -2865,6 +2897,37 @@ mod tests {
         let said = slots.as_array().unwrap().iter().find(|slot| slot["state"] == "mix").unwrap();
         assert_eq!(said["story"]["section"], "Growth");
         assert_eq!(said["story"]["planned"], 60.0);
+    }
+
+    /// The deck as a movie (lift-up 20261031 FUNC-2): the CLI's reel, its frames as long as the
+    /// paced timeline, a frame drawn as the one before it not painted again, and a frame past the
+    /// last refused.
+    #[cfg(feature = "editor")]
+    #[test]
+    fn the_deck_plays_as_a_movie_painting_each_frame_once() {
+        let mut s = revenue();
+        let plan = s.movie(10).unwrap();
+        let timeline = s.timeline().unwrap();
+        let paced = scaena_core::spine::paced(&s.deck, &timeline, scaena_core::spine::Pace::Beats);
+        let length: f64 = paced.slots.iter().map(|slot| slot.span + slot.hold).sum();
+        assert_eq!(plan["frames"], (length * 10.0 / 1000.0).ceil() as u64, "{plan}");
+        assert_eq!(plan["fps"], 10);
+        let first = s.movie_frame(10, 0, 160, None).unwrap();
+        let raster = first.raster.expect("the first frame is painted");
+        assert_eq!(raster.width, 160);
+        assert_eq!(raster.rgba.len(), (raster.width * raster.height * 4) as usize);
+        let again = s.movie_frame(10, 0, 160, Some(&first.digest)).unwrap();
+        assert!(again.raster.is_none(), "drawn as the frame before it: not painted again");
+        assert_eq!(again.digest, first.digest);
+        // Somewhere along it the deck moves on: a frame drawn otherwise is painted.
+        let frames = plan["frames"].as_u64().unwrap();
+        let moved = (1..frames)
+            .map(|k| s.movie_frame(10, k, 160, Some(&first.digest)).unwrap())
+            .find(|f| f.digest != first.digest);
+        assert!(moved.is_some_and(|f| f.raster.is_some()), "a frame drawn otherwise is painted");
+        let past = s.movie_frame(10, frames, 160, None).err().expect("no frame past the last");
+        assert!(past.to_string().contains("frames"), "{past}");
+        assert!(s.movie(0).is_err(), "no movie of 0 frames a second");
     }
 
     use super::*;

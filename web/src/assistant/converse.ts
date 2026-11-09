@@ -156,16 +156,28 @@ export function recent(conversation: Message[], frames: number, budget = BUDGET)
 export async function converse(o: Options): Promise<void> {
   const rounds = o.rounds ?? 32;
   const stopped = () => o.signal.aborted;
+  // A question stopped or failed before the model answered any of it is taken back out of the
+  // conversation (lift-up 20261031 STAB-4): left there, the next question would follow it as a
+  // second user turn, merged with it by the provider, answering both.
+  const takenBack = () => {
+    if (o.conversation.at(-1)?.role === "user") o.conversation.pop();
+  };
   // Halved for the rest of the question where the provider finds the conversation too long.
   let budget = BUDGET;
   for (let round = 0; ; round++) {
-    if (stopped()) return o.emit({ kind: "done", stop: "stopped" });
+    if (stopped()) {
+      takenBack();
+      return o.emit({ kind: "done", stop: "stopped" });
+    }
     if (round === rounds) return o.emit({ kind: "done", stop: "steps" });
     let answered: Turn;
     try {
       answered = await turn(o, recent(o.conversation, o.frames ?? 2, budget));
     } catch (e) {
-      if (stopped()) return o.emit({ kind: "done", stop: "stopped" });
+      if (stopped()) {
+        takenBack();
+        return o.emit({ kind: "done", stop: "stopped" });
+      }
       // Too long for the model: sent again once with half as much of tools' results (lift-up
       // PERF-3), before the person is told to start again.
       const answer = answerOf(e);
@@ -176,7 +188,9 @@ export async function converse(o: Options): Promise<void> {
       }
       // A refusal, or no way to the provider, in a person's words (PLAN 3.18), as the Mac's
       // assistant says it: never the provider's own, nor its status.
-      return o.emit({ kind: "failed", message: unasked(o.provider.name, e) });
+      const message = unasked(o.provider.name, e);
+      takenBack();
+      return o.emit({ kind: "failed", message });
     }
     o.conversation.push({ role: "assistant", text: answered.text, calls: answered.calls, raw: answered.raw });
     if (answered.usage) o.emit({ kind: "usage", ...answered.usage });
