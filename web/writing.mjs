@@ -313,7 +313,7 @@ try {
   const why = scripted.requests.at(-1)?.body.messages?.[0]?.content?.[0]?.text ?? "";
   check(/^Finding [EW]\d+ \((error|warning)\): /.test(why), `asked as the finding says it: ${JSON.stringify(why.split("\n")[0])}`);
   await page.click("#writing-leave");
-  check(scripted.requests.length === 11, `one request for each tool asked, the rewrite asked again, and the one stopped: ${scripted.requests.length}`);
+  check(scripted.requests.length === 12, `one request for each tool asked, the rewrite asked again, the one stopped, and the one cut off: ${scripted.requests.length}`);
 
   // 6b. The source's own issue, while it does not compile, is explained all the same.
   await page.evaluate((s) => window.scaena.type(`${s}\nthis is not scn {`), await source());
@@ -321,7 +321,7 @@ try {
   await page.click("#problems li button.explain");
   check(await answered("#writing-said"), "Explain says what the source's own issue means");
   const compiling = await dialog();
-  check(compiling.title === "About This Issue" && scripted.requests.length === 12, `asked once, though the deck does not compile: ${compiling.title} · ${await status()}`);
+  check(compiling.title === "About This Issue" && scripted.requests.length === 13, `asked once, though the deck does not compile: ${compiling.title} · ${await status()}`);
   await page.click("#writing-leave");
 
   // 7. Describe (PLAN 2.119): the picture as the slide shows it goes before the words.
