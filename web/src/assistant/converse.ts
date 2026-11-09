@@ -69,7 +69,7 @@ function pause(ms: number, signal: AbortSignal): Promise<void> {
 
 /** One turn of `o`'s provider, asked again after a wait when it is busy, down, or silent, up to
  * `o.retries` times, the panel told of each wait; the turn, or what the last ask threw. */
-async function turn(o: Options, messages: Message[]): Promise<Turn> {
+export async function turn(o: Options, messages: Message[]): Promise<Turn> {
   const retries = o.retries ?? WAITS.length;
   for (let attempt = 0; ; attempt++) {
     // A deadline on silence, counted once the answer has begun: each piece that arrives puts it

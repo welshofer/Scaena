@@ -7,8 +7,8 @@
 import initResources, { list, text } from "@scaena/resources";
 import { findIcons, iconSet } from "../icon-set";
 import type { MapAsk, MapRefresh, MapTarget, Mapped, Rewritten, Seeing } from "../protocol";
-import { converse, type Event } from "./converse";
-import { type Call, type Message, type ProviderId, providers, type Result } from "./providers";
+import { converse, type Event, turn } from "./converse";
+import { type Call, type Message, type ProviderId, providers, type Result, type Turn } from "./providers";
 import { type Brief, type Deck, type Listed, seen, system } from "./prompt";
 import { made, summary, tools } from "./tools";
 
@@ -120,19 +120,27 @@ export interface Writing {
 }
 
 /** Ask a model `writing.prompt` once, told `writing.instructions`, with nothing to call: what a
- * writing tool asks (PLAN 2.101). Its words, and the tokens it took; the conversation does not
- * keep it. */
-export async function write(writing: Writing, signal?: AbortSignal): Promise<{ text: string; usage?: { input: number; output: number } }> {
-  const turn = await providers[writing.provider].turn({
-    model: writing.model,
-    key: writing.key,
-    base: writing.base,
-    system: writing.instructions,
-    tools: [],
-    messages: [{ role: "user", text: writing.prompt, ...(writing.picture && { png: writing.picture }) }],
-    signal,
-  });
-  return { text: turn.text, usage: turn.usage };
+ * writing tool asks (PLAN 2.101). Its words, why it stopped, and the tokens it took; the
+ * conversation does not keep it. A busy, down, or silent provider is asked again as a question
+ * is (lift-up 20261031 REL-5), and `stop` says an answer cut off (`length`) or declined
+ * (`refused`), which is no answer to take. */
+export async function write(writing: Writing, signal?: AbortSignal): Promise<{ text: string; stop: Turn["stop"]; usage?: { input: number; output: number } }> {
+  const answered = await turn(
+    {
+      provider: providers[writing.provider],
+      model: writing.model,
+      key: writing.key,
+      base: writing.base,
+      system: writing.instructions,
+      tools: [],
+      conversation: [],
+      call: () => Promise.reject(new Error("a writing tool calls nothing")),
+      emit: () => {},
+      signal: signal ?? new AbortController().signal,
+    },
+    [{ role: "user", text: writing.prompt, ...(writing.picture && { png: writing.picture }) }],
+  );
+  return { text: answered.text, stop: answered.stop, usage: answered.usage };
 }
 
 /** The open deck, in a few facts: its title, states, formats, and theme; and its story, where

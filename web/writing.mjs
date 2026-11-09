@@ -65,7 +65,7 @@ async function provider() {
   const requests = [];
   /** `hold`: how long each answer waits before it is sent; `aborted`: the requests the page gave
    * up on before their answer was sent (lift-up PERF-4). */
-  const state = { hold: 0, aborted: 0 };
+  const state = { hold: 0, aborted: 0, cut: false };
   const server = createServer(async (req, res) => {
     const cors = {
       "access-control-allow-origin": req.headers.origin ?? "*",
@@ -98,7 +98,10 @@ async function provider() {
       });
       if (gone) return void state.aborted++;
     }
-    reply(200, { content: [{ type: "text", text: answer }], stop_reason: "end_turn", usage: { input_tokens: 120, output_tokens: 20 } });
+    // `cut`: the answer runs out of room half way, as one past its token limit does (lift-up
+    // 20261031 REL-5).
+    const stop = state.cut ? { text: answer.slice(0, Math.ceil(answer.length / 2)), stop_reason: "max_tokens" } : { text: answer, stop_reason: "end_turn" };
+    reply(200, { content: [{ type: "text", text: stop.text }], stop_reason: stop.stop_reason, usage: { input_tokens: 120, output_tokens: 20 } });
   }).listen(0, "127.0.0.1");
   await new Promise((ok) => server.once("listening", ok));
   return { origin: `http://127.0.0.1:${server.address().port}`, requests, state, close: () => server.close() };
@@ -284,6 +287,17 @@ try {
   await page.waitForFunction(() => /No answer/.test(document.querySelector("#writing-thinking").textContent), null, { timeout: 30000 }).catch(() => {});
   const silent = await dialog();
   check(/^No answer from Anthropic/.test(silent.thinking ?? "") && !silent.use && silent.answer === undefined, `no answer offers nothing to take: ${silent.thinking}`);
+  await page.click("#writing-leave");
+  check((await source()) === original, "and changes nothing");
+
+  // 5c. An answer cut off by its token limit: its fragment is not offered to take, and it says so
+  // (lift-up 20261031 REL-5).
+  scripted.state.cut = true;
+  await tool("tighten", "subtitle");
+  await page.waitForFunction(() => /ran out of room/.test(document.querySelector("#writing-thinking").textContent), null, { timeout: 30000 }).catch(() => {});
+  const cut = await dialog();
+  scripted.state.cut = false;
+  check(/^Anthropic's answer ran out of room/.test(cut.thinking ?? "") && !cut.use && cut.answer === undefined, `a cut answer offers nothing to take: ${cut.thinking}`);
   await page.click("#writing-leave");
   check((await source()) === original, "and changes nothing");
 

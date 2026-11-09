@@ -148,6 +148,16 @@ for (const bad of bases.bad) check(refusedBase(bad) !== undefined, `a key never 
   last.feed(huge.replace("4000000000", String(MOST_BLOCKS - 1)));
   check(last.finish()?.content?.length === MOST_BLOCKS, "the last block a provider may send still reads");
 }
+{
+  // An answer cut off or declined, read as scaena-chat reads it (lift-up 20261031 REL-5): a
+  // writing tool takes neither.
+  const { cases } = JSON.parse(await readFile("tests/assistant/stops.json", "utf8"));
+  for (const [i, c] of cases.entries()) {
+    const ask = { model: "m", key: "k", system: "", tools: [], messages: [{ role: "user", text: "Tighten this." }] };
+    const { result } = await asking({ status: 200, body: c.body }, () => providers[c.provider].turn(ask));
+    check(result.value?.stop === c.stop, `${c.provider} answer ${i + 1} stops as ${c.stop}: ${result.value?.stop ?? result.error}`);
+  }
+}
 if (failures.length) {
   console.log(`\n${failures.length} failed: the browser's assistant no longer says what is recorded. If the change is meant, write it again (--write), and hold scaena-chat to it.`);
   process.exit(1);
