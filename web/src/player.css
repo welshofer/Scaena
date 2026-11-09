@@ -9,18 +9,35 @@ button, select { font: inherit; }
 #stage { display: block; margin: auto; max-width: 100%; max-height: 100%; touch-action: none; }
 /* Each control stays in the window: the state picker no wider than the room leaves, the status
  * kept to its words, and in a narrow window the bar goes on to another line. */
-.bar { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; min-height: var(--bar); padding: 4px 12px; box-sizing: border-box; }
+.bar { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; min-height: var(--bar); padding: 4px 12px; box-sizing: border-box; background: #22211e; border-top: 1px solid #33312d; }
+/* One style for the bar's controls (lift-up 20261031 ATTR-2): icon buttons from the set that ships,
+ * as the editor's toolbar draws them, and pickers to match. */
+.bar button, .bar a#edit { display: inline-flex; align-items: center; gap: 6px; height: 32px; min-width: 32px; padding: 0 8px; box-sizing: border-box; justify-content: center; border: 1px solid transparent; border-radius: 6px; background: transparent; color: inherit; text-decoration: none; cursor: pointer; }
+.bar button:hover, .bar a#edit:hover { background: #33312d; }
+.bar button:active { background: #3d3b36; }
+.bar button:focus-visible, .bar a#edit:focus-visible, .bar select:focus-visible, .bar input:focus-visible { outline: 2px solid #8ab4f8; outline-offset: 1px; }
+.bar .tool svg { width: 20px; height: 20px; fill: currentColor; flex: none; }
+.bar select { height: 30px; padding: 0 6px; border: 1px solid #45433e; border-radius: 6px; background: #2b2a27; color: inherit; }
+.bar input[type="range"] { accent-color: #8ab4f8; }
+#update { border-color: #45433e; }
+/* Until the deck opens: a spinner in the middle of the slide's room. */
+.loading { position: fixed; top: calc(50% - var(--bar) / 2); left: 50%; width: 36px; height: 36px; margin: -18px 0 0 -18px; border: 3px solid #45433e; border-top-color: #ddd; border-radius: 50%; animation: spin 0.9s linear infinite; pointer-events: none; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .loading { animation-duration: 3s; } }
 .bar input[type="range"] { flex: 1 1 80px; min-width: 80px; }
 .bar #state { flex: 0 1 auto; min-width: 7em; max-width: 30vw; }
-.bar a { color: inherit; }
 #status { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 0 1 auto; min-width: 9em; }
 .offline { font-size: 12px; opacity: 0.8; white-space: nowrap; }
 #meter { white-space: nowrap; font-variant-numeric: tabular-nums; opacity: 0.8; }
 /* `scaena serve`'s word that deck.scn does not compile (PLAN 2.11), over the slide's top. */
 .served { position: fixed; top: 0; left: 0; right: 0; margin: 0; padding: 8px 12px; background: #5c1f1a; color: #fff; font: 13px ui-monospace, Menlo, monospace; white-space: pre-wrap; }
 /* Fullscreen is the slide alone, in the middle of the screen on black, as a presentation app
- * shows a slide of another shape than the screen's. */
-:fullscreen .bar { display: none; }
+ * shows a slide of another shape than the screen's; its controls float over the slide's foot,
+ * and go once the pointer has rested two seconds, as Keynote's, Pitch's, and Figma Slides' do, a
+ * move or a touch bringing them back (lift-up 20261031 ATTR-2). */
+:fullscreen body:not(.presenter) .bar { position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); width: max-content; max-width: calc(100vw - 32px); border: 1px solid #3a3834; border-radius: 12px; background: rgba(34, 33, 30, 0.86); backdrop-filter: blur(12px); box-shadow: 0 8px 28px rgba(0, 0, 0, 0.5); transition: opacity 0.3s; }
+:fullscreen body.idle:not(.presenter) .bar { opacity: 0; pointer-events: none; }
+@media (prefers-reduced-motion: reduce) { :fullscreen body:not(.presenter) .bar { transition: none; } }
 :fullscreen body:not(.presenter) { background: #000; }
 /* The presenter view: the slide as the room sees it, and beside it what comes next. */
 body.presenter { display: grid; grid-template-columns: 2fr 1fr; grid-template-rows: minmax(0, 1fr); gap: 16px; height: 100vh; padding: 16px; box-sizing: border-box; }
@@ -102,6 +119,7 @@ body.presenter { display: grid; grid-template-columns: 2fr 1fr; grid-template-ro
 /* The keys, listed: ? shows them. */
 .navigator { width: min(960px, calc(100vw - 48px)); max-height: calc(100vh - 48px); box-sizing: border-box; padding: 18px 20px; border: 1px solid #555; border-radius: 12px; background: #262522; color: #eee; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5); }
 .navigator::backdrop { background: rgba(0, 0, 0, 0.5); }
+.keylist::backdrop { background: rgba(0, 0, 0, 0.5); }
 .navigator h2 { margin: 0 0 12px; font-size: 18px; }
 .navigator ol { display: grid; grid-template-columns: repeat(auto-fill, minmax(176px, 1fr)); gap: 14px; margin: 0; padding: 4px; list-style: none; max-height: calc(100vh - 140px); overflow: auto; outline: none; }
 .navigator li { display: flex; flex-direction: column; gap: 6px; padding: 6px; border-radius: 8px; cursor: pointer; }
