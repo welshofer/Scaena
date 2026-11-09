@@ -1903,6 +1903,20 @@ fn an_export_is_the_bytes_scaena_export_writes() {
         "a zip of the slides"
     );
 
+    // One file that plays offline, where this library carries the web player, else said why
+    // (lift-up 20261031 FUNC-3).
+    let mut error = null_mut();
+    let html = bytes_of(unsafe {
+        scaena_export(s, c("html").as_ptr(), c(r#"{"name":"B1","notes":false}"#).as_ptr(), &mut error)
+    });
+    if scaena_carries_player() {
+        let html = String::from_utf8(html.expect("a single file")).unwrap();
+        assert!(html.to_ascii_lowercase().starts_with("<!doctype html"), "an HTML page");
+    } else {
+        assert!(html.is_none(), "no page without the web player");
+        assert!(took(error).contains("web player"), "said why");
+    }
+
     for (format, args) in [
         ("png", r#"{"state":"cover","width":0}"#),
         ("png", r#"{"width":10}"#),
