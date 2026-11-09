@@ -280,7 +280,9 @@ export const openai: Provider = {
           }),
         });
       } else {
-        for (const r of m.results) messages.push({ role: "tool", tool_call_id: r.id, content: r.json });
+        // A call that failed says so, as Gemini's `error` and Anthropic's `is_error` do: a refused
+        // patch never reads as done (lift-up 20261025c STAB-5).
+        for (const r of m.results) messages.push({ role: "tool", tool_call_id: r.id, content: r.error ? JSON.stringify({ error: parsed(r.json) }) : r.json });
         // A tool's message holds text alone: the frames it drew follow as the user's.
         const frames = m.results.filter((r) => r.png);
         if (frames.length)

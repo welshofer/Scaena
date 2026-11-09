@@ -149,6 +149,49 @@ fn an_outline_is_asked_settled_and_written_to() {
     assert_eq!(plain.step(), Step::Slides);
 }
 
+/// An outline that comes back but does not read is asked once more, at once; the second stands
+/// as `unread`, the arc paid for kept, and the person writes the slides without one (lift-up
+/// REL-3).
+#[test]
+fn an_unreadable_outline_is_asked_again_then_passed_over() {
+    let mut g = Generation::new(brief(), settings(Provider::Anthropic)).unwrap();
+    assert!(g.skip_outline().is_err(), "the arc is chosen first");
+    g.answer(200, "OK", &answer("anthropic-arc"), None).unwrap();
+    g.outline_first().unwrap();
+    let first = g.request("sk-test", &[]).unwrap();
+    // Prose around no JSON: it came back, and does not read.
+    let prose = serde_json::json!({ "content": [{ "type": "text", "text": "Here is a lovely outline for you." }], "stop_reason": "end_turn" });
+    assert_eq!(g.answer(200, "OK", &prose.to_string(), None).unwrap(), Step::Outline);
+    assert_eq!((g.unread(), g.again(), g.outline()), (None, None, None), "asked once more, at once");
+    assert_eq!(g.request("sk-test", &[]).unwrap().body, first.body, "the same request");
+    // No claims: it reads as JSON, and is no outline.
+    let empty = serde_json::json!({ "content": [{ "type": "text", "text": r#"{"bigIdea": "", "beats": []}"# }], "stop_reason": "end_turn" });
+    assert_eq!(g.answer(200, "OK", &empty.to_string(), None).unwrap(), Step::Outline);
+    let why = g.unread().expect("twice unreadable, it is said").to_string();
+    assert!(why.ends_with("(asked 2 times)"), "{why}");
+    assert_eq!(g.arc().unwrap().selection, "Problem\u{2013}Solution", "the arc paid for stands");
+
+    // Passed over: the slides are written at once, with no outline block, and the deck is made.
+    g.skip_outline().unwrap();
+    assert_eq!((g.step(), g.unread(), g.outline()), (Step::Slides, None, None));
+    let ask = g.request("sk-test", &[]).unwrap();
+    let prompt = ask.body.unwrap()["messages"][0]["content"][0]["text"].as_str().unwrap().to_string();
+    assert!(
+        prompt.contains("**Narrative Framework**: Problem\u{2013}Solution") && !prompt.contains("**Outline (Scaena)**")
+    );
+    assert_eq!(g.answer(200, "OK", &answer("anthropic-slides"), None).unwrap(), Step::Done);
+    assert_eq!(g.into_narrative().unwrap().slides.len(), 5);
+
+    // An outline asked again after one unreadable answer starts its count afresh.
+    let mut again = Generation::new(brief(), settings(Provider::Anthropic)).unwrap();
+    again.answer(200, "OK", &answer("anthropic-arc"), None).unwrap();
+    again.outline_first().unwrap();
+    again.answer(200, "OK", &prose.to_string(), None).unwrap();
+    again.outline_first().unwrap();
+    again.answer(200, "OK", &prose.to_string(), None).unwrap();
+    assert_eq!(again.unread(), None, "one unreadable answer since it was asked afresh");
+}
+
 /// A deck grounded in a PDF has its outline written with the PDF beside the prompt, as its slides
 /// are (lift-up FUNC-3); the arc sees none.
 #[test]

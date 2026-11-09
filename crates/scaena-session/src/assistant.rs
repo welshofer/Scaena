@@ -463,21 +463,22 @@ impl Session {
                     SeverityArg::Warning => Severity::Warning,
                     SeverityArg::Info => Severity::Info,
                 };
+                // Dates are judged at the moment asked, else at the call's (ADR-0030).
+                let now = match a.now.as_deref() {
+                    Some(now) => Some(
+                        scaena_core::fetched::moment(now)
+                            .ok_or_else(|| ops(format!("deck_lint: `now` `{now}` is not an instant or a day")))?,
+                    ),
+                    None => by.at,
+                };
+                let state = a.state.as_deref();
                 let (findings, fixed, laid, deck) = match a.fix {
                     true => {
-                        let (f, deck) = scaena_ops::lint::fixing(&b)?;
+                        let (f, deck) = scaena_ops::lint::fixing_at(&b, state, now)?;
                         (f.findings, Some(f.fixed), true, deck)
                     }
                     false => {
-                        // Dates are judged at the moment asked, else at the call's (ADR-0030).
-                        let now =
-                            match a.now.as_deref() {
-                                Some(now) => Some(scaena_core::fetched::moment(now).ok_or_else(|| {
-                                    ops(format!("deck_lint: `now` `{now}` is not an instant or a day"))
-                                })?),
-                                None => by.at,
-                            };
-                        let l = scaena_ops::lint::lint_at(&b, now)?;
+                        let l = scaena_ops::lint::lint_scoped_at(&b, state, now)?;
                         (l.findings, None, l.laid, None)
                     }
                 };
@@ -731,8 +732,8 @@ impl Session {
     #[cfg(feature = "shipped")]
     pub fn slide_write(&mut self, a: Value, by: Caller) -> Result<Called, Error> {
         let a: SlideWrite = args("slide_write", a)?;
-        let slide: scaena_ops::narrative::Slide =
-            serde_json::from_value(Value::Object(a.slide)).map_err(|e| ops(format!("slide_write: the slide: {e}")))?;
+        let slide = scaena_ops::narrative::slide_from(&Value::Object(a.slide))
+            .map_err(|e| ops(format!("slide_write: the slide: {}", e.message)))?;
         let place = match (a.replace, a.after) {
             (Some(_), Some(_)) => return Err(ops("slide_write: give `after` or `replace`, not both")),
             (Some(state), None) => scaena_ops::narrative::Place::Replace(state),
