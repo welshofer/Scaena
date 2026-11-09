@@ -719,6 +719,8 @@
       #exporting-size[hidden] { display: none; }
       #exporting-notes { flex-direction: row; align-items: center; gap: 8px; }
       #exporting-notes[hidden] { display: none; }
+      #exporting-rate { flex-direction: row; align-items: center; gap: 6px; }
+      #exporting-rate[hidden] { display: none; }
       #exporting-width { width: 7em; }
       dialog input, dialog select { font: inherit; font-size: 14px; background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 4px; padding: 4px 6px; }
       /* The themes that ship, chosen by their title slides, each family a section, the sections
@@ -779,6 +781,11 @@
       #prompting-outline .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: end; }
       #prompting-outline .row.end { justify-content: flex-end; }
       #prompting-outline .row > label { flex: 1 1 10em; }
+      #prompting-unread { border-top: 1px solid var(--line); padding-top: 8px; display: flex; flex-direction: column; gap: 8px; }
+      #prompting-unread h3 { margin: 0; font-size: 14px; }
+      #prompting-unread .row { display: flex; gap: 8px; justify-content: flex-end; }
+      /* Each pane is a flex column, which would show it though hidden. */
+      #prompting-outline[hidden], #prompting-unread[hidden] { display: none; }
       #prompting-beats { margin: 0; padding-left: 1.4em; display: flex; flex-direction: column; gap: 6px; max-height: 40vh; overflow: auto; }
       #prompting-beats li { display: grid; grid-template-columns: 1fr auto; gap: 4px 8px; align-items: start; }
       #prompting-beats .name { font-size: 12px; font-weight: 600; }
@@ -890,6 +897,7 @@
         <div id="rehearsing" role="group" aria-label="Rehearsal" hidden>
           <span data-where></span>
           <button type="button" data-back title="The slide before (←)">Back</button>
+          <button type="button" data-pause aria-pressed="false" title="Pause the clock, and go on with it (P)">Pause</button>
           <button type="button" data-on title="The next slide (→, Space, or a click on the canvas)">On</button>
           <button type="button" data-end title="Stop, and see what each slide took (Escape)">End</button>
         </div>
@@ -931,7 +939,9 @@
         </div>
         <p class="statusline">
           <span id="status" role="status">Loading…</span>
+          <span id="offer" role="status" hidden></span>
           <button type="button" id="restate" hidden title="Set the story's claim for this slide to what its headline says now, one step to undo">Update</button>
+          <button type="button" id="keep-claim" hidden title="Keep the story's claim for this slide as it is">Keep</button>
           <span id="where"></span>
           <span id="offline" class="offline" hidden title="The site keeps every file it needs in this browser: it opens, plays, and edits with no network">Works offline</span>
           <button type="button" id="update" hidden title="A newer version of the site is kept in this browser: reload to use it; every open page of the site reloads too, each asking about unsaved changes">A new version is ready: reload</button>
@@ -1167,6 +1177,14 @@
             <button type="button" id="prompting-write">Write the slides</button>
           </div>
         </section>
+        <section id="prompting-unread" hidden aria-labelledby="prompting-unread-title">
+          <h3 id="prompting-unread-title">The outline didn't come back readable</h3>
+          <p class="note" id="prompting-unread-why"></p>
+          <div class="row end">
+            <button type="button" id="prompting-unread-stop">Stop</button>
+            <button type="button" id="prompting-without">Write without an outline</button>
+          </div>
+        </section>
         <menu>
           <button type="button" id="prompting-cancel">Cancel</button>
           <button value="generate" id="prompting-go">Generate</button>
@@ -1259,8 +1277,17 @@
           <label><input type="radio" name="as" value="slides" /> Every slide, as PNGs in one .zip</label>
           <label><input type="radio" name="as" value="pdf" /> The deck, as a PDF</label>
           <label><input type="radio" name="as" value="html" /> The deck, as one HTML file that plays offline</label>
+          <label><input type="radio" name="as" value="movie" /> The deck as it plays, as a movie (.webm)</label>
         </fieldset>
         <label id="exporting-size">Width <input id="exporting-width" name="width" type="number" min="1" max="8192" step="1" required /> pixels</label>
+        <label id="exporting-rate" hidden
+          >Frames a second
+          <select id="exporting-fps" name="fps">
+            <option value="24">24</option>
+            <option value="30" selected>30</option>
+            <option value="60">60</option>
+          </select></label
+        >
         <label id="exporting-notes" hidden><input id="exporting-with-notes" name="notes" type="checkbox" /> Include the presenter's notes</label>
         <p class="note" id="exporting-note" aria-live="polite"></p>
         <p class="note">Made here and downloaded: nothing is sent anywhere.</p>
