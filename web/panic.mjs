@@ -224,6 +224,33 @@ try {
   await page.waitForFunction(() => window.scaena.last(), null, { timeout: 60000 }).catch(() => {});
   const reads = await page.evaluate(() => window.scaena.reading().then(() => "read", (e) => `refused: ${e.message}`));
   check(reads === "read", `the fresh worker answers: ${reads}`);
+
+  // A worker opened for a player keeps no copy of the files, which nothing would read after its
+  // crash; one opened for the editor keeps them, and says them at its crash (the 20261031 plan's
+  // PERF-3).
+  const workerScript = await page.evaluate(() => performance.getEntriesByType("resource").map((e) => e.name).find((n) => /\/worker-[^/]*\.js$/.test(n)));
+  const copies = await page.evaluate(
+    async ({ script, deck }) => {
+      const crashed = async (recoverable) => {
+        const worker = new Worker(script, { type: "module" });
+        const heard = (type) =>
+          new Promise((resolve) => worker.addEventListener("message", ({ data }) => (data.type === type || data.type === "error") && resolve(data)));
+        const ready = heard("ready");
+        const canvas = document.createElement("canvas").transferControlToOffscreen();
+        worker.postMessage({ type: "open", source: { url: deck }, painter: "cpu", canvas, recoverable }, [canvas]);
+        if ((await ready).type !== "ready") return -1;
+        const crash = heard("crashed");
+        worker.postMessage({ type: "trap", id: 1 });
+        const said = await crash;
+        worker.terminate();
+        return said.type === "crashed" ? Object.keys(said.files).length : -1;
+      };
+      return { player: await crashed(false), editor: await crashed(true) };
+    },
+    { script: workerScript, deck: `${server.origin}/docs/examples/revenue.deck.json` },
+  );
+  check(copies.player === 0, `a player's worker keeps no copy of the files to crash with: ${copies.player}`);
+  check(copies.editor > 0, `the editor's keeps them: ${copies.editor} files`);
 } finally {
   await browser.close();
   server.close();
