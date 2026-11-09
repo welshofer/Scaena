@@ -1034,7 +1034,16 @@ export type ToWorker =
   /** Open the bundle at `source`, and paint into `canvas` by `painter`, with the engine's
    * module `engine`, compiled, if the page carries it (PLAN 2.5); the worker loads its own
    * without it. */
-  | { type: "open"; source: Source; painter: Painter; canvas: OffscreenCanvas; engine?: WebAssembly.Module }
+  | {
+      type: "open";
+      source: Source;
+      painter: Painter;
+      canvas: OffscreenCanvas;
+      engine?: WebAssembly.Module;
+      /** The page goes on from a crash with the bundle's files as the worker held them, so the
+       * worker keeps a copy of them: the editor's alone (lift-up 20261031 PERF-3). */
+      recoverable?: boolean;
+    }
   /** Be the worker a deck is made from a prompt in (PLAN G.5), which holds no deck: say what a
    * brief may ask (`briefing`), loading the generator's module, then make the deck `generate`
    * asks for, saying how far it has come (`generating`) and handing back its files
