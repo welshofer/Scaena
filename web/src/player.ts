@@ -165,7 +165,8 @@ function keys(act: Act) {
     // button, as Next is where a click left the keys.
     const control = (e.target as HTMLElement).closest("input, select, textarea, button, a");
     if (e.metaKey || e.ctrlKey || e.altKey || (control && !control.matches("button, a"))) return;
-    if (number.key(e.key) || list.key(e.key)) return e.preventDefault();
+    // The keys list first: open, it is modal, and takes every key (lift-up 20261031 USE-5).
+    if (list.key(e.key) || number.key(e.key)) return e.preventDefault();
     if (control && (e.key === "Enter" || e.key === " ")) return;
     const action = act[names[e.key]];
     if (!action) return;
@@ -269,17 +270,25 @@ function keyList(act: Act) {
   dialog.className = "keylist";
   dialog.setAttribute("aria-labelledby", "keylist-title");
   // The words are the page's own, none a deck's.
-  dialog.innerHTML = `<h2 id="keylist-title">Keys</h2><dl>${rows
+  dialog.innerHTML = `<h2 id="keylist-title" tabindex="-1">Keys</h2><dl>${rows
     .filter(([, , has]) => has)
     .map(([keys, does]) => `<dt>${keys}</dt><dd>${does}</dd>`)
     .join("")}</dl><p>A key or a click brings back a black or white screen. Past the last slide, a black screen says the show has ended. <kbd>Escape</kbd> or <kbd>?</kbd> closes this.</p>`;
   dialog.onclick = () => dialog.close();
   document.body.append(dialog);
   return {
+    /** Whether `key` was the list's: `?` opens it, modal, its heading in focus, and `?` or
+     * Escape closes it, the focus going back where it was, as the slide navigator's does; while
+     * it is open, no other key reaches the deck (lift-up 20261031 USE-5). */
     key(key: string): boolean {
-      if (key === "?") dialog.open ? dialog.close() : dialog.show();
-      else if (key === "Escape" && dialog.open) dialog.close();
-      else return false;
+      if (key === "?") {
+        if (dialog.open) dialog.close();
+        else {
+          dialog.showModal();
+          dialog.querySelector<HTMLElement>("#keylist-title")?.focus();
+        }
+      } else if (key === "Escape" && dialog.open) dialog.close();
+      else return dialog.open;
       return true;
     },
   };
@@ -421,13 +430,16 @@ async function play(deck: Source, how: Play, channel: BroadcastChannel) {
     // pointer over it.
     const screen = blank ? `${blank} screen` : ended ? "end of the show" : "";
     if (notice && notice.index !== at.index) notice = undefined;
-    const line = notice?.words ?? [place(slots, at.index), format(), at.playing && !screen ? "playing" : "", screen].filter(Boolean).join(" · ");
-    // The status is a live region: it changes when the deck's place does, not every frame.
+    const line = notice?.words ?? [place(slots, at.index), format(), screen].filter(Boolean).join(" · ");
+    // The status is a live region: it changes when the deck's place does, not every frame, nor as
+    // each cue starts and ends, which its title says (lift-up 20261031 USE-3).
     if (status.textContent !== line) status.textContent = line;
-    status.title = stage.opened.painter === "webgpu" ? "Painted by WebGPU" : "Painted by the CPU";
+    const title = `${stage.opened.painter === "webgpu" ? "Painted by WebGPU" : "Painted by the CPU"}${at.playing && !screen ? " · playing" : ""}`;
+    if (status.title !== title) status.title = title;
     if (statesPicker.value !== String(at.index)) statesPicker.value = String(at.index);
     scrub.value = String(scrubbed(at));
-    scrub.setAttribute("aria-valuetext", slots[at.index].said ?? `${at.index + 1} of ${slots.length}`);
+    const valued = slots[at.index].said ?? `${at.index + 1} of ${slots.length}`;
+    if (scrub.getAttribute("aria-valuetext") !== valued) scrub.setAttribute("aria-valuetext", valued);
     tell({ type: "at", ...at, format: format(), blank, laser, ended });
     void read?.(slots[at.index].state, format());
   };

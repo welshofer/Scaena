@@ -305,6 +305,8 @@ export class Stage {
     private engine: Engine,
     /** Who paints, as the page asked. */
     private painter: Painter,
+    /** Whether the worker keeps a copy of the files to go on from after a crash. */
+    private recoverable: boolean,
   ) {
     this.hear(worker);
   }
@@ -359,9 +361,12 @@ export class Stage {
    * canvas in `canvas`'s place: a canvas WebGPU has held takes no other painter, so falling
    * back to the CPU painter starts over. A bundle that does not open puts `canvas` back, as
    * whoever painted it left it. */
-  static async open(canvas: HTMLCanvasElement, source: Source, painter: Painter, engine: Engine): Promise<Stage> {
-    const started = await Stage.start(canvas, source, painter, engine);
-    return new Stage(started.canvas, started.worker, started.opened, engine, painter);
+  /** A stage on `source`. One `recoverable` keeps a copy of the bundle's files in its worker,
+   * which `onCrashed` hears after a crash: the editor's, which goes on from it (lift-up 20261031
+   * PERF-3); a player's copies nothing. */
+  static async open(canvas: HTMLCanvasElement, source: Source, painter: Painter, engine: Engine, recoverable = false): Promise<Stage> {
+    const started = await Stage.start(canvas, source, painter, engine, recoverable);
+    return new Stage(started.canvas, started.worker, started.opened, engine, painter, recoverable);
   }
 
   /** Start the stage again on `source`, the bundle's files as its worker held them (lift-up
@@ -369,7 +374,7 @@ export class Stage {
    * requests waiting on the old one are refused. The bundle as the fresh worker opened it. */
   async restart(source: Source): Promise<Opened> {
     this.halt(new EngineStopped("the engine stopped"));
-    const started = await Stage.start(this.canvas, source, this.painter, this.engine);
+    const started = await Stage.start(this.canvas, source, this.painter, this.engine, this.recoverable);
     this.canvas = started.canvas;
     this.worker = started.worker;
     this.opened = started.opened;
@@ -384,6 +389,7 @@ export class Stage {
     source: Source,
     painter: Painter,
     engine: Engine,
+    recoverable: boolean,
   ): Promise<{ canvas: HTMLCanvasElement; worker: Worker; opened: Opened }> {
     const fresh = canvas.cloneNode() as HTMLCanvasElement;
     canvas.replaceWith(fresh);
@@ -394,7 +400,7 @@ export class Stage {
         worker.onerror = (e) => reject(new Error(e.message || "the worker failed to start"));
       });
       const offscreen = fresh.transferControlToOffscreen();
-      const open: ToWorker = { type: "open", source, painter, canvas: offscreen, engine: engine.module };
+      const open: ToWorker = { type: "open", source, painter, canvas: offscreen, engine: engine.module, recoverable };
       worker.postMessage(open, [offscreen]);
       const first = await reply;
       if (first.type === "ready") {
@@ -405,7 +411,7 @@ export class Stage {
       const message = first.type === "error" ? first.message : `the worker said ${first.type} first`;
       if (first.type === "error" && first.webgpu && painter === "auto") {
         console.warn(`${message}; the CPU painter paints instead`);
-        return await Stage.start(fresh, source, "cpu", engine);
+        return await Stage.start(fresh, source, "cpu", engine, recoverable);
       }
       throw new Error(message);
     } catch (e) {

@@ -91,6 +91,13 @@ impl Player {
         self.0.files_edition() as f64
     }
 
+    /// The paths written or taken out since the files were at `edition` (lift-up 20261031
+    /// PERF-3): the worker copies again only these into its copy of them.
+    #[wasm_bindgen(js_name = filesChangedSince)]
+    pub fn files_changed_since(&self, edition: f64) -> Vec<String> {
+        self.0.files_changed_since(edition as u64)
+    }
+
     pub fn states(&self) -> Vec<String> {
         self.0.states()
     }

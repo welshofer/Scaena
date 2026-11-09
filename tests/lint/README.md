@@ -5,6 +5,8 @@ One directory per rule, named by its code (SPEC §7.5), each with two decks:
 - `trigger.deck.json`, which the rule finds something in, at the paths its test names;
 - `clean.deck.json`, the nearest deck it finds nothing in. Most clean decks lint fully clean.
 
+A rule may keep a third deck its own test reads: `E102/unlisted.deck.json` lists no `fonts` at all, which `lint --fix` must list whole.
+
 Each deck's `_comment` says what it shows.
 
 **Two harnesses.**

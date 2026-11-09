@@ -265,7 +265,7 @@ async function open(source: Source, asked = false) {
   $("#status").textContent = "Opening…";
   let stage: Stage;
   try {
-    stage = await Stage.open($<HTMLCanvasElement>("#stage"), source, painter, worker);
+    stage = await Stage.open($<HTMLCanvasElement>("#stage"), source, painter, worker, true);
   } catch (e) {
     const why = `${namedFor(source)} can't be opened: ${said(e)}`;
     if (current) current.say(why);
@@ -530,7 +530,7 @@ async function edit(source: Source, opened?: Stage) {
   // The toolbar's icons, its File menu, and its keys (lift-up ATTR-5).
   toolbar($("#toolbar"));
   const play = $<HTMLAnchorElement>("#play");
-  const stage = opened ?? (await Stage.open($<HTMLCanvasElement>("#stage"), source, painter, worker));
+  const stage = opened ?? (await Stage.open($<HTMLCanvasElement>("#stage"), source, painter, worker, true));
   stage.onError = failed;
   /** On a served page, the deck's source on disk, where the folder keeps one (PLAN 2.11). */
   const scnOnDisk = "url" in source && source.serve && (await onDisk()).source ? new URL("deck.scn", source.url) : undefined;
@@ -1049,8 +1049,8 @@ async function edit(source: Source, opened?: Stage) {
     keepClaim.title = restating ? "Keep the story's claim for this slide as it is" : "Put this away: the claim stays as it is";
     [offering.hidden, restate.hidden, keepClaim.hidden] = [false, restating === undefined, false];
   }
-  keepClaim.addEventListener("click", unoffer);
-  restate.addEventListener("click", async () => {
+  heed(keepClaim, "click", unoffer);
+  heed(restate, "click", async () => {
     const now = showing();
     const ask = restating;
     if (!now || !ask) return;
@@ -3116,6 +3116,8 @@ async function edit(source: Source, opened?: Stage) {
   current = {
     close: (lost) => {
       clearTimeout(pending);
+      // A rehearsal running stops with its deck, saying nothing of it (lift-up 20261031 STAB-5).
+      rehearsing.stop(true);
       let gone: Promise<void> | undefined;
       if (lost) {
         clearTimeout(copyTimer);

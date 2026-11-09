@@ -204,6 +204,11 @@ impl Bundle {
                 sources.extend(delta.get_mut("src"));
             }
         }
+        // An override's `src` names a file as a node's does, and is renamed with it (lift-up
+        // 20261031 REL-4).
+        for (_, props) in deck.overrides.iter_mut().filter(|(id, _)| images.contains(*id)) {
+            sources.extend(props.get_mut("src"));
+        }
         for src in sources {
             let Value::String(old) = src else { continue };
             let new = match names.get(old.as_str()) {

@@ -726,6 +726,13 @@ fn images(
     let (ext, svg_format) = if format == Format::Svg { ("svg", true) } else { ("png", false) };
     let (mut files, mut total, mut pixels) = (Vec::new(), 0_u64, [0, 0]);
     let mut painter = CpuPainter::default();
+    // How each state's nodes read, for an SVG's alt texts, as the PDF tags them (lift-up 20261031 FUNC-1).
+    let mut readings: HashMap<String, HashMap<String, scaena_core::reading::Reading>> = HashMap::new();
+    if svg_format {
+        for snap in scaena_core::resolve_states(&b.deck)? {
+            readings.insert(snap.state_id.clone(), scaena_core::reading::readings(&b.deck, &snap));
+        }
+    }
     engine.frames_at_rest(&b.deck, &theme, &data, None, &pages, |state, list| {
         let (name, title) = names.get(state).cloned().unwrap_or_else(|| (state.to_string(), state.to_string()));
         let scale = match size {
@@ -733,7 +740,8 @@ fn images(
             None => 1.0,
         };
         let bytes = if svg_format {
-            let settings = SvgSettings { scale, title: Some(title), lang: lang.clone() };
+            let readings = readings.get(state).cloned().unwrap_or_default();
+            let settings = SvgSettings { scale, title: Some(title), lang: lang.clone(), readings };
             pixels = list.viewport.map(|v| (v * scale).round() as u32);
             svg(&list, &assets, &settings).map_err(|e| OpsError::new(format!("{state}: {e}")))?.into_bytes()
         } else {
@@ -965,6 +973,8 @@ fn export_video(
         chapters: chapters.clone(),
         title: b.deck.meta.as_ref().and_then(|m| m.title.clone()),
         comment: b.deck.meta.as_ref().and_then(|m| m.description.clone()),
+        // The reel's length, so the sound is cut where its frames end on any ffmpeg.
+        frames: Some(reel.frames),
         ..VideoSettings::default()
     };
     // Each state's cue is laid out once, when its first frame comes; frames only sample it.

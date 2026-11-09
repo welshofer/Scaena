@@ -316,8 +316,14 @@ impl Session {
         // A frame held for its shaders' rows goes on to be painted, with the files it was drawn
         // with: a save changes no frame.
         next.shading = self.shading.take();
-        // The files are others now: a copy kept in step by their edition copies them again.
+        // The files are others now: a copy kept in step by their edition copies them again, each
+        // path the save kept, renamed, or took out among those changed (lift-up 20261031 PERF-3).
         next.files_edition = self.files_edition + 1;
+        let mut changed = std::mem::take(&mut self.changed);
+        for path in self.files.keys().chain(next.files.keys()) {
+            changed.insert(path.clone(), next.files_edition);
+        }
+        next.changed = changed;
         *self = next;
         Ok(())
     }
@@ -847,6 +853,11 @@ pub(crate) mod tests {
         assert_eq!(s.files(), saved.files.keys().cloned().collect::<Vec<_>>());
         assert!(s.source().contains("Revenue more than doubled") && !s.source().contains("Inter-VF.ttf"));
         assert!(s.files_edition() > edition, "the files are others: a copy kept by their edition copies them again");
+        // And each path changed since, the names a save gave up and the names it gave, so a
+        // copy kept in step path by path follows it (lift-up 20261031 PERF-3).
+        let changed = s.files_changed_since(edition);
+        assert!(changed.iter().any(|p| p == "fonts/Inter-VF.ttf"), "the name given up: {changed:?}");
+        assert!(saved.files.keys().all(|p| changed.contains(p)), "every name the save gave: {changed:?}");
         assert_eq!(drawn(&mut s, &saved.saved.renamed), before, "a save changes no frame");
         assert!(s.lint(None, None).is_ok());
     }
