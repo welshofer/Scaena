@@ -265,3 +265,22 @@ fn codes_card_and_numbers_come_only_where_no_code_shows() {
     assert_eq!(theme["code"]["card"], json!({ "fill": "accent" }), "a card of its own stays");
     assert_eq!(theme["code"]["numbers"], json!({ "color": "accent" }));
 }
+
+/// The shipped code look (PLAN 2.137, on ADR-0029's defaults): its card's `soft` shadow comes into
+/// a copy that lacks it only where the deck shows no code text; where code shows, the copy is left
+/// as it drew. A role the copy has is never changed, so its code role keeps its own features.
+#[test]
+fn the_shipped_code_look_comes_into_a_copy_that_shows_no_code() {
+    let shipped = read(SHIPPED);
+    assert_eq!(shipped.pointer("/code/card/shadow"), Some(&json!("soft")));
+    assert_eq!(shipped.pointer("/type/roles/code/features"), Some(&json!({ "calt": false })));
+    let mut copy = shipped.clone();
+    copy["code"].as_object_mut().unwrap().remove("card");
+    copy["type"]["roles"]["code"].as_object_mut().unwrap().remove("features");
+
+    assert!(library(&copy, &shipped, true).is_none(), "code shows: the copy is left as it drew");
+    let (theme, brought) = library(&copy, &shipped, false).expect("no code shows: it takes the look");
+    assert!(brought.code);
+    assert_eq!(theme.pointer("/code/card/shadow"), Some(&json!("soft")));
+    assert_eq!(theme.pointer("/type/roles/code/features"), None, "the copy's code role as it was");
+}

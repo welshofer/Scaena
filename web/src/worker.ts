@@ -245,11 +245,14 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         return player.trap();
       case "die": {
         // An error outside the message, then one task that answers nothing, for good or `busy` ms.
-        setTimeout(() => {
+        // Microtasks, not timers: each runs before the next message is read, so a message sent
+        // after this one waits out the hold however busy the worker was when it came (a timer and
+        // a message already waiting may run in either order, which panic.mjs found).
+        queueMicrotask(() => {
           throw new Error(`the worker ${data.busy === undefined ? "died" : "failed"}, as asked, to test the editor's recovery`);
         });
         const until = data.busy;
-        setTimeout(() => {
+        queueMicrotask(() => {
           for (const end = performance.now() + (until ?? Number.POSITIVE_INFINITY); performance.now() < end; );
         });
         return;
@@ -268,6 +271,10 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         return;
       case "outlineAgain":
         deciding?.({ arc: data.arc });
+        deciding = undefined;
+        return;
+      case "outlinePassed":
+        deciding?.({ without: true });
         deciding = undefined;
         return;
       case "reload": {
@@ -1430,7 +1437,7 @@ async function history(begins = false) {
  * browser's storage: the files first, the deck and its manifest last, so the deck never names
  * a file not yet written; then the files the save renamed go. A bundle that keeps a history
  * has the save recorded in it. The session goes on from the save. */
-async function save(): Promise<{ where: Where; renamed: [string, string][]; files: number; recorded: boolean }> {
+async function save(): Promise<{ where: Where; renamed: [string, string][]; files: number; recorded: boolean; again?: string; unrecorded?: string }> {
   if (!home) {
     const dir = await newBundle(name);
     home = keptIn(dir, "opfs");
@@ -1446,9 +1453,9 @@ async function save(): Promise<{ where: Where; renamed: [string, string][]; file
       await home.write(path, saved.file(path)!);
     const written = new Set(paths);
     for (const path of saved.replaced()) if (!written.has(path)) await home.remove(path);
-    const { renamed } = JSON.parse(saved.summary()) as { renamed: [string, string][] };
+    const { renamed, again, unrecorded } = JSON.parse(saved.summary()) as { renamed: [string, string][]; again?: string; unrecorded?: string };
     player.adopt(saved);
-    return { where: home.where, renamed, files: paths.length, recorded: recorder !== undefined };
+    return { where: home.where, renamed, files: paths.length, recorded: recorder !== undefined && !unrecorded, again, unrecorded };
   } finally {
     saved.free();
   }

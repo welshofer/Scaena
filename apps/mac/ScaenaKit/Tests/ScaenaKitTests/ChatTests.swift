@@ -171,6 +171,26 @@ private func streaming(_ text: String) -> [String] {
     #expect(try editor.make([typed]) == original)
 }
 
+/// Typing left uncompiled (lift-up 10-25b PERF-2) is compiled as the assistant's hold begins, before
+/// the model reads the deck, and nothing compiles while the hold lasts (lift-up STAB-5): no burst's
+/// end compiles the typed source over what the assistant makes.
+@Test @MainActor func typingIsCompiledAsTheAssistantsHoldBegins() throws {
+    let editor = DeckEditor(session: try ScaenaSession(directory: b1))
+    editor.shown = "cover"
+    let revision = editor.revision
+    let typed: JSONValue = [
+        "op": "replace_text", "state": "cover", "node": "title", "from": 0, "to": 0, "text": "Held. ",
+    ]
+    try editor.typed([typed])
+    #expect(editor.revision == revision, "not compiled at the key")
+    editor.assisting = true
+    #expect(editor.revision == revision + 1, "compiled as the hold began")
+    #expect(try editor.session.source() == editor.source)
+    editor.settled()
+    #expect(editor.revision == revision + 1, "nothing compiles while the assistant holds the deck")
+    editor.assisting = false
+}
+
 /// A busy provider is asked again (narrative REL-3): two 429s, each waited out with the wait
 /// said, then the answer; a provider that stays busy is given up on in a person's words; and a
 /// key not taken is never asked again.

@@ -651,6 +651,12 @@ impl Session {
         self.deck.states.iter().map(|s| s.id.clone()).collect()
     }
 
+    /// The deck's title, as its `meta` gives it: what an export's file is named by, read without
+    /// a whole `deck_read` (lift-up 10-25b ATTR-3).
+    pub fn title(&self) -> Option<String> {
+        self.deck.meta.as_ref().and_then(|m| m.title.clone())
+    }
+
     /// The formats the deck is also laid out in, as it writes them (`9:16`).
     pub fn formats(&self) -> Vec<String> {
         self.deck.formats.clone()
@@ -2827,6 +2833,17 @@ mod tests {
         assert_eq!(s.files_edition(), was + 2, "written again");
         s.remove_file("data/extra.csv").unwrap();
         assert_eq!(s.files_edition(), was + 3, "taken out");
+    }
+
+    /// The deck's title, read without a whole `deck_read`: what an export is named by (lift-up
+    /// 10-25b ATTR-3).
+    #[test]
+    fn the_title_is_the_decks_meta_title() {
+        let revenue = revenue();
+        let meta: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string("../../docs/examples/revenue.deck.json").unwrap()).unwrap();
+        assert_eq!(revenue.title().as_deref(), meta["meta"]["title"].as_str());
+        assert!(revenue.title().is_some());
     }
 
     /// Each state's place in the talk (lift-up FUNC-2): its section, its beat's claim and planned
