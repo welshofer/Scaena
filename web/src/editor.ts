@@ -265,7 +265,7 @@ async function open(source: Source, asked = false) {
   $("#status").textContent = "Opening…";
   let stage: Stage;
   try {
-    stage = await Stage.open($<HTMLCanvasElement>("#stage"), source, painter, worker);
+    stage = await Stage.open($<HTMLCanvasElement>("#stage"), source, painter, worker, true);
   } catch (e) {
     const why = `${namedFor(source)} can't be opened: ${said(e)}`;
     if (current) current.say(why);
@@ -530,7 +530,7 @@ async function edit(source: Source, opened?: Stage) {
   // The toolbar's icons, its File menu, and its keys (lift-up ATTR-5).
   toolbar($("#toolbar"));
   const play = $<HTMLAnchorElement>("#play");
-  const stage = opened ?? (await Stage.open($<HTMLCanvasElement>("#stage"), source, painter, worker));
+  const stage = opened ?? (await Stage.open($<HTMLCanvasElement>("#stage"), source, painter, worker, true));
   stage.onError = failed;
   /** On a served page, the deck's source on disk, where the folder keeps one (PLAN 2.11). */
   const scnOnDisk = "url" in source && source.serve && (await onDisk()).source ? new URL("deck.scn", source.url) : undefined;
