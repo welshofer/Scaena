@@ -430,13 +430,16 @@ async function play(deck: Source, how: Play, channel: BroadcastChannel) {
     // pointer over it.
     const screen = blank ? `${blank} screen` : ended ? "end of the show" : "";
     if (notice && notice.index !== at.index) notice = undefined;
-    const line = notice?.words ?? [place(slots, at.index), format(), at.playing && !screen ? "playing" : "", screen].filter(Boolean).join(" · ");
-    // The status is a live region: it changes when the deck's place does, not every frame.
+    const line = notice?.words ?? [place(slots, at.index), format(), screen].filter(Boolean).join(" · ");
+    // The status is a live region: it changes when the deck's place does, not every frame, nor as
+    // each cue starts and ends, which its title says (lift-up 20261031 USE-3).
     if (status.textContent !== line) status.textContent = line;
-    status.title = stage.opened.painter === "webgpu" ? "Painted by WebGPU" : "Painted by the CPU";
+    const title = `${stage.opened.painter === "webgpu" ? "Painted by WebGPU" : "Painted by the CPU"}${at.playing && !screen ? " · playing" : ""}`;
+    if (status.title !== title) status.title = title;
     if (statesPicker.value !== String(at.index)) statesPicker.value = String(at.index);
     scrub.value = String(scrubbed(at));
-    scrub.setAttribute("aria-valuetext", slots[at.index].said ?? `${at.index + 1} of ${slots.length}`);
+    const valued = slots[at.index].said ?? `${at.index + 1} of ${slots.length}`;
+    if (scrub.getAttribute("aria-valuetext") !== valued) scrub.setAttribute("aria-valuetext", valued);
     tell({ type: "at", ...at, format: format(), blank, laser, ended });
     void read?.(slots[at.index].state, format());
   };
