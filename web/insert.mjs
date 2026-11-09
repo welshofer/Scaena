@@ -165,7 +165,13 @@ try {
   // A click on Insert opens its menu, and a click on it again closes it (lift-up 20261031 USE-4).
   await page.click("#insert");
   const clickedOpen = await page.evaluate(() => Boolean(document.querySelector(".context-menu")) && document.querySelector("#insert").getAttribute("aria-expanded") === "true");
-  await page.click("#insert");
+  // Insert's menu is taller than the room under it, so it stands over its button: pressed as a
+  // pointer presses it, a pointerdown then a click.
+  await page.evaluate(() => {
+    const button = document.querySelector("#insert");
+    button.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+    button.click();
+  });
   const clickedShut = await page.evaluate(() => !document.querySelector(".context-menu") && document.querySelector("#insert").getAttribute("aria-expanded") === "false");
   check(clickedOpen && clickedShut, `a click opens Insert's menu, and a click on it again closes it: ${clickedOpen}, ${clickedShut}`);
 
