@@ -899,6 +899,8 @@ fn missing_files(deck: &Deck, theme: Option<&LoadedTheme>, files: &dyn BundleFil
         }
     }
     if let Some(theme) = theme {
+        // Each font the deck's `fonts` should list and does not, with what to say of it.
+        let mut unlisted: Vec<(String, Value)> = Vec::new();
         for (key, family) in &theme.theme.typography.families {
             // The family's own file, and its italic face's (PLAN 2.40).
             let italic = family.italic.as_ref().map(|face| (face.file.as_str(), "/italic/file", Some("italic")));
@@ -917,14 +919,25 @@ fn missing_files(deck: &Deck, theme: Option<&LoadedTheme>, files: &dyn BundleFil
                     if let Some(style) = style {
                         font["style"] = json!(style);
                     }
-                    out.push(
-                        Finding::new("E102", Severity::Error, message)
-                            .at("/fonts")
-                            .hint("Rendering registers only the fonts the deck lists.")
-                            .fix(vec![json!({ "op": "add", "path": "/fonts/-", "value": font })]),
-                    );
+                    unlisted.push((message, font));
                 }
             }
+        }
+        // A deck that lists no fonts has no `fonts` to add one to: each finding's fix then writes
+        // the list whole, every font it lacks, so it applies alone or after another, which it
+        // replaces with the same list (lift-up 20261031 FUNC-5).
+        let whole = deck.fonts.is_empty().then(|| Value::Array(unlisted.iter().map(|(_, f)| f.clone()).collect()));
+        for (message, font) in unlisted {
+            let fix = match &whole {
+                Some(all) => json!({ "op": "add", "path": "/fonts", "value": all }),
+                None => json!({ "op": "add", "path": "/fonts/-", "value": font }),
+            };
+            out.push(
+                Finding::new("E102", Severity::Error, message)
+                    .at("/fonts")
+                    .hint("Rendering registers only the fonts the deck lists.")
+                    .fix(vec![fix]),
+            );
         }
     }
     out

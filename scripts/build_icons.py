@@ -79,6 +79,16 @@ TOOLBAR_ICONS = [
     "slideshow",
     "frame-corners",
 ]
+# The player's bar (lift-up 20261031 ATTR-2): its buttons' icons, a module of their own, so the
+# player's page and a single file carry these few and not the editor's toolbar.
+PLAYER_FILE = ROOT / "web/src/player-icons.ts"
+PLAYER_ICONS = [
+    "caret-left",
+    "caret-right",
+    "presentation",
+    "corners-out",
+    "pencil-simple",
+]
 WEATHER_ICONS = [
     "sun",
     "cloud-sun",
@@ -396,6 +406,7 @@ def build(cache: Path | None) -> None:
     COMPILED.write_text(compiled(doc), encoding="utf-8")
     WEATHER_FILE.write_text(weather_file(doc), encoding="utf-8")
     TOOLBAR_FILE.write_text(toolbar_file(doc), encoding="utf-8")
+    PLAYER_FILE.write_text(player_file(doc), encoding="utf-8")
     print(f"wrote {len(icons)} icons to {OUT.relative_to(ROOT)} ({OUT.stat().st_size // 1024} KB)")
 
 
@@ -428,11 +439,12 @@ def weather_file(doc: dict) -> str:
     return "".join(f"{name} {by_name[name]['regular']}\n" for name in WEATHER_ICONS)
 
 
-def toolbar_file(doc: dict) -> str:
-    """The editor's toolbar icons as a TypeScript module: each by its name, its regular path."""
+def toolbar_file(doc: dict, names: list[str] | None = None, whose: str = "The editor's toolbar icons (lift-up ATTR-5)", const: str = "TOOLBAR_ICONS") -> str:
+    """The editor's toolbar icons as a TypeScript module, or the player's bar's: each by its name,
+    its regular path."""
     by_name = {icon["name"]: icon for icon in doc["icons"]}
     lines = [
-        f"// The editor's toolbar icons (lift-up ATTR-5): Phosphor Icons {VERSION} (MIT,",
+        f"// {whose}: Phosphor Icons {VERSION} (MIT,",
         "// docs/icons/LICENSE-phosphor.txt) in their regular weight, each path on the icons' 256 by 256",
         "// view, as the set that ships draws them (docs/icons/phosphor.json). Written by",
         "// scripts/build_icons.py --toolbar, which its `--check` holds this file to.",
@@ -441,12 +453,17 @@ def toolbar_file(doc: dict) -> str:
         f"export const VIEW: [number, number, number, number] = {json.dumps(doc['view'])};",
         "",
         "/** Each icon's path, by its name. */",
-        "export const TOOLBAR_ICONS: Record<string, string> = {",
+        f"export const {const}: Record<string, string> = {{",
     ]
-    for name in TOOLBAR_ICONS:
+    for name in names if names is not None else TOOLBAR_ICONS:
         lines.append(f'  "{name}": "{by_name[name]["regular"]}",')
     lines.append("};")
     return "\n".join(lines) + "\n"
+
+
+def player_file(doc: dict) -> str:
+    """The player's bar's icons (lift-up 20261031 ATTR-2), as the toolbar's are written."""
+    return toolbar_file(doc, PLAYER_ICONS, "The player's bar's icons (lift-up 20261031 ATTR-2)", "PLAYER_ICONS")
 
 
 WRITTEN = re.compile(r"(?:M-?[\d.]+,-?[\d.]+|L-?[\d.]+,-?[\d.]+|C(?:-?[\d.]+,){5}-?[\d.]+|Z)+")
@@ -491,6 +508,8 @@ def check() -> bool:
         problems.append(f"{WEATHER_FILE.relative_to(ROOT)} is not the set's: run scripts/build_icons.py --weather")
     if not TOOLBAR_FILE.exists() or TOOLBAR_FILE.read_text(encoding="utf-8") != toolbar_file(doc):
         problems.append(f"{TOOLBAR_FILE.relative_to(ROOT)} is not the set's: run scripts/build_icons.py --toolbar")
+    if not PLAYER_FILE.exists() or PLAYER_FILE.read_text(encoding="utf-8") != player_file(doc):
+        problems.append(f"{PLAYER_FILE.relative_to(ROOT)} is not the set's: run scripts/build_icons.py --toolbar")
     for p in problems[:20]:
         print(f"FAIL {p}")
     if not problems:
@@ -503,11 +522,12 @@ def main() -> None:
     ap.add_argument("--check", action="store_true", help="check only; no network, no writes")
     ap.add_argument("--cache", type=Path, help="directory of upstream files keyed by sha256 (read, then filled)")
     ap.add_argument("--weather", action="store_true", help="write the icons the engine compiles in from the set; no network")
-    ap.add_argument("--toolbar", action="store_true", help="write the editor's toolbar icons from the set; no network")
+    ap.add_argument("--toolbar", action="store_true", help="write the editor's toolbar icons and the player's bar's from the set; no network")
     args = ap.parse_args()
     if args.toolbar:
         doc = json.loads(OUT.read_text(encoding="utf-8"))
         TOOLBAR_FILE.write_text(toolbar_file(doc), encoding="utf-8")
+        PLAYER_FILE.write_text(player_file(doc), encoding="utf-8")
     elif args.weather:
         doc = json.loads(OUT.read_text(encoding="utf-8"))
         COMPILED.write_text(compiled(doc), encoding="utf-8")
