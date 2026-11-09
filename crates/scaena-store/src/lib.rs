@@ -414,7 +414,9 @@ fn locate(path: &Path) -> Result<(PathBuf, String, Files), StoreError> {
     } else if ext == Some("scaena") {
         Ok((path.to_path_buf(), "deck.json".into(), Files::Zip(Arc::new(unzip(path)?))))
     } else if ext == Some("json") {
-        let root = path.parent().unwrap_or(Path::new(".")).to_path_buf();
+        // A bare name's parent is the empty path, which no link can be read against: the
+        // folder it names is the current one (lift-up 20261031 SEC-2).
+        let root = path.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new(".")).to_path_buf();
         let name = path.file_name().and_then(|n| n.to_str()).ok_or_else(|| StoreError::NotABundle(path.into()))?;
         Ok((root.clone(), name.to_string(), Files::Dir(root)))
     } else {
@@ -643,9 +645,10 @@ fn held(root: &Path, rel: &str, known: &mut Vec<PathBuf>, last: bool) -> Result<
 }
 
 /// `path`, at `rel` in the bundle at `root` and passing through a link, where read through its
-/// links it is still inside the bundle.
+/// links it is still inside the bundle. A root that cannot be read through its links holds
+/// nothing a link may reach (lift-up 20261031 SEC-2).
 fn resolved(root: &Path, path: PathBuf, rel: &str) -> Result<PathBuf, StoreError> {
-    let Ok(real_root) = std::fs::canonicalize(root) else { return Ok(path) };
+    let Ok(real_root) = std::fs::canonicalize(root) else { return Err(StoreError::LinkedOut(rel.to_string())) };
     // The nearest part of it that is there, read through its links; the rest is made new.
     let mut there = path.as_path();
     while std::fs::symlink_metadata(there).is_err() {

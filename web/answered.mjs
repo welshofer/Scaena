@@ -96,5 +96,33 @@ const calls = conversation.flatMap((m) => (m.role === "assistant" ? m.calls.map(
 const answered = new Set(conversation.flatMap((m) => (m.role === "tool" ? m.results.map((r) => r.id) : [])));
 check(calls.every((id) => answered.has(id)), `no call in the conversation is left without its result: ${calls.join()}`);
 
+// A question that fails before the model answers any of it is taken back (the 20261031 plan's
+// STAB-4): the next question is asked alone, not as a second user turn merged with it.
+{
+  const conversation = [{ role: "user", text: "Make the title louder." }];
+  const heard = [];
+  const failing = { name: "Scripted", base: "", models: async () => [], turn: async () => { throw new Error("no way to the provider"); } };
+  await converse({ provider: failing, model: "m", key: "k", system: "", tools: [], conversation, call: async () => ({}), emit: (e) => heard.push(e), signal: new AbortController().signal, retries: 0 });
+  check(heard.at(-1)?.kind === "failed", `the question failed: ${JSON.stringify(heard.at(-1))}`);
+  check(conversation.length === 0, `and is taken back out of the conversation: ${JSON.stringify(conversation)}`);
+}
+// So is one stopped before the model answered.
+{
+  const conversation = [{ role: "assistant", text: "Hello.", calls: [] }, { role: "user", text: "Make the title louder." }];
+  const heard = [];
+  const stopping = new AbortController();
+  const slow = { name: "Scripted", base: "", models: async () => [], turn: async () => { stopping.abort(); throw new Error("aborted"); } };
+  await converse({ provider: slow, model: "m", key: "k", system: "", tools: [], conversation, call: async () => ({}), emit: (e) => heard.push(e), signal: stopping.signal, retries: 0 });
+  check(heard.at(-1)?.kind === "done" && heard.at(-1).stop === "stopped", `the question was stopped: ${JSON.stringify(heard.at(-1))}`);
+  check(conversation.length === 1 && conversation[0].role === "assistant", `and taken back, what came before kept: ${JSON.stringify(conversation)}`);
+}
+// One the model answered keeps its turns, the question with them.
+{
+  const { provider } = scripted([{ text: "Done.", calls: [], stop: "end" }]);
+  const conversation = [{ role: "user", text: "Make the title louder." }];
+  await converse({ provider, model: "m", key: "k", system: "", tools: [], conversation, call: async () => ({}), emit: () => {}, signal: new AbortController().signal, retries: 0 });
+  check(conversation.map((m) => m.role).join() === "user,assistant", `an answered question stays: ${conversation.map((m) => m.role).join()}`);
+}
+
 console.log(failures.length ? `${failures.length} failure(s)` : "every call the model makes is answered, an error included");
 process.exit(failures.length ? 1 : 0);

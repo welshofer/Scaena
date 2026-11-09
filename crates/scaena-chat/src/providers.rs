@@ -445,7 +445,11 @@ fn openai(ask: &Ask) -> Request {
             }
             Message::Tool { results } => {
                 for r in results {
-                    messages.push(json!({ "role": "tool", "tool_call_id": r.id, "content": r.json }));
+                    // A call that failed says so, as Gemini's `error` and Anthropic's `is_error`
+                    // do: a refused patch never reads as done (lift-up 20261025c STAB-5).
+                    let content =
+                        if r.error { json!({ "error": parsed(&r.json) }).to_string() } else { r.json.clone() };
+                    messages.push(json!({ "role": "tool", "tool_call_id": r.id, "content": content }));
                 }
                 // A tool's message holds text alone: the frames it drew follow as the user's.
                 let frames: Vec<&ToolResult> = results.iter().filter(|r| r.png.is_some()).collect();
