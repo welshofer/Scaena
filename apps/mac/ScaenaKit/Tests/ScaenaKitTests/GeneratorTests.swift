@@ -260,7 +260,7 @@ private func anthropic(_ text: String) -> Data {
     var shown: [Outlined] = []
     let (_, made) = try await generator.generate(
         brief: Brief(topic: "Carbon-negative cargo is ready to scale", audience: "Investors"),
-        provider: .anthropic, model: "a-model", key: "sk-writer", theme: "dusk", look: false,
+        provider: .anthropic, model: "a-model", key: "sk-writer", theme: "dusk", look: false, notes: false,
         outline: { outlined in
             shown.append(outlined)
             return .withoutOutline
