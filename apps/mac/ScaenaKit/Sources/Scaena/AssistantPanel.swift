@@ -25,7 +25,8 @@ struct AssistantPanel: View {
     #endif
     /// Whether the provider has no key kept: the panel offers to add one.
     @State private var keyless = false
-    /// Bumped as the keys sheet closes, so that the models are listed again with the key kept.
+    /// Bumped as the keys sheet closes, or as a key is kept anywhere, Settings on the Mac among
+    /// them, so that the models are listed again with the key kept (lift-up 20261031 FUNC-4).
     @State private var keysChanged = 0
 
     private let keychain = Keychain()
@@ -47,6 +48,9 @@ struct AssistantPanel: View {
             asking
         }
         .task(id: "\(provider.rawValue)\u{1f}\(keysChanged)") { await list() }
+        .onReceive(NotificationCenter.default.publisher(for: Keychain.changed)) { posted in
+            if posted.object as? String == keychain.service { keysChanged += 1 }
+        }
         .onChange(of: assistant.drafted, initial: true) { _, drafted in
             // A question drafted elsewhere, put in the box to send or change.
             guard let drafted else { return }

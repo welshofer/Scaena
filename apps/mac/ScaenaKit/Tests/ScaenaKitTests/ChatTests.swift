@@ -611,6 +611,30 @@ private func keychainWritable() -> Bool {
     #expect(keychain.providers.isEmpty)
 }
 
+/// Keeping a key, or taking it away, says so for its service alone, so the assistant's panel lists
+/// the models again as Settings keeps a key on the Mac (lift-up 20261031 FUNC-4).
+@Test(.enabled(if: keychainWritable())) func keepingAKeySaysSo() throws {
+    let service = "com.scaena.tests.\(UUID().uuidString)"
+    let keychain = Keychain(service: service)
+    let heard = Heard()
+    let listening = NotificationCenter.default.addObserver(forName: Keychain.changed, object: nil, queue: nil) {
+        if $0.object as? String == service { heard.count() }
+    }
+    defer { NotificationCenter.default.removeObserver(listening) }
+    try keychain.set("sk-one", for: .openai)
+    #expect(heard.times == 1, "kept")
+    try keychain.set(nil, for: .openai)
+    #expect(heard.times == 2, "taken away")
+}
+
+/// How many times a notification was heard, from whichever thread posts it.
+private final class Heard: @unchecked Sendable {
+    private let lock = NSLock()
+    private var heard = 0
+    func count() { lock.withLock { heard += 1 } }
+    var times: Int { lock.withLock { heard } }
+}
+
 /// A key is kept to this device, readable only while it is unlocked, in the data-protection
 /// keychain wherever this process may use it: the iPad's always, a Mac's where the app is signed
 /// for it. A test run with no keychain group on a Mac keeps it in the file-based keychain.
