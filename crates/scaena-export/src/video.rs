@@ -92,6 +92,11 @@ pub struct VideoSettings {
     /// way (4:2:0) and ProRes across (4:2:2): H.264's High 4:4:4, VP9's profile 1, ProRes 4444.
     /// Fewer players play such a file (lift-up 20261031 ATTR-5).
     pub chroma444: bool,
+    /// The frames `encode` will be handed, where it is known before ffmpeg starts: the video
+    /// is then written that long, `frames / fps` seconds, and its sound padded and cut to it.
+    /// A newer ffmpeg's `-shortest` lets padded sound run on past the last frame, a few tenths
+    /// of a second (lift-up 20261031, video audio length).
+    pub frames: Option<u64>,
 }
 
 impl Default for VideoSettings {
@@ -107,6 +112,7 @@ impl Default for VideoSettings {
             title: None,
             comment: None,
             chroma444: false,
+            frames: None,
         }
     }
 }
@@ -528,6 +534,12 @@ fn metadata(chapters: &[Chapter]) -> String {
 
 /// How swscale turns the frames' RGB into the codec's YUV (lift-up 20261031 ATTR-5).
 const SCALING: &str = "lanczos+accurate_rnd+full_chroma_int+full_chroma_inp";
+/// `frames` at `fps`, in seconds as ffmpeg reads them: to the microsecond, no trailing zeros.
+fn seconds(frames: u64, fps: u32) -> String {
+    let micros = (u128::from(frames) * 1_000_000).div_ceil(u128::from(fps.max(1)));
+    let (whole, part) = (micros / 1_000_000, micros % 1_000_000);
+    if part == 0 { whole.to_string() } else { format!("{whole}.{part:06}").trim_end_matches('0').to_string() }
+}
 
 /// ffmpeg's arguments: raw RGB frames on stdin, then the sound track and the chapters, if
 /// there are any; the codecs' settings; `out`.
@@ -627,13 +639,21 @@ fn args(settings: &VideoSettings, [w, h]: [u32; 2], out: &Path, chapters: Option
     // Each input past the frames is a file on this machine, never a URL ffmpeg would fetch: only
     // the client's own transport reaches the network (ADR-0030; lift-up 20261025b SEC-2).
     let local = || ["-protocol_whitelist", "file,pipe"].map(OsString::from);
+    // How long the frames last, in seconds, where it is known.
+    let length = settings.frames.map(|frames| seconds(frames, settings.fps));
     if let Some(audio) = &settings.audio {
         inputs.extend(local());
         inputs.extend(["-i".into(), audio.as_os_str().to_os_string()]);
-        // Silence after the track runs out, and the frames decide where the video ends.
+        // Silence after the track runs out, and the frames decide where the video ends: padded
+        // to their length where it is known, which any ffmpeg cuts at, else to the shortest.
         maps.extend(["-map".into(), format!("{next}:a:0").into()]);
-        maps.extend(["-af", "apad", "-shortest"].iter().chain(sound).map(OsString::from));
+        let pad = length.as_ref().map_or_else(|| "apad".to_string(), |t| format!("apad=whole_dur={t}"));
+        maps.extend(["-af".into(), pad.into(), "-shortest".into()]);
+        maps.extend(sound.iter().map(OsString::from));
         next += 1;
+    }
+    if let Some(t) = &length {
+        maps.extend(["-t".into(), t.into()]);
     }
     // The video's chapters are ours or none: never a sound file's.
     if let Some(chapters) = chapters {
@@ -703,8 +723,22 @@ mod tests {
             assert!(!opened[2..].contains(&"-protocol_whitelist") && opened.ends_with(&["-i"]), "{opened:?}");
         }
         assert!(args.windows(2).any(|w| w == ["-c:a", "aac"]) && args.contains(&"-shortest"));
+        assert!(args.windows(2).any(|w| w == ["-af", "apad"]), "an unknown length pads to the shortest: {args:?}");
+        assert!(!args.contains(&"-t"), "{args:?}");
         assert!(
             args.windows(2).any(|w| w == ["-map", "1:a:0"]) && args.windows(2).any(|w| w == ["-map_chapters", "2"])
+        );
+        // A known length: the sound padded to it and the video written that long, on any ffmpeg.
+        let timed = VideoSettings { frames: Some(30), fps: 10, ..sound.clone() };
+        let args = super::args(&timed, [1920, 1080], Path::new("x"), None);
+        let args: Vec<&str> = args.iter().map(|a| a.to_str().unwrap()).collect();
+        assert!(args.windows(2).any(|w| w == ["-af", "apad=whole_dur=3"]), "{args:?}");
+        let t = args.iter().position(|a| *a == "-t").expect("a length");
+        assert_eq!(args[t + 1], "3");
+        assert!(t > args.iter().rposition(|a| *a == "-i").unwrap(), "an output option, after every input: {args:?}");
+        assert_eq!(
+            (seconds(1, 60), seconds(90, 60), seconds(7, 3), seconds(0, 30)),
+            ("0.016667".into(), "1.5".into(), "2.333334".into(), "0".into())
         );
     }
 

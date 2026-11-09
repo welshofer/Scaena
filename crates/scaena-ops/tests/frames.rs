@@ -189,7 +189,10 @@ fn images_are_named_by_their_slide_and_step_and_titled_by_its_headline() {
         .find(|(_, p)| matches!(p.get("role").and_then(|r| r.as_str()), Some("display" | "headline" | "title")))
         .map(|(_, p)| scaena_core::reading::words(p))
         .expect("the second slide has a headline");
-    let title = svg.split("<title>").nth(1).and_then(|t| t.split("</title>").next()).unwrap();
+    // The title names the drawing for a reader (lift-up 20261031 FUNC-1).
+    let (tag, rest) = svg.split_once("<title id=\"").and_then(|(_, t)| t.split_once("\">")).unwrap();
+    assert!(svg.contains(&format!("aria-labelledby=\"{tag}\"")), "the drawing is named by its title");
+    let title = rest.split("</title>").next().unwrap();
     assert_eq!(title, headline.split_whitespace().collect::<Vec<_>>().join(" ").replace('&', "&amp;"));
     let deck_title = deck.meta.as_ref().and_then(|m| m.title.clone()).unwrap_or_default();
     assert_ne!(title, deck_title, "not the deck's title");

@@ -102,6 +102,7 @@ body.presenter { display: grid; grid-template-columns: 2fr 1fr; grid-template-ro
 /* The keys, listed: ? shows them. */
 .navigator { width: min(960px, calc(100vw - 48px)); max-height: calc(100vh - 48px); box-sizing: border-box; padding: 18px 20px; border: 1px solid #555; border-radius: 12px; background: #262522; color: #eee; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5); }
 .navigator::backdrop { background: rgba(0, 0, 0, 0.5); }
+.keylist::backdrop { background: rgba(0, 0, 0, 0.5); }
 .navigator h2 { margin: 0 0 12px; font-size: 18px; }
 .navigator ol { display: grid; grid-template-columns: repeat(auto-fill, minmax(176px, 1fr)); gap: 14px; margin: 0; padding: 4px; list-style: none; max-height: calc(100vh - 140px); overflow: auto; outline: none; }
 .navigator li { display: flex; flex-direction: column; gap: 6px; padding: 6px; border-radius: 8px; cursor: pointer; }
