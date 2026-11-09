@@ -68,6 +68,47 @@ fn slides_written_elsewhere_make_a_bundle_with_no_call() {
     assert!(again["error"]["message"].as_str().unwrap().contains("not an empty directory"));
 }
 
+/// Slides written elsewhere take the outline they were written to (lift-up 10-25c FUNC-1): the
+/// sections its beats, its arc, and the outline kept where health reads its claims, with no call.
+#[test]
+fn slides_written_to_an_outline_carry_it() {
+    let dir = place("slides-outlined");
+    let outline = place("slides-outlined-outline").with_extension("json");
+    let beats = [("The cost", 20), ("The lanes", 20), ("The ask", 16)];
+    let written = serde_json::json!({ "arc": "Problem\u{2013}Solution", "bigIdea": "Freight can pay for its carbon",
+        "beats": beats.map(|(name, slides)| serde_json::json!({ "name": name, "claim": format!("{name} matters"), "slides": slides })) });
+    std::fs::write(&outline, written.to_string()).unwrap();
+    // Each slide's `beatIndex` counts the outline's beats: twenty, twenty, and the rest.
+    let mut slides: Value = serde_json::from_str(&std::fs::read_to_string(catalog()).unwrap()).unwrap();
+    for (i, slide) in slides["slides"].as_array_mut().unwrap().iter_mut().enumerate() {
+        slide["beatIndex"] = serde_json::json!((i / 20).min(2));
+    }
+    let slides_file = place("slides-outlined-slides").with_extension("json");
+    std::fs::write(&slides_file, slides.to_string()).unwrap();
+    let bundle = dir.to_str().unwrap();
+    let out = scaena(&[
+        "--json",
+        "generate",
+        bundle,
+        "Tidewater's Series A",
+        "--slides",
+        slides_file.to_str().unwrap(),
+        "--from-outline",
+        outline.to_str().unwrap(),
+    ]);
+    let made = json(&out);
+    assert_eq!(out.status.code(), Some(0), "{made:#}");
+    assert_eq!(made["arc"], "Problem\u{2013}Solution", "the outline's arc");
+    let deck: Value = serde_json::from_str(&std::fs::read_to_string(dir.join("deck.json")).unwrap()).unwrap();
+    assert_eq!(deck["meta"]["narrative"]["outline"]["bigIdea"], "Freight can pay for its carbon");
+    let sections: Vec<&str> =
+        deck["spine"]["sections"].as_array().unwrap().iter().map(|s| s["title"].as_str().unwrap()).collect();
+    // A section a divider opens takes the divider's title, as made decks do.
+    assert_eq!(sections, ["The Problem", "The lanes", "The ask"]);
+    assert!(!dir.join(".generating").exists(), "nothing kept once the deck is made");
+    assert_eq!(scaena(&["validate", bundle]).status.code(), Some(0));
+}
+
 /// `scaena health` says each finding by its slide, as the editors do, its state's id only under
 /// `--verbose`, and each fix by its words and the command that applies it, numbered, which
 /// `--fix N` applies as a patch (lift-up 20261025 USE-3).

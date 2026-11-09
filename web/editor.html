@@ -719,6 +719,8 @@
       #exporting-size[hidden] { display: none; }
       #exporting-notes { flex-direction: row; align-items: center; gap: 8px; }
       #exporting-notes[hidden] { display: none; }
+      #exporting-rate { flex-direction: row; align-items: center; gap: 6px; }
+      #exporting-rate[hidden] { display: none; }
       #exporting-width { width: 7em; }
       dialog input, dialog select { font: inherit; font-size: 14px; background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 4px; padding: 4px 6px; }
       /* The themes that ship, chosen by their title slides, each family a section, the sections
@@ -1276,8 +1278,17 @@
           <label><input type="radio" name="as" value="slides" /> Every slide, as PNGs in one .zip</label>
           <label><input type="radio" name="as" value="pdf" /> The deck, as a PDF</label>
           <label><input type="radio" name="as" value="html" /> The deck, as one HTML file that plays offline</label>
+          <label><input type="radio" name="as" value="movie" /> The deck as it plays, as a movie (.webm)</label>
         </fieldset>
         <label id="exporting-size">Width <input id="exporting-width" name="width" type="number" min="1" max="8192" step="1" required /> pixels</label>
+        <label id="exporting-rate" hidden
+          >Frames a second
+          <select id="exporting-fps" name="fps">
+            <option value="24">24</option>
+            <option value="30" selected>30</option>
+            <option value="60">60</option>
+          </select></label
+        >
         <label id="exporting-notes" hidden><input id="exporting-with-notes" name="notes" type="checkbox" /> Include the presenter's notes</label>
         <p class="note" id="exporting-note" aria-live="polite"></p>
         <p class="note">Made here and downloaded: nothing is sent anywhere.</p>

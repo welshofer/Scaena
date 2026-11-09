@@ -22,11 +22,12 @@ use scaena_core::model::theme::{Example, Prompt, PromptItems, PromptShapeKind, S
 use scaena_core::model::values::Range;
 use scaena_core::{Deck, Finding};
 pub use scaena_narrato::Slide;
-pub use scaena_narrato::brief::Brief;
+pub use scaena_narrato::brief::{Brief, modality};
 use scaena_narrato::figures;
 use scaena_narrato::fit::Long;
 use scaena_narrato::layouts::{self, Varied};
 use scaena_narrato::look::{Change, Choice, Seen};
+pub use scaena_narrato::outline::{Beat as OutlineBeat, Outline};
 use scaena_narrato::pictures::{self, Frame, Look, Palette};
 use scaena_narrato::{
     ChartData, Document, Generation, Icon, Narrative, Picture, Provenance, Provider, Request, Settings, Step,
@@ -269,8 +270,10 @@ impl Painting {
                         self.why[i] = Some(why);
                     }
                 }
+                // Asked once more, plainly; refused so in the last round, it says why, as a busy
+                // answer then does, never "it was not asked for" (lift-up 10-25b STAB-5).
                 Err(pictures::Unmade::Plain(why)) => {
-                    if self.plain[i] {
+                    if self.plain[i] || last {
                         self.why[i] = Some(why);
                     }
                     self.plain[i] = true;
@@ -824,7 +827,9 @@ pub fn generate_drawn(
 /// `slides`, each with its `slideTitle`, `subtitle`, `layoutSuggestion`, `keyBullets`,
 /// `speakerNotes`, `beatIndex`, `beatName`, `intensity`, `tone`, …), as an agent writes them;
 /// `brief` says what the deck is about and for whom, which health reads back (PLAN G.9); `arc`
-/// names one of Narrato's, else the heuristic chooses from the brief. The bundle is made at `dir`,
+/// names one of Narrato's, else the heuristic chooses from the brief; `outline`, the big idea and
+/// each beat's claim the slides were written to, settled as a person's is (lift-up 10-25c
+/// FUNC-1), names the deck's sections and is kept where health reads its claims. The bundle is made at `dir`,
 /// a directory not there yet or empty, in `theme`, a theme that ships or a theme file read,
 /// as [`generate`] makes one: the spine, each slide in the theme's layout its layout comes to,
 /// its builds, and the `media.narrato` fields health reads, lint's fixes applied. A deck in a
@@ -836,6 +841,7 @@ pub fn from_slides(
     slides: &str,
     brief: Brief,
     arc: Option<&str>,
+    outline: Option<&Outline>,
 ) -> Result<Generated, OpsError> {
     crate::create::vacant(dir)?;
     // Each slide in the names an agent reaches for read as Narrato's (lift-up 10-25b FUNC-5):
@@ -871,6 +877,9 @@ pub fn from_slides(
     let settings = Settings { provider: Provider::Anthropic, model: String::new(), base: None, browser: false };
     let mut generation = Generation::new(brief, settings).map_err(|e| OpsError::new(e.to_string()))?;
     generation.choose_arc(arc);
+    if let Some(outline) = outline {
+        generation.settle(outline).map_err(|e| OpsError::new(format!("the outline: {e}")))?;
+    }
     generation.written(slides, false).map_err(|e| OpsError::new(format!("the slides: {e}")))?;
     let mut never =
         |_: &Request| Reply { status_text: "no call is made from written slides".into(), ..Reply::default() };
@@ -9433,6 +9442,45 @@ mod tests {
         assert_eq!(assets[&placed[&0].src][..4], [0x89, b'P', b'N', b'G']);
     }
 
+    /// A picture busy every round but the last, refused there as a model that makes no JPEG, says
+    /// what the provider said, not "it was not asked for" (lift-up 10-25b STAB-5).
+    #[test]
+    fn a_picture_refused_in_the_last_round_says_why() {
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let wide = asked_one(&theme, "A lighthouse at dusk", Look::Illustration, 900.0, 500.0);
+        let settings = pictures::Settings {
+            provider: Provider::Openai,
+            model: "gpt-image-1".into(),
+            base: None,
+            quality: pictures::Quality::Medium,
+        };
+        let busy = || Reply {
+            status: 503,
+            status_text: "Service Unavailable".into(),
+            body: r#"{"error":{"message":"Busy"}}"#.into(),
+            after: Some("1".into()),
+        };
+        let plain = Reply {
+            status: 400,
+            status_text: "Bad Request".into(),
+            body: r#"{"error":{"message":"Unknown parameter: 'output_format'."}}"#.into(),
+            after: None,
+        };
+        let mut painting = Painting::new(vec![wide], settings);
+        for _ in 1..scaena_narrato::TRIES {
+            assert_eq!(painting.requests("sk-test").len(), 1);
+            assert!(painting.answer(vec![busy()]) > 0.0);
+        }
+        assert_eq!(painting.requests("sk-test").len(), 1, "the last round");
+        assert_eq!(painting.answer(vec![plain]), 0.0);
+        assert!(painting.requests("sk-test").is_empty());
+        let (placed, _, unmade) = painting.finish();
+        assert!(placed.is_empty());
+        assert_eq!(unmade.len(), 1);
+        assert!(unmade[0].contains("Unknown parameter: 'output_format'"), "{unmade:?}");
+        assert!(!unmade[0].contains("not asked for"), "{unmade:?}");
+    }
+
     #[test]
     fn pictures_are_asked_for_again_while_busy_as_a_png_where_a_jpeg_is_not_made_and_never_past_a_refused_key() {
         use base64::Engine;
@@ -11164,6 +11212,19 @@ mod tests {
             slide_into(&doc, &theme, slides[8].clone(), place, Some(beat), BTreeMap::new(), &no_files()).unwrap_err()
         };
         assert!(refused(&Place::End, "nowhere").to_string().contains("no beat `nowhere`"));
+        // A beat near one the spine has, and a state the deck lacks, name the one meant (lift-up
+        // 10-25c USE-4).
+        assert!(refused(&Place::End, "answr").to_string().ends_with("; did you mean `answer`?"));
+        let lost = slide_into(
+            &doc,
+            &theme,
+            slides[8].clone(),
+            &Place::After("strat".into()),
+            None,
+            BTreeMap::new(),
+            &no_files(),
+        );
+        assert!(lost.unwrap_err().to_string().contains("unknown state `strat`; did you mean `start`?"));
         assert!(refused(&Place::Replace("start".into()), "answer").to_string().contains("not both"));
         // A spine planned with the blank slide in its first beat, as `spine_update` sees the deck
         // `deck_create` made: the blank leaves the beat as it leaves the deck, the slide takes its
