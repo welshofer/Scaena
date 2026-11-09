@@ -36,7 +36,8 @@ pub struct Health {
     /// The arc the deck was written to (`meta.narrative.arc`), where it names one.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub arc: Option<String>,
-    /// The arc's beats, by name, in order; none for an arc the catalog does not name.
+    /// The deck's beats, by name, in order: its settled outline's where it has one, else its
+    /// arc's; none for an arc the catalog does not name and no outline.
     pub beats: Vec<String>,
     /// The slides against the count its brief asked for.
     pub pacing: Measure,
@@ -701,7 +702,21 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
     // arc the deck was written to, where it names one, as that graph reads it; else against a
     // talk's curve, as Vzestup's score is.
     let curve = arc::curve(arc_name.as_deref(), n);
-    let beats: Vec<String> = arc::beat_names(arc_name.as_deref()).into_iter().map(str::to_string).collect();
+    // An outlined deck's beats are its outline's, each by the name the person settled, as its
+    // slides were written to them (`beatIndex`, `beatName`); else the arc's (lift-up 10-25b
+    // STAB-1). A beat moved, added, or taken away in the outline is the deck's, not the arc's.
+    let settled: Vec<String> = (narrative.and_then(|n| n.get("outline")).and_then(|o| o.get("beats")))
+        .and_then(Value::as_array)
+        .map(|beats| {
+            (beats.iter())
+                .map(|b| b.get("name").and_then(Value::as_str).unwrap_or_default().trim().to_string())
+                .collect()
+        })
+        .unwrap_or_default();
+    let beats: Vec<String> = match settled.is_empty() {
+        true => arc::beat_names(arc_name.as_deref()).into_iter().map(str::to_string).collect(),
+        false => settled,
+    };
     let beat_name = |k: usize| beats.get(k).cloned().unwrap_or_else(|| format!("beat {}", k + 1));
     let (fidelity_score, bends) = match &arc_name {
         Some(_) => {
@@ -2145,6 +2160,32 @@ mod tests {
             .map(|k| Linted::new("E100", Severity::Error, "text overflows").state(id(k)))
             .collect();
         assert_eq!(health_in(&d, &every).unwrap().score, 0);
+    }
+
+    /// An outlined deck's beats are its outline's (lift-up 10-25b STAB-1): a person who renamed
+    /// and reordered them sees a drift say the beats the deck has, and its fix write the outline's
+    /// name, not the arc's.
+    #[test]
+    fn an_outlined_decks_beats_are_its_outlines() {
+        let mut deck = climate();
+        let arc = of(&deck).beats;
+        let names: Vec<String> = (0..arc.len()).map(|k| format!("Part {} of ours", k + 1)).collect();
+        let beats: Vec<Value> = names.iter().map(|n| json!({ "name": n, "claim": "", "slides": 1 })).collect();
+        deck["meta"]["narrative"]["outline"] = json!({ "bigIdea": "", "beats": beats });
+        // The agenda, written for the second beat, moved to the end.
+        let states = deck["states"].as_array_mut().unwrap();
+        let agenda = states.remove(1);
+        let id = agenda["id"].as_str().unwrap().to_string();
+        states.push(agenda);
+        let h = of(&deck);
+        assert_eq!(h.beats, names, "the outline's beats, not the arc's: {arc:?}");
+        let drift = h.findings.iter().find(|f| f.state == id && f.kind == Kind::Drift).expect("it drifted");
+        assert!(drift.says.contains("Part ") && drift.says.contains(" of ours"), "{}", drift.says);
+        assert!(arc.iter().all(|a| !drift.says.contains(a.as_str())), "{}", drift.says);
+        let fix = drift.fix.as_ref().expect("a fix");
+        let named = fix.patch[1]["value"].as_str().unwrap();
+        assert!(names.iter().any(|n| n == named), "the fix writes the outline's name: {named}");
+        assert_eq!(fix.says, format!("Make it part of {named}"));
     }
 
     #[test]
