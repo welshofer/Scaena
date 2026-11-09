@@ -27,6 +27,7 @@ import init, {
 } from "@scaena/wasm";
 import { deleteKept, keptBundle, newBundle, readAll, remove, renameKept, write } from "./folders";
 import type { Decision, Outlined } from "./generate";
+import { sha256 } from "./recovery";
 import { within } from "./within";
 import { finding } from "./words";
 import type {
@@ -282,7 +283,13 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         if (!("url" in from)) throw new Error("only a bundle read from a URL is read again");
         latest++;
         const was = player;
-        player = await fetched(from.url, from.serve);
+        const again = await fetched(from.url, from.serve);
+        player = again.player;
+        // The folder as served now is what a save is weighed against.
+        if (home?.where.kind === "serve") {
+          home.held.clear();
+          holding(home, again.read);
+        }
         await library();
         // A frame in flight finishes on the engine it began with.
         await painting;
@@ -676,7 +683,10 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         } else {
           await renameKept(data.from, data.to);
           if (open) {
+            const held = home!.held;
             home = keptIn(await keptBundle(data.to), "opfs");
+            // Renamed, the folder holds what it held.
+            home.held = held;
             name = data.to;
           }
         }
@@ -1097,6 +1107,15 @@ interface Home {
   where: Where;
   write(path: string, bytes: Uint8Array): Promise<void>;
   remove(path: string): Promise<void>;
+  /** The SHA-256 of each file as this page last read it from here or wrote it here: a save
+   * writes again only a file whose bytes are otherwise (lift-up 20261031 PERF-4). A home made
+   * afresh holds none, so its first save writes every file. */
+  held: Map<string, Promise<string>>;
+}
+
+/** `home` holds `files` as they are now. */
+function holding(home: Home, files: Iterable<readonly [string, Uint8Array]>) {
+  for (const [path, bytes] of files) home.held.set(path, sha256(bytes as Uint8Array<ArrayBuffer>).catch(() => ""));
 }
 
 /** A bundle kept in `dir`: a folder on disk, or one in the browser's storage. */
@@ -1105,6 +1124,7 @@ function keptIn(dir: FileSystemDirectoryHandle, kind: "folder" | "opfs"): Home {
     where: { kind, name: dir.name },
     write: (path, bytes) => write(dir, path, bytes),
     remove: (path) => remove(dir, path),
+    held: new Map(),
   };
 }
 
@@ -1121,14 +1141,20 @@ function served(deck: string, serve: Serving, folder: string): Home {
     if (method === "DELETE" && response.status === 404) return;
     if (!response.ok) throw new Error(`${path}: ${(await response.text()).trim() || response.status}`);
   };
-  return { where: { kind: "serve", name: folder }, write: (path, bytes) => sent("PUT", path, bytes), remove: (path) => sent("DELETE", path) };
+  return {
+    where: { kind: "serve", name: folder },
+    write: (path, bytes) => sent("PUT", path, bytes),
+    remove: (path) => sent("DELETE", path),
+    held: new Map(),
+  };
 }
 
 /** Open the bundle at `source` (SPEC §3.1). A zip is copied into the browser's storage, and
  * kept there from then on. */
 async function load(source: Source) {
   if ("url" in source) {
-    player = await fetched(source.url, source.serve);
+    const got = await fetched(source.url, source.serve);
+    player = got.player;
     name = nameOf(source.url);
     if (source.serve) {
       // The folder's own name, as `scaena serve` says it.
@@ -1137,6 +1163,7 @@ async function load(source: Source) {
       );
       name = state.name || name;
       home = served(source.url, source.serve, name);
+      holding(home, got.read);
     }
   } else if ("create" in source) {
     player = await made(source.create.theme, source.create.title);
@@ -1160,13 +1187,19 @@ async function load(source: Source) {
   } else if ("zip" in source) {
     player = Player.fromZip(new Uint8Array(source.zip));
     const dir = await newBundle(source.name);
-    for (const path of player.files()) await write(dir, path, player.file(path)!);
     home = keptIn(dir, "opfs");
+    for (const path of player.files()) {
+      const bytes = player.file(path)!;
+      await write(dir, path, bytes);
+      holding(home, [[path, bytes]]);
+    }
     name = dir.name;
   } else {
     const dir = "opfs" in source ? await keptBundle(source.opfs) : source.folder;
-    player = bundleOf(await readAll(dir));
+    const read = await readAll(dir);
+    player = bundleOf(read);
     home = keptIn(dir, "opfs" in source ? "opfs" : "folder");
+    holding(home, read);
     name = dir.name;
   }
 }
@@ -1174,7 +1207,8 @@ async function load(source: Source) {
 /** The bundle whose deck file is at `deck`: every file is where the deck names it, from the
  * deck's directory (SPEC §3.1). A saved bundle's manifest lists the rest: licenses, the
  * history. `scaena serve` reads each only with the token its address carried (lift-up R1). */
-async function fetched(deck: string, serve?: Serving): Promise<Player> {
+/** The bundle whose deck is at `deck`, and every file of it as read. */
+async function fetched(deck: string, serve?: Serving): Promise<{ player: Player; read: Map<string, Uint8Array> }> {
   // The token goes only with what `within` lets through: the deck's own origin, under its folder.
   const headers: Record<string, string> = serve ? { "X-Scaena-Token": serve.token } : {};
   const get = async (path: string) => {
@@ -1182,9 +1216,15 @@ async function fetched(deck: string, serve?: Serving): Promise<Player> {
     if (!response.ok) throw new Error(`${path}: HTTP ${response.status}`);
     return response;
   };
-  const json = await (await get(deck)).text();
+  const read = new Map<string, Uint8Array>();
+  const text = async (path: string, as: string) => {
+    const bytes = new Uint8Array(await (await get(path)).arrayBuffer());
+    read.set(as, bytes);
+    return new TextDecoder().decode(bytes);
+  };
+  const json = await text(deck, "deck.json");
   const files = JSON.parse(json) as DeckFiles;
-  const theme = typeof files.theme === "string" ? await (await get(files.theme)).text() : JSON.stringify(files.theme);
+  const theme = typeof files.theme === "string" ? await text(files.theme, files.theme) : JSON.stringify(files.theme);
   const fetchedPlayer = new Player(json, theme);
   const data = Object.values(files.data ?? {}).flatMap(({ source }) => (typeof source === "string" ? [source] : []));
   const paths = new Set([...(files.fonts ?? []).map((f) => f.file), ...data, ...fetchedPlayer.imageFiles()]);
@@ -1193,6 +1233,7 @@ async function fetched(deck: string, serve?: Serving): Promise<Player> {
     if (manifest?.ok) {
       const bytes = new Uint8Array(await manifest.arrayBuffer());
       fetchedPlayer.addFile("manifest.json", bytes);
+      read.set("manifest.json", bytes);
       const listed = (JSON.parse(new TextDecoder().decode(bytes)) as { files?: Record<string, string> }).files;
       for (const path of Object.keys(listed ?? {})) paths.add(path);
     }
@@ -1201,8 +1242,11 @@ async function fetched(deck: string, serve?: Serving): Promise<Player> {
   const bytes = await Promise.all(
     [...paths].map(async (path) => [path, new Uint8Array(await (await get(path)).arrayBuffer())] as const),
   );
-  for (const [path, file] of bytes) fetchedPlayer.addFile(path, file);
-  return fetchedPlayer;
+  for (const [path, file] of bytes) {
+    fetchedPlayer.addFile(path, file);
+    read.set(path, file);
+  }
+  return { player: fetchedPlayer, read };
 }
 
 /** The theme that ships as `theme`, which the page carries (`themes.ts`), fetched now: its file's
@@ -1451,10 +1495,23 @@ async function save(): Promise<{ where: Where; renamed: [string, string][]; file
   try {
     const paths = saved.paths();
     const last = ["deck.json", "manifest.json"];
-    for (const path of [...paths.filter((p) => !last.includes(p)), ...last.filter((p) => paths.includes(p))])
-      await home.write(path, saved.file(path)!);
+    // A file whose bytes are as this page last read or wrote them where the bundle is kept is
+    // not written again (lift-up 20261031 PERF-4); the deck and the manifest, which say what
+    // the rest is, always are, last.
+    for (const path of [...paths.filter((p) => !last.includes(p)), ...last.filter((p) => paths.includes(p))]) {
+      const bytes = saved.file(path)!;
+      const digest = await sha256(bytes as Uint8Array<ArrayBuffer>);
+      if (!last.includes(path) && (await home.held.get(path)) === digest) continue;
+      home.held.delete(path);
+      await home.write(path, bytes);
+      home.held.set(path, Promise.resolve(digest));
+    }
     const written = new Set(paths);
-    for (const path of saved.replaced()) if (!written.has(path)) await home.remove(path);
+    for (const path of saved.replaced())
+      if (!written.has(path)) {
+        home.held.delete(path);
+        await home.remove(path);
+      }
     const { renamed, again, unrecorded } = JSON.parse(saved.summary()) as { renamed: [string, string][]; again?: string; unrecorded?: string };
     player.adopt(saved);
     return { where: home.where, renamed, files: paths.length, recorded: recorder !== undefined && !unrecorded, again, unrecorded };
