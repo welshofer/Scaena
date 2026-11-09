@@ -621,14 +621,6 @@ try {
     navigated?.slides.length === count && navigated.drawn === count && navigated.marked === count - 1,
     `N shows every slide, drawn, the one the room sees marked: ${JSON.stringify(navigated)}`,
   );
-  // Each slide drawn in its own shape, never stretched to 16:9 (lift-up 20261031 ATTR-1).
-  const shapes = await presenter.evaluate(() =>
-    [...document.querySelectorAll(".navigator li canvas")].map((c) => {
-      const box = c.getBoundingClientRect();
-      return Math.abs(box.width / box.height - c.width / c.height);
-    }),
-  );
-  check(shapes.length === count && shapes.every((d) => d < 0.02), `each slide is shown in the shape it is drawn: ${shapes.map((d) => d.toFixed(3))}`);
   await presenter.keyboard.press("Home");
   await presenter.keyboard.press("Enter");
   at = await until(player, (k) => window.scaena.at().index === k, "the navigator's first slide", 0, 2000);
@@ -640,6 +632,25 @@ try {
   await presenter.keyboard.press("Enter");
   at = await until(player, (k) => window.scaena.at().index === k, "the navigator's last slide", slideAt(count), 2000);
   check(at.index === slideAt(count), `its Slides button opens it too, and End then Return goes to slide ${count}`);
+  // In a format of another shape, 9:16, each slide is drawn in it, never stretched to 16:9 (lift-up
+  // 20261031 ATTR-1).
+  await turnTo("9:16");
+  await presenter.keyboard.press("n");
+  await presenter
+    .waitForFunction((n) => { const v = window.scaena.navigator(); return v && v.drawn === n; }, count, { timeout: 10000 })
+    .catch(() => {});
+  const shapes = await presenter.evaluate(() =>
+    [...document.querySelectorAll(".navigator li canvas")].map((c) => {
+      const box = c.getBoundingClientRect();
+      return { shown: box.width / box.height, drawn: c.width / c.height };
+    }),
+  );
+  check(
+    shapes.length === count && shapes.every((s) => s.drawn < 1 && Math.abs(s.shown - s.drawn) < 0.02),
+    `in 9:16, each slide is shown in the shape it is drawn: ${JSON.stringify(shapes.map((s) => [s.shown.toFixed(3), s.drawn.toFixed(3)]))}`,
+  );
+  await presenter.keyboard.press("Escape");
+  await turnTo("");
   // L: the laser, pointed from the slide the presenter view shows, drawn on the room's.
   await presenter.keyboard.press("l");
   await player.waitForFunction(() => window.scaena.laser().on, null, { timeout: 5000 }).catch(() => {});
