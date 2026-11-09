@@ -205,7 +205,18 @@ impl Scaena {
         let here = self.here()?;
         let home = (self.home.clone()).or_else(|| std::env::var_os("HOME").map(PathBuf::from));
         let home = home.and_then(|h| std::fs::canonicalize(h).ok());
-        let beside = std::fs::canonicalize(bundle).ok().and_then(|b| b.parent().map(Path::to_path_buf));
+        let hidden = |below: &Path| below.components().any(|c| c.as_os_str().to_string_lossy().starts_with('.'));
+        // The bundle's folder is a root only where the bundle itself is in no hidden folder,
+        // counted below this server's folder, else below home, else from the disk's root: a
+        // bundle that is `.aws/empty` makes `.aws` no root (lift-up 20261031 SEC-3).
+        let real_here = std::fs::canonicalize(&here).ok();
+        let shown = |b: &Path| {
+            let below =
+                [real_here.as_deref(), home.as_deref()].into_iter().flatten().find_map(|r| b.strip_prefix(r).ok());
+            !hidden(below.unwrap_or(b))
+        };
+        let beside =
+            std::fs::canonicalize(bundle).ok().filter(|b| shown(b)).and_then(|b| b.parent().map(Path::to_path_buf));
         let roots: Vec<PathBuf> = [Some(here.clone()), beside]
             .into_iter()
             .flatten()
@@ -240,7 +251,6 @@ impl Scaena {
         }
         let mut real = std::fs::canonicalize(there).map_err(|_| refused())?;
         real.extend(made.iter().rev());
-        let hidden = |below: &Path| below.components().any(|c| c.as_os_str().to_string_lossy().starts_with('.'));
         let root = roots.iter().find(|r| real.strip_prefix(r).is_ok_and(|below| !hidden(below)));
         match root {
             Some(root) => Ok((real.clone(), root.clone())),
