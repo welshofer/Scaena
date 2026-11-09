@@ -973,6 +973,8 @@ fn export_video(
         chapters: chapters.clone(),
         title: b.deck.meta.as_ref().and_then(|m| m.title.clone()),
         comment: b.deck.meta.as_ref().and_then(|m| m.description.clone()),
+        // The reel's length, so the sound is cut where its frames end on any ffmpeg.
+        frames: Some(reel.frames),
         ..VideoSettings::default()
     };
     // Each state's cue is laid out once, when its first frame comes; frames only sample it.

@@ -716,7 +716,7 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
       }
       case "export": {
         saveable(data.source);
-        const bytes = (await exporting(data.as)).slice().buffer as ArrayBuffer;
+        const bytes = (await exporting(data.as, (done, of) => post({ type: "exportProgress", id: data.id, done, of }))).slice().buffer as ArrayBuffer;
         return post({ type: "exported", id: data.id, bytes }, [bytes]);
       }
       case "drop": {
@@ -1421,7 +1421,7 @@ async function subsetFonts() {
  * module draws a PDF, loaded the first time one is asked for: the engine's module lays the
  * pages out and leaves the PDF writer out (SPEC §15). A single file's fonts are subset first,
  * as a download's are. */
-async function exporting(what: Export): Promise<Uint8Array> {
+async function exporting(what: Export, progress: (done: number, of: number) => void): Promise<Uint8Array> {
   switch (what.kind) {
     case "png":
       layOut(what.format);
@@ -1443,6 +1443,11 @@ async function exporting(what: Export): Promise<Uint8Array> {
     case "html":
       await subsetFonts();
       return new TextEncoder().encode(player.standalone(what.page, what.name, what.notes));
+    case "movie": {
+      layOut(what.format);
+      const { movie } = await import("./movie");
+      return movie(player, what.fps, what.width, what.name, progress);
+    }
   }
 }
 

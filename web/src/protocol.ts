@@ -52,12 +52,16 @@ export type SaveTo = { folder: FileSystemDirectoryHandle } | { opfs: string };
  *   worker loads the first time a PDF is asked for; with `notes`, each slide smaller with the
  *   presenter's notes under it, as `export --format pdf --notes` prints them;
  * - `html`: the deck as one file that plays offline, named `name`: `page`, the single-file
- *   player's page, filled in with the bundle, its fonts subset. */
+ *   player's page, filled in with the bundle, its fonts subset;
+ * - `movie`: the deck as it plays, as `scaena export --format webm` plays it, `fps` frames a
+ *   second, `width` pixels wide, in `format`, titled `name`: painted by the CPU painter and
+ *   encoded by the browser's own encoder, VP9 (else VP8) in WebM (lift-up 20261031 FUNC-2). */
 export type Export =
   | { kind: "png"; state: string; width: number; format?: string }
   | { kind: "slides"; width: number; format?: string; name: string }
   | { kind: "pdf"; notes?: boolean }
-  | { kind: "html"; page: string; name: string; /** The presenter's words kept, or left out of a file sent to the room, as they are by default (lift-up 20261025 SEC-3). */ notes: boolean };
+  | { kind: "html"; page: string; name: string; /** The presenter's words kept, or left out of a file sent to the room, as they are by default (lift-up 20261025 SEC-3). */ notes: boolean }
+  | { kind: "movie"; fps: number; width: number; format?: string; name: string };
 
 /** Where an open bundle is kept, and saves to: a folder on disk, the browser's storage, or the
  * folder `scaena serve` serves it from (PLAN 2.11), by name. A bundle read from any other URL is
@@ -2198,6 +2202,8 @@ export type FromWorker =
   | { type: "zipped"; id: number; bytes: ArrayBuffer; subset: [string, number, number][] }
   /** What `export` made: a PNG, a zip of PNGs, a PDF, or an HTML file's bytes. */
   | { type: "exported"; id: number; bytes: ArrayBuffer }
+  /** How far an export has come (lift-up 20261031 FUNC-2): a movie's frames made, of how many. */
+  | { type: "exportProgress"; id: number; done: number; of: number }
   /** The dropped file is in the bundle at `path`. */
   | { type: "dropped"; id: number; path: string }
   | { type: "pictured"; id: number; picture: Picture }
