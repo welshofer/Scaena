@@ -548,6 +548,55 @@ async fn an_agent_starts_a_slide_sets_a_background_and_builds_from_written_slide
     )
     .await;
     assert!(text(&no_arc).contains("no arc of Narrato's"), "{}", text(&no_arc));
+    // Slides written to an outline carry it (lift-up 10-25c FUNC-1): the sections its beats, the
+    // outline kept where health reads its claims, and the whole brief beside it.
+    let outline = json!({ "bigIdea": "Freight can pull carbon out of the air and pay for itself", "beats": [
+        { "name": "The cost", "claim": "Shipping's carbon bill lands on shippers twice", "slides": 20 },
+        { "name": "The lanes", "claim": "Our lanes take more carbon out than they put in", "slides": 20 },
+        { "name": "The ask", "claim": "Eighteen million crosses the Atlantic", "slides": 16 },
+    ] });
+    let mut counted = slides.clone();
+    for (i, slide) in counted["slides"].as_array_mut().unwrap().iter_mut().enumerate() {
+        slide["beatIndex"] = json!((i / 20).min(2));
+    }
+    let outlined_dir = scratch("editors-ops").join("outlined");
+    ok(
+        &client,
+        "deck_generate",
+        json!({ "bundle": path(&outlined_dir), "slides": counted, "theme": "ember", "outline": outline,
+                "modality": "keynote", "voice": "Plain and sure", "desiredOutcomes": "A term sheet",
+                "persona": "investors" }),
+    )
+    .await;
+    let d: Value = serde_json::from_str(&std::fs::read_to_string(outlined_dir.join("deck.json")).unwrap()).unwrap();
+    let narrative = &d["meta"]["narrative"];
+    assert_eq!(narrative["outline"]["bigIdea"], outline["bigIdea"], "{narrative:#}");
+    assert_eq!(narrative["outline"]["beats"].as_array().unwrap().len(), 3, "{narrative:#}");
+    assert!(narrative["brief"]["modality"].as_str().unwrap().starts_with("Keynote"), "{narrative:#}");
+    assert_eq!(
+        (narrative["brief"]["voice"].clone(), narrative["brief"]["desiredOutcomes"].clone()),
+        (json!("Plain and sure"), json!("A term sheet")),
+        "{narrative:#}"
+    );
+    let titles: Vec<&str> =
+        d["spine"]["sections"].as_array().unwrap().iter().filter_map(|s| s["title"].as_str()).collect();
+    // A section a divider opens takes the divider's title, as made decks do.
+    assert_eq!(titles, ["The Problem", "The lanes", "The ask"], "{:#}", d["spine"]);
+    let unsaid = call(
+        &client,
+        "deck_generate",
+        json!({ "bundle": path(&scratch("editors-ops").join("unsaid")), "slides": slides,
+                "outline": { "bigIdea": "x", "beats": [{ "name": "A", "claim": " " }] } }),
+    )
+    .await;
+    assert!(text(&unsaid).contains("at least one beat with a claim"), "{}", text(&unsaid));
+    let nowhere = call(
+        &client,
+        "deck_generate",
+        json!({ "bundle": path(&scratch("editors-ops").join("nowhere")), "slides": slides, "modality": "carrier pigeon" }),
+    )
+    .await;
+    assert!(text(&nowhere).contains("no way a deck is delivered"), "{}", text(&nowhere));
 
     // An agent's deck, written slide by slide (lift-up M1): `deck_create`'s blank slide taken by
     // the first, the spine begun, each slide's beat with its notes and the fields health reads.
