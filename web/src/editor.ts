@@ -1049,8 +1049,8 @@ async function edit(source: Source, opened?: Stage) {
     keepClaim.title = restating ? "Keep the story's claim for this slide as it is" : "Put this away: the claim stays as it is";
     [offering.hidden, restate.hidden, keepClaim.hidden] = [false, restating === undefined, false];
   }
-  keepClaim.addEventListener("click", unoffer);
-  restate.addEventListener("click", async () => {
+  heed(keepClaim, "click", unoffer);
+  heed(restate, "click", async () => {
     const now = showing();
     const ask = restating;
     if (!now || !ask) return;
@@ -3116,6 +3116,8 @@ async function edit(source: Source, opened?: Stage) {
   current = {
     close: (lost) => {
       clearTimeout(pending);
+      // A rehearsal running stops with its deck, saying nothing of it (lift-up 20261031 STAB-5).
+      rehearsing.stop(true);
       let gone: Promise<void> | undefined;
       if (lost) {
         clearTimeout(copyTimer);
