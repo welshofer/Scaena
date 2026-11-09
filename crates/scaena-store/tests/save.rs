@@ -89,6 +89,31 @@ fn a_beat_cites_an_image_by_the_name_saving_gives_it() {
     assert!(dir.join(new).exists());
 }
 
+/// An image whose `src` an override sets is renamed by its content with the file it names, so
+/// an in-place save leaves the override naming a file the bundle holds (lift-up 20261031 REL-4).
+#[test]
+fn an_override_names_its_image_by_the_name_saving_gives_it() {
+    let dir = scratch("override").join("trails");
+    Bundle::open(Path::new("../../docs/examples/trails.deck.json")).unwrap().save(&dir, &opts()).unwrap();
+    // Another picture, set by an override, under a name of its own.
+    let photo = std::fs::read(Path::new("../../docs/examples/assets/trails-ridge.png")).unwrap();
+    let mut other = photo.clone();
+    other.extend_from_slice(b"another picture");
+    std::fs::write(dir.join("assets/other.png"), &other).unwrap();
+    let mut deck: serde_json::Value = serde_json::from_slice(&std::fs::read(dir.join("deck.json")).unwrap()).unwrap();
+    deck["overrides"] = serde_json::json!({ "storm-photo": { "src": "assets/other.png" } });
+    std::fs::write(dir.join("deck.json"), deck.to_string()).unwrap();
+
+    let saved = Bundle::open(&dir).unwrap().save(&dir, &opts()).unwrap();
+    let (_, new) = saved.renamed.iter().find(|(old, _)| old == "assets/other.png").expect("the override's file");
+    let deck: serde_json::Value = serde_json::from_slice(&std::fs::read(dir.join("deck.json")).unwrap()).unwrap();
+    assert_eq!(deck["overrides"]["storm-photo"]["src"], new.as_str());
+    assert_eq!(std::fs::read(dir.join(new)).unwrap(), other);
+    assert!(!dir.join("assets/other.png").exists());
+    let (deck, files) = scaena_store::open_unparsed(&dir).unwrap();
+    assert_eq!(validate_bundle(&deck, &files).unwrap(), [], "the saved bundle validates");
+}
+
 #[test]
 fn a_directory_that_holds_something_else_is_not_overwritten() {
     let dir = scratch("occupied");
