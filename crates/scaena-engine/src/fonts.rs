@@ -52,14 +52,29 @@ pub struct BundleFonts {
     embedding: BTreeMap<String, Embedding>,
     /// The glyphs [`BundleFonts::check_glyphs`] has found the painters can draw, by font
     /// blob, face, and instance.
-    drawable: HashMap<(u64, u32, Vec<i16>), HashSet<u32>>,
+    drawable: HashMap<Instance, HashSet<u32>>,
     /// How far each glyph's outline reaches above and below its baseline, in ems, by font blob,
-    /// face, instance, and glyph ([`BundleFonts::reach`]).
-    reaches: HashMap<GlyphKey, (f32, f32)>,
+    /// face, and instance, then by glyph ([`BundleFonts::reaches_of`]).
+    reaches: HashMap<Instance, HashMap<u32, (f32, f32)>>,
 }
 
-/// A glyph by font blob, face, instance, and glyph id.
-type GlyphKey = (u64, u32, Vec<i16>, u32);
+/// A font's instance: its blob, face, and normalized coordinates.
+type Instance = (u64, u32, Vec<i16>);
+
+/// The instances [`BundleFonts`] keeps what it found of their glyphs for, past which it lets them
+/// all go and finds them again as they are drawn: a long session that drags a variable font's
+/// axes makes a new instance at each step (lift-up 20261031 PERF-2).
+pub const INSTANCES_KEPT: usize = 256;
+
+/// `map`'s entry for `key`, its other entries let go first where it already holds
+/// [`INSTANCES_KEPT`] and not `key`.
+fn kept<'m, V: Default>(map: &'m mut HashMap<Instance, V>, font: &FontData, coords: &[i16]) -> &'m mut V {
+    let key = (font.data.id(), font.index, coords.to_vec());
+    if map.len() >= INSTANCES_KEPT && !map.contains_key(&key) {
+        map.clear();
+    }
+    map.entry(key).or_default()
+}
 
 impl Default for BundleFonts {
     fn default() -> Self {
@@ -72,6 +87,34 @@ impl Default for BundleFonts {
             drawable: HashMap::new(),
             reaches: HashMap::new(),
         }
+    }
+}
+
+/// The reaches of one instance's glyphs ([`BundleFonts::reaches_of`]).
+pub struct Reaches<'a> {
+    font: &'a FontData,
+    coords: &'a [i16],
+    kept: &'a mut HashMap<u32, (f32, f32)>,
+}
+
+impl Reaches<'_> {
+    /// How far glyph `gid`'s outline reaches above its baseline and below it, in ems
+    /// ([`BundleFonts::reach`]).
+    pub fn reach(&mut self, gid: u32) -> Option<(f32, f32)> {
+        let reach = *self.kept.entry(gid).or_insert_with(|| {
+            (|| {
+                let face = skrifa::FontRef::from_index(self.font.data.data(), self.font.index).ok()?;
+                let upem = f32::from(face.head().ok()?.units_per_em()).max(1.0);
+                let normalized: Vec<NormalizedCoord> =
+                    self.coords.iter().map(|&c| NormalizedCoord::from_bits(c)).collect();
+                let outline = face.outline_glyphs().get(GlyphId::new(gid))?;
+                let mut pen = ReachPen { low: f32::INFINITY, high: f32::NEG_INFINITY };
+                outline.draw(DrawSettings::unhinted(Size::unscaled(), LocationRef::new(&normalized)), &mut pen).ok()?;
+                (pen.high >= pen.low).then(|| (pen.high / upem, -pen.low / upem))
+            })()
+            .unwrap_or((0.0, 0.0))
+        });
+        (reach != (0.0, 0.0)).then_some(reach)
     }
 }
 
@@ -190,9 +233,8 @@ impl BundleFonts {
         coords: &[i16],
         glyphs: impl IntoIterator<Item = u32>,
     ) -> Result<(), EngineError> {
-        let key = (font.data.id(), font.index, coords.to_vec());
-        let done = self.drawable.get(&key);
-        let todo: Vec<u32> = glyphs.into_iter().filter(|g| done.is_none_or(|d| !d.contains(g))).collect();
+        let done = kept(&mut self.drawable, font, coords);
+        let todo: Vec<u32> = glyphs.into_iter().filter(|g| !done.contains(g)).collect();
         if todo.is_empty() {
             return Ok(());
         }
@@ -216,7 +258,7 @@ impl BundleFonts {
                 None => draws(&face, &outlines, id, location).map_err(glyph)?,
             }
         }
-        self.drawable.entry(key).or_default().extend(todo);
+        kept(&mut self.drawable, font, coords).extend(todo);
         Ok(())
     }
 
@@ -225,22 +267,13 @@ impl BundleFonts {
     /// glyph that draws no outline of its own (a space, a color glyph's layers, a font that does
     /// not read).
     pub fn reach(&mut self, font: &FontData, coords: &[i16], gid: u32) -> Option<(f32, f32)> {
-        let key = (font.data.id(), font.index, coords.to_vec(), gid);
-        if let Some(&r) = self.reaches.get(&key) {
-            return (r != (0.0, 0.0)).then_some(r);
-        }
-        let reach = (|| {
-            let face = skrifa::FontRef::from_index(font.data.data(), font.index).ok()?;
-            let upem = f32::from(face.head().ok()?.units_per_em()).max(1.0);
-            let normalized: Vec<NormalizedCoord> = coords.iter().map(|&c| NormalizedCoord::from_bits(c)).collect();
-            let outline = face.outline_glyphs().get(GlyphId::new(gid))?;
-            let mut pen = ReachPen { low: f32::INFINITY, high: f32::NEG_INFINITY };
-            outline.draw(DrawSettings::unhinted(Size::unscaled(), LocationRef::new(&normalized)), &mut pen).ok()?;
-            (pen.high >= pen.low).then(|| (pen.high / upem, -pen.low / upem))
-        })()
-        .unwrap_or((0.0, 0.0));
-        self.reaches.insert(key, reach);
-        (reach != (0.0, 0.0)).then_some(reach)
+        self.reaches_of(font, coords).reach(gid)
+    }
+
+    /// The reaches of `font`'s glyphs at `coords` ([`BundleFonts::reach`]), looked up once for a
+    /// run and then by glyph id alone, so a run's glyphs make no key each.
+    pub fn reaches_of<'a>(&'a mut self, font: &'a FontData, coords: &'a [i16]) -> Reaches<'a> {
+        Reaches { font, coords, kept: kept(&mut self.reaches, font, coords) }
     }
 
     /// The display-list reference for a font parley selected.
@@ -416,6 +449,34 @@ mod tests {
         ] {
             assert_eq!(cx.collection.generic_families(generic).count(), 0, "{generic:?} resolves to a system font");
         }
+    }
+
+    #[test]
+    fn reaches_are_kept_by_instance_and_let_go_past_their_count() {
+        let bytes = std::fs::read("../../tests/fixtures/torture.scaena/fonts/NotoSansHebrew-VF.ttf").unwrap();
+        let font = FontData::new(Blob::new(Arc::new(bytes)), 0);
+        let mut fonts = BundleFonts::new();
+        let gid = (1..64).find(|&g| fonts.reach(&font, &[], g).is_some()).expect("a glyph with ink");
+        let (up, down) = fonts.reach(&font, &[], gid).unwrap();
+        assert!(up > 0.0 && up < 2.0 && down > -1.0 && down < 2.0, "{up}, {down}");
+        // One instance's glyphs, all under its one key.
+        let mut run = fonts.reaches_of(&font, &[]);
+        assert_eq!(run.reach(gid), Some((up, down)));
+        assert_eq!(run.reach(0xFFFF), None, "no such glyph");
+        assert_eq!(fonts.reaches.len(), 1);
+        assert!(fonts.reaches.values().next().unwrap().len() >= 2);
+        // An axis dragged step by step: a new instance at each, never more than are kept.
+        for step in 0..(INSTANCES_KEPT as i16 * 3) {
+            let coords = [step];
+            fonts.check_glyphs(&font, &coords, [gid]).unwrap();
+            assert!(fonts.reach(&font, &coords, gid).is_some());
+            assert!(fonts.reaches.len() <= INSTANCES_KEPT && fonts.drawable.len() <= INSTANCES_KEPT);
+        }
+        // An instance still kept is not let go for itself.
+        let last = [INSTANCES_KEPT as i16 * 3 - 1];
+        let held = fonts.reaches.len();
+        fonts.reach(&font, &last, gid);
+        assert_eq!(fonts.reaches.len(), held);
     }
 
     #[test]
