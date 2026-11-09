@@ -247,14 +247,14 @@ try {
   await page.click("#export");
   await page.check("#exporting input[name=as][value=movie]");
   await page.fill("#exporting-width", "320");
-  await page.selectOption("#exporting-fps", "10");
+  await page.selectOption("#exporting-fps", "24");
   const movieNote = await page.evaluate(() => document.querySelector("#exporting-note").textContent);
   const canEncode = await page.evaluate(() => typeof VideoEncoder !== "undefined");
   if (!canEncode) {
     check(movieNote.startsWith("This browser cannot encode a movie") && (await page.locator("#exporting-go").isDisabled()), `with no encoder, it says so and offers nothing: ${movieNote}`);
     await page.keyboard.press("Escape");
   } else {
-    check(movieNote.includes("320 × 180 pixels, 10 frames a second, VP9 in WebM"), `the note says the movie's size and rate: ${movieNote}`);
+    check(movieNote.includes("320 × 180 pixels, 24 frames a second, VP9 in WebM"), `the note says the movie's size and rate: ${movieNote}`);
     const film = await downloaded(() => page.click("#exporting-go"));
     check(film.name === "revenue.webm" && film.bytes.readUInt32BE(0) === 0x1a45dfa3 && film.bytes.includes(Buffer.from("webm")), `Export downloads ${film.name}, a WebM, ${film.bytes.length} B`);
     check((await status()).startsWith(`Downloaded ${film.name}`), `the status says what was downloaded: ${await status()}`);
