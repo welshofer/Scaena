@@ -636,8 +636,16 @@ try {
   // 20261031 ATTR-1).
   await turnTo("9:16");
   await presenter.keyboard.press("n");
+  // Each picture drawn in it, taller than wide (a canvas not yet drawn is 300 × 150).
   await presenter
-    .waitForFunction((n) => { const v = window.scaena.navigator(); return v && v.drawn === n; }, count, { timeout: 10000 })
+    .waitForFunction(
+      (n) => {
+        const all = [...document.querySelectorAll(".navigator li canvas")];
+        return all.length === n && all.every((c) => c.height > c.width);
+      },
+      count,
+      { timeout: 20000 },
+    )
     .catch(() => {});
   const shapes = await presenter.evaluate(() =>
     [...document.querySelectorAll(".navigator li canvas")].map((c) => {
