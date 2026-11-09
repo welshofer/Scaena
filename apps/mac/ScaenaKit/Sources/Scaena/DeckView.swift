@@ -702,8 +702,12 @@ struct DeckView: View {
     /// The deck played here, as presented, keeping the time each slide takes (PLAN 3.14).
     private func rehearse() {
         showsSlides = false
+        // From the slide shown: a person rehearses the section they just rewrote (lift-up 10-25b
+        // USE-2).
+        let from = editor.slots.firstIndex { $0.state == editor.shown } ?? 0
         rehearsal = Rehearsal(
-            slots: editor.slots, notes: editor.slots.map { (try? editor.session.notes(state: $0.state)) ?? .none })
+            slots: editor.slots, notes: editor.slots.map { (try? editor.session.notes(state: $0.state)) ?? .none },
+            from: from)
     }
 
     /// What a press on an empty slot's words does on `state` (PLAN 3.30): fills it, on a slide made
@@ -923,6 +927,12 @@ struct DeckView: View {
                 }
                 choosingFirst = !offeredThemes.isEmpty
                 document.startsNew = false
+            }
+            // An undo or a redo that could not be made says why here (lift-up 10-25b STAB-4).
+            .onChange(of: editor.undoFailed) { _, why in
+                guard let why else { return }
+                failure = why
+                editor.undoFailed = nil
             }
             .alert("Couldn’t Make That Change", isPresented: failing, presenting: failure) { _ in
                 Button("OK") { failure = nil }
