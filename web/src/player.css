@@ -105,7 +105,7 @@ body.presenter { display: grid; grid-template-columns: 2fr 1fr; grid-template-ro
 .navigator h2 { margin: 0 0 12px; font-size: 18px; }
 .navigator ol { display: grid; grid-template-columns: repeat(auto-fill, minmax(176px, 1fr)); gap: 14px; margin: 0; padding: 4px; list-style: none; max-height: calc(100vh - 140px); overflow: auto; outline: none; }
 .navigator li { display: flex; flex-direction: column; gap: 6px; padding: 6px; border-radius: 8px; cursor: pointer; }
-.navigator li canvas { width: 100%; height: auto; aspect-ratio: 16 / 9; border-radius: 4px; background: #33312d; }
+.navigator li canvas { width: 100%; height: auto; aspect-ratio: var(--aspect, 16 / 9); border-radius: 4px; background: #33312d; }
 .navigator li span { font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .navigator li:hover { background: #33312d; }
 .navigator li[aria-selected="true"] { outline: 3px solid #8ab4f8; outline-offset: -1px; }

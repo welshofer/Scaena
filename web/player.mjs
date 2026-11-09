@@ -621,6 +621,14 @@ try {
     navigated?.slides.length === count && navigated.drawn === count && navigated.marked === count - 1,
     `N shows every slide, drawn, the one the room sees marked: ${JSON.stringify(navigated)}`,
   );
+  // Each slide drawn in its own shape, never stretched to 16:9 (lift-up 20261031 ATTR-1).
+  const shapes = await presenter.evaluate(() =>
+    [...document.querySelectorAll(".navigator li canvas")].map((c) => {
+      const box = c.getBoundingClientRect();
+      return Math.abs(box.width / box.height - c.width / c.height);
+    }),
+  );
+  check(shapes.length === count && shapes.every((d) => d < 0.02), `each slide is shown in the shape it is drawn: ${shapes.map((d) => d.toFixed(3))}`);
   await presenter.keyboard.press("Home");
   await presenter.keyboard.press("Enter");
   at = await until(player, (k) => window.scaena.at().index === k, "the navigator's first slide", 0, 2000);
