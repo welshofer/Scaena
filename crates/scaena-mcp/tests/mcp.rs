@@ -829,6 +829,14 @@ async fn a_tool_writes_only_under_its_folder_or_beside_the_bundle() {
     assert_eq!(made.is_error, Some(true));
     assert!(text(&made).contains("is outside where this server reads"), "{}", text(&made));
     assert!(!here.join("q5").exists());
+    // Nor by a bundle that is itself a folder there in a hidden one: its folder is no root of its
+    // own (lift-up 20261031 SEC-3).
+    std::fs::create_dir_all(here.join(".aws/empty")).unwrap();
+    let inside = path(&here.join(".aws/empty"));
+    let made = call(&client, "deck_create", json!({ "bundle": inside, "theme": "dusk", "data": hidden })).await;
+    assert_eq!(made.is_error, Some(true));
+    assert!(text(&made).contains("in no hidden folder"), "{}", text(&made));
+    assert!(!here.join(".aws/empty/deck.json").exists());
     // And only what the tool writes, by its name: no notes, no shell's start-up file.
     let notes = call(&client, "deck_render", json!({ "bundle": deck, "state": "revenue", "out": "notes.txt" })).await;
     assert_eq!(notes.is_error, Some(true));
