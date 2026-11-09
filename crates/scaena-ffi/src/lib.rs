@@ -47,6 +47,10 @@ pub struct ScaenaSession(Session);
 /// of its own (PLAN 4.13): [`scaena_laying_new`].
 pub struct ScaenaLaying(scaena_session::editor::Laying);
 
+/// A cue laid out ahead on a [`ScaenaLaying`] ([`scaena_laying_cue`]), until the session takes it
+/// ([`scaena_cue_laid`]).
+pub struct ScaenaCue(Option<scaena_session::editor::Cue>);
+
 /// A bundle's files, gathered to open it.
 pub struct ScaenaFiles(BTreeMap<String, Vec<u8>>);
 
@@ -89,6 +93,15 @@ type Failure = Value;
 
 fn said(message: impl std::fmt::Display) -> Failure {
     json!({ "message": message.to_string() })
+}
+
+/// The API address `args` give as `base`, where they give one the key may go to: refused where it
+/// is plain `http` off this machine (lift-up 20261025 SEC-2).
+fn base(args: &Value) -> Result<Option<&str>, Failure> {
+    match args.get("base").and_then(Value::as_str).filter(|b| !b.is_empty()) {
+        Some(b) => scaena_narrato::providers::checked_base(b).map(Some).map_err(said),
+        None => Ok(None),
+    }
 }
 
 /// `f`'s result, with a panic caught and said.
@@ -419,6 +432,66 @@ pub unsafe extern "C" fn scaena_laying_pixels(
             unsafe { report(error, failure) };
             ScaenaPixels { bytes: ScaenaBytes::NONE, width: 0, height: 0 }
         }
+    }
+}
+
+/// The cue into `state` in `format`, one of the deck's formats, or its own canvas where null, laid
+/// out ahead from `laying`'s deck as `prepare` lays it out, on the thread that calls it, which
+/// touches no session: a show's next cue laid out while the state shown rests, away from the
+/// window, which [`scaena_cue_laid`] hands the session (lift-up 10-25b PERF-5). Null where it
+/// cannot be laid out, `*error` then saying why. Free with [`scaena_cue_free`].
+///
+/// # Safety
+/// `laying` is a live handle from [`scaena_laying_new`], used by one thread at a time; `format`
+/// null or a NUL-terminated string; `state` one; `error` null or writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn scaena_laying_cue(
+    laying: *mut ScaenaLaying,
+    format: *const c_char,
+    state: *const c_char,
+    error: *mut *mut c_char,
+) -> *mut ScaenaCue {
+    let laid = guarded(|| {
+        let laying = unsafe { handle(laying, "laying") }?;
+        let format = unsafe { maybe_text(format, "format") }?;
+        let state = unsafe { text(state, "state") }?;
+        deep(|| laying.0.cue(format, state)).map_err(said)
+    });
+    match laid {
+        Ok(cue) => Box::into_raw(Box::new(ScaenaCue(Some(cue)))),
+        Err(failure) => {
+            unsafe { report(error, failure) };
+            std::ptr::null_mut()
+        }
+    }
+}
+
+/// Hand `session` the cue `cue` holds, as the one its next frames into that state sample, laying
+/// nothing out: false where the deck shown or its format changed after it was laid out from it,
+/// that cue is kept already, or `cue` was handed over before. `cue` is still freed after.
+///
+/// # Safety
+/// `session` is a live handle, on the session's thread; `cue` a live one from
+/// [`scaena_laying_cue`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn scaena_cue_laid(session: *mut ScaenaSession, cue: *mut ScaenaCue) -> bool {
+    guarded(|| {
+        let session = unsafe { handle(session, "session") }?;
+        let cue = unsafe { handle(cue, "cue") }?;
+        Ok(cue.0.take().is_some_and(|cue| session.0.cue_laid(cue)))
+    })
+    .unwrap_or(false)
+}
+
+/// Free a cue.
+///
+/// # Safety
+/// `cue` is a live handle from [`scaena_laying_cue`], or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn scaena_cue_free(cue: *mut ScaenaCue) {
+    if !cue.is_null() {
+        // SAFETY: the caller gives a handle this library made and has not freed.
+        drop(unsafe { Box::from_raw(cue) });
     }
 }
 
@@ -1697,6 +1770,7 @@ fn call(s: &mut Session, method: &str, args: &Value) -> Result<Value, Failure> {
     };
     Ok(match method {
         "states" => json!(s.states()),
+        "title" => json!(s.title()),
         "formats" => json!(s.formats()),
         "sizes" => json!(s.sizes()),
         "setFormat" => {
@@ -1745,6 +1819,13 @@ fn call(s: &mut Session, method: &str, args: &Value) -> Result<Value, Failure> {
             let ops = patch_of(args.get("ops"), method)?.ok_or_else(|| said("typed: `ops` is a list it needs"))?;
             let at = optional("at").and_then(scaena_session::store::seconds);
             json!(s.typed(&Value::Array(ops), at).map_err(said)?)
+        }
+        // The same, and the deck's source and timeline after it, written out but not compiled: null
+        // where it changed nothing (lift-up 10-25b PERF-2).
+        "typing" => {
+            let ops = patch_of(args.get("ops"), method)?.ok_or_else(|| said("typing: `ops` is a list it needs"))?;
+            let at = optional("at").and_then(scaena_session::store::seconds);
+            json!(s.typing(&Value::Array(ops), at).map_err(said)?)
         }
         // The beats whose claim a slide said in the deck `before` (the source as a burst of
         // typing began) compiles to and says no longer now, each with its fix (lift-up FUNC-2).

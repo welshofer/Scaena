@@ -254,7 +254,10 @@ impl Session {
             }
             "notes" => {
                 let slide = scaena_core::writing::slide(&self.reads(&ask.state)?);
-                Task::Notes { slide, claim: self.claim_of(&ask.state) }
+                // The notes the presenter reads for it now, which a draft builds on, and the
+                // deck's voice (lift-up 10-25c FUNC-3).
+                let notes = scaena_core::spine::notes(self.deck(), &ask.state).map(str::to_string);
+                Task::Notes { slide, claim: self.claim_of(&ask.state), notes, voice: self.voice() }
             }
             "explain" => {
                 let f =
@@ -579,16 +582,24 @@ mod tests {
         assert!(s.writing(&ask("tighten", "intro", Some("bg"))).is_err(), "a shader has no words to write");
     }
 
-    /// A slide's notes are drafted from its parts as they read and the claim of its beat, and taken
-    /// as its own notes; a finding is explained with the words of what it is about, and only read.
+    /// A slide's notes are drafted from its parts as they read, the claim of its beat, the notes
+    /// the presenter reads for it now, and the deck's voice (lift-up 10-25c FUNC-3), and taken as
+    /// its own notes; a finding is explained with the words of what it is about, and only read.
     #[test]
     fn notes_are_drafted_from_the_slide_and_a_finding_explained_from_its_words() {
         let mut s = revenue();
         let notes = ask("notes", "intro", None);
         let w = s.writing(&notes).unwrap();
+        let slide = "The slide reads:\n<data label=\"slide\">\nTitle: Q3 Review\nHeading: This quarter changed the shape of the business.\nThe point it makes: This quarter changed the shape of the business.";
         assert_eq!(
             w.prompt,
-            "The slide reads:\n<data label=\"slide\">\nTitle: Q3 Review\nHeading: This quarter changed the shape of the business.\nThe point it makes: This quarter changed the shape of the business.\n</data>"
+            format!("{slide}\nThe speaker's notes so far:\nOpen on the title. Don't talk over the build.\n</data>")
+        );
+        let mut voiced =
+            revenue_with(|deck| deck["meta"]["narrative"] = json!({ "brief": { "voice": "Plain, confident" } }));
+        assert!(
+            voiced.writing(&notes).unwrap().prompt.ends_with("\nThe deck's voice: Plain, confident\n</data>"),
+            "the deck's voice is asked for"
         );
         let drafted = s.written(&notes, "Open on the quarter.\n").unwrap();
         assert_eq!(

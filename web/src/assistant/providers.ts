@@ -99,7 +99,25 @@ async function json(response: Response): Promise<any> {
   return body;
 }
 
-const at = (base: string | undefined, fallback: string, path: string) => `${(base || fallback).replace(/\/+$/, "")}${path}`;
+/** Why `base`, an API address typed beside a key, may not have the key: `https://` and a host, or
+ * `http://` to this machine alone (`localhost`, `127.0.0.1`, `[::1]`), for a proxy on it; else
+ * the key would cross the network in the clear with every call. Nothing where it may, as
+ * `scaena_narrato::providers::checked_base` says (lift-up 20261025 SEC-2). */
+export function refusedBase(base: string): string | undefined {
+  const said = `${base.trim()}: an API address takes https://, or http:// to this machine (localhost, 127.0.0.1), so the key never crosses the network in the clear`;
+  const match = /^(https?):\/\/([^/?#]*)/i.exec(base.trim());
+  if (!match) return said;
+  const [, scheme, host] = match;
+  if (scheme.toLowerCase() === "https") return host && !host.includes("@") ? undefined : said;
+  const local = /^(localhost|127\.0\.0\.1|\[::1\])(:\d*)?$/i.test(host);
+  return local ? undefined : said;
+}
+
+/** `path` at `base`, the provider's own `fallback` where none is given. An address
+ * [`refusedBase`] refuses is never asked: the settings refuse it as it is typed, and this is the
+ * last guard, asking the provider's own instead. */
+const at = (base: string | undefined, fallback: string, path: string) =>
+  `${(base && !refusedBase(base) ? base : fallback).replace(/\/+$/, "")}${path}`;
 
 /** `schema` with every `$ref` to its `$defs` written in place, and no `$schema`: what each
  * provider takes, whatever it makes of references. */
@@ -262,7 +280,9 @@ export const openai: Provider = {
           }),
         });
       } else {
-        for (const r of m.results) messages.push({ role: "tool", tool_call_id: r.id, content: r.json });
+        // A call that failed says so, as Gemini's `error` and Anthropic's `is_error` do: a refused
+        // patch never reads as done (lift-up 20261025c STAB-5).
+        for (const r of m.results) messages.push({ role: "tool", tool_call_id: r.id, content: r.error ? JSON.stringify({ error: parsed(r.json) }) : r.json });
         // A tool's message holds text alone: the frames it drew follow as the user's.
         const frames = m.results.filter((r) => r.png);
         if (frames.length)

@@ -144,6 +144,18 @@ pub struct Brief {
     pub source_title: Option<String>,
 }
 
+/// The way a deck is delivered that `said` names, by its id or its label as [`MODALITIES`] gives
+/// them, case aside: the label a brief sends; else what the ids are, which the caller says.
+pub fn modality(said: &str) -> Result<String, String> {
+    (MODALITIES.iter())
+        .find(|(id, label)| id.eq_ignore_ascii_case(said) || label.eq_ignore_ascii_case(said))
+        .map(|(_, label)| label.to_string())
+        .ok_or_else(|| {
+            let ids: Vec<&str> = MODALITIES.iter().map(|(id, _)| *id).collect();
+            format!("`{said}` is no way a deck is delivered: {}", ids.join(", "))
+        })
+}
+
 /// Why a brief cannot be generated from, and the field to fix.
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 #[error("{message}")]
