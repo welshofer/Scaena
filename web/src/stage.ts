@@ -281,6 +281,8 @@ export class Stage {
   private hearing = new Map<number, (event: AssistantEvent) => void>();
   /** What takes each thumbnail as it is painted, by the request's id. */
   private thumbing = new Map<number, (thumb: Thumb) => void>();
+  /** What hears each export's progress, by its request (lift-up 20261031 FUNC-2). */
+  private exportHearing = new Map<number, (done: number, of: number) => void>();
   private asked = 0;
   /** The name each file dropped had, by its path in the bundle, which names it by its content. */
   private dropped = new Map<string, string>();
@@ -1285,8 +1287,12 @@ export class Stage {
   }
 
   /** The deck `source` compiles to, exported `as` asks (PLAN 2.54): the file's bytes. */
-  export(source: string, as: Export): Promise<ArrayBuffer> {
-    return this.request<"exported">({ type: "export", id: ++this.asked, source, as }).then(({ bytes }) => bytes);
+  export(source: string, as: Export, progress?: (done: number, of: number) => void): Promise<ArrayBuffer> {
+    const id = ++this.asked;
+    if (progress) this.exportHearing.set(id, progress);
+    return this.request<"exported">({ type: "export", id, source, as })
+      .then(({ bytes }) => bytes)
+      .finally(() => this.exportHearing.delete(id));
   }
 
   /** Add a file dropped on the page to the bundle; resolves to its path there. A picture an image
@@ -1551,6 +1557,9 @@ export class Stage {
         return;
       case "thumbed":
         this.thumbing.get(data.id)?.(data.thumb);
+        return;
+      case "exportProgress":
+        this.exportHearing.get(data.id)?.(data.done, data.of);
         return;
       case "pong":
         this.waiting.get(data.id)?.resolve(data);

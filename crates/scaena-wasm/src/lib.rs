@@ -1239,6 +1239,20 @@ impl Player {
         self.0.slides_png(width, name).map_err(js)
     }
 
+    /// The deck as a movie of `fps` frames a second, in the format shown, as JSON: `{ frames,
+    /// fps, durationMs }`, the timeline the CLI's video plays (lift-up 20261031 FUNC-2).
+    pub fn movie(&mut self, fps: u32) -> Result<String, JsError> {
+        serde_json::to_string(&self.0.movie(fps).map_err(js)?).map_err(js)
+    }
+
+    /// Frame `k` of the movie of `fps` frames a second, `width` pixels wide: its digest, and its
+    /// pixels unless its digest is `before`, the frame the page has already (lift-up 20261031
+    /// FUNC-2).
+    #[wasm_bindgen(js_name = movieFrame)]
+    pub fn movie_frame(&mut self, fps: u32, k: u32, width: u32, before: Option<String>) -> Result<MovieFrame, JsError> {
+        Ok(MovieFrame(self.0.movie_frame(fps, u64::from(k), width, before.as_deref()).map_err(js)?))
+    }
+
     /// The deck's pages laid out for its PDF, as bytes the PDF's own module (`scaena-pdf`)
     /// draws: the PDF `scaena export --format pdf` writes (PLAN 2.54), with `notes` the one
     /// `--notes` writes, each slide with the presenter's notes under it.
@@ -1622,6 +1636,39 @@ impl ToolResult {
     /// `deck_render`'s frame as RGBA, for an `ImageData`; empty from any other tool.
     pub fn pixels(&self) -> wasm_bindgen::Clamped<Vec<u8>> {
         wasm_bindgen::Clamped(self.frame.as_ref().map(|r| r.rgba.clone()).unwrap_or_default())
+    }
+}
+
+/// One frame of a movie (lift-up 20261031 FUNC-2): its drawing's digest, and its pixels where
+/// it draws otherwise than the frame the page had.
+#[cfg(feature = "editor")]
+#[wasm_bindgen]
+pub struct MovieFrame(scaena_session::movie::MovieFrame);
+
+#[cfg(feature = "editor")]
+#[wasm_bindgen]
+impl MovieFrame {
+    /// What identifies its drawing: one digest, one drawing.
+    #[wasm_bindgen(getter)]
+    pub fn digest(&self) -> String {
+        self.0.digest.clone()
+    }
+
+    /// Whether it was painted: none where it draws as the frame before it.
+    #[wasm_bindgen(getter)]
+    pub fn painted(&self) -> bool {
+        self.0.raster.is_some()
+    }
+
+    /// `[width, height]` pixels, where it was painted.
+    #[wasm_bindgen(getter)]
+    pub fn size(&self) -> Option<Vec<u32>> {
+        self.0.raster.as_ref().map(|r| vec![r.width, r.height])
+    }
+
+    /// Its pixels as straight-alpha sRGB RGBA, for a `VideoFrame`; empty where it was not painted.
+    pub fn pixels(&self) -> wasm_bindgen::Clamped<Vec<u8>> {
+        wasm_bindgen::Clamped(self.0.raster.as_ref().map(|r| r.rgba.clone()).unwrap_or_default())
     }
 }
 
