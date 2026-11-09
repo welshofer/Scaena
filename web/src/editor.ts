@@ -21,7 +21,7 @@
 //
 // `?bundle=` is a bundle's directory or its deck file (by default the bundle the build names,
 // the site's demo deck (PLAN 2.7), or else the revenue example), `opfs:NAME` for one the
-// browser keeps, or `folder:NAME` for a folder opened before; `?painter=` chooses who paints,
+// browser keeps, or `folder:KEY` for a folder opened before, by the key it is kept under; `?painter=` chooses who paints,
 // as in the player. Play opens the player on the bundle as it was last saved.
 //
 // On a page `scaena serve` serves (`?serve`, PLAN 2.11), the bundle is a folder on disk, which a
@@ -206,19 +206,51 @@ function renamedIn(source: string, renamed: [string, string][]): string {
   return renamed.reduce((text, [from, to]) => text.split(JSON.stringify(from)).join(JSON.stringify(to)), source);
 }
 
-/** Folders the editor was given, kept by name across reloads: a File System Access handle
- * keeps in IndexedDB, and asks again for leave to write. */
+/** Folders the editor was given, kept across reloads: a File System Access handle keeps in
+ * IndexedDB, and asks again for leave to write. Each is kept under a key of its own, never its
+ * name, which another folder may share (lift-up 20261031 REL-2); one kept by its name before
+ * still opens by it. The database is closed once each call's transaction ends. */
 function folders<T>(mode: IDBTransactionMode, act: (store: IDBObjectStore) => IDBRequest<T>): Promise<T> {
   return new Promise((resolve, reject) => {
     const db = indexedDB.open("scaena", 1);
     db.onupgradeneeded = () => db.result.createObjectStore("folders");
     db.onerror = () => reject(db.error);
     db.onsuccess = () => {
-      const request = act(db.result.transaction("folders", mode).objectStore("folders"));
+      const tx = db.result.transaction("folders", mode);
+      const close = () => db.result.close();
+      tx.oncomplete = close;
+      tx.onabort = close;
+      tx.onerror = close;
+      const request = act(tx.objectStore("folders"));
       request.onsuccess = () => resolve(request.result);
       request.onerror = () => reject(request.error);
     };
   });
+}
+
+/** Each folder's key in the store, as it was kept or found there. */
+const folderKeys = new WeakMap<FileSystemDirectoryHandle, string>();
+
+/** Keep `handle` in the store, under the key a handle to the same folder has there, else a new
+ * one: the key, which the page's address and the folder's recovery copy name it by. */
+async function keepFolder(handle: FileSystemDirectoryHandle): Promise<string> {
+  const known = folderKeys.get(handle);
+  if (known) return known;
+  const [keys, handles] = await Promise.all([
+    folders<IDBValidKey[]>("readonly", (store) => store.getAllKeys()),
+    folders<FileSystemDirectoryHandle[]>("readonly", (store) => store.getAll()),
+  ]);
+  let key: string | undefined;
+  for (const [i, old] of handles.entries()) {
+    if (typeof keys[i] === "string" && (await handle.isSameEntry(old).catch(() => false))) {
+      key = keys[i];
+      break;
+    }
+  }
+  key ??= crypto.randomUUID();
+  await folders("readwrite", (store) => store.put(handle, key));
+  folderKeys.set(handle, key);
+  return key;
 }
 
 /** The dialog that makes a deck from a prompt, once wired: whether one is being made. */
@@ -281,10 +313,13 @@ async function open(source: Source, asked = false) {
 
 /** The page's address names where the bundle is kept, so a reload opens it there. A served
  * bundle's address names it already. */
-function address(where: Where | undefined) {
+function address(where: Where | undefined, folder?: FileSystemDirectoryHandle) {
   if (!where || where.kind === "serve") return;
+  // A folder by its key in the store, which no other folder of its name shares (REL-2).
+  const key = where.kind === "folder" ? folder && folderKeys.get(folder) : where.name;
+  if (key === undefined) return;
   const url = new URL(location.href);
-  url.searchParams.set("bundle", `${where.kind}:${where.name}`);
+  url.searchParams.set("bundle", `${where.kind}:${key}`);
   window.history.replaceState(null, "", url);
 }
 
@@ -413,7 +448,6 @@ async function controls() {
   folder.onclick = async () => {
     const handle = await window.showDirectoryPicker!({ id: "scaena", mode: "readwrite" }).catch(() => undefined);
     if (!handle) return;
-    await folders("readwrite", (store) => store.put(handle, handle.name));
     await open({ folder: handle }).catch(failed);
   };
   const file = $<HTMLInputElement>("#open-file");
@@ -472,9 +506,11 @@ async function first(): Promise<Source> {
     const source = sourceOf(bundle, fallback);
     return served && "url" in source ? { ...source, serve: serving } : source;
   }
-  const name = bundle.slice("folder:".length);
-  const handle = await folders<FileSystemDirectoryHandle | undefined>("readonly", (store) => store.get(name));
-  if (!handle) throw new Error(`no folder named ${name} was opened here: open it again`);
+  const key = bundle.slice("folder:".length);
+  const handle = await folders<FileSystemDirectoryHandle | undefined>("readonly", (store) => store.get(key));
+  if (!handle) throw new Error("the folder this address names was not opened here: open it again");
+  folderKeys.set(handle, key);
+  const name = handle.name;
   if ((await handle.queryPermission({ mode: "readwrite" })) === "granted") return { folder: handle };
   const again = $<HTMLButtonElement>("#again");
   again.textContent = `Open the folder ${name} again`;
@@ -515,6 +551,8 @@ const describes = invertedEffects.of((tr) => tr.effects.filter((e) => e.is(descr
 const describing = (words: string) => words.replace(/\s*·\s*⌘Z undoes it$/, "");
 
 async function edit(source: Source, opened?: Stage) {
+  // A folder is kept under its own key, which its address and its recovery copy name (REL-2).
+  if ("folder" in source) await keepFolder(source.folder).catch((e: unknown) => console.warn(`The folder was not kept for next time: ${said(e)}`));
   // The deck of files as it opened, by its digest: what keys its recovery copy.
   const files = "files" in source ? source.files : "recovered" in source ? source.recovered : undefined;
   const openedAs = files?.["deck.json"] ? await sha256(files["deck.json"]) : undefined;
@@ -631,6 +669,7 @@ async function edit(source: Source, opened?: Stage) {
    * made deck's or a single file's, is its name and its deck as it opened: another deck of the
    * name, made or opened anew, is offered nothing of this one. */
   const copyKey = () => {
+    if (where?.kind === "folder") return `folder:${(folderHandle && folderKeys.get(folderHandle)) ?? where.name}`;
     if (where) return `${where.kind}:${where.name}`;
     if ("url" in source) return `url:${new URL(source.url, location.href).href}`;
     if ("create" in source) return `new:${source.create.title}`;
@@ -719,7 +758,7 @@ async function edit(source: Source, opened?: Stage) {
     $<HTMLButtonElement>("#save-as").hidden = where?.kind === "serve";
     scheduleCopy();
   };
-  address(where);
+  address(where, folderHandle);
   tell();
   void listKept();
 
@@ -2185,7 +2224,7 @@ async function edit(source: Source, opened?: Stage) {
     }
     if ("folder" in to) {
       folderHandle = to.folder;
-      await folders("readwrite", (store) => store.put(to.folder, to.folder.name));
+      await keepFolder(to.folder).catch((e: unknown) => console.warn(`The folder was not kept for next time: ${said(e)}`));
     }
     return took(done, sent, files);
   }
@@ -2214,7 +2253,7 @@ async function edit(source: Source, opened?: Stage) {
     savedSource = renamedIn(sent, done.renamed);
     filedSaved = files;
     void Promise.all([discard(was), discard(copyKey())]).catch(() => {});
-    address(where);
+    address(where, folderHandle);
     tell();
     void listKept();
     // The save recorded the edits since the last: they are versions now.
@@ -3150,7 +3189,7 @@ async function edit(source: Source, opened?: Stage) {
         void discard(copyKey());
         where = kept;
         name = kept.name;
-        address(where);
+        address(where, folderHandle);
         tell();
       }
     },

@@ -364,6 +364,48 @@ try {
   const still = await page.evaluate(() => Promise.race([window.scaena.save().then((d) => d?.where.name), new Promise((r) => setTimeout(() => r("no answer"), 20000))]));
   check(still === "plain", `and saves: ${still}`);
 
+  // Two folders of one name are two folders (the 20261031 plan's REL-2): each is kept under a key
+  // of its own, which the address names, and a reload opens the folder it named; the same folder
+  // opened again by another handle keeps its key.
+  const keyOf = () => new URL(page.url()).searchParams.get("bundle");
+  const plainKey = keyOf();
+  const plainAddress = page.url();
+  // The stage's canvas is another once a deck opens: what tells this open's end from the last's.
+  const markStage = () => page.evaluate(() => (document.querySelector("#stage").marked = true));
+  const openedAnew = () => page.waitForFunction(() => !document.querySelector("#stage").marked, null, { timeout: 120000 });
+  await markStage();
+  await page.evaluate(async ([files]) => {
+    const root = await navigator.storage.getDirectory();
+    const dir = await (await root.getDirectoryHandle("elsewhere", { create: true })).getDirectoryHandle("plain", { create: true });
+    for (const [path, from] of files) {
+      const bytes = new Uint8Array(await (await fetch(`/docs/examples/${from}`)).arrayBuffer());
+      let at = dir;
+      const parts = path.split("/");
+      const name = parts.pop();
+      for (const part of parts) at = await at.getDirectoryHandle(part, { create: true });
+      const out = await (await at.getFileHandle(name, { create: true })).createWritable();
+      await out.write(bytes);
+      await out.close();
+    }
+    await window.scaena.open({ folder: dir });
+  }, [files]);
+  await openedAnew();
+  await ready("plain");
+  const otherKey = keyOf();
+  check(
+    plainKey?.startsWith("folder:") && otherKey?.startsWith("folder:") && plainKey !== otherKey && plainKey !== "folder:plain",
+    `two folders named alike are kept under keys of their own: ${plainKey}, ${otherKey}`,
+  );
+  check(!(await page.evaluate(() => window.scaena.source())).includes("Smile at the board."), "the other folder opens as its own");
+  await page.goto(plainAddress);
+  await ready("plain");
+  check((await page.evaluate(() => window.scaena.source())).includes("Smile at the board."), `the first's address opens the first, not the other of its name: ${keyOf()}`);
+  await markStage();
+  await page.evaluate(async () => window.scaena.open({ folder: await (await navigator.storage.getDirectory()).getDirectoryHandle("plain") }));
+  await openedAnew();
+  await ready("plain");
+  check(keyOf() === plainKey, `the same folder by another handle keeps its key: ${keyOf()}`);
+
   // Kept in this browser…: each deck opened, renamed, or deleted from the list (PLAN 2.124).
   const keeps = () => page.evaluate(async () => {
     const names = [];
