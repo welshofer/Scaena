@@ -429,6 +429,25 @@ try {
   await page.keyboard.press("Escape");
   await type((await page.evaluate(() => window.scaena.source())).replace("Revenue more than doubled", "Revenue tripled"));
   check((await page.evaluate(() => window.scaena.save()))?.where.name === "Board" && (await listing(page, "bundles/Board", "deck.json")).includes("Revenue tripled"), "and a save writes there");
+  // A save writes again only what changed: the deck, and not a font whose bytes are as the folder
+  // holds them (the 20261031 plan's PERF-4).
+  const stamps = () =>
+    page.evaluate(async () => {
+      const at = await (await (await navigator.storage.getDirectory()).getDirectoryHandle("bundles")).getDirectoryHandle("Board");
+      const stamp = async (dir, name) => (await (await dir.getFileHandle(name)).getFile()).lastModified;
+      const fonts = await at.getDirectoryHandle("fonts");
+      const font = [];
+      for await (const [name, handle] of fonts.entries()) if (handle.kind === "file") font.push(name);
+      font.sort();
+      return { deck: await stamp(at, "deck.json"), font: font[0], fontAt: font[0] && (await stamp(fonts, font[0])) };
+    });
+  const stampedBefore = await stamps();
+  await page.waitForTimeout(50);
+  await type((await page.evaluate(() => window.scaena.source())).replace("Revenue tripled", "Revenue quadrupled"));
+  await page.evaluate(() => window.scaena.save());
+  const stampedAfter = await stamps();
+  check(Boolean(stampedBefore.font) && stampedAfter.deck > stampedBefore.deck, `a save writes the deck it changed: ${stampedBefore.deck} → ${stampedAfter.deck}`);
+  check(stampedAfter.font === stampedBefore.font && stampedAfter.fontAt === stampedBefore.fontAt, `and not the font it did not: ${stampedBefore.font} at ${stampedBefore.fontAt} → ${stampedAfter.font} at ${stampedAfter.fontAt}`);
 } catch (e) {
   failures.push(String(e));
 } finally {
