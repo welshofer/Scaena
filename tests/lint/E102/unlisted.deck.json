@@ -1,0 +1,12 @@
+{
+  "scaena": "0.40",
+  "_comment": "E102 with no fonts listed: a deck whose theme names two families and that has no `fonts` at all. Each finding's fix writes the list whole, and lint --fix leaves it clean (lift-up 20261031 FUNC-5).",
+  "canvas": {"width": 1920, "height": 1080},
+  "theme": "theme.json",
+  "nodes": {
+    "t": {"type": "text", "role": "headline", "text": "A short title", "at": {"in": "header"}}
+  },
+  "states": [
+    {"id": "a", "layout": "figure", "props": {"t": {}}}
+  ]
+}
