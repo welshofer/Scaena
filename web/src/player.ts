@@ -31,6 +31,7 @@
 // as it is made: the deck is read again and shown where it was. A `deck.scn` that does not
 // compile says so, at its line, and the deck stays as it was until it does.
 import { letSleep, stayAwake } from "./awake";
+import { PLAYER_ICONS, VIEW } from "./player-icons";
 import type { At, LinkTarget, Painter, Section, Slot, Source } from "./protocol";
 import { reader } from "./reading";
 import { line, listen, served } from "./served";
@@ -338,6 +339,33 @@ const fullscreen = (status: HTMLElement) => () =>
     status.textContent = `The browser refused fullscreen: ${said(e)}`;
   });
 
+/** The bar's buttons drawn with the icons that ship (lift-up 20261031 ATTR-2): Back, Next, and
+ * Fullscreen by their icons alone, their names in their `aria-label`s and titles; Presenter and
+ * Edit by an icon and their words. A button the page lacks is passed over. */
+function dressBar() {
+  const drawn = (name: string) => {
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("viewBox", VIEW.join(" "));
+    svg.setAttribute("aria-hidden", "true");
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    path.setAttribute("d", PLAYER_ICONS[name]);
+    svg.append(path);
+    return svg;
+  };
+  for (const [id, name, words] of [
+    ["back", "caret-left", ""],
+    ["on", "caret-right", ""],
+    ["present", "presentation", "Presenter"],
+    ["full", "corners-out", ""],
+    ["edit", "pencil-simple", "Edit"],
+  ]) {
+    const el = document.getElementById(id);
+    if (!el) continue;
+    el.replaceChildren(drawn(name), ...(words ? [Object.assign(document.createElement("span"), { textContent: words })] : []));
+    el.classList.add("tool");
+  }
+}
+
 /** The player: the deck, its controls, and its clock. */
 /** What no handler caught, said in `status` rather than lost, so a talk never freezes on a slide
  * with nothing said (lift-up STAB-5). */
@@ -353,7 +381,17 @@ async function play(deck: Source, how: Play, channel: BroadcastChannel) {
   const statesPicker = $<HTMLSelectElement>("#state");
   const formatPicker = $<HTMLSelectElement>("#format");
   const scrub = $<HTMLInputElement>("#scrub");
-  const stage = await Stage.open($("#stage"), deck, how.painter, how.engine);
+  dressBar();
+  // A spinner in the slide's place until the deck opens, which the status says too (lift-up
+  // 20261031 ATTR-2).
+  const loading = document.body.appendChild(Object.assign(document.createElement("div"), { className: "loading" }));
+  loading.setAttribute("aria-hidden", "true");
+  let stage: Stage;
+  try {
+    stage = await Stage.open($("#stage"), deck, how.painter, how.engine);
+  } finally {
+    loading.remove();
+  }
   stage.onError = (e) => (status.textContent = `Error: ${e.message}`);
   // The slide as large as fits the room the bar leaves, and fullscreen the screen, as sharp as
   // the screen (lift-up ATTR-2); the bar's height changes as a narrow window wraps it.
@@ -641,6 +679,22 @@ async function play(deck: Source, how: Play, channel: BroadcastChannel) {
       }, 2000);
   };
   document.addEventListener("fullscreenchange", () => rest(true));
+  // The bar floats over the slide in fullscreen (lift-up 20261031 ATTR-2): a pointer over it keeps
+  // it, and a touch anywhere brings it back.
+  const bar = $(".bar");
+  let overBar = false;
+  bar.addEventListener("pointerenter", () => {
+    overBar = true;
+    clearTimeout(idling);
+    document.body.classList.remove("idle");
+  });
+  bar.addEventListener("pointerleave", () => {
+    overBar = false;
+    rest(true);
+  });
+  document.addEventListener("pointerdown", () => !overBar && rest(true), true);
+  // Tab brings it back too, for the keyboard, and lets it go again as the pointer's rest does.
+  addEventListener("keydown", (e) => e.key === "Tab" && rest(true));
   stage.canvas.addEventListener("pointermove", (e) => {
     pointer = over(e);
     if (laser) pointAt(pointer);

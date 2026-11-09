@@ -148,6 +148,9 @@ try {
   );
   const next = await player.getByRole("button", { name: "Next", exact: true }).getAttribute("id", { timeout: 2000 }).catch(() => null);
   check(next === "on" && named.every(([, , title]) => title), `its buttons say what they do, and their keys, ▶ as Next: ${JSON.stringify(named)}`);
+  // Each drawn with an icon of the set that ships, not a character of a font (lift-up 20261031 ATTR-2).
+  const drawn = await player.evaluate(() => ["back", "on", "full", "present"].every((id) => document.querySelector(`#${id} > svg path`)?.getAttribute("d")?.startsWith("M")));
+  check(drawn && !(await player.evaluate(() => document.querySelector(".loading"))), "its buttons are drawn with the icons that ship, and the spinner has gone once the deck opened");
   /** Where the slide stands, and the room the bar at the window's foot leaves it: the window's
    * height in fullscreen. */
   const standing = (page) =>
@@ -739,6 +742,33 @@ try {
     check(
       entered === "none" && moving !== "none" && rested === "none" && moved !== "none",
       `fullscreen, the pointer hides from the start and over the slide at rest, and shows as it moves: ${entered}, ${moving}, ${rested}, ${moved}`,
+    );
+    // Its controls float over the slide's foot while the pointer moves, and go as it rests, as a
+    // presentation app's do (lift-up 20261031 ATTR-2).
+    const barShown = () =>
+      player.evaluate(() => {
+        const bar = document.querySelector(".bar");
+        const style = getComputedStyle(bar);
+        const focus = document.activeElement;
+        return {
+          fixed: style.position === "fixed",
+          live: style.pointerEvents !== "none",
+          bottom: Math.round(innerHeight - bar.getBoundingClientRect().bottom),
+          idle: document.body.classList.contains("idle"),
+          focus: focus && bar.contains(focus) ? `${focus.id}${focus.matches(":focus-visible") ? " (visible)" : ""}` : "",
+        };
+      });
+    const floating = await barShown();
+    await player.waitForTimeout(2300);
+    const gone = await barShown();
+    await player.mouse.move(460, 330);
+    const back = await barShown();
+    await player.waitForTimeout(2300);
+    await player.keyboard.press("Tab");
+    const tabbed = await barShown();
+    check(
+      floating.fixed && floating.live && floating.bottom > 0 && !gone.live && back.live && tabbed.live,
+      `fullscreen, the bar floats over the slide while the pointer moves, goes as it rests, and Tab brings it back: ${JSON.stringify([floating, gone, back, tabbed])}`,
     );
     // At the end of the show, going on again keeps it, fullscreen; a click leaves fullscreen, on
     // the last slide (PLAN 2.120).
