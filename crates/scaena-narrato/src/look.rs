@@ -42,6 +42,11 @@ pub struct Seen {
     /// never a takeaway to write into its title.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub purpose: String,
+    /// How many characters its title's place holds at its role's size, as the engine lays the
+    /// slide out (lift-up FUNC-2): what a title rewritten to state its claim may run to. None where
+    /// it was not measured.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub room: Option<usize>,
 }
 
 /// What the model asks to change on a slide: another of its layouts, and its words tightened,
@@ -85,6 +90,9 @@ pub fn caption(seen: &Seen, count: usize) -> String {
             out.push_str(&format!("{sep}`{}`, {} ({})", o.id, o.name, o.draws));
         }
         out.push('.');
+    }
+    if let Some(room) = seen.room {
+        out.push_str(&format!(" Its title's place holds {room} characters."));
     }
     // Its words as written, the deck's, fenced as data (lift-up W1).
     let mut words = Vec::new();
@@ -135,7 +143,7 @@ pub fn prompt(
          - Much of a slide left empty, or its words crowded into one part of it: one of its other layouts that fills it.\n\
          - Three or more slides in a row drawn alike: give one of them another of its layouts.\n\
          - A title that runs past two lines: tighten it to one idea, the one the slide must leave the audience with.\n\
-         - A content slide's title that names a topic rather than the slide's takeaway: rewrite it to state its claim as a sentence, within the same length; never the cover's, a divider's, the agenda's, or the close's, which name their part.\n\
+         - A content slide's title that names a topic rather than the slide's takeaway: rewrite it to state its claim as a sentence, within the characters its title's place holds where that is said, else within its length; never the cover's, a divider's, the agenda's, or the close's, which name their part.\n\
          - Items of one slide said in unlike forms (one with a detail, the others none; one a sentence, the others a word): rewrite them in one form.\n\
          Keep every figure, name, date, and claim a slide makes, and add none. A bullet written \u{201c}Label: detail\u{201d} stays so written, its label first. Keep a slide's bullets as many as they are, in their order, none longer than it was by more than a few characters. Leave alone each slide that reads well: most should. List only the slides you change.",
     );
@@ -201,6 +209,13 @@ fn longest(was: &str) -> usize {
     n + (n / 10).max(4)
 }
 
+/// How long a slide's title may run once rewritten (lift-up FUNC-2): as long as its place holds
+/// (`room`), so a topic may become the claim it is asked to state, and never less than
+/// [`longest`] allows.
+fn title_longest(was: &str, room: Option<usize>) -> usize {
+    longest(was).max(room.unwrap_or(0))
+}
+
 /// Whether a bullet is written "Label: detail".
 fn labelled(bullet: &str) -> bool {
     bullet.find(": ").is_some_and(|at| (1..=60).contains(&bullet[..at].chars().count()))
@@ -224,9 +239,9 @@ pub fn read(text: &str, seen: &[Seen]) -> Result<Vec<Change>, String> {
             continue;
         }
         let said = |key: &str| asked.get(key).and_then(Value::as_str).map(str::trim).unwrap_or_default().to_string();
-        let words = |key: &str, was: &str| {
+        let words = |key: &str, was: &str, most: usize| {
             let now = said(key);
-            (!now.is_empty() && now != was && now.chars().count() <= longest(was) && crate::same_figures(was, &now))
+            (!now.is_empty() && now != was && now.chars().count() <= most && crate::same_figures(was, &now))
                 .then_some(now)
         };
         let layout = Some(said("layout")).filter(|l| s.options.iter().any(|o| &o.id == l));
@@ -247,8 +262,8 @@ pub fn read(text: &str, seen: &[Seen]) -> Result<Vec<Change>, String> {
         let change = Change {
             slide: number,
             layout,
-            title: words("title", &s.title),
-            subtitle: words("subtitle", &s.subtitle).filter(|_| !s.subtitle.is_empty()),
+            title: words("title", &s.title, title_longest(&s.title, s.room)),
+            subtitle: words("subtitle", &s.subtitle, longest(&s.subtitle)).filter(|_| !s.subtitle.is_empty()),
             bullets,
             why: said("why"),
         };
@@ -278,6 +293,7 @@ mod tests {
                 bullets: Vec::new(),
                 claim: String::new(),
                 purpose: String::new(),
+                room: None,
             },
             Seen {
                 slide: 2,
@@ -296,8 +312,45 @@ mod tests {
                 ],
                 claim: "Net zero is four jobs, and all four have begun".into(),
                 purpose: "Turns the deck from problem to solution".into(),
+                room: Some(70),
             },
         ]
+    }
+
+    /// A topic title may become the claim it is asked to state, as long as its place holds
+    /// (lift-up FUNC-2): no longer held to its own length and a few characters. Its subtitle and
+    /// bullets keep that hold, and so does a title whose place was not measured.
+    #[test]
+    fn a_title_may_run_to_what_its_place_holds() {
+        let s = seen();
+        assert!(
+            caption(&s[1], 25).contains(". Its title's place holds 70 characters.\n<data"),
+            "{}",
+            caption(&s[1], 25)
+        );
+        assert!(!caption(&s[0], 25).contains("place holds"));
+        assert!(
+            prompt("t", "a", 25, None, (1, 25), None, "").contains("within the characters its title's place holds")
+        );
+        // 64 characters: past the 50-character title's own hold (55), within its place's 70.
+        let claim = "Four jobs reach net zero by mid-century, and all four have begun";
+        assert_eq!(claim.chars().count(), 64);
+        let answer = |slide: usize| {
+            json!({ "slides": [{ "slide": slide, "layout": "", "title": claim, "subtitle": "", "bullets": [], "why": "A claim." }] }).to_string()
+        };
+        let read = read(&answer(2), &s).unwrap();
+        assert_eq!(read[0].title.as_deref(), Some(claim));
+        // Unmeasured, the old hold stands.
+        let unmeasured = vec![Seen { room: None, ..s[1].clone() }];
+        assert!(super::read(&answer(2), &unmeasured).unwrap().is_empty());
+        // Past the place, refused.
+        let small = vec![Seen { room: Some(60), ..s[1].clone() }];
+        assert!(super::read(&answer(2), &small).unwrap().is_empty());
+        // A bullet keeps its own hold, whatever the title's room.
+        let mut long = s[1].bullets.clone();
+        long[0] = format!("{} and every grid in every country", long[0]);
+        let bullets = json!({ "slides": [{ "slide": 2, "layout": "", "title": "", "subtitle": "", "bullets": long, "why": "Longer." }] }).to_string();
+        assert!(super::read(&bullets, &s).unwrap().is_empty());
     }
 
     #[test]

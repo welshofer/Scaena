@@ -7,8 +7,8 @@
 //   it in; Use it makes the text read so, one patch whose words kept stay as they were; ⌘Z puts it
 //   back.
 // - An answer edited in the dialog is taken as edited; Leave it changes nothing.
-// - Draft Notes, with nothing selected, asks from the slide's words and its beat's claim, and
-//   writes the slide's notes.
+// - Draft Notes, with nothing selected, asks from the slide's words, its beat's claim, and the
+//   notes it has, and writes the slide's notes.
 // - Check the Claim, with nothing selected, asks whether the slide's words carry its beat's claim
 //   (narrative FUNC-4), with the claim, the slide, and its headline; the headline the model
 //   rewrites is written where the claim node's words live; ⌘Z puts it back.
@@ -249,6 +249,8 @@ try {
   check(await answered("#writing-answer"), "Draft Notes offers notes");
   const noted = scripted.requests.at(-1)?.body.messages?.[0]?.content?.[0]?.text ?? "";
   check(noted.startsWith('The slide reads:\n<data label="slide">\n') && noted.includes("Q3 Review") && noted.includes("The point it makes:"), `asked from the slide's words and its claim: ${JSON.stringify(noted)}`);
+  // and from the notes it has, inside the fence, so a draft builds on them (lift-up 10-25c FUNC-3).
+  check(noted.includes("\nThe speaker's notes so far:\nOpen on the title.") && noted.indexOf("so far:") < noted.indexOf("</data>"), `and from the notes it has, fenced: ${JSON.stringify(noted)}`);
   await page.click("#writing-use");
   await page.evaluate(() => window.scaena.writing.settled());
   check((await source()).includes("Open on the quarter: the business changed shape"), "Use it writes the slide's notes");

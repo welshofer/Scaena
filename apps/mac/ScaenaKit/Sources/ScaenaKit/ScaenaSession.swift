@@ -156,6 +156,9 @@ public final class ScaenaSession {
     /// The deck's states, in order.
     public func states() throws -> [String] { try call("states") }
 
+    /// The deck's title, where its `meta` gives one.
+    public func title() throws -> String? { try call("title") }
+
     /// The canvas frames are laid out on, in canvas units: the deck's, or its format's.
     public func canvasSize() throws -> CGSize {
         let size: [Double] = try call("canvasSize")
