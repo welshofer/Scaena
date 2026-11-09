@@ -83,6 +83,7 @@ pub fn svg(list: &DisplayList, assets: &Assets, settings: &SvgSettings) -> Resul
         body: String::new(),
         images: HashMap::new(),
         outlines: HashMap::new(),
+        painter: CpuPainter::default(),
     };
     cx.ops(&list.ops, Affine::scale(f64::from(scale)))?;
 
@@ -124,6 +125,9 @@ struct Cx<'a> {
     /// Glyph outlines at a size, about their origin with y down: by font, instance, and
     /// size, then by glyph.
     outlines: HashMap<Face, HashMap<u32, Vec<PathEl>>>,
+    /// What draws what SVG cannot, kept for every such op of the drawing with its glyph
+    /// outlines (lift-up 20261031 PERF-1).
+    painter: CpuPainter,
 }
 
 impl Cx<'_> {
@@ -486,8 +490,7 @@ impl Cx<'_> {
             clip: None,
             ops: vec![op.clone()],
         });
-        let raster =
-            CpuPainter::default().paint(&list, self.assets, 1.0).map_err(|e| ExportError::Svg(e.to_string()))?;
+        let raster = self.painter.paint(&list, self.assets, 1.0).map_err(|e| ExportError::Svg(e.to_string()))?;
         let Some([cx, cy, cw, ch]) = covered(&raster) else { return Ok(()) };
         let Some(place) = placed(xf, x0 + f64::from(cx), y0 + f64::from(cy)) else { return Ok(()) };
         let mut pixels = Vec::with_capacity((cw * ch * 4) as usize);

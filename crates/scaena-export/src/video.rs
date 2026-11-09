@@ -304,8 +304,9 @@ fn pump(
 
 /// What paints a video's frames, made before ffmpeg starts.
 enum Painting {
-    /// The CPU painter, on this many cores.
-    Cpu(usize),
+    /// The CPU painter, one for each core it paints on, each kept from batch to batch with
+    /// its render context and glyph outlines (lift-up 20261031 PERF-1).
+    Cpu(Vec<CpuPainter>),
     #[cfg(feature = "gpu")]
     Gpu(Box<scaena_paint::gpu::GpuPainter>),
 }
@@ -326,7 +327,10 @@ const GPU_DEPTH: usize = 2;
 impl Painting {
     fn new(painter: Painter) -> Result<Self, ExportError> {
         match painter {
-            Painter::Cpu => Ok(Painting::Cpu(std::thread::available_parallelism().map_or(1, |n| n.get()).min(16))),
+            Painter::Cpu => {
+                let threads = std::thread::available_parallelism().map_or(1, |n| n.get()).min(16);
+                Ok(Painting::Cpu((0..threads).map(|_| framer()).collect()))
+            }
             #[cfg(feature = "gpu")]
             Painter::Gpu => match GPU.lock().unwrap_or_else(|e| e.into_inner()).take() {
                 Some(gpu) => Ok(Painting::Gpu(gpu)),
@@ -352,7 +356,7 @@ impl Painting {
     /// Frames to a batch: two for each core, or the GPU's.
     fn batch(&self) -> usize {
         match self {
-            Painting::Cpu(threads) => threads * 2,
+            Painting::Cpu(painters) => painters.len() * 2,
             #[cfg(feature = "gpu")]
             Painting::Gpu(_) => GPU_BATCH,
         }
@@ -380,7 +384,7 @@ impl Painting {
         assets: &Assets,
     ) -> Vec<Option<Result<Vec<u8>, ExportError>>> {
         match self {
-            Painting::Cpu(threads) => paint(lists, todo, *threads, scale, assets),
+            Painting::Cpu(painters) => paint(lists, todo, painters, scale, assets),
             #[cfg(feature = "gpu")]
             Painting::Gpu(gpu) => paint_gpu(gpu, lists, todo, scale, assets),
         }
@@ -429,23 +433,30 @@ fn paint_gpu(
     out
 }
 
-/// The frames `todo` names, painted on up to `threads` cores: for each frame of `lists`,
-/// its RGB pixels, or none where it was not asked for.
+/// A CPU painter for one core of a video's: frames are already painted on every core, so a
+/// frame's shaders take one.
+fn framer() -> CpuPainter {
+    CpuPainter { threads: 1, ..CpuPainter::default() }
+}
+
+/// The frames `todo` names, painted by `painters`, each on a core of its own: for each frame
+/// of `lists`, its RGB pixels, or none where it was not asked for.
 fn paint(
     lists: &[DisplayList],
     todo: &[usize],
-    threads: usize,
+    painters: &mut [CpuPainter],
     scale: f32,
     assets: &Assets,
 ) -> Vec<Option<Result<Vec<u8>, ExportError>>> {
     let mut out: Vec<Option<Result<Vec<u8>, ExportError>>> = (0..lists.len()).map(|_| None).collect();
     let next = std::sync::atomic::AtomicUsize::new(0);
     let done = std::thread::scope(|s| {
-        let workers: Vec<_> = (0..threads.min(todo.len()))
-            .map(|_| {
-                s.spawn(|| {
-                    // Frames are already painted on every core, so a frame's shaders take one.
-                    let mut painter = CpuPainter { threads: 1, ..CpuPainter::default() };
+        let next = &next;
+        let workers: Vec<_> = painters
+            .iter_mut()
+            .take(todo.len())
+            .map(|painter| {
+                s.spawn(move || {
                     let mut done = Vec::new();
                     loop {
                         let k = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -633,6 +644,42 @@ fn args(settings: &VideoSettings, [w, h]: [u32; 2], out: &Path, chapters: Option
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_cpu_painters_are_kept_from_batch_to_batch() {
+        use scaena_core::displaylist::{Color, FillRule, Op, Paint, Path as Outline};
+        let Ok(Painting::Cpu(painters)) = Painting::new(Painter::Cpu) else { panic!("the CPU painter") };
+        let cores = std::thread::available_parallelism().map_or(1, |n| n.get()).min(16);
+        assert_eq!(painters.len(), cores, "one painter for each core, made once");
+        assert!(painters.iter().all(|p| p.threads == 1), "a frame's shaders take one core");
+        let mut painting = Painting::Cpu(painters);
+        assert_eq!(painting.batch(), cores * 2);
+        let lists: Vec<DisplayList> = (0..5u8)
+            .map(|k| {
+                let mut list = DisplayList::new([32.0, 16.0]);
+                list.ops.push(Op::Fill {
+                    path: Outline::rect([f32::from(k), 0.0, 8.0, 8.0]),
+                    rule: FillRule::NonZero,
+                    paint: Paint::Solid(Color([200, 40 * k, 10, 255])),
+                });
+                list
+            })
+            .collect();
+        let todo: Vec<usize> = (0..lists.len()).collect();
+        let assets = Assets::new();
+        let fresh = paint(&lists, &todo, &mut (0..cores).map(|_| framer()).collect::<Vec<_>>(), 1.0, &assets);
+        // Batch after batch on the same painters, each frame painted as a new painter paints it.
+        for _ in 0..3 {
+            let kept = painting.paint(&lists, &todo, 1.0, &assets);
+            let Painting::Cpu(painters) = &painting else { unreachable!() };
+            assert_eq!(painters.len(), cores, "no painter thrown away");
+            for (a, b) in kept.iter().zip(&fresh) {
+                assert_eq!(a.as_ref().unwrap().as_ref().unwrap(), b.as_ref().unwrap().as_ref().unwrap());
+            }
+        }
+        let half = paint(&lists, &[1, 3], &mut [framer()], 1.0, &assets);
+        assert!(half[0].is_none() && half[2].is_none() && half[1].is_some() && half[3].is_some());
+    }
 
     #[test]
     fn rgb_lays_translucent_pixels_over_black() {
