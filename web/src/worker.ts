@@ -113,6 +113,8 @@ let player: Player;
  * wasm32 does not unwind: a panic traps, and the session is not used again. */
 let mirror = new Map<string, Uint8Array>();
 let mirrored: { of: Player; edition: number } | undefined;
+/** Whether the page goes on from a crash with the files, so the mirror is kept (PERF-3). */
+let recoverable = false;
 /** The panic's words, once the engine has stopped: every request after is refused with them. */
 let stopped: string | undefined;
 /** The last panic the engine's hook said, which the console hears first. */
@@ -130,18 +132,26 @@ self.addEventListener("unhandledrejection", (e) => {
   if (e.reason instanceof WebAssembly.RuntimeError) crashed(e.reason);
 });
 
-/** The mirror of the session's files, kept in step: every file copied again when their edition
- * changed, or the session is another. */
+/** The mirror of the session's files, kept in step where the page goes on from a crash with
+ * them (the editor's): the files written or taken out since its edition copied again, or every
+ * file where the session is another (lift-up 20261031 PERF-3). */
 function mirrorFiles() {
-  if (!player || stopped !== undefined) return;
+  if (!recoverable || !player || stopped !== undefined) return;
   const edition = player.filesEdition();
-  if (mirrored?.of === player && mirrored.edition === edition) return;
-  const next = new Map<string, Uint8Array>();
-  for (const path of player.files()) {
-    const bytes = player.file(path);
-    if (bytes) next.set(path, bytes);
+  if (mirrored?.of === player) {
+    if (mirrored.edition === edition) return;
+    for (const path of player.filesChangedSince(mirrored.edition)) {
+      const bytes = player.file(path);
+      if (bytes) mirror.set(path, bytes);
+      else mirror.delete(path);
+    }
+  } else {
+    mirror = new Map();
+    for (const path of player.files()) {
+      const bytes = player.file(path);
+      if (bytes) mirror.set(path, bytes);
+    }
   }
-  mirror = next;
   mirrored = { of: player, edition };
 }
 
@@ -242,6 +252,7 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
   try {
     switch (data.type) {
       case "open":
+        recoverable = data.recoverable === true;
         return await open(data.source, data.painter, data.canvas, data.engine);
       case "trap":
         return player.trap();
@@ -706,7 +717,7 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
       }
       case "export": {
         saveable(data.source);
-        const bytes = (await exporting(data.as)).slice().buffer as ArrayBuffer;
+        const bytes = (await exporting(data.as, (done, of) => post({ type: "exportProgress", id: data.id, done, of }))).slice().buffer as ArrayBuffer;
         return post({ type: "exported", id: data.id, bytes }, [bytes]);
       }
       case "drop": {
@@ -1412,7 +1423,7 @@ async function subsetFonts() {
  * module draws a PDF, loaded the first time one is asked for: the engine's module lays the
  * pages out and leaves the PDF writer out (SPEC §15). A single file's fonts are subset first,
  * as a download's are. */
-async function exporting(what: Export): Promise<Uint8Array> {
+async function exporting(what: Export, progress: (done: number, of: number) => void): Promise<Uint8Array> {
   switch (what.kind) {
     case "png":
       layOut(what.format);
@@ -1434,6 +1445,11 @@ async function exporting(what: Export): Promise<Uint8Array> {
     case "html":
       await subsetFonts();
       return new TextEncoder().encode(player.standalone(what.page, what.name, what.notes));
+    case "movie": {
+      layOut(what.format);
+      const { movie } = await import("./movie");
+      return movie(player, what.fps, what.width, what.name, progress);
+    }
   }
 }
 
