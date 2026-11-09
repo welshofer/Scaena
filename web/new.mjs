@@ -180,7 +180,11 @@ try {
   const again = (await page.evaluate(() => window.scaena.source())).replace('"Field notes"', '"Field notes, again"');
   await type(again);
   await page.evaluate(() => window.scaena.save());
-  await page.goto(editor("folder:on-disk"));
+  // The page's address names the folder by the key it is kept under, never its name, which another
+  // folder may share (the 20261031 plan's REL-2).
+  const onDisk = new URL(page.url()).searchParams.get("bundle");
+  check(onDisk?.startsWith("folder:") && onDisk !== "folder:on-disk", `the address names the folder by its key: ${onDisk}`);
+  await page.goto(editor(onDisk));
   await ready("on-disk");
   check((await page.evaluate(() => window.scaena.source())).includes('"Field notes, again"'), "a save writes the folder, and the page opens it from there");
 
