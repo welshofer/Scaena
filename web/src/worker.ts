@@ -111,6 +111,8 @@ let player: Player;
  * wasm32 does not unwind: a panic traps, and the session is not used again. */
 let mirror = new Map<string, Uint8Array>();
 let mirrored: { of: Player; edition: number } | undefined;
+/** Whether the page goes on from a crash with the files, so the mirror is kept (PERF-3). */
+let recoverable = false;
 /** The panic's words, once the engine has stopped: every request after is refused with them. */
 let stopped: string | undefined;
 /** The last panic the engine's hook said, which the console hears first. */
@@ -128,18 +130,26 @@ self.addEventListener("unhandledrejection", (e) => {
   if (e.reason instanceof WebAssembly.RuntimeError) crashed(e.reason);
 });
 
-/** The mirror of the session's files, kept in step: every file copied again when their edition
- * changed, or the session is another. */
+/** The mirror of the session's files, kept in step where the page goes on from a crash with
+ * them (the editor's): the files written or taken out since its edition copied again, or every
+ * file where the session is another (lift-up 20261031 PERF-3). */
 function mirrorFiles() {
-  if (!player || stopped !== undefined) return;
+  if (!recoverable || !player || stopped !== undefined) return;
   const edition = player.filesEdition();
-  if (mirrored?.of === player && mirrored.edition === edition) return;
-  const next = new Map<string, Uint8Array>();
-  for (const path of player.files()) {
-    const bytes = player.file(path);
-    if (bytes) next.set(path, bytes);
+  if (mirrored?.of === player) {
+    if (mirrored.edition === edition) return;
+    for (const path of player.filesChangedSince(mirrored.edition)) {
+      const bytes = player.file(path);
+      if (bytes) mirror.set(path, bytes);
+      else mirror.delete(path);
+    }
+  } else {
+    mirror = new Map();
+    for (const path of player.files()) {
+      const bytes = player.file(path);
+      if (bytes) mirror.set(path, bytes);
+    }
   }
-  mirror = next;
   mirrored = { of: player, edition };
 }
 
@@ -240,6 +250,7 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
   try {
     switch (data.type) {
       case "open":
+        recoverable = data.recoverable === true;
         return await open(data.source, data.painter, data.canvas, data.engine);
       case "trap":
         return player.trap();
