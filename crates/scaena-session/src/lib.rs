@@ -44,6 +44,8 @@ mod formats;
 #[cfg(feature = "generate")]
 pub mod making;
 #[cfg(feature = "editor")]
+pub mod movie;
+#[cfg(feature = "editor")]
 pub mod store;
 #[cfg(feature = "editor")]
 mod theme;
@@ -2895,6 +2897,37 @@ mod tests {
         let said = slots.as_array().unwrap().iter().find(|slot| slot["state"] == "mix").unwrap();
         assert_eq!(said["story"]["section"], "Growth");
         assert_eq!(said["story"]["planned"], 60.0);
+    }
+
+    /// The deck as a movie (lift-up 20261031 FUNC-2): the CLI's reel, its frames as long as the
+    /// paced timeline, a frame drawn as the one before it not painted again, and a frame past the
+    /// last refused.
+    #[cfg(feature = "editor")]
+    #[test]
+    fn the_deck_plays_as_a_movie_painting_each_frame_once() {
+        let mut s = revenue();
+        let plan = s.movie(10).unwrap();
+        let timeline = s.timeline().unwrap();
+        let paced = scaena_core::spine::paced(&s.deck, &timeline, scaena_core::spine::Pace::Beats);
+        let length: f64 = paced.slots.iter().map(|slot| slot.span + slot.hold).sum();
+        assert_eq!(plan["frames"], (length * 10.0 / 1000.0).ceil() as u64, "{plan}");
+        assert_eq!(plan["fps"], 10);
+        let first = s.movie_frame(10, 0, 160, None).unwrap();
+        let raster = first.raster.expect("the first frame is painted");
+        assert_eq!(raster.width, 160);
+        assert_eq!(raster.rgba.len(), (raster.width * raster.height * 4) as usize);
+        let again = s.movie_frame(10, 0, 160, Some(&first.digest)).unwrap();
+        assert!(again.raster.is_none(), "drawn as the frame before it: not painted again");
+        assert_eq!(again.digest, first.digest);
+        // Somewhere along it the deck moves on: a frame drawn otherwise is painted.
+        let frames = plan["frames"].as_u64().unwrap();
+        let moved = (1..frames)
+            .map(|k| s.movie_frame(10, k, 160, Some(&first.digest)).unwrap())
+            .find(|f| f.digest != first.digest);
+        assert!(moved.is_some_and(|f| f.raster.is_some()), "a frame drawn otherwise is painted");
+        let past = s.movie_frame(10, frames, 160, None).err().expect("no frame past the last");
+        assert!(past.to_string().contains("frames"), "{past}");
+        assert!(s.movie(0).is_err(), "no movie of 0 frames a second");
     }
 
     use super::*;
