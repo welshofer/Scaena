@@ -1870,7 +1870,49 @@ def family(geometry):
         rows, (margin, _) = grid["rows"], grid["margin"]
         row = (1080 - 2 * margin - (rows - 1) * grid["gutter"]) / rows
         _FAMILIES[geometry] = (roles, row, grid["gutter"])
+        _ROWS[geometry] = rows
     return _FAMILIES[geometry]
+
+
+# Each geometry family's grid's rows: how far down a slot may reach.
+_ROWS = {}
+
+
+def lines(s, roles, row, gutter):
+    """How many lines of its role a text slot holds: its height over the tallest line the family's
+    themes set the role in."""
+    return math.floor(height(s, row, gutter) / roles[s["role"]][3] + 1e-9)
+
+
+def free_by(s, slots, rows, up=False):
+    """How many rows under slot `s`, or over it, stand empty in its columns, to the grid's edge:
+    rows it may reach into."""
+    cs, (first, last) = cells(s)
+    free = 0
+    for r in range(first - 1, 0, -1) if up else range(last + 1, rows + 1):
+        if any(
+            o is not s and "row" in o and "col" in o and cells(o)[1][0] <= r <= cells(o)[1][1] and not (cells(o)[0][1] < cs[0] or cells(o)[0][0] > cs[1])
+            for o in slots.values()
+        ):
+            break
+        free += 1
+    return free
+
+
+def raised(a, by, slots, geometry):
+    """Slot `a`'s inset with its foot `by` higher, reaching into as few free rows over it as keep
+    every line of its role it held; none where no reach keeps them, or it has an inset of its own
+    at its sides."""
+    roles, row, gutter = family(geometry)
+    top, right, bottom, left = sides(a.get("inset"))
+    if right or left:
+        return None
+    held = lines(a, roles, row, gutter)
+    for k in range(0, free_by(a, slots, _ROWS[geometry], up=True) + 1):
+        inset = {**({"top": -round(k * (row + gutter))} if k else ({"top": top} if top else {})), "bottom": bottom + by}
+        if lines({**a, "inset": inset}, roles, row, gutter) >= max(held, 1):
+            return inset
+    return None
 
 
 def sides(inset):
@@ -1886,10 +1928,45 @@ def apart(inset):
         return inset
     top, right, bottom, left = sides(inset)
     # Its top taken by words under a text, or its bottom by a display text over words: the other
-    # three sides are what its layout gave it.
+    # three sides are what its layout gave it. A slot that reaches into the rows under or over it,
+    # a side past its cells, had no inset of its own.
+    if bottom < 0 or top < 0:
+        return None
     if right == bottom == left or top == right == left:
         return right or None
     return None
+
+
+ORDINALS = ("first", "second", "third", "fourth", "fifth", "sixth")
+
+
+def sibling(s, slots):
+    """What slot `s` shares with its siblings in a row (`first-title`, `second-title`, … or
+    `first`, `second`, …, on the same rows in the same role): itself where it has none."""
+    key = next(k for k, v in slots.items() if v is s)
+    head, _, rest = key.partition("-")
+    if head not in ORDINALS:
+        return key
+    return (rest, s.get("role"), tuple(cells(s)[1]))
+
+
+def own(a, b, need, slots, geometry):
+    """How words `b` under text `a` would stand clear of its descenders by `need`, alone: `take`
+    it at their top, `reach` that many free rows under them, `lift` the text over them, or `keep`
+    their least line where none of those holds every line."""
+    roles, row, gutter = family(geometry)
+    top, right, bottom, left = sides(b.get("inset"))
+    held = lines(b, roles, row, gutter)
+    taken = {"top": top + need, **({"right": right, "bottom": bottom, "left": left} if right else {})}
+    if lines({**b, "inset": taken}, roles, row, gutter) >= held:
+        return ("take", None)
+    if not right:
+        for k in range(1, free_by(b, slots, _ROWS[geometry]) + 1):
+            if lines({**b, "inset": {"top": need, "bottom": -round(k * (row + gutter))}}, roles, row, gutter) >= held:
+                return ("reach", k)
+    if raised(a, need, slots, geometry) is not None or a["role"] in FIGURES or lines({**b, "inset": taken}, roles, row, gutter) < 1:
+        return ("lift", None)
+    return ("keep", None)
 
 
 def cleared(slots, geometry):
@@ -1901,6 +1978,8 @@ def cleared(slots, geometry):
             s["inset"] = apart(s["inset"])
             if s["inset"] is None:
                 del s["inset"]
+    given = {k: dict(s) for k, s in out.items()}
+    pairs = []
     for a in out.values():
         role = roles.get(a.get("role"))
         if not role or not role[2] or "row" not in a:
@@ -1938,19 +2017,89 @@ def cleared(slots, geometry):
             # steps down where it fills, where it says nothing of its own fit.
             a["fit"] = "shrink"
             continue
-        # Words under a text set on its foot take the clearance at their top, unless that leaves
-        # them less than a line of their role: then the text over them stands that much higher.
-        lifted = 0
-        for b, need in under:
-            top, right, bottom, left = sides(b.get("inset"))
-            if height(b, row, gutter) - need < roles[b["role"]][3]:
-                lifted = max(lifted, need)
-                continue
+        pairs.extend((a, b, need) for b, need in under)
+    # Words under a text set on its foot take the clearance at their top where they keep every
+    # line of their role they held; else, with rows free under them in their columns and no inset
+    # of their own, they reach as far into those rows as their lines ask (a foot below their
+    # cells); else the text over them stands that much higher (F4). Siblings in a row (`first-…`,
+    # `second-…`, … on the same rows in the same role) take one of these alike, so their baselines
+    # stay in line: where one cannot reach, the whole row takes the room from the texts over it.
+    decided = [own(a, b, need, out, geometry) for a, b, need in pairs]
+    by = {}
+    for i, (_, b, _) in enumerate(pairs):
+        by.setdefault(sibling(b, out), []).append(i)
+    for members in by.values():
+        ways = {decided[i][0] for i in members}
+        if len(ways) == 1 and ways != {"reach"}:
+            continue
+        reach = max((decided[i][1] for i in members if decided[i][0] == "reach"), default=0)
+        reaching = "lift" not in ways and all(
+            free_by(pairs[i][1], out, _ROWS[geometry]) >= reach and not sides(pairs[i][1].get("inset"))[1] for i in members
+        )
+        for i in members:
+            decided[i] = ("reach", reach) if reaching and reach else ("lift", None)
+    # Words under two texts take the deeper clearance once.
+    lifted, taking = {}, {}
+    for (a, b, need), (way, k) in zip(pairs, decided):
+        if way == "lift":
+            lifted[id(a)] = (a, max(lifted.get(id(a), (a, 0))[1], need))
+        else:
+            # `keep`: the text over them cannot stand higher without losing a line of its own, and
+            # the words keep their least line.
+            was = taking.get(id(b), (b, 0, None, 0))
+            taking[id(b)] = (b, max(was[1], need), way if way == "reach" or was[2] != "reach" else "reach", max(was[3], k or 0))
+    for b, need, way, k in taking.values():
+        top, right, bottom, left = sides(b.get("inset"))
+        if way == "reach":
+            b["inset"] = {"top": need, "bottom": -round(k * (row + gutter))}
+        else:
             b["inset"] = {"top": top + need, **({"right": right, "bottom": bottom, "left": left} if right else {})}
-        if lifted:
-            top, right, bottom, left = sides(a.get("inset"))
-            a["inset"] = {**({"top": top, "right": right} if right else {}), "bottom": bottom + lifted, **({"left": left} if right else {})}
-    return out
+    for a, by_ in lifted.values():
+        top, right, bottom, left = sides(a.get("inset"))
+        a["inset"] = raised(a, by_, out, geometry) or {
+            **({"top": top, "right": right} if right else {}),
+            "bottom": bottom + by_,
+            **({"left": left} if right else {}),
+        }
+    return out, given
+
+
+# Roles a figure is set in, "$4.2M" or "1": one line. Over words with nowhere to reach, a figure
+# stands higher and holds that line, so the words under it keep every line they held (F4).
+FIGURES = {"figure", "numeral", "hero"}
+
+
+def in_line(theme, name, slots):
+    """Siblings in a row (`first-…`, `second-…`, … on the same rows in the same role) stand clear
+    alike, the same inset at their top and at their foot, so their baselines line up."""
+    rows = {}
+    for key, s in slots.items():
+        if s.get("role") and "row" in s:
+            group = sibling(s, slots)
+            if isinstance(group, tuple):
+                rows.setdefault(group, []).append((key, sides(s.get("inset"))[0], sides(s.get("inset"))[2]))
+    for members in rows.values():
+        assert len({(t, b) for _, t, b in members}) == 1, f"{theme}'s {name}: siblings stand clear unlike: " + ", ".join(
+            f"`{k}` (top {t:g}, bottom {b:g})" for k, t, b in members
+        )
+
+
+def kept_lines(theme, name, slots, given, geometry):
+    """Each text slot the clearance moved holds every line of its role it held as its layout gave
+    it (F4): a display text over words, which steps down where it fills, and a figure, which holds
+    its one, aside."""
+    roles, row, gutter = family(geometry)
+    lost = [
+        f"`{k}` ({lines(given[k], roles, row, gutter)} lines of its {s['role']} to {lines(s, roles, row, gutter)})"
+        for k, s in slots.items()
+        if s.get("role") in roles
+        and "row" in s
+        and s.get("inset") != given[k].get("inset")
+        and not (s["role"] == "display" and s.get("fit") == "shrink")
+        and not (s["role"] in FIGURES and lines(s, roles, row, gutter) >= 1)
+        and lines(s, roles, row, gutter) < lines(given[k], roles, row, gutter)
+    ]
+    assert not lost, f"{theme}'s {name}: the clearance costs " + ", ".join(lost)
 
 
 def height(s, row, gutter):
@@ -1997,8 +2146,10 @@ def library(theme, old, geometry):
                     layout["slots"][key].update(changes)
                 for key, changes in OLD_SLOTS_IN.get(geometry, {}).get(name, {}).items():
                     layout["slots"][key].update(changes)
-            layout["slots"] = cleared(layout["slots"], geometry)
+            layout["slots"], given = cleared(layout["slots"], geometry)
             holding(theme, name, layout["slots"], geometry)
+            kept_lines(theme, name, layout["slots"], given, geometry)
+            in_line(theme, name, layout["slots"])
             checked(theme, name, layout["slots"], name in NEW)
             out[name] = layout
     missing = set(old) - set(out)

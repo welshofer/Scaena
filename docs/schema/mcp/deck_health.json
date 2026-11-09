@@ -35,6 +35,11 @@
         "properties": {
           "state": { "description": "Its first state: where an editor goes to show it.", "type": "string" },
           "beat": { "description": "The beat that tells it, where one does.", "type": ["string", "null"] },
+          "part": {
+            "description": "The beat of the arc it was written for, by its place in [`Health::beats`], where it names\none the arc has: the band the graph draws it in (lift-up ATTR-4).",
+            "type": ["integer", "null"],
+            "minimum": 0
+          },
           "title": { "description": "Its headline.", "type": "string" },
           "curve": {
             "description": "Where the curve of the arc it was written to stands at its place, 0–1.",
@@ -178,7 +183,7 @@
         "type": ["string", "null"]
       },
       "beats": {
-        "description": "The arc's beats, by name, in order; none for an arc the catalog does not name.",
+        "description": "The deck's beats, by name, in order: its settled outline's where it has one, else its\narc's; none for an arc the catalog does not name and no outline.",
         "type": "array",
         "items": { "type": "string" }
       },
