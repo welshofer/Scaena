@@ -117,7 +117,7 @@ const DEEP: usize = 16 << 20;
 /// the caller's own is left: a call of the session's has the room any deck takes to lay out,
 /// whichever thread Swift calls from, and stays on that thread, so what core keeps per thread
 /// (the theme checked, `validate::CHECKED`) is kept from call to call.
-fn deep<T>(f: impl FnOnce() -> T) -> T {
+pub(crate) fn deep<T>(f: impl FnOnce() -> T) -> T {
     stacker::maybe_grow(ROOM, DEEP, f)
 }
 
@@ -355,7 +355,9 @@ pub unsafe extern "C" fn scaena_laying_new(session: *mut ScaenaSession) -> *mut 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn scaena_laying_lay(laying: *mut ScaenaLaying) -> bool {
     guarded(|| {
-        unsafe { handle(laying, "laying") }?.0.lay();
+        // On the stack any deck takes to lay out, whichever thread calls (lift-up 20261031 STAB-1).
+        let laying = unsafe { handle(laying, "laying") }?;
+        deep(|| laying.0.lay());
         Ok(())
     })
     .is_ok()
