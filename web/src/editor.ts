@@ -114,6 +114,7 @@ import { type Selected, typingKeys } from "./typing";
 import { themePanel } from "./theme-panel";
 import { versionsPanel } from "./versions";
 import { offline } from "./offline";
+import { encodes, UNENCODED } from "./movie";
 
 const params = new URLSearchParams(location.search);
 const painter = (params.get("painter") ?? "auto") as Painter;
@@ -265,7 +266,7 @@ async function open(source: Source, asked = false) {
   $("#status").textContent = "Opening…";
   let stage: Stage;
   try {
-    stage = await Stage.open($<HTMLCanvasElement>("#stage"), source, painter, worker);
+    stage = await Stage.open($<HTMLCanvasElement>("#stage"), source, painter, worker, true);
   } catch (e) {
     const why = `${namedFor(source)} can't be opened: ${said(e)}`;
     if (current) current.say(why);
@@ -530,7 +531,7 @@ async function edit(source: Source, opened?: Stage) {
   // The toolbar's icons, its File menu, and its keys (lift-up ATTR-5).
   toolbar($("#toolbar"));
   const play = $<HTMLAnchorElement>("#play");
-  const stage = opened ?? (await Stage.open($<HTMLCanvasElement>("#stage"), source, painter, worker));
+  const stage = opened ?? (await Stage.open($<HTMLCanvasElement>("#stage"), source, painter, worker, true));
   stage.onError = failed;
   /** On a served page, the deck's source on disk, where the folder keeps one (PLAN 2.11). */
   const scnOnDisk = "url" in source && source.serve && (await onDisk()).source ? new URL("deck.scn", source.url) : undefined;
@@ -1049,8 +1050,8 @@ async function edit(source: Source, opened?: Stage) {
     keepClaim.title = restating ? "Keep the story's claim for this slide as it is" : "Put this away: the claim stays as it is";
     [offering.hidden, restate.hidden, keepClaim.hidden] = [false, restating === undefined, false];
   }
-  keepClaim.addEventListener("click", unoffer);
-  restate.addEventListener("click", async () => {
+  heed(keepClaim, "click", unoffer);
+  heed(restate, "click", async () => {
     const now = showing();
     const ask = restating;
     if (!now || !ask) return;
@@ -2276,9 +2277,10 @@ async function edit(source: Source, opened?: Stage) {
    * speaker notes left out (lift-up 20261025 SEC-3). Each is made in the worker: nothing is
    * sent anywhere. */
   async function exportAs(
-    as: "png" | "slides" | "pdf" | "html",
+    as: "png" | "slides" | "pdf" | "html" | "movie",
     width?: number,
     notes = false,
+    fps = 30,
   ): Promise<{ file: string; bytes: ArrayBuffer } | undefined> {
     await settled();
     let what: Export;
@@ -2301,6 +2303,15 @@ async function edit(source: Source, opened?: Stage) {
     } else if (as === "pdf") {
       what = { kind: "pdf", notes };
       file = notes ? `${name} - Notes.pdf` : `${name}.pdf`;
+    } else if (as === "movie") {
+      // The deck as it plays (lift-up 20261031 FUNC-2), encoded by the browser's own encoder.
+      if (!encodes()) {
+        say(`Not exported: ${UNENCODED}`);
+        return;
+      }
+      const shownIn = format();
+      what = { kind: "movie", fps, width: width ?? board.size()[0], format: shownIn, name };
+      file = `${name}${shownIn ? ` (${shownIn.replace(/[^\w.-]+/g, "x")})` : ""}.webm`;
     } else {
       const page = await fetch(new URL("standalone.html", document.baseURI)).catch(() => undefined);
       if (!page?.ok) {
@@ -2313,12 +2324,14 @@ async function edit(source: Source, opened?: Stage) {
     say(`Exporting ${file}…`);
     let bytes: ArrayBuffer;
     try {
-      bytes = await stage.export(view.state.doc.toString(), what);
+      // A movie is painted frame by frame: how far it has come is said as it goes.
+      const progress = as === "movie" ? (done: number, of: number) => say(`Exporting ${file}… ${Math.floor((100 * done) / Math.max(of, 1))}%`) : undefined;
+      bytes = await stage.export(view.state.doc.toString(), what, progress);
     } catch (e) {
       say(`Not exported: ${said(e)}`);
       return;
     }
-    const type = { png: "image/png", slides: "application/zip", pdf: "application/pdf", html: "text/html" }[as];
+    const type = { png: "image/png", slides: "application/zip", pdf: "application/pdf", html: "text/html", movie: "video/webm" }[as];
     const url = URL.createObjectURL(new Blob([bytes], { type }));
     Object.assign(document.createElement("a"), { href: url, download: file }).click();
     setTimeout(() => URL.revokeObjectURL(url), 60_000);
@@ -2836,6 +2849,7 @@ async function edit(source: Source, opened?: Stage) {
         run: () => exportAs("pdf", undefined, true).catch(failed),
       },
       { label: "Export the deck as one HTML file", applies: () => last?.valid === true, run: () => exportAs("html").catch(failed) },
+      { label: "Export the deck as a movie…", applies: () => last?.valid === true, run: () => openExport("movie") },
       { label: "Play", applies: () => !play.hidden, run: () => play.click() },
       { label: "New deck…", run: () => $("#new-deck").click() },
       { label: "New deck from a prompt…", run: () => $("#new-prompt").click() },
@@ -2992,14 +3006,20 @@ async function edit(source: Source, opened?: Stage) {
   const exportWidth = $<HTMLInputElement>("#exporting-width");
   const exportNote = $("#exporting-note");
   const withNotes = $<HTMLInputElement>("#exporting-with-notes");
-  type ExportAs = "png" | "slides" | "pdf" | "html";
+  const exportFps = $<HTMLSelectElement>("#exporting-fps");
+  type ExportAs = "png" | "slides" | "pdf" | "html" | "movie";
   const chosenExport = () => exporting.querySelector<HTMLInputElement>("input[name=as]:checked")!.value as ExportAs;
   /** What the export chosen makes, said under the choices. */
   const noteExport = () => {
     const as = chosenExport();
-    const sized = as === "png" || as === "slides";
+    const sized = as === "png" || as === "slides" || as === "movie";
     $("#exporting-size").hidden = !sized;
     exportWidth.disabled = !sized;
+    $("#exporting-rate").hidden = as !== "movie";
+    exportFps.disabled = as !== "movie";
+    // A browser with no encoder makes no movie, and says so before it is asked (lift-up 20261031
+    // FUNC-2).
+    $<HTMLButtonElement>("#exporting-go").disabled = as === "movie" && !encodes();
     // A PDF prints the presenter's notes, and a single file keeps them, only where they are asked
     // for: a single file is what a speaker sends the room (lift-up 20261025 SEC-3; Jay's call,
     // 2026-10-25).
@@ -3023,6 +3043,11 @@ async function edit(source: Source, opened?: Stage) {
       pdf: notes
         ? "A page for each slide at its last state, drawn smaller, the notes you read for it under it, notes too long for the page going on to the next: text that copies and searches, tagged for a screen reader."
         : "A page for each slide at its last state: vector paths, text in subset fonts that copies and searches as the deck reads, tagged for a screen reader.",
+      movie: !encodes()
+        ? UNENCODED
+        : whole
+          ? `The deck as it plays: each slide's transition and builds, then its hold, paced by its beats where it has none${format() ? `, in ${format()}` : ""}: ${pixels}, ${exportFps.value} frames a second, VP9 in WebM. Each frame is painted here, which takes a while for a long deck.`
+          : "A width in whole pixels: the height keeps the canvas's aspect.",
       html: `The player and the deck in one file that plays in a browser with no network, its fonts subset to what the deck draws${
         notes
           ? ", with the speaker notes, the sources each beat cites, and what was planned for it, which anyone who opens the file can read"
@@ -3044,15 +3069,18 @@ async function edit(source: Source, opened?: Stage) {
     noteExport();
     exporting.returnValue = "";
     exporting.showModal();
-    (as === "png" || as === "slides" ? exportWidth : $<HTMLButtonElement>("#exporting-go")).focus();
+    (as === "png" || as === "slides" || as === "movie" ? exportWidth : $<HTMLButtonElement>("#exporting-go")).focus();
   };
   $<HTMLButtonElement>("#export").onclick = () => openExport();
   exporting.onclose = () => {
     if (exporting.returnValue !== "export") return;
     const as = chosenExport();
-    void exportAs(as, as === "png" || as === "slides" ? Number(exportWidth.value) : undefined, (as === "pdf" || as === "html") && withNotes.checked).catch(
-      failed,
-    );
+    void exportAs(
+      as,
+      as === "png" || as === "slides" || as === "movie" ? Number(exportWidth.value) : undefined,
+      (as === "pdf" || as === "html") && withNotes.checked,
+      Number(exportFps.value),
+    ).catch(failed);
   };
   onkeydown = (e) => {
     if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") {
@@ -3125,6 +3153,8 @@ async function edit(source: Source, opened?: Stage) {
   current = {
     close: (lost) => {
       clearTimeout(pending);
+      // A rehearsal running stops with its deck, saying nothing of it (lift-up 20261031 STAB-5).
+      rehearsing.stop(true);
       let gone: Promise<void> | undefined;
       if (lost) {
         clearTimeout(copyTimer);
@@ -3234,8 +3264,9 @@ async function edit(source: Source, opened?: Stage) {
       saveAs,
       download,
       /** Export (PLAN 2.54): `png` (the state shown, `width` pixels wide), `slides` (every slide so,
-       * in one zip, PLAN 2.122), `pdf`, or `html`, as the Export dialog does; the file's name and
-       * bytes, also downloaded. */
+       * in one zip, PLAN 2.122), `pdf`, `html`, or `movie` (`width` wide, `fps` frames a second,
+       * lift-up 20261031 FUNC-2), as the Export dialog does; the file's name and bytes, also
+       * downloaded. */
       exportAs,
       /** Drop a file named `name` at `at` in the source (the cursor by default). */
       drop: (name: string, bytes: ArrayBuffer, at?: number) => drop([new File([bytes], name)], at ?? view.state.selection.main.head),

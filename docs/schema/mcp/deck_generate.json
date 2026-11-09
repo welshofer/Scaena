@@ -1,9 +1,42 @@
 {
   "name": "deck_generate",
-  "description": "Make a deck from slides written in the JSON Narrato writes them in (`scaena generate --slides`, ADR-0026), with no model called: the spine, a section for each run of slides in one beat of the arc and a beat for each slide, each slide an absolute state in the theme layout its `layoutSuggestion` comes to, its builds, and the fields `deck_health` reads (`media.narrato`), lint's fixes applied. A new bundle at `bundle`, in `theme`, as `deck_create` makes one; a deck in a script the theme's fonts do not draw is refused, since the CLI alone fetches a script's font.",
+  "description": "Make a deck from slides written in the JSON Narrato writes them in (`scaena generate --slides`, ADR-0026), with no model called: the spine, a section for each run of slides in one beat of the arc and a beat for each slide, each slide an absolute state in the theme layout its `layoutSuggestion` comes to, its builds, and the fields `deck_health` reads (`media.narrato`), lint's fixes applied. With `outline`, the big idea and each beat's claim the slides were written to, the sections are its beats and health holds the deck to its claims. A new bundle at `bundle`, in `theme`, as `deck_create` makes one; a deck in a script the theme's fonts do not draw is refused, since the CLI alone fetches a script's font.",
   "inputSchema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
-    "required": ["bundle", "slides"],
+    "$defs": {
+      "GivenOutline": {
+        "description": "An outline written beside the slides (lift-up 10-25c FUNC-1).",
+        "type": "object",
+        "properties": {
+          "bigIdea": { "description": "The one sentence the audience should remember.", "type": "string" },
+          "beats": { "description": "The beats, in order.", "type": "array", "items": { "$ref": "#/$defs/GivenBeat" } }
+        },
+        "additionalProperties": false,
+        "required": ["bigIdea", "beats"]
+      },
+      "GivenBeat": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "description": "Its name (\"Problem\", \"The ask\"); `Beat N` without it.",
+            "type": "string",
+            "default": ""
+          },
+          "claim": {
+            "description": "The one sentence its slides leave the audience believing. A beat with none is passed over.",
+            "type": "string"
+          },
+          "slides": {
+            "description": "The slides it takes; spread from the length without it.",
+            "type": "integer",
+            "minimum": 0,
+            "default": 0
+          }
+        },
+        "additionalProperties": false,
+        "required": ["claim"]
+      }
+    },
     "type": "object",
     "properties": {
       "bundle": {
@@ -50,13 +83,38 @@
         "type": ["string", "null"],
         "default": null
       },
+      "outline": {
+        "description": "The big idea and each beat's claim the slides were written to, in the beats' order: the\ndeck's sections are its beats, a slide's `beatIndex` counting them from 0, and health\nholds each slide to its beat's claim and the closing to the big idea.",
+        "anyOf": [{ "$ref": "#/$defs/GivenOutline" }, { "type": "null" }]
+      },
+      "voice": {
+        "description": "The voice its words take: tone, vocabulary, posture.",
+        "type": ["string", "null"],
+        "default": null
+      },
+      "desiredOutcomes": {
+        "description": "What it should achieve, in the user's words.",
+        "type": ["string", "null"],
+        "default": null
+      },
+      "modality": {
+        "description": "How it is delivered: `in-person`, `virtual-live`, `hybrid-live`, `keynote`, `webinar`,\n`recorded-video`, or `asynchronous`.",
+        "type": ["string", "null"],
+        "default": null
+      },
+      "persona": {
+        "description": "One of Narrato's personas, by its id, for an audience in the user's own words.",
+        "type": ["string", "null"],
+        "default": null
+      },
       "history": {
         "description": "Keep a history, as `deck_create` does: on unless `false`.",
         "type": "boolean",
         "default": true
       }
     },
-    "additionalProperties": false
+    "additionalProperties": false,
+    "required": ["bundle", "slides"]
   },
   "outputSchema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
