@@ -212,8 +212,13 @@ function renamedIn(source: string, renamed: [string, string][]): string {
  * still opens by it. The database is closed once each call's transaction ends. */
 function folders<T>(mode: IDBTransactionMode, act: (store: IDBObjectStore) => IDBRequest<T>): Promise<T> {
   return new Promise((resolve, reject) => {
-    const db = indexedDB.open("scaena", 1);
-    db.onupgradeneeded = () => db.result.createObjectStore("folders");
+    // Version 2 keeps each folder as `{ handle, name }`, found by its name without reading any
+    // handle back; version 1 kept the bare handle under its name, which still opens.
+    const db = indexedDB.open("scaena", 2);
+    db.onupgradeneeded = () => {
+      const store = db.result.objectStoreNames.contains("folders") ? db.transaction!.objectStore("folders") : db.result.createObjectStore("folders");
+      if (!store.indexNames.contains("name")) store.createIndex("name", "name");
+    };
     db.onerror = () => reject(db.error);
     db.onsuccess = () => {
       const tx = db.result.transaction("folders", mode);
@@ -228,28 +233,43 @@ function folders<T>(mode: IDBTransactionMode, act: (store: IDBObjectStore) => ID
   });
 }
 
+/** A folder as the store keeps it: its handle and its name, or, kept before, the bare handle. */
+type KeptFolder = { handle: FileSystemDirectoryHandle; name: string } | FileSystemDirectoryHandle;
+const handleOf = (kept: KeptFolder | undefined) => (kept && "handle" in kept ? kept.handle : kept);
+
 /** Each folder's key in the store, as it was kept or found there. */
 const folderKeys = new WeakMap<FileSystemDirectoryHandle, string>();
+/** The folders this page kept or found, by their keys: a folder opened again by another handle
+ * is told by them first, and none is read back from the store again. */
+const foldersHere = new Map<string, FileSystemDirectoryHandle>();
+
+/** Whether `a` and `b` are one folder. */
+const same = (a: FileSystemDirectoryHandle, b: FileSystemDirectoryHandle) => a.isSameEntry(b).catch(() => false);
 
 /** Keep `handle` in the store, under the key a handle to the same folder has there, else a new
- * one: the key, which the page's address and the folder's recovery copy name it by. */
+ * one: the key, which the page's address and the folder's recovery copy name it by. Only the
+ * folders kept under its name are read back to tell (lift-up 20261031 REL-2). */
 async function keepFolder(handle: FileSystemDirectoryHandle): Promise<string> {
-  const known = folderKeys.get(handle);
-  if (known) return known;
-  const [keys, handles] = await Promise.all([
-    folders<IDBValidKey[]>("readonly", (store) => store.getAllKeys()),
-    folders<FileSystemDirectoryHandle[]>("readonly", (store) => store.getAll()),
-  ]);
-  let key: string | undefined;
-  for (const [i, old] of handles.entries()) {
-    if (typeof keys[i] === "string" && (await handle.isSameEntry(old).catch(() => false))) {
-      key = keys[i];
-      break;
+  let key = folderKeys.get(handle);
+  for (const [k, here] of foldersHere) if (key === undefined && (await same(handle, here))) key = k;
+  if (key === undefined) {
+    const named = await folders<IDBValidKey[]>("readonly", (store) => store.index("name").getAllKeys(handle.name));
+    // A folder kept before by its bare name.
+    if ((await folders<number>("readonly", (store) => store.count(handle.name))) > 0) named.push(handle.name);
+    for (const k of named) {
+      if (typeof k !== "string" || foldersHere.has(k)) continue;
+      const old = handleOf(await folders<KeptFolder | undefined>("readonly", (store) => store.get(k)));
+      if (old && (await same(handle, old))) {
+        key = k;
+        break;
+      }
     }
   }
   key ??= crypto.randomUUID();
-  await folders("readwrite", (store) => store.put(handle, key));
+  const kept: KeptFolder = { handle, name: handle.name };
+  await folders("readwrite", (store) => store.put(kept, key));
   folderKeys.set(handle, key);
+  foldersHere.set(key, handle);
   return key;
 }
 
@@ -507,9 +527,10 @@ async function first(): Promise<Source> {
     return served && "url" in source ? { ...source, serve: serving } : source;
   }
   const key = bundle.slice("folder:".length);
-  const handle = await folders<FileSystemDirectoryHandle | undefined>("readonly", (store) => store.get(key));
+  const handle = handleOf(await folders<KeptFolder | undefined>("readonly", (store) => store.get(key)));
   if (!handle) throw new Error("the folder this address names was not opened here: open it again");
   folderKeys.set(handle, key);
+  foldersHere.set(key, handle);
   const name = handle.name;
   if ((await handle.queryPermission({ mode: "readwrite" })) === "granted") return { folder: handle };
   const again = $<HTMLButtonElement>("#again");
