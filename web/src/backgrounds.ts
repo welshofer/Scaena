@@ -8,6 +8,7 @@
 // (`scaena_ops::backgrounds`). A slide with a chart or a table says why backgrounds stay off it
 // (lint W311): each is dimmed and refused with that reason, and None takes one away.
 
+import { lifetime, listen as heed, observing } from "./life";
 import type { Stage } from "./stage";
 import type { Backgrounds, Edited } from "./protocol";
 
@@ -51,10 +52,14 @@ export function backgrounds(stage: Stage, around: Around) {
   let painting = false;
   let seen = false;
   const still = window.matchMedia("(prefers-reduced-motion: reduce)");
-  const sight = new IntersectionObserver((entries) => {
-    seen = entries.some((e) => e.isIntersecting);
-    tick();
-  });
+  // Let go, with what `listen` wires, when the editor opens another bundle (lift-up 20261031
+  // STAB-5): the page's `#look` stays, and the next bundle's row is wired afresh.
+  const sight = observing(
+    new IntersectionObserver((entries) => {
+      seen = entries.some((e) => e.isIntersecting);
+      tick();
+    }),
+  );
 
   /** Into `section`, the row for the state shown: drawn now from what was drawn for it, and asked
    * for again where there is none. */
@@ -205,29 +210,29 @@ export function backgrounds(stage: Stage, around: Around) {
     }
   }
 
-  /** Wire the row's events on `into`, which holds it. */
+  /** Wire the row's events on `into`, which holds it, until the editor opens another bundle. */
   function listen(into: HTMLElement) {
-    into.addEventListener("keydown", keys);
-    into.addEventListener("click", (e) => {
+    heed(into, "keydown", keys);
+    heed(into, "click", (e) => {
       const on = option(e.target);
       if (on) void choose(Number(on.dataset.background));
     });
-    into.addEventListener("pointerover", (e) => {
+    heed(into, "pointerover", (e) => {
       const on = option(e.target);
       if (on) preview(Number(on.dataset.background));
     });
-    into.addEventListener("pointerout", (e) => {
+    heed(into, "pointerout", (e) => {
       if (option(e.target) && away(e.relatedTarget) && previewing !== undefined) preview(undefined);
     });
-    into.addEventListener("focusin", (e) => {
+    heed(into, "focusin", (e) => {
       const on = option(e.target);
       if (on) preview(Number(on.dataset.background));
     });
-    into.addEventListener("focusout", (e) => {
+    heed(into, "focusout", (e) => {
       if (option(e.target) && away(e.relatedTarget) && previewing !== undefined) preview(undefined);
     });
-    still.addEventListener("change", tick);
-    document.addEventListener("visibilitychange", tick);
+    still.addEventListener("change", tick, { signal: lifetime() });
+    heed(document, "visibilitychange", tick);
   }
 
   return {
