@@ -148,6 +148,9 @@ try {
   );
   const next = await player.getByRole("button", { name: "Next", exact: true }).getAttribute("id", { timeout: 2000 }).catch(() => null);
   check(next === "on" && named.every(([, , title]) => title), `its buttons say what they do, and their keys, ▶ as Next: ${JSON.stringify(named)}`);
+  // Each drawn with an icon of the set that ships, not a character of a font (lift-up 20261031 ATTR-2).
+  const drawn = await player.evaluate(() => ["back", "on", "full", "present"].every((id) => document.querySelector(`#${id} > svg path`)?.getAttribute("d")?.startsWith("M")));
+  check(drawn && !(await player.evaluate(() => document.querySelector(".loading"))), "its buttons are drawn with the icons that ship, and the spinner has gone once the deck opened");
   /** Where the slide stands, and the room the bar at the window's foot leaves it: the window's
    * height in fullscreen. */
   const standing = (page) =>
@@ -189,6 +192,10 @@ try {
   await player.evaluate((t) => window.scaena.run(0, t), slots[0].span + slots[0].hold - 300);
   at = await until(player, () => window.scaena.at().index === 1, "the hold ends", null, 5000);
   check(at.index === 1 && at.playing, `${states[0]}'s hold of ${slots[0].hold} ms goes on to ${states[1]} by itself`);
+  // The live status says where the deck is, not that a cue plays: that is its title's (lift-up
+  // 20261031 USE-3), so a screen reader hears each advance once.
+  const playingSaid = await player.evaluate(() => ({ live: document.querySelector("#status").textContent, title: document.querySelector("#status").title, playing: window.scaena.at().playing }));
+  check(!playingSaid.live.includes("playing") && (!playingSaid.playing || playingSaid.title.endsWith("· playing")), `a cue playing is said in the title, not the live status: ${JSON.stringify(playingSaid)}`);
   // The last state rests and waits.
   await player.evaluate((last) => window.scaena.run(last, 0), slots.length - 1);
   at = await until(player, () => !window.scaena.at().playing, "the last state comes to rest", null, 10000);
@@ -326,12 +333,18 @@ try {
   const listed = () =>
     player.evaluate(() => {
       const d = document.querySelector("dialog.keylist");
-      return { open: d.open, text: d.textContent };
+      return { open: d.open, text: d.textContent, modal: d.matches(":modal"), focus: document.activeElement?.id };
     });
   await player.keyboard.press("?");
   const list = await listed();
   const words = ["A black screen", "A white screen", "That slide", "The laser", "Fullscreen"];
   check(list.open && words.every((w) => list.text.includes(w)), "? lists the keys");
+  // Modal, its heading in focus, and no key reaching the deck behind it (lift-up 20261031 USE-5).
+  check(list.modal && list.focus === "keylist-title", `the list is modal, its heading in focus: ${JSON.stringify({ modal: list.modal, focus: list.focus })}`);
+  const behind = await player.evaluate(() => window.scaena.at().index);
+  await player.keyboard.press("ArrowRight");
+  await player.waitForTimeout(200);
+  check((await player.evaluate(() => window.scaena.at().index)) === behind, "while it is open, → does not move the deck behind it");
   await player.keyboard.press("?");
   check(!(await listed()).open, "? again closes the list");
   await player.keyboard.press("?");
@@ -729,6 +742,33 @@ try {
     check(
       entered === "none" && moving !== "none" && rested === "none" && moved !== "none",
       `fullscreen, the pointer hides from the start and over the slide at rest, and shows as it moves: ${entered}, ${moving}, ${rested}, ${moved}`,
+    );
+    // Its controls float over the slide's foot while the pointer moves, and go as it rests, as a
+    // presentation app's do (lift-up 20261031 ATTR-2).
+    const barShown = () =>
+      player.evaluate(() => {
+        const bar = document.querySelector(".bar");
+        const style = getComputedStyle(bar);
+        const focus = document.activeElement;
+        return {
+          fixed: style.position === "fixed",
+          live: style.pointerEvents !== "none",
+          bottom: Math.round(innerHeight - bar.getBoundingClientRect().bottom),
+          idle: document.body.classList.contains("idle"),
+          focus: focus && bar.contains(focus) ? `${focus.id}${focus.matches(":focus-visible") ? " (visible)" : ""}` : "",
+        };
+      });
+    const floating = await barShown();
+    await player.waitForTimeout(2300);
+    const gone = await barShown();
+    await player.mouse.move(460, 330);
+    const back = await barShown();
+    await player.waitForTimeout(2300);
+    await player.keyboard.press("Tab");
+    const tabbed = await barShown();
+    check(
+      floating.fixed && floating.live && floating.bottom > 0 && !gone.live && back.live && tabbed.live,
+      `fullscreen, the bar floats over the slide while the pointer moves, goes as it rests, and Tab brings it back: ${JSON.stringify([floating, gone, back, tabbed])}`,
     );
     // At the end of the show, going on again keeps it, fullscreen; a click leaves fullscreen, on
     // the last slide (PLAN 2.120).
