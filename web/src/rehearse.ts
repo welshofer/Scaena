@@ -169,8 +169,9 @@ export function rehearsal(
     running = true;
     bar.hidden = false;
     pane.hidden = false;
-    document.addEventListener("keydown", key, true);
-    preview.addEventListener("pointerdown", click, true);
+    // Also let go with the bundle, should its deck close without the rehearsal's stop.
+    listen(document, "keydown", key, { capture: true });
+    listen(preview, "pointerdown", click, { capture: true });
     ticking = setInterval(tell, 250);
     play();
     editor.say("Rehearsing: → goes on, ← back, P pauses, Escape stops");
@@ -196,7 +197,8 @@ export function rehearsal(
     tell();
   }
 
-  function stop() {
+  /** Stop rehearsing, and show what each slide took; `quiet`, as its deck closes, show nothing. */
+  function stop(quiet = false) {
     if (!running) return;
     count();
     running = false;
@@ -214,6 +216,7 @@ export function rehearsal(
       hold: slot.hold,
       keeps: spent[i] > 0 ? Math.max(0, Math.round((spent[i] - slot.span) / 100) * 100) : undefined,
     }));
+    if (quiet) return;
     const last = index;
     results();
     editor.show(last);
