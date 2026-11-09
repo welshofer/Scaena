@@ -151,6 +151,7 @@ try {
   await page.keyboard.press("ArrowDown");
   const opened = await page.evaluate(() => Boolean(document.querySelector('.context-menu [role="menuitem"]')));
   check(opened, "↓ on Insert opens its menu");
+  check((await page.getAttribute("#insert", "aria-expanded")) === "true", "and says it is open (lift-up 20261031 USE-4)");
   check(await page.evaluate(() => document.activeElement?.getAttribute("role") === "menuitem"), "with the focus on its first item");
   await page.keyboard.press("ArrowDown");
   await page.keyboard.press("ArrowDown");
@@ -160,6 +161,13 @@ try {
   check(sections.includes("Text") && sections.includes("Shape") && sections.includes("Draw"), `its items stand under their kinds: ${sections.join(", ")}`);
   await page.keyboard.press("Escape");
   check(await page.evaluate(() => !document.querySelector(".context-menu") && document.activeElement?.id === "insert"), "Escape closes it, the focus back on Insert");
+  check((await page.getAttribute("#insert", "aria-expanded")) === "false", "and says it is closed");
+  // A click on Insert opens its menu, and a click on it again closes it (lift-up 20261031 USE-4).
+  await page.click("#insert");
+  const clickedOpen = await page.evaluate(() => Boolean(document.querySelector(".context-menu")) && document.querySelector("#insert").getAttribute("aria-expanded") === "true");
+  await page.click("#insert");
+  const clickedShut = await page.evaluate(() => !document.querySelector(".context-menu") && document.querySelector("#insert").getAttribute("aria-expanded") === "false");
+  check(clickedOpen && clickedShut, `a click opens Insert's menu, and a click on it again closes it: ${clickedOpen}, ${clickedShut}`);
 
   // The draw tools, each with its key, each its key's gesture (PLAN 2.123).
   const tools = ["Text (T)", "Rectangle (R)", "Oval (O)", "Line (L)", "Arrow (A)", "Pen (P)"];
