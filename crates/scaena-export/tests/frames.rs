@@ -56,7 +56,12 @@ fn the_svg_draws_each_pictures_frame_as_rings() {
         let mut colors = Vec::new();
         rings(&list.ops, &mut colors);
         assert!(!colors.is_empty(), "{name}: the golden frames its pictures");
-        let written = svg(&list, &assets(&[&list]), &SvgSettings { scale: 1.0, title: None, lang: None }).unwrap();
+        let written = svg(
+            &list,
+            &assets(&[&list]),
+            &SvgSettings { scale: 1.0, title: None, lang: None, ..SvgSettings::default() },
+        )
+        .unwrap();
         let drawn = written.matches("fill-rule=\"evenodd\"").count();
         assert_eq!(drawn, colors.len(), "{name}: one even-odd path for each band");
         for c in colors {
