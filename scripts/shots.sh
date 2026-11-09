@@ -3,16 +3,43 @@
 # run's artifacts: each PNG under DIR made a JPEG no wider than 1600 pixels, named as the test that
 # kept it named it; each screen recording a UI test made (MP4), and what the steps that took them
 # said (each `.txt`: the Mac's `window.txt`, the iPad's `log.txt`, and the elements a UI test kept
-# as text, named as it named them), as they are; in one commit with
-# no parent, force-pushed to the branch `shots/NAME`, which the next run replaces. On a Mac (sips);
-# in a job that may push (`contents: write`).
+# as text, named as it named them), as they are; in one commit with no parent, force-pushed to the
+# branch `shots/NAME`, which the next run replaces.
 #
-#   scripts/shots.sh DIR NAME
+# In two steps, so that what builds the pull request never holds a token that writes (the
+# 20261031 plan's SEC-5): `keep` on the Mac that took them (sips), in a job that may only read,
+# whose OUT the job uploads; then `push`, in a job that builds and runs nothing of the pull
+# request's and may push (`contents: write`), on what it downloaded.
+#
+#   scripts/shots.sh keep DIR OUT
+#   scripts/shots.sh push OUT NAME
 #   git fetch origin shots/NAME && git archive FETCH_HEAD | tar -x -C SOMEWHERE
 set -euo pipefail
-dir=$1
-name=$2
-work=$(mktemp -d)
+step=${1:-}
+shopt -s nullglob
+case "$step" in
+  keep) ;;
+  push)
+    work=$2
+    name=$3
+    kept=("$work"/*.jpg "$work"/*.mp4 "$work"/*.txt)
+    if [ -z "${kept[*]+set}" ]; then
+      echo "nothing kept under $work"
+      exit 0
+    fi
+    tree=$(for file in ${kept[@]+"${kept[@]}"}; do printf '100644 blob %s\t%s\n' "$(git hash-object -w "$file")" "$(basename "$file")"; done | git mktree)
+    commit=$(git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+      commit-tree "$tree" -m "Screenshots of ${GITHUB_SHA:-$(git rev-parse HEAD)}")
+    git push -q -f origin "$commit:refs/heads/shots/$name"
+    echo "shots/$name: $(cd "$work" && ls | tr '\n' ' ')"
+    exit 0 ;;
+  *)
+    echo "usage: scripts/shots.sh keep DIR OUT | push OUT NAME" >&2
+    exit 2 ;;
+esac
+dir=$2
+work=$3
+mkdir -p "$work"
 # xcresulttool names what it exports by UUID, and says in manifest.json what each test named it.
 python3 - "$dir" "$work" <<'PY'
 import json, os, re, shutil, sys
@@ -36,7 +63,6 @@ for file in sorted(os.listdir(src)):
     name = name if name.lower().endswith(ext) else name + ext
     shutil.copy(os.path.join(src, file), os.path.join(out, name))
 PY
-shopt -s nullglob
 # An array that globbed nothing is empty, and bash 3.2 (macOS's /bin/bash) calls "${a[@]}" of an
 # empty array unbound under `set -u`: each is expanded as ${a[@]+"${a[@]}"}, nothing when empty.
 shots=("$work"/*.png)
@@ -44,13 +70,4 @@ for shot in ${shots[@]+"${shots[@]}"}; do
   sips -Z 1600 -s format jpeg -s formatOptions 70 "$shot" --out "${shot%.png}.jpg" >/dev/null
   rm "$shot"
 done
-kept=("$work"/*.jpg "$work"/*.mp4 "$work"/*.txt)
-if [ -z "${kept[*]+set}" ]; then
-  echo "nothing kept under $dir"
-  exit 0
-fi
-tree=$(for file in ${kept[@]+"${kept[@]}"}; do printf '100644 blob %s\t%s\n' "$(git hash-object -w "$file")" "$(basename "$file")"; done | git mktree)
-commit=$(git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
-  commit-tree "$tree" -m "Screenshots of ${GITHUB_SHA:-$(git rev-parse HEAD)}")
-git push -q -f origin "$commit:refs/heads/shots/$name"
-echo "shots/$name: $(cd "$work" && ls | tr '\n' ' ')"
+echo "kept in $work: $(cd "$work" && ls | tr '\n' ' ')"

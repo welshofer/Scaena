@@ -30,6 +30,10 @@ env:
   # 32 GB free once the web crates joined the workspace (PLAN 2.1–2.26): rustc died with "No space
   # left on device".
   CARGO_PROFILE_DEV_DEBUG: line-tables-only
+# What a job's token may do where the job does not say: read the repository, nothing more. Only
+# `shots` writes (the 20261031 plan's SEC-5).
+permissions:
+  contents: read
 concurrency:
   # A newer push supersedes an older run of the same pull request, or of `main`. A tag's run, the
   # weekly run, and a manual one each finish.
@@ -134,9 +138,11 @@ jobs:
     # the paint tests with SIGSEGV (#830's run, job 129452556493). Move to 26.04 as its own change,
     # with those tests passing there.
     runs-on: ${{ matrix.os == 'ubuntu-latest' && 'ubuntu-24.04' || matrix.os }}
-    # The Mac app's window is pushed to a branch of the pull request's own (scripts/shots.sh).
+    # It builds and runs the pull request's code, its build scripts and every crate its lockfile
+    # names, so its token only reads and is not left in .git/config; the Mac app's window is pushed
+    # by `shots`, which builds nothing (the 20261031 plan's SEC-5).
     permissions:
-      contents: write
+      contents: read
     # A stalled GPU readback or test must fail the job, not hold a runner for six hours. A run
     # with nothing in its cache, as the first after the cache's key changes, builds everything:
     # #103's took 39 minutes on Linux and 27 on macOS. A pull request's run on macOS restores
@@ -145,6 +151,8 @@ jobs:
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       # The debug test binaries, built once without `gpu` and once with it, outgrow the Linux
       # runner's free disk since scaena-ops and scaena-mcp (PLAN 1.17): the linker dies with a bus
       # error. Drop preinstalled toolchains this job never uses.
@@ -244,18 +252,26 @@ jobs:
           fi
           wait "$tested"
           swift build --product Scaena "${flags[@]}"
-      # The app as someone opens it, the trails example in its window, pushed to the branch
+      # The app as someone opens it, the trails example in its window, kept for the branch
       # `shots/pr-N-mac` beside the iPad's, where a reviewer without the run's artifacts fetches it
-      # (scripts/shots.sh). Seen more than tested: the shots are pushed whatever the walk found, and
-      # a check it makes that does not hold fails this step after them, not the job.
+      # (scripts/shots.sh, pushed by `shots`). Seen more than tested: the shots are kept whatever
+      # the walk found, and a check it makes that does not hold fails this step after them, not the
+      # job.
       - name: The Mac app's window
         if: runner.os == 'macOS' && github.event_name == 'pull_request' && needs.changes.outputs.app == 'true'
         continue-on-error: true
         run: |
           walked=0
           apps/mac/window.sh || walked=$?
-          scripts/shots.sh target/mac/window/shots "pr-${{ github.event.pull_request.number }}-mac"
+          scripts/shots.sh keep target/mac/window/shots "$RUNNER_TEMP/shots-mac"
           exit "$walked"
+      - if: ${{ !cancelled() && runner.os == 'macOS' && github.event_name == 'pull_request' && needs.changes.outputs.app == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: shots-mac
+          path: ${{ runner.temp }}/shots-mac
+          if-no-files-found: ignore
+          retention-days: 1
       # Painter and CLI tests with the `gpu` feature. They print each torture state's raster delta
       # from the CPU goldens (blessed on x86-64 AVX2): vello_cpu at this runner's SIMD level, and
       # vello on this runner's adapter: Metal on macOS, Mesa's lavapipe (software Vulkan) on Linux.
@@ -307,12 +323,15 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true' && needs.changes.outputs.app == 'true'
     runs-on: macos-latest
-    # The UI tests' screenshots are pushed to a branch of the pull request's own (scripts/shots.sh).
+    # The UI tests' screenshots are pushed to a branch of the pull request's own by `shots`, this
+    # job's token only reading, as the rust job's (the 20261031 plan's SEC-5).
     permissions:
-      contents: write
+      contents: read
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-apple-ios-sim
@@ -343,10 +362,44 @@ jobs:
           name: ipad-screenshots
           path: target/ipad/shots
           if-no-files-found: ignore
-      # The same, on the branch `shots/pr-N-ipad`, for a reviewer without the run's artifacts.
+      # The same, kept for the branch `shots/pr-N-ipad`, for a reviewer without the run's
+      # artifacts, which `shots` pushes.
       - if: ${{ !cancelled() && github.event_name == 'pull_request' }}
         continue-on-error: true
-        run: scripts/shots.sh target/ipad/shots "pr-${{ github.event.pull_request.number }}-ipad"
+        run: scripts/shots.sh keep target/ipad/shots "$RUNNER_TEMP/shots-ipad"
+      - if: ${{ !cancelled() && github.event_name == 'pull_request' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: shots-ipad
+          path: ${{ runner.temp }}/shots-ipad
+          if-no-files-found: ignore
+          retention-days: 1
+  # The shots the Mac's rust job and the iPad's job kept, each pushed to the branch
+  # `shots/pr-N-mac` or `shots/pr-N-ipad` (scripts/shots.sh): the one job whose token writes, and
+  # one that builds, installs, and runs nothing of the pull request's but that script, so neither
+  # its lockfile's crates, its build scripts, nor the apps' scripts run with a token that pushes
+  # (the 20261031 plan's SEC-5). Whatever the jobs before it found, as their shots were.
+  shots:
+    needs: [changes, rust, ipad]
+    if: ${{ !cancelled() && github.event_name == 'pull_request' && needs.changes.outputs.code == 'true' && needs.changes.outputs.app == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts/shots.sh
+          sparse-checkout-cone-mode: false
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: shots-*
+          path: ${{ runner.temp }}/shots
+      - run: |
+          shopt -s nullglob
+          for kept in "$RUNNER_TEMP"/shots/shots-*; do
+            scripts/shots.sh push "$kept" "pr-${{ github.event.pull_request.number }}-${kept##*/shots-}"
+          done
   wasm:
     # PLAN 0.8: the engine as WASM in headless Chromium. Every torture state's display list must
     # hash to the native digest (tests/golden/torture/raw.fnv1a) and paint through WebGPU.

@@ -3,7 +3,9 @@
 # Where the repository holds a Developer ID and a notary key (the secrets below), it is signed by
 # that identity, notarized, and stapled, so it opens on any Mac; without them, ad hoc, for trying
 # it: macOS asks once whether to open it (right-click → Open). A pull request that changes how the
-# app is made builds it too (the 20261024 plan's SEC-4).
+# app is made builds it too (the 20261024 plan's SEC-4), ad hoc: a pull request's build never
+# holds the Developer ID or the notary's key, and the actions that run beside them are pinned by
+# commit (the 20261031 plan's SEC-5).
 name: mac-app
 on:
   workflow_dispatch:
@@ -23,8 +25,10 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       # The fonts the shipped themes name that git does not hold, which scaena-ops' build
       # carries, from the cache the schema job keeps, fetched by sha256 where it lacks them
       # (PLAN T.0c). The build itself reaches no network.
@@ -34,9 +38,10 @@ jobs:
           key: fonts-${{ hashFiles('scripts/build_bundle_fonts.py') }}
           restore-keys: fonts-
       - run: python3 scripts/build_bundle_fonts.py --fetch --shipped
-      # The Developer ID, where the repository holds one: its certificate into a keychain of this
-      # run's own, which build-app.sh signs by.
+      # The Developer ID, where the repository holds one and the run is not a pull request's: its
+      # certificate into a keychain of this run's own, which build-app.sh signs by.
       - name: The Developer ID, where there is one
+        if: github.event_name != 'pull_request'
         env:
           CERTIFICATE: ${{ secrets.MAC_CERTIFICATE_P12 }}
           PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
@@ -60,6 +65,7 @@ jobs:
       # an App Store Connect key for the notary: the zip goes to Apple, and the ticket that comes
       # back is stapled to the app, which is zipped again.
       - name: Notarized, where it can be
+        if: github.event_name != 'pull_request'
         env:
           KEY: ${{ secrets.NOTARY_KEY_P8 }}
           KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
@@ -71,6 +77,13 @@ jobs:
           rm "$RUNNER_TEMP/notary.p8"
           xcrun stapler staple "$RUNNER_TEMP/out/Scaena.app"
           cd "$RUNNER_TEMP/out" && rm Scaena.app.zip && ditto -c -k --keepParent Scaena.app Scaena.app.zip
+      # The keychain and the keys gone however the steps before ended, so nothing after them, nor
+      # the next job on this runner, finds the Developer ID unlocked.
+      - name: The keychain taken away
+        if: always()
+        run: |
+          security delete-keychain "$RUNNER_TEMP/signing.keychain-db" 2>/dev/null || true
+          rm -f "$RUNNER_TEMP/certificate.p12" "$RUNNER_TEMP/notary.p8"
       - uses: actions/upload-artifact@v4
         with:
           name: Scaena.app
