@@ -242,9 +242,15 @@ export function panel(stage: Stage, editor: Editor): Panel {
     say("none", `No key yet: paste ${PROVIDERS[which()].name}'s to ask its models.`);
     tell(`The ${PROVIDERS[which()].name} key is forgotten. ${risk()}`);
   };
-  $<HTMLButtonElement>("#new").onclick = () => {
+  const newConversation = $<HTMLButtonElement>("#new");
+  newConversation.onclick = () => {
+    // Never while a question works: its answer would go on into a conversation forgotten.
+    if (working) return;
     stage.forget();
     transcript.replaceChildren();
+    // The words of an answer cut off went with the transcript (lift-up 20261031 STAB-4): the next
+    // answer's go into an entry of their own, one the page shows.
+    saying = undefined;
     used.input = used.output = 0;
     usageLine.textContent = "";
   };
@@ -337,10 +343,14 @@ export function panel(stage: Stage, editor: Editor): Panel {
         used.output += event.output;
         usageLine.textContent = `${used.input.toLocaleString()} tokens in, ${used.output.toLocaleString()} out`;
         return;
+      // An answer stopped, cut off, or failed ends its words where they stand: the next answer's
+      // go into an entry of their own (lift-up 20261031 STAB-4).
       case "done":
+        saying = undefined;
         if (event.stop !== "end" && event.stop !== "tools") entry("end", STOPS[event.stop] ?? STOPS.other);
         return;
       case "failed":
+        saying = undefined;
         return void entry("failed", event.message);
     }
   }
@@ -400,6 +410,7 @@ export function panel(stage: Stage, editor: Editor): Panel {
     if (!key.value) return failure(`Enter your ${PROVIDERS[which()].name} key first.`);
     if (!model.value) return failure("Pick a model first: the list fills once the provider has your key.");
     remember();
+    saying = undefined;
     entry("user", text);
     question.value = "";
     // What the editor shows as it is asked: the source locks below, and shows nothing then.
@@ -410,6 +421,7 @@ export function panel(stage: Stage, editor: Editor): Panel {
     thinking.hidden = false;
     editor.lock(true);
     askButton.disabled = true;
+    newConversation.disabled = true;
     stop.hidden = false;
     try {
       // Each state as the question finds it: each edit's pictures are drawn against it (PLAN 2.93).
@@ -440,6 +452,7 @@ export function panel(stage: Stage, editor: Editor): Panel {
       thinking.hidden = true;
       editor.lock(false);
       askButton.disabled = false;
+      newConversation.disabled = false;
       stop.hidden = true;
     }
   }

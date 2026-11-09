@@ -52,12 +52,16 @@ export type SaveTo = { folder: FileSystemDirectoryHandle } | { opfs: string };
  *   worker loads the first time a PDF is asked for; with `notes`, each slide smaller with the
  *   presenter's notes under it, as `export --format pdf --notes` prints them;
  * - `html`: the deck as one file that plays offline, named `name`: `page`, the single-file
- *   player's page, filled in with the bundle, its fonts subset. */
+ *   player's page, filled in with the bundle, its fonts subset;
+ * - `movie`: the deck as it plays, as `scaena export --format webm` plays it, `fps` frames a
+ *   second, `width` pixels wide, in `format`, titled `name`: painted by the CPU painter and
+ *   encoded by the browser's own encoder, VP9 (else VP8) in WebM (lift-up 20261031 FUNC-2). */
 export type Export =
   | { kind: "png"; state: string; width: number; format?: string }
   | { kind: "slides"; width: number; format?: string; name: string }
   | { kind: "pdf"; notes?: boolean }
-  | { kind: "html"; page: string; name: string; /** The presenter's words kept, or left out of a file sent to the room, as they are by default (lift-up 20261025 SEC-3). */ notes: boolean };
+  | { kind: "html"; page: string; name: string; /** The presenter's words kept, or left out of a file sent to the room, as they are by default (lift-up 20261025 SEC-3). */ notes: boolean }
+  | { kind: "movie"; fps: number; width: number; format?: string; name: string };
 
 /** Where an open bundle is kept, and saves to: a folder on disk, the browser's storage, or the
  * folder `scaena serve` serves it from (PLAN 2.11), by name. A bundle read from any other URL is
@@ -1034,7 +1038,16 @@ export type ToWorker =
   /** Open the bundle at `source`, and paint into `canvas` by `painter`, with the engine's
    * module `engine`, compiled, if the page carries it (PLAN 2.5); the worker loads its own
    * without it. */
-  | { type: "open"; source: Source; painter: Painter; canvas: OffscreenCanvas; engine?: WebAssembly.Module }
+  | {
+      type: "open";
+      source: Source;
+      painter: Painter;
+      canvas: OffscreenCanvas;
+      engine?: WebAssembly.Module;
+      /** The page goes on from a crash with the bundle's files as the worker held them, so the
+       * worker keeps a copy of them: the editor's alone (lift-up 20261031 PERF-3). */
+      recoverable?: boolean;
+    }
   /** Be the worker a deck is made from a prompt in (PLAN G.5), which holds no deck: say what a
    * brief may ask (`briefing`), loading the generator's module, then make the deck `generate`
    * asks for, saying how far it has come (`generating`) and handing back its files
@@ -1055,6 +1068,8 @@ export type ToWorker =
   | { type: "storySettled"; outline: StoryOutline }
   /** Another arc for the outline, by name, or the heuristic's where none: outlined again. */
   | { type: "outlineAgain"; arc?: string }
+  /** The outline, twice unreadable, passed over: the slides written without one (lift-up REL-3). */
+  | { type: "outlinePassed" }
   /** Paint `state` `t` ms into its cue, or at rest without `t`. */
   | { type: "show"; id: number; state: string; t?: number; format?: string }
   /** The deck's timeline. */
@@ -1517,6 +1532,8 @@ export type GeneratingEvent =
   | { kind: "outlining" }
   | { kind: "outlined"; beats: number }
   | { kind: "settled"; beats: number }
+  /** The outline, twice unreadable, passed over: the slides written without one (lift-up REL-3). */
+  | { kind: "unoutlined" }
   | { kind: "writing"; slides: number }
   | { kind: "retrying"; seconds: number; tried: number }
   | { kind: "wrote"; slides: number; truncated: boolean }
@@ -2050,7 +2067,7 @@ export type FromWorker =
   | { type: "generating"; event: GeneratingEvent }
   /** The outline the model wrote (narrative FUNC-1), on `arc`, chosen for `reasoning`: shown for
    * the person to settle (`settled`) or to outline again on another arc (`outlineAgain`). */
-  | { type: "storyOutlined"; outline: StoryOutline; arc: string; reasoning: string; fallback?: string }
+  | { type: "storyOutlined"; outline: StoryOutline; arc: string; reasoning: string; fallback?: string; unread?: string }
   /** The deck made from a prompt: the bundle's files by their paths, its name, and what it came
    * to. Kept nowhere until it is saved. */
   | { type: "generated"; files: Record<string, ArrayBuffer>; name: string; made: Generated }
@@ -2186,6 +2203,8 @@ export type FromWorker =
   | { type: "zipped"; id: number; bytes: ArrayBuffer; subset: [string, number, number][] }
   /** What `export` made: a PNG, a zip of PNGs, a PDF, or an HTML file's bytes. */
   | { type: "exported"; id: number; bytes: ArrayBuffer }
+  /** How far an export has come (lift-up 20261031 FUNC-2): a movie's frames made, of how many. */
+  | { type: "exportProgress"; id: number; done: number; of: number }
   /** The dropped file is in the bundle at `path`. */
   | { type: "dropped"; id: number; path: string }
   | { type: "pictured"; id: number; picture: Picture }
