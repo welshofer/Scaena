@@ -8,6 +8,7 @@ import type { Stage } from "../stage";
 import type { Who } from "../writing";
 import * as keys from "./keys";
 import { render } from "./markdown";
+import { refusedBase } from "./providers";
 
 /** The editor, as the panel works with it. */
 export interface Editor {
@@ -185,6 +186,8 @@ export function panel(stage: Stage, editor: Editor): Panel {
     const p = which();
     model.replaceChildren();
     if (!key.value) return say("none", `No key yet: paste ${PROVIDERS[p].name}'s to ask its models.`);
+    const refused = base.value ? refusedBase(base.value) : undefined;
+    if (refused) return say("refused", refused);
     say("checking", `Checking the key with ${PROVIDERS[p].name}…`);
     let models: string[];
     try {
@@ -208,7 +211,7 @@ export function panel(stage: Stage, editor: Editor): Panel {
     const p = which();
     settings.provider = p;
     if (model.value) settings.models[p] = model.value;
-    if (base.value) settings.bases[p] = base.value;
+    if (base.value && !refusedBase(base.value)) settings.bases[p] = base.value;
     else delete settings.bases[p];
     keys.keep(settings);
   };

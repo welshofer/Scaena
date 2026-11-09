@@ -27,12 +27,37 @@ public enum Remote {
     static let version = 3
     /// How many wrong codes a presenter takes before it makes its code anew.
     public static let tries = 5
+    /// The longest a presenter waits, s, after making its code anew, before a remote pairs again:
+    /// the waits double up to it, and a join does not shorten them.
+    public static let longest: Double = 60
     /// How many remotes may be pairing at once: more are refused until one is done.
     static let pairing = 16
+    /// How many digits a code has: a hundred million codes, of which a wrong code is one try and
+    /// five make the code anew, so guessing one online takes some twenty million codes made anew
+    /// on average, a minute apart once the waits have doubled: decades (lift-up SEC-5). Typed on a
+    /// phone's number pad, and read in two groups of four.
+    public static let digits = 8
 
-    /// A new code: four digits, as a presentation app's remote pairs with.
+    /// A new code: `digits` digits, each from the system's secure random numbers.
     public static func code() -> String {
-        String(format: "%04d", Int.random(in: 0..<10_000))
+        String((0..<digits).map { _ in "0123456789".randomElement()! })
+    }
+
+    /// `code` as a person reads it: in groups of four digits, `4821 0937`.
+    public static func shown(_ code: String) -> String {
+        var groups: [Substring] = []
+        var rest = Substring(code)
+        while !rest.isEmpty {
+            groups.append(rest.prefix(4))
+            rest = rest.dropFirst(4)
+        }
+        return groups.joined(separator: " ")
+    }
+
+    /// What a person typed as a code: its digits alone, at most `digits` of them, so a code typed
+    /// as it is shown, its space and all, or pasted, reads as the code.
+    public static func typed(_ text: String) -> String {
+        String(text.filter { $0.isASCII && $0.isWholeNumber }.prefix(digits))
     }
 
     /// What a presenter offers its deck as, by Bonjour: `device`'s name alone, within the 63 bytes a
@@ -162,8 +187,9 @@ struct Pairing {
 
     /// The code hashed to a point of the curve: the base both ends raise. The first x that
     /// SHA-256(`label` ‖ code ‖ counter) gives, from a counter of 0, that is a point's, the point
-    /// CryptoKit makes of it; no code of four digits needs more than 16 tries. `Trouble.hello` past
-    /// 255, which no code reaches.
+    /// CryptoKit makes of it; about half of all x are, so a code needs two tries on average, and
+    /// none of the first 200,000 codes of eight digits needs more than 23. `Trouble.hello` past
+    /// 255, which a code reaches with a chance of 2⁻²⁵⁶.
     static func base(_ code: String) throws -> P256.KeyAgreement.PublicKey {
         for counter in UInt8.min...UInt8.max {
             let x = Data(SHA256.hash(data: label + Data(code.utf8) + Data([counter])))

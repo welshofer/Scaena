@@ -513,3 +513,27 @@ fn a_long_commit_is_one_change_and_one_version() {
     let version = loaded.at(&changes[0].id).unwrap().unwrap();
     assert_eq!(version.deck().unwrap().to_json().unwrap(), torture.to_json().unwrap());
 }
+
+/// `bytes`, a saved history, as a newer Loro would write it: its encoding, the two bytes after
+/// the magic and the checksum, one this Loro does not know.
+fn from_the_future(bytes: &[u8]) -> Vec<u8> {
+    let mut future = bytes.to_vec();
+    future[20..22].copy_from_slice(&[0xFF, 0xFF]);
+    future
+}
+
+/// A history a newer Scaena wrote is told apart from one damaged (lift-up 20261025b REL-1): the
+/// one is left as it is, the other set aside.
+#[test]
+fn a_history_from_a_newer_scaena_is_not_damaged() {
+    let deck = Deck::from_json(&std::fs::read_to_string("../../docs/examples/revenue.deck.json").unwrap()).unwrap();
+    let saved = DeckDoc::from_deck(&deck, &user()).unwrap().save().unwrap();
+    let Err(newer) = DeckDoc::load(&from_the_future(&saved)) else { panic!("a newer encoding does not load") };
+    assert!(newer.newer(), "{newer}");
+    let Err(cut) = DeckDoc::load(&saved[..saved.len() / 2]) else { panic!("a cut history does not load") };
+    assert!(!cut.newer(), "{cut}");
+    let said = scaena_store::crdt::recorded(&from_the_future(&saved), "[]").unwrap_err();
+    assert!(said.starts_with(scaena_store::NEWER), "{said}");
+    let said = scaena_store::crdt::recorded(&saved[..saved.len() / 2], "[]").unwrap_err();
+    assert!(said.starts_with(scaena_store::DAMAGED), "{said}");
+}

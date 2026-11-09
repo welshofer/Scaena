@@ -463,6 +463,62 @@ fn sources_ground_the_slides_a_pdf_beside_them_and_a_sheet_kept_as_data() {
     assert_eq!(scaena(&["validate", dir.to_str().unwrap()]).status.code(), Some(0));
 }
 
+/// An outline that never reads (lift-up REL-3): asked twice, then the run stops saying the choice,
+/// the arc it chose named for the run that writes without one; with `--allow-no-outline`, the
+/// slides are written without one, on that arc, and the deck is made, no arc asked again.
+#[test]
+fn an_unreadable_outline_is_asked_twice_then_written_without() {
+    let unreadable = |method: &str, path: &str, body: &str| -> Answer {
+        if body.contains("planning a presentation before its slides") {
+            return (200, "application/json", anthropic("I would be glad to outline this talk."));
+        }
+        narrato(method, path, body)
+    };
+    let (base, asked) = serve(unreadable);
+    let dir = place("unoutlined");
+    let outline = place("unoutlined-outline").with_extension("json");
+    let _ = std::fs::remove_file(&outline);
+    let run = |args: &[&str]| {
+        let mut c = Command::new(env!("CARGO_BIN_EXE_scaena"));
+        for k in KEYS.into_iter().chain(PROXIES) {
+            c.env_remove(k);
+        }
+        c.env("ANTHROPIC_API_KEY", "sk-test")
+            .args(["generate", dir.to_str().unwrap(), "Tidewater's Series A"])
+            .args(["--provider", "anthropic", "--model", "a-model", "--base", &base])
+            .args(args)
+            .output()
+            .unwrap()
+    };
+    let posts = |asked: &std::sync::Mutex<Vec<Asked>>| -> Vec<String> {
+        asked.lock().unwrap().iter().filter(|a| a.method == "POST").map(|a| a.body.clone()).collect()
+    };
+    let out = run(&["--outline", outline.to_str().unwrap()]);
+    let said = String::from_utf8_lossy(&out.stderr).into_owned();
+    assert_ne!(out.status.code(), Some(0), "{said}");
+    assert!(said.contains("the outline did not read") && said.contains("(asked 2 times)"), "{said}");
+    assert!(said.contains("--arc \"Problem\u{2013}Solution\""), "the run that keeps the arc: {said}");
+    assert!(said.contains("--allow-no-outline"), "{said}");
+    assert!(!outline.exists() && !dir.exists(), "nothing written");
+    let sent = posts(&asked);
+    assert_eq!(sent.len(), 3, "the arc, then the outline twice");
+    assert_eq!(sent[1], sent[2], "the same outline asked once more");
+
+    asked.lock().unwrap().clear();
+    let out = run(&["--outline", outline.to_str().unwrap(), "--allow-no-outline"]);
+    let said = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+    assert_eq!(out.status.code(), Some(0), "{said}");
+    assert!(said.contains("writing the slides without one"), "{said}");
+    assert!(!outline.exists(), "no outline written");
+    let sent = posts(&asked);
+    assert_eq!(sent.len(), 5, "the arc, the outline twice, the slides, and the look: {said}");
+    assert!(
+        sent[3].contains("**Narrative Framework**: Problem\u{2013}Solution")
+            && !sent[3].contains("**Outline (Scaena)**")
+    );
+    assert_eq!(scaena(&["validate", dir.to_str().unwrap()]).status.code(), Some(0));
+}
+
 /// A deck grounded in a PDF has its outline written with the PDF beside the prompt, the brief's
 /// voice and modality, and a hook asked of its first beat (lift-up FUNC-3).
 #[test]
@@ -596,6 +652,29 @@ fn an_outline_is_written_first_and_the_slides_follow_the_edited_one() {
     assert_eq!(sections[0], moved.split(':').next().unwrap().trim(), "{sections:?}");
     assert!(sections.iter().all(|s| *s != "Call to Action"), "{sections:?}");
     assert_eq!(scaena(&["validate", dir.to_str().unwrap()]).status.code(), Some(0));
+}
+
+/// A key goes over plain http to this machine alone (lift-up 20261025 SEC-2): `--base` or
+/// `--picture-base` at plain http elsewhere is refused before any call.
+#[test]
+fn an_api_address_over_plain_http_is_refused_before_any_call() {
+    for flag in ["--base", "--picture-base"] {
+        let dir = place("plain-http");
+        let mut c = Command::new(env!("CARGO_BIN_EXE_scaena"));
+        for k in KEYS.into_iter().chain(PROXIES) {
+            c.env_remove(k);
+        }
+        let out = c
+            .env("ANTHROPIC_API_KEY", "sk-test")
+            .args(["--json", "generate", dir.to_str().unwrap(), "Tidewater's Series A"])
+            .args(["--provider", "anthropic", "--model", "a-model", flag, "http://proxy.example.com"])
+            .output()
+            .unwrap();
+        let out = json(&out);
+        let message = out["error"]["message"].as_str().unwrap_or_default();
+        assert!(message.starts_with("http://proxy.example.com: an API address takes https://"), "{flag}: {out:#}");
+        assert!(!dir.exists());
+    }
 }
 
 #[test]

@@ -13,7 +13,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import { isDeepStrictEqual } from "node:util";
 import { RULE, fenced, seen, system } from "./src/assistant/prompt.ts";
 import { CUT, owing } from "./src/assistant/cut.ts";
-import { providers } from "./src/assistant/providers.ts";
+import { providers, refusedBase } from "./src/assistant/providers.ts";
 import { MOST_BLOCKS, Stream } from "./src/assistant/stream.ts";
 
 const write = process.argv.includes("--write");
@@ -114,6 +114,11 @@ if (write) {
     check(isDeepStrictEqual(record.prompt[part], kept.prompt?.[part]), `the ${what} is the one recorded`);
   }
 }
+// The API addresses a key may go to, held to the cases scaena-narrato's and scaena-chat's
+// `checked_base` are (lift-up 20261025 SEC-2).
+const bases = JSON.parse(await readFile("tests/assistant/bases.json", "utf8"));
+for (const good of bases.good) check(refusedBase(good) === undefined, `a key may go to ${JSON.stringify(good)}`);
+for (const bad of bases.bad) check(refusedBase(bad) !== undefined, `a key never goes to ${JSON.stringify(bad)}`);
 // A call the answer's token limit cut off is answered, not run (lift-up REL-1), as scaena-chat's
 // `Chat::answer` answers it: the browser's rule, which converse.ts takes.
 {

@@ -61,7 +61,7 @@
         "default": null
       },
       "audio": {
-        "description": "A video's sound track, any file ffmpeg reads, from the first frame: cut where the\nvideo ends, or carried on in silence until it does.",
+        "description": "A video's sound track, a file ffmpeg reads under this server's folder or the bundle's,\nfrom the first frame: cut where the video ends, or carried on in silence until it does.",
         "type": ["string", "null"],
         "default": null
       },
