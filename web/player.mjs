@@ -739,16 +739,26 @@ try {
       player.evaluate(() => {
         const bar = document.querySelector(".bar");
         const style = getComputedStyle(bar);
-        return { fixed: style.position === "fixed", live: style.pointerEvents !== "none", bottom: Math.round(innerHeight - bar.getBoundingClientRect().bottom) };
+        const focus = document.activeElement;
+        return {
+          fixed: style.position === "fixed",
+          live: style.pointerEvents !== "none",
+          bottom: Math.round(innerHeight - bar.getBoundingClientRect().bottom),
+          idle: document.body.classList.contains("idle"),
+          focus: focus && bar.contains(focus) ? `${focus.id}${focus.matches(":focus-visible") ? " (visible)" : ""}` : "",
+        };
       });
     const floating = await barShown();
     await player.waitForTimeout(2300);
     const gone = await barShown();
     await player.mouse.move(460, 330);
     const back = await barShown();
+    await player.waitForTimeout(2300);
+    await player.keyboard.press("Tab");
+    const tabbed = await barShown();
     check(
-      floating.fixed && floating.live && floating.bottom > 0 && !gone.live && back.live,
-      `fullscreen, the bar floats over the slide while the pointer moves, and goes as it rests: ${JSON.stringify([floating, gone, back])}`,
+      floating.fixed && floating.live && floating.bottom > 0 && !gone.live && back.live && tabbed.live,
+      `fullscreen, the bar floats over the slide while the pointer moves, goes as it rests, and Tab brings it back: ${JSON.stringify([floating, gone, back, tabbed])}`,
     );
     // At the end of the show, going on again keeps it, fullscreen; a click leaves fullscreen, on
     // the last slide (PLAN 2.120).

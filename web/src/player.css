@@ -37,8 +37,6 @@ button, select { font: inherit; }
  * move or a touch bringing them back (lift-up 20261031 ATTR-2). */
 :fullscreen body:not(.presenter) .bar { position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); width: max-content; max-width: calc(100vw - 32px); border: 1px solid #3a3834; border-radius: 12px; background: rgba(34, 33, 30, 0.86); backdrop-filter: blur(12px); box-shadow: 0 8px 28px rgba(0, 0, 0, 0.5); transition: opacity 0.3s; }
 :fullscreen body.idle:not(.presenter) .bar { opacity: 0; pointer-events: none; }
-/* Reached by the keyboard, it shows. */
-:fullscreen body.idle:not(.presenter) .bar:focus-within { opacity: 1; pointer-events: auto; }
 @media (prefers-reduced-motion: reduce) { :fullscreen body:not(.presenter) .bar { transition: none; } }
 :fullscreen body:not(.presenter) { background: #000; }
 /* The presenter view: the slide as the room sees it, and beside it what comes next. */

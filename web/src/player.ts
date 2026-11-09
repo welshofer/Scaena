@@ -681,6 +681,8 @@ async function play(deck: Source, how: Play, channel: BroadcastChannel) {
     rest(true);
   });
   document.addEventListener("pointerdown", () => !overBar && rest(true), true);
+  // Tab brings it back too, for the keyboard, and lets it go again as the pointer's rest does.
+  addEventListener("keydown", (e) => e.key === "Tab" && rest(true));
   stage.canvas.addEventListener("pointermove", (e) => {
     pointer = over(e);
     if (laser) pointAt(pointer);
