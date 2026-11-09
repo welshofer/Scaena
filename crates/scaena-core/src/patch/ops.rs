@@ -456,6 +456,12 @@ fn missing<'k>(what: &str, whats: &str, id: &str, known: impl Iterator<Item = &'
 /// `cover-title`), the nearest first, as "; did you mean `cover-title`?"; else the first few of
 /// them; else that the deck has none (lift-up 10-24b USE-5, 10-25b USE-5).
 pub fn nearest<'k>(whats: &str, id: &str, known: impl Iterator<Item = &'k str>) -> String {
+    nearest_in("the deck", whats, id, known)
+}
+
+/// [`nearest`], of what `owner` holds rather than the deck: "the theme"'s layouts and shader
+/// presets (lift-up 10-25c USE-4).
+pub fn nearest_in<'k>(owner: &str, whats: &str, id: &str, known: impl Iterator<Item = &'k str>) -> String {
     let known: Vec<&str> = known.collect();
     let near = (known.iter())
         .map(|k| (crate::model::check::distance(id, k), *k))
@@ -463,11 +469,11 @@ pub fn nearest<'k>(whats: &str, id: &str, known: impl Iterator<Item = &'k str>) 
         .min();
     match near {
         Some((_, k)) => format!("; did you mean `{k}`?"),
-        None if known.is_empty() => format!(": the deck has no {whats}"),
+        None if known.is_empty() => format!(": {owner} has no {whats}"),
         None => {
             let some: Vec<String> = known.iter().take(5).map(|k| format!("`{k}`")).collect();
             let more = if known.len() > 5 { format!(", … ({} in all)", known.len()) } else { String::new() };
-            format!("; the deck's {whats} include {}{more}", some.join(", "))
+            format!("; {owner}'s {whats} include {}{more}", some.join(", "))
         }
     }
 }
