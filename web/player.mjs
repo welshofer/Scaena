@@ -326,12 +326,18 @@ try {
   const listed = () =>
     player.evaluate(() => {
       const d = document.querySelector("dialog.keylist");
-      return { open: d.open, text: d.textContent };
+      return { open: d.open, text: d.textContent, modal: d.matches(":modal"), focus: document.activeElement?.id };
     });
   await player.keyboard.press("?");
   const list = await listed();
   const words = ["A black screen", "A white screen", "That slide", "The laser", "Fullscreen"];
   check(list.open && words.every((w) => list.text.includes(w)), "? lists the keys");
+  // Modal, its heading in focus, and no key reaching the deck behind it (lift-up 20261031 USE-5).
+  check(list.modal && list.focus === "keylist-title", `the list is modal, its heading in focus: ${JSON.stringify({ modal: list.modal, focus: list.focus })}`);
+  const behind = await player.evaluate(() => window.scaena.at().index);
+  await player.keyboard.press("ArrowRight");
+  await player.waitForTimeout(200);
+  check((await player.evaluate(() => window.scaena.at().index)) === behind, "while it is open, → does not move the deck behind it");
   await player.keyboard.press("?");
   check(!(await listed()).open, "? again closes the list");
   await player.keyboard.press("?");
