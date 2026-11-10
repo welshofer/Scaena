@@ -11,6 +11,7 @@ use crate::validate::BundleFiles;
 use serde_json::Value;
 use std::borrow::Cow;
 use std::collections::BTreeMap;
+use std::rc::Rc;
 
 pub mod cells;
 pub mod edit;
@@ -205,13 +206,21 @@ pub fn load(deck: &Deck, files: &dyn SourceFiles, name: &str) -> Result<Table, D
         .map(|c| ColumnType::of(schema.get(c).map(String::as_str)).map_err(|e| at(format!("`{c}`: {e}"))))
         .collect::<Result<Vec<_>, _>>()?;
     let mut rows = Vec::with_capacity(records.len());
+    // Where each of a row's values goes, worked out once for each header the rows have: a CSV's
+    // rows share one, and JSON's rows mostly name their keys alike. Each value's type is its
+    // column's, worked out once above (lift-up 20261110 PERF-2).
+    let mut last: Option<(Rc<[String]>, Vec<usize>)> = None;
     for (header, values) in records {
-        // A JSON row may name its columns in another order, or leave one out, which is null.
+        let known = last.as_ref().is_some_and(|(h, _)| Rc::ptr_eq(h, &header) || h[..] == header[..]);
+        if !known {
+            // A JSON row may name its columns in another order, or leave one out, which is null.
+            let at = header.iter().map(|c| columns.iter().position(|x| x == c).expect("a column")).collect();
+            last = Some((Rc::clone(&header), at));
+        }
+        let at = &last.as_ref().expect("worked out above").1;
         let mut row = vec![Datum::Null; columns.len()];
-        for (i, (c, v)) in header.iter().zip(values).enumerate() {
-            let k = if header == columns { i } else { columns.iter().position(|x| x == c).expect("a column") };
-            let kind = ColumnType::of(schema.get(c).map(String::as_str)).map_err(|e| at(format!("`{c}`: {e}")))?;
-            row[k] = typed(c, kind, v)?;
+        for ((c, v), &k) in header.iter().zip(values).zip(at) {
+            row[k] = typed(c, types[k], v)?;
         }
         rows.push(row);
     }
@@ -313,15 +322,15 @@ pub fn infer(path: &str, bytes: &[u8]) -> Result<Inferred, DataError> {
     Ok(Inferred { columns, types, rows: records.len() })
 }
 
-/// Rows as (column names, values), each in source order.
-type Records = Vec<(Vec<String>, Vec<Value>)>;
+/// Rows as (column names, values), each in source order; a CSV's rows share its header.
+type Records = Vec<(Rc<[String]>, Vec<Value>)>;
 
 /// The columns `records` name: the first row's, then any a later row names first, in the
 /// order they come. A CSV's rows all have its header's.
 fn columns_of(records: &Records) -> Vec<String> {
-    let mut columns: Vec<String> = records.first().map(|(header, _)| header.clone()).unwrap_or_default();
+    let mut columns: Vec<String> = records.first().map(|(header, _)| header.to_vec()).unwrap_or_default();
     for (header, _) in records {
-        for c in header {
+        for c in header.iter() {
             if !columns.contains(c) {
                 columns.push(c.clone());
             }
@@ -334,6 +343,7 @@ fn columns_of(records: &Records) -> Vec<String> {
 /// header, and the records.
 fn csv(text: &str) -> Result<(Vec<String>, Records), String> {
     let (header, rows) = csv_rows(text)?;
+    let shared: Rc<[String]> = header.clone().into();
     let records = rows
         .into_iter()
         .enumerate()
@@ -341,7 +351,7 @@ fn csv(text: &str) -> Result<(Vec<String>, Records), String> {
             if r.len() != header.len() {
                 return Err(format!("row {}: {} fields, header has {}", i + 2, r.len(), header.len()));
             }
-            Ok((header.clone(), r.into_iter().map(Value::String).collect()))
+            Ok((Rc::clone(&shared), r.into_iter().map(Value::String).collect()))
         })
         .collect::<Result<_, _>>()?;
     Ok((header, records))
@@ -395,7 +405,7 @@ fn json_rows(rows: &Value) -> Result<Records, String> {
     rows.iter()
         .map(|r| {
             let o = r.as_object().ok_or("expected an array of objects")?;
-            Ok((o.keys().cloned().collect(), o.values().cloned().collect()))
+            Ok((o.keys().cloned().collect::<Vec<_>>().into(), o.values().cloned().collect()))
         })
         .collect()
 }
@@ -413,6 +423,27 @@ mod tests {
 
     fn files(path: &str, bytes: &str) -> BTreeMap<String, Vec<u8>> {
         BTreeMap::from([(path.to_string(), bytes.as_bytes().to_vec())])
+    }
+
+    /// A wide, long CSV loads with each value in its column and typed as its schema says, its
+    /// columns worked out once rather than for each cell (lift-up 20261110 PERF-2).
+    #[test]
+    fn a_wide_long_csv_loads_at_once() {
+        let (width, height) = (30, 50_000);
+        let header: Vec<String> = (0..width).map(|c| format!("c{c}")).collect();
+        let mut csv = header.join(",");
+        for r in 0..height {
+            csv.push('\n');
+            csv.push_str(&(0..width).map(|c| (r * width + c).to_string()).collect::<Vec<_>>().join(","));
+        }
+        let schema: Vec<String> = header.iter().map(|c| format!(r#""{c}": "number""#)).collect();
+        let d = deck(&format!(r#"{{"q": {{"source": "data/q.csv", "schema": {{{}}}}}}}"#, schema.join(",")));
+        let started = std::time::Instant::now();
+        let t = load(&d, &files("data/q.csv", &csv), "q").unwrap();
+        let took = started.elapsed();
+        assert_eq!((t.columns.len(), t.rows.len()), (width, height));
+        assert_eq!(t.rows[height - 1][width - 1], Datum::Number((height * width - 1) as f64));
+        assert!(took.as_secs() < 10, "{took:?}");
     }
 
     #[test]

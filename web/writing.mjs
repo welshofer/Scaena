@@ -376,6 +376,14 @@ try {
   const counted = await slides();
   await page.evaluate(() => window.scaena.slideAsk.open("add"));
   check(await page.evaluate(() => document.querySelector("#slide-ask").open), "Add a slide about… opens its dialog");
+  // Its field is set in the page's face, as the dialog's words are, not the browser's monospace,
+  // and nothing waits under it before anything is said (editor dogfood 1).
+  const face = await page.evaluate(() => ({
+    field: getComputedStyle(document.querySelector("#slide-ask-text")).fontFamily,
+    words: getComputedStyle(document.querySelector("#slide-ask-label")).fontFamily,
+    gap: document.querySelector("#slide-ask-thinking").getBoundingClientRect().height,
+  }));
+  check(face.field === face.words && face.gap === 0, `the field is set in the dialog's face, with no gap under it: ${JSON.stringify(face)}`);
   await page.fill("#slide-ask-text", "What changed this quarter");
   await page.click("#slide-ask-go");
   await page.evaluate(() => window.scaena.slideAsk.settled());

@@ -328,3 +328,107 @@ fn a_word_whose_runs_part_in_one_state_still_moves() {
     // The colored letters are their own runs mid-glide, the rest as they were.
     assert!(mid[0].3.len() >= 2, "{:?}", mid[0].3);
 }
+
+/// Code's layers while it morphs: each word's opacity, its vertical offset from where it ends, and
+/// how many glyphs it draws; the card and the bands, which draw no glyphs, left out.
+fn code_words(dl: &DisplayList) -> Vec<(f32, f32, usize)> {
+    words(dl, "c").into_iter().filter(|w| !w.2.is_empty()).map(|w| (w.1, w.0[5], w.2.len())).collect()
+}
+
+/// Two states of one code text: `a`, then `b`, each in Rust, `numbers` set or not.
+fn code_states(a: &str, b: &str, numbers: bool) -> Fx {
+    let nodes = json!({ "c": {
+        "type": "text", "role": "body", "code": { "language": "rust", "numbers": numbers }, "text": a,
+        "at": { "rect": [100, 100, 1600, 700] }
+    } });
+    let states = json!([
+        { "id": "one", "layout": "specimen", "props": { "c": {} } },
+        { "id": "two", "transition": "standard", "props": { "c": { "text": b } } }
+    ]);
+    Fx::new(nodes, states)
+}
+
+#[test]
+fn code_moves_token_by_token_and_an_edited_token_alone_fades() {
+    // PLAN 2.141, ADR-0029 item 7: `cart.Items` is one word to UAX #14 and three tokens to code.
+    // With `cart` edited to `order`, `.` and `Items` move, and `cart` alone fades out.
+    let mut fx = code_states("for item in cart.Items {", "for item in order.Items {", false);
+    let early = code_words(&fx.dl("two", 40.0));
+    let fading: usize = early.iter().filter(|w| w.0 < 1.0).map(|w| w.2).sum();
+    assert_eq!(fading, 4, "`cart` alone fades out: {early:?}");
+    let late = code_words(&fx.dl("two", 360.0));
+    let coming: usize = late.iter().filter(|w| w.0 < 1.0).map(|w| w.2).sum();
+    assert_eq!(coming, 5, "`order` alone fades in: {late:?}");
+    let staying: usize = late.iter().filter(|w| w.0 == 1.0).map(|w| w.2).sum();
+    assert_eq!(staying, "for item in .Items {".chars().filter(|c| !c.is_whitespace()).count(), "{late:?}");
+}
+
+#[test]
+fn a_line_added_above_moves_the_rest_down_and_numbers_pair_by_number() {
+    // PLAN 2.141: a line written above the rest moves every line under it down a line, nothing
+    // fading but what came, and the numbers pair by number: 1 and 2 stay, and 3 fades in.
+    let mut fx = code_states("alpha\nbeta", "zero\nalpha\nbeta", true);
+    let mid = code_words(&fx.dl("two", 300.0));
+    let opaque: Vec<&(f32, f32, usize)> = mid.iter().filter(|w| w.0 == 1.0).collect();
+    let fading: Vec<&(f32, f32, usize)> = mid.iter().filter(|w| w.0 > 0.0 && w.0 < 1.0).collect();
+    assert_eq!(opaque.len(), 4, "alpha, beta, 1, and 2 in full: {mid:?}");
+    assert_eq!(fading.len(), 2, "zero and 3 fading in: {mid:?}");
+    let moving = opaque.iter().filter(|w| w.1 < -1.0).count();
+    let still = opaque.iter().filter(|w| w.1.abs() < 1e-3).count();
+    assert_eq!((moving, still), (2, 2), "alpha and beta move down, 1 and 2 stay: {mid:?}");
+}
+
+#[test]
+fn code_that_shrinks_keeps_one_size_across_its_states() {
+    // PLAN 2.141, ADR-0029 item 7: a step that adds lines does not rescale every token. Code set
+    // by `shrink` takes, in each state, the size at which every text the deck gives it fits.
+    let short = "let a = 1;\nlet b = 2;";
+    let long = (0..18).map(|i| format!("let v{i} = {i};")).collect::<Vec<_>>().join("\n");
+    let nodes = json!({ "c": {
+        "type": "text", "role": "body", "code": { "language": "rust" }, "text": short,
+        "at": { "rect": [100, 100, 1200, 500] }
+    } });
+    let states = json!([
+        { "id": "one", "layout": "specimen", "props": { "c": {} } },
+        { "id": "two", "transition": "standard", "props": { "c": { "text": long } } }
+    ]);
+    let mut fx = Fx::new(nodes, states);
+    let scale = |fx: &mut Fx, state: &str| {
+        let req = FrameRequest { deck: &fx.deck, theme: &fx.theme, data: &fx.data, state, t_ms: 0.0, format: None };
+        fx.engine.text_layouts(&req, &["c"]).unwrap()[0].scale
+    };
+    let (one, two) = (scale(&mut fx, "one"), scale(&mut fx, "two"));
+    assert!(two < 1.0, "the long text shrinks: {two}");
+    assert_eq!(one, two, "both states at one size");
+}
+
+#[test]
+fn a_line_inserted_above_its_twin_never_takes_a_token_of_it() {
+    // PLAN 2.141: code pairs its lines first, as a diff does, and tokens only inside the lines
+    // edited, added, or taken away. `.filter` written above `.sort` never takes `.sort`'s dot,
+    // though the two dots tie: every line both sides write moves whole, one offset for each of its
+    // glyphs, and only `.filter`'s line fades in.
+    let nodes = json!({ "c": {
+        "type": "text", "role": "body", "code": { "language": "typescript" },
+        "text": "return [...talks]\n\t.sort(byVotes)\n\t.map(title);",
+        "at": { "rect": [100, 100, 1600, 700] }
+    } });
+    let states = json!([
+        { "id": "one", "layout": "specimen", "props": { "c": {} } },
+        { "id": "two", "transition": "standard", "props": { "c": {
+            "text": "return [...talks]\n\t.filter(seated)\n\t.sort(byVotes)\n\t.map(title);"
+        } } }
+    ]);
+    let mut fx = Fx::new(nodes, states);
+    let mid = code_words(&fx.dl("two", 300.0));
+    let fading: Vec<&(f32, f32, usize)> = mid.iter().filter(|w| w.0 > 0.0 && w.0 < 1.0).collect();
+    // `return [...talks]` stays; `.sort(byVotes)` and `.map(title);` move down a line, together.
+    let opaque: Vec<&(f32, f32, usize)> = mid.iter().filter(|w| w.0 == 1.0).collect();
+    let still: usize = opaque.iter().filter(|w| w.1.abs() < 1e-3).map(|w| w.2).sum();
+    let moved: Vec<f32> = opaque.iter().map(|w| w.1).filter(|dy| dy.abs() >= 1e-3).collect();
+    assert_eq!(still, "return[...talks]".len(), "only the first line stays: {mid:?}");
+    assert!(moved.iter().all(|dy| (dy - moved[0]).abs() < 1e-3 && *dy < -1.0), "one offset: {moved:?}");
+    // `.`, `filter`, `(`, `seated`, and `)` fade in where they stand.
+    assert_eq!(fading.len(), 5, "`.filter`'s line alone fades in: {mid:?}");
+    assert!(fading.iter().all(|w| w.1.abs() < 1e-3), "{fading:?}");
+}

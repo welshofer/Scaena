@@ -1543,6 +1543,8 @@ export type GeneratingEvent =
   /** The outline, twice unreadable, passed over: the slides written without one (lift-up REL-3). */
   | { kind: "unoutlined" }
   | { kind: "writing"; slides: number }
+  | { kind: "continuing"; written: number; slides: number }
+  | { kind: "unrested"; why: string }
   | { kind: "retrying"; seconds: number; tried: number }
   | { kind: "wrote"; slides: number; truncated: boolean }
   /** The icon set could not be fetched: the slides that name icons are set without them. */

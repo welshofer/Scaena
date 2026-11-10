@@ -359,6 +359,11 @@ pub enum Progress {
     Chose { arc: String, fallback: Option<String> },
     /// The slides are asked, at least this many.
     Writing { slides: usize },
+    /// The answer was cut short after `written` slides of `slides`: the rest is asked for
+    /// (lift-up REL-2).
+    Continuing { written: usize, slides: usize },
+    /// The rest did not come back, and why: the deck is made of the slides written before it.
+    Unrested { why: String },
     /// The provider was busy, failed for now, or did not answer: the same step is asked again
     /// after `wait` seconds, `tried` times so far (narrative REL-1).
     Retrying { wait: f64, tried: usize },
@@ -642,7 +647,11 @@ pub fn generate_drawn(
 ) -> Result<(Generated, Option<Write>), OpsError> {
     while let Some(request) = key.and_then(|key| generation.request(key, documents)) {
         let step = generation.step();
-        say(if step == Step::Arc { Progress::Choosing } else { Progress::Writing { slides: generation.target() } });
+        say(match (step, generation.partial()) {
+            (Step::Arc, _) => Progress::Choosing,
+            (Step::Rest, Some(written)) => Progress::Continuing { written, slides: generation.target() },
+            _ => Progress::Writing { slides: generation.target() },
+        });
         let reply = transport.send(&request);
         (generation.answer(reply.status, &reply.status_text, &reply.body, reply.after.as_deref()))
             .map_err(|e| OpsError::new(e.to_string()))?;
@@ -661,6 +670,9 @@ pub fn generate_drawn(
     generation.give_icons(icons_found(&generation.icon_words()));
     let narrative = (generation.narrative().cloned())
         .ok_or_else(|| OpsError::new("the narrative is not written: a key asks the model for it"))?;
+    if let Some(why) = generation.unrested() {
+        say(Progress::Unrested { why: why.to_string() });
+    }
     let text = generation.written_text().unwrap_or_default().to_string();
     say(Progress::Wrote { slides: narrative.slides.len(), truncated: narrative.truncated, text });
     let model: Theme = serde_json::from_str(&theme).context("the theme")?;
@@ -3362,6 +3374,10 @@ fn layout_for(
         "ask" => "the-ask",
         "qa" => "qa",
         "recipe-card" => "recipe",
+        // A person introduced over their photo, their name and role on the band across its foot
+        // (lift-up 20261110 FUNC-5); with no photo made, their name said as a statement.
+        "chyron" if pictured && theme.layouts.contains_key("chyron") => "chyron",
+        "chyron" => "statement",
         _ => "bullets",
     };
     // Items each under the icon its word names (G.23): three side by side, in columns and on
@@ -5140,6 +5156,9 @@ impl Slots<'_> {
             ("memo" | "letter", "from" | "sign", _) => Some(Some(Fill::Prompt)),
             ("memo" | "letter", "body", _) => text((!self.items.is_empty()).then(|| self.wholes().join("\n\n"))),
             ("headline", "tag" | "byline", _) => Some(None),
+            // A lower third's name on its band, and the role over it (lift-up 20261110 FUNC-5).
+            ("chyron", "story", _) => text(self.title()),
+            ("chyron", "tag", _) => text(self.subtitle().or_else(|| self.item(0).map(|i| self.short(i)))),
             ("the-ask", "ask", _) => text(self.title()),
             _ => None,
         }
@@ -5413,11 +5432,9 @@ impl Builder {
                         }
                         // Of two figures, the one the slide is not about stands back.
                         ("two-figures", Some((k, "figure")))
-                            if s.slide
-                                .chart_data
-                                .as_ref()
-                                .and_then(|c| signal(c, s.item(0).map(|i| i.whole.as_str())))
-                                != Some(k) =>
+                            if s.slide.chart_data.as_ref().and_then(|c| {
+                                signal(c, Some(s.slide.slide_title.as_str()), s.item(0).map(|i| i.whole.as_str()))
+                            }) != Some(k) =>
                         {
                             node["style"] = json!({ "color": "onSurfaceMuted" })
                         }
@@ -6215,31 +6232,61 @@ fn decimals(chart: &ChartData) -> usize {
 }
 
 /// Which of a single series' categories the slide is about, by index: the one its takeaway
-/// names; else, where the categories are years, the latest; else the largest. A year the
-/// takeaway runs on from ("since 2022", "after", "from") is where the story starts, not where it
-/// lands: the latest is lit, as a line's band runs from that year to the last (dogfood pass 7).
-fn signal(chart: &ChartData, takeaway: Option<&str>) -> Option<usize> {
+/// names; else the one whose value its headline, then its takeaway, lands on: the figure after its
+/// last "to", else its first, that is one bar's alone ("p99 fell from 900 ms to 120 ms" lights
+/// 120, "Burn fell to $1.8M" lights 1.8, "$2T against $1.1T" lights 2, dogfood pass 9); else,
+/// where the categories are years, the latest; else
+/// the largest. A category the takeaway runs on from ("since 2022", "since Q3 FY25", "after",
+/// "from") is where the story starts, not where it lands, where the categories have an order of
+/// their own: the latest is lit, as a line's band runs from that year to the last (dogfood pass 7).
+fn signal(chart: &ChartData, title: Option<&str>, takeaway: Option<&str>) -> Option<usize> {
     let named: Vec<usize> = (0..chart.categories.len())
         .filter(|i| takeaway.is_some_and(|t| t.to_lowercase().contains(&chart.categories[*i].to_lowercase())))
         .collect();
     let years = chart.categories.iter().all(|c| c.len() == 4 && c.chars().all(|d| d.is_ascii_digit()));
     let values = chart.series.first().map(|s| s.values.as_slice()).unwrap_or_default();
-    let runs_on = |year: &str| {
-        let words: Vec<String> = (takeaway.unwrap_or_default().split(|c: char| !c.is_alphanumeric()))
-            .filter(|w| !w.is_empty())
-            .map(str::to_lowercase)
-            .collect();
-        words.windows(2).any(|w| matches!(w[0].as_str(), "since" | "after" | "from") && w[1] == year)
+    let words = |text: &str| -> Vec<String> {
+        (text.split(|c: char| !c.is_alphanumeric())).filter(|w| !w.is_empty()).map(str::to_lowercase).collect()
+    };
+    let runs_on = |category: &str| {
+        let said = words(takeaway.unwrap_or_default());
+        let named = words(category);
+        (1..said.len()).any(|i| {
+            matches!(said[i - 1].as_str(), "since" | "after" | "from") && said[i..].starts_with(named.as_slice())
+        })
     };
     match named.as_slice() {
-        [one] if years && runs_on(&chart.categories[*one]) => chart.categories.len().checked_sub(1),
-        [one] => Some(*one),
-        _ if years => chart.categories.len().checked_sub(1),
-        _ => (values.iter().enumerate())
-            .filter_map(|(i, v)| Some((i, (*v)?)))
-            .max_by(|a, b| a.1.total_cmp(&b.1))
-            .map(|(i, _)| i),
+        [one] if (years || ordered(&chart.categories)) && runs_on(&chart.categories[*one]) => {
+            return chart.categories.len().checked_sub(1);
+        }
+        [one] => return Some(*one),
+        _ => {}
     }
+    // The figure a sentence lands on: its last that is one bar's value alone, never a figure of a
+    // category's own name ("Q3", "FY25").
+    let places = decimals(chart);
+    let near = 0.5 * 10f64.powi(-(places as i32));
+    let in_names: Vec<f64> = chart.categories.iter().flat_map(|c| figures(c)).collect();
+    let bar = |n: f64| {
+        let mut at = values.iter().enumerate().filter(|(_, v)| v.is_some_and(|v| (v - n).abs() < near));
+        match (at.next(), at.next()) {
+            (Some((i, _)), None) if !in_names.contains(&n) => Some(i),
+            _ => None,
+        }
+    };
+    let lands = |text: &str| {
+        let after = text.as_bytes().windows(4).rposition(|w| w.eq_ignore_ascii_case(b" to ")).map(|at| &text[at + 4..]);
+        after
+            .and_then(|rest| figures(rest).into_iter().find_map(bar))
+            .or_else(|| figures(text).into_iter().find_map(bar))
+    };
+    if let Some(i) = [title, takeaway].into_iter().flatten().find_map(lands) {
+        return Some(i);
+    }
+    if years {
+        return chart.categories.len().checked_sub(1);
+    }
+    (values.iter().enumerate()).filter_map(|(i, v)| Some((i, (*v)?))).max_by(|a, b| a.1.total_cmp(&b.1)).map(|(i, _)| i)
 }
 
 /// The chart that plots `chart`'s source, `data`, in a layout's chart slot.
@@ -6304,7 +6351,8 @@ fn chart_node(
     // names; else, where the categories are years, the latest; else the largest bar.
     if kind == "bar"
         && !several
-        && let Some(x) = signal(chart, takeaway).and_then(|i| chart.categories.get(i))
+        && let Some(x) =
+            signal(chart, Some(title).filter(|t| !t.is_empty()), takeaway).and_then(|i| chart.categories.get(i))
     {
         node["annotations"] = json!([{ "kind": "highlight", "at": { "x": x } }]);
     }
@@ -6719,13 +6767,13 @@ mod tests {
             series: vec![answer::Series { name: None, values: vec![Some(11.0), Some(17.0), Some(26.0), Some(34.0)] }],
             ..Default::default()
         };
-        assert_eq!(signal(&wait, Some("The wait has tripled since 2022")), Some(3));
-        assert_eq!(signal(&wait, Some("From 2023, it climbed")), Some(3));
-        assert_eq!(signal(&wait, Some("2023 was the turn")), Some(1));
-        assert_eq!(signal(&wait, Some("Longer every year")), Some(3));
+        assert_eq!(signal(&wait, None, Some("The wait has tripled since 2022")), Some(3));
+        assert_eq!(signal(&wait, None, Some("From 2023, it climbed")), Some(3));
+        assert_eq!(signal(&wait, None, Some("2023 was the turn")), Some(1));
+        assert_eq!(signal(&wait, None, Some("Longer every year")), Some(3));
         // Categories that are no years keep the one named.
         let stages = ChartData { categories: ["Gateway", "Pricing"].map(String::from).to_vec(), ..wait.clone() };
-        assert_eq!(signal(&stages, Some("Since Pricing fell")), Some(1));
+        assert_eq!(signal(&stages, None, Some("Since Pricing fell")), Some(1));
     }
 
     fn typeset_en(text: &str) -> String {
@@ -7526,6 +7574,52 @@ mod tests {
         let caps: Vec<f64> = held.iter().flatten().copied().collect();
         assert_eq!(caps.len(), 2, "the two that fit are capped: {held:?}");
         assert!(caps[0] == caps[1] && caps[0] < 48.0 && held[2].is_none(), "shrunk together: {held:?}");
+    }
+
+    /// A bar the headline lands on is lit, never the tallest by default: the figure a falling
+    /// series reaches, the end of "from 900 ms to 120 ms", and the latest quarter where the words
+    /// run on from the first (dogfood pass 9).
+    #[test]
+    fn bars_light_the_figure_the_headline_lands_on() {
+        let quarters = ["Q3 FY25", "Q4 FY25", "Q1 FY26", "Q2 FY26", "Q3 FY26"].map(String::from).to_vec();
+        let burn = ChartData {
+            categories: quarters.clone(),
+            series: vec![answer::Series { name: None, values: [3.1, 2.9, 2.6, 2.2, 1.8].map(Some).to_vec() }],
+            ..Default::default()
+        };
+        // The takeaway runs on from the first quarter: the story lands on the last.
+        assert_eq!(signal(&burn, None, Some("Burn is down 42% since Q3 FY25")), Some(4));
+        // A quarter named bare is lit as named.
+        assert_eq!(signal(&burn, None, Some("Q1 FY26 was the turn")), Some(2));
+        // The headline's figure, not the tallest bar.
+        assert_eq!(signal(&burn, Some("Burn fell to $1.8M, the lowest in two years"), None), Some(4));
+        // Words whose lowercase is longer than they are: " to " is found where it stands, never
+        // a place in the lowercase that falls inside a letter or past the figure.
+        assert_eq!(signal(&burn, Some("İ ağır 2.9 düştü to ölçüde 1.8"), None), Some(4));
+        assert_eq!(signal(&burn, Some("İİİ fell from 2.9 to 1.8"), None), Some(4));
+        let p99 = ChartData {
+            categories: ["Before", "After batching", "After cache"].map(String::from).to_vec(),
+            series: vec![answer::Series { name: None, values: [900.0, 210.0, 120.0].map(Some).to_vec() }],
+            ..Default::default()
+        };
+        assert_eq!(signal(&p99, Some("p99 fell from 900 ms to 120 ms"), Some("An 87% cut")), Some(2));
+        // Two set against each other: the first, which the sentence is about.
+        assert_eq!(signal(&p99, None, Some("210 ms against 120 ms")), Some(1));
+        // No figure the bars hold, nor one two of them share: the largest, as before.
+        assert_eq!(signal(&p99, Some("Faster checkout"), Some("An 87% cut")), Some(0));
+        let tied = ChartData {
+            series: vec![answer::Series { name: None, values: [5.0, 5.0, 2.0].map(Some).to_vec() }],
+            ..p99.clone()
+        };
+        // Two bars at 5: the figure picks neither, and the largest is lit as before, the last of them.
+        assert_eq!(signal(&tied, Some("Down to 5 from 5"), None), Some(1));
+        // A figure in a category's own name is no figure of the bars.
+        let revenue = ChartData {
+            categories: quarters,
+            series: vec![answer::Series { name: None, values: [9.8, 10.6, 11.9, 3.0, 14.4].map(Some).to_vec() }],
+            ..Default::default()
+        };
+        assert_eq!(signal(&revenue, Some("Q3 FY26 grew"), None), Some(4));
     }
 
     /// A team by name fills its place: its names grow toward three-quarters of the headline and
@@ -8515,6 +8609,38 @@ mod tests {
             said.iter().any(|(s, w)| s == "support" && w.ends_with("She never missed a day of school.")),
             "{said:#?}"
         );
+    }
+
+    /// A person introduced over their photo takes the theme's Lower Third, their name on its band
+    /// and their role over it; with no photo made, their name is said as a statement (lift-up
+    /// 20261110 FUNC-5). The model calls it Lower Third or Chyron.
+    #[test]
+    fn a_person_over_their_photo_takes_the_lower_third() {
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        for called in ["Lower Third", "Chyron"] {
+            let text = serde_json::json!({
+                "executiveSummary": "Proof is the product.",
+                "slides": [
+                    { "slideTitle": "Proof is the product", "subtitle": "A talk", "layoutSuggestion": "Title",
+                      "keyBullets": [], "beatIndex": 0, "beatName": "Hook" },
+                    { "slideTitle": "Maya Chen", "subtitle": "CEO, Tidewater", "layoutSuggestion": called,
+                      "keyBullets": [], "visualConcept": "Maya on the quay at dawn", "beatIndex": 1, "beatName": "Who" },
+                ]
+            })
+            .to_string();
+            let written = answer::slides(&text).unwrap();
+            let n = narrative(&written.executive_summary, written.slides);
+            let pictured: Pictures = [(1, Placed { src: "assets/picture-1.jpg".into(), alt: "Maya".into() })].into();
+            let made = deck(&n, &theme, &pictured).unwrap();
+            assert_eq!(made.layouts[1], "chyron", "{called}");
+            let state = made.deck["states"][1]["id"].as_str().unwrap().to_string();
+            let said = shown(&made.deck, &state);
+            for (slot, words) in [("story", "Maya Chen"), ("tag", "CEO, Tidewater"), ("art", "image")] {
+                assert!(said.iter().any(|(s, w)| s == slot && w == words), "{slot} = {words:?} in {said:#?}");
+            }
+            let unpictured = deck(&n, &theme, &Pictures::new()).unwrap();
+            assert_eq!(unpictured.layouts[1], "statement", "{called}, with no photo made");
+        }
     }
 
     #[test]
@@ -9663,6 +9789,70 @@ mod tests {
         .unwrap_err();
         assert_eq!(err.message, "the request did not complete: connection reset (asked 6 times)");
         assert_eq!((transport.asked, transport.paused), (6, vec![2.0, 4.0, 8.0, 16.0, 32.0]));
+    }
+
+    /// Slides cut short of the length asked are asked for the rest, written on from them, and the
+    /// deck is the two answers as one (lift-up REL-2); the progress says so.
+    #[test]
+    fn slides_cut_short_are_asked_for_the_rest() {
+        use scaena_narrato::{Generation, Provider, Settings};
+        struct Scripted {
+            replies: Vec<Reply>,
+            asked: Vec<String>,
+        }
+        impl Transport for Scripted {
+            fn send(&mut self, request: &Request) -> Reply {
+                self.asked.push(request.body.as_ref().map(|b| b.to_string()).unwrap_or_default());
+                self.replies.remove(0)
+            }
+            fn pause(&mut self, _: f64) {}
+        }
+        let whole: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(root().join("crates/scaena-narrato/tests/answers/anthropic-slides.json")).unwrap(),
+        )
+        .unwrap();
+        let text: serde_json::Value = serde_json::from_str(whole["content"][1]["text"].as_str().unwrap()).unwrap();
+        let slides = text["slides"].as_array().unwrap();
+        let answered = |text: String, stop: &str| Reply {
+            status: 200,
+            status_text: "OK".into(),
+            body: json!({ "content": [{ "type": "text", "text": text }], "stop_reason": stop }).to_string(),
+            after: None,
+        };
+        // Three slides close, the fourth cut inside.
+        let first = json!({ "executiveSummary": text["executiveSummary"], "slides": slides[..3] }).to_string();
+        let cut = format!("{}, {{\"slideTitle\": \"Cut", &first[..first.len() - 2]);
+        let rest = json!({ "executiveSummary": "", "slides": slides[3..] }).to_string();
+        let mut g = Generation::new(
+            narrative("", Vec::new()).brief,
+            Settings { provider: Provider::Anthropic, model: "a-model".into(), base: None, browser: false },
+        )
+        .unwrap();
+        g.choose_arc(Some("Problem\u{2013}Solution"));
+        let target = g.target();
+        let mut transport =
+            Scripted { replies: vec![answered(cut, "max_tokens"), answered(rest, "end_turn")], asked: Vec::new() };
+        let mut heard = Vec::new();
+        let mut say = |p: Progress| heard.push(p);
+        let (made, write) = generate(
+            g,
+            Some("sk-test"),
+            &[],
+            None,
+            Looking::No,
+            Path::new("dusk.theme.json"),
+            dusk(),
+            &font,
+            &mut transport,
+            &mut say,
+        )
+        .unwrap();
+        assert_eq!(transport.asked.len(), 2);
+        assert!(transport.asked[1].contains("cut off after slide 3 of"), "{}", transport.asked[1]);
+        assert!(heard.contains(&Progress::Continuing { written: 3, slides: target }), "{heard:?}");
+        assert!(heard.iter().any(|p| matches!(p, Progress::Wrote { slides: 5, truncated: false, .. })), "{heard:?}");
+        assert!(made.created.created && made.created.errors == 0, "{:#?}", made.created.findings);
+        assert_eq!(write.unwrap().deck.states.len(), 5);
     }
 
     /// An Anthropic answer whose text is `text`.
