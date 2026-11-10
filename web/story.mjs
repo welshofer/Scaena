@@ -75,6 +75,43 @@ try {
   check(!(await first.isVisible()), "folded until it is opened");
   await page.click("#story [data-more] summary");
   check(await first.isVisible(), "and opened, it shows them");
+
+  // Ask the assistant keeps a question already drafted in its box, the finding's put after it
+  // (lift-up 20261110 deferred).
+  await tab(page, "assistant");
+  await page.fill("#question", "My own question first.");
+  await tab(page, "story");
+  await page.locator("#story [data-findings] li[data-slide] [data-ask]").first().click();
+  const drafted = await page.inputValue("#question");
+  check(/^My own question first\.\n\n\S/.test(drafted), `Ask the assistant keeps the question drafted, its own after it: ${JSON.stringify(drafted.slice(0, 60))}`);
+  await page.fill("#question", "");
+  // A fix pressed while the assistant is at work on the deck says why it waits (lift-up 20261110
+  // deferred): the assistant held at work by a provider whose answer never comes.
+  const held = [];
+  await page.route("https://scripted.invalid/**", (route) =>
+    route.request().method() === "GET" ? route.fulfill({ json: { data: [{ id: "scripted", type: "model" }] } }) : held.push(route),
+  );
+  await page.selectOption("#provider", "anthropic");
+  await page.fill("#base", "https://scripted.invalid");
+  await page.fill("#key", "story-test-key");
+  await page.waitForFunction(() => document.querySelector("#model").options.length > 0, null, { timeout: 30000 }).catch(() => {});
+  await page.evaluate(() => void window.scaena.assistant.ask("Hold the deck a moment."));
+  await page.waitForFunction(() => document.querySelector("#code .cm-content[contenteditable=false]"), null, { timeout: 30000 }).catch(() => {});
+  await tab(page, "story");
+  const unfixed = await page.evaluate(() => window.scaena.source());
+  const fixing = page.locator("#story [data-findings] li[data-slide] [data-fix]").first();
+  check((await fixing.count()) === 1, "a finding offers a fix");
+  await fixing.click();
+  await page
+    .waitForFunction(() => document.querySelector("#status").textContent.startsWith("Not fixed: the assistant is at work on the deck"), null, { timeout: 10000 })
+    .catch(() => {});
+  const waits = await page.textContent("#status");
+  check(waits.startsWith("Not fixed: the assistant is at work on the deck") && (await page.evaluate(() => window.scaena.source())) === unfixed, `a fix pressed while the assistant works says why: ${waits}`);
+  await page.evaluate(() => document.querySelector("#stop").click());
+  for (const route of held) await route.abort().catch(() => {});
+  await page.waitForFunction(() => !document.querySelector("#code .cm-content[contenteditable=false]"), null, { timeout: 30000 }).catch(() => {});
+  await page.unroute("https://scripted.invalid/**");
+  await tab(page, "story");
   // Each finding says what to do under what it found, the question the assistant would be asked,
   // so a presenter with no key reads it in its row (editor dogfood 3).
   const todos = await page.evaluate(() =>
