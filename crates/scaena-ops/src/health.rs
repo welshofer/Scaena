@@ -2313,6 +2313,17 @@ mod tests {
     /// by `change`, made in Dusk, and its outline the arc's beats as its slides name them, no
     /// claim settled, and `big_idea`.
     fn dogfood(name: &str, big_idea: &str, change: impl FnOnce(&mut Vec<answer::Slide>)) -> Value {
+        grounded_dogfood(name, big_idea, Vec::new(), change)
+    }
+
+    /// `dogfood`, the deck made from `sources`, so each slide's `sourceRef` is cited in its beat's
+    /// evidence as a made deck cites it.
+    fn grounded_dogfood(
+        name: &str,
+        big_idea: &str,
+        sources: Vec<scaena_narrato::Provenance>,
+        change: impl FnOnce(&mut Vec<answer::Slide>),
+    ) -> Value {
         let path = root().join(format!("tests/fixtures/dogfood/{name}.slides.json"));
         let mut written = answer::slides(&std::fs::read_to_string(path).unwrap()).unwrap();
         change(&mut written.slides);
@@ -2331,7 +2342,7 @@ mod tests {
             slides: written.slides,
             truncated: false,
             icons: Default::default(),
-            sources: Vec::new(),
+            sources,
             outline: None,
             brief: Brief { topic: name.into(), length: "11-15 slides".into(), ..Brief::default() },
         };
@@ -2411,26 +2422,14 @@ mod tests {
     /// and a deck made from no sources are not found; cited, slide 8 is not either.
     #[test]
     fn a_figure_no_source_backs_in_a_sourced_deck_is_asked_where_it_comes_from() {
-        let written: Value = serde_json::from_str(
-            &std::fs::read_to_string(root().join("tests/fixtures/dogfood/fleet.slides.json")).unwrap(),
-        )
-        .unwrap();
-        let named: Vec<bool> =
-            (written["slides"].as_array().unwrap().iter()).map(|s| s.get("sourceRef").is_some()).collect();
-        let grounded = |also: &[usize]| {
-            let mut deck = dogfood("fleet", "", |_| {});
-            deck["meta"]["narrative"]["sources"] =
-                json!([{ "name": "pilot.csv", "kind": "csv", "bytes": 1, "truncated": false }]);
-            let mut k = 0;
-            for section in deck["spine"]["sections"].as_array_mut().unwrap() {
-                for beat in section["beats"].as_array_mut().unwrap() {
-                    if named[k] || also.contains(&k) {
-                        beat["evidence"] = json!(["source:pilot.csv"]);
-                    }
-                    k += 1;
-                }
-            }
-            deck
+        let pilot = || {
+            vec![scaena_narrato::Provenance {
+                name: "pilot.csv".into(),
+                kind: "csv".into(),
+                url: None,
+                bytes: 1,
+                truncated: false,
+            }]
         };
         let unsourced = |deck: &Value| -> Vec<(usize, String, String)> {
             (of(deck).findings.into_iter())
@@ -2438,13 +2437,40 @@ mod tests {
                 .map(|f| (f.slide, f.says, f.ask))
                 .collect()
         };
-        let found = unsourced(&grounded(&[]));
+        // Made from the pilot's sheet, each slide that names it cited in its beat (`source:NAME`).
+        let made = grounded_dogfood("fleet", "", pilot(), |_| {});
+        let cited = |k: usize| {
+            (made["spine"]["sections"].as_array().unwrap().iter())
+                .flat_map(|s| s["beats"].as_array().unwrap().iter())
+                .nth(k)
+                .is_some_and(|b| b["evidence"].as_array().is_some_and(|e| !e.is_empty()))
+        };
+        assert!(cited(1) && !cited(7), "slide 2 names the sheet, slide 8 nothing");
+        let found = unsourced(&made);
         assert_eq!(found.len(), 1, "{found:?}");
         let (slide, says, ask) = &found[0];
         assert_eq!(*slide, 8);
         assert_eq!(says, "Slide 8 writes 38%, and names no source for it, though the deck was made from its sources.");
         assert_eq!(ask, "Say on slide 8 where 38% comes from, or cite the source it is from.");
-        assert!(unsourced(&grounded(&[7])).is_empty(), "cited, slide 8 is sourced");
+        // Its `sourceRef` given, slide 8 is cited and found sourced.
+        let named = |slides: &mut Vec<answer::Slide>| slides[7].source_ref = Some("pilot.csv".into());
+        assert!(unsourced(&grounded_dogfood("fleet", "", pilot(), named)).is_empty());
+        // A chart's figures are its data's, which its beat cites as `@data`, `sourceRef` or none.
+        let charted = |slides: &mut Vec<answer::Slide>| {
+            let weeks: Vec<String> = (1..=6).map(|w| format!("Week {w}")).collect();
+            slides[8].source_ref = None;
+            slides[8].chart_data = Some(answer::ChartData {
+                categories: weeks,
+                series: vec![answer::Series {
+                    name: Some("Late deliveries".into()),
+                    values: [38.0, 35.0, 22.0, 18.0, 15.0, 14.0].map(Some).to_vec(),
+                }],
+                unit: None,
+                source_id: None,
+            });
+        };
+        let charts = grounded_dogfood("fleet", "", pilot(), charted);
+        assert!(!unsourced(&charts).iter().any(|(k, ..)| *k == 9), "{:?}", unsourced(&charts));
         assert!(unsourced(&dogfood("fleet", "", |_| {})).is_empty(), "a deck made from no sources");
         assert_eq!(figure("Q3 by product, p99 latency, Week 1, 3 steps, November 2026"), None);
         assert_eq!(figure("Costs fell to $1.4M (2.5x less)").as_deref(), Some("$1.4M"));
