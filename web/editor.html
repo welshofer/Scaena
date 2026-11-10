@@ -810,6 +810,8 @@
       #prompting-film li { flex: none; height: 72px; aspect-ratio: 16 / 9; border-radius: 4px; background: var(--line); overflow: hidden; }
       #prompting-film img { display: block; height: 100%; width: 100%; object-fit: contain; }
       #prompting-film li:not(.drawn) img { visibility: hidden; }
+      #prompting-film li.looked { outline: 2px solid var(--info); outline-offset: -2px; }
+      #prompting-progress .elapsed { color: var(--muted); font-variant-numeric: tabular-nums; }
       #prompting-film li.drawn img { animation: prompting-drawn 240ms ease-out; }
       @keyframes prompting-drawn { from { opacity: 0; transform: translateY(6px); } }
       @media (prefers-reduced-motion: reduce) { #prompting-film li.drawn img { animation: none; } }

@@ -1605,6 +1605,9 @@ export type GeneratingEvent =
    * the JPEG in base64, which the dialog shows as it comes (lift-up ATTR-1). */
   | { kind: "drawn"; slide: number; of: number; jpeg: string }
   | { kind: "looking"; slides: number }
+  /** A look round's answer read (lift-up 20261110 ATTR-1): round `round` of `of`, about the slides
+   * `from` to `to` (from 0), which the strip marks as looked at. */
+  | { kind: "lookedAt"; round: number; of: number; from: number; to: number }
   /** Each slide's notes asked to be written for the talk, then these many taken, or why not
    * (lift-up 10-25 ATTR-2). */
   | { kind: "noting"; slides: number }
