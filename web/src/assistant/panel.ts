@@ -308,6 +308,7 @@ export function panel(stage: Stage, editor: Editor): Panel {
         return;
       }
       case "text": {
+        begun = true;
         thinking.textContent = "Working…";
         // Said whole, as it reads (narrative ATTR-4): its lists, code, emphasis, and links,
         // a link to a slide showing it; in the words' place, or in a new entry.
@@ -317,6 +318,7 @@ export function panel(stage: Stage, editor: Editor): Panel {
         return;
       }
       case "call": {
+        begun = true;
         thinking.textContent = "Working…";
         const li = entry("call");
         // What the call does, in a person's words; the tool and what it was given, opened.
@@ -410,6 +412,10 @@ export function panel(stage: Stage, editor: Editor): Panel {
     }
   }
 
+  /** Whether the answer to the question asked has begun: its first words or call. Until then, a
+   * question that fails or is stopped goes back into the box (lift-up 20261110 USE-2). */
+  let begun = false;
+
   async function ask(text: string): Promise<AssistantEvent> {
     text = text.trim();
     if (!text || working) return { kind: "failed", message: working ? "the assistant is working" : "nothing asked" };
@@ -419,6 +425,8 @@ export function panel(stage: Stage, editor: Editor): Panel {
     saying = undefined;
     entry("user", text);
     question.value = "";
+    begun = false;
+    let outcome: AssistantEvent | undefined;
     // What the editor shows as it is asked: the source locks below, and shows nothing then.
     const seeing = editor.seeing();
     const stopped = (stopping = new AbortController()).signal;
@@ -441,19 +449,27 @@ export function panel(stage: Stage, editor: Editor): Panel {
       if (stopped.aborted) {
         const done: AssistantEvent = { kind: "done", stop: "stopped" };
         hear(done);
-        return done;
+        return (outcome = done);
       }
       // Sent after the question, so the worker stops this one.
       stopped.addEventListener("abort", () => stage.stop(), { once: true });
-      return await stage.ask(
+      return (outcome = await stage.ask(
         editor.source(),
         { provider: which(), model: model.value, key: key.value, base: base.value || undefined, text, seeing, mapKey, timeoutMs },
         hear,
         { height: drawings.height, known },
-      );
+      ));
     } catch (e) {
-      return failure(e instanceof Error ? e.message : String(e));
+      return (outcome = failure(e instanceof Error ? e.message : String(e)));
     } finally {
+      // A question that failed, or was stopped before any answer came, is put back as it was asked,
+      // to send again or mend: a refused key or a dropped connection loses nothing typed. One the
+      // person has begun typing since is left as they typed it.
+      const unanswered = outcome?.kind === "failed" || (outcome?.kind === "done" && outcome.stop === "stopped");
+      if (unanswered && !begun && !question.value) {
+        question.value = text;
+        question.setSelectionRange(text.length, text.length);
+      }
       stopping = undefined;
       working = false;
       thinking.hidden = true;
