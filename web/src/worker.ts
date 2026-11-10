@@ -592,7 +592,7 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         return post({
           type: "adding",
           id: data.id,
-          added: JSON.parse(player.inserting(data.state, data.n, ...data.at, data.named, data.with && JSON.stringify(data.with))) as Added,
+          added: JSON.parse(player.inserting(data.state, data.n, data.at?.[0], data.at?.[1], data.named, data.with && JSON.stringify(data.with))) as Added,
         });
       case "insertingIcon":
         current(data.source);

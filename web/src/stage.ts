@@ -1139,7 +1139,7 @@ export class Stage {
 
   /** The patch that inserts what `inserts` offers `n`th, entering in `state` about `at` (canvas
    * units), snapped to the theme's grid as a drop snaps, on the deck `source` compiles to. */
-  inserting(source: string, state: string, n: number, at: [number, number], format?: string, named?: string, with_?: Record<string, unknown>): Promise<Added> {
+  inserting(source: string, state: string, n: number, at: [number, number] | null, format?: string, named?: string, with_?: Record<string, unknown>): Promise<Added> {
     return this.request<"adding">({ type: "inserting", id: ++this.asked, source, state, n, at, format, named, with: with_ }).then(({ added }) => added);
   }
 
