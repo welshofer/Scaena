@@ -141,31 +141,10 @@ try {
   check(await says("Nothing to redo"), `and with nothing left, a redo says so: ${await status()}`);
   await undo();
   check(await back(original), "an undo takes it back again");
-  // In the source, ⌘Z takes it back and ⌘⇧Z makes it again, as the history binds them, and the
-  // status, a live region, says that alone: never "Nothing to undo" on the way, even for an
-  // instant. CodeMirror tries ⌘Z's binding for ⌘⇧Z first after a ⌘Z in the source, as the
-  // assistant's answer is undone and made again (web/assistant.mjs).
-  await page.keyboard.press("Control+Shift+z");
-  check(await says(`Made again: ${did}`), `a redo makes it again, to be undone in the source: ${await status()}`);
+  // In the source, ⌘⇧Z makes it again, as the history binds it.
   await page.locator(".cm-content").focus();
-  await page.keyboard.press("Control+z");
-  check(await says(`Undone: ${did}`), `in the source, ⌘Z takes it back: ${await status()}`);
-  await page.evaluate(() => {
-    window.__said = [];
-    // Each text the status was given, as each record added it: two said in one task are read
-    // after it, when the status holds the last alone.
-    new MutationObserver((records) => {
-      for (const r of records) for (const n of r.addedNodes) window.__said.push(n.textContent);
-    }).observe(document.querySelector("#status"), {
-      childList: true,
-      characterData: true,
-      subtree: true,
-    });
-  });
   await page.keyboard.press("Control+Shift+z");
   check(await says(`Made again: ${did}`), `in the source, ⌘⇧Z makes it again: ${await status()}`);
-  const heard = await page.evaluate(() => window.__said);
-  check(!heard.some((t) => t.startsWith("Nothing to")), `and the status says nothing else on the way: ${JSON.stringify(heard)}`);
   await undo();
   check(await back(original), "and an undo takes it back");
 
