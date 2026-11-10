@@ -11,6 +11,11 @@ import * as keys from "./keys";
 import { render } from "./markdown";
 import { refusedBase } from "./providers";
 
+/** What a question asked with no key kept says to do (editor dogfood 5), as Check the claim's
+ * dialog says it: in the status where the Story asks it, and in the conversation where Ask is
+ * pressed. */
+export const NO_KEY = "Paste a key to ask this";
+
 /** The editor, as the panel works with it. */
 export interface Editor {
   /** The source as it stands. */
@@ -432,7 +437,11 @@ export function panel(stage: Stage, editor: Editor): Panel {
   async function ask(text: string): Promise<AssistantEvent> {
     text = text.trim();
     if (!text || working) return { kind: "failed", message: working ? "the assistant is working" : "nothing asked" };
-    if (!key.value) return failure(`Enter your ${PROVIDERS[which()].name} key first.`);
+    if (!key.value) {
+      // The question waits in its box, the key's field taking the focus (editor dogfood 5).
+      key.focus();
+      return failure(`${NO_KEY}: paste ${PROVIDERS[which()].name}'s above.`);
+    }
     if (!model.value) return failure("Pick a model first: the list fills once the provider has your key.");
     remember();
     saying = undefined;
