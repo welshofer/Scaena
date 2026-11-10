@@ -662,7 +662,9 @@ struct DeckView: View {
         // saves.
         if !editor.slots.isEmpty {
             made.savePDF = { save(.pdf) }
-            made.saveImages = { save(allSlides) }
+            made.saveNotes = { save(.notes) }
+            made.saveImages = { scale in save(slides(scaled: scale)) }
+            made.saveHTML = { save(.html) }
         }
         // The Slide menu acts on the slide shown, as the slide list's menu acts on its slide.
         if let shown, rehearsal == nil, let slide = editor.slots.first(where: { $0.state == shown })?.slide {
@@ -774,6 +776,13 @@ struct DeckView: View {
                 Spoken.say(words)
                 try? await Task.sleep(for: .seconds(6))
                 if !Task.isCancelled, said == words { said = nil }
+            }
+            .onChange(of: editor.savedSaid) { _, now in
+                // What a save said of the bundle's history, a moment on the desk (lift-up
+                // 20261025b REL-1), as the browser's status line says it.
+                guard let now else { return }
+                said = now
+                editor.savedSaid = nil
             }
             .onChange(of: undo, initial: true) { _, now in
                 // The assistant's edits are each one step of this window's undo.
@@ -1223,9 +1232,12 @@ struct DeckView: View {
     }
 
     /// Every slide as PNGs the canvas's width, a pixel to the unit, in one zip.
-    private var allSlides: Exporting.Kind {
+    private var allSlides: Exporting.Kind { slides(scaled: 1) }
+
+    /// Every slide as PNGs `scale` times the canvas's width, in one zip (lift-up 20261031 FUNC-3).
+    private func slides(scaled scale: Int) -> Exporting.Kind {
         let size = (try? editor.session.canvasSize()) ?? CGSize(width: 1920, height: 1080)
-        return .slides(width: Int(size.width.rounded()))
+        return .slides(width: min(16384, Int(size.width.rounded()) * max(1, scale)))
     }
 
     /// Write `kind` and share it, or show it in Quick Look.

@@ -19,6 +19,19 @@ import Testing
     #expect(throws: ScaenaError.self) { try session.png("no-such-state", width: 100) }
 }
 
+/// The deck as one HTML file that plays offline, as Export To › HTML… saves it, where the engine
+/// carries the web player; else an error that says so, never a page that cannot play (lift-up
+/// 20261031 FUNC-3).
+@Test func theDeckExportsAsOneHTMLFileWhereThePlayerIsCarried() throws {
+    let session = try ScaenaSession(directory: b1)
+    if ScaenaSession.carriesPlayer {
+        let page = String(decoding: try session.html(name: "B1"), as: UTF8.self)
+        #expect(page.lowercased().hasPrefix("<!doctype html"), "a web page")
+    } else {
+        #expect(throws: ScaenaError.self) { try session.html(name: "B1") }
+    }
+}
+
 /// Every slide as PNGs in one zip, each named by its number (PLAN 2.122), as Share offers it.
 @Test func everySlideExportsAsPNGsInOneZip() throws {
     let session = try ScaenaSession(directory: b1)
@@ -64,6 +77,9 @@ import Testing
     #expect(try await snapshot.exported(.notes) == session.pdf(notes: true))
     #expect(try await snapshot.exported(.png(state: "cover", width: 320)) == session.png("cover", width: 320))
     #expect(try await snapshot.exported(.slides(width: 160, name: "B1")) == session.slides(width: 160, name: "B1"))
+    if ScaenaSession.carriesPlayer {
+        #expect(try await snapshot.exported(.html(name: "B1")) == session.html(name: "B1"))
+    }
     let state = try session.states()[0]
     let inspected: JSONValue = try session.call("inspect", ["state": .string(state)])
     let node = try #require(inspected["looks"]?.object?.keys.sorted().first)
