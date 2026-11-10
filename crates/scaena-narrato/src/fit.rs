@@ -61,10 +61,9 @@ pub fn schema_gemini() -> Value {
 /// is shorter than the text it rewrites and within a tenth of the characters asked for, and
 /// writes its figures (REL-2); the first for a text, where an answer gives it twice (STAB-4).
 pub fn read(text: &str, longs: &[Long]) -> Result<Vec<(String, String)>, String> {
-    let start = text.find('{').ok_or("the answer holds no JSON object")?;
-    let end = text.rfind('}').ok_or("the answer holds no JSON object")?;
+    let within = crate::answer::json_within(text).ok_or("the answer holds no JSON object")?;
     let value: Value =
-        serde_json::from_str(&text[start..=end]).map_err(|e| format!("the answer is not the JSON asked for: {e}"))?;
+        serde_json::from_str(within).map_err(|e| format!("the answer is not the JSON asked for: {e}"))?;
     let texts = value.get("texts").and_then(Value::as_array).ok_or("the answer has no `texts`")?;
     let mut kept: Vec<(String, String)> = Vec::new();
     for (id, text) in texts
