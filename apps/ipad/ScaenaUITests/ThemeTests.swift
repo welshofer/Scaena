@@ -13,7 +13,9 @@ final class ThemeTests: XCTestCase {
 
     @MainActor
     func testAThemeValueTypedIsOneStepToUndo() throws {
-        let app = launched()
+        // Launched saying what animates once the canvas has the keys, so a wait that does not
+        // settle names what is still moving in the app's log (lift-up 20261110).
+        let app = launched(arguments: ["-reportAnimations", "YES"])
         try openB1(in: app)
         let any = app.descendants(matching: .any)
         let tab = { (title: String) in
