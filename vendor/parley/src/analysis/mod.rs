@@ -452,6 +452,7 @@ pub(crate) fn analyze_text<B: Brush>(
                 before_before: prev_prev_char,
                 before: prev,
                 after: ch,
+                at: byte_pos,
             });
             if let Some(forced) = forced {
                 is_line = forced;

@@ -104,6 +104,14 @@ fn each_adapter_asks_and_reads_as_the_browsers_does() {
         let status = failure["status"].as_u64().unwrap() as u16;
         let said = provider.read_turn(status, "", &body(&failure["body"])).unwrap_err().to_string();
         assert_eq!(json!(said), kept["failure"]["message"], "{id}: the failure said");
+
+        // Each answer a model declined or a provider blocked, read as a refusal, as the browser's
+        // adapter reads it (lift-up 20261025c REL-1).
+        let refused: Vec<Value> = (conversation["refusals"][&id].as_array().unwrap().iter())
+            .map(|answer| json!(provider.read_turn(200, "", &body(answer)).unwrap().stop))
+            .collect();
+        assert_eq!(json!(refused), kept["refusals"], "{id}: the refusals read");
+        assert!(refused.iter().all(|stop| stop == "refused"), "{id}: {refused:?}");
     }
 }
 

@@ -1,7 +1,7 @@
 # parley 0.11.1, patched for Scaena
 
-This is parley 0.11.1 as crates.io publishes it, with four changes, carried until parley makes them
-upstream (ADR-0004 findings 21, 25, 26, and 27). The workspace takes it through `[patch.crates-io]` and leaves it
+This is parley 0.11.1 as crates.io publishes it, with five changes, carried until parley makes them
+upstream (ADR-0004 findings 21, 25, 26, 27, and 28). The workspace takes it through `[patch.crates-io]` and leaves it
 out of its members, so Scaena's lints, formatting, and tests do not run over it.
 
 **A change of spacing no longer splits a run of text into runs shaped apart.** parley shaped a
@@ -47,6 +47,16 @@ fits only where none does.
   takes it first.
 
 Text set without `overflow-wrap: anywhere`, all but Japanese in Scaena, breaks exactly as before.
+
+**An override knows where in the text a break would fall** (finding 28). `LineBreakContext` gave
+an override, and a layout's preferred breaks, the characters either side alone; now it carries
+`at`, the byte where the second starts, so an override may break an address as Chicago breaks one
+and leave the rest of the text to its language.
+
+- `break_overrides.rs`: `LineBreakContext` has `at`.
+- `analysis/mod.rs`, `layout/line_break.rs`: each sets it.
+
+An override that does not read `at` breaks exactly as before.
 
 Its manifest allows `deprecated`: parley 0.11.1 calls a method icu_properties 2.x deprecates, and as
 a path dependency the warning would show in every build.
