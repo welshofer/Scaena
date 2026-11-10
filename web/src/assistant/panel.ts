@@ -316,6 +316,7 @@ export function panel(stage: Stage, editor: Editor): Panel {
         return;
       }
       case "text": {
+        begun = true;
         thinking.textContent = "Working…";
         // Said whole, as it reads (narrative ATTR-4): its lists, code, emphasis, and links,
         // a link to a slide showing it; in the words' place, or in a new entry.
@@ -327,6 +328,7 @@ export function panel(stage: Stage, editor: Editor): Panel {
         return;
       }
       case "call": {
+        begun = true;
         thinking.textContent = "Working…";
         const li = entry("call");
         // What the call does, in a person's words; the tool and what it was given, opened.
@@ -413,12 +415,19 @@ export function panel(stage: Stage, editor: Editor): Panel {
     for (const { state, digest, image } of now) {
       drawn.set(state, { digest, image });
       were.add(state);
+      if (!redrawn.includes(state)) redrawn.push(state);
     }
     for (const state of gone) {
       drawn.delete(state);
       were.delete(state);
     }
   }
+
+  /** Whether the answer to the question asked has begun: its first words or call. Until then, a
+   * question that fails or is stopped goes back into the box (lift-up 20261110 USE-2). */
+  let begun = false;
+  /** The states the answer being given drew anew, in the order it did (editor dogfood 1). */
+  let redrawn: string[] = [];
 
   async function ask(text: string): Promise<AssistantEvent> {
     text = text.trim();
@@ -430,6 +439,9 @@ export function panel(stage: Stage, editor: Editor): Panel {
     entry("user", text);
     starters.hidden = true;
     question.value = "";
+    begun = false;
+    redrawn = [];
+    let outcome: AssistantEvent | undefined;
     // What the editor shows as it is asked: the source locks below, and shows nothing then.
     const seeing = editor.seeing();
     const stopped = (stopping = new AbortController()).signal;
@@ -452,24 +464,39 @@ export function panel(stage: Stage, editor: Editor): Panel {
       if (stopped.aborted) {
         const done: AssistantEvent = { kind: "done", stop: "stopped" };
         hear(done);
-        return done;
+        return (outcome = done);
       }
       // Sent after the question, so the worker stops this one.
       stopped.addEventListener("abort", () => stage.stop(), { once: true });
-      return await stage.ask(
+      return (outcome = await stage.ask(
         editor.source(),
         { provider: which(), model: model.value, key: key.value, base: base.value || undefined, text, seeing, mapKey, timeoutMs },
         hear,
         { height: drawings.height, known },
-      );
+      ));
     } catch (e) {
-      return failure(e instanceof Error ? e.message : String(e));
+      return (outcome = failure(e instanceof Error ? e.message : String(e)));
     } finally {
+      // A question that failed, or was stopped before any answer came, is put back as it was asked,
+      // to send again or mend: a refused key or a dropped connection loses nothing typed. One the
+      // person has begun typing since is left as they typed it.
+      const unanswered = outcome?.kind === "failed" || (outcome?.kind === "done" && outcome.stop === "stopped");
+      if (unanswered && !begun && !question.value) {
+        question.value = text;
+        question.setSelectionRange(text.length, text.length);
+      }
       stopping = undefined;
       working = false;
       thinking.hidden = true;
       editor.lock(false);
-      if (editor.answering(false)) undoable();
+      if (editor.answering(false)) {
+        undoable();
+        // What it changed is shown (editor dogfood 1): an answer that drew none of the slide shown
+        // anew shows the first slide it did, so its edit is seen, not left on another slide.
+        const shown = editor.seeing()?.state;
+        const first = redrawn.find((state) => drawn.has(state));
+        if (first && shown && !redrawn.includes(shown)) editor.show(first);
+      }
       void keepConversation();
       askButton.disabled = false;
       newConversation.disabled = false;
