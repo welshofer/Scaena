@@ -1163,6 +1163,7 @@
         </fieldset>
         <ol id="prompting-progress" aria-live="polite" aria-label="How far it has come"></ol>
         <ol id="prompting-film" aria-label="The slides as drawn"></ol>
+        <p class="note" id="prompting-kept" hidden aria-live="polite"></p>
         <section id="prompting-outline" hidden aria-labelledby="prompting-outline-title">
           <h3 id="prompting-outline-title">The outline</h3>
           <p class="note" id="prompting-outline-arc"></p>
@@ -1187,6 +1188,8 @@
         </section>
         <menu>
           <button type="button" id="prompting-cancel">Cancel</button>
+          <button type="button" id="prompting-download" hidden>Download the deck</button>
+          <button value="goOn" id="prompting-go-on" hidden>Go on from what was made</button>
           <button value="generate" id="prompting-go">Generate</button>
         </menu>
       </form>

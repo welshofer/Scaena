@@ -1606,6 +1606,8 @@ export class Stage {
       case "generating":
       case "storyOutlined":
       case "generated":
+      case "paid":
+      case "filesZipped":
         return;
       default: {
         // A reply the switch does not name would leave its request waiting: the compiler says so.

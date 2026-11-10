@@ -1714,6 +1714,21 @@ impl SavedBundle {
     }
 }
 
+/// `files`, each bundle file's bytes by its path, as a `.scaena` zip's bytes, as they stand: a
+/// deck made from a prompt that would not open, kept for the person to download and open
+/// elsewhere (lift-up 20261110 REL-1).
+#[cfg(feature = "generate")]
+#[wasm_bindgen(js_name = zipFiles)]
+pub fn zip_files(files: &js_sys::Map) -> Result<Vec<u8>, JsError> {
+    let mut given = std::collections::BTreeMap::new();
+    files.for_each(&mut |bytes, path| {
+        if let Some(path) = path.as_string() {
+            given.insert(path, js_sys::Uint8Array::new(&bytes).to_vec());
+        }
+    });
+    scaena_store::zip(&given).map_err(js)
+}
+
 /// Whether the fonts of the theme whose text is `theme`, each in `fonts` by the path the theme
 /// names it at, draw the letters of `language` (PLAN G.21): asked before a file is read or any
 /// call is paid for, so a deck in letters its fonts cannot draw is refused, saying why, and not

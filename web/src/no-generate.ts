@@ -7,3 +7,4 @@ export const choices = none;
 export const generate = none;
 export const health = none;
 export const picture = none;
+export const zipped = none;
