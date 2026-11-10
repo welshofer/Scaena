@@ -54,6 +54,29 @@ export function launch() {
   });
 }
 
+/** What a walk that took every `confirm` the page asked answers the editor's Changes not saved
+ * dialog with (lift-up 20261031 ATTR-3), by what asks it: lose the changes to `open` another deck
+ * or take the one changed on `disk`, and save them before you `play` one. */
+export const TAKEN = { open: "discard", disk: "discard", play: "save" };
+
+/** Answer the editor's Changes not saved dialog on `page`, from its next load on, each time it
+ * opens: `answer` hears what asks it (`{ for, message }`, `for` one of `open`, `disk`, and `play`)
+ * and says `save`, `discard`, or `cancel`, as a walk's `dialog` handler took or dismissed a
+ * `confirm`; by default as `TAKEN` says. */
+export async function answering(page, answer = (asked) => TAKEN[asked.for]) {
+  await page.exposeFunction("__unsavedAsked", (asked) => answer(asked) ?? "cancel");
+  await page.addInitScript(() => {
+    new MutationObserver((records) => {
+      for (const r of records) {
+        const d = r.target;
+        if (d.id !== "unsaved" || r.oldValue !== null || !d.open) continue;
+        const asked = { for: d.dataset.for, message: d.querySelector("[data-said]")?.textContent ?? "" };
+        void window.__unsavedAsked(asked).then((value) => d.querySelector(`button[value="${value}"]`)?.click());
+      }
+    }).observe(document, { subtree: true, attributes: true, attributeFilter: ["open"], attributeOldValue: true });
+  });
+}
+
 /** The inspector's tab `id` shown in the editor on `page`, as a person reaches it (lift-up ATTR-4,
  * PLAN 3.18): Format, Animate, and Document on the row; Theme, Data, Files, Versions, and Story on
  * Document's own row; and the layers and the assistant from More's menu. */

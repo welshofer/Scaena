@@ -1312,6 +1312,8 @@ impl Scaena {
             painter: a.painter,
             pace: a.pace,
             notes: a.notes,
+            // A master's chroma is the CLI's alone (`--chroma 444`).
+            chroma: None,
         };
         let bundle = a.bundle.clone();
         let b = blocking(move || open(&bundle)).await?;
