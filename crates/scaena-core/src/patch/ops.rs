@@ -1776,6 +1776,8 @@ fn edit_runs(runs: &[Value], range: Range<usize>, text: &str) -> Vec<Value> {
         run
     };
     let mut out = Vec::with_capacity(runs.len() + 1);
+    // Whether a quoted figure typed over kept its run, words beside it: joined at the end.
+    let mut split = false;
     for (k, (run, own)) in runs.iter().zip(&texts).enumerate() {
         let (start, end) = (starts[k], starts[k] + own.len());
         let (cut, kept) = (range.start.clamp(start, end) - start, range.end.clamp(start, end) - start);
@@ -1790,9 +1792,29 @@ fn edit_runs(runs: &[Value], range: Range<usize>, text: &str) -> Vec<Value> {
         if new.is_empty() && !own.is_empty() && !(k == into && beside.is_none()) {
             continue;
         }
+        // A figure typed over with words that still say it keeps its run and its quote, the
+        // words before and after it runs of their own in its look, quoting nothing: the data
+        // sets the figure's run again whole, and would take words in it with it (dogfood-5 item 13).
+        if new != *own && run.get("quote").is_some() {
+            if let Some(&at) = crate::quotes::places(&new, own).first() {
+                let words = |text: &str| {
+                    let mut run = run.clone();
+                    if let Some(fields) = run.as_object_mut() {
+                        fields.shift_remove("quote");
+                        fields.shift_remove("link");
+                        fields.insert("text".into(), Value::String(text.into()));
+                    }
+                    run
+                };
+                out.extend([words(&new[..at]), run.clone(), words(&new[at + own.len()..])]);
+                split = true;
+                continue;
+            }
+        }
         let mut run = run.clone();
         if let Some(fields) = run.as_object_mut() {
-            // A figure whose characters are typed over is words now: it quotes nothing.
+            // A figure whose characters are typed over, and say it no more, is words now: it
+            // quotes nothing.
             if new != *own {
                 fields.shift_remove("quote");
             }
@@ -1803,7 +1825,7 @@ fn edit_runs(runs: &[Value], range: Range<usize>, text: &str) -> Vec<Value> {
             out.push(plain(&run));
         }
     }
-    out
+    if split { join_runs(out) } else { out }
 }
 
 /// Ops that turn `old`, the object at `base`, into `new`: member by member, and one level

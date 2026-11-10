@@ -1295,6 +1295,13 @@ async function edit(source: Source, opened?: Stage, recovering = false) {
     transform: (node) => inspected?.nodes[node]?.transform as { rotate?: number; anchor?: [number, number] } | undefined,
     apply: made,
     unsay,
+    // A figure typed over that the words no longer say quotes its data no more: said, by its
+    // source and column as the Data tab names them, with the undo that brings it back (dogfood-5
+    // item 13).
+    unquoted: (state, gone) => {
+      const each = gone.map((g) => `“${g.figure}” no longer quotes ${g.column} in the data “${sourced(lexicon, g.data)}”`);
+      say(`${slideOf(state)}: ${each.join("; ")} · ${MOD}Z brings it back`);
+    },
     typed: (source, edited, joins) => {
       taken = { source, edited, showings };
       if (!joins) anchor();
