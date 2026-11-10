@@ -427,9 +427,19 @@ try {
   // Changed: the second beat's claim rewritten, the third moved first, the last removed, and a beat
   // of the person's own added.
   await page.locator("#prompting-beats .claim").nth(1).fill("No carrier can cut it alone.");
-  await page.locator("#prompting-beats li").nth(2).locator("button[aria-label='Move the beat up']").click();
-  await page.locator("#prompting-beats li").nth(1).locator("button[aria-label='Move the beat up']").click();
-  await page.locator("#prompting-beats li").nth(5).locator("button[aria-label='Remove the beat']").click();
+  await page.locator("#prompting-beats li").nth(2).locator("button[data-act=up]").click();
+  await page.locator("#prompting-beats li").nth(1).locator("button[data-act=up]").click();
+  // Each beat's fields named by its place (lift-up 20261110 USE-4), the move said.
+  const labels = await page.locator("#prompting-beats li").nth(1).locator(".claim, [data-act=remove]").evaluateAll((all) => all.map((e) => e.getAttribute("aria-label")));
+  check(labels.join() === "Beat 2 of 6: claim,Beat 2 of 6: remove", `a beat's fields are named by its place: ${labels}`);
+  check((await lines()).at(-1) === "Moved to 1 of 6", `the move is said: ${(await lines()).at(-1)}`);
+  // A beat removed comes back where it stood with Undo, its claim as typed; then removed for good.
+  await page.locator("#prompting-beats li").nth(2).locator("button[data-act=remove]").click();
+  check((await page.textContent("#prompting-removed span")) === "Beat 3 removed" && (await page.locator("#prompting-beats li").count()) === 5, "a beat removed says so, with Undo");
+  await page.click("#prompting-removed button");
+  const putBack = await page.locator("#prompting-beats .claim").nth(2).inputValue();
+  check(putBack === "No carrier can cut it alone." && (await page.isHidden("#prompting-removed")), `Undo puts it back where it stood, as typed: ${putBack}`);
+  await page.locator("#prompting-beats li").nth(5).locator("button[data-act=remove]").click();
   await page.click("#prompting-add-beat");
   await page.locator("#prompting-beats li").last().locator(".name").fill("Thanks");
   await page.locator("#prompting-beats li").last().locator(".claim").fill("Thank you for listening.");
@@ -810,7 +820,7 @@ try {
   const ownClaim = "Every container already carries a carbon price, unpaid.";
   await page.locator("#prompting-beats .claim").nth(1).fill(ownClaim);
   const takeFrom = requests.length;
-  await page.locator("#prompting-beats li").nth(2).locator("button[aria-label=\"Ask for this beat's claim again\"]").click();
+  await page.locator("#prompting-beats li").nth(2).locator("button[data-act=again]").click();
   await page
     .waitForFunction(() => document.querySelectorAll("#prompting-beats .claim")[2]?.value.startsWith("Asked again"), null, { timeout: 60000 })
     .catch(() => {});
