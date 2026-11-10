@@ -9,13 +9,17 @@
 //   slide's mark shows it.
 // - What to look at, what to do first open (every error a slide's lint finds, then the warnings
 //   whose measure scores lowest, five findings in all) and the rest folded under one "N more",
-//   counted by kind (lift-up S1); a row for each slide, its headline beside it: what health finds
+//   counted by kind (lift-up S1); a row for each slide, its headline as the deck reads now beside
+//   it, never its beat's claim, which health names it by (editor dogfood 4): what health finds
 //   there, in a person's words; Slide N shows it; each fix, where one is safe, is one change that
-//   ⌘Z takes back; and Ask puts its questions to the assistant, its tab shown and the question in
-//   its box, to send or change.
+//   ⌘Z takes back; a slide lint finds broken offers lint's fixes as its marks on the canvas do,
+//   and Show it, the slide with its problem's mark open (editor dogfood 4); a figure no source
+//   backs, in a deck made from sources, cites one of them from the row (W1's dogfood 5); and Ask
+//   puts its questions to the assistant, its tab shown and the question in its box, to send or
+//   change.
 // - It is read again whenever the deck changes while the tab is shown, the last answer winning.
 import { observing } from "./life";
-import type { Health, HealthFinding } from "./protocol";
+import type { CiteChoice, Finding, Health, HealthFinding } from "./protocol";
 import type { Stage } from "./stage";
 
 /** What the panel asks of the editor around it. */
@@ -30,10 +34,29 @@ export interface StoryEditor {
   /** Check `state`'s words against its beat's claim by the writing tools' model, which offers
    * the headline rewritten to carry it (narrative FUNC-4). */
   check(state: string): void;
+  /** The words that head the slide whose first state is `slide`, as the deck reads now, where a
+   * text heads it: what its row names it by, since health names a slide by its beat's claim
+   * (editor dogfood 4). */
+  headline(slide: string): string | undefined;
+  /** What lint last found wrong on the slide whose first state is `slide`, any step of it: what
+   * its marks on the canvas stand for (editor dogfood 4). */
+  issues(slide: string): Finding[];
+  /** Take `f`'s fix, as its mark on the canvas does: one change to undo. */
+  fix(f: Finding): Promise<void>;
+  /** Show `f`'s state, its mark on the canvas open. */
+  mark(f: Finding): Promise<void>;
+  /** The sources the deck was grounded in, by name (`meta.narrative.sources`): none for a deck
+   * made from none (W1's dogfood 5). */
+  sources(): Promise<string[]>;
+  /** What the beat that tells `state` cites, where one does. */
+  cites(state: string): Promise<CiteChoice | undefined>;
   say(text: string): void;
   /** The words the editor shows for the state shown, the plan's ladders among them. */
   words(): Ladders | undefined;
 }
+
+/** How many of lint's fixes a broken slide's row offers, the worst first. */
+const FIXES = 3;
 
 const said = (e: unknown) => (e instanceof Error ? e.message : String(e));
 const html = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
@@ -90,7 +113,13 @@ export function triage(h: Health, open = OPEN): { open: HealthFinding[]; more: H
 }
 
 /** A kind of finding as the folded count names it. */
-const KIND: Partial<Record<HealthFinding["kind"], string>> = { bigIdea: "big idea", layout: "broken slide" };
+const KIND: Partial<Record<HealthFinding["kind"], string>> = {
+  bigIdea: "big idea",
+  layout: "broken slide",
+  look: "change let go",
+  source: "unsourced figure",
+  label: "topic headline",
+};
 
 /** What the folded findings come to, by kind, the most first: "12 more: 7 tone, 5 arc". */
 export function moreSaid(more: HealthFinding[]): string {
@@ -228,8 +257,30 @@ export function storyPanel(stage: Stage, into: HTMLElement, editor: StoryEditor)
   const arc = into.querySelector<HTMLElement>("[data-arc]")!;
   const idea = into.querySelector<HTMLElement>("[data-big-idea]")!;
   const list = into.querySelector<HTMLOListElement>("[data-findings]")!;
+  /** The line that says the story shown is as last read, while the source does not compile. */
+  const stale = Object.assign(document.createElement("p"), { hidden: true });
+  stale.dataset.stale = "";
+  stale.setAttribute("role", "status");
+  score.before(stale);
+  const listed = list.getAttribute("aria-label") ?? "";
+  /** The score as last said, so the live region speaks only when it changes. */
+  let scored = "";
+  /** Show the story as it was last read, or as read now (lift-up 20261110 deferred): a source that
+   * does not compile for a moment, mid-typing, keeps the last read, dimmed and said to be so, its
+   * fixes held, since each was made against a deck that no longer compiles. */
+  const asLastRead = (on: boolean) => {
+    if (on) into.dataset.stale = "";
+    else delete into.dataset.stale;
+    stale.hidden = !on;
+    if (on && !stale.textContent) stale.textContent = "Showing the story as last read: the source has an error to fix";
+    if (!on) stale.textContent = "";
+    list.setAttribute("aria-label", on ? `${listed}, as last read` : listed);
+    for (const fix of list.querySelectorAll<HTMLButtonElement>("[data-fix], [data-lint-fix], [data-cite], [data-citing] [data-source]")) fix.disabled = on;
+  };
   /** What the worker last read. */
   let health: Health | undefined;
+  /** The sources the deck was grounded in, as last read with its health. */
+  let grounded: string[] = [];
   /** Readings asked for: the last answer wins. */
   let asking = 0;
 
@@ -255,12 +306,15 @@ export function storyPanel(stage: Stage, into: HTMLElement, editor: StoryEditor)
     read = true;
     reads++;
     try {
-      const got = await stage.health(editor.source());
+      const [got, sources] = await Promise.all([stage.health(editor.source()), editor.sources().catch(() => [])]);
       if (asked !== asking) return;
       health = got;
+      grounded = sources;
+      asLastRead(false);
       draw();
     } catch (e) {
       if (asked !== asking) return;
+      if (health) return asLastRead(true);
       health = undefined;
       score.textContent = "";
       measures.replaceChildren();
@@ -268,15 +322,18 @@ export function storyPanel(stage: Stage, into: HTMLElement, editor: StoryEditor)
       idea.hidden = true;
       list.replaceChildren();
       score.textContent = `Its story is not read: ${said(e)}`;
+      scored = "";
     }
   }
 
   function draw() {
     const h = health;
     if (!h) return;
-    score.innerHTML =
+    // Said again only where it changed: the live region speaks each change once.
+    const scoring =
       `<b class="${grade(h.score)}">${h.score}</b> of 100, ` +
       (h.arc ? `written to the ${html(h.arc)} arc` : "no arc named: read against a talk's curve");
+    if (scoring !== scored) score.innerHTML = scored = scoring;
     measures.innerHTML = MEASURES.map(([key, name]) => {
       const m = h[key] as { score: number | null; says: string };
       const value = m.score === null ? "—" : String(m.score);
@@ -332,7 +389,9 @@ export function storyPanel(stage: Stage, into: HTMLElement, editor: StoryEditor)
     show.addEventListener("click", () => void editor.show(state));
     const title = document.createElement("span");
     title.className = "headline";
-    title.textContent = h.slides[slide - 1]?.title ?? "";
+    // The slide as it reads now: its headline, else health's title, its beat's claim, which an
+    // edit of the headline leaves as it was (editor dogfood 4).
+    title.textContent = editor.headline(state) ?? h.slides[slide - 1]?.title ?? "";
     head.append(show, title);
     li.append(head);
     // What its words came from, of the sources the deck was grounded in (narrative FUNC-3).
@@ -379,6 +438,85 @@ export function storyPanel(stage: Stage, into: HTMLElement, editor: StoryEditor)
       });
       actions.append(button);
     }
+    // A slide lint finds broken offers what its marks on the canvas offer: each fix lint has, and
+    // the slide shown with its first problem's mark open, where the fix or the words are
+    // (editor dogfood 4).
+    if (run.some((f) => f.kind === "layout")) {
+      const issues = editor.issues(state).filter((f) => f.severity === "error");
+      const fixable = issues.filter((f) => f.fix && f.fixable);
+      const offered = new Set<string>();
+      for (const f of fixable) {
+        const says = f.fixing ?? "Fix";
+        if (offered.size >= FIXES || offered.has(says + (f.node ?? ""))) continue;
+        offered.add(says + (f.node ?? ""));
+        const button = document.createElement("button");
+        button.type = "button";
+        button.dataset.lintFix = f.code;
+        button.textContent = says;
+        button.title = f.said ?? f.message;
+        button.addEventListener("click", async () => {
+          try {
+            await editor.fix(f);
+            editor.say(`Slide ${slide}: ${says.toLowerCase()} · ⌘Z undoes it`);
+          } catch (e) {
+            editor.say(`Not fixed: ${said(e)}`);
+          }
+        });
+        actions.append(button);
+      }
+      const first = issues.find((f) => f.shown) ?? issues[0];
+      if (first) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.dataset.lintShow = "";
+        button.textContent = "Show it";
+        button.title = "The slide shown, its problem's mark open on the canvas";
+        button.addEventListener("click", () => void editor.mark(first));
+        actions.append(button);
+      }
+    }
+    // A figure no source backs, in a deck made from sources, cites one from the row (W1's dogfood
+    // 5): the deck's sources offered by name, the one chosen added to the slide's beat's evidence,
+    // one patch, one step to undo.
+    if (grounded.length && run.some((f) => f.kind === "source")) {
+      const cite = document.createElement("button");
+      cite.type = "button";
+      cite.dataset.cite = "";
+      cite.textContent = "Cite a source…";
+      cite.ariaExpanded = "false";
+      const offered = document.createElement("div");
+      offered.dataset.citing = "";
+      offered.hidden = true;
+      offered.setAttribute("role", "group");
+      offered.ariaLabel = `The sources slide ${slide} may cite`;
+      for (const name of grounded) {
+        const pick = document.createElement("button");
+        pick.type = "button";
+        pick.dataset.source = name;
+        pick.textContent = name;
+        pick.addEventListener("click", async () => {
+          try {
+            const cites = await editor.cites(state);
+            if (!cites) return editor.say(`Not cited: no beat of the story tells slide ${slide}`);
+            const value = `source:${name}`;
+            if (cites.evidence.includes(value)) return editor.say(`Slide ${slide} cites ${name} already`);
+            const op = cites.evidence.length
+              ? { op: "add", path: `${cites.at}/-`, value }
+              : { op: "add", path: cites.at, value: [value] };
+            await editor.make([op], `Slide ${slide} cites ${name} · ⌘Z undoes it`);
+          } catch (e) {
+            editor.say(`Not cited: ${said(e)}`);
+          }
+        });
+        offered.append(pick);
+      }
+      cite.addEventListener("click", () => {
+        offered.hidden = !offered.hidden;
+        cite.ariaExpanded = String(!offered.hidden);
+        if (!offered.hidden) offered.querySelector<HTMLButtonElement>("button")?.focus();
+      });
+      actions.append(cite, offered);
+    }
     const ask = document.createElement("button");
     ask.type = "button";
     ask.dataset.ask = "";
@@ -413,5 +551,7 @@ export function storyPanel(stage: Stage, into: HTMLElement, editor: StoryEditor)
     spoken: (ask: string) => spoken(ask, editor.words()),
     /** What it leads with and what it folds, as it last drew them. */
     triaged: () => (health ? triage(health) : undefined),
+    /** What folded findings of these kinds would come to, as the panel names them. */
+    said: (kinds: HealthFinding["kind"][]) => moreSaid(kinds.map((kind) => ({ kind }) as HealthFinding)),
   };
 }

@@ -47,8 +47,9 @@ public struct Health: Decodable, Sendable {
         /// `title`, `empty`, `turn`, `arc`, `intensity`, `tone`, `drift`, `layout`, `claim` (a beat of
         /// the settled outline its slides do not carry), `bigIdea` (a close that never lands it),
         /// `story` (a narrative warning lint finds), `dense`, `notes` (none to speak from),
-        /// `pacing` (the first slide to cut where the deck runs past its brief), or `look` (a change
-        /// the model asked once it saw the slide, let go: lint found it worse).
+        /// `pacing` (the first slide to cut where the deck runs past its brief), `look` (a change
+        /// the model asked once it saw the slide, let go: lint found it worse), or `label` (a
+        /// content slide's headline that names its topic where it could state its point).
         public let kind: String
         public let says: String
         public let ask: String
@@ -108,16 +109,24 @@ extension Health {
         return (first.map(\.element), indexed.filter { !kept.contains($0.offset) }.map(\.element))
     }
 
+    /// A kind of finding as the folded count names it, in the browser's Story's words
+    /// (`story.ts`'s `KIND`): never an identifier, "source" or "label", where a person reads it.
+    public static func kindSaid(_ kind: String) -> String {
+        switch kind {
+        case "bigIdea": "big idea"
+        case "layout": "broken slide"
+        case "source": "unsourced figure"
+        case "label": "topic headline"
+        case "look": "change let go"
+        default: kind
+        }
+    }
+
     /// What the folded findings come to, by kind, the most first: "12 more: 7 tone, 5 arc".
     public static func moreSaid(_ more: [Finding]) -> String {
         var counts: [(kind: String, count: Int)] = []
         for finding in more {
-            let kind =
-                switch finding.kind {
-                case "bigIdea": "big idea"
-                case "layout": "broken slide"
-                default: finding.kind
-                }
+            let kind = kindSaid(finding.kind)
             if let i = counts.firstIndex(where: { $0.kind == kind }) {
                 counts[i].count += 1
             } else {
@@ -133,4 +142,14 @@ extension ScaenaSession {
     /// The deck's narrative health (PLAN G.9): its scores, each slide as read, and what to look at,
     /// as the browser's Story tab shows it.
     public func health() throws -> Health { try call("health") }
+}
+
+extension Health {
+    /// What a Story row names slide `slide`, its first state `state`, by: its headline as the deck
+    /// reads now (`slots`), where a text heads it, else health's title, its beat's claim, which an
+    /// edit of the headline leaves as it was (editor dogfood 4), as the browser's Story names it.
+    public func headline(of slide: Int, state: String, in slots: [ScaenaSession.Slot]) -> String {
+        if let now = slots.first(where: { $0.state == state })?.headline, !now.isEmpty { return now }
+        return slides.indices.contains(slide - 1) ? slides[slide - 1].title : ""
+    }
 }

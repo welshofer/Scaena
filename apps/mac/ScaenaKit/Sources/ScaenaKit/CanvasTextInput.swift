@@ -95,6 +95,33 @@ public final class CanvasKeys: UIView {
         addInteraction(UIIndirectScribbleInteraction(delegate: self))
         addSubview(presses)
         watch()
+        if AnimationReport.asked {
+            // The keyboard's frame said as it changes, beside the canvas's own, so a layout that
+            // never settles names what moves it (lift-up 20261110).
+            keyboard = NotificationCenter.default.addObserver(
+                forName: UIResponder.keyboardWillChangeFrameNotification, object: nil, queue: .main
+            ) { note in
+                let end = (note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue)?.cgRectValue
+                animationsLog.debug("keyboard will be at \(String(describing: end), privacy: .public)")
+            }
+        }
+    }
+
+    /// The keyboard's frame changes, watched while the app reports what animates.
+    private var keyboard: NSObjectProtocol?
+    /// The canvas's frame in its window as last said.
+    private var placed: CGRect?
+
+    /// The canvas's frame in its window said each time it changes, where the app reports what
+    /// animates (lift-up 20261110).
+    public override func layoutSubviews() {
+        super.layoutSubviews()
+        guard AnimationReport.asked, let window else { return }
+        let frame = convert(bounds, to: window)
+        guard frame != placed else { return }
+        placed = frame
+        let keyed = isFirstResponder ? "the text input" : presses.isFirstResponder ? "the canvas's keys" : "neither"
+        animationsLog.debug("canvas at \(String(describing: frame), privacy: .public), keys with \(keyed, privacy: .public)")
     }
 
     public required init?(coder: NSCoder) { return nil }
@@ -115,7 +142,12 @@ public final class CanvasKeys: UIView {
             guard let self, self.window != nil else { return }
             if self.typing.typing {
                 // The keyboard read again for the text now typed in: plain for code (PLAN 2.139).
-                if !self.isFirstResponder { self.becomeFirstResponder() } else { self.reloadInputViews() }
+                if !self.isFirstResponder {
+                    self.becomeFirstResponder()
+                } else {
+                    keysLog.debug("text input reloads its input views")
+                    self.reloadInputViews()
+                }
             } else if !self.presses.isFirstResponder {
                 self.presses.becomeFirstResponder()
             }
@@ -124,40 +156,15 @@ public final class CanvasKeys: UIView {
 
     public override func becomeFirstResponder() -> Bool {
         let became = super.becomeFirstResponder()
-        if became, UserDefaults.standard.bool(forKey: "reportAnimations") { reportAnimations() }
+        keysLog.debug("text input became first responder: \(became)")
+        if became {
+            reporting?.cancel()
+            reporting = AnimationReport.started { [weak self] in self?.isFirstResponder == true }
+        }
         return became
     }
 
-    /// What animates in the app's windows, said every two seconds while a text is typed in.
-    private func reportAnimations() {
-        reporting?.cancel()
-        reporting = Task { @MainActor [weak self] in
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(2))
-                guard let self, self.isFirstResponder else { return }
-                Self.sayAnimations()
-            }
-        }
-    }
-
     private var reporting: Task<Void, Never>?
-
-    /// Each layer of each window of the app's scenes that holds an animation, said once a report.
-    private static func sayAnimations() {
-        var said: [String] = []
-        func walk(_ layer: CALayer, _ window: String) {
-            for key in layer.animationKeys() ?? [] where said.count < 40 {
-                let owner = layer.delegate.map { String(describing: type(of: $0)) } ?? "none"
-                said.append("\(window): \(type(of: layer)) of \(owner), \(key)")
-            }
-            for sub in layer.sublayers ?? [] { walk(sub, window) }
-        }
-        for scene in UIApplication.shared.connectedScenes {
-            guard let scene = scene as? UIWindowScene else { continue }
-            for window in scene.windows { walk(window.layer, String(describing: type(of: window))) }
-        }
-        animationsLog.debug("\(said.count) animating: \(said.joined(separator: "; "), privacy: .public)")
-    }
 
     public override func resignFirstResponder() -> Bool {
         let resigned = super.resignFirstResponder()
@@ -994,6 +1001,31 @@ public final class CanvasPresses: UIView {
 
     public override var canBecomeFirstResponder: Bool { true }
 
+    /// No input assistant: with no text typed in there is nothing for a shortcuts bar to do, and
+    /// iPadOS 26 draws one in glass over the canvas that sat animating there, so XCTest's wait for
+    /// the app to settle before each event ran out its two minutes (lift-up 20261110).
+    public override var inputAssistantItem: UITextInputAssistantItem { bare }
+
+    private let bare = Bare()
+
+    /// An input assistant that holds no buttons, whatever is given it.
+    final class Bare: UITextInputAssistantItem {
+        override init() {
+            super.init()
+            allowsHidingShortcuts = true
+        }
+
+        override var leadingBarButtonGroups: [UIBarButtonItemGroup] {
+            get { [] }
+            set {}
+        }
+
+        override var trailingBarButtonGroups: [UIBarButtonItemGroup] {
+            get { [] }
+            set {}
+        }
+    }
+
     /// Escape and Return, and Return with Shift or Option, ahead of the system's own behavior for
     /// them (`wantsPriorityOverSystemBehavior`); and PageDown and PageUp, alone or with Shift, as
     /// the Mac's canvas takes them (PLAN 4.12).
@@ -1101,9 +1133,17 @@ public final class CanvasPresses: UIView {
     public override func becomeFirstResponder() -> Bool {
         let became = super.becomeFirstResponder()
         keysLog.debug("canvas keys became first responder: \(became)")
-        if became { lettingGo = false }
+        if became {
+            lettingGo = false
+            // Said too while the canvas's own keys hold the keyboard, as when a field gives them
+            // back, where ThemeTests stalled (lift-up 20261110).
+            reporting?.cancel()
+            reporting = AnimationReport.started { [weak self] in self?.isFirstResponder == true }
+        }
         return became
     }
+
+    private var reporting: Task<Void, Never>?
 
     @discardableResult
     public override func resignFirstResponder() -> Bool {
@@ -1230,6 +1270,44 @@ public final class CanvasPresses: UIView {
 
     public override func selectAll(_ sender: Any?) {
         _ = selectingAll?()
+    }
+}
+
+/// What animates in the app's windows, said every two seconds in the `animations` log while a
+/// view holds the keyboard, where the app is launched with `-reportAnimations YES` (lift-up
+/// 20261110): what a UI test's wait for the app to settle waited on, named in its `log.txt`.
+@MainActor
+enum AnimationReport {
+    /// The report begun, while `holding` holds; none where the app was not asked for it.
+    /// Whether the app was launched asked to report.
+    static var asked: Bool { UserDefaults.standard.bool(forKey: "reportAnimations") }
+
+    static func started(while holding: @escaping @MainActor () -> Bool) -> Task<Void, Never>? {
+        guard asked else { return nil }
+        return Task { @MainActor in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(2))
+                guard holding() else { return }
+                say()
+            }
+        }
+    }
+
+    /// Each layer of each window of the app's scenes that holds an animation, said once a report.
+    private static func say() {
+        var said: [String] = []
+        func walk(_ layer: CALayer, _ window: String) {
+            for key in layer.animationKeys() ?? [] where said.count < 40 {
+                let owner = layer.delegate.map { String(describing: type(of: $0)) } ?? "none"
+                said.append("\(window): \(type(of: layer)) of \(owner), \(key)")
+            }
+            for sub in layer.sublayers ?? [] { walk(sub, window) }
+        }
+        for scene in UIApplication.shared.connectedScenes {
+            guard let scene = scene as? UIWindowScene else { continue }
+            for window in scene.windows { walk(window.layer, String(describing: type(of: window))) }
+        }
+        animationsLog.debug("\(said.count) animating: \(said.joined(separator: "; "), privacy: .public)")
     }
 }
 #endif

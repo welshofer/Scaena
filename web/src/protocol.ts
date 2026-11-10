@@ -400,6 +400,16 @@ export interface StateChoices {
   furniture: FurnitureChoice;
   /** The plan of the beat that tells it, where it declares one (editor dogfood 3). */
   plan?: PlanChoice;
+  /** What the beat that tells it cites, where one does (W1's dogfood 5). */
+  cites?: CiteChoice;
+}
+
+/** What a slide's beat cites as its evidence (W1's dogfood 5): `source:NAME` adds a source the
+ * deck was grounded in, by JSON Patch at `at`, or at `at/-` where it cites something already. */
+export interface CiteChoice {
+  beat: string;
+  at: string;
+  evidence: string[];
 }
 
 /** What the inspector offers of the plan a beat declares for its slide (editor dogfood 3): its
@@ -941,10 +951,12 @@ export interface HealthFinding {
   state: string;
   slide: number;
   severity: "error" | "warning" | "info";
-  kind: "title" | "empty" | "turn" | "arc" | "intensity" | "tone" | "drift" | "layout" | "claim" | "bigIdea" | "story" | "dense" | "notes" | "pacing" | "link";
+  kind: "title" | "empty" | "turn" | "arc" | "intensity" | "tone" | "drift" | "layout" | "claim" | "bigIdea" | "story" | "dense" | "notes" | "pacing" | "link" | "look" | "source" | "label";
   says: string;
   ask: string;
   fix?: { says: string; patch: unknown[] };
+  /** The figure a `source` finding found no source for, as the slide writes it. */
+  figure?: string;
 }
 
 /** The deck's narrative health (PLAN G.9), as `scaena health --json` gives it. */
@@ -1523,6 +1535,10 @@ export interface Generate {
   /** Whether the model is shown each slide as it is drawn, and may give one another of its
    * layouts and tighten its words (PLAN G.13); yes where it is not given. */
   look?: boolean;
+  /** Whether each slide's speaker notes are written for the talk once the deck is seen (lift-up
+   * 10-25 ATTR-2): bridging each slide to the next, at its share of the talk's minutes; yes where
+   * it is not given. */
+  notes?: boolean;
   /** Whether the outline is shown first (narrative FUNC-1): the arc, the big idea, and each beat's
    * claim, which the person settles before the slides are written; the slides at once where not. */
   outline?: boolean;
@@ -1559,7 +1575,8 @@ export interface Brief {
 }
 
 /** What a brief may ask, as Narrato knows it: its goals, lengths, and ways a deck is delivered,
- * the audiences its personas name, each persona by its id, its arcs, and the defaults. */
+ * the audiences its personas name, each persona by its id, its arcs, the languages it writes, and the
+ * defaults. */
 export interface Choices {
   goals: string[];
   lengths: string[];
@@ -1567,6 +1584,8 @@ export interface Choices {
   audiences: string[];
   personas: { id: string; name: string }[];
   arcs: string[];
+  /** The languages Narrato writes, by their English names (lift-up 10-25b STAB-2). */
+  languages: string[];
   defaults: { audience: string; goal: string; length: string };
 }
 
@@ -1608,6 +1627,11 @@ export type GeneratingEvent =
   /** A look round's answer read (lift-up 20261110 ATTR-1): round `round` of `of`, about the slides
    * `from` to `to` (from 0), which the strip marks as looked at. */
   | { kind: "lookedAt"; round: number; of: number; from: number; to: number }
+  /** Each slide's notes asked to be written for the talk, then these many taken, or why not
+   * (lift-up 10-25 ATTR-2). */
+  | { kind: "noting"; slides: number }
+  | { kind: "noted"; slides: number }
+  | { kind: "unnoted"; why: string }
   | { kind: "looked"; slides: number }
   | { kind: "unlooked"; why: string }
   | { kind: "refused"; slide: number; what: string; why: string }

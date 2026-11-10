@@ -15,7 +15,10 @@ extension XCTestCase {
         XCUIDevice.shared.orientation = .landscapeLeft
         let app = XCUIApplication()
         app.launchEnvironment.merge(environment) { _, given in given }
-        app.launchArguments += ["-b1AsShipped", "YES"] + arguments
+        // Every test says in the app's log what animates while a view holds the keyboard, and
+        // where the canvas and the keyboard stand as they move, so a wait that never settles names
+        // what keeps the app from going idle (lift-up 20261110).
+        app.launchArguments += ["-b1AsShipped", "YES", "-reportAnimations", "YES"] + arguments
         app.launch()
         return app
     }
