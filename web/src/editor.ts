@@ -70,7 +70,7 @@ import { filesPanel } from "./files";
 import { storyPanel } from "./story";
 import { finder, findKeys } from "./find";
 import { deleteKept, keptBundle, keptNames, persist, persisted, renameKept } from "./folders";
-import { discard, find, keep, savedAt, sha256, type Copy } from "./recovery";
+import { bundleOf, discard, find, keep, leftovers, savedAt, sha256, type Copy, type Reopen } from "./recovery";
 import { formatsRow } from "./formats";
 import { layerKeys, layers } from "./layers";
 import { ended, listen as heed, observing } from "./life";
@@ -291,6 +291,7 @@ let current:
   | {
       close: (lost?: boolean) => Promise<void> | void;
       unsaved: () => boolean;
+      copyKey: () => string;
       /** Save it where it is kept, or in this browser: whether it was saved. */
       save: () => Promise<unknown>;
       say: (text: string) => void;
@@ -340,9 +341,10 @@ function namedFor(source: Source): string {
 }
 
 /** Open the bundle at `source`, closing what is open once it opens; `asked` where changes not saved
- * were asked about already. One that does not open leaves the bundle open as it was, in use, and
- * the status says why, by the file's name. */
-async function open(source: Source, asked = false) {
+ * were asked about already, and `recovering` where it opens to take the copy it left (lift-up
+ * REL-4). One that does not open leaves the bundle open as it was, in use, and the status says
+ * why, by the file's name. */
+async function open(source: Source, asked = false, recovering = false) {
   // Changes not saved, lost as the person agreed, asked here or before: no copy keeps them, so none
   // is offered onto another deck that is named alike.
   let lost = current?.unsaved() ?? false;
@@ -369,7 +371,7 @@ async function open(source: Source, asked = false) {
   current = undefined;
   // The copy taken away before the deck opens looks for its own.
   await closed;
-  await edit(source, stage);
+  await edit(source, stage, recovering);
 }
 
 /** The page's address names where the bundle is kept, so a reload opens it there. A served
@@ -612,12 +614,12 @@ const describes = invertedEffects.of((tr) => tr.effects.filter((e) => e.is(descr
 /** `words` as a change is described: without the status's "⌘Z undoes it", which an undo makes untrue. */
 const describing = (words: string) => words.replace(/\s*·\s*⌘Z undoes it$/, "");
 
-async function edit(source: Source, opened?: Stage) {
+async function edit(source: Source, opened?: Stage, recovering = false) {
   // A folder is kept under its own key, which its address and its recovery copy name (REL-2).
   if ("folder" in source) await keepFolder(source.folder).catch((e: unknown) => console.warn(`The folder was not kept for next time: ${said(e)}`));
   // The deck of files as it opened, by its digest: what keys its recovery copy.
-  const files = "files" in source ? source.files : "recovered" in source ? source.recovered : undefined;
-  const openedAs = files?.["deck.json"] ? await sha256(files["deck.json"]) : undefined;
+  const opening = "files" in source ? source.files : "recovered" in source ? source.recovered : undefined;
+  const openedAs = opening?.["deck.json"] ? await sha256(opening["deck.json"]) : undefined;
   const status = $("#status");
   // A status too long for its two lines says the rest in its title.
   observing(new MutationObserver(() => (status.title = status.textContent ?? ""))).observe(status, { childList: true, characterData: true, subtree: true });
@@ -737,6 +739,9 @@ async function edit(source: Source, opened?: Stage) {
     if ("create" in source) return `new:${source.create.title}`;
     return `files:${name}:${openedAs ?? ""}`;
   };
+  /** Whether the copy carries the files the deck opened with, or the browser had no room for them,
+   * which is said once: the copy then keeps the edits, but cannot open the deck again. */
+  let carried: boolean | "refused" = false;
   /** How long after a change the copy is written, ms. */
   const COPY_AFTER = 2000;
   let copyTimer: ReturnType<typeof setTimeout> | undefined;
@@ -753,6 +758,7 @@ async function edit(source: Source, opened?: Stage) {
       const key = copyKey();
       if (!unsaved()) {
         copied = new Map();
+        carried = false;
         return discard(key);
       }
       const { written, removed } = stage.unsaved();
@@ -762,7 +768,23 @@ async function edit(source: Source, opened?: Stage) {
         const bytes = await stage.file(path);
         if (bytes) files.set(path, new Uint8Array(bytes));
       }
-      await keep(key, { at: Date.now(), name, source: view.state.doc.toString(), files: [...written.keys()], removed }, files);
+      // A deck kept nowhere, which nothing else opens again, carries how to: its theme and title, or
+      // the files it opened with, kept once (a page that starts lists each such copy).
+      const reopen: Reopen | undefined =
+        where || "url" in source || carried === "refused"
+          ? undefined
+          : "create" in source
+            ? { create: source.create }
+            : opening
+              ? { files: Object.keys(opening) }
+              : undefined;
+      const bundle = reopen && "files" in reopen && !carried ? opening : undefined;
+      const kept = await keep(key, { at: Date.now(), name, source: view.state.doc.toString(), files: [...written.keys()], removed, reopen }, files, bundle);
+      if (bundle && kept) carried = true;
+      else if (bundle) {
+        carried = "refused";
+        status.textContent = "This browser has no room to keep this deck for after a crash: save it to keep it safe.";
+      }
       copied = new Map(written);
     };
     copying = copying.then(run, run).catch((e: unknown) => console.warn(`The recovery copy was not kept: ${said(e)}`));
@@ -1022,6 +1044,8 @@ async function edit(source: Source, opened?: Stage) {
     const saved = await savedAt(kept);
     const same = copy.source === view.state.doc.toString() && !copy.files.length && !copy.removed.length;
     if ((saved !== undefined && saved > copy.at) || same) return discard(key);
+    // Opened again from the copies a page left, to recover them: no asking twice.
+    if (recovering) return recover(copy);
     const dialog = $<HTMLDialogElement>("#recovering");
     dialog.querySelector("[data-said]")!.textContent = `Changes made to ${titled() || name} at ${when(copy.at)} were not saved. Recover them, or discard them?`;
     dialog.returnValue = "";
@@ -3336,6 +3360,7 @@ async function edit(source: Source, opened?: Stage) {
       return gone;
     },
     unsaved,
+    copyKey,
     save: () => save(),
     say,
     story: async () => (await stage.health(view.state.doc.toString())).score,
@@ -3623,7 +3648,50 @@ function tabs() {
 tabs();
 controls()
   .then(first)
-  .then(edit)
+  .then((source) => edit(source))
+  .then(() => leftoversOffered())
   .catch(failed);
+
+/** The copies an earlier page left of decks kept nowhere, which nothing else opens again (lift-up
+ * REL-4): offered once the editor starts, in one list, the latest first, each to recover, which
+ * opens it again and takes its copy, or to discard. The deck open now offers its own. */
+async function leftoversOffered() {
+  const own = current?.copyKey();
+  const left = (await leftovers().catch(() => [])).filter((l) => l.key !== own);
+  if (!left.length) return;
+  const dialog = $<HTMLDialogElement>("#leftovers");
+  const list = dialog.querySelector("ul")!;
+  const when = (at: number) => new Date(at).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+  list.replaceChildren(
+    ...left.map((l) => {
+      const item = document.createElement("li");
+      const said = document.createElement("span");
+      const called = l.title || l.name;
+      said.textContent = `${called}, changed ${when(l.at)}`;
+      const recover = document.createElement("button");
+      recover.type = "button";
+      recover.textContent = "Recover";
+      recover.setAttribute("aria-label", `Recover ${called}, changed ${when(l.at)}`);
+      const drop = document.createElement("button");
+      drop.type = "button";
+      drop.textContent = "Discard";
+      drop.setAttribute("aria-label", `Discard ${called}, changed ${when(l.at)}`);
+      recover.onclick = async () => {
+        dialog.close();
+        const reopened: Source = "create" in l.reopen ? { create: l.reopen.create } : { files: await bundleOf(l.key, l.reopen.files), name: l.name };
+        await open(reopened, false, true).catch(failed);
+      };
+      drop.onclick = async () => {
+        await discard(l.key);
+        item.remove();
+        if (!list.children.length) dialog.close();
+        else list.querySelector("button")?.focus();
+      };
+      item.append(said, recover, drop);
+      return item;
+    }),
+  );
+  dialog.showModal();
+}
 
 offline();
