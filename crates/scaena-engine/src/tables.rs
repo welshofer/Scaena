@@ -209,9 +209,13 @@ pub fn set(cx: &mut Ctx, props: &Props, room: Option<f32>) -> Result<Typeset, En
 
     // Text: every cell set once, numbers in tabular lining figures, and the minus sign
     // the cell font sets (U+2212 if it has one).
+    let lang = cx.script();
     let mut set = |text: String, role: &crate::theme::TextRole, numeric: bool| -> Result<TextLayout, EngineError> {
-        let spec =
-            TextSpec { numeric: numeric.then_some(Numeric::TabularLining), ..TextSpec::plain(role.clone(), text) };
+        let spec = TextSpec {
+            numeric: numeric.then_some(Numeric::TabularLining),
+            lang: lang.clone(),
+            ..TextSpec::plain(role.clone(), text)
+        };
         cx.text.layout(cx.fonts, theme, &spec, f32::INFINITY)
     };
     let minus = match columns.iter().any(|c| c.numeric) {

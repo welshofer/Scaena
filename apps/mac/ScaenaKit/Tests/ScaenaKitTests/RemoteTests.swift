@@ -250,16 +250,20 @@ private func tried(_ endpoint: NWEndpoint, _ parameters: NWParameters, _ seconds
 @MainActor @Test func aJoinLeavesTheWrongCodesCounted() async throws {
     let (server, heard) = try await presenter("48210937", cooldown: 1.5)
     let port = try #require(server.port)
-    for wrong in ["00000000", "11111111", "22222222", "33333333"] {
-        let stranger = RemoteClient(here(port), code: wrong, seconds: 5)
-        #expect(await waited { lost(stranger) != nil }, "\(wrong) is never joined")
+    // Each stranger is given far longer than the presenter takes to refuse it, and each is counted
+    // before the next is sent: on a busy runner, a stranger's own give-up came before its proof
+    // reached the presenter, which counted three.
+    for (n, wrong) in ["00000000", "11111111", "22222222", "33333333"].enumerated() {
+        let stranger = RemoteClient(here(port), code: wrong, seconds: 20)
+        #expect(await waited(25) { lost(stranger) != nil }, "\(wrong) is never joined")
+        #expect(await waited(25) { heard.tried == n + 1 }, "\(wrong) is counted: \(heard.tried)")
     }
     #expect(await waited { heard.tried == 4 }, "four wrong codes are counted: \(heard.tried)")
     let remote = RemoteClient(here(port), code: "48210937")
     #expect(await waited { remote.status == .joined }, "the code joins: \(remote.status)")
     #expect(heard.recoded.isEmpty && server.code == "48210937")
-    let fifth = RemoteClient(here(port), code: "44444444", seconds: 5)
-    #expect(await waited { lost(fifth) != nil }, "the fifth is never joined")
+    let fifth = RemoteClient(here(port), code: "44444444", seconds: 20)
+    #expect(await waited(25) { lost(fifth) != nil }, "the fifth is never joined")
     #expect(await waited { heard.recoded.count == 1 }, "the fifth wrong code, after the join, makes the code anew")
     #expect(server.code != "48210937")
     remote.leave()
@@ -496,4 +500,40 @@ private func tried(_ endpoint: NWEndpoint, _ parameters: NWParameters, _ seconds
     let older = #"{"deck":"B1","showing":true,"state":"goal","index":6,"count":19,"ms":0,"rest":true,"notes":""}"#
     let place = try JSONDecoder().decode(RemotePlace.self, from: Data(older.utf8))
     #expect(place.number == nil && place.said == "7 of 19")
+}
+
+/// A remote lost after it joined may join again with the code it joined with, which it keeps, so
+/// a Wi-Fi drop mid-talk needs no code typed on stage; one whose code was refused may not, since
+/// joining again would only spend another of the presenter's tries (lift-up 20261110 REL-4).
+@MainActor @Test func aRemoteLostAfterItJoinedJoinsAgainWithItsCode() async throws {
+    let (server, heard) = try await presenter("48210937")
+    let port = try #require(server.port)
+    let goal = RemotePlace(deck: "B1", showing: true, state: "goal", index: 1, count: 40)
+    server.tell(goal)
+    let remote = RemoteClient(here(port), code: "48210937")
+    guard await waited(10, { remote.status == .joined }) else {
+        Issue.record("the remote joins with the code: \(remote.status)")
+        remote.leave()
+        server.stop()
+        return
+    }
+    #expect(!remote.rejoinable && !remote.refused, "joined, there is nothing to join again")
+    // Joined again with the code it kept: the presenter counts a second join, and it hears the show.
+    let again = remote.again()
+    #expect(await waited { again.status == .joined }, "it joins again with its own code: \(again.status)")
+    #expect(await waited { again.place == goal }, "and hears where the show is")
+    #expect(await waited { heard.joined >= 1 })
+    #expect(heard.tried == 0, "joining again spends no try")
+
+    // The presenter gone, the remote joined is lost and may join again.
+    server.stop()
+    #expect(await waited { lost(again) != nil }, "lost once the presenter goes: \(again.status)")
+    #expect(again.rejoinable && !again.refused, "lost after it joined, it may join again")
+
+    // A code refused may not.
+    let (other, _) = try await presenter("53071946")
+    let stranger = RemoteClient(here(try #require(other.port)), code: "12345678", seconds: 5)
+    #expect(await waited { lost(stranger) != nil }, "another code is never joined")
+    #expect(stranger.refused && !stranger.rejoinable, "a code refused joins nothing again")
+    other.stop()
 }

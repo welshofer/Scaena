@@ -341,8 +341,22 @@ try {
     const before = await page.evaluate(() => window.scaena.source());
     const model = await choose(page, id, scripted.origin, `${id}-test-key`);
     check(model === "scripted", `${id}: the models the key can use are listed (${model})`);
+    // An empty conversation offers ways to begin from the deck's story (lift-up 20261110 ATTR-2):
+    // its health first, and every slide's claim; they go once a question is asked.
+    const starters = () =>
+      page.evaluate(() => {
+        const box = document.querySelector("#starters");
+        return { shown: !box.hidden, asks: [...box.querySelectorAll("button")].map((b) => b.textContent) };
+      });
+    await page.waitForFunction(() => !document.querySelector("#starters").hidden, null, { timeout: 30000 }).catch(() => {});
+    const offered = await starters();
+    check(
+      offered.shown && offered.asks[0] === "Make this talk stronger" && offered.asks.at(-1) === "Check every slide says its claim",
+      `${id}: an empty conversation offers ways to begin: ${JSON.stringify(offered)}`,
+    );
     const done = await page.evaluate(() => window.scaena.assistant.ask("Put the trail headline on the slide, fix what lint finds, and show me."));
     check(done.kind === "done" && done.stop === "end", `${id}: the question is answered (${JSON.stringify(done)})`);
+    check(!(await starters()).shown, `${id}: and once one is asked, the ways to begin go`);
     const { requests } = scripted;
     check(requests.length === SCRIPT.length + 1, `${id}: one request a turn: ${requests.length}`);
 
@@ -640,6 +654,89 @@ try {
         refused.kind === "failed" && /more than .*'s model takes at once/.test(refused.message) && scripted.requests.length === asked + 2,
         `${id}: and too long again, it is said, once asked again (${JSON.stringify(refused)}, ${scripted.requests.length - asked} requests)`,
       );
+    }
+
+    if (id === "anthropic") {
+      // The conversation is kept over a reload, and offered as the deck opens again (lift-up
+      // 20261110 FUNC-4): gone on with, the next question follows it.
+      await page.waitForTimeout(1000);
+      // What is kept is the messages and what was shown alone: no key, nor the provider's address.
+      const keptText = () =>
+        page.evaluate(async () => {
+          const texts = [];
+          try {
+            const all = await (await navigator.storage.getDirectory()).getDirectoryHandle("conversations");
+            for await (const handle of all.values()) texts.push(await (await handle.getFile()).text());
+          } catch {}
+          return texts;
+        });
+      const stored = await keptText();
+      check(
+        stored.length === 1 && !stored[0].includes("anthropic-test-key") && !stored[0].includes(scripted.origin) && !/x-api-key|authorization/i.test(stored[0]),
+        `one conversation is kept, holding no key, address, or header (${stored.length} kept, ${stored[0]?.length ?? 0} bytes)`,
+      );
+      await page.reload();
+      await page.waitForFunction(() => window.scaena?.last(), null, { timeout: 120000 });
+      await page.waitForSelector("#recovering[open]", { timeout: 5000 }).then(() => page.click("#recovering [value=discard]")).catch(() => {});
+      await tab(page, "assistant");
+      await page.waitForSelector("#transcript .resume button", { timeout: 15000 }).catch(() => {});
+      const offer = await page.evaluate(() => document.querySelector("#transcript .resume")?.textContent ?? "");
+      check(offer.startsWith("Your last conversation about this deck"), `a reload offers the conversation kept: ${offer}`);
+      await page.evaluate(() => [...document.querySelectorAll("#transcript .resume button")].find((b) => b.textContent === "Continue the last conversation")?.click());
+      const shown = await page.evaluate(() => [...document.querySelectorAll("#transcript li")].map((li) => `${li.className}: ${li.textContent}`));
+      check(shown.includes("user: Shorter now.") && shown.some((s) => s.startsWith("said: ")), `gone on with, it shows its questions and answers: ${JSON.stringify(shown.slice(-4))}`);
+      await page.waitForFunction(() => document.querySelector("#model").options.length > 0, null, { timeout: 30000 }).catch(() => {});
+      const sent = scripted.requests.length;
+      const next = await page.evaluate(() => window.scaena.assistant.ask("And now?"));
+      const messages = scripted.requests[sent]?.body.messages ?? [];
+      check(
+        next.kind === "done" && messages.length > 2 && JSON.stringify(messages[0]).includes("Put the trail headline on the slide"),
+        `and the next question follows it: ${JSON.stringify(next)}, ${messages.length} messages sent`,
+      );
+      // New conversation takes the kept one away, its file and all; and so does Start anew, offered
+      // as the deck opens again, after which a reload offers nothing.
+      const reload = async () => {
+        await page.reload();
+        await page.waitForFunction(() => window.scaena?.last(), null, { timeout: 120000 });
+        await page.waitForSelector("#recovering[open]", { timeout: 5000 }).then(() => page.click("#recovering [value=discard]")).catch(() => {});
+        await tab(page, "assistant");
+      };
+      await page.waitForTimeout(1000);
+      check((await keptText()).length === 1, "the conversation gone on with is kept again");
+      await page.evaluate(() => document.querySelector("#new").click());
+      await page.waitForTimeout(500);
+      check((await keptText()).length === 0, "New conversation takes the kept conversation away");
+      await page.waitForFunction(() => document.querySelector("#model").options.length > 0, null, { timeout: 30000 }).catch(() => {});
+      await page.evaluate(() => window.scaena.assistant.ask("Once more?"));
+      await page.waitForTimeout(1000);
+      await reload();
+      await page.waitForSelector("#transcript .resume button", { timeout: 15000 }).catch(() => {});
+      await page.evaluate(() => [...document.querySelectorAll("#transcript .resume button")].find((b) => b.textContent === "Start anew")?.click());
+      await page.waitForTimeout(500);
+      check((await keptText()).length === 0, "Start anew takes the kept conversation away");
+      await reload();
+      await page.waitForTimeout(1500);
+      check(!(await page.evaluate(() => !!document.querySelector("#transcript .resume"))), "and a reload offers none");
+    }
+
+    if (id === "anthropic") {
+      // New conversation offers them again, and one pressed asks its question (lift-up 20261110
+      // ATTR-2): held while it is asked, then stopped.
+      await page.evaluate(() => document.querySelector("#new").click());
+      await page.waitForFunction(() => !document.querySelector("#starters").hidden, null, { timeout: 30000 }).catch(() => {});
+      check((await starters()).shown, "a new conversation offers the ways to begin again");
+      await page.waitForFunction(() => document.querySelector("#model").options.length > 0, null, { timeout: 30000 }).catch(() => {});
+      const sent = scripted.requests.length;
+      scripted.state.slow = 4000;
+      await page.evaluate(() => [...document.querySelectorAll("#starters button")].find((b) => b.textContent === "Check every slide says its claim").click());
+      await page.waitForFunction(() => !document.querySelector("#thinking").hidden, null, { timeout: 10000 }).catch(() => {});
+      const waited = Date.now();
+      while (scripted.requests.length === sent && Date.now() - waited < 15000) await page.waitForTimeout(100);
+      const words = JSON.stringify(scripted.requests[sent]?.body.messages ?? "");
+      check(words.includes("Check that every slide says its claim"), `and one pressed asks its question: ${words.slice(0, 160)}`);
+      await page.evaluate(() => document.querySelector("#stop").click());
+      await page.waitForFunction(() => document.querySelector("#thinking").hidden, null, { timeout: 15000 }).catch(() => {});
+      scripted.state.slow = 0;
     }
 
     if (id === "anthropic") {

@@ -33,6 +33,9 @@ struct AssistantPanel: View {
     /// Bumped as the keys sheet closes, or as a key is kept anywhere, Settings on the Mac among
     /// them, so that the models are listed again with the key kept (lift-up 20261031 FUNC-4).
     @State private var keysChanged = 0
+    /// The deck's narrative health, read while the conversation is empty, whose asks it offers
+    /// (lift-up 20261110 ATTR-2).
+    @State private var health: Health?
     /// The window's undo, whose step Undo This Answer takes back (lift-up 10-25 FUNC-4).
     @Environment(\.undoManager) private var undoManager
 
@@ -58,8 +61,17 @@ struct AssistantPanel: View {
         .onReceive(NotificationCenter.default.publisher(for: Keychain.changed)) { posted in
             if posted.object as? String == keychain.service { keysChanged += 1 }
         }
+        .task(id: assistant.entries.isEmpty ? assistant.editor.revision : -1) {
+            // The asks an empty conversation offers, read from the deck's health once edits stop,
+            // as the Story panel reads it; none read while a conversation goes on.
+            guard assistant.entries.isEmpty else { return }
+            try? await Task.sleep(for: .milliseconds(700))
+            guard !Task.isCancelled, let read = try? await assistant.editor.health(), !Task.isCancelled else { return }
+            health = read
+        }
         .onChange(of: assistant.drafted, initial: true) { _, drafted in
-            // A question drafted elsewhere, put in the box to send or change.
+            // A question drafted elsewhere, or given back unanswered, put in the box to send or
+            // change.
             guard let drafted else { return }
             question = drafted
             assistant.drafted = nil
@@ -154,6 +166,8 @@ struct AssistantPanel: View {
                         if keyless {
                             Button("Add a Key…", action: openKeys)
                                 .accessibilityIdentifier("add-key")
+                        } else {
+                            starters
                         }
                     }
                     ForEach(assistant.entries) { entry in
@@ -201,6 +215,30 @@ struct AssistantPanel: View {
                 if !phase.isScrolling { following = atEnd }
             }
         }
+    }
+
+    /// What an empty conversation offers to ask, one press to send (lift-up 20261110 ATTR-2): the
+    /// talk made stronger, its weakest beat tightened, every slide held to its claim; gone once a
+    /// conversation begins.
+    private var starters: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(StartingAsk.offered(by: health)) { starter in
+                Button {
+                    question = starter.question
+                    ask()
+                } label: {
+                    Label(starter.label, systemImage: "sparkles")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(.bordered)
+                .help(starter.question)
+                .disabled(model.wrappedValue.isEmpty || assistant.working)
+                .accessibilityHint(starter.question)
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Starting points")
+        .accessibilityIdentifier("assistant-starters")
     }
 
     /// Whether a call the model made is running, which says what it is doing itself.

@@ -1636,7 +1636,15 @@ async function edit(source: Source, opened?: Stage, recovering = false) {
    * JPEG, with the nodes drawn from it. */
   const photos = async () =>
     (await stage.bundleFiles(view.state.doc.toString())).filter((f) => f.type === "image" && PICTURE.test(f.path));
-  const theming = themePanel(stage, $("#theming"), { edit: themeEdit, photos, words: () => lexicon });
+  const theming = themePanel(stage, $("#theming"), {
+    edit: themeEdit,
+    photos,
+    words: () => lexicon,
+    preview: async (ops) => {
+      const now = showing();
+      if (now) await stage.previewTheme(now.state, ops, format());
+    },
+  });
   /** The theme given the colors of the photo the image `node` draws in the state shown (PLAN 2.94). */
   async function colorsFrom(node: string) {
     const state = showing()?.state;
@@ -2500,6 +2508,7 @@ async function edit(source: Source, opened?: Stage, recovering = false) {
 
   const assistant = panel(stage, {
     source: () => view.state.doc.toString(),
+    conversationKey: () => copyKey(),
     states: () => last?.states.map(([id]) => id) ?? [],
     apply: (source, edited, touched, files = []) => {
       touching = touched?.length ? { source, nodes: touched } : undefined;
@@ -3530,6 +3539,8 @@ async function edit(source: Source, opened?: Stage, recovering = false) {
        * they print. */
       reading: (state?: string) => stage.reading(state ?? last?.states[shown]?.[0] ?? stage.opened.states[shown], format()),
       at: () => stage.at,
+      /** The notes a presenter reads for `state` (SPEC §2.6). */
+      notes: (state: string) => stage.notes(state),
       /** The assistant: ask it something, and read the conversation. */
       assistant,
       /** The writing tools (PLAN 2.101): one asked, and its answer taken, settled. */

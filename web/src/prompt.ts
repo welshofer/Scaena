@@ -183,6 +183,9 @@ export function prompting(
   const bigIdea = $<HTMLTextAreaElement>("#prompting-big-idea");
   const beats = $<HTMLOListElement>("#prompting-beats");
   const outlineArcs = $<HTMLSelectElement>("#prompting-outline-arcs");
+  // The slides the beats take in all, against the length asked (lift-up 20261110 USE-3).
+  const total = $<HTMLParagraphElement>("#prompting-total");
+  let range: [number, number | null] | undefined;
   // The outline twice unreadable (lift-up REL-3): why, and a choice to write without one or stop.
   const unreadPane = $<HTMLElement>("#prompting-unread");
   const unreadWhy = $<HTMLParagraphElement>("#prompting-unread-why");
@@ -215,21 +218,81 @@ export function prompting(
     claim.oninput = () => (li.dataset.typed = "1");
     const acts = document.createElement("div");
     acts.className = "acts";
-    const act = (label: string, aria: string, on: () => void) => {
+    // Each button labelled by its beat's place, as `relabel` sets it (lift-up 20261110 USE-4).
+    const act = (label: string, kind: string, on: () => void) => {
       const button = document.createElement("button");
       button.type = "button";
       button.textContent = label;
-      button.setAttribute("aria-label", aria);
+      button.dataset.act = kind;
       button.onclick = on;
       acts.append(button);
     };
-    act("↑", "Move the beat up", () => li.previousElementSibling?.before(li));
-    act("↓", "Move the beat down", () => li.nextElementSibling?.after(li));
-    act("Remove", "Remove the beat", () => li.remove());
+    act("↑", "up", () => moved(li, li.previousElementSibling, "before"));
+    act("↓", "down", () => moved(li, li.nextElementSibling, "after"));
+    act("Remove", "remove", () => removeBeat(li));
     // This beat's claim alone, asked again, every other claim as it stands (lift-up 20261110 FUNC-2).
-    act("Ask again", "Ask for this beat's claim again", () => askAgain?.(li));
+    act("Ask again", "again", () => askAgain?.(li));
     li.append(name, slides, claim, acts);
     return li;
+  };
+
+  /** Each beat's fields and buttons labelled by its place, "Beat 3 of 6: claim", so a screen
+   * reader hears which beat each is; set again after a beat is added, moved, removed, or put back
+   * (lift-up 20261110 USE-4). */
+  const relabel = () => {
+    const rows = [...beats.querySelectorAll("li")];
+    rows.forEach((li, i) => {
+      const at = `Beat ${i + 1} of ${rows.length}`;
+      const label = (selector: string, words: string) => li.querySelector(selector)?.setAttribute("aria-label", `${at}: ${words}`);
+      label(".name", "name");
+      label(".slides", "the slides it takes");
+      label(".claim", "claim");
+      label("[data-act=up]", "move up");
+      label("[data-act=down]", "move down");
+      label("[data-act=remove]", "remove");
+      label("[data-act=again]", "ask for its claim again");
+    });
+  };
+
+  /** `li` moved before or after `beside`, its place said, and the focus kept on its button. */
+  const moved = (li: HTMLLIElement, beside: Element | null, where: "before" | "after") => {
+    if (!beside) return;
+    beside[where](li);
+    relabel();
+    const rows = [...beats.querySelectorAll("li")];
+    step(`Moved to ${rows.indexOf(li) + 1} of ${rows.length}`);
+    li.querySelector<HTMLButtonElement>(`[data-act=${where === "before" ? "up" : "down"}]`)?.focus();
+  };
+
+  // A beat removed, kept for ten seconds to put back where it stood (lift-up 20261110 USE-4).
+  const removedNote = $<HTMLParagraphElement>("#prompting-removed");
+  let removed: { li: HTMLLIElement; at: number; until: ReturnType<typeof setTimeout> } | undefined;
+  const forget = () => {
+    if (removed) clearTimeout(removed.until);
+    removed = undefined;
+    removedNote.hidden = true;
+  };
+  const removeBeat = (li: HTMLLIElement) => {
+    forget();
+    const at = [...beats.querySelectorAll("li")].indexOf(li);
+    li.remove();
+    removed = { li, at, until: setTimeout(forget, 10_000) };
+    removedNote.querySelector("span")!.textContent = `Beat ${at + 1} removed`;
+    removedNote.hidden = false;
+    relabel();
+    totalled();
+    removedNote.querySelector("button")!.focus();
+  };
+  removedNote.querySelector("button")!.onclick = () => {
+    if (!removed) return;
+    const { li, at } = removed;
+    forget();
+    const rows = beats.querySelectorAll("li");
+    if (at < rows.length) rows[at].before(li);
+    else beats.append(li);
+    relabel();
+    totalled();
+    li.querySelector<HTMLTextAreaElement>(".claim")?.focus();
   };
 
   /** Asks for one beat's claim again, while the deck is being made and its outline shown. */
@@ -245,9 +308,30 @@ export function prompting(
     })),
   });
 
+  /** The slides the beats take in all, said against the length asked, and flagged where outside
+   * it, since a sum outside it is scaled to its nearer end (lift-up 20261110 USE-3). */
+  const totalled = () => {
+    const sum = settledOutline().beats.reduce((n, b) => n + Math.max(1, b.slides), 0);
+    const all = `${sum} ${sum === 1 ? "slide" : "slides"} in all`;
+    if (!range) return void (total.textContent = all);
+    const [least, most] = range;
+    const asked = most == null ? `${least} or more` : least === most ? `${least}` : `${least}\u2013${most}`;
+    const end = sum < least ? least : most != null && sum > most ? most : undefined;
+    total.textContent = `${all} \u00b7 the length asked: ${asked}${end == null ? "" : `. They will be scaled to ${end}.`}`;
+    total.classList.toggle("over", end != null);
+  };
+  beats.addEventListener("input", totalled);
+
   /** The outline shown, to settle: the arc and why, the big idea, and the beats; or, where it did
    * not read, why, to write without one or stop. */
-  const showOutlined = (outlined: { outline: StoryOutline; arc: string; reasoning: string; fallback?: string; unread?: string }) => {
+  const showOutlined = (outlined: {
+    outline: StoryOutline;
+    arc: string;
+    reasoning: string;
+    fallback?: string;
+    unread?: string;
+    range?: [number, number | null];
+  }) => {
     if (outlined.unread) {
       // The count said once, by the sentence: the reason's own "(asked 2 times)" is the CLI's.
       const why = outlined.unread.replace(/ \(asked \d+ times\)$/, "").replace(/^./, (c) => c.toLowerCase());
@@ -262,6 +346,10 @@ export function prompting(
       : `Arc: ${outlined.arc}. ${outlined.reasoning}`.trim();
     bigIdea.value = outlined.outline.bigIdea;
     beats.replaceChildren(...outlined.outline.beats.map(beatRow));
+    forget();
+    relabel();
+    range = outlined.range;
+    totalled();
     outlineArcs.replaceChildren(
       ...[...arc.options].map((o) => new Option(o.textContent ?? "", o.value, false, o.value === outlined.arc)),
     );
@@ -289,6 +377,8 @@ export function prompting(
   $<HTMLButtonElement>("#prompting-add-beat").onclick = () => {
     const li = beatRow({ name: "", claim: "", slides: 0 });
     beats.append(li);
+    relabel();
+    totalled();
     li.querySelector<HTMLInputElement>(".name")!.focus();
   };
 

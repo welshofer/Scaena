@@ -487,7 +487,7 @@ fn an_older_theme_that_ships_opens_with_its_library() {
     let shipped = read("../../docs/examples/authorability/themes/daybreak.theme.json");
     assert_eq!(starters.len(), shipped["layouts"].as_object().unwrap().len() + 1, "every layout, and a blank slide");
     let sections: std::collections::BTreeSet<&str> = starters.iter().filter_map(|l| l["group"].as_str()).collect();
-    assert_eq!(sections.len(), 16, "{sections:?}");
+    assert_eq!(sections.len(), 17, "{sections:?}");
     unsafe { scaena_session_free(s) };
 }
 
@@ -942,6 +942,13 @@ fn the_assistant_asks_with_the_users_key_and_runs_each_call_on_the_bundle() {
     assert_eq!(refused["error"]["message"], "401 Unauthorized: invalid x-api-key");
     let kept = step(chat, null_mut(), "conversation", Value::Null);
     assert_eq!(kept, conversation);
+    // Nothing to take back there: the last question was answered.
+    assert_eq!(step(chat, null_mut(), "takeBack", Value::Null), json!(false));
+    assert_eq!(step(chat, null_mut(), "conversation", Value::Null), conversation);
+    // A question refused is taken back, so asked again it is one (lift-up 20261110 STAB-3).
+    step(chat, s, "ask", json!({ "text": "Again?" }));
+    assert_eq!(step(chat, null_mut(), "takeBack", Value::Null), json!(true));
+    assert_eq!(step(chat, null_mut(), "conversation", Value::Null), conversation);
 
     // Misuse is an error, never a crash.
     assert!(stepped(chat, null_mut(), "next", Value::Null)["error"]["message"].is_string(), "no calls wait");
@@ -2146,6 +2153,44 @@ fn every_theme_in_the_registry_makes_and_saves_a_deck_with_its_fonts_alone() {
         }
         unsafe { scaena_session_free(s) };
     }
+}
+
+/// The assistant's tool calls run as `scaena_tool` runs them, on a stack segment of their own where
+/// the caller's runs low, and so does a laying of the deck: from a thread of 256 KB, a lint of the
+/// whole deck through the conversation, apart from it, and laid away holds (lift-up 20261031 STAB-1).
+#[test]
+fn the_assistants_calls_and_a_laying_have_a_stack_of_their_own() {
+    struct Sent(*mut ScaenaSession);
+    unsafe impl Send for Sent {}
+    let s = Sent(open(B1));
+    let caller = std::thread::Builder::new()
+        .stack_size(256 << 10)
+        .spawn(move || {
+            let s = s;
+            let mut error = null_mut();
+            let chat =
+                unsafe { scaena_chat_new(c(r#"{"provider":"anthropic","model":"a-model"}"#).as_ptr(), &mut error) };
+            let lint = json!({ "id": "t1", "name": "deck_lint", "args": {} });
+            let ran = step(chat, s.0, "run", json!({ "call": lint }));
+            let apart: Value = serde_json::from_str(&took(unsafe {
+                scaena_chat_run_apart(s.0, c("a-model").as_ptr(), c(&lint.to_string()).as_ptr(), null())
+            }))
+            .unwrap();
+            unsafe { scaena_chat_free(chat) };
+            let source = call(s.0, "source", Value::Null);
+            call(s.0, "compile", json!({ "source": source.as_str().unwrap() }));
+            let laying = unsafe { scaena_laying_new(s.0) };
+            assert!(!laying.is_null(), "B1 compiled to a deck that validates");
+            let laid = unsafe { scaena_laying_lay(laying) };
+            unsafe { scaena_laying_free(laying) };
+            (s, ran, apart, laid)
+        })
+        .unwrap();
+    let (s, ran, apart, laid) = caller.join().expect("the caller's own stack holds");
+    assert_eq!(ran["error"], false, "{ran}");
+    assert_eq!(apart["ok"]["error"], false, "{apart}");
+    assert!(laid, "laid out");
+    unsafe { scaena_session_free(s.0) };
 }
 
 /// A call that lays a deck out and lints it, as a re-theme does before and after, has the stack it
