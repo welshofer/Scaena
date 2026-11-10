@@ -680,6 +680,8 @@
       #retheming .themes input { margin: 0; }
       #retheming .themes img { width: 96px; height: 54px; border-radius: 3px; background: #000; object-fit: cover; }
       #retheming .themes .now { margin-left: auto; color: var(--muted); font-size: 12px; }
+      /* On the row chosen, "Now" in the ink: muted, it reads under 4.5:1 on the row's tint (editor dogfood 1). */
+      #retheming .themes label:has(input:checked) .now { color: var(--ink); }
       /* Add Slide's gallery (PLAN 3.30): the theme's layouts, each a slide started in it, by section. */
       #starting { width: min(1000px, 96vw); }
       #starting .picker-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
