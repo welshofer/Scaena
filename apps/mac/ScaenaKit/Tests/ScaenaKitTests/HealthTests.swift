@@ -79,3 +79,29 @@ import Testing
     #expect(Health.moreSaid(named) == "3 more: 2 change let go, 1 topic headline")
     #expect(health.triaged(open: 0).open.map(\.slide) == [5], "every error stands open")
 }
+
+/// The Story is read again once every state is linted, where that lint finds otherwise than the
+/// findings the story shown was read beside (lift-up 20261110 deferred, as the browser's Story):
+/// a read before it keeps the state shown's findings, and the fixes and Show they offer; a lint
+/// that finds the same reads nothing more.
+@Test @MainActor func theStoryIsReadAgainWhenEveryStatesLintFindsOtherwise() async throws {
+    let editor = DeckEditor(session: try ScaenaSession(directory: b1))
+    editor.lintShown()
+    #expect(editor.linted == nil, "a lint of the state shown alone stands for every state's")
+    let readWith = StoryLint.keyed(editor.findings)
+    await editor.lintEvery()
+    let linted = try #require(editor.linted, "every state linted, and nothing to read beside")
+    #expect(linted == StoryLint.keyed(editor.findings))
+    #expect(!StoryLint.rereads(linted, readWith: linted), "a lint that finds the same reads again")
+    #expect(!StoryLint.rereads(nil, readWith: readWith))
+
+    func finding(_ code: String, fixable: Bool, message: String = "") throws -> Finding {
+        let json = #"{"code": "\#(code)", "severity": "error", "message": "\#(message)", "state": "cover", "node": "title", "fixable": \#(fixable), "shown": true}"#
+        return try JSONDecoder().decode(Finding.self, from: Data(json.utf8))
+    }
+    let before = StoryLint.keyed([try finding("E100", fixable: false)])
+    #expect(StoryLint.rereads(StoryLint.keyed([try finding("E100", fixable: true)]), readWith: before))
+    #expect(StoryLint.rereads(StoryLint.keyed([try finding("E101", fixable: false)]), readWith: before))
+    #expect(StoryLint.rereads(StoryLint.keyed([]), readWith: before))
+    #expect(!StoryLint.rereads(StoryLint.keyed([try finding("E100", fixable: false, message: "said otherwise")]), readWith: before))
+}
