@@ -178,16 +178,23 @@ extension XCTestCase {
     /// Whether `item` comes to show in the edit menu a long press opened, the menu paged on as a
     /// person pages it. The menu sets its items in one row, a page at a time, and lists none of a
     /// page it does not show; the arrow to the next page stands just past the row's last item.
+    /// `pressed`, the element the long press was on, is pressed again once where no menu shows:
+    /// the simulator's system gesture gate can hold a press back until it has ended ("System
+    /// gesture gate timed out" in `log.txt`), and the app then sees a tap, which selects and
+    /// offers nothing (lift-up 20261110). The app's `menu` log says which it was.
     @MainActor
-    func paged(to item: XCUIElement, in app: XCUIApplication) -> Bool {
+    func paged(to item: XCUIElement, in app: XCUIApplication, pressed: XCUIElement? = nil) -> Bool {
         // What the menu lists: buttons, or menu items, by the system's version.
         let kinds = NSPredicate(
             format: "elementType == %lu OR elementType == %lu",
             XCUIElement.ElementType.button.rawValue, XCUIElement.ElementType.menuItem.rawValue)
         let listed = app.descendants(matching: .any).matching(kinds)
-        guard wait(5, { listed.matching(NSPredicate(format: "label == 'Copy'")).firstMatch.isHittable }) else {
-            return false
+        let shown = { listed.matching(NSPredicate(format: "label == 'Copy'")).firstMatch.isHittable }
+        if !wait(5, shown), let pressed {
+            keep(app, as: "menu-pressed-again")
+            pressed.press(forDuration: 1.2)
         }
+        guard wait(5, shown) else { return false }
         let row = listed.matching(NSPredicate(format: "label == 'Copy'")).firstMatch.frame.midY
         for _ in 0..<8 {
             if item.waitForExistence(timeout: 1), item.isHittable { return true }

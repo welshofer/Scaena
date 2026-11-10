@@ -1674,7 +1674,10 @@ struct CanvasSelection: View {
         lingering = Task { @MainActor in
             try? await Task.sleep(for: Self.lingers)
             // A press the system took away offers nothing.
-            guard !Task.isCancelled, touching, case .pressing = press else { return }
+            guard !Task.isCancelled, touching, case .pressing = press else {
+                return menuLog.debug(
+                    "long press not held: cancelled \(Task.isCancelled, privacy: .public), touching \(touching, privacy: .public), press \(String(describing: press), privacy: .public)")
+            }
             press = .offered
             offer(at: fit.canvas(start), shown: start, fit: fit)
         }

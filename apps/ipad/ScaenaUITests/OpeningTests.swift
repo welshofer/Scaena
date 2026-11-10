@@ -187,7 +187,7 @@ final class OpeningTests: XCTestCase {
         }
         // The slide's own asks under Slide, the menu's next to last.
         let slide = offered("Slide").firstMatch
-        guard paged(to: slide, in: app) else {
+        guard paged(to: slide, in: app, pressed: subtitle) else {
             keep(app, as: "no-slide-menu")
             throw Unseen(description: "the long press offers no Slide: \(app.debugDescription)")
         }
