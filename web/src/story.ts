@@ -39,6 +39,9 @@ export interface StoryEditor {
   /** What lint last found wrong on the slide whose first state is `slide`, any step of it: what
    * its marks on the canvas stand for (editor dogfood 4). */
   issues(slide: string): Finding[];
+  /** What lint last found in the deck, a state's or every state's: what the worker reads health
+   * beside. */
+  findings(): Finding[];
   /** Take `f`'s fix, as its mark on the canvas does: one change to undo. */
   fix(f: Finding): Promise<void>;
   /** Show `f`'s state, its mark on the canvas open. */
@@ -269,6 +272,12 @@ export function storyPanel(stage: Stage, into: HTMLElement, editor: StoryEditor)
   /** Readings asked for: the last answer wins. */
   let asking = 0;
 
+  /** The findings the last read was taken beside, by what tells them apart: a lint of every state
+   * that finds otherwise reads the story again (lift-up 20261110 deferred). */
+  let readWith = "";
+  const keyed = (findings: Finding[]) =>
+    findings.map((f) => `${f.code} ${f.severity} ${f.state ?? ""} ${f.node ?? ""} ${f.fixable ? 1 : 0}`).join("\n");
+
   /** Whether the panel has read the deck once, its health or why not. */
   let read = false;
   /** How many times it has asked the worker. */
@@ -290,6 +299,7 @@ export function storyPanel(stage: Stage, into: HTMLElement, editor: StoryEditor)
     if (asked !== asking || into.hidden) return;
     read = true;
     reads++;
+    readWith = keyed(editor.findings());
     try {
       const got = await stage.health(editor.source());
       if (asked !== asking) return;
@@ -485,6 +495,11 @@ export function storyPanel(stage: Stage, into: HTMLElement, editor: StoryEditor)
   return {
     /** Read the deck again once edits stop. */
     refresh: () => refresh(),
+    /** Every state is linted: read again at once, where the read shown was taken beside other
+     * findings, as a read before that lint was. Typing that lints nothing new reads nothing more. */
+    linted: (findings: Finding[]) => {
+      if (keyed(findings) !== readWith) refresh(true);
+    },
     /** What the panel last read. */
     health: () => health,
     /** How many times it has asked the worker to read the deck. */

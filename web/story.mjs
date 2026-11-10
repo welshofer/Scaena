@@ -274,13 +274,8 @@ try {
   await page.keyboard.press("Control+z");
   await page.waitForFunction((s) => window.scaena.source() === s, broken, { timeout: 30000 }).catch(() => {});
   await page.waitForFunction(() => document.querySelector("#story > p[data-stale]").hidden, null, { timeout: 60000 }).catch(() => {});
-  // Shown again once every state is linted: the Story's read may come before that lint, and is
-  // not read again after it (its own item).
-  await page
-    .waitForFunction(() => window.scaena.last()?.whole && window.scaena.last().findings.some((f) => f.severity === "error" && f.fixable), null, { timeout: 120000 })
-    .catch(() => {});
-  await tab(page, "inspector");
-  await tab(page, "story");
+  // The Story's read may come before every state is linted: it is read again once that lint
+  // lands, so nothing more than waiting brings the fix back (lift-up 20261110 deferred).
   await page
     .waitForFunction(() => document.querySelector("#story [data-findings] > li[data-slide] [data-lint-fix]")?.disabled === false, null, { timeout: 120000 })
     .catch(() => {});
@@ -288,6 +283,16 @@ try {
     await page.evaluate(() => document.querySelector("#story [data-findings] > li[data-slide] [data-lint-fix]")?.disabled === false),
     "taken back, lint's fix is offered again",
   );
+  // So too where the same source is typed again over the break, the tab never left.
+  await page.evaluate((s) => window.scaena.type(`${s}\nstate {{{`), broken);
+  await page.waitForFunction(() => window.scaena.last()?.valid === false, null, { timeout: 30000 }).catch(() => {});
+  await page.evaluate((s) => window.scaena.type(s), broken);
+  const offered = () => {
+    const row = document.querySelector("#story [data-findings] > li[data-slide]");
+    return row?.querySelector("[data-lint-fix]")?.disabled === false && Boolean(row.querySelector("[data-lint-show]"));
+  };
+  await page.waitForFunction(offered, null, { timeout: 120000 }).catch(() => {});
+  check(await page.evaluate(offered), "typed again, the broken slide's row offers lint's fix and Show it");
   await page.click("#story [data-findings] > li[data-slide] [data-lint-show]");
   const popped = await page
     .waitForFunction(() => document.querySelector("#marked")?.matches(":popover-open") && document.querySelector("#marked").textContent, null, { timeout: 30000 })

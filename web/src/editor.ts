@@ -1509,6 +1509,7 @@ async function edit(source: Source, opened?: Stage, recovering = false) {
       const of = (state: string) => slots.find((s) => s.state === state)?.slide ?? state;
       return (last?.findings ?? []).filter((f) => f.state !== undefined && of(f.state) === slide);
     },
+    findings: () => last?.findings ?? [],
     fix: (f) => fix(f),
     mark: async (f) => {
       board.showMark(f);
@@ -2073,6 +2074,7 @@ async function edit(source: Source, opened?: Stage, recovering = false) {
     void states.paint();
     void table.paint();
     look.linted();
+    story.linted(linted.findings);
     view.dispatch(setDiagnostics(view.state, linted.findings.map((f) => diagnostic(f, view.state.doc.length))));
   }
 
