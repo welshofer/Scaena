@@ -1,0 +1,180 @@
+{
+ "executiveSummary": "A season's rebuilding came in under budget; renewing the grant keeps 60 miles in reach.",
+ "slides": [
+  {
+   "slideTitle": "High Country Trails",
+   "subtitle": "State Trails Fund \u00b7 renewal review",
+   "layoutSuggestion": "Title",
+   "keyBullets": [],
+   "speakerNotes": "- High Country Trails. Our 2026 season report to the State Trails Fund panel.",
+   "beatIndex": 0,
+   "beatName": "Problem",
+   "purpose": "",
+   "intent": "",
+   "expectedIntensity": 0.3,
+   "expectedValence": 0.2
+  },
+  {
+   "slideTitle": "Storms washed out 40 miles of trail",
+   "subtitle": "",
+   "layoutSuggestion": "Big Number",
+   "keyBullets": [
+    "40 miles",
+    "of trail closed or braided after the spring storms"
+   ],
+   "speakerNotes": "- Storms washed out 40 miles of trail.",
+   "beatIndex": 0,
+   "beatName": "Problem",
+   "purpose": "",
+   "intent": "",
+   "expectedIntensity": 0.6,
+   "expectedValence": -0.4,
+   "sourceRef": "season-report.pdf"
+  },
+  {
+   "slideTitle": "We rebuilt 52 miles, not 40",
+   "subtitle": "",
+   "layoutSuggestion": "Big Number",
+   "keyBullets": [
+    "52 miles",
+    "rebuilt this season, against a goal of 40"
+   ],
+   "speakerNotes": "- We rebuilt 52 miles, not 40.",
+   "beatIndex": 1,
+   "beatName": "Solution",
+   "purpose": "",
+   "intent": "",
+   "expectedIntensity": 0.7,
+   "expectedValence": 0.6,
+   "sourceRef": "season-report.pdf"
+  },
+  {
+   "slideTitle": "Crews beat the 40-mile goal by 12 miles",
+   "subtitle": "",
+   "layoutSuggestion": "Statement",
+   "keyBullets": [
+    "Twelve more miles than the goal we set in May"
+   ],
+   "speakerNotes": "- Crews beat the 40-mile goal by 12 miles.",
+   "beatIndex": 1,
+   "beatName": "Solution",
+   "purpose": "",
+   "intent": "",
+   "expectedIntensity": 0.7,
+   "expectedValence": 0.6
+  },
+  {
+   "slideTitle": "6,820 volunteer hours rebuilt it",
+   "subtitle": "",
+   "layoutSuggestion": "Big Number",
+   "keyBullets": [
+    "6,820",
+    "volunteer hours, from 1,214 people"
+   ],
+   "speakerNotes": "- 6,820 volunteer hours rebuilt it.",
+   "beatIndex": 1,
+   "beatName": "Solution",
+   "purpose": "",
+   "intent": "",
+   "expectedIntensity": 0.6,
+   "expectedValence": 0.6,
+   "sourceRef": "season-report.pdf"
+  },
+  {
+   "slideTitle": "Trail use rose 27% on rebuilt segments",
+   "subtitle": "",
+   "layoutSuggestion": "Big Number",
+   "keyBullets": [
+    "27%",
+    "more hikers counted on rebuilt segments"
+   ],
+   "speakerNotes": "- Trail use rose 27 percent on rebuilt segments.",
+   "beatIndex": 2,
+   "beatName": "Proof",
+   "purpose": "",
+   "intent": "",
+   "expectedIntensity": 0.8,
+   "expectedValence": 0.7
+  },
+  {
+   "slideTitle": "We came in $6,600 under budget",
+   "subtitle": "",
+   "layoutSuggestion": "Bar Chart",
+   "keyBullets": [
+    "Spent against plan, by line of the budget"
+   ],
+   "speakerNotes": "- We came in 6,600 dollars under budget.",
+   "beatIndex": 3,
+   "beatName": "Cost",
+   "purpose": "",
+   "intent": "",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.4,
+   "sourceRef": "trails-budget.csv",
+   "chartData": {
+    "categories": [
+     "Erosion control",
+     "Tools and materials",
+     "Crew food and travel",
+     "Insurance",
+     "Training"
+    ],
+    "series": [
+     {
+      "name": "Planned",
+      "values": [
+       118000,
+       92000,
+       64000,
+       38000,
+       26000
+      ]
+     },
+     {
+      "name": "Spent",
+      "values": [
+       109500,
+       88400,
+       71200,
+       38000,
+       24300
+      ]
+     }
+    ],
+    "unit": "$",
+    "sourceId": "trails-budget"
+   }
+  },
+  {
+   "slideTitle": "Food and travel ran 11% over plan",
+   "subtitle": "",
+   "layoutSuggestion": "Statement",
+   "keyBullets": [
+    "$71,200 spent against $64,000 planned"
+   ],
+   "speakerNotes": "- Food and travel ran 11 percent over plan.",
+   "beatIndex": 3,
+   "beatName": "Cost",
+   "purpose": "",
+   "intent": "",
+   "expectedIntensity": 0.5,
+   "expectedValence": -0.2,
+   "sourceRef": "trails-budget.csv"
+  },
+  {
+   "slideTitle": "Renew our grant at $184,000 for 2027",
+   "subtitle": "",
+   "layoutSuggestion": "Closing",
+   "keyBullets": [
+    "Questions?"
+   ],
+   "speakerNotes": "- Renew our grant at 184,000 dollars for 2027.",
+   "beatIndex": 4,
+   "beatName": "Ask",
+   "purpose": "",
+   "intent": "",
+   "expectedIntensity": 0.6,
+   "expectedValence": 0.6
+  }
+ ]
+}
