@@ -678,7 +678,7 @@ private actor Once {
     let failed = DeckNotice.failed(about: "Q3 results", "Anthropic refused the key.")
     #expect(failed.title == "Your deck about Q3 results was not made" && failed.body == "Anthropic refused the key.")
     let long = DeckNotice.made(about: String(repeating: "flood plain ", count: 10) + "\nmore", "x").title
-    #expect(long.hasSuffix("… is ready") && !long.contains("\n"), long)
+    #expect(long.hasSuffix("… is ready") && !long.contains("\n"), "\(long)")
     #expect(DeckNotice.made(about: "  ", "x").title == "Your deck about your topic is ready")
 }
 
