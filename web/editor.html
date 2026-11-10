@@ -537,6 +537,9 @@
       #story > p[data-stale] { margin: 0 0 6px; color: var(--warning); }
       #story[data-stale] > :is([data-score], [data-measures], [data-big-idea], [data-arc], [data-findings]) { opacity: 0.55; }
       #story [data-score] b { font-size: 22px; margin-right: 6px; }
+      /* What caps the score, beside it (W1's dogfood 5): its slides are buttons that read as words. */
+      #story [data-score] [data-capped] { display: block; margin-top: 2px; }
+      #story [data-score] [data-capped] button { font: inherit; color: inherit; background: none; border: 0; padding: 0; text-decoration: underline; cursor: pointer; }
       #story .good { color: var(--info); }
       #story .fair { color: var(--warning); }
       #story .poor { color: var(--error); }

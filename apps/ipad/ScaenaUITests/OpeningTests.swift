@@ -174,11 +174,41 @@ final class OpeningTests: XCTestCase {
         XCTAssertTrue(canvas.waitForExistence(timeout: 10), "no canvas: \(app.debugDescription)")
         // A long press on the title offers the edit menu, as TouchTests's does, and its Paste is the
         // canvas's: ⌘V from XCUITest's keyboard reached no paste on the simulator.
+        let title = canvas.descendants(matching: .any).matching(NSPredicate(format: "label == 'Scaena'")).firstMatch
+        XCTAssertTrue(title.waitForExistence(timeout: 10), "no title on the canvas: \(app.debugDescription)")
+        pressForMenu(title, in: app)
+        let paste = app.descendants(matching: .any).matching(NSPredicate(format: "label == 'Paste'")).firstMatch
+        guard paste.waitForExistence(timeout: 10) else {
+            keep(app, as: "no-paste-offered")
+            throw Unseen(description: "the long press offers no Paste: \(app.debugDescription)")
+        }
+        paste.tap()
+        // The menu's Paste is the system's own, which reads the pasteboard with no Allow Paste
+        // prompt. A prompt would hold the app's main thread on its answer, and no query of the app
+        // would come back, so the test waits on the chip alone.
+        let chip = app.descendants(matching: .any).matching(identifier: "code-chip").firstMatch
+        XCTAssertTrue(chip.waitForExistence(timeout: 10), "the code pasted shows no chip: \(app.debugDescription)")
+        XCTAssertEqual(chip.value as? String, "Rust", "the chip does not say Rust: \(chip.debugDescription)")
+        settle()
+        keep(app, as: "code-pasted")
+        leaveB1(in: app)
+    }
+
+    /// Write This Slide Again… on the iPad (lift-up FUNC-1): the long press on the slide offers it
+    /// under Slide, as the right click and the Slide menu do; with no key kept, its sheet says where
+    /// one goes, offers Add a Key…, and writes nothing, Write It Again held until there is a model to
+    /// ask.
+    @MainActor
+    func testWriteThisSlideAgainAsksForAKeyFirst() throws {
+        let app = launched()
+        try openB1(in: app)
+        let canvas = app.descendants(matching: .any).matching(identifier: "canvas").firstMatch
+        XCTAssertTrue(canvas.waitForExistence(timeout: 10), "no canvas: \(app.debugDescription)")
         // The subtitle, the lowest a test presses: its menu has the least room under it.
         let subtitle = canvas.descendants(matching: .any)
             .matching(NSPredicate(format: "label BEGINSWITH 'Why this exists'")).firstMatch
         XCTAssertTrue(subtitle.waitForExistence(timeout: 10), "no subtitle on the canvas: \(app.debugDescription)")
-        subtitle.press(forDuration: 1.2)
+        pressForMenu(subtitle, in: app)
         let listed = NSPredicate(
             format: "elementType == %lu OR elementType == %lu",
             XCUIElement.ElementType.button.rawValue, XCUIElement.ElementType.menuItem.rawValue)
