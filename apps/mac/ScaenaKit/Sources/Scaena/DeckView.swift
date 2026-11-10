@@ -662,7 +662,9 @@ struct DeckView: View {
         // saves.
         if !editor.slots.isEmpty {
             made.savePDF = { save(.pdf) }
-            made.saveImages = { save(allSlides) }
+            made.saveNotes = { save(.notes) }
+            made.saveImages = { scale in save(slides(scaled: scale)) }
+            made.saveHTML = { save(.html) }
         }
         // The Slide menu acts on the slide shown, as the slide list's menu acts on its slide.
         if let shown, rehearsal == nil, let slide = editor.slots.first(where: { $0.state == shown })?.slide {
@@ -1230,9 +1232,12 @@ struct DeckView: View {
     }
 
     /// Every slide as PNGs the canvas's width, a pixel to the unit, in one zip.
-    private var allSlides: Exporting.Kind {
+    private var allSlides: Exporting.Kind { slides(scaled: 1) }
+
+    /// Every slide as PNGs `scale` times the canvas's width, in one zip (lift-up 20261031 FUNC-3).
+    private func slides(scaled scale: Int) -> Exporting.Kind {
         let size = (try? editor.session.canvasSize()) ?? CGSize(width: 1920, height: 1080)
-        return .slides(width: Int(size.width.rounded()))
+        return .slides(width: min(16384, Int(size.width.rounded()) * max(1, scale)))
     }
 
     /// Write `kind` and share it, or show it in Quick Look.
