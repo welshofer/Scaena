@@ -132,6 +132,16 @@ public final class Assistant {
     /// assistant gave back, refused or stopped before any answer (lift-up 20261110 USE-2): the
     /// assistant's panel takes it into its box, and it is gone from here.
     public var drafted: String?
+
+    /// The question box's `draft` with `question` put in it (lift-up 20261110 deferred): a draft
+    /// kept, the question after it past a blank line, and a question already there not put there
+    /// again, as the browser's Story asks.
+    public static func drafting(_ draft: String, with question: String) -> String {
+        var kept = draft
+        while kept.last?.isWhitespace == true { kept.removeLast() }
+        if kept.isEmpty { return question }
+        return kept.contains(question) ? kept : kept + "\n\n" + question
+    }
     /// Why the provider is being asked again, and when, while it is (narrative REL-3): "Anthropic
     /// is busy. Trying again in 4 s (2 of 3)…"; none while nothing waits.
     public private(set) var waiting: String?
