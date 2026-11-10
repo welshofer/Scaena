@@ -448,7 +448,7 @@ final class KeysTests: XCTestCase {
             throw Unseen(description: "⌘D made no copy: \(app.debugDescription)")
         }
         settle()
-        title.press(forDuration: 1.2)
+        pressForMenu(title, in: app)
         let copy = app.descendants(matching: .any).matching(NSPredicate(format: "label == 'Copy'")).firstMatch
         guard wait(5, { copy.isHittable }) else {
             keep(app, as: "undo-key-no-menu")
