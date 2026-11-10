@@ -296,7 +296,7 @@
       .notes th { font-weight: 600; }
       .notes code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.9em; }
       .notes > :last-child { margin-bottom: 0; }
-      #rehearsed { width: min(34em, 92vw); }
+      #rehearsed { width: min(44em, 92vw); }
       #writing { width: min(34em, 92vw); }
       #writing textarea { box-sizing: border-box; width: 100%; font: inherit; line-height: 1.4; }
       #writing-was, #writing-said { white-space: pre-wrap; }
@@ -304,6 +304,9 @@
       #rehearsed table { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
       #rehearsed th, #rehearsed td { text-align: left; padding: 3px 8px 3px 0; border-bottom: 1px solid var(--line); }
       #rehearsed thead th { color: var(--muted); font-weight: 500; }
+      /* The three slides that ran furthest over their plan (lift-up 20261110 FUNC-1): said in their row, and set in the warning's color too. */
+      #rehearsed tr[data-over] td:nth-child(4) { color: var(--warning); }
+      #rehearsed thead th[hidden] { display: none; }
       #strip { display: flex; gap: 6px; align-items: stretch; padding: 6px 12px 0; }
       #strip ol { display: flex; gap: 6px; margin: 0; padding: 3px; list-style: none; overflow-x: auto; flex: 1 1 auto; min-width: 0; }
       #strip li { position: relative; flex: none; display: flex; flex-direction: column; gap: 2px; padding: 3px; border: 1px solid var(--line); border-radius: 4px; background: var(--panel); cursor: pointer; font-size: 11px; }
@@ -1311,9 +1314,10 @@
     <dialog id="rehearsed" aria-labelledby="rehearsed-title">
       <form method="dialog">
         <h2 id="rehearsed-title">Rehearsed in <span data-total></span></h2>
+        <p data-plan></p>
         <table>
           <thead>
-            <tr><th scope="col">Slide</th><th scope="col">Time</th><th scope="col">Animation</th><th scope="col">Advance it keeps</th><th scope="col">Advance now</th></tr>
+            <tr><th scope="col">Slide</th><th scope="col">Time</th><th scope="col" data-planning>Planned</th><th scope="col" data-planning>Against plan</th><th scope="col">Animation</th><th scope="col">Advance it keeps</th><th scope="col">Advance now</th></tr>
           </thead>
           <tbody></tbody>
         </table>

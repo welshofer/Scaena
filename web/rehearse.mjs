@@ -201,9 +201,25 @@ try {
   );
   const rows = await page.locator("#rehearsed tbody tr").evaluateAll((trs) => trs.map((tr) => [...tr.children].map((c) => c.textContent)));
   check(
-    rows.map((r) => r[0]).join() === "Slide 1,Slide 2,Slide 2, step 2,Slide 3" && rows[3][1] === "Not reached" && rows[3][3] === "As it is",
+    rows.map((r) => r[0]).join() === "Slide 1,Slide 2,Slide 2, step 2,Slide 3" && rows[3][1] === "Not reached" && rows[3][5] === "As it is",
     `the table, each slide as a person counts it: ${JSON.stringify(rows)}`,
   );
+  // Against the plan (lift-up 20261110 FUNC-1): each state beside the time its beat planned for
+  // it, the beat's duration paced over its states: intro's beat plans 15 s, revenue's and mix's
+  // 60 s between them, close's 5 s. Each reached is said against it, signed, and the run against
+  // the plan of what it reached.
+  const planned = Object.fromEntries(kept.map((k) => [k.state, k.planned]));
+  check(
+    planned.intro === 15000 && planned.close === 5000 && Math.abs(planned.revenue + planned.mix - 60000) < 1,
+    `each state's plan, from its beat's duration: ${JSON.stringify(planned)}`,
+  );
+  const minus = "\u2212";
+  check(
+    rows[0][2] === "15.0 s" && rows[0][3].startsWith(`${minus}14.`) && rows[3][2] === "5.0 s" && rows[3][3] === "",
+    `the table says each beside its plan, signed, and nothing for one not reached: ${JSON.stringify(rows.map((r) => r.slice(0, 4)))}`,
+  );
+  const planSaid = await page.textContent("#rehearsed [data-plan]");
+  check(/ taken against 1:15 planned for the 3 reached: \u22121:0\d\.$/.test(planSaid), `the run against the plan of the states it reached: ${planSaid}`);
 
   // Keep: one patch of the holds; ⌘Z takes them back in one step; ⇧⌘Z makes them again.
   const introHold = slots[0].hold;
