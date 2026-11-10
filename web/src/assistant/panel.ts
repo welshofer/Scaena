@@ -405,6 +405,7 @@ export function panel(stage: Stage, editor: Editor): Panel {
     for (const { state, digest, image } of now) {
       drawn.set(state, { digest, image });
       were.add(state);
+      if (!redrawn.includes(state)) redrawn.push(state);
     }
     for (const state of gone) {
       drawn.delete(state);
@@ -415,6 +416,8 @@ export function panel(stage: Stage, editor: Editor): Panel {
   /** Whether the answer to the question asked has begun: its first words or call. Until then, a
    * question that fails or is stopped goes back into the box (lift-up 20261110 USE-2). */
   let begun = false;
+  /** The states the answer being given drew anew, in the order it did (editor dogfood 1). */
+  let redrawn: string[] = [];
 
   async function ask(text: string): Promise<AssistantEvent> {
     text = text.trim();
@@ -426,6 +429,7 @@ export function panel(stage: Stage, editor: Editor): Panel {
     entry("user", text);
     question.value = "";
     begun = false;
+    redrawn = [];
     let outcome: AssistantEvent | undefined;
     // What the editor shows as it is asked: the source locks below, and shows nothing then.
     const seeing = editor.seeing();
@@ -474,7 +478,14 @@ export function panel(stage: Stage, editor: Editor): Panel {
       working = false;
       thinking.hidden = true;
       editor.lock(false);
-      if (editor.answering(false)) undoable();
+      if (editor.answering(false)) {
+        undoable();
+        // What it changed is shown (editor dogfood 1): an answer that drew none of the slide shown
+        // anew shows the first slide it did, so its edit is seen, not left on another slide.
+        const shown = editor.seeing()?.state;
+        const first = redrawn.find((state) => drawn.has(state));
+        if (first && shown && !redrawn.includes(shown)) editor.show(first);
+      }
       askButton.disabled = false;
       newConversation.disabled = false;
       stop.hidden = true;
