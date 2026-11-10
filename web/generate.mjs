@@ -624,6 +624,19 @@ try {
   await page.waitForFunction(() => !document.querySelector("#code .cm-content[contenteditable=false]"), null, { timeout: 30000 }).catch(() => {});
   state.slow = 0;
   await page.evaluate(() => (document.querySelector("#question").value = ""));
+  // With the source not compiling for a moment, the Story shows the read before, its fixes held:
+  // each was made against a deck that no longer compiles (lift-up 20261110 deferred).
+  const whole = await page.evaluate(() => window.scaena.source());
+  await page.evaluate((s) => window.scaena.type(`${s}\nstate {{{`), whole);
+  await tab(page, "inspector");
+  await tab(page, "story");
+  await page.waitForFunction(() => !document.querySelector("#story > p[data-stale]").hidden, null, { timeout: 60000 }).catch(() => {});
+  const held = await fixable.locator("[data-fix]").first().isDisabled();
+  const unready = await page.evaluate(() => window.scaena.source());
+  await page.evaluate(() => document.querySelector("#story [data-findings] [data-fix]")?.click());
+  check(held && (await page.evaluate(() => window.scaena.source())) === unready, `as last read, its fix is held, and pressed makes nothing: ${held}`);
+  await page.evaluate((s) => window.scaena.type(s), whole);
+  await page.waitForFunction(() => document.querySelector("#story > p[data-stale]").hidden, null, { timeout: 60000 }).catch(() => {});
   const kind = await fixable.locator("[data-fix]").first().getAttribute("data-kind");
   const unfixed = await page.evaluate(() => window.scaena.source());
   await fixable.locator("[data-fix]").first().click();
