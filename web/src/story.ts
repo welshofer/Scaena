@@ -110,6 +110,18 @@ function bySlide(findings: HealthFinding[]): HealthFinding[][] {
   return [...runs.values()];
 }
 
+/** A finding's question as its row says what to do, in a person's words: without the figures
+ * health gives the assistant, which reads the deck's (`scaena health` prints them too), so
+ * "plan it calmer (0.44)" reads "plan it calmer" and "they read −0.19" goes. The assistant is
+ * asked the question whole. */
+export function spoken(ask: string): string {
+  return ask
+    .replace(/\s*\([+−-]?\d\.\d\d(?:–[+−-]?\d\.\d\d)?\)/g, "")
+    .replace(/;\s*they read [+−-]?\d\.\d\d/g, "")
+    .replace(/ (at|read) [+−-]?\d\.\d\d,/g, (_, w: string) => (w === "read" ? " read" : ""))
+    .replace(/\s?[+−-]?\d\.\d\d/g, "");
+}
+
 /** A finding as its slide's row says it: "Slide 4 runs hotter…" as "Runs hotter…", since the row
  * names its slide. */
 function sentence(f: HealthFinding): string {
@@ -322,7 +334,7 @@ export function storyPanel(stage: Stage, into: HTMLElement, editor: StoryEditor)
         todo.dataset.todo = f.kind;
         const label = document.createElement("span");
         label.textContent = "To do: ";
-        todo.append(label, f.ask);
+        todo.append(label, spoken(f.ask));
         li.append(todo);
       }
     }

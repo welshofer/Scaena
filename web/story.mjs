@@ -74,11 +74,19 @@ try {
       return { slide: p.closest("li").dataset.slide, kind: p.dataset.kind, todo: next?.matches("p[data-todo]") ? next.textContent : null, shown: !!next?.checkVisibility?.() };
     }),
   );
-  const asks = findings.map((f) => `${f.slide} ${f.kind} To do: ${f.ask}`).sort();
+  // In a person's words: the figures health gives the assistant taken out, as the row says it.
+  const spoken = (ask) =>
+    ask
+      .replace(/\s*\([+\u2212-]?\d\.\d\d(?:\u2013[+\u2212-]?\d\.\d\d)?\)/g, "")
+      .replace(/;\s*they read [+\u2212-]?\d\.\d\d/g, "")
+      .replace(/ (at|read) [+\u2212-]?\d\.\d\d,/g, (_, w) => (w === "read" ? " read" : ""))
+      .replace(/\s?[+\u2212-]?\d\.\d\d/g, "");
+  const asks = findings.map((f) => `${f.slide} ${f.kind} To do: ${spoken(f.ask)}`).sort();
+  check(todos.every((t) => !/\d\.\d\d/.test(t.todo ?? "")), "each in a person's words, no figure");
   check(todos.every((t) => t.todo && t.shown), `each finding says what to do under it: ${JSON.stringify(todos.filter((t) => !t.todo || !t.shown).slice(0, 2))}`);
   check(
     JSON.stringify(todos.map((t) => `${t.slide} ${t.kind} ${t.todo}`).sort()) === JSON.stringify(asks),
-    `what it says to do is each finding's ask, once: ${todos.length} of ${findings.length}`,
+    `what it says to do is each finding's ask, without its figures, once: ${todos.length} of ${findings.length}`,
   );
 
   // A slide that lint finds broken leads.
