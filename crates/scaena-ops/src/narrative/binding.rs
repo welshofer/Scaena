@@ -59,7 +59,16 @@ fn is(cell: &Datum, category: &str) -> bool {
 /// its x the column that holds the categories, its y the column each series names, else the one
 /// number column, several folded into `series` and `value`. Each figure the slide writes must be
 /// the file's, to the places the slide shows; else why not.
-pub fn bind(node: &mut Value, chart: &ChartData, deck: &Deck, files: &dyn SourceFiles, id: &str) -> Result<(), String> {
+/// `Ok(Some(column))` where the source's `column` is to be typed `date` in its schema, as the
+/// chart's own rows type their years, so a line along years runs on time bound as it does on its
+/// own rows (G.18).
+pub fn bind(
+    node: &mut Value,
+    chart: &ChartData,
+    deck: &Deck,
+    files: &dyn SourceFiles,
+    id: &str,
+) -> Result<Option<String>, String> {
     let table =
         scaena_core::data::load(deck, files, id).map_err(|e| format!("its source `{id}` does not read: {e}"))?;
     let x = (0..table.columns.len())
@@ -90,8 +99,13 @@ pub fn bind(node: &mut Value, chart: &ChartData, deck: &Deck, files: &dyn Source
     let names: Vec<&str> = columns.iter().map(|&c| table.columns[c].as_str()).collect();
     node["data"] = json!(format!("@{id}"));
     node["x"]["field"] = json!(table.columns[x]);
+    let mut dated = None;
     if node["x"]["type"] == "temporal" && table.types[x] != ColumnType::Date {
-        node["x"]["type"] = json!("ordinal");
+        if years(deck, files, id, &table, x) {
+            dated = Some(table.columns[x].clone());
+        } else {
+            node["x"]["type"] = json!("ordinal");
+        }
     }
     let mut steps: Vec<Value> = Vec::new();
     if several {
@@ -117,7 +131,34 @@ pub fn bind(node: &mut Value, chart: &ChartData, deck: &Deck, files: &dyn Source
         node["dataTransform"] = json!(steps);
     }
     // Where it reads only some rows, the chart's own words say so no more than they did.
-    Ok(())
+    Ok(dated)
+}
+
+/// Whether the source `id`'s column `x` holds years alone, four digits each, as the chart's own
+/// rows do when its line runs on time (G.18), and reads as dates typed so: where nothing else in
+/// the deck reads the source, so no table of it is set otherwise, and it declares no `parse`.
+fn years(deck: &Deck, files: &dyn SourceFiles, id: &str, table: &Table, x: usize) -> bool {
+    let year = |cell: &Datum| match cell {
+        Datum::Number(n) => n.fract() == 0.0 && (1000.0..=9999.0).contains(n),
+        Datum::Text(s) => s.trim().len() == 4 && s.trim().bytes().all(|b| b.is_ascii_digit()) && s.trim() >= "1000",
+        _ => false,
+    };
+    if table.rows.len() < 2 || !table.rows.iter().all(|r| year(&r[x])) {
+        return false;
+    }
+    let read = format!("\"@{id}\"");
+    if serde_json::to_string(&deck.nodes).is_ok_and(|nodes| nodes.contains(&read)) {
+        return false;
+    }
+    let column = &table.columns[x];
+    let Some(decl) = deck.data.get(id) else { return false };
+    if decl.parse.as_ref().is_some_and(|p| p.contains_key(column)) {
+        return false;
+    }
+    let mut typed = deck.clone();
+    let Some(decl) = typed.data.get_mut(id) else { return false };
+    decl.schema.get_or_insert_with(Default::default).insert(column.clone(), "date".into());
+    scaena_core::data::load(&typed, files, id).is_ok_and(|t| t.types[x] == ColumnType::Date)
 }
 
 /// Whether each figure the slide writes is the file's, to the places the slide shows.

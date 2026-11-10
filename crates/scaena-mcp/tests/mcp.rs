@@ -1321,6 +1321,35 @@ async fn a_chart_that_names_a_data_source_draws_from_it() {
     );
     assert_eq!(d["data"].as_object().unwrap().keys().collect::<Vec<_>>(), ["trails"], "its own rows go");
     assert_eq!(ok(&client, "deck_lint", json!({ "bundle": path(&one) })).await["errors"], json!(0));
+    // Bound, a line along years runs on time as it does on its own rows (G.18): its x temporal,
+    // the file's years typed as dates, and the slide drawn alike; with no data given, the same
+    // slide keeps its own rows.
+    let inline = root.join("inline");
+    ok(
+        &client,
+        "deck_generate",
+        json!({ "bundle": path(&inline), "slides": deck(chart(visitors.clone(), "budget.csv")) }),
+    )
+    .await;
+    let own = read(&inline);
+    assert_eq!(charted(&own)["x"]["type"], json!("temporal"), "{:#}", charted(&own));
+    assert_eq!(
+        (node["x"]["type"].clone(), d["data"]["trails"]["schema"]["year"].clone()),
+        (json!("temporal"), json!("date"))
+    );
+    let shown = |d: &Value| -> String {
+        let id = d["nodes"].as_object().unwrap().iter().find(|(_, n)| n["type"] == "chart").unwrap().0.clone();
+        d["states"].as_array().unwrap().iter().find(|s| s["props"].get(&id).is_some()).unwrap()["id"]
+            .as_str()
+            .unwrap()
+            .to_string()
+    };
+    let drawn = |result: CallToolResult| -> Vec<String> {
+        result.content.iter().filter_map(|c| c.as_image().map(|i| i.data.clone())).collect()
+    };
+    let bound_png = drawn(call(&client, "deck_render", json!({ "bundle": path(&one), "state": shown(&d) })).await);
+    let own_png = drawn(call(&client, "deck_render", json!({ "bundle": path(&inline), "state": shown(&own) })).await);
+    assert!(!bound_png.is_empty() && bound_png == own_png, "bound and inline draw the line alike");
     // Several series, each named for its column, folded.
     let both = json!([
         { "name": "Budget", "values": [1.2, 1.4, 1.5, 1.9, 2.3] },
@@ -1373,5 +1402,10 @@ async fn a_chart_that_names_a_data_source_draws_from_it() {
         "{:#}",
         d["nodes"]
     );
+    assert_eq!(
+        (charted(&d)["x"]["type"].clone(), d["data"]["trails"]["schema"]["year"].clone()),
+        (json!("temporal"), json!("date"))
+    );
+    assert_eq!(ok(&client, "deck_lint", json!({ "bundle": path(&plain) })).await["errors"], json!(0));
     client.cancel().await.unwrap();
 }

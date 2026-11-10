@@ -226,6 +226,7 @@ pub fn slide_into(
     // Its chart drawn from the deck's data source its slide names, where it holds the slide's
     // categories and figures; else on its own rows, saying why (agent dogfood).
     let mut unbound = Vec::new();
+    let mut retyped: Option<(String, String)> = None;
     let chart = narrative.slides[0].chart_data.as_ref();
     let named = chart.and_then(|c| c.source_id.as_deref()).map(str::trim).filter(|n| !n.is_empty());
     if let (Some(chart), Some(named)) = (chart, named) {
@@ -238,7 +239,8 @@ pub fn slide_into(
                 let mut node = built.nodes[&node_id].clone();
                 let own = node["data"].as_str().and_then(|d| d.strip_prefix('@')).map(str::to_string);
                 match super::binding::bind(&mut node, chart, &deck, files, &id) {
-                    Ok(()) => {
+                    Ok(dated) => {
+                        retyped = dated.map(|column| (id.clone(), column));
                         built.nodes.insert(node_id, node);
                         if let Some(own) = own.filter(|own| *own != id) {
                             built.data.remove(&own);
@@ -297,6 +299,12 @@ pub fn slide_into(
     }
     for (id, data) in new_data {
         patch.push(json!({ "op": "add", "path": format!("/data/{}", esc(id)), "value": data }));
+    }
+    // A source whose years the bound line runs on is typed so, as the chart's own rows were (G.18).
+    if let Some((id, column)) = &retyped {
+        let mut schema = doc["data"][id.as_str()].get("schema").cloned().unwrap_or_else(|| json!({}));
+        schema[column.as_str()] = json!("date");
+        patch.push(json!({ "op": "add", "path": format!("/data/{}/schema", esc(id)), "value": schema }));
     }
 
     // Its states among the deck's, each of the deck's showing what it showed: the slide after it,

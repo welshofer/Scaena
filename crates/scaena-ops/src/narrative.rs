@@ -771,7 +771,10 @@ pub fn binding(mut write: Write) -> Result<(Write, Vec<Unbound>), OpsError> {
             continue;
         };
         match binding::bind(&mut node, &chart, deck, &write.files, &id) {
-            Ok(()) => {
+            Ok(dated) => {
+                if let Some(column) = dated {
+                    doc["data"][&id]["schema"][&column] = json!("date");
+                }
                 doc["nodes"][&node_id] = node;
                 dropped.push(own);
             }
