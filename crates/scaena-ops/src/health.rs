@@ -1494,7 +1494,11 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         };
         find(&d.slide_id, Severity::Info, Kind::Arc, says, ask, None);
     }
-    for g in heard_intensity {
+    // A calm close is no bend (ADR-0032 item 6), and neither are its words a gap (W1's dogfood
+    // 6): "Thank you / Questions?" is three words, its "you" and its question mark weighing a
+    // third each, so it reads at Peak. The deck's last run of closing slides is not asked to
+    // move its words to its plan; intensity's figure is Vzestup's.
+    for g in heard_intensity.iter().filter(|g| !closing.contains(&g.slide_id)) {
         let Some(&i) = place.get(g.slide_id.as_str()) else { continue };
         let k = i + 1;
         let (declared, detected) = (level(g.declared), level(g.detected));
@@ -3357,6 +3361,26 @@ mod tests {
         // A deck whose counted slides list points says how many, as before.
         let fleet = of(&dogfood("fleet", "", |_| {}));
         assert!(!fleet.balance.says.contains("makes a list of points"), "{}", fleet.balance.says);
+    }
+
+    /// The close's words are not asked to carry its plan's intensity (W1's dogfood 6): the
+    /// keynote's close weakened to "Thank you / Questions?" and planned calm reads far hotter by
+    /// its few words, and is asked nothing of it; intensity's figure is as before.
+    #[test]
+    fn a_bare_thanks_is_not_asked_to_calm() {
+        let thanked = |slides: &mut Vec<answer::Slide>| {
+            let last = slides.last_mut().unwrap();
+            last.slide_title = "Thank you".into();
+            last.key_bullets = vec!["Questions?".into()];
+            last.speaker_notes = "Thank you. Questions?".into();
+            // Planned calm, as a thanks is.
+            last.expected_intensity = Some(0.4);
+        };
+        let h = of(&dogfood("keynote", "", thanked));
+        let n = h.slides.len();
+        let read = h.slides[n - 1].read.expect("the lexicon reads the thanks");
+        assert!(read - 0.4 > INTENSITY_GAP_THRESHOLD, "the thanks reads {read}, far from its plan");
+        assert!(!h.findings.iter().any(|f| f.kind == Kind::Intensity && f.slide == n), "{:#?}", h.findings);
     }
 
     /// A close in another language is not read for the big idea (the coordinator's check on W1's
