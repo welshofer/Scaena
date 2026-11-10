@@ -31,6 +31,7 @@ const SCRIPT = {
   },
   "Make these bold.": { ops: [{ op: "style_text", node: "title", state: "revenue", from: 0, to: 7, look: { "style/weight": 700 } }] },
   "Say it in fewer letters.": { ops: [{ op: "replace_text", node: "title", state: "mix", from: 13, to: 20, text: "turned" }] },
+  "Make the closing words warmer.": { ops: [{ op: "replace_text", node: "title", state: "close", from: 0, to: 9, text: "Thank you, all" }] },
 };
 
 /** The words of the last user message, a string or text blocks; none for tool results. */
@@ -189,6 +190,16 @@ try {
   check(await back(original), "one undo takes it back");
   await page.waitForFunction((n) => window.scaena.trips().length > n, trips, { timeout: 30000 }).catch(() => {});
   check((await shownState()) === "mix", `and the slide it was made on stays shown: ${await shownState()}`);
+
+  // An answer that changes only another slide shows it once it ends (editor dogfood 1): the
+  // person sees what it did, not the slide they asked from left as it was.
+  await page.evaluate(() => window.scaena.cursor(window.scaena.source().indexOf("state intro") + "state ".length));
+  await page.waitForFunction(() => window.scaena.last().states[window.scaena.shown()]?.[0] === "intro", null, { timeout: 30000 }).catch(() => {});
+  done = await ask("Make the closing words warmer.");
+  check(done.kind === "done", `a question about another slide is answered: ${JSON.stringify(done)}`);
+  await settled();
+  await page.waitForFunction(() => window.scaena.last().states[window.scaena.shown()]?.[0] === "close", null, { timeout: 30000 }).catch(() => {});
+  check((await source()).includes("Thank you, all") && (await shownState()) === "close", `the slide it changed is shown once it ends: ${await shownState()}`);
 } finally {
   await browser.close();
   await site.close();

@@ -25,7 +25,7 @@
 // Each step is screenshotted into target/first-deck/, with its time. Exits 1 on any failure.
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { addAnimation, insert, inserts, launch, serve, tab } from "./serve.mjs";
+import { addAnimation, answering, insert, inserts, launch, serve, tab } from "./serve.mjs";
 
 const out = "target/first-deck";
 await mkdir(out, { recursive: true });
@@ -48,6 +48,9 @@ try {
   page.on("pageerror", (e) => failures.push(`page: ${e.message}`));
   page.on("console", (m) => m.type() === "error" && failures.push(`console: ${m.text()}`));
   page.on("dialog", (d) => d.accept());
+  // Changes not saved are asked about in the editor's own dialog (lift-up 20261031 ATTR-3), answered
+  // as the confirms it replaced were taken.
+  await answering(page);
 
   let shot = 0;
   const snap = (name, on = page) => on.screenshot({ path: join(out, `${String(++shot).padStart(2, "0")}-${name}.png`) });
@@ -176,7 +179,7 @@ try {
   await step("new", async () => {
     await page.click("#file-open").then(() => page.click("#new-deck"));
     await page.fill("#making-name", "Trail report");
-    await page.selectOption("#making-theme", "Dusk");
+    await page.click("#making-themes .tile:has(input[value=Dusk])");
     await page.click("#making-create");
     await page.waitForFunction(() => window.scaena.where().name === "trail-report" && window.scaena.last(), null, { timeout: 120000 });
     const text = await source();

@@ -91,6 +91,13 @@ impl Player {
         self.0.files_edition() as f64
     }
 
+    /// The paths written or taken out since the files were at `edition` (lift-up 20261031
+    /// PERF-3): the worker copies again only these into its copy of them.
+    #[wasm_bindgen(js_name = filesChangedSince)]
+    pub fn files_changed_since(&self, edition: f64) -> Vec<String> {
+        self.0.files_changed_since(edition as u64)
+    }
+
     pub fn states(&self) -> Vec<String> {
         self.0.states()
     }
@@ -709,6 +716,15 @@ impl Player {
         self.0.preview(ops.as_deref()).map_err(js)
     }
 
+    /// Show the theme as `ops` (JSON, RFC 6902 operations on it) would edit it, with nothing
+    /// made or written: frames at rest draw in it until it is let go (no `ops`) or the deck
+    /// changes. What the Theme tab shows while a color is held in its picker (lift-up ATTR-5).
+    #[wasm_bindgen(js_name = previewTheme)]
+    pub fn preview_theme(&mut self, ops: Option<String>) -> Result<(), JsError> {
+        let ops: Option<Vec<serde_json::Value>> = ops.map(|o| serde_json::from_str(&o)).transpose().map_err(js)?;
+        self.0.theme_previewing(ops.as_deref()).map_err(js)
+    }
+
     /// The states `ops` (a patch, JSON) would change what shows in, by id, as JSON: what the
     /// editor says of a drag before it is dropped ("in 3 states"). Nothing is made.
     pub fn reach(&self, ops: &str) -> Result<String, JsError> {
@@ -783,6 +799,21 @@ impl Player {
     /// `replace_text` for each run of lines it changes; `[]` where it is tidy.
     pub fn tidying(&self, state: &str, node: &str) -> Result<String, JsError> {
         serde_json::to_string(&self.0.tidying(state, node).map_err(js)?).map_err(js)
+    }
+
+    /// The patch that sets code text `node`'s lines in focus in `state` to those `said` names in its
+    /// gutter's numbers, as JSON (PLAN 2.140): Focus on These Lines, Lines in Focus, and, with
+    /// nothing said, Clear Focus; the states after it as they were. `[]` where it shows them so.
+    pub fn focusing(&self, state: &str, node: &str, said: &str) -> Result<String, JsError> {
+        serde_json::to_string(&self.0.focusing(state, node, said).map_err(js)?).map_err(js)
+    }
+
+    /// The patch Walk Through Lines… makes of code text `node` from `state`, as JSON (PLAN 2.140):
+    /// `steps` a JSON array of the lines each step shows, in the gutter's numbers, the first
+    /// `state`'s and a step after it for each of the rest; the states after them as they were.
+    pub fn walking(&self, state: &str, node: &str, steps: &str) -> Result<String, JsError> {
+        let steps: Vec<String> = serde_json::from_str(steps).map_err(js)?;
+        serde_json::to_string(&self.0.walking(state, node, &steps).map_err(js)?).map_err(js)
     }
 
     /// `text` with `from` to `to` (UTF-16 code units) selected after `key` in a code text whose
@@ -1239,6 +1270,20 @@ impl Player {
         self.0.slides_png(width, name).map_err(js)
     }
 
+    /// The deck as a movie of `fps` frames a second, in the format shown, as JSON: `{ frames,
+    /// fps, durationMs }`, the timeline the CLI's video plays (lift-up 20261031 FUNC-2).
+    pub fn movie(&mut self, fps: u32) -> Result<String, JsError> {
+        serde_json::to_string(&self.0.movie(fps).map_err(js)?).map_err(js)
+    }
+
+    /// Frame `k` of the movie of `fps` frames a second, `width` pixels wide: its digest, and its
+    /// pixels unless its digest is `before`, the frame the page has already (lift-up 20261031
+    /// FUNC-2).
+    #[wasm_bindgen(js_name = movieFrame)]
+    pub fn movie_frame(&mut self, fps: u32, k: u32, width: u32, before: Option<String>) -> Result<MovieFrame, JsError> {
+        Ok(MovieFrame(self.0.movie_frame(fps, u64::from(k), width, before.as_deref()).map_err(js)?))
+    }
+
     /// The deck's pages laid out for its PDF, as bytes the PDF's own module (`scaena-pdf`)
     /// draws: the PDF `scaena export --format pdf` writes (PLAN 2.54), with `notes` the one
     /// `--notes` writes, each slide with the presenter's notes under it.
@@ -1625,6 +1670,83 @@ impl ToolResult {
     }
 }
 
+/// The deck compiled last, taken to be laid out on every state a step at a time while the
+/// worker goes on answering (lift-up 20261110 PERF-1): [`Player::laying`], then
+/// [`DeckLaying::step`] until it says it is laid out, then [`Player::lint_laid`].
+#[cfg(feature = "editor")]
+#[wasm_bindgen]
+pub struct DeckLaying(scaena_session::editor::Laying);
+
+#[cfg(feature = "editor")]
+#[wasm_bindgen]
+impl DeckLaying {
+    /// Take its next step: a state laid out, or a state's contrast judged. Whether it is laid out.
+    pub fn step(&mut self) -> bool {
+        self.0.step()
+    }
+}
+
+#[cfg(feature = "editor")]
+#[wasm_bindgen]
+impl Player {
+    /// The deck compiled last, to lay out on every state a step at a time (lift-up 20261110
+    /// PERF-1): nothing where no source compiled to a deck that validates.
+    pub fn laying(&self) -> Option<DeckLaying> {
+        self.0.laying().map(DeckLaying)
+    }
+
+    /// Whether `laying` was taken from the deck as it stands: one that is not lays out an older
+    /// deck, and is dropped.
+    pub fn holds(&self, laying: &DeckLaying) -> bool {
+        self.0.holds(&laying.0)
+    }
+
+    /// Lint the deck compiled last on every state, as `lint` with no state does, with what
+    /// `laying` laid out, as JSON; nothing where the deck has changed since it was taken, or it is
+    /// not laid out yet. Dates are judged at `now`, as `lint` judges them.
+    #[wasm_bindgen(js_name = lintLaid)]
+    pub fn lint_laid(&mut self, laying: &DeckLaying, now: Option<f64>) -> Result<Option<String>, JsError> {
+        let now = now.map(|n| n as i64);
+        match self.0.lint_laid(&laying.0, now).map_err(js)? {
+            Some(linting) => serde_json::to_string(&linting).map(Some).map_err(js),
+            None => Ok(None),
+        }
+    }
+}
+
+/// One frame of a movie (lift-up 20261031 FUNC-2): its drawing's digest, and its pixels where
+/// it draws otherwise than the frame the page had.
+#[cfg(feature = "editor")]
+#[wasm_bindgen]
+pub struct MovieFrame(scaena_session::movie::MovieFrame);
+
+#[cfg(feature = "editor")]
+#[wasm_bindgen]
+impl MovieFrame {
+    /// What identifies its drawing: one digest, one drawing.
+    #[wasm_bindgen(getter)]
+    pub fn digest(&self) -> String {
+        self.0.digest.clone()
+    }
+
+    /// Whether it was painted: none where it draws as the frame before it.
+    #[wasm_bindgen(getter)]
+    pub fn painted(&self) -> bool {
+        self.0.raster.is_some()
+    }
+
+    /// `[width, height]` pixels, where it was painted.
+    #[wasm_bindgen(getter)]
+    pub fn size(&self) -> Option<Vec<u32>> {
+        self.0.raster.as_ref().map(|r| vec![r.width, r.height])
+    }
+
+    /// Its pixels as straight-alpha sRGB RGBA, for a `VideoFrame`; empty where it was not painted.
+    pub fn pixels(&self) -> wasm_bindgen::Clamped<Vec<u8>> {
+        wasm_bindgen::Clamped(self.0.raster.as_ref().map(|r| r.rgba.clone()).unwrap_or_default())
+    }
+}
+
 /// A save, in memory: the files of the saved bundle, by their paths inside it.
 #[cfg(feature = "editor")]
 #[wasm_bindgen]
@@ -1658,6 +1780,21 @@ impl SavedBundle {
     pub fn zip(&self) -> Result<Vec<u8>, JsError> {
         scaena_store::zip(&self.0.files).map_err(js)
     }
+}
+
+/// `files`, each bundle file's bytes by its path, as a `.scaena` zip's bytes, as they stand: a
+/// deck made from a prompt that would not open, kept for the person to download and open
+/// elsewhere (lift-up 20261110 REL-1).
+#[cfg(feature = "generate")]
+#[wasm_bindgen(js_name = zipFiles)]
+pub fn zip_files(files: &js_sys::Map) -> Result<Vec<u8>, JsError> {
+    let mut given = std::collections::BTreeMap::new();
+    files.for_each(&mut |bytes, path| {
+        if let Some(path) = path.as_string() {
+            given.insert(path, js_sys::Uint8Array::new(&bytes).to_vec());
+        }
+    });
+    scaena_store::zip(&given).map_err(js)
 }
 
 /// Whether the fonts of the theme whose text is `theme`, each in `fonts` by the path the theme
@@ -1777,6 +1914,13 @@ impl Making {
         making.map(Making).map_err(js)
     }
 
+    /// How many characters each slide's title place holds, JSON `[n | null]` by slide (lift-up
+    /// FUNC-2): what the generator's `Generation.seeing` gives the look to let a topic title grow
+    /// to.
+    pub fn rooms(&self) -> String {
+        serde_json::to_string(&self.0.rooms()).expect("the rooms are JSON")
+    }
+
     /// The texts that still run past their place, as JSON `[{ id, text, most }]`: what the
     /// generator's `Generation.fitRequest` asks the model to rewrite.
     pub fn longs(&self) -> Result<String, JsError> {
@@ -1792,6 +1936,24 @@ impl Making {
     /// The rewrite failed: why, which the report says.
     pub fn unfitted(&mut self, why: String) {
         self.0.unfitted(why);
+    }
+
+    /// Each slide as the model is asked to speak it, JSON `[{ slide, title, words, draft, budget,
+    /// before, after }]`: what the generator's `Generation.notesRequest` takes (lift-up 10-25
+    /// ATTR-2).
+    pub fn speaking(&self) -> Result<String, JsError> {
+        serde_json::to_string(&self.0.speaking().map_err(js)?).map_err(js)
+    }
+
+    /// The notes the model wrote, JSON `[[slide, notes]]` as `Generation.notesAnswer` reads them,
+    /// set as each slide's beat's notes.
+    pub fn noted(&mut self, written: &str) -> Result<(), JsError> {
+        self.0.noted(serde_json::from_str(written).map_err(js)?).map_err(js)
+    }
+
+    /// The notes were not written for the talk: why, which the report says.
+    pub fn unnoted(&mut self, why: String) {
+        self.0.unnoted(why);
     }
 
     /// What still runs past its place once the last rewrite is set, which the report says.

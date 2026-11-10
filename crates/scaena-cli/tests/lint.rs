@@ -505,6 +505,30 @@ fn a_contrast_fix_chooses_the_color_that_reads_wherever_the_choice_reaches() {
 }
 
 #[test]
+fn a_deck_that_lists_no_fonts_is_given_every_font_its_theme_names() {
+    let dir = fixture("unlisted", "E102", "unlisted");
+    let (exit, found) = lint(&dir);
+    assert_eq!(exit, 1);
+    let e102: Vec<&Value> = found.iter().filter(|f| f["code"] == "E102").collect();
+    assert_eq!(e102.len(), 2, "one for each family the theme names: {found:#?}");
+    let all = serde_json::json!([
+        { "family": "Roboto Serif", "file": "fonts/RobotoSerif-VF.ttf" },
+        { "family": "EB Garamond", "file": "fonts/EBGaramond-VF.ttf" }
+    ]);
+    for f in &e102 {
+        assert_eq!(f["fix"], serde_json::json!([{ "op": "add", "path": "/fonts", "value": all }]), "{f:#}");
+    }
+    let out = scaena(&["--json", "lint", dir.to_str().unwrap(), "--fix"]);
+    let v: Value = serde_json::from_slice(&out.stdout).unwrap();
+    let fixed: Vec<&str> = v["fixed"].as_array().unwrap().iter().map(|f| f["code"].as_str().unwrap()).collect();
+    assert_eq!(fixed, ["E102", "E102"], "{v:#}");
+    assert_eq!(v["findings"], serde_json::json!([]), "{v:#}");
+    assert_eq!(out.status.code(), Some(0), "{}", String::from_utf8_lossy(&out.stderr));
+    let deck: Value = serde_json::from_slice(&std::fs::read(dir.join("deck.json")).unwrap()).unwrap();
+    assert_eq!(deck["fonts"], all);
+}
+
+#[test]
 fn lint_fix_applies_what_lint_offers_and_lints_again() {
     let dir = fixture("fix", "E100", "trigger");
     let out = scaena(&["--json", "lint", dir.to_str().unwrap(), "--fix"]);

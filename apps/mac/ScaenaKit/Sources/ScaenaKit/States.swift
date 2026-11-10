@@ -307,8 +307,9 @@ public enum Restaging {
     }
 }
 
-/// A rehearsal (PLAN 2.63, 3.14): the deck played as presented, from its first state, with the
-/// time each state is shown kept. It keeps no clock: each step is told the time. At the end, a
+/// A rehearsal (PLAN 2.63, 3.14): the deck played as presented, from the state it is given, the
+/// slide shown (lift-up 10-25b USE-2), with the time each state is shown kept, and none while it
+/// is paused. It keeps no clock: each step is told the time. At the end, a
 /// state's cue plays and then its hold, so the hold the time keeps is the time less the cue's
 /// span, to a tenth of a second; a state shown twice keeps both times. It carries each state's
 /// notes as a presenter reads them (SPEC §2.6), shown beside the slide with the next slide's name,
@@ -324,12 +325,18 @@ public struct Rehearsal: Sendable {
     public private(set) var spent: [Double]
     /// Whether it is still running: it stops at the end, or going on from the last state.
     public private(set) var running = true
+    /// Whether it is paused: no time is counted toward the state shown until it goes on.
+    public private(set) var paused = false
     public let began: ContinuousClock.Instant
     private var since: ContinuousClock.Instant
 
-    public init(slots: [ScaenaSession.Slot], notes: [Notes] = [], at now: ContinuousClock.Instant = .now) {
+    /// `from` is the place in `slots` it begins at, the slide shown; the first where none is.
+    public init(
+        slots: [ScaenaSession.Slot], notes: [Notes] = [], from: Int = 0, at now: ContinuousClock.Instant = .now
+    ) {
         self.slots = slots
         self.notes = notes
+        index = slots.indices.contains(from) ? from : 0
         spent = Array(repeating: 0, count: slots.count)
         began = now
         since = now
@@ -350,6 +357,7 @@ public struct Rehearsal: Sendable {
     public mutating func go(_ by: Int, at now: ContinuousClock.Instant = .now) {
         guard running else { return }
         count(at: now)
+        paused = false
         let next = index + by
         if next >= slots.count {
             running = false
@@ -365,24 +373,68 @@ public struct Rehearsal: Sendable {
         running = false
     }
 
+    /// Pause, the time since the state shown came up counted toward it; or go on with the clock
+    /// where it was paused, on the same state (lift-up 10-25b USE-2).
+    public mutating func pause(at now: ContinuousClock.Instant = .now) {
+        guard running else { return }
+        count(at: now)
+        paused.toggle()
+    }
+
     /// How long the state shown has been shown, ms.
     public func here(at now: ContinuousClock.Instant = .now) -> Double {
         guard spent.indices.contains(index) else { return 0 }
-        return spent[index] + (running ? Self.ms(now - since) : 0)
+        return spent[index] + (counting ? Self.ms(now - since) : 0)
     }
 
-    /// How long the rehearsal has run, ms.
+    /// How long the rehearsal has run, ms, its pauses left out.
     public func total(at now: ContinuousClock.Instant = .now) -> Double {
-        spent.reduce(0, +) + (running ? Self.ms(now - since) : 0)
+        spent.reduce(0, +) + (counting ? Self.ms(now - since) : 0)
     }
+
+    /// Whether the time since the state shown came up counts toward it.
+    private var counting: Bool { running && !paused }
 
     /// Each state as the rehearsal keeps it, in the order it was played.
     public var kept: [Rehearsed] {
         slots.indices.map { i -> Rehearsed in
             let slot = slots[i]
             let keeps: Double? = spent[i] > 0 ? max(0, ((spent[i] - slot.span) / 100).rounded() * 100) : nil
-            return Rehearsed(state: slot.state, spent: spent[i], span: slot.span, hold: slot.hold, keeps: keeps)
+            return Rehearsed(
+                state: slot.state, spent: spent[i], span: slot.span, hold: slot.hold, keeps: keeps, planned: planned(i))
         }
+    }
+
+    /// How long the talk planned state `i` to take, ms (lift-up 20261110 FUNC-1): from the time
+    /// planned before it comes up to the time planned before the next state of its beat, or to the
+    /// end of its beat's plan (`Slot.story`). None where its beat plans no time.
+    public func planned(_ i: Int) -> Double? {
+        guard slots.indices.contains(i), let story = slots[i].story, let beat = story.planned else { return nil }
+        let same = { (j: Int) -> Bool in
+            slots.indices.contains(j) && slots[j].story?.claim == story.claim && slots[j].story?.planned == story.planned
+        }
+        var first = i
+        while same(first - 1) { first -= 1 }
+        let end = (slots[first].story?.before ?? story.before) + beat
+        let next = same(i + 1) ? (slots[i + 1].story?.before ?? end) : end
+        return max(0, next - story.before) * 1000
+    }
+
+    /// The time the slides rehearsed were planned to take, ms, and the time they took: none where
+    /// no slide reached has a plan, so the sheet says times alone.
+    public var againstPlan: (taken: Double, planned: Double)? {
+        let reached = kept.filter { $0.spent > 0 }
+        let planned = reached.compactMap(\.planned)
+        guard !planned.isEmpty else { return nil }
+        return (reached.filter { $0.planned != nil }.map(\.spent).reduce(0, +), planned.reduce(0, +))
+    }
+
+    /// The states that ran furthest past their plan, at most three, the furthest first.
+    public var furthestOver: [String] {
+        kept.compactMap { row in row.over.flatMap { $0 > 0 ? (row.state, $0) : nil } }
+            .sorted { $0.1 > $1.1 }
+            .prefix(3)
+            .map(\.0)
     }
 
     /// The patch Keep makes: each state reached holding as long as the time it was shown keeps,
@@ -395,7 +447,7 @@ public struct Rehearsal: Sendable {
     }
 
     private mutating func count(at now: ContinuousClock.Instant) {
-        if spent.indices.contains(index) { spent[index] += Self.ms(now - since) }
+        if !paused, spent.indices.contains(index) { spent[index] += Self.ms(now - since) }
         since = now
     }
 
@@ -413,6 +465,15 @@ public struct Rehearsed: Equatable, Sendable {
     public let span: Double
     public let hold: Double
     public let keeps: Double?
+    /// The time the talk planned it to take, where its beat plans one (lift-up 20261110 FUNC-1).
+    public var planned: Double? = nil
+
+    /// How far it ran past its plan, ms, less than none where it ran short; none where it was not
+    /// reached or has no plan.
+    public var over: Double? {
+        guard spent > 0, let planned else { return nil }
+        return spent - planned
+    }
 }
 
 extension Array where Element == ScaenaSession.Slot {

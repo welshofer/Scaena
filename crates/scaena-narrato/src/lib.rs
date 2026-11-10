@@ -21,6 +21,7 @@ pub mod heuristic;
 mod js;
 pub mod layouts;
 pub mod look;
+pub mod notes;
 pub mod one;
 pub mod outline;
 pub mod pictures;
@@ -48,12 +49,22 @@ pub const GEMINI_MAX_TOKENS: u32 = 65_536;
 pub const FIT_MAX_TOKENS: u32 = 16_000;
 /// Room for what the model would change on the deck it sees, thinking included.
 pub const LOOK_MAX_TOKENS: u32 = 16_000;
+/// Room for a dozen slides' notes, each a few hundred words, in any language.
+pub const NOTES_MAX_TOKENS: u32 = 16_000;
 
 /// How many times a step is asked while its provider is busy or does not answer (narrative
 /// REL-1): the pictures' six, so that one busy answer on the dearest call ends no run.
 pub const TRIES: usize = 6;
+
+/// How many times the outline is asked where its answer comes back but does not read: once more,
+/// then the person decides (lift-up REL-3).
+pub const OUTLINE_READS: usize = 2;
+
 /// The longest wait before a step is asked again, in seconds.
 pub const LONGEST_WAIT: f64 = 60.0;
+/// How many times the rest of an answer cut short is asked for (lift-up REL-2): each a call
+/// for the slides still to come, written on from those already in.
+pub const RESTS: usize = 2;
 
 /// The figures `text` writes, as numbers: "$1,140" is 1140, "4.9%" is 4.9, "2024" is 2024.
 pub fn figures(text: &str) -> Vec<f64> {
@@ -82,11 +93,27 @@ pub fn busy(status: u16) -> bool {
     matches!(status, 0 | 408 | 429 | 500..=599)
 }
 
+/// What a provider says when the key is out of credit (Vzestup's signatures, and Anthropic's).
+const NO_CREDIT: [&str; 5] = [
+    "insufficient_quota",
+    "billing_hard_limit_reached",
+    "exceeded your current quota",
+    "check your plan and billing",
+    "credit balance is too low",
+];
+
+/// Whether a failed answer says the key is out of credit, which waiting does not mend, though it
+/// comes as a 429 as a rate limit does (lift-up 20261110 REL-2): no step is asked again for it.
+pub fn for_good(status: u16, body: &str) -> bool {
+    let lower = body.to_lowercase();
+    !(200..300).contains(&status) && NO_CREDIT.iter().any(|s| lower.contains(s))
+}
+
 /// How long to wait before asking a busy provider again for a look or a fit (lift-up REL-1),
 /// as the slides and the pictures are asked: `tried` the times it was asked so far, from 0. None
-/// where `status` answers for good, or [`TRIES`] are spent.
+/// where `status` answers for good, out of credit among it ([`for_good`]), or [`TRIES`] are spent.
 pub fn retry_after(status: u16, body: &str, after: Option<&str>, tried: usize) -> Option<f64> {
-    (busy(status) && tried + 1 < TRIES).then(|| providers::wait(after, body, tried + 1))
+    (busy(status) && !for_good(status, body) && tried + 1 < TRIES).then(|| providers::wait(after, body, tried + 1))
 }
 
 /// Who writes the deck: a provider, the model the user picked from those their key lists, and
@@ -203,6 +230,9 @@ pub enum Step {
     Outline,
     /// The slides are to be written.
     Slides,
+    /// The rest of the slides are to be written, the answer that wrote the first of them having
+    /// been cut short (lift-up REL-2).
+    Rest,
     /// The narrative is written.
     Done,
 }
@@ -220,6 +250,13 @@ pub struct Generation {
     /// The outline the person settled, where they asked to see one (narrative FUNC-1): what the
     /// slides are written to.
     outline: Option<Outline>,
+    /// How many of the outline's answers came back but did not read, and why the last did not,
+    /// once it has been asked twice (lift-up REL-3): the person then writes without one, or stops.
+    misread: usize,
+    unread: Option<String>,
+    /// The claims the person wrote in an outline shown, which the next outline keeps word for
+    /// word in the beats of their names (lift-up 20261110 FUNC-2).
+    kept: Vec<outline::Beat>,
     narrative: Option<Narrative>,
     /// How many times the step was asked and answered for now, not for good.
     tried: usize,
@@ -227,6 +264,12 @@ pub struct Generation {
     again: Option<f64>,
     /// The slides as the model wrote them, the text [`Generation::written`] read.
     written: Option<String>,
+    /// The slides written so far, where the answer that wrote them was cut short, and how many
+    /// times the rest has been asked for (lift-up REL-2).
+    partial: Option<answer::Slides>,
+    rests: usize,
+    /// Why the rest did not come back, where it did not.
+    unrested: Option<String>,
     /// What the deck is grounded in, as the client gave it ([`Generation::give_sources`]).
     sources: Vec<Provenance>,
 }
@@ -241,10 +284,16 @@ impl Generation {
             arc: None,
             fallback: None,
             outline: None,
+            misread: 0,
+            unread: None,
+            kept: Vec::new(),
             narrative: None,
             tried: 0,
             again: None,
             written: None,
+            partial: None,
+            rests: 0,
+            unrested: None,
             sources: Vec::new(),
         })
     }
@@ -260,6 +309,27 @@ impl Generation {
     /// The slides the deck is asked for at least.
     pub fn target(&self) -> usize {
         brief::slide_count(&self.brief.length)
+    }
+
+    /// The fewest and the most slides an outline's beats may take in all, the most none for
+    /// "41+": the length's own range, or, for a length that names none, its count to a fifth past
+    /// it. Counts a person sets outside it are scaled to its nearer end ([`outline::counted`]).
+    pub fn slides_range(&self) -> (usize, Option<usize>) {
+        let target = self.target();
+        match brief::minimum_slides(&self.brief.length) {
+            Some(least) => (least, brief::maximum_slides(&self.brief.length)),
+            None => (target, Some(target + (target / 5).max(1))),
+        }
+    }
+
+    /// The slides the slides' prompt asks for: the outline's in all where one stands, as the
+    /// person settled it, else the length's ([`Generation::target`]); what the progress says and
+    /// the rest of slides cut short is held to (lift-up 20261110 USE-3).
+    pub fn slides_asked(&self) -> usize {
+        match &self.outline {
+            Some(outline) if !outline.beats.is_empty() => outline.beats.iter().map(|b| b.slides).sum::<usize>().max(1),
+            _ => self.target(),
+        }
     }
 
     /// The arc chosen, once it is.
@@ -301,6 +371,48 @@ impl Generation {
         )
     }
 
+    /// The claims the person wrote in the outline shown, kept by the next outline asked
+    /// ([`Generation::outline_first`]): word for word in the beats of their names, and named to
+    /// the model so the rest agree with them (lift-up 20261110 FUNC-2).
+    pub fn keep_claims(&mut self, kept: Vec<outline::Beat>) {
+        self.kept = kept.into_iter().filter(|b| !b.claim.trim().is_empty()).collect();
+    }
+
+    /// The request that asks for beat `beat` (from 0) of `outline`, the person's as it stands,
+    /// again, every other claim fixed (lift-up 20261110 FUNC-2): Scaena's own short call, made
+    /// while the outline is shown, which leaves the step as it was. None before the arc is chosen
+    /// or for a beat the outline lacks.
+    pub fn claim_request(&self, key: &str, outline: &Outline, beat: usize) -> Option<Request> {
+        let arc = arcs::arc(&self.arc.as_ref()?.selection);
+        let prompt = outline::claim_prompt(&self.brief, arc, outline, beat)?;
+        let s = &self.settings;
+        let max_tokens = if s.provider == Provider::Gemini { GEMINI_MAX_TOKENS } else { FIT_MAX_TOKENS };
+        Some(s.provider.structured(&providers::Call {
+            model: &s.model,
+            key,
+            base: s.base.as_deref(),
+            browser: s.browser,
+            system: outline::CLAIM_SYSTEM,
+            prompt: &prompt,
+            shape: providers::Shape::Claim,
+            anthropic_schema: true,
+            max_tokens,
+            temperature: Some(0.8),
+            documents: &[],
+            pictures: &[],
+        }))
+    }
+
+    /// The claim the answer to [`Generation::claim_request`] gives; an error that says why where
+    /// it gives none, or came back refused, out of credit among it.
+    pub fn claim_answer(&self, status: u16, status_text: &str, body: &str) -> Result<String, NarratoError> {
+        if status == 0 {
+            return Err(NarratoError::Provider(format!("the request did not complete: {status_text}")));
+        }
+        let read = self.settings.provider.read_answer(status, status_text, body).map_err(NarratoError::Provider)?;
+        outline::read_claim(&read.text).map_err(NarratoError::Answer)
+    }
+
     /// Ask the model for the outline before the slides (narrative FUNC-1): the next request is
     /// the outline's, and its answer puts the outline where [`Generation::outline`] reads it, to
     /// be settled or taken as it is. Only once the arc is chosen and before the slides are.
@@ -308,11 +420,36 @@ impl Generation {
         match self.step {
             Step::Slides | Step::Outline if self.arc.is_some() => {
                 self.step = Step::Outline;
+                self.misread = 0;
+                self.unread = None;
                 Ok(())
             }
             Step::Done => Err(NarratoError::Done),
             _ => Err(NarratoError::Answer("the arc is chosen before the outline is asked".into())),
         }
+    }
+
+    /// Why the outline did not read, once it was asked twice and twice came back unreadable
+    /// (lift-up REL-3): the arc paid for stands, and the person writes the slides without an
+    /// outline ([`Generation::skip_outline`]) or stops. None while an outline may still come.
+    pub fn unread(&self) -> Option<&str> {
+        self.unread.as_deref()
+    }
+
+    /// Write the slides without an outline, the arc chosen standing (lift-up REL-3): where the
+    /// outline was asked and did not read, or the person passes it over. Only once the arc is
+    /// chosen and before the slides are written.
+    pub fn skip_outline(&mut self) -> Result<(), NarratoError> {
+        match self.step {
+            Step::Slides | Step::Outline if self.arc.is_some() => {}
+            Step::Done => return Err(NarratoError::Done),
+            _ => return Err(NarratoError::Answer("the arc is chosen before the outline is passed over".into())),
+        }
+        self.outline = None;
+        self.unread = None;
+        self.misread = 0;
+        self.step = Step::Slides;
+        Ok(())
     }
 
     /// The outline as the person settled it (narrative FUNC-1), which the slides are written to:
@@ -326,12 +463,7 @@ impl Generation {
             _ => return Err(NarratoError::Answer("the arc is chosen before the outline is settled".into())),
         }
         let target = self.target();
-        // The counts a person sets are kept within the length's own range; a length that names
-        // none keeps them from its count to a fifth past it.
-        let range = match brief::minimum_slides(&self.brief.length) {
-            Some(least) => (least, brief::maximum_slides(&self.brief.length)),
-            None => (target, Some(target + (target / 5).max(1))),
-        };
+        let range = self.slides_range();
         self.outline = Some(outline::settled(outline, target, range).map_err(NarratoError::Answer)?);
         self.step = Step::Slides;
         Ok(())
@@ -423,13 +555,21 @@ impl Generation {
                 let chosen = self.arc.as_ref()?;
                 let arc = arcs::arc(&chosen.selection);
                 let plan = beats::plan(arc, self.target());
-                let text = outline::prompt(&self.brief, arc, &chosen.reasoning, &plan);
+                let text = outline::prompt(&self.brief, arc, &chosen.reasoning, &plan, &self.kept);
                 // The documents beside it, as the slides have them (lift-up FUNC-3).
                 (outline::OUTLINE_SYSTEM, text, Shape::Outline, room(outline::OUTLINE_MAX_TOKENS), 0.3, documents)
             }
             Step::Slides => {
                 let arc = arcs::arc(&self.arc.as_ref()?.selection);
-                let text = prompt::generation_outlined(&self.brief, arc, self.target(), self.outline.as_ref());
+                let text = prompt::generation_outlined(&self.brief, arc, self.slides_asked(), self.outline.as_ref());
+                (prompt::SLIDES_SYSTEM, text, Shape::Slides, room(SLIDES_MAX_TOKENS), 0.7, documents)
+            }
+            // The slides' own prompt, the sources with it, and after it those written so far.
+            Step::Rest => {
+                let arc = arcs::arc(&self.arc.as_ref()?.selection);
+                let mut text =
+                    prompt::generation_outlined(&self.brief, arc, self.slides_asked(), self.outline.as_ref());
+                text.push_str(&prompt::rest(&self.partial.as_ref()?.slides, self.slides_asked()));
                 (prompt::SLIDES_SYSTEM, text, Shape::Slides, room(SLIDES_MAX_TOKENS), 0.7, documents)
             }
             Step::Done => return None,
@@ -519,6 +659,60 @@ impl Generation {
         }))
     }
 
+    /// The request that asks for `spoken`'s speaker notes, written for the talk ([`notes`]):
+    /// Scaena's own call, made once the narrative is written; none before, or for no slide.
+    /// `spoken` may be a part of the deck, a dozen at a time, each slide numbered as it stands in
+    /// it, and carrying the headlines either side of it.
+    pub fn notes_request(&self, key: &str, spoken: &[notes::Spoken]) -> Option<Request> {
+        let narrative = self.narrative.as_ref()?;
+        if spoken.is_empty() {
+            return None;
+        }
+        let s = &self.settings;
+        let brief = &narrative.brief;
+        let talk = notes::Talk {
+            topic: &brief.topic,
+            audience: &brief.audience,
+            modality: brief.modality.as_deref(),
+            minutes: notes::minutes(&brief.length),
+            language: brief.language.as_deref(),
+            voice: brief.voice.as_deref(),
+            big_idea: narrative.outline.as_ref().map(|o| o.big_idea.as_str()),
+        };
+        let prompt = notes::prompt(spoken, narrative.slides.len(), &talk);
+        let max_tokens = if s.provider == Provider::Gemini { GEMINI_MAX_TOKENS } else { NOTES_MAX_TOKENS };
+        Some(s.provider.structured(&providers::Call {
+            model: &s.model,
+            key,
+            base: s.base.as_deref(),
+            browser: s.browser,
+            system: notes::NOTES_SYSTEM,
+            prompt: &prompt,
+            shape: providers::Shape::Notes,
+            anthropic_schema: true,
+            max_tokens,
+            temperature: Some(0.5),
+            documents: &[],
+            pictures: &[],
+        }))
+    }
+
+    /// The notes the response to [`Generation::notes_request`] gives, each a slide of `spoken`'s
+    /// and its words.
+    pub fn notes_answer(
+        &self,
+        status: u16,
+        status_text: &str,
+        body: &str,
+        spoken: &[notes::Spoken],
+    ) -> Result<Vec<(usize, String)>, NarratoError> {
+        if status == 0 {
+            return Err(NarratoError::Provider(format!("the request did not complete: {status_text}")));
+        }
+        let read = self.settings.provider.read_answer(status, status_text, body).map_err(NarratoError::Provider)?;
+        notes::read(&read.text, spoken).map_err(NarratoError::Answer)
+    }
+
     /// The changes the response to [`Generation::look_request`] asks for, each one `slides`
     /// may take.
     pub fn look_answer(
@@ -567,6 +761,18 @@ impl Generation {
         if self.step == Step::Done {
             return Err(NarratoError::Done);
         }
+        // Out of credit is said at once, at any step, and asked again at none: the arc falls back
+        // to no heuristic, since the slides after it would fail the same way (lift-up 20261110
+        // REL-2).
+        if for_good(status, body) {
+            self.again = None;
+            self.tried = 0;
+            let said =
+                providers::read(status, status_text, body).err().unwrap_or_else(|| format!("{status} {status_text}"));
+            return Err(NarratoError::Provider(format!(
+                "no credit is left on this key: top up its balance, or use another key. It said: {said}"
+            )));
+        }
         if busy(status) && self.tried + 1 < TRIES {
             self.tried += 1;
             self.again = Some(providers::wait(after, body, self.tried));
@@ -594,7 +800,10 @@ impl Generation {
                 Ok(self.step)
             }
             // An outline that fails to come back is an error that says why, and the step stands
-            // to be asked again, or passed over for the slides at once.
+            // to be asked again, or passed over for the slides at once. One that comes back but
+            // does not read (prose around its JSON, no claims) is asked once more, at once; the
+            // second stands as `unread`, for the person to write without one or stop, the arc
+            // paid for kept (lift-up REL-3).
             Step::Outline => {
                 if status == 0 {
                     return Err(NarratoError::Provider(asked(format!("the request did not complete: {status_text}"))));
@@ -604,8 +813,26 @@ impl Generation {
                 let chosen = self.arc.as_ref().expect("the arc is chosen before the outline is asked");
                 let arc = arcs::arc(&chosen.selection);
                 let plan = beats::plan(arc, self.target());
-                self.outline = Some(outline::read(&read.text, arc, &plan).map_err(NarratoError::Answer)?);
-                self.step = Step::Slides;
+                match outline::read(&read.text, arc, &plan) {
+                    Ok(mut outline) => {
+                        // The person's own claims stand as they wrote them, whatever the model
+                        // gave their beats (lift-up 20261110 FUNC-2).
+                        for beat in &mut outline.beats {
+                            if let Some(own) = self.kept.iter().find(|k| k.name.trim() == beat.name.trim()) {
+                                beat.claim = own.claim.trim().to_string();
+                            }
+                        }
+                        self.outline = Some(outline);
+                        self.misread = 0;
+                        self.step = Step::Slides;
+                    }
+                    Err(why) => {
+                        self.misread += 1;
+                        if self.misread >= OUTLINE_READS {
+                            self.unread = Some(format!("{why} (asked {} times)", self.misread));
+                        }
+                    }
+                }
                 Ok(self.step)
             }
             Step::Slides => {
@@ -614,7 +841,16 @@ impl Generation {
                 }
                 let read = (self.settings.provider.read_answer(status, status_text, body))
                     .map_err(|why| NarratoError::Provider(asked(why)))?;
-                self.written(&read.text, read.stop == Stop::Length)
+                self.wrote(&read.text, read.stop == Stop::Length, true)
+            }
+            // The rest that fails to come back leaves the slides as far as they were written.
+            Step::Rest => {
+                let more = match status {
+                    0 => Err(format!("the request did not complete: {status_text}")),
+                    _ => (self.settings.provider.read_answer(status, status_text, body))
+                        .and_then(|a| answer::slides(&a.text).map(|s| (s, a.stop == Stop::Length))),
+                };
+                self.rested(more.map_err(asked))
             }
             Step::Done => Err(NarratoError::Done),
         }
@@ -625,24 +861,90 @@ impl Generation {
     /// from an answer, handed over by a client that read the answer itself, or written elsewhere.
     /// The arc is chosen first; too few slides for the length asked are refused.
     pub fn written(&mut self, text: &str, stopped: bool) -> Result<Step, NarratoError> {
-        let arc = match (self.step, &self.arc) {
-            (Step::Slides | Step::Outline, Some(arc)) => arc.clone(),
+        self.wrote(text, stopped, false)
+    }
+
+    /// How many slides are written so far, where the answer that wrote them was cut short and
+    /// the rest is asked for ([`Step::Rest`]).
+    pub fn partial(&self) -> Option<usize> {
+        self.partial.as_ref().map(|p| p.slides.len())
+    }
+
+    /// Why the rest of an answer cut short did not come back, where it did not (lift-up REL-2):
+    /// the deck is made of the slides written before it.
+    pub fn unrested(&self) -> Option<&str> {
+        self.unrested.as_deref()
+    }
+
+    /// [`Generation::written`], the rest asked for where `rest` lets it and the answer was cut
+    /// short of the length asked (lift-up REL-2): the minimum is held once the rest is in.
+    fn wrote(&mut self, text: &str, stopped: bool, rest: bool) -> Result<Step, NarratoError> {
+        match (self.step, &self.arc) {
+            (Step::Slides | Step::Outline, Some(_)) => {}
             (Step::Done, _) => return Err(NarratoError::Done),
             _ => return Err(NarratoError::Answer("the arc is chosen before the slides are written".into())),
-        };
+        }
         let written = answer::slides(text).map_err(NarratoError::Answer)?;
+        let cut = written.recovered || stopped;
+        if rest && cut && written.slides.len() < self.slides_asked() {
+            (self.partial, self.rests, self.unrested) = (Some(written), 0, None);
+            self.step = Step::Rest;
+            return Ok(self.step);
+        }
+        self.finish(written, cut, text.to_string())
+    }
+
+    /// The rest of the slides, `more`, after those written so far, as many as the length asks
+    /// for at most, or why they did not come back; asked for again while they come back cut short
+    /// and there are too few, up to [`RESTS`] times.
+    fn rested(&mut self, more: Result<(answer::Slides, bool), String>) -> Result<Step, NarratoError> {
+        let mut partial = self.partial.take().expect("the rest is asked for after slides cut short");
+        self.rests += 1;
+        let cut = match more {
+            Ok((more, stopped)) => {
+                let room = self.slides_asked().saturating_sub(partial.slides.len());
+                let before = partial.slides.len();
+                partial.slides.extend(more.slides.into_iter().take(room));
+                if partial.executive_summary.is_empty() {
+                    partial.executive_summary = more.executive_summary;
+                }
+                // A rest that added nothing is not asked for again.
+                (more.recovered || stopped) && partial.slides.len() > before
+            }
+            Err(why) => {
+                self.unrested = Some(why);
+                false
+            }
+        };
+        if cut && partial.slides.len() < self.slides_asked() && self.rests < RESTS {
+            self.partial = Some(partial);
+            return Ok(self.step);
+        }
+        let truncated = cut || self.unrested.is_some();
+        // What `--slides` takes again: the slides as they came back, in one answer.
+        let text = serde_json::json!({ "executiveSummary": partial.executive_summary, "slides": partial.slides });
+        self.finish(partial, truncated, text.to_string())
+    }
+
+    /// The narrative of `written`, the slides read, held to the length's minimum.
+    fn finish(&mut self, written: answer::Slides, truncated: bool, text: String) -> Result<Step, NarratoError> {
         if let Some(minimum) = brief::minimum_slides(&self.brief.length)
             && written.slides.len() < minimum
         {
+            // Too few: the slides are asked for again, whole.
+            if self.step == Step::Rest {
+                self.step = Step::Slides;
+            }
             return Err(NarratoError::Incomplete { delivered: written.slides.len(), minimum });
         }
-        self.written = Some(text.to_string());
+        let arc = self.arc.clone().expect("the arc is chosen before the slides are written");
+        self.written = Some(text);
         self.narrative = Some(Narrative {
             arc: arc.selection,
             arc_reasoning: arc.reasoning,
             executive_summary: written.executive_summary,
             slides: written.slides,
-            truncated: written.recovered || stopped,
+            truncated,
             brief: Brief { source_content: None, ..self.brief.clone() },
             icons: Default::default(),
             sources: self.sources.clone(),

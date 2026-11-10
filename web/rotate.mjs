@@ -179,6 +179,21 @@ try {
   await page.waitForTimeout(500);
   check((await source()) === original, "and nothing changes");
 
+  // The pointer taken mid-turn (a pen out of range, a touch the system took): let go of as
+  // Escape lets go of it, so the pointer moving on after turns nothing (the 20261110 plan's STAB-5).
+  await click(pivot);
+  await selects("tf-flag");
+  await turn(pivot, 30, [], { hold: true });
+  await page.evaluate(() => document.querySelector("#overlay").dispatchEvent(new PointerEvent("pointercancel", { bubbles: true, pointerId: 1 })));
+  check(await says("The turn was cancelled"), `a cancelled pointer lets the turn go: ${await status()}`);
+  await page.mouse.up();
+  const [hx, hy] = await client([pivot[0] + 200, pivot[1] + 200]);
+  await page.mouse.move(hx, hy);
+  await page.mouse.move(hx + 40, hy - 60);
+  await page.waitForTimeout(500);
+  check(!(await status()).includes("turns to"), `and the pointer moving on after turns nothing: ${await status()}`);
+  check((await source()) === original, "and nothing changes");
+
   // The inspector's angle.
   await click(pivot);
   await selects("tf-flag");

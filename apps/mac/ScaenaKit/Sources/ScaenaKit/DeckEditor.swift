@@ -21,16 +21,28 @@ import Synchronization
 public final class DeckEditor {
     public let session: ScaenaSession
 
-    /// Bumped by each change to the deck: what draws it again.
+    /// Bumped by each change to the deck: what draws it again. A burst of typing on the canvas
+    /// bumps it once, as it ends (`settled`).
     public private(set) var revision = 0
+    /// Bumped by each change to the deck, as `revision` is, but at each change typed on the
+    /// canvas: what tells a key typed whether anything else was edited since (lift-up 10-25b
+    /// PERF-2).
+    public private(set) var edits = 0
+    /// The source typed on the canvas, not yet compiled: compiled once the burst ends, or before
+    /// anything reads what compiling gives.
+    @ObservationIgnored private var uncompiled: String?
     /// Bumped when what frames at rest draw changes without an edit: a node drawn moved by a
-    /// drag, or a patch shown before it is made (PLAN 3.7). What draws the canvas again.
+    /// drag, or a patch shown before it is made (PLAN 3.7), and by each change typed on the canvas
+    /// until its burst ends. What draws the canvas again.
     public private(set) var drawn = 0
     /// Changed by each edit and by each change to what frames at rest draw without one: the
     /// revision the canvas paints by (`ScaenaCanvas`), and is told it painted.
     public var redraws: Int { revision &+ drawn }
     /// The deck's states on its timeline, each step named by its slide.
     public private(set) var slots: [ScaenaSession.Slot] = []
+    /// Why the last undo or redo could not be made, said once by the window and cleared (lift-up
+    /// 10-25b STAB-4).
+    public var undoFailed: String?
     /// The source as the source pane shows it: the deck's, or what is typed.
     public private(set) var source = ""
     /// Why the source does not compile, where it does not.
@@ -48,13 +60,37 @@ public final class DeckEditor {
     private var lints = 0
     /// The state the window shows: where an edit is linted at once.
     public var shown: String?
+    /// What the last save said of the bundle's history, which the window says once (lift-up
+    /// 20261025b REL-1): one that could not be read, kept aside, or one a newer Scaena wrote, left
+    /// as it was. None where the save said nothing of it.
+    public var savedSaid: String?
+
+    /// What a save's summary (`Saved.summary`) says of the bundle's history, in words, as the
+    /// browser's status line says it: none where it says nothing.
+    public static func said(ofSave summary: JSONValue) -> String? {
+        if let aside = summary["again"]?.string {
+            return "Its history could not be read: it is kept aside as \(aside), and the history begins again"
+        }
+        return summary["unrecorded"]?.string
+    }
     /// The format frames are laid out in (PLAN 2.62, 3.16): one of the deck's `formats`, or none
     /// for its own canvas.
     public private(set) var format: String?
     /// Whether the assistant is at work on the deck (lift-up STAB-5): while it is, the user's own
     /// edits and undo are refused, as the browser refuses them, so the model's next call reads the
     /// deck it left. Its `Assistant` sets it.
-    public internal(set) var assisting = false
+    public internal(set) var assisting = false {
+        // Typing left uncompiled is compiled as the hold begins, before the model reads the deck,
+        // so no burst's end compiles it over what the assistant makes (lift-up 10-25b PERF-2).
+        didSet { if assisting { compileTyped() } }
+    }
+
+    /// The deck held as the assistant holds it while it works, no question asked: what the iPad's
+    /// UI tests launch with `-assistantAtWorkAfter N` to hold it once N edits are made, and see Undo
+    /// and Redo held (lift-up STAB-5).
+    public func holdForTests() {
+        assisting = true
+    }
 
     /// Why an edit is refused while the assistant is at work, as the browser says it.
     public static let busy = "the assistant is at work on the deck"
@@ -114,6 +150,13 @@ public final class DeckEditor {
     static let drawingsKept = 256
     /// Where states are drawn away from the window, one at a time (lift-up PERF-2).
     @ObservationIgnored private let drawer = Drawer()
+    /// Where the inspector's backgrounds and layouts are drawn away from the window, one round at
+    /// a time, beside the slides' drawings (lift-up 10-25c PERF-4).
+    @ObservationIgnored private let inspecting = Drawer()
+    /// The latest round of each asked for: one a later round has outdated is not drawn, so a burst
+    /// of edits draws once, for the last.
+    @ObservationIgnored let backgroundsWanted = Wanted()
+    @ObservationIgnored let layoutsWanted = Wanted()
     /// The deck as it stands, taken twice: one to draw from on the drawer's thread, and one the
     /// session is asked about here, whether it still holds the deck, so neither is used by two
     /// threads at once.
@@ -218,15 +261,43 @@ public final class DeckEditor {
     /// browser's typing is: the findings shown stay until edits stop and `lintEvery` runs. The
     /// source the deck had, for an undo. What reads so already, or what the deck refuses, throws
     /// why.
+    ///
+    /// The canvas draws it at once, and the source and the states follow it, but the source is
+    /// not compiled again at each key: once the burst of typing ends (`settled`), so a key typed
+    /// in a long deck waits on no compile (lift-up 10-25b PERF-2).
     @discardableResult
     public func typed(_ ops: [JSONValue], at date: Date = Date()) throws -> String {
         try unassisted()
         guard valid, error == nil else { throw ScaenaError(message: "the source does not compile: fix it first") }
-        guard try session.typed(ops, at: date) else { throw ScaenaError(message: "it reads so already") }
-        guard let before = take(try session.source(), lint: false) else {
-            throw ScaenaError(message: error?.said ?? "the deck typed does not validate")
-        }
+        guard let typed = try session.typing(ops, at: date) else { throw ScaenaError(message: "it reads so already") }
+        let before = made
+        source = typed.source
+        made = typed.source
+        uncompiled = typed.source
+        slots = typed.timeline
+        // A lint begun on the deck before it is dropped, as one begun before a compile is.
+        compiled += 1
+        linter.latest.store(compiled, ordering: .relaxed)
+        whole = false
+        edits += 1
+        drawn += 1
         return before
+    }
+
+    /// Compile the source typed on the canvas, where a burst of typing left one (`typed`): once
+    /// the burst ends, and before anything reads what compiling gives (a fix, lint, the deck taken
+    /// to draw or lay out away from the window). Drawn again, as an edit is, once. Never while the
+    /// assistant holds the deck (lift-up STAB-5): the hold compiled what was typed as it began, and
+    /// typing waits while it lasts, so there is nothing to compile then.
+    public func settled() {
+        guard !assisting else { return }
+        compileTyped()
+    }
+
+    /// The source typed on the canvas compiled, where there is one.
+    private func compileTyped() {
+        guard let next = uncompiled else { return }
+        _ = take(next, lint: false, settling: true)
     }
 
     /// Compile `typed`, the source pane's text: the source the deck had, for an undo, where it
@@ -240,6 +311,7 @@ public final class DeckEditor {
     @discardableResult
     public func fix(_ finding: Finding) throws -> String {
         try unassisted()
+        settled()
         guard let patch = finding.fix, finding.fixable else { throw ScaenaError(message: "there is no fix for it") }
         let fixed = try session.fix(patch)
         guard let before = take(fixed) else {
@@ -282,6 +354,7 @@ public final class DeckEditor {
         try session.setFormat(format)
         self.format = format
         revision += 1
+        edits += 1
     }
 
     /// Paint the canvas through `view`, the part of it shown, canvas units: zoomed in (PLAN 2.46,
@@ -311,6 +384,7 @@ public final class DeckEditor {
     /// Lint the state shown, laid out alone, the others' findings kept: what an edit shows at once.
     /// With no state shown, what compiling found stands until `lintEvery` comes back.
     public func lintShown() {
+        settled()
         guard let shown, let linting = try? session.lint(state: shown) else { return }
         findings = linting.findings
         whole = linting.whole
@@ -322,6 +396,7 @@ public final class DeckEditor {
     /// when it is done. A lint of a deck an edit has changed since it began is dropped, so what
     /// an older deck had never replaces what lint found in this one.
     public func lintEvery(isolation: isolated (any Actor)? = #isolation) async {
+        settled()
         guard valid, let laying = session.laying() else { return }
         let began = compiled
         lints += 1
@@ -339,6 +414,7 @@ public final class DeckEditor {
     /// the deck while it was read, so an older deck's story never stands for this one's. Where no
     /// source compiled to a deck that validates, the deck the session holds is read, as before.
     public func health(isolation: isolated (any Actor)? = #isolation) async throws -> Health? {
+        settled()
         guard valid, let laying = session.laying() else { return try session.health() }
         let began = compiled
         reading?()
@@ -366,15 +442,103 @@ public final class DeckEditor {
         guard let digest = try? session.digest(state: state) else { return nil }
         let key = Drawn(state: state, width: width)
         if let image = kept(key, digest) { return image }
-        if drawnFrom.map({ !session.holds($0.held) }) ?? true {
-            drawnFrom = session.laying().flatMap { held in session.laying().map { (held: held, drawing: $0) } }
-        }
-        guard let laying = drawnFrom?.drawing else { return drawing(state, width: width) }
+        guard let laying = drawingFrom() else { return drawing(state, width: width) }
         let format = self.format
         let painted = await drawer.draw { try laying.pixels(format: format, state: state, width: width) }
         guard let image = painted?.image else { return nil }
         if (try? session.digest(state: state)) == digest { keep(key, digest, image) }
         return image
+    }
+
+    /// What the slide of `state` may take as its background, each drawn `height` pixels high, as
+    /// `session.backgroundsDrawn` draws them, but away from the window (lift-up 10-25c PERF-4): on
+    /// a session opened from a snapshot of the deck as it stands, in the format shown, on a thread
+    /// of its own, while the caller's actor goes on answering. Nil where an edit came meanwhile;
+    /// why none could be drawn, thrown.
+    public func backgroundsAway(
+        state: String, height: Int, isolation: isolated (any Actor)? = #isolation
+    ) async throws -> (Backgrounds, [CGImage?])? {
+        let began = revision
+        let format = self.format
+        let snapshot = try session.snapshot()
+        let wanted = backgroundsWanted
+        let ticket = wanted.take()
+        let round = await inspecting.draw { () -> Apart<(Backgrounds, [ScaenaSession.Pixels?])>? in
+            // Outdated by a later round while it waited: not drawn.
+            guard wanted.still(ticket) else { return nil }
+            wanted.drew()
+            return Apart {
+                let apart = try snapshot.opened()
+                try apart.setFormat(format)
+                let offered = try apart.backgrounds(state: state, height: height)
+                return (offered, offered.options.indices.map { try? apart.backgroundPicture($0) })
+            }
+        }
+        guard let waited = round, let drawn = waited, began == revision, wanted.still(ticket) else { return nil }
+        let (offered, pixels) = try drawn.value()
+        return (offered, pixels.map { $0?.image })
+    }
+
+    /// The layouts the slide of `state` may take, best first, each drawn `height` pixels high, as
+    /// `session.layoutsDrawn` draws them after a round of `layoutsStep`s, but away from the window
+    /// (lift-up 10-25c PERF-4), as `backgroundsAway` draws: none where it has one to take; nil
+    /// where an edit came meanwhile; why none could be judged, thrown.
+    public func layoutsAway(
+        state: String, height: Int, isolation: isolated (any Actor)? = #isolation
+    ) async throws -> [(suggestion: LayoutSuggestion, image: CGImage)]? {
+        let began = revision
+        let format = self.format
+        let snapshot = try session.snapshot()
+        let wanted = layoutsWanted
+        let ticket = wanted.take()
+        let round = await inspecting.draw { () -> Apart<[(LayoutSuggestion, ScaenaSession.Pixels)]>? in
+            // Outdated by a later round while it waited: not drawn.
+            guard wanted.still(ticket) else { return nil }
+            wanted.drew()
+            return Apart {
+                let apart = try snapshot.opened()
+                try apart.setFormat(format)
+                guard try apart.layoutsBegin(state: state) > 1 else { return [] }
+                // Outdated part way, it stops between layouts, as the window's round did.
+                while try apart.layoutsStep() {
+                    guard wanted.still(ticket) else { throw Outdated() }
+                }
+                return try apart.layoutSuggestions(height: height).enumerated().compactMap { i, suggestion in
+                    (try? apart.layoutPicture(i)).map { (suggestion, $0) }
+                }
+            }
+        }
+        guard let waited = round, let drawn = waited, began == revision, wanted.still(ticket) else { return nil }
+        return try drawn.value().compactMap { suggestion, pixels in
+            pixels.image.map { (suggestion: suggestion, image: $0) }
+        }
+    }
+
+    /// The deck as it stands, taken to draw from on the drawer's thread: taken again once an edit
+    /// changed it. None where the source did not compile to a deck that validates.
+    private func drawingFrom() -> Laying? {
+        settled()
+        if drawnFrom.map({ !session.holds($0.held) }) ?? true {
+            drawnFrom = session.laying().flatMap { held in session.laying().map { (held: held, drawing: $0) } }
+        }
+        return drawnFrom?.drawing
+    }
+
+    /// Lay the cue into `state` out ahead, as the session's `prepare` does, but away from the
+    /// window (lift-up 10-25b PERF-5): what a show goes on to, laid out while the state shown
+    /// rests, on the drawer's thread by the engine the states are drawn with, while the caller's
+    /// actor goes on answering, then handed to the session, which takes it only where the deck
+    /// and the format shown are as they were. Going on before it is laid out lays the cue out
+    /// then, as it always has. Where the source did not compile to a deck that validates, laid
+    /// out here.
+    public func preparing(_ state: String, isolation: isolated (any Actor)? = #isolation) async {
+        guard let laying = drawingFrom() else {
+            try? session.prepare(state)
+            return
+        }
+        let format = self.format
+        guard let cue = await drawer.draw({ try laying.cue(format: format, state: state) }) else { return }
+        session.cue(laid: cue)
     }
 
     /// `state` drawn at rest `width` pixels wide away from the window, as `drawingAway` draws it,
@@ -446,7 +610,10 @@ public final class DeckEditor {
 
     /// Compile `next` as the source: the source the deck had, where `next` became the deck. With
     /// `lint`, the state shown is linted at once; without, the findings shown wait for `lintEvery`.
-    private func take(_ next: String, lint: Bool = true) -> String? {
+    /// `settling`: the source typed on the canvas, made already (`settled`), which is no edit of
+    /// its own.
+    private func take(_ next: String, lint: Bool = true, settling: Bool = false) -> String? {
+        uncompiled = nil
         source = next
         restating = nil
         compiled += 1
@@ -471,6 +638,7 @@ public final class DeckEditor {
         // A format the deck no longer lists: the session lays frames out on its own canvas again.
         if let format, !((try? session.formats()) ?? []).contains(format) { self.format = nil }
         revision += 1
+        if !settling { edits += 1 }
         guard lint else {
             whole = false
             return before
@@ -503,6 +671,41 @@ private final class Drawer: Sendable {
             }
         }
     }
+}
+
+/// The latest round of a kind of drawing asked for away from the window (lift-up 10-25c PERF-4):
+/// each round takes a ticket, and one a later round has outdated is not drawn, or stops part way.
+final class Wanted: Sendable {
+    private let latest = Atomic<Int>(0)
+    private let rounds = Atomic<Int>(0)
+
+    /// A ticket for the round asked for now, which outdates every one before it.
+    func take() -> Int { latest.wrappingAdd(1, ordering: .relaxed).newValue }
+
+    /// Whether the round with `ticket` is still the latest asked for.
+    func still(_ ticket: Int) -> Bool { latest.load(ordering: .relaxed) == ticket }
+
+    /// A round begun, as a test counts them.
+    func drew() { _ = rounds.wrappingAdd(1, ordering: .relaxed) }
+
+    /// How many rounds were begun.
+    var drawn: Int { rounds.load(ordering: .relaxed) }
+}
+
+/// A round of drawing a later one outdated part way.
+private struct Outdated: Error {}
+
+/// What work done away from the window came to: its value, or why there is none, in a person's
+/// words, which the window shows where the value would have stood (lift-up 10-25c PERF-4).
+private struct Apart<T: Sendable>: Sendable {
+    private let made: Result<T, ScaenaError>
+
+    init(_ work: () throws -> T) {
+        made = Result { try work() }.mapError { ScaenaError(message: Why.said($0)) }
+    }
+
+    /// The value, or why there is none, thrown.
+    func value() throws -> T { try made.get() }
 }
 
 /// A value handed to one other thread and back, one thread at a time: a drawing to be made a

@@ -32,6 +32,24 @@ try {
   const page = await context.newPage();
   page.on("pageerror", (e) => failures.push(`page: ${e.message}`));
   page.on("console", (m) => m.type() === "error" && failures.push(`console: ${m.text()}`));
+  // Once the walk asks (`__slowMarked`, in ms), the worker's answer of where a mark is drawn reaches
+  // the page late, as a loaded runner's main thread may take it; `__marked` counts those answers
+  // taken since.
+  await page.addInitScript(() => {
+    const set = Object.getOwnPropertyDescriptor(Worker.prototype, "onmessage").set;
+    window.__marked = 0;
+    Object.defineProperty(Worker.prototype, "onmessage", {
+      set(handler) {
+        set.call(this, (e) => {
+          if (!window.__slowMarked || e.data?.type !== "marked") return handler(e);
+          setTimeout(() => {
+            handler(e);
+            window.__marked++;
+          }, window.__slowMarked);
+        });
+      },
+    });
+  });
   await page.goto(`${site.origin}/web/dist/editor.html?painter=cpu&bundle=/docs/examples/revenue.deck.json`);
   await page.waitForFunction(() => window.scaena?.last()?.valid, null, { timeout: 120000 });
   await page.selectOption("#state", "revenue");
@@ -73,8 +91,16 @@ try {
   const middle = ([x, y, w, h]) => [x + w / 2, y + h / 2];
   /** Row `r`'s bar, as the engine draws it now. */
   const bar = (r) => page.evaluate((r) => window.scaena.canvas.marksOf("q3", [r]).then((m) => m[0]), r);
-  /** The annotation drawn over row `r`'s bar, found by going up from its top. */
-  const above = (r) =>
+  /** The annotation drawn over row `r`'s bar, found by going up from its top, once it is drawn
+   * there (a frame at a time, up to 10 s). */
+  const above = async (r) => {
+    for (const until = Date.now() + 10000; ; ) {
+      const found = await aboveNow(r);
+      if (found || Date.now() > until) return found;
+      await page.evaluate(() => new Promise(requestAnimationFrame));
+    }
+  };
+  const aboveNow = (r) =>
     page.evaluate(async (r) => {
       const [m] = await window.scaena.canvas.marksOf("q3", [r]);
       const [x, y, w] = m.rect;
@@ -162,10 +188,10 @@ try {
     JSON.stringify(await annotations()) === JSON.stringify(['annotations:[{kind: callout, at: {x: "2026-Q3", series: Pro}, text: "Pro nearly doubled"}]']),
     `called out on the bar: ${JSON.stringify(await annotations())}`,
   );
+  await page.waitForFunction(() => !document.querySelector("input.note-words"), null, { timeout: 10000 }).catch(() => {});
   check((await page.locator("input.note-words").count()) === 0, "and the field goes");
 
   // A click on the callout selects it.
-  await page.waitForTimeout(300);
   const callout = await above(10);
   check(callout?.note?.index === 0, `the callout stands over the bar: ${JSON.stringify(callout?.note?.kind)}`);
   await page.mouse.click(...(await onPage(callout.at)));
@@ -188,7 +214,6 @@ try {
   );
 
   // A double click on it changes its words.
-  await page.waitForTimeout(300);
   const moved = await above(7);
   check(moved?.note?.kind === "callout", "it is drawn over its new bar");
   await page.mouse.dblclick(...(await onPage(moved.at)));
@@ -200,13 +225,13 @@ try {
   check((await source()).includes('text: "Pro took off"') && !(await source()).includes("nearly doubled"), "and says what was typed");
 
   // Delete takes it away; the chart stays.
-  await page.waitForTimeout(300);
   const again = await above(7);
   await page.mouse.click(...(await onPage(again.at)));
   await page.waitForFunction(() => window.scaena.canvas.noted(), null, { timeout: 10000 }).catch(() => {});
   await page.keyboard.press("Delete");
   await says("kind: callout", false);
   check(!(await source()).includes("annotations:") && (await source()).includes("rev"), "Delete takes the callout away, and the chart stays");
+  await page.waitForFunction(() => window.scaena.canvas.selected() === "rev", null, { timeout: 10000 }).catch(() => {});
   check((await page.evaluate(() => window.scaena.canvas.selected())) === "rev", "still selected");
 
   // Rule a bar's value; band from one quarter to another.
@@ -222,7 +247,7 @@ try {
   await page.waitForFunction(() => window.scaena.canvas.picked()?.key.startsWith("2025-Q4"), null, { timeout: 10000 }).catch(() => {});
   await rightClick(middle(first.rect));
   await choose("Band from 2025-Q4 · Core to…");
-  await page.waitForFunction(() => window.scaena.canvas.banding(), null, { timeout: 10000 }).catch(() => {});
+  await page.waitForFunction(() => window.scaena.canvas.banding() && document.querySelector("#overlay path.band-from"), null, { timeout: 10000 }).catch(() => {});
   check((await page.locator("#overlay path.band-from").count()) === 1, "a band begun outlines where it begins");
   await page.mouse.click(...(await onPage(middle((await bar(3)).rect))));
   await says("kind: band");
@@ -239,19 +264,28 @@ try {
   await page.mouse.click(...(await onPage(middle((await bar(11)).rect))));
   await page.waitForFunction(() => window.scaena.canvas.picked()?.key.startsWith("2026-Q3\u001fEnterprise"), null, { timeout: 10000 }).catch(() => {});
   await rightClick(middle((await bar(11)).rect));
+  // The mark asked for again after the highlight comes late, and Escape is pressed before it does:
+  // it lets go of the mark all the same, the answer when it comes picking nothing again.
+  await page.evaluate(() => {
+    window.__slowMarked = 1500;
+    window.__marked = 0;
+  });
   await choose("Highlight 2026-Q3 · Enterprise");
   await says("kind: highlight");
+  await page.locator("#overlay").focus();
+  await page.keyboard.press("Escape");
+  await page.waitForFunction(() => window.__marked > 0, null, { timeout: 10000 }).catch(() => {});
+  await page.evaluate(() => (window.__slowMarked = 0));
+  await page
+    .waitForFunction(() => window.scaena.canvas.picked() === undefined && window.scaena.canvas.selected() === "rev", null, { timeout: 10000 })
+    .catch(() => {});
+  check((await picked()) === undefined && (await page.evaluate(() => window.scaena.canvas.selected())) === "rev", `Escape lets go of the mark, and the chart stays selected: ${await picked()}`);
   const lines = await annotations();
   check(
     lines.length === 2 && lines[0].includes("kind: band") && !lines[0].includes("highlight") && lines[1].includes("kind: highlight") && lines[1].includes("kind: band"),
     `kept to the state shown: the chart's own as they were, the state's with the highlight: ${JSON.stringify(lines)}`,
   );
   await keep.uncheck().catch(() => {});
-
-  // Escape lets go of the mark picked; the chart stays selected.
-  await page.locator("#overlay").focus();
-  await page.keyboard.press("Escape");
-  check((await picked()) === undefined && (await page.evaluate(() => window.scaena.canvas.selected())) === "rev", "Escape lets go of the mark, and the chart stays selected");
 
   // The keys sheet lists what annotates.
   const keys = await page.evaluate(() => window.scaena.keys.listed().filter((k) => k.group === "Annotate").map((k) => k.keys));

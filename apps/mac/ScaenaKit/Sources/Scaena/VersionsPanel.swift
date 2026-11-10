@@ -7,7 +7,9 @@ import SwiftUI
 /// slide list numbers them, and
 /// compared with the deck now; Restore makes it the deck again with its data files and its theme,
 /// one step to undo, which writes the files back. Where the bundle keeps no history, Keep a History
-/// begins one with the next save (PLAN 2.87).
+/// begins one with the next save (PLAN 2.87). A version is replayed, compared, and drawn on a
+/// snapshot's session away from the window, and the list is read again as a save adds to it, not
+/// on every edit (lift-up 20261110 PERF-3).
 struct VersionsPanel: View {
     let editor: DeckEditor
     let edits: PanelEdits
@@ -21,6 +23,8 @@ struct VersionsPanel: View {
     @State private var drawing: Image?
     @State private var compared: Compared?
     @State private var problem: String?
+    /// The version chosen, shown on a snapshot's session of its own.
+    @State private var version: VersionShown?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -38,9 +42,12 @@ struct VersionsPanel: View {
                 if chosen != nil { shown }
             }
         }
-        .task(id: editor.revision) { read() }
-        .task(id: chosen) { view() }
-        .task(id: "\(chosen ?? "")\u{1f}\(state ?? "")") { draw() }
+        .onAppear { read() }
+        .onReceive(NotificationCenter.default.publisher(for: ScaenaDocument.saved)) { saved in
+            if (saved.object as AnyObject?) === editor.session { read() }
+        }
+        .task(id: chosen) { await view() }
+        .task(id: "\(chosen ?? "")\u{1f}\(state ?? "")") { await draw() }
     }
 
     /// Where there are no versions: why, and how a history begins.
@@ -89,30 +96,40 @@ struct VersionsPanel: View {
         if let chosen, !versions.contains(where: { $0.id == chosen }) { self.chosen = nil }
     }
 
-    /// The version chosen shown read only, in a session of its own, and compared with the deck now.
-    private func view() {
+    /// The version chosen shown read only, on a snapshot's session of its own away from the window,
+    /// and compared with the deck now.
+    private func view() async {
         drawing = nil
         compared = nil
         problem = nil
+        version = nil
         guard let chosen else {
             states = []
             slides = []
             return
         }
         do {
-            states = try editor.session.viewVersion(chosen)
-            slides = try editor.session.versionSlides()
+            let shown = try await VersionShown.opened(chosen, from: try editor.session.snapshot())
+            guard self.chosen == chosen else { return }
+            version = shown
+            states = shown.states
+            slides = shown.slides
+            compared = shown.compared
             if state == nil || !states.contains(state ?? "") { state = states.first }
-            compared = try editor.session.compareVersions(from: chosen)
+            await draw()
+        } catch is CancellationError {
         } catch {
             problem = Why.said(error)
         }
     }
 
-    private func draw() {
-        guard chosen != nil, let state, states.contains(state) else { return }
+    private func draw() async {
+        guard let version, let state, version.states.contains(state) else { return }
         do {
-            drawing = Image(png: try editor.session.versionPNG(state, width: 640))
+            let png = try await version.png(state, width: 640)
+            guard self.version === version, self.state == state else { return }
+            drawing = Image(png: png)
+        } catch is CancellationError {
         } catch {
             drawing = nil
             problem = Why.said(error)

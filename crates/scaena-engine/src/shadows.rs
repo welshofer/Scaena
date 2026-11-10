@@ -111,15 +111,13 @@ impl Shadow {
             ..s
         };
         match (a, b) {
-            (Some(a), Some(b)) => {
-                let [ca, cb] = [a.color.0, b.color.0];
-                let mix = |k: usize| lerp(f32::from(ca[k]), f32::from(cb[k])).round() as u8;
-                Some(Shadow {
-                    offset: [lerp(a.offset[0], b.offset[0]), lerp(a.offset[1], b.offset[1])],
-                    blur: lerp(a.blur, b.blur),
-                    color: Color([mix(0), mix(1), mix(2), mix(3)]),
-                })
-            }
+            // Its color mixes in Oklab, as every other paint's does (SPEC §3.9; lift-up 20261031
+            // ATTR-4): a black shadow going tinted stays clear of grey on the way.
+            (Some(a), Some(b)) => Some(Shadow {
+                offset: [lerp(a.offset[0], b.offset[0]), lerp(a.offset[1], b.offset[1])],
+                blur: lerp(a.blur, b.blur),
+                color: crate::sample::mix(a.color, b.color, p),
+            }),
             (Some(a), None) => Some(fade(a, 1.0 - p)),
             (None, Some(b)) => Some(fade(b, p)),
             (None, None) => None,
@@ -175,6 +173,14 @@ mod tests {
         let mid = Shadow::between(Some(s), Some(raised), 0.5).unwrap();
         assert_eq!((mid.offset, mid.blur, mid.color.0[3]), ([0.0, 12.0], 16.0, 80));
         assert_eq!(Shadow::between(None, None, 0.5), None);
+        // A black shadow going blue mixes as a shape's paint does, in Oklab, not sRGB's halfway.
+        let blue = Shadow { color: Color([40, 60, 255, 96]), ..raised };
+        let mid = Shadow::between(Some(s), Some(blue), 0.5).unwrap();
+        assert_eq!(mid.color, crate::sample::mix(s.color, blue.color, 0.5));
+        assert_ne!(mid.color, Color([20, 30, 128, 80]), "not mixed in sRGB");
+        assert_eq!(mid.color.0[3], 80, "alpha mixes linearly");
+        assert_eq!(Shadow::between(Some(s), Some(blue), 0.0).unwrap().color, s.color);
+        assert_eq!(Shadow::between(Some(s), Some(blue), 1.0).unwrap().color, blue.color);
     }
 
     #[test]

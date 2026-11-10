@@ -51,11 +51,16 @@ pub enum Task {
         voice: Option<String>,
     },
     /// Notes for the speaker of a slide: from its words as it reads, a line for each part, and
-    /// the point its beat makes, where the spine gives one.
+    /// the point its beat makes, where the spine gives one; built on the notes it has where it has
+    /// some, and in the deck's voice where the brief says one (lift-up 10-25c FUNC-3).
     Notes {
         slide: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         claim: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        notes: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        voice: Option<String>,
     },
     /// What a finding of lint means for the slide, and what could be done.
     Explain(Explained),
@@ -219,7 +224,11 @@ impl Task {
                 ruled!(
                     "You draft speaker notes for one slide of a talk: what the speaker says while it \
                  shows, in two to four short sentences, in the slide's language, from the slide's \
-                 words and the point it makes. Write only the notes, with no heading."
+                 words and the point it makes. Where you are given the notes the speaker already \
+                 wrote, build on them: keep what they say, every number and name in them exactly as \
+                 written, and their order, and make them read as said aloud, adding what the slide \
+                 needs said. Where you are told the deck's voice, write in it. Write only the notes, \
+                 with no heading."
                 )
             }
             Task::Explain(_) => {
@@ -264,10 +273,16 @@ impl Task {
             Task::Rewrite { text, ask, claim, voice } => {
                 framed(text, ask.as_deref(), claim.as_deref(), voice.as_deref())
             }
-            Task::Notes { slide, claim } => {
+            Task::Notes { slide, claim, notes, voice } => {
                 let mut words = slide.clone();
-                if let Some(claim) = claim.as_deref().filter(|c| !c.trim().is_empty()) {
+                if let Some(claim) = said(claim.as_deref()) {
                     words.push_str(&format!("\nThe point it makes: {claim}"));
+                }
+                if let Some(notes) = said(notes.as_deref()) {
+                    words.push_str(&format!("\nThe speaker's notes so far:\n{notes}"));
+                }
+                if let Some(voice) = said(voice.as_deref()) {
+                    words.push_str(&format!("\nThe deck's voice: {voice}"));
                 }
                 format!("The slide reads:\n{}", fenced("slide", &words))
             }
@@ -572,7 +587,7 @@ mod tests {
         assert_eq!(tighten.taken("\"A headline\""), "A headline");
         let quoted = Task::Proofread { text: "“Ship it,” she said".into() };
         assert_eq!(quoted.taken("“Ship it,” she said."), "“Ship it,” she said.");
-        let notes = Task::Notes { slide: "Title: Q3".into(), claim: None };
+        let notes = Task::Notes { slide: "Title: Q3".into(), claim: None, notes: None, voice: None };
         assert_eq!(notes.taken("\"Q3 was good.\"\r\nThanks."), "\"Q3 was good.\"\nThanks.");
     }
 
@@ -695,11 +710,29 @@ mod tests {
 
     #[test]
     fn each_task_asks_in_its_own_words() {
-        let notes = Task::Notes { slide: "Title: Revenue doubled".into(), claim: Some("Growth is real".into()) };
+        let notes = Task::Notes {
+            slide: "Title: Revenue doubled".into(),
+            claim: Some("Growth is real".into()),
+            notes: None,
+            voice: None,
+        };
         assert_eq!(
             notes.prompt(),
             "The slide reads:\n<data label=\"slide\">\nTitle: Revenue doubled\nThe point it makes: Growth is real\n</data>"
         );
+        // The notes the slide has, and the deck's voice, inside the fence with its words: a draft
+        // builds on what the speaker wrote (lift-up 10-25c FUNC-3).
+        let built = Task::Notes {
+            slide: "Title: Revenue doubled".into(),
+            claim: None,
+            notes: Some("Thank Ana's team.\nRevenue: $4.2M".into()),
+            voice: Some("warm, plain".into()),
+        };
+        assert_eq!(
+            built.prompt(),
+            "The slide reads:\n<data label=\"slide\">\nTitle: Revenue doubled\nThe speaker's notes so far:\nThank Ana's team.\nRevenue: $4.2M\nThe deck's voice: warm, plain\n</data>"
+        );
+        assert!(built.instructions().contains("build on them"));
         let explain = Task::Explain(Explained {
             code: "E100".into(),
             severity: "error".into(),
@@ -735,7 +768,12 @@ mod tests {
                 claim: Some(hostile.into()),
                 voice: None,
             },
-            Task::Notes { slide: format!("Title: {hostile}"), claim: Some(hostile.into()) },
+            Task::Notes {
+                slide: format!("Title: {hostile}"),
+                claim: Some(hostile.into()),
+                notes: Some(hostile.into()),
+                voice: Some(hostile.into()),
+            },
             Task::Explain(Explained {
                 code: "E100".into(),
                 severity: "error".into(),

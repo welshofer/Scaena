@@ -43,6 +43,7 @@ pub const LABELS: &[(&str, &str)] = &[
     ("code/language", "Language"),
     ("code/numbers", "Line Numbers"),
     ("code/start", "First Line Number"),
+    ("code/focus", "Lines in Focus"),
     ("code/card", "Card"),
     ("opacity", "Opacity"),
     ("transform/rotate", "Rotation"),
@@ -342,6 +343,20 @@ pub fn weight(w: f64) -> String {
         Some((_, said)) => said.to_string(),
         None => number(w),
     }
+}
+
+/// A slide's planned intensity as a person says it (editor dogfood 3): each word from the least
+/// it says, 0 calm to 1 intense; a plan is said by the last whose least it reaches.
+pub const INTENSITIES: &[(f64, &str)] =
+    &[(0.0, "Calm"), (0.2, "Steady"), (0.4, "Building"), (0.6, "Intense"), (0.8, "Peak")];
+
+/// A slide's planned tone as a person says it (editor dogfood 3): each word from the least it
+/// says, -1 grave to 1 hopeful; a plan is said by the last whose least it reaches.
+pub const TONES: &[(f64, &str)] = &[(-1.0, "Grave"), (-0.6, "Sober"), (-0.2, "Even"), (0.2, "Warm"), (0.6, "Hopeful")];
+
+/// `value` said by `ladder`, [`INTENSITIES`] or [`TONES`]: the last word whose least it reaches.
+pub fn planned(ladder: &[(f64, &'static str)], value: f64) -> &'static str {
+    ladder.iter().rev().find(|(least, _)| value >= *least).or(ladder.first()).map_or("", |(_, said)| said)
 }
 
 /// A node's kind, as a person names it; none is an object.
@@ -892,7 +907,9 @@ pub struct FieldWords {
     /// The property as a presentation app labels it: `Font`, `Build In`, `Advance`.
     pub label: String,
     /// Each name or word offered, and the value and the theme's where they are one, said:
-    /// `onSurface` as `Text`, `fast` as `Fast (0.18 s)`, `cover` as `Fill`; a weight by its name.
+    /// `onSurface` as `Text`, `fast` as `Fast (0.18 s)`, `cover` as `Fill`; a weight by its name;
+    /// a code text's lines in focus by the value as JSON writes it, `[[2,4],7]`, as its gutter
+    /// numbers them, `2–4, 7` (PLAN 2.140).
     pub said: BTreeMap<String, String>,
     /// For a color, each of the theme's names offered, and the value and the theme's where they
     /// are one, as the color it is, `#rrggbb`: what a color well shows beside the name.
@@ -940,6 +957,13 @@ pub fn field(field: &Field, theme: &Theme) -> FieldWords {
             {
                 said.insert(s.clone(), say(s));
             }
+        }
+    }
+    // Lines in focus said as the gutter numbers them, by the value as JSON writes it (PLAN 2.140).
+    if let Takes::Lines { first, .. } = field.takes {
+        for value in shown.into_iter().flatten() {
+            let spans = crate::code::focus::spans(value);
+            said.insert(value.to_string(), crate::code::focus::said(&spans, first));
         }
     }
     // A color well shows the color each name is, and the value's and the theme's.
@@ -1111,6 +1135,11 @@ pub struct Lexicon {
     /// names a source by these wherever it offers one or speaks of it: Insert's charts and tables,
     /// the rows a mark is drawn from, the file a source reads.
     pub sources: BTreeMap<String, String>,
+    /// How a slide's planned intensity, 0 calm to 1 intense, and its tone, -1 grave to 1 hopeful,
+    /// are said, each word from the least it says ([`INTENSITIES`], [`TONES`]): what the Story tab
+    /// says a figure of health's in (editor dogfood 3).
+    pub intensities: Vec<(f64, String)>,
+    pub tones: Vec<(f64, String)>,
 }
 
 /// Every type of node, in the format's order.
@@ -1201,7 +1230,23 @@ pub fn lexicon(deck: &Deck, theme: &Theme, state: &str) -> Result<Lexicon, Strin
     for (name, data) in &deck.data {
         sources.insert(name.clone(), source(name, data.source.as_str()));
     }
-    Ok(Lexicon { objects, kinds, names, motions, splits, shapes, places, weights, types, issues, sources })
+    let ladder = |l: &[(f64, &str)]| l.iter().map(|(at, said)| (*at, said.to_string())).collect();
+    let (intensities, tones) = (ladder(INTENSITIES), ladder(TONES));
+    Ok(Lexicon {
+        objects,
+        kinds,
+        names,
+        motions,
+        splits,
+        shapes,
+        places,
+        weights,
+        types,
+        issues,
+        sources,
+        intensities,
+        tones,
+    })
 }
 
 #[cfg(test)]
@@ -1403,6 +1448,9 @@ mod tests {
         // tables of it, the rows a mark is drawn from, the file it reads.
         let said = lexicon(&deck, &theme, "revenue").unwrap();
         assert_eq!(said.sources, BTreeMap::from([("q3".to_string(), "Q3 Revenue".to_string())]));
+        // And how a plan's intensity and tone are said, as the Story tab says health's figures.
+        assert_eq!((said.intensities.len(), said.tones.len()), (INTENSITIES.len(), TONES.len()));
+        assert_eq!((said.intensities[4].1.as_str(), said.tones[0].1.as_str()), ("Peak", "Grave"));
     }
 
     /// A polygon of the shape library is named as Insert names it (PLAN 2.106), wherever an editor

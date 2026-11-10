@@ -7,8 +7,8 @@
 //!
 //! A slide is read as its spine tells it: its headline the beat's claim, its words what its last
 //! state shows (each item of a layout's set, or each item of a list, a point of its own), its
-//! notes the beat's and its states', and what the narrative declared of it the beat's
-//! `media.narrato`. Pure arithmetic over the deck: no layout, no call. What the words read is a
+//! notes as the presenter reads them (each state's own, else its beat's), and what the narrative
+//! declared of it the beat's `media.narrato`. Pure arithmetic over the deck: no layout, no call. What the words read is a
 //! designed prior, not a calibrated model, so each finding asks a person to look, and a gap
 //! between the words and the plan is the words' to close: the one fix offered is the beat a
 //! moved slide now serves.
@@ -36,7 +36,8 @@ pub struct Health {
     /// The arc the deck was written to (`meta.narrative.arc`), where it names one.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub arc: Option<String>,
-    /// The arc's beats, by name, in order; none for an arc the catalog does not name.
+    /// The deck's beats, by name, in order: its settled outline's where it has one, else its
+    /// arc's; none for an arc the catalog does not name and no outline.
     pub beats: Vec<String>,
     /// The slides against the count its brief asked for.
     pub pacing: Measure,
@@ -78,6 +79,10 @@ pub struct Read {
     /// The beat that tells it, where one does.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub beat: Option<String>,
+    /// The beat of the arc it was written for, by its place in [`Health::beats`], where it names
+    /// one the arc has: the band the graph draws it in (lift-up ATTR-4).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub part: Option<usize>,
     /// Its headline.
     pub title: String,
     /// Where the curve of the arc it was written to stands at its place, 0–1.
@@ -151,6 +156,9 @@ pub enum Kind {
     /// the one before, and is the first to cut. Or its beats' time runs short of, or past, the
     /// slot its brief's slides are given; this slide's beat runs shortest, or longest.
     Pacing,
+    /// A made deck links an address whose host neither its brief nor its sources name: where it
+    /// sends the room was the model's word alone (lift-up 20261025 SEC-4).
+    Link,
     /// A change the model asked once it saw the slide drawn was not kept, lint having found the
     /// slide worse for it (`meta.narrative.refused`, lift-up USE-4).
     Look,
@@ -317,9 +325,11 @@ fn readings(deck: &Deck, slides: &[Slide]) -> Result<(Vec<SlideForHealth>, Vec<u
                 None => lines.push((item, if item.is_some() { format!("\u{2022} {said}") } else { said.to_string() })),
             }
         }
+        // Its notes as the presenter reads them, each state's own else its beat's (SPEC §2.6), so
+        // what health judges is what the editor's Notes field shows (editor dogfood 3).
         let mut notes: Vec<&str> = Vec::new();
-        let written = beat.and_then(|b| b.notes.as_deref()).into_iter();
-        for note in written.chain(slide.states.iter().filter_map(|k| deck.states[*k].notes.as_deref())) {
+        let read = slide.states.iter().filter_map(|k| scaena_core::spine::notes(deck, &deck.states[*k].id));
+        for note in read {
             let note = note.trim();
             if !note.is_empty() && !notes.contains(&note) {
                 notes.push(note);
@@ -342,6 +352,22 @@ fn readings(deck: &Deck, slides: &[Slide]) -> Result<(Vec<SlideForHealth>, Vec<u
         most.push(points);
     }
     Ok((out, most))
+}
+
+/// A slide of a deck as its talk speaks it (lift-up 10-25 ATTR-2): its headline, the words it
+/// shows, and its notes, as health reads them; and the beat that tells it, by its place in the
+/// spine (section, beat), where one does.
+pub(crate) struct Told<'d> {
+    pub slide: SlideForHealth,
+    pub beat: Option<(usize, usize, &'d Beat)>,
+}
+
+/// Each slide of `deck` as its talk speaks it.
+pub(crate) fn told(deck: &Deck) -> Result<Vec<Told<'_>>, OpsError> {
+    let slides = slides(deck);
+    let (read, _) = readings(deck, &slides)?;
+    let told = slides.iter().filter(|s| !s.states.is_empty()).map(|s| s.beat);
+    Ok(read.into_iter().zip(told).map(|(slide, beat)| Told { slide, beat }).collect())
 }
 
 /// The slides whose beat breaks the order the deck's beats run in: each outside the longest run
@@ -415,6 +441,11 @@ fn range(lo: usize, hi: Option<usize>) -> String {
 /// `n` and the noun, plural but for one.
 fn counted(n: usize, noun: &str) -> String {
     format!("{n} {noun}{}", if n == 1 { "" } else { "s" })
+}
+
+/// A verb that agrees with `n` of something: "1 slide bends", "2 slides bend" (dogfood pass 9).
+fn agree<'a>(n: usize, one: &'a str, more: &'a str) -> &'a str {
+    if n == 1 { one } else { more }
 }
 
 /// A share of the scale, to two places: `0.35`.
@@ -511,11 +542,15 @@ fn talk(deck: &Deck, slides: &[Slide]) -> Option<(f64, Vec<Beaten>)> {
                     None if holds.iter().all(Option::is_some) => 0.0,
                     None => return None,
                 };
-                let noted = spoken(beat.notes.as_deref().unwrap_or_default())
-                    + (beat.states.iter())
-                        .filter_map(|s| state(s).and_then(|s| s.notes.as_deref()))
-                        .map(spoken)
-                        .sum::<f64>();
+                // Its notes as the presenter reads them, each once: each state's own, else the
+                // beat's (SPEC §2.6).
+                let mut read: Vec<&str> = Vec::new();
+                for note in beat.states.iter().filter_map(|s| scaena_core::spine::notes(deck, s)) {
+                    if !read.contains(&note) {
+                        read.push(note);
+                    }
+                }
+                let noted = read.into_iter().map(spoken).sum::<f64>();
                 let (own, by) = [(held, Timed::Held), (noted, Timed::Noted)]
                     .into_iter()
                     .fold((given, Timed::Given), |most, (t, by)| if t > most.0 { (t, by) } else { most });
@@ -615,12 +650,15 @@ const THANKS: [&str; 16] = [
 ];
 
 /// The first states of the deck's closing slides: the last run of slides in a closing layout,
-/// or headed with thanks or questions (ADR-0032 item 6).
+/// next steps, or questions, or headed with thanks or questions (ADR-0032 item 6).
 fn closing(deck: &Deck, slides: &[Slide], read: &[SlideForHealth]) -> Vec<String> {
     let closes = |i: usize| {
         let layout = slides[i].states.iter().find_map(|&k| deck.states[k].layout.as_deref());
         let title = read[i].title.trim().to_lowercase();
-        layout.is_some_and(|l| CLOSING.contains(&l)) || THANKS.iter().any(|t| title.starts_with(t))
+        // Next steps and the floor opened belong to a close too, before or after its last word
+        // (dogfood pass 9).
+        layout.is_some_and(|l| CLOSING.contains(&l) || matches!(l, "next-steps" | "qa"))
+            || THANKS.iter().any(|t| title.starts_with(t))
     };
     let n = read.len().min(slides.len());
     (0..n).rev().take_while(|&i| closes(i)).map(|i| read[i].id.clone()).collect()
@@ -647,6 +685,18 @@ fn bridges(before: &SlideForHealth, next: &SlideForHealth) -> bool {
     let carried: Vec<String> = words(before).difference(&words(next)).cloned().collect();
     let opened = health::coherence::keywords(opening(&next.notes));
     carried.iter().any(|w| opened.contains(w))
+}
+
+/// The host an address goes to, as a person would name it: an email's domain, or a web address's
+/// host without `www.`, in lower case.
+fn host(href: &str) -> Option<String> {
+    let rest = match href.strip_prefix("mailto:") {
+        Some(email) => email.rsplit_once('@')?.1,
+        None => href.strip_prefix("https://").or_else(|| href.strip_prefix("http://"))?,
+    };
+    let host = rest.split(['/', '?', '#', ':']).next()?.to_lowercase();
+    let host = host.strip_prefix("www.").unwrap_or(&host).to_string();
+    (!host.is_empty()).then_some(host)
 }
 
 /// The narrative health of `deck`, as its words and its plan read: [`health_in`] with nothing
@@ -697,7 +747,21 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
     // arc the deck was written to, where it names one, as that graph reads it; else against a
     // talk's curve, as Vzestup's score is.
     let curve = arc::curve(arc_name.as_deref(), n);
-    let beats: Vec<String> = arc::beat_names(arc_name.as_deref()).into_iter().map(str::to_string).collect();
+    // An outlined deck's beats are its outline's, each by the name the person settled, as its
+    // slides were written to them (`beatIndex`, `beatName`); else the arc's (lift-up 10-25b
+    // STAB-1). A beat moved, added, or taken away in the outline is the deck's, not the arc's.
+    let settled: Vec<String> = (narrative.and_then(|n| n.get("outline")).and_then(|o| o.get("beats")))
+        .and_then(Value::as_array)
+        .map(|beats| {
+            (beats.iter())
+                .map(|b| b.get("name").and_then(Value::as_str).unwrap_or_default().trim().to_string())
+                .collect()
+        })
+        .unwrap_or_default();
+    let beats: Vec<String> = match settled.is_empty() {
+        true => arc::beat_names(arc_name.as_deref()).into_iter().map(str::to_string).collect(),
+        false => settled,
+    };
     let beat_name = |k: usize| beats.get(k).cloned().unwrap_or_else(|| format!("beat {}", k + 1));
     let (fidelity_score, bends) = match &arc_name {
         Some(_) => {
@@ -796,7 +860,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         score: Some(fidelity_score as u32),
         says: match bends.len() {
             0 => format!("The intensity the slides declare follows {curve_of}."),
-            k => format!("{} bend the intensity away from {curve_of}.", counted(k, "slide")),
+            k => format!("{} {} the intensity away from {curve_of}.", counted(k, "slide"), agree(k, "bends", "bend")),
         },
     };
     // Slides that declare what `of` reads, and of those, the ones read: a deck whose words the
@@ -848,10 +912,17 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         _ => Measure {
             score: Some(r.score as u32),
             says: match unread {
-                0 => format!("{} read far from the {what} they declare.", counted(gaps, "slide")),
-                _ => format!(
-                    "{} read far from the {what} they declare; on {} the lexicons read none.",
+                0 => format!(
+                    "{} {} far from the {what} {}.",
                     counted(gaps, "slide"),
+                    agree(gaps, "reads", "read"),
+                    agree(gaps, "it declares", "they declare")
+                ),
+                _ => format!(
+                    "{} {} far from the {what} {}; on {} the lexicons read none.",
+                    counted(gaps, "slide"),
+                    agree(gaps, "reads", "read"),
+                    agree(gaps, "it declares", "they declare"),
                     counted(unread, "slide")
                 ),
             },
@@ -894,6 +965,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
             Read {
                 state: s.id.clone(),
                 beat,
+                part: meta.and_then(|m| m.beat_index).filter(|&k| k < beats.len()),
                 title: s.title.clone(),
                 curve: curve.get(i).copied().unwrap_or(0.5),
                 declared: meta.and_then(|m| m.expected_intensity).filter(|v| v.is_finite()).map(|v| v.clamp(0.0, 1.0)),
@@ -942,8 +1014,18 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
             );
         }
     }
+    // A turn out of an agenda is the agenda's own to make (dogfood pass 10): it names the parts
+    // to come, and the slide after it opens the first, sharing few words with a list of them.
+    let agenda = |i: usize| {
+        (slides.get(i).and_then(|s| s.states.first()))
+            .and_then(|&k| deck.states.get(k)?.layout.as_deref())
+            .is_some_and(|l| l == "agenda" || l.starts_with("agenda-"))
+    };
     for id in m.coherence.weak_transitions.iter().filter(|id| !bridged.contains(id)) {
         let Some(&i) = place.get(id.as_str()) else { continue };
+        if i > 0 && agenda(i - 1) {
+            continue;
+        }
         let (k, before) = (i + 1, i);
         find(
             id,
@@ -1030,12 +1112,12 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         };
         let ask = match hotter {
             true => format!(
-                "Plan slides {}\u{2013}{} calmer, so the talk builds as its arc does{later}.",
+                "Plan slides {}\u{2013}{} calmer by their Intensity, so the talk builds as its arc does{later}.",
                 first + 1,
                 last + 1
             ),
             false => format!(
-                "Plan slides {}\u{2013}{} more intense, so the talk carries what their places call for{later}.",
+                "Plan slides {}\u{2013}{} more intense by their Intensity, so the talk carries what their places call for{later}.",
                 first + 1,
                 last + 1
             ),
@@ -1062,7 +1144,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
                 (
                     format!("Slide {k} was planned {hotter} than its place in the talk."),
                     format!(
-                        "Slide {k} is planned at {at}, {than} its place in the story calls for ({calls}): plan it {way}, or move it {moved}."
+                        "Slide {k} is planned at {at}, {than} its place in the story calls for ({calls}): plan it {way} by its Intensity, or move it {moved}."
                     ),
                 )
             }
@@ -1089,7 +1171,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         // plan, and words that already do leave the plan to change (ADR-0032, item 4).
         let ask = match bent.get(g.slide_id.as_str()).map(|delta| g.declared - delta) {
             Some(calls) if (g.detected - calls).abs() <= INTENSITY_GAP_THRESHOLD => format!(
-                "Slide {k}'s words read {detected}, as its place in the story calls for ({}): it is its plan ({declared}) that strays, so plan it for its place, not the words.",
+                "Slide {k}'s words read {detected}, as its place in the story calls for ({}): it is its plan ({declared}) that strays, so set its Intensity for its place, not the words.",
                 level(calls)
             ),
             Some(calls) if g.detected < calls => format!(
@@ -1112,14 +1194,20 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         let Some(&i) = place.get(g.slide_id.as_str()) else { continue };
         let k = i + 1;
         let (declared, detected) = (signed(g.declared), signed(g.detected));
+        // The words the reading was made of (W1's dogfood 3): a writer warming a slide moves
+        // its tone only with words the lexicon reads, so the ask names them.
+        let heard = health::valence::heard(&read[i].text(), language).unwrap_or_default();
+        let named = toned(&heard);
         let (says, ask) = match g.gap > 0.0 {
             true => (
                 format!("Slide {k} reads graver than it was written to be."),
-                format!("Warm slide {k}'s words toward the tone it declares ({declared}); they read {detected}."),
+                format!(
+                    "Warm slide {k}'s words toward the tone it declares ({declared}); they read {detected}.{named}"
+                ),
             ),
             false => (
                 format!("Slide {k} reads more hopeful than it was written to be."),
-                format!("Ground slide {k}'s words in the tone it declares ({declared}); they read {detected}."),
+                format!("Ground slide {k}'s words in the tone it declares ({declared}); they read {detected}.{named}"),
             ),
         };
         // No fix: the plan's tone is the arc's, which the words are to carry, not follow.
@@ -1178,12 +1266,32 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         (Some(a), Some(b)) if a != b => format!("slides {}\u{2013}{}", a + 1, b + 1),
         _ => format!("slide {}", of[0] + 1),
     };
+    // A deck whose words no space sets apart is not read for its claims, and says so once, as
+    // intensity and tone say it (dogfood pass 11): its sentences would each read as one word.
+    let unspaced = spaceless(language);
+    if unspaced
+        && let Some(of) = (0..outlined.len()).map(of_beat).find(|of| !of.is_empty())
+        && outlined.iter().any(|(_, claim)| !claim.is_empty())
+    {
+        let name = language.and_then(language_named).unwrap_or_else(|| "a script set without spaces".to_string());
+        find(
+            &read[of[0]].id,
+            Severity::Info,
+            Kind::Claim,
+            format!(
+                "The slides are not read for the claims the outline settled: health reads words a space sets apart, and this deck is in {name}."
+            ),
+            "Read each part of the talk against the claim the outline settled for it: say whether its slides carry it, and what to change if not.".to_string(),
+            None,
+        );
+    }
     for (k, (name, claim)) in outlined.iter().enumerate() {
         let of = of_beat(k);
-        if claim.is_empty() || of.is_empty() || shares(claim, &of) != Some(false) {
+        if unspaced || claim.is_empty() || of.is_empty() || shares(claim, &of) != Some(false) {
             continue;
         }
         let part = if name.is_empty() { format!("beat {}", k + 1) } else { name.clone() };
+        let claim = unstopped(claim);
         let slides = spanned(&of);
         let (does, carry) = if of.len() > 1 { ("say", "they carry") } else { ("says", "it carries") };
         let mut said = slides.clone();
@@ -1200,16 +1308,56 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         );
     }
     if let Some(idea) = &big_idea {
-        let closing = (0..outlined.len()).rev().map(of_beat).find(|of| !of.is_empty());
-        if let Some(of) = closing.filter(|of| shares(idea, of) == Some(false)) {
+        // The close is the deck's last run of closing slides, as the calm close reads it, with the
+        // slide just before it, where a talk lands its idea before the thanks (its thesis, its ask,
+        // its steps); else its last slide. A beat that ends the deck may begin well before its
+        // close, and a word or two of the idea a slide says in passing lands nothing (W1's dogfood 3).
+        let last = read.len().checked_sub(1);
+        let mut run: Vec<usize> = (0..read.len()).filter(|&i| closing.contains(&read[i].id)).collect();
+        if let Some(&first) = run.first()
+            && first > 0
+        {
+            run.insert(0, first - 1);
+        }
+        let closes = (!run.is_empty()).then_some(run).or_else(|| last.map(|l| vec![l]));
+        let lands = |of: &[usize]| -> Option<bool> {
+            let idea = telling_words(idea);
+            if idea.is_empty() {
+                return None;
+            }
+            let said: Vec<String> = of.iter().map(|&i| format!("{} {}", read[i].title, read[i].body)).collect();
+            let said = content_words(&said.join(" "));
+            let told = idea.intersection(&said).count();
+            Some(told * LANDED.1 >= idea.len() * LANDED.0 || told >= LANDED_WORDS)
+        };
+        // The telling words are English's, as the lexicons are: a close in another language is
+        // not read for the big idea, and says so, rather than passing or failing on words split
+        // where its letters leave ASCII ("schließt") and joining words counted as telling.
+        let named = language.filter(|_| !english).map(|l| language_named(l).unwrap_or_else(|| l.to_string()));
+        let quoted = unstopped(idea);
+        if let (Some(name), Some(of)) = (named, closes.as_ref()) {
+            let slides = spanned(of);
+            find(
+                &read[of[0]].id,
+                Severity::Info,
+                Kind::BigIdea,
+                format!(
+                    "The close, {slides}, is not read for the big idea: health reads it only in English, and this deck is in {name}."
+                ),
+                format!(
+                    "The big idea is \u{201c}{quoted}\u{201d}. Read the closing {slides} against it: say whether they land it, and what to change if not."
+                ),
+                None,
+            );
+        } else if let Some(of) = closes.filter(|of| lands(of) == Some(false)) {
             let slides = spanned(&of);
             find(
                 &read[of[0]].id,
                 Severity::Warning,
                 Kind::BigIdea,
-                format!("The close, {slides}, never lands the big idea: \u{201c}{idea}\u{201d}"),
+                format!("The close, {slides}, never lands the big idea: \u{201c}{quoted}\u{201d}"),
                 format!(
-                    "The big idea is \u{201c}{idea}\u{201d}. Rewrite the closing {slides} so the talk ends by landing it."
+                    "The big idea is \u{201c}{quoted}\u{201d}. Rewrite the closing {slides} so the talk ends by landing it."
                 ),
                 None,
             );
@@ -1259,12 +1407,23 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         let points = most.get(i).copied().unwrap_or(0);
         let words = s.body.split_whitespace().count();
         if points > DENSE_POINTS {
+            // Where tightening this slide would take the points the deck's slides make on
+            // average under balance's floor, the ask says the trade and how to keep it: balance
+            // and its floor are Vzestup's (ADR-0032), so the ask, not the score, is Scaena's to
+            // set (W1's dogfood 4).
+            let ask = match thin_after_cut(&read, i, &closing) {
+                Some(thin) => format!(
+                    "Tighten slide {k} to the {DENSE_POINTS} points that matter most, and keep what you cut in its notes to say aloud. Cutting alone lowers the deck's balance, since the deck's other slides that list points list few: give {} a point more as you tighten it.",
+                    slide_list(&thin),
+                ),
+                None => format!("Tighten slide {k} to the {DENSE_POINTS} points that matter most, or split it in two."),
+            };
             find(
                 &s.id,
                 Severity::Warning,
                 Kind::Dense,
                 format!("Slide {k} makes {points} points in one place, more than a room takes in."),
-                format!("Tighten slide {k} to the {DENSE_POINTS} points that matter most, or split it in two."),
+                ask,
                 None,
             );
         } else if words > DENSE_WORDS {
@@ -1326,6 +1485,33 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
                     None,
                 );
             }
+        }
+    }
+    // An address a made deck links that neither its brief nor its sources name (lift-up 20261025
+    // SEC-4). A deck no narrative made is the person's own, its links theirs.
+    if let Some(narrative) = narrative {
+        let named = (narrative.get("brief").map(Value::to_string).into_iter())
+            .chain(narrative.get("sources").map(Value::to_string))
+            .collect::<String>()
+            .to_lowercase();
+        for link in crate::narrative::links(deck) {
+            let Some(host) = host(&link.href) else { continue };
+            let Some(slide) = read.get(link.slide - 1) else { continue };
+            if named.contains(&host) {
+                continue;
+            }
+            let k = link.slide;
+            let shown = link.href.trim_start_matches("mailto:").trim_start_matches("https://");
+            find(
+                &slide.id,
+                Severity::Warning,
+                Kind::Link,
+                format!("Slide {k} links {shown}, which neither the brief nor the sources name."),
+                format!(
+                    "Check where slide {k}'s link to {shown} goes, and keep it only if it is the address you mean."
+                ),
+                None,
+            );
         }
     }
     // A talk that runs short of the slot its slides are given, or past it, found on its shortest
@@ -1411,20 +1597,28 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         );
     }
     // Each change the model asked once it saw the deck drawn that was let go, and why (lift-up
-    // USE-4): what the person may try again, by hand or with the assistant.
+    // USE-4): what the person may try again, by hand or with the assistant, or dismiss. Its fix
+    // takes its record away, held to the record as read, so a fix gone stale once another took a
+    // record before it is refused, not another record taken; on a slide with several, the
+    // highest first, so each taken in the order given finds its own.
     let refused = narrative.and_then(|n| n.get("refused")).and_then(Value::as_array).into_iter().flatten();
-    for r in refused {
+    for (i, r) in refused.enumerate().collect::<Vec<_>>().into_iter().rev() {
         let text = |key: &str| r.get(key).and_then(Value::as_str).unwrap_or_default();
         let Some(k) = r.get("slide").and_then(Value::as_u64).map(|k| k as usize) else { continue };
         let Some(slide) = k.checked_sub(1).and_then(|i| slides.get(i)) else { continue };
         let (what, why) = (text("what"), text("why"));
+        let path = format!("/meta/narrative/refused/{i}");
+        let fix = Fix {
+            says: "Dismiss it".into(),
+            patch: vec![json!({ "op": "test", "path": path, "value": r }), json!({ "op": "remove", "path": path })],
+        };
         find(
             &deck.states[slide.states[0]].id,
             Severity::Info,
             Kind::Look,
             format!("Slide {k} was kept as made: the model asked for {what}, and lint found it worse for that. {why}"),
             format!("The model asked slide {k} for {what}. Make that change without what lint found it caused: {why}"),
-            None,
+            Some(fix),
         );
     }
     // A slide that does not stand first, then in the order the slides stand, and on each slide in
@@ -1454,13 +1648,144 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
     })
 }
 
-/// The words of `text` that coherence reads a slide by: lowercased, past three letters, Latin
-/// letters and figures alone, as `scaena_narrato::health::coherence::keyword_overlap` splits them.
+/// The words of `text` Scaena's own checks read it by, the claim's and the big idea's: lowercased,
+/// split at whatever is not a letter or a figure of any script, each more than three characters
+/// long with a letter in it, so "coûtera" and "émissions" stay whole and a year alone is no word,
+/// and none of a script that sets no spaces between its words ([`unspaced`]) (dogfood pass 11). Vzestup's coherence splits its own way, ASCII alone
+/// (`scaena_narrato::health::coherence::keywords`), its figures Vzestup's (ADR-0032).
 fn content_words(text: &str) -> std::collections::BTreeSet<String> {
-    (text.to_lowercase().split(|c: char| !c.is_ascii_lowercase() && !c.is_ascii_digit()))
-        .filter(|w| w.len() > 3)
+    (text.to_lowercase().split(|c: char| !c.is_alphanumeric()))
+        .filter(|w| w.chars().count() > 3 && w.chars().any(char::is_alphabetic) && !w.chars().any(unspaced))
         .map(str::to_string)
         .collect()
+}
+
+/// `sentence` as a finding quotes it in the middle of one of its own: without its closing stop, so
+/// the sentence after the quote reads "…already are”. Rewrite", never "…already are.”. Rewrite"
+/// (W1's dogfood 3 and 4). A question or an exclamation keeps its mark, which says how it reads.
+fn unstopped(sentence: &str) -> &str {
+    sentence.trim_end().trim_end_matches('.').trim_end()
+}
+
+/// The most words a tone ask names on either side.
+const TONED: usize = 4;
+
+/// The words a tone was read from, as a sentence a tone ask ends with: those read as grave, the
+/// gravest first, and those read as hopeful, each at most [`TONED`] and named once, and which side
+/// reads none ("Health reads “missed” and “outage” as grave, and no word as hopeful."). Nothing
+/// where no word was read.
+fn toned(heard: &[(String, f64)]) -> String {
+    let side = |grave: bool| -> Vec<String> {
+        let mut words: Vec<&(String, f64)> = heard.iter().filter(|(_, w)| (*w < 0.0) == grave && *w != 0.0).collect();
+        // Weightiest first; the sort is stable, so a tie keeps the order the words stand in.
+        scaena_core::sort::by(&mut words, |a, b| b.1.abs().total_cmp(&a.1.abs()));
+        let mut out: Vec<String> = Vec::new();
+        for (w, _) in words {
+            let quoted = format!("\u{201c}{w}\u{201d}");
+            if !out.contains(&quoted) && out.len() < TONED {
+                out.push(quoted);
+            }
+        }
+        out
+    };
+    let list = |ws: &[String]| match ws {
+        [] => String::new(),
+        [one] => one.clone(),
+        [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
+    };
+    let (grave, hopeful) = (side(true), side(false));
+    match (grave.is_empty(), hopeful.is_empty()) {
+        (true, true) => String::new(),
+        (false, true) => format!(" Health reads {} as grave, and no word as hopeful.", list(&grave)),
+        (true, false) => format!(" Health reads {} as hopeful, and no word as grave.", list(&hopeful)),
+        (false, false) => format!(" Health reads {} as grave, and {} as hopeful.", list(&grave), list(&hopeful)),
+    }
+}
+
+/// A letter of a script that sets no space between its words, Han, kana, Hangul, or Thai: a
+/// run of them is a phrase or a sentence, not a word, so a check that reads words reads none.
+fn unspaced(c: char) -> bool {
+    matches!(u32::from(c),
+        0x0E00..=0x0E7F | 0x1100..=0x11FF | 0x3040..=0x30FF | 0x3130..=0x318F | 0x31F0..=0x31FF
+        | 0x3400..=0x4DBF | 0x4E00..=0x9FFF | 0xAC00..=0xD7AF | 0xF900..=0xFAFF | 0xFF66..=0xFF9F
+        | 0x20000..=0x2FFFF)
+}
+
+/// Whether `language` is one whose words no space sets apart, as health reads them: Chinese,
+/// Japanese, or Korean, by its tag or its English name. Its sentences read as one word each, so
+/// a check that reads words reads nothing there.
+fn spaceless(language: Option<&str>) -> bool {
+    let Some(name) = language.map(str::trim).filter(|l| !l.is_empty()) else { return false };
+    let name = name.to_lowercase();
+    let head = name.split(['-', '_', ' ']).next().unwrap_or_default();
+    matches!(head, "ja" | "jpn" | "japanese" | "zh" | "zho" | "chi" | "chinese" | "ko" | "kor" | "korean")
+}
+
+/// The fewest points the slides that make several make on average before balance marks a deck
+/// down: Vzestup's floor, `metrics`' "Add more bullets to thin slides" (ADR-0032).
+const FLOOR_POINTS: f64 = 2.0;
+
+/// The bullet lines balance counts on a slide: those its body sets as a list's items.
+fn bullets(s: &SlideForHealth) -> usize {
+    s.body.split('\n').map(str::trim).filter(|l| l.starts_with('\u{2022}') || l.starts_with('-')).count()
+}
+
+/// Where cutting slide `i` to [`DENSE_POINTS`] would take the points the deck's slides make on
+/// average from the floor or above to under it, as balance counts them (the slides read that are
+/// not one idea by design), the other such slides a point more on keeps it, by place: the content
+/// slides among them, never the cover or the close, which make no points by design, though
+/// balance counts them. None where the cut keeps the average, it was under already, or no
+/// content slide but `i` counts.
+fn thin_after_cut(read: &[SlideForHealth], i: usize, closing: &[String]) -> Option<Vec<usize>> {
+    let counted: Vec<usize> = (0..read.len()).filter(|&j| read[j].eligible() && !read[j].one_idea).collect();
+    if !counted.contains(&i) {
+        return None;
+    }
+    let total: usize = counted.iter().map(|&j| bullets(&read[j])).sum();
+    let cut = bullets(&read[i]).saturating_sub(DENSE_POINTS);
+    let average = |total: usize| total as f64 / counted.len() as f64;
+    if cut == 0 || average(total) < FLOOR_POINTS || average(total - cut) >= FLOOR_POINTS {
+        return None;
+    }
+    let thin: Vec<usize> = counted.into_iter().filter(|&j| j != i && j > 0 && !closing.contains(&read[j].id)).collect();
+    (!thin.is_empty()).then_some(thin)
+}
+
+/// Slides by place as a sentence names them: "slide 4", "slides 1 and 10", "slides 1, 4 and 10".
+fn slide_list(at: &[usize]) -> String {
+    let named: Vec<String> = at.iter().map(|i| (i + 1).to_string()).collect();
+    match named.as_slice() {
+        [one] => format!("slide {one}"),
+        [rest @ .., last] => format!("slides {} and {last}", rest.join(", ")),
+        [] => String::new(),
+    }
+}
+
+/// The share of the big idea's telling words a close must say to land it, as a fraction: half,
+/// or [`LANDED_WORDS`] of a long one's (W1's dogfood 3). Two of a long idea's words a close says
+/// in passing ("people", "already") are not it said.
+const LANDED: (usize, usize) = (1, 2);
+
+/// The telling words of a big idea a close that says this many of them lands, however long it is.
+const LANDED_WORDS: usize = 3;
+
+/// Words of more than three letters a sentence holds that say nothing of what it is about, in
+/// English: those that join its parts, and those any talk uses.
+const COMMON: [&str; 105] = [
+    "about", "after", "again", "against", "also", "already", "always", "among", "another", "anyone", "around", "back",
+    "because", "been", "before", "being", "best", "better", "between", "both", "come", "comes", "could", "does",
+    "doing", "done", "down", "during", "each", "even", "ever", "every", "find", "first", "from", "gets", "give",
+    "going", "good", "great", "have", "having", "here", "into", "just", "keep", "know", "last", "less", "like", "long",
+    "made", "make", "makes", "many", "more", "most", "much", "must", "need", "needs", "never", "next", "only", "other",
+    "over", "people", "really", "same", "should", "some", "start", "still", "stop", "such", "take", "than", "that",
+    "their", "them", "then", "there", "these", "they", "thing", "things", "this", "those", "through", "time", "very",
+    "want", "well", "were", "what", "when", "where", "which", "while", "will", "with", "would", "year", "years",
+    "your",
+];
+
+/// The words of more than three letters a big idea is about: `content_words` less [`COMMON`].
+fn telling_words(text: &str) -> std::collections::BTreeSet<String> {
+    content_words(text).into_iter().filter(|w| !COMMON.contains(&w.as_str())).collect()
 }
 
 #[cfg(test)]
@@ -1503,6 +1828,55 @@ mod tests {
 
     fn of(deck: &Value) -> Health {
         health(&Deck::from_value(deck).unwrap()).unwrap()
+    }
+
+    /// A made deck that links an address neither its brief nor its sources name is warned of it,
+    /// on the slide that shows it; one its brief or its sources name is not, nor a deck no
+    /// narrative made (lift-up 20261025 SEC-4).
+    #[test]
+    fn a_link_neither_the_brief_nor_the_sources_name_is_a_warning() {
+        let mut deck = climate();
+        let states = deck["states"].as_array().unwrap();
+        let k = states.len();
+        let last = states[k - 1]["props"].as_object().unwrap().keys().cloned().collect::<Vec<_>>();
+        let id = last.iter().find(|id| deck["nodes"][id.as_str()]["text"].is_string()).unwrap().clone();
+        let node = deck["nodes"][id.as_str()].as_object_mut().unwrap();
+        node.remove("text");
+        node.insert(
+            "runs".into(),
+            json!([
+                { "text": "Read " },
+                { "text": "portalderpower.org/playbook", "link": { "href": "https://portalderpower.org/playbook" } },
+                { "text": " or write to " },
+                { "text": "team@Tidewater.io", "link": { "href": "mailto:team@Tidewater.io" } },
+            ]),
+        );
+        let said = |deck: &Value| -> Vec<(usize, String)> {
+            (of(deck).findings.into_iter()).filter(|f| f.kind == Kind::Link).map(|f| (f.slide, f.says)).collect()
+        };
+        let n = of(&deck).slides.len();
+        assert_eq!(
+            said(&deck),
+            [
+                (
+                    n,
+                    format!(
+                        "Slide {n} links portalderpower.org/playbook, which neither the brief nor the sources name."
+                    )
+                ),
+                (n, format!("Slide {n} links team@Tidewater.io, which neither the brief nor the sources name.")),
+            ]
+        );
+        // Named in the brief, or among the sources, an address is the person's own.
+        deck["meta"]["narrative"]["brief"]["topic"] = json!("Climate, with the playbook at www.PortalDerPower.org");
+        deck["meta"]["narrative"]["sources"] = json!([{ "name": "notes.md", "kind": "markdown", "url": "https://tidewater.io/notes", "bytes": 1, "truncated": false }]);
+        assert_eq!(said(&deck), []);
+        deck["meta"]["narrative"]["brief"]["topic"] = json!("Climate");
+        deck["meta"].as_object_mut().unwrap().remove("narrative");
+        assert_eq!(said(&deck), []);
+        assert_eq!(host("https://www.Example.org:8443/a?b"), Some("example.org".into()));
+        assert_eq!(host("mailto:a@b.io"), Some("b.io".into()));
+        assert_eq!(host("ftp://x"), None);
     }
 
     /// Every beat of `deck` given `seconds`.
@@ -1627,6 +2001,58 @@ mod tests {
         *deck.pointer_mut(&format!("{beat}/media/narrato/intensity")).unwrap() = json!(intensity);
     }
 
+    /// What the model's look let go is a finding each, which its fix dismisses (lift-up USE-4):
+    /// the record taken away, held to it as read, the highest first; the deck then says nothing
+    /// of it, and a fix gone stale is refused.
+    #[test]
+    fn what_the_look_let_go_is_dismissed_by_its_fix() {
+        let mut deck = climate();
+        let refused = json!([
+            { "slide": 2, "what": "a shorter title", "why": "Its text runs past its place." },
+            { "slide": 3, "what": "another layout", "why": "Two texts overlap." }
+        ]);
+        deck.pointer_mut("/meta/narrative").unwrap()["refused"] = refused.clone();
+        let looks =
+            |deck: &Value| -> Vec<Finding> { of(deck).findings.into_iter().filter(|f| f.kind == Kind::Look).collect() };
+        let found = looks(&deck);
+        assert_eq!(found.iter().map(|f| f.slide).collect::<Vec<_>>(), [2, 3]);
+        let fix = |f: &Finding| f.fix.clone().expect("a fix").patch;
+        assert_eq!(found[0].fix.as_ref().unwrap().says, "Dismiss it");
+        assert_eq!(
+            fix(&found[1]),
+            [
+                json!({ "op": "test", "path": "/meta/narrative/refused/1", "value": refused[1] }),
+                json!({ "op": "remove", "path": "/meta/narrative/refused/1" })
+            ]
+        );
+        // Each taken in turn, as the slides give them: the other still finds its own record.
+        let apply = |deck: &mut Value, patch: &[Value]| -> bool {
+            let mut was = deck.clone();
+            for op in patch {
+                let path = op["path"].as_str().unwrap();
+                match op["op"].as_str().unwrap() {
+                    "test" if was.pointer(path) != Some(&op["value"]) => return false,
+                    "remove" => {
+                        let (parent, at) = path.rsplit_once('/').unwrap();
+                        was.pointer_mut(parent).unwrap().as_array_mut().unwrap().remove(at.parse().unwrap());
+                    }
+                    _ => {}
+                }
+            }
+            *deck = was;
+            true
+        };
+        let stale = fix(&found[1]);
+        assert!(apply(&mut deck, &fix(&found[0])), "the first slide's dismissed");
+        assert_eq!(looks(&deck).iter().map(|f| f.slide).collect::<Vec<_>>(), [3]);
+        let now = fix(&looks(&deck)[0]);
+        assert_eq!(now[1]["path"], "/meta/narrative/refused/0", "read again, the record left is the first");
+        assert!(apply(&mut deck, &now));
+        assert!(looks(&deck).is_empty());
+        assert_eq!(deck["meta"]["narrative"]["refused"], json!([]));
+        assert!(!apply(&mut deck, &stale), "a fix gone stale is refused");
+    }
+
     /// A turn the notes bridge is not found (narrative dogfood H4): coherence reads a slide's
     /// headline and body, so the finding asks for the line that carries the talk over in the
     /// next slide's notes, and notes that open by carrying a word of the slide before across,
@@ -1672,6 +2098,73 @@ mod tests {
             let h = noted(&mut deck, format!("{shared} again, and onward."));
             assert!(found(&h), "a word both slides use carries nothing over");
         }
+    }
+
+    /// The notes health reads are those a presenter reads (editor dogfood 3): a made deck keeps
+    /// each slide's on its beat, which the editor's Notes field shows and `set_state` writes, so a
+    /// bridge typed into the field opens what the presenter reads and answers the turn; the state
+    /// keeps no notes of its own. A state's own notes are read in place of its beat's, as the
+    /// presenter reads them.
+    #[test]
+    fn a_bridge_written_in_the_notes_field_answers_the_turn() {
+        struct NoFiles;
+        impl scaena_core::validate::BundleFiles for NoFiles {
+            fn exists(&self, _: &str) -> bool {
+                true
+            }
+            fn read_text(&self, _: &str) -> Option<String> {
+                None
+            }
+        }
+        let deck = climate();
+        let before = of(&deck);
+        let turn = before.findings.iter().find(|f| f.kind == Kind::Turn).expect("a turn its words do not make").clone();
+        let k = turn.slide;
+        let d = Deck::from_value(&deck).unwrap();
+        let read = readings(&d, &slides(&d)).unwrap().0;
+        let words = |s: &SlideForHealth| health::coherence::keywords(&format!("{} {}", s.title, s.body));
+        let carried = words(&read[k - 2]).difference(&words(&read[k - 1])).next().cloned().expect("a word before");
+        // What the Notes field shows: the beat's, which the presenter reads.
+        let shown = scaena_core::spine::notes(&d, &turn.state).unwrap().to_string();
+        assert!(!shown.is_empty() && d.states.iter().find(|s| s.id == turn.state).unwrap().notes.is_none());
+        let bridged = format!("From {carried} we turn to what comes next.\n{shown}");
+        let op = json!({ "op": "set_state", "id": turn.state, "prop": "notes", "value": bridged });
+        let made = scaena_core::patch::compile(&deck, &[op], &NoFiles).unwrap().doc;
+        let m = Deck::from_value(&made).unwrap();
+        assert_eq!(scaena_core::spine::notes(&m, &turn.state), Some(bridged.as_str()), "the presenter reads it");
+        assert!(m.states.iter().find(|s| s.id == turn.state).unwrap().notes.is_none(), "written on the beat");
+        let h = of(&made);
+        assert!(!h.findings.iter().any(|f| f.kind == Kind::Turn && f.state == turn.state), "{:#?}", h.findings);
+
+        // A state's own notes are read in place of its beat's, as the presenter reads them.
+        let mut own = deck.clone();
+        let at = own["states"].as_array().unwrap().iter().position(|s| s["id"] == turn.state.as_str()).unwrap();
+        own["states"][at]["notes"] = json!(format!("From {carried} onward."));
+        let beat = beat_of(&own, &turn.state);
+        own.pointer_mut(&beat).unwrap()["notes"] = json!("We turn to what comes next.");
+        let h = of(&own);
+        assert!(!h.findings.iter().any(|f| f.kind == Kind::Turn && f.state == turn.state), "{:#?}", h.findings);
+    }
+
+    /// A turn out of an agenda is not found (dogfood pass 10): the agenda names the parts to
+    /// come, and the slide after it opens the first, sharing few words with a list of them. The
+    /// same turn out of any other slide is.
+    #[test]
+    fn a_turn_out_of_an_agenda_is_not_found() {
+        let mut deck = climate();
+        let before = of(&deck);
+        let turn = before.findings.iter().find(|f| f.kind == Kind::Turn).expect("a turn its words do not make").clone();
+        let d = Deck::from_value(&deck).unwrap();
+        let first = slides(&d)[turn.slide - 2].states[0];
+        let found = |h: &Health| h.findings.iter().any(|f| f.kind == Kind::Turn && f.state == turn.state);
+        assert!(found(&before));
+        deck["states"][first]["layout"] = json!("agenda");
+        let h = of(&deck);
+        assert!(!found(&h), "{:#?}", h.findings);
+        deck["states"][first]["layout"] = json!("agenda-photo");
+        assert!(!found(&of(&deck)));
+        deck["states"][first]["layout"] = json!("bullets");
+        assert!(found(&of(&deck)), "a turn out of a slide that lists no parts to come");
     }
 
     /// One pattern, one finding (narrative dogfood H5): three or more neighbouring slides planned
@@ -1807,6 +2300,222 @@ mod tests {
         assert!(paced[0].slide > 1 && paced[0].slide < 25);
     }
 
+    /// The close is the slides that end the deck (W2's dogfood): where a model wrote the slides'
+    /// beats otherwise than the outline, and the last outlined beat's slides stand before the end,
+    /// the big idea's finding names the deck's last run of closing slides, not that beat's.
+    #[test]
+    fn the_close_is_the_slides_that_end_the_deck() {
+        let mut deck = climate();
+        let h = of(&deck);
+        let n = h.slides.len();
+        let written: Vec<usize> = (h.slides.iter())
+            .map(|s| {
+                let at = format!("{}/media/narrato/beatIndex", beat_of(&deck, &s.state));
+                deck.pointer(&at).and_then(Value::as_u64).unwrap() as usize
+            })
+            .collect();
+        let last_beat = h.beats.len() - 1;
+        let beats: Vec<Value> =
+            (h.beats.iter()).map(|name| json!({ "name": name, "claim": "", "slides": 1 })).collect();
+        deck["meta"]["narrative"]["outline"] =
+            json!({ "bigIdea": "Zebras orchestrate symphonies underwater", "beats": beats });
+        // Each slide of the last beat but the first moved to the first beat: the last beat's slides
+        // now stand before the end.
+        let of_last: Vec<usize> = (0..n).filter(|&i| written[i] == last_beat).collect();
+        assert!(of_last.contains(&(n - 1)), "the climate deck's last beat ends it");
+        for &i in &of_last[1..] {
+            let at = format!("{}/media/narrato/beatIndex", beat_of(&deck, &h.slides[i].state));
+            *deck.pointer_mut(&at).unwrap() = json!(0);
+        }
+        let found = of(&deck);
+        let big = found.findings.iter().find(|f| f.kind == Kind::BigIdea).expect("the big idea is not landed");
+        // The deck's last run of closing slides, Questions then Closing, ends at its last slide.
+        assert!(
+            big.says.starts_with(&format!("The close, slides {}\u{2013}{n}, never lands", big.slide)),
+            "{}",
+            big.says
+        );
+        assert_ne!(big.slide, of_last[0] + 1, "not the last outlined beat's first slide, which stands before the end");
+    }
+
+    /// A dogfood deck (`tests/fixtures/dogfood`) as its writer wrote it, its slides first changed
+    /// by `change`, made in Dusk, and its outline the arc's beats as its slides name them, no
+    /// claim settled, and `big_idea`.
+    fn dogfood(name: &str, big_idea: &str, change: impl FnOnce(&mut Vec<answer::Slide>)) -> Value {
+        let path = root().join(format!("tests/fixtures/dogfood/{name}.slides.json"));
+        let mut written = answer::slides(&std::fs::read_to_string(path).unwrap()).unwrap();
+        change(&mut written.slides);
+        let mut names: Vec<String> = Vec::new();
+        for s in &written.slides {
+            let k = s.beat_index.unwrap_or_default();
+            if names.len() <= k {
+                names.resize(k + 1, String::new());
+            }
+            names[k] = s.beat_name.clone().unwrap_or_default();
+        }
+        let narrative = Narrative {
+            arc: "Hero's Journey".into(),
+            arc_reasoning: String::new(),
+            executive_summary: written.executive_summary,
+            slides: written.slides,
+            truncated: false,
+            icons: Default::default(),
+            sources: Vec::new(),
+            outline: None,
+            brief: Brief { topic: name.into(), length: "11-15 slides".into(), ..Brief::default() },
+        };
+        let dusk = std::fs::read_to_string(root().join("docs/examples/themes/dusk.theme.json")).unwrap();
+        let theme: Theme = serde_json::from_str(&dusk).unwrap();
+        let mut deck = deck(&narrative, &theme, &Pictures::new()).unwrap().deck;
+        let beats: Vec<Value> = names.iter().map(|n| json!({ "name": n, "claim": "", "slides": 1 })).collect();
+        deck["meta"]["narrative"]["outline"] = json!({ "bigIdea": big_idea, "beats": beats });
+        deck
+    }
+
+    /// A dense slide's ask names what cutting costs where balance would pay for it (W1's dogfood
+    /// 4): on the fleet pitch, the slides balance counts list 2 points on average, at its floor, so
+    /// cutting slide 9's six bars to five lowers the score. The ask says so, and names slide 4 to
+    /// give a point more; following it, the cut and the point, keeps the score. Balance's floor
+    /// is Vzestup's, unchanged.
+    #[test]
+    fn a_dense_ask_names_what_a_cut_costs_and_how_to_keep_it() {
+        let h = of(&dogfood("fleet", "", |_| {}));
+        let dense = h.findings.iter().find(|f| f.kind == Kind::Dense).expect("slide 9 makes six points");
+        assert_eq!(dense.slide, 9, "{dense:?}");
+        assert!(
+            dense
+                .ask
+                .starts_with("Tighten slide 9 to the 5 points that matter most, and keep what you cut in its notes"),
+            "{}",
+            dense.ask
+        );
+        assert!(
+            dense.ask.contains("Cutting alone lowers the deck's balance")
+                && dense.ask.ends_with("give slide 4 a point more as you tighten it."),
+            "{}",
+            dense.ask
+        );
+        // Cut alone, as the ask before said to: the score falls.
+        let cut = |slides: &mut Vec<answer::Slide>| slides[8].key_bullets.truncate(5);
+        let tightened = of(&dogfood("fleet", "", cut));
+        assert!(tightened.score < h.score, "{} then {}", h.score, tightened.score);
+        // Cut, and a point more on slide 4, as the ask says now: the score holds.
+        let followed = |slides: &mut Vec<answer::Slide>| {
+            cut(slides);
+            slides[3].key_bullets.push("Dispatch software: priced for a hundred trucks".into());
+        };
+        let kept = of(&dogfood("fleet", "", followed));
+        assert!(kept.score >= h.score, "{} then {}", h.score, kept.score);
+        assert!(!kept.findings.iter().any(|f| f.kind == Kind::Dense), "{:?}", kept.findings);
+    }
+
+    /// A tone ask names the words the tone was read from (W1's dogfood 3): the keynote's eighth
+    /// slide, hopeful by plan, reads graver for its outages; its headline warmed with "love" and
+    /// "missed" reads graver still, since the lexicon reads "missed" as grave and not "love".
+    /// The ask says so, and the reading is the same as before it named them.
+    #[test]
+    fn a_tone_ask_names_the_words_the_tone_was_read_from() {
+        let warmed = |slides: &mut Vec<answer::Slide>| {
+            slides[7].slide_title = "We love the harbor we almost missed".into();
+        };
+        let h = of(&dogfood("keynote", "", warmed));
+        let tone = h.findings.iter().find(|f| f.kind == Kind::Tone && f.slide == 8).expect("slide 8 reads graver");
+        assert!(tone.ask.starts_with("Warm slide 8's words toward the tone it declares"), "{}", tone.ask);
+        assert!(tone.ask.contains(" Health reads \u{201c}outages\u{201d}"), "{}", tone.ask);
+        assert!(tone.ask.contains("\u{201c}missed\u{201d}") && tone.ask.contains(" as grave"), "{}", tone.ask);
+        assert!(!tone.ask.contains("\u{201c}love\u{201d}"), "the lexicon does not read \"love\": {}", tone.ask);
+        // Named or not, the reading is the lexicon's: slide 8's tone is what valence reads.
+        let read = h.slides[7].tone_read.unwrap();
+        assert!(tone.ask.contains(&signed(read)), "{} reads {read}", tone.ask);
+    }
+
+    /// A close lands the big idea by what it is about, not by a word it says in passing (W1's
+    /// dogfood 3): the keynote's close weakened to "Thank you" and "Questions?" is found never
+    /// landing it, though the slide before it, and the rest of the last beat's, share words with
+    /// it; a thesis just before the close lands it, as does a close that says it itself, and a
+    /// thesis with the steps between it and the close does not.
+    #[test]
+    fn a_close_lands_the_big_idea_by_what_it_is_about() {
+        let idea = "Twelve neighbors who stop waiting for permission can power a whole town";
+        let thanked = |slides: &mut Vec<answer::Slide>| {
+            let last = slides.last_mut().unwrap();
+            last.slide_title = "Thank you".into();
+            last.subtitle = "Questions?".into();
+        };
+        let weak = of(&dogfood("keynote", idea, thanked));
+        let n = weak.slides.len();
+        let big = weak.findings.iter().find(|f| f.kind == Kind::BigIdea).expect("a close of thanks lands nothing");
+        // An idea that ends in a stop is quoted without it, so no sentence ends twice.
+        let stopped = of(&dogfood("keynote", &format!("{idea}."), thanked));
+        let ended = stopped.findings.iter().find(|f| f.kind == Kind::BigIdea).unwrap();
+        assert!(ended.says.ends_with(&format!("\u{201c}{idea}\u{201d}")), "{}", ended.says);
+        assert!(ended.ask.starts_with(&format!("The big idea is \u{201c}{idea}\u{201d}. Rewrite")), "{}", ended.ask);
+        assert_eq!(stopped.big_idea.as_deref(), Some(format!("{idea}.").as_str()), "the idea itself is as settled");
+        let close = format!("The close, slides {}\u{2013}{n}, never lands", n - 1);
+        assert!(big.says.starts_with(&close), "{}", big.says);
+        // The last beat's slide before the close shares a word with it, which the rule before
+        // took for the idea said.
+        let steps = &weak.slides[n - 2];
+        assert!(!content_words(&steps.title).is_disjoint(&content_words(idea)), "{}", steps.title);
+
+        // The thesis that stands just before the close lands it, the steps between them taken out.
+        let fine = "Resilience is built by neighbors, not delivered to them";
+        let found = |h: &Health| h.findings.iter().filter(|f| f.kind == Kind::BigIdea).count();
+        let stepless = |slides: &mut Vec<answer::Slide>| {
+            let at = slides.len() - 2;
+            slides.remove(at);
+        };
+        assert_eq!(found(&of(&dogfood("keynote", fine, stepless))), 0, "the thesis before the close lands it");
+        assert_eq!(found(&of(&dogfood("keynote", fine, |_| {}))), 1, "steps between them, the thesis is not the close");
+        let said = |slides: &mut Vec<answer::Slide>| slides.last_mut().unwrap().slide_title = idea.into();
+        assert_eq!(found(&of(&dogfood("keynote", idea, said))), 0, "a close that says it lands it");
+    }
+
+    /// A close in another language is not read for the big idea (the coordinator's check on W1's
+    /// dogfood 3): the German board deck's close says its idea, "drei Beschlüsse", which English's
+    /// telling words cannot see, so health says it reads the close only in English, an info, and
+    /// warns of nothing.
+    #[test]
+    fn a_close_in_another_language_is_not_read_for_the_big_idea() {
+        let mut deck = dogfood("board-de", "Der Bericht schließt mit drei Beschlüssen", |_| {});
+        deck["meta"]["narrative"]["brief"]["language"] = json!("German");
+        let h = of(&deck);
+        let big: Vec<&Finding> = h.findings.iter().filter(|f| f.kind == Kind::BigIdea).collect();
+        assert_eq!(big.len(), 1, "{big:?}");
+        assert_eq!(big[0].severity, Severity::Info);
+        assert!(
+            big[0].says.ends_with("health reads it only in English, and this deck is in German."),
+            "{}",
+            big[0].says
+        );
+    }
+
+    /// Scaena's own checks read words in any script (dogfood pass 11): a French claim keeps its
+    /// accented words whole, "coûtera" no "tera" and "émissions" no "missions", and a figure alone
+    /// is no word. A deck in Japanese, Chinese, or Korean is not read for its claims, and says so
+    /// once, an info; its claims, each one long run of letters, would otherwise never be found.
+    #[test]
+    fn claims_are_read_by_words_in_any_script_and_not_where_no_space_sets_them_apart() {
+        let words = content_words("Ne rien faire coûtera plus cher qu'investir 86 M€ ; −40 % d'émissions en 2030");
+        let words: Vec<&str> = words.iter().map(String::as_str).collect();
+        assert_eq!(words, ["cher", "coûtera", "faire", "investir", "plus", "rien", "émissions"]);
+        assert!(content_words("倉庫の自動化と拠点の統合で、2027年度に戻す").is_empty());
+        assert!(content_words("Schließt").contains("schließt"));
+        assert!((spaceless(Some("ja")), spaceless(Some("zh-Hant")), spaceless(Some("Korean"))) == (true, true, true));
+        assert!(!spaceless(Some("fr")) && !spaceless(Some("English")) && !spaceless(None));
+
+        let mut deck = climate();
+        let h = of(&deck);
+        let beats: Vec<Value> =
+            (h.beats.iter()).map(|name| json!({ "name": name, "claim": "倉庫を自動化する" })).collect();
+        deck["meta"]["narrative"]["outline"] = json!({ "beats": beats });
+        deck["meta"]["narrative"]["brief"]["language"] = json!("Japanese");
+        let claims: Vec<Finding> = of(&deck).findings.into_iter().filter(|f| f.kind == Kind::Claim).collect();
+        assert_eq!(claims.len(), 1, "{claims:?}");
+        assert_eq!(claims[0].severity, Severity::Info);
+        assert!(claims[0].says.ends_with("and this deck is in Japanese."), "{}", claims[0].says);
+    }
+
     /// The settled outline read (lift-up 10-24b FUNC-1): a deck whose beats each say their claim
     /// and whose close says its big idea is found carrying both, and the big idea is given for the
     /// editors to show; a claim no slide of its beat says, and a big idea the close never says,
@@ -1826,7 +2535,8 @@ mod tests {
         let beats: Vec<Value> = (h.beats.iter().enumerate())
             .map(|(k, name)| json!({ "name": name, "claim": h.slides[first_of(k)].title, "slides": 1 }))
             .collect();
-        let close = first_of(h.beats.len() - 1);
+        // The close is the deck's last run of closing slides: the big idea its last slide's headline.
+        let close = h.slides.len() - 1;
         deck["meta"]["narrative"]["outline"] = json!({ "bigIdea": h.slides[close].title, "beats": beats });
         let carried = of(&deck);
         let outlined = |h: &Health| -> Vec<(Kind, usize)> {
@@ -1839,12 +2549,13 @@ mod tests {
         assert_eq!(carried.big_idea.as_deref(), Some(h.slides[close].title.as_str()));
 
         let second = h.beats[1].clone();
-        deck["meta"]["narrative"]["outline"]["beats"][1]["claim"] = json!("Penguins juggle marmalade quietly");
+        deck["meta"]["narrative"]["outline"]["beats"][1]["claim"] = json!("Penguins juggle marmalade quietly.");
         deck["meta"]["narrative"]["outline"]["bigIdea"] = json!("Zebras orchestrate symphonies underwater");
         let missed = of(&deck);
         assert_eq!(
             outlined(&missed),
-            [(Kind::Claim, first_of(1) + 1), (Kind::BigIdea, close + 1)],
+            // The close's finding on its first slide: the next steps before Questions and Closing.
+            [(Kind::Claim, first_of(1) + 1), (Kind::BigIdea, close - 1)],
             "{:?}",
             missed.findings
         );
@@ -1855,6 +2566,8 @@ mod tests {
             claim.says
         );
         assert!(claim.ask.starts_with("Check the claim:"), "{}", claim.ask);
+        // A claim settled with its stop is quoted without it, so no sentence ends twice.
+        assert!(claim.ask.contains("\u{201c}Penguins juggle marmalade quietly\u{201d}. Rewrite"), "{}", claim.ask);
         let big = missed.findings.iter().find(|f| f.kind == Kind::BigIdea).unwrap();
         assert!(big.says.starts_with("The close, slide") && big.ask.starts_with("The big idea is"), "{big:?}");
         // A big idea in another script has no words to read by: nothing is found of it.
@@ -1875,6 +2588,10 @@ mod tests {
             let beat = deck.pointer(&beat_of(&deck, read.state.as_str())).unwrap();
             assert_eq!(read.title, beat["claim"]);
             assert_eq!(read.declared, beat["media"]["narrato"]["intensity"].as_f64());
+            // The arc's beat it was written for, the band the graph draws it in (lift-up ATTR-4).
+            let part = beat["media"]["narrato"]["beatIndex"].as_u64().map(|k| k as usize);
+            assert_eq!(read.part, part);
+            assert!(part.is_some_and(|k| k < h.beats.len()), "{part:?} of {:?}", h.beats);
         }
         // Asked for 16 to 25 slides, it has 25: paced as asked, its beats a short talk for them.
         assert_eq!(
@@ -2021,6 +2738,32 @@ mod tests {
             assert!(cooler(&open, &last), "the same plan away from a close bends: {:#?}", open.findings);
         }
         assert_eq!(closed.fidelity.score, open.fidelity.score, "no figure moves");
+        // Next steps before the Closing, planned at rest, are part of the close; the floor opened
+        // too (dogfood pass 9). A slide before them that closes nothing still bends.
+        let thanks = |i: usize| THANKS.iter().any(|t| before.slides[i].title.to_lowercase().starts_with(t));
+        let n = before.slides.len();
+        let k = (2..n - 1).rev().find(|&k| !thanks(k) && !thanks(k - 1)).unwrap();
+        let [steps, ask] = [k, k - 1].map(|i| before.slides[i].state.clone());
+        let layouts = |deck: &mut Value, step: &str| {
+            for (i, slide) in before.slides.iter().enumerate().skip(k - 1) {
+                let layout = match i {
+                    i if i == k - 1 => "statement",
+                    i if i == k => step,
+                    _ => "closing",
+                };
+                let at =
+                    (deck["states"].as_array().unwrap().iter()).position(|s| s["id"] == slide.state.as_str()).unwrap();
+                deck["states"][at]["layout"] = json!(layout);
+                declare(deck, &slide.state, "intensity", 0.0);
+            }
+        };
+        for step in ["next-steps", "qa"] {
+            let mut deck = climate();
+            layouts(&mut deck, step);
+            let h = of(&deck);
+            assert!(!cooler(&h, &steps), "{step} before the close is no bend: {:#?}", h.findings);
+            assert!(cooler(&h, &ask), "a slide before the close that closes nothing bends: {:#?}", h.findings);
+        }
     }
 
     /// A slide planned hotter than its place in the story is asked to change its plan, or its
@@ -2070,6 +2813,22 @@ mod tests {
         }
         // Only what the findings say changed: every figure is as before but the plan's.
         assert_eq!((h.pacing.clone(), h.balance.clone()), (before.pacing, before.balance));
+
+        // The ask names the control that plans it (editor dogfood 3), which the inspector offers
+        // with nothing selected: the beat's plan, by JSON Patch where it lives. Planned as its place
+        // calls for, it bends no more.
+        assert!(bend.ask.contains("by its Intensity"), "{}", bend.ask);
+        let d = Deck::from_value(&deck).unwrap();
+        let dusk = std::fs::read_to_string(root().join("docs/examples/themes/dusk.theme.json")).unwrap();
+        let theme: Theme = serde_json::from_str(&dusk).unwrap();
+        let offered = scaena_core::choices::state_choices(&d, &theme, &state).unwrap().plan.expect("its plan, offered");
+        assert_eq!(offered.intensity, Some(plan));
+        let place = h.slides.iter().find(|s| s.state == state).unwrap().curve;
+        let op = json!({ "op": "add", "path": format!("{}/intensity", offered.at), "value": place });
+        let mut replanned = deck.clone();
+        scaena_core::patch::apply(&mut replanned, &[op]).unwrap();
+        let after = of(&replanned);
+        assert!(!after.findings.iter().any(|f| f.state == state && f.kind == Kind::Arc), "{:#?}", after.findings);
     }
 
     /// A slide lint finds an error on stands ahead of every other finding, said as lint says it,
@@ -2116,6 +2875,43 @@ mod tests {
         assert_eq!((plain.score, h.slides.len(), h.score), (84, 25, 72));
     }
 
+    /// What a measure says of its slides agrees with how many it counts: "1 slide bends the
+    /// intensity", "2 slides bend it"; "1 slide reads far from the tone it declares" (dogfood
+    /// pass 9).
+    #[test]
+    fn a_measure_says_its_slides_as_many_as_it_counts() {
+        let climate = climate();
+        let before = of(&climate);
+        let mut decks = vec![before.clone()];
+        // Each slide that reads something planned at the far end of it, alone: one bend at a time.
+        for (i, plan) in heard(&before).into_iter().take(4) {
+            let mut deck = climate.clone();
+            planned(&mut deck, &before.slides[i].state, plan);
+            decks.push(of(&deck));
+        }
+        let (mut one, mut more) = (0, 0);
+        for h in &decks {
+            for says in [&h.fidelity.says, &h.intensity.says, &h.tone.says] {
+                let Some(n) = says.split(' ').next().and_then(|w| w.parse::<usize>().ok()) else { continue };
+                if n == 1 {
+                    one += 1;
+                    assert!(says.starts_with("1 slide ") && !says.starts_with("1 slides"), "{says}");
+                    assert!(!says.contains("slide bend ") && !says.contains("slide read far"), "{says}");
+                    assert!(!says.contains("they declare"), "{says}");
+                } else {
+                    more += 1;
+                    assert!(!says.contains("slides bends") && !says.contains("slides reads"), "{says}");
+                }
+            }
+        }
+        assert!(
+            one > 0,
+            "a measure counting one slide is said: {:#?}",
+            decks.iter().map(|h| &h.fidelity.says).collect::<Vec<_>>()
+        );
+        assert!(more > 0);
+    }
+
     /// A slide that does not stand caps the score at the clean slides' share, less ten for each:
     /// one in 25 leaves a cap over the score, two bring it down, a warning moves nothing, and a
     /// deck no slide of which stands scores nothing (ADR-0032 item 1).
@@ -2136,6 +2932,32 @@ mod tests {
             .map(|k| Linted::new("E100", Severity::Error, "text overflows").state(id(k)))
             .collect();
         assert_eq!(health_in(&d, &every).unwrap().score, 0);
+    }
+
+    /// An outlined deck's beats are its outline's (lift-up 10-25b STAB-1): a person who renamed
+    /// and reordered them sees a drift say the beats the deck has, and its fix write the outline's
+    /// name, not the arc's.
+    #[test]
+    fn an_outlined_decks_beats_are_its_outlines() {
+        let mut deck = climate();
+        let arc = of(&deck).beats;
+        let names: Vec<String> = (0..arc.len()).map(|k| format!("Part {} of ours", k + 1)).collect();
+        let beats: Vec<Value> = names.iter().map(|n| json!({ "name": n, "claim": "", "slides": 1 })).collect();
+        deck["meta"]["narrative"]["outline"] = json!({ "bigIdea": "", "beats": beats });
+        // The agenda, written for the second beat, moved to the end.
+        let states = deck["states"].as_array_mut().unwrap();
+        let agenda = states.remove(1);
+        let id = agenda["id"].as_str().unwrap().to_string();
+        states.push(agenda);
+        let h = of(&deck);
+        assert_eq!(h.beats, names, "the outline's beats, not the arc's: {arc:?}");
+        let drift = h.findings.iter().find(|f| f.state == id && f.kind == Kind::Drift).expect("it drifted");
+        assert!(drift.says.contains("Part ") && drift.says.contains(" of ours"), "{}", drift.says);
+        assert!(arc.iter().all(|a| !drift.says.contains(a.as_str())), "{}", drift.says);
+        let fix = drift.fix.as_ref().expect("a fix");
+        let named = fix.patch[1]["value"].as_str().unwrap();
+        assert!(names.iter().any(|n| n == named), "the fix writes the outline's name: {named}");
+        assert_eq!(fix.says, format!("Make it part of {named}"));
     }
 
     #[test]

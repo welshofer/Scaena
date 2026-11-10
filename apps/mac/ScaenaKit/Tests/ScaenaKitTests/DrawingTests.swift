@@ -38,3 +38,43 @@ import Testing
     let png = try #require(await editor.pngAway("goal", width: 960))
     #expect(png.starts(with: [0x89, 0x50, 0x4E, 0x47]), "a PNG")
 }
+
+/// The Format tab's rounds of drawing asked for in a burst (lift-up 10-25c PERF-4): each outdates
+/// the ones before it, which are not drawn, so a burst of edits draws once, for the last.
+@Test @MainActor func aBurstOfLayoutRoundsDrawsOnlyTheLast() async throws {
+    let editor = DeckEditor(session: try ScaenaSession(files: example("revenue")))
+    // A round of backgrounds holds the queue first, so the three rounds of layouts asked for after
+    // it all wait behind it, the last asked outdating the two before.
+    let holding = Task { try await editor.backgroundsAway(state: "intro", height: 90) }
+    let first = Task { try await editor.layoutsAway(state: "revenue", height: 90) }
+    let second = Task { try await editor.layoutsAway(state: "revenue", height: 90) }
+    let third = Task { try await editor.layoutsAway(state: "revenue", height: 90) }
+    _ = try await holding.value
+    let (a, b, c) = (try await first.value, try await second.value, try await third.value)
+    #expect(a == nil && b == nil, "outdated rounds come back with nothing")
+    #expect(c?.count == 7, "the last round is drawn")
+    #expect(editor.layoutsWanted.drawn == 1, "\(editor.layoutsWanted.drawn) rounds drawn, of three asked")
+}
+
+/// The cue a show goes on to is laid out ahead away from the window (lift-up 10-25b PERF-5): the
+/// session takes it, and its frames are those the session lays out here; once its cue is kept, or
+/// the deck changed since, another is not taken.
+@Test @MainActor func aCueLaidOutAwayFromTheWindowIsTheOneItsFramesSample() async throws {
+    let editor = DeckEditor(session: try ScaenaSession(directory: b1))
+    let cued = try #require(editor.slots.dropFirst().first { $0.span > 0 })
+    let here = try ScaenaSession(directory: b1).frame(cued.state, at: cued.span / 2)
+
+    await editor.preparing(cued.state)
+    #expect(try editor.session.frame(cued.state, at: cued.span / 2) == here, "sampled as laid out here")
+    let laying = try #require(editor.session.laying())
+    let again = try laying.cue(format: nil, state: cued.state)
+    #expect(!editor.session.cue(laid: again), "the cue shown is kept")
+
+    let stale = try laying.cue(format: nil, state: cued.state)
+    let typed: JSONValue = [
+        "op": "replace_text", "state": "cover", "node": "title", "from": 0, "to": 0, "text": "Edited. ",
+    ]
+    editor.shown = "cover"
+    try editor.make([typed])
+    #expect(!editor.session.cue(laid: stale), "the deck changed since")
+}

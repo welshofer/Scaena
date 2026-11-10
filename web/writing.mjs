@@ -7,8 +7,8 @@
 //   it in; Use it makes the text read so, one patch whose words kept stay as they were; ⌘Z puts it
 //   back.
 // - An answer edited in the dialog is taken as edited; Leave it changes nothing.
-// - Draft Notes, with nothing selected, asks from the slide's words and its beat's claim, and
-//   writes the slide's notes.
+// - Draft Notes, with nothing selected, asks from the slide's words, its beat's claim, and the
+//   notes it has, and writes the slide's notes.
 // - Check the Claim, with nothing selected, asks whether the slide's words carry its beat's claim
 //   (narrative FUNC-4), with the claim, the slide, and its headline; the headline the model
 //   rewrites is written where the claim node's words live; ⌘Z puts it back.
@@ -65,7 +65,7 @@ async function provider() {
   const requests = [];
   /** `hold`: how long each answer waits before it is sent; `aborted`: the requests the page gave
    * up on before their answer was sent (lift-up PERF-4). */
-  const state = { hold: 0, aborted: 0 };
+  const state = { hold: 0, aborted: 0, cut: false };
   const server = createServer(async (req, res) => {
     const cors = {
       "access-control-allow-origin": req.headers.origin ?? "*",
@@ -98,7 +98,10 @@ async function provider() {
       });
       if (gone) return void state.aborted++;
     }
-    reply(200, { content: [{ type: "text", text: answer }], stop_reason: "end_turn", usage: { input_tokens: 120, output_tokens: 20 } });
+    // `cut`: the answer runs out of room half way, as one past its token limit does (lift-up
+    // 20261031 REL-5).
+    const stop = state.cut ? { text: answer.slice(0, Math.ceil(answer.length / 2)), stop_reason: "max_tokens" } : { text: answer, stop_reason: "end_turn" };
+    reply(200, { content: [{ type: "text", text: stop.text }], stop_reason: stop.stop_reason, usage: { input_tokens: 120, output_tokens: 20 } });
   }).listen(0, "127.0.0.1");
   await new Promise((ok) => server.once("listening", ok));
   return { origin: `http://127.0.0.1:${server.address().port}`, requests, state, close: () => server.close() };
@@ -109,6 +112,16 @@ const scripted = await provider();
 const browser = await launch();
 try {
   const page = await browser.newPage({ viewport: { width: 1600, height: 1000 }, deviceScaleFactor: 1 });
+  // What the page asks of its worker, by kind: the editor started reads no deck's health it shows
+  // no one (lift-up 20261110 ATTR-2).
+  await page.addInitScript(() => {
+    const post = Worker.prototype.postMessage;
+    window.__posted = [];
+    Worker.prototype.postMessage = function (data, ...rest) {
+      if (data && typeof data === "object" && typeof data.type === "string") window.__posted.push(data.type);
+      return post.call(this, data, ...rest);
+    };
+  });
   page.on("pageerror", (e) => failures.push(`page: ${e.message}`));
   page.on("console", (m) => m.type() === "error" && !/Failed to load resource/.test(m.text()) && failures.push(`console: ${m.text()}`));
   await page.goto(`${site.origin}/web/dist/editor.html?painter=cpu&bundle=/docs/examples/revenue.deck.json`);
@@ -249,6 +262,8 @@ try {
   check(await answered("#writing-answer"), "Draft Notes offers notes");
   const noted = scripted.requests.at(-1)?.body.messages?.[0]?.content?.[0]?.text ?? "";
   check(noted.startsWith('The slide reads:\n<data label="slide">\n') && noted.includes("Q3 Review") && noted.includes("The point it makes:"), `asked from the slide's words and its claim: ${JSON.stringify(noted)}`);
+  // and from the notes it has, inside the fence, so a draft builds on them (lift-up 10-25c FUNC-3).
+  check(noted.includes("\nThe speaker's notes so far:\nOpen on the title.") && noted.indexOf("so far:") < noted.indexOf("</data>"), `and from the notes it has, fenced: ${JSON.stringify(noted)}`);
   await page.click("#writing-use");
   await page.evaluate(() => window.scaena.writing.settled());
   check((await source()).includes("Open on the quarter: the business changed shape"), "Use it writes the slide's notes");
@@ -285,6 +300,17 @@ try {
   await page.click("#writing-leave");
   check((await source()) === original, "and changes nothing");
 
+  // 5c. An answer cut off by its token limit: its fragment is not offered to take, and it says so
+  // (lift-up 20261031 REL-5).
+  scripted.state.cut = true;
+  await tool("tighten", "subtitle");
+  await page.waitForFunction(() => /ran out of room/.test(document.querySelector("#writing-thinking").textContent), null, { timeout: 30000 }).catch(() => {});
+  const cut = await dialog();
+  scripted.state.cut = false;
+  check(/^Anthropic's answer ran out of room/.test(cut.thinking ?? "") && !cut.use && cut.answer === undefined, `a cut answer offers nothing to take: ${cut.thinking}`);
+  await page.click("#writing-leave");
+  check((await source()) === original, "and changes nothing");
+
   // 6. Explain, on a finding: what it means, only read.
   const long = "Q3 Review: the quarter that changed the shape of the business for good";
   // The slide's title, not the deck's, which the header names first.
@@ -297,7 +323,7 @@ try {
   const why = scripted.requests.at(-1)?.body.messages?.[0]?.content?.[0]?.text ?? "";
   check(/^Finding [EW]\d+ \((error|warning)\): /.test(why), `asked as the finding says it: ${JSON.stringify(why.split("\n")[0])}`);
   await page.click("#writing-leave");
-  check(scripted.requests.length === 11, `one request for each tool asked, the rewrite asked again, and the one stopped: ${scripted.requests.length}`);
+  check(scripted.requests.length === 12, `one request for each tool asked, the rewrite asked again, the one stopped, and the one cut off: ${scripted.requests.length}`);
 
   // 6b. The source's own issue, while it does not compile, is explained all the same.
   await page.evaluate((s) => window.scaena.type(`${s}\nthis is not scn {`), await source());
@@ -305,7 +331,7 @@ try {
   await page.click("#problems li button.explain");
   check(await answered("#writing-said"), "Explain says what the source's own issue means");
   const compiling = await dialog();
-  check(compiling.title === "About This Issue" && scripted.requests.length === 12, `asked once, though the deck does not compile: ${compiling.title} · ${await status()}`);
+  check(compiling.title === "About This Issue" && scripted.requests.length === 13, `asked once, though the deck does not compile: ${compiling.title} · ${await status()}`);
   await page.click("#writing-leave");
 
   // 7. Describe (PLAN 2.119): the picture as the slide shows it goes before the words.
@@ -356,10 +382,20 @@ try {
   await page.goto(`${site.origin}/web/dist/editor.html?painter=cpu&bundle=/docs/examples/revenue.deck.json`);
   await page.waitForFunction(() => window.scaena?.last()?.valid && window.scaena.canvas.boxes()?.length, null, { timeout: 120000 });
   const unwritten = await source();
+  const posted = await page.evaluate(() => window.__posted.filter((t) => t === "health").length);
+  check(posted === 0, `the editor started asks no health of the deck while no one sees it: ${posted} asked`);
   const slides = () => page.evaluate(() => window.scaena.last().states.length);
   const counted = await slides();
   await page.evaluate(() => window.scaena.slideAsk.open("add"));
   check(await page.evaluate(() => document.querySelector("#slide-ask").open), "Add a slide about… opens its dialog");
+  // Its field is set in the page's face, as the dialog's words are, not the browser's monospace,
+  // and nothing waits under it before anything is said (editor dogfood 1).
+  const face = await page.evaluate(() => ({
+    field: getComputedStyle(document.querySelector("#slide-ask-text")).fontFamily,
+    words: getComputedStyle(document.querySelector("#slide-ask-label")).fontFamily,
+    gap: document.querySelector("#slide-ask-thinking").getBoundingClientRect().height,
+  }));
+  check(face.field === face.words && face.gap === 0, `the field is set in the dialog's face, with no gap under it: ${JSON.stringify(face)}`);
   await page.fill("#slide-ask-text", "What changed this quarter");
   await page.click("#slide-ask-go");
   await page.evaluate(() => window.scaena.slideAsk.settled());

@@ -38,6 +38,14 @@ struct DeckView: View {
     @State private var pointed: CGPoint?
     /// What the canvas says of an edit its keys or the Node menu made.
     @State private var said: String?
+    /// Whether the window's close waits on the person, the assistant at work on the deck, and
+    /// whether it closes once the assistant has stopped (lift-up 20261110 REL-3).
+    @State private var confirmingClose = false
+    @State private var closingOnceStopped = false
+    @State private var closeNow = false
+    /// The edits made since the window opened, where the iPad's UI tests hold the deck after so
+    /// many as the assistant holds it (`-assistantAtWorkAfter`, lift-up STAB-5).
+    @State private var editsMade = 0
     /// What the deck may have inserted, read again after each edit.
     @State private var inserts: [Insert] = []
     /// The deck's data sources and their files: what Insert names a chart's or a table's data by.
@@ -155,7 +163,7 @@ struct DeckView: View {
     var body: some View {
         // While the themes are offered, the window waits on them as it waited on a sheet: its
         // toolbar, its canvas and panes, and the menus' deck commands take nothing (lift-up ATTR-5).
-        presented(watched(undoing(window.disabled(choosingTheme))))
+        closing(presented(watched(undoing(window.disabled(choosingTheme)))))
             .focusedSceneValue(\.deck, choosingTheme ? nil : actions)
             .focusedSceneValue(\.canvasActions, choosingTheme ? nil : canvasActions)
             .focusedSceneValue(\.panes, panes)
@@ -659,7 +667,9 @@ struct DeckView: View {
         // saves.
         if !editor.slots.isEmpty {
             made.savePDF = { save(.pdf) }
-            made.saveImages = { save(allSlides) }
+            made.saveNotes = { save(.notes) }
+            made.saveImages = { scale in save(slides(scaled: scale)) }
+            made.saveHTML = { save(.html) }
         }
         // The Slide menu acts on the slide shown, as the slide list's menu acts on its slide.
         if let shown, rehearsal == nil, let slide = editor.slots.first(where: { $0.state == shown })?.slide {
@@ -702,8 +712,12 @@ struct DeckView: View {
     /// The deck played here, as presented, keeping the time each slide takes (PLAN 3.14).
     private func rehearse() {
         showsSlides = false
+        // From the slide shown: a person rehearses the section they just rewrote (lift-up 10-25b
+        // USE-2).
+        let from = editor.slots.firstIndex { $0.state == editor.shown } ?? 0
         rehearsal = Rehearsal(
-            slots: editor.slots, notes: editor.slots.map { (try? editor.session.notes(state: $0.state)) ?? .none })
+            slots: editor.slots, notes: editor.slots.map { (try? editor.session.notes(state: $0.state)) ?? .none },
+            from: from)
     }
 
     /// What a press on an empty slot's words does on `state` (PLAN 3.30): fills it, on a slide made
@@ -763,8 +777,17 @@ struct DeckView: View {
                 // as a presentation app's tips fade once read: those words alone. Words said as
                 // the time runs out (a slide turned to by PageDown, say) stay their own moment.
                 guard let words = said else { return }
+                // Said to VoiceOver as it shows (lift-up 10-25c USE-1).
+                Spoken.say(words)
                 try? await Task.sleep(for: .seconds(6))
                 if !Task.isCancelled, said == words { said = nil }
+            }
+            .onChange(of: editor.savedSaid) { _, now in
+                // What a save said of the bundle's history, a moment on the desk (lift-up
+                // 20261025b REL-1), as the browser's status line says it.
+                guard let now else { return }
+                said = now
+                editor.savedSaid = nil
             }
             .onChange(of: undo, initial: true) { _, now in
                 // The assistant's edits are each one step of this window's undo.
@@ -805,6 +828,39 @@ struct DeckView: View {
             }
     }
 
+    /// `view`, the assistant stopped as the deck's window goes (lift-up 20261110 REL-3): no call
+    /// made on the person's key, and no edit made to a deck no one will save, past it. On the Mac,
+    /// the window's own close (its close button, File › Close, ⌘W) asks first while the assistant
+    /// works, as New from a Prompt's does while a deck is made, and closes once it has stopped.
+    private func closing(_ view: some View) -> some View {
+        view
+            .onDisappear { assistant?.stop() }
+            #if os(macOS)
+            .background(CloseGuard(asks: { assistant?.working == true }, ask: { confirmingClose = true }))
+            .confirmationDialog("Stop the assistant and close?", isPresented: $confirmingClose) {
+                Button("Stop and Close", role: .destructive) {
+                    // Done since the person was asked: nothing to wait on.
+                    guard assistant?.working == true else {
+                        closeNow = true
+                        return
+                    }
+                    closingOnceStopped = true
+                    assistant?.stop()
+                }
+                .accessibilityIdentifier("close-stop-assistant")
+                Button("Keep Working", role: .cancel) {}
+            } message: {
+                Text("The assistant is at work on this deck. What it has changed so far stays, one step to undo.")
+            }
+            .onChange(of: assistant?.working ?? false) { _, working in
+                guard closingOnceStopped, !working else { return }
+                closingOnceStopped = false
+                closeNow = true
+            }
+            .background(WindowCloser(close: closeNow))
+            #endif
+    }
+
     /// `view`, what the canvas said of an edit taken away as a step is undone or made again: it
     /// was said of the edit, and an undo says nothing of its own, as a presentation app's does not.
     private func undoing(_ view: some View) -> some View {
@@ -816,6 +872,14 @@ struct DeckView: View {
             // back, as the browser's do (lift-up STAB-5).
             .background(UndoGuard(locked: editor.assisting) { said = DeckEditor.atWork })
             #endif
+            .onChange(of: editor.revision) {
+                // Launched with `-assistantAtWorkAfter N`, as the iPad's UI tests launch it, the deck
+                // is held as the assistant holds it once N edits are made (lift-up STAB-5).
+                let after = UserDefaults.standard.integer(forKey: "assistantAtWorkAfter")
+                guard after > 0 else { return }
+                editsMade += 1
+                if editsMade >= after { editor.holdForTests() }
+            }
     }
 
     /// What the canvas says, taken away as this window's undo takes a step back or makes it again.
@@ -923,6 +987,12 @@ struct DeckView: View {
                 }
                 choosingFirst = !offeredThemes.isEmpty
                 document.startsNew = false
+            }
+            // An undo or a redo that could not be made says why here (lift-up 10-25b STAB-4).
+            .onChange(of: editor.undoFailed) { _, why in
+                guard let why else { return }
+                failure = why
+                editor.undoFailed = nil
             }
             .alert("Couldn’t Make That Change", isPresented: failing, presenting: failure) { _ in
                 Button("OK") { failure = nil }
@@ -1200,9 +1270,12 @@ struct DeckView: View {
     }
 
     /// Every slide as PNGs the canvas's width, a pixel to the unit, in one zip.
-    private var allSlides: Exporting.Kind {
+    private var allSlides: Exporting.Kind { slides(scaled: 1) }
+
+    /// Every slide as PNGs `scale` times the canvas's width, in one zip (lift-up 20261031 FUNC-3).
+    private func slides(scaled scale: Int) -> Exporting.Kind {
         let size = (try? editor.session.canvasSize()) ?? CGSize(width: 1920, height: 1080)
-        return .slides(width: Int(size.width.rounded()))
+        return .slides(width: min(16384, Int(size.width.rounded()) * max(1, scale)))
     }
 
     /// Write `kind` and share it, or show it in Quick Look.
@@ -1250,6 +1323,9 @@ struct DeckView: View {
                 let data = try await snapshot.exported(export)
                 guard making?.id == id else { return }
                 try done(data)
+                // Made, said to VoiceOver, which the sheet's going would otherwise leave unsaid
+                // (lift-up 10-25c USE-1); a failure says itself in the alert.
+                Spoken.say(Exporting.made(kind))
             } catch is CancellationError {
             } catch {
                 if making?.id == id { failure = Why.said(error) }
@@ -1298,6 +1374,9 @@ struct DeckView: View {
             ungroup: one && grouped ? { ungroup(in: shown) } : nil,
             order: some ? { how in order(how, in: shown) } : nil)
         made.sources = sources
+        // ⌘{, ⌘|, and ⌘}: the texts selected aligned, as the inspector's Alignment sets each
+        // (lift-up 20261031 USE-2).
+        if some { made.align = { way in align(way, in: shown) } }
         made.choosePicture = { choosingPicture = true }
         made.chooseIcon = { choosingIcon = true }
         made.makePicture = { makePicture(in: shown) }
@@ -1721,7 +1800,7 @@ struct DeckView: View {
         }
         let boxes = (try? editor.session.boxes(state: shown)) ?? []
         if let held = boxes.first(where: { nodes.contains($0.node) && $0.locked != nil }), let holder = held.locked {
-            said = holder == held.node ? "It is locked: ⇧⌘L unlocks it" : "What holds it is locked: unlock that first"
+            said = holder == held.node ? "It is locked: ⌘L unlocks it" : "What holds it is locked: unlock that first"
             return
         }
         perform {
@@ -1749,14 +1828,30 @@ struct DeckView: View {
     }
 
     /// Lock the nodes selected by their own lock, or unlock them where each is so locked
-    /// (⇧⌘L, PLAN 2.95): the canvas passes over a node locked, in every state. One step to undo.
+    /// (⌘L, PLAN 2.95): the canvas passes over a node locked, in every state. One step to undo.
     private func lock() {
         let nodes = selection
         let (ops, locks) = ScaenaKit.locking(nodes, own: { ownLocks.contains($0) })
         guard !ops.isEmpty else { return }
         perform {
             try document.make(ops, undo: undo, named: locks ? "Lock" : "Unlock")
-            said = locks ? "Locked: a click passes over it · ⇧⌘L unlocks it" : "Unlocked"
+            said = locks ? "Locked: a click passes over it · ⌘L unlocks it" : "Unlocked"
+        }
+    }
+
+    /// ⌘{, ⌘|, or ⌘}: the lines of each text selected set `way`, `start`, `center`, or `end`, a
+    /// `choose` of `align/x` on each, one step to undo (lift-up 20261031 USE-2). What is no text
+    /// keeps its place.
+    private func align(_ way: String, in state: String) {
+        let texts = selection.filter { (try? editor.session.choices(state: state, node: $0))?.type == "text" }
+        guard !texts.isEmpty else {
+            said = "Only words align"
+            return
+        }
+        let named = ["start": "Align Left", "center": "Align Center", "end": "Align Right"][way] ?? "Align"
+        perform {
+            try document.make(choosing(texts, "align/x", .string(way), in: state), undo: undo, named: named)
+            said = named == "Align Left" ? "Aligned left" : named == "Align Center" ? "Centered" : "Aligned right"
         }
     }
 
@@ -1820,7 +1915,7 @@ struct DeckView: View {
         // The text goes, and nothing of a locked node is deleted (PLAN 2.95).
         let boxes = (try? editor.session.boxes(state: state)) ?? []
         if let held = boxes.first(where: { $0.node == text }), let holder = held.locked {
-            said = holder == held.node ? "It is locked: ⇧⌘L unlocks it" : "What holds it is locked: unlock that first"
+            said = holder == held.node ? "It is locked: ⌘L unlocks it" : "What holds it is locked: unlock that first"
             return
         }
         perform {
@@ -2081,7 +2176,8 @@ struct RestateBar: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
-        .background(.regularMaterial, in: Capsule())
+        // Glass, as the canvas's hint and the code chip beside it are (lift-up 20261110 ATTR-3).
+        .floating(in: Capsule())
         .padding(.top, 8)
         .padding(.horizontal, 16)
     }

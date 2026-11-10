@@ -50,7 +50,7 @@ struct StoryPanel: View {
                         .accessibilityElement(children: .combine)
                         .accessibilityIdentifier("story-big-idea")
                     }
-                    ArcGraph(slides: health.slides) { edits.go($0) }
+                    ArcGraph(slides: health.slides, beats: health.beats ?? []) { edits.go($0) }
                         .frame(height: 110)
                     ArcLegend()
                 }
@@ -101,12 +101,21 @@ struct StoryPanel: View {
     /// fix it offers; and its questions, asked together.
     private func row(_ run: [Health.Finding], _ health: Health) -> some View {
         let first = run[0]
-        let title = health.slides.indices.contains(first.slide - 1) ? health.slides[first.slide - 1].title : ""
+        // The slide as it reads now, never only its beat's claim (editor dogfood 4).
+        let title = health.headline(of: first.slide, state: first.state, in: editor.slots)
         return VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Button("Slide \(first.slide)") { edits.go(first.state) }
-                    .buttonStyle(.borderless)
-                    .foregroundStyle(Self.tint(severity: Self.worst(run)))
+                // Its kind by a symbol and in words beside its colour, never by colour alone
+                // (lift-up 20261110 USE-1, WCAG 1.4.1).
+                let worst = Self.worst(run)
+                Button {
+                    edits.go(first.state)
+                } label: {
+                    Label("Slide \(first.slide)", systemImage: Self.symbol(severity: worst))
+                }
+                .buttonStyle(.borderless)
+                .foregroundStyle(Self.tint(severity: worst))
+                .accessibilityLabel("\(Self.kind(severity: worst)): Slide \(first.slide)")
                 Text(title)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -117,7 +126,15 @@ struct StoryPanel: View {
             HStack(spacing: 8) {
                 ForEach(run.filter { $0.fix != nil }) { finding in
                     if let fix = finding.fix {
-                        Button(fix.says) { edits.patch("Fix Slide \(finding.slide)", fix.patch) }
+                        Button(fix.says) {
+                            // Held while the assistant has the deck, saying why, as the browser's
+                            // Story says it: the fix is not lost, only not made yet.
+                            if editor.assisting {
+                                edits.say("Not fixed: \(DeckEditor.busy)")
+                            } else {
+                                edits.patch("Fix Slide \(finding.slide)", fix.patch)
+                            }
+                        }
                     }
                 }
                 // The slide it is about shown first: a question begins with what the window shows,
@@ -179,6 +196,24 @@ struct StoryPanel: View {
         score >= 80 ? .green : score >= 60 ? .orange : .red
     }
 
+    /// A finding's kind by its symbol, as the issues list draws it.
+    private static func symbol(severity: String) -> String {
+        switch severity {
+        case "error": "xmark.octagon.fill"
+        case "warning": "exclamationmark.triangle.fill"
+        default: "info.circle"
+        }
+    }
+
+    /// A finding's kind as a person says it.
+    private static func kind(severity: String) -> String {
+        switch severity {
+        case "error": "Error"
+        case "warning": "Warning"
+        default: "Suggestion"
+        }
+    }
+
     private static func tint(severity: String) -> Color {
         switch severity {
         case "error": .red
@@ -188,12 +223,30 @@ struct StoryPanel: View {
     }
 }
 
-/// The arc as the story panel draws it: the curve of the arc the deck was written to, dashed; the
-/// intensity each slide declares on it, a line; and what its words read, a ring. A slide that bends
-/// the curve is marked orange, one that drifted from its beat red. A click shows the slide nearest.
+/// The arc as the story panel draws it: the arc's beats as bands under it, each named where it has
+/// room; the curve of the arc the deck was written to, dashed; the intensity each slide declares
+/// on it, a line; what its words read, a ring; and the tone each declares, a thinner line from
+/// grave at the foot to hopeful at the top, with what its words read, a square (lift-up ATTR-4). A
+/// slide that bends the curve is marked orange, one that drifted from its beat red. A click shows
+/// the slide nearest.
 struct ArcGraph: View {
     let slides: [Health.Read]
+    let beats: [String]
     let go: (String) -> Void
+
+    /// Each run of slides written for one beat of the arc: the beat, and its first and last slide.
+    static func runs(_ slides: [Health.Read]) -> [(part: Int, from: Int, to: Int)] {
+        var runs: [(part: Int, from: Int, to: Int)] = []
+        for (i, slide) in slides.enumerated() {
+            guard let part = slide.part else { continue }
+            if let last = runs.last, last.part == part, last.to == i - 1 {
+                runs[runs.count - 1].to = i
+            } else {
+                runs.append((part, i, i))
+            }
+        }
+        return runs
+    }
 
     var body: some View {
         GeometryReader { geometry in
@@ -202,7 +255,26 @@ struct ArcGraph: View {
             let step = n > 1 ? (size.width - 12) / CGFloat(n - 1) : 0
             let x = { (i: Int) -> CGFloat in n > 1 ? 6 + CGFloat(i) * step : size.width / 2 }
             let y = { (v: Double) -> CGFloat in size.height - 6 - CGFloat(v) * (size.height - 12) }
+            let toned = { (t: Double) -> CGFloat in y((t + 1) / 2) }
             ZStack {
+                ForEach(Array(Self.runs(slides).enumerated()), id: \.offset) { _, run in
+                    let half = n > 1 ? step / 2 : size.width / 2
+                    let left = max(0, x(run.from) - half)
+                    let right = min(size.width, x(run.to) + half)
+                    let name = run.part < beats.count ? beats[run.part] : ""
+                    Rectangle()
+                        .fill(.secondary.opacity(run.part % 2 == 0 ? 0.14 : 0.06))
+                        .frame(width: right - left, height: size.height)
+                        .position(x: (left + right) / 2, y: size.height / 2)
+                    Text(name)
+                        .font(.system(size: 8))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .frame(width: right - left)
+                        .opacity(CGFloat(name.count) * 4.6 + 6 <= right - left ? 1 : 0)
+                        .position(x: (left + right) / 2, y: 6)
+                        .accessibilityHidden(true)
+                }
                 Path { path in
                     for (i, slide) in slides.enumerated() {
                         let point = CGPoint(x: x(i), y: y(slide.curve))
@@ -220,6 +292,16 @@ struct ArcGraph: View {
                     }
                 }
                 .stroke(Color.accentColor, lineWidth: 1.5)
+                Path { path in
+                    var started = false
+                    for (i, slide) in slides.enumerated() {
+                        guard let tone = slide.tone else { continue }
+                        let point = CGPoint(x: x(i), y: toned(tone))
+                        if started { path.addLine(to: point) } else { path.move(to: point) }
+                        started = true
+                    }
+                }
+                .stroke(.primary.opacity(0.7), lineWidth: 0.75)
                 ForEach(Array(slides.enumerated()), id: \.offset) { i, slide in
                     Circle()
                         .fill(Self.color(slide.standing))
@@ -231,6 +313,12 @@ struct ArcGraph: View {
                             .frame(width: 5, height: 5)
                             .position(x: x(i), y: y(read))
                     }
+                    if let heard = slide.toneRead {
+                        Rectangle()
+                            .stroke(.primary, lineWidth: 0.75)
+                            .frame(width: 3.5, height: 3.5)
+                            .position(x: x(i), y: toned(heard))
+                    }
                 }
             }
             .contentShape(Rectangle())
@@ -241,7 +329,7 @@ struct ArcGraph: View {
             }
         }
         .accessibilityElement()
-        .accessibilityLabel("The intensity each slide declares against the curve of its arc")
+        .accessibilityLabel("The intensity and tone each slide declares against the curve of its arc, by the arc's beats")
     }
 
     static func color(_ standing: String) -> Color {
@@ -259,7 +347,7 @@ struct ArcLegend: View {
         VStack(alignment: .leading, spacing: 2) {
             HStack(spacing: 4) {
                 Rectangle().fill(Color.accentColor).frame(width: 14, height: 1.5)
-                Text("As written")
+                Text("Intensity as written")
                 Circle().stroke(.primary, lineWidth: 1).frame(width: 5, height: 5).padding(.leading, 6)
                 Text("As its words read")
                 Rectangle()
@@ -270,7 +358,15 @@ struct ArcLegend: View {
             }
             HStack(spacing: 4) {
                 Circle().fill(ArcGraph.color("bends")).frame(width: 7, height: 7)
-                Text("Off the curve. Higher is more intense.")
+                Text("Off the curve")
+                Circle().fill(ArcGraph.color("drifted")).frame(width: 7, height: 7).padding(.leading, 6)
+                Text("Out of its beat. Higher is more intense.")
+            }
+            HStack(spacing: 4) {
+                Rectangle().fill(.primary.opacity(0.7)).frame(width: 14, height: 0.75)
+                Text("Tone as written")
+                Rectangle().stroke(.primary, lineWidth: 0.75).frame(width: 4, height: 4).padding(.leading, 6)
+                Text("As its words read. Higher is more hopeful.")
             }
         }
         .font(.caption)

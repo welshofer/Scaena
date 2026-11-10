@@ -199,7 +199,7 @@ pub const SLOT_SHAPES: &str = "
 - Journey: three bullets, \"phase: what they do / what they think / what they feel\".
 - RACI Matrix: up to three bullets, \"task: lead / team / sponsor\".
 - Checklist: up to four bullets, \"status: item\", the status a word or two (Done, In progress, Next).
-- Four layouts Scaena draws that the list above lacks, named exactly so in `layoutSuggestion`. Architecture, a system's parts in tiers: up to seven bullets \"tier: part\", the tier Client, Service, or Data, in the order a request passes through them (up to three clients, up to three services, one data store), each part named in two or three words. Decision Brief, a decision put to the room: four bullets \"The issue: \u{2026}\", \"The options: \u{2026}\", \"We recommend: \u{2026}\", \"We need: \u{2026}\", and `supportingFacts` the bottom line in a sentence. Quiz, one question put to the room: `slideTitle` is the question, two to four bullets are the answers to choose from, and `speakerNotes` say which is right. Risk Matrix: up to six bullets \"likelihood / impact: risk\", each level very low, low, medium, high, or very high.
+- Five layouts Scaena draws that the list above lacks, named exactly so in `layoutSuggestion`. Lower Third, a person or a customer introduced over their photo: `slideTitle` is their name, `subtitle` their role in a few words, `keyBullets` empty, and `visualConcept` the photo of them. Architecture, a system's parts in tiers: up to seven bullets \"tier: part\", the tier Client, Service, or Data, in the order a request passes through them (up to three clients, up to three services, one data store), each part named in two or three words. Decision Brief, a decision put to the room: four bullets \"The issue: \u{2026}\", \"The options: \u{2026}\", \"We recommend: \u{2026}\", \"We need: \u{2026}\", and `supportingFacts` the bottom line in a sentence. Quiz, one question put to the room: `slideTitle` is the question, two to four bullets are the answers to choose from, and `speakerNotes` say which is right. Risk Matrix: up to six bullets \"likelihood / impact: risk\", each level very low, low, medium, high, or very high.
 - Every other card, step, stage, row, or person \u{2014} Agenda, Numbered, Bullet List, Manifesto, Steps, How It Works, Quadrant, 2\u{d7}2 Matrix, Framework, Funnel, Stack, Timeline, Milestones, Three Horizons, Scenarios, Gallery, Team, FAQ, Glossary, OKRs, Callout: one bullet each, \"label: detail\". The label is the date or phase on Timeline and Milestones; \"Name, role\" on Team; the question on FAQ; the term on Glossary; the key result on OKRs, whose detail is its target and whose `subtitle` is the objective. Four fit Steps, Quadrant, 2\u{d7}2 Matrix, Framework, Funnel, Stack, Timeline, Milestones, FAQ, Glossary, and OKRs; three fit How It Works, Three Horizons, and Scenarios.
 - Next Steps: up to three bullets, \"action \u{2014} owner \u{2014} when\".
 - Receipt: up to four bullets \"item: amount\", then \"TOTAL: amount\".
@@ -273,6 +273,28 @@ pub fn generation_outlined(
         prompt.push_str(&crate::outline::block(outline));
     }
     prompt
+}
+
+/// What follows the slides' prompt where the answer to it was cut short (lift-up REL-2): the
+/// slides already written, by number, title, and beat, and the rest asked for in the same shape,
+/// numbered on from them.
+pub fn rest(written: &[crate::Slide], target: usize) -> String {
+    let n = written.len();
+    let mut block = format!(
+        "\n\n**CONTINUATION \u{2014} THE REST OF THE DECK**\nYour previous answer was cut off after slide {n} of {target}. These are the slides already written, in order:\n"
+    );
+    for (i, slide) in written.iter().enumerate() {
+        block.push_str(&format!("{}. {}", i + 1, slide.slide_title));
+        if let Some(beat) = &slide.beat_name {
+            block.push_str(&format!(" (beat: {beat})"));
+        }
+        block.push('\n');
+    }
+    block.push_str(&format!(
+        "\nWrite ONLY the remaining slides, {} through {target}, going on from where the deck stopped: the same arc, its beats taken up where the slides above leave them. Do not repeat or rewrite a slide already written. Answer with the same JSON object; its executiveSummary may be empty, and its slides array holds the remaining slides alone.\n",
+        n + 1
+    ));
+    block
 }
 
 /// The generation prompt as Narrato writes it, without Scaena's block.

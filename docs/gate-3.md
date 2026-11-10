@@ -84,7 +84,7 @@ About an hour on an M-series Mac with macOS 15 or later, Rust, and Xcode's Swift
 4. Drag the cover's title elsewhere on the slide, then undo. Double-click the title and type a few words, with an input method that composes too (Japanese, say), then undo once: the words go together. Ask the assistant something with a key from Settings. Export the PDF, and share it.
 5. The editor, as the browser's (PLAN 3.10–3.17), on a copy of the torture deck (`cp -R tests/fixtures/torture.scaena /tmp`). Each edit undoes with one ⌘Z:
    - On slide 47 (`links`), select a few words, give them a color in the Format tab, and link them to another slide with ⌘K, by its number. On slide 46 (`lists`), make a point a numbered step with ⌘⇧7, and indent it with Tab.
-   - From the Insert menu, insert a text, duplicate it with ⌘D, lock it with ⇧⌘L, and try to drag it.
+   - From the Insert menu, insert a text, duplicate it with ⌘D, lock it with ⌘L, and try to drag it.
    - Copy the chart on slide 22 (`chart`) with ⌘C, and paste it on slide 24 (`shapes`). Copy a picture in Preview and paste it on the canvas, then a few cells from Numbers.
    - On slide 26 (`containers`), Shift-click the 42% and the 2.4x stats, align them in the Format tab, and group them with ⌘G.
    - Add a slide with Slide › New Slide. Open the light table (⌥⌘L) and drag a slide elsewhere. Rehearse (⌥⌘R) a few slides, and keep the times.
