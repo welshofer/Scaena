@@ -28,6 +28,8 @@ export function said(event: GeneratingEvent): string {
       return event.doing;
     case "researched":
       return `Researched: ${event.sources} sources${event.cut ? ", cut short" : ""}`;
+    case "unresearched":
+      return `Research stopped: ${event.why.replace(/\.$/, "")}. The deck is grounded in what you gave.`;
     case "choosing":
       return "Choosing the arc…";
     case "chose":
@@ -181,6 +183,9 @@ export function prompting(
   const bigIdea = $<HTMLTextAreaElement>("#prompting-big-idea");
   const beats = $<HTMLOListElement>("#prompting-beats");
   const outlineArcs = $<HTMLSelectElement>("#prompting-outline-arcs");
+  // The slides the beats take in all, against the length asked (lift-up 20261110 USE-3).
+  const total = $<HTMLParagraphElement>("#prompting-total");
+  let range: [number, number | null] | undefined;
   // The outline twice unreadable (lift-up REL-3): why, and a choice to write without one or stop.
   const unreadPane = $<HTMLElement>("#prompting-unread");
   const unreadWhy = $<HTMLParagraphElement>("#prompting-unread-why");
@@ -223,7 +228,10 @@ export function prompting(
     };
     act("↑", "Move the beat up", () => li.previousElementSibling?.before(li));
     act("↓", "Move the beat down", () => li.nextElementSibling?.after(li));
-    act("Remove", "Remove the beat", () => li.remove());
+    act("Remove", "Remove the beat", () => {
+      li.remove();
+      totalled();
+    });
     // This beat's claim alone, asked again, every other claim as it stands (lift-up 20261110 FUNC-2).
     act("Ask again", "Ask for this beat's claim again", () => askAgain?.(li));
     li.append(name, slides, claim, acts);
@@ -243,9 +251,30 @@ export function prompting(
     })),
   });
 
+  /** The slides the beats take in all, said against the length asked, and flagged where outside
+   * it, since a sum outside it is scaled to its nearer end (lift-up 20261110 USE-3). */
+  const totalled = () => {
+    const sum = settledOutline().beats.reduce((n, b) => n + Math.max(1, b.slides), 0);
+    const all = `${sum} ${sum === 1 ? "slide" : "slides"} in all`;
+    if (!range) return void (total.textContent = all);
+    const [least, most] = range;
+    const asked = most == null ? `${least} or more` : least === most ? `${least}` : `${least}\u2013${most}`;
+    const end = sum < least ? least : most != null && sum > most ? most : undefined;
+    total.textContent = `${all} \u00b7 the length asked: ${asked}${end == null ? "" : `. They will be scaled to ${end}.`}`;
+    total.classList.toggle("over", end != null);
+  };
+  beats.addEventListener("input", totalled);
+
   /** The outline shown, to settle: the arc and why, the big idea, and the beats; or, where it did
    * not read, why, to write without one or stop. */
-  const showOutlined = (outlined: { outline: StoryOutline; arc: string; reasoning: string; fallback?: string; unread?: string }) => {
+  const showOutlined = (outlined: {
+    outline: StoryOutline;
+    arc: string;
+    reasoning: string;
+    fallback?: string;
+    unread?: string;
+    range?: [number, number | null];
+  }) => {
     if (outlined.unread) {
       // The count said once, by the sentence: the reason's own "(asked 2 times)" is the CLI's.
       const why = outlined.unread.replace(/ \(asked \d+ times\)$/, "").replace(/^./, (c) => c.toLowerCase());
@@ -260,6 +289,8 @@ export function prompting(
       : `Arc: ${outlined.arc}. ${outlined.reasoning}`.trim();
     bigIdea.value = outlined.outline.bigIdea;
     beats.replaceChildren(...outlined.outline.beats.map(beatRow));
+    range = outlined.range;
+    totalled();
     outlineArcs.replaceChildren(
       ...[...arc.options].map((o) => new Option(o.textContent ?? "", o.value, false, o.value === outlined.arc)),
     );
@@ -287,6 +318,7 @@ export function prompting(
   $<HTMLButtonElement>("#prompting-add-beat").onclick = () => {
     const li = beatRow({ name: "", claim: "", slides: 0 });
     beats.append(li);
+    totalled();
     li.querySelector<HTMLInputElement>(".name")!.focus();
   };
 

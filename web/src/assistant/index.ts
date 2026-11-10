@@ -8,7 +8,7 @@ import initResources, { list, text } from "@scaena/resources";
 import { findIcons, iconSet } from "../icon-set";
 import { iconsFound } from "./icon-find";
 import type { MapAsk, MapRefresh, MapTarget, Mapped, Rewritten, Seeing } from "../protocol";
-import { converse, type Event, turn } from "./converse";
+import { converse, type Event, recent, turn } from "./converse";
 import { type Call, type Message, type ProviderId, providers, type Result, type Turn } from "./providers";
 import { type Brief, type Deck, type Listed, seen, system } from "./prompt";
 import { made, summary, tools } from "./tools";
@@ -72,6 +72,17 @@ let loaded: Promise<unknown> | undefined;
 /** Start a new conversation. */
 export function forget() {
   conversation = [];
+}
+
+/** The conversation as it may be kept (lift-up 20261110 FUNC-4): as the model is next sent it,
+ * every picture left out, the older tools' results named in their place. */
+export function kept(): Message[] {
+  return recent(conversation, 0).map((m): Message => (m.role === "user" ? { role: "user", text: m.text } : m));
+}
+
+/** Go on from a conversation kept: the next question follows it. */
+export function resume(messages: Message[]) {
+  conversation = messages;
 }
 
 /** Ask `asking.text` of the model, which works on `session` with the tools `names` until it

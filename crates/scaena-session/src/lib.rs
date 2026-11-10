@@ -140,6 +140,11 @@ pub struct Session {
     /// once a frame, as a resize does when it pauses (ADR-0013).
     #[cfg(feature = "editor")]
     previewing: Option<Deck>,
+    /// The theme an edit of it would make, shown before it is made: frames at rest draw in it,
+    /// laid out once a frame, as the Theme tab shows a color held in its picker
+    /// (`Session::theme_previewing`, lift-up ATTR-5).
+    #[cfg(feature = "editor")]
+    previewing_theme: Option<Theme>,
     /// The format frames are laid out in (SPEC §3.4); `None` for the deck's own canvas.
     format: Option<String>,
     /// What each format painted beside the canvas laid out, by the format (PLAN 2.62).
@@ -380,6 +385,8 @@ impl Session {
             view: None,
             #[cfg(feature = "editor")]
             previewing: None,
+            #[cfg(feature = "editor")]
+            previewing_theme: None,
             format: None,
             #[cfg(feature = "editor")]
             besides: BTreeMap::new(),
@@ -627,6 +634,7 @@ impl Session {
         #[cfg(feature = "editor")]
         {
             self.previewing = None;
+            self.previewing_theme = None;
             self.suggesting = None;
         }
     }
@@ -782,11 +790,13 @@ impl Session {
         let (start, span) = (slot.start, slot.span);
         if t_ms.is_nan() || t_ms >= span {
             #[cfg(feature = "editor")]
-            if let Some(deck) = &self.previewing {
+            if self.previewing.is_some() || self.previewing_theme.is_some() {
+                let deck = self.previewing.as_ref().unwrap_or(&self.deck);
+                let theme = self.previewing_theme.as_ref().unwrap_or(&self.theme);
                 // The engine is built by now: the timeline took it.
                 let engine = self.engine.as_mut().expect("built for the timeline");
                 let format = self.format.as_deref();
-                let req = FrameRequest { deck, theme: &self.theme, data: &self.data, state, t_ms, format };
+                let req = FrameRequest { deck, theme, data: &self.data, state, t_ms, format };
                 return Ok(engine.frame(&req)?.display_list);
             }
             // Its shaders at the time it comes to rest, or `t_ms` into its hold.
@@ -866,7 +876,7 @@ impl Session {
         // A drag, or a patch previewed, draws the state otherwise than it is at rest and moves
         // with the pointer (ADR-0013): a frame of it, as before, with nothing kept.
         #[cfg(feature = "editor")]
-        let previewing = self.previewing.is_some();
+        let previewing = self.previewing.is_some() || self.previewing_theme.is_some();
         #[cfg(not(feature = "editor"))]
         let previewing = false;
         if self.moving.is_some() || previewing {

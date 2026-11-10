@@ -71,7 +71,10 @@ function fitting(stage: Stage, room: () => [number, number], watched: Element[])
   let asking: Promise<void> = Promise.resolve();
   // The canvas shown at the slide's size in the room, CSS pixels, whatever size its frames are
   // painted at: the CPU painter's, capped, are scaled up to it.
+  /** The slide's size as last painted, whose shape the room is fitted to. */
+  let painted: [number, number] | undefined;
   const shown = ([width, height]: [number, number]) => {
+    painted = [width, height];
     const [w, h] = room();
     const scale = Math.min(w / width, h / height);
     stage.canvas.style.width = `${(width * scale).toFixed(2)}px`;
@@ -84,6 +87,11 @@ function fitting(stage: Stage, room: () => [number, number], watched: Element[])
     const now = device.join("×");
     if (now === last) return;
     last = now;
+    // Shown at its size in the new room at once, in the shape it was last painted: the worker
+    // paints at the new size a frame or more later, and the canvas shown and its frames would
+    // otherwise change on different frames, the frame painted for fullscreen shown, for a moment,
+    // in the box the bar left it (the player walk's fullscreen check, on a busy runner).
+    if (painted) shown(painted);
     // One at a time, in order: a fit asked for while one is painted goes after it.
     asking = asking.then(() => stage.fit(device).then(shown, () => {}));
   };

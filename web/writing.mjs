@@ -112,6 +112,16 @@ const scripted = await provider();
 const browser = await launch();
 try {
   const page = await browser.newPage({ viewport: { width: 1600, height: 1000 }, deviceScaleFactor: 1 });
+  // What the page asks of its worker, by kind: the editor started reads no deck's health it shows
+  // no one (lift-up 20261110 ATTR-2).
+  await page.addInitScript(() => {
+    const post = Worker.prototype.postMessage;
+    window.__posted = [];
+    Worker.prototype.postMessage = function (data, ...rest) {
+      if (data && typeof data === "object" && typeof data.type === "string") window.__posted.push(data.type);
+      return post.call(this, data, ...rest);
+    };
+  });
   page.on("pageerror", (e) => failures.push(`page: ${e.message}`));
   page.on("console", (m) => m.type() === "error" && !/Failed to load resource/.test(m.text()) && failures.push(`console: ${m.text()}`));
   await page.goto(`${site.origin}/web/dist/editor.html?painter=cpu&bundle=/docs/examples/revenue.deck.json`);
@@ -372,6 +382,8 @@ try {
   await page.goto(`${site.origin}/web/dist/editor.html?painter=cpu&bundle=/docs/examples/revenue.deck.json`);
   await page.waitForFunction(() => window.scaena?.last()?.valid && window.scaena.canvas.boxes()?.length, null, { timeout: 120000 });
   const unwritten = await source();
+  const posted = await page.evaluate(() => window.__posted.filter((t) => t === "health").length);
+  check(posted === 0, `the editor started asks no health of the deck while no one sees it: ${posted} asked`);
   const slides = () => page.evaluate(() => window.scaena.last().states.length);
   const counted = await slides();
   await page.evaluate(() => window.scaena.slideAsk.open("add"));

@@ -1,0 +1,105 @@
+{
+ "executiveSummary": "x",
+ "slides": [
+  {
+   "slideTitle": "Layouts under test",
+   "subtitle": "Dogfood pass 10",
+   "layoutSuggestion": "Title",
+   "keyBullets": [],
+   "speakerNotes": "- Say it.",
+   "purpose": "p",
+   "intent": "i",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.2
+  },
+  {
+   "slideTitle": "Why onboarding broke",
+   "subtitle": "",
+   "layoutSuggestion": "Bullet List",
+   "keyBullets": [
+    "Implementation queue grew from 9 to 31 days",
+    "One onboarding lead for every 40 new accounts",
+    "Sales promised integrations we had not built"
+   ],
+   "speakerNotes": "- Say it.",
+   "purpose": "p",
+   "intent": "i",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.2
+  },
+  {
+   "slideTitle": "Margin and cash are falling with it",
+   "subtitle": "",
+   "layoutSuggestion": "Scorecard",
+   "keyBullets": [
+    "51%: gross margin, down 7 points in a year",
+    "$28.7M: cash, down $12.3M since Q4 FY25",
+    "14 months: runway at Q3's burn"
+   ],
+   "speakerNotes": "- Say it.",
+   "purpose": "p",
+   "intent": "i",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.2
+  },
+  {
+   "slideTitle": "Two risks need attention now",
+   "subtitle": "Likelihood and impact",
+   "layoutSuggestion": "Quadrant",
+   "keyBullets": [
+    "High / high: hiring may not fill 12 onboarding roles by January",
+    "High / low: a competitor prices 20% under us",
+    "Low / high: a data-centre outage during go-live",
+    "Low / low: a delay to the SOC 2 audit"
+   ],
+   "speakerNotes": "- Say it.",
+   "purpose": "p",
+   "intent": "i",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.2
+  },
+  {
+   "slideTitle": "The quarter in four measures",
+   "subtitle": "",
+   "layoutSuggestion": "Scorecard",
+   "keyBullets": [
+    "$19.6M: Revenue, down 11%",
+    "51%: Margin, down 7 pts",
+    "4.2%: Churn, up from 2.1%",
+    "14 mo: Runway at Q3's burn"
+   ],
+   "speakerNotes": "- Say it.",
+   "purpose": "p",
+   "intent": "i",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.2
+  },
+  {
+   "slideTitle": "Four numbers that tell the quarter",
+   "subtitle": "",
+   "layoutSuggestion": "Scorecard",
+   "keyBullets": [
+    "$19.6M: revenue, down 11%",
+    "51%: gross margin",
+    "4.2%: monthly churn",
+    "14 months: runway"
+   ],
+   "speakerNotes": "- Say it.",
+   "purpose": "p",
+   "intent": "i",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.2
+  },
+  {
+   "slideTitle": "What we take away",
+   "subtitle": "Back to growth by Q2 FY27",
+   "layoutSuggestion": "Closing",
+   "keyBullets": [],
+   "speakerNotes": "- Say it.",
+   "purpose": "p",
+   "intent": "i",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.2
+  }
+ ]
+}

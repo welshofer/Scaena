@@ -104,6 +104,14 @@ fn each_adapter_asks_and_reads_as_the_browsers_does() {
         let status = failure["status"].as_u64().unwrap() as u16;
         let said = provider.read_turn(status, "", &body(&failure["body"])).unwrap_err().to_string();
         assert_eq!(json!(said), kept["failure"]["message"], "{id}: the failure said");
+
+        // Each answer a model declined or a provider blocked, read as a refusal, as the browser's
+        // adapter reads it (lift-up 20261025c REL-1).
+        let refused: Vec<Value> = (conversation["refusals"][&id].as_array().unwrap().iter())
+            .map(|answer| json!(provider.read_turn(200, "", &body(answer)).unwrap().stop))
+            .collect();
+        assert_eq!(json!(refused), kept["refusals"], "{id}: the refusals read");
+        assert!(refused.iter().all(|stop| stop == "refused"), "{id}: {refused:?}");
     }
 }
 
@@ -346,6 +354,27 @@ fn only_the_newest_results_are_shown_again_within_the_budget() {
     assert!(!chat.shorter(), "once a question");
     chat.ask("And now?");
     assert_eq!(chat.budget, scaena_chat::BUDGET, "a new question has the whole budget");
+}
+
+/// A question no answer joined is taken back (lift-up 20261110 STAB-3): asked again after a key
+/// refused or a stop, it is one question; one the model answered stays.
+#[test]
+fn a_question_with_no_answer_is_taken_back() {
+    let mut chat = Chat::new(Provider::Anthropic, "a-model", "Be brief.".into(), vec![]);
+    assert!(!chat.take_back(), "nothing asked");
+    chat.ask("Is it clean?");
+    // The key is refused: the provider's answer is an error, and no answer joins the conversation.
+    let refused = r#"{"error":{"message":"invalid x-api-key"}}"#;
+    assert!(chat.answer(401, "Unauthorized", refused).is_err());
+    assert!(chat.take_back());
+    assert!(chat.conversation.is_empty());
+    chat.ask("Is it clean?");
+    let body = r#"{"content":[{"type":"text","text":"Clean."}],"stop_reason":"end_turn"}"#;
+    assert!(matches!(chat.answer(200, "OK", body), Ok(Next::Done { .. })));
+    assert!(!chat.take_back(), "an answered question stays");
+    assert_eq!(chat.conversation.len(), 2);
+    let body = chat.request("sk-test").body.expect("a POST").to_string();
+    assert_eq!(body.matches("Is it clean?").count(), 1, "asked once: {body}");
 }
 
 /// A call the answer's token limit cut off is not run (lift-up REL-1): its arguments are not what

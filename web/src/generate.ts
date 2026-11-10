@@ -261,6 +261,8 @@ export interface Outlined {
   arc: string;
   reasoning: string;
   fallback?: string;
+  /** The fewest and the most slides the beats may take in all (lift-up 20261110 USE-3). */
+  range?: [number, number | null];
 }
 
 /** What the person decided of an outline: settled, so the slides are written to it; or another
@@ -316,7 +318,16 @@ export async function generate(
     if (paid.researched) {
       const read = JSON.parse(sources.researched(paid.researched.name, paid.researched.text)) as { name: string; kind: string };
       hear({ kind: "read", name: read.name, what: read.kind });
-    } else if (job.research) keep({ researched: await research(g, brief, asking, job, sources, hear) });
+    } else if (job.research) {
+      try {
+        keep({ researched: await research(g, brief, asking, job, sources, hear) });
+      } catch (e) {
+        // A research that fails goes on from the files and links given, where there are any
+        // (lift-up 10-25b REL-4); with none, the deck would be grounded in nothing.
+        if (!sources.count) throw e;
+        hear({ kind: "unresearched", why: said(e) });
+      }
+    }
     const generation = new g.Generation(brief, asking, sources);
     // What each source gave, said before a call is paid for (narrative USE-5): the sources share
     // a million bytes, the first given taking it first, and one cut short, or given no room, says
@@ -386,7 +397,8 @@ export async function generate(
           if (!at.outline && !at.unread) continue;
           const outline = at.outline ?? { bigIdea: "", beats: [] };
           if (at.outline) hear({ kind: "outlined", beats: outline.beats.length });
-          const shown = { outline, arc: at.arc ?? "", reasoning: at.reasoning ?? "", fallback: at.fallback ?? undefined };
+          const range = JSON.parse(generation.range()) as [number, number | null];
+          const shown = { outline, arc: at.arc ?? "", reasoning: at.reasoning ?? "", fallback: at.fallback ?? undefined, range };
           let decided = await settle!(at.unread ? { ...shown, unread: at.unread } : shown);
           // One beat asked for again, the outline still shown: its claim, then the next decision
           // (lift-up 20261110 FUNC-2).

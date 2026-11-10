@@ -1118,6 +1118,19 @@ try {
   for (const painter of ["auto", "cpu"]) {
     const page = await dense.newPage();
     page.on("pageerror", (e) => failures.push(`dense ${painter}: ${e.message}`));
+    // Once the walk asks (`__slowFit`, in ms), the worker's word of the size it paints at, and its
+    // answer to a fit, reach the page late.
+    await page.addInitScript(() => {
+      const set = Object.getOwnPropertyDescriptor(Worker.prototype, "onmessage").set;
+      Object.defineProperty(Worker.prototype, "onmessage", {
+        set(handler) {
+          set.call(this, (e) => {
+            if (window.__slowFit && (e.data?.type === "sized" || e.data?.type === "fitted")) setTimeout(() => handler(e), window.__slowFit);
+            else handler(e);
+          });
+        },
+      });
+    });
     await page.goto(`${server.origin}/web/dist/?painter=${painter}&bundle=${revenue}`);
     await page.waitForFunction(() => window.scaena, null, { timeout: 120000 });
     const paints = await page.evaluate(() => window.scaena.painter);
@@ -1150,6 +1163,10 @@ try {
     else await page.waitForFunction(() => window.scaena.at() && !window.scaena.at().playing, null, { timeout: 60000 }).catch(() => {});
     const windowed = await measure();
     check(sharp(windowed) && windowed.dpr === 2, `${paints}: at 2560 × 1440 at 2×, the slide fills the room the bar leaves, painted at the size shown: ${JSON.stringify(windowed)}`);
+    // The worker's word of its new size held back a while, as a busy runner's main thread may hold
+    // it: the frames painted for the screen come before it does, and the slide must be shown
+    // at the screen's size all the same.
+    await page.evaluate(() => (window.__slowFit = 400));
     await page.keyboard.press("f");
     const fullDense = await page.waitForFunction(() => document.fullscreenElement !== null, null, { timeout: 5000 }).then(() => true, () => false);
     if (fullDense) {
@@ -1158,6 +1175,7 @@ try {
         .waitForFunction((was) => document.querySelector("#stage").width !== was, windowed.backing[0], { timeout: 60000 })
         .catch(() => {});
       const full = await measure();
+      await page.evaluate(() => (window.__slowFit = 0));
       const screen = Math.abs(full.shown[0] - 2560) <= 1 && Math.abs(full.shown[1] - 1440) <= 1;
       const whole = paints !== "webgpu" || (full.backing[0] === 5120 && full.backing[1] === 2880);
       check(sharp(full) && screen && whole, `${paints}: fullscreen, it fills the screen, painted at the size shown: ${JSON.stringify(full)}`);
