@@ -31,7 +31,8 @@
 // - A made deck's plan (dogfood 9's keynote, made with no call): a slide planned hotter than its
 //   place is asked by its Intensity; the Format tab offers its beat's Intensity and Tone, each said
 //   in the engine's words as it is held, nothing made; let go, one patch, the bend answered; ⌘Z
-//   takes it back (editor dogfood 3).
+//   takes it back (editor dogfood 3). A slide there that lint finds broken caps the score: the
+//   score says so and what it would be, the slide a button that shows it (W1's dogfood 5).
 // Exits 1 on any failure.
 import { execFileSync } from "node:child_process";
 import { mkdir, rm, writeFile } from "node:fs/promises";
@@ -103,6 +104,22 @@ try {
   await page.waitForFunction(() => document.querySelector("#question").value !== "My own question first.", null, { timeout: 10000 }).catch(() => {});
   const drafted = await page.inputValue("#question");
   check(/^My own question first\.\n\n\S/.test(drafted), `Ask the assistant keeps the question drafted, its own after it: ${JSON.stringify(drafted.slice(0, 60))}`);
+  // With no key kept, Ask says what to do: the key's field takes the focus and the status says
+  // so, the question waiting; pressing Ask then says the same, keeping it (editor dogfood 5).
+  check(await page.evaluate(() => !document.querySelector("#key").value), "no key is kept here");
+  check(await page.evaluate(() => document.activeElement?.id === "key"), `the key's field takes the focus: ${await page.evaluate(() => document.activeElement?.id)}`);
+  check(
+    await page.evaluate(() => document.querySelector("#status").textContent.startsWith("Paste a key to ask this")),
+    `the status says what to do: ${await page.evaluate(() => document.querySelector("#status").textContent)}`,
+  );
+  await page.click("#ask");
+  const failed = await page
+    .waitForFunction(() => document.querySelector("#transcript li.failed:last-child")?.textContent, null, { timeout: 10000 })
+    .then((h) => h.jsonValue())
+    .catch(() => "");
+  check(/^Paste a key to ask this: paste \w+'s above\.$/.test(failed), `pressing Ask with no key says the same: ${failed}`);
+  check((await page.inputValue("#question")) === drafted, "and keeps the question");
+  check(await page.evaluate(() => document.activeElement?.id === "key"), "the key's field in focus");
   await page.fill("#question", "");
   await tab(page, "story");
 
@@ -496,6 +513,25 @@ try {
     await page.keyboard.press("Control+z");
     await page.waitForFunction((w) => window.scaena.source() === w, was, { timeout: 30000, polling: 50 }).catch(() => {});
     check((await page.evaluate(() => window.scaena.source())) === was, "⌘Z takes the plan back");
+    // A slide lint finds broken caps the score: the score says so, and what it would be, the slide
+    // a button that shows it (W1's dogfood 5).
+    const sound = await page.evaluate(() => window.scaena.source());
+    const words = '"adults in our city has never had a library card"';
+    check(sound.includes(words), "the big number's words are found in the source");
+    const long = "adults in our city has never had a library card, nor been asked to hold one. ".repeat(8).trim();
+    await page.evaluate((s) => window.scaena.type(s), sound.replace(words, JSON.stringify(long)));
+    await tab(page, "story");
+    await page.waitForFunction(() => document.querySelector("#story [data-score] [data-capped]"), null, { timeout: 120000 }).catch(() => {});
+    const capped = await page.evaluate(() => ({ capped: window.scaena.story.health()?.capped, said: document.querySelector("#story [data-score] [data-capped]")?.textContent }));
+    check(
+      capped.capped?.slides?.length === 1 && capped.capped.score > capped.capped.cap &&
+        capped.said === `Capped at ${capped.capped.cap} while slide ${capped.capped.slides[0]} has an error; ${capped.capped.score} without.`,
+      `the score says what caps it, and what it would be: ${JSON.stringify(capped)}`,
+    );
+    const cappedState = await page.evaluate((n) => window.scaena.story.health().slides[n - 1]?.state, capped.capped?.slides?.[0]);
+    await page.click("#story [data-score] [data-capped-slide]").catch((e) => failures.push(`no capped slide to press: ${e.message}`));
+    await page.waitForFunction((st) => window.scaena.canvas.boxed() === st, cappedState, { timeout: 30000 }).catch(() => {});
+    check(await page.evaluate((st) => window.scaena.canvas.boxed() === st, cappedState), `a press on its slide shows it: ${cappedState}`);
     await page.close();
   })();
 

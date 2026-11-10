@@ -1913,6 +1913,74 @@ impl Session {
         self.inserting_offer(state, insert, at, named)
     }
 
+    /// [`Session::inserting_with`], `at` where the pointer last pressed; with none pressed, aimed
+    /// at the slide's words ([`Session::aim`]), else the canvas's middle (editor dogfood 5).
+    #[cfg(feature = "editor")]
+    pub fn inserting_aimed(
+        &mut self,
+        state: &str,
+        n: usize,
+        at: Option<[f32; 2]>,
+        named: Option<&str>,
+        with: Option<&serde_json::Map<String, serde_json::Value>>,
+    ) -> Result<scaena_ops::inspect::Added, Error> {
+        let at = match at {
+            Some(at) => at,
+            None => {
+                let insert = self.offered(n)?;
+                match self.aim(state, &insert, named)? {
+                    Some(at) => at,
+                    None => self.canvas_size()?.map(|v| v as f32 / 2.0),
+                }
+            }
+        };
+        self.inserting_with(state, n, at, named, with)
+    }
+
+    /// Where an insert goes on `state` with no pointer pressed (editor dogfood 5): its start box
+    /// in the column the slide's words stand in, its edge on theirs, a row under the lowest of
+    /// them, kept on the canvas; the point at its middle, which [`Session::inserting`] takes. The
+    /// slide's words are the texts at the root it draws at rest in the theme's headline, title,
+    /// lede, and body roles, so a kicker, a caption, a source, or code sets no edge. `None` on a
+    /// slide with none.
+    #[cfg(feature = "editor")]
+    fn aim(
+        &mut self,
+        state: &str,
+        insert: &scaena_core::inserts::Insert,
+        named: Option<&str>,
+    ) -> Result<Option<[f32; 2]>, Error> {
+        const WORDS: [&str; 4] = ["headline", "title", "lede", "body"];
+        let snaps = scaena_core::resolve_states(&self.deck).map_err(|e| Error::Deck(e.to_string()))?;
+        let Some(snap) = snaps.iter().find(|s| s.state_id == state) else { return Ok(None) };
+        let shown = self.boxes(state)?;
+        let words = |id: &str| {
+            let text = self.deck.nodes.get(id).is_some_and(|n| n.node_type == scaena_core::document::NodeType::Text);
+            let props = snap.nodes.get(id);
+            let role = props.and_then(|p| p.get("role")).and_then(serde_json::Value::as_str).unwrap_or("body");
+            text && props.is_some_and(|p| p.get("code").is_none_or(serde_json::Value::is_null)) && WORDS.contains(&role)
+        };
+        let boxes: Vec<[f32; 4]> =
+            (shown.into_iter()).filter(|b| b.parent.is_none() && words(&b.node)).map(|b| b.rect).collect();
+        if boxes.is_empty() {
+            return Ok(None);
+        }
+        let room = self.room_for(state, insert, named, None)?;
+        let [_, _, w, h] = room.cell;
+        let [cw, ch] = self.canvas_size()?.map(|v| v as f32);
+        let gutter = room.rows.windows(2).next().map_or(0.0, |r| (r[1][0] - r[0][1]).max(0.0));
+        let x = if scaena_core::direction::mirrored(&self.deck) {
+            boxes.iter().map(|[x, _, w, _]| x + w).fold(f32::MIN, f32::max) - w
+        } else {
+            boxes.iter().map(|[x, ..]| *x).fold(f32::MAX, f32::min)
+        };
+        let y = boxes.iter().map(|[_, y, _, h]| y + h).fold(f32::MIN, f32::max) + gutter;
+        // On the canvas, where what is under the words leaves no room: the nearest clear place
+        // is found from there, as about any point.
+        let (x, y) = (x.clamp(0.0, (cw - w).max(0.0)), y.clamp(0.0, (ch - h).max(0.0)));
+        Ok(Some([x + w / 2.0, y + h / 2.0]))
+    }
+
     /// The patch that inserts `icon` in `state` as [`Session::inserting`] inserts what is
     /// offered (PLAN 2.104): a path shape on the icon's view, in the theme's accent, as decoration
     /// named by the icon ([`scaena_core::inserts::icon`]), about `at`, its id made from its name.
@@ -3259,6 +3327,61 @@ mod tests {
         assert_eq!(s.digests.len(), kept + 1, "a font handed over again lays the state out anew");
         s.add_file(font, bytes);
         assert_eq!(s.digest(&states[1]).unwrap(), before);
+    }
+
+    /// B1, opened as the editor opens it.
+    #[cfg(feature = "editor")]
+    fn b1() -> Session {
+        let dir = "../../tests/bench/b1.scaena";
+        let read = |p: &str| std::fs::read(format!("{dir}/{p}")).unwrap();
+        let mut s = Session::new(
+            &String::from_utf8(read("deck.json")).unwrap(),
+            &String::from_utf8(read("theme.json")).unwrap(),
+        )
+        .unwrap();
+        for font in std::fs::read_dir(format!("{dir}/fonts")).unwrap() {
+            let name = font.unwrap().file_name().into_string().unwrap();
+            s.add_file(&format!("fonts/{name}"), read(&format!("fonts/{name}")));
+        }
+        s
+    }
+
+    /// Insert with no pointer pressed (editor dogfood 5): under the slide's words, its edge on
+    /// theirs, the kicker over them setting none; on a slide whose words reach the foot, in the
+    /// nearest clear place on the canvas; and with a point, about it, as before.
+    #[cfg(feature = "editor")]
+    #[test]
+    fn an_insert_with_no_pointer_pressed_stands_under_the_slides_words() {
+        let mut s = b1();
+        let by = assistant::Caller { author: "user", at: None };
+        let body = s.inserts().iter().position(|i| i.label == "Text · body").unwrap();
+        let stands = |s: &mut Session, node: &str, state: &str| {
+            s.boxes(state).unwrap().into_iter().find(|b| b.node == node).unwrap().rect
+        };
+        // Slide 4: its kicker and its headline at the left margin.
+        let headline = stands(&mut s, "headline", "belief-2");
+        let kicker = stands(&mut s, "kicker", "belief-2");
+        let added = s.inserting_aimed("belief-2", body, None, None, None).unwrap();
+        let [x, y, _, _] = added.cell;
+        assert!((x - headline[0]).abs() < 1.0, "its edge on the headline's: {:?} by {headline:?}", added.cell);
+        assert!(y >= headline[1] + headline[3], "under it: {:?} by {headline:?}", added.cell);
+        assert!(kicker[1] < headline[1], "the kicker stands over the words, and sets no edge: {kicker:?}");
+        // A point given is where it goes about, as before.
+        let pointed = s.inserting_aimed("belief-2", body, Some([1400.0, 800.0]), None, None).unwrap();
+        assert_ne!(pointed.cell, added.cell);
+        assert!(pointed.cell[0] > headline[0] + 400.0, "about the point: {:?}", pointed.cell);
+        // Words that reach the foot: the row after them has no room, and it stands in the nearest
+        // clear place, on the canvas.
+        let full = serde_json::json!([{ "op": "place", "node": "headline", "state": "belief-2", "at": { "col": [1, 12], "row": [3, 12] }, "fork": true }]);
+        s.tool("deck_patch", serde_json::json!({ "ops": full }), by).unwrap();
+        let [cw, ch] = s.canvas_size().unwrap().map(|v| v as f32);
+        let low = s.inserting_aimed("belief-2", body, None, None, None).unwrap();
+        let [x, y, w, h] = low.cell;
+        assert!(
+            x >= 0.0 && y >= 0.0 && x + w <= cw + 0.5 && y + h <= ch + 0.5,
+            "on the canvas: {:?} in {cw}×{ch}",
+            low.cell
+        );
     }
 
     /// B1's thumbnails timed (lift-up PERF-4): every state's digest after opening, after an edit
