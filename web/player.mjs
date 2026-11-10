@@ -675,7 +675,20 @@ try {
   // L: the laser, pointed from the slide the presenter view shows, drawn on the room's.
   await presenter.keyboard.press("l");
   await player.waitForFunction(() => window.scaena.laser().on, null, { timeout: 5000 }).catch(() => {});
-  const shownBox = await presenter.locator("#stage").boundingBox();
+  // The presenter's slide as it stands now, read until two reads in a row agree: the view may
+  // still be settling its column (the next slide, the beat's words) as the walk gets here, and a
+  // box read before it settles puts the pointer elsewhere on the slide than meant.
+  const stageBox = async () => {
+    let was = await presenter.locator("#stage").boundingBox();
+    for (let i = 0; i < 40; i++) {
+      await presenter.waitForTimeout(50);
+      const now = await presenter.locator("#stage").boundingBox();
+      if (now && was && ["x", "y", "width", "height"].every((k) => Math.abs(now[k] - was[k]) < 0.5)) return now;
+      was = now;
+    }
+    return was;
+  };
+  let shownBox = await stageBox();
   await presenter.mouse.move(shownBox.x + shownBox.width / 4, shownBox.y + shownBox.height / 4);
   await presenter.mouse.move(shownBox.x + shownBox.width / 2, shownBox.y + shownBox.height / 2, { steps: 3 });
   // The move's three steps are three points, each its own message: wait for the last.
@@ -694,6 +707,7 @@ try {
   // its slide, clear of what it says in the middle, and the slide back brings it back there.
   await presenter.keyboard.press("b");
   await player.waitForFunction(() => window.scaena.blank() === "black", null, { timeout: 5000 }).catch(() => {});
+  shownBox = await stageBox();
   await presenter.mouse.move(shownBox.x + shownBox.width / 4, shownBox.y + shownBox.height / 4, { steps: 3 });
   const quarter = (p) => p && Math.abs(p[0] - 0.25) < 0.01 && Math.abs(p[1] - 0.25) < 0.01;
   await player.waitForFunction(() => window.scaena.laser().point?.[0] < 0.3, null, { timeout: 5000 }).catch(() => {});
