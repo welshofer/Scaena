@@ -309,11 +309,22 @@ export function storyPanel(stage: Stage, into: HTMLElement, editor: StoryEditor)
       from.textContent = `From ${sources.join(", ")}`;
       li.append(from);
     }
+    // What it found, then what to do about it, each in a sentence: the question the assistant
+    // would be asked says what to do, so a presenter with no key, or none to spend, reads it
+    // here, not in an Assistant tab that asks for a key first.
     for (const f of run) {
       const p = document.createElement("p");
       p.dataset.kind = f.kind;
       p.textContent = sentence(f);
       li.append(p);
+      if (f.ask) {
+        const todo = document.createElement("p");
+        todo.dataset.todo = f.kind;
+        const label = document.createElement("span");
+        label.textContent = "To do: ";
+        todo.append(label, f.ask);
+        li.append(todo);
+      }
     }
     const actions = document.createElement("div");
     actions.className = "actions";

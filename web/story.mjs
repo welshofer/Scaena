@@ -3,6 +3,9 @@
 //
 //   node web/story.mjs     (after `just web`; from the repository's root)
 //
+// - Each finding says what to do in its row, under what it found: the question the assistant
+//   would be asked, so a presenter with no key is not sent to an Assistant tab to read it
+//   (editor dogfood 3).
 // - At most five findings stand open, none of them an info: the warnings whose measure scores
 //   lowest. The rest, the infos among them, fold under one disclosure that counts them by kind
 //   ("20 more: 12 arc, …"), shut until it is opened, and opened it shows each of them, so every
@@ -55,6 +58,20 @@ try {
   check(!(await first.isVisible()), "folded until it is opened");
   await page.click("#story [data-more] summary");
   check(await first.isVisible(), "and opened, it shows them");
+  // Each finding says what to do under what it found, the question the assistant would be asked,
+  // so a presenter with no key reads it in its row (editor dogfood 3).
+  const todos = await page.evaluate(() =>
+    [...document.querySelectorAll("#story [data-findings] li[data-slide] p[data-kind]")].map((p) => {
+      const next = p.nextElementSibling;
+      return { slide: p.closest("li").dataset.slide, kind: p.dataset.kind, todo: next?.matches("p[data-todo]") ? next.textContent : null, shown: !!next?.checkVisibility?.() };
+    }),
+  );
+  const asks = findings.map((f) => `${f.slide} ${f.kind} To do: ${f.ask}`).sort();
+  check(todos.every((t) => t.todo && t.shown), `each finding says what to do under it: ${JSON.stringify(todos.filter((t) => !t.todo || !t.shown).slice(0, 2))}`);
+  check(
+    JSON.stringify(todos.map((t) => `${t.slide} ${t.kind} ${t.todo}`).sort()) === JSON.stringify(asks),
+    `what it says to do is each finding's ask, once: ${todos.length} of ${findings.length}`,
+  );
 
   // A slide that lint finds broken leads.
   const source = await page.evaluate(() => window.scaena.source());
