@@ -2148,6 +2148,44 @@ fn every_theme_in_the_registry_makes_and_saves_a_deck_with_its_fonts_alone() {
     }
 }
 
+/// The assistant's tool calls run as `scaena_tool` runs them, on a stack segment of their own where
+/// the caller's runs low, and so does a laying of the deck: from a thread of 256 KB, a lint of the
+/// whole deck through the conversation, apart from it, and laid away holds (lift-up 20261031 STAB-1).
+#[test]
+fn the_assistants_calls_and_a_laying_have_a_stack_of_their_own() {
+    struct Sent(*mut ScaenaSession);
+    unsafe impl Send for Sent {}
+    let s = Sent(open(B1));
+    let caller = std::thread::Builder::new()
+        .stack_size(256 << 10)
+        .spawn(move || {
+            let s = s;
+            let mut error = null_mut();
+            let chat =
+                unsafe { scaena_chat_new(c(r#"{"provider":"anthropic","model":"a-model"}"#).as_ptr(), &mut error) };
+            let lint = json!({ "id": "t1", "name": "deck_lint", "args": {} });
+            let ran = step(chat, s.0, "run", json!({ "call": lint }));
+            let apart: Value = serde_json::from_str(&took(unsafe {
+                scaena_chat_run_apart(s.0, c("a-model").as_ptr(), c(&lint.to_string()).as_ptr(), null())
+            }))
+            .unwrap();
+            unsafe { scaena_chat_free(chat) };
+            let source = call(s.0, "source", Value::Null);
+            call(s.0, "compile", json!({ "source": source.as_str().unwrap() }));
+            let laying = unsafe { scaena_laying_new(s.0) };
+            assert!(!laying.is_null(), "B1 compiled to a deck that validates");
+            let laid = unsafe { scaena_laying_lay(laying) };
+            unsafe { scaena_laying_free(laying) };
+            (s, ran, apart, laid)
+        })
+        .unwrap();
+    let (s, ran, apart, laid) = caller.join().expect("the caller's own stack holds");
+    assert_eq!(ran["error"], false, "{ran}");
+    assert_eq!(apart["ok"]["error"], false, "{apart}");
+    assert!(laid, "laid out");
+    unsafe { scaena_session_free(s.0) };
+}
+
 /// A call that lays a deck out and lints it, as a re-theme does before and after, has the stack it
 /// takes on whatever thread Swift calls from, a segment added where the caller's runs low: a Swift
 /// Testing thread holds 512 KB, and the iPad's main thread 1 MB. Called here from a thread of
