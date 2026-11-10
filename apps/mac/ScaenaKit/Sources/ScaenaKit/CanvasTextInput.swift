@@ -11,6 +11,13 @@ import os
 /// tests stream it to say where a key went (`apps/ipad/app-test.sh`, PLAN 4.6).
 private let keysLog = Logger(subsystem: "com.welshofer.Scaena", category: "keys")
 
+/// What animates while a text is typed in, said every two seconds where the app was launched with
+/// `-reportAnimations YES`, as the iPad's UI tests launch it: each layer of the app's windows that
+/// holds an animation, by its kind, what it draws for, and the animation's key. An app that never
+/// settles while code is typed in made each of XCTest's events wait out its quiescence timeout
+/// (lift-up 20261110, #865's iPad run): this says what does not settle.
+private let animationsLog = Logger(subsystem: "com.welshofer.Scaena", category: "animations")
+
 /// Undo and Redo, held on the canvas while the assistant is at work on the deck (lift-up STAB-5),
 /// as the Mac's `UndoHold` holds the Edit menu's: ⌘Z and ⇧⌘Z, which reach the canvas before the
 /// menu bar matches them; the `undo:` and `redo:` the menu bar's items send up the chain to the
@@ -113,6 +120,43 @@ public final class CanvasKeys: UIView {
                 self.presses.becomeFirstResponder()
             }
         }
+    }
+
+    public override func becomeFirstResponder() -> Bool {
+        let became = super.becomeFirstResponder()
+        if became, UserDefaults.standard.bool(forKey: "reportAnimations") { reportAnimations() }
+        return became
+    }
+
+    /// What animates in the app's windows, said every two seconds while a text is typed in.
+    private func reportAnimations() {
+        reporting?.cancel()
+        reporting = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(2))
+                guard let self, self.isFirstResponder else { return }
+                Self.sayAnimations()
+            }
+        }
+    }
+
+    private var reporting: Task<Void, Never>?
+
+    /// Each layer of each window of the app's scenes that holds an animation, said once a report.
+    private static func sayAnimations() {
+        var said: [String] = []
+        func walk(_ layer: CALayer, _ window: String) {
+            for key in layer.animationKeys() ?? [] where said.count < 40 {
+                let owner = layer.delegate.map { String(describing: type(of: $0)) } ?? "none"
+                said.append("\(window): \(type(of: layer)) of \(owner), \(key)")
+            }
+            for sub in layer.sublayers ?? [] { walk(sub, window) }
+        }
+        for scene in UIApplication.shared.connectedScenes {
+            guard let scene = scene as? UIWindowScene else { continue }
+            for window in scene.windows { walk(window.layer, String(describing: type(of: window))) }
+        }
+        animationsLog.debug("\(said.count) animating: \(said.joined(separator: "; "), privacy: .public)")
     }
 
     public override func resignFirstResponder() -> Bool {
