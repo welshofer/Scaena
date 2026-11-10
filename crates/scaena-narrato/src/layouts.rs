@@ -215,7 +215,7 @@ const SPECS: [(&str, &str, Option<&str>, &[&str]); 41] = [
     ("ask", "The ask", Some("The Ask"), &["the ask", "our ask", "funding ask"]),
     ("qa", "Q & A", Some("Q&A"), &["q and a", "questions and discussion"]),
     ("thanks", "Thank you", None, &[]),
-    ("chyron", "Chyron", None, &[]),
+    ("chyron", "Chyron", None, &["lower third", "lower-third", "speaker intro", "name strap"]),
     ("recipe-card", "Recipe", Some("Playbook"), &["playbook", "recipe"]),
     ("architecture", "Architecture", None, &["system architecture", "architecture diagram", "system diagram"]),
     ("decision-brief", "Decision brief", None, &["decision memo"]),

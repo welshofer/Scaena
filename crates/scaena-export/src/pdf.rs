@@ -696,7 +696,7 @@ impl Cx<'_, '_> {
                 Op::Stroke { path: p, paint, width, cap, join, miter_limit, dash, dash_offset } => {
                     if let Some(p) = path(p) {
                         let (paint, opacity) = kpaint(paint);
-                        let dash = (!dash.is_empty()).then(|| StrokeDash { array: dash.clone(), offset: *dash_offset });
+                        let dash = stroke_dash(dash, *dash_offset, *width);
                         self.surface.set_fill(None);
                         self.surface.set_stroke(Some(Stroke {
                             paint,
@@ -1306,6 +1306,14 @@ fn by_case(shown: &str, written: &str) -> Option<String> {
     (shown != written && shown.to_uppercase() == written.to_uppercase()).then_some(written)
 }
 
+/// The dash a stroke `width` wide is written with: none for a solid one, or for a pattern whose
+/// period no reader could walk, which `scaena_core::displaylist::dashes` draws solid as every
+/// painter does (lift-up 20261031 REL-1).
+fn stroke_dash(dash: &[f32], offset: f32, width: f32) -> Option<StrokeDash> {
+    let dash = scaena_core::displaylist::dashes(dash, width);
+    (!dash.is_empty()).then(|| StrokeDash { array: dash.to_vec(), offset })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1336,5 +1344,15 @@ mod tests {
             let written = pdf(&deck, &[page], &Assets::default(), &PdfSettings::default());
             assert!(written.is_ok(), "{w} × {h}, a blur of {blur}: {written:?}");
         }
+    }
+
+    /// A line dashed with zeros, or with lengths too small to see, is written solid, not as a
+    /// pattern a reader walks a billion times (lift-up 20261031 REL-1).
+    #[test]
+    fn a_dash_of_no_length_is_written_solid() {
+        for dash in [&[0.0, 0.0][..], &[1e-6, 1e-6]] {
+            assert!(stroke_dash(dash, 0.0, 4.0).is_none(), "{dash:?}");
+        }
+        assert!(stroke_dash(&[4.0, 2.0], 1.0, 4.0).is_some_and(|d| d.array == [4.0, 2.0] && d.offset == 1.0));
     }
 }

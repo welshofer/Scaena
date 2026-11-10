@@ -120,6 +120,9 @@ public final class Assistant {
     public private(set) var working = false {
         didSet { editor.assisting = working }
     }
+    /// Bumped by each piece of an answer heard as it is written: what the panel follows it by
+    /// (lift-up 10-25c ATTR-3), the last entry growing in place.
+    public private(set) var spoken = 0
     /// Tokens in and out since the conversation began.
     public private(set) var usage = Usage(input: 0, output: 0)
     /// A question another panel drafted for the user to send (the story's, PLAN G.9): the
@@ -490,6 +493,7 @@ public final class Assistant {
         } else {
             saying = add(.said(words))
         }
+        spoken += 1
     }
 
     /// The answer's words, whole: in the entry they were written into, or a new one.
@@ -520,12 +524,31 @@ public final class Assistant {
         usage = Usage(input: usage.input + used.input, output: usage.output + used.output)
     }
 
-    /// Add `kind` to the conversation shown: where it stands.
+    /// Add `kind` to the conversation shown: where it stands. An answer done, or failed, is said
+    /// to VoiceOver, as the browser's transcript, a live region, says it (lift-up 10-25c USE-1).
     @discardableResult
     private func add(_ kind: Entry.Kind) -> Int {
         counted += 1
         entries.append(Entry(id: counted, kind: kind))
+        switch kind {
+        case .done(let why): Spoken.say(Self.stopped(why) ?? "The assistant has answered.")
+        case .failed(let why): Spoken.say(why, urgent: true)
+        default: break
+        }
         return entries.count - 1
+    }
+
+    /// Why an answer stopped, in a person's words, where it did not simply end: `stopped`,
+    /// `steps`, `length`, or the provider's own reason. None where it ended as answers do.
+    nonisolated public static func stopped(_ why: String) -> String? {
+        switch why {
+        case "end", "tools": nil
+        case "stopped": "Stopped."
+        case "steps": "Stopped after 32 rounds of calls: ask again to go on."
+        case "length": "The answer ran out of room."
+        // The provider's own reason is no person's word (PLAN 3.18), as the browser says it.
+        default: "The model stopped."
+        }
     }
 }
 

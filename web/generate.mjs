@@ -38,7 +38,7 @@
 // Exits 1 on any failure.
 import { mkdir, readFile } from "node:fs/promises";
 import { createServer } from "node:http";
-import { launch, serve, tab } from "./serve.mjs";
+import { answering, launch, serve, tab } from "./serve.mjs";
 
 const failures = [];
 const check = (ok, what) => {
@@ -81,7 +81,7 @@ const PAGE = "<h1>Tidewater in the press</h1><p>The Gulf's first carbon-negative
 /** Anthropic, scripted: what each request asks, and the state the walk sets (`slow`, `fail`, and
  * the `slides` it answers with, the recorded ones where none is set). */
 const requests = [];
-const state = { slow: 0, fail: false, slides: undefined, unreadable: false, looking: 0 };
+const state = { slow: 0, fail: false, slides: undefined, rest: undefined, unreadable: false, looking: 0 };
 const provider = createServer(async (req, res) => {
   const cors = {
     "access-control-allow-origin": req.headers.origin ?? "*",
@@ -130,6 +130,8 @@ const provider = createServer(async (req, res) => {
     const beats = [1, 2, 3, 4, 5, 6].map((beat) => ({ beat, claim: `Claim ${beat}: what this beat's slides leave behind.` }));
     return reply(200, { content: [{ type: "text", text: JSON.stringify({ bigIdea: "Cargo can pay for its carbon.", beats }) }], stop_reason: "end_turn" });
   }
+  // The rest of slides cut short (lift-up REL-2), asked with the slides' own prompt.
+  if (asked === "slides" && state.rest && prompt.includes("CONTINUATION")) return reply(200, state.rest);
   if (asked === "slides") return reply(200, state.slides ?? SLIDES);
   if (asked === "look") {
     const look = { slides: [{ slide: 1, layout: "", title: "Carbon-negative cargo, ready to scale", subtitle: "", bullets: [], why: "One idea, one line." }] };
@@ -153,6 +155,9 @@ try {
   page.on("console", (m) => m.type() === "error" && !/Failed to (load resource|fetch)|CORS/.test(m.text()) && failures.push(`console: ${m.text()}`));
   const accepting = (d) => d.accept();
   page.on("dialog", accepting);
+  // Changes not saved are asked about in the editor's own dialog (lift-up 20261031 ATTR-3), answered
+  // as the confirms it replaced were taken.
+  await answering(page);
   await page.goto(`${site.origin}/web/dist/editor.html?painter=cpu&bundle=/docs/examples/revenue.deck.json`);
   await page.waitForFunction(() => window.scaena?.last() && window.scaena.where().name === "revenue", null, { timeout: 120000 });
   // No key kept: the dialog takes one in place, in a page of its own, so what it chose leaves the
@@ -339,6 +344,9 @@ try {
   await page.click("#prompting-go");
   await page.waitForFunction(() => [...document.querySelectorAll("#prompting-progress li")].some((l) => l.textContent.startsWith("Choosing the arc")), null, { timeout: 60000 });
   check(await leaving(), "leaving the page while a deck is being made asks first");
+  // The progress scrolls once it runs past its room: the keys reach it to scroll it, as a pointer
+  // does (WCAG 2.1.1; axe's scrollable-region-focusable, editor dogfood 1).
+  check(await page.evaluate(() => document.querySelector("#prompting-progress").tabIndex === 0), "the keys reach the progress, which scrolls");
   page.off("dialog", accepting);
   const askedFirst = [];
   const declining = (d) => (askedFirst.push(d.message()), d.dismiss());
@@ -682,6 +690,37 @@ try {
   check(dashed.includes("alt:Compass"), "the other list is still set under its icons");
   check(!dashed.includes("alt:Acorn") && !dashed.includes("alt:Lightning"), "the dashed list keeps its words, under no icon");
   state.slides = undefined;
+
+  // Slides cut short of the length asked are asked for the rest, written on from them (lift-up
+  // REL-2): the deck is the two answers as one, and the progress says so.
+  {
+    const written = JSON.parse(JSON.parse(SLIDES).content.find((c) => c.type === "text").text);
+    const first = JSON.stringify({ executiveSummary: written.executiveSummary, slides: written.slides.slice(0, 3) });
+    const cut = `${first.slice(0, -2)}, {"slideTitle": "Cut`;
+    state.slides = JSON.stringify({ content: [{ type: "text", text: cut }], stop_reason: "max_tokens" });
+    // The rest's last slide titled in words of its own, so the deck made is not the one the slides
+    // whole make, which the walk after this one makes and waits to see.
+    const rest = written.slides.slice(3).map((s, i, all) => (i === all.length - 1 ? { ...s, slideTitle: `${s.slideTitle}, written on` } : s));
+    state.rest = JSON.stringify({
+      content: [{ type: "text", text: JSON.stringify({ executiveSummary: "", slides: rest }) }],
+      stop_reason: "end_turn",
+    });
+  }
+  requests.length = 0;
+  await opened();
+  await page.uncheck("#prompting-show-outline");
+  await page.click("#prompting-go");
+  await page
+    .waitForFunction((was) => window.scaena.source() !== was && window.scaena.last(), dashed, { timeout: 180000 })
+    .catch(() => {});
+  const rested = await page.evaluate(() => window.scaena.source());
+  check((rested.match(/^state /gm) ?? []).length === 5, `the deck is both answers' slides: ${(rested.match(/^state /gm) ?? []).length}`);
+  const continued = requests.filter((r) => r.asked === "slides");
+  check(continued.length === 2 && continued[1].prompt.includes("cut off after slide 3 of"), `the rest is asked once, after the three written: ${continued.length}`);
+  const restLines = await lines();
+  check(restLines.some((l) => l.startsWith("The answer was cut short after 3 slides: asking for the rest of")), `the progress says the rest is asked for: ${restLines.join(" | ")}`);
+  check(restLines.some((l) => l === "5 slides written"), `and the slides written whole: ${restLines.join(" | ")}`);
+  state.slides = state.rest = undefined;
 
   // An outline that never reads (lift-up REL-3): asked twice, then the dialog says why and offers to
   // write the slides without one, on the arc already chosen, which makes the deck.

@@ -90,6 +90,14 @@ pub(crate) fn unfenced(text: &str) -> &str {
     js::trim(rest.strip_suffix("```").unwrap_or(rest))
 }
 
+/// The JSON object an answer holds: from its first `{` to its last `}`, where the first comes
+/// before the last; none where it holds no such span. An answer like `}{` is none, never a slice
+/// that runs backward (lift-up 20261110 STAB-1).
+pub(crate) fn json_within(text: &str) -> Option<&str> {
+    let (start, end) = text.find('{').zip(text.rfind('}')).filter(|(start, end)| start < end)?;
+    Some(&text[start..=end])
+}
+
 /// The arc an answer to arc selection chose (Narrato's `parseArcJson`): one the catalog does
 /// not name exactly is matched as a model writes it ([`arcs::named`]: case, dashes, and
 /// apostrophes aside, or by a part). Text that does not read as the answer is an error, and so
@@ -100,10 +108,7 @@ pub fn arc(text: &str) -> Result<ArcChoice, String> {
     // Read as written, else from its first `{` to its last `}`, as the look reads its answer: a
     // model that writes a sentence around its JSON still chose (lift-up REL-3).
     let parsed: Value = serde_json::from_str(unfenced(text))
-        .or_else(|e| {
-            let within = text.find('{').zip(text.rfind('}')).filter(|(start, end)| start < end);
-            within.map_or(Err(e), |(start, end)| serde_json::from_str(&text[start..=end]))
-        })
+        .or_else(|e| json_within(text).map_or(Err(e), serde_json::from_str))
         .map_err(|e| format!("arc selection did not read: {e}"))?;
     let selection = parsed.get("selection").and_then(Value::as_str).ok_or("arc selection named no arc")?;
     let selection = match arcs::named(selection) {
@@ -405,6 +410,25 @@ mod tests {
     }
 
     use super::*;
+
+    /// An answer whose first `}` comes before its first `{` holds no JSON for any reader, never a
+    /// slice run backward; one slide written inside a sentence still reads (lift-up 20261110
+    /// STAB-1).
+    #[test]
+    fn an_answer_closed_before_it_opens_reads_as_none() {
+        for text in ["}{", "} not json {", "}"] {
+            assert_eq!(json_within(text), None, "{text}");
+            assert!(crate::look::read(text, &[]).is_err(), "{text}");
+            assert!(crate::fit::read(text, &[]).is_err(), "{text}");
+            let arc = crate::arcs::arc("Problem\u{2013}Solution");
+            assert!(crate::outline::read(text, arc, &crate::beats::plan(arc, 5)).is_err(), "{text}");
+            assert!(crate::one::answer(text).is_err(), "{text}");
+        }
+        assert_eq!(json_within("Here: {\"a\": 1} done"), Some("{\"a\": 1}"));
+        let wrapped = "Here is the slide:\n{\"slideTitle\": \"Relay drafts the first reply\", \"keyBullets\": [\"Agents edit, not type\"]}";
+        let slide = crate::one::answer(wrapped).expect("a slide inside a sentence");
+        assert_eq!(slide.slide_title, "Relay drafts the first reply");
+    }
     use serde_json::json;
 
     #[test]

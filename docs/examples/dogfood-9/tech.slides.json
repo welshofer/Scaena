@@ -1,0 +1,258 @@
+{
+ "executiveSummary": "Checkout's p99 latency doubled to 900 ms because one loop called the pricing service once per cart item. Batching the calls, a 30-second cache, and a lint rule took p99 to 120 ms and lifted conversion 3.1%.",
+ "slides": [
+  {
+   "slideTitle": "How we cut p99 latency from 900 ms to 120 ms",
+   "subtitle": "Checkout service · Platform Engineering · 20 minutes",
+   "layoutSuggestion": "Title",
+   "keyBullets": [],
+   "speakerNotes": "- I'm going to show you one fix that took p99 from 900 ms to 120 ms.\n- The fix was twelve lines. Finding it took six weeks.",
+   "beatIndex": 0,
+   "beatName": "Problem",
+   "purpose": "Opens the talk",
+   "intent": "Set up the mystery",
+   "expectedIntensity": 0.3,
+   "expectedValence": 0.2
+  },
+  {
+   "slideTitle": "Checkout's p99 was 900 ms, and it was getting worse",
+   "subtitle": "p99 latency, ms, by month",
+   "layoutSuggestion": "Line Chart",
+   "keyBullets": [
+    "p99 doubled in six months while p50 stayed flat"
+   ],
+   "chartData": {
+    "categories": [
+     "Jan",
+     "Feb",
+     "Mar",
+     "Apr",
+     "May",
+     "Jun"
+    ],
+    "series": [
+     {
+      "name": "p99",
+      "values": [
+       450,
+       520,
+       610,
+       700,
+       810,
+       900
+      ]
+     },
+     {
+      "name": "p50",
+      "values": [
+       80,
+       82,
+       79,
+       81,
+       80,
+       83
+      ]
+     }
+    ],
+    "unit": "ms",
+    "sourceId": "Grafana, checkout dashboard"
+   },
+   "speakerNotes": "- p50 is flat. p99 doubled. That gap is the whole story.",
+   "beatIndex": 0,
+   "beatName": "Problem",
+   "purpose": "Shows the symptom",
+   "intent": "Make engineers feel the pain",
+   "expectedIntensity": 0.6,
+   "expectedValence": -0.5
+  },
+  {
+   "slideTitle": "Every slow request went through the same three services",
+   "subtitle": "",
+   "layoutSuggestion": "Architecture",
+   "keyBullets": [
+    "Client: Web checkout",
+    "Client: Mobile app",
+    "Service: API gateway",
+    "Service: Checkout service",
+    "Service: Pricing service",
+    "Data: Postgres"
+   ],
+   "speakerNotes": "- The slow path: gateway, checkout, pricing, Postgres.\n- Pricing was the suspect from day one. It was innocent.",
+   "beatIndex": 0,
+   "beatName": "Problem",
+   "purpose": "Shows the system",
+   "intent": "Give the audience the map",
+   "expectedIntensity": 0.4,
+   "expectedValence": 0.0
+  },
+  {
+   "slideTitle": "The traces showed one request making 40 pricing calls",
+   "subtitle": "",
+   "layoutSuggestion": "Big Number",
+   "keyBullets": [
+    "40",
+    "pricing calls in a single slow checkout"
+   ],
+   "supportingFacts": [
+    "Jaeger trace 7f3a, June 12"
+   ],
+   "speakerNotes": "- One checkout, forty round trips to pricing.\n- A cart with forty items made forty calls.",
+   "beatIndex": 1,
+   "beatName": "Action",
+   "purpose": "The discovery",
+   "intent": "Make the audience see the cause",
+   "expectedIntensity": 0.8,
+   "expectedValence": 0.1
+  },
+  {
+   "slideTitle": "The loop called pricing once per item",
+   "subtitle": "checkout/price.go",
+   "layoutSuggestion": "Before / After",
+   "keyBullets": [
+    "Before: for _, item := range cart.Items { p, err := pricing.Get(ctx, item.SKU) }",
+    "After: prices, err := pricing.GetMany(ctx, cart.SKUs())"
+   ],
+   "speakerNotes": "- Before: N calls. After: one.\n- The pricing service already had a batch endpoint. Nobody used it.",
+   "beatIndex": 1,
+   "beatName": "Action",
+   "purpose": "Shows the fix in code",
+   "intent": "Make engineers see how small the change was",
+   "expectedIntensity": 0.6,
+   "expectedValence": 0.4
+  },
+  {
+   "slideTitle": "We shipped the fix in four steps",
+   "subtitle": "",
+   "layoutSuggestion": "Steps",
+   "keyBullets": [
+    "Measure: add a span around every pricing call",
+    "Batch: call GetMany once per cart",
+    "Cache: keep prices 30 seconds per SKU",
+    "Guard: fail the build if a loop calls a remote service"
+   ],
+   "speakerNotes": "- The last step matters most. It stops this coming back.",
+   "beatIndex": 1,
+   "beatName": "Action",
+   "purpose": "Shows the rollout",
+   "intent": "Give a repeatable method",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.4
+  },
+  {
+   "slideTitle": "The lint rule that keeps it fixed",
+   "subtitle": "tools/lint/remote_in_loop.go",
+   "layoutSuggestion": "Bullet List",
+   "keyBullets": [
+    "if call.IsRemote() && inLoop(call) { report(call, \"remote call inside a loop\") }",
+    "It runs in CI on every pull request",
+    "It found 11 more loops on its first run"
+   ],
+   "speakerNotes": "- Eleven more loops. Three of them were in checkout.",
+   "beatIndex": 1,
+   "beatName": "Action",
+   "purpose": "Shows the guard",
+   "intent": "Show how to keep it fixed",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.5
+  },
+  {
+   "slideTitle": "p99 fell from 900 ms to 120 ms",
+   "subtitle": "p99 latency, ms",
+   "layoutSuggestion": "Bar Chart",
+   "keyBullets": [
+    "An 87% cut, from a twelve-line change"
+   ],
+   "chartData": {
+    "categories": [
+     "Before",
+     "After batching",
+     "After cache"
+    ],
+    "series": [
+     {
+      "name": "p99",
+      "values": [
+       900,
+       210,
+       120
+      ]
+     }
+    ],
+    "unit": "ms",
+    "sourceId": "Grafana, checkout dashboard"
+   },
+   "speakerNotes": "- Batching got us to 210. The cache got us to 120.",
+   "beatIndex": 2,
+   "beatName": "Result",
+   "purpose": "Shows the result",
+   "intent": "Make the result land",
+   "expectedIntensity": 0.9,
+   "expectedValence": 0.8
+  },
+  {
+   "slideTitle": "Faster checkout paid for itself",
+   "subtitle": "",
+   "layoutSuggestion": "Scorecard",
+   "keyBullets": [
+    "120 ms: p99 checkout latency",
+    "+3.1%: checkout conversion",
+    "−38%: pricing service CPU",
+    "0: pages since the fix"
+   ],
+   "speakerNotes": "- Conversion is up 3.1%. That's the number the business cares about.",
+   "beatIndex": 2,
+   "beatName": "Result",
+   "purpose": "Shows the impact",
+   "intent": "Tie the fix to the business",
+   "expectedIntensity": 0.7,
+   "expectedValence": 0.8
+  },
+  {
+   "slideTitle": "Three lessons for your own services",
+   "subtitle": "",
+   "layoutSuggestion": "Numbered",
+   "keyBullets": [
+    "Watch p99, not p50: the mean hides the tail",
+    "Trace one slow request end to end before you guess",
+    "Make the fix a rule, so the next person cannot undo it"
+   ],
+   "speakerNotes": "- If you take one thing away: trace one slow request before you guess.",
+   "beatIndex": 3,
+   "beatName": "Learning",
+   "purpose": "Draws the lessons",
+   "intent": "Give engineers something to use tomorrow",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.6
+  },
+  {
+   "slideTitle": "Questions",
+   "subtitle": "",
+   "layoutSuggestion": "Q&A",
+   "keyBullets": [
+    "Why not cache everything?",
+    "How do you find loops that call a service?",
+    "What did the cache cost in staleness?"
+   ],
+   "speakerNotes": "- Happy to take questions.",
+   "beatIndex": 3,
+   "beatName": "Learning",
+   "purpose": "Opens questions",
+   "intent": "Invite the room in",
+   "expectedIntensity": 0.3,
+   "expectedValence": 0.5
+  },
+  {
+   "slideTitle": "Trace one slow request this week",
+   "subtitle": "The lint rule is open source: github.com/harborline/remote-in-loop",
+   "layoutSuggestion": "Closing",
+   "keyBullets": [],
+   "speakerNotes": "- Go find your forty calls.",
+   "beatIndex": 3,
+   "beatName": "Learning",
+   "purpose": "Closes on the ask",
+   "intent": "Make the audience act",
+   "expectedIntensity": 0.6,
+   "expectedValence": 0.7
+  }
+ ]
+}

@@ -189,8 +189,10 @@ export function palette(dialog: HTMLDialogElement, commands: () => Command[], as
 
 /** A menu of the `items` that apply, at `x`, `y` (client pixels), focus on its first: the arrow
  * keys, Home, and End move in it, Enter or a click runs one, and Escape, Tab, or a press elsewhere
- * closes it. Focus goes back to `back`. None where nothing applies. */
-export function menu(x: number, y: number, items: Command[], back: HTMLElement | null) {
+ * closes it. Focus goes back to `back`. None where nothing applies. With `opener`, `back` is the
+ * button that opened it: a press on it is the button's own, which closes the menu (lift-up
+ * 20261031 USE-4), and `opener.closed` hears it close, however it does. */
+export function menu(x: number, y: number, items: Command[], back: HTMLElement | null, opener?: { closed: () => void }) {
   document.querySelector(".context-menu")?.dispatchEvent(new Event("dismiss"));
   const live = items.filter((c) => c.applies?.() ?? true);
   if (!live.length) return undefined;
@@ -223,9 +225,11 @@ export function menu(x: number, y: number, items: Command[], back: HTMLElement |
     open = false;
     el.remove();
     removeEventListener("pointerdown", outside, true);
+    opener?.closed();
     if (refocus && back?.isConnected) back.focus();
   };
   const outside = (e: Event) => {
+    if (opener && back?.contains(e.target as Node)) return;
     if (!el.contains(e.target as Node)) close(false);
   };
   addEventListener("pointerdown", outside, true);
@@ -255,14 +259,25 @@ export function menu(x: number, y: number, items: Command[], back: HTMLElement |
 
 /** `button` opens a menu of `items` under itself, on a click or ↓, as a toolbar's menu button
  * does; focus goes back to it when the menu closes. Nothing is run until an item is chosen, so
- * the arrow keys browse it and change nothing (WCAG 3.2.2; lift-up USE-3). */
+ * the arrow keys browse it and change nothing (WCAG 3.2.2; lift-up USE-3). The button says
+ * whether its menu is open (`aria-expanded`), and a click on it while it is closes it (lift-up
+ * 20261031 USE-4). */
 export function opens(button: HTMLButtonElement, items: () => Command[]) {
+  let shown: ReturnType<typeof menu>;
+  const closed = () => {
+    shown = undefined;
+    button.setAttribute("aria-expanded", "false");
+  };
   const open = () => {
+    if (shown) return shown;
     const at = button.getBoundingClientRect();
-    return menu(at.left, at.bottom + 2, items(), button);
+    shown = menu(at.left, at.bottom + 2, items(), button, { closed });
+    if (shown) button.setAttribute("aria-expanded", "true");
+    return shown;
   };
   button.setAttribute("aria-haspopup", "menu");
-  button.onclick = open;
+  button.setAttribute("aria-expanded", "false");
+  button.onclick = () => (shown ? shown.close() : open());
   button.onkeydown = (e) => {
     if (e.key !== "ArrowDown") return;
     e.preventDefault();

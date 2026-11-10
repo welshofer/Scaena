@@ -97,7 +97,12 @@ function fitting(stage: Stage, room: () => [number, number], watched: Element[])
   };
   density();
   fit();
-  return fit;
+  // Fitted again as asked, at the size it last was too: a fresh engine's canvas, after a crash,
+  // is painted at the deck's own size until it is.
+  return () => {
+    last = "";
+    fit();
+  };
 }
 
 /** The screen as the presenter turns it, black or white, the slide out of sight (PLAN 2.105). */
@@ -393,6 +398,8 @@ async function play(deck: Source, how: Play, channel: BroadcastChannel) {
     loading.remove();
   }
   stage.onError = (e) => (status.textContent = `Error: ${e.message}`);
+  /** Fits the canvas to the room again, where the page fits it. */
+  let fitted: (() => void) | undefined;
   // The slide as large as fits the room the bar leaves, and fullscreen the screen, as sharp as
   // the screen (lift-up ATTR-2); the bar's height changes as a narrow window wraps it.
   if (how.fit !== "own") {
@@ -402,7 +409,7 @@ async function play(deck: Source, how: Play, channel: BroadcastChannel) {
       const foot = bar.offsetParent === null ? 0 : bar.getBoundingClientRect().height;
       return [body.width, Math.max(0, body.height - foot)];
     };
-    fitting(stage, roomLeft, [document.body, bar]);
+    fitted = fitting(stage, roomLeft, [document.body, bar]);
   }
   // The window is the deck's, by its title, as a single file's page is.
   document.title = titled(stage.opened);
@@ -486,6 +493,8 @@ async function play(deck: Source, how: Play, channel: BroadcastChannel) {
    * again. */
   let rested = "";
   stage.onAt = (at) => {
+    // The deck moved on from the state the engine stopped on: its notice goes.
+    if (fault !== undefined && !restarting && at.index !== fault) unfault();
     report(at);
     measure?.(at);
     const now = `${at.index} ${resting(at)}`;
@@ -566,10 +575,80 @@ async function play(deck: Source, how: Play, channel: BroadcastChannel) {
     ending(false);
   });
 
+  // The engine stopped mid-show (lift-up 20261110 STAB-4), on a panic or a worker out of memory:
+  // it is started again in a fresh worker from the deck as it came, and the state it stopped on is
+  // shown again at rest. Over the stage, not only in the bar, which fullscreen hides, the room is
+  // told that → goes on past it. A state that stops the engine again is not drawn a third time:
+  // the notice stays over it until the deck moves on.
+  const faulted = document.createElement("div");
+  faulted.className = "end fault";
+  faulted.hidden = true;
+  faulted.setAttribute("role", "alert");
+  // The words are the page's own, none a deck's.
+  faulted.innerHTML = `<p>This slide could not be drawn; → goes on past it.</p><p></p>`;
+  document.body.append(faulted);
+  /** The state the engine stopped on, while its notice stands over the stage. */
+  let fault: number | undefined;
+  /** The state the engine last stopped on, and whether a fresh engine is being started. */
+  let stoppedOn: number | undefined;
+  let restarting = false;
+  /** How many times the engine has been started again. */
+  let restarts = 0;
+  const unfault = () => {
+    fault = undefined;
+    faulted.hidden = true;
+  };
+  const restarted = async (crash: { message: string }) => {
+    if (restarting) return;
+    restarting = true;
+    const index = fault ?? stage.at.index;
+    const again = stoppedOn === index;
+    stoppedOn = index;
+    fault = index;
+    faulted.hidden = false;
+    const why = crash.message ? ` (${crash.message})` : "";
+    (faulted.lastElementChild as HTMLElement).textContent = `The engine stopped on an error${why}: starting it again…`;
+    try {
+      await stage.restart(deck);
+    } catch (e) {
+      (faulted.lastElementChild as HTMLElement).textContent = `The engine stopped on an error${why}, and could not be started again: ${said(e)}. Reload the page.`;
+      restarting = false;
+      return;
+    }
+    restarts++;
+    wire(stage.canvas);
+    fitted?.();
+    restarting = false;
+    (faulted.lastElementChild as HTMLElement).textContent = `The engine stopped on an error${why}, and was started again.`;
+    // Drawn once more at rest, where a cue may have stopped it; the second time, not again.
+    if (again) return;
+    try {
+      await stage.seek(index, undefined, format());
+    } catch {
+      // It stopped again: heard by the stage, which starts it again.
+      return;
+    }
+    // Drawn: the slide is in sight again, and the bar says what happened.
+    if (fault === index && stoppedOn === index && !restarting) {
+      unfault();
+      notice = { words: `The engine stopped on an error${why}, and was started again on this slide.`, index };
+      report(stage.at);
+    }
+  };
+  // A click on the notice goes on past the slide, as → does.
+  faulted.onclick = () => on();
+  stage.onCrashed = (crash) => void restarted(crash);
+  stage.onDied = (death) => void restarted(death);
+  stage.onStalled = () => {
+    (faulted.lastElementChild as HTMLElement).textContent = "The engine stopped answering: waiting for it…";
+  };
+
   /** On: finish a cue that is playing, else play the next state's; past the last, the show is
    * over, and stays over as a presentation app's end does, until a click, Escape, or Back. */
   const on = () => {
     if (!shown() || ended) return;
+    // A slide that could not be drawn is gone on past (lift-up 20261110 STAB-4).
+    if (fault !== undefined) return fault + 1 < slots.length ? stage.run(fault + 1, 0, format(), still()) : ending(true);
     const { index, t, playing } = stage.at;
     if (playing && t < slots[index].span) return void stage.seek(index, undefined, format());
     if (index + 1 < slots.length) stage.run(index + 1, 0, format(), still());
@@ -578,7 +657,7 @@ async function play(deck: Source, how: Play, channel: BroadcastChannel) {
   /** Back: the state before, at rest; at the end of the show, the last again. */
   const back = () => {
     if (ended) return ending(false);
-    if (shown()) void stage.seek(Math.max(0, stage.at.index - 1), undefined, format());
+    if (shown()) void stage.seek(Math.max(0, (fault ?? stage.at.index) - 1), undefined, format());
   };
   const go = (i: number) => {
     ending(false);
@@ -695,18 +774,6 @@ async function play(deck: Source, how: Play, channel: BroadcastChannel) {
   document.addEventListener("pointerdown", () => !overBar && rest(true), true);
   // Tab brings it back too, for the keyboard, and lets it go again as the pointer's rest does.
   addEventListener("keydown", (e) => e.key === "Tab" && rest(true));
-  stage.canvas.addEventListener("pointermove", (e) => {
-    pointer = over(e);
-    if (laser) pointAt(pointer);
-    rest(true);
-    void hover();
-  });
-  stage.canvas.addEventListener("pointerleave", () => {
-    pointer = undefined;
-    if (laser) pointAt(undefined);
-    rest(false);
-    void hover();
-  });
   addEventListener("resize", drawDot);
 
   outline(statesPicker, slots, stage.opened.outline);
@@ -765,9 +832,27 @@ async function play(deck: Source, how: Play, channel: BroadcastChannel) {
     if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy)) return dx < 0 ? on() : back();
     if (e.button === 0) click();
   };
-  stage.canvas.onpointerdown = end.onpointerdown = (e) => (down = e);
-  stage.canvas.onpointerup = (e) => lifted(e, () => void follow(e).then((followed) => followed || on()));
+  end.onpointerdown = (e) => (down = e);
   end.onpointerup = (e) => lifted(e, leave);
+  /** The canvas's own handlers: on the canvas the deck opened in, and on each a fresh engine
+   * paints into after a crash, which takes the old one's place. */
+  const wire = (canvas: HTMLCanvasElement) => {
+    canvas.addEventListener("pointermove", (e) => {
+      pointer = over(e);
+      if (laser) pointAt(pointer);
+      rest(true);
+      void hover();
+    });
+    canvas.addEventListener("pointerleave", () => {
+      pointer = undefined;
+      if (laser) pointAt(undefined);
+      rest(false);
+      void hover();
+    });
+    canvas.onpointerdown = (e) => (down = e);
+    canvas.onpointerup = (e) => lifted(e, () => void follow(e).then((followed) => followed || on()));
+  };
+  wire(stage.canvas);
   /** A click on a link at rest follows it (PLAN 2.70): a state is shown, a web address opens in
    * a window of its own. Whether there was one. */
   const follow = async (e: PointerEvent): Promise<boolean> => {
@@ -870,6 +955,12 @@ async function play(deck: Source, how: Play, channel: BroadcastChannel) {
       laser: () => ({ on: laser, point: point ?? null }),
       /** Whether the show is over, past the last state (PLAN 2.120). */
       ended: () => ended,
+      /** Stop the engine as one out of memory does, to test the player's recovery (lift-up
+       * 20261110 STAB-4). */
+      die: stage.die.bind(stage),
+      /** How many times the engine has been started again, and the state whose notice stands. */
+      restarts: () => restarts,
+      fault: () => fault ?? null,
     },
   });
 }
@@ -967,10 +1058,15 @@ function slideNavigator(
     const height = Math.round(NAVIGATED * devicePixelRatio);
     const byState = new Map(options().map((li) => [li.dataset.state, li]));
     await stage.thumbnails(height, {}, format, all.map((s) => s.last), (thumb) => {
+      // A drawing for a list since drawn again, in another format, is not this list's.
+      if (drawn !== key) return;
       const canvas = byState.get(thumb.state)?.querySelector("canvas");
       if (!canvas || !thumb.pixels || !thumb.width || !thumb.height) return;
       canvas.width = thumb.width;
       canvas.height = thumb.height;
+      // Every slide is drawn as the deck's canvas, or its format's, stands: never stretched to 16:9
+      // (lift-up 20261031 ATTR-1). The slides still waiting for theirs take its shape too.
+      list.style.setProperty("--aspect", `${thumb.width} / ${thumb.height}`);
       canvas.getContext("2d")?.putImageData(new ImageData(new Uint8ClampedArray(thumb.pixels), thumb.width), 0, 0);
     });
   };
@@ -1008,6 +1104,11 @@ function slideNavigator(
   return {
     /** Open it on the slide the room sees, or close it. */
     toggle: () => (dialog.open ? dialog.close() : open()),
+    /** Draw it again, where it is open, in the format the player shows now (editor dogfood 1): a
+     * format turned while it is open, or heard only after N opened it, drew no slide anew. */
+    reformatted: () => {
+      if (dialog.open) void build(shown()[1]).then(() => mark(focus));
+    },
     /** Its slides as each is named, which is marked, and how many are drawn, or null while closed. */
     reads: () =>
       dialog.open
@@ -1320,7 +1421,9 @@ async function presentView(deck: Source, how: Play, channel: BroadcastChannel) {
     blanked.textContent = sees;
     document.body.classList.toggle("blanking", !!sees);
     document.body.classList.toggle("lasering", !!data.laser);
+    const reformatted = data.format !== shownFormat;
     [shownAt, shownFormat] = [data.index, data.format];
+    if (reformatted) navigating.reformatted();
     latest = data;
     void follow();
   };

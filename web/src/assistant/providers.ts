@@ -43,12 +43,16 @@ export type Message =
   | { role: "tool"; results: Result[] };
 
 /** One answer of the model: what it said, the tools it calls, and why it stopped. */
+/** The reasons Gemini gives for an answer it withheld, as scaena-narrato reads them. */
+const BLOCKED: unknown[] = ["SAFETY", "RECITATION", "BLOCKLIST", "PROHIBITED_CONTENT", "SPII"];
+
 export interface Turn {
   text: string;
   calls: Call[];
   /** `tools`: it waits for its calls' results. `end`: its answer is done. `length`: it ran
-   * out of room. */
-  stop: "tools" | "end" | "length" | "other";
+   * out of room. `refused`: the model or its provider's safety system declined to answer
+   * (lift-up 20261031 REL-5), as scaena-chat's `Stop::Refused` reads it. */
+  stop: "tools" | "end" | "length" | "refused" | "other";
   raw?: unknown;
   /** Tokens in and out, as the provider counts them. */
   usage?: { input: number; output: number };
@@ -228,7 +232,8 @@ export const anthropic: Provider = {
     });
     const answered = await answer("anthropic", response, ask.onText, ask.onChunk);
     const content = (answered.content ?? []) as { type: string; text?: string; id?: string; name?: string; input?: unknown }[];
-    const stop = answered.stop_reason === "tool_use" ? "tools" : answered.stop_reason === "end_turn" ? "end" : answered.stop_reason === "max_tokens" ? "length" : "other";
+    const reason = answered.stop_reason;
+    const stop = reason === "tool_use" ? "tools" : reason === "end_turn" ? "end" : reason === "max_tokens" ? "length" : reason === "refusal" ? "refused" : "other";
     return {
       text: content.flatMap((c) => (c.type === "text" && c.text ? [c.text] : [])).join("\n\n"),
       calls: content.flatMap((c) => (c.type === "tool_use" ? [{ id: c.id!, name: c.name!, args: c.input }] : [])),
@@ -325,7 +330,9 @@ export const openai: Provider = {
       text: typeof message.content === "string" ? message.content : "",
       calls,
       // An answer that ran out of room says so, its calls or not: the last may be cut off (REL-1).
-      stop: reason === "length" ? "length" : calls.length ? "tools" : reason === "stop" ? "end" : "other",
+      // Declined, by the model or the content filter: its calls are not what it meant.
+      stop:
+        reason === "length" ? "length" : reason === "content_filter" || typeof message.refusal === "string" ? "refused" : calls.length ? "tools" : reason === "stop" ? "end" : "other",
       usage: answered.usage && { input: answered.usage.prompt_tokens ?? 0, output: answered.usage.completion_tokens ?? 0 },
     };
   },
@@ -404,7 +411,16 @@ export const gemini: Provider = {
     return {
       text: parts.flatMap((p) => (p.text && !p.thought ? [p.text] : [])).join(""),
       calls,
-      stop: reason === "MAX_TOKENS" ? "length" : calls.length ? "tools" : reason === "STOP" ? "end" : "other",
+      stop:
+        reason === "MAX_TOKENS"
+          ? "length"
+          : answered.promptFeedback?.blockReason || BLOCKED.includes(reason)
+            ? "refused"
+            : calls.length
+              ? "tools"
+              : reason === "STOP"
+                ? "end"
+                : "other",
       raw: parts,
       usage: answered.usageMetadata && { input: answered.usageMetadata.promptTokenCount ?? 0, output: answered.usageMetadata.candidatesTokenCount ?? 0 },
     };
