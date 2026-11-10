@@ -80,6 +80,31 @@ import Testing
     #expect(health.triaged(open: 0).open.map(\.slide) == [5], "every error stands open")
 }
 
+/// While the source does not compile, the Story panel keeps its last read, said to be so, its
+/// fixes held (lift-up 20261110 deferred, as the browser's Story tab): no story of the deck before
+/// the error stands as this one's, and the source mended, the story is read again as it stands.
+@Test @MainActor func theStoryIsKeptAsLastReadWhileTheSourceHasAnError() async throws {
+    let window = HealthWindow(editor: DeckEditor(session: try ScaenaSession(directory: b1)))
+    let editor = window.editor
+    let fresh = try #require(try await editor.story(after: nil))
+    #expect(!fresh.asLastRead)
+    #expect(fresh.listed("What to Look At") == "What to Look At")
+
+    let good = editor.source
+    _ = editor.type(good + "\n}}} not a deck")
+    #expect(!editor.compiles, "the source still compiles")
+    let kept = try #require(try await editor.story(after: fresh.health))
+    #expect(kept.asLastRead, "a story read while the source has an error is shown as current")
+    #expect(kept.health.score == fresh.health.score)
+    #expect(kept.listed("What to Look At") == "What to Look At, as last read")
+    #expect(StoryRead.said == "Showing the story as last read: the source has an error to fix")
+
+    _ = editor.type(good)
+    #expect(editor.compiles)
+    let again = try #require(try await editor.story(after: kept.health))
+    #expect(!again.asLastRead, "the mended source's story is still shown as last read")
+}
+
 /// The folded count names each kind in a person's words, as the browser's Story does: an
 /// unsourced figure, a topic headline, a change let go, a broken slide, and the big idea, never
 /// the identifier a finding carries.

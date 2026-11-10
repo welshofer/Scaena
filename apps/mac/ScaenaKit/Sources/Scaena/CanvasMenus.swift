@@ -20,7 +20,11 @@ enum CanvasOffer {
     static let paste = "Paste"
 
     /// What the menu offers: what the clipboard and the Node menu can do now, and nothing else
-    /// (PLAN 3.11, 3.12).
+    /// (PLAN 3.11, 3.12). At most twelve rows at its top, the rest in submenus by kind, as a
+    /// presentation app's are, so the iPad's long press lists every one on the screen from a
+    /// press halfway down it (lift-up FUNC-1): what this object's look and words become under
+    /// Format, where it stands and whether it is locked under Arrange, the slide's own asks under
+    /// Slide, and what lands where the menu was asked for under Insert.
     static func offers(_ deck: DeckActions?, clip: @escaping (Clipping) -> Void) -> [CanvasOffer] {
         var offers: [CanvasOffer] = []
         if deck?.duplicate != nil {
@@ -29,33 +33,40 @@ enum CanvasOffer {
         }
         offers.append(.action(paste, symbol: "doc.on.clipboard", run: { clip(.paste) }))
         guard let deck else { return offers }
-        // Words pasted as words, and code copied as text (PLAN 2.133).
+        // Words pasted as words (PLAN 2.133).
         if let pasteAsText = deck.pasteAsText {
             offers.append(.action("Paste as Text", symbol: "text.alignleft", run: pasteAsText))
         }
-        if let copyCode = deck.copyCode {
-            offers.append(.action("Copy Code", symbol: "chevron.left.forwardslash.chevron.right", run: copyCode))
-        }
-        // A text made code, and code made words again or tidied (PLAN 2.139).
+        // A text made code; code copied as text, made words again, or tidied, together (PLAN
+        // 2.133, 2.139).
         if let makeCode = deck.makeCode {
             offers.append(.action("Make Code", symbol: "curlybraces", run: makeCode))
         }
-        if let tidyCode = deck.tidyCode {
-            offers.append(.action("Tidy Code", symbol: "text.alignleft", run: tidyCode))
+        var code: [CanvasOffer] = []
+        if let copyCode = deck.copyCode {
+            code.append(.action("Copy Code", symbol: "chevron.left.forwardslash.chevron.right", run: copyCode))
         }
-        if let notCode = deck.notCode {
-            offers.append(.action("Not Code", symbol: "textformat", run: notCode))
-        }
+        if let tidyCode = deck.tidyCode { code.append(.action("Tidy Code", symbol: "text.alignleft", run: tidyCode)) }
+        if let notCode = deck.notCode { code.append(.action("Not Code", symbol: "textformat", run: notCode)) }
+        if !code.isEmpty { offers.append(.menu("Code", symbol: "curlybraces", code)) }
         offers.append(.divider)
         if let duplicate = deck.duplicate {
             offers.append(.action("Duplicate", symbol: "plus.square.on.square", run: duplicate))
         }
         if let delete = deck.delete {
-            // Delete as the Delete key does; the deck's other slides only where it shows on them.
-            offers.append(.action("Delete", symbol: "trash", destructive: true, run: { delete(false) }))
+            // Delete as the Delete key does; the deck's other slides only where it shows on them,
+            // both under one Delete there.
+            let here = CanvasOffer.action("Delete", symbol: "trash", destructive: true, run: { delete(false) })
             if deck.deletesElsewhere {
                 offers.append(
-                    .action("Delete from All Slides", symbol: "trash", destructive: true, run: { delete(true) }))
+                    .menu(
+                        "Delete", symbol: "trash",
+                        [
+                            here,
+                            .action("Delete from All Slides", symbol: "trash", destructive: true, run: { delete(true) }),
+                        ]))
+            } else {
+                offers.append(here)
             }
         }
         var arranging: [CanvasOffer] = []
@@ -74,8 +85,18 @@ enum CanvasOffer {
             arranging.append(.action("Connect with Arrow", symbol: "arrow.right", run: { connect(true) }))
             arranging.append(.action("Connect with Line", symbol: "line.diagonal", run: { connect(false) }))
         }
+        // Locked, as Keynote's Arrange menu locks an object (PLAN 2.95).
+        if let lock = deck.lock {
+            arranging.append(
+                .action(deck.locked ? "Unlock" : "Lock", symbol: deck.locked ? "lock.open" : "lock", run: lock))
+        }
+        if let placeAnew = deck.placeAnew {
+            arranging.append(.action("Lay Out on Its Own in This Size", symbol: "rectangle.badge.plus", run: placeAnew))
+        }
         if !arranging.isEmpty { offers.append(.menu("Arrange", symbol: "square.3.layers.3d", arranging)) }
-        // The text selected drawn as a diagram in its place (PLAN 2.110).
+        // What the object looks like: the text selected drawn as a diagram in its place (PLAN
+        // 2.110), and its look copied or another's put on it.
+        var format: [CanvasOffer] = []
         if let diagram = deck.diagram {
             let symbols: [DiagramKind: String] = [
                 .process: "arrow.right.square", .cycle: "arrow.triangle.2.circlepath",
@@ -84,51 +105,54 @@ enum CanvasOffer {
             let kinds: [CanvasOffer] = DiagramKind.allCases.map { kind in
                 .action(kind.title, symbol: symbols[kind] ?? "square", run: { diagram(kind) })
             }
-            offers.append(.menu("Diagram from Text", symbol: "rectangle.3.group", kinds))
+            format.append(.menu("Diagram from Text", symbol: "rectangle.3.group", kinds))
         }
-        if let copyLook = deck.copyLook { offers.append(.action("Copy Style", symbol: "paintbrush", run: copyLook)) }
+        if let copyLook = deck.copyLook { format.append(.action("Copy Style", symbol: "paintbrush", run: copyLook)) }
         if let pasteLook = deck.pasteLook {
-            offers.append(.action("Paste Style", symbol: "paintbrush.pointed", run: pasteLook))
+            format.append(.action("Paste Style", symbol: "paintbrush.pointed", run: pasteLook))
         }
-        if let lock = deck.lock {
-            offers.append(.action(deck.locked ? "Unlock" : "Lock", symbol: deck.locked ? "lock.open" : "lock", run: lock))
-        }
+        if !format.isEmpty { offers.append(.menu("Format", symbol: "paintbrush", format)) }
         #if !os(macOS)
         // Each gesture kept to the slide shown, where there is no Option key to hold (lift-up FUNC-4).
         if let keep = deck.keepToSlide {
             offers.append(.action("Only on This Slide", symbol: "pin", on: deck.keptToSlide, run: keep))
         }
         #endif
-        if let placeAnew = deck.placeAnew {
-            offers.append(.action("Lay Out on Its Own in This Size", symbol: "rectangle.badge.plus", run: placeAnew))
+        // The slide's own: one slide written by the assistant's model (lift-up FUNC-1).
+        var slide: [CanvasOffer] = []
+        if let again = deck.writeSlideAgain {
+            slide.append(.action("Write This Slide Again…", symbol: "arrow.trianglehead.2.clockwise", run: again))
         }
-        // A picture made by the user's image model (PLAN 2.107), in place of the image selected,
-        // in the slide's empty place for one, or where the menu was asked for.
+        if let about = deck.addSlideAbout {
+            slide.append(.action("Add a Slide About…", symbol: "plus.rectangle.on.rectangle", run: about))
+        }
+        if !slide.isEmpty { offers.append(.menu("Slide", symbol: "rectangle.on.rectangle", slide)) }
+        // What lands where the menu was asked for: a picture made by the user's image model (PLAN
+        // 2.107), in place of the image selected or in the slide's empty place for one; a map of a
+        // place (PLAN O.1d), there as a picture made goes; then what the theme and the bundle
+        // offer, by kind.
+        var inserting: [CanvasOffer] = []
         if let makePicture = deck.makePicture {
-            offers.append(.action("Make a Picture…", symbol: "wand.and.stars", run: makePicture))
+            inserting.append(.action("Make a Picture…", symbol: "wand.and.stars", run: makePicture))
         }
-        // A map of a place (PLAN O.1d), there as a picture made goes.
         if let insertMap = deck.insertMap {
-            offers.append(.action("Map…", symbol: "map", run: insertMap))
+            inserting.append(.action("Map…", symbol: "map", run: insertMap))
         }
-        // What the theme and the bundle offer, by kind, landing where the menu was asked for.
         var kinds: [String] = []
         for insert in deck.inserts where !kinds.contains(insert.kind) { kinds.append(insert.kind) }
-        if !kinds.isEmpty {
-            let offered = deck.inserts.enumerated().map { (id: $0.offset, insert: $0.element) }
+        let offered = deck.inserts.enumerated().map { (id: $0.offset, insert: $0.element) }
+        inserting += kinds.map { kind in
+            .menu(
+                NodeCommands.kind(kind), symbol: nil,
+                offered.filter { $0.insert.kind == kind }.map { o in
+                    .action(
+                        Words.insertion(o.insert, among: deck.inserts, sources: deck.sources), symbol: nil,
+                        run: { deck.insert(o.id) })
+                })
+        }
+        if !inserting.isEmpty {
             offers.append(.divider)
-            offers.append(
-                .menu(
-                    "Insert", symbol: "plus",
-                    kinds.map { kind in
-                        .menu(
-                            NodeCommands.kind(kind), symbol: nil,
-                            offered.filter { $0.insert.kind == kind }.map { o in
-                                .action(
-                                    Words.insertion(o.insert, among: deck.inserts, sources: deck.sources), symbol: nil,
-                                    run: { deck.insert(o.id) })
-                            })
-                    }))
+            offers.append(.menu("Insert", symbol: "plus", inserting))
         }
         return offers
     }

@@ -2,6 +2,11 @@ import QuickLook
 import ScaenaKit
 import SwiftUI
 import UniformTypeIdentifiers
+import os
+
+/// Each lift of the slide over the software keyboard, said with what it was asked for and where the
+/// slide stood before and after (lift-up 20261110): what a UI test's `log.txt` shows of a loop.
+private let keyboardLog = Logger(subsystem: "com.welshofer.Scaena", category: "keyboard")
 
 /// A deck's window (PLAN 3.3–3.4), as a presentation app's (PLAN 3.18): the slides down the side,
 /// numbered, each drawn small, a slide's steps under it; the slide chosen painted by the engine on
@@ -78,6 +83,8 @@ struct DeckView: View {
     @State private var picturingTheme = ""
     /// Where a map goes, while Insert › Map…'s sheet asks where it is of (PLAN O.1d).
     @State private var mapping: MapTarget?
+    /// The slide Write This Slide Again… or Add a Slide About… asks for (lift-up FUNC-1).
+    @State private var slideAsking: SlideAsking?
     /// The light table shown in place of the canvas, and the slides selected on it (PLAN 3.14).
     @State private var showsSlides = false
     /// Which of the window's columns show: the slides down the side fold away while the light
@@ -177,7 +184,7 @@ struct DeckView: View {
     /// The states down the side; beside them the canvas and the rest; and the toolbar.
     private var window: some View {
         NavigationSplitView(columnVisibility: $columns) {
-            StateList(editor: editor, chosen: $chosen, make: restage, add: addState)
+            StateList(editor: editor, chosen: $chosen, make: restage, add: addState, asking: askSlide)
                 .navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 320)
         } detail: {
             #if os(macOS)
@@ -352,7 +359,7 @@ struct DeckView: View {
                     try document.make(ops, undo: undo)
                     slidesPicked = Set(then)
                 }
-            }, touch: touch)
+            }, touch: touch, asking: askSlide)
         } else {
             // The canvas takes the room the find bar, the other sizes, and the timeline leave.
             CanvasColumn {
@@ -382,6 +389,12 @@ struct DeckView: View {
                     }
                 }
             }
+            #if !os(macOS)
+            // The software keyboard covers the desk's foot and resizes nothing: the slide keeps its
+            // size as the keyboard comes and goes, lifted only to clear the line typed in (lift-up
+            // 20261110). Followed, it moved four or five times a sentence.
+            .ignoresSafeArea(.keyboard, edges: .bottom)
+            #endif
         }
     }
 
@@ -676,6 +689,11 @@ struct DeckView: View {
             made.newSlide = { addState(after: shown, as: .slide) }
             made.newStep = { addState(after: shown, as: .step) }
             made.duplicateSlide = { duplicateSlide(slide) }
+            // One slide written by the assistant's model (lift-up FUNC-1).
+            if editor.valid, !editor.assisting {
+                made.writeSlideAgain = { askSlide(shown, again: true) }
+                made.addSlideAbout = { askSlide(shown, again: false) }
+            }
             if Slide.of(editor.slots).count > 1 { made.deleteSlide = { deleteSlide(slide) } }
         }
         return made
@@ -946,6 +964,9 @@ struct DeckView: View {
             .sheet(item: $mapping) { target in
                 MapSheet(target: target) { map, label in putMap(map, at: target, label: label) }
             }
+            .sheet(item: $slideAsking) { asking in
+                SlideAskSheet(asking: asking, editor: editor) { written in wroteSlide(written, asking) }
+            }
             // A deck New made opens on the themes that ship, over the window from its first frame, so
             // no deck shows before one is chosen, as a presentation app's theme chooser opens
             // (lift-up ATTR-5).
@@ -1137,6 +1158,25 @@ struct DeckView: View {
                     takeZoom(canvas: now)
                 }
                 .onChange(of: zoom.view) { _, now in editor.look(through: now) }
+                #if !os(macOS)
+                // How much of the desk the software keyboard covers, from where it will end, and the
+                // line typed in lifted clear of it (lift-up 20261110).
+                .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) {
+                    note in
+                    let end = (note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue)?.cgRectValue
+                    // The end frame is the screen's; the desk's, its window's, converted through
+                    // the window's screen, so a Stage Manager window offset on it reads right.
+                    let desk = room.frame(in: .global)
+                    zoom.cover(end.map { KeyboardCover.covered(by: $0, desk: desk, in: KeyboardCover.window) } ?? 0)
+                    lift("frame \(end.map { "\($0)" } ?? "none") desk \(desk)")
+                }
+                .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
+                    let was = zoom.lifted
+                    zoom.cover(0)
+                    keyboardLog.debug("hide: lifted \(Double(was), privacy: .public) to \(Double(zoom.lifted), privacy: .public)")
+                }
+                .onChange(of: typedLine) { _, _ in lift("line") }
+                #endif
                 .onChange(of: zoom) { _, now in
                     if zoomTaken { keptZoom = now.kept }
                 }
@@ -1162,6 +1202,26 @@ struct DeckView: View {
         } else {
             ContentUnavailableView("No Slides", systemImage: "rectangle.stack")
         }
+    }
+
+    #if !os(macOS)
+    /// The slide lifted clear of the software keyboard for the line typed in, said with `why`, the
+    /// cover, and where it stood before and after, each time (lift-up 20261110).
+    private func lift(_ why: String) {
+        let line = typedLine
+        let was = zoom.lifted
+        let moved = zoom.lift(clearing: line ?? .null)
+        keyboardLog.debug(
+            "\(why, privacy: .public): covered \(Double(zoom.covered), privacy: .public), line \(line.map { "\($0)" } ?? "none", privacy: .public), lifted \(Double(was), privacy: .public) to \(Double(zoom.lifted), privacy: .public)\(moved ? "" : ", still", privacy: .public)"
+        )
+    }
+    #endif
+
+    /// The line typed in, canvas units, as the caret stands on it: what the slide is lifted to keep
+    /// above the software keyboard (lift-up 20261110); none while no text is typed in.
+    private var typedLine: CGRect? {
+        guard let typing, typing.typing else { return nil }
+        return typing.caretBox(at: typing.head)
     }
 
     /// Show a match the find bar found (PLAN 3.16): its state, and its node selected, brought into
@@ -1380,6 +1440,10 @@ struct DeckView: View {
         made.choosePicture = { choosingPicture = true }
         made.chooseIcon = { choosingIcon = true }
         made.makePicture = { makePicture(in: shown) }
+        if editor.valid, !editor.assisting {
+            made.writeSlideAgain = { askSlide(shown, again: true) }
+            made.addSlideAbout = { askSlide(shown, again: false) }
+        }
         made.insertMap = { insertMap(in: shown) }
         made.draw = { takePen() }
         made.drawing = pen != nil
@@ -2074,6 +2138,27 @@ struct DeckView: View {
     /// Make a Picture (PLAN 2.107): its sheet opened for where a picture made for `state` goes,
     /// as the browser finds it: the image selected, alone, which it takes the place of; the slide's
     /// empty place for one; or where the pointer last pressed.
+    /// Write This Slide Again… or Add a Slide About… for the slide `state` is of (lift-up
+    /// FUNC-1): its sheet asks what to change, or what the new slide is about.
+    private func askSlide(_ state: String, again: Bool) {
+        guard editor.valid else {
+            said = "Nothing to write yet: the deck must compile first"
+            return
+        }
+        let slide = Words.slide(state, in: editor.slots)
+            .replacingOccurrences(of: ", step \\d+$", with: "", options: .regularExpression)
+        slideAsking = SlideAsking(place: again ? .replace(state) : .after(state), slide: slide)
+    }
+
+    /// The slide written by the model: one step to undo, the slide shown, and what it says.
+    private func wroteSlide(_ written: SlideWritten, _ asking: SlideAsking) {
+        document.wroteSlide(written.before, undo: undo, named: asking.again ? "Write Slide Again" : "Add Slide")
+        if let first = written.first { chosen = first }
+        let left = written.left
+        let issues = left == 1 ? "issue" : "issues"
+        said = (asking.again ? "Wrote the slide again" : "Wrote a new slide") + (left > 0 ? ": \(left) \(issues) left to look at" : "")
+    }
+
     private func makePicture(in state: String) {
         perform {
             picturingTheme = try editor.session.themeText()?.text ?? ""

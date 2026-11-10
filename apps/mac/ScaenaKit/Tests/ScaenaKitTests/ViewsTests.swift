@@ -1,5 +1,7 @@
 #if os(macOS)
 import AppKit
+#else
+import UIKit
 #endif
 import CoreGraphics
 import Foundation
@@ -289,4 +291,106 @@ private func alike(_ a: CGRect, _ b: CGRect) -> Bool {
     #expect(small.offers(2) && !small.offers(3), "eight times fitted at most")
     small.zoom(toActual: 1)
     #expect(small.level == 4 && small.percent == 100)
+}
+
+/// The software keyboard over the desk moves the slide only to clear the line typed in (lift-up
+/// 20261110), as a presentation app on the iPad scrolls its canvas: the desk keeps its size, the
+/// slide fitted on it stays put for a line the keyboard leaves clear, is lifted the least that puts
+/// a line at its foot just above the keyboard, and settles back as the keyboard goes down; a
+/// hardware keyboard's bar, which covers nothing the line stands on, lifts nothing.
+@Test func theKeyboardLiftsTheSlideOnlyToClearTheLineTypedIn() {
+    // Fitted, the slide is 960 × 540 on the desk, half a point to a canvas unit, its top 28 down.
+    var zoom = Zoom(canvas: CGSize(width: 1920, height: 1080), desk: CGSize(width: 1016, height: 596))
+    let foot = CGRect(x: 100, y: 900, width: 800, height: 100)  // on the desk, 478 to 528 down
+    let top = CGRect(x: 100, y: 50, width: 800, height: 100)  // 53 to 78 down
+    let fitted = zoom.slide
+
+    let down = zoom.lift(clearing: foot)
+    #expect(!down, "the keyboard down, nothing is lifted")
+    zoom.cover(66)
+    let barred = zoom.lift(clearing: foot)
+    #expect(!barred && zoom.slide == fitted, "a bar that leaves the line clear lifts nothing")
+
+    zoom.cover(300)
+    #expect(zoom.desk == CGSize(width: 1016, height: 596), "the desk keeps its size")
+    let clear = zoom.lift(clearing: top)
+    #expect(!clear && zoom.slide == fitted, "a line the keyboard leaves clear stays put")
+    let lifted = zoom.lift(clearing: foot)
+    #expect(lifted)
+    #expect(abs(zoom.lifted - 232) < 1e-6, "lifted \(zoom.lifted)")
+    // The line's foot just above the keyboard: 528 − 232 = 296 = 596 − 300.
+    #expect(abs((zoom.slide.minY + foot.maxY * zoom.scale) - (zoom.desk.height - zoom.covered)) < 1e-6)
+    #expect(zoom.slide.size == fitted.size, "lifted, not zoomed")
+    #expect(zoom.view != nil, "the slide's top is past the desk's: the canvas paints what shows")
+    // The part of the canvas shown is what stands above the desk's top no longer.
+    #expect(abs(zoom.shown.minY - 232 / zoom.scale + 28 / zoom.scale) < 1e-6, "\(zoom.shown)")
+
+    // Back to the top line, the slide settles back; and down, the keyboard lifts nothing.
+    let settled = zoom.lift(clearing: top)
+    #expect(settled && zoom.slide == fitted)
+    zoom.lift(clearing: foot)
+    zoom.cover(0)
+    #expect(zoom.lifted == 0 && zoom.slide == fitted, "the keyboard down, the slide stands where it stood")
+
+    // Zoomed in, a pan reveals as far as the slide's edge allows, and the lift clears the rest.
+    zoom.zoom(to: 2)
+    zoom.cover(300)
+    zoom.reveal(foot)
+    zoom.lift(clearing: foot)
+    let s = zoom.scale
+    #expect(zoom.slide.minY + foot.maxY * s <= zoom.desk.height - zoom.covered + 1e-6, "\(zoom.slide)")
+}
+
+/// How much of the desk the keyboard covers is read in one space (lift-up 20261110): the depth of
+/// their overlap, none where they do not meet, and the same for a desk offset in its window as a
+/// Stage Manager window stands offset on the screen.
+@Test func theKeyboardCoversTheDepthOfItsOverlapWithTheDesk() {
+    let desk = CGRect(x: 0, y: 100, width: 1000, height: 600)  // 100 to 700 down
+    #expect(Zoom.covered(by: CGRect(x: 0, y: 400, width: 1376, height: 498), desk: desk) == 300)
+    #expect(Zoom.covered(by: CGRect(x: 0, y: 1032, width: 1376, height: 498), desk: desk) == 0, "down, it covers nothing")
+    #expect(Zoom.covered(by: CGRect(x: 0, y: 650, width: 1376, height: 66), desk: desk) == 50, "a bar covers its own depth")
+    #expect(Zoom.covered(by: CGRect(x: 0, y: 0, width: 1376, height: 0), desk: desk) == 0)
+    // The same desk in a window 200 points down the screen: the keyboard at 534 on the screen
+    // covers the desk from 534 to its foot at 900.
+    let offset = desk.offsetBy(dx: 120, dy: 200)
+    #expect(Zoom.covered(by: CGRect(x: 0, y: 534, width: 1376, height: 498), desk: offset) == 366)
+}
+
+#if os(iOS)
+/// The keyboard's end frame, the screen's, against a desk in a window offset on the screen, as a
+/// Stage Manager window stands: converted through the window's screen (lift-up 20261110).
+@MainActor
+@Test func theKeyboardIsReadAgainstTheDeskThroughItsWindowsScreen() {
+    let window = UIWindow(frame: CGRect(x: 120, y: 200, width: 1000, height: 700))
+    let desk = CGRect(x: 0, y: 100, width: 1000, height: 600)  // 300 to 900 down the screen
+    #expect(KeyboardCover.covered(by: CGRect(x: 0, y: 534, width: 1376, height: 498), desk: desk, in: window) == 366)
+    #expect(KeyboardCover.covered(by: CGRect(x: 0, y: 534, width: 1376, height: 498), desk: desk, in: nil) == 0)
+}
+#endif
+
+/// A lift settles in one step and never answers its own pan (lift-up 20261110): asked again for the
+/// line it cleared, or for the line moved by less than `Zoom.still` on the desk, as a caret read
+/// again after the pan may be, it moves nothing, so the keyboard's notes and the caret's moves
+/// cannot lift the slide again and again.
+@Test func aLiftSettlesInOneStepAndNeverAnswersItsOwnPan() {
+    var zoom = Zoom(canvas: CGSize(width: 1920, height: 1080), desk: CGSize(width: 1016, height: 596))
+    let foot = CGRect(x: 100, y: 900, width: 800, height: 100)
+    zoom.cover(300)
+    let first = zoom.lift(clearing: foot)
+    #expect(first)
+    let lifted = zoom.lifted
+    let again = zoom.lift(clearing: foot)
+    #expect(!again && zoom.lifted == lifted, "lifted again for the line it cleared")
+    // Half a point on the desk, a canvas unit: a caret read again a hair lower.
+    let nudged = zoom.lift(clearing: foot.offsetBy(dx: 0, dy: 1))
+    #expect(!nudged && zoom.lifted == lifted, "a move under a point lifted the slide")
+    // The keyboard's cover said again, as each note of its frame says it, moves nothing more.
+    zoom.cover(300)
+    let noted = zoom.lift(clearing: foot)
+    #expect(!noted && zoom.lifted == lifted)
+    // A line a whole line lower lifts it again, once.
+    let lower = zoom.lift(clearing: foot.offsetBy(dx: 0, dy: 40))
+    #expect(lower && abs(zoom.lifted - (lifted + 20)) < 1e-6, "lifted \(zoom.lifted)")
+    let settled = zoom.lift(clearing: foot.offsetBy(dx: 0, dy: 40))
+    #expect(!settled)
 }

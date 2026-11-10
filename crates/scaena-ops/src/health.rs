@@ -1012,7 +1012,19 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
 
     let balance = &m.content_balance;
     let mut short = Vec::new();
-    if balance.avg_bullets_per_slide < 2.0 {
+    // The slides balance counts, those not made to make one point (ADR-0032 item 3): where none
+    // lists a point, "0 points each" says nothing of the deck, so say which they were (W1's
+    // dogfood 5).
+    let pointed: Vec<usize> = (0..read.len()).filter(|&i| read[i].eligible() && !read[i].one_idea).collect();
+    if pointed.iter().all(|&i| bullets(&read[i]) == 0) {
+        short.push(match pointed.is_empty() {
+            true => "every slide makes one point by design, so none lists points to count".to_string(),
+            false => {
+                let (named, _) = slides_named(&pointed);
+                format!("no slide balance counts makes a list of points: {named}. The rest make one point by design")
+            }
+        });
+    } else if balance.avg_bullets_per_slide < 2.0 {
         short
             .push(format!("slides make {} points each, where two to five read as full", balance.avg_bullets_per_slide));
     }
@@ -1699,6 +1711,31 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
             aloud.push(i);
         }
     }
+    // A slide that says again what the slide before it said, in other words than lint's W425
+    // reads as the same claim (W1's dogfood 4): their headlines share two content words or more,
+    // and half of the shorter's, or their words, headline and body, are half the same.
+    for i in 1..read.len() {
+        let (was, now) = (&read[i - 1], &read[i]);
+        let Some(shared) = repeated(was, now) else { continue };
+        let (k, j) = (i + 1, i);
+        let said: Vec<String> = shared.iter().map(|w| format!("\u{201c}{w}\u{201d}")).collect();
+        let said = match said.split_last() {
+            Some((last, [])) => last.clone(),
+            Some((last, rest)) => format!("{} and {last}", rest.join(", ")),
+            None => continue,
+        };
+        find(
+            &now.id,
+            Severity::Warning,
+            Kind::Story,
+            format!(
+                "Slide {k} says again what slide {j} said: its headline shares {said} with \u{201c}{}\u{201d}.",
+                unstopped(was.title.trim())
+            ),
+            format!("Fold slide {k} into slide {j}, or give slide {k} a point of its own that moves the talk on."),
+            None,
+        );
+    }
     // The slides with nothing for the presenter to say, as one finding at the first of them: a
     // deck written by hand has no notes on any, and a row for each would bury the rest.
     // The slides whose notes say what the slide shows, as one finding at the first of them: the
@@ -1982,6 +2019,62 @@ fn content_words(text: &str) -> std::collections::BTreeSet<String> {
         .filter(|w| w.chars().count() > 3 && w.chars().any(char::is_alphabetic) && !w.chars().any(unspaced))
         .map(str::to_string)
         .collect()
+}
+
+/// The headline words `now` shares with the slide before it, `was`, where it says that slide's
+/// point again (W1's dogfood 4): two or more, half of the shorter headline's at least, unless each
+/// headline says a word of its own over bodies that share under half their words, or the two
+/// slides' words half the same; a headline the same word for word is lint's W425, and none here.
+/// A deck's slides as Narrato writes them share a third of their headlines at most, and a fifth of
+/// their words.
+fn repeated(was: &SlideForHealth, now: &SlideForHealth) -> Option<Vec<String>> {
+    let (a, b) = (said(&was.title), said(&now.title));
+    if a.is_empty() || a == b {
+        return None;
+    }
+    let shared: Vec<String> = a.intersection(&b).cloned().collect();
+    // Headlines a writer set parallel on purpose ("The town built its own grid", then "… its own
+    // market") each say a word of their own, and their slides go on to say different things: a
+    // claim said twice says its new words over the same body. The bodies share half of the
+    // shorter's words, or the headlines are no repeat; headlines that share a figure say one
+    // claim, whatever their bodies (W1's dogfood 5: "52 miles, not 40", then "the 40-mile goal").
+    let (ba, bb) = (said(&was.body), said(&now.body));
+    let own = !a.is_subset(&b) && !b.is_subset(&a);
+    let figured = shared.iter().any(|w| w.chars().all(|c| c.is_ascii_digit()));
+    let parallel = own && !figured && ba.intersection(&bb).count() * 2 < ba.len().min(bb.len()).max(1);
+    let headlines = shared.len() >= 2 && shared.len() * 2 >= a.len().min(b.len()) && !parallel;
+    let whole = |s: &SlideForHealth| said(&format!("{} {}", s.title, s.body));
+    let (wa, wb) = (whole(was), whole(now));
+    let words = wa.intersection(&wb).count() * 2 >= wa.union(&wb).count() && !shared.is_empty();
+    // Each shared word as the headline writes it ("hours", not "hour").
+    let written: Vec<String> = (now.title.to_lowercase().split(|c: char| !(c.is_alphanumeric() || c == ',')))
+        .map(|w| w.trim_matches(',').to_string())
+        .collect();
+    let shown = |w: &String| {
+        (written.iter())
+            .find(|x| said(x).contains(w) && x.chars().any(char::is_alphanumeric))
+            .cloned()
+            .unwrap_or_else(|| w.clone())
+    };
+    (headlines || words).then(|| shared.iter().map(shown).collect())
+}
+
+/// The words `text` says, as a repeat is read (W1's dogfood 5): its content words, a hyphen
+/// splitting a word in two ("40-mile"), each plural folded into its singular ("miles" is
+/// "mile"), and its figures, ten and over and not a year, by their digits ("52", "184000").
+fn said(text: &str) -> std::collections::BTreeSet<String> {
+    let mut words =
+        scaena_core::sort::set(content_words(text).into_iter().map(|w| {
+            if w.len() > 4 && w.ends_with('s') && !w.ends_with("ss") { w[..w.len() - 1].to_string() } else { w }
+        }));
+    for w in text.split(|c: char| !(c.is_ascii_digit() || c == ',' || c == '.')) {
+        let digits = w.trim_matches(|c| c == ',' || c == '.').replace(',', "");
+        let Ok(n) = digits.parse::<f64>() else { continue };
+        if n >= 10.0 && !(digits.len() == 4 && (1900.0..=2100.0).contains(&n)) {
+            words.insert(digits);
+        }
+    }
+    words
 }
 
 /// The share of a slide's notes' words that are its own (`READ_ALOUD`) past which its notes read
@@ -2944,6 +3037,49 @@ mod tests {
         assert_eq!(found(&of(&dogfood("keynote", idea, said))), 0, "a close that says it lands it");
     }
 
+    /// A slide that says again what the slide before it said is asked to fold in or move on (W1's
+    /// dogfood 4): the fleet pitch's "Planning takes minutes instead of hours" after "Routes in
+    /// minutes, not hours". No other dogfood deck has one, and a headline the same word for word is
+    /// lint's W425, not found again.
+    #[test]
+    fn a_slide_that_says_the_one_before_again_is_found() {
+        let again = |h: &Health| -> Vec<Finding> {
+            (h.findings.iter()).filter(|f| f.kind == Kind::Story && f.says.contains("says again")).cloned().collect()
+        };
+        let found = again(&of(&dogfood("fleet", "", |_| {})));
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert_eq!(found[0].slide, 7);
+        assert_eq!(
+            found[0].says,
+            "Slide 7 says again what slide 6 said: its headline shares \u{201c}hours\u{201d} and \u{201c}minutes\u{201d} with \u{201c}Routes in minutes, not hours\u{201d}."
+        );
+        assert_eq!(
+            found[0].ask,
+            "Fold slide 7 into slide 6, or give slide 7 a point of its own that moves the talk on."
+        );
+        for name in ["deepdive", "board-de", "appeal", "training", "pitch", "qbr", "lecture", "keynote", "launch"] {
+            assert!(again(&of(&dogfood(name, "", |_| {}))).is_empty(), "{name}");
+        }
+        // A claim said again in other words and the same figure (W1's dogfood 5): plurals fold
+        // and a hyphen splits, so "the 40-mile goal" says "52 miles, not 40" again.
+        let paraphrased = |slides: &mut Vec<answer::Slide>| {
+            slides[2].slide_title = "We rebuilt 52 miles, not 40".into();
+            slides[3].slide_title = "Crews beat the 40-mile goal by 12 miles".into();
+        };
+        let found = again(&of(&dogfood("fleet", "", paraphrased)));
+        assert!(found.iter().any(|f| f.slide == 4), "{found:?}");
+        // Headlines set parallel, each a word of its own, over slides that say different things.
+        let parallel = |slides: &mut Vec<answer::Slide>| {
+            slides[5].slide_title = "The town built its own grid".into();
+            slides[6].slide_title = "The town built its own market".into();
+        };
+        assert!(again(&of(&dogfood("keynote", "", parallel))).is_empty(), "anaphora is no repeat");
+        let moved = |slides: &mut Vec<answer::Slide>| {
+            slides[6].slide_title = "Dispatchers spend the saved time on exceptions".into()
+        };
+        assert!(again(&of(&dogfood("fleet", "", moved))).is_empty());
+    }
+
     /// Notes that read the slide aloud are coached, as one finding at the first (W1's dogfood 4):
     /// the fleet pitch's notes are each its headline again, the cover's aside, and its slides 2 to
     /// 10 are named; the keynote's, which tell what its slides do not show, are not.
@@ -3117,6 +3253,25 @@ mod tests {
         let found = turned(&of(&dogfood("fleet", "", |_| {})));
         assert!(!bare.is_empty() && bare.iter().all(|k| found.contains(k)), "{bare:?} {found:?}");
         assert!(!found.contains(&2), "the cover's step into the talk is no turn");
+    }
+
+    /// Where no slide balance counts lists a point, balance says which slides it counted rather
+    /// than "0 points each" (W1's dogfood 5): the grant renewal's content slides are big numbers
+    /// and statements, which make one point by design, and its cover, chart, and close list none.
+    /// The score is as before.
+    #[test]
+    fn balance_says_which_slides_it_counted_where_none_lists_points() {
+        let h = of(&dogfood("grant", "", |_| {}));
+        assert!(
+            h.balance.says.starts_with(
+                "No slide balance counts makes a list of points: slides 1, 7 and 9. The rest make one point by design"
+            ),
+            "{}",
+            h.balance.says
+        );
+        // A deck whose counted slides list points says how many, as before.
+        let fleet = of(&dogfood("fleet", "", |_| {}));
+        assert!(!fleet.balance.says.contains("makes a list of points"), "{}", fleet.balance.says);
     }
 
     /// A close in another language is not read for the big idea (the coordinator's check on W1's
