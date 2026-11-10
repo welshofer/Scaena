@@ -1513,6 +1513,7 @@ async function edit(source: Source, opened?: Stage, recovering = false) {
       board.showMark(f);
       if (f.state !== undefined) await showState(f.state);
     },
+    words: () => lexicon,
     check: (state) => {
       if (assisting) return say("Nothing asked: the assistant is at work on the deck");
       void writing.offer({ kind: "claim", state });

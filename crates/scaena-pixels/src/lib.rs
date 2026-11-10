@@ -15,3 +15,8 @@ pub mod shader;
 /// an image that does not fit it is not drawn on the GPU at all. The display list's
 /// (`scaena_core::displaylist::MAX_IMAGE_SIDE`), which the decoder refuses past.
 pub const MAX_IMAGE_SIDE: u32 = 8192;
+
+/// The most pixels an image decoded may have, and a painter's raster (`scaena_paint::MAX_PIXELS`):
+/// 2^25, an 8K frame and a little more, half of what [`MAX_IMAGE_SIDE`] alone allows. The decoder
+/// refuses a frame past it before it allocates for it (lift-up 20261110 SEC-1).
+pub const MAX_IMAGE_PIXELS: u64 = 1 << 25;
