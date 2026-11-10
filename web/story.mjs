@@ -277,13 +277,8 @@ try {
   await page.keyboard.press("Control+z");
   await page.waitForFunction((s) => window.scaena.source() === s, broken, { timeout: 30000 }).catch(() => {});
   await page.waitForFunction(() => document.querySelector("#story > p[data-stale]").hidden, null, { timeout: 60000 }).catch(() => {});
-  // Shown again once every state is linted: the Story's read may come before that lint, and is
-  // not read again after it (its own item).
-  await page
-    .waitForFunction(() => window.scaena.last()?.whole && window.scaena.last().findings.some((f) => f.severity === "error" && f.fixable), null, { timeout: 120000 })
-    .catch(() => {});
-  await tab(page, "inspector");
-  await tab(page, "story");
+  // The Story's read may come before every state is linted: it is read again once that lint
+  // lands, so nothing more than waiting brings the fix back (lift-up 20261110 deferred).
   await page
     .waitForFunction(() => document.querySelector("#story [data-findings] > li[data-slide] [data-lint-fix]")?.disabled === false, null, { timeout: 120000 })
     .catch(() => {});
@@ -550,6 +545,18 @@ try {
     await page.waitForFunction((r) => document.querySelector(`${r} [data-cite]`)?.disabled === false, row, { timeout: 60000 }).catch(() => {});
     check(await page.evaluate((r) => document.querySelector(`${r} [data-cite]`)?.disabled === false, row), "taken back, Cite a source… is offered again");
     await page.click(`${row} [data-cite]`).catch((e) => failures.push(`no Cite a source…: ${e.message}`));
+    // Read again, as once every state is linted, the sources stay open as they were left.
+    await page.evaluate(() => {
+      window.__read = window.scaena.story.health();
+      window.scaena.story.refresh();
+    });
+    await page.waitForFunction(() => window.scaena.story.health() !== window.__read, null, { timeout: 30000 }).catch(() => {});
+    const kept = await page.evaluate((r) => ({
+      open: document.querySelector(`${r} [data-citing]`)?.hidden === false,
+      expanded: document.querySelector(`${r} [data-cite]`)?.ariaExpanded,
+      focus: document.activeElement?.dataset?.source,
+    }), row);
+    check(kept.open && kept.expanded === "true" && kept.focus === "trails-budget.csv", `read again, the sources to cite stay open, the focus on them: ${JSON.stringify(kept)}`);
     const offered = await page.evaluate((r) => [...document.querySelectorAll(`${r} [data-citing] [data-source]`)].map((b) => b.textContent), row);
     check(offered.join() === "trails-budget.csv", `Cite a source… offers the deck's sources: ${JSON.stringify(offered)}`);
     const was = await page.evaluate(() => window.scaena.source());
