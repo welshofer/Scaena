@@ -1150,23 +1150,33 @@ try {
     else await page.waitForFunction(() => window.scaena.at() && !window.scaena.at().playing, null, { timeout: 60000 }).catch(() => {});
     const windowed = await measure();
     check(sharp(windowed) && windowed.dpr === 2, `${paints}: at 2560 × 1440 at 2×, the slide fills the room the bar leaves, painted at the size shown: ${JSON.stringify(windowed)}`);
+    // Each frame from here on, the size shown beside the size painted, read on the page itself:
+    // the canvas shown and its frames change together, never the frames painted for the screen
+    // shown in the box the bar left it.
+    await page.evaluate(() => {
+      const sizes = (window.__sizes = []);
+      const c = document.querySelector("#stage");
+      const read = () => {
+        sizes.push([c.getBoundingClientRect().width, c.width]);
+        if (sizes.length < 600) requestAnimationFrame(read);
+      };
+      requestAnimationFrame(read);
+    });
     await page.keyboard.press("f");
     const fullDense = await page.waitForFunction(() => document.fullscreenElement !== null, null, { timeout: 5000 }).then(() => true, () => false);
     if (fullDense) {
       await page.waitForFunction(() => document.querySelector(".bar").offsetParent === null, null, { timeout: 5000 }).catch(() => {});
-      // Shown at the screen's size as soon as the room is the screen, before the frames painted
-      // for it come: the canvas shown and its frames never change on different frames.
-      const early = await page.waitForFunction(() => {
-        const r = document.querySelector("#stage").getBoundingClientRect();
-        return Math.abs(r.width - 2560) <= 1 && Math.abs(r.height - 1440) <= 1 && [r.width, r.height, document.querySelector("#stage").width];
-      }, null, { timeout: 2000, polling: "raf" }).then((h) => h.jsonValue(), () => null);
-      // WebGPU's frames are painted at the new size a frame or more later: the size shown has led.
-      const led = early !== null && (paints !== "webgpu" || early[2] === windowed.backing[0]);
-      check(led, `${paints}: shown at the screen's size as soon as the bar has gone, before the frames painted for it: ${JSON.stringify(early)}, painted ${windowed.backing[0]} wide before`);
       await page
         .waitForFunction((was) => document.querySelector("#stage").width !== was, windowed.backing[0], { timeout: 60000 })
         .catch(() => {});
       const full = await measure();
+      if (paints === "webgpu") {
+        // The frames painted for the screen (backed wider than the window's) are never shown
+        // smaller than the screen.
+        const sizes = await page.evaluate(() => window.__sizes.slice());
+        const torn = sizes.filter(([shown, backing]) => backing > windowed.backing[0] + 1 && Math.abs(shown - 2560) > 1);
+        check(sizes.length > 0 && torn.length === 0, `${paints}: the size shown and the frames painted change together, never the screen's frames in the window's box: ${JSON.stringify(torn.slice(0, 3))} of ${sizes.length} frames`);
+      }
       const screen = Math.abs(full.shown[0] - 2560) <= 1 && Math.abs(full.shown[1] - 1440) <= 1;
       const whole = paints !== "webgpu" || (full.backing[0] === 5120 && full.backing[1] === 2880);
       check(sharp(full) && screen && whole, `${paints}: fullscreen, it fills the screen, painted at the size shown: ${JSON.stringify(full)}`);
