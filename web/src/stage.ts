@@ -1099,6 +1099,12 @@ export class Stage {
     return this.request<"shown">({ type: "preview", id: ++this.asked, state, ops, format }).then(() => {});
   }
 
+  /** `state` at rest in the theme as `ops` would edit it, nothing made or written; without `ops`,
+   * in the theme as it is (lift-up ATTR-5). */
+  previewTheme(state: string, ops?: unknown[], format?: string): Promise<void> {
+    return this.request<"shown">({ type: "previewTheme", id: ++this.asked, state, ops, format }).then(() => {});
+  }
+
   /** `node`'s look as `state` shows it, in the deck `source` compiles to (PLAN 2.58): what ⌥⌘C
    * picks up. */
   look(source: string, state: string, node: string): Promise<Look> {

@@ -1612,7 +1612,15 @@ async function edit(source: Source, opened?: Stage) {
    * JPEG, with the nodes drawn from it. */
   const photos = async () =>
     (await stage.bundleFiles(view.state.doc.toString())).filter((f) => f.type === "image" && PICTURE.test(f.path));
-  const theming = themePanel(stage, $("#theming"), { edit: themeEdit, photos, words: () => lexicon });
+  const theming = themePanel(stage, $("#theming"), {
+    edit: themeEdit,
+    photos,
+    words: () => lexicon,
+    preview: async (ops) => {
+      const now = showing();
+      if (now) await stage.previewTheme(now.state, ops, format());
+    },
+  });
   /** The theme given the colors of the photo the image `node` draws in the state shown (PLAN 2.94). */
   async function colorsFrom(node: string) {
     const state = showing()?.state;
