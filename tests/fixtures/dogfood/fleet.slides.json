@@ -1,0 +1,164 @@
+{
+ "executiveSummary": "Ridgefleet cuts route planning from hours to minutes and late deliveries by more than half.",
+ "slides": [
+  {
+   "slideTitle": "Ridgefleet",
+   "subtitle": "For Northline Freight · November 2026",
+   "layoutSuggestion": "Title",
+   "keyBullets": [],
+   "speakerNotes": "- Ridgefleet. Route planning for regional fleets.",
+   "beatIndex": 0,
+   "beatName": "Problem",
+   "purpose": "Opens the pitch",
+   "intent": "",
+   "expectedIntensity": 0.3,
+   "expectedValence": 0.2
+  },
+  {
+   "slideTitle": "Your dispatchers spend six hours a day planning routes",
+   "subtitle": "",
+   "layoutSuggestion": "Big Number",
+   "keyBullets": [
+    "6.5 hours",
+    "a day planning tomorrow's routes, by hand"
+   ],
+   "speakerNotes": "- Your dispatchers spend six and a half hours a day planning tomorrow's routes by hand.",
+   "beatIndex": 0,
+   "beatName": "Problem",
+   "purpose": "Names the pain",
+   "intent": "",
+   "expectedIntensity": 0.6,
+   "expectedValence": -0.4,
+   "sourceRef": "pilot.csv"
+  },
+  {
+   "slideTitle": "Late deliveries cost you customers",
+   "subtitle": "",
+   "layoutSuggestion": "Statement",
+   "keyBullets": [
+    "38 late deliveries a week in the first pilot week"
+   ],
+   "speakerNotes": "- Late deliveries cost you customers. 38 late deliveries a week in the first pilot week.",
+   "beatIndex": 1,
+   "beatName": "Impact",
+   "purpose": "",
+   "intent": "",
+   "expectedIntensity": 0.7,
+   "expectedValence": -0.5,
+   "sourceRef": "pilot.csv"
+  },
+  {
+   "slideTitle": "Spreadsheets and gut feel don't scale",
+   "subtitle": "",
+   "layoutSuggestion": "Two-Column",
+   "keyBullets": [
+    "Spreadsheets: rebuilt every morning",
+    "Gut feel: leaves with the dispatcher"
+   ],
+   "speakerNotes": "- Spreadsheets and gut feel don't scale.",
+   "beatIndex": 2,
+   "beatName": "Existing Approaches",
+   "purpose": "",
+   "intent": "",
+   "expectedIntensity": 0.5,
+   "expectedValence": -0.3
+  },
+  {
+   "slideTitle": "Ridgefleet plans tomorrow's routes overnight",
+   "subtitle": "",
+   "layoutSuggestion": "Thesis",
+   "keyBullets": [],
+   "speakerNotes": "- Ridgefleet plans tomorrow's routes overnight.",
+   "beatIndex": 3,
+   "beatName": "Solution",
+   "purpose": "",
+   "intent": "",
+   "expectedIntensity": 0.7,
+   "expectedValence": 0.6
+  },
+  {
+   "slideTitle": "Routes in minutes, not hours",
+   "subtitle": "",
+   "layoutSuggestion": "Big Number",
+   "keyBullets": [
+    "0.8 hours",
+    "of planning a day by week five"
+   ],
+   "speakerNotes": "- Routes in minutes, not hours. Point eight hours of planning a day by week five.",
+   "beatIndex": 3,
+   "beatName": "Solution",
+   "purpose": "",
+   "intent": "",
+   "expectedIntensity": 0.7,
+   "expectedValence": 0.6,
+   "sourceRef": "pilot.csv"
+  },
+  {
+   "slideTitle": "Planning takes minutes instead of hours",
+   "subtitle": "",
+   "layoutSuggestion": "Statement",
+   "keyBullets": [
+    "Planning time fell from hours to minutes"
+   ],
+   "speakerNotes": "- Planning takes minutes instead of hours.",
+   "beatIndex": 3,
+   "beatName": "Solution",
+   "purpose": "",
+   "intent": "",
+   "expectedIntensity": 0.6,
+   "expectedValence": 0.6
+  },
+  {
+   "slideTitle": "Customers cut fuel spend 38%",
+   "subtitle": "",
+   "layoutSuggestion": "Big Number",
+   "keyBullets": [
+    "38%",
+    "less fuel spend"
+   ],
+   "speakerNotes": "- Customers cut fuel spend 38 percent.",
+   "beatIndex": 4,
+   "beatName": "Proof",
+   "purpose": "",
+   "intent": "",
+   "expectedIntensity": 0.8,
+   "expectedValence": 0.7
+  },
+  {
+   "slideTitle": "Late deliveries fell from 38 to 14 a week",
+   "subtitle": "",
+   "layoutSuggestion": "Bar Chart",
+   "keyBullets": [
+    "Week 1: 38",
+    "Week 2: 35",
+    "Week 3: 22",
+    "Week 4: 18",
+    "Week 5: 15",
+    "Week 6: 14"
+   ],
+   "speakerNotes": "- Late deliveries fell from 38 to 14 a week.",
+   "beatIndex": 4,
+   "beatName": "Proof",
+   "purpose": "",
+   "intent": "",
+   "expectedIntensity": 0.8,
+   "expectedValence": 0.7,
+   "sourceRef": "pilot.csv"
+  },
+  {
+   "slideTitle": "Let's talk about next steps",
+   "subtitle": "",
+   "layoutSuggestion": "Closing",
+   "keyBullets": [
+    "Questions?"
+   ],
+   "speakerNotes": "- Let's talk about next steps.",
+   "beatIndex": 5,
+   "beatName": "Call to Action",
+   "purpose": "",
+   "intent": "",
+   "expectedIntensity": 0.6,
+   "expectedValence": 0.6
+  }
+ ]
+}
