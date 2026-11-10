@@ -145,7 +145,11 @@ try {
   // says that alone: never "Nothing to undo" on the way, even for an instant.
   await page.evaluate(() => {
     window.__said = [];
-    new MutationObserver(() => window.__said.push(document.querySelector("#status").textContent)).observe(document.querySelector("#status"), {
+    // Each text the status was given, as each record added it: two said in one task are read
+    // after it, when the status holds the last alone.
+    new MutationObserver((records) => {
+      for (const r of records) for (const n of r.addedNodes) window.__said.push(n.textContent);
+    }).observe(document.querySelector("#status"), {
       childList: true,
       characterData: true,
       subtree: true,
