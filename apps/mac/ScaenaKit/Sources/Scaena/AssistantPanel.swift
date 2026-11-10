@@ -30,7 +30,8 @@ struct AssistantPanel: View {
     @State private var following = true
     /// Whether the conversation shows its end now.
     @State private var atEnd = true
-    /// Bumped as the keys sheet closes, so that the models are listed again with the key kept.
+    /// Bumped as the keys sheet closes, or as a key is kept anywhere, Settings on the Mac among
+    /// them, so that the models are listed again with the key kept (lift-up 20261031 FUNC-4).
     @State private var keysChanged = 0
     /// The window's undo, whose step Undo This Answer takes back (lift-up 10-25 FUNC-4).
     @Environment(\.undoManager) private var undoManager
@@ -54,6 +55,9 @@ struct AssistantPanel: View {
             asking
         }
         .task(id: "\(provider.rawValue)\u{1f}\(keysChanged)") { await list() }
+        .onReceive(NotificationCenter.default.publisher(for: Keychain.changed)) { posted in
+            if posted.object as? String == keychain.service { keysChanged += 1 }
+        }
         .onChange(of: assistant.drafted, initial: true) { _, drafted in
             // A question drafted elsewhere, put in the box to send or change.
             guard let drafted else { return }

@@ -7,6 +7,11 @@ public struct Keychain: Sendable {
     /// The service the keys are kept under.
     public let service: String
 
+    /// Posted once a key is kept or taken away, its object the service's name, so a panel that
+    /// lists a provider's models lists them again as Settings keeps a key on the Mac, where no
+    /// sheet closes to say so (lift-up 20261031 FUNC-4).
+    public static let changed = Notification.Name("ScaenaKit.Keychain.changed")
+
     public init(service: String = "com.scaena.assistant") {
         self.service = service
     }
@@ -72,6 +77,12 @@ public struct Keychain: Sendable {
     /// Keychain refuses (a locked device, a keychain not reached) leaves the key kept before as it
     /// was (lift-up 10-24b REL-5); none, or an empty one, takes it away.
     private func write(_ key: String?, account: String, label: String, about: String) throws {
+        try kept(key, account: account, label: label, about: about)
+        NotificationCenter.default.post(name: Self.changed, object: service)
+    }
+
+    /// The key kept under `account`, as `write` keeps it, which the Keychain may refuse, nothing then posted.
+    private func kept(_ key: String?, account: String, label: String, about: String) throws {
         guard let key, !key.isEmpty else {
             for query in [item(account), legacy(account)] {
                 let gone = SecItemDelete(query as CFDictionary)

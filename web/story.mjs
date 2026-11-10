@@ -3,6 +3,7 @@
 //
 //   node web/story.mjs     (after `just web`; from the repository's root)
 //
+// - The curve's legend keeps each mark with its words on one line (editor dogfood 2).
 // - Each finding says what to do in its row, under what it found: the question the assistant
 //   would be asked, so a presenter with no key is not sent to an Assistant tab to read it
 //   (editor dogfood 3).
@@ -37,6 +38,13 @@ try {
   await page.waitForFunction(() => window.scaena?.last(), null, { timeout: 120000 });
   await tab(page, "story");
   await page.waitForFunction(() => window.scaena.story.health() && document.querySelector("#story [data-findings] li"), null, { timeout: 120000 });
+
+  // The curve's legend: each mark with its words on one line, a narrow column wrapping between
+  // keys, never between a mark and what it means (editor dogfood 2).
+  const keys = await page.evaluate(() =>
+    [...document.querySelectorAll("#story [data-legend] > span")].map((k) => ({ words: k.textContent.trim(), lines: new Set([...k.getClientRects()].map((r) => Math.round(r.top))).size })),
+  );
+  check(keys.length === 9 && keys.every((k) => k.lines === 1), `the legend's keys each stand on one line: ${JSON.stringify(keys.filter((k) => k.lines !== 1).map((k) => k.words))} of ${keys.length}`);
 
   const findings = await page.evaluate(() => window.scaena.story.health().findings);
   check(findings.length > 5, `the deck has more to look at than five: ${findings.length}`);

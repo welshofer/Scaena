@@ -1,6 +1,5 @@
 E100 - wrap-longword wrap-word /nodes/wrap-word fix
 E100 9:16 wrap-longword wrap-word /nodes/wrap-word
-E100 9:16 wrap-url wrap-link /nodes/wrap-link fix
 E100 9:16 wrap-narrow wrap-narrow-col /nodes/wrap-narrow-col fix
 E100 9:16 hyphenation hyph-off /nodes/hyph-off fix
 E101 9:16 hyphenation hyph-off /nodes/hyph-off

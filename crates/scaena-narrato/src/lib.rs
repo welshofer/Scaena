@@ -251,6 +251,9 @@ pub struct Generation {
     /// once it has been asked twice (lift-up REL-3): the person then writes without one, or stops.
     misread: usize,
     unread: Option<String>,
+    /// The claims the person wrote in an outline shown, which the next outline keeps word for
+    /// word in the beats of their names (lift-up 20261110 FUNC-2).
+    kept: Vec<outline::Beat>,
     narrative: Option<Narrative>,
     /// How many times the step was asked and answered for now, not for good.
     tried: usize,
@@ -280,6 +283,7 @@ impl Generation {
             outline: None,
             misread: 0,
             unread: None,
+            kept: Vec::new(),
             narrative: None,
             tried: 0,
             again: None,
@@ -341,6 +345,48 @@ impl Generation {
                 })
                 .collect(),
         )
+    }
+
+    /// The claims the person wrote in the outline shown, kept by the next outline asked
+    /// ([`Generation::outline_first`]): word for word in the beats of their names, and named to
+    /// the model so the rest agree with them (lift-up 20261110 FUNC-2).
+    pub fn keep_claims(&mut self, kept: Vec<outline::Beat>) {
+        self.kept = kept.into_iter().filter(|b| !b.claim.trim().is_empty()).collect();
+    }
+
+    /// The request that asks for beat `beat` (from 0) of `outline`, the person's as it stands,
+    /// again, every other claim fixed (lift-up 20261110 FUNC-2): Scaena's own short call, made
+    /// while the outline is shown, which leaves the step as it was. None before the arc is chosen
+    /// or for a beat the outline lacks.
+    pub fn claim_request(&self, key: &str, outline: &Outline, beat: usize) -> Option<Request> {
+        let arc = arcs::arc(&self.arc.as_ref()?.selection);
+        let prompt = outline::claim_prompt(&self.brief, arc, outline, beat)?;
+        let s = &self.settings;
+        let max_tokens = if s.provider == Provider::Gemini { GEMINI_MAX_TOKENS } else { FIT_MAX_TOKENS };
+        Some(s.provider.structured(&providers::Call {
+            model: &s.model,
+            key,
+            base: s.base.as_deref(),
+            browser: s.browser,
+            system: outline::CLAIM_SYSTEM,
+            prompt: &prompt,
+            shape: providers::Shape::Claim,
+            anthropic_schema: true,
+            max_tokens,
+            temperature: Some(0.8),
+            documents: &[],
+            pictures: &[],
+        }))
+    }
+
+    /// The claim the answer to [`Generation::claim_request`] gives; an error that says why where
+    /// it gives none, or came back refused, out of credit among it.
+    pub fn claim_answer(&self, status: u16, status_text: &str, body: &str) -> Result<String, NarratoError> {
+        if status == 0 {
+            return Err(NarratoError::Provider(format!("the request did not complete: {status_text}")));
+        }
+        let read = self.settings.provider.read_answer(status, status_text, body).map_err(NarratoError::Provider)?;
+        outline::read_claim(&read.text).map_err(NarratoError::Answer)
     }
 
     /// Ask the model for the outline before the slides (narrative FUNC-1): the next request is
@@ -490,7 +536,7 @@ impl Generation {
                 let chosen = self.arc.as_ref()?;
                 let arc = arcs::arc(&chosen.selection);
                 let plan = beats::plan(arc, self.target());
-                let text = outline::prompt(&self.brief, arc, &chosen.reasoning, &plan);
+                let text = outline::prompt(&self.brief, arc, &chosen.reasoning, &plan, &self.kept);
                 // The documents beside it, as the slides have them (lift-up FUNC-3).
                 (outline::OUTLINE_SYSTEM, text, Shape::Outline, room(outline::OUTLINE_MAX_TOKENS), 0.3, documents)
             }
@@ -694,7 +740,14 @@ impl Generation {
                 let arc = arcs::arc(&chosen.selection);
                 let plan = beats::plan(arc, self.target());
                 match outline::read(&read.text, arc, &plan) {
-                    Ok(outline) => {
+                    Ok(mut outline) => {
+                        // The person's own claims stand as they wrote them, whatever the model
+                        // gave their beats (lift-up 20261110 FUNC-2).
+                        for beat in &mut outline.beats {
+                            if let Some(own) = self.kept.iter().find(|k| k.name.trim() == beat.name.trim()) {
+                                beat.claim = own.claim.trim().to_string();
+                            }
+                        }
                         self.outline = Some(outline);
                         self.misread = 0;
                         self.step = Step::Slides;

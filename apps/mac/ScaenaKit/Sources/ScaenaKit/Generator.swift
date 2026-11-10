@@ -150,6 +150,8 @@ public enum GeneratingStep: Equatable, Sendable {
     case researching(String)
     case researchingNow(String)
     case researched(sources: Int, cut: Bool)
+    /// A research that failed, the deck going on from the sources given (lift-up 10-25b REL-4).
+    case unresearched(String)
     case choosing
     case chose(arc: String, fallback: String?)
     /// The outline before the slides (narrative FUNC-1): asked, written with this many beats, and
@@ -192,6 +194,8 @@ public enum GeneratingStep: Equatable, Sendable {
         case .researching(let topic): "Researching \(topic)… (minutes)"
         case .researchingNow(let doing): doing
         case .researched(let sources, let cut): "Researched: \(sources) sources\(cut ? ", cut short" : "")"
+        case .unresearched(let why):
+            "Research stopped: \(why.hasSuffix(".") ? String(why.dropLast()) : why). The deck is grounded in what you gave."
         case .choosing: "Choosing the arc…"
         case .chose(let arc, let fallback):
             fallback.map { "Arc: \(arc), the heuristic's (\($0))" } ?? "Arc: \(arc)"
@@ -606,20 +610,31 @@ public final class Generator {
     /// and draw every slide (`make`, `looked`, `fitted`), which take seconds for a deck of 20 to 45
     /// slides, while the brief's window goes on answering and its steps go on showing (lift-up
     /// narrative PERF-3). One step at a time: each is awaited before the next is made.
-    func stepAway<T: Decodable & Sendable>(_ method: String, _ args: [String: JSONValue] = [:]) async throws -> T {
+    /// With `bytes`, a file handed over, as `step` hands one (`add`).
+    func stepAway<T: Decodable & Sendable>(
+        _ method: String, _ args: [String: JSONValue] = [:], bytes: Data? = nil
+    ) async throws -> T {
         let json = String(decoding: try JSONEncoder().encode(JSONValue.object(args)), as: UTF8.self)
-        return try await Self.stepped(on: made, method, json, heard: away)
+        return try await Self.stepped(on: made, method, json, bytes: bytes, heard: away)
     }
 
     /// `method` made on `made` on a thread of its own with `stack` bytes of stack, its answer awaited.
     nonisolated private static func stepped<T: Decodable & Sendable>(
-        on made: Made, _ method: String, _ json: String, heard: (@Sendable (String) -> Void)?
+        on made: Made, _ method: String, _ json: String, bytes: Data? = nil, heard: (@Sendable (String) -> Void)?
     ) async throws -> T {
         try await withCheckedThrowingContinuation { (done: CheckedContinuation<T, any Error>) in
             let thread = Thread {
                 heard?(method)
                 done.resume(with: Result {
-                    try ScaenaSession.decode(scaena_generator_call(made.pointer, method, json, nil, 0), as: T.self)
+                    guard let bytes else {
+                        return try ScaenaSession.decode(scaena_generator_call(made.pointer, method, json, nil, 0), as: T.self)
+                    }
+                    return try bytes.withUnsafeBytes { raw in
+                        try ScaenaSession.decode(
+                            scaena_generator_call(
+                                made.pointer, method, json, raw.baseAddress?.assumingMemoryBound(to: UInt8.self), raw.count),
+                            as: T.self)
+                    }
                 })
             }
             thread.name = "ScaenaKit.generate"
@@ -662,7 +677,7 @@ public final class Generator {
         }
     }
 
-    private struct Read: Decodable {
+    private struct Read: Decodable, Sendable {
         let name: String
         let kind: String
     }
@@ -726,10 +741,19 @@ public final class Generator {
 
     /// The file `name`, whose bytes are `data`, read by its extension: Markdown, text, RTF, HTML,
     /// JSON, CSV, Excel, Word, PowerPoint as words alone, or a PDF, which the model reads as itself.
+    /// Parsed away from the main actor, so the brief's window, Cancel among it, goes on answering
+    /// while a large workbook or PDF is read (lift-up 20261025b PERF-4).
     @discardableResult
-    public func add(name: String, data: Data) throws -> GeneratingStep {
-        let read: Read = try step("add", ["name": .string(name)], bytes: data)
+    public func add(name: String, data: Data) async throws -> GeneratingStep {
+        let read: Read = try await stepAway("add", ["name": .string(name)], bytes: data)
         return .read(name: read.name, kind: read.kind)
+    }
+
+    /// ``add(name:data:)``, the file at `url` read away from the main actor too.
+    @discardableResult
+    public func add(contentsOf url: URL) async throws -> GeneratingStep {
+        let data = try await Task.detached(priority: .userInitiated) { try Data(contentsOf: url) }.value
+        return try await add(name: url.lastPathComponent, data: data)
     }
 
     private struct Fetched: Decodable {
