@@ -126,16 +126,22 @@ impl Sources {
     }
 
     /// Deep research's report and its sources, as a source of their own (PLAN G.8):
-    /// `{ name, kind }`.
+    /// `{ name, kind, text }`, `text` the source as kept, which a page keeps to go on from with
+    /// no research paid for again (`researched`, lift-up 20261110 REL-1).
     pub fn research(&mut self, research: &Research) -> Result<String, JsError> {
         let report = research.report.as_ref().ok_or_else(|| error("the research has written no report yet"))?;
-        let source = Source {
-            name: scaena_narrato::research::source_name(&research.topic),
-            kind: Kind::Research,
-            text: report.source_text(),
-            sheets: Vec::new(),
-            pdf: None,
-        };
+        let name = scaena_narrato::research::source_name(&research.topic);
+        let text = report.source_text();
+        self.researched(&name, &text)?;
+        Ok(json!({ "name": name, "kind": Kind::Research.name(), "text": text }).to_string())
+    }
+
+    /// Deep research's report as `research` kept it, `name` and `text` as it said them: the
+    /// source a run that failed after the research goes on from, packed first as the research
+    /// is (lift-up 20261110 REL-1). `{ name, kind }`.
+    pub fn researched(&mut self, name: &str, text: &str) -> Result<String, JsError> {
+        let source =
+            Source { name: name.into(), kind: Kind::Research, text: text.into(), sheets: Vec::new(), pdf: None };
         self.keep(source)
     }
 
@@ -384,6 +390,14 @@ impl Generation {
     pub fn written(&mut self, text: &str) -> Result<String, JsError> {
         self.inner.written(text, false).map_err(error)?;
         Ok(self.said())
+    }
+
+    /// The slides as the model wrote them, once it has, the text `written` takes: what a page
+    /// keeps so a run that fails after them goes on from it with no call paid for again, as the
+    /// CLI's `--slides` does (lift-up 20261110 REL-1).
+    #[wasm_bindgen(js_name = writtenText)]
+    pub fn written_text(&self) -> Option<String> {
+        self.inner.written_text().map(str::to_string)
     }
 
     fn said(&self) -> String {

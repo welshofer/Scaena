@@ -2028,6 +2028,8 @@ async function edit(source: Source, opened?: Stage, recovering = false) {
       status.textContent = `Error: ${said(e)}`;
       return;
     }
+    // Dropped for a newer deck or a newer lint (lift-up 20261110 PERF-1): the next pause lints it.
+    if (linted.dropped) return;
     wholes.push(linted);
     if (read !== version || !last) return;
     last = { ...last, findings: linted.findings, laid: linted.laid, whole: true };
