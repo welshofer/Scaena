@@ -75,6 +75,19 @@ try {
   check(!(await first.isVisible()), "folded until it is opened");
   await page.click("#story [data-more] summary");
   check(await first.isVisible(), "and opened, it shows them");
+
+  // Ask the assistant keeps a question already drafted in its box, the finding's put after it
+  // (lift-up 20261110 deferred).
+  await tab(page, "assistant");
+  await page.fill("#question", "My own question first.");
+  await tab(page, "story");
+  await page.locator("#story [data-findings] li[data-slide] [data-ask]").first().click();
+  // Its slide is shown first, then the question put in the box.
+  await page.waitForFunction(() => document.querySelector("#question").value !== "My own question first.", null, { timeout: 10000 }).catch(() => {});
+  const drafted = await page.inputValue("#question");
+  check(/^My own question first\.\n\n\S/.test(drafted), `Ask the assistant keeps the question drafted, its own after it: ${JSON.stringify(drafted.slice(0, 60))}`);
+  await page.fill("#question", "");
+  await tab(page, "story");
   // Each finding says what to do under what it found, the question the assistant would be asked,
   // so a presenter with no key reads it in its row (editor dogfood 3).
   const todos = await page.evaluate(() =>

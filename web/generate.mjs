@@ -605,6 +605,25 @@ try {
   await fixable.locator("[data-show]").click();
   await page.waitForFunction((n) => window.scaena.shown() === n - 1, slide, { timeout: 30000 }).catch(() => {});
   check((await page.evaluate(() => window.scaena.shown())) === slide - 1, `its slide is shown: slide ${slide}`);
+  // Pressed while the assistant is at work on the deck, the fix says why it waits and makes
+  // nothing (lift-up 20261110 deferred): the assistant held at work by an answer slow to come.
+  state.slow = 8000;
+  await page.evaluate(() => void window.scaena.assistant.ask("Hold the deck a moment."));
+  await page.waitForFunction(() => document.querySelector("#code .cm-content[contenteditable=false]"), null, { timeout: 30000 }).catch(() => {});
+  const working = await page.evaluate(() => window.scaena.source());
+  await fixable.locator("[data-fix]").first().click();
+  await page
+    .waitForFunction(() => document.querySelector("#status").textContent.startsWith("Not fixed: the assistant is at work on the deck"), null, { timeout: 10000 })
+    .catch(() => {});
+  const waits = await page.textContent("#status");
+  check(
+    waits.startsWith("Not fixed: the assistant is at work on the deck") && (await page.evaluate(() => window.scaena.source())) === working,
+    `a fix pressed while the assistant works says why it waits: ${waits}`,
+  );
+  await page.evaluate(() => document.querySelector("#stop").click());
+  await page.waitForFunction(() => !document.querySelector("#code .cm-content[contenteditable=false]"), null, { timeout: 30000 }).catch(() => {});
+  state.slow = 0;
+  await page.evaluate(() => (document.querySelector("#question").value = ""));
   const kind = await fixable.locator("[data-fix]").first().getAttribute("data-kind");
   const unfixed = await page.evaluate(() => window.scaena.source());
   await fixable.locator("[data-fix]").first().click();

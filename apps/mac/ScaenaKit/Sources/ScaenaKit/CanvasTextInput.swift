@@ -968,6 +968,31 @@ public final class CanvasPresses: UIView {
 
     public override var canBecomeFirstResponder: Bool { true }
 
+    /// No input assistant: with no text typed in there is nothing for a shortcuts bar to do, and
+    /// iPadOS 26 draws one in glass over the canvas that sat animating there, so XCTest's wait for
+    /// the app to settle before each event ran out its two minutes (lift-up 20261110).
+    public override var inputAssistantItem: UITextInputAssistantItem { bare }
+
+    private let bare = Bare()
+
+    /// An input assistant that holds no buttons, whatever is given it.
+    final class Bare: UITextInputAssistantItem {
+        override init() {
+            super.init()
+            allowsHidingShortcuts = true
+        }
+
+        override var leadingBarButtonGroups: [UIBarButtonItemGroup] {
+            get { [] }
+            set {}
+        }
+
+        override var trailingBarButtonGroups: [UIBarButtonItemGroup] {
+            get { [] }
+            set {}
+        }
+    }
+
     /// Escape and Return, and Return with Shift or Option, ahead of the system's own behavior for
     /// them (`wantsPriorityOverSystemBehavior`); and PageDown and PageUp, alone or with Shift, as
     /// the Mac's canvas takes them (PLAN 4.12).
