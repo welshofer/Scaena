@@ -1153,11 +1153,26 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         Some(arc) => format!("{arc}'s curve"),
         None => "a talk's curve".to_string(),
     };
+    // Where no slide declares its intensity, fidelity reads each as a talk usually runs where it
+    // stands, its words unread (W2's editor dogfood): the line says so, so it does not read as
+    // the slides' own against intensity's "no slide declares" (its figure is #850 FUNC-3's, Jay's).
+    let undeclared = !(read.iter().filter(|s| s.eligible()))
+        .any(|s| s.narrative_meta.as_ref().and_then(|n| n.expected_intensity).is_some_and(f64::is_finite));
     let fidelity = Measure {
         score: Some(fidelity_score as u32),
-        says: match bends.len() {
-            0 => format!("The intensity the slides declare follows {curve_of}."),
-            k => format!("{} {} the intensity away from {curve_of}.", counted(k, "slide"), agree(k, "bends", "bend")),
+        says: match (bends.len(), undeclared) {
+            (0, false) => format!("The intensity the slides declare follows {curve_of}."),
+            (k, false) => {
+                format!("{} {} the intensity away from {curve_of}.", counted(k, "slide"), agree(k, "bends", "bend"))
+            }
+            (0, true) => {
+                format!("No slide declares its intensity: read as a talk usually runs, the slides follow {curve_of}.")
+            }
+            (k, true) => format!(
+                "No slide declares its intensity: read as a talk usually runs, {} {} away from {curve_of}.",
+                counted(k, "slide"),
+                agree(k, "falls", "fall")
+            ),
         },
     };
     // Slides that declare what `of` reads, and of those, the ones read: a deck whose words the
@@ -3976,6 +3991,14 @@ mod tests {
         assert!(h.intensity.says.starts_with("No slide declares intensity"), "{}", h.intensity.says);
         assert!(h.tone.says.starts_with("No slide declares tone"), "{}", h.tone.says);
         assert_eq!((h.intensity.score, h.tone.score), (None, None));
+        // Fidelity reads the slides as a talk usually runs, and says so, never as their words
+        // (W2's editor dogfood); its figure is as before.
+        assert!(
+            h.fidelity.says.starts_with("No slide declares its intensity: read as a talk usually runs, "),
+            "{}",
+            h.fidelity.says
+        );
+        assert!(h.fidelity.score.is_some());
         assert!(!h.findings.iter().any(|f| f.fix.is_some()), "{:#?}", h.findings);
     }
 
