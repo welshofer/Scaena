@@ -122,6 +122,7 @@ type Reply = Extract<
       | "attached"
       | "cells"
       | "models"
+      | "conversation"
       | "reloaded"
       | "boxes"
       | "hits"
@@ -1099,6 +1100,12 @@ export class Stage {
     return this.request<"shown">({ type: "preview", id: ++this.asked, state, ops, format }).then(() => {});
   }
 
+  /** `state` at rest in the theme as `ops` would edit it, nothing made or written; without `ops`,
+   * in the theme as it is (lift-up ATTR-5). */
+  previewTheme(state: string, ops?: unknown[], format?: string): Promise<void> {
+    return this.request<"shown">({ type: "previewTheme", id: ++this.asked, state, ops, format }).then(() => {});
+  }
+
   /** `node`'s look as `state` shows it, in the deck `source` compiles to (PLAN 2.58): what ⌥⌘C
    * picks up. */
   look(source: string, state: string, node: string): Promise<Look> {
@@ -1386,6 +1393,16 @@ export class Stage {
     this.send({ type: "forget" });
   }
 
+  /** The assistant's conversation as it may be kept (lift-up 20261110 FUNC-4). */
+  conversation(): Promise<unknown[]> {
+    return this.request<"conversation">({ type: "conversation", id: ++this.asked }).then(({ messages }) => messages);
+  }
+
+  /** Go on from a conversation kept: the next question follows it. */
+  resume(messages: unknown[]) {
+    this.send({ type: "resume", messages });
+  }
+
   /** The models `key` can use at `provider`, at its own address or `base`. */
   models(provider: ProviderId, key: string, base?: string): Promise<string[]> {
     return this.request<"models">({ type: "models", id: ++this.asked, provider, key, base }).then(({ models }) => models);
@@ -1485,6 +1502,7 @@ export class Stage {
       case "attached":
       case "cells":
       case "models":
+      case "conversation":
       case "reloaded":
       case "boxes":
       case "hits":
@@ -1626,6 +1644,8 @@ export class Stage {
       case "generating":
       case "storyOutlined":
       case "generated":
+      case "paid":
+      case "filesZipped":
         return;
       default: {
         // A reply the switch does not name would leave its request waiting: the compiler says so.

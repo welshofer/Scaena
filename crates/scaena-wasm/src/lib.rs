@@ -716,6 +716,15 @@ impl Player {
         self.0.preview(ops.as_deref()).map_err(js)
     }
 
+    /// Show the theme as `ops` (JSON, RFC 6902 operations on it) would edit it, with nothing
+    /// made or written: frames at rest draw in it until it is let go (no `ops`) or the deck
+    /// changes. What the Theme tab shows while a color is held in its picker (lift-up ATTR-5).
+    #[wasm_bindgen(js_name = previewTheme)]
+    pub fn preview_theme(&mut self, ops: Option<String>) -> Result<(), JsError> {
+        let ops: Option<Vec<serde_json::Value>> = ops.map(|o| serde_json::from_str(&o)).transpose().map_err(js)?;
+        self.0.theme_previewing(ops.as_deref()).map_err(js)
+    }
+
     /// The states `ops` (a patch, JSON) would change what shows in, by id, as JSON: what the
     /// editor says of a drag before it is dropped ("in 3 states"). Nothing is made.
     pub fn reach(&self, ops: &str) -> Result<String, JsError> {
@@ -1771,6 +1780,21 @@ impl SavedBundle {
     pub fn zip(&self) -> Result<Vec<u8>, JsError> {
         scaena_store::zip(&self.0.files).map_err(js)
     }
+}
+
+/// `files`, each bundle file's bytes by its path, as a `.scaena` zip's bytes, as they stand: a
+/// deck made from a prompt that would not open, kept for the person to download and open
+/// elsewhere (lift-up 20261110 REL-1).
+#[cfg(feature = "generate")]
+#[wasm_bindgen(js_name = zipFiles)]
+pub fn zip_files(files: &js_sys::Map) -> Result<Vec<u8>, JsError> {
+    let mut given = std::collections::BTreeMap::new();
+    files.for_each(&mut |bytes, path| {
+        if let Some(path) = path.as_string() {
+            given.insert(path, js_sys::Uint8Array::new(&bytes).to_vec());
+        }
+    });
+    scaena_store::zip(&given).map_err(js)
 }
 
 /// Whether the fonts of the theme whose text is `theme`, each in `fonts` by the path the theme

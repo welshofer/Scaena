@@ -145,6 +145,8 @@ private func streaming(_ text: String) -> [String] {
     #expect(Assistant.stopped("end") == nil && Assistant.stopped("tools") == nil)
     #expect(Assistant.stopped("stopped") == "Stopped.")
     #expect(Assistant.stopped("length") == "The answer ran out of room.")
+    // A refusal said as one, as the browser's panel says it (lift-up 20261025c REL-1).
+    #expect(Assistant.stopped("refused") == "The model declined to answer that. Ask in other words.")
     #expect(Assistant.stopped("max_tokens_reason") == "The model stopped.")
 }
 
@@ -258,6 +260,121 @@ private func streaming(_ text: String) -> [String] {
         return
     }
     #expect(notAccepted == "Anthropic didn't accept your key. Check it, or replace it.")
+}
+
+/// How many times `words` are asked in `request`'s body.
+private func asked(_ words: String, in request: URLRequest) -> Int {
+    String(decoding: request.httpBody ?? Data(), as: UTF8.self).components(separatedBy: words).count - 1
+}
+
+/// A question the provider refused, or that never reached it, is taken back and given back to the
+/// box (lift-up 20261110 STAB-3, USE-2): the key put right, it is asked again as one question, never
+/// two the model answers as one.
+@MainActor
+@Test func aQuestionRefusedOrUnreachedIsGivenBackAndAskedOnce() async throws {
+    let editor = DeckEditor(session: try ScaenaSession(directory: b1))
+    let question = "Is the cover clean?"
+    let refused = Answers([(#"{"error": {"message": "invalid x-api-key"}}"#, 401), (answering("Clean."), 200)])
+    let assistant = Assistant(editor: editor) { request in await refused.answer(request) }
+    assistant.ask(question, provider: .anthropic, model: "a-model", key: "sk-wrong")
+    await assistant.asking?.value
+    guard case .failed = assistant.entries.last?.kind else {
+        Issue.record("refused: \(assistant.entries)")
+        return
+    }
+    #expect(assistant.drafted == question, "the question is given back to the box")
+    assistant.drafted = nil
+    assistant.ask(question, provider: .anthropic, model: "a-model", key: "sk-right")
+    await assistant.asking?.value
+    #expect(said(assistant) == ["Clean."])
+    let requests = await refused.asked
+    #expect(requests.count == 2)
+    #expect(requests.last.map { asked(question, in: $0) } == 1, "asked once, not twice")
+    #expect(assistant.drafted == nil, "an answered question stays answered")
+
+    // Never reached: the connection lost before any answer, the same.
+    let tries = Answers([(answering("Clean."), 200)])
+    let lost = Lost()
+    let offline = Assistant(editor: editor) { request in
+        if await lost.first() { throw URLError(.notConnectedToInternet) }
+        return await tries.answer(request)
+    }
+    offline.ask(question, provider: .anthropic, model: "a-model", key: "sk-test")
+    await offline.asking?.value
+    guard case .failed = offline.entries.last?.kind else {
+        Issue.record("unreached: \(offline.entries)")
+        return
+    }
+    #expect(offline.drafted == question)
+    offline.ask(question, provider: .anthropic, model: "a-model", key: "sk-test")
+    await offline.asking?.value
+    #expect(said(offline) == ["Clean."])
+    #expect(await tries.asked.first.map { asked(question, in: $0) } == 1, "asked once, not twice")
+}
+
+/// A question stopped before the model said anything is taken back and given back to the box,
+/// as one refused is (lift-up 20261110 STAB-3, USE-2).
+@MainActor
+@Test(.timeLimit(.minutes(2))) func aQuestionStoppedBeforeAnyAnswerIsGivenBack() async throws {
+    let editor = DeckEditor(session: try ScaenaSession(directory: b1))
+    let question = "Is the cover clean?"
+    let started = Lost()
+    let assistant = Assistant(editor: editor) { _ in
+        _ = await started.first()
+        try await Task.sleep(for: .seconds(60))
+        return (Data(answering("Too late.").utf8), 200)
+    }
+    assistant.ask(question, provider: .anthropic, model: "a-model", key: "sk-test")
+    for _ in 0..<500 where await !started.happened {
+        try await Task.sleep(for: .milliseconds(5))
+    }
+    assistant.stop()
+    await assistant.asking?.value
+    guard case .done("stopped") = assistant.entries.last?.kind else {
+        Issue.record("stopped: \(assistant.entries)")
+        return
+    }
+    #expect(assistant.drafted == question)
+}
+
+/// Whether something has happened yet: `first` says so once, as it first happens.
+private actor Lost {
+    private(set) var happened = false
+
+    func first() -> Bool {
+        defer { happened = true }
+        return !happened
+    }
+}
+
+/// The asks an empty conversation offers come from the deck's health (lift-up 20261110 ATTR-2):
+/// the talk made stronger and every slide held to its claim always, and the beat health finds most
+/// in tightened, by its name, where it names beats.
+@Test func anEmptyConversationOffersTheDecksOwnAsks() throws {
+    #expect(StartingAsk.offered(by: nil).map(\.label) == ["Make this talk stronger", "Check every slide says its claim"])
+    let measure = #"{"score": 70, "says": "fine"}"#
+    func slide(_ state: String, _ part: Int) -> String {
+        #"{"state": "\#(state)", "part": \#(part), "title": "T", "curve": 0.5, "standing": "ok"}"#
+    }
+    func finding(_ state: String, _ slide: Int, _ severity: String) -> String {
+        #"{"state": "\#(state)", "slide": \#(slide), "severity": "\#(severity)", "kind": "dense", "says": "\#(severity) \#(state)", "ask": "Shorter?"}"#
+    }
+    let json = """
+        {"score": 61, "arc": "Problem–Solution", "beats": ["Hook", "Problem", "Solution"],
+         "pacing": \(measure), "balance": \(measure), "coherence": \(measure), "fidelity": \(measure),
+         "intensity": \(measure), "tone": \(measure),
+         "slides": [\(slide("one", 0)), \(slide("two", 1)), \(slide("three", 2))],
+         "findings": [\(finding("one", 1, "warning")), \(finding("three", 3, "info")),
+                      \(finding("three", 3, "warning")), \(finding("two", 2, "error"))]}
+        """
+    let health = try JSONDecoder().decode(Health.self, from: Data(json.utf8))
+    // The Problem's error (3) outweighs the Solution's warning and info (3, its first among ties
+    // being the Problem) and the Hook's warning (2).
+    #expect(StartingAsk.weakest(health) == "Problem")
+    let offered = StartingAsk.offered(by: health)
+    #expect(offered.map(\.label) == ["Make this talk stronger", "Tighten “Problem”", "Check every slide says its claim"])
+    #expect(offered[1].question.contains("“Problem” beat"))
+    #expect(offered[0].question.contains("narrative health"), "it leads with health")
 }
 
 /// A conversation too long for the model is asked again once, with half as much of tools'
@@ -600,6 +717,33 @@ private actor Answers {
     #expect(why == "Anthropic couldn't answer just now. Try again in a moment.", "\(why)")
 }
 
+/// An answer is one step of undo however many calls edited (lift-up 10-25 FUNC-4): the window is
+/// handed the source as the question found it once, when the answer ends, and the panel offers to
+/// take the answer back.
+@MainActor
+@Test(.timeLimit(.minutes(2))) func anAnswerOfSeveralEditsIsOneStepOfUndo() async throws {
+    let editor = DeckEditor(session: try ScaenaSession(directory: b1))
+    let louder = #"{"ops": [{"op": "replace_text", "state": "cover", "node": "title", "from": 0, "to": 0, "text": "Loudly: "}]}"#
+    let more = #"{"ops": [{"op": "replace_text", "state": "cover", "node": "title", "from": 0, "to": 0, "text": "Very "}]}"#
+    let answers = Answers([
+        calling("First.", [("t1", "deck_patch", louder)]), calling("Then.", [("t2", "deck_patch", more)]),
+        answering("Done."),
+    ])
+    let assistant = Assistant(editor: editor) { request in await answers.answer(request) }
+    var undone: [String] = []
+    assistant.edited = { before, _ in undone.append(before) }
+    let was = editor.source
+
+    assistant.ask("Say it louder, twice.", provider: .anthropic, model: "a-model", key: "sk-test")
+    #expect(!assistant.answered)
+    await assistant.asking?.value
+    #expect(editor.source.contains("Very Loudly: "), "both edits were taken")
+    #expect(undone == [was], "one step, from the source as the question found it")
+    #expect(assistant.answered, "the answer may be taken back")
+    assistant.answerUndone()
+    #expect(!assistant.answered)
+}
+
 /// Whether this Mac lets a test write the Keychain: a runner without a login keychain does not.
 private func keychainWritable() -> Bool {
     let probe = Keychain(service: "com.scaena.tests.probe")
@@ -621,6 +765,30 @@ private func keychainWritable() -> Bool {
     try keychain.set(nil, for: .openai)
     #expect(keychain.key(for: .openai) == nil)
     #expect(keychain.providers.isEmpty)
+}
+
+/// Keeping a key, or taking it away, says so for its service alone, so the assistant's panel lists
+/// the models again as Settings keeps a key on the Mac (lift-up 20261031 FUNC-4).
+@Test(.enabled(if: keychainWritable())) func keepingAKeySaysSo() throws {
+    let service = "com.scaena.tests.\(UUID().uuidString)"
+    let keychain = Keychain(service: service)
+    let heard = Heard()
+    let listening = NotificationCenter.default.addObserver(forName: Keychain.changed, object: nil, queue: nil) {
+        if $0.object as? String == service { heard.count() }
+    }
+    defer { NotificationCenter.default.removeObserver(listening) }
+    try keychain.set("sk-one", for: .openai)
+    #expect(heard.times == 1, "kept")
+    try keychain.set(nil, for: .openai)
+    #expect(heard.times == 2, "taken away")
+}
+
+/// How many times a notification was heard, from whichever thread posts it.
+private final class Heard: @unchecked Sendable {
+    private let lock = NSLock()
+    private var heard = 0
+    func count() { lock.withLock { heard += 1 } }
+    var times: Int { lock.withLock { heard } }
 }
 
 /// A key is kept to this device, readable only while it is unlocked, in the data-protection

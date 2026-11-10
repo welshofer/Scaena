@@ -15,6 +15,9 @@ pub struct LineBreakContext {
     pub before: char,
     /// The code point after the potential break.
     pub after: char,
+    /// Scaena (ADR-0004 finding 28): where `after` starts in the text, in bytes, so an override
+    /// may tell what part of the text the pair is in (an address, a run).
+    pub at: usize,
 }
 
 /// Line break opportunity override.
@@ -323,6 +326,7 @@ mod tests {
             before_before,
             before,
             after,
+            at: 0,
         }
     }
 

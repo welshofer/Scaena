@@ -126,16 +126,22 @@ impl Sources {
     }
 
     /// Deep research's report and its sources, as a source of their own (PLAN G.8):
-    /// `{ name, kind }`.
+    /// `{ name, kind, text }`, `text` the source as kept, which a page keeps to go on from with
+    /// no research paid for again (`researched`, lift-up 20261110 REL-1).
     pub fn research(&mut self, research: &Research) -> Result<String, JsError> {
         let report = research.report.as_ref().ok_or_else(|| error("the research has written no report yet"))?;
-        let source = Source {
-            name: scaena_narrato::research::source_name(&research.topic),
-            kind: Kind::Research,
-            text: report.source_text(),
-            sheets: Vec::new(),
-            pdf: None,
-        };
+        let name = scaena_narrato::research::source_name(&research.topic);
+        let text = report.source_text();
+        self.researched(&name, &text)?;
+        Ok(json!({ "name": name, "kind": Kind::Research.name(), "text": text }).to_string())
+    }
+
+    /// Deep research's report as `research` kept it, `name` and `text` as it said them: the
+    /// source a run that failed after the research goes on from, packed first as the research
+    /// is (lift-up 20261110 REL-1). `{ name, kind }`.
+    pub fn researched(&mut self, name: &str, text: &str) -> Result<String, JsError> {
+        let source =
+            Source { name: name.into(), kind: Kind::Research, text: text.into(), sheets: Vec::new(), pdf: None };
         self.keep(source)
     }
 
@@ -339,6 +345,33 @@ impl Generation {
         Ok(self.said())
     }
 
+    /// The claims the person wrote in the outline shown, JSON `[{ name, claim, slides }]`, which
+    /// the next outline asked keeps word for word in the beats of their names (lift-up 20261110
+    /// FUNC-2).
+    #[wasm_bindgen(js_name = keepClaims)]
+    pub fn keep_claims(&mut self, kept: &str) -> Result<(), JsError> {
+        let kept: Vec<scaena_narrato::outline::Beat> =
+            serde_json::from_str(kept).map_err(|e| error(format!("the claims kept: {e}")))?;
+        self.inner.keep_claims(kept);
+        Ok(())
+    }
+
+    /// The request that asks for beat `beat` (from 0) of `outline`, JSON as `outline` gives it,
+    /// again, every other claim fixed (lift-up 20261110 FUNC-2); none for a beat it lacks.
+    #[wasm_bindgen(js_name = claimRequest)]
+    pub fn claim_request(&self, key: &str, outline: &str, beat: usize) -> Result<Option<String>, JsError> {
+        let outline: scaena_narrato::Outline =
+            serde_json::from_str(outline).map_err(|e| error(format!("the outline: {e}")))?;
+        let request = self.inner.claim_request(key, &outline, beat);
+        Ok(request.map(|r| serde_json::to_string(&r).expect("a request is JSON")))
+    }
+
+    /// The claim the answer to `claimRequest` gives, or an error that says why.
+    #[wasm_bindgen(js_name = claimAnswer)]
+    pub fn claim_answer(&self, status: u16, status_text: &str, body: &str) -> Result<String, JsError> {
+        self.inner.claim_answer(status, status_text, body).map_err(error)
+    }
+
     /// Where it stands, as `answer` says it, with no answer read: JSON `{ step, slides, arc?,
     /// reasoning?, fallback?, written?, truncated?, outline?, unread?, partial?, unrested? }`,
     /// `partial` the slides written so far where the rest is asked for (lift-up REL-2), and
@@ -352,9 +385,18 @@ impl Generation {
         serde_json::to_value(self.inner.step()).ok().and_then(|v| v.as_str().map(str::to_string)).unwrap_or_default()
     }
 
-    /// The fewest slides the slides' prompt asks for.
+    /// The slides the slides' prompt asks for: the settled outline's in all, else the length's
+    /// (lift-up 20261110 USE-3).
     pub fn target(&self) -> usize {
-        self.inner.target()
+        self.inner.slides_asked()
+    }
+
+    /// The fewest and the most slides the brief's length allows, JSON `[least, most | null]`:
+    /// what the outline's slides in all are held to, scaled to the nearer end outside it (lift-up
+    /// 20261110 USE-3).
+    pub fn range(&self) -> String {
+        let (least, most) = self.inner.slides_range();
+        json!([least, most]).to_string()
     }
 
     /// The next request, `{ method, url, headers, body }` as JSON, the key in its headers; none
@@ -386,11 +428,19 @@ impl Generation {
         Ok(self.said())
     }
 
+    /// The slides as the model wrote them, once it has, the text `written` takes: what a page
+    /// keeps so a run that fails after them goes on from it with no call paid for again, as the
+    /// CLI's `--slides` does (lift-up 20261110 REL-1).
+    #[wasm_bindgen(js_name = writtenText)]
+    pub fn written_text(&self) -> Option<String> {
+        self.inner.written_text().map(str::to_string)
+    }
+
     fn said(&self) -> String {
         let narrative = self.inner.narrative();
         json!({
             "step": self.step(),
-            "slides": self.inner.target(),
+            "slides": self.inner.slides_asked(),
             "arc": self.inner.arc().map(|a| a.selection.clone()),
             "reasoning": self.inner.arc().map(|a| a.reasoning.clone()),
             "fallback": self.inner.fallback(),

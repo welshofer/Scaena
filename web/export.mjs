@@ -16,7 +16,8 @@
 //   its steps have played (`mix` for the revenue slide), the width asked, within §13.5 of
 //   `scaena export --format png` of that state. The palette offers it too.
 // - The deck as a PDF, from the palette: the PDF's own module loads then, and not before, and the
-//   PDF is the one `scaena export --format pdf` writes, byte for byte; and with the presenter's
+//   PDF is the one `scaena export --format pdf` writes, byte for byte; a deck with no notes yet says
+//   so before a PDF with notes is made (editor dogfood 2); and with the presenter's
 //   notes, from Export…, the one `--notes` writes.
 // - The deck as one HTML file, from Export…: the one `scaena export --format html` writes, byte for
 //   byte. Opened from its address on disk with the network off, it plays.
@@ -292,6 +293,23 @@ try {
   const refused = await page.evaluate(() => window.scaena.exportAs("pdf"));
   check(refused === undefined && downloads === 0 && (await status()).startsWith("Not exported: the source does not compile"), `a source that does not compile is not exported: ${await status()}`);
   await page.evaluate((s) => window.scaena.type(s), source);
+
+  // A deck with no notes yet: a PDF with notes is said, before it is made, to hold each slide
+  // alone, drawn smaller (editor dogfood 2).
+  const bare = await context.newPage();
+  await bare.goto(`${server.origin}/web/dist/editor.html?painter=cpu&bundle=/docs/examples/stock.deck.json`);
+  await bare.waitForFunction(() => window.scaena?.last()?.valid, null, { timeout: 120000 });
+  await bare.click("#export");
+  await bare.check("#exporting input[name=as][value=pdf]");
+  await bare.check("#exporting-with-notes");
+  const unnoted = await bare
+    .waitForFunction(() => document.querySelector("#exporting-note").textContent.startsWith("No slide has notes yet"), null, { timeout: 30000 })
+    .then(() => true, () => false);
+  check(unnoted, `a deck with no notes says so before a PDF with notes is made: ${await bare.textContent("#exporting-note")}`);
+  await bare.uncheck("#exporting-with-notes");
+  const plain = await bare.textContent("#exporting-note");
+  check(plain.startsWith("A page for each slide at its last state: vector paths"), `unchecked, the note is the plain PDF's again: ${plain}`);
+  await bare.close();
 } finally {
   await browser.close();
   server.close();

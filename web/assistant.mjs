@@ -16,7 +16,7 @@
 // tools as the MCP server's less `bundle`, each call's result as the model reads it, and the
 // frame as an image; that Gemini's thought signatures go back as they came; that the editor's
 // source takes each edit and lints clean at the end; that each edit shows the states it drew
-// anew, before and after (PLAN 2.93); that the theme's edit is one step of the source's undo, the
+// anew, before and after (PLAN 2.93); that the whole answer is one step of the source's undo, the
 // theme written back (PLAN 2.61); and that a question stops when asked to.
 // Then the key's field and storage: masked and shown on request, its form said as it is typed, its
 // provider's answer said (it works with its models, or is refused, in a person's words), kept
@@ -460,8 +460,10 @@ try {
     check(last.valid && !last.findings.some((f) => f.severity === "error"), `${id}: and lints clean: ${last.findings.map((f) => f.code).join(", ") || "nothing found"}`);
     const transcript = await page.evaluate(() => window.scaena.assistant.transcript());
     check(
-      transcript.filter((t) => t.startsWith("call")).length === SCRIPT.length && transcript.at(-1) === `said: ${PLAIN}`,
-      `${id}: the conversation shows each call and the answer (${transcript.length} entries): ${transcript.at(-1)}`,
+      transcript.filter((t) => t.startsWith("call")).length === SCRIPT.length &&
+        transcript.at(-2) === `said: ${PLAIN}` &&
+        transcript.at(-1) === "undo-answer: Undo this answer",
+      `${id}: the conversation shows each call, the answer, and Undo this answer under it (${transcript.length} entries): ${transcript.slice(-2).join(" | ")}`,
     );
     // The answer as it reads (narrative ATTR-4): its list and emphasis as elements, never markup
     // from the model's text, and the state named in a code span a link that shows it.
@@ -490,16 +492,34 @@ try {
     check(of(2).length === 1 && fixed2.state === "start" && fixed2.before === patched2.after && fixed2.after !== fixed2.before, `${id}: lint's fix shows start as the patch left it, then fixed: ${JSON.stringify(of(2))}`);
     check([1, 3, 4].every((i) => of(i).length === 0), `${id}: a lint and a render show nothing drawn anew`);
 
-    // The theme's edit shows in the Theme tab, and is one step of the source's undo: ⌘Z writes the
-    // theme back (PLAN 2.61).
+    // The theme's edit shows in the Theme tab. The whole answer is one step of the source's undo
+    // (lift-up 10-25 FUNC-4): ⌘Z takes back its patch, lint's fix, and the theme's edit at once,
+    // writing the theme back (PLAN 2.61), and ⌘⇧Z makes them again.
     const accent = () => page.evaluate(() => window.scaena.theme.theme()?.tokens?.color?.accent);
+    const source = () => page.evaluate(() => window.scaena.source());
+    const accented = (color) => page.waitForFunction((c) => window.scaena.theme.theme()?.tokens?.color?.accent === c, color, { timeout: 30000 }).catch(() => {});
     await tab(page, "theming");
-    await page.waitForFunction(() => window.scaena.theme.theme()?.tokens?.color?.accent === "#2E86E4", null, { timeout: 30000 }).catch(() => {});
+    await accented("#2E86E4");
     check((await accent()) === "#2E86E4", `${id}: the Theme tab shows the assistant's edit: ${await accent()}`);
     await page.locator("#code .cm-content").focus();
     await page.keyboard.press("Control+z");
-    await page.waitForFunction(() => window.scaena.theme.theme()?.tokens?.color?.accent === "#FF6A3D", null, { timeout: 30000 }).catch(() => {});
-    check((await accent()) === "#FF6A3D" && (await page.evaluate(() => window.scaena.source())) === after, `${id}: ⌘Z writes the theme back, the source as it was`);
+    await accented("#FF6A3D");
+    check((await accent()) === "#FF6A3D" && (await source()) === before, `${id}: one ⌘Z takes the whole answer back, the theme and the source as they were asked`);
+    await page.keyboard.press("Control+Shift+z");
+    await accented("#2E86E4");
+    check((await accent()) === "#2E86E4" && (await source()) === after, `${id}: ⌘⇧Z makes it again`);
+    // Undo this answer, on the finished turn, does the same.
+    await tab(page, "assistant");
+    await page.click("#transcript .undo-answer button");
+    const undoneSaid = await page.locator("#transcript .undo-answer").textContent();
+    await tab(page, "theming");
+    await accented("#FF6A3D");
+    const undoneTo = { accent: await accent(), asked: (await source()) === before };
+    check(undoneTo.accent === "#FF6A3D" && undoneTo.asked && undoneSaid.startsWith("Answer undone"), `${id}: Undo this answer takes it back: ${undoneSaid} ${JSON.stringify(undoneTo)}`);
+    await page.locator("#code .cm-content").focus();
+    await page.keyboard.press("Control+Shift+z");
+    await accented("#2E86E4");
+    check((await source()) === after, `${id}: and ⌘⇧Z makes it again`);
     await tab(page, "assistant");
     const usage = await page.evaluate(() => window.scaena.assistant.usage());
     check(usage.input === 1000 * SCRIPT.length + 1200, `${id}: tokens counted: ${usage.input} in, ${usage.output} out`);
@@ -620,6 +640,69 @@ try {
         refused.kind === "failed" && /more than .*'s model takes at once/.test(refused.message) && scripted.requests.length === asked + 2,
         `${id}: and too long again, it is said, once asked again (${JSON.stringify(refused)}, ${scripted.requests.length - asked} requests)`,
       );
+    }
+
+    if (id === "anthropic") {
+      // The conversation is kept over a reload, and offered as the deck opens again (lift-up
+      // 20261110 FUNC-4): gone on with, the next question follows it.
+      await page.waitForTimeout(1000);
+      // What is kept is the messages and what was shown alone: no key, nor the provider's address.
+      const keptText = () =>
+        page.evaluate(async () => {
+          const texts = [];
+          try {
+            const all = await (await navigator.storage.getDirectory()).getDirectoryHandle("conversations");
+            for await (const handle of all.values()) texts.push(await (await handle.getFile()).text());
+          } catch {}
+          return texts;
+        });
+      const stored = await keptText();
+      check(
+        stored.length === 1 && !stored[0].includes("anthropic-test-key") && !stored[0].includes(scripted.origin) && !/x-api-key|authorization/i.test(stored[0]),
+        `one conversation is kept, holding no key, address, or header (${stored.length} kept, ${stored[0]?.length ?? 0} bytes)`,
+      );
+      await page.reload();
+      await page.waitForFunction(() => window.scaena?.last(), null, { timeout: 120000 });
+      await page.waitForSelector("#recovering[open]", { timeout: 5000 }).then(() => page.click("#recovering [value=discard]")).catch(() => {});
+      await tab(page, "assistant");
+      await page.waitForSelector("#transcript .resume button", { timeout: 15000 }).catch(() => {});
+      const offer = await page.evaluate(() => document.querySelector("#transcript .resume")?.textContent ?? "");
+      check(offer.startsWith("Your last conversation about this deck"), `a reload offers the conversation kept: ${offer}`);
+      await page.evaluate(() => [...document.querySelectorAll("#transcript .resume button")].find((b) => b.textContent === "Continue the last conversation")?.click());
+      const shown = await page.evaluate(() => [...document.querySelectorAll("#transcript li")].map((li) => `${li.className}: ${li.textContent}`));
+      check(shown.includes("user: Shorter now.") && shown.some((s) => s.startsWith("said: ")), `gone on with, it shows its questions and answers: ${JSON.stringify(shown.slice(-4))}`);
+      await page.waitForFunction(() => document.querySelector("#model").options.length > 0, null, { timeout: 30000 }).catch(() => {});
+      const sent = scripted.requests.length;
+      const next = await page.evaluate(() => window.scaena.assistant.ask("And now?"));
+      const messages = scripted.requests[sent]?.body.messages ?? [];
+      check(
+        next.kind === "done" && messages.length > 2 && JSON.stringify(messages[0]).includes("Put the trail headline on the slide"),
+        `and the next question follows it: ${JSON.stringify(next)}, ${messages.length} messages sent`,
+      );
+      // New conversation takes the kept one away, its file and all; and so does Start anew, offered
+      // as the deck opens again, after which a reload offers nothing.
+      const reload = async () => {
+        await page.reload();
+        await page.waitForFunction(() => window.scaena?.last(), null, { timeout: 120000 });
+        await page.waitForSelector("#recovering[open]", { timeout: 5000 }).then(() => page.click("#recovering [value=discard]")).catch(() => {});
+        await tab(page, "assistant");
+      };
+      await page.waitForTimeout(1000);
+      check((await keptText()).length === 1, "the conversation gone on with is kept again");
+      await page.evaluate(() => document.querySelector("#new").click());
+      await page.waitForTimeout(500);
+      check((await keptText()).length === 0, "New conversation takes the kept conversation away");
+      await page.waitForFunction(() => document.querySelector("#model").options.length > 0, null, { timeout: 30000 }).catch(() => {});
+      await page.evaluate(() => window.scaena.assistant.ask("Once more?"));
+      await page.waitForTimeout(1000);
+      await reload();
+      await page.waitForSelector("#transcript .resume button", { timeout: 15000 }).catch(() => {});
+      await page.evaluate(() => [...document.querySelectorAll("#transcript .resume button")].find((b) => b.textContent === "Start anew")?.click());
+      await page.waitForTimeout(500);
+      check((await keptText()).length === 0, "Start anew takes the kept conversation away");
+      await reload();
+      await page.waitForTimeout(1500);
+      check(!(await page.evaluate(() => !!document.querySelector("#transcript .resume"))), "and a reload offers none");
     }
 
     if (id === "anthropic") {

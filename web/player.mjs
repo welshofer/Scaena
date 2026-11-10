@@ -37,7 +37,9 @@
 //   beside it (PLAN 2.121); after a press on Resume, Space goes on and presses it no more. P again
 //   brings it to the front as it is, its timer running. Its notes scroll, long or short, the next
 //   state's from their top, A+, A−, +, and - grow and shrink them, the size kept for the next view
-//   (lift-up USE-4), and its buttons and its timer's stay in its window. With no player
+//   (lift-up USE-4), and its buttons and its timer's stay in its window. The player keeps its
+//   timer, so the view reloaded goes on from the time the talk has run, paused or not, and a show
+//   ended and begun again from its first slide starts at 0:00 (lift-up 20261110 REL-5). With no player
 //   open, or once the player closes, even as the view opens, it says so, every word of it, and
 //   its buttons wait until one is.
 // - A link at rest shows a hand under the pointer.
@@ -505,6 +507,24 @@ try {
     return { shown: window.scaena.timer().now, now: read(Date.now()), before: read(Date.now() - 1000) };
   });
   check(day.shown === day.now || day.shown === day.before, `the time of day stands beside it: ${JSON.stringify(day)}`);
+  // The player keeps the timer (lift-up 20261110 REL-5): the presenter view reloaded mid-talk
+  // shows the time the talk has run, not 0:00, and one paused stays paused across a reload.
+  // A few seconds in, so a view that began again would show less than the talk has run.
+  await presenter.waitForTimeout(3500);
+  const ranFor = secondsOf((await timer()).shows);
+  const reloaded = async () => {
+    await presenter.reload();
+    await presenter.waitForFunction(() => window.scaena?.timer, null, { timeout: 60000 });
+    await presenter.waitForFunction(() => window.scaena.timer().shows !== "0:00", null, { timeout: 10000 }).catch(() => {});
+    return timer();
+  };
+  const again = await reloaded();
+  check(!again.paused && secondsOf(again.shows) >= ranFor, `reloaded, the presenter view’s timer goes on from where it stood: ${ranFor} s, then ${again.shows}`);
+  await presenter.click("#pause");
+  const held = (await timer()).shows;
+  const kept = await reloaded();
+  check(kept.paused && kept.shows === held && (await presenter.textContent("#pause")) === "Resume", `paused, it stays paused across a reload: ${held}, then ${JSON.stringify(kept)}`);
+  await presenter.click("#pause");
   await presenter.click("#on");
   at = await until(player, () => window.scaena.at().index === 2, "the presenter view goes on");
   check(at.index === 2, `its ▶ steers the player on to ${states[2]}`);
@@ -542,6 +562,12 @@ try {
   await presenter.keyboard.press("Home");
   at = await until(player, () => window.scaena.at().index === 0, "the presenter view's Home", null, 2000);
   check(at.index === 0, `and its Home to ${states[0]}`);
+  // A show that ended, begun again from its first slide, is a new one (lift-up 20261110 REL-5): its
+  // timer stands at 0:00, and waits there until the deck goes on.
+  await presenter.waitForFunction(() => window.scaena.timer().shows === "0:00", null, { timeout: 5000 }).catch(() => {});
+  const anew = (await timer()).shows;
+  await presenter.waitForTimeout(1200);
+  check(anew === "0:00" && (await timer()).shows === "0:00", `a show ended and begun again from its first slide starts at 0:00: ${anew}, then ${(await timer()).shows}`);
   const fromStart = await nextShown(0);
   check(fromStart.name === `Next: ${slots[1].said}` && fromStart.shown, `back at the first, it shows the next again: ${JSON.stringify(fromStart)}`);
   // The player turned to another format, the view paints the next state in it, as it paints the
@@ -1092,6 +1118,19 @@ try {
   for (const painter of ["auto", "cpu"]) {
     const page = await dense.newPage();
     page.on("pageerror", (e) => failures.push(`dense ${painter}: ${e.message}`));
+    // Once the walk asks (`__slowFit`, in ms), the worker's word of the size it paints at, and its
+    // answer to a fit, reach the page late.
+    await page.addInitScript(() => {
+      const set = Object.getOwnPropertyDescriptor(Worker.prototype, "onmessage").set;
+      Object.defineProperty(Worker.prototype, "onmessage", {
+        set(handler) {
+          set.call(this, (e) => {
+            if (window.__slowFit && (e.data?.type === "sized" || e.data?.type === "fitted")) setTimeout(() => handler(e), window.__slowFit);
+            else handler(e);
+          });
+        },
+      });
+    });
     await page.goto(`${server.origin}/web/dist/?painter=${painter}&bundle=${revenue}`);
     await page.waitForFunction(() => window.scaena, null, { timeout: 120000 });
     const paints = await page.evaluate(() => window.scaena.painter);
@@ -1124,6 +1163,10 @@ try {
     else await page.waitForFunction(() => window.scaena.at() && !window.scaena.at().playing, null, { timeout: 60000 }).catch(() => {});
     const windowed = await measure();
     check(sharp(windowed) && windowed.dpr === 2, `${paints}: at 2560 × 1440 at 2×, the slide fills the room the bar leaves, painted at the size shown: ${JSON.stringify(windowed)}`);
+    // The worker's word of its new size held back a while, as a busy runner's main thread may hold
+    // it: the frames painted for the screen come before it does, and the slide must be shown
+    // at the screen's size all the same.
+    await page.evaluate(() => (window.__slowFit = 400));
     await page.keyboard.press("f");
     const fullDense = await page.waitForFunction(() => document.fullscreenElement !== null, null, { timeout: 5000 }).then(() => true, () => false);
     if (fullDense) {
@@ -1132,6 +1175,7 @@ try {
         .waitForFunction((was) => document.querySelector("#stage").width !== was, windowed.backing[0], { timeout: 60000 })
         .catch(() => {});
       const full = await measure();
+      await page.evaluate(() => (window.__slowFit = 0));
       const screen = Math.abs(full.shown[0] - 2560) <= 1 && Math.abs(full.shown[1] - 1440) <= 1;
       const whole = paints !== "webgpu" || (full.backing[0] === 5120 && full.backing[1] === 2880);
       check(sharp(full) && screen && whole, `${paints}: fullscreen, it fills the screen, painted at the size shown: ${JSON.stringify(full)}`);
