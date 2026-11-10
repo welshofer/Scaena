@@ -1,0 +1,217 @@
+{
+ "executiveSummary": "Lagerfux ist ein Sensor für Paletten, der Fehlbestände in Echtzeit meldet. Mittelständische Lager verlieren jährlich 2,4 % ihres Bestands; Lagerfux senkt das im Pilot auf 0,6 %. Marktstart am 12. März 2027, ab 39 € pro Sensor.",
+ "slides": [
+  {
+   "slideTitle": "Lagerfux: Jede Palette weiß, wo sie ist",
+   "subtitle": "Produktvorstellung · Nordlicht Logistik GmbH · März 2027",
+   "layoutSuggestion": "Title",
+   "keyBullets": [],
+   "speakerNotes": "- Herzlich willkommen. Heute zeigen wir Ihnen Lagerfux.",
+   "beatIndex": 0,
+   "beatName": "Problem",
+   "purpose": "Eröffnung",
+   "intent": "Rahmen setzen",
+   "expectedIntensity": 0.3,
+   "expectedValence": 0.4
+  },
+  {
+   "slideTitle": "Lager verlieren still und leise Geld",
+   "subtitle": "Fehlbestände fallen erst bei der Inventur auf, Monate zu spät",
+   "layoutSuggestion": "Statement",
+   "keyBullets": [],
+   "speakerNotes": "- Jeder hier kennt das: Die Ware ist im System, aber nicht im Regal.",
+   "beatIndex": 0,
+   "beatName": "Problem",
+   "purpose": "Das Problem",
+   "intent": "Betroffenheit wecken",
+   "expectedIntensity": 0.6,
+   "expectedValence": -0.5
+  },
+  {
+   "slideTitle": "2,4 % des Bestands gehen jedes Jahr verloren",
+   "subtitle": "",
+   "layoutSuggestion": "Big Number",
+   "keyBullets": [
+    "2,4 %",
+    "des Lagerbestands im deutschen Mittelstand, jedes Jahr"
+   ],
+   "speakerNotes": "- Bei einem Lager mit 8 Mio. € Bestand sind das 192.000 € im Jahr.",
+   "beatIndex": 1,
+   "beatName": "Impact",
+   "purpose": "Das Ausmaß",
+   "intent": "Zahlen sprechen lassen",
+   "expectedIntensity": 0.8,
+   "expectedValence": -0.7,
+   "supportingFacts": [
+    "EHI Retail Institute, 2026"
+   ]
+  },
+  {
+   "slideTitle": "Was das kostet",
+   "subtitle": "",
+   "layoutSuggestion": "Scorecard",
+   "keyBullets": [
+    "192.000 €: Verlust pro Jahr bei 8 Mio. € Bestand",
+    "11 Tage: bis ein Fehlbestand auffällt",
+    "34 %: der Eilbestellungen wegen falscher Bestände"
+   ],
+   "speakerNotes": "- Es ist nicht nur die Ware. Es sind die Eilbestellungen und die verärgerten Kunden.",
+   "beatIndex": 1,
+   "beatName": "Impact",
+   "purpose": "Folgekosten",
+   "intent": "Dringlichkeit",
+   "expectedIntensity": 0.7,
+   "expectedValence": -0.6
+  },
+  {
+   "slideTitle": "Heutige Lösungen und ihre Grenzen",
+   "subtitle": "",
+   "layoutSuggestion": "VS",
+   "keyBullets": [
+    "Barcode-Scanner: RFID-Tore",
+    "Kosten: niedrig | 25.000 € pro Tor",
+    "Echtzeit: nein | nur an den Toren",
+    "Aufwand: hoch, manuell | mittel"
+   ],
+   "speakerNotes": "- Scanner sind billig, aber blind zwischen zwei Scans. RFID ist teuer und sieht nur die Tore.",
+   "beatIndex": 2,
+   "beatName": "Existing Approaches",
+   "purpose": "Alternativen",
+   "intent": "Lücke zeigen",
+   "expectedIntensity": 0.5,
+   "expectedValence": -0.2
+  },
+  {
+   "slideTitle": "Lagerfux meldet jeden Fehlbestand sofort",
+   "subtitle": "Ein Sensor pro Palette, 5 Jahre Batterie, kein WLAN nötig",
+   "layoutSuggestion": "Thesis",
+   "keyBullets": [],
+   "speakerNotes": "- Der Sensor klebt unter der Palette und meldet sich, sobald sie den falschen Platz verlässt.",
+   "beatIndex": 3,
+   "beatName": "Solution",
+   "purpose": "Die Lösung",
+   "intent": "Wendepunkt",
+   "expectedIntensity": 0.8,
+   "expectedValence": 0.6
+  },
+  {
+   "slideTitle": "So funktioniert Lagerfux",
+   "subtitle": "",
+   "layoutSuggestion": "How It Works",
+   "keyBullets": [
+    "Aufkleben: Sensor unter die Palette, fertig in 10 Sekunden",
+    "Erkennen: Der Sensor merkt jede Bewegung",
+    "Melden: Abweichungen landen sofort im Lagerverwaltungssystem"
+   ],
+   "speakerNotes": "- Drei Schritte, keine Installation.",
+   "beatIndex": 3,
+   "beatName": "Solution",
+   "purpose": "Funktionsweise",
+   "intent": "Einfachheit zeigen",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.5
+  },
+  {
+   "slideTitle": "Im Pilot: Verluste um 75 % gesenkt",
+   "subtitle": "Bestandsverlust im Pilotlager Hamburg, %",
+   "layoutSuggestion": "Bar Chart",
+   "keyBullets": [
+    "Von 2,4 % auf 0,6 % in sechs Monaten"
+   ],
+   "speakerNotes": "- Sechs Monate, 4.200 Paletten, ein Lager in Hamburg.",
+   "beatIndex": 4,
+   "beatName": "Proof",
+   "purpose": "Beweis",
+   "intent": "Überzeugen",
+   "expectedIntensity": 0.9,
+   "expectedValence": 0.8,
+   "chartData": {
+    "categories": [
+     "Okt.",
+     "Nov.",
+     "Dez.",
+     "Jan.",
+     "Feb.",
+     "März"
+    ],
+    "series": [
+     {
+      "name": "Verlust",
+      "values": [
+       2.4,
+       1.9,
+       1.4,
+       1.0,
+       0.8,
+       0.6
+      ]
+     }
+    ],
+    "unit": "%"
+   }
+  },
+  {
+   "slideTitle": "Was unsere Pilotkunden sagen",
+   "subtitle": "",
+   "layoutSuggestion": "Testimonials",
+   "keyBullets": [
+    "Zum ersten Mal stimmt unsere Inventur auf Anhieb. — Jana Weber, Lagerleiterin, Hanse Kühllogistik",
+    "Nach drei Wochen hatte sich Lagerfux bezahlt gemacht. — Murat Yilmaz, Geschäftsführer, Yilmaz Getränke"
+   ],
+   "speakerNotes": "- Beide sind heute hier. Sprechen Sie sie gern an.",
+   "beatIndex": 4,
+   "beatName": "Proof",
+   "purpose": "Stimmen",
+   "intent": "Vertrauen",
+   "expectedIntensity": 0.6,
+   "expectedValence": 0.7
+  },
+  {
+   "slideTitle": "Preise",
+   "subtitle": "",
+   "layoutSuggestion": "Pricing",
+   "keyBullets": [
+    "Start: 39 € pro Sensor",
+    "Pro: 49 € pro Sensor, mit Schnittstelle zu SAP EWM",
+    "Enterprise: auf Anfrage"
+   ],
+   "speakerNotes": "- Keine Grundgebühr im Start-Tarif.",
+   "beatIndex": 5,
+   "beatName": "Call to Action",
+   "purpose": "Preis",
+   "intent": "Kaufbarkeit",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.4
+  },
+  {
+   "slideTitle": "Ab 12. März 2027 lieferbar",
+   "subtitle": "",
+   "layoutSuggestion": "The Ask",
+   "keyBullets": [
+    "Bestellen Sie bis 28. Februar zum Einführungspreis",
+    "Testen Sie 100 Sensoren 30 Tage kostenlos",
+    "Termin: vertrieb@nordlicht-logistik.de"
+   ],
+   "speakerNotes": "- Wir haben heute Sensoren dabei. Nehmen Sie einen mit.",
+   "beatIndex": 5,
+   "beatName": "Call to Action",
+   "purpose": "Aufruf",
+   "intent": "Handeln",
+   "expectedIntensity": 0.7,
+   "expectedValence": 0.7
+  },
+  {
+   "slideTitle": "Vielen Dank",
+   "subtitle": "Lagerfux · Jede Palette weiß, wo sie ist",
+   "layoutSuggestion": "Closing",
+   "keyBullets": [],
+   "speakerNotes": "- Fragen gern jetzt oder am Stand.",
+   "beatIndex": 5,
+   "beatName": "Call to Action",
+   "purpose": "Abschluss",
+   "intent": "Dank",
+   "expectedIntensity": 0.3,
+   "expectedValence": 0.6
+  }
+ ]
+}
