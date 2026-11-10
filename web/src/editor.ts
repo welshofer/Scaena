@@ -54,7 +54,7 @@ import {
 } from "@codemirror/view";
 import { themes } from "@scaena/themes";
 import { themeGallery } from "./theme-gallery";
-import { panel } from "./assistant/panel";
+import { NO_KEY, panel } from "./assistant/panel";
 import { TOOLS, writer } from "./writing";
 import { load } from "./assistant/keys";
 import { mapper } from "./maps";
@@ -1295,6 +1295,13 @@ async function edit(source: Source, opened?: Stage, recovering = false) {
     transform: (node) => inspected?.nodes[node]?.transform as { rotate?: number; anchor?: [number, number] } | undefined,
     apply: made,
     unsay,
+    // A figure typed over that the words no longer say quotes its data no more: said, by its
+    // source and column as the Data tab names them, with the undo that brings it back (dogfood-5
+    // item 13).
+    unquoted: (state, gone) => {
+      const each = gone.map((g) => `“${g.figure}” no longer quotes ${g.column} in the data “${sourced(lexicon, g.data)}”`);
+      say(`${slideOf(state)}: ${each.join("; ")} · ${MOD}Z brings it back`);
+    },
     typed: (source, edited, joins) => {
       taken = { source, edited, showings };
       if (!joins) anchor();
@@ -1509,6 +1516,7 @@ async function edit(source: Source, opened?: Stage, recovering = false) {
       const of = (state: string) => slots.find((s) => s.state === state)?.slide ?? state;
       return (last?.findings ?? []).filter((f) => f.state !== undefined && of(f.state) === slide);
     },
+    findings: () => last?.findings ?? [],
     fix: (f) => fix(f),
     sources: async () => (await stage.listing(view.state.doc.toString())).grounded.map((g) => g.name),
     cites: async (state) => (await stage.stateChoices(state)).cites,
@@ -1539,7 +1547,12 @@ async function edit(source: Source, opened?: Stage, recovering = false) {
       // deferred), and one already there is not put there again.
       const draft = box.value.trimEnd();
       box.value = !draft ? question : draft.includes(question) ? draft : `${draft}\n\n${question}`;
-      box.focus();
+      // With no key kept, the key's field takes the focus and the status says what to do, as
+      // Check the claim's dialog does; the question waits in its box (editor dogfood 5).
+      const key = $<HTMLInputElement>("#key");
+      if (key.value) return box.focus();
+      key.focus();
+      say(NO_KEY);
     },
     say,
   });
@@ -2075,6 +2088,7 @@ async function edit(source: Source, opened?: Stage, recovering = false) {
     void states.paint();
     void table.paint();
     look.linted();
+    story.linted(linted.findings);
     view.dispatch(setDiagnostics(view.state, linted.findings.map((f) => diagnostic(f, view.state.doc.length))));
   }
 

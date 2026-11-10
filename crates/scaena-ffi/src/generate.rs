@@ -109,6 +109,8 @@ struct Notes {
     next: usize,
     current: std::ops::Range<usize>,
     written: Vec<(usize, String)>,
+    /// Each slide whose notes the model gave were not taken, and why (W1's dogfood 6).
+    dropped: Vec<(usize, scaena_narrato::notes::Dropped)>,
     unanswered: Option<String>,
     /// The round last asked, as Swift was handed it, and how many times a busy provider has
     /// answered it for now (lift-up REL-1).
@@ -785,7 +787,10 @@ impl Generating {
                 let key = args.get("key").and_then(Value::as_str);
                 let round = self.notes.spoken[self.notes.current.clone()].to_vec();
                 match w.generation.notes_answer(status(), &status_text(), arg("body")?, &round) {
-                    Ok(notes) => self.notes.written.extend(notes),
+                    Ok(read) => {
+                        self.notes.written.extend(read.notes);
+                        self.notes.dropped.extend(read.dropped);
+                    }
                     Err(why) => {
                         let (first, last) = (round[0].slide, round[round.len() - 1].slide);
                         let why = match round.len() {
@@ -805,11 +810,17 @@ impl Generating {
                 let notes = std::mem::take(&mut self.notes);
                 let taken = notes.written.len();
                 making.noted(notes.written).map_err(said)?;
-                if let Some(why) = &notes.unanswered {
+                // Each slide whose notes were not taken, and why (W1's dogfood 6).
+                let dropped = scaena_narrato::notes::said(&notes.dropped, &notes.spoken);
+                let unanswered = match (notes.unanswered, dropped) {
+                    (Some(a), Some(b)) => Some(format!("{a}; {b}")),
+                    (a, b) => a.or(b),
+                };
+                if let Some(why) = &unanswered {
                     making.unnoted(why.clone());
                 }
                 let fit = self.fitting(making, key)?;
-                json!({ "noted": taken, "unnoted": notes.unanswered, "fit": fit })
+                json!({ "noted": taken, "unnoted": unanswered, "fit": fit })
             }
             "fitted" => {
                 // A busy provider: the fit asked again, after the wait Swift is told (lift-up

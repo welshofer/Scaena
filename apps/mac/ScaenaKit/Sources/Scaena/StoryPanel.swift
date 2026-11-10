@@ -16,6 +16,10 @@ struct StoryPanel: View {
     /// Whether `health` is the last read, kept while the source has an error to fix (lift-up
     /// 20261110 deferred): said so over it, dimmed, its fixes held.
     @State private var asLastRead = false
+    /// The findings the story shown was read beside (`StoryLint.keyed`), and the reads asked again
+    /// since by a lint of every state that found otherwise (lift-up 20261110 deferred).
+    @State private var readWith: String?
+    @State private var again = 0
 
     var body: some View {
         List {
@@ -88,7 +92,10 @@ struct StoryPanel: View {
             }
         }
         .opacity(asLastRead ? 0.6 : 1)
-        .task(id: editor.revision) { await read() }
+        .task(id: Asked(revision: editor.revision, again: again)) { await read() }
+        .onChange(of: editor.linted) { _, linted in
+            if StoryLint.rereads(linted, readWith: readWith) { again += 1 }
+        }
     }
 
     /// Read at once as the panel shows, and again once edits stop, as every state is linted then
@@ -99,6 +106,7 @@ struct StoryPanel: View {
             try? await Task.sleep(for: .milliseconds(700))
         }
         guard !Task.isCancelled else { return }
+        readWith = StoryLint.keyed(editor.findings)
         do {
             guard let read = try await editor.story(after: health), !Task.isCancelled else { return }
             health = read.health
@@ -109,6 +117,12 @@ struct StoryPanel: View {
             health = nil
             why = "Its story couldn't be read. \(Why.said(error))"
         }
+    }
+
+    /// What reads the story again: an edit, or a lint of every state that found otherwise.
+    private struct Asked: Hashable {
+        let revision: Int
+        let again: Int
     }
 
     /// A slide's row: its number, which shows it, and its headline; what health finds there; each

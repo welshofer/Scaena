@@ -3,6 +3,11 @@ import ScaenaKit
 import SwiftUI
 import UIKit
 import UIKit.UIGestureRecognizerSubclass
+import os
+
+/// What the long press's menu did, each step: asked, presented, and dismissed, with what had the
+/// keyboard then (lift-up 20261110): what a UI test's `log.txt` shows of a menu that never showed.
+let menuLog = Logger(subsystem: "com.welshofer.Scaena", category: "menu")
 
 /// A pinch on the canvas (PLAN 4.3), as the Mac's trackpad pinch (PLAN 3.16): the slide grows on
 /// the desk about where the fingers are, as close as they have spread from the level it began at.
@@ -190,9 +195,14 @@ struct CanvasMenu: UIViewRepresentable {
         // Shown on the next turn of the main queue, once the update that carries what the press
         // selected has reached `held.deck`: the menu is built from it as it shows, so shown in this
         // update, a press that selects as it asks would offer what is done to nothing selected.
+        menuLog.debug("asked \(asked.count, privacy: .public) at \(asked.at.debugDescription, privacy: .public)")
         DispatchQueue.main.async { [weak view, weak held] in
-            guard let view, let held, view.window != nil else { return }
+            guard let view, let held, view.window != nil else {
+                return menuLog.debug("asked \(asked.count, privacy: .public): not shown, no window")
+            }
             view.take()
+            menuLog.debug(
+                "presenting \(asked.count, privacy: .public), keys with \(view.isFirstResponder ? "the menu" : "another", privacy: .public)")
             held.menus?.presentEditMenu(with: UIEditMenuConfiguration(identifier: nil, sourcePoint: asked.at))
         }
     }
@@ -254,9 +264,18 @@ struct CanvasMenu: UIViewRepresentable {
         }
 
         func editMenuInteraction(
+            _ interaction: UIEditMenuInteraction, willPresentMenuFor configuration: UIEditMenuConfiguration,
+            animator: any UIEditMenuInteractionAnimating
+        ) {
+            menuLog.debug("will present")
+        }
+
+        func editMenuInteraction(
             _ interaction: UIEditMenuInteraction, willDismissMenuFor configuration: UIEditMenuConfiguration,
             animator: any UIEditMenuInteractionAnimating
         ) {
+            let keys = (interaction.view?.isFirstResponder ?? false) ? "the menu" : "another"
+            menuLog.debug("will dismiss, keys with \(keys, privacy: .public)")
             animator.addCompletion { (interaction.view as? Host)?.giveBack() }
         }
 

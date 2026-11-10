@@ -441,6 +441,19 @@ struct CanvasSelection: View {
                         readable(
                             reads[i], order: reads.count - i, fit: fit, in: CGRect(origin: .zero, size: geometry.size))
                     }
+                    #if DEBUG && !os(macOS)
+                    // How many long presses the canvas has taken as long presses, each asking for
+                    // its menu (lift-up 20261110): what a UI test reads to tell a press the
+                    // simulator's gesture gate held back, never asked, from a menu that failed to
+                    // show for one that was. Debug builds only.
+                    Rectangle()
+                        .fill(.clear)
+                        .frame(width: 1, height: 1)
+                        .accessibilityElement()
+                        .accessibilityLabel("Long presses")
+                        .accessibilityIdentifier("canvas-menu-asks")
+                        .accessibilityValue("\(offering?.count ?? 0)")
+                    #endif
                 }
                 .frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading)
                 .allowsHitTesting(false)
@@ -1674,7 +1687,10 @@ struct CanvasSelection: View {
         lingering = Task { @MainActor in
             try? await Task.sleep(for: Self.lingers)
             // A press the system took away offers nothing.
-            guard !Task.isCancelled, touching, case .pressing = press else { return }
+            guard !Task.isCancelled, touching, case .pressing = press else {
+                return menuLog.debug(
+                    "long press not held: cancelled \(Task.isCancelled, privacy: .public), touching \(touching, privacy: .public), press \(String(describing: press), privacy: .public)")
+            }
             press = .offered
             offer(at: fit.canvas(start), shown: start, fit: fit)
         }

@@ -41,6 +41,9 @@ export interface StoryEditor {
   /** What lint last found wrong on the slide whose first state is `slide`, any step of it: what
    * its marks on the canvas stand for (editor dogfood 4). */
   issues(slide: string): Finding[];
+  /** What lint last found in the deck, a state's or every state's: what the worker reads health
+   * beside. */
+  findings(): Finding[];
   /** Take `f`'s fix, as its mark on the canvas does: one change to undo. */
   fix(f: Finding): Promise<void>;
   /** Show `f`'s state, its mark on the canvas open. */
@@ -250,9 +253,31 @@ export function arcGraph(h: Health, width = 300, height = 120): string {
   return `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="The intensity and tone each slide declares against the curve of its arc, by the arc's beats">${bands}${curve}${tone}${declared}${marks}</svg>`;
 }
 
+/** What holds the score down, where a slide lint finds broken caps it (W1's dogfood 5): "Capped at
+ * 72 while slides 7 and 10 have an error; 84 without", each slide a button that shows it. */
+function cappedSaid(h: Health): string {
+  const c = h.capped;
+  if (!c?.slides.length) return "";
+  const slide = (n: number) => {
+    const state = h.slides[n - 1]?.state;
+    const said = `slide ${n}`;
+    return state ? `<button type="button" data-capped-slide="${html(state)}">${said}</button>` : said;
+  };
+  const named = c.slides.map(slide);
+  const listed = named.length < 3 ? named.join(" and ") : `${named.slice(0, -1).join(", ")} and ${named[named.length - 1]}`;
+  const have = c.slides.length === 1 ? "has" : "have";
+  return `<span data-capped>Capped at ${c.cap} while ${listed} ${have} an error; ${c.score} without.</span>`;
+}
+
 /** The panel in `into`, over `stage`. */
 export function storyPanel(stage: Stage, into: HTMLElement, editor: StoryEditor) {
   const score = into.querySelector<HTMLElement>("[data-score]")!;
+  // A slide the cap names shows it (W1's dogfood 5): the score's line is drawn anew as it changes,
+  // so its buttons are heard here.
+  score.addEventListener("click", (e) => {
+    const state = (e.target as Element).closest<HTMLElement>("[data-capped-slide]")?.dataset.cappedSlide;
+    if (state) void editor.show(state);
+  });
   const measures = into.querySelector<HTMLElement>("[data-measures]")!;
   const arc = into.querySelector<HTMLElement>("[data-arc]")!;
   const idea = into.querySelector<HTMLElement>("[data-big-idea]")!;
@@ -284,6 +309,12 @@ export function storyPanel(stage: Stage, into: HTMLElement, editor: StoryEditor)
   /** Readings asked for: the last answer wins. */
   let asking = 0;
 
+  /** The findings the last read was taken beside, by what tells them apart: a lint of every state
+   * that finds otherwise reads the story again (lift-up 20261110 deferred). */
+  let readWith = "";
+  const keyed = (findings: Finding[]) =>
+    findings.map((f) => `${f.code} ${f.severity} ${f.state ?? ""} ${f.node ?? ""} ${f.fixable ? 1 : 0}`).join("\n");
+
   /** Whether the panel has read the deck once, its health or why not. */
   let read = false;
   /** How many times it has asked the worker. */
@@ -305,6 +336,7 @@ export function storyPanel(stage: Stage, into: HTMLElement, editor: StoryEditor)
     if (asked !== asking || into.hidden) return;
     read = true;
     reads++;
+    readWith = keyed(editor.findings());
     try {
       const [got, sources] = await Promise.all([stage.health(editor.source()), editor.sources().catch(() => [])]);
       if (asked !== asking) return;
@@ -332,7 +364,8 @@ export function storyPanel(stage: Stage, into: HTMLElement, editor: StoryEditor)
     // Said again only where it changed: the live region speaks each change once.
     const scoring =
       `<b class="${grade(h.score)}">${h.score}</b> of 100, ` +
-      (h.arc ? `written to the ${html(h.arc)} arc` : "no arc named: read against a talk's curve");
+      (h.arc ? `written to the ${html(h.arc)} arc` : "no arc named: read against a talk's curve") +
+      cappedSaid(h);
     if (scoring !== scored) score.innerHTML = scored = scoring;
     measures.innerHTML = MEASURES.map(([key, name]) => {
       const m = h[key] as { score: number | null; says: string };
@@ -349,6 +382,11 @@ export function storyPanel(stage: Stage, into: HTMLElement, editor: StoryEditor)
     // What to do first, open; the rest folded under one "N more", open again as it was left.
     const { open, more } = triage(h);
     const unfolded = list.querySelector<HTMLDetailsElement>("[data-more] details")?.open ?? false;
+    // A slide's sources to cite, open, stay open as they were left, the focus where it was: a read
+    // again after every state is linted draws the rows again (lift-up 20261110 deferred).
+    const choosing = list.querySelector<HTMLElement>("[data-citing]:not([hidden])");
+    const citing = choosing?.closest<HTMLElement>("li[data-slide]")?.dataset.slide;
+    const picked = choosing?.contains(document.activeElement) ? (document.activeElement as HTMLElement).dataset.source : undefined;
     list.replaceChildren(...bySlide(open).map((run) => row(run, h)));
     if (more.length) {
       const li = document.createElement("li");
@@ -362,6 +400,15 @@ export function storyPanel(stage: Stage, into: HTMLElement, editor: StoryEditor)
       details.append(summary, rest);
       li.append(details);
       list.append(li);
+    }
+    if (citing) {
+      const cite = list.querySelector<HTMLButtonElement>(`li[data-slide="${citing}"] [data-cite]`);
+      const offered = cite?.nextElementSibling as HTMLElement | null;
+      if (cite && offered) {
+        offered.hidden = false;
+        cite.ariaExpanded = "true";
+        if (picked) [...offered.querySelectorAll<HTMLButtonElement>("[data-source]")].find((b) => b.dataset.source === picked)?.focus();
+      }
     }
     if (!h.findings.length) {
       const none = document.createElement("li");
@@ -543,6 +590,11 @@ export function storyPanel(stage: Stage, into: HTMLElement, editor: StoryEditor)
   return {
     /** Read the deck again once edits stop. */
     refresh: () => refresh(),
+    /** Every state is linted: read again at once, where the read shown was taken beside other
+     * findings, as a read before that lint was. Typing that lints nothing new reads nothing more. */
+    linted: (findings: Finding[]) => {
+      if (keyed(findings) !== readWith) refresh(true);
+    },
     /** What the panel last read. */
     health: () => health,
     /** How many times it has asked the worker to read the deck. */
