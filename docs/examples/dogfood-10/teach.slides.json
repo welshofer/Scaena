@@ -1,0 +1,228 @@
+{
+ "executiveSummary": "A first lecture on reading a scientific paper: you do not read it front to back. Read it in three passes, each with a question, and you will understand a paper in an hour instead of an evening.",
+ "slides": [
+  {
+   "slideTitle": "How to read a scientific paper",
+   "subtitle": "Biology 101 · Week 2 · Dr. Amara Osei",
+   "layoutSuggestion": "Title",
+   "keyBullets": [],
+   "speakerNotes": "- Welcome back. Today is a skill, not a topic.\n- By the end you will have read a real paper.",
+   "beatIndex": 0,
+   "beatName": "Orientation",
+   "purpose": "Opens the lecture",
+   "intent": "Welcome the class",
+   "expectedIntensity": 0.3,
+   "expectedValence": 0.5
+  },
+  {
+   "slideTitle": "You are not meant to read it front to back",
+   "subtitle": "Scientists read papers in passes, each with its own question",
+   "layoutSuggestion": "Statement",
+   "keyBullets": [],
+   "speakerNotes": "- Most of you tried last week and got lost in the methods. That is normal.\n- Nobody reads a paper like a novel.",
+   "beatIndex": 0,
+   "beatName": "Orientation",
+   "purpose": "The hook",
+   "intent": "Reassure and reframe",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.2
+  },
+  {
+   "slideTitle": "What you will be able to do today",
+   "subtitle": "",
+   "layoutSuggestion": "Bullet List",
+   "keyBullets": [
+    "Find a paper's claim in five minutes",
+    "Judge whether the evidence supports it",
+    "Explain it to a friend in two sentences"
+   ],
+   "speakerNotes": "- Three outcomes. We will check each at the end.",
+   "beatIndex": 0,
+   "beatName": "Orientation",
+   "purpose": "Sets outcomes",
+   "intent": "Orient",
+   "expectedIntensity": 0.3,
+   "expectedValence": 0.4
+  },
+  {
+   "slideTitle": "Abstract",
+   "subtitle": "",
+   "layoutSuggestion": "Definition",
+   "keyBullets": [
+    "A paragraph that states the question, the method, the main result, and why it matters",
+    "\"We show that bees learn colors faster when rewarded with sucrose.\""
+   ],
+   "speakerNotes": "- The abstract is the paper in miniature. Read it first, always.",
+   "beatIndex": 1,
+   "beatName": "Foundations",
+   "purpose": "Defines a term",
+   "intent": "Build vocabulary",
+   "expectedIntensity": 0.3,
+   "expectedValence": 0.3
+  },
+  {
+   "slideTitle": "The parts of a paper, and what each answers",
+   "subtitle": "",
+   "layoutSuggestion": "Icons",
+   "keyBullets": [
+    "Abstract: what did they find?",
+    "Introduction: why does it matter?",
+    "Methods: how did they find it?",
+    "Results: what did they see?",
+    "Discussion: what does it mean?"
+   ],
+   "speakerNotes": "- Each section answers one question. Learn the question, and you know where to look.",
+   "beatIndex": 1,
+   "beatName": "Foundations",
+   "purpose": "Maps the structure",
+   "intent": "Give a mental model",
+   "expectedIntensity": 0.4,
+   "expectedValence": 0.3,
+   "icons": [
+    "file-text",
+    "question",
+    "flask",
+    "chart-bar",
+    "chats"
+   ]
+  },
+  {
+   "slideTitle": "Read it in three passes",
+   "subtitle": "",
+   "layoutSuggestion": "Steps",
+   "keyBullets": [
+    "First pass: title, abstract, figures — five minutes",
+    "Second pass: introduction and discussion — twenty minutes",
+    "Third pass: methods and results, only if you need them — as long as it takes"
+   ],
+   "speakerNotes": "- This is the core of today.\n- Most of the time, two passes are enough.",
+   "beatIndex": 1,
+   "beatName": "Foundations",
+   "purpose": "The method",
+   "intent": "Teach the technique",
+   "expectedIntensity": 0.6,
+   "expectedValence": 0.5
+  },
+  {
+   "slideTitle": "Read the figures before the words",
+   "subtitle": "",
+   "layoutSuggestion": "Quote",
+   "keyBullets": [
+    "The figures are the paper. The text is the commentary.",
+    "Prof. Lena Marsh, University of Leeds"
+   ],
+   "speakerNotes": "- A good figure tells you the result before any sentence does.",
+   "beatIndex": 2,
+   "beatName": "Application",
+   "purpose": "Gives a memorable rule",
+   "intent": "Make it stick",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.4
+  },
+  {
+   "slideTitle": "Try it: five minutes on a real paper",
+   "subtitle": "",
+   "layoutSuggestion": "Checklist",
+   "keyBullets": [
+    "Next: read the title and abstract",
+    "Next: look at Figure 1 and its caption",
+    "Next: write the claim in one sentence",
+    "Next: compare with your neighbour"
+   ],
+   "speakerNotes": "- Paper is on the course page: Giurfa 1995, color learning in honeybees.\n- Five minutes, then talk to your neighbour.",
+   "beatIndex": 2,
+   "beatName": "Application",
+   "purpose": "Practice",
+   "intent": "Get them doing it",
+   "expectedIntensity": 0.6,
+   "expectedValence": 0.5
+  },
+  {
+   "slideTitle": "Skimming versus reading",
+   "subtitle": "",
+   "layoutSuggestion": "VS",
+   "keyBullets": [
+    "Skimming: Reading",
+    "Goal: find the claim | understand the evidence",
+    "Time: 5 minutes | an hour or more",
+    "When: every paper | the few that matter"
+   ],
+   "speakerNotes": "- Skim many, read few.",
+   "beatIndex": 3,
+   "beatName": "Mastery",
+   "purpose": "Contrasts two modes",
+   "intent": "Deepen judgement",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.3
+  },
+  {
+   "slideTitle": "Three questions to ask of any result",
+   "subtitle": "",
+   "layoutSuggestion": "Numbered",
+   "keyBullets": [
+    "How many? Is the sample large enough?",
+    "Compared to what? Is there a control?",
+    "Could it be chance? What do the error bars say?"
+   ],
+   "speakerNotes": "- These three catch most weak papers.",
+   "beatIndex": 3,
+   "beatName": "Mastery",
+   "purpose": "Critical reading",
+   "intent": "Build judgement",
+   "expectedIntensity": 0.7,
+   "expectedValence": 0.2
+  },
+  {
+   "slideTitle": "Check yourself",
+   "subtitle": "",
+   "layoutSuggestion": "Quiz",
+   "keyBullets": [
+    "Which section tells you why the study matters?",
+    "A: Methods",
+    "B: Introduction",
+    "C: Results",
+    "D: References"
+   ],
+   "speakerNotes": "- Answer: B, the introduction.\n- Hands up for each.",
+   "beatIndex": 4,
+   "beatName": "Assessment",
+   "purpose": "Assessment",
+   "intent": "Check understanding",
+   "expectedIntensity": 0.6,
+   "expectedValence": 0.4
+  },
+  {
+   "slideTitle": "Before Thursday",
+   "subtitle": "",
+   "layoutSuggestion": "Next Steps",
+   "keyBullets": [
+    "Read the Giurfa paper in two passes — you — Thursday",
+    "Write its claim in two sentences — you — Thursday",
+    "Bring one question about the methods — you — Thursday"
+   ],
+   "speakerNotes": "- Thursday we read the methods together.",
+   "beatIndex": 5,
+   "beatName": "Transfer",
+   "purpose": "Homework",
+   "intent": "Transfer to practice",
+   "expectedIntensity": 0.4,
+   "expectedValence": 0.5
+  },
+  {
+   "slideTitle": "Questions?",
+   "subtitle": "",
+   "layoutSuggestion": "Q&A",
+   "keyBullets": [
+    "What if I do not understand the statistics?",
+    "How do I find papers worth reading?"
+   ],
+   "speakerNotes": "- Office hours Tuesday at two.",
+   "beatIndex": 5,
+   "beatName": "Transfer",
+   "purpose": "Closes the lecture",
+   "intent": "Invite questions",
+   "expectedIntensity": 0.3,
+   "expectedValence": 0.5
+  }
+ ]
+}

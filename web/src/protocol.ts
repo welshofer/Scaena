@@ -1205,6 +1205,10 @@ export type ToWorker =
   /** `state` painted at rest as the patch `ops` would make it, nothing made, until a `rest` lets
    * it go: a suggested layout pointed at (PLAN 2.92). */
   | { type: "preview"; id: number; state: string; ops: unknown[]; format?: string }
+  /** `state` painted at rest in the theme as `ops` (RFC 6902 operations on it) would edit it,
+   * nothing made or written; without `ops`, in the theme as it is: a color held in the Theme
+   * tab's picker before it is chosen (lift-up ATTR-5). A `rest`, or the deck changed, lets it go. */
+  | { type: "previewTheme"; id: number; state: string; ops?: unknown[]; format?: string }
   /** `node`'s look as `state` shows it, in the deck the editor's `source` compiles to (PLAN 2.58). */
   | { type: "look"; id: number; source: string; state: string; node: string }
   /** The patch that puts `look` on `nodes` in `state`, on the deck the editor's `source` compiles

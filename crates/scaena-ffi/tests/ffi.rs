@@ -942,6 +942,13 @@ fn the_assistant_asks_with_the_users_key_and_runs_each_call_on_the_bundle() {
     assert_eq!(refused["error"]["message"], "401 Unauthorized: invalid x-api-key");
     let kept = step(chat, null_mut(), "conversation", Value::Null);
     assert_eq!(kept, conversation);
+    // Nothing to take back there: the last question was answered.
+    assert_eq!(step(chat, null_mut(), "takeBack", Value::Null), json!(false));
+    assert_eq!(step(chat, null_mut(), "conversation", Value::Null), conversation);
+    // A question refused is taken back, so asked again it is one (lift-up 20261110 STAB-3).
+    step(chat, s, "ask", json!({ "text": "Again?" }));
+    assert_eq!(step(chat, null_mut(), "takeBack", Value::Null), json!(true));
+    assert_eq!(step(chat, null_mut(), "conversation", Value::Null), conversation);
 
     // Misuse is an error, never a crash.
     assert!(stepped(chat, null_mut(), "next", Value::Null)["error"]["message"].is_string(), "no calls wait");

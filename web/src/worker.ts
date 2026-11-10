@@ -497,8 +497,18 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         layOut(data.format);
         player.setMoving([], 0, 0);
         player.preview(undefined);
+        player.previewTheme(undefined);
         const start = performance.now();
         await paint(data.state, Infinity);
+        return answerShown(data.id, start);
+      }
+      case "previewTheme": {
+        latest++;
+        layOut(data.format);
+        player.previewTheme(data.ops?.length ? JSON.stringify(data.ops) : undefined);
+        const start = performance.now();
+        // The formats beside show the theme as it is: nothing is made.
+        await paint(data.state, Infinity, "keep");
         return answerShown(data.id, start);
       }
       case "make":

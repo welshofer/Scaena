@@ -304,6 +304,20 @@ impl Chat {
         self.taken < self.rounds
     }
 
+    /// The question asked last taken back, where no answer to it joined the conversation: the
+    /// provider refused it, could not be reached, or the person stopped it before the model said
+    /// anything (lift-up 20261110 STAB-3). Asked again, it is one question, not two the model
+    /// answers as one. Whether one was taken back.
+    pub fn take_back(&mut self) -> bool {
+        if !matches!(self.conversation.last(), Some(Message::User { .. })) {
+            return false;
+        }
+        self.conversation.pop();
+        self.owed.clear();
+        self.taken = 0;
+        true
+    }
+
     /// Start again: the next question is the first.
     pub fn forget(&mut self) {
         self.conversation.clear();
