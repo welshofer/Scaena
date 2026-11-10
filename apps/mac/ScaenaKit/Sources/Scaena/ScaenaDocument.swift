@@ -166,6 +166,9 @@ final class ScaenaDocument: ReferenceFileDocument {
             _ = try? taken.session.adopt(saved, since: taken.snapshot)
             // A history that could not be read, or a newer Scaena's, said once (REL-1).
             if let said = DeckEditor.said(ofSave: saved.summary) { taken.editor.savedSaid = said }
+            // A save is what adds a version: the Versions panel reads its list again on it, not
+            // on every edit (lift-up 20261110 PERF-3).
+            NotificationCenter.default.post(name: ScaenaDocument.saved, object: taken.session)
         }
         return wrapper
     }
@@ -181,6 +184,9 @@ final class ScaenaDocument: ReferenceFileDocument {
         try session.adopt(saved)
         return files
     }
+
+    /// Posted on the main thread once a save is gone on from, its object the session saved.
+    static let saved = Notification.Name("Scaena.saved")
 
     /// A bundle's files, by their paths in it, as the folder that holds them.
     static func wrapper(_ snapshot: [String: Data]) -> FileWrapper {

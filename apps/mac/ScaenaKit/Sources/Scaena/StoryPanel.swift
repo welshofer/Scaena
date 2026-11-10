@@ -101,12 +101,21 @@ struct StoryPanel: View {
     /// fix it offers; and its questions, asked together.
     private func row(_ run: [Health.Finding], _ health: Health) -> some View {
         let first = run[0]
-        let title = health.slides.indices.contains(first.slide - 1) ? health.slides[first.slide - 1].title : ""
+        // The slide as it reads now, never only its beat's claim (editor dogfood 4).
+        let title = health.headline(of: first.slide, state: first.state, in: editor.slots)
         return VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Button("Slide \(first.slide)") { edits.go(first.state) }
-                    .buttonStyle(.borderless)
-                    .foregroundStyle(Self.tint(severity: Self.worst(run)))
+                // Its kind by a symbol and in words beside its colour, never by colour alone
+                // (lift-up 20261110 USE-1, WCAG 1.4.1).
+                let worst = Self.worst(run)
+                Button {
+                    edits.go(first.state)
+                } label: {
+                    Label("Slide \(first.slide)", systemImage: Self.symbol(severity: worst))
+                }
+                .buttonStyle(.borderless)
+                .foregroundStyle(Self.tint(severity: worst))
+                .accessibilityLabel("\(Self.kind(severity: worst)): Slide \(first.slide)")
                 Text(title)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -117,7 +126,15 @@ struct StoryPanel: View {
             HStack(spacing: 8) {
                 ForEach(run.filter { $0.fix != nil }) { finding in
                     if let fix = finding.fix {
-                        Button(fix.says) { edits.patch("Fix Slide \(finding.slide)", fix.patch) }
+                        Button(fix.says) {
+                            // Held while the assistant has the deck, saying why, as the browser's
+                            // Story says it: the fix is not lost, only not made yet.
+                            if editor.assisting {
+                                edits.say("Not fixed: \(DeckEditor.busy)")
+                            } else {
+                                edits.patch("Fix Slide \(finding.slide)", fix.patch)
+                            }
+                        }
                     }
                 }
                 // The slide it is about shown first: a question begins with what the window shows,
@@ -177,6 +194,24 @@ struct StoryPanel: View {
     /// How a score reads: good from 80, fair from 60.
     private static func tint(_ score: Int) -> Color {
         score >= 80 ? .green : score >= 60 ? .orange : .red
+    }
+
+    /// A finding's kind by its symbol, as the issues list draws it.
+    private static func symbol(severity: String) -> String {
+        switch severity {
+        case "error": "xmark.octagon.fill"
+        case "warning": "exclamationmark.triangle.fill"
+        default: "info.circle"
+        }
+    }
+
+    /// A finding's kind as a person says it.
+    private static func kind(severity: String) -> String {
+        switch severity {
+        case "error": "Error"
+        case "warning": "Warning"
+        default: "Suggestion"
+        }
     }
 
     private static func tint(severity: String) -> Color {

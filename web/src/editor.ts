@@ -1495,6 +1495,7 @@ async function edit(source: Source, opened?: Stage, recovering = false) {
    * a slide to show, a fix that is one change to undo, and a question for the assistant. */
   const story = storyPanel(stage, $("#story"), {
     source: () => view.state.doc.toString(),
+    words: () => lexicon,
     check: (state) => {
       if (assisting) return say("Nothing asked: the assistant is at work on the deck");
       void writing.offer({ kind: "claim", state });
@@ -1507,6 +1508,9 @@ async function edit(source: Source, opened?: Stage, recovering = false) {
       await show(index);
     },
     make: async (ops, done) => {
+      // Held while the assistant has the deck, saying why, as the Mac's Story says it (lift-up
+      // 20261110 deferred): the fix is not lost, only not made yet.
+      if (assisting) throw new Error("the assistant is at work on the deck");
       const now = showing();
       if (!now) return;
       const { source, edited } = await stage.make(() => view.state.doc.toString(), ops, now.index, format());
@@ -1516,7 +1520,10 @@ async function edit(source: Source, opened?: Stage, recovering = false) {
     ask: (question) => {
       $<HTMLButtonElement>("#tab-assistant").click();
       const box = $<HTMLTextAreaElement>("#question");
-      box.value = question;
+      // A question already drafted in the box is kept, the finding's after it (lift-up 20261110
+      // deferred), and one already there is not put there again.
+      const draft = box.value.trimEnd();
+      box.value = !draft ? question : draft.includes(question) ? draft : `${draft}\n\n${question}`;
       box.focus();
     },
     say,

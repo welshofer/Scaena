@@ -454,6 +454,10 @@ export interface Lexicon {
   /** Each data source the deck declares, by the name the deck writes it with, as a person names
    * it (PLAN 3.18): `q3`, read from `data/q3-revenue.csv`, is Q3 Revenue. */
   sources: Record<string, string>;
+  /** How a slide's planned intensity (0 calm to 1 intense) and tone (-1 grave to 1 hopeful) are
+   * said, each word from the least it says (editor dogfood 3). */
+  intensities: [number, string][];
+  tones: [number, string][];
 }
 
 /** A slide a person may start (PLAN 3.30): one in a layout of the theme, a text in each slot that
