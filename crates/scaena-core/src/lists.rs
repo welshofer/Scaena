@@ -179,7 +179,10 @@ pub fn edited(list: &[Option<ListItem>], written: &str, range: Range<usize>, tex
 /// once bytes `range` of `written` are `text`, as [`edited`] keeps a list: the paragraphs before
 /// the edit keep their places, the paragraphs it touches become those it leaves, drawn where one
 /// of them was, so what is typed into a paragraph drawn is drawn too, and those after it move by
-/// as many as it adds or takes away. None where it names no paragraph.
+/// as many as it adds or takes away. Of the paragraphs an edit across several touches, each keeps
+/// its place among those it leaves, so a build retyped whole draws a paragraph more at each step
+/// as it did; a span that reaches the last it touches draws all it leaves (editor dogfood 4).
+/// None where it names no paragraph.
 pub fn redrawn(
     paragraphs: &serde_json::Value,
     written: &str,
@@ -195,12 +198,13 @@ pub fn redrawn(
     let first = before.iter().position(|p| range.start <= p.end).unwrap_or(before.len() - 1);
     let last = before.iter().position(|p| range.end <= p.end).unwrap_or(before.len() - 1);
     let typed = self::paragraphs(text).len();
-    // Where paragraph `q` is once edited: the edit's first or last paragraph where it touched `q`.
+    // Where paragraph `q` is once edited: its place among the paragraphs the edit leaves where
+    // it touched `q`, the last of them where a span ends on the last it touched.
     let moved = |q: usize, end: bool| match q {
         q if q < first => q,
         q if q > last => q - (last + 1) + first + typed,
-        _ if end => first + typed - 1,
-        _ => first,
+        q if end && q == last => first + typed - 1,
+        q => first + (q - first).min(typed - 1),
     };
     let (a, b) = (moved(a, false), moved(b, true));
     Some(if one && a == b { serde_json::Value::from(a + 1) } else { serde_json::Value::from(vec![a + 1, b + 1]) })
@@ -336,6 +340,12 @@ mod tests {
         // Pasted lines in the last move none before them.
         assert_eq!(redrawn(&json!([1, 2]), text, 13..13, "\nfour\nfive"), Some(json!([1, 2])));
         assert_eq!(redrawn(&json!(0), text, 0..0, "x"), None);
+        // A build of six retyped whole into five: each step draws one more, as it did, the last
+        // two all five (editor dogfood 4).
+        let six = "a\nb\nc\nd\ne\nf";
+        let steps: Vec<_> = (1..=6).map(|k| redrawn(&json!([1, k]), six, 0..six.len(), "1\n2\n3\n4\n5")).collect();
+        let want = [[1, 1], [1, 2], [1, 3], [1, 4], [1, 5], [1, 5]].map(|s| Some(json!(s)));
+        assert_eq!(steps, want);
     }
 
     #[test]
