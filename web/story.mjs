@@ -95,6 +95,54 @@ try {
   check(/^My own question first\.\n\n\S/.test(drafted), `Ask the assistant keeps the question drafted, its own after it: ${JSON.stringify(drafted.slice(0, 60))}`);
   await page.fill("#question", "");
   await tab(page, "story");
+
+  // Read again with nothing changed, the score's live region is left as it was, so nothing is
+  // said again (lift-up 20261110 deferred).
+  await page.evaluate(() => {
+    window.__said = 0;
+    new MutationObserver(() => window.__said++).observe(document.querySelector("#story [data-score]"), { childList: true, subtree: true, characterData: true });
+  });
+  for (let i = 0; i < 2; i++) {
+    await page.evaluate(() => {
+      window.__read = window.scaena.story.health();
+      window.scaena.story.refresh();
+    });
+    await page.waitForFunction(() => window.scaena.story.health() !== window.__read, null, { timeout: 30000 }).catch(() => {});
+  }
+  check((await page.evaluate(() => window.__said)) === 0, `read again unchanged, the score is not said again: ${await page.evaluate(() => window.__said)} changes`);
+
+  // A source that does not compile for a moment keeps the story as last read, said to be so
+  // (lift-up 20261110 deferred); generate.mjs holds its fixes, on a deck that offers one.
+  const compiled = await page.evaluate(() => window.scaena.source());
+  const moved = compiled;
+  const shown = await page.locator("#story [data-findings] li[data-slide]").count();
+  await page.evaluate((s) => window.scaena.type(`${s}\nstate {{{`), moved);
+  // The editor's own compile of it lands first, as it does on a slower machine: the worker then
+  // holds the source among those compiled, and must still read no story of it.
+  await page.waitForFunction(() => window.scaena.last()?.valid === false, null, { timeout: 30000 }).catch(() => {});
+  // Shown again, the Story reads the source at once, as it does a pause after a burst of typing
+  // that ends mid-word.
+  await tab(page, "inspector");
+  await tab(page, "story");
+  await page.waitForFunction(() => !document.querySelector("#story > p[data-stale]").hidden, null, { timeout: 60000 }).catch(() => {});
+  const asRead = await page.evaluate(() => ({
+    said: document.querySelector("#story > p[data-stale]").textContent,
+    rows: document.querySelectorAll("#story [data-findings] li[data-slide]").length,
+    curve: !!document.querySelector("#story [data-arc] svg"),
+    label: document.querySelector("#story [data-findings]").getAttribute("aria-label"),
+  }));
+  check(
+    asRead.said === "Showing the story as last read: the source has an error to fix" && asRead.rows === shown && asRead.curve && asRead.label.endsWith(", as last read"),
+    `a source that does not compile keeps the story as last read, and says so: ${JSON.stringify(asRead)}`,
+  );
+  await page.evaluate((s) => window.scaena.type(s), compiled);
+  await page.waitForFunction(() => document.querySelector("#story > p[data-stale]").hidden, null, { timeout: 60000 }).catch(() => {});
+  check(await page.evaluate(() => document.querySelector("#story > p[data-stale]").hidden), "compiled again, it reads anew");
+  await page.evaluate(() => {
+    const more = document.querySelector("#story [data-more] details");
+    if (more) more.open = true;
+  });
+  await tab(page, "story");
   // Each finding says what to do under what it found, the question the assistant would be asked,
   // so a presenter with no key reads it in its row (editor dogfood 3).
   const todos = await page.evaluate(() =>
@@ -133,6 +181,10 @@ try {
   await page.waitForFunction((t) => window.scaena.notes(t.state).then((n) => n.text.startsWith(t.bridge)), { state: turn.state, bridge }, { timeout: 30000 }).catch(() => {});
   const after = await page.evaluate((s) => window.scaena.notes(s), turn.state);
   check(after.text === `${bridge}\n${read.text}`, `the presenter reads the bridge, then the beat's notes: ${after.text.slice(0, 60)}`);
+  // Notes draw on no slide: the status says the edit is this slide's, never "on 0 slides" (W1's
+  // dogfood 5).
+  const noted = await page.textContent("#status");
+  check(/on this slide/.test(noted) && !/on 0 /.test(noted), `the notes edit is said as this slide's: ${noted}`);
   await tab(page, "story");
   await page
     .waitForFunction((s) => !window.scaena.story.health()?.findings.some((f) => f.kind === "turn" && f.state === s), turn.state, { timeout: 60000 })
@@ -210,6 +262,35 @@ try {
     };
   });
   check(offers.fixes.length > 0 && offers.show, `the broken slide's row offers lint's fix and Show it: ${JSON.stringify(offers)}`);
+  // A source that stops compiling holds lint's fix with the rest, the story kept as last read.
+  await page.evaluate((s) => window.scaena.type(`${s}\nstate {{{`), broken);
+  // The editor's own compile of it lands first, as it does on a slower machine: the worker then
+  // holds the source among those compiled, and must still read no story of it.
+  await page.waitForFunction(() => window.scaena.last()?.valid === false, null, { timeout: 30000 }).catch(() => {});
+  await tab(page, "inspector");
+  await tab(page, "story");
+  await page.waitForFunction(() => !document.querySelector("#story > p[data-stale]").hidden, null, { timeout: 60000 }).catch(() => {});
+  const heldFix = await page.evaluate(() => document.querySelector("#story [data-findings] > li[data-slide] [data-lint-fix]")?.disabled);
+  check(heldFix === true, `while the source does not compile, lint's fix is held: ${heldFix}`);
+  // Taken back by ⌘Z, the deck is as it was, its fix offered again.
+  await page.focus("#overlay");
+  await page.keyboard.press("Control+z");
+  await page.waitForFunction((s) => window.scaena.source() === s, broken, { timeout: 30000 }).catch(() => {});
+  await page.waitForFunction(() => document.querySelector("#story > p[data-stale]").hidden, null, { timeout: 60000 }).catch(() => {});
+  // Shown again once every state is linted: the Story's read may come before that lint, and is
+  // not read again after it (its own item).
+  await page
+    .waitForFunction(() => window.scaena.last()?.whole && window.scaena.last().findings.some((f) => f.severity === "error" && f.fixable), null, { timeout: 120000 })
+    .catch(() => {});
+  await tab(page, "inspector");
+  await tab(page, "story");
+  await page
+    .waitForFunction(() => document.querySelector("#story [data-findings] > li[data-slide] [data-lint-fix]")?.disabled === false, null, { timeout: 120000 })
+    .catch(() => {});
+  check(
+    await page.evaluate(() => document.querySelector("#story [data-findings] > li[data-slide] [data-lint-fix]")?.disabled === false),
+    "taken back, lint's fix is offered again",
+  );
   await page.click("#story [data-findings] > li[data-slide] [data-lint-show]");
   const popped = await page
     .waitForFunction(() => document.querySelector("#marked")?.matches(":popover-open") && document.querySelector("#marked").textContent, null, { timeout: 30000 })
@@ -453,6 +534,21 @@ try {
     const unsourced = await page.evaluate(() => window.scaena.story.health()?.findings.find((f) => f.kind === "source"));
     check(unsourced?.figure === "27%", `the 27% no source backs is found: ${JSON.stringify(unsourced)}`);
     const row = `#story [data-findings] li[data-slide="${unsourced?.slide}"]`;
+    // While the source does not compile, Cite a source… is held with the row's fixes (#944).
+    const sound = await page.evaluate(() => window.scaena.source());
+    await page.evaluate((s) => window.scaena.type(`${s}\nstate {{{`), sound);
+    await page.waitForFunction(() => window.scaena.last()?.valid === false, null, { timeout: 30000 }).catch(() => {});
+    await tab(page, "inspector");
+    await tab(page, "story");
+    await page.waitForFunction(() => !document.querySelector("#story > p[data-stale]").hidden, null, { timeout: 60000 }).catch(() => {});
+    const held = await page.evaluate((r) => [...document.querySelectorAll(`${r} [data-cite], ${r} [data-citing] [data-source]`)].map((b) => b.disabled), row);
+    check(held.length === 2 && held.every(Boolean), `while the source does not compile, Cite a source… is held: ${JSON.stringify(held)}`);
+    await page.focus("#overlay");
+    await page.keyboard.press("Control+z");
+    await page.waitForFunction((s) => window.scaena.source() === s, sound, { timeout: 30000 }).catch(() => {});
+    await page.waitForFunction(() => document.querySelector("#story > p[data-stale]").hidden, null, { timeout: 60000 }).catch(() => {});
+    await page.waitForFunction((r) => document.querySelector(`${r} [data-cite]`)?.disabled === false, row, { timeout: 60000 }).catch(() => {});
+    check(await page.evaluate((r) => document.querySelector(`${r} [data-cite]`)?.disabled === false, row), "taken back, Cite a source… is offered again");
     await page.click(`${row} [data-cite]`).catch((e) => failures.push(`no Cite a source…: ${e.message}`));
     const offered = await page.evaluate((r) => [...document.querySelectorAll(`${r} [data-citing] [data-source]`)].map((b) => b.textContent), row);
     check(offered.join() === "trails-budget.csv", `Cite a source… offers the deck's sources: ${JSON.stringify(offered)}`);

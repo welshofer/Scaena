@@ -122,6 +122,16 @@ try {
     return page.evaluate(() => window.scaena.strip.digests());
   };
   const item = (id) => page.locator(`#strip li[data-state="${id}"]`);
+  /** Select `node` on the canvas, the keyboard on it, and wait until the canvas says it is
+   * selected, so a key pressed next acts on it (a select that had not settled let a Delete land on
+   * nothing on CI's runner): whether it is. */
+  const selecting = async (node) => {
+    await page.evaluate((n) => window.scaena.canvas.select(n), node);
+    await page.locator("#overlay").focus();
+    return page
+      .waitForFunction((n) => window.scaena.canvas.selected() === n && document.activeElement?.id === "overlay", node, { timeout: 30000 })
+      .then(() => true, () => false);
+  };
   const undo = async () => {
     await page.locator("#overlay").focus();
     await page.keyboard.press("Control+z");
@@ -367,8 +377,7 @@ try {
   }
   // Its headline deleted, the header's slot waits with its words; a press on them puts a text in
   // the slot's role back there, as a placeholder fills.
-  await page.evaluate(() => window.scaena.canvas.select("bullets-header"));
-  await page.locator("#overlay").focus();
+  check(await selecting("bullets-header"), `the headline is selected before Delete: ${await page.evaluate(() => window.scaena.canvas.selected())}`);
   await page.keyboard.press("Delete");
   const header = await page
     .waitForFunction(() => window.scaena.canvas.waiting().find((w) => w.slot === "header"), null, { timeout: 30000 })
@@ -395,11 +404,23 @@ try {
   // does: the source is as it was, and nothing is left that no slide shows.
   /** Where the editor has each state, read as the source changes from `was`, before it compiles
    * again: what the cursor follows meanwhile. */
+  /** What it saw instead where the source never changed: the source unchanged, and the states. */
   const counted = (was) =>
     page
       .waitForFunction((s) => window.scaena.source() !== s && window.scaena.last().states.map(([id]) => id).join(" "), was, { timeout: 30000, polling: "raf" })
-      .then((h) => h.jsonValue(), () => undefined);
+      .then(
+        (h) => h.jsonValue(),
+        () =>
+          page.evaluate(
+            (s) => `(after 30 s: the source ${window.scaena.source() === s ? "unchanged" : "changed"}, the states ${window.scaena.last()?.states.map(([id]) => id).join(" ")}, selected ${window.scaena.canvas.selected() ?? "nothing"})`,
+            was,
+          ),
+      );
   await item("bullets").focus();
+  const tiled = await page
+    .waitForFunction(() => document.activeElement?.closest?.('#strip li[data-state="bullets"]'), null, { timeout: 30000 })
+    .then(() => true, () => false);
+  check(tiled, "the Bullets slide's tile has the keyboard before Delete");
   const gone = counted(await source());
   await page.keyboard.press("Delete");
   check((await gone) === "intro revenue mix close", `the editor counts the states the patch left, before the source compiles: ${await gone}`);
@@ -413,8 +434,7 @@ try {
   check(await back(original), "one undo takes it back");
   // The title taken out of the deck goes from each slide that writes it, the first and the last,
   // one change across the slides between them: the editor counts every slide meanwhile.
-  await page.evaluate(() => window.scaena.canvas.select("title"));
-  await page.locator("#overlay").focus();
+  check(await selecting("title"), `the title is selected before Shift+Delete: ${await page.evaluate(() => window.scaena.canvas.selected())}`);
   const across = counted(await source());
   await page.keyboard.press("Shift+Delete");
   check((await across) === "intro revenue mix close", `and after a patch across several, before the source compiles: ${await across}`);
