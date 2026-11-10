@@ -3362,6 +3362,10 @@ fn layout_for(
         "ask" => "the-ask",
         "qa" => "qa",
         "recipe-card" => "recipe",
+        // A person introduced over their photo, their name and role on the band across its foot
+        // (lift-up 20261110 FUNC-5); with no photo made, their name said as a statement.
+        "chyron" if pictured && theme.layouts.contains_key("chyron") => "chyron",
+        "chyron" => "statement",
         _ => "bullets",
     };
     // Items each under the icon its word names (G.23): three side by side, in columns and on
@@ -5140,6 +5144,9 @@ impl Slots<'_> {
             ("memo" | "letter", "from" | "sign", _) => Some(Some(Fill::Prompt)),
             ("memo" | "letter", "body", _) => text((!self.items.is_empty()).then(|| self.wholes().join("\n\n"))),
             ("headline", "tag" | "byline", _) => Some(None),
+            // A lower third's name on its band, and the role over it (lift-up 20261110 FUNC-5).
+            ("chyron", "story", _) => text(self.title()),
+            ("chyron", "tag", _) => text(self.subtitle().or_else(|| self.item(0).map(|i| self.short(i)))),
             ("the-ask", "ask", _) => text(self.title()),
             _ => None,
         }
@@ -8590,6 +8597,38 @@ mod tests {
             said.iter().any(|(s, w)| s == "support" && w.ends_with("She never missed a day of school.")),
             "{said:#?}"
         );
+    }
+
+    /// A person introduced over their photo takes the theme's Lower Third, their name on its band
+    /// and their role over it; with no photo made, their name is said as a statement (lift-up
+    /// 20261110 FUNC-5). The model calls it Lower Third or Chyron.
+    #[test]
+    fn a_person_over_their_photo_takes_the_lower_third() {
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        for called in ["Lower Third", "Chyron"] {
+            let text = serde_json::json!({
+                "executiveSummary": "Proof is the product.",
+                "slides": [
+                    { "slideTitle": "Proof is the product", "subtitle": "A talk", "layoutSuggestion": "Title",
+                      "keyBullets": [], "beatIndex": 0, "beatName": "Hook" },
+                    { "slideTitle": "Maya Chen", "subtitle": "CEO, Tidewater", "layoutSuggestion": called,
+                      "keyBullets": [], "visualConcept": "Maya on the quay at dawn", "beatIndex": 1, "beatName": "Who" },
+                ]
+            })
+            .to_string();
+            let written = answer::slides(&text).unwrap();
+            let n = narrative(&written.executive_summary, written.slides);
+            let pictured: Pictures = [(1, Placed { src: "assets/picture-1.jpg".into(), alt: "Maya".into() })].into();
+            let made = deck(&n, &theme, &pictured).unwrap();
+            assert_eq!(made.layouts[1], "chyron", "{called}");
+            let state = made.deck["states"][1]["id"].as_str().unwrap().to_string();
+            let said = shown(&made.deck, &state);
+            for (slot, words) in [("story", "Maya Chen"), ("tag", "CEO, Tidewater"), ("art", "image")] {
+                assert!(said.iter().any(|(s, w)| s == slot && w == words), "{slot} = {words:?} in {said:#?}");
+            }
+            let unpictured = deck(&n, &theme, &Pictures::new()).unwrap();
+            assert_eq!(unpictured.layouts[1], "statement", "{called}, with no photo made");
+        }
     }
 
     #[test]
