@@ -38,7 +38,7 @@
 // Exits 1 on any failure.
 import { mkdir, readFile } from "node:fs/promises";
 import { createServer } from "node:http";
-import { launch, serve, tab } from "./serve.mjs";
+import { answering, launch, serve, tab } from "./serve.mjs";
 
 const failures = [];
 const check = (ok, what) => {
@@ -161,6 +161,9 @@ try {
   page.on("console", (m) => m.type() === "error" && !/Failed to (load resource|fetch)|CORS/.test(m.text()) && failures.push(`console: ${m.text()}`));
   const accepting = (d) => d.accept();
   page.on("dialog", accepting);
+  // Changes not saved are asked about in the editor's own dialog (lift-up 20261031 ATTR-3), answered
+  // as the confirms it replaced were taken.
+  await answering(page);
   await page.goto(`${site.origin}/web/dist/editor.html?painter=cpu&bundle=/docs/examples/revenue.deck.json`);
   await page.waitForFunction(() => window.scaena?.last() && window.scaena.where().name === "revenue", null, { timeout: 120000 });
   // No key kept: the dialog takes one in place, in a page of its own, so what it chose leaves the
@@ -348,6 +351,9 @@ try {
   await page.click("#prompting-go");
   await page.waitForFunction(() => [...document.querySelectorAll("#prompting-progress li")].some((l) => l.textContent.startsWith("Choosing the arc")), null, { timeout: 60000 });
   check(await leaving(), "leaving the page while a deck is being made asks first");
+  // The progress scrolls once it runs past its room: the keys reach it to scroll it, as a pointer
+  // does (WCAG 2.1.1; axe's scrollable-region-focusable, editor dogfood 1).
+  check(await page.evaluate(() => document.querySelector("#prompting-progress").tabIndex === 0), "the keys reach the progress, which scrolls");
   page.off("dialog", accepting);
   const askedFirst = [];
   const declining = (d) => (askedFirst.push(d.message()), d.dismiss());

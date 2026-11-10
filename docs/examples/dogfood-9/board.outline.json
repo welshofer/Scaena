@@ -1,0 +1,31 @@
+{
+ "arc": "Data Storytelling",
+ "bigIdea": "We are growing faster while burning less, and can break even by Q2 FY27 if we fix new-logo growth now.",
+ "beats": [
+  {
+   "name": "Context",
+   "claim": "This quarter is about growth with a shrinking burn.",
+   "slides": 2
+  },
+  {
+   "name": "Data",
+   "claim": "Revenue, margin, and retention all rose this quarter.",
+   "slides": 3
+  },
+  {
+   "name": "Insight",
+   "claim": "Falling burn puts cash-flow break-even at Q2 FY27, two quarters early.",
+   "slides": 3
+  },
+  {
+   "name": "Implication",
+   "claim": "Flat new-logo growth is the one risk that could push break-even back.",
+   "slides": 2
+  },
+  {
+   "name": "Action",
+   "claim": "Moving $600K to sales now keeps break-even at Q2 FY27.",
+   "slides": 3
+  }
+ ]
+}

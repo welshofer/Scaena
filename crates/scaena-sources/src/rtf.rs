@@ -32,23 +32,43 @@ const SKIPPED: [&str; 12] = [
     "xmlnstbl",
 ];
 
+/// How deep groups may nest and each keep a state of their own. Groups opened deeper are counted,
+/// not kept: each takes the deepest kept group's state, so a file of braces alone never grows the
+/// stack past this (lift-up 20261110 SEC-4).
+const MAX_DEPTH: usize = 256;
+
 /// `text`, RTF, as plain text.
 pub fn read(text: &str) -> String {
+    walk(text).0
+}
+
+/// [`read`]'s text, and how deep the stack of groups kept grew.
+fn walk(text: &str) -> (String, usize) {
     let s = text.as_bytes();
     let mut out = String::new();
     // Per group: whether its words are skipped, and how many characters a \u stands in for.
     let mut stack: Vec<(bool, usize)> = vec![(false, 1)];
+    // Groups open past `MAX_DEPTH`, counted.
+    let mut deeper = 0usize;
+    let mut deepest = stack.len();
     let mut skip_after_unicode = 0usize;
     let mut i = 0;
     while i < s.len() {
         let (skipping, uc) = *stack.last().expect("the document's group");
         match s[i] {
             b'{' => {
-                stack.push((skipping, uc));
+                if stack.len() > MAX_DEPTH {
+                    deeper += 1;
+                } else {
+                    stack.push((skipping, uc));
+                    deepest = deepest.max(stack.len());
+                }
                 i += 1;
             }
             b'}' => {
-                if stack.len() > 1 {
+                if deeper > 0 {
+                    deeper -= 1;
+                } else if stack.len() > 1 {
                     stack.pop();
                 }
                 i += 1;
@@ -148,12 +168,24 @@ pub fn read(text: &str) -> String {
         }
     }
     let lines: Vec<&str> = out.lines().map(str::trim_end).collect();
-    lines.join("\n").trim().to_string()
+    (lines.join("\n").trim().to_string(), deepest)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Braces nested past what a group may keep are counted, not kept: a file of braces alone
+    /// grows no stack past [`MAX_DEPTH`], and its words still read (lift-up 20261110 SEC-4).
+    #[test]
+    fn braces_nested_past_the_depth_grow_no_stack() {
+        let deep = format!("{}{{\\rtf1 Deep words}}{}", "{".repeat(1_000_000), "}".repeat(1_000_000));
+        let (words, deepest) = walk(&deep);
+        assert_eq!(words, "Deep words");
+        assert!(deepest <= MAX_DEPTH + 1, "{deepest}");
+        let shallow = r"{\rtf1 {{{One}}} two}";
+        assert_eq!(read(shallow), "One two");
+    }
 
     #[test]
     fn rich_text_reads_as_its_words() {
