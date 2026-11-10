@@ -922,10 +922,12 @@ async function edit(source: Source, opened?: Stage, recovering = false) {
         drawSelection(),
         highlightActiveLine(),
         // With nothing left to undo or redo, the source pane says so, as the canvas does: the
-        // history's own keys, each as CodeMirror binds it, running `back` (editor dogfood 5).
+        // history's own keys, each as CodeMirror binds it, running `back`, which answers as the
+        // history's own command does. CodeMirror tries ⌘Z's binding for ⇧⌘Z too, and goes on to
+        // ⇧⌘Z's redo only where that undo took nothing back (editor dogfood 5).
         keymap.of([
           ...defaultKeymap,
-          ...historyKeymap.map((b) => (b.run === undo ? { ...b, run: () => (back(), true) } : b.run === redo ? { ...b, run: () => (back(true), true) } : b)),
+          ...historyKeymap.map((b) => (b.run === undo ? { ...b, run: () => back() } : b.run === redo ? { ...b, run: () => back(true) } : b)),
           ...findingKeys,
           indentWithTab,
         ]),
