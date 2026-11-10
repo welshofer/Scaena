@@ -110,6 +110,18 @@ function bySlide(findings: HealthFinding[]): HealthFinding[][] {
   return [...runs.values()];
 }
 
+/** A finding's question as its row says what to do, in a person's words: without the figures
+ * health gives the assistant, which reads the deck's (`scaena health` prints them too), so
+ * "plan it calmer (0.44)" reads "plan it calmer" and "they read −0.19" goes. The assistant is
+ * asked the question whole. */
+export function spoken(ask: string): string {
+  return ask
+    .replace(/\s*\([+−-]?\d\.\d\d(?:–[+−-]?\d\.\d\d)?\)/g, "")
+    .replace(/;\s*they read [+−-]?\d\.\d\d/g, "")
+    .replace(/ (at|read) [+−-]?\d\.\d\d,/g, (_, w: string) => (w === "read" ? " read" : ""))
+    .replace(/\s?[+−-]?\d\.\d\d/g, "");
+}
+
 /** A finding as its slide's row says it: "Slide 4 runs hotter…" as "Runs hotter…", since the row
  * names its slide. */
 function sentence(f: HealthFinding): string {
@@ -309,11 +321,22 @@ export function storyPanel(stage: Stage, into: HTMLElement, editor: StoryEditor)
       from.textContent = `From ${sources.join(", ")}`;
       li.append(from);
     }
+    // What it found, then what to do about it, each in a sentence: the question the assistant
+    // would be asked says what to do, so a presenter with no key, or none to spend, reads it
+    // here, not in an Assistant tab that asks for a key first.
     for (const f of run) {
       const p = document.createElement("p");
       p.dataset.kind = f.kind;
       p.textContent = sentence(f);
       li.append(p);
+      if (f.ask) {
+        const todo = document.createElement("p");
+        todo.dataset.todo = f.kind;
+        const label = document.createElement("span");
+        label.textContent = "To do: ";
+        todo.append(label, spoken(f.ask));
+        li.append(todo);
+      }
     }
     const actions = document.createElement("div");
     actions.className = "actions";

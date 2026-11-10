@@ -1244,9 +1244,28 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         (Some(a), Some(b)) if a != b => format!("slides {}\u{2013}{}", a + 1, b + 1),
         _ => format!("slide {}", of[0] + 1),
     };
+    // A deck whose words no space sets apart is not read for its claims, and says so once, as
+    // intensity and tone say it (dogfood pass 11): its sentences would each read as one word.
+    let unspaced = spaceless(language);
+    if unspaced
+        && let Some(of) = (0..outlined.len()).map(of_beat).find(|of| !of.is_empty())
+        && outlined.iter().any(|(_, claim)| !claim.is_empty())
+    {
+        let name = language.and_then(language_named).unwrap_or_else(|| "a script set without spaces".to_string());
+        find(
+            &read[of[0]].id,
+            Severity::Info,
+            Kind::Claim,
+            format!(
+                "The slides are not read for the claims the outline settled: health reads words a space sets apart, and this deck is in {name}."
+            ),
+            "Read each part of the talk against the claim the outline settled for it: say whether its slides carry it, and what to change if not.".to_string(),
+            None,
+        );
+    }
     for (k, (name, claim)) in outlined.iter().enumerate() {
         let of = of_beat(k);
-        if claim.is_empty() || of.is_empty() || shares(claim, &of) != Some(false) {
+        if unspaced || claim.is_empty() || of.is_empty() || shares(claim, &of) != Some(false) {
             continue;
         }
         let part = if name.is_empty() { format!("beat {}", k + 1) } else { name.clone() };
@@ -1594,13 +1613,35 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
     })
 }
 
-/// The words of `text` that coherence reads a slide by: lowercased, past three letters, Latin
-/// letters and figures alone, as `scaena_narrato::health::coherence::keyword_overlap` splits them.
+/// The words of `text` Scaena's own checks read it by, the claim's and the big idea's: lowercased,
+/// split at whatever is not a letter or a figure of any script, each more than three characters
+/// long with a letter in it, so "coûtera" and "émissions" stay whole and a year alone is no word,
+/// and none of a script that sets no spaces between its words ([`unspaced`]) (dogfood pass 11). Vzestup's coherence splits its own way, ASCII alone
+/// (`scaena_narrato::health::coherence::keywords`), its figures Vzestup's (ADR-0032).
 fn content_words(text: &str) -> std::collections::BTreeSet<String> {
-    (text.to_lowercase().split(|c: char| !c.is_ascii_lowercase() && !c.is_ascii_digit()))
-        .filter(|w| w.len() > 3)
+    (text.to_lowercase().split(|c: char| !c.is_alphanumeric()))
+        .filter(|w| w.chars().count() > 3 && w.chars().any(char::is_alphabetic) && !w.chars().any(unspaced))
         .map(str::to_string)
         .collect()
+}
+
+/// A letter of a script that sets no space between its words, Han, kana, Hangul, or Thai: a
+/// run of them is a phrase or a sentence, not a word, so a check that reads words reads none.
+fn unspaced(c: char) -> bool {
+    matches!(u32::from(c),
+        0x0E00..=0x0E7F | 0x1100..=0x11FF | 0x3040..=0x30FF | 0x3130..=0x318F | 0x31F0..=0x31FF
+        | 0x3400..=0x4DBF | 0x4E00..=0x9FFF | 0xAC00..=0xD7AF | 0xF900..=0xFAFF | 0xFF66..=0xFF9F
+        | 0x20000..=0x2FFFF)
+}
+
+/// Whether `language` is one whose words no space sets apart, as health reads them: Chinese,
+/// Japanese, or Korean, by its tag or its English name. Its sentences read as one word each, so
+/// a check that reads words reads nothing there.
+fn spaceless(language: Option<&str>) -> bool {
+    let Some(name) = language.map(str::trim).filter(|l| !l.is_empty()) else { return false };
+    let name = name.to_lowercase();
+    let head = name.split(['-', '_', ' ']).next().unwrap_or_default();
+    matches!(head, "ja" | "jpn" | "japanese" | "zh" | "zho" | "chi" | "chinese" | "ko" | "kor" | "korean")
 }
 
 /// The share of the big idea's telling words a close must say to land it, as a fraction: half,
@@ -2267,6 +2308,32 @@ mod tests {
             "{}",
             big[0].says
         );
+    }
+
+    /// Scaena's own checks read words in any script (dogfood pass 11): a French claim keeps its
+    /// accented words whole, "coûtera" no "tera" and "émissions" no "missions", and a figure alone
+    /// is no word. A deck in Japanese, Chinese, or Korean is not read for its claims, and says so
+    /// once, an info; its claims, each one long run of letters, would otherwise never be found.
+    #[test]
+    fn claims_are_read_by_words_in_any_script_and_not_where_no_space_sets_them_apart() {
+        let words = content_words("Ne rien faire coûtera plus cher qu'investir 86 M€ ; −40 % d'émissions en 2030");
+        let words: Vec<&str> = words.iter().map(String::as_str).collect();
+        assert_eq!(words, ["cher", "coûtera", "faire", "investir", "plus", "rien", "émissions"]);
+        assert!(content_words("倉庫の自動化と拠点の統合で、2027年度に戻す").is_empty());
+        assert!(content_words("Schließt").contains("schließt"));
+        assert!((spaceless(Some("ja")), spaceless(Some("zh-Hant")), spaceless(Some("Korean"))) == (true, true, true));
+        assert!(!spaceless(Some("fr")) && !spaceless(Some("English")) && !spaceless(None));
+
+        let mut deck = climate();
+        let h = of(&deck);
+        let beats: Vec<Value> =
+            (h.beats.iter()).map(|name| json!({ "name": name, "claim": "倉庫を自動化する" })).collect();
+        deck["meta"]["narrative"]["outline"] = json!({ "beats": beats });
+        deck["meta"]["narrative"]["brief"]["language"] = json!("Japanese");
+        let claims: Vec<Finding> = of(&deck).findings.into_iter().filter(|f| f.kind == Kind::Claim).collect();
+        assert_eq!(claims.len(), 1, "{claims:?}");
+        assert_eq!(claims[0].severity, Severity::Info);
+        assert!(claims[0].says.ends_with("and this deck is in Japanese."), "{}", claims[0].says);
     }
 
     /// The settled outline read (lift-up 10-24b FUNC-1): a deck whose beats each say their claim

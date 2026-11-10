@@ -646,6 +646,7 @@ try {
         shorter.kind === "done" && shorter.stop === "end" && scripted.requests.length === before + 2 && sent(again) <= sent(long),
         `${id}: a conversation too long is asked again once, sending no more than it did, and answered (${JSON.stringify(shorter)}, ${scripted.requests.length - before} requests)`,
       );
+      check((await page.inputValue("#question")) === "", `${id}: a question answered leaves the box empty`);
       const asked = scripted.requests.length;
       scripted.state.long = 2;
       const refused = await page.evaluate(() => window.scaena.assistant.ask("Still shorter."));
@@ -654,6 +655,9 @@ try {
         refused.kind === "failed" && /more than .*'s model takes at once/.test(refused.message) && scripted.requests.length === asked + 2,
         `${id}: and too long again, it is said, once asked again (${JSON.stringify(refused)}, ${scripted.requests.length - asked} requests)`,
       );
+      // The question that failed is put back in the box, to send again (lift-up 20261110 USE-2).
+      check((await page.inputValue("#question")) === "Still shorter.", `${id}: the question that failed is back in the box: ${JSON.stringify(await page.inputValue("#question"))}`);
+      await page.fill("#question", "");
     }
 
     if (id === "anthropic") {
