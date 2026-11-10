@@ -23,13 +23,21 @@ public enum LoopReport {
     private static var woke: CFTimeInterval?
     private static var since = CACurrentMediaTime()
     private static var wasBusy = false
+    /// The wakes since the loop was last said that ran its timers, and that ran its sources: a
+    /// display link fires as a source, a `Timer` and a `TimelineView`'s schedule as a timer.
+    private static var timers = 0
+    private static var sources = 0
+    /// The glass views laid out at no size, as last said.
+    private static var zero: [String] = []
     /// Each display link's ticks since the loop was last said, by what each tick did.
     private static var ticks: [String: [String: Int]] = [:]
 
     /// The main run loop watched from now on, once; nothing where the app was not asked.
     public static func start() {
         guard asked, observer == nil else { return }
-        let activities = CFRunLoopActivity.afterWaiting.rawValue | CFRunLoopActivity.beforeWaiting.rawValue
+        let activities =
+            CFRunLoopActivity.afterWaiting.rawValue | CFRunLoopActivity.beforeWaiting.rawValue
+            | CFRunLoopActivity.beforeTimers.rawValue | CFRunLoopActivity.beforeSources.rawValue
         let watching = CFRunLoopObserverCreateWithHandler(nil, activities, true, Int.max) { _, activity in
             MainActor.assumeIsolated { seen(activity) }
         }
@@ -53,10 +61,12 @@ public enum LoopReport {
 
     private static func seen(_ activity: CFRunLoopActivity) {
         let now = CACurrentMediaTime()
+        if activity.contains(.beforeTimers) { timers += 1 }
+        if activity.contains(.beforeSources) { sources += 1 }
         if activity.contains(.afterWaiting) {
             wakes += 1
             woke = now
-        } else if let woke {
+        } else if activity.contains(.beforeWaiting), let woke {
             awake += now - woke
             self.woke = nil
         }
@@ -72,11 +82,21 @@ public enum LoopReport {
             }
             let share = Int((awake / over * 100).rounded())
             log.debug(
-                "main loop woke \(wakes) times in \(over, format: .fixed(precision: 1)) s, awake \(share)%; links: \(links.isEmpty ? "none ticked" : links.joined(separator: "; "), privacy: .public)"
+                "main loop woke \(wakes) times in \(over, format: .fixed(precision: 1)) s, awake \(share)%, \(timers) timer passes, \(sources) source passes; links: \(links.isEmpty ? "none ticked" : links.joined(separator: "; "), privacy: .public)"
             )
         }
+        #if os(iOS)
+        // The glass laid out at no size, said each time the set of them changes.
+        let glass = AnimationReport.zeroGlass()
+        if glass != zero {
+            zero = glass
+            log.debug("glass at no size: \(glass.isEmpty ? "none" : glass.joined(separator: "; "), privacy: .public)")
+        }
+        #endif
         wasBusy = busy
         wakes = 0
+        timers = 0
+        sources = 0
         awake = 0
         since = now
         ticks = [:]

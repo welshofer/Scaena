@@ -1328,7 +1328,29 @@ enum AnimationReport {
     /// What of the app holds `view`: the nearest view above it that a person or a test names (its
     /// accessibility identifier, else its label), and the nearest whose class is the app's or
     /// SwiftUI's rather than UIKit's or Core Animation's.
-    private static func holder(of view: UIView) -> String {
+    /// Each glass view of the app's windows laid out with no width or no height, as UIKit's Liquid
+    /// Glass draws a toolbar's and a segmented control's chrome: its class, where it stands in its
+    /// window, and what of the app holds it (lift-up 20261110). #990's report found such views
+    /// animating through a stall, and through the runs that passed too.
+    static func zeroGlass() -> [String] {
+        var found: [String] = []
+        func walk(_ view: UIView, _ window: UIWindow) {
+            let kind = String(describing: type(of: view))
+            if kind.contains("Glass") || kind.contains("SDF") || kind.contains("LiquidLens") || kind.contains("Portal"),
+                view.bounds.width == 0 || view.bounds.height == 0, found.count < 24
+            {
+                found.append("\(kind) at \(view.convert(view.bounds, to: window).integral) in \(holder(of: view))")
+            }
+            for sub in view.subviews { walk(sub, window) }
+        }
+        for scene in UIApplication.shared.connectedScenes {
+            guard let scene = scene as? UIWindowScene else { continue }
+            for window in scene.windows { walk(window, window) }
+        }
+        return found
+    }
+
+    static func holder(of view: UIView) -> String {
         var named: String?
         var classed: String?
         var at: UIView? = view.superview
