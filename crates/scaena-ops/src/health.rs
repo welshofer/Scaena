@@ -1275,6 +1275,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
             continue;
         }
         let part = if name.is_empty() { format!("beat {}", k + 1) } else { name.clone() };
+        let claim = unstopped(claim);
         let slides = spanned(&of);
         let (does, carry) = if of.len() > 1 { ("say", "they carry") } else { ("says", "it carries") };
         let mut said = slides.clone();
@@ -1317,9 +1318,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         // not read for the big idea, and says so, rather than passing or failing on words split
         // where its letters leave ASCII ("schließt") and joining words counted as telling.
         let named = language.filter(|_| !english).map(|l| language_named(l).unwrap_or_else(|| l.to_string()));
-        // Quoted mid-sentence, the idea's own closing stop is left out, so a sentence after it
-        // reads "…already are”. Rewrite", never "…already are.”. Rewrite".
-        let quoted = idea.trim_end().trim_end_matches('.').trim_end();
+        let quoted = unstopped(idea);
         if let (Some(name), Some(of)) = (named, closes.as_ref()) {
             let slides = spanned(of);
             find(
@@ -1632,6 +1631,13 @@ fn content_words(text: &str) -> std::collections::BTreeSet<String> {
         .filter(|w| w.chars().count() > 3 && w.chars().any(char::is_alphabetic) && !w.chars().any(unspaced))
         .map(str::to_string)
         .collect()
+}
+
+/// `sentence` as a finding quotes it in the middle of one of its own: without its closing stop, so
+/// the sentence after the quote reads "…already are”. Rewrite", never "…already are.”. Rewrite"
+/// (W1's dogfood 3 and 4). A question or an exclamation keeps its mark, which says how it reads.
+fn unstopped(sentence: &str) -> &str {
+    sentence.trim_end().trim_end_matches('.').trim_end()
 }
 
 /// The most words a tone ask names on either side.
@@ -2439,7 +2445,7 @@ mod tests {
         assert_eq!(carried.big_idea.as_deref(), Some(h.slides[close].title.as_str()));
 
         let second = h.beats[1].clone();
-        deck["meta"]["narrative"]["outline"]["beats"][1]["claim"] = json!("Penguins juggle marmalade quietly");
+        deck["meta"]["narrative"]["outline"]["beats"][1]["claim"] = json!("Penguins juggle marmalade quietly.");
         deck["meta"]["narrative"]["outline"]["bigIdea"] = json!("Zebras orchestrate symphonies underwater");
         let missed = of(&deck);
         assert_eq!(
@@ -2456,6 +2462,8 @@ mod tests {
             claim.says
         );
         assert!(claim.ask.starts_with("Check the claim:"), "{}", claim.ask);
+        // A claim settled with its stop is quoted without it, so no sentence ends twice.
+        assert!(claim.ask.contains("\u{201c}Penguins juggle marmalade quietly\u{201d}. Rewrite"), "{}", claim.ask);
         let big = missed.findings.iter().find(|f| f.kind == Kind::BigIdea).unwrap();
         assert!(big.says.starts_with("The close, slide") && big.ask.starts_with("The big idea is"), "{big:?}");
         // A big idea in another script has no words to read by: nothing is found of it.
