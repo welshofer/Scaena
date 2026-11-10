@@ -310,7 +310,10 @@ jobs:
     # The UI tests' screenshots are pushed to a branch of the pull request's own (scripts/shots.sh).
     permissions:
       contents: write
-    timeout-minutes: 60
+    # 90 minutes, as the wasm job has (#513): a run takes 25 to 56, and a UI test that hangs runs
+    # out XCTest's 10-minute allowance before it fails, so the job ends with its log and shots
+    # rather than being cancelled before they are kept.
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
