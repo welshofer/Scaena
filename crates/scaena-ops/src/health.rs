@@ -1659,7 +1659,8 @@ fn content_words(text: &str) -> std::collections::BTreeSet<String> {
 }
 
 /// The headline words `now` shares with the slide before it, `was`, where it says that slide's
-/// point again (W1's dogfood 4): two or more, half of the shorter headline's at least, or the two
+/// point again (W1's dogfood 4): two or more, half of the shorter headline's at least, unless each
+/// headline says a word of its own over bodies that share under half their words, or the two
 /// slides' words half the same; a headline the same word for word is lint's W425, and none here.
 /// A deck's slides as Narrato writes them share a third of their headlines at most, and a fifth of
 /// their words.
@@ -1669,7 +1670,14 @@ fn repeated(was: &SlideForHealth, now: &SlideForHealth) -> Option<Vec<String>> {
         return None;
     }
     let shared: Vec<String> = a.intersection(&b).cloned().collect();
-    let headlines = shared.len() >= 2 && shared.len() * 2 >= a.len().min(b.len());
+    // Headlines a writer set parallel on purpose ("The town built its own grid", then "… its own
+    // market") each say a word of their own, and their slides go on to say different things: a
+    // claim said twice says its new words over the same body. The bodies share half of the
+    // shorter's words, or the headlines are no repeat.
+    let (ba, bb) = (content_words(&was.body), content_words(&now.body));
+    let own = !a.is_subset(&b) && !b.is_subset(&a);
+    let parallel = own && ba.intersection(&bb).count() * 2 < ba.len().min(bb.len()).max(1);
+    let headlines = shared.len() >= 2 && shared.len() * 2 >= a.len().min(b.len()) && !parallel;
     let whole = |s: &SlideForHealth| content_words(&format!("{} {}", s.title, s.body));
     let (wa, wb) = (whole(was), whole(now));
     let words = wa.intersection(&wb).count() * 2 >= wa.union(&wb).count() && !shared.is_empty();
@@ -2433,6 +2441,12 @@ mod tests {
         for name in ["deepdive", "board-de", "appeal", "training", "pitch", "qbr", "lecture", "keynote", "launch"] {
             assert!(again(&of(&dogfood(name, "", |_| {}))).is_empty(), "{name}");
         }
+        // Headlines set parallel, each a word of its own, over slides that say different things.
+        let parallel = |slides: &mut Vec<answer::Slide>| {
+            slides[5].slide_title = "The town built its own grid".into();
+            slides[6].slide_title = "The town built its own market".into();
+        };
+        assert!(again(&of(&dogfood("keynote", "", parallel))).is_empty(), "anaphora is no repeat");
         let moved = |slides: &mut Vec<answer::Slide>| {
             slides[6].slide_title = "Dispatchers spend the saved time on exceptions".into()
         };
