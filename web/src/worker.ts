@@ -963,6 +963,12 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         return asking?.abort();
       case "forget":
         return (await import("@scaena/assistant")).forget();
+      case "conversation":
+        return post({ type: "conversation", id: data.id, messages: (await import("@scaena/assistant")).kept() });
+      case "resume": {
+        const { resume } = await import("@scaena/assistant");
+        return resume(data.messages as Parameters<typeof resume>[0]);
+      }
       case "models": {
         const { providers } = await import("@scaena/assistant");
         return post({ type: "models", id: data.id, models: await providers[data.provider].models(data.key, data.base) });

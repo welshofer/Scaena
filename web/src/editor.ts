@@ -2476,6 +2476,7 @@ async function edit(source: Source, opened?: Stage) {
 
   const assistant = panel(stage, {
     source: () => view.state.doc.toString(),
+    conversationKey: () => copyKey(),
     states: () => last?.states.map(([id]) => id) ?? [],
     apply: (source, edited, touched, files = []) => {
       touching = touched?.length ? { source, nodes: touched } : undefined;

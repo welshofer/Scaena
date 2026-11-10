@@ -1420,6 +1420,10 @@ export type ToWorker =
   | { type: "stop" }
   /** Start a new conversation with the assistant. */
   | { type: "forget" }
+  /** The assistant's conversation as it may be kept (lift-up 20261110 FUNC-4). */
+  | { type: "conversation"; id: number }
+  /** Go on from a conversation kept: the next question follows it. */
+  | { type: "resume"; messages: unknown[] }
   /** The models `key` can use at `provider`. */
   | { type: "models"; id: number; provider: ProviderId; key: string; base?: string }
   /** Ask a model once, with the user's key and nothing to call (PLAN 2.101): its words. */
@@ -2288,6 +2292,8 @@ export type FromWorker =
   /** A step of the assistant's answer to `ask` request `id`. */
   | { type: "assistant"; id: number; event: AssistantEvent }
   | { type: "models"; id: number; models: string[] }
+  /** The assistant's conversation as it may be kept (lift-up 20261110 FUNC-4). */
+  | { type: "conversation"; id: number; messages: unknown[] }
   /** What a model wrote, asked once (PLAN 2.101), and the tokens it took. */
   | { type: "wrote"; id: number; text: string; stop: WritingStop; usage?: { input: number; output: number } }
   /** The CPU painter met a shader whose rows `count` more workers could share (PLAN 2.28): the

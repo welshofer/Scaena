@@ -643,6 +643,30 @@ try {
     }
 
     if (id === "anthropic") {
+      // The conversation is kept over a reload, and offered as the deck opens again (lift-up
+      // 20261110 FUNC-4): gone on with, the next question follows it.
+      await page.waitForTimeout(1000);
+      await page.reload();
+      await page.waitForFunction(() => window.scaena?.last(), null, { timeout: 120000 });
+      await page.waitForSelector("#recovering[open]", { timeout: 5000 }).then(() => page.click("#recovering [value=discard]")).catch(() => {});
+      await tab(page, "assistant");
+      await page.waitForSelector("#transcript .resume button", { timeout: 15000 }).catch(() => {});
+      const offer = await page.evaluate(() => document.querySelector("#transcript .resume")?.textContent ?? "");
+      check(offer.startsWith("Your last conversation about this deck"), `a reload offers the conversation kept: ${offer}`);
+      await page.evaluate(() => [...document.querySelectorAll("#transcript .resume button")].find((b) => b.textContent === "Continue the last conversation")?.click());
+      const shown = await page.evaluate(() => [...document.querySelectorAll("#transcript li")].map((li) => `${li.className}: ${li.textContent}`));
+      check(shown.includes("user: Shorter now.") && shown.some((s) => s.startsWith("said: ")), `gone on with, it shows its questions and answers: ${JSON.stringify(shown.slice(-4))}`);
+      await page.waitForFunction(() => document.querySelector("#model").options.length > 0, null, { timeout: 30000 }).catch(() => {});
+      const sent = scripted.requests.length;
+      const next = await page.evaluate(() => window.scaena.assistant.ask("And now?"));
+      const messages = scripted.requests[sent]?.body.messages ?? [];
+      check(
+        next.kind === "done" && messages.length > 2 && JSON.stringify(messages[0]).includes("Put the trail headline on the slide"),
+        `and the next question follows it: ${JSON.stringify(next)}, ${messages.length} messages sent`,
+      );
+    }
+
+    if (id === "anthropic") {
       // The key's field: masked, shown when asked; its form said as it is typed; checked with the
       // provider, which lists its models or refuses it.
       const keyState = () => page.$eval("#keystatus", (p) => ({ state: p.dataset.state, text: p.textContent }));
