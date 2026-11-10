@@ -318,7 +318,13 @@ mod tests {
                 { "id": "close", "mode": "absolute", "layout": "title", "props": { "close-title": {} } }
             ]
         });
-        Made { deck, layouts: vec!["title".into(), "title".into()], assets: Default::default(), relisted: Vec::new(), fell: Vec::new() }
+        Made {
+            deck,
+            layouts: vec!["title".into(), "title".into()],
+            assets: Default::default(),
+            relisted: Vec::new(),
+            fell: Vec::new(),
+        }
     }
 
     #[test]
