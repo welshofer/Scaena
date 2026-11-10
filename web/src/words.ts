@@ -247,3 +247,11 @@ export function unasked(provider: string, e: unknown): string {
   const answer = answerOf(e);
   return answer ? answered(provider, answer.status, answer.words) : `${provider} couldn't answer that. Try again in a moment.`;
 }
+
+/** Why a writing tool's answer that ended so is no answer to take, in a person's words (lift-up
+ * 20261031 REL-5): cut off by its token limit, or declined; none where it is whole. */
+export function unwritten(provider: string, stop: string): string | undefined {
+  if (stop === "length") return `${provider}'s answer ran out of room before it was whole. Ask again, or pick a larger model.`;
+  if (stop === "refused") return `${provider} declined to write it. Ask in other words.`;
+  return undefined;
+}

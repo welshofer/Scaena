@@ -50,8 +50,10 @@ pub fn read(html: &str) -> String {
                 i = html[i..].find("-->").map_or(s.len(), |e| i + e + 3);
                 continue;
             }
-            let end = html[i..].find('>').map_or(s.len(), |e| i + e + 1);
-            let tag = &lower[i + 1..end.saturating_sub(1).max(i + 1)];
+            // A tag never closed ends the page: what follows its `<` is no text, and its last
+            // byte may sit inside a letter (lift-up 20261110 STAB-2).
+            let Some(end) = html[i..].find('>').map(|e| i + e + 1) else { break };
+            let tag = &lower[i + 1..end - 1];
             let closing = tag.starts_with('/');
             let name: String = tag.trim_start_matches('/').chars().take_while(|c| c.is_ascii_alphanumeric()).collect();
             i = end;
@@ -176,6 +178,15 @@ fn entities(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A page that ends inside a tag holding a letter past ASCII reads up to the tag, never a
+    /// slice inside the letter (lift-up 20261110 STAB-2).
+    #[test]
+    fn a_tag_never_closed_ends_the_page() {
+        assert_eq!(read("<body><p>Before</p><a title=é"), "Before");
+        assert_eq!(read("<body>Words <b"), "Words");
+        assert_eq!(read("<body>Café <i data-x=\"ü"), "Café");
+    }
 
     #[test]
     fn a_page_reads_as_its_words() {

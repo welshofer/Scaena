@@ -87,7 +87,15 @@ pub fn slide_into(
                     let beats = section["beats"].as_array()?;
                     beats.iter().position(|b| b["id"] == id).map(|b| (s, b))
                 })
-                .ok_or_else(|| OpsError::new(format!("no beat `{id}` in the spine")))?,
+                .ok_or_else(|| {
+                    let known = (sections.iter())
+                        .flat_map(|s| s["beats"].as_array().into_iter().flatten())
+                        .filter_map(|b| b["id"].as_str());
+                    OpsError::new(format!(
+                        "no beat `{id}` in the spine{}",
+                        scaena_core::patch::nearest("beats", id, known)
+                    ))
+                })?,
         ),
         None => None,
     };
@@ -106,11 +114,34 @@ pub fn slide_into(
     // A deck with no slide but a blank one begins its spine with this slide's beat.
     let begins = sections.is_empty() && (slides.is_empty() || blank.is_some());
     let holding = |state: &str| slides.iter().position(|s| s.iter().any(|k| id_of(*k) == state));
-    let found = |state: &str| holding(state).ok_or_else(|| OpsError::new(format!("no state `{state}` in the deck")));
+    let found = |state: &str| holding(state).ok_or_else(|| OpsError::unknown_state(&deck, state));
+    // A slide told in a planned beat, given no place, goes where the spine plans it (lift-up
+    // 10-25c STAB-3): after the beat's slides, else after the nearest earlier beat's, else before
+    // the nearest later beat's; the index of the slide it goes before.
+    let spined = match (place, planned) {
+        (Place::End, Some((s, b))) => {
+            let order: Vec<&Value> =
+                sections.iter().flat_map(|x| x["beats"].as_array().into_iter().flatten()).collect();
+            let here = sections[..s].iter().map(|x| x["beats"].as_array().map_or(0, Vec::len)).sum::<usize>() + b;
+            let held = |beat: &Value| -> Vec<usize> {
+                (beat["states"].as_array().into_iter().flatten()).filter_map(|id| holding(id.as_str()?)).collect()
+            };
+            match order[..=here].iter().rev().find_map(|beat| held(beat).into_iter().max()) {
+                Some(i) => Some(i + 1),
+                None => order[here + 1..].iter().find_map(|beat| held(beat).into_iter().min()),
+            }
+        }
+        _ => None,
+    };
     // Where it goes among the slides, and among the states; the slide it takes the place of; and
     // the slide it follows.
     let (index, at, old, previous) = match place {
-        Place::End => (slides.len(), deck.states.len(), None, slides.len().checked_sub(1)),
+        Place::End => match spined {
+            Some(k) => {
+                (k, k.checked_sub(1).and_then(|i| slides[i].last()).map_or(0, |last| last + 1), None, k.checked_sub(1))
+            }
+            None => (slides.len(), deck.states.len(), None, slides.len().checked_sub(1)),
+        },
         Place::After(state) => {
             let i = found(state)?;
             (i + 1, slides[i].last().map_or(0, |k| k + 1), None, Some(i))
@@ -548,11 +579,11 @@ pub fn one_asked(
     let (before, after, here) = match place {
         Place::End => (slides.len().checked_sub(1), None, None),
         Place::After(state) => {
-            let i = holding(state).ok_or_else(|| OpsError::new(format!("no state `{state}` in the deck")))?;
+            let i = holding(state).ok_or_else(|| OpsError::unknown_state(&deck, state))?;
             (Some(i), Some(i + 1).filter(|n| *n < slides.len()), None)
         }
         Place::Replace(state) => {
-            let i = holding(state).ok_or_else(|| OpsError::new(format!("no state `{state}` in the deck")))?;
+            let i = holding(state).ok_or_else(|| OpsError::unknown_state(&deck, state))?;
             (i.checked_sub(1), Some(i + 1).filter(|n| *n < slides.len()), Some(i))
         }
     };

@@ -1,0 +1,180 @@
+{
+ "executiveSummary": "One in three adults in our city has never had a library card. A pilot that put librarians in twelve laundromats issued 2,400 new cards in six months at a quarter of the branch cost. We ask the board to fund 200 outreach sites with 4% of the budget.",
+ "slides": [
+  {
+   "slideTitle": "Every library card is a key to a city",
+   "subtitle": "Libraries Forward 2026 · Opening keynote",
+   "layoutSuggestion": "Title",
+   "keyBullets": [],
+   "speakerNotes": "- I want to start with a key. Not a metaphor yet. A plastic card.",
+   "beatIndex": 0,
+   "beatName": "What Is",
+   "purpose": "Opens the keynote",
+   "intent": "Make the room curious",
+   "expectedIntensity": 0.3,
+   "expectedValence": 0.3
+  },
+  {
+   "slideTitle": "One in three adults in this city has never held one",
+   "subtitle": "",
+   "layoutSuggestion": "Big Number",
+   "keyBullets": [
+    "1 in 3",
+    "adults in our city has never had a library card"
+   ],
+   "supportingFacts": [
+    "City Library annual survey, 2026"
+   ],
+   "speakerNotes": "- One in three. In a city with 42 branches.\n- That is the hook. Hold on to it.",
+   "beatIndex": 0,
+   "beatName": "What Is",
+   "purpose": "The hook",
+   "intent": "Shock the room",
+   "expectedIntensity": 0.8,
+   "expectedValence": -0.6
+  },
+  {
+   "slideTitle": "We built the branches and waited for people to come",
+   "subtitle": "",
+   "layoutSuggestion": "Statement",
+   "keyBullets": [],
+   "speakerNotes": "- For a century the model was: build it, stock it, open the doors.\n- The people who never came, we called non-users. As if it were their failure.",
+   "beatIndex": 0,
+   "beatName": "What Is",
+   "purpose": "Names the status quo",
+   "intent": "Make the room uncomfortable",
+   "expectedIntensity": 0.6,
+   "expectedValence": -0.4
+  },
+  {
+   "slideTitle": "I didn't know the library was for people like me",
+   "subtitle": "",
+   "layoutSuggestion": "Quote",
+   "keyBullets": [
+    "I walked past it for nine years. I didn't know the library was for people like me.",
+    "Marisol Vega, first-time cardholder, age 41"
+   ],
+   "speakerNotes": "- Marisol said this the day she got her card, at a laundromat.\n- Nine years.",
+   "beatIndex": 0,
+   "beatName": "What Is",
+   "purpose": "Gives the problem a face",
+   "intent": "Make the room feel it",
+   "expectedIntensity": 0.7,
+   "expectedValence": -0.5
+  },
+  {
+   "slideTitle": "What if the library came to where people already are?",
+   "subtitle": "",
+   "layoutSuggestion": "Thesis",
+   "keyBullets": [],
+   "speakerNotes": "- This is the turn. Stop asking people to come to us.",
+   "beatIndex": 1,
+   "beatName": "What Could Be",
+   "purpose": "The turn",
+   "intent": "Open a new possibility",
+   "expectedIntensity": 0.7,
+   "expectedValence": 0.6
+  },
+  {
+   "slideTitle": "Twelve laundromats, six months, 2,400 new cards",
+   "subtitle": "The Pilot at Spin City laundromats",
+   "layoutSuggestion": "Big Number",
+   "keyBullets": [
+    "2,400",
+    "new library cards issued in six months at twelve laundromats"
+   ],
+   "supportingFacts": [
+    "Library Forward pilot report, September 2026"
+   ],
+   "speakerNotes": "- We put a librarian, a shelf, and a card table in twelve laundromats.\n- 2,400 new cards. Most of them first cards ever.",
+   "beatIndex": 1,
+   "beatName": "What Could Be",
+   "purpose": "Proof the idea works",
+   "intent": "Make the room believe",
+   "expectedIntensity": 0.8,
+   "expectedValence": 0.8
+  },
+  {
+   "slideTitle": "Waiting for visitors, or going where they are",
+   "subtitle": "",
+   "layoutSuggestion": "VS",
+   "keyBullets": [
+    "Branch model: Laundromat model",
+    "Cost per new card: $46 | $11",
+    "New cardholders a month: 60 | 400",
+    "First-time cardholders: 18% | 71%"
+   ],
+   "speakerNotes": "- A quarter of the cost, seven times the reach.",
+   "beatIndex": 2,
+   "beatName": "Return",
+   "purpose": "Contrasts old and new",
+   "intent": "Make the gap undeniable",
+   "expectedIntensity": 0.6,
+   "expectedValence": 0.4
+  },
+  {
+   "slideTitle": "The people we reached were the ones we had missed",
+   "subtitle": "",
+   "layoutSuggestion": "Scorecard",
+   "keyBullets": [
+    "71%: first library card ever",
+    "64%: households earning under $40K",
+    "38%: speak a language other than English at home"
+   ],
+   "speakerNotes": "- These are exactly the one in three from the start of this talk.",
+   "beatIndex": 2,
+   "beatName": "Return",
+   "purpose": "Closes the loop on the hook",
+   "intent": "Tie back to the one in three",
+   "expectedIntensity": 0.7,
+   "expectedValence": 0.7
+  },
+  {
+   "slideTitle": "Getting from twelve sites to two hundred takes three steps",
+   "subtitle": "",
+   "layoutSuggestion": "Steps",
+   "keyBullets": [
+    "Partner: sign laundromats, clinics, and bus depots",
+    "Staff: train 60 outreach librarians",
+    "Fund: $1.8M a year, 4% of the system's budget"
+   ],
+   "speakerNotes": "- This is not a moonshot. It is three steps and 4% of the budget.",
+   "beatIndex": 3,
+   "beatName": "Bridge",
+   "purpose": "Shows the path",
+   "intent": "Make it feel doable",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.6
+  },
+  {
+   "slideTitle": "Put 4% of the budget where people already are",
+   "subtitle": "",
+   "layoutSuggestion": "The Ask",
+   "keyBullets": [
+    "Vote to fund 200 outreach sites in next year's budget",
+    "Name one partner site in your district by March",
+    "Send one librarian to the training in April"
+   ],
+   "speakerNotes": "- Three asks. The first one is a vote in this room in January.",
+   "beatIndex": 4,
+   "beatName": "Commit",
+   "purpose": "The ask",
+   "intent": "Get commitment",
+   "expectedIntensity": 0.8,
+   "expectedValence": 0.7
+  },
+  {
+   "slideTitle": "Hand one in three their key",
+   "subtitle": "Vote for the outreach budget in January",
+   "layoutSuggestion": "Closing",
+   "keyBullets": [],
+   "speakerNotes": "- Every library card is a key to a city. One in three of our neighbors has never been handed one.\n- Let's hand it to them.",
+   "beatIndex": 4,
+   "beatName": "Commit",
+   "purpose": "Closes on the big idea",
+   "intent": "Leave the room moved to act",
+   "expectedIntensity": 0.7,
+   "expectedValence": 0.8
+  }
+ ]
+}
