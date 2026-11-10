@@ -7582,6 +7582,42 @@ mod tests {
         assert!(caps[0] == caps[1] && caps[0] < 48.0 && held[2].is_none(), "shrunk together: {held:?}");
     }
 
+    /// A short list the bullets layout gives the whole of what the slide holds stands in the
+    /// middle of its place, not at its top with the rest of it empty (dogfood pass 10); a long
+    /// one starts at its top, as a list does.
+    #[test]
+    fn a_short_list_stands_in_the_middle_of_its_place() {
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let body = |bullets: Vec<String>| {
+            let slide = serde_json::json!({ "slideTitle": "Why onboarding broke", "subtitle": "",
+                "layoutSuggestion": "Bullet List", "keyBullets": bullets });
+            let text = serde_json::json!({ "executiveSummary": "A talk.", "slides": [
+                { "slideTitle": "A talk", "subtitle": "", "layoutSuggestion": "Title", "keyBullets": [] },
+                slide,
+                { "slideTitle": "What we take away", "subtitle": "", "layoutSuggestion": "Closing", "keyBullets": [] },
+            ] })
+            .to_string();
+            let written = answer::slides(&text).unwrap();
+            let made = deck(&narrative(&written.executive_summary, written.slides), &theme, &Pictures::new()).unwrap();
+            assert_eq!(made.layouts[1], "bullets");
+            let nodes = made.deck["nodes"].as_object().unwrap().clone();
+            nodes.into_iter().find(|(id, _)| id.ends_with("-body")).map(|(_, n)| n).unwrap()
+        };
+        let short = body(
+            [
+                "Implementation queue grew from 9 to 31 days",
+                "One lead for every 40 new accounts",
+                "Sales promised integrations",
+            ]
+            .map(String::from)
+            .to_vec(),
+        );
+        assert_eq!(short["align"], json!({ "y": "center" }), "{short:#}");
+        let long =
+            body((1..=7).map(|i| format!("Point {i} said at some length, as a long list's points are")).collect());
+        assert!(long.get("align").is_none(), "{long:#}");
+    }
+
     /// A bar the headline lands on is lit, never the tallest by default: the figure a falling
     /// series reaches, the end of "from 900 ms to 120 ms", and the latest quarter where the words
     /// run on from the first (dogfood pass 9).

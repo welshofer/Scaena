@@ -1,0 +1,36 @@
+{
+ "arc": "Problem–Solution",
+ "bigIdea": "Lagerfux meldet jeden Fehlbestand sofort und senkt Bestandsverluste um 75 %.",
+ "beats": [
+  {
+   "name": "Problem",
+   "claim": "Lager verlieren still Geld durch Fehlbestände.",
+   "slides": 2
+  },
+  {
+   "name": "Impact",
+   "claim": "2,4 % des Bestands gehen jedes Jahr verloren.",
+   "slides": 2
+  },
+  {
+   "name": "Existing Approaches",
+   "claim": "Scanner und RFID lassen eine Lücke.",
+   "slides": 1
+  },
+  {
+   "name": "Solution",
+   "claim": "Lagerfux meldet jeden Fehlbestand sofort.",
+   "slides": 2
+  },
+  {
+   "name": "Proof",
+   "claim": "Im Pilot sanken die Verluste um 75 %.",
+   "slides": 2
+  },
+  {
+   "name": "Call to Action",
+   "claim": "Ab 12. März 2027 lieferbar, ab 39 € pro Sensor.",
+   "slides": 3
+  }
+ ]
+}
