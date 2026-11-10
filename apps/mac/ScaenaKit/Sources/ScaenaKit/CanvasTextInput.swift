@@ -95,6 +95,33 @@ public final class CanvasKeys: UIView {
         addInteraction(UIIndirectScribbleInteraction(delegate: self))
         addSubview(presses)
         watch()
+        if AnimationReport.asked {
+            // The keyboard's frame said as it changes, beside the canvas's own, so a layout that
+            // never settles names what moves it (lift-up 20261110).
+            keyboard = NotificationCenter.default.addObserver(
+                forName: UIResponder.keyboardWillChangeFrameNotification, object: nil, queue: .main
+            ) { note in
+                let end = (note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue)?.cgRectValue
+                animationsLog.debug("keyboard will be at \(String(describing: end), privacy: .public)")
+            }
+        }
+    }
+
+    /// The keyboard's frame changes, watched while the app reports what animates.
+    private var keyboard: NSObjectProtocol?
+    /// The canvas's frame in its window as last said.
+    private var placed: CGRect?
+
+    /// The canvas's frame in its window said each time it changes, where the app reports what
+    /// animates (lift-up 20261110).
+    public override func layoutSubviews() {
+        super.layoutSubviews()
+        guard AnimationReport.asked, let window else { return }
+        let frame = convert(bounds, to: window)
+        guard frame != placed else { return }
+        placed = frame
+        let keyed = isFirstResponder ? "the text input" : presses.isFirstResponder ? "the canvas's keys" : "neither"
+        animationsLog.debug("canvas at \(String(describing: frame), privacy: .public), keys with \(keyed, privacy: .public)")
     }
 
     public required init?(coder: NSCoder) { return nil }
@@ -1246,8 +1273,11 @@ public final class CanvasPresses: UIView {
 @MainActor
 enum AnimationReport {
     /// The report begun, while `holding` holds; none where the app was not asked for it.
+    /// Whether the app was launched asked to report.
+    static var asked: Bool { UserDefaults.standard.bool(forKey: "reportAnimations") }
+
     static func started(while holding: @escaping @MainActor () -> Bool) -> Task<Void, Never>? {
-        guard UserDefaults.standard.bool(forKey: "reportAnimations") else { return nil }
+        guard asked else { return nil }
         return Task { @MainActor in
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(2))
