@@ -27,9 +27,6 @@ export interface StoryEditor {
   source(): string;
   /** Show `state`. */
   show(state: string): Promise<void>;
-  /** The last step of the slide whose first state is `slide`: the slide built whole, where health
-   * reads its words (W2's editor dogfood). */
-  lastStep(slide: string): string;
   /** Make `ops` by the user, one change to undo; `done` is what to say once it is made. */
   make(ops: unknown[], done: string): Promise<void>;
   /** Put `question` to the assistant: its tab shown, the question in its box. */
@@ -60,11 +57,6 @@ export interface StoryEditor {
   /** The words the editor shows for the state shown, the plan's ladders among them. */
   words(): Ladders | undefined;
 }
-
-/** The findings about a slide's notes or its plan, which its first step opens: health reads every
- * step's notes, the first's first, and a step's plan is its beat's. Every other finding is about
- * what the slide shows, which health reads at its last step, built whole (W2's editor dogfood). */
-const FIRST_STEP = new Set<HealthFinding["kind"]>(["turn", "notes", "empty", "arc", "drift", "pacing"]);
 
 /** How many of lint's fixes a broken slide's row offers, the worst first. */
 const FIXES = 3;
@@ -362,7 +354,7 @@ export function storyPanel(stage: Stage, into: HTMLElement, editor: StoryEditor)
     idea.innerHTML = h.bigIdea ? `<span>The big idea</span>\u201c${html(h.bigIdea)}\u201d` : "";
     arc.innerHTML = arcGraph(h);
     for (const g of arc.querySelectorAll<SVGGElement>("[data-state]")) {
-      g.addEventListener("click", () => void editor.show(editor.lastStep(g.dataset.state!)));
+      g.addEventListener("click", () => void editor.show(g.dataset.state!));
     }
     // What to do first, open; the rest folded under one "N more", open again as it was left.
     const { open, more } = triage(h);
@@ -403,8 +395,6 @@ export function storyPanel(stage: Stage, into: HTMLElement, editor: StoryEditor)
     }
   }
 
-  /** The step a finding's Show and Ask open: the one health read it at. */
-  const stepOf = (f: HealthFinding) => (FIRST_STEP.has(f.kind) ? f.state : editor.lastStep(f.state));
   /** A slide's row: its number, which shows it, and its headline; what health finds there; each
    * fix it offers; and its questions, asked together. */
   function row(run: HealthFinding[], h: Health): HTMLLIElement {
@@ -420,7 +410,7 @@ export function storyPanel(stage: Stage, into: HTMLElement, editor: StoryEditor)
     show.textContent = `Slide ${slide}`;
     show.ariaLabel = `${WORD[severity]}: Slide ${slide}`;
     show.title = WORD[severity];
-    show.addEventListener("click", () => void editor.show(stepOf(run[0])));
+    show.addEventListener("click", () => void editor.show(state));
     const title = document.createElement("span");
     title.className = "headline";
     // The slide as it reads now: its headline, else health's title, its beat's claim, which an
@@ -558,7 +548,7 @@ export function storyPanel(stage: Stage, into: HTMLElement, editor: StoryEditor)
     // The slide it is about is shown first: a question begins with what the editor shows, which
     // "this slide" means to the assistant (lift-up USE-5).
     ask.addEventListener("click", async () => {
-      await editor.show(stepOf(run[0]));
+      await editor.show(state);
       editor.ask(run.map((f) => f.ask).join(" "));
     });
     actions.append(ask);
