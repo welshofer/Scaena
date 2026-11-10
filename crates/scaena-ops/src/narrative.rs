@@ -40,7 +40,10 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 mod one;
-pub use one::{Place, SlideWritten, Written, one_asked, slide_into, slide_polishing, slide_write, slide_writing};
+pub use one::{
+    OneRequest, Place, SlideWritten, Written, one_asked, one_request, slide_asking, slide_into, slide_polishing,
+    slide_write, slide_writing,
+};
 
 /// One slide an agent hands over, as `slide_write` takes it: normalized as a model's slides are,
 /// or refused where it gives none of the fields Narrato's slides are written in (lift-up 10-25b
@@ -11623,6 +11626,26 @@ mod tests {
             d["states"].as_array().unwrap().iter().find(|s| s["id"] == state).unwrap()["layout"].clone()
         };
         assert_eq!(layout(&after, &written.states[0]), layout(&original, &before[1]));
+    }
+
+    /// The request for one slide is made in one place (lift-up FUNC-1): Narrato's one-slide
+    /// instructions and the prompt `one_asked` makes, its deck's words fenced, for the generator's
+    /// module and the session the Mac edits alike.
+    #[test]
+    fn the_request_for_one_slide_is_narratos_instructions_and_its_prompt() {
+        let (doc, _, _) = made_of(&[0, 8, 12, 55]);
+        let firsts = firsts(&doc);
+        let place = Place::Replace(firsts[1].clone());
+        let asked = one_request(&doc, &place, "Shorter", &no_files()).unwrap();
+        let one = one_asked(&doc, &place, "Shorter", &no_files()).unwrap();
+        assert_eq!(asked.system, scaena_narrato::one::ONE_SLIDE_SYSTEM);
+        assert_eq!(asked.prompt, scaena_narrato::one::prompt(&one));
+        let json = serde_json::to_value(&asked).unwrap();
+        assert_eq!(
+            json.as_object().unwrap().keys().collect::<Vec<_>>(),
+            ["system", "prompt"],
+            "as the page has read it"
+        );
     }
 
     #[test]

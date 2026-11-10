@@ -26,6 +26,11 @@ shipped = ["editor", "scaena-ops/shipped"]
 # Narrato's prompts and arcs stay in the generator: this reaches `scaena_ops::narrative`'s
 # making, which reads none of them.
 generate = ["editor", "scaena-ops/narrato", "dep:scaena-narrato", "dep:scaena-sources"]
+# One slide asked for and read (lift-up FUNC-1): Narrato's one-slide request for the deck as it
+# stands, and the slide its answer holds, which the Mac's and the iPad's Write This Slide Again…
+# and Add a Slide About… send and take. The C ABI carries it; the browser's editor module does
+# not, the page asking from the generator's module (SPEC §15).
+slides = ["generate"]
 
 [dependencies]
 scaena-core.workspace = true
