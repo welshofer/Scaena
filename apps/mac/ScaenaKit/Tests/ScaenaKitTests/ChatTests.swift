@@ -145,6 +145,8 @@ private func streaming(_ text: String) -> [String] {
     #expect(Assistant.stopped("end") == nil && Assistant.stopped("tools") == nil)
     #expect(Assistant.stopped("stopped") == "Stopped.")
     #expect(Assistant.stopped("length") == "The answer ran out of room.")
+    // A refusal said as one, as the browser's panel says it (lift-up 20261025c REL-1).
+    #expect(Assistant.stopped("refused") == "The model declined to answer that. Ask in other words.")
     #expect(Assistant.stopped("max_tokens_reason") == "The model stopped.")
 }
 
