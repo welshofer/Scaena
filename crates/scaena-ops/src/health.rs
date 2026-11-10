@@ -1700,10 +1700,10 @@ fn repeated(was: &SlideForHealth, now: &SlideForHealth) -> Option<Vec<String>> {
 /// splitting a word in two ("40-mile"), each plural folded into its singular ("miles" is
 /// "mile"), and its figures, ten and over and not a year, by their digits ("52", "184000").
 fn said(text: &str) -> std::collections::BTreeSet<String> {
-    let mut words: std::collections::BTreeSet<String> = content_words(text)
-        .into_iter()
-        .map(|w| if w.len() > 4 && w.ends_with('s') && !w.ends_with("ss") { w[..w.len() - 1].to_string() } else { w })
-        .collect();
+    let mut words =
+        scaena_core::sort::set(content_words(text).into_iter().map(|w| {
+            if w.len() > 4 && w.ends_with('s') && !w.ends_with("ss") { w[..w.len() - 1].to_string() } else { w }
+        }));
     for w in text.split(|c: char| !(c.is_ascii_digit() || c == ',' || c == '.')) {
         let digits = w.trim_matches(|c| c == ',' || c == '.').replace(',', "");
         let Ok(n) = digits.parse::<f64>() else { continue };
