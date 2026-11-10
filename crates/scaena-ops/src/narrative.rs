@@ -3189,7 +3189,7 @@ fn numeric(text: &str) -> bool {
 /// ("1.55\u{b0}C: above pre-industrial"), else the second item, as Scaena's slot shapes ask.
 fn meaning(items: &[Item], lang: &str) -> Option<String> {
     match items.first() {
-        Some(first) if first.figure_first() && !first.detail.is_empty() => Some(sentence_as(&first.detail, lang)),
+        Some(first) if first.figure_first() && !first.detail.is_empty() => Some(continued(&first.detail, lang)),
         _ => items.get(1).map(|i| i.whole.clone()),
     }
 }
@@ -3951,6 +3951,45 @@ fn sentence_as(text: &str, lang: &str) -> String {
     }
 }
 
+/// The words, in each language a deck may be written in, that join what follows a figure to it:
+/// "40%: of volume", "−30 % : de baisse des coûts" (dogfood pass 11). German keeps every case
+/// as written ([`sentence_as`]), so its list only says what it would be.
+fn joining(lang: &str) -> &'static [&'static str] {
+    match lang.split('-').next().map(str::to_ascii_lowercase).as_deref() {
+        Some("en") | None => &["of", "in", "per", "for", "from", "to", "than"],
+        Some("fr") => &["de", "d'", "du", "des", "en", "par", "pour"],
+        Some("de") => &["der", "die", "das", "des", "bis", "pro", "je"],
+        Some("es") => &["de", "del", "en", "por", "para"],
+        Some("it") => &["di", "del", "della", "in", "per"],
+        Some("pt") => &["de", "do", "da", "em", "por", "para"],
+        Some("nl") => &["van", "per", "voor"],
+        _ => &[],
+    }
+}
+
+/// `text`, the words that follow a figure in a label or a lead-in, as [`sentence_as`] begins
+/// them, but kept as the writer wrote them where they open in lower case on a word that joins
+/// them to the figure, so "40%" over "of volume" reads on as one phrase (dogfood pass 11).
+fn continued(text: &str, lang: &str) -> String {
+    if joins(text, lang) { text.to_string() } else { sentence_as(text, lang) }
+}
+
+/// The words a figure-led item says after its figure, the set [`Slots::continued`] reads.
+const LED: fn(&Item) -> Option<String> = |i| i.figure_first().then(|| i.detail.clone());
+
+/// Whether `text` opens in lower case on one of `lang`'s [`joining`] words.
+fn joins(text: &str, lang: &str) -> bool {
+    let word = text.split_whitespace().next().unwrap_or_default();
+    let bare = word.trim_end_matches([',', ';', ':', '.', '!', '?']);
+    joining(lang).iter().any(|w| match w.strip_suffix('\'') {
+        // An elided article joins as its word does: "d'économies", "d’économies".
+        Some(stem) => ['\'', '\u{2019}']
+            .iter()
+            .any(|mark| bare.strip_prefix(stem).and_then(|r| r.strip_prefix(*mark)).is_some_and(|r| !r.is_empty())),
+        None => bare == *w,
+    })
+}
+
 /// Whether `word` is an identifier, not a word of a sentence: it holds an underscore, a dot
 /// inside it, a bracket, a backtick, or a digit ("snake_case", "pricing.GetMany", "p99", "k8s").
 fn identifier(word: &str) -> bool {
@@ -4357,6 +4396,15 @@ impl Slots<'_> {
     /// a lead-in its writer began in lower case stays so there (dogfood pass 10).
     fn sentence(&self, text: &str) -> String {
         sentence_as(text, self.lang)
+    }
+
+    /// [`continued`] in the deck's language, a set read as one: `text` keeps the writer's lower
+    /// case only where every item of the slide that `of` gives words for opens on a joining word
+    /// too; one that does not leaves the whole set in its capitals.
+    fn continued(&self, text: &str, of: impl Fn(&Item) -> Option<String>) -> String {
+        let mut set = self.items.iter().filter_map(of).peekable();
+        let together = set.peek().is_none() || set.all(|t| joins(&t, self.lang));
+        if together { continued(text, self.lang) } else { self.sentence(text) }
     }
 
     fn title(&self) -> Option<String> {
@@ -4900,8 +4948,10 @@ impl Slots<'_> {
         match part {
             "title" if figure_role(role) && dated => item.label.clone().or_else(|| figure(&item.whole)),
             "title" if figure_role(role) => item.figure().or_else(|| item.label.clone()),
-            "title" if item.figure_first() && !sibling("") => Some(self.sentence(&item.detail)),
-            "title" | "item" | "task" if item.figure_first() && figure_apart => item.name().map(|n| self.sentence(&n)),
+            "title" if item.figure_first() && !sibling("") => Some(self.continued(&item.detail, LED)),
+            "title" | "item" | "task" if item.figure_first() && figure_apart => {
+                item.name().map(|n| self.continued(&n, LED))
+            }
             // Its figure shown nowhere else: the figure titles it, its words under it.
             "title" | "item" | "task" if item.figure_first() => item.label.clone(),
             "title" | "item" | "task" => item.name(),
@@ -4912,12 +4962,13 @@ impl Slots<'_> {
             "note" => said(item).1,
             "" => Some(match (&item.label, figure_apart, name_apart) {
                 // "$4.1M: Q3 revenue, up 12%" with its figure and its name apart: "Up 12%".
-                (Some(_), true, true) if item.figure_first() => self.sentence(&change(&item.detail).1),
-                (Some(_), true, _) if item.figure_first() => self.sentence(&item.detail),
+                (Some(_), true, true) if item.figure_first() => self.continued(&change(&item.detail).1, LED),
+                (Some(_), true, _) if item.figure_first() => self.continued(&item.detail, LED),
                 // "Leads: 1,200, 28% go on" with its figure apart: "28% go on".
                 // "Leads: 2,400 a month from inbound" with its figure apart: "A month from inbound".
                 (Some(_), true, true) => {
-                    self.sentence(&after_figure(&item.detail).unwrap_or_else(|| without_figure(&item.detail)))
+                    let after = |i: &Item| i.label.as_ref().and_then(|_| after_figure(&i.detail));
+                    self.continued(&after_figure(&item.detail).unwrap_or_else(|| without_figure(&item.detail)), after)
                 }
                 (Some(_), _, true) => self.sentence(&item.detail),
                 // Its figure apart, its name here: "Houston: 41% of volume" → "Houston";
@@ -4980,7 +5031,8 @@ impl Slots<'_> {
             // and when, from the chart's own data: "without power in 2026".
             ("line-chart", "note", _) => {
                 let item = self.item(0);
-                let said = item.map(|i| if i.figure_first() { self.sentence(&i.detail) } else { i.whole.clone() });
+                let said =
+                    item.map(|i| if i.figure_first() { self.continued(&i.detail, LED) } else { i.whole.clone() });
                 let takeaway = match said {
                     Some(t) if self.title().is_some_and(|h| restates(&h, &t)) => {
                         // The latest figure is the callout's only where no takeaway leads with its own.
@@ -8747,6 +8799,46 @@ mod tests {
         assert!(english.iter().any(|(_, w)| w == "Bis ein Fehlbestand auff\u{e4}llt"), "{english:#?}");
         assert_eq!(sentence_as("der Eilbestellungen", "de-AT"), "der Eilbestellungen");
         assert_eq!(sentence_as("cuts emissions 80%", "fr"), "Cuts emissions 80%");
+        // Words that follow a figure and open on a word joining them to it keep the writer's lower
+        // case, in each language; any other word begins a sentence (dogfood pass 11).
+        for (text, lang) in [
+            ("of volume", "en"),
+            ("per site, each month", "en-GB"),
+            ("de baisse des co\u{fb}ts", "fr"),
+            ("d\u{2019}\u{e9}conomies par an", "fr"),
+            ("d'\u{e9}conomies par an", "fr-CA"),
+            ("del presupuesto", "es"),
+            ("della spesa", "it"),
+            ("do or\u{e7}amento", "pt"),
+            ("van de omzet", "nl"),
+        ] {
+            assert_eq!(continued(text, lang), text, "{lang}");
+        }
+        assert_eq!(continued("cuts emissions 80%", "en"), "Cuts emissions 80%");
+        assert_eq!(continued("baisse des co\u{fb}ts", "fr"), "Baisse des co\u{fb}ts");
+        // A joining word in another language is not one here: "do more" begins a sentence.
+        assert_eq!(continued("do more with less", "en"), "Do more with less");
+        assert_eq!(continued("des \u{e9}quipes", "en"), "Des \u{e9}quipes");
+        // "d" alone, or a word that only begins as one does, is no elision: "dans", "offer".
+        assert_eq!(continued("dans trois ans", "fr"), "Dans trois ans");
+        assert_eq!(continued("offer ends", "en"), "Offer ends");
+        // A set reads as one: its labels keep their lower case only where every one joins its
+        // figure; one that begins a sentence leaves them all in their capitals.
+        let card = |bullets: &[&str]| {
+            let slide = serde_json::json!({ "slideTitle": "What the town got back", "layoutSuggestion": "Scorecard",
+                "keyBullets": bullets });
+            made(slide, "en").1
+        };
+        let joined =
+            card(&["62%: of electricity now made in town", "40%: of heat from the river", "9%: per year since"]);
+        for label in ["of electricity now made in town", "of heat from the river", "per year since"] {
+            assert!(joined.iter().any(|(_, w)| w == label), "{label}: {joined:#?}");
+        }
+        let mixed = card(&["62%: of electricity now made in town", "$340: saved per household each year"]);
+        assert!(mixed.iter().any(|(_, w)| w == "Of electricity now made in town"), "{mixed:#?}");
+        assert!(mixed.iter().any(|(_, w)| w == "Saved per household each year"), "{mixed:#?}");
+        // German keeps every case as written already.
+        assert_eq!(continued("der Eilbestellungen", "de"), "der Eilbestellungen");
         // A quiz: one question, its answers under their letters.
         let (layout, said) = made(
             serde_json::json!({ "slideTitle": "Which is a root cause?", "layoutSuggestion": "Quiz",
