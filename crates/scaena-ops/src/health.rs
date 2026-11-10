@@ -162,6 +162,10 @@ pub enum Kind {
     /// A change the model asked once it saw the slide drawn was not kept, lint having found the
     /// slide worse for it (`meta.narrative.refused`, lift-up USE-4).
     Look,
+    /// A deck made from sources writes a figure on this slide that it names no source for: its
+    /// beat cites none, its words name none, and no slide before it sourced the figure (W1's
+    /// dogfood 4 and 5). The finding says the figure.
+    Source,
 }
 
 /// Something to look at on one slide: what it says, what to ask the assistant, and, where one
@@ -179,6 +183,9 @@ pub struct Finding {
     pub ask: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fix: Option<Fix>,
+    /// The figure a `source` finding found no source for, as the slide writes it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub figure: Option<String>,
 }
 
 /// A fix: what it does, in a few words, and the patch that does it.
@@ -1080,7 +1087,16 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
     let mut findings = Vec::new();
     let mut find = |id: &str, severity: Severity, kind: Kind, says: String, ask: String, fix: Option<Fix>| {
         if let Some(&i) = place.get(id) {
-            findings.push(Finding { state: id.to_string(), slide: i + 1, severity, kind, says, ask, fix });
+            findings.push(Finding {
+                state: id.to_string(),
+                slide: i + 1,
+                severity,
+                kind,
+                says,
+                ask,
+                fix,
+                figure: None,
+            });
         }
     };
     // Where in the spine a slide's narrative is declared.
@@ -1626,6 +1642,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
                 .collect()
         })
         .unwrap_or_default();
+    let mut unsourced: Vec<(String, String)> = Vec::new();
     if !sources.is_empty() {
         // The figures a slide that cites a source writes, by value and unit: one an earlier slide
         // sourced is sourced where it is said again (W1's dogfood 5).
@@ -1643,10 +1660,11 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
                 continue;
             };
             let (k, figure) = (i + 1, figure.shown);
+            unsourced.push((s.id.clone(), figure.clone()));
             find(
                 &s.id,
                 Severity::Warning,
-                Kind::Story,
+                Kind::Source,
                 format!(
                     "Slide {k} writes {figure}, and names no source for it, though the deck was made from its sources."
                 ),
@@ -1763,6 +1781,10 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
             format!("The model asked slide {k} for {what}. Make that change without what lint found it caused: {why}"),
             Some(fix),
         );
+    }
+    // Each `source` finding says the figure it found no source for.
+    for f in findings.iter_mut().filter(|f| f.kind == Kind::Source) {
+        f.figure = unsourced.iter().find(|(id, _)| *id == f.state).map(|(_, figure)| figure.clone());
     }
     // A slide that does not stand first, then in the order the slides stand, and on each slide in
     // the order health found them.
@@ -2650,7 +2672,7 @@ mod tests {
         };
         let unsourced = |deck: &Value| -> Vec<(usize, String, String)> {
             (of(deck).findings.into_iter())
-                .filter(|f| f.kind == Kind::Story && f.says.contains("names no source"))
+                .filter(|f| f.kind == Kind::Source)
                 .map(|f| (f.slide, f.says, f.ask))
                 .collect()
         };
@@ -2669,6 +2691,8 @@ mod tests {
         assert_eq!(*slide, 8);
         assert_eq!(says, "Slide 8 writes 38%, and names no source for it, though the deck was made from its sources.");
         assert_eq!(ask, "Say on slide 8 where 38% comes from, naming the source, or cite the source it is from.");
+        let figured = of(&made).findings.into_iter().find(|f| f.kind == Kind::Source).and_then(|f| f.figure);
+        assert_eq!(figured.as_deref(), Some("38%"), "the finding says its figure");
         // Its `sourceRef` given, slide 8 is cited and found sourced.
         let named = |slides: &mut Vec<answer::Slide>| slides[7].source_ref = Some("pilot.csv".into());
         assert!(unsourced(&grounded_dogfood("fleet", "", pilot(), named)).is_empty());
