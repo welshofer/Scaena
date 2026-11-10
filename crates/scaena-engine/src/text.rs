@@ -222,6 +222,8 @@ fn hyphenate(text: &str, lang: &hyphen::Language, trie: &hyphen::Trie) -> Option
     let mut out = String::with_capacity(text.len() + text.len() / 4);
     let mut changed = false;
     let mut rest = text;
+    // An address is set whole, no hyphen put in it (dogfood pass 10).
+    let spots = addresses(text);
     while !rest.is_empty() {
         let start = rest.find(char::is_alphabetic).unwrap_or(rest.len());
         out.push_str(&rest[..start]);
@@ -229,7 +231,9 @@ fn hyphenate(text: &str, lang: &hyphen::Language, trie: &hyphen::Trie) -> Option
         let end = rest.find(|c: char| !c.is_alphabetic()).unwrap_or(rest.len());
         let word = &rest[..end];
         // The author's soft hyphens, on either side, mean the word is hyphenated already.
-        if !word.is_empty() && !out.ends_with(SHY) && !rest[end..].starts_with(SHY) {
+        let from = text.len() - rest.len();
+        let addressed = spots.iter().any(|r| r.start <= from && from < r.end);
+        if !word.is_empty() && !addressed && !out.ends_with(SHY) && !rest[end..].starts_with(SHY) {
             let mut last = 0;
             for at in trie.breaks(word, lang) {
                 out.push_str(&word[last..at]);
@@ -657,9 +661,18 @@ impl TextEngine {
             Some(chars) if !unbroken => width.min(chars * self.ch(fonts, theme, spec)?),
             _ => width,
         };
+        // An address breaks only where Chicago breaks one (dogfood pass 10): elsewhere, by the
+        // language's own rules.
+        let spots = addresses(&text);
+        let tongue = phrases(spec.lang.as_deref());
+        let addressing = !spots.is_empty();
+        let addressed = move |cx: LineBreakContext| match spots.iter().any(|r| r.start < cx.at && cx.at < r.end) {
+            true => Some(address_breaks(cx)),
+            false => tongue.and_then(|f| f(cx)),
+        };
         let mut layout = {
             let mut builder = self.lcx.ranged_builder(&mut fonts.cx, &text, 1.0, false);
-            builder.set_line_break_override(phrases(spec.lang.as_deref()));
+            builder.set_line_break_override(if addressing { Some(&addressed) } else { tongue });
             for prop in style_props(theme, base, spec, None)? {
                 builder.push_default(prop);
             }
@@ -1527,6 +1540,51 @@ fn in_phrase(before: char, after: char) -> bool {
 /// Whether `lang` is Chinese, Japanese, or Korean.
 pub(crate) fn cjk(lang: Option<&str>) -> bool {
     lang.and_then(|l| Language::parse(l).ok()).is_some_and(|l| matches!(l.language(), "ja" | "zh" | "ko"))
+}
+
+/// The email and web addresses `text` writes, as byte ranges: a word with an `@` that a letter
+/// or digit stands before and a `.` after, or one that begins `http://`, `https://`, or `www.`,
+/// without the brackets, quotation marks, or closing punctuation around it.
+fn addresses(text: &str) -> Vec<std::ops::Range<usize>> {
+    let opening = |c: char| matches!(c, '(' | '[' | '<' | '"' | '\'' | '\u{201c}' | '\u{201e}' | '\u{ab}' | '\u{2018}');
+    let closing = |c: char| {
+        matches!(
+            c,
+            ')' | ']' | '>' | '"' | '\'' | '\u{201d}' | '\u{bb}' | '\u{2019}' | '.' | ',' | ';' | ':' | '!' | '?'
+        )
+    };
+    let mut out = Vec::new();
+    let mut at = 0;
+    for word in text.split_inclusive(char::is_whitespace) {
+        let start = at;
+        at += word.len();
+        let word = word.trim_end_matches(char::is_whitespace);
+        let lead = word.len() - word.trim_start_matches(opening).len();
+        let body = word[lead..].trim_end_matches(closing);
+        let lower = body.to_ascii_lowercase();
+        let emailed = body.find('@').is_some_and(|i| {
+            i > 0 && body[..i].ends_with(|c: char| c.is_alphanumeric()) && body[i + 1..].contains('.')
+        });
+        let web = ["http://", "https://", "www."].iter().any(|p| lower.starts_with(p) && lower.len() > p.len());
+        if emailed || web {
+            out.push(start + lead..start + lead + body.len());
+        }
+    }
+    out
+}
+
+/// Whether a line may break between two characters inside an address, as Chicago breaks one
+/// (6.17): after `@` or a `/` (never between the two of `//`); before a `.`, a `-`, a `?`, a
+/// `#`, a `%`, a `~`, or a `_`, each going on to the next line, so no hyphen ends a line as
+/// though it broke a word; and on either side of `=` or `&`. Nowhere else, and never inside a
+/// run of one mark: no character of the address is changed, so it copies and links as written.
+fn address_breaks(cx: LineBreakContext) -> bool {
+    let leads = |c: char| matches!(c, '.' | '-' | '?' | '#' | '%' | '~' | '_' | '=' | '&');
+    match (cx.before, cx.after) {
+        (b, a) if b == a && !b.is_alphanumeric() => false,
+        ('@' | '/' | '=' | '&', _) => true,
+        (b, a) => leads(a) && !leads(b),
+    }
 }
 
 /// Where a line may break in Chinese or Japanese beyond what UAX #14 allows, which breaks

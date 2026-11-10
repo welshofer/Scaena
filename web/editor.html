@@ -651,6 +651,11 @@
       #who #model { max-width: 16em; }
       #who #base { width: 100%; }
       .note { color: var(--muted); font-size: 12px; margin: 0; }
+      /* Ways to begin, under an empty conversation (lift-up 20261110 ATTR-2): asks built from the deck's own story. */
+      #starters { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0; }
+      #starters[hidden] { display: none; }
+      #starters button { font: inherit; font-size: 13px; text-align: left; padding: 5px 10px; border: 1px solid var(--line); border-radius: 14px; background: var(--panel); color: var(--ink); cursor: pointer; }
+      #starters button:hover { border-color: var(--info); }
       #transcript { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; overflow: auto; }
       #transcript li { white-space: pre-wrap; overflow-wrap: anywhere; }
       #transcript .user { align-self: flex-end; background: var(--line); border-radius: 6px; padding: 4px 8px; max-width: 90%; }
@@ -660,6 +665,9 @@
       #transcript .call pre { white-space: pre-wrap; max-height: 12em; overflow: auto; background: var(--panel); padding: 4px 6px; margin: 4px 0; }
       #transcript img { display: block; max-width: 100%; margin-top: 4px; border: 1px solid var(--line); }
       #transcript .failed { color: var(--error); }
+      /* The conversation kept for this deck, offered as it opens again (lift-up 20261110 FUNC-4). */
+      #transcript .resume { color: var(--muted); font-size: 13px; }
+      #transcript .resume button { font: inherit; margin-top: 4px; }
       /* An answer as it reads (narrative ATTR-4): its blocks laid out, the words wrapping as prose. */
       #transcript .said { white-space: normal; }
       #transcript .said p, #transcript .said ul, #transcript .said ol, #transcript .said h4, #transcript .said h5, #transcript .said h6 { margin: 0 0 6px; }
@@ -794,6 +802,7 @@
       #prompting-progress { margin: 0; padding-left: 2.2em; max-height: 9em; overflow: auto; font-size: 13px; }
       #prompting-progress:empty { display: none; }
       #prompting-progress .failed { color: var(--error); }
+      #prompting-total.over { color: var(--error); }
       #prompting-film { margin: 0; padding: 0 0 4px; list-style: none; display: flex; gap: 6px; overflow-x: auto; }
       #prompting-film:empty { display: none; }
       #prompting-film li { flex: none; height: 72px; aspect-ratio: 16 / 9; border-radius: 4px; background: var(--line); overflow: hidden; }
@@ -1097,6 +1106,7 @@
             <p id="keystatus" class="keystatus" role="status" aria-live="polite" data-state="none"></p>
           </div>
           <p class="note" id="keynote"></p>
+          <div id="starters" role="group" aria-label="Ways to begin" hidden></div>
           <ol id="transcript" aria-label="Conversation" aria-live="polite"></ol>
           <p id="thinking" hidden>Working…</p>
           <form id="asking">
@@ -1196,6 +1206,7 @@
           <p class="note" id="prompting-outline-arc"></p>
           <label>Big idea <textarea id="prompting-big-idea" rows="2" aria-describedby="prompting-outline-title"></textarea></label>
           <ol id="prompting-beats" aria-label="The beats, in order"></ol>
+          <p class="note" id="prompting-total" aria-live="polite"></p>
           <div class="row">
             <button type="button" id="prompting-add-beat">Add a beat</button>
             <label>Arc <select id="prompting-outline-arcs" aria-label="Another arc to outline on"></select></label>

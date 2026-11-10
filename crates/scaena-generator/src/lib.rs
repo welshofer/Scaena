@@ -385,9 +385,18 @@ impl Generation {
         serde_json::to_value(self.inner.step()).ok().and_then(|v| v.as_str().map(str::to_string)).unwrap_or_default()
     }
 
-    /// The fewest slides the slides' prompt asks for.
+    /// The slides the slides' prompt asks for: the settled outline's in all, else the length's
+    /// (lift-up 20261110 USE-3).
     pub fn target(&self) -> usize {
-        self.inner.target()
+        self.inner.slides_asked()
+    }
+
+    /// The fewest and the most slides the brief's length allows, JSON `[least, most | null]`:
+    /// what the outline's slides in all are held to, scaled to the nearer end outside it (lift-up
+    /// 20261110 USE-3).
+    pub fn range(&self) -> String {
+        let (least, most) = self.inner.slides_range();
+        json!([least, most]).to_string()
     }
 
     /// The next request, `{ method, url, headers, body }` as JSON, the key in its headers; none
@@ -431,7 +440,7 @@ impl Generation {
         let narrative = self.inner.narrative();
         json!({
             "step": self.step(),
-            "slides": self.inner.target(),
+            "slides": self.inner.slides_asked(),
             "arc": self.inner.arc().map(|a| a.selection.clone()),
             "reasoning": self.inner.arc().map(|a| a.reasoning.clone()),
             "fallback": self.inner.fallback(),
