@@ -1495,6 +1495,7 @@ async function edit(source: Source, opened?: Stage, recovering = false) {
    * a slide to show, a fix that is one change to undo, and a question for the assistant. */
   const story = storyPanel(stage, $("#story"), {
     source: () => view.state.doc.toString(),
+    headline: (slide) => (taken?.edited ?? last)?.slots?.find((s) => s.state === slide)?.headline,
     check: (state) => {
       if (assisting) return say("Nothing asked: the assistant is at work on the deck");
       void writing.offer({ kind: "claim", state });
