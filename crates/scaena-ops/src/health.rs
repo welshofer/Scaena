@@ -1250,8 +1250,15 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         );
     }
     if let Some(idea) = &big_idea {
-        let closing = (0..outlined.len()).rev().map(of_beat).find(|of| !of.is_empty());
-        if let Some(of) = closing.filter(|of| shares(idea, of) == Some(false)) {
+        // The close is the last outlined beat's slides only where they end the deck; else the
+        // deck's last run of closing slides, as `closing` reads it; else its last slide. A model
+        // may write the slides' beats otherwise than the outline did (W2's dogfood).
+        let last = read.len().checked_sub(1);
+        let beat = (0..outlined.len()).rev().map(of_beat).find(|of| !of.is_empty());
+        let ending = beat.filter(|of| of.last().copied() == last);
+        let run: Vec<usize> = (0..read.len()).filter(|&i| closing.contains(&read[i].id)).collect();
+        let closes = ending.or_else(|| (!run.is_empty()).then_some(run)).or_else(|| last.map(|l| vec![l]));
+        if let Some(of) = closes.filter(|of| shares(idea, of) == Some(false)) {
             let slides = spanned(&of);
             find(
                 &read[of[0]].id,
@@ -1991,6 +1998,44 @@ mod tests {
             paced[0].says
         );
         assert!(paced[0].slide > 1 && paced[0].slide < 25);
+    }
+
+    /// The close is the slides that end the deck (W2's dogfood): where a model wrote the slides'
+    /// beats otherwise than the outline, and the last outlined beat's slides stand before the end,
+    /// the big idea's finding names the deck's last run of closing slides, not that beat's.
+    #[test]
+    fn the_close_is_the_slides_that_end_the_deck() {
+        let mut deck = climate();
+        let h = of(&deck);
+        let n = h.slides.len();
+        let written: Vec<usize> = (h.slides.iter())
+            .map(|s| {
+                let at = format!("{}/media/narrato/beatIndex", beat_of(&deck, &s.state));
+                deck.pointer(&at).and_then(Value::as_u64).unwrap() as usize
+            })
+            .collect();
+        let last_beat = h.beats.len() - 1;
+        let beats: Vec<Value> =
+            (h.beats.iter()).map(|name| json!({ "name": name, "claim": "", "slides": 1 })).collect();
+        deck["meta"]["narrative"]["outline"] =
+            json!({ "bigIdea": "Zebras orchestrate symphonies underwater", "beats": beats });
+        // Each slide of the last beat but the first moved to the first beat: the last beat's slides
+        // now stand before the end.
+        let of_last: Vec<usize> = (0..n).filter(|&i| written[i] == last_beat).collect();
+        assert!(of_last.contains(&(n - 1)), "the climate deck's last beat ends it");
+        for &i in &of_last[1..] {
+            let at = format!("{}/media/narrato/beatIndex", beat_of(&deck, &h.slides[i].state));
+            *deck.pointer_mut(&at).unwrap() = json!(0);
+        }
+        let found = of(&deck);
+        let big = found.findings.iter().find(|f| f.kind == Kind::BigIdea).expect("the big idea is not landed");
+        // The deck's last run of closing slides, Questions then Closing, ends at its last slide.
+        assert!(
+            big.says.starts_with(&format!("The close, slides {}\u{2013}{n}, never lands", big.slide)),
+            "{}",
+            big.says
+        );
+        assert_ne!(big.slide, of_last[0] + 1, "not the last outlined beat's first slide, which stands before the end");
     }
 
     /// The settled outline read (lift-up 10-24b FUNC-1): a deck whose beats each say their claim
