@@ -1069,8 +1069,12 @@ export type ToWorker =
   | { type: "generate"; generate: Generate; engine?: WebAssembly.Module }
   /** The outline as the person settled it (narrative FUNC-1): the slides are written to it. */
   | { type: "storySettled"; outline: StoryOutline }
-  /** Another arc for the outline, by name, or the heuristic's where none: outlined again. */
-  | { type: "outlineAgain"; arc?: string }
+  /** Another arc for the outline, by name, or the heuristic's where none: outlined again, keeping
+   * the claims the person typed, each in the beat of its name (lift-up 20261110 FUNC-2). */
+  | { type: "outlineAgain"; arc?: string; kept?: StoryBeat[] }
+  /** Beat `beat` (from 0) of `outline`, as the pane holds it, asked for again alone, every other
+   * claim fixed (lift-up 20261110 FUNC-2): its claim comes back as a `claimed` event. */
+  | { type: "claimAgain"; beat: number; outline: StoryOutline }
   /** The outline, twice unreadable, passed over: the slides written without one (lift-up REL-3). */
   | { type: "outlinePassed" }
   /** `files` as one `.scaena` zip, unchanged (lift-up 20261110 REL-1): `filesZipped`. */
@@ -1420,6 +1424,10 @@ export type ToWorker =
   | { type: "stop" }
   /** Start a new conversation with the assistant. */
   | { type: "forget" }
+  /** The assistant's conversation as it may be kept (lift-up 20261110 FUNC-4). */
+  | { type: "conversation"; id: number }
+  /** Go on from a conversation kept: the next question follows it. */
+  | { type: "resume"; messages: unknown[] }
   /** The models `key` can use at `provider`. */
   | { type: "models"; id: number; provider: ProviderId; key: string; base?: string }
   /** Ask a model once, with the user's key and nothing to call (PLAN 2.101): its words. */
@@ -1549,6 +1557,7 @@ export type GeneratingEvent =
   | { kind: "researching"; topic: string }
   | { kind: "researchingNow"; doing: string }
   | { kind: "researched"; sources: number; cut: boolean }
+  | { kind: "unresearched"; why: string }
   | { kind: "choosing" }
   | { kind: "chose"; arc: string; fallback?: string }
   /** The outline before the slides (narrative FUNC-1): asked, written with this many beats, and
@@ -1556,6 +1565,8 @@ export type GeneratingEvent =
   | { kind: "outlining" }
   | { kind: "outlined"; beats: number }
   | { kind: "settled"; beats: number }
+  /** One beat's claim asked for again (lift-up 20261110 FUNC-2): the claim, or why none came. */
+  | { kind: "claimed"; beat: number; claim?: string; why?: string }
   /** The outline, twice unreadable, passed over: the slides written without one (lift-up REL-3). */
   | { kind: "unoutlined" }
   | { kind: "writing"; slides: number }
@@ -2288,6 +2299,8 @@ export type FromWorker =
   /** A step of the assistant's answer to `ask` request `id`. */
   | { type: "assistant"; id: number; event: AssistantEvent }
   | { type: "models"; id: number; models: string[] }
+  /** The assistant's conversation as it may be kept (lift-up 20261110 FUNC-4). */
+  | { type: "conversation"; id: number; messages: unknown[] }
   /** What a model wrote, asked once (PLAN 2.101), and the tokens it took. */
   | { type: "wrote"; id: number; text: string; stop: WritingStop; usage?: { input: number; output: number } }
   /** The CPU painter met a shader whose rows `count` more workers could share (PLAN 2.28): the

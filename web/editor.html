@@ -96,6 +96,11 @@
          are a scroll away, and never move the slide while a person types or drags. */
       #column { flex: none; height: 100%; display: flex; flex-direction: column; min-height: 0; }
       #desk { flex: 1 1 0; min-height: 160px; display: grid; place-items: center; container-type: size; padding: 12px; }
+      /* What the canvas's overlay draws past the slide, a caret or a selection in text run past its
+         foot, a handle beside its edge, shows on the desk around it, as a presentation app's does,
+         and never over the panes and bars beside it (editor dogfood 2). The desk is what zooms and
+         pans, so the clip follows both. */
+      #desk { overflow: clip; }
       #preview { position: relative; width: min(100cqw, calc(100cqh * var(--aspect, 1.7778))); aspect-ratio: var(--aspect, 1.7778); box-shadow: 0 0 0 1px var(--line), 0 8px 28px rgb(0 0 0 / 0.5); }
       #stage { display: block; width: 100%; height: 100%; background: #000; }
       #overlay { position: absolute; inset: 0; outline: none; touch-action: none; }
@@ -545,6 +550,9 @@
       #story .read { fill: none; stroke: var(--ink); }
       #story .hit { fill: transparent; cursor: pointer; }
       #story [data-legend] { margin: 4px 0 0; color: var(--muted); }
+      /* Each key with its words stays on one line: a narrow column wraps between keys, never
+         between a mark and what it means (editor dogfood 2). */
+      #story [data-legend] > span { white-space: nowrap; margin-right: 6px; }
       #story [data-legend] i { display: inline-block; vertical-align: middle; margin: 0 4px 0 6px; }
       #story [data-legend] i:first-child { margin-left: 0; }
       #story [data-legend] .declared { width: 14px; border-top: 1.5px solid var(--info); }
@@ -652,6 +660,9 @@
       #transcript .call pre { white-space: pre-wrap; max-height: 12em; overflow: auto; background: var(--panel); padding: 4px 6px; margin: 4px 0; }
       #transcript img { display: block; max-width: 100%; margin-top: 4px; border: 1px solid var(--line); }
       #transcript .failed { color: var(--error); }
+      /* The conversation kept for this deck, offered as it opens again (lift-up 20261110 FUNC-4). */
+      #transcript .resume { color: var(--muted); font-size: 13px; }
+      #transcript .resume button { font: inherit; margin-top: 4px; }
       /* An answer as it reads (narrative ATTR-4): its blocks laid out, the words wrapping as prose. */
       #transcript .said { white-space: normal; }
       #transcript .said p, #transcript .said ul, #transcript .said ol, #transcript .said h4, #transcript .said h5, #transcript .said h6 { margin: 0 0 6px; }
@@ -736,6 +747,8 @@
       #exporting-rate { flex-direction: row; align-items: center; gap: 6px; }
       #exporting-rate[hidden] { display: none; }
       #exporting-width { width: 7em; }
+      /* An animation's times stay on one line, never its "s" alone under them (editor dogfood 2). */
+      #listing td.when { white-space: nowrap; }
       dialog input, dialog select { font: inherit; font-size: 14px; background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 4px; padding: 4px 6px; }
       /* The themes that ship, chosen by their title slides, each family a section, the sections
          side by side as they fit (lift-up 10-25b ATTR-1): one radio group, its radio drawn as the
@@ -758,6 +771,9 @@
       #keeping li { display: flex; align-items: center; gap: 6px; padding: 3px 0; }
       #keeping li [data-open], #keeping li input { flex: 1; min-width: 0; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       #keeping li .here { color: var(--muted); font-size: 12px; }
+      #leftovers ul { list-style: none; margin: 0; padding: 0; max-height: 50vh; overflow: auto; }
+      #leftovers li { display: flex; align-items: center; gap: 6px; padding: 3px 0; }
+      #leftovers li span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       /* Make a picture (PLAN 2.107): what it shows, its look, and who makes it. */
       #picturing { width: min(34em, 92vw); }
       #picturing textarea { font: inherit; font-size: 14px; background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 4px; padding: 6px; resize: vertical; }
@@ -1059,7 +1075,7 @@
             <dl data-measures></dl>
             <p data-big-idea hidden></p>
             <div data-arc></div>
-            <p data-legend><i class="declared"></i>intensity as written <i class="read"></i>as its words read <i class="curve"></i>the arc's curve <i class="bends"></i>off it <i class="drifted"></i>out of its beat; higher is more intense. <i class="tone"></i>tone as written <i class="tone-read"></i>as its words read; higher is more hopeful</p>
+            <p data-legend><span><i class="declared"></i>intensity as written</span> <span><i class="read"></i>as its words read</span> <span><i class="curve"></i>the arc's curve</span> <span><i class="bends"></i>off it</span> <span><i class="drifted"></i>out of its beat</span> <span>(higher is more intense)</span><br><span><i class="tone"></i>tone as written</span> <span><i class="tone-read"></i>as its words read</span> <span>(higher is more hopeful)</span></p>
             <ol data-findings aria-label="What to look at, slide by slide"></ol>
           </section>
         </div>
@@ -1269,6 +1285,16 @@
         <menu>
           <button value="discard">Discard</button>
           <button value="recover" autofocus>Recover</button>
+        </menu>
+      </form>
+    </dialog>
+    <dialog id="leftovers" aria-labelledby="leftovers-title">
+      <form method="dialog">
+        <h2 id="leftovers-title">Decks not saved</h2>
+        <p class="note">These decks were not kept anywhere when this page last closed. The editor kept a copy of each in this browser.</p>
+        <ul class="leftovers"></ul>
+        <menu>
+          <button value="later">Not now</button>
         </menu>
       </form>
     </dialog>

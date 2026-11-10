@@ -136,6 +136,9 @@ pub enum Shape {
     /// The outline before the slides: the big idea and each beat's claim (Scaena's own call,
     /// [`crate::outline`], narrative FUNC-1).
     Outline,
+    /// One beat's claim asked again (Scaena's own call, [`crate::outline::claim_prompt`], lift-up
+    /// 20261110 FUNC-2).
+    Claim,
 }
 
 /// A document the model reads beside the prompt: a PDF, sent as itself (ADR-0026).
@@ -224,6 +227,7 @@ impl Provider {
             Shape::Fit => crate::fit::schema_gemini(),
             Shape::Look => crate::look::schema_gemini(),
             Shape::Outline => crate::outline::schema_gemini(),
+            Shape::Claim => crate::outline::claim_schema_gemini(),
         };
         let name = match call.shape {
             Shape::Arc => "arc",
@@ -231,6 +235,7 @@ impl Provider {
             Shape::Fit => "fit",
             Shape::Look => "look",
             Shape::Outline => "outline",
+            Shape::Claim => "claim",
         };
         match self {
             Provider::Anthropic => {
