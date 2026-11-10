@@ -305,14 +305,18 @@ private func alike(_ a: CGRect, _ b: CGRect) -> Bool {
     let top = CGRect(x: 100, y: 50, width: 800, height: 100)  // 53 to 78 down
     let fitted = zoom.slide
 
-    #expect(!zoom.lift(clearing: foot), "the keyboard down, nothing is lifted")
+    let down = zoom.lift(clearing: foot)
+    #expect(!down, "the keyboard down, nothing is lifted")
     zoom.cover(66)
-    #expect(!zoom.lift(clearing: foot) && zoom.slide == fitted, "a bar that leaves the line clear lifts nothing")
+    let barred = zoom.lift(clearing: foot)
+    #expect(!barred && zoom.slide == fitted, "a bar that leaves the line clear lifts nothing")
 
     zoom.cover(300)
     #expect(zoom.desk == CGSize(width: 1016, height: 596), "the desk keeps its size")
-    #expect(!zoom.lift(clearing: top) && zoom.slide == fitted, "a line the keyboard leaves clear stays put")
-    #expect(zoom.lift(clearing: foot))
+    let clear = zoom.lift(clearing: top)
+    #expect(!clear && zoom.slide == fitted, "a line the keyboard leaves clear stays put")
+    let lifted = zoom.lift(clearing: foot)
+    #expect(lifted)
     #expect(abs(zoom.lifted - 232) < 1e-6, "lifted \(zoom.lifted)")
     // The line's foot just above the keyboard: 528 − 232 = 296 = 596 − 300.
     #expect(abs((zoom.slide.minY + foot.maxY * zoom.scale) - (zoom.desk.height - zoom.covered)) < 1e-6)
@@ -322,7 +326,8 @@ private func alike(_ a: CGRect, _ b: CGRect) -> Bool {
     #expect(abs(zoom.shown.minY - 232 / zoom.scale + 28 / zoom.scale) < 1e-6, "\(zoom.shown)")
 
     // Back to the top line, the slide settles back; and down, the keyboard lifts nothing.
-    #expect(zoom.lift(clearing: top) && zoom.slide == fitted)
+    let settled = zoom.lift(clearing: top)
+    #expect(settled && zoom.slide == fitted)
     zoom.lift(clearing: foot)
     zoom.cover(0)
     #expect(zoom.lifted == 0 && zoom.slide == fitted, "the keyboard down, the slide stands where it stood")
