@@ -81,9 +81,18 @@ enum Words {
         (700, "Bold"), (800, "Extra Bold"), (900, "Black"),
     ]
 
-    /// A weight by its name, or by its number where it falls between two.
+    /// A weight by its name, else by its number and the two names it falls between, as the
+    /// engine's `words::weight` says it: `550, between Medium and Semibold`.
     static func weight(_ value: Int) -> String {
-        weights.first { $0.value == value }?.name ?? "\(value)"
+        if let named = weights.first(where: { $0.value == value }) { return named.name }
+        let below = weights.last(where: { $0.value < value })
+        let above = weights.first(where: { $0.value > value })
+        switch (below, above) {
+        case let (b?, a?): return "\(value), between \(b.name) and \(a.name)"
+        case let (nil, a?): return "\(value), lighter than \(a.name)"
+        case let (b?, nil): return "\(value), heavier than \(b.name)"
+        case (nil, nil): return "\(value)"
+        }
     }
 
     /// One of the words a property takes, said: `cover` as an image's Fill; a data source, which the

@@ -337,11 +337,21 @@ pub const WEIGHTS: &[(u16, &str)] = &[
     (900, "Black"),
 ];
 
-/// A weight said: by its name where it has one, else its number.
+/// A weight said: by its name where it has one, else its number and the two names it falls
+/// between, `550, between Medium and Semibold`, as no name is nearer than the other there and
+/// the menu beside it offers both (W2 editor dogfood). Past Thin or Black, its number and the one
+/// it is past.
 pub fn weight(w: f64) -> String {
-    match WEIGHTS.iter().find(|(n, _)| f64::from(*n) == w) {
-        Some((_, said)) => said.to_string(),
-        None => number(w),
+    if let Some((_, said)) = WEIGHTS.iter().find(|(n, _)| f64::from(*n) == w) {
+        return said.to_string();
+    }
+    let below = WEIGHTS.iter().rev().find(|(n, _)| f64::from(*n) < w);
+    let above = WEIGHTS.iter().find(|(n, _)| f64::from(*n) > w);
+    match (below, above) {
+        (Some((_, b)), Some((_, a))) => format!("{}, between {b} and {a}", number(w)),
+        (None, Some((_, a))) => format!("{}, lighter than {a}", number(w)),
+        (Some((_, b)), None) => format!("{}, heavier than {b}", number(w)),
+        (None, None) => number(w),
     }
 }
 
@@ -1213,9 +1223,16 @@ pub fn lexicon(deck: &Deck, theme: &Theme, state: &str) -> Result<Lexicon, Strin
             places.insert(place.to_string(), phrase(place));
         }
     }
+    // Each weight a type menu names, and each the state's texts are set in, from the theme's roles
+    // and the nodes' own styles, so an object's look says it in words (W2 editor dogfood).
     let mut weights = BTreeMap::new();
     for (w, said) in WEIGHTS {
         weights.insert(w.to_string(), said.to_string());
+    }
+    let roles = theme.typography.roles.values().map(|r| r.weight);
+    let own = snap.nodes.values().filter_map(|p| p.get("style")?.get("weight")?.as_u64()?.try_into().ok());
+    for w in roles.chain(own) {
+        weights.entry(w.to_string()).or_insert_with(|| weight(f64::from(w)));
     }
     let mut types = BTreeMap::new();
     for t in TYPES {
@@ -1318,7 +1335,12 @@ mod tests {
         assert_eq!(motion("enter", Some("words")), "Enters Word by Word");
         assert_eq!(motion("exit", None), "Leaves");
         assert_eq!(weight(700.0), "Bold");
-        assert_eq!(weight(650.0), "650");
+        assert_eq!(weight(550.0), "550, between Medium and Semibold");
+        assert_eq!(
+            (weight(650.0).as_str(), weight(50.0).as_str()),
+            ("650, between Semibold and Bold", "50, lighter than Thin")
+        );
+        assert_eq!(weight(950.0), "950, heavier than Black");
         assert_eq!(theme("themes/dusk.theme.json"), "Dusk");
         assert_eq!(theme("themes/dusk-2.theme.json"), "Dusk 2");
     }
@@ -1399,6 +1421,25 @@ mod tests {
         assert_eq!(said.names["motion-exit"]["moveInRight"], "Move Out to Right");
         assert_eq!(said.names["motion-exit"]["appear"], "Disappear");
         assert_eq!(said.names["motion-preset"]["moveInRight"], "Move In from Right", "an entrance as it was");
+    }
+
+    /// The lexicon says each weight a state's texts are set in, a role's between two names too,
+    /// so an object's look reads `Fraunces 80 pt 550, between Medium and Semibold`, never a bare
+    /// number (W2 editor dogfood).
+    #[test]
+    fn the_lexicon_says_every_weight_the_state_sets() {
+        let mut theme: Theme =
+            serde_json::from_str(include_str!("../../../docs/examples/themes/dusk.theme.json")).unwrap();
+        theme.typography.roles.get_mut("display").unwrap().weight = 550;
+        let mut doc: serde_json::Value =
+            serde_json::from_str(include_str!("../../../docs/examples/revenue.deck.json")).unwrap();
+        let id = doc["nodes"].as_object().unwrap().iter().find(|(_, n)| n["type"] == "text").unwrap().0.clone();
+        doc["nodes"][&id]["style"] = serde_json::json!({ "weight": 350 });
+        let deck: Deck = serde_json::from_value(doc).unwrap();
+        let said = lexicon(&deck, &theme, "intro").unwrap();
+        assert_eq!(said.weights["550"], "550, between Medium and Semibold");
+        assert_eq!(said.weights["350"], "350, between Light and Regular");
+        assert_eq!(said.weights["700"], "Bold");
     }
 
     /// A chart's channels are labeled by its kind: a donut's categories are its Slices, and bars
