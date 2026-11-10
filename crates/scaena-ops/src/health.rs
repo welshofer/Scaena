@@ -194,7 +194,8 @@ pub enum Kind {
 /// is safe, a fix.
 #[derive(Debug, Clone, PartialEq, Serialize, JsonSchema)]
 pub struct Finding {
-    /// The slide's first state.
+    /// The step it was read at, which an editor shows: the slide's first state for a finding about
+    /// its notes or its plan, or that it does not stand, else its last, built whole.
     pub state: String,
     /// The slide's number, from 1.
     pub slide: usize,
@@ -2059,6 +2060,19 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
     for f in findings.iter_mut().filter(|f| f.kind == Kind::Source) {
         f.figure = unsourced.iter().find(|(id, _)| *id == f.state).map(|(_, figure)| figure.clone());
     }
+    // Each finding names the step it was read at, which an editor shows (W2's editor dogfood): a
+    // slide's notes are read across its steps, the first's first, and its plan is its beat's, so a
+    // finding about either, or one that the slide does not stand, names its first step; one about
+    // what the slide shows names its last, where it is built whole and its words were read.
+    for f in &mut findings {
+        if !matches!(
+            f.kind,
+            Kind::Turn | Kind::Notes | Kind::Empty | Kind::Arc | Kind::Drift | Kind::Pacing | Kind::Layout
+        ) && let Some(&last) = slides.get(f.slide - 1).and_then(|s| s.states.last())
+        {
+            f.state = deck.states[last].id.clone();
+        }
+    }
     // A slide that does not stand first, then in the order the slides stand, and on each slide in
     // the order health found them.
     scaena_core::sort::by_key(&mut findings, |f| (f.kind != Kind::Layout, f.slide));
@@ -2365,6 +2379,21 @@ mod tests {
 
     fn of(deck: &Value) -> Health {
         health(&Deck::from_value(deck).unwrap()).unwrap()
+    }
+
+    /// A finding names the step health read it at, which an editor shows (W2's editor dogfood):
+    /// B1's slide 4 builds its 97 words over three steps, the first a headline alone, so its
+    /// finding names the last; slide 12's turn is answered in its notes, which its first opens.
+    #[test]
+    fn a_finding_names_the_step_it_was_read_at() {
+        let text = std::fs::read_to_string(root().join("tests/bench/b1.scaena/deck.json")).unwrap();
+        let h = of(&serde_json::from_str(&text).unwrap());
+        let on = |kind: Kind, slide: usize| {
+            h.findings.iter().find(|f| f.kind == kind && f.slide == slide).map(|f| f.state.as_str())
+        };
+        assert_eq!(on(Kind::Dense, 4), Some("belief-2-line"), "{:#?}", h.findings);
+        assert_eq!(on(Kind::Turn, 12), Some("belief-10"));
+        assert_eq!(h.slides[3].state, "belief-2", "a slide is still shown by its first state");
     }
 
     /// A made deck that links an address neither its brief nor its sources name is warned of it,

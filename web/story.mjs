@@ -575,6 +575,40 @@ try {
     check((await page.evaluate(() => window.scaena.source())) === was, "⌘Z takes the citation back in one step");
     await page.close();
   })();
+
+  // B1's slide 4 builds its 97 words a step at a time: its Show opens the last step, where health
+  // counted them, which its finding names, not the first, which draws a headline alone; a turn,
+  // answered in the notes, opens the first (W2's editor dogfood).
+  await (async () => {
+    const page = await context.newPage();
+    page.on("pageerror", (e) => failures.push(`page: ${e.message}`));
+    await page.goto(`${server.origin}/web/dist/editor.html?painter=cpu&bundle=/tests/bench/b1.scaena`);
+    await page.waitForFunction(() => window.scaena?.last(), null, { timeout: 120000 });
+    await tab(page, "story");
+    await page.waitForFunction(() => window.scaena.story.health()?.findings.some((f) => f.kind === "dense"), null, { timeout: 120000 }).catch(() => {});
+    const dense = await page.evaluate(() => window.scaena.story.health()?.findings.find((f) => f.kind === "dense"));
+    check(/shows \d+ words/.test(dense?.says ?? ""), `a slide shows more words than a room reads: ${dense?.says}`);
+    const steps = await page.evaluate(
+      (step) => {
+        const { slots, states } = window.scaena.last();
+        const slide = (state) => slots.find((s) => s.state === state)?.slide ?? state;
+        return slots.filter((s) => slide(s.state) === slide(step)).map((s) => states.findIndex(([id]) => id === s.state));
+      },
+      dense.state,
+    );
+    check(steps.length > 1, `it builds in steps: ${JSON.stringify(steps)}`);
+    await page.click("#story [data-more] summary").catch(() => {});
+    await page.click(`#story [data-findings] li[data-slide="${dense.slide}"] [data-show]`);
+    await page.waitForFunction((k) => window.scaena.shown() === k, steps.at(-1), { timeout: 30000 }).catch(() => {});
+    check((await page.evaluate(() => window.scaena.shown())) === steps.at(-1), `Show opens its last step, where the words are: ${await page.evaluate(() => window.scaena.shown())} of ${JSON.stringify(steps)}`);
+    // A turn is answered in the slide's notes, which its first step opens.
+    const turn = await page.evaluate(() => window.scaena.story.health().findings.find((f) => f.kind === "turn" && f.slide === 12));
+    const first = await page.evaluate((id) => window.scaena.last().states.findIndex(([s]) => s === id), turn?.state);
+    await page.click(`#story [data-findings] li[data-slide="12"] [data-show]`);
+    await page.waitForFunction((k) => window.scaena.shown() === k, first, { timeout: 30000 }).catch(() => {});
+    check(first > 0 && (await page.evaluate(() => window.scaena.shown())) === first, `a turn's Show opens its slide's first step, where its notes are written: ${await page.evaluate(() => window.scaena.shown())}, ${first}`);
+    await page.close();
+  })();
 } catch (e) {
   failures.push(`error: ${e.message}`);
 } finally {
