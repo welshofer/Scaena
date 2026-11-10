@@ -1090,12 +1090,12 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         };
         let ask = match hotter {
             true => format!(
-                "Plan slides {}\u{2013}{} calmer, so the talk builds as its arc does{later}.",
+                "Plan slides {}\u{2013}{} calmer by their Intensity, so the talk builds as its arc does{later}.",
                 first + 1,
                 last + 1
             ),
             false => format!(
-                "Plan slides {}\u{2013}{} more intense, so the talk carries what their places call for{later}.",
+                "Plan slides {}\u{2013}{} more intense by their Intensity, so the talk carries what their places call for{later}.",
                 first + 1,
                 last + 1
             ),
@@ -1122,7 +1122,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
                 (
                     format!("Slide {k} was planned {hotter} than its place in the talk."),
                     format!(
-                        "Slide {k} is planned at {at}, {than} its place in the story calls for ({calls}): plan it {way}, or move it {moved}."
+                        "Slide {k} is planned at {at}, {than} its place in the story calls for ({calls}): plan it {way} by its Intensity, or move it {moved}."
                     ),
                 )
             }
@@ -1149,7 +1149,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         // plan, and words that already do leave the plan to change (ADR-0032, item 4).
         let ask = match bent.get(g.slide_id.as_str()).map(|delta| g.declared - delta) {
             Some(calls) if (g.detected - calls).abs() <= INTENSITY_GAP_THRESHOLD => format!(
-                "Slide {k}'s words read {detected}, as its place in the story calls for ({}): it is its plan ({declared}) that strays, so plan it for its place, not the words.",
+                "Slide {k}'s words read {detected}, as its place in the story calls for ({}): it is its plan ({declared}) that strays, so set its Intensity for its place, not the words.",
                 level(calls)
             ),
             Some(calls) if g.detected < calls => format!(
@@ -2362,6 +2362,22 @@ mod tests {
         }
         // Only what the findings say changed: every figure is as before but the plan's.
         assert_eq!((h.pacing.clone(), h.balance.clone()), (before.pacing, before.balance));
+
+        // The ask names the control that plans it (editor dogfood 3), which the inspector offers
+        // with nothing selected: the beat's plan, by JSON Patch where it lives. Planned as its place
+        // calls for, it bends no more.
+        assert!(bend.ask.contains("by its Intensity"), "{}", bend.ask);
+        let d = Deck::from_value(&deck).unwrap();
+        let dusk = std::fs::read_to_string(root().join("docs/examples/themes/dusk.theme.json")).unwrap();
+        let theme: Theme = serde_json::from_str(&dusk).unwrap();
+        let offered = scaena_core::choices::state_choices(&d, &theme, &state).unwrap().plan.expect("its plan, offered");
+        assert_eq!(offered.intensity, Some(plan));
+        let place = h.slides.iter().find(|s| s.state == state).unwrap().curve;
+        let op = json!({ "op": "add", "path": format!("{}/intensity", offered.at), "value": place });
+        let mut replanned = deck.clone();
+        scaena_core::patch::apply(&mut replanned, &[op]).unwrap();
+        let after = of(&replanned);
+        assert!(!after.findings.iter().any(|f| f.state == state && f.kind == Kind::Arc), "{:#?}", after.findings);
     }
 
     /// A slide lint finds an error on stands ahead of every other finding, said as lint says it,

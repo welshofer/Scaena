@@ -699,6 +699,35 @@ fn a_state_offers_its_layout_transition_hold_and_notes() {
     assert!(state_choices(&deck, &Theme::from_json(DUSK).unwrap(), "nowhere").is_err());
 }
 
+/// What the inspector offers of the plan a beat declares (editor dogfood 3): its intensity and
+/// tone as a made deck writes them in its `media.narrato`, where JSON Patch writes them, said in
+/// the engine's words; none for a deck whose beats declare no plan.
+#[test]
+fn a_state_offers_its_beats_plan_where_it_declares_one() {
+    assert_eq!(state(&example(), "mix").plan, None, "the revenue example's beats plan nothing");
+    let mut doc = example();
+    doc["spine"]["sections"][1]["beats"][0]["media"] = json!({ "narrato": { "intensity": 0.8, "valence": -0.3 } });
+    for id in ["revenue", "mix"] {
+        let plan = state(&doc, id).plan.expect("the beat `doubled` tells both");
+        assert_eq!((plan.beat.as_str(), plan.at.as_str()), ("doubled", "/spine/sections/1/beats/0/media/narrato"));
+        assert_eq!((plan.intensity, plan.tone), (Some(0.8), Some(-0.3)));
+    }
+    assert_eq!(state(&doc, "close").plan, None, "its beat plans nothing");
+    // Written by JSON Patch where it lives, one patch, and offered so.
+    let plan = state(&doc, "mix").plan.unwrap();
+    let ops = json!([{ "op": "add", "path": format!("{}/intensity", plan.at), "value": 0.45 }]);
+    let doc = compile(&doc, ops.as_array().unwrap(), &Examples).unwrap().doc;
+    assert_eq!(state(&doc, "mix").plan.unwrap().intensity, Some(0.45));
+    // Said in the engine's words, as its slider moves: the last word whose least it reaches.
+    use scaena_core::words::{INTENSITIES, TONES, planned};
+    assert_eq!(plan.intensities[0], (0.0, "Calm".to_string()));
+    assert_eq!(plan.tones.len(), TONES.len());
+    let said: Vec<&str> = [0.0, 0.19, 0.2, 0.45, 0.7, 0.8, 1.0].iter().map(|&v| planned(INTENSITIES, v)).collect();
+    assert_eq!(said, ["Calm", "Calm", "Steady", "Building", "Intense", "Peak", "Peak"]);
+    let said: Vec<&str> = [-1.0, -0.7, -0.3, 0.0, 0.3, 0.9].iter().map(|&v| planned(TONES, v)).collect();
+    assert_eq!(said, ["Grave", "Grave", "Sober", "Even", "Warm", "Hopeful"]);
+}
+
 /// What the inspector offers of a slide's number and footer (ADR-0028): the deck's, and what the
 /// slide says on its first state; shown where the theme places them and the slide's layout has
 /// them, or where the slide asks for them.

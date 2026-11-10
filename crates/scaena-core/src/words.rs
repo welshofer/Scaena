@@ -345,6 +345,20 @@ pub fn weight(w: f64) -> String {
     }
 }
 
+/// A slide's planned intensity as a person says it (editor dogfood 3): each word from the least
+/// it says, 0 calm to 1 intense; a plan is said by the last whose least it reaches.
+pub const INTENSITIES: &[(f64, &str)] =
+    &[(0.0, "Calm"), (0.2, "Steady"), (0.4, "Building"), (0.6, "Intense"), (0.8, "Peak")];
+
+/// A slide's planned tone as a person says it (editor dogfood 3): each word from the least it
+/// says, -1 grave to 1 hopeful; a plan is said by the last whose least it reaches.
+pub const TONES: &[(f64, &str)] = &[(-1.0, "Grave"), (-0.6, "Sober"), (-0.2, "Even"), (0.2, "Warm"), (0.6, "Hopeful")];
+
+/// `value` said by `ladder`, [`INTENSITIES`] or [`TONES`]: the last word whose least it reaches.
+pub fn planned(ladder: &[(f64, &'static str)], value: f64) -> &'static str {
+    ladder.iter().rev().find(|(least, _)| value >= *least).or(ladder.first()).map_or("", |(_, said)| said)
+}
+
 /// A node's kind, as a person names it; none is an object.
 pub fn kind(t: Option<NodeType>) -> &'static str {
     match t {
