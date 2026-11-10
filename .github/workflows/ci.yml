@@ -770,3 +770,5 @@ jobs:
       - run: node --experimental-strip-types web/answered.mjs
       # The web loader fetches only the bundle's own files (the 20261031 plan's SEC-1).
       - run: node --experimental-strip-types web/within.mjs
+      # The editor keeps its last lints whole and lightens the rest (the 20261110 plan's PERF-4).
+      - run: node --experimental-strip-types web/lightened.mjs
