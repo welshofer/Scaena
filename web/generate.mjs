@@ -110,7 +110,9 @@ const provider = createServer(async (req, res) => {
     ? "fit"
     : system.includes("art director")
       ? "look"
-      : system.includes("planning a presentation before its slides")
+      : system.includes("revising one beat")
+        ? "claim"
+        : system.includes("planning a presentation before its slides")
         ? "outline"
         : prompt.includes("=== CATALOG ===")
           ? "arc"
@@ -125,6 +127,10 @@ const provider = createServer(async (req, res) => {
   if (asked === "outline" && state.unreadable) {
     // An outline that comes back but does not read: prose, no JSON (lift-up REL-3).
     return reply(200, { content: [{ type: "text", text: "I would be glad to outline this talk." }], stop_reason: "end_turn" });
+  }
+  // One beat's claim asked again (lift-up 20261110 FUNC-2).
+  if (asked === "claim") {
+    return reply(200, { content: [{ type: "text", text: JSON.stringify({ claim: "Asked again: carriers cannot cut it alone." }) }], stop_reason: "end_turn" });
   }
   if (asked === "outline") {
     const beats = [1, 2, 3, 4, 5, 6].map((beat) => ({ beat, claim: `Claim ${beat}: what this beat's slides leave behind.` }));
@@ -721,6 +727,38 @@ try {
   check(restLines.some((l) => l.startsWith("The answer was cut short after 3 slides: asking for the rest of")), `the progress says the rest is asked for: ${restLines.join(" | ")}`);
   check(restLines.some((l) => l === "5 slides written"), `and the slides written whole: ${restLines.join(" | ")}`);
   state.slides = state.rest = undefined;
+
+  // The outline shaped by the person survives another take (lift-up 20261110 FUNC-2): one beat asked
+  // again alone, every other claim fixed; then Outline again keeps the claim they typed.
+  await page
+    .waitForSelector("#recovering[open]", { timeout: 5000 })
+    .then(() => page.click("#recovering [value=discard]"))
+    .catch(() => {});
+  await opened();
+  await page.check("#prompting-show-outline");
+  await page.click("#prompting-go");
+  await page.waitForSelector("#prompting-outline:not([hidden])", { timeout: 120000 });
+  const ownClaim = "Every container already carries a carbon price, unpaid.";
+  await page.locator("#prompting-beats .claim").nth(1).fill(ownClaim);
+  const takeFrom = requests.length;
+  await page.locator("#prompting-beats li").nth(2).locator("button[aria-label=\"Ask for this beat's claim again\"]").click();
+  await page
+    .waitForFunction(() => document.querySelectorAll("#prompting-beats .claim")[2]?.value.startsWith("Asked again"), null, { timeout: 60000 })
+    .catch(() => {});
+  const take = requests.slice(takeFrom);
+  const retaken = await page.locator("#prompting-beats .claim").evaluateAll((all) => all.map((c) => c.value));
+  check(take.map((r) => r.asked).join() === "claim" && retaken[2] === "Asked again: carriers cannot cut it alone.", `one beat is asked again alone: ${take.map((r) => r.asked)} | ${retaken[2]}`);
+  check(take[0]?.prompt.includes(`: ${ownClaim}`) && take[0].prompt.includes("(to write again)"), "the others are held as they stand, the typed claim among them");
+  check(retaken[1] === ownClaim && retaken[0].startsWith("Claim 1:"), `the other claims stay as they were: ${retaken.slice(0, 2).join(" | ")}`);
+  const againFrom = requests.length;
+  await page.click("#prompting-outline-again");
+  await page.waitForFunction((n) => !document.querySelector("#prompting-outline").hidden && document.querySelectorAll("#prompting-beats li").length === n, 6, { timeout: 120000 }).catch(() => {});
+  const again = requests.slice(againFrom).filter((r) => r.asked === "outline");
+  const outlinedAgain = await page.locator("#prompting-beats .claim").evaluateAll((all) => all.map((c) => c.value));
+  check(again.length === 1 && again[0].prompt.includes("The user has written these claims themselves") && again[0].prompt.includes(ownClaim), "Outline again tells the model the claim typed");
+  check(outlinedAgain[1] === ownClaim && outlinedAgain[0].startsWith("Claim 1:"), `the claim typed stands in its beat, the rest the model's: ${outlinedAgain.slice(0, 2).join(" | ")}`);
+  await page.click("#prompting-cancel");
+  await page.waitForFunction(() => !document.querySelector("#prompting").open, null, { timeout: 10000 }).catch(() => {});
 
   // A run that fails once the outline is settled keeps what it paid for (lift-up 20261110 REL-1):
   // Go on from what was made writes the slides to the outline as the person settled it, asking for

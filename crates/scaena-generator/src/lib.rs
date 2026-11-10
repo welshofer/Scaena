@@ -345,6 +345,33 @@ impl Generation {
         Ok(self.said())
     }
 
+    /// The claims the person wrote in the outline shown, JSON `[{ name, claim, slides }]`, which
+    /// the next outline asked keeps word for word in the beats of their names (lift-up 20261110
+    /// FUNC-2).
+    #[wasm_bindgen(js_name = keepClaims)]
+    pub fn keep_claims(&mut self, kept: &str) -> Result<(), JsError> {
+        let kept: Vec<scaena_narrato::outline::Beat> =
+            serde_json::from_str(kept).map_err(|e| error(format!("the claims kept: {e}")))?;
+        self.inner.keep_claims(kept);
+        Ok(())
+    }
+
+    /// The request that asks for beat `beat` (from 0) of `outline`, JSON as `outline` gives it,
+    /// again, every other claim fixed (lift-up 20261110 FUNC-2); none for a beat it lacks.
+    #[wasm_bindgen(js_name = claimRequest)]
+    pub fn claim_request(&self, key: &str, outline: &str, beat: usize) -> Result<Option<String>, JsError> {
+        let outline: scaena_narrato::Outline =
+            serde_json::from_str(outline).map_err(|e| error(format!("the outline: {e}")))?;
+        let request = self.inner.claim_request(key, &outline, beat);
+        Ok(request.map(|r| serde_json::to_string(&r).expect("a request is JSON")))
+    }
+
+    /// The claim the answer to `claimRequest` gives, or an error that says why.
+    #[wasm_bindgen(js_name = claimAnswer)]
+    pub fn claim_answer(&self, status: u16, status_text: &str, body: &str) -> Result<String, JsError> {
+        self.inner.claim_answer(status, status_text, body).map_err(error)
+    }
+
     /// Where it stands, as `answer` says it, with no answer read: JSON `{ step, slides, arc?,
     /// reasoning?, fallback?, written?, truncated?, outline?, unread?, partial?, unrested? }`,
     /// `partial` the slides written so far where the rest is asked for (lift-up REL-2), and

@@ -335,11 +335,15 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         deciding = undefined;
         return;
       case "outlineAgain":
-        deciding?.({ arc: data.arc });
+        deciding?.({ arc: data.arc, kept: data.kept });
         deciding = undefined;
         return;
       case "outlinePassed":
         deciding?.({ without: true });
+        deciding = undefined;
+        return;
+      case "claimAgain":
+        deciding?.({ again: { beat: data.beat, outline: data.outline } });
         deciding = undefined;
         return;
       // A deck made that would not open, as a `.scaena` to download (lift-up 20261110 REL-1).
@@ -1366,8 +1370,9 @@ async function generating(job: Generate, engine?: WebAssembly.Module) {
   const theme = await shipped(job.theme);
   // The outline shown to the person (narrative FUNC-1), the generation waiting on what they decide
   // of it: `settled` or `outlineAgain`, which the page sends.
-  const settle = (outlined: Outlined) => {
-    post({ type: "storyOutlined", ...outlined });
+  // Without `outlined`, the outline shown stays: a beat asked again waits on the next decision.
+  const settle = (outlined?: Outlined) => {
+    if (outlined) post({ type: "storyOutlined", ...outlined });
     return new Promise<Decision>((resolve) => {
       deciding = resolve;
     });
