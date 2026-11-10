@@ -22,7 +22,7 @@
 //   until the next rehearsal.
 import type { Key } from "./commands";
 import { listen } from "./life";
-import type { Slot, SpeakerNotes } from "./protocol";
+import type { Slot, SpeakerNotes, StoryPlace } from "./protocol";
 import { renderNotes } from "./speaker-notes";
 import type { Stage } from "./stage";
 
@@ -57,7 +57,31 @@ export interface Rehearsed {
   hold: number;
   /** The hold the time spent keeps, ms: none for a state not reached. */
   keeps?: number;
+  /** The time the talk planned for it, ms, from its beat's duration paced over its states (lift-up
+   * 20261110 FUNC-1): none where no beat plans it. */
+  planned?: number;
 }
+
+/** The time the talk planned for each state, ms, from its place in the talk (`Slot.story`): the
+ * plan's seconds from it to the next state of its beat, or to its beat's end. None where its
+ * beat plans no duration. */
+export function plannedOf(slots: Slot[]): (number | undefined)[] {
+  const same = (a?: StoryPlace, b?: StoryPlace) => !!a && !!b && a.section === b.section && a.claim === b.claim;
+  return slots.map((slot, i) => {
+    const story = slot.story;
+    if (story?.planned === undefined) return undefined;
+    const next = slots[i + 1]?.story;
+    if (same(story, next)) return Math.max(0, (next!.before - story.before) * 1000);
+    // The last of its beat: to the beat's end, from where the beat began.
+    let first = i;
+    while (first > 0 && same(slots[first - 1].story, story)) first--;
+    const end = slots[first].story!.before + story.planned;
+    return Math.max(0, (end - story.before) * 1000);
+  });
+}
+
+/** `ms` signed, as the table says it against the plan: `+12.0 s`, `\u22121:05`. */
+const against = (ms: number) => `${ms < 0 ? "\u2212" : "+"}${clock(Math.abs(ms))}`;
 
 const ON = new Set(["ArrowRight", "ArrowDown", "PageDown", " ", "Enter"]);
 const BACK = new Set(["ArrowLeft", "ArrowUp", "PageUp", "Backspace"]);
@@ -99,6 +123,7 @@ export function rehearsal(
   const notes = pane.querySelector<HTMLElement>("[data-notes]")!;
   const rows = dialog.querySelector<HTMLTableSectionElement>("tbody")!;
   const total = dialog.querySelector<HTMLElement>("[data-total]")!;
+  const plan = dialog.querySelector<HTMLElement>("[data-plan]")!;
   /** The states as the rehearsal began, and the time each was shown. */
   let slots: Slot[] = [];
   let spent: number[] = [];
@@ -208,7 +233,9 @@ export function rehearsal(
     stage.pause();
     bar.hidden = true;
     pane.hidden = true;
+    const planned = plannedOf(slots);
     kept = slots.map((slot, i) => ({
+      planned: planned[i],
       state: slot.state,
       said: slot.said ?? slot.state,
       spent: spent[i],
@@ -235,16 +262,47 @@ export function rehearsal(
   function table() {
     const all = kept.reduce((n, k) => n + k.spent, 0);
     total.textContent = clock(all);
+    // Against the plan (lift-up 20261110 FUNC-1): each state reached beside the time its beat
+    // planned for it, the whole run beside the plan of what it reached, and the three that ran
+    // furthest over said so.
+    const planning = kept.some((k) => k.planned !== undefined);
+    const reached = kept.filter((k) => k.spent > 0 && k.planned !== undefined);
+    const over = reached
+      .map((k) => ({ state: k.state, by: k.spent - k.planned! }))
+      .filter((o) => o.by >= 500)
+      .sort((a, b) => b.by - a.by)
+      .slice(0, 3)
+      .map((o) => o.state);
+    if (!planning) plan.textContent = "The talk plans no time for its slides: its beats give no duration, so the times stand alone.";
+    else {
+      const of = reached.reduce((n, k) => n + k.planned!, 0);
+      const taken = reached.reduce((n, k) => n + k.spent, 0);
+      const every = kept.every((k) => k.planned === undefined || k.spent > 0);
+      plan.textContent = every
+        ? `${clock(taken)} taken against a ${clock(of)} plan: ${against(taken - of)}.`
+        : `${clock(taken)} taken against ${clock(of)} planned for the ${reached.length} reached: ${against(taken - of)}.`;
+    }
     rows.replaceChildren(
       ...kept.map((k) => {
         const tr = document.createElement("tr");
         tr.dataset.state = k.state;
-        const cells = [k.spent ? clock(k.spent) : "Not reached", clock(k.span), k.keeps === undefined ? "As it is" : `After ${clock(k.keeps)}`, k.hold ? `After ${clock(k.hold)}` : "On click"];
+        const most = over.includes(k.state);
+        if (most) tr.dataset.over = "";
+        const plannedSaid = k.planned === undefined ? "No plan" : clock(k.planned);
+        const off = k.spent && k.planned !== undefined ? `${against(k.spent - k.planned)}${most ? " · most over" : ""}` : "";
+        const cells = [
+          k.spent ? clock(k.spent) : "Not reached",
+          ...(planning ? [plannedSaid, off] : []),
+          clock(k.span),
+          k.keeps === undefined ? "As it is" : `After ${clock(k.keeps)}`,
+          k.hold ? `After ${clock(k.hold)}` : "On click",
+        ];
         tr.append(Object.assign(document.createElement("th"), { scope: "row", textContent: k.said }));
         for (const text of cells) tr.append(Object.assign(document.createElement("td"), { textContent: text }));
         return tr;
       }),
     );
+    for (const th of dialog.querySelectorAll<HTMLElement>("thead [data-planning]")) th.hidden = !planning;
   }
 
   function key(e: KeyboardEvent) {

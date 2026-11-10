@@ -161,6 +161,161 @@ fn changed_runs(text: &str, tidied: &str) -> Vec<(usize, usize, String)> {
     vec![(from, to, theirs[head..theirs.len() - tail].join("\n"))]
 }
 
+/// The patch that sets code text `node`'s lines in focus in `state` to `focus`, each span its
+/// first and last line counted from 1, none showing every line (PLAN 2.140): Focus on These
+/// Lines, the inspector's Lines in Focus, and Clear Focus. It is written into `state`'s own props,
+/// and each state after it that would show another focus than it did is given back the one it
+/// showed, so the states after it are as they were. Empty where `state` shows `focus` already.
+/// Refused for a node that is no code there, or whose focus the deck's `overrides` set in every
+/// state.
+pub fn focusing(deck: &Deck, state: &str, node: &str, focus: &[(u64, u64)]) -> Result<Vec<Value>, OpsError> {
+    let (i, lines) = code_in(deck, state, node)?;
+    let value = focused(focus, lines);
+    let mut walked = deck.clone();
+    put_focus(&mut walked.states[i], node, value.clone());
+    let mut ops = vec![json!({ "op": "set_prop", "state": state, "node": node, "prop": "code/focus", "value": value })];
+    ops.extend(kept(deck, &mut walked, node, state)?);
+    // A focus it shows already is nothing to do.
+    let before = scaena_core::resolve_states(deck).map_err(|e| OpsError::new(e.to_string()))?;
+    let after = scaena_core::resolve_states(&walked).map_err(|e| OpsError::new(e.to_string()))?;
+    if focus_of(&before[i], node) == focus_of(&after[i], node) && ops.len() == 1 {
+        return Ok(Vec::new());
+    }
+    Ok(ops)
+}
+
+/// The patch Walk Through Lines… makes of code text `node` from `state` (PLAN 2.140, ADR-0029
+/// decision 6): `state` shows the first of `steps`, and a step of its slide after it shows each of
+/// the rest, in order, each a set of spans as [`focusing`] takes them, none (or every line) the
+/// whole block. Each step is named after `state` (`code-2`, …), in its beat, and glides in at the
+/// theme's `slow`, as the editors' code steps do; the states after them are as they were. Refused
+/// as [`focusing`] is, and for no steps.
+pub fn walking(deck: &Deck, state: &str, node: &str, steps: &[Vec<(u64, u64)>]) -> Result<Vec<Value>, OpsError> {
+    let (i, lines) = code_in(deck, state, node)?;
+    let Some((first, rest)) = steps.split_first() else {
+        return Err(OpsError::new("a walkthrough takes a step for each set of lines: name at least one"));
+    };
+    let mut walked = deck.clone();
+    let mut ops = Vec::new();
+    let value = focused(first, lines);
+    let before = scaena_core::resolve_states(deck).map_err(|e| OpsError::new(e.to_string()))?;
+    if focus_of(&before[i], node) != value.as_array().map(|_| &value) {
+        put_focus(&mut walked.states[i], node, value.clone());
+        ops.push(json!({ "op": "set_prop", "state": state, "node": node, "prop": "code/focus", "value": value }));
+    }
+    let slide = deck.states[i].slide.clone().unwrap_or_else(|| state.to_string());
+    let beat = (deck.spine.iter().flat_map(|s| &s.sections).flat_map(|s| &s.beats))
+        .find(|b| b.states.iter().any(|s| s == state))
+        .map(|b| b.id.clone());
+    // Named after the slide's own name: a step's `-N` taken off, but a slide's own digits kept,
+    // so `revenue-2026`'s steps are `revenue-2026-2`, … .
+    let step = deck.states[i].slide.as_deref().is_some_and(|s| s != state);
+    let base = match state.rsplit_once('-') {
+        Some((stem, n)) if step && !stem.is_empty() && !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()) => stem,
+        _ => state,
+    };
+    let mut after = state.to_string();
+    for (k, spans) in rest.iter().enumerate() {
+        let id = (2..)
+            .map(|n| format!("{base}-{n}"))
+            .find(|id| !walked.states.iter().any(|s| s.id == *id))
+            .expect("some number is free");
+        let mut code = serde_json::Map::new();
+        code.insert("focus".into(), focused(spans, lines));
+        let step = json!({ "id": id, "slide": slide, "transition": "slow", "props": { node: { "code": code } } });
+        let typed: scaena_core::document::State =
+            serde_json::from_value(step.clone()).map_err(|e| OpsError::new(e.to_string()))?;
+        walked.states.insert(i + 1 + k, typed);
+        let mut op = json!({ "op": "add_state", "state": step, "after": after });
+        if let Some(beat) = &beat {
+            op["beat"] = json!(beat);
+        }
+        ops.push(op);
+        after = id;
+    }
+    ops.extend(kept(deck, &mut walked, node, state)?);
+    Ok(ops)
+}
+
+/// The number code text `node`'s gutter gives its first line in `state` (its `code.start`, else 1),
+/// and how many lines it has there: what its lines in focus are said and read in
+/// (`scaena_core::code::focus`). Refused as [`focusing`] is.
+pub fn numbered(deck: &Deck, state: &str, node: &str) -> Result<(u64, u64), OpsError> {
+    let (i, lines) = code_in(deck, state, node)?;
+    let snaps = scaena_core::resolve_states(deck).map_err(|e| OpsError::new(e.to_string()))?;
+    let start = snaps[i].nodes.get(node).and_then(|p| p.get("code")?.get("start")?.as_u64()).unwrap_or(1);
+    Ok((start.max(1), lines))
+}
+
+/// Where `state` is among `deck`'s states, and how many lines code text `node` has there: an error
+/// where it is not on screen there, is no code there, or the overrides set its lines in focus.
+fn code_in(deck: &Deck, state: &str, node: &str) -> Result<(usize, u64), OpsError> {
+    text_node(deck, node)?;
+    let i = (deck.states.iter().position(|s| s.id == state))
+        .ok_or_else(|| OpsError::new(format!("unknown state `{state}`")))?;
+    let snaps = scaena_core::resolve_states(deck).map_err(|e| OpsError::new(e.to_string()))?;
+    let props =
+        snaps[i].nodes.get(node).ok_or_else(|| OpsError::new(format!("`{node}` is not on screen in `{state}`")))?;
+    if !props.get("code").is_some_and(Value::is_object) {
+        return Err(OpsError::new(format!("`{node}` is no code in `{state}`: make it code first")));
+    }
+    if deck.overrides.get(node).and_then(|o| o.get("code")).and_then(|c| c.get("focus")).is_some() {
+        return Err(OpsError::new(format!("the deck's overrides set `{node}`'s lines in focus in every state")));
+    }
+    let lines = scaena_core::lists::paragraphs(&written(props).unwrap_or_default()).len() as u64;
+    Ok((i, lines))
+}
+
+/// `spans` as `code.focus` writes them, held to the text's `lines`: `null`, every line shown,
+/// where there are none or they name every line.
+fn focused(spans: &[(u64, u64)], lines: u64) -> Value {
+    let held: Vec<(u64, u64)> =
+        spans.iter().filter(|&&(a, _)| a <= lines).map(|&(a, b)| (a.max(1), b.min(lines))).collect();
+    match held.as_slice() {
+        [(1, b)] if *b == lines => Value::Null,
+        _ => scaena_core::code::focus::value(&held),
+    }
+}
+
+/// `state` given `value` for `node`'s `code.focus` in its own props, as `set_prop` writes it.
+fn put_focus(state: &mut scaena_core::document::State, node: &str, value: Value) {
+    let props = state.props.entry(node.to_string()).or_default();
+    match props.get_mut("code") {
+        Some(Value::Object(code)) => drop(code.insert("focus".into(), value)),
+        _ => drop(props.insert("code".into(), json!({ "focus": value }))),
+    }
+}
+
+/// `node`'s lines in focus as `snap` shows them.
+fn focus_of<'s>(snap: &'s scaena_core::tracking::Snapshot, node: &str) -> Option<&'s Value> {
+    snap.nodes.get(node)?.get("code")?.get("focus").filter(|f| !f.is_null())
+}
+
+/// The `set_prop`s that give each of `deck`'s states but `changed` back the focus it showed of
+/// `node` where `walked` shows it another, `walked` given them too: each, in order, as the one
+/// before it is.
+fn kept(deck: &Deck, walked: &mut Deck, node: &str, changed: &str) -> Result<Vec<Value>, OpsError> {
+    let resolve = |d: &Deck| scaena_core::resolve_states(d).map_err(|e| OpsError::new(e.to_string()));
+    let before = resolve(deck)?;
+    let mut ops = Vec::new();
+    for _ in 0..deck.states.len() {
+        let after = resolve(walked)?;
+        let differs = before.iter().find_map(|was| {
+            let now = after.iter().find(|s| s.state_id == was.state_id)?;
+            let shows = was.state_id != changed && was.nodes.contains_key(node);
+            (shows && focus_of(was, node) != focus_of(now, node)).then_some(was)
+        });
+        let Some(was) = differs else { break };
+        let value = focus_of(was, node).cloned().unwrap_or(Value::Null);
+        let j = walked.states.iter().position(|s| s.id == was.state_id).expect("a state of the deck");
+        put_focus(&mut walked.states[j], node, value.clone());
+        ops.push(
+            json!({ "op": "set_prop", "state": was.state_id, "node": node, "prop": "code/focus", "value": value }),
+        );
+    }
+    Ok(ops)
+}
+
 /// `node`, which is a text.
 fn text_node<'d>(deck: &'d Deck, node: &str) -> Result<&'d scaena_core::document::Node, OpsError> {
     let found = deck.nodes.get(node).ok_or_else(|| OpsError::new(format!("no node `{node}`")))?;

@@ -340,6 +340,9 @@ struct IconFind {
     weight: Option<String>,
     #[serde(default)]
     limit: Option<usize>,
+    #[cfg_attr(not(feature = "shipped"), allow(dead_code))]
+    #[serde(default)]
+    paths: bool,
 }
 
 #[derive(Deserialize)]
@@ -377,7 +380,9 @@ struct BackgroundSet {
 /// `slide_write`'s arguments, as the MCP tool takes them, less the bundle.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-#[cfg_attr(not(feature = "generate"), allow(dead_code))]
+// Read by `slide_write`, which needs the icons that ship too: the editor's module, which makes a
+// deck (`generate`) and carries no icons, only checks the arguments.
+#[cfg_attr(not(all(feature = "generate", feature = "shipped")), allow(dead_code))]
 struct SlideWrite {
     slide: Map<String, Value>,
     #[serde(default)]
@@ -621,7 +626,11 @@ impl Session {
             #[cfg(feature = "shipped")]
             "icon_find" => {
                 let a: IconFind = args(name, a)?;
-                Called::of(scaena_ops::icons::find(&a.query, a.weight, a.limit.unwrap_or(20)))
+                // As the MCP server finds them: 50 at most, the paths only where asked for
+                // (lift-up 20261025c SEC-3).
+                let found =
+                    scaena_ops::icons::find(&a.query, a.weight, a.limit.unwrap_or(20).min(scaena_ops::icons::MOST));
+                Called::of(if a.paths { found } else { found.names_only() })
             }
             // Read as the MCP tool reads it, as `map_fetch` is, so a call is refused for what it
             // is, not for what it holds, in a library without the icons as in one with them.

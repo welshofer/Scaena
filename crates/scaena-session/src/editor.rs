@@ -64,6 +64,16 @@ pub struct Laying {
     laid: Option<Result<LaidOut, String>>,
     /// What it draws its states with, built the first time it draws one and kept for the next.
     drawer: Option<Drawer>,
+    /// How far it has been laid out a step at a time ([`Laying::step`]).
+    steps: Option<Box<Steps>>,
+}
+
+/// A [`Laying`] laid out a step at a time (lift-up 20261110 PERF-1): what validation found, the
+/// theme the layout rules run in, and how far they have run.
+struct Steps {
+    found: Vec<Finding>,
+    theme: Theme,
+    linting: scaena_engine::lint::Linting,
 }
 
 /// The cue into a state, its two snapshots laid out ahead by a [`Laying`] away from the session
@@ -119,6 +129,61 @@ impl Laying {
             Ok(LaidOut { found, layout })
         })();
         self.laid = Some(laid.map_err(|e| e.to_string()));
+    }
+
+    /// Take the next step of laying the deck out on every state and running the layout rules on
+    /// it, as [`Laying::lay`] does in one go, with the engine it draws with (lift-up 20261110
+    /// PERF-1): each state laid out, and each state's contrast judged, a step of its own. A client
+    /// with one thread, the browser's worker, takes a step at a time between the other work it
+    /// answers, and drops the laying for a newer deck. Whether it is laid out: then it lints as
+    /// [`Laying::lay`]'s would ([`Session::lint_laid`]).
+    pub fn step(&mut self) -> bool {
+        if self.laid.is_none() {
+            match self.stepping() {
+                Ok(Some(laid)) => self.laid = Some(Ok(laid)),
+                Ok(None) => {}
+                Err(e) => {
+                    self.steps = None;
+                    self.laid = Some(Err(e.to_string()));
+                }
+            }
+        }
+        self.laid.is_some()
+    }
+
+    /// One step: what it was laid out to once the last is taken.
+    fn stepping(&mut self) -> Result<Option<LaidOut>, Error> {
+        let Some(steps) = self.steps.as_mut() else {
+            let found = match &self.validated {
+                Some(found) => found.clone(),
+                None => {
+                    let json = self.deck.to_json().map_err(|e| Error::Deck(e.to_string()))?;
+                    validate_bundle(&json, &Handed(&self.files)).map_err(|e| Error::Deck(e.to_string()))?
+                }
+            };
+            // The theme the layout rules run in, where they run at all: as `lay` runs them.
+            let mut theme = None;
+            lint_validated(&self.deck, found.clone(), Some(self.theme_json.as_str()), |t| {
+                theme = Some(t.clone());
+                Ok(Vec::new())
+            })
+            .map_err(|e| Error::Ops(e.message))?;
+            let Some(theme) = theme else { return Ok(Some(LaidOut { found, layout: None })) };
+            self.draws()?;
+            let linting = scaena_engine::lint::Linting::new(&self.deck, None, true);
+            self.steps = Some(Box::new(Steps { found, theme, linting }));
+            return Ok(None);
+        };
+        let drawer = self.drawer.as_mut().expect("built as the steps began");
+        let painter = std::mem::take(&mut drawer.painter);
+        let mut backdrop = scaena_paint::Backdrop { painter, assets: &drawer.store };
+        let done = steps.linting.step(&mut drawer.engine, &self.deck, &steps.theme, &self.data, Some(&mut backdrop));
+        drawer.painter = backdrop.painter;
+        if !done? {
+            return Ok(None);
+        }
+        let steps = self.steps.take().expect("taken above");
+        Ok(Some(LaidOut { found: steps.found, layout: Some(steps.linting.found()) }))
     }
 
     /// Whether it has been laid out.
@@ -456,6 +521,7 @@ impl Session {
             findings: edit.findings.clone(),
             laid: None,
             drawer: None,
+            steps: None,
         })
     }
 
@@ -1118,8 +1184,8 @@ mod tests {
         let before = s.pixels("revenue", f64::INFINITY, 160).unwrap();
         let listed = s.starters_painted("revenue", 90, None).unwrap();
         let layouts: Vec<&str> = listed.iter().map(|one| one["layout"].as_str().unwrap_or("blank")).collect();
-        assert_eq!(layouts.len(), 177, "Dusk's 176 layouts, then a blank slide: {layouts:?}");
-        assert_eq!((layouts[0], layouts[176]), ("title", "blank"));
+        assert_eq!(layouts.len(), 178, "Dusk's 177 layouts, then a blank slide: {layouts:?}");
+        assert_eq!((layouts[0], layouts[177]), ("title", "blank"));
         let bullets = &listed[layouts.iter().position(|l| *l == "bullets").unwrap()];
         assert_eq!(bullets["description"], "A headline, and the points that make its case.");
         assert_eq!((bullets["name"].as_str(), bullets["group"].as_str()), (Some("Bullets"), Some("Lists")));
@@ -1131,7 +1197,7 @@ mod tests {
         let fine = &listed[layouts.iter().position(|l| *l == "fine-print").unwrap()];
         assert_eq!(fine["also"], serde_json::json!(["Disclosures"]), "Fine Print, by Disclosures (PLAN S.3)");
         assert!(
-            listed[176]["name"].is_null() && listed[176]["description"].is_null() && listed[176]["group"].is_null()
+            listed[177]["name"].is_null() && listed[177]["description"].is_null() && listed[177]["group"].is_null()
         );
         let mut pictures: Vec<scaena_paint::Raster> = Vec::new();
         for (i, one) in listed.iter().enumerate() {
@@ -1369,6 +1435,41 @@ mod tests {
         // Nothing compiled to a deck that validates: nothing to lay out.
         assert!(!fresh.compile("state {").valid);
         assert!(fresh.laying().is_none());
+    }
+
+    /// A laying laid out a step at a time (lift-up 20261110 PERF-1), as the browser's one worker
+    /// lays it out between the other work it answers: a step for each state and each state's
+    /// contrast, and at the end what `lay` finds, which lints as the session's whole lint does.
+    #[test]
+    fn a_laying_laid_out_a_step_at_a_time_lints_as_one_laid_out_whole() {
+        let mut s = revenue();
+        let long = "Revenue doubled, and then some, as Pro grew three times faster than Core in every quarter";
+        let source = s.source().replace("\"Revenue doubled\"", &format!("\"{long}\""));
+        assert!(s.compile(&source).valid);
+        let mut stepped = s.laying().unwrap();
+        let mut steps = 0;
+        while !stepped.step() {
+            steps += 1;
+            assert!(!stepped.laid(), "not laid out until its last step");
+            assert!(s.lint_laid(&stepped, None).unwrap().is_none(), "nothing stands before its last step");
+            // The session answers between the steps.
+            assert!(s.pixels("intro", f64::INFINITY, 64).is_ok());
+        }
+        assert!(stepped.laid() && stepped.step(), "laid out, and a step more changes nothing");
+        assert!(steps > s.states().len(), "a step for each state at least: {steps}");
+        let mut whole = s.laying().unwrap();
+        whole.lay();
+        let by_steps = s.lint_laid(&stepped, None).unwrap().unwrap();
+        let at_once = s.lint_laid(&whole, None).unwrap().unwrap();
+        assert!(by_steps.whole && by_steps.laid);
+        assert_eq!(written(&by_steps), written(&at_once));
+        assert_eq!(written(&by_steps), written(&s.lint(None, None).unwrap()));
+        assert!(written(&by_steps).iter().any(|f| f.contains("E100")));
+        // One taken from a deck changed since is dropped, as one laid out whole is.
+        let mut stale = s.laying().unwrap();
+        while !stale.step() {}
+        assert!(s.compile(&source.replace(long, "Revenue doubled")).valid);
+        assert!(s.lint_laid(&stale, None).unwrap().is_none());
     }
 
     /// The cue a show goes on to, laid out ahead away from the session (lift-up 10-25b PERF-5): the

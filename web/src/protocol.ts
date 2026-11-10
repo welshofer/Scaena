@@ -554,7 +554,10 @@ export type Takes =
   | { kind: "text" }
   /** Fractions of an image, 0 to 1, one for each name: a point's `x` and `y`, a part's `x`, `y`,
    * `w`, and `h` (PLAN 2.45). */
-  | { kind: "fractions"; names: string[] };
+  | { kind: "fractions"; names: string[] }
+  /** A code text's lines, numbered `first` to `last` as its gutter numbers them: its lines in focus,
+   * typed as those numbers, "2–4, 7" (PLAN 2.140). The value is said under `words.said` by its JSON. */
+  | { kind: "lines"; first: number; last: number };
 
 /** Where a value a state shows lives: the deck's overrides, a state's delta, or the node. */
 export type Lives = "overrides" | "node" | { state: string };
@@ -1066,10 +1069,16 @@ export type ToWorker =
   | { type: "generate"; generate: Generate; engine?: WebAssembly.Module }
   /** The outline as the person settled it (narrative FUNC-1): the slides are written to it. */
   | { type: "storySettled"; outline: StoryOutline }
-  /** Another arc for the outline, by name, or the heuristic's where none: outlined again. */
-  | { type: "outlineAgain"; arc?: string }
+  /** Another arc for the outline, by name, or the heuristic's where none: outlined again, keeping
+   * the claims the person typed, each in the beat of its name (lift-up 20261110 FUNC-2). */
+  | { type: "outlineAgain"; arc?: string; kept?: StoryBeat[] }
+  /** Beat `beat` (from 0) of `outline`, as the pane holds it, asked for again alone, every other
+   * claim fixed (lift-up 20261110 FUNC-2): its claim comes back as a `claimed` event. */
+  | { type: "claimAgain"; beat: number; outline: StoryOutline }
   /** The outline, twice unreadable, passed over: the slides written without one (lift-up REL-3). */
   | { type: "outlinePassed" }
+  /** `files` as one `.scaena` zip, unchanged (lift-up 20261110 REL-1): `filesZipped`. */
+  | { type: "zipFiles"; id: number; files: Record<string, ArrayBuffer> }
   /** Paint `state` `t` ms into its cue, or at rest without `t`. */
   | { type: "show"; id: number; state: string; t?: number; format?: string }
   /** The deck's timeline. */
@@ -1224,6 +1233,12 @@ export type ToWorker =
   | { type: "uncoding"; id: number; source: string; node: string }
   /** Tidy Code's patch of `node` as `state` shows it (PLAN 2.139). */
   | { type: "tidying"; id: number; source: string; state: string; node: string }
+  /** The patch that sets code text `node`'s lines in focus in `state` to those `said` names, in
+   * its gutter's numbers; nothing said clears it (PLAN 2.140). */
+  | { type: "focusing"; id: number; source: string; state: string; node: string; said: string }
+  /** Walk Through Lines…'s patch of code text `node` from `state`: the lines each step shows, in
+   * the gutter's numbers (PLAN 2.140). */
+  | { type: "walking"; id: number; source: string; state: string; node: string; steps: string[] }
   | { type: "italicizing"; id: number; source: string; state: string; node: string; from: number; to: number; format?: string }
   /** The theme the deck names, and the theme files the bundle holds (PLAN 2.39). */
   | { type: "themes"; id: number }
@@ -1489,6 +1504,20 @@ export interface Generate {
   /** Whether the outline is shown first (narrative FUNC-1): the arc, the big idea, and each beat's
    * claim, which the person settles before the slides are written; the slides at once where not. */
   outline?: boolean;
+  /** What a run that failed had paid for, which this one goes on from with no call made for it
+   * again (lift-up 20261110 REL-1). */
+  paid?: Paid;
+}
+
+/** What a deck being made from a prompt has paid for so far, kept by the page while the dialog
+ * is open, as the CLI keeps `.generating` (lift-up 20261110 REL-1): deep research's report, as
+ * the source it became; the arc chosen; the outline as the person settled it; and the slides as
+ * the model wrote them. A run given them asks for none of them again. */
+export interface Paid {
+  researched?: { name: string; text: string };
+  arc?: string;
+  settled?: StoryOutline;
+  slides?: string;
 }
 
 /** Narrato's brief (`scaena_narrato::Brief`): what the deck is about, in the user's words, and
@@ -1535,9 +1564,13 @@ export type GeneratingEvent =
   | { kind: "outlining" }
   | { kind: "outlined"; beats: number }
   | { kind: "settled"; beats: number }
+  /** One beat's claim asked for again (lift-up 20261110 FUNC-2): the claim, or why none came. */
+  | { kind: "claimed"; beat: number; claim?: string; why?: string }
   /** The outline, twice unreadable, passed over: the slides written without one (lift-up REL-3). */
   | { kind: "unoutlined" }
   | { kind: "writing"; slides: number }
+  | { kind: "continuing"; written: number; slides: number }
+  | { kind: "unrested"; why: string }
   | { kind: "retrying"; seconds: number; tried: number }
   | { kind: "wrote"; slides: number; truncated: boolean }
   /** The icon set could not be fetched: the slides that name icons are set without them. */
@@ -1686,6 +1719,10 @@ export interface Written {
 
 /** A question asked once of the model the assistant uses (PLAN 2.101): who answers it, with the
  * user's key, and what it is told and asked. */
+/** Why a writing tool's answer ended (lift-up 20261031 REL-5): `length`, cut off by its token
+ * limit, and `refused`, declined, are no answer to take. */
+export type WritingStop = "tools" | "end" | "length" | "refused" | "other";
+
 export interface WritingCall {
   provider: ProviderId;
   model: string;
@@ -1744,7 +1781,7 @@ export type AssistantEvent =
   | { kind: "usage"; input: number; output: number }
   /** It stopped: its answer is done (`end`), it ran out of room (`length`), it called tools
    * as many rounds as one question allows (`steps`), or the user stopped it (`stopped`). */
-  | { kind: "done"; stop: "tools" | "end" | "length" | "other" | "steps" | "stopped" }
+  | { kind: "done"; stop: "tools" | "end" | "length" | "refused" | "other" | "steps" | "stopped" }
   /** It failed: the provider refused, or the network did. */
   | { kind: "failed"; message: string };
 
@@ -2012,6 +2049,9 @@ export interface Linted {
   laid: boolean;
   whole: boolean;
   ms: number;
+  /** Dropped before it was done (lift-up 20261110 PERF-1): the deck changed while it was laid
+   * out, or a newer lint was asked for. It found nothing that stands. */
+  dropped?: boolean;
 }
 
 /** A state inspected (SPEC §7.1, `inspect --resolved --timeline`): its nodes resolved, each
@@ -2081,6 +2121,12 @@ export type FromWorker =
   /** The deck made from a prompt: the bundle's files by their paths, its name, and what it came
    * to. Kept nowhere until it is saved. */
   | { type: "generated"; files: Record<string, ArrayBuffer>; name: string; made: Generated }
+  /** What the deck being made has paid for, as each part arrives (lift-up 20261110 REL-1): what
+   * the page keeps to go on from should a later step fail. */
+  | { type: "paid"; paid: Paid }
+  /** A bundle's files as one `.scaena` zip, as `zipFiles` asked: a deck made that would not open,
+   * to download (lift-up 20261110 REL-1). */
+  | { type: "filesZipped"; id: number; bytes: ArrayBuffer }
   /** The bundle as `reload` read it again. */
   | ({ type: "reloaded"; id: number } & Opened)
   /** The frame request `id` asked for is on the canvas, `size` pixels, painted in `ms`. */
@@ -2146,7 +2192,7 @@ export type FromWorker =
   | { type: "codeWords"; id: number; words: string }
   | { type: "tidied"; id: number; text: string }
   | { type: "keyed"; id: number; keyed: Keyed | null }
-  | { type: "coding" | "uncoding" | "tidying"; id: number; patch: unknown[] }
+  | { type: "coding" | "uncoding" | "tidying" | "focusing" | "walking"; id: number; patch: unknown[] }
   | { type: "italicizing"; id: number; look: Record<string, unknown> }
   | { type: "themes"; id: number; themes: Themes }
   /** A theme chosen: what it did, as `theme --apply` says it, and unless it was refused, the
@@ -2258,7 +2304,7 @@ export type FromWorker =
   | { type: "assistant"; id: number; event: AssistantEvent }
   | { type: "models"; id: number; models: string[] }
   /** What a model wrote, asked once (PLAN 2.101), and the tokens it took. */
-  | { type: "wrote"; id: number; text: string; usage?: { input: number; output: number } }
+  | { type: "wrote"; id: number; text: string; stop: WritingStop; usage?: { input: number; output: number } }
   /** The CPU painter met a shader whose rows `count` more workers could share (PLAN 2.28): the
    * page starts each as it started this one, and hands this one a port to each (`helpers`). */
   | { type: "helpers"; count: number }

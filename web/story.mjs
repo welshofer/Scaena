@@ -3,6 +3,7 @@
 //
 //   node web/story.mjs     (after `just web`; from the repository's root)
 //
+// - The curve's legend keeps each mark with its words on one line (editor dogfood 2).
 // - At most five findings stand open, none of them an info: the warnings whose measure scores
 //   lowest. The rest, the infos among them, fold under one disclosure that counts them by kind
 //   ("20 more: 12 arc, …"), shut until it is opened, and opened it shows each of them, so every
@@ -34,6 +35,13 @@ try {
   await page.waitForFunction(() => window.scaena?.last(), null, { timeout: 120000 });
   await tab(page, "story");
   await page.waitForFunction(() => window.scaena.story.health() && document.querySelector("#story [data-findings] li"), null, { timeout: 120000 });
+
+  // The curve's legend: each mark with its words on one line, a narrow column wrapping between
+  // keys, never between a mark and what it means (editor dogfood 2).
+  const keys = await page.evaluate(() =>
+    [...document.querySelectorAll("#story [data-legend] > span")].map((k) => ({ words: k.textContent.trim(), lines: new Set([...k.getClientRects()].map((r) => Math.round(r.top))).size })),
+  );
+  check(keys.length === 9 && keys.every((k) => k.lines === 1), `the legend's keys each stand on one line: ${JSON.stringify(keys.filter((k) => k.lines !== 1).map((k) => k.words))} of ${keys.length}`);
 
   const findings = await page.evaluate(() => window.scaena.story.health().findings);
   check(findings.length > 5, `the deck has more to look at than five: ${findings.length}`);
@@ -73,6 +81,21 @@ try {
     return { severity: row?.dataset.severity, kind: row?.querySelector("p[data-kind]")?.dataset.kind, slide: row?.dataset.slide };
   });
   check(lead.severity === "error" && lead.kind === "layout", `the broken slide's error leads: ${JSON.stringify(lead)}`);
+  // Its severity is said in a word and drawn as a shape, not by its colour alone (lift-up 20261110
+  // USE-1, WCAG 1.4.1): its button is named "Error: Slide N", and each severity's shape differs.
+  const marked = await page.evaluate(() =>
+    [...document.querySelectorAll("#story [data-findings] li[data-slide]")].map((li) => {
+      const show = li.querySelector("[data-show]");
+      return { severity: li.dataset.severity, name: show.ariaLabel, text: show.textContent, shape: getComputedStyle(show, "::before").content };
+    }),
+  );
+  const word = { error: "Error", warning: "Warning", info: "Note" };
+  check(
+    marked.every((m) => m.name === `${word[m.severity]}: ${m.text}` && m.shape !== "none" && m.shape !== "normal"),
+    `each finding's slide is named by its severity, and drawn with a shape: ${JSON.stringify(marked.slice(0, 3))}`,
+  );
+  const shapes = new Map(marked.map((m) => [m.severity, m.shape]));
+  check(new Set(shapes.values()).size === shapes.size && shapes.size >= 2, `each severity its own shape: ${JSON.stringify([...shapes])}`);
   check(await page.evaluate(() => document.querySelector("#story [data-more] details")?.open === true), "the disclosure stays open as it was left");
 
   // A claim a headline typed on the canvas leaves behind (lift-up FUNC-2), on the revenue

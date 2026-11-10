@@ -81,7 +81,7 @@ const PAGE = "<h1>Tidewater in the press</h1><p>The Gulf's first carbon-negative
 /** Anthropic, scripted: what each request asks, and the state the walk sets (`slow`, `fail`, and
  * the `slides` it answers with, the recorded ones where none is set). */
 const requests = [];
-const state = { slow: 0, fail: false, slides: undefined, unreadable: false, looking: 0 };
+const state = { slow: 0, fail: false, refuse: undefined, slides: undefined, rest: undefined, unreadable: false, looking: 0 };
 const provider = createServer(async (req, res) => {
   const cors = {
     "access-control-allow-origin": req.headers.origin ?? "*",
@@ -112,7 +112,9 @@ const provider = createServer(async (req, res) => {
       ? "notes"
       : system.includes("art director")
       ? "look"
-      : system.includes("planning a presentation before its slides")
+      : system.includes("revising one beat")
+        ? "claim"
+        : system.includes("planning a presentation before its slides")
         ? "outline"
         : prompt.includes("=== CATALOG ===")
           ? "arc"
@@ -120,7 +122,7 @@ const provider = createServer(async (req, res) => {
   requests.push({ headers: req.headers, body, prompt, asked });
   if (state.slow) await new Promise((ok) => setTimeout(ok, state.slow));
   if (asked === "look" && state.looking) await new Promise((ok) => setTimeout(ok, state.looking));
-  if (state.fail) return reply(401, { type: "error", error: { type: "authentication_error", message: "invalid x-api-key" } });
+  if (state.fail || state.refuse === asked) return reply(401, { type: "error", error: { type: "authentication_error", message: "invalid x-api-key" } });
   if (asked === "arc") return reply(200, ARC);
   // The outline before the slides (narrative FUNC-1): the big idea and a claim for each of the
   // arc's six beats.
@@ -128,10 +130,16 @@ const provider = createServer(async (req, res) => {
     // An outline that comes back but does not read: prose, no JSON (lift-up REL-3).
     return reply(200, { content: [{ type: "text", text: "I would be glad to outline this talk." }], stop_reason: "end_turn" });
   }
+  // One beat's claim asked again (lift-up 20261110 FUNC-2).
+  if (asked === "claim") {
+    return reply(200, { content: [{ type: "text", text: JSON.stringify({ claim: "Asked again: carriers cannot cut it alone." }) }], stop_reason: "end_turn" });
+  }
   if (asked === "outline") {
     const beats = [1, 2, 3, 4, 5, 6].map((beat) => ({ beat, claim: `Claim ${beat}: what this beat's slides leave behind.` }));
     return reply(200, { content: [{ type: "text", text: JSON.stringify({ bigIdea: "Cargo can pay for its carbon.", beats }) }], stop_reason: "end_turn" });
   }
+  // The rest of slides cut short (lift-up REL-2), asked with the slides' own prompt.
+  if (asked === "slides" && state.rest && prompt.includes("CONTINUATION")) return reply(200, state.rest);
   if (asked === "slides") return reply(200, state.slides ?? SLIDES);
   // Each slide's notes for the talk (lift-up 10-25 ATTR-2): the first slide's, at the words asked.
   if (asked === "notes") {
@@ -154,6 +162,22 @@ await new Promise((ok) => provider.once("listening", ok));
 const origin = `http://127.0.0.1:${provider.address().port}`;
 
 const site = await serve();
+/** Each recovery copy the browser keeps, as the paths of its files. */
+const copies = (page) =>
+  page.evaluate(async () => {
+    const all = await (await navigator.storage.getDirectory()).getDirectoryHandle("recovery").catch(() => null);
+    const each = [];
+    const walk = async (dir, at) => {
+      const paths = [];
+      for await (const [name, handle] of dir.entries()) {
+        if (handle.kind === "directory") paths.push(...(await walk(handle, `${at}${name}/`)));
+        else paths.push(`${at}${name}`);
+      }
+      return paths;
+    };
+    if (all) for await (const [, handle] of all.entries()) if (handle.kind === "directory") each.push((await walk(handle, "")).sort().join(","));
+    return each;
+  });
 const browser = await launch();
 try {
   const page = await browser.newPage({ viewport: { width: 1600, height: 1000 }, deviceScaleFactor: 1 });
@@ -350,6 +374,9 @@ try {
   await page.click("#prompting-go");
   await page.waitForFunction(() => [...document.querySelectorAll("#prompting-progress li")].some((l) => l.textContent.startsWith("Choosing the arc")), null, { timeout: 60000 });
   check(await leaving(), "leaving the page while a deck is being made asks first");
+  // The progress scrolls once it runs past its room: the keys reach it to scroll it, as a pointer
+  // does (WCAG 2.1.1; axe's scrollable-region-focusable, editor dogfood 1).
+  check(await page.evaluate(() => document.querySelector("#prompting-progress").tabIndex === 0), "the keys reach the progress, which scrolls");
   page.off("dialog", accepting);
   const askedFirst = [];
   const declining = (d) => (askedFirst.push(d.message()), d.dismiss());
@@ -699,10 +726,152 @@ try {
   check(!dashed.includes("alt:Acorn") && !dashed.includes("alt:Lightning"), "the dashed list keeps its words, under no icon");
   state.slides = undefined;
 
+  // A made deck edited and kept nowhere, its page gone as a crash takes it: the editor opened
+  // again lists it among the decks not saved, and Recover opens it again with the edit, still
+  // kept nowhere (lift-up REL-4).
+  const trips = await page.evaluate(() => window.scaena.trips().length);
+  await page.evaluate((t) => window.scaena.type(t), dashed.replace("Why Tidewater wins", "Why Tidewater still wins"));
+  await page.waitForFunction((n) => window.scaena.trips().length > n, trips, { timeout: 60000, polling: 50 });
+  await page.evaluate(() => window.scaena.keepCopy());
+  await page.reload();
+  const left = page.locator("#leftovers[open]");
+  await left.waitFor({ timeout: 60000 }).catch(() => {});
+  const leftList = await page.locator("#leftovers li span").allTextContents();
+  const titled = JSON.parse(dashed.match(/^deck (".*?(?<!\\)")/m)?.[1] ?? '""');
+  check(leftList.length === 1 && Boolean(titled) && leftList[0].startsWith(`${titled}, changed `), `the editor opened again lists the made deck not saved, by its title: ${leftList.join(" | ")}`);
+  await page.click("#leftovers li button:text('Recover')");
+  await page
+    .waitForFunction(() => window.scaena.source().includes("Why Tidewater still wins") && window.scaena.last(), null, { timeout: 120000 })
+    .catch(() => {});
+  const recovered = await page.evaluate(() => ({ source: window.scaena.source(), where: window.scaena.where() }));
+  check(
+    recovered.source.includes("Why Tidewater still wins") && recovered.source.includes("alt:Compass") && recovered.where.where === undefined && recovered.where.dirty,
+    `Recover opens it again with the edit, its icons and all, kept nowhere: ${JSON.stringify(recovered.where)}`,
+  );
+
+  // Discarded from the list, the copy goes with the deck's files it carried: nothing of it is
+  // left in the browser's storage.
+  await page.evaluate(() => window.scaena.keepCopy());
+  const carrying = await copies(page);
+  check(carrying.length === 1 && carrying[0].includes("bundle/deck.json"), `the copy carries the deck's files: ${carrying.join(" | ")}`);
+  await page.reload();
+  await left.waitFor({ timeout: 60000 }).catch(() => {});
+  await page.click("#leftovers li button:text('Discard')");
+  await page.waitForFunction(() => !document.querySelector("#leftovers")?.open, null, { timeout: 10000 }).catch(() => {});
+  const discarded = await copies(page);
+  check(discarded.length === 0, `Discard takes the copy away, the deck's files with it: ${discarded.join(" | ") || "none left"}`);
+
+  // Slides cut short of the length asked are asked for the rest, written on from them (lift-up
+  // REL-2): the deck is the two answers as one, and the progress says so.
+  {
+    const written = JSON.parse(JSON.parse(SLIDES).content.find((c) => c.type === "text").text);
+    const first = JSON.stringify({ executiveSummary: written.executiveSummary, slides: written.slides.slice(0, 3) });
+    const cut = `${first.slice(0, -2)}, {"slideTitle": "Cut`;
+    state.slides = JSON.stringify({ content: [{ type: "text", text: cut }], stop_reason: "max_tokens" });
+    // The rest's last slide titled in words of its own, so the deck made is not the one the slides
+    // whole make, which the walk after this one makes and waits to see.
+    const rest = written.slides.slice(3).map((s, i, all) => (i === all.length - 1 ? { ...s, slideTitle: `${s.slideTitle}, written on` } : s));
+    state.rest = JSON.stringify({
+      content: [{ type: "text", text: JSON.stringify({ executiveSummary: "", slides: rest }) }],
+      stop_reason: "end_turn",
+    });
+  }
+  requests.length = 0;
+  // The page was opened again since the brief was last filled in, so its topic is asked anew, and
+  // the deck it opened is settled before the one made is waited for.
+  await page.waitForFunction(() => window.scaena.source() && window.scaena.last(), null, { timeout: 60000 }).catch(() => {});
+  const restWas = await page.evaluate(() => window.scaena.source());
+  await opened();
+  await page.fill("#prompting-topic", "Pitch a Series A round for our carbon-negative cargo platform.");
+  await page.uncheck("#prompting-show-outline");
+  await page.click("#prompting-go");
+  await page
+    .waitForFunction((was) => window.scaena.source() !== was && window.scaena.last(), restWas, { timeout: 180000 })
+    .catch(() => {});
+  const rested = await page.evaluate(() => window.scaena.source());
+  check((rested.match(/^state /gm) ?? []).length === 5, `the deck is both answers' slides: ${(rested.match(/^state /gm) ?? []).length}`);
+  const continued = requests.filter((r) => r.asked === "slides");
+  check(continued.length === 2 && continued[1].prompt.includes("cut off after slide 3 of"), `the rest is asked once, after the three written: ${continued.length}`);
+  const restLines = await lines();
+  check(restLines.some((l) => l.startsWith("The answer was cut short after 3 slides: asking for the rest of")), `the progress says the rest is asked for: ${restLines.join(" | ")}`);
+  check(restLines.some((l) => l === "5 slides written"), `and the slides written whole: ${restLines.join(" | ")}`);
+  state.slides = state.rest = undefined;
+
+  // The outline shaped by the person survives another take (lift-up 20261110 FUNC-2): one beat asked
+  // again alone, every other claim fixed; then Outline again keeps the claim they typed.
+  await page
+    .waitForSelector("#recovering[open]", { timeout: 5000 })
+    .then(() => page.click("#recovering [value=discard]"))
+    .catch(() => {});
+  await opened();
+  await page.check("#prompting-show-outline");
+  await page.click("#prompting-go");
+  await page.waitForSelector("#prompting-outline:not([hidden])", { timeout: 120000 });
+  const ownClaim = "Every container already carries a carbon price, unpaid.";
+  await page.locator("#prompting-beats .claim").nth(1).fill(ownClaim);
+  const takeFrom = requests.length;
+  await page.locator("#prompting-beats li").nth(2).locator("button[aria-label=\"Ask for this beat's claim again\"]").click();
+  await page
+    .waitForFunction(() => document.querySelectorAll("#prompting-beats .claim")[2]?.value.startsWith("Asked again"), null, { timeout: 60000 })
+    .catch(() => {});
+  const take = requests.slice(takeFrom);
+  const retaken = await page.locator("#prompting-beats .claim").evaluateAll((all) => all.map((c) => c.value));
+  check(take.map((r) => r.asked).join() === "claim" && retaken[2] === "Asked again: carriers cannot cut it alone.", `one beat is asked again alone: ${take.map((r) => r.asked)} | ${retaken[2]}`);
+  check(take[0]?.prompt.includes(`: ${ownClaim}`) && take[0].prompt.includes("(to write again)"), "the others are held as they stand, the typed claim among them");
+  check(retaken[1] === ownClaim && retaken[0].startsWith("Claim 1:"), `the other claims stay as they were: ${retaken.slice(0, 2).join(" | ")}`);
+  const againFrom = requests.length;
+  await page.click("#prompting-outline-again");
+  await page.waitForFunction((n) => !document.querySelector("#prompting-outline").hidden && document.querySelectorAll("#prompting-beats li").length === n, 6, { timeout: 120000 }).catch(() => {});
+  const again = requests.slice(againFrom).filter((r) => r.asked === "outline");
+  const outlinedAgain = await page.locator("#prompting-beats .claim").evaluateAll((all) => all.map((c) => c.value));
+  check(again.length === 1 && again[0].prompt.includes("The user has written these claims themselves") && again[0].prompt.includes(ownClaim), "Outline again tells the model the claim typed");
+  check(outlinedAgain[1] === ownClaim && outlinedAgain[0].startsWith("Claim 1:"), `the claim typed stands in its beat, the rest the model's: ${outlinedAgain.slice(0, 2).join(" | ")}`);
+  await page.click("#prompting-cancel");
+  await page.waitForFunction(() => !document.querySelector("#prompting").open, null, { timeout: 10000 }).catch(() => {});
+
+  // A run that fails once the outline is settled keeps what it paid for (lift-up 20261110 REL-1):
+  // Go on from what was made writes the slides to the outline as the person settled it, asking for
+  // neither the arc nor the outline again.
+  await page
+    .waitForSelector("#recovering[open]", { timeout: 5000 })
+    .then(() => page.click("#recovering [value=discard]"))
+    .catch(() => {});
+  await opened();
+  await page.check("#prompting-show-outline");
+  state.refuse = "slides";
+  await page.click("#prompting-go");
+  await page.waitForSelector("#prompting-outline:not([hidden])", { timeout: 120000 });
+  const typed = "Freight carbon is a cost a shipper can price";
+  await page.locator("#prompting-beats li .claim").first().fill(typed);
+  await page.click("#prompting-write");
+  const unwritten = await failed();
+  check(unwritten.includes("didn't accept your key"), `the slides are refused: ${unwritten}`);
+  const keptLine = (await page.textContent("#prompting-kept")) ?? "";
+  check(
+    (await page.isVisible("#prompting-go-on")) && keptLine.includes("the outline as you settled it") && keptLine.includes("Problem–Solution"),
+    `what was paid for is kept, and Go on is offered: ${keptLine}`,
+  );
+  state.refuse = undefined;
+  const goingFrom = requests.length;
+  const unGoneOn = await page.evaluate(() => window.scaena.source());
+  await page.click("#prompting-go-on");
+  await page
+    .waitForFunction((was) => window.scaena.source() !== was && window.scaena.last(), unGoneOn, { timeout: 180000 })
+    .catch(() => {});
+  const goneOn = requests.slice(goingFrom);
+  check(
+    !goneOn.some((r) => r.asked === "arc" || r.asked === "outline") && goneOn.filter((r) => r.asked === "slides").length === 1,
+    `going on asks for the slides alone: ${goneOn.map((r) => r.asked)}`,
+  );
+  check(goneOn.find((r) => r.asked === "slides")?.prompt.includes(typed), "the slides are written to the claim the person typed");
+  check((await page.evaluate(() => window.scaena.source())) !== unGoneOn, "and the deck is made");
+
   // An outline that never reads (lift-up REL-3): asked twice, then the dialog says why and offers to
   // write the slides without one, on the arc already chosen, which makes the deck.
   state.unreadable = true;
   await opened();
+  // The page was opened again since the brief was last filled in, so its topic is asked anew.
+  await page.fill("#prompting-topic", "Pitch a Series A round for our carbon-negative cargo platform.");
   await page.check("#prompting-show-outline");
   const unreadFrom = requests.length;
   await page.click("#prompting-go");
