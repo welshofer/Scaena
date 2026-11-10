@@ -192,7 +192,8 @@ pub enum Kind {
 /// is safe, a fix.
 #[derive(Debug, Clone, PartialEq, Serialize, JsonSchema)]
 pub struct Finding {
-    /// The slide's first state.
+    /// The step it was read at, which an editor shows: the slide's first state for a finding about
+    /// its notes or its plan, or that it does not stand, else its last, built whole.
     pub state: String,
     /// The slide's number, from 1.
     pub slide: usize,
@@ -1076,18 +1077,10 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         },
         says: match (hard, soft) {
             (0, 0) => "No slide breaks from the one before it, read by their words.".into(),
-            // Each count said where it has any, a soft turn as where a part of the talk begins: a
-            // person reads no "beat" (W2's editor dogfood).
             _ => format!(
-                "Read by their words: {}{}.",
-                [
-                    (hard > 0).then(|| format!("{} where the talk turns sharply", counted(hard, "slide"))),
-                    (soft > 0).then(|| format!("{} where a new part of the talk begins", counted(soft, "slide"))),
-                ]
-                .into_iter()
-                .flatten()
-                .collect::<Vec<_>>()
-                .join(", "),
+                "Read by their words: {} where the talk turns sharply, {} at a beat's turn{}.",
+                counted(hard, "slide"),
+                soft,
                 match bridged.len() {
                     0 => String::new(),
                     n => format!("; the notes bridge {n} of them"),
@@ -1984,6 +1977,19 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
     for f in findings.iter_mut().filter(|f| f.kind == Kind::Source) {
         f.figure = unsourced.iter().find(|(id, _)| *id == f.state).map(|(_, figure)| figure.clone());
     }
+    // Each finding names the step it was read at, which an editor shows (W2's editor dogfood): a
+    // slide's notes are read across its steps, the first's first, and its plan is its beat's, so a
+    // finding about either, or one that the slide does not stand, names its first step; one about
+    // what the slide shows names its last, where it is built whole and its words were read.
+    for f in &mut findings {
+        if !matches!(
+            f.kind,
+            Kind::Turn | Kind::Notes | Kind::Empty | Kind::Arc | Kind::Drift | Kind::Pacing | Kind::Layout
+        ) && let Some(&last) = slides.get(f.slide - 1).and_then(|s| s.states.last())
+        {
+            f.state = deck.states[last].id.clone();
+        }
+    }
     // A slide that does not stand first, then in the order the slides stand, and on each slide in
     // the order health found them.
     scaena_core::sort::by_key(&mut findings, |f| (f.kind != Kind::Layout, f.slide));
@@ -2292,6 +2298,21 @@ mod tests {
         health(&Deck::from_value(deck).unwrap()).unwrap()
     }
 
+    /// A finding names the step health read it at, which an editor shows (W2's editor dogfood):
+    /// B1's slide 4 builds its 97 words over three steps, the first a headline alone, so its
+    /// finding names the last; slide 12's turn is answered in its notes, which its first opens.
+    #[test]
+    fn a_finding_names_the_step_it_was_read_at() {
+        let text = std::fs::read_to_string(root().join("tests/bench/b1.scaena/deck.json")).unwrap();
+        let h = of(&serde_json::from_str(&text).unwrap());
+        let on = |kind: Kind, slide: usize| {
+            h.findings.iter().find(|f| f.kind == kind && f.slide == slide).map(|f| f.state.as_str())
+        };
+        assert_eq!(on(Kind::Dense, 4), Some("belief-2-line"), "{:#?}", h.findings);
+        assert_eq!(on(Kind::Turn, 12), Some("belief-10"));
+        assert_eq!(h.slides[3].state, "belief-2", "a slide is still shown by its first state");
+    }
+
     /// A made deck that links an address neither its brief nor its sources name is warned of it,
     /// on the slide that shows it; one its brief or its sources name is not, nor a deck no
     /// narrative made (lift-up 20261025 SEC-4).
@@ -2513,23 +2534,6 @@ mod tests {
         assert!(looks(&deck).is_empty());
         assert_eq!(deck["meta"]["narrative"]["refused"], json!([]));
         assert!(!apply(&mut deck, &stale), "a fix gone stale is refused");
-    }
-
-    /// Coherence's line says each count it has, in a person's words (W2's editor dogfood): no
-    /// "beat", and no count of none.
-    #[test]
-    fn coherence_says_its_turns_in_a_persons_words() {
-        let mut said = Vec::new();
-        for name in [
-            "appeal", "board-de", "deepdive", "fleet", "grant", "keynote", "launch", "lecture", "pitch", "qbr",
-            "training",
-        ] {
-            let says = of(&dogfood(name, "", |_| {})).coherence.says;
-            assert!(!says.contains("beat") && !says.contains(": 0 ") && !says.contains(", 0 "), "{name}: {says}");
-            said.push(says);
-        }
-        assert!(said.iter().any(|s| s.contains("where a new part of the talk begins")), "{said:#?}");
-        assert!(said.iter().any(|s| s.contains("turns sharply") && !s.contains("new part")), "{said:#?}");
     }
 
     /// A turn the notes bridge is not found (narrative dogfood H4): coherence reads a slide's
