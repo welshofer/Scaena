@@ -69,6 +69,7 @@ enum Exporting {
         case .notes: "The PDF with the notes is made"
         case .png: "The PNG is made"
         case .slides: "A PNG of every slide is made"
+        case .html: "The HTML file is made"
         }
     }
 

@@ -112,7 +112,15 @@ type Point = [number, number];
 
 /** Where the player is, as it tells the presenter view: the place, the format, whether the
  * screen is black or white or the laser on, and whether the show is over. */
-type Follow = { type: "at"; format?: string; blank?: Blank; laser?: boolean; ended?: boolean } & At;
+type Follow = { type: "at"; format?: string; blank?: Blank; laser?: boolean; ended?: boolean; timer?: Timer } & At;
+/** The presenter's timer (PLAN 2.121), which the room's player keeps for its presenter view
+ * (lift-up 20261110 REL-5), so a view reloaded or opened again shows the time the talk has run:
+ * when it last ran on, a time of day in ms since the epoch, none while it is paused or before the
+ * show begins; what it counted before then, ms; whether Pause holds it; whether the show has
+ * begun; and how many times it has changed, the newest winning. */
+type Timer = { since?: number; counted: number; held: boolean; begun: boolean; n: number };
+/** The time `timer` has counted, ms, at the time of day `now`. */
+const counted = (timer: Timer, now = Date.now()) => timer.counted + (timer.since === undefined ? 0 : Math.max(0, now - timer.since));
 /** Where the laser points, as the player tells the presenter view: none where it is off, or off
  * the slide. */
 type Pointed = { type: "pointed"; laser: boolean; point: Point | null };
@@ -123,7 +131,11 @@ type Gone = { type: "gone" };
 type Steer =
   | { type: "on" | "back" | "first" | "last" | "hello" | "black" | "white" | "laser" }
   | { type: "slide"; number: number }
-  | { type: "point"; at: Point | null };
+  | { type: "point"; at: Point | null }
+  | { type: "timer"; timer: Timer }
+  /** Where the player is, from a presenter view opened anew rather than reloaded (lift-up 20261110
+   * REL-5). */
+  | { type: "hello"; fresh: true };
 
 /** Play the bundle at `deck`: the player, or, at `?view=presenter`, its presenter view. */
 export function start(deck: Source, how: Play): Promise<void> {
@@ -440,6 +452,38 @@ async function play(deck: Source, how: Play, channel: BroadcastChannel) {
   const tell = (message: Follow | Pointed) => {
     if (!away) channel.postMessage(message);
   };
+  // The presenter's timer, kept here for the presenter view and in this tab's session storage
+  // under the deck's channel, so reloading either window keeps it (lift-up 20261110 REL-5).
+  const timerKey = `${how.channel} timer`;
+  let timer: Timer = { counted: 0, held: false, begun: false, n: 0 };
+  try {
+    const kept = JSON.parse(sessionStorage.getItem(timerKey) ?? "null") as Timer | null;
+    if (kept && typeof kept.counted === "number" && typeof kept.n === "number") timer = kept;
+  } catch {
+    // None kept, or none readable: the show begins again.
+  }
+  const forgetTimer = () => {
+    try {
+      sessionStorage.removeItem(timerKey);
+    } catch {
+      // Nothing was kept.
+    }
+  };
+  /** Whether the show has ended since it began: begun again from its first slide, it starts at
+   * 0:00. */
+  let showOver = false;
+  /** A new show, which keeps nothing of the one before but whether Pause holds the timer. */
+  const startOver = () => {
+    if (timer.begun || timer.counted) keepTimer({ counted: 0, held: timer.held, begun: false, n: timer.n + 1 });
+  };
+  const keepTimer = (to: Timer) => {
+    timer = to;
+    try {
+      sessionStorage.setItem(timerKey, JSON.stringify(to));
+    } catch {
+      // A browser that keeps nothing keeps the timer for as long as this page is open.
+    }
+  };
 
   // A link on the slide at rest shows a hand under the pointer, as a click there follows it and
   // does not go on (PLAN 2.70); the laser hides the pointer instead. One question at a time: an
@@ -485,7 +529,15 @@ async function play(deck: Source, how: Play, channel: BroadcastChannel) {
     scrub.value = String(scrubbed(at));
     const valued = slots[at.index].said ?? `${at.index + 1} of ${slots.length}`;
     if (scrub.getAttribute("aria-valuetext") !== valued) scrub.setAttribute("aria-valuetext", valued);
-    tell({ type: "at", ...at, format: format(), blank, laser, ended });
+    // The show begins the first time the deck plays or goes past its first slide (lift-up USE-2).
+    // One that has ended begins again, at 0:00, once the deck stands on its first slide again
+    // (lift-up 20261110 REL-5).
+    const first = at.index === 0 && !at.playing;
+    if (showOver && first) {
+      showOver = false;
+      startOver();
+    } else if (!timer.begun && !first) keepTimer({ ...timer, begun: true, since: timer.held ? undefined : Date.now(), n: timer.n + 1 });
+    tell({ type: "at", ...at, format: format(), blank, laser, ended, timer });
     void read?.(slots[at.index].state, format());
   };
   const measure = meter();
@@ -556,6 +608,12 @@ async function play(deck: Source, how: Play, channel: BroadcastChannel) {
     if (ended === to) return;
     ended = to;
     end.hidden = !ended;
+    // A show that has ended is kept no longer: this tab reloaded begins a new one, at 0:00, while
+    // the views open go on showing how long this one ran.
+    if (ended) {
+      forgetTimer();
+      showOver = true;
+    }
     // The laser goes with the slide, and comes back with it.
     drawDot();
     report(stage.at);
@@ -892,7 +950,14 @@ async function play(deck: Source, how: Play, channel: BroadcastChannel) {
     else if (data.type === "slide") slide(data.number);
     else if (data.type === "laser") lasering();
     else if (data.type === "point") pointAt(data.at);
-    else if (data.type === "hello") {
+    else if (data.type === "timer") {
+      // Paused, run on, or reset in the presenter view: kept, and told back to every view.
+      if (data.timer.n >= timer.n) keepTimer(data.timer);
+      report(stage.at);
+    } else if (data.type === "hello") {
+      // A presenter view opened anew, not one reloaded, while the deck stands on its first slide is
+      // a new show, at 0:00; one opened again mid-talk takes up the talk's time.
+      if ("fresh" in data && data.fresh && stage.at.index === 0 && !stage.at.playing) startOver();
       report(stage.at);
       pointAt(point);
     }
@@ -1237,7 +1302,7 @@ async function presentView(deck: Source, how: Play, channel: BroadcastChannel) {
   /** Ask where the player is; with no answer in `ms`, say `words`. */
   const hello = (words: string, again: string, ms: number) => {
     heard = false;
-    steer({ type: "hello" });
+    steer(fresh ? { type: "hello", fresh } : { type: "hello" });
     clearTimeout(waiting);
     waiting = setTimeout(() => alone(words, again), ms);
   };
@@ -1269,21 +1334,22 @@ async function presentView(deck: Source, how: Play, channel: BroadcastChannel) {
   // The timer (PLAN 2.121), as a presentation app's presenter's: the time since this view opened,
   // which Pause stops and runs on, and Reset puts back to 0:00, running or paused as it was; and
   // beside it the time of day.
-  /** When the timer last ran on, none while it is paused or the show has not begun, and what it
-   * counted before that, ms. It starts with the show (lift-up USE-2): the first time the player
-   * plays or goes past the first slide, or at once where the show is under way when this view
-   * opens, so it says how long the talk ran, not how long this view was open. */
-  let since: number | undefined;
-  let counted = 0;
-  /** Whether the show has begun, and whether Pause holds the timer. */
-  let begun = false;
-  let held = false;
-  const begin = (at: At) => {
-    if (begun || (at.index === 0 && !at.playing)) return;
-    begun = true;
-    if (!held) since = performance.now();
-  };
-  const elapsed = () => counted + (since === undefined ? 0 : performance.now() - since);
+  /** The timer as the player keeps it (lift-up 20261110 REL-5): it starts with the show (lift-up
+   * USE-2), the first time the player plays or goes past the first slide, so it says how long the
+   * talk ran, not how long this view was open, and a view reloaded or opened again takes it up
+   * where it stands. None heard yet, it waits at 0:00. */
+  let timer: Timer = { counted: 0, held: false, begun: false, n: -1 };
+  /** Whether this view was opened anew, not reloaded, and has not yet heard the player: its hello
+   * says so, and on the deck's first slide the player begins a new show (lift-up 20261110 REL-5). */
+  const viewed = `${how.channel} view`;
+  let fresh = true;
+  try {
+    fresh = sessionStorage.getItem(viewed) === null;
+    sessionStorage.setItem(viewed, "1");
+  } catch {
+    // A browser that keeps nothing: every load of this view is a new one.
+  }
+  const elapsed = () => counted(timer);
   const minutes = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
   /** The state the room sees, by its index. */
   let up = 0;
@@ -1295,7 +1361,7 @@ async function presentView(deck: Source, how: Play, channel: BroadcastChannel) {
     // Ahead or behind the plan: the time run beside the time planned before the state up, once
     // the show has begun; within a few seconds of it, on plan.
     const story = slots[up]?.story;
-    const off = story && begun && planned() ? Math.round(elapsed() / 1000 - story.before) : undefined;
+    const off = story && timer.begun && planned() ? Math.round(elapsed() / 1000 - story.before) : undefined;
     $("#pace").textContent =
       off === undefined ? "" : Math.abs(off) < 5 ? "On plan" : `${minutes(Math.abs(off))} ${off > 0 ? "behind" : "ahead"}`;
     $("#now").textContent = new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
@@ -1306,20 +1372,28 @@ async function presentView(deck: Source, how: Play, channel: BroadcastChannel) {
   // does: Space and Return go on after it, and do not press it again. Tab reaches each, and then
   // its own keys press it.
   for (const button of [pause, reset]) button.onmousedown = (e) => e.preventDefault();
+  /** The timer as it is now shown: its time, and Pause or Resume. */
+  const timed = () => {
+    pause.textContent = timer.held ? "Resume" : "Pause";
+    pause.title = timer.held ? "Run the timer on" : "Pause the timer";
+    document.body.classList.toggle("paused", timer.held);
+    clock();
+  };
+  /** The timer changed here: shown at once, and told to the player, which keeps it. */
+  const retime = (to: Omit<Timer, "n">) => {
+    timer = { ...to, n: timer.n + 1 };
+    steer({ type: "timer", timer });
+    timed();
+  };
   pause.onclick = () => {
-    held = !held;
-    if (held) [counted, since] = [elapsed(), undefined];
-    else if (begun) since = performance.now();
-    pause.textContent = held ? "Resume" : "Pause";
-    pause.title = held ? "Run the timer on" : "Pause the timer";
-    document.body.classList.toggle("paused", held);
-    clock();
+    const now = Date.now();
+    retime(
+      timer.held
+        ? { ...timer, held: false, since: timer.begun ? now : undefined }
+        : { ...timer, held: true, counted: counted(timer, now), since: undefined },
+    );
   };
-  reset.onclick = () => {
-    counted = 0;
-    if (since !== undefined) since = performance.now();
-    clock();
-  };
+  reset.onclick = () => retime({ ...timer, counted: 0, since: timer.since === undefined ? undefined : Date.now() });
   clock();
   // A tick four times a second keeps the timer within a quarter second of the time it counts.
   setInterval(clock, 250);
@@ -1409,7 +1483,12 @@ async function presentView(deck: Source, how: Play, channel: BroadcastChannel) {
       heard = true;
       for (const button of buttons) button.disabled = false;
     }
-    begin(data);
+    fresh = false;
+    // The timer as the player keeps it, where it is newer than the one shown here.
+    if (data.timer && data.timer.n > timer.n) {
+      timer = data.timer;
+      timed();
+    }
     // What the room sees while its screen is black or white, or the show is over, said over the
     // slide shown here.
     const sees = data.blank
@@ -1456,7 +1535,7 @@ async function presentView(deck: Source, how: Play, channel: BroadcastChannel) {
        * show is over (PLAN 2.120). */
       blanked: () => (blanked.hidden ? null : blanked.textContent),
       /** The timer as it reads, and whether it is paused (PLAN 2.121). */
-      timer: () => ({ shows: $("#clock").textContent, paused: held, now: $("#now").textContent }),
+      timer: () => ({ shows: $("#clock").textContent, paused: timer.held, now: $("#now").textContent }),
       /** Where the talk is, and how it stands against the plan (lift-up FUNC-2). */
       story: () => ({ story: $("#story").textContent, pace: $("#pace").textContent }),
       /** Where the laser points on the slide, as the player says, or null. */

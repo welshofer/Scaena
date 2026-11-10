@@ -169,6 +169,8 @@ pub struct Research {
     state: State,
     /// What the agent says of its progress, as it says it.
     pub progress: Option<String>,
+    /// The busy answers to the request now asked, in a row (lift-up 10-25b REL-4).
+    tried: usize,
 }
 
 #[derive(Debug)]
@@ -209,6 +211,7 @@ impl Research {
             prompt: prompt(asked),
             state,
             progress: None,
+            tried: 0,
         })
     }
 
@@ -271,6 +274,16 @@ impl Research {
 
     /// The answer to the last request: its status, its reason, and its body. What to do next.
     pub fn answer(&mut self, key: &str, status: u16, status_text: &str, body: &str) -> Result<Next, NarratoError> {
+        // A busy answer, while the agent is asked to start, polled, or searching, asks the same
+        // again after a wait, as a slide is asked, up to TRIES (lift-up 10-25b REL-4): one 503
+        // in thirty minutes of polling ends no research.
+        if !matches!(self.state, State::Done)
+            && let Some(wait) = crate::retry_after(status, body, None, self.tried)
+        {
+            self.tried += 1;
+            return Ok(Next::Wait { ms: (wait * 1000.0) as u64, then: self.start(key) });
+        }
+        self.tried = 0;
         if status == 0 {
             return Err(NarratoError::Provider(format!("the request did not complete: {status_text}")));
         }
@@ -534,6 +547,36 @@ mod tests {
         failed.answer("k", 200, "OK", r#"{"name":"interactions/xyz"}"#).unwrap();
         let e = failed.answer("k", 200, "OK", r#"{"status":"failed","error":{"message":"quota"}}"#).unwrap_err();
         assert!(e.to_string().contains("quota"));
+    }
+
+    #[test]
+    fn a_busy_answer_while_polling_or_searching_asks_again() {
+        let mut r = Research::new(&asked(), Provider::Gemini, "", None, false).unwrap();
+        let Next::Send(poll) = r.answer("k", 200, "OK", r#"{"id":"abc"}"#).unwrap() else { panic!() };
+        // One 503 mid-poll waits and polls again, counting no poll; a good answer resets the count.
+        for _ in 0..2 {
+            for _ in 1..crate::TRIES {
+                let Next::Wait { then, .. } = r.answer("k", 503, "Service Unavailable", "").unwrap() else { panic!() };
+                assert_eq!(then.url, poll.url);
+            }
+            let going = r#"{"status":"in_progress"}"#;
+            assert!(matches!(r.answer("k", 200, "OK", going).unwrap(), Next::Wait { ms: POLL_MS, .. }));
+        }
+        for _ in 1..crate::TRIES {
+            r.answer("k", 0, "connection reset", "").unwrap();
+        }
+        let e = r.answer("k", 0, "connection reset", "").unwrap_err();
+        assert!(e.to_string().contains("did not complete"), "{e}");
+
+        let mut s = Research::new(&asked(), Provider::Anthropic, "m", None, false).unwrap();
+        let first = s.start("sk");
+        let Next::Wait { then, .. } =
+            s.answer("sk", 529, "Overloaded", r#"{"error":{"type":"overloaded_error"}}"#).unwrap()
+        else {
+            panic!()
+        };
+        assert_eq!(then.body, first.body);
+        assert!(s.answer("sk", 401, "Unauthorized", r#"{"error":{"message":"bad key"}}"#).is_err());
     }
 
     #[test]

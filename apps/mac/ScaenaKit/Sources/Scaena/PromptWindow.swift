@@ -916,7 +916,7 @@ struct PromptView: View {
                         say(GeneratingStep.reading(url.lastPathComponent).words)
                         let reading = url.startAccessingSecurityScopedResource()
                         defer { if reading { url.stopAccessingSecurityScopedResource() } }
-                        say(try generator.add(name: url.lastPathComponent, data: try Data(contentsOf: url)).words)
+                        say(try await generator.add(contentsOf: url).words)
                     case .link(let link):
                         say(GeneratingStep.reading(link).words)
                         let read = try await generator.fetch(
@@ -926,8 +926,14 @@ struct PromptView: View {
                     try Task.checkCancellation()
                 }
                 if research {
-                    try await generator.research(brief: brief, provider: provider, model: model, key: key) {
-                        say($0.words)
+                    do {
+                        try await generator.research(brief: brief, provider: provider, model: model, key: key) {
+                            say($0.words)
+                        }
+                    } catch where !given.isEmpty && !Task.isCancelled && !(error is CancellationError) {
+                        // A research that fails goes on from the files and links given, where there
+                        // are any (lift-up 10-25b REL-4); with none, it stops the deck.
+                        say(GeneratingStep.unresearched(Why.said(error)).words)
                     }
                     try Task.checkCancellation()
                 }

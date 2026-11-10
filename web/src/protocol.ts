@@ -1424,6 +1424,10 @@ export type ToWorker =
   | { type: "stop" }
   /** Start a new conversation with the assistant. */
   | { type: "forget" }
+  /** The assistant's conversation as it may be kept (lift-up 20261110 FUNC-4). */
+  | { type: "conversation"; id: number }
+  /** Go on from a conversation kept: the next question follows it. */
+  | { type: "resume"; messages: unknown[] }
   /** The models `key` can use at `provider`. */
   | { type: "models"; id: number; provider: ProviderId; key: string; base?: string }
   /** Ask a model once, with the user's key and nothing to call (PLAN 2.101): its words. */
@@ -1553,6 +1557,7 @@ export type GeneratingEvent =
   | { kind: "researching"; topic: string }
   | { kind: "researchingNow"; doing: string }
   | { kind: "researched"; sources: number; cut: boolean }
+  | { kind: "unresearched"; why: string }
   | { kind: "choosing" }
   | { kind: "chose"; arc: string; fallback?: string }
   /** The outline before the slides (narrative FUNC-1): asked, written with this many beats, and
@@ -2043,6 +2048,9 @@ export interface Linted {
   laid: boolean;
   whole: boolean;
   ms: number;
+  /** Dropped before it was done (lift-up 20261110 PERF-1): the deck changed while it was laid
+   * out, or a newer lint was asked for. It found nothing that stands. */
+  dropped?: boolean;
 }
 
 /** A state inspected (SPEC §7.1, `inspect --resolved --timeline`): its nodes resolved, each
@@ -2304,6 +2312,8 @@ export type FromWorker =
   /** A step of the assistant's answer to `ask` request `id`. */
   | { type: "assistant"; id: number; event: AssistantEvent }
   | { type: "models"; id: number; models: string[] }
+  /** The assistant's conversation as it may be kept (lift-up 20261110 FUNC-4). */
+  | { type: "conversation"; id: number; messages: unknown[] }
   /** What a model wrote, asked once (PLAN 2.101), and the tokens it took. */
   | { type: "wrote"; id: number; text: string; stop: WritingStop; usage?: { input: number; output: number } }
   /** The CPU painter met a shader whose rows `count` more workers could share (PLAN 2.28): the

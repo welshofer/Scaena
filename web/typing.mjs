@@ -22,6 +22,8 @@
 // an undo back to it leaves nothing to save.
 // Keys typed while the text is read again, the source changed under it, then Escape: each goes in
 // once, and the change stays.
+// Text typed past the slide's foot: its caret shows on the desk, never over the bars under it
+// (editor dogfood 2).
 // Exits 1 on any failure.
 import { launch, serve } from "./serve.mjs";
 
@@ -383,6 +385,43 @@ try {
     const undone = await reread.evaluate(() => window.scaena.source());
     const was = /^\s*title text[^"\n]*"([^"]*)"/m.exec(undone)?.[1];
     check(was === "Q3 Review" && undone.includes("the shape of the company"), `one undo takes back what was typed, and only it: ${JSON.stringify(was)}`);
+  }
+
+  // Text typed past the slide's foot: its selection shows on the desk around the slide and never over
+  // the bars under it (editor dogfood 2). The strip under the desk is the same with the overlay
+  // shown and hidden, where the caret's own box runs past the desk.
+  {
+    const still = await browser.newContext({ viewport: { width: 1600, height: 1000 }, deviceScaleFactor: 1, reducedMotion: "reduce" });
+    const past = await still.newPage();
+    past.on("pageerror", (e) => failures.push(`past: ${e.message}`));
+    await past.goto(url("/docs/examples/revenue.deck.json"));
+    await past.waitForFunction(() => window.scaena?.last()?.valid, null, { timeout: 120000 });
+    await showState(past, "revenue", 1);
+    check((await typeIn(past, "note")) === "note", "a double click types in the note");
+    await past.keyboard.press("Control+End");
+    for (let i = 0; i < 40; i++) await past.keyboard.type("\nmore");
+    await past.waitForFunction(() => window.scaena.source().split("more").length > 40, null, { timeout: 60000 }).catch(() => {});
+    // Every line selected: the selection's bands run down past the desk, over where the bars are.
+    await past.keyboard.press("Control+a");
+    await past.waitForTimeout(1500);
+    const where = await past.evaluate(() => {
+      const desk = document.querySelector("#desk").getBoundingClientRect();
+      const bands = [...document.querySelectorAll("#overlay svg .text-selection")].map((r) => r.getBoundingClientRect().bottom);
+      return { desk: [desk.left, desk.top, desk.width, desk.height], selected: bands.length ? Math.max(...bands) : null };
+    });
+    const [dx, dy, dw, dh] = where.desk;
+    check(where.selected !== null && where.selected > 1000, `the selection runs past the desk to the window's foot: ${where.selected} past ${dy + dh}`);
+    // Everything under the desk, to the window's foot: the cue, the strip, and the status.
+    const under = { x: dx, y: dy + dh, width: dw, height: 1000 - (dy + dh) };
+    const shot = async (shown) => {
+      await past.evaluate((v) => (document.querySelector("#overlay svg").style.visibility = v), shown ? "" : "hidden");
+      return past.screenshot({ clip: under });
+    };
+    const bare = await shot(false);
+    const drawn = await shot(true);
+    check(bare.equals(drawn), "nothing of the overlay draws past the desk, over the bars under it");
+    await past.keyboard.press("Escape");
+    await still.close();
   }
 } catch (e) {
   failures.push(String(e));
