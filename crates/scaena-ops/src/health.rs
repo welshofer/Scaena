@@ -1284,20 +1284,43 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
             .and_then(|&k| deck.states.get(k)?.layout.as_deref())
             .is_some_and(|l| l == "agenda" || l.starts_with("agenda-"))
     };
-    for id in turns.iter().map(|(id, _)| id).filter(|id| !bridged.contains(id)) {
+    // The beat a slide opens, by the one name the settled outline gives it, else its own.
+    let beat_named = |i: usize| -> Option<String> {
+        let meta = read[i].narrative_meta.as_ref()?;
+        let settled = (narrative.and_then(|n| n.pointer(&format!("/outline/beats/{}/name", meta.beat_index?))))
+            .and_then(Value::as_str);
+        settled.or(meta.beat_name.as_deref()).map(str::trim).filter(|n| !n.is_empty()).map(str::to_string)
+    };
+    for (id, edge) in turns.iter().filter(|(id, _)| !bridged.contains(&id)) {
         let Some(&i) = place.get(id.as_str()) else { continue };
         if i > 0 && agenda(i - 1) {
             continue;
         }
         let (k, before) = (i + 1, i);
-        find(
-            id,
-            Severity::Warning,
-            Kind::Turn,
-            format!("Slide {k} shares little with slide {before}: the turn between them may lose the room."),
-            format!("Open slide {k}'s notes with the line that carries the talk from slide {before}."),
-            None,
-        );
+        if *edge {
+            // A turn at a beat's edge opens a new part of the talk, no loss (W1's second read of
+            // fleet): information, so a sharp turn inside a beat comes first, with the same ask.
+            let part = beat_named(i).unwrap_or_else(|| "a new part of the talk".to_string());
+            find(
+                id,
+                Severity::Info,
+                Kind::Turn,
+                format!(
+                    "Slide {k} opens {part} with nothing from slide {before}: say the line that carries the room across."
+                ),
+                format!("Open slide {k}'s notes with the line that carries the room from slide {before} into {part}."),
+                None,
+            );
+        } else {
+            find(
+                id,
+                Severity::Warning,
+                Kind::Turn,
+                format!("Slide {k} shares little with slide {before}: the turn between them may lose the room."),
+                format!("Open slide {k}'s notes with the line that carries the talk from slide {before}."),
+                None,
+            );
+        }
     }
     // A bend judges the intensity a slide was planned at against the arc's curve where it stands,
     // so its plan, or its place, is what moves it, never its words, which the gap below judges
@@ -3253,6 +3276,27 @@ mod tests {
         let found = turned(&of(&dogfood("fleet", "", |_| {})));
         assert!(!bare.is_empty() && bare.iter().all(|k| found.contains(k)), "{bare:?} {found:?}");
         assert!(!found.contains(&2), "the cover's step into the talk is no turn");
+        // A turn at a beat's edge opens a new part, information named by its beat (W1's second
+        // read of fleet); the sharp turn inside a beat is the warning, so it comes first.
+        let fleet = of(&dogfood("fleet", "", |_| {}));
+        let by = |severity: Severity| -> Vec<usize> {
+            (fleet.findings.iter())
+                .filter(|f| f.kind == Kind::Turn && f.severity == severity)
+                .map(|f| f.slide)
+                .collect()
+        };
+        assert_eq!(by(Severity::Warning), [9]);
+        assert_eq!(by(Severity::Info), [3, 4, 5, 8, 10]);
+        let opened = fleet.findings.iter().find(|f| f.kind == Kind::Turn && f.slide == 4).unwrap();
+        assert_eq!(
+            opened.says,
+            "Slide 4 opens Existing Approaches with nothing from slide 3: say the line that carries the room across."
+        );
+        assert_eq!(
+            opened.ask,
+            "Open slide 4's notes with the line that carries the room from slide 3 into Existing Approaches."
+        );
+        assert_eq!(fleet.coherence.score, None, "no figure moves");
     }
 
     /// Where no slide balance counts lists a point, balance says which slides it counted rather
