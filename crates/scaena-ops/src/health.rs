@@ -1172,14 +1172,20 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         let Some(&i) = place.get(g.slide_id.as_str()) else { continue };
         let k = i + 1;
         let (declared, detected) = (signed(g.declared), signed(g.detected));
+        // The words the reading was made of (W1's dogfood 3): a writer warming a slide moves
+        // its tone only with words the lexicon reads, so the ask names them.
+        let heard = health::valence::heard(&read[i].text(), language).unwrap_or_default();
+        let named = toned(&heard);
         let (says, ask) = match g.gap > 0.0 {
             true => (
                 format!("Slide {k} reads graver than it was written to be."),
-                format!("Warm slide {k}'s words toward the tone it declares ({declared}); they read {detected}."),
+                format!(
+                    "Warm slide {k}'s words toward the tone it declares ({declared}); they read {detected}.{named}"
+                ),
             ),
             false => (
                 format!("Slide {k} reads more hopeful than it was written to be."),
-                format!("Ground slide {k}'s words in the tone it declares ({declared}); they read {detected}."),
+                format!("Ground slide {k}'s words in the tone it declares ({declared}); they read {detected}.{named}"),
             ),
         };
         // No fix: the plan's tone is the arc's, which the words are to carry, not follow.
@@ -1595,6 +1601,41 @@ fn content_words(text: &str) -> std::collections::BTreeSet<String> {
         .filter(|w| w.len() > 3)
         .map(str::to_string)
         .collect()
+}
+
+/// The most words a tone ask names on either side.
+const TONED: usize = 4;
+
+/// The words a tone was read from, as a sentence a tone ask ends with: those read as grave, the
+/// gravest first, and those read as hopeful, each at most [`TONED`] and named once, and which side
+/// reads none ("Health reads “missed” and “outage” as grave, and no word as hopeful."). Nothing
+/// where no word was read.
+fn toned(heard: &[(String, f64)]) -> String {
+    let side = |grave: bool| -> Vec<String> {
+        let mut words: Vec<&(String, f64)> = heard.iter().filter(|(_, w)| (*w < 0.0) == grave && *w != 0.0).collect();
+        // Weightiest first; the sort is stable, so a tie keeps the order the words stand in.
+        scaena_core::sort::by(&mut words, |a, b| b.1.abs().total_cmp(&a.1.abs()));
+        let mut out: Vec<String> = Vec::new();
+        for (w, _) in words {
+            let quoted = format!("\u{201c}{w}\u{201d}");
+            if !out.contains(&quoted) && out.len() < TONED {
+                out.push(quoted);
+            }
+        }
+        out
+    };
+    let list = |ws: &[String]| match ws {
+        [] => String::new(),
+        [one] => one.clone(),
+        [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
+    };
+    let (grave, hopeful) = (side(true), side(false));
+    match (grave.is_empty(), hopeful.is_empty()) {
+        (true, true) => String::new(),
+        (false, true) => format!(" Health reads {} as grave, and no word as hopeful.", list(&grave)),
+        (true, false) => format!(" Health reads {} as hopeful, and no word as grave.", list(&hopeful)),
+        (false, false) => format!(" Health reads {} as grave, and {} as hopeful.", list(&grave), list(&hopeful)),
+    }
 }
 
 /// The share of the big idea's telling words a close must say to land it, as a fraction: half,
@@ -2160,6 +2201,26 @@ mod tests {
         let beats: Vec<Value> = names.iter().map(|n| json!({ "name": n, "claim": "", "slides": 1 })).collect();
         deck["meta"]["narrative"]["outline"] = json!({ "bigIdea": big_idea, "beats": beats });
         deck
+    }
+
+    /// A tone ask names the words the tone was read from (W1's dogfood 3): the keynote's eighth
+    /// slide, hopeful by plan, reads graver for its outages; its headline warmed with "love" and
+    /// "missed" reads graver still, since the lexicon reads "missed" as grave and not "love".
+    /// The ask says so, and the reading is the same as before it named them.
+    #[test]
+    fn a_tone_ask_names_the_words_the_tone_was_read_from() {
+        let warmed = |slides: &mut Vec<answer::Slide>| {
+            slides[7].slide_title = "We love the harbor we almost missed".into();
+        };
+        let h = of(&dogfood("keynote", "", warmed));
+        let tone = h.findings.iter().find(|f| f.kind == Kind::Tone && f.slide == 8).expect("slide 8 reads graver");
+        assert!(tone.ask.starts_with("Warm slide 8's words toward the tone it declares"), "{}", tone.ask);
+        assert!(tone.ask.contains(" Health reads \u{201c}outages\u{201d}"), "{}", tone.ask);
+        assert!(tone.ask.contains("\u{201c}missed\u{201d}") && tone.ask.contains(" as grave"), "{}", tone.ask);
+        assert!(!tone.ask.contains("\u{201c}love\u{201d}"), "the lexicon does not read \"love\": {}", tone.ask);
+        // Named or not, the reading is the lexicon's: slide 8's tone is what valence reads.
+        let read = h.slides[7].tone_read.unwrap();
+        assert!(tone.ask.contains(&signed(read)), "{} reads {read}", tone.ask);
     }
 
     /// A close lands the big idea by what it is about, not by a word it says in passing (W1's
