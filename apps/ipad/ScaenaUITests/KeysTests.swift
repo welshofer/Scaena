@@ -441,10 +441,17 @@ final class KeysTests: XCTestCase {
             throw Unseen(description: "the cover reads no title: \(app.debugDescription)")
         }
         settle()
-        title.tap()
-        XCTAssertTrue(wait(5) { title.isSelected }, "the title is not selected")
+        // Selected by keys, as testTheCanvasByKeysAlone selects it: a tap on the title can reach the
+        // simulator's canvas as two and begin typing in it, where ⌘D types a "d" (lift-up 20261110).
+        canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.03, dy: 0.97)).tap()
+        app.typeKey(XCUIKeyboardKey.tab, modifierFlags: [])
+        guard wait(5, { title.isSelected }) else {
+            keep(app, as: "undo-key-unselected")
+            throw Unseen(description: "Tab selected no title: \(app.debugDescription)")
+        }
         app.typeKey("d", modifierFlags: .command)
         guard wait(5, { titles.count == 2 }) else {
+            keep(app, as: "undo-key-no-copy")
             throw Unseen(description: "⌘D made no copy: \(app.debugDescription)")
         }
         settle()
