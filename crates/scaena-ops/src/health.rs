@@ -59,6 +59,22 @@ pub struct Health {
     /// the audience should remember, which the editors show above the curve.
     #[serde(rename = "bigIdea", skip_serializing_if = "Option::is_none")]
     pub big_idea: Option<String>,
+    /// Where slides lint finds an error on cap the score (ADR-0032 item 1): those slides, the cap,
+    /// and the score the deck would have had, so the editors can say why it fell (W1's dogfood 5).
+    /// None where nothing caps it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub capped: Option<Capped>,
+}
+
+/// The score held down by the slides that do not stand.
+#[derive(Debug, Clone, PartialEq, Serialize, JsonSchema)]
+pub struct Capped {
+    /// The slides lint finds an error on, by number from 1.
+    pub slides: Vec<usize>,
+    /// The cap they set: the clean slides' share, less ten for each.
+    pub cap: u32,
+    /// The score the deck would have had without the cap, over it.
+    pub score: u32,
 }
 
 /// One measure: 0–100, and what it says.
@@ -1966,10 +1982,15 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
     // A slide that does not stand caps the score at the clean slides' share, less ten for each
     // that does not (ADR-0032 item 1, Jay's call, 2026-10-25).
     let broken = findings.iter().filter(|f| f.kind == Kind::Layout).count();
-    let score = match broken {
-        0 => score,
-        b => score.min(((100.0 * (n - b) as f64 / n as f64).round() as u32).saturating_sub(10 * b as u32)),
-    };
+    let cap = (broken > 0)
+        .then(|| ((100.0 * (n - broken) as f64 / n as f64).round() as u32).saturating_sub(10 * broken as u32));
+    // The cap said where it holds the score down, not where the score sits under it already.
+    let capped = cap.filter(|&c| c < score).map(|cap| Capped {
+        slides: findings.iter().filter(|f| f.kind == Kind::Layout).map(|f| f.slide).collect(),
+        cap,
+        score,
+    });
+    let score = cap.map_or(score, |c| score.min(c));
 
     Ok(Health {
         score,
@@ -1984,6 +2005,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         slides: slides_read,
         findings,
         big_idea,
+        capped,
     })
 }
 
@@ -3671,10 +3693,17 @@ mod tests {
         let one = [Linted::new("E100", Severity::Error, "text overflows").state(id(6))];
         // 24 of 25 stand: a cap of 86, over the score's 84.
         assert_eq!(health_in(&d, &one).unwrap().score, 84);
+        // A cap over the score holds nothing down, and says nothing.
+        assert_eq!(health_in(&d, &one).unwrap().capped, None);
         let two = [one[0].clone(), Linted::new("E100", Severity::Error, "text overflows").state(id(9))];
-        assert_eq!(health_in(&d, &two).unwrap().score, 72);
+        let held = health_in(&d, &two).unwrap();
+        assert_eq!(held.score, 72);
+        // Held down, it says by which slides, to what, and from what (W1's dogfood 5).
+        let broken: Vec<usize> = held.findings.iter().filter(|f| f.kind == Kind::Layout).map(|f| f.slide).collect();
+        assert_eq!(held.capped, Some(Capped { slides: broken, cap: 72, score: 84 }));
         let warned = [Linted::new("W210", Severity::Warning, "too many words").state(id(6))];
         assert_eq!(health_in(&d, &warned).unwrap().score, 84);
+        assert_eq!(health_in(&d, &warned).unwrap().capped, None);
         let every: Vec<Linted> = (0..deck["states"].as_array().unwrap().len())
             .map(|k| Linted::new("E100", Severity::Error, "text overflows").state(id(k)))
             .collect();
