@@ -1,6 +1,6 @@
 {
   "name": "slide_write",
-  "description": "Write one slide into the deck as its generator builds slides (lift-up FUNC-1), from a slide in the JSON Narrato writes (`deck_generate`'s `slides`): its layout chosen for its items, each place filled, its figures, builds, and icons, in the deck's theme and the brief it keeps. After the slide that holds `after`, in place of the slide that holds `replace` (its beat kept, its picture shown again, the nodes no other slide shows taken away with it), or at the end. Its states join `beat`, a beat of the spine whose claim it tells (plan the spine with `spine_update` first), which keeps what it says; with none, it gets a beat of its own, and a deck with no spine yet begins one, the slide taking the place of `deck_create`'s blank slide. Its set of texts held to one size and lint's fixes taken, as a made deck's are; what no fix mends is in `left`, a text past its place first. One patch, refused as `deck_patch` refuses one, reported as `deck_patch` reports one, with the slide's states, layout, and beat.",
+  "description": "Write one slide into the deck as its generator builds slides (lift-up FUNC-1), from a slide in the JSON Narrato writes (`deck_generate`'s `slides`): its layout chosen for its items, each place filled, its figures, builds, and icons, in the deck's theme and the brief it keeps. After the slide that holds `after`, in place of the slide that holds `replace` (its beat kept, its picture shown again, the nodes no other slide shows taken away with it), or at the end. Its states join `beat`, a beat of the spine whose claim it tells (plan the spine with `spine_update` first), which keeps what it says; with none, it gets a beat of its own, and a deck with no spine yet begins one, the slide taking the place of `deck_create`'s blank slide. Its set of texts held to one size and lint's fixes taken, as a made deck's are; what no fix mends is in `left`, a text past its place first. One patch, refused as `deck_patch` refuses one, reported as `deck_patch` reports one (`summary`, and the JSON Patch only with `verbose`), with the slide's states, layout, and beat.",
   "inputSchema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "required": ["bundle", "slide"],
@@ -27,13 +27,46 @@
         "type": ["string", "null"],
         "default": null
       },
-      "dry_run": { "description": "Say what would change, and write nothing.", "type": "boolean", "default": false }
+      "dry_run": { "description": "Say what would change, and write nothing.", "type": "boolean", "default": false },
+      "verbose": {
+        "description": "The patch compiled to JSON Patch too (`patch`), which a slide makes long: every state of\nthe deck, as `deck_patch`'s `verbose` gives it.",
+        "type": "boolean",
+        "default": false
+      }
     },
     "additionalProperties": false
   },
   "outputSchema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "$defs": {
+      "Summary": {
+        "description": "What a patch changed in a deck's slides, each by the id of its first state, and in its\nspine's beats, each by its id: what was added, taken away, moved among the rest, or, a beat,\ntold otherwise (its claim, states, evidence, notes, or time). Each list is in the deck's order,\nand left out when empty.",
+        "type": "object",
+        "properties": {
+          "json_patch": {
+            "description": "How many of the ops given were JSON Patch.",
+            "type": "integer",
+            "minimum": 0
+          },
+          "slides_added": { "type": "array", "items": { "type": "string" } },
+          "slides_removed": { "type": "array", "items": { "type": "string" } },
+          "slides_moved": { "type": "array", "items": { "type": "string" } },
+          "beats_added": { "type": "array", "items": { "type": "string" } },
+          "beats_removed": { "type": "array", "items": { "type": "string" } },
+          "beats_moved": { "type": "array", "items": { "type": "string" } },
+          "beats_changed": { "type": "array", "items": { "type": "string" } }
+        },
+        "required": [
+          "json_patch",
+          "slides_added",
+          "slides_removed",
+          "slides_moved",
+          "beats_added",
+          "beats_removed",
+          "beats_moved",
+          "beats_changed"
+        ]
+      },
       "JsonOp": {
         "description": "RFC 6902's ops.",
         "oneOf": [
@@ -157,28 +190,22 @@
         "required": ["beat", "state", "path", "claim"]
       }
     },
-    "required": [
-      "applied",
-      "patch",
-      "added",
-      "removed",
-      "errors",
-      "states",
-      "slide",
-      "layout",
-      "beat",
-      "fixed",
-      "left"
-    ],
+    "required": ["slide", "layout", "beat", "fixed", "left"],
     "type": "object",
     "properties": {
       "applied": {
         "description": "Whether the deck was written: not under a dry run, nor when the patch was refused.",
         "type": "boolean"
       },
-      "patch": {
-        "description": "The patch as RFC 6902, in order.",
+      "ops": {
+        "description": "The semantic ops given (SPEC §7.3), in order, as given; JSON Patch ops are counted in\n`summary`.",
         "type": "array",
+        "items": true
+      },
+      "summary": { "description": "What changed in the deck's slides and its story.", "$ref": "#/$defs/Summary" },
+      "patch": {
+        "description": "With `verbose`, the patch as RFC 6902, in order.",
+        "type": ["array", "null"],
         "items": { "$ref": "#/$defs/JsonOp" }
       },
       "added": {
@@ -193,12 +220,12 @@
       },
       "errors": { "description": "The findings that are errors, after.", "type": "integer", "minimum": 0 },
       "states": {
-        "description": "The states it changes, by id: each whose nodes, resolved with the deck's overrides,\nor whose layout, transition, choreography, hold, notes, or slide number and footer are\nnot as they were, and each it adds. None when it is refused.",
+        "description": "The states it changes, by id, as [`Patched`] says them.",
         "type": "array",
         "items": { "type": "string" }
       },
       "restated": {
-        "description": "Each beat whose claim its slide said before the patch and says no more, with the patch\nthat sets the claim to what the slide says now (lift-up FUNC-2). Left out when none; not\nworked out for an edit as it is typed, which an editor asks of the whole burst.",
+        "description": "Each beat whose claim its slide said before the patch and says no more, as [`Patched`]\nsays them (lift-up FUNC-2). Left out when none.",
         "type": "array",
         "items": { "$ref": "#/$defs/Restated" }
       },
