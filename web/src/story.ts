@@ -257,7 +257,7 @@ export function storyPanel(stage: Stage, into: HTMLElement, editor: StoryEditor)
     if (on && !stale.textContent) stale.textContent = "Showing the story as last read: the source has an error to fix";
     if (!on) stale.textContent = "";
     list.setAttribute("aria-label", on ? `${listed}, as last read` : listed);
-    for (const fix of list.querySelectorAll<HTMLButtonElement>("[data-fix]")) fix.disabled = on;
+    for (const fix of list.querySelectorAll<HTMLButtonElement>("[data-fix], [data-lint-fix]")) fix.disabled = on;
   };
   /** What the worker last read. */
   let health: Health | undefined;

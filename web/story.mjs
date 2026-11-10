@@ -224,6 +224,19 @@ try {
     };
   });
   check(offers.fixes.length > 0 && offers.show, `the broken slide's row offers lint's fix and Show it: ${JSON.stringify(offers)}`);
+  // A source that stops compiling holds lint's fix with the rest, the story kept as last read.
+  await page.evaluate((s) => window.scaena.type(`${s}\nstate {{{`), broken);
+  await tab(page, "inspector");
+  await tab(page, "story");
+  await page.waitForFunction(() => !document.querySelector("#story > p[data-stale]").hidden, null, { timeout: 60000 }).catch(() => {});
+  const heldFix = await page.evaluate(() => document.querySelector("#story [data-findings] > li[data-slide] [data-lint-fix]")?.disabled);
+  check(heldFix === true, `while the source does not compile, lint's fix is held: ${heldFix}`);
+  await page.evaluate((s) => window.scaena.type(s), broken);
+  await page.waitForFunction(() => document.querySelector("#story > p[data-stale]").hidden, null, { timeout: 60000 }).catch(() => {});
+  check(
+    await page.evaluate(() => document.querySelector("#story [data-findings] > li[data-slide] [data-lint-fix]")?.disabled === false),
+    "compiled again, lint's fix is offered again",
+  );
   await page.click("#story [data-findings] > li[data-slide] [data-lint-show]");
   const popped = await page
     .waitForFunction(() => document.querySelector("#marked")?.matches(":popover-open") && document.querySelector("#marked").textContent, null, { timeout: 30000 })
