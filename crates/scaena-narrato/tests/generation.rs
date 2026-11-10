@@ -342,6 +342,36 @@ fn a_busy_provider_is_asked_again() {
     assert_eq!(g.again(), None);
 }
 
+/// A key out of credit is a 429 that waiting does not mend (lift-up 20261110 REL-2): said at
+/// once at the arc and at the slides, asked again at neither, the step standing.
+#[test]
+fn a_key_out_of_credit_is_said_at_once_and_never_asked_again() {
+    let broke = r#"{"error":{"type":"insufficient_quota","message":"You exceeded your current quota, please check your plan and billing details."}}"#;
+    let mut g = Generation::new(brief(), settings(Provider::Openai)).unwrap();
+    let arc = g.answer(429, "Too Many Requests", broke, Some("2"));
+    assert!(
+        matches!(&arc, Err(NarratoError::Provider(m)) if m.starts_with("no credit is left on this key")),
+        "{arc:?}"
+    );
+    assert_eq!((g.again(), g.tried(), g.step()), (None, 0, Step::Arc), "no heuristic stands in, and no wait");
+    assert!(g.fallback().is_none());
+    let mut g = Generation::new(brief(), settings(Provider::Anthropic)).unwrap();
+    g.choose_arc(Some("Data Storytelling"));
+    let low = r#"{"type":"error","error":{"type":"invalid_request_error","message":"Your credit balance is too low to access the Anthropic API."}}"#;
+    let slides = g.answer(400, "Bad Request", low, None);
+    assert!(
+        matches!(&slides, Err(NarratoError::Provider(m)) if m.contains("no credit is left") && m.contains("credit balance is too low")),
+        "{slides:?}"
+    );
+    assert_eq!((g.again(), g.tried(), g.step()), (None, 0, Step::Slides));
+    // A rate limit that names no quota is still asked again.
+    assert_eq!(
+        g.answer(429, "Too Many Requests", r#"{"error":{"message":"rate limited"}}"#, None).unwrap(),
+        Step::Slides
+    );
+    assert_eq!(g.tried(), 1);
+}
+
 /// An arc the model names as nobody in the catalog spells it is the heuristic's, and the
 /// generation says so, as it does when the call fails (narrative STAB-5); one it spells loosely
 /// is the catalog's, with nothing said.

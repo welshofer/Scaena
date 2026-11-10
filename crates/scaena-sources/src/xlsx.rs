@@ -5,6 +5,7 @@
 use crate::SourceError;
 use crate::ooxml::Package;
 use crate::xml::Element;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// A sheet: its name and its rows, each cell's text as the sheet holds it.
 #[derive(Debug, Clone, PartialEq)]
@@ -29,15 +30,22 @@ impl Sheet {
         let held = |r: &Vec<String>, c: usize| r.get(c).is_some_and(|v| !v.trim().is_empty());
         let width = body.iter().map(|r| r.len()).chain([header.len()]).max().unwrap_or(0);
         let used = (0..width).rev().find(|&c| held(header, c) || body.iter().any(|r| held(r, c))).map_or(0, |c| c + 1);
+        // The names taken, and each base's next number: a header of thousands of cells that read
+        // alike is named in time linear in its width, never asked again from 2 each time
+        // (lift-up 20261110 SEC-2).
         let mut names: Vec<String> = Vec::new();
+        let mut taken: BTreeSet<String> = BTreeSet::new();
+        let mut next: BTreeMap<String, usize> = BTreeMap::new();
         for c in 0..used {
             let own = header.get(c).map(|h| h.trim()).filter(|h| !h.is_empty());
             let base = own.map_or_else(|| format!("column {}", c + 1), str::to_string);
-            let (mut name, mut n) = (base.clone(), 2);
-            while names.contains(&name) {
+            let mut name = base.clone();
+            let n = next.entry(base.clone()).or_insert(2);
+            while taken.contains(&name) {
                 name = format!("{base} {n}");
-                n += 1;
+                *n += 1;
             }
+            taken.insert(name.clone());
             names.push(name);
         }
         let mut w = csv::Writer::from_writer(Vec::new());
@@ -56,6 +64,10 @@ const MOST_ROWS: usize = 20_000;
 /// there, at the row that reaches it.
 const MOST_CELLS: usize = 1 << 21;
 
+/// The most cells of a workbook read, its sheets together: a sheet past it is cut there, and
+/// the sheets after it are left out (lift-up 20261110 SEC-2).
+const MOST_WORKBOOK_CELLS: usize = 2 * MOST_CELLS;
+
 /// The most columns a sheet has, as Excel's own: A to XFD.
 const MOST_COLUMNS: usize = 16_384;
 
@@ -67,14 +79,21 @@ pub fn sheets(bytes: &[u8]) -> Result<Vec<Sheet>, SourceError> {
     let strings: Vec<String> =
         pkg.xml("xl/sharedStrings.xml").map(|sst| sst.all("si").map(rich).collect()).unwrap_or_default();
     let mut out = Vec::new();
+    // Each part read once, and the cells read counted across the workbook: sheets that all name
+    // one dense part are not read again and again (lift-up 20261110 SEC-2).
+    let mut read: BTreeSet<String> = BTreeSet::new();
+    let mut held = 0usize;
     for sheet in workbook.child("sheets").into_iter().flat_map(|s| s.all("sheet")) {
         let name = sheet.attr("name").unwrap_or("Sheet").to_string();
         let Some(target) = sheet.rel_id().and_then(|id| rels.iter().find(|r| r.id == id)).map(|r| r.target.clone())
         else {
             continue;
         };
+        if held >= MOST_WORKBOOK_CELLS || !read.insert(target.clone()) {
+            continue;
+        }
         let Some(doc) = pkg.xml(&target) else { continue };
-        out.push(Sheet { name, rows: rows(&doc, &strings)? });
+        out.push(Sheet { name, rows: rows(&doc, &strings, &mut held)? });
     }
     Ok(out)
 }
@@ -119,8 +138,9 @@ fn column(reference: &str) -> Result<Option<usize>, SourceError> {
     Ok(n.checked_sub(1))
 }
 
-/// A sheet's rows, each cell where its reference puts it, the empty cells at a row's end left out.
-fn rows(doc: &Element, strings: &[String]) -> Result<Vec<Vec<String>>, SourceError> {
+/// A sheet's rows, each cell where its reference puts it, the empty cells at a row's end left
+/// out; `workbook` counts the cells the workbook's sheets have read so far, these among them.
+fn rows(doc: &Element, strings: &[String], workbook: &mut usize) -> Result<Vec<Vec<String>>, SourceError> {
     let mut out = Vec::new();
     let mut held = 0usize;
     for row in doc.child("sheetData").into_iter().flat_map(|d| d.all("row")).take(MOST_ROWS) {
@@ -146,7 +166,8 @@ fn rows(doc: &Element, strings: &[String]) -> Result<Vec<Vec<String>>, SourceErr
             cells.pop();
         }
         held += cells.len();
-        if held > MOST_CELLS {
+        *workbook += cells.len();
+        if held > MOST_CELLS || *workbook > MOST_WORKBOOK_CELLS {
             break;
         }
         out.push(cells);
@@ -185,5 +206,24 @@ mod tests {
         let twice = Sheet { name: "s".into(), rows: rows(&[&["a", "a"], &["1", "2"]]) };
         assert_eq!(String::from_utf8(twice.csv().unwrap()).unwrap(), "a,a 2\n1,2\n");
         assert_eq!(Sheet { name: "s".into(), rows: rows(&[&["only", "a header"]]) }.csv(), None);
+    }
+
+    /// A header of thousands of cells that read alike is named in time linear in its width, each
+    /// name as before: the next number free for its base (lift-up 20261110 SEC-2).
+    #[test]
+    fn a_wide_header_of_one_name_is_named_at_once() {
+        let named = |header: Vec<String>| {
+            let sheet = Sheet { name: "s".into(), rows: vec![header.clone(), vec!["1".into(); header.len()]] };
+            let csv = String::from_utf8(sheet.csv().unwrap()).unwrap();
+            csv.lines().next().unwrap().to_string()
+        };
+        let three = ["x", "x 2", "x"].map(String::from).to_vec();
+        assert_eq!(named(three), "x,x 2,x 3");
+        let started = std::time::Instant::now();
+        let wide = named(vec!["x".to_string(); MOST_COLUMNS]);
+        assert!(started.elapsed().as_secs() < 5, "{:?}", started.elapsed());
+        let names: Vec<&str> = wide.split(',').collect();
+        assert_eq!(names.len(), MOST_COLUMNS);
+        assert_eq!((names[0], names[1], names[MOST_COLUMNS - 1]), ("x", "x 2", "x 16384"));
     }
 }

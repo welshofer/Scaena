@@ -639,9 +639,13 @@ pub struct IconFind {
     /// `regular`, drawn in outline (the default), or `fill`, drawn solid.
     #[serde(default)]
     pub weight: scaena_ops::icons::Weight,
-    /// At most this many; 20 when not given.
+    /// At most this many, 50 at most; 20 when not given.
     #[serde(default)]
     pub limit: Option<usize>,
+    /// Each icon's path too, which add_node draws it from. Without it, the names, tags, and
+    /// categories alone: search so, then ask for the one chosen by its name with `paths`.
+    #[serde(default)]
+    pub paths: bool,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -931,7 +935,9 @@ pub struct SlideWrite {
     pub replace: Option<String>,
     /// The id of a beat of the spine whose claim this slide tells, as `spine_update` planned it:
     /// the slide's states join it, and it keeps what it says, the slide giving only what it lacks
-    /// (its notes, Narrato's fields). Without it, the slide gets a beat of its own after the slide
+    /// (its notes, Narrato's fields); without `after`, the slide stands where the spine plans it,
+    /// after that beat's slides, else after the nearest earlier beat's, else before the nearest
+    /// later beat's. Without it, the slide gets a beat of its own after the slide
     /// before it, and a deck with no spine yet begins one. Not with `replace`, which keeps the
     /// beat of the slide it takes the place of.
     #[serde(default)]
@@ -1312,6 +1318,8 @@ impl Scaena {
             painter: a.painter,
             pace: a.pace,
             notes: a.notes,
+            // A master's chroma is the CLI's alone (`--chroma 444`).
+            chroma: None,
         };
         let bundle = a.bundle.clone();
         let b = blocking(move || open(&bundle)).await?;
@@ -1558,12 +1566,20 @@ impl Scaena {
     }
 
     #[tool(description = "Find the icons that ship (Phosphor, MIT) by words: each word begins a word of an icon's \
-        name, its tags, or its categories, and its name asked whole comes first. Each icon is its path data on a view \
-        256 square, which deck_patch's add_node adds as a shape: {\"type\": \"shape\", \"path\": …, \
-        \"view\": [0, 0, 256, 256], \"fill\": \"accent\"}, so icons beside each other keep one weight.")]
+        name, its tags, or its categories, and its name asked whole comes first; 50 at most. With `paths`, each icon \
+        is its path data on a view 256 square, which deck_patch's add_node adds as a shape: {\"type\": \"shape\", \
+        \"path\": …, \"view\": [0, 0, 256, 256], \"fill\": \"accent\"}, so icons beside each other keep one weight; \
+        without it, the names alone: search so, then ask for the one chosen by its name with `paths`.")]
     async fn icon_find(&self, Parameters(a): Parameters<IconFind>) -> Result<Json<scaena_ops::icons::Icons>, String> {
-        let limit = a.limit.unwrap_or(20);
-        blocking(move || Ok(scaena_ops::icons::find(&a.query, a.weight, limit))).await.map(Json)
+        // A bounded read whatever `limit` asks, and the paths only where asked for (lift-up
+        // 20261025c SEC-3).
+        let limit = a.limit.unwrap_or(20).min(scaena_ops::icons::MOST);
+        blocking(move || {
+            let found = scaena_ops::icons::find(&a.query, a.weight, limit);
+            Ok(if a.paths { found } else { found.names_only() })
+        })
+        .await
+        .map(Json)
     }
 
     #[tool(description = "Replace the deck's spine, as a patch: checked, refused if it makes the deck invalid, \
