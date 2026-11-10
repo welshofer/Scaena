@@ -125,6 +125,7 @@ export function panel(stage: Stage, editor: Editor): Panel {
   const hintLine = $("#keyhint");
   const reveal = $<HTMLButtonElement>("#reveal-key");
   const transcript = $<HTMLOListElement>("#transcript");
+  const starters = $("#starters");
   const question = $<HTMLTextAreaElement>("#question");
   const askButton = $<HTMLButtonElement>("#ask");
   const stop = $<HTMLButtonElement>("#stop");
@@ -254,6 +255,7 @@ export function panel(stage: Stage, editor: Editor): Panel {
     if (working) return;
     stage.forget();
     transcript.replaceChildren();
+    void offer();
     // The words of an answer cut off went with the transcript (lift-up 20261031 STAB-4): the next
     // answer's go into an entry of their own, one the page shows.
     saying = undefined;
@@ -418,6 +420,7 @@ export function panel(stage: Stage, editor: Editor): Panel {
     remember();
     saying = undefined;
     entry("user", text);
+    starters.hidden = true;
     question.value = "";
     // What the editor shows as it is asked: the source locks below, and shows nothing then.
     const seeing = editor.seeing();
@@ -483,8 +486,52 @@ export function panel(stage: Stage, editor: Editor): Panel {
     return { kind: "failed", message };
   }
 
+  /** Ways to begin, under an empty conversation (lift-up 20261110 ATTR-2): asks the deck's own
+   * story suggests, its health first, each a button that asks it. The beat whose slides health
+   * finds the most to look at is named, where the deck has beats; they go once a question is asked,
+   * and come back with a new conversation. */
+  async function offer() {
+    const asks: [string, string][] = [
+      ["Make this talk stronger", "Make this talk stronger. Read its health first, then fix what it says matters most, one change at a time, and tell me what you changed and why."],
+    ];
+    const health = await stage.health(editor.source()).catch(() => undefined);
+    if (transcript.children.length || working) return;
+    // The part of the talk, by the arc's beat each slide was written for, whose slides health finds
+    // the most to look at: an error weighs more than a warning, an info nothing.
+    const weight = { error: 3, warning: 2, info: 0 };
+    const parts = new Map<number, number>();
+    for (const f of health?.findings ?? []) {
+      const part = health?.slides[f.slide - 1]?.part;
+      if (part !== undefined && weight[f.severity]) parts.set(part, (parts.get(part) ?? 0) + weight[f.severity]);
+    }
+    const weakest = [...parts].sort(([, a], [, b]) => b - a)[0]?.[0];
+    const named = weakest === undefined ? undefined : health?.beats[weakest];
+    if (named) {
+      // Its name as the arc says it ("Proof: case studies, data, demos"), the part before a colon on
+      // the button.
+      const short = named.split(":")[0].trim();
+      asks.push([
+        `Tighten \u201c${short}\u201d`,
+        `Tighten the \u201c${named}\u201d part of the talk: fewer words on its slides, each slide saying its claim, nothing the audience needs lost.`,
+      ]);
+    }
+    asks.push([
+      "Check every slide says its claim",
+      "Check that every slide says its claim: read the deck's health and each slide's headline, and tell me the slides whose words don't carry their beat's claim, each with a headline that would.",
+    ]);
+    starters.replaceChildren(
+      ...asks.map(([label, words]) => {
+        const button = Object.assign(document.createElement("button"), { type: "button", textContent: label, title: words });
+        button.onclick = () => void ask(words);
+        return button;
+      }),
+    );
+    starters.hidden = false;
+  }
+
   // A bundle opened anew starts a conversation anew: the worker that held the last is gone.
   transcript.replaceChildren();
+  void offer();
   usageLine.textContent = "";
   void choose(settings.provider);
   return {
