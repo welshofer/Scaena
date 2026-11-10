@@ -2271,6 +2271,7 @@ fn assemble(
                     theme,
                     pictures.contains_key(&i),
                     icons.is_some(),
+                    lang.unwrap_or("en"),
                 ),
             };
             Planned { beat, items, icons, layout }
@@ -2559,10 +2560,11 @@ pub fn asking(narrative: &Narrative, theme: &Theme, look: Look) -> Vec<Asked> {
     let varied = varied(narrative);
     let identities: Vec<&str> = varied.iter().map(|v| v.layout.identity()).collect();
     let style = pictures::style(look, &palette(theme));
+    let lang = deck_lang(&narrative.brief).unwrap_or("en");
     (pictures::wanted(&identities).into_iter())
         .filter_map(|i| {
             let slide = &narrative.slides[i];
-            let layout = layout_for(identities[i], slide, &items(slide, &varied[i]), i, theme, true, false);
+            let layout = layout_for(identities[i], slide, &items(slide, &varied[i]), i, theme, true, false, lang);
             let slot =
                 theme.layouts.get(&layout)?.slots.values().find(|s| matches!(s.example, Some(Example::Picture(_))))?;
             let frame = frame_of(theme, slot);
@@ -3216,6 +3218,7 @@ fn layout_for(
     theme: &Theme,
     pictured: bool,
     iconed: bool,
+    lang: &str,
 ) -> String {
     let n = items.len();
     let chart = slide.chart_data.is_some();
@@ -3239,7 +3242,7 @@ fn layout_for(
         "closing" | "thanks" if pictured => "title-split",
         // A bare "Thank you" or "Questions?" that carries an ask: the ask its words, its address
         // the button. A closing that says something stays as it is said.
-        "closing" | "thanks" if bare(&slide.slide_title) && calling(slide, items).is_some() => "call-to-action",
+        "closing" | "thanks" if bare(&slide.slide_title) && calling(slide, items, lang).is_some() => "call-to-action",
         "closing" | "thanks" => "closing",
         "body" if pictured => "bullets-photo",
         "body" => "bullets",
@@ -3467,9 +3470,13 @@ fn bare(title: &str) -> bool {
 /// (a site and its page, an email, or a phone number), either in one line or each its own. None
 /// where it has not both. The address is its line whole where the line holds nothing else, so a
 /// site and its phone number stay together on the button ("harborhouse.org/winter · (555)
-/// 014-2200", dogfood pass 7). The verbs are English: another language keeps its closing (lift-up
-/// ATTR-3).
-fn calling(slide: &Slide, items: &[Item]) -> Option<(String, String)> {
+/// 014-2200", dogfood pass 7). The verbs are English: a deck in another language (`lang`) keeps
+/// its closing (lift-up ATTR-3), so a French "Merci" over "Contact : …" stays "Merci", "contact"
+/// there a noun and no verb (dogfood pass 11).
+fn calling(slide: &Slide, items: &[Item], lang: &str) -> Option<(String, String)> {
+    if lang.split('-').next().is_none_or(|l| !l.eq_ignore_ascii_case("en")) {
+        return None;
+    }
     const ASKING: [&str; 22] = [
         "book",
         "contact",
@@ -4762,7 +4769,7 @@ impl Slots<'_> {
                 self.idea.map(str::to_string).or_else(|| self.title())
             }
             // A call to action's words: a bare closing's ask, not its thanks (lift-up ATTR-3).
-            "statement" if layout == "call-to-action" => calling(self.slide, self.items).map(|(ask, _)| ask),
+            "statement" if layout == "call-to-action" => calling(self.slide, self.items, self.lang).map(|(ask, _)| ask),
             "header" | "title" | "statement" | "claim" | "ask" | "question" | "term" | "headline" | "point"
             | "name" | "thanks" | "top" => self.title(),
             "subtitle" | "support" | "dek" | "follow" | "talk" | "lede" | "role" => {
@@ -4771,7 +4778,7 @@ impl Slots<'_> {
             "hub" => self.subtitle().or_else(|| self.title()),
             // A call to action's button: what it asks, as the slide says it (lift-up ATTR-3).
             // A call to action's button: a bare closing's address (lift-up ATTR-3).
-            "button" => calling(self.slide, self.items).map(|(_, address)| address),
+            "button" => calling(self.slide, self.items, self.lang).map(|(_, address)| address),
             "number" if matches!(layout, "section" | "section-photo") => self.section.map(|n| format!("{n:02}")),
             // A figure with its unit is set whole: "11 days", not "11".
             "number" => self.item(0).map(|i| match numeric(&i.whole) {
@@ -9065,6 +9072,14 @@ mod tests {
         assert_eq!(layout, "call-to-action");
         has(&said, "statement", "Contact us");
         has(&said, "button", "hello@tidewater.io");
+        // The asking verbs are English: a French "Merci" over "Contact : …", "contact" there a
+        // noun, keeps its closing and its thanks (dogfood pass 11).
+        let mut merci = deck_of(closing("Merci", "Contact\u{a0}: transition@metropole.fr", &[]));
+        merci.brief.language = Some("French".into());
+        let (layout, said) = last(&merci, &Pictures::new(), &none);
+        assert_eq!(layout, "closing", "{said:#?}");
+        assert!(said.iter().any(|(_, w)| w == "Merci"), "{said:#?}");
+        assert!(!said.iter().any(|(_, w)| w == "Contact"), "{said:#?}");
         // A Q&A that ends the talk, its seeded questions under it, stays a Q&A (dogfood pass 10),
         // never a closing that lists them over its backdrop.
         let mut asked =
