@@ -486,16 +486,50 @@ export function panel(stage: Stage, editor: Editor): Panel {
     return { kind: "failed", message };
   }
 
+  /** Settled once the ways to begin have first been on the screen. */
+  let looked: Promise<void> | undefined;
+  /** Once a person may see the ways to begin: the deck's health is read only then, from the deck as
+   * it stands. Read as the panel is made, it loaded the generator's module at every start of the
+   * editor and set the worker's deck to the source the page held before the bundle opened, which a
+   * request that carries no source (a slide asked for) was then answered from. */
+  const onScreen = () =>
+    (looked ??= new Promise<void>((seen) => {
+      const watch = new IntersectionObserver((entries) => {
+        if (!entries.some((e) => e.isIntersecting)) return;
+        watch.disconnect();
+        seen();
+      });
+      watch.observe(starters);
+    }));
+
   /** Ways to begin, under an empty conversation (lift-up 20261110 ATTR-2): asks the deck's own
    * story suggests, its health first, each a button that asks it. The beat whose slides health
-   * finds the most to look at is named, where the deck has beats; they go once a question is asked,
-   * and come back with a new conversation. */
+   * finds the most to look at is named, where the deck has beats, once the ways are on the screen;
+   * they go once a question is asked, and come back with a new conversation. */
   async function offer() {
-    const asks: [string, string][] = [
-      ["Make this talk stronger", "Make this talk stronger. Read its health first, then fix what it says matters most, one change at a time, and tell me what you changed and why."],
+    const stronger: [string, string] = [
+      "Make this talk stronger",
+      "Make this talk stronger. Read its health first, then fix what it says matters most, one change at a time, and tell me what you changed and why.",
     ];
-    const health = await stage.health(editor.source()).catch(() => undefined);
+    const claims: [string, string] = [
+      "Check every slide says its claim",
+      "Check that every slide says its claim: read the deck's health and each slide's headline, and tell me the slides whose words don't carry their beat's claim, each with a headline that would.",
+    ];
+    const offering = (asks: [string, string][]) => {
+      starters.replaceChildren(
+        ...asks.map(([label, words]) => {
+          const button = Object.assign(document.createElement("button"), { type: "button", textContent: label, title: words });
+          button.onclick = () => void ask(words);
+          return button;
+        }),
+      );
+      starters.hidden = false;
+    };
+    offering([stronger, claims]);
+    await onScreen();
     if (transcript.children.length || working) return;
+    const health = await stage.health(editor.source()).catch(() => undefined);
+    if (transcript.children.length || working || starters.hidden) return;
     // The part of the talk, by the arc's beat each slide was written for, whose slides health finds
     // the most to look at: an error weighs more than a warning, an info nothing.
     const weight = { error: 3, warning: 2, info: 0 };
@@ -506,27 +540,15 @@ export function panel(stage: Stage, editor: Editor): Panel {
     }
     const weakest = [...parts].sort(([, a], [, b]) => b - a)[0]?.[0];
     const named = weakest === undefined ? undefined : health?.beats[weakest];
-    if (named) {
-      // Its name as the arc says it ("Proof: case studies, data, demos"), the part before a colon on
-      // the button.
-      const short = named.split(":")[0].trim();
-      asks.push([
-        `Tighten \u201c${short}\u201d`,
-        `Tighten the \u201c${named}\u201d part of the talk: fewer words on its slides, each slide saying its claim, nothing the audience needs lost.`,
-      ]);
-    }
-    asks.push([
-      "Check every slide says its claim",
-      "Check that every slide says its claim: read the deck's health and each slide's headline, and tell me the slides whose words don't carry their beat's claim, each with a headline that would.",
+    if (!named) return;
+    // Its name as the arc says it ("Proof: case studies, data, demos"), the part before a colon on
+    // the button.
+    const short = named.split(":")[0].trim();
+    offering([
+      stronger,
+      [`Tighten \u201c${short}\u201d`, `Tighten the \u201c${named}\u201d part of the talk: fewer words on its slides, each slide saying its claim, nothing the audience needs lost.`],
+      claims,
     ]);
-    starters.replaceChildren(
-      ...asks.map(([label, words]) => {
-        const button = Object.assign(document.createElement("button"), { type: "button", textContent: label, title: words });
-        button.onclick = () => void ask(words);
-        return button;
-      }),
-    );
-    starters.hidden = false;
   }
 
   // A bundle opened anew starts a conversation anew: the worker that held the last is gone.
