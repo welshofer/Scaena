@@ -2506,12 +2506,22 @@ fn rebroken(
 
 /// Each slide of `narrative` after Narrato's variety pass, but for its cap on dividers: Vzestup
 /// caps them since each is a picture of its own there, but here a divider costs nothing and the
-/// agenda names every part, so each the model asked for stays one.
+/// agenda names every part, so each the model asked for stays one. Nor does a Q&A that ends the
+/// talk become a plain closing (dogfood pass 10): it is a closing already, and its seeded
+/// questions, which a closing has no place for, would be set as a list on its backdrop.
 fn varied(narrative: &Narrative) -> Vec<Varied> {
     let mut varied: Vec<Varied> = narrative.slides.iter().map(Varied::of).collect();
     let changes = layouts::vary(&mut varied, true);
-    for c in changes.iter().filter(|c| c.reason == layouts::Reason::SectionCap) {
-        varied[c.index].layout = Varied::of(&narrative.slides[c.index]).layout;
+    for c in changes.iter() {
+        let asked = Varied::of(&narrative.slides[c.index]).layout;
+        let kept = match c.reason {
+            layouts::Reason::SectionCap => true,
+            layouts::Reason::BookendClosing => asked.identity() == "qa",
+            _ => false,
+        };
+        if kept {
+            varied[c.index].layout = asked;
+        }
     }
     varied
 }
@@ -9055,6 +9065,15 @@ mod tests {
         assert_eq!(layout, "call-to-action");
         has(&said, "statement", "Contact us");
         has(&said, "button", "hello@tidewater.io");
+        // A Q&A that ends the talk, its seeded questions under it, stays a Q&A (dogfood pass 10),
+        // never a closing that lists them over its backdrop.
+        let mut asked =
+            closing("Questions?", "", &["What if I do not understand the statistics?", "Where do I find papers?"]);
+        asked["layoutSuggestion"] = json!("Q&A");
+        let (layout, said) = last(&deck_of(asked), &Pictures::new(), &none);
+        assert_eq!(layout, "qa");
+        has(&said, "question", "Questions?");
+        has(&said, "support", "What if I do not understand the statistics?\nWhere do I find papers?");
         // A closing that says something stays as it is said, its ask and address and all.
         let strong = deck_of(closing("Go home and find your twelve people", "portalderpower.org/playbook", &[]));
         assert_eq!(last(&strong, &Pictures::new(), &none).0, "closing");
