@@ -108,9 +108,9 @@ try {
   const waits = await page.textContent("#status");
   check(waits.startsWith("Not fixed: the assistant is at work on the deck") && (await page.evaluate(() => window.scaena.source())) === unfixed, `a fix pressed while the assistant works says why: ${waits}`);
   await page.evaluate(() => document.querySelector("#stop").click());
-  for (const route of held) await route.abort().catch(() => {});
   await page.waitForFunction(() => !document.querySelector("#code .cm-content[contenteditable=false]"), null, { timeout: 30000 }).catch(() => {});
   await page.unroute("https://scripted.invalid/**");
+  check(held.length > 0, `the question was sent and held: ${held.length}`);
   await tab(page, "story");
   // Each finding says what to do under what it found, the question the assistant would be asked,
   // so a presenter with no key reads it in its row (editor dogfood 3).
