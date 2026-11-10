@@ -550,17 +550,16 @@ pub fn slide_polishing(b: &Bundle, written: Written) -> Result<(SlideWritten, Op
     let mut left: Vec<Finding> = left;
     scaena_core::sort::by_key(&mut left, |f| f.code != "E100");
     let summary = write.as_ref().map(|w| crate::patch::summary(&b.deck, &w.deck)).unwrap_or_default();
-    let out =
-        SlideWritten {
-            patched,
-            summary,
-            report: None,
-            slide: written.states,
-            layout: written.layout,
-            beat: written.beat,
-            fixed,
-            left,
-        };
+    let out = SlideWritten {
+        patched,
+        summary,
+        report: None,
+        slide: written.states,
+        layout: written.layout,
+        beat: written.beat,
+        fixed,
+        left,
+    };
     Ok((out, write))
 }
 
