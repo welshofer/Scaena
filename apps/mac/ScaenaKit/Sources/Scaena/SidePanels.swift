@@ -118,6 +118,9 @@ struct InspectorColumn<Formatting: View, Animating: View>: View {
     @ViewBuilder let animate: () -> Animating
 
     var body: some View {
+        #if DEBUG
+        let _ = BodyReport.evaluated("InspectorColumn") { Self._logChanges() }
+        #endif
         VStack(spacing: 0) {
             #if !os(macOS)
             Picker("Inspector", selection: $tab) {
