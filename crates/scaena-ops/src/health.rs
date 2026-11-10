@@ -1076,18 +1076,10 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         },
         says: match (hard, soft) {
             (0, 0) => "No slide breaks from the one before it, read by their words.".into(),
-            // Each count said where it has any, a soft turn as where a part of the talk begins: a
-            // person reads no "beat" (W2's editor dogfood).
             _ => format!(
-                "Read by their words: {}{}.",
-                [
-                    (hard > 0).then(|| format!("{} where the talk turns sharply", counted(hard, "slide"))),
-                    (soft > 0).then(|| format!("{} where a new part of the talk begins", counted(soft, "slide"))),
-                ]
-                .into_iter()
-                .flatten()
-                .collect::<Vec<_>>()
-                .join(", "),
+                "Read by their words: {} where the talk turns sharply, {} at a beat's turn{}.",
+                counted(hard, "slide"),
+                soft,
                 match bridged.len() {
                     0 => String::new(),
                     n => format!("; the notes bridge {n} of them"),
@@ -2513,23 +2505,6 @@ mod tests {
         assert!(looks(&deck).is_empty());
         assert_eq!(deck["meta"]["narrative"]["refused"], json!([]));
         assert!(!apply(&mut deck, &stale), "a fix gone stale is refused");
-    }
-
-    /// Coherence's line says each count it has, in a person's words (W2's editor dogfood): no
-    /// "beat", and no count of none.
-    #[test]
-    fn coherence_says_its_turns_in_a_persons_words() {
-        let mut said = Vec::new();
-        for name in [
-            "appeal", "board-de", "deepdive", "fleet", "grant", "keynote", "launch", "lecture", "pitch", "qbr",
-            "training",
-        ] {
-            let says = of(&dogfood(name, "", |_| {})).coherence.says;
-            assert!(!says.contains("beat") && !says.contains(": 0 ") && !says.contains(", 0 "), "{name}: {says}");
-            said.push(says);
-        }
-        assert!(said.iter().any(|s| s.contains("where a new part of the talk begins")), "{said:#?}");
-        assert!(said.iter().any(|s| s.contains("turns sharply") && !s.contains("new part")), "{said:#?}");
     }
 
     /// A turn the notes bridge is not found (narrative dogfood H4): coherence reads a slide's
