@@ -12,7 +12,8 @@
 //   what it copies.
 // - Delete takes `revenue` out, its step too; `close` reads as it read.
 // - Enter shows a slide's first state in the canvas, and the preview back; Escape closes it, and
-//   what it said of itself in the status goes with it.
+//   what it said of itself in the status goes with it. Closed by Escape or the Slides button, it
+//   shows the slide selected in it (editor dogfood 2).
 // - The slider at its foot makes the slides larger, fewer to a row, each painted larger; in a
 //   window of 1024 × 700 it stands below every slide, none showing under it or past it.
 // - In that window the inspector gives way to the slide, and the palette's Hide the inspector and
@@ -189,6 +190,25 @@ try {
   check(await page.locator("#slides").isHidden(), "Escape closes it");
   check(!(await status()).includes("Enter shows one"), `and what it said goes with it: ${await status()}`);
   check((await source()) === original, "the deck is as it was");
+
+  // Closed, it shows the slide selected in it, as a presentation app's light table does (editor
+  // dogfood 2): by Escape, and by the Slides button; with nothing else selected, the slide shown
+  // stays.
+  const shownFirst = () => page.evaluate(() => window.scaena.last().states[window.scaena.shown()]?.[0]);
+  for (const [to, how] of [["intro", "Escape"], ["revenue", "the Slides button"]]) {
+    await page.click("#slides-open");
+    await page.waitForFunction(() => !document.querySelector("#slides").hidden, null, { timeout: 10000 });
+    await tile(to).click();
+    if (how === "Escape") await page.keyboard.press("Escape");
+    else await page.click("#slides-open");
+    await page.waitForFunction((s) => window.scaena.last().states[window.scaena.shown()]?.[0] === s, to, { timeout: 30000 }).catch(() => {});
+    check((await page.locator("#slides").isHidden()) && (await shownFirst()) === to, `closed by ${how}, it shows the slide selected in it: ${await shownFirst()}`);
+  }
+  await page.click("#slides-open");
+  await page.waitForFunction(() => !document.querySelector("#slides").hidden, null, { timeout: 10000 });
+  await page.keyboard.press("Escape");
+  check((await shownFirst()) === "revenue", `with the slide shown selected, closing leaves it shown: ${await shownFirst()}`);
+  check((await source()) === original, "and the deck is as it was");
 
   // In that window the inspector gives way to the slide, and the palette hides it, or the
   // animations under the canvas, to give the slide their room, as a presentation app's View menu
