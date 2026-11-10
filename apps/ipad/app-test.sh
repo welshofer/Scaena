@@ -38,8 +38,12 @@ xcrun simctl spawn "$udid" log stream --level debug --style compact \
   --predicate 'subsystem == "com.welshofer.Scaena" OR (process == "ScaenaApp" AND (messageType == error OR messageType == fault))' >"$said" 2>&1 &
 logging=$!
 status=0
+# A test held up past ten minutes fails by its name, its screenshot and result bundle kept, and the
+# run goes on to the next: a hang no longer takes the job to its limit unseen. The slowest test
+# that passes takes some four and a half minutes on CI's simulator (TouchTests.testTheCanvasByTouch).
 xcodebuild test-without-building -quiet -project Scaena.xcodeproj -scheme ScaenaApp -destination "$destination" \
-  -derivedDataPath "$built" -resultBundlePath "$results" || status=$?
+  -derivedDataPath "$built" -resultBundlePath "$results" \
+  -test-timeouts-enabled YES -maximum-test-execution-time-allowance 600 || status=$?
 [ "$status" -eq 0 ] || engine_log
 kill "$logging" 2>/dev/null || true
 "$here/results.sh" "$results" "$root/target/ipad/shots"
