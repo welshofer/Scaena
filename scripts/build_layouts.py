@@ -607,8 +607,10 @@ layout("Numbers", "scorecard", "Four measures in a row, each its number and how 
     "header": header(),
     "rule": rule((1, 12), (6, 6)),
     **{f"{o}-figure": slot(c, (3, 5), "figure", w, align={"y": "end"}) for o, c, w in zip(ORDINALS, QUARTERS, ["$4.2M", "38%", "12k", "2.1%"])},
-    **{f"{o}-title": slot(c, (7, 8), "label", w) for o, c, w in zip(ORDINALS, QUARTERS, ["Revenue", "Margin", "Users", "Churn"])},
-    **{o: slot(c, (9, 10), "caption", "Up on last year") for o, c in zip(ORDINALS, QUARTERS)},
+    # What each figure counts stands under it in the lede, read with it from the back of the room,
+    # and how it moved in the body, not a caption (dogfood pass 10).
+    **{f"{o}-title": slot(c, (7, 8), "lede", w) for o, c, w in zip(ORDINALS, QUARTERS, ["Revenue", "Margin", "Users", "Churn"])},
+    **{o: slot(c, (9, 10), "body", "Up on last year") for o, c in zip(ORDINALS, QUARTERS)},
 })
 
 layout("Numbers", "ranking", "The top four, in order, each with its number.", {
@@ -1106,10 +1108,12 @@ SHADES = ["surface-2"] * 4 + ["line"] * 2 + ["accent"] * 3
 layout("Frameworks", "risk-matrix", "Each risk placed by how likely it is and how much it would hurt, the cells shaded from calm to grave.", {
     "kicker": KICKER,
     "header": header(),
-    **{f"cell-{5 - li}-{ii + 1}": card(c, (r, r), fill=SHADES[(4 - li) + ii]) for li, r in enumerate(LIKELY) for ii, c in enumerate(IMPACT)},
+    # The cells close the gutters between them, so the matrix reads as one shaded field, not a
+    # scatter of chips; its scales are read from the back of the room (dogfood pass 10).
+    **{f"cell-{5 - li}-{ii + 1}": slot(c, (r, r), prompt={"shape": "rect", "fill": SHADES[(4 - li) + ii]}, inset=-12) for li, r in enumerate(LIKELY) for ii, c in enumerate(IMPACT)},
     "likely-title": slot((1, 2), (3, 3), "label", "Likelihood"),
-    **{f"likely-{5 - i}": slot((1, 2), (r, r), "caption", w, align={"y": "center"}) for i, r, w in zip(range(5), LIKELY, ["Almost certain", "Likely", "Possible", "Unlikely", "Rare"])},
-    **{f"impact-{i + 1}": slot(c, (9, 9), "caption", w, align={"x": "center"}) for i, c, w in zip(range(5), IMPACT, ["Minor", "Moderate", "Major", "Severe", "Critical"])},
+    **{f"likely-{5 - i}": slot((1, 2), (r, r), "body", w, align={"y": "center"}, fit="shrink") for i, r, w in zip(range(5), LIKELY, ["Almost certain", "Likely", "Possible", "Unlikely", "Rare"])},
+    **{f"impact-{i + 1}": slot(c, (9, 9), "body", w, align={"x": "center"}, fit="shrink") for i, c, w in zip(range(5), IMPACT, ["Minor", "Moderate", "Major", "Severe", "Critical"])},
     "impact-title": slot((3, 7), (10, 10), "label", "Impact", align={"x": "center"}),
     "first": slot(IMPACT[1], (6, 6), "body", "Hiring", align={"x": "center", "y": "center"}),
     "second": slot(IMPACT[0], (5, 5), "body", "Churn", align={"x": "center", "y": "center"}),
@@ -1678,6 +1682,13 @@ OLD_SLOTS = {
     "quote-portrait": {"quote": {"align": {"x": "start", "y": "end"}}, "who": {"role": "body"}},
     "statement": {"statement": {"align": {"x": "start", "y": "end"}}},
     "numbered": {"body": {"role": "lede"}},
+    # Each number stands on what it counts, the two together on their card, what it counts in the
+    # lede, read with the number from the back of the room, not a caption at the card's foot
+    # (dogfood pass 10).
+    "numbers": {
+        **{f"{o}-title": {"align": {"y": "end"}} for o in ("first", "second", "third")},
+        **{o: {"role": "lede"} for o in ("first", "second", "third")},
+    },
 }
 
 # And in one theme alone. Where Stat's claim sits under its number, as in Dusk and Daybreak, the
@@ -1699,7 +1710,17 @@ TITLE_KICKER = {"kicker": {"col": [1, 8], "row": [11, 12], "align": {"y": "end"}
 
 # By geometry family.
 OLD_SLOTS_IN = {
-    "dusk": {"stat": {"number": {"row": [3, 7]}}, "timeline": timeline_rows(3), "title": TITLE_KICKER},
+    "dusk": {
+        "stat": {"number": {"row": [3, 7]}},
+        "timeline": timeline_rows(3),
+        "title": TITLE_KICKER,
+        # Three numbers' cards fill what the slide holds, a row larger, each number over what it
+        # counts, as Ember's do (dogfood pass 10).
+        "numbers": {
+            **{f"{o}-card": {"row": [4, 9]} for o in ("first", "second", "third")},
+            **{o: {"row": [7, 9]} for o in ("first", "second", "third")},
+        },
+    },
     "ember": {
         "timeline": timeline_rows(4, last=12),
         # Who said them on the row under the words, as in the other themes, not a row further down.

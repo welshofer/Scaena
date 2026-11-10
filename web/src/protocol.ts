@@ -1205,6 +1205,10 @@ export type ToWorker =
   /** `state` painted at rest as the patch `ops` would make it, nothing made, until a `rest` lets
    * it go: a suggested layout pointed at (PLAN 2.92). */
   | { type: "preview"; id: number; state: string; ops: unknown[]; format?: string }
+  /** `state` painted at rest in the theme as `ops` (RFC 6902 operations on it) would edit it,
+   * nothing made or written; without `ops`, in the theme as it is: a color held in the Theme
+   * tab's picker before it is chosen (lift-up ATTR-5). A `rest`, or the deck changed, lets it go. */
+  | { type: "previewTheme"; id: number; state: string; ops?: unknown[]; format?: string }
   /** `node`'s look as `state` shows it, in the deck the editor's `source` compiles to (PLAN 2.58). */
   | { type: "look"; id: number; source: string; state: string; node: string }
   /** The patch that puts `look` on `nodes` in `state`, on the deck the editor's `source` compiles
@@ -2113,7 +2117,17 @@ export type FromWorker =
   | { type: "generating"; event: GeneratingEvent }
   /** The outline the model wrote (narrative FUNC-1), on `arc`, chosen for `reasoning`: shown for
    * the person to settle (`settled`) or to outline again on another arc (`outlineAgain`). */
-  | { type: "storyOutlined"; outline: StoryOutline; arc: string; reasoning: string; fallback?: string; unread?: string }
+  | {
+      type: "storyOutlined";
+      outline: StoryOutline;
+      arc: string;
+      reasoning: string;
+      fallback?: string;
+      unread?: string;
+      /** The fewest and the most slides the beats may take in all, the length's range (lift-up
+       * 20261110 USE-3): a sum outside it is scaled to its nearer end. */
+      range?: [number, number | null];
+    }
   /** The deck made from a prompt: the bundle's files by their paths, its name, and what it came
    * to. Kept nowhere until it is saved. */
   | { type: "generated"; files: Record<string, ArrayBuffer>; name: string; made: Generated }

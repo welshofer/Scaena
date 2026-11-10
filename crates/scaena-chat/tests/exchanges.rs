@@ -356,6 +356,27 @@ fn only_the_newest_results_are_shown_again_within_the_budget() {
     assert_eq!(chat.budget, scaena_chat::BUDGET, "a new question has the whole budget");
 }
 
+/// A question no answer joined is taken back (lift-up 20261110 STAB-3): asked again after a key
+/// refused or a stop, it is one question; one the model answered stays.
+#[test]
+fn a_question_with_no_answer_is_taken_back() {
+    let mut chat = Chat::new(Provider::Anthropic, "a-model", "Be brief.".into(), vec![]);
+    assert!(!chat.take_back(), "nothing asked");
+    chat.ask("Is it clean?");
+    // The key is refused: the provider's answer is an error, and no answer joins the conversation.
+    let refused = r#"{"error":{"message":"invalid x-api-key"}}"#;
+    assert!(chat.answer(401, "Unauthorized", refused).is_err());
+    assert!(chat.take_back());
+    assert!(chat.conversation.is_empty());
+    chat.ask("Is it clean?");
+    let body = r#"{"content":[{"type":"text","text":"Clean."}],"stop_reason":"end_turn"}"#;
+    assert!(matches!(chat.answer(200, "OK", body), Ok(Next::Done { .. })));
+    assert!(!chat.take_back(), "an answered question stays");
+    assert_eq!(chat.conversation.len(), 2);
+    let body = chat.request("sk-test").body.expect("a POST").to_string();
+    assert_eq!(body.matches("Is it clean?").count(), 1, "asked once: {body}");
+}
+
 /// A call the answer's token limit cut off is not run (lift-up REL-1): its arguments are not what
 /// the model meant. It goes back with the others' results, told to make the edit in smaller
 /// patches, and a whole call before it runs as before. Anthropic's stream leaves a cut call's
