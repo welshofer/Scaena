@@ -819,11 +819,18 @@ fn labels(headline: &str) -> bool {
         .map(|w| w.replace('\u{2019}', "'").trim_matches(|c: char| !c.is_alphanumeric() && c != '\'').to_lowercase())
         .filter(|w| !w.is_empty())
         .collect();
+    let of = |w: &str| VERBS.split_ascii_whitespace().any(|v| v == w);
     // A word of five letters or more in "-ed" is a verb's past or participle, as a point is stated
     // in ("Margins expanded"); "-ing" is not, a gerund naming many a topic ("Pricing by region").
-    let verb =
-        |w: &String| (w.chars().count() >= 5 && w.ends_with("ed")) || VERBS.split_ascii_whitespace().any(|v| v == w);
-    (3..=6).contains(&words.len()) && !words.iter().any(verb)
+    // A verb's "-s" within two words after "and" or "or" is a plural, the end of a list of
+    // things ("Weekend hours and online holds", W1's dogfood 6): a predicate there stands on a
+    // verb before it, which is found.
+    let listed = |i: usize| words[i.saturating_sub(2)..i].iter().any(|w| matches!(w.as_str(), "and" | "or"));
+    let verb = |(i, w): (usize, &String)| {
+        let plural = w.len() > 3 && w.ends_with('s') && of(&w[..w.len() - 1]) && listed(i);
+        (w.chars().count() >= 5 && w.ends_with("ed")) || (of(w) && !plural)
+    };
+    (3..=6).contains(&words.len()) && !words.iter().enumerate().any(verb)
 }
 
 /// The layouts a talk closes in (ADR-0032 item 6).
@@ -2668,6 +2675,12 @@ mod tests {
         }
         // A gerund names a topic.
         assert!(labels("Pricing by region"));
+        // A verb's "-s" ending a list of things is a plural (W1's dogfood 6); a verb before it
+        // still states a point.
+        assert!(labels("Weekend hours and online holds"));
+        assert!(labels("Late fees or holds"));
+        assert!(!labels("Weekend hours grow and holds"));
+        assert!(!labels("The library holds weekend hours"));
 
         let deck = climate();
         let h = of(&deck);
