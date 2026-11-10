@@ -422,6 +422,11 @@ fn counted(n: usize, noun: &str) -> String {
     format!("{n} {noun}{}", if n == 1 { "" } else { "s" })
 }
 
+/// A verb that agrees with `n` of something: "1 slide bends", "2 slides bend" (dogfood pass 9).
+fn agree<'a>(n: usize, one: &'a str, more: &'a str) -> &'a str {
+    if n == 1 { one } else { more }
+}
+
 /// A share of the scale, to two places: `0.35`.
 fn level(v: f64) -> String {
     format!("{v:.2}")
@@ -815,7 +820,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         score: Some(fidelity_score as u32),
         says: match bends.len() {
             0 => format!("The intensity the slides declare follows {curve_of}."),
-            k => format!("{} bend the intensity away from {curve_of}.", counted(k, "slide")),
+            k => format!("{} {} the intensity away from {curve_of}.", counted(k, "slide"), agree(k, "bends", "bend")),
         },
     };
     // Slides that declare what `of` reads, and of those, the ones read: a deck whose words the
@@ -867,10 +872,17 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         _ => Measure {
             score: Some(r.score as u32),
             says: match unread {
-                0 => format!("{} read far from the {what} they declare.", counted(gaps, "slide")),
-                _ => format!(
-                    "{} read far from the {what} they declare; on {} the lexicons read none.",
+                0 => format!(
+                    "{} {} far from the {what} {}.",
                     counted(gaps, "slide"),
+                    agree(gaps, "reads", "read"),
+                    agree(gaps, "it declares", "they declare")
+                ),
+                _ => format!(
+                    "{} {} far from the {what} {}; on {} the lexicons read none.",
+                    counted(gaps, "slide"),
+                    agree(gaps, "reads", "read"),
+                    agree(gaps, "it declares", "they declare"),
                     counted(unread, "slide")
                 ),
             },
@@ -2198,6 +2210,43 @@ mod tests {
         // The score capped by the slides that stand: 23 of 25, less ten for each of the two that
         // do not (ADR-0032 item 1).
         assert_eq!((plain.score, h.slides.len(), h.score), (84, 25, 72));
+    }
+
+    /// What a measure says of its slides agrees with how many it counts: "1 slide bends the
+    /// intensity", "2 slides bend it"; "1 slide reads far from the tone it declares" (dogfood
+    /// pass 9).
+    #[test]
+    fn a_measure_says_its_slides_as_many_as_it_counts() {
+        let climate = climate();
+        let before = of(&climate);
+        let mut decks = vec![before.clone()];
+        // Each slide that reads something planned at the far end of it, alone: one bend at a time.
+        for (i, plan) in heard(&before).into_iter().take(4) {
+            let mut deck = climate.clone();
+            planned(&mut deck, &before.slides[i].state, plan);
+            decks.push(of(&deck));
+        }
+        let (mut one, mut more) = (0, 0);
+        for h in &decks {
+            for says in [&h.fidelity.says, &h.intensity.says, &h.tone.says] {
+                let Some(n) = says.split(' ').next().and_then(|w| w.parse::<usize>().ok()) else { continue };
+                if n == 1 {
+                    one += 1;
+                    assert!(says.starts_with("1 slide ") && !says.starts_with("1 slides"), "{says}");
+                    assert!(!says.contains("slide bend ") && !says.contains("slide read far"), "{says}");
+                    assert!(!says.contains("they declare"), "{says}");
+                } else {
+                    more += 1;
+                    assert!(!says.contains("slides bends") && !says.contains("slides reads"), "{says}");
+                }
+            }
+        }
+        assert!(
+            one > 0,
+            "a measure counting one slide is said: {:#?}",
+            decks.iter().map(|h| &h.fidelity.says).collect::<Vec<_>>()
+        );
+        assert!(more > 0);
     }
 
     /// A slide that does not stand caps the score at the clean slides' share, less ten for each:
