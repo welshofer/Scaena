@@ -166,6 +166,9 @@ public enum GeneratingStep: Equatable, Sendable {
     case painted(pictures: Int, unmade: [String])
     case making
     case looking(slides: Int)
+    /// The model's answers read for this many of the look's rounds of all of them (lift-up
+    /// 20261110 ATTR-1), so the longest wait says how far it has come.
+    case lookedAt(round: Int, of: Int)
     case looked(slides: Int)
     case unlooked(String)
     /// A change the model asked that lint found its slide worse for, let go (lift-up USE-4).
@@ -173,6 +176,16 @@ public enum GeneratingStep: Equatable, Sendable {
     case fitting(texts: Int)
     case fitted(texts: Int)
     case unfitted(String)
+
+    /// How long a step has run, as the line it is on says it: "12 s", "1 min 20 s", "2 h 5 min"
+    /// (lift-up 20261110 ATTR-1).
+    public static func elapsed(_ seconds: TimeInterval) -> String {
+        let whole = max(0, Int(seconds))
+        let (h, m, s) = (whole / 3600, whole / 60 % 60, whole % 60)
+        if h > 0 { return m > 0 ? "\(h) h \(m) min" : "\(h) h" }
+        if m > 0 { return s > 0 ? "\(m) min \(s) s" : "\(m) min" }
+        return "\(s) s"
+    }
 
     /// What it says, in a person's words.
     public var words: String {
@@ -204,6 +217,7 @@ public enum GeneratingStep: Equatable, Sendable {
         case .painted(let pictures, let unmade): "\(pictures) pictures made; not made: \(unmade.joined(separator: "; "))"
         case .making: "Making the deck in the theme…"
         case .looking(let slides): "Showing the model the \(slides) slides as drawn…"
+        case .lookedAt(let round, let of): "The model has looked at round \(round) of \(of)"
         case .looked(let slides) where slides == 0: "The model saw nothing to change"
         case .looked(let slides): "\(slides) \(slides == 1 ? "slide" : "slides") changed by what the model saw"
         case .unlooked(let why): "Not changed by what the model saw: \(why)"
@@ -991,6 +1005,9 @@ public final class Generator {
 
     /// `requests` sent `atOnce` at a time, each group's answered before the next is sent, the
     /// replies in the order the requests came.
+    /// How many slides the look shows the model a round (`scaena_ops::narrative::LOOK_BATCH`).
+    nonisolated static let lookBatch = 12
+
     nonisolated static func asked(_ requests: [GeneratorRequest], atOnce: Int, send: @escaping Send) async -> [GeneratorReply] {
         var replies = [GeneratorReply?](repeating: nil, count: requests.count)
         let step = max(1, atOnce)
@@ -1211,6 +1228,10 @@ public final class Generator {
         // back alone, asked again after the wait the engine says (lift-up REL-1).
         var seeing = making.look
         if let first = seeing { hear(.looking(slides: first.slides)) }
+        // The rounds answered, out of all of them: a round of `LOOK_BATCH` slides (lift-up
+        // 20261110 ATTR-1).
+        let allRounds = seeing.map { ($0.slides + Self.lookBatch - 1) / Self.lookBatch } ?? 0
+        var roundsRead = 0
         var refused: GeneratorReply?
         while let round = seeing {
             // The batch asked, a few rounds at a time, and the next batch drawn while it is out
@@ -1233,6 +1254,11 @@ public final class Generator {
                 return .object(answered)
             }
             let looking: Looking = try await stepAway("looked", ["replies": .array(answers), "key": .string(key)])
+            // A round a busy provider answered for now comes back, and is not counted yet.
+            if looking.wait == nil, allRounds > 1 {
+                roundsRead = min(allRounds, roundsRead + replies.count)
+                hear(.lookedAt(round: roundsRead, of: allRounds))
+            }
             if let wait = looking.wait {
                 hear(.retrying(seconds: wait, tried: looking.tried ?? 0))
                 try await Task.sleep(for: .seconds(wait))
