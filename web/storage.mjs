@@ -30,7 +30,7 @@
 // Exits 1 on any failure.
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
-import { axeInto, launch, serve } from "./serve.mjs";
+import { answering, axeInto, launch, serve, TAKEN } from "./serve.mjs";
 
 
 const server = await serve();
@@ -82,6 +82,9 @@ try {
     asked.push(d.message());
     void (declining ? d.dismiss() : d.accept());
   });
+  // Changes not saved are asked about in the editor's own dialog (lift-up 20261031 ATTR-3): taken,
+  // they are saved first; declined, the player plays the deck as last saved.
+  await answering(page, (a) => (asked.push(a.message), declining ? "discard" : TAKEN[a.for]));
   /** The editor once it has compiled and linted the bundle named `name`, if any. */
   const ready = async (name) => {
     await page.waitForFunction(
@@ -209,7 +212,7 @@ try {
   await type(tripled);
   check((await where()).dirty, "an edit not saved");
   const onEdited = await playing();
-  check(asked.length === 1 && asked[0].includes("Save it first?"), `Play on a deck with changes not saved asks to save it first: ${asked}`);
+  check(asked.length === 1 && asked[0].includes("Save them first?"), `Play on a deck with changes not saved asks to save it first: ${asked}`);
   check(!(await where()).dirty && (await listing(page, "bundles/revenue", "deck.json")).includes("Revenue tripled"), "saved, so the player plays the deck as the editor has it");
   check(onEdited.on, `on the slide shown: ${JSON.stringify(onEdited)}`);
   await type(reopened);
