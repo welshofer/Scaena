@@ -55,9 +55,14 @@ try {
   const first = await offered(page);
   check(
     first.includes("In this deck/Dusk*") &&
-      ["Stage/Dusk", "Executive/Daybreak", "Analyst/Ember", "Editorial/Salon"].every((t) => first.includes(t)),
+      ["Stage/Dusk as it ships", "Executive/Daybreak", "Analyst/Ember", "Editorial/Salon"].every((t) => first.includes(t)),
     `the picker offers the deck's Dusk, chosen, and the themes built in, by family: ${first.join(", ")}`,
   );
+  // No two are called alike (editor dogfood 1): the deck's copy of Dusk is "Dusk", and Dusk as it
+  // ships, which takes no edit made to that copy, is said apart from it, in the dialog and as the
+  // palette's "Re-theme in …".
+  const labels = await page.evaluate(() => window.scaena.themeChoices().map((c) => c.label));
+  check(new Set(labels).size === labels.length, `no two themes offered are called alike: ${labels.join(", ")}`);
 
   // Theme… is a button: ↓ on it re-themes nothing, and in its dialog the arrow keys move between
   // the themes and Cancel leaves the deck as it was; Re-theme alone re-themes (lift-up USE-3,
