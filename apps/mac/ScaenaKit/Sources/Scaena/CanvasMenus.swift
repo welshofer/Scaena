@@ -107,6 +107,13 @@ enum CanvasOffer {
         if let makePicture = deck.makePicture {
             offers.append(.action("Make a Picture…", symbol: "wand.and.stars", run: makePicture))
         }
+        // One slide written by the assistant's model (lift-up FUNC-1).
+        if let again = deck.writeSlideAgain {
+            offers.append(.action("Write This Slide Again…", symbol: "arrow.trianglehead.2.clockwise", run: again))
+        }
+        if let about = deck.addSlideAbout {
+            offers.append(.action("Add a Slide About…", symbol: "plus.rectangle.on.rectangle", run: about))
+        }
         // A map of a place (PLAN O.1d), there as a picture made goes.
         if let insertMap = deck.insertMap {
             offers.append(.action("Map…", symbol: "map", run: insertMap))

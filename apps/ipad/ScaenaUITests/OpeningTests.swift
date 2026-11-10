@@ -194,6 +194,40 @@ final class OpeningTests: XCTestCase {
         leaveB1(in: app)
     }
 
+    /// Write This Slide Again… on the iPad (lift-up FUNC-1): the long press on the slide offers it,
+    /// as the right click and the Slide menu do; with no key kept, its sheet says where one goes,
+    /// offers Add a Key…, and writes nothing, Write It Again held until there is a model to ask.
+    @MainActor
+    func testWriteThisSlideAgainAsksForAKeyFirst() throws {
+        let app = launched()
+        try openB1(in: app)
+        let canvas = app.descendants(matching: .any).matching(identifier: "canvas").firstMatch
+        XCTAssertTrue(canvas.waitForExistence(timeout: 10), "no canvas: \(app.debugDescription)")
+        let title = canvas.descendants(matching: .any).matching(NSPredicate(format: "label == 'Scaena'")).firstMatch
+        XCTAssertTrue(title.waitForExistence(timeout: 10), "no title on the canvas: \(app.debugDescription)")
+        title.press(forDuration: 1.2)
+        let again = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "label == 'Write This Slide Again…'")).firstMatch
+        guard paged(to: again, in: app) else {
+            keep(app, as: "no-write-again")
+            throw Unseen(description: "the long press offers no Write This Slide Again…: \(app.debugDescription)")
+        }
+        again.tap()
+        let key = app.buttons.matching(identifier: "slide-ask-key").firstMatch
+        guard key.waitForExistence(timeout: 10) else {
+            keep(app, as: "slide-ask-no-key")
+            throw Unseen(description: "the sheet offers no Add a Key…: \(app.debugDescription)")
+        }
+        let go = app.buttons.matching(identifier: "slide-ask-go").firstMatch
+        XCTAssertTrue(go.exists && !go.isEnabled, "Write It Again is offered with no model to ask")
+        keep(app, as: "slide-ask")
+        app.buttons.matching(NSPredicate(format: "label == 'Cancel'")).firstMatch.tap()
+        XCTAssertTrue(wait(5) { !key.exists }, "Cancel left the sheet up: \(app.debugDescription)")
+        let undo = app.navigationBars.buttons.matching(NSPredicate(format: "identifier == 'undo'")).firstMatch
+        XCTAssertTrue(undo.waitForExistence(timeout: 5) && undo.label == "Undo", "the sheet wrote something")
+        settle()
+    }
+
     /// B1 left as it was, each step this test made taken back by the toolbar's Undo (PLAN 4.11)
     /// until it has none to take back, as it had none when B1 opened. The tests after these open B1
     /// too, and the app saves an edit by itself: a text left on the cover, over its title, took the

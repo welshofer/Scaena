@@ -18,6 +18,8 @@ struct StateList: View {
     let make: ([JSONValue], String?) -> Void
     /// Add a step or a slide after a state, then show it.
     let add: (String, StateAdding) -> Void
+    /// Write This Slide Again…, `true`, or Add a Slide About… for a state's slide (lift-up FUNC-1).
+    var asking: ((String, Bool) -> Void)? = nil
     /// The rows, as the Slides rotor finds them (lift-up 10-24b USE-4).
     @Namespace private var rows
 
@@ -125,6 +127,12 @@ struct StateList: View {
         Divider()
         Button("Duplicate Slide", systemImage: "plus.square.on.square") {
             make(Restaging.duplicateSlides([slot.slide]), nil)
+        }
+        if let asking {
+            Button("Write This Slide Again…", systemImage: "arrow.trianglehead.2.clockwise") { asking(slot.state, true) }
+                .disabled(!editor.valid || editor.assisting)
+            Button("Add a Slide About…", systemImage: "plus.rectangle.on.rectangle") { asking(slot.state, false) }
+                .disabled(!editor.valid || editor.assisting)
         }
         Button("Move Up", systemImage: "arrow.up") { step(slot.state, by: -1) }
             .disabled(states.first == slot.state)

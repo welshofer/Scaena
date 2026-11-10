@@ -78,6 +78,8 @@ struct DeckView: View {
     @State private var picturingTheme = ""
     /// Where a map goes, while Insert › Map…'s sheet asks where it is of (PLAN O.1d).
     @State private var mapping: MapTarget?
+    /// The slide Write This Slide Again… or Add a Slide About… asks for (lift-up FUNC-1).
+    @State private var slideAsking: SlideAsking?
     /// The light table shown in place of the canvas, and the slides selected on it (PLAN 3.14).
     @State private var showsSlides = false
     /// Which of the window's columns show: the slides down the side fold away while the light
@@ -177,7 +179,7 @@ struct DeckView: View {
     /// The states down the side; beside them the canvas and the rest; and the toolbar.
     private var window: some View {
         NavigationSplitView(columnVisibility: $columns) {
-            StateList(editor: editor, chosen: $chosen, make: restage, add: addState)
+            StateList(editor: editor, chosen: $chosen, make: restage, add: addState, asking: askSlide)
                 .navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 320)
         } detail: {
             #if os(macOS)
@@ -352,7 +354,7 @@ struct DeckView: View {
                     try document.make(ops, undo: undo)
                     slidesPicked = Set(then)
                 }
-            }, touch: touch)
+            }, touch: touch, asking: askSlide)
         } else {
             // The canvas takes the room the find bar, the other sizes, and the timeline leave.
             CanvasColumn {
@@ -676,6 +678,11 @@ struct DeckView: View {
             made.newSlide = { addState(after: shown, as: .slide) }
             made.newStep = { addState(after: shown, as: .step) }
             made.duplicateSlide = { duplicateSlide(slide) }
+            // One slide written by the assistant's model (lift-up FUNC-1).
+            if editor.valid, !editor.assisting {
+                made.writeSlideAgain = { askSlide(shown, again: true) }
+                made.addSlideAbout = { askSlide(shown, again: false) }
+            }
             if Slide.of(editor.slots).count > 1 { made.deleteSlide = { deleteSlide(slide) } }
         }
         return made
@@ -945,6 +952,9 @@ struct DeckView: View {
             }
             .sheet(item: $mapping) { target in
                 MapSheet(target: target) { map, label in putMap(map, at: target, label: label) }
+            }
+            .sheet(item: $slideAsking) { asking in
+                SlideAskSheet(asking: asking, editor: editor) { written in wroteSlide(written, asking) }
             }
             // A deck New made opens on the themes that ship, over the window from its first frame, so
             // no deck shows before one is chosen, as a presentation app's theme chooser opens
@@ -1380,6 +1390,10 @@ struct DeckView: View {
         made.choosePicture = { choosingPicture = true }
         made.chooseIcon = { choosingIcon = true }
         made.makePicture = { makePicture(in: shown) }
+        if editor.valid, !editor.assisting {
+            made.writeSlideAgain = { askSlide(shown, again: true) }
+            made.addSlideAbout = { askSlide(shown, again: false) }
+        }
         made.insertMap = { insertMap(in: shown) }
         made.draw = { takePen() }
         made.drawing = pen != nil
@@ -2074,6 +2088,27 @@ struct DeckView: View {
     /// Make a Picture (PLAN 2.107): its sheet opened for where a picture made for `state` goes,
     /// as the browser finds it: the image selected, alone, which it takes the place of; the slide's
     /// empty place for one; or where the pointer last pressed.
+    /// Write This Slide Again… or Add a Slide About… for the slide `state` is of (lift-up
+    /// FUNC-1): its sheet asks what to change, or what the new slide is about.
+    private func askSlide(_ state: String, again: Bool) {
+        guard editor.valid else {
+            said = "Nothing to write yet: the deck must compile first"
+            return
+        }
+        let slide = Words.slide(state, in: editor.slots)
+            .replacingOccurrences(of: ", step \\d+$", with: "", options: .regularExpression)
+        slideAsking = SlideAsking(place: again ? .replace(state) : .after(state), slide: slide)
+    }
+
+    /// The slide written by the model: one step to undo, the slide shown, and what it says.
+    private func wroteSlide(_ written: SlideWritten, _ asking: SlideAsking) {
+        document.wroteSlide(written.before, undo: undo, named: asking.again ? "Write Slide Again" : "Add Slide")
+        if let first = written.first { chosen = first }
+        let left = written.left
+        let issues = left == 1 ? "issue" : "issues"
+        said = (asking.again ? "Wrote the slide again" : "Wrote a new slide") + (left > 0 ? ": \(left) \(issues) left to look at" : "")
+    }
+
     private func makePicture(in state: String) {
         perform {
             picturingTheme = try editor.session.themeText()?.text ?? ""

@@ -30,6 +30,10 @@ struct WindowPanes {
     var newStep: (() -> Void)? = nil
     var duplicateSlide: (() -> Void)? = nil
     var deleteSlide: (() -> Void)? = nil
+    /// Write This Slide Again… and Add a Slide About… (lift-up FUNC-1), by the assistant's model:
+    /// none while the deck does not compile.
+    var writeSlideAgain: (() -> Void)? = nil
+    var addSlideAbout: (() -> Void)? = nil
     /// File › Export To (lift-up USE-5): the deck saved as a PDF, with or without the presenter's
     /// notes, every slide as PNGs in one zip at the canvas's size or twice it, as the toolbar's
     /// Share saves them, and the deck as one HTML file (lift-up 20261031 FUNC-3); none with no
