@@ -114,8 +114,10 @@ final class TouchTests: XCTestCase {
                 throw Unseen(description: "the keys typed nothing in the title: \(app.debugDescription)")
             }
             keep(app, as: "typing")
-            // A tap where nothing draws stops typing.
-            canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.03, dy: 0.97)).tap()
+            // A tap where nothing draws stops typing: at the slide's top, which the software
+            // keyboard leaves clear. The slide keeps its size under the keyboard (lift-up
+            // 20261110), so its foot lies under the keys, and a tap there types.
+            canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.03, dy: 0.03)).tap()
             XCTAssertTrue(wait(5) { !typing.exists }, "still typing: \(app.debugDescription)")
         }
 
