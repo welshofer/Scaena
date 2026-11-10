@@ -1874,8 +1874,7 @@ fn reads_aloud(slide: &SlideForHealth) -> bool {
 fn line_said(line: &str) -> std::collections::BTreeSet<String> {
     let written = figures(line);
     let units: Vec<&str> = written.iter().map(|f| f.unit.as_str()).collect();
-    let mut said: std::collections::BTreeSet<String> =
-        written.iter().map(|f| format!("{}|{}", f.value, f.unit)).collect();
+    let mut said = scaena_core::sort::set(written.iter().map(|f| format!("{}|{}", f.value, f.unit)));
     for w in line.split(|c: char| !c.is_alphabetic()).filter(|w| !w.is_empty()) {
         if !units.contains(&unit_of(w).as_str()) {
             said.insert(w.to_lowercase());
