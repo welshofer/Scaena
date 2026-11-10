@@ -150,6 +150,28 @@ Only the pitch moves. Its average sat under the floor (1.8) because of its frami
 
 (c) lowers every one of the nine by 2–6 points, since each one-line slide is scored thin on its own.
 
+**Also measured, for Jay beside (b)** (W1's dogfood 5, the grant renewal `tests/fixtures/dogfood/grant.*` on branch `dogfood-5/grant-inputs`, a deck of big numbers and statements). Score / balance:
+
+- (b′) leaves a slide that draws a chart or a table out of the points average too, since its points are its chart.
+- (e) gives full marks for points when no counted slide is left, instead of the 30 an average of 0 scores.
+
+| deck | Vzestup | (b) | (b′) alone | (b) + (b′) | (b) + (b′) + (e) |
+|---|---|---|---|---|---|
+| grant | 80 / 64 | 80 / 64 | 80 / 64 | 80 / 64 | 89 / 88 |
+| fleet | 90 / 87 | 90 / 87 | 90 / 87 | 90 / 87 | 90 / 87 |
+| fleet, slide 9 cut | 86 / 75 | 90 / 87 | 86 / 75 | 90 / 87 | 90 / 87 |
+| pitch | 90 / 87 | 94 / 98 | 94 / 98 | 94 / 98 | 94 / 98 |
+| QBR | 95 / 97 | 95 / 97 | 95 / 97 | 89 / 80 | 89 / 80 |
+| climate (generated) | 84 / 71 | 89 / 85 | 84 / 73 | 89 / 85 | 89 / 85 |
+| deepdive, board-de, appeal, training, lecture, keynote, launch | as before | as before | as before | as before | as before |
+
+The grant reads "Slides make 0 points each" under every rule but (e).
+
+- **The grant:** every content slide is a one-idea layout. The only slides counted are its cover, its chart, and its close, none of which lists points. Their average is 0, and an average of 0 scores 30. Leaving those slides out empties the set but changes nothing, until (e) scores an empty set in full.
+- **The QBR:** (b′) on top of (b) leaves only its dense lists, which average 6.2 points, past five. It loses 6.
+
+**Recommendation on these:** leave (b′) aside. It moves only decks whose framing (b) already covers, and it marks the QBR down. (e) is the one that reaches a deck made of one-idea slides, and it moves no other deck measured. It could be adopted with (b), or put to Jay as its own item.
+
 **Recommendation:** adopt (b). It makes following the dense ask cost nothing where the content holds its points, it moves no deck whose content slides already list enough, and it lifts the one deck its framing held under the floor. Leave (c) aside. #935's dense ask still names the cost where the content slides themselves are thin, at the floor.
 
 ## Decision
