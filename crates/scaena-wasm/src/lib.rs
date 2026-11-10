@@ -1179,6 +1179,12 @@ impl Player {
         self.0.typed(&ops, at.as_deref().and_then(store::seconds)).map_err(js)
     }
 
+    /// The figures the last text typed made words, each quoting its data no more (dogfood-5
+    /// item 13), as JSON: `[{ node, figure, data, column }]`.
+    pub fn unquoted(&self) -> Result<String, JsError> {
+        serde_json::to_string(self.0.unquoted()).map_err(js)
+    }
+
     /// The beats whose claim a slide said in the deck `before` compiles to (the source as a
     /// burst of typing began) and says no longer in the deck now, each with the `replace` that
     /// restates it (lift-up FUNC-2), as JSON.

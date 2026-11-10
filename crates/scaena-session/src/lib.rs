@@ -225,6 +225,49 @@ pub struct Session {
     /// A version from the bundle's history, shown read-only (PLAN 2.60): a session of its own.
     #[cfg(feature = "editor")]
     viewing: Option<Box<Session>>,
+    /// The figures the last text typed on the canvas made words, each quoting its data no more
+    /// (dogfood-5 item 13): what the editor says, with ⌘Z to bring the quote back.
+    #[cfg(feature = "editor")]
+    unquoted: Vec<Unquoted>,
+}
+
+/// A figure typed over that quotes its data no more ([`Session::unquoted`]): its text node, the
+/// figure as it was, and the data source and column it quoted.
+#[cfg(feature = "editor")]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct Unquoted {
+    pub node: String,
+    pub figure: String,
+    /// The source, by the name the deck gives it (without `@`).
+    pub data: String,
+    pub column: String,
+}
+
+/// Each figure that quotes data in `nodes` of `deck`, in their own props, each state's delta,
+/// and the deck's overrides: its node, its quote, and its text.
+#[cfg(feature = "editor")]
+fn quotes_in(deck: &Deck, nodes: &[&str]) -> Vec<(String, serde_json::Value, String)> {
+    let mut doc = serde_json::json!({ "nodes": {}, "states": [], "overrides": {} });
+    for &id in nodes {
+        if let Some(node) = deck.nodes.get(id).and_then(|n| serde_json::to_value(n).ok()) {
+            doc["nodes"][id] = node;
+        }
+        if let Some(over) = deck.overrides.get(id).and_then(|o| serde_json::to_value(o).ok()) {
+            doc["overrides"][id] = over;
+        }
+    }
+    let states: Vec<serde_json::Value> = (deck.states.iter())
+        .map(|state| {
+            let props =
+                nodes.iter().filter_map(|&id| Some((id.to_string(), serde_json::to_value(state.props.get(id)?).ok()?)));
+            serde_json::json!({ "props": serde_json::Map::from_iter(props) })
+        })
+        .collect();
+    doc["states"] = serde_json::Value::Array(states);
+    scaena_core::quotes::quoted(&doc)
+        .into_iter()
+        .map(|q| (q.node.to_string(), q.run["quote"].clone(), q.run["text"].as_str().unwrap_or_default().to_string()))
+        .collect()
 }
 
 /// What every state's key is hashed from ([`Session::digest`]).
@@ -429,6 +472,8 @@ impl Session {
             renamed: BTreeMap::new(),
             #[cfg(feature = "editor")]
             viewing: None,
+            #[cfg(feature = "editor")]
+            unquoted: Vec::new(),
         })
     }
 
@@ -2581,7 +2626,39 @@ impl Session {
             let why = patched.added.iter().find(|f| f.severity == scaena_core::lint::Severity::Error);
             return Err(Error::Ops(format!("the deck refuses it: {}", why.map_or("", |f| f.message.as_str()))));
         }
+        // The figures typed over that quote their data no more, in the nodes typed in.
+        let nodes: Vec<&str> = (ops.as_array().into_iter().flatten()).filter_map(|op| op["node"].as_str()).collect();
+        let before = if typing { quotes_in(&self.deck, &nodes) } else { Vec::new() };
+        let after = match (&write, before.is_empty()) {
+            (Some(w), false) => quotes_in(&w.deck, &nodes),
+            _ => Vec::new(),
+        };
+        let mut kept = after;
+        self.unquoted = before
+            .into_iter()
+            .filter(|(node, quote, _)| match kept.iter().position(|(n, q, _)| n == node && q == quote) {
+                Some(k) => {
+                    kept.remove(k);
+                    false
+                }
+                None => true,
+            })
+            .map(|(node, quote, figure)| Unquoted {
+                node,
+                figure,
+                data: quote["data"].as_str().unwrap_or_default().trim_start_matches('@').to_string(),
+                column: quote["column"].as_str().unwrap_or_default().to_string(),
+            })
+            .collect();
         self.write(write, assistant::Caller { author: "user", at })
+    }
+
+    /// The figures the last text typed on the canvas made words, each quoting its data no more
+    /// (dogfood-5 item 13): words typed over a figure that no longer say it. A figure the words
+    /// still say keeps its quote, and is not among them.
+    #[cfg(feature = "editor")]
+    pub fn unquoted(&self) -> &[Unquoted] {
+        &self.unquoted
     }
 
     /// `ops`, a run of typing, with the `choose` of `code/language` that gives each code text in
@@ -4022,6 +4099,36 @@ mod tests {
         let past = serde_json::json!([{ "op": "replace_text", "node": "title", "state": "revenue", "from": 99, "to": 99, "text": "!" }]);
         let e = s.typed(&past, None).unwrap_err();
         assert!(e.to_string().contains("15 characters"), "{e}");
+    }
+
+    /// A quoted figure typed over (dogfood-5 item 13): one the words still say keeps its quote,
+    /// and one changed is told, by its source and column, as quoting its data no more.
+    #[cfg(feature = "editor")]
+    #[test]
+    fn a_figure_typed_over_says_what_it_quotes_no_more() {
+        let mut s = revenue();
+        let quote = serde_json::json!({ "data": "@q3", "row": { "quarter": "2026-Q3", "product": "Pro" }, "column": "revenue", "format": "$.1f" });
+        let style = serde_json::json!([{ "op": "style_text", "node": "title", "state": "revenue", "from": 8, "to": 15, "look": { "quote": quote } }]);
+        assert!(s.typed(&style, None).unwrap());
+        assert!(s.unquoted().is_empty(), "a look given unquotes nothing");
+        let over = |s: &mut Session, text: &str| {
+            let ops = serde_json::json!([{ "op": "replace_text", "node": "title", "state": "revenue", "from": 8, "to": 13, "text": text }]);
+            assert!(s.typed(&ops, None).unwrap());
+        };
+        over(&mut s, "about $19.4");
+        assert!(s.unquoted().is_empty(), "the words still say it: {:?}", s.unquoted());
+        let figure = "$19.4";
+        let from = "Revenue about ".chars().count();
+        let ops = serde_json::json!([{ "op": "replace_text", "node": "title", "state": "revenue", "from": from, "to": from + 5, "text": "$19.5" }]);
+        assert!(s.typed(&ops, None).unwrap());
+        assert_eq!(
+            s.unquoted(),
+            [Unquoted { node: "title".into(), figure: figure.into(), data: "q3".into(), column: "revenue".into() }]
+        );
+        // The next key, in what is words now, unquotes nothing more.
+        let ops = serde_json::json!([{ "op": "replace_text", "node": "title", "state": "revenue", "from": from + 5, "to": from + 5, "text": "!" }]);
+        assert!(s.typed(&ops, None).unwrap());
+        assert!(s.unquoted().is_empty());
     }
 
     /// A text on the grid typed past the foot of its cells grows down the grid to hold its

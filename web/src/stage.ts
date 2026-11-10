@@ -61,6 +61,7 @@ import type {
   Rewritten,
   ToWorker,
   Carets,
+  Unquoted,
   Choices,
   StateChoices,
   Lexicon,
@@ -1282,14 +1283,14 @@ export class Stage {
     ops: unknown[],
     at: { index: number; state: string; node: string },
     format?: string,
-  ): Promise<{ source: string; edited: Edited; carets: Carets | null }> {
+  ): Promise<{ source: string; edited: Edited; carets: Carets | null; unquoted: Unquoted[] }> {
     const asked = { type: "type" as const, id: ++this.asked, source, ops, ...at, format };
-    return this.request<"typed">(asked).then(({ source, edited, carets }) => {
+    return this.request<"typed">(asked).then(({ source, edited, carets, unquoted }) => {
       if (edited.at) {
         this.at = edited.at;
         this.onAt(edited.at);
       }
-      return { source, edited, carets };
+      return { source, edited, carets, unquoted };
     });
   }
 
