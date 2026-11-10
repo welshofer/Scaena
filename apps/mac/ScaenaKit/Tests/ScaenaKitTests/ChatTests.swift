@@ -437,7 +437,7 @@ private actor Lost {
     let asked = Seen()
     let assistant = Assistant(editor: editor, send: { _ in (Data(), 0) }) { _, heard in
         await asked.keep(await asked.kept + ["asked"])
-        try await Task.sleep(for: .seconds(4))
+        try await Task.sleep(for: .seconds(8))
         var whole = ""
         for event in events {
             whole += event
@@ -445,9 +445,10 @@ private actor Lost {
         }
         return (Data(whole.utf8), 200)
     }
-    // Each piece is shown on the main actor, which every test on it shares: a deadline of 2 s
-    // is one a busy runner does not reach between two pieces.
-    assistant.silence = 2
+    // Each piece is shown on the main actor, which every test on it shares: a deadline of 4 s is
+    // one a busy runner does not reach between two pieces, and the 8 s of thinking still passes it
+    // twice over before the answer begins.
+    assistant.silence = 4
     assistant.waits = [0.05]
     assistant.ask("Is the cover clean?", provider: .anthropic, model: "a-model", key: "sk-test")
     for _ in 0..<3000 where assistant.working {
