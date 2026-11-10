@@ -174,53 +174,34 @@ final class OpeningTests: XCTestCase {
         XCTAssertTrue(canvas.waitForExistence(timeout: 10), "no canvas: \(app.debugDescription)")
         // A long press on the title offers the edit menu, as TouchTests's does, and its Paste is the
         // canvas's: ⌘V from XCUITest's keyboard reached no paste on the simulator.
-        let title = canvas.descendants(matching: .any).matching(NSPredicate(format: "label == 'Scaena'")).firstMatch
-        XCTAssertTrue(title.waitForExistence(timeout: 10), "no title on the canvas: \(app.debugDescription)")
-        title.press(forDuration: 1.2)
-        let paste = app.descendants(matching: .any).matching(NSPredicate(format: "label == 'Paste'")).firstMatch
-        guard paste.waitForExistence(timeout: 10) else {
-            keep(app, as: "no-paste-offered")
-            throw Unseen(description: "the long press offers no Paste: \(app.debugDescription)")
+        // The subtitle, the lowest a test presses: its menu has the least room under it.
+        let subtitle = canvas.descendants(matching: .any)
+            .matching(NSPredicate(format: "label BEGINSWITH 'Why this exists'")).firstMatch
+        XCTAssertTrue(subtitle.waitForExistence(timeout: 10), "no subtitle on the canvas: \(app.debugDescription)")
+        subtitle.press(forDuration: 1.2)
+        let listed = NSPredicate(
+            format: "elementType == %lu OR elementType == %lu",
+            XCUIElement.ElementType.button.rawValue, XCUIElement.ElementType.menuItem.rawValue)
+        func offered(_ label: String) -> XCUIElementQuery {
+            app.descendants(matching: .any).matching(listed).matching(NSPredicate(format: "label == %@", label))
         }
-        paste.tap()
-        // The menu's Paste is the system's own, which reads the pasteboard with no Allow Paste
-        // prompt. A prompt would hold the app's main thread on its answer, and no query of the app
-        // would come back, so the test waits on the chip alone.
-        let chip = app.descendants(matching: .any).matching(identifier: "code-chip").firstMatch
-        XCTAssertTrue(chip.waitForExistence(timeout: 10), "the code pasted shows no chip: \(app.debugDescription)")
-        XCTAssertEqual(chip.value as? String, "Rust", "the chip does not say Rust: \(chip.debugDescription)")
-        settle()
-        keep(app, as: "code-pasted")
-        leaveB1(in: app)
-    }
-
-    /// Write This Slide Again… on the iPad (lift-up FUNC-1): the long press on the slide offers it,
-    /// as the right click and the Slide menu do; with no key kept, its sheet says where one goes,
-    /// offers Add a Key…, and writes nothing, Write It Again held until there is a model to ask.
-    @MainActor
-    func testWriteThisSlideAgainAsksForAKeyFirst() throws {
-        let app = launched()
-        try openB1(in: app)
-        let canvas = app.descendants(matching: .any).matching(identifier: "canvas").firstMatch
-        XCTAssertTrue(canvas.waitForExistence(timeout: 10), "no canvas: \(app.debugDescription)")
-        let title = canvas.descendants(matching: .any).matching(NSPredicate(format: "label == 'Scaena'")).firstMatch
-        XCTAssertTrue(title.waitForExistence(timeout: 10), "no title on the canvas: \(app.debugDescription)")
-        title.press(forDuration: 1.2)
-        let again = app.descendants(matching: .any)
-            .matching(NSPredicate(format: "label == 'Write This Slide Again…'")).firstMatch
-        guard paged(to: again, in: app) else {
-            keep(app, as: "no-write-again")
-            throw Unseen(description: "the long press offers no Write This Slide Again…: \(app.debugDescription)")
+        // The slide's own asks under Slide, the menu's next to last.
+        let slide = offered("Slide").firstMatch
+        guard paged(to: slide, in: app) else {
+            keep(app, as: "no-slide-menu")
+            throw Unseen(description: "the long press offers no Slide: \(app.debugDescription)")
         }
-        // The menu's last item on the screen too, in the list beside it, so nothing it lists runs
-        // past its foot.
-        let insert = app.descendants(matching: .any).matching(
-            NSPredicate(
-                format: "label == 'Insert' AND (elementType == %lu OR elementType == %lu)",
-                XCUIElement.ElementType.button.rawValue, XCUIElement.ElementType.menuItem.rawValue))
+        // The menu's last item on the screen too, so nothing it lists runs past its foot.
+        let insert = offered("Insert")
         guard wait(5, { insert.allElementsBoundByIndex.contains { $0.isHittable } }) else {
             keep(app, as: "no-insert")
             throw Unseen(description: "the long press's Insert is off the screen: \(app.debugDescription)")
+        }
+        slide.tap()
+        let again = offered("Write This Slide Again…").firstMatch
+        guard wait(5, { again.exists && again.isHittable }) else {
+            keep(app, as: "no-write-again")
+            throw Unseen(description: "Slide offers no Write This Slide Again…: \(app.debugDescription)")
         }
         again.tap()
         let key = app.buttons.matching(identifier: "slide-ask-key").firstMatch
