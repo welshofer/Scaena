@@ -1858,7 +1858,30 @@ fn reads_aloud(slide: &SlideForHealth) -> bool {
     let notes = content_words(&slide.notes);
     let shown = content_words(&format!("{} {}", slide.title, slide.body));
     let own = notes.intersection(&shown).count();
-    notes.len() >= READ_ALOUD_WORDS && own * READ_ALOUD.1 >= notes.len() * READ_ALOUD.0
+    if notes.len() >= READ_ALOUD_WORDS && own * READ_ALOUD.1 >= notes.len() * READ_ALOUD.0 {
+        return true;
+    }
+    // Notes that are a line of the slide again, the headline or one of its lines, read it aloud
+    // at any length (W1's dogfood 5: "- We rebuilt 52 miles, not 40." under that headline).
+    let lines: Vec<_> = std::iter::once(slide.title.as_str()).chain(slide.body.lines()).map(line_said).collect();
+    let said: Vec<_> = slide.notes.lines().map(line_said).filter(|l| !l.is_empty()).collect();
+    !said.is_empty() && said.iter().all(|l| lines.contains(l))
+}
+
+/// What a line says, as notes that read it aloud are matched to it: its words, small, and its
+/// figures by value and unit, the words that name a figure's unit folded into the figure, so
+/// "184,000 dollars" says what "$184,000" says and "- We rebuilt 52 miles." what its headline does.
+fn line_said(line: &str) -> std::collections::BTreeSet<String> {
+    let written = figures(line);
+    let units: Vec<&str> = written.iter().map(|f| f.unit.as_str()).collect();
+    let mut said: std::collections::BTreeSet<String> =
+        written.iter().map(|f| format!("{}|{}", f.value, f.unit)).collect();
+    for w in line.split(|c: char| !c.is_alphabetic()).filter(|w| !w.is_empty()) {
+        if !units.contains(&unit_of(w).as_str()) {
+            said.insert(w.to_lowercase());
+        }
+    }
+    said
 }
 
 /// `sentence` as a finding quotes it in the middle of one of its own: without its closing stop, so
@@ -2710,6 +2733,20 @@ mod tests {
         );
         assert!(found[0].ask.starts_with("Rewrite the notes for slides 2, 3, 4"), "{}", found[0].ask);
         assert!(aloud(&of(&dogfood("keynote", "", |_| {}))).is_empty());
+        // Notes that are the headline word for word read it aloud at any length (W1's dogfood 5),
+        // a figure's unit said in words or in its sign alike.
+        let echoed = |slides: &mut Vec<answer::Slide>| {
+            for s in slides.iter_mut() {
+                s.speaker_notes = "Thanks.".into();
+            }
+            slides[2].slide_title = "We rebuilt 52 miles, not 40".into();
+            slides[2].speaker_notes = "- We rebuilt 52 miles, not 40.".into();
+            slides[7].slide_title = "The award was $184,000".into();
+            slides[7].speaker_notes = "The award was 184,000 dollars.".into();
+        };
+        let found = aloud(&of(&dogfood("fleet", "", echoed)));
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert!(found[0].says.starts_with("The notes for slides 3 and 8 read the slide aloud"), "{}", found[0].says);
         // Notes that tell the room more than the slide shows are not found.
         let told = |slides: &mut Vec<answer::Slide>| {
             for s in slides.iter_mut().skip(1) {
