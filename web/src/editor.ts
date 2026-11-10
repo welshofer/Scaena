@@ -3198,6 +3198,24 @@ async function edit(source: Source, opened?: Stage, recovering = false) {
   const exportFps = $<HTMLSelectElement>("#exporting-fps");
   type ExportAs = "png" | "slides" | "pdf" | "html" | "movie";
   const chosenExport = () => exporting.querySelector<HTMLInputElement>("input[name=as]:checked")!.value as ExportAs;
+  /** Whether any slide of the deck has notes to print, found each time Export… opens (editor
+   * dogfood 2): none known until every state is asked. */
+  let noted: boolean | undefined;
+  let notedAsked = 0;
+  const findNoted = async () => {
+    const asked = ++notedAsked;
+    noted = undefined;
+    for (const [state] of last?.states ?? []) {
+      const notes = await stage.notes(state).catch(() => undefined);
+      if (asked !== notedAsked) return;
+      if (notes?.text.trim()) {
+        noted = true;
+        return noteExport();
+      }
+    }
+    noted = false;
+    noteExport();
+  };
   /** What the export chosen makes, said under the choices. */
   const noteExport = () => {
     const as = chosenExport();
@@ -3229,7 +3247,11 @@ async function edit(source: Source, opened?: Stage, recovering = false) {
       slides: whole
         ? `${slides} slide${slides === 1 ? "" : "s"}, each as it stands once its steps have played${format() ? `, in ${format()}` : ""}: a PNG of ${pixels} named by its number, all in one .zip.`
         : "A width in whole pixels: the height keeps the canvas's aspect.",
-      pdf: notes
+      // A deck with no notes yet prints each page with its slide alone, small: said, before it is
+      // made (editor dogfood 2).
+      pdf: notes && noted === false
+        ? "No slide has notes yet, so each page would hold its slide alone, drawn smaller. Write a slide's notes in its Presenter Notes, or leave this unchecked for the slides at full size."
+        : notes
         ? "A page for each slide at its last state, drawn smaller, the notes you read for it under it, notes too long for the page going on to the next: text that copies and searches, tagged for a screen reader."
         : "A page for each slide at its last state: vector paths, text in subset fonts that copies and searches as the deck reads, tagged for a screen reader.",
       movie: !encodes()
@@ -3256,6 +3278,7 @@ async function edit(source: Source, opened?: Stage, recovering = false) {
     withNotes.checked = false;
     exportWidth.value = String(Math.round(board.size()[0]));
     noteExport();
+    void findNoted();
     exporting.returnValue = "";
     exporting.showModal();
     (as === "png" || as === "slides" || as === "movie" ? exportWidth : $<HTMLButtonElement>("#exporting-go")).focus();
