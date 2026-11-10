@@ -3210,6 +3210,7 @@ fn meaning(items: &[Item], lang: &str) -> Option<String> {
 /// to its items, else a list of its bullets, else the first the theme has. A slide with a
 /// picture made for it takes the layout that shows its picture beside its words, where the
 /// library has one; one with none takes a layout that waits for none.
+#[allow(clippy::too_many_arguments)]
 fn layout_for(
     identity: &str,
     slide: &Slide,
