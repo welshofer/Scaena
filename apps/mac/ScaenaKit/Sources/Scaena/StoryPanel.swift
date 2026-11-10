@@ -13,6 +13,9 @@ struct StoryPanel: View {
     let edits: PanelEdits
     @State private var health: Health?
     @State private var why: String?
+    /// The sources the deck was grounded in, read with its story: what a figure no source backs
+    /// may cite (W1's dogfood 5).
+    @State private var grounded: [Grounded] = []
 
     var body: some View {
         List {
@@ -90,10 +93,26 @@ struct StoryPanel: View {
         do {
             guard let read = try await editor.health(), !Task.isCancelled else { return }
             health = read
+            grounded = (try? editor.session.grounded()) ?? []
             why = nil
         } catch {
             health = nil
             why = "Its story couldn't be read. \(Why.said(error))"
+        }
+    }
+
+    /// `name`, a source the deck was grounded in, cited by the beat that tells `state`, Slide
+    /// `slide` (W1's dogfood 5): one patch by the user, one step to undo, or said why not.
+    private func cite(_ name: String, slide: Int, state: String) {
+        guard !editor.assisting else { return edits.say("Not cited: \(DeckEditor.busy)") }
+        do {
+            guard let cites = try editor.session.stateChoices(state: state).cites else {
+                return edits.say("Not cited: no beat of the story tells Slide \(slide)")
+            }
+            guard let ops = cites.citing(name) else { return edits.say("Slide \(slide) cites \(name) already") }
+            edits.patch("Cite \(name) on Slide \(slide)", ops)
+        } catch {
+            edits.say("Not cited: \(Why.said(error))")
         }
     }
 
@@ -136,6 +155,20 @@ struct StoryPanel: View {
                             }
                         }
                     }
+                }
+                // A figure no source backs, in a deck made from sources, cites one of them (W1's
+                // dogfood 5), as the browser's Story row does: the sources by name, the one chosen
+                // added to the slide's beat's evidence, one step to undo; held with the fixes while
+                // the source does not compile.
+                if !grounded.isEmpty, run.contains(where: { $0.kind == "source" }) {
+                    Menu("Cite a Source…") {
+                        ForEach(grounded, id: \.name) { source in
+                            Button(source.name) { cite(source.name, slide: first.slide, state: first.state) }
+                        }
+                    }
+                    .fixedSize()
+                    .disabled(!(editor.valid && editor.error == nil))
+                    .accessibilityIdentifier("story-cite")
                 }
                 // The slide it is about shown first: a question begins with what the window shows,
                 // which "this slide" means to the assistant (lift-up USE-5).

@@ -369,6 +369,10 @@ impl Generating {
                     .collect();
                 let settings = Settings { provider, model, base, browser: false };
                 let mut generation = Generation::new(brief, settings).map_err(said)?;
+                // What each source was, kept in the deck as the CLI and the browser keep it
+                // (`meta.narrative.sources`): what a slide cites, and what the Story offers a
+                // figure no source backs (W1's dogfood 5).
+                generation.give_sources(scaena_ops::narrative::provenance(&ground.given));
                 if let Some(arc) = args.get("arc").and_then(Value::as_str).filter(|a| !a.is_empty()) {
                     generation.choose_arc(Some(arc));
                 }
