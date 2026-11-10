@@ -28,8 +28,15 @@ public struct Zoom: Equatable, Sendable {
     public private(set) var desk: CGSize
     /// How close: 1 shows the slide fitted to the desk.
     public private(set) var level: Double = 1
-    /// The slide's top left corner on the desk, points.
+    /// The slide's top left corner on the desk, points, before it is lifted.
     private var corner: CGPoint = .zero
+    /// How much of the desk's foot the software keyboard covers, points: none while it is down.
+    /// The desk keeps its size as the keyboard comes and goes, so the slide never jumps with it
+    /// (lift-up 20261110); only `lift` moves it, to clear the line typed in.
+    public private(set) var covered: CGFloat = 0
+    /// How far the slide is lifted up the desk to clear what the keyboard covers, points: none
+    /// while the keyboard is down, and none where what is typed in stands above it.
+    public private(set) var lifted: CGFloat = 0
 
     public init(canvas: CGSize, desk: CGSize = .zero) {
         self.canvas = canvas
@@ -71,9 +78,12 @@ public struct Zoom: Equatable, Sendable {
         zoom(to: closeness(actual), about: about)
     }
 
+    /// The slide's top left corner on the desk, points, as it stands lifted.
+    private var origin: CGPoint { CGPoint(x: corner.x, y: corner.y - lifted) }
+
     /// The slide on the desk, points: the whole of it, whether it all shows or not.
     public var slide: CGRect {
-        CGRect(origin: corner, size: CGSize(width: canvas.width * scale, height: canvas.height * scale))
+        CGRect(origin: origin, size: CGSize(width: canvas.width * scale, height: canvas.height * scale))
     }
 
     /// The part of the slide the desk shows, points: where the canvas's view stands on the desk.
@@ -84,8 +94,8 @@ public struct Zoom: Equatable, Sendable {
 
     /// The part of the canvas shown, canvas units.
     public var shown: CGRect {
-        let (s, v) = (max(scale, 1e-9), visible)
-        return CGRect(x: (v.minX - corner.x) / s, y: (v.minY - corner.y) / s, width: v.width / s, height: v.height / s)
+        let (s, v, o) = (max(scale, 1e-9), visible, origin)
+        return CGRect(x: (v.minX - o.x) / s, y: (v.minY - o.y) / s, width: v.width / s, height: v.height / s)
     }
 
     /// What the session paints through: none where the whole slide shows.
@@ -115,9 +125,9 @@ public struct Zoom: Equatable, Sendable {
         guard z > 0, canvas.width > 0, canvas.height > 0 else { return }
         let a = about ?? CGPoint(x: visible.midX, y: visible.midY)
         let before = max(scale, 1e-9)
-        let at = CGPoint(x: (a.x - corner.x) / before, y: (a.y - corner.y) / before)
+        let at = CGPoint(x: (a.x - origin.x) / before, y: (a.y - origin.y) / before)
         level = min(Self.most, max(1, z))
-        corner = CGPoint(x: a.x - at.x * scale, y: a.y - at.y * scale)
+        corner = CGPoint(x: a.x - at.x * scale, y: a.y - at.y * scale + lifted)
         settle()
     }
 
@@ -168,7 +178,8 @@ public struct Zoom: Equatable, Sendable {
         guard x0 <= x1, y0 <= y1 else { return false }
         let s = scale
         let dx = Self.into(corner.x + x0 * s, (x1 - x0) * s, room: desk.width)
-        let dy = Self.into(corner.y + y0 * s, (y1 - y0) * s, room: desk.height)
+        // What the keyboard covers is no room to show it in.
+        let dy = Self.into(origin.y + y0 * s, (y1 - y0) * s, room: max(desk.height - covered, 1))
         guard abs(dx) > 1e-9 || abs(dy) > 1e-9 else { return false }
         let was = corner
         corner = CGPoint(x: corner.x + dx, y: corner.y + dy)
@@ -205,6 +216,31 @@ public struct Zoom: Equatable, Sendable {
         settle()
     }
 
+    /// The software keyboard covers `points` of the desk's foot, none where it is down (lift-up
+    /// 20261110). The slide does not move for it; down, the slide settles back where it stood.
+    public mutating func cover(_ points: CGFloat) {
+        covered = min(max(points, 0), desk.height)
+        if covered == 0 { lifted = 0 }
+    }
+
+    /// The slide lifted up the desk the least that puts `rect`, canvas units (the line typed in),
+    /// above what the keyboard covers, as a presentation app on the iPad scrolls its canvas: no
+    /// farther than brings its top to the desk's top, and back down where it clears the keyboard
+    /// as the slide stands. While the keyboard is down, nothing is lifted, so a hardware keyboard's
+    /// bar lifts nothing unless the line is under it. Whether it moved.
+    @discardableResult
+    public mutating func lift(clearing rect: CGRect) -> Bool {
+        let was = lifted
+        if covered > 0, !rect.isNull {
+            let s = scale
+            let (top, foot) = (corner.y + rect.minY * s, corner.y + rect.maxY * s)
+            lifted = max(0, min(foot - (desk.height - covered), top))
+        } else {
+            lifted = 0
+        }
+        return abs(lifted - was) > 1e-9
+    }
+
     /// As close as it is, the slide's middle in the middle of the desk, as it is zoomed from
     /// fitted: another slide turned to (PLAN 4.12), where what the last showed may hold nothing.
     public mutating func center() {
@@ -228,10 +264,11 @@ public struct Zoom: Equatable, Sendable {
         let (s, v) = (max(scale, 1e-9), visible)
         let middle =
             v.width > 0 && v.height > 0
-            ? CGPoint(x: (v.midX - corner.x) / s, y: (v.midY - corner.y) / s)
+            ? CGPoint(x: (v.midX - origin.x) / s, y: (v.midY - origin.y) / s)
             : CGPoint(x: canvas.width / 2, y: canvas.height / 2)
         desk = room
-        corner = CGPoint(x: desk.width / 2 - middle.x * scale, y: desk.height / 2 - middle.y * scale)
+        covered = min(covered, desk.height)
+        corner = CGPoint(x: desk.width / 2 - middle.x * scale, y: desk.height / 2 - middle.y * scale + lifted)
         settle()
     }
 

@@ -290,3 +290,46 @@ private func alike(_ a: CGRect, _ b: CGRect) -> Bool {
     small.zoom(toActual: 1)
     #expect(small.level == 4 && small.percent == 100)
 }
+
+/// The software keyboard over the desk moves the slide only to clear the line typed in (lift-up
+/// 20261110), as a presentation app on the iPad scrolls its canvas: the desk keeps its size, the
+/// slide fitted on it stays put for a line the keyboard leaves clear, is lifted the least that puts
+/// a line at its foot just above the keyboard, and settles back as the keyboard goes down; a
+/// hardware keyboard's bar, which covers nothing the line stands on, lifts nothing.
+@Test func theKeyboardLiftsTheSlideOnlyToClearTheLineTypedIn() {
+    // Fitted, the slide is 960 × 540 on the desk, half a point to a canvas unit, its top 28 down.
+    var zoom = Zoom(canvas: CGSize(width: 1920, height: 1080), desk: CGSize(width: 1016, height: 596))
+    let foot = CGRect(x: 100, y: 900, width: 800, height: 100)  // on the desk, 478 to 528 down
+    let top = CGRect(x: 100, y: 50, width: 800, height: 100)  // 53 to 78 down
+    let fitted = zoom.slide
+
+    #expect(!zoom.lift(clearing: foot), "the keyboard down, nothing is lifted")
+    zoom.cover(66)
+    #expect(!zoom.lift(clearing: foot) && zoom.slide == fitted, "a bar that leaves the line clear lifts nothing")
+
+    zoom.cover(300)
+    #expect(zoom.desk == CGSize(width: 1016, height: 596), "the desk keeps its size")
+    #expect(!zoom.lift(clearing: top) && zoom.slide == fitted, "a line the keyboard leaves clear stays put")
+    #expect(zoom.lift(clearing: foot))
+    #expect(abs(zoom.lifted - 232) < 1e-6, "lifted \(zoom.lifted)")
+    // The line's foot just above the keyboard: 528 − 232 = 296 = 596 − 300.
+    #expect(abs((zoom.slide.minY + foot.maxY * zoom.scale) - (zoom.desk.height - zoom.covered)) < 1e-6)
+    #expect(zoom.slide.size == fitted.size, "lifted, not zoomed")
+    #expect(zoom.view != nil, "the slide's top is past the desk's: the canvas paints what shows")
+    // The part of the canvas shown is what stands above the desk's top no longer.
+    #expect(abs(zoom.shown.minY - 232 / zoom.scale + 28 / zoom.scale) < 1e-6, "\(zoom.shown)")
+
+    // Back to the top line, the slide settles back; and down, the keyboard lifts nothing.
+    #expect(zoom.lift(clearing: top) && zoom.slide == fitted)
+    zoom.lift(clearing: foot)
+    zoom.cover(0)
+    #expect(zoom.lifted == 0 && zoom.slide == fitted, "the keyboard down, the slide stands where it stood")
+
+    // Zoomed in, a pan reveals as far as the slide's edge allows, and the lift clears the rest.
+    zoom.zoom(to: 2)
+    zoom.cover(300)
+    zoom.reveal(foot)
+    zoom.lift(clearing: foot)
+    let s = zoom.scale
+    #expect(zoom.slide.minY + foot.maxY * s <= zoom.desk.height - zoom.covered + 1e-6, "\(zoom.slide)")
+}

@@ -380,4 +380,45 @@ final class TouchTests: XCTestCase {
         let value = canvas.value as? String ?? ""
         return value.isEmpty ? "whole" : value
     }
+
+    /// The software keyboard covers the slide's foot and moves the slide only to clear the line
+    /// typed in (lift-up 20261110): typing in B1's subtitle, which the keyboard would cover, the
+    /// subtitle stands above the keyboard; and once typing stops, the canvas stands where it stood.
+    /// Followed, the canvas resized with the keyboard four or five times a sentence.
+    @MainActor
+    func testTheKeyboardKeepsTheLineTypedInAboveIt() throws {
+        let app = launched()
+        try openB1(in: app)
+        let canvas = app.descendants(matching: .any).matching(NSPredicate(format: "identifier == 'canvas'")).firstMatch
+        XCTAssertTrue(canvas.waitForExistence(timeout: 10), "no canvas: \(app.debugDescription)")
+        let subtitle = canvas.descendants(matching: .any)
+            .matching(NSPredicate(format: "label BEGINSWITH 'Why this exists'")).firstMatch
+        guard subtitle.waitForExistence(timeout: 10) else {
+            throw Unseen(description: "the cover reads no subtitle: \(app.debugDescription)")
+        }
+        settle()
+        let before = canvas.frame
+        subtitle.doubleTap()
+        let typing = app.descendants(matching: .any).matching(NSPredicate(format: "identifier == 'typing'")).firstMatch
+        guard typing.waitForExistence(timeout: 5) else {
+            throw Unseen(description: "a double tap typed in nothing: \(app.debugDescription)")
+        }
+        let keyboard = app.keyboards.firstMatch
+        if keyboard.waitForExistence(timeout: 5), keyboard.frame.height > 100 {
+            settle(2)
+            keep(app, as: "typing-over-keyboard")
+            XCTAssertLessThanOrEqual(
+                typing.frame.maxY, keyboard.frame.minY + 1,
+                "the line typed in stands under the keyboard: \(typing.frame) over \(keyboard.frame)")
+        } else {
+            // A hardware keyboard: the software one never comes, and nothing is lifted.
+            XCTContext.runActivity(named: "No software keyboard came: nothing to clear") { _ in }
+        }
+        // A tap where nothing draws stops typing, and the keyboard goes.
+        canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.03, dy: 0.03)).tap()
+        XCTAssertTrue(wait(5) { !typing.exists }, "still typing: \(app.debugDescription)")
+        XCTAssertTrue(
+            wait(5) { abs(canvas.frame.minY - before.minY) < 1 && abs(canvas.frame.height - before.height) < 1 },
+            "the canvas does not stand where it stood: \(before) → \(canvas.frame)")
+    }
 }

@@ -382,6 +382,12 @@ struct DeckView: View {
                     }
                 }
             }
+            #if !os(macOS)
+            // The software keyboard covers the desk's foot and resizes nothing: the slide keeps its
+            // size as the keyboard comes and goes, lifted only to clear the line typed in (lift-up
+            // 20261110). Followed, it moved four or five times a sentence.
+            .ignoresSafeArea(.keyboard, edges: .bottom)
+            #endif
         }
     }
 
@@ -1137,6 +1143,21 @@ struct DeckView: View {
                     takeZoom(canvas: now)
                 }
                 .onChange(of: zoom.view) { _, now in editor.look(through: now) }
+                #if !os(macOS)
+                // How much of the desk the software keyboard covers, from where it will end, and the
+                // line typed in lifted clear of it (lift-up 20261110).
+                .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) {
+                    note in
+                    let end = (note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue)?.cgRectValue
+                    let desk = room.frame(in: .global)
+                    zoom.cover(end.map { max(0, desk.maxY - $0.minY) } ?? 0)
+                    zoom.lift(clearing: typedLine ?? .null)
+                }
+                .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
+                    zoom.cover(0)
+                }
+                .onChange(of: typedLine) { _, now in zoom.lift(clearing: now ?? .null) }
+                #endif
                 .onChange(of: zoom) { _, now in
                     if zoomTaken { keptZoom = now.kept }
                 }
@@ -1162,6 +1183,13 @@ struct DeckView: View {
         } else {
             ContentUnavailableView("No Slides", systemImage: "rectangle.stack")
         }
+    }
+
+    /// The line typed in, canvas units, as the caret stands on it: what the slide is lifted to keep
+    /// above the software keyboard (lift-up 20261110); none while no text is typed in.
+    private var typedLine: CGRect? {
+        guard let typing, typing.typing else { return nil }
+        return typing.caretBox(at: typing.head)
     }
 
     /// Show a match the find bar found (PLAN 3.16): its state, and its node selected, brought into
