@@ -762,9 +762,12 @@ struct PromptView: View {
     }
 
     /// Generate: the deck written, once it has something to be about and a key to write it with.
+    /// ⌘Return, as the assistant's Ask and the browser's dialog take it: the brief runs to several
+    /// lines, so Return is a line of it, never the deck made; and while the deck is made, or it
+    /// cannot be, the key does nothing, as the button does.
     private var generating: some View {
         Button(running == nil ? "Generate" : "Generating…", action: generate)
-            .keyboardShortcut(.defaultAction)
+            .keyboardShortcut(.return, modifiers: .command)
             .disabled(!ready)
             .accessibilityIdentifier("prompt-generate")
     }
