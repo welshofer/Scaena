@@ -72,7 +72,7 @@ import { listen } from "./life";
 import { marks } from "./marks";
 import { fitting } from "./pictures";
 import { BUNDLE_PATH, CLIP, DATA, PICTURE } from "./protocol";
-import type { Added, Arrange, Cells, DataMark, Diagram, Edited, FetchedMap, Finding, Framing, Grid, Insert, LayoutSlots, Lexicon, Look, Map6, MapTarget, NodeBox, NoteMark, Outline, PasteHints, Rect, SlotBox, SnapMode, Snapped, Targets, Waiting } from "./protocol";
+import type { Added, Arrange, Cells, DataMark, Diagram, Edited, FetchedMap, Finding, Framing, Grid, Insert, LayoutSlots, Lexicon, Look, Map6, MapTarget, NodeBox, NoteMark, Outline, PasteHints, Rect, SlotBox, SnapMode, Snapped, Targets, Unquoted, Waiting } from "./protocol";
 import { pointer } from "./theme-panel";
 import * as notes from "./notes";
 import { annotate, askWords, markName, noteName } from "./notes";
@@ -165,6 +165,9 @@ export interface Editor {
   /** Take `source` as typed: one step to undo with what was typed just before it (`joins`), or
    * the first of a burst of typing. */
   typed(source: string, edited: Edited, joins: boolean): void;
+  /** Say that the figures `gone`, typed over in `state`, quote their data no more (dogfood-5
+   * item 13). */
+  unquoted?(state: string, gone: Unquoted[]): void;
   undo(): void;
   redo(): void;
   say(text: string): void;
@@ -822,6 +825,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     format: () => editor.format(),
     source: () => editor.source(),
     typed: (source, edited, joins) => editor.typed(source, edited, joins),
+    unquoted: (state, gone) => editor.unquoted?.(state, gone),
     undo: () => editor.undo(),
     redo: () => editor.redo(),
     say: (words) => editor.say(words),
@@ -2410,7 +2414,8 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     if (!shown) return editor.say(WAITING);
     try {
       const text = offered[n]?.node.type === "text";
-      const added = await stage.inserting(editor.source(), shown.state, n, landing(), editor.format(), named, with_);
+      // With no pointer pressed, the session aims it at the slide's words (editor dogfood 5).
+      const added = await stage.inserting(editor.source(), shown.state, n, pointed ? landing() : null, editor.format(), named, with_);
       const made = await change(added.patch, "Inserting…", `${sentence(label)} inserted on this slide`, added.id);
       if (made && text && selected === added.id) await type(added.id, undefined, false, true);
     } catch (e) {
