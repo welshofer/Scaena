@@ -1118,13 +1118,14 @@ try {
   for (const painter of ["auto", "cpu"]) {
     const page = await dense.newPage();
     page.on("pageerror", (e) => failures.push(`dense ${painter}: ${e.message}`));
-    // Once the walk asks (`__slowFit`, in ms), the worker's answer to a fit reaches the page late.
+    // Once the walk asks (`__slowFit`, in ms), the worker's word of the size it paints at, and its
+    // answer to a fit, reach the page late.
     await page.addInitScript(() => {
       const set = Object.getOwnPropertyDescriptor(Worker.prototype, "onmessage").set;
       Object.defineProperty(Worker.prototype, "onmessage", {
         set(handler) {
           set.call(this, (e) => {
-            if (window.__slowFit && e.data?.type === "fitted") setTimeout(() => handler(e), window.__slowFit);
+            if (window.__slowFit && (e.data?.type === "sized" || e.data?.type === "fitted")) setTimeout(() => handler(e), window.__slowFit);
             else handler(e);
           });
         },
@@ -1162,8 +1163,8 @@ try {
     else await page.waitForFunction(() => window.scaena.at() && !window.scaena.at().playing, null, { timeout: 60000 }).catch(() => {});
     const windowed = await measure();
     check(sharp(windowed) && windowed.dpr === 2, `${paints}: at 2560 × 1440 at 2×, the slide fills the room the bar leaves, painted at the size shown: ${JSON.stringify(windowed)}`);
-    // The worker's answer to a fit held back a while, as a busy runner's main thread may hold it:
-    // the frames painted for the screen come before the answer does, and the slide must be shown
+    // The worker's word of its new size held back a while, as a busy runner's main thread may hold
+    // it: the frames painted for the screen come before it does, and the slide must be shown
     // at the screen's size all the same.
     await page.evaluate(() => (window.__slowFit = 400));
     await page.keyboard.press("f");
