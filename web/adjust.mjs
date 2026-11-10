@@ -145,21 +145,29 @@ try {
     await page.evaluate(hide, "");
     return png;
   };
-  const held = async (value) => {
+  /** The slide as it shows with the slider held at `value`, once it shows what `drawn` asks of its
+   * picture: read again frame by frame until it does, for five seconds at most, never after a
+   * fixed pause a busy machine may not have painted within. */
+  const held = async (value, drawn) => {
     await page.evaluate((v) => {
       const input = document.querySelector("#look-adjust-saturation");
       input.value = String(v);
       input.dispatchEvent(new Event("input", { bubbles: true }));
     }, value);
     await page.evaluate(() => window.scaena.look.slid());
-    await page.waitForTimeout(300);
-    return shown();
+    const until = Date.now() + 5000;
+    let png = await shown();
+    while (!drawn(png) && Date.now() < until) {
+      await page.evaluate(() => new Promise(requestAnimationFrame));
+      png = await shown();
+    }
+    return png;
   };
   const resting = await shown();
-  const dragged = await held(-1);
+  const dragged = await held(-1, (png) => !png.equals(resting));
   check(!dragged.equals(resting), "a slider held shows its value on the slide before it is let go");
   check((await source()) === original, "and sets nothing while it is held");
-  const back = await held(0);
+  const back = await held(0, (png) => png.equals(resting));
   check(back.equals(resting), "dragged back to where it was, the slide is as it was");
 
   // Saturation at its least: one `choose`, written on the photo, and the color is gone.
