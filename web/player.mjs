@@ -52,6 +52,8 @@
 // - At 2560 × 1440 and twice the density (lift-up ATTR-2), the slide fills the room the bar
 //   leaves, and in fullscreen the screen, painted at the size it is shown in device pixels by
 //   WebGPU, and by the CPU painter at the canvas's own size, scaled up.
+// - The engine stopped mid-show (lift-up 20261110 STAB-4) starts again, the state it stopped on
+//   shown again; one that stops it twice stands under a notice that → goes on past it.
 // Exits 1 on any failure.
 import { mkdir, readFile, symlink, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
@@ -1025,6 +1027,38 @@ try {
     .then(() => true, () => false);
   check(blocked, `a presenter view the browser blocks is said: ${await first.textContent("#status")}`);
   await fresh.close();
+
+  // The engine stopped mid-show (lift-up 20261110 STAB-4), as one out of memory stops: the player
+  // starts it again from the deck and shows the state it stopped on, saying so; a state that stops
+  // it again is not drawn again, a notice over the stage saying → goes on past it, which it does.
+  {
+    const page = await context.newPage();
+    const meant = (text) => text.includes("as asked, to test the editor's recovery");
+    page.on("pageerror", (e) => meant(e.message) || failures.push(`crash: ${e.message}`));
+    page.on("console", (m) => m.type() === "error" && !meant(m.text()) && failures.push(`crash: console: ${m.text()}`));
+    await page.goto(url(revenue));
+    await page.waitForFunction(() => window.scaena, null, { timeout: 120000 });
+    await page.evaluate(() => window.scaena.seek(2));
+    const stopped = async (n) => {
+      await page.evaluate(() => window.scaena.die());
+      await page.waitForFunction((n) => window.scaena.restarts() === n, n, { timeout: 90000 });
+    };
+    await stopped(1);
+    await page.waitForFunction(() => window.scaena.fault() === null, null, { timeout: 10000 }).catch(() => {});
+    const once = await page.evaluate(() => ({ at: window.scaena.at().index, fault: window.scaena.fault(), status: document.querySelector("#status").textContent }));
+    check(once.at === 2 && once.fault === null, `the engine started again shows the state it stopped on: ${JSON.stringify(once)}`);
+    check(once.status.includes("was started again on this slide"), `the bar says the engine was started again: ${once.status}`);
+    check((await page.locator(".fault").isHidden()), "a slide drawn again shows no notice over it");
+    await stopped(2);
+    const twice = await page.evaluate(() => ({ fault: window.scaena.fault(), words: document.querySelector(".fault")?.textContent ?? "" }));
+    check(twice.fault === 2 && (await page.locator(".fault").isVisible()), `a state that stops the engine again is not drawn again, a notice over it: ${JSON.stringify(twice)}`);
+    check(twice.words.includes("This slide could not be drawn; → goes on past it."), `the notice says → goes on past it: ${twice.words}`);
+    await page.keyboard.press("ArrowRight");
+    await page.waitForFunction(() => window.scaena.at().index === 3 && window.scaena.fault() === null, null, { timeout: 10000 }).catch(() => {});
+    const past = await page.evaluate(() => ({ at: window.scaena.at().index, fault: window.scaena.fault() }));
+    check(past.at === 3 && past.fault === null && (await page.locator(".fault").isHidden()), `→ goes on past it, the notice gone: ${JSON.stringify(past)}`);
+    await page.close();
+  }
 
   // Full sharpness (lift-up ATTR-2): at 2560 × 1440 and twice the density, the slide fills the
   // room the bar leaves, and in fullscreen the screen, and its frames are painted at the size it
