@@ -108,6 +108,22 @@ extension XCTestCase {
         return holds()
     }
 
+    /// `key` with `modifiers` pressed until `done` holds: waited on for `seconds`, then sent once
+    /// more where the app did not hear it, as a loaded simulator drops a key sent a fixed pause after
+    /// the last. Whether `done` came to hold. A key heard is never sent twice, unless its effect took
+    /// longer than `seconds` to show.
+    @MainActor
+    func pressed(
+        _ key: String, _ modifiers: XCUIElement.KeyModifierFlags, in app: XCUIApplication, seconds: TimeInterval = 10,
+        until done: () -> Bool
+    ) -> Bool {
+        for _ in 0..<2 {
+            app.typeKey(key, modifierFlags: modifiers)
+            if wait(seconds, done) { return true }
+        }
+        return false
+    }
+
     /// A moment for what was shown to be painted: the canvas paints at the display's next refresh.
     func settle(_ seconds: TimeInterval = 2) {
         _ = XCTWaiter.wait(for: [XCTestExpectation(description: "painted")], timeout: seconds)

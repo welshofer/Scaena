@@ -3,7 +3,8 @@ import XCTest
 /// The theme's values on the iPad (PLAN 3.28), on B1: the Document tab's Theme shows each value in
 /// a field that reads as one. A field tapped selects its value, so a size typed takes its place, and
 /// is set on Return: the role's row says the size the theme now gives it. ⌘Z takes it back and ⌘⇧Z
-/// makes it again, each one step; a stepper's tap is one step too. B1 is left as it was, and the
+/// makes it again, each one step, each waited on by what it shows, never sent blind; a stepper's tap
+/// is one step too. B1 is left as it was, and the
 /// inspector on its Format tab: the tests after this one open it too.
 final class ThemeTests: XCTestCase {
     override func setUp() {
@@ -113,8 +114,9 @@ final class ThemeTests: XCTestCase {
             }
             XCTAssertEqual(size.value as? String, "37")
             keep(app, as: "size-typed")
-            app.typeKey("z", modifierFlags: .command)
-            guard says(32).waitForExistence(timeout: 10) else {
+            // Each ⌘Z and ⌘⇧Z waited on by what it shows, and sent once more where the app did not
+            // hear it, never sent blind (`pressed`).
+            guard pressed("z", .command, in: app, until: { says(32).exists }) else {
                 keep(app, as: "size-not-undone")
                 // Whether any key reaches the canvas now: with nothing selected, Tab selects the
                 // cover's title.
@@ -126,10 +128,10 @@ final class ThemeTests: XCTestCase {
             }
             XCTAssertTrue(wait(5) { size.value as? String == "32" }, "the field shows \(size.value ?? "nothing"), not 32")
             keep(app, as: "size-undone")
-            app.typeKey("z", modifierFlags: [.command, .shift])
-            XCTAssertTrue(says(37).waitForExistence(timeout: 10), "⌘⇧Z did not make the size again")
-            app.typeKey("z", modifierFlags: .command)
-            XCTAssertTrue(says(32).waitForExistence(timeout: 10), "⌘Z did not take the size back again")
+            XCTAssertTrue(
+                pressed("z", [.command, .shift], in: app, until: { says(37).exists }), "⌘⇧Z did not make the size again")
+            XCTAssertTrue(
+                pressed("z", .command, in: app, until: { says(32).exists }), "⌘Z did not take the size back again")
         }
 
         try XCTContext.runActivity(named: "A stepper's tap is one step to undo") { _ in
@@ -141,8 +143,7 @@ final class ThemeTests: XCTestCase {
             more.tap()
             XCTAssertTrue(says(33).waitForExistence(timeout: 10), "the stepper's tap did not set 33 pt")
             keep(app, as: "size-stepped")
-            app.typeKey("z", modifierFlags: .command)
-            XCTAssertTrue(says(32).waitForExistence(timeout: 10), "⌘Z did not take the step back")
+            XCTAssertTrue(pressed("z", .command, in: app, until: { says(32).exists }), "⌘Z did not take the step back")
         }
 
         try XCTContext.runActivity(named: "Code's keywords named a color are one step to undo") { _ in
@@ -172,8 +173,9 @@ final class ThemeTests: XCTestCase {
             muted.tap()
             XCTAssertTrue(wait(10) { "\(pick.label) \(pick.value as? String ?? "")".contains("Muted Text") }, "the keywords are not Muted Text: \(pick.debugDescription)")
             keep(app, as: "theme-code-named")
-            app.typeKey("z", modifierFlags: .command)
-            XCTAssertTrue(wait(10) { "\(pick.label) \(pick.value as? String ?? "")".contains("From the Accent") }, "⌘Z did not take the keywords' color back: \(pick.debugDescription)")
+            XCTAssertTrue(
+                pressed("z", .command, in: app) { "\(pick.label) \(pick.value as? String ?? "")".contains("From the Accent") },
+                "⌘Z did not take the keywords' color back: \(pick.debugDescription)")
         }
 
         // The inspector as the other tests find it.
