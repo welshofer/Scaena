@@ -115,6 +115,10 @@ import { themePanel } from "./theme-panel";
 import { versionsPanel } from "./versions";
 import { offline } from "./offline";
 import { encodes, UNENCODED } from "./movie";
+import { lightened } from "./lightened";
+
+/** How many lints of every state the editor keeps whole (lift-up 20261110 PERF-4). */
+const WHOLES_KEPT = 5;
 
 const params = new URLSearchParams(location.search);
 const painter = (params.get("painter") ?? "auto") as Painter;
@@ -845,8 +849,10 @@ async function edit(source: Source, opened?: Stage, recovering = false) {
   /** What the last edit came to, and each edit's round trip for the page's own record. */
   let last: Edited | undefined;
   const trips: { ms: number; compile: number; paint: number; lint: number }[] = [];
-  /** Each lint of every state, and how long it took in the worker. */
-  const wholes: Linted[] = [];
+  /** Each lint of every state, and how long it took in the worker: the last few whole, and those
+   * before them without their findings (lift-up 20261110 PERF-4), so an afternoon's editing does not
+   * keep every list it was told, and how many there have been is still their count. */
+  const wholes = lightened<Linted>(WHOLES_KEPT, (linted) => ({ ...linted, findings: [] }));
   /** The state the preview and the inspector show, by index. */
   let shown = 0;
   /** The states `shown` counts among: the table as it stood when the state was shown. A change
