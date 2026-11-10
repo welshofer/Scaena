@@ -1677,6 +1677,10 @@ export interface Written {
 
 /** A question asked once of the model the assistant uses (PLAN 2.101): who answers it, with the
  * user's key, and what it is told and asked. */
+/** Why a writing tool's answer ended (lift-up 20261031 REL-5): `length`, cut off by its token
+ * limit, and `refused`, declined, are no answer to take. */
+export type WritingStop = "tools" | "end" | "length" | "refused" | "other";
+
 export interface WritingCall {
   provider: ProviderId;
   model: string;
@@ -1735,7 +1739,7 @@ export type AssistantEvent =
   | { kind: "usage"; input: number; output: number }
   /** It stopped: its answer is done (`end`), it ran out of room (`length`), it called tools
    * as many rounds as one question allows (`steps`), or the user stopped it (`stopped`). */
-  | { kind: "done"; stop: "tools" | "end" | "length" | "other" | "steps" | "stopped" }
+  | { kind: "done"; stop: "tools" | "end" | "length" | "refused" | "other" | "steps" | "stopped" }
   /** It failed: the provider refused, or the network did. */
   | { kind: "failed"; message: string };
 
@@ -2249,7 +2253,7 @@ export type FromWorker =
   | { type: "assistant"; id: number; event: AssistantEvent }
   | { type: "models"; id: number; models: string[] }
   /** What a model wrote, asked once (PLAN 2.101), and the tokens it took. */
-  | { type: "wrote"; id: number; text: string; usage?: { input: number; output: number } }
+  | { type: "wrote"; id: number; text: string; stop: WritingStop; usage?: { input: number; output: number } }
   /** The CPU painter met a shader whose rows `count` more workers could share (PLAN 2.28): the
    * page starts each as it started this one, and hands this one a port to each (`helpers`). */
   | { type: "helpers"; count: number }

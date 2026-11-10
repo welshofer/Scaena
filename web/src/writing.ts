@@ -11,7 +11,7 @@
 import { listen } from "./life";
 import type { Edited, WritingAsk, WritingKind, Written } from "./protocol";
 import type { Stage } from "./stage";
-import { quote, unasked } from "./words";
+import { quote, unasked, unwritten } from "./words";
 
 /** Who writes: the assistant's provider, by its name, at its own address or `base`, with the
  * user's key, and the model they picked. */
@@ -152,8 +152,9 @@ export function writer(stage: Stage, host: WritingHost) {
     if (!dialog.open) dialog.showModal();
     leave.focus();
     let text: string;
+    let stop: string;
     try {
-      ({ text } = await stage.write(
+      ({ text, stop } = await stage.write(
         {
           provider: who.provider,
           model: who.model,
@@ -172,6 +173,13 @@ export function writer(stage: Stage, host: WritingHost) {
       return;
     }
     if (mine !== turn || !dialog.open) return;
+    // An answer cut off or declined is offered as nothing to take (lift-up 20261031 REL-5).
+    const why = unwritten(who.name, stop);
+    if (why) {
+      thinking.textContent = why;
+      leave.textContent = "Close";
+      return;
+    }
     let written: Written;
     try {
       written = await stage.written(ask, text);

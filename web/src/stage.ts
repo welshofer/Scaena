@@ -82,6 +82,7 @@ import type {
   Writing,
   WritingAsk,
   WritingCall,
+  WritingStop,
   Written,
   SlidePlace,
   SlideWritten,
@@ -1024,12 +1025,12 @@ export class Stage {
 
   /** Ask a model once, with the user's key and nothing to call (PLAN 2.101): its words. `signal`,
    * aborted, stops the request in the worker (lift-up PERF-4). */
-  write(call: WritingCall, signal?: AbortSignal): Promise<{ text: string; usage?: { input: number; output: number } }> {
+  write(call: WritingCall, signal?: AbortSignal): Promise<{ text: string; stop: WritingStop; usage?: { input: number; output: number } }> {
     const id = ++this.asked;
     const stop = () => this.send({ type: "stopWrite", id });
     signal?.addEventListener("abort", stop, { once: true });
     return this.request<"wrote">({ type: "write", id, call })
-      .then(({ text, usage }) => ({ text, usage }))
+      .then(({ text, stop, usage }) => ({ text, stop, usage }))
       .finally(() => signal?.removeEventListener("abort", stop));
   }
 

@@ -937,8 +937,8 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         const stop = new AbortController();
         writes.set(data.id, stop);
         try {
-          const { text, usage } = await write(data.call, stop.signal);
-          return post({ type: "wrote", id: data.id, text, usage });
+          const { text, stop: why, usage } = await write(data.call, stop.signal);
+          return post({ type: "wrote", id: data.id, text, stop: why, usage });
         } finally {
           writes.delete(data.id);
         }

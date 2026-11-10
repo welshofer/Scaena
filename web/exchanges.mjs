@@ -150,6 +150,16 @@ for (const bad of bases.bad) check(refusedBase(bad) !== undefined, `a key never 
   check(last.finish()?.content?.length === MOST_BLOCKS, "the last block a provider may send still reads");
 }
 {
+  // An answer cut off or declined, read as scaena-chat reads it (lift-up 20261031 REL-5): a
+  // writing tool takes neither.
+  const { cases } = JSON.parse(await readFile("tests/assistant/stops.json", "utf8"));
+  for (const [i, c] of cases.entries()) {
+    const ask = { model: "m", key: "k", system: "", tools: [], messages: [{ role: "user", text: "Tighten this." }] };
+    const { result } = await asking({ status: 200, body: c.body }, () => providers[c.provider].turn(ask));
+    check(result.value?.stop === c.stop, `${c.provider} answer ${i + 1} stops as ${c.stop}: ${result.value?.stop ?? result.error}`);
+  }
+}
+{
   // icon_find in the page answers as the MCP server does: 50 at most, whatever limit asks, and the
   // paths only where asked for (lift-up 20261025c SEC-3).
   const set = JSON.parse(await readFile(new URL("../docs/icons/phosphor.json", import.meta.url), "utf8"));
