@@ -73,3 +73,18 @@ import Testing
     #expect(Health.moreSaid(triaged.more) == "5 more: 2 arc, 1 intensity, 1 tone, 1 turn")
     #expect(health.triaged(open: 0).open.map(\.slide) == [5], "every error stands open")
 }
+
+/// The folded count names each kind in a person's words, as the browser's Story does: an
+/// unsourced figure, a topic headline, a change let go, a broken slide, and the big idea, never
+/// the identifier a finding carries.
+@Test func theFoldedCountNamesEachKindInWords() throws {
+    let kinds = ["source", "source", "label", "look", "layout", "bigIdea", "tone"]
+    let listed = kinds.enumerated().map { i, kind in
+        #"{"state": "s\#(i)", "slide": \#(i + 1), "severity": "info", "kind": "\#(kind)", "says": "", "ask": ""}"#
+    }
+    let findings = try JSONDecoder().decode([Health.Finding].self, from: Data("[\(listed.joined(separator: ","))]".utf8))
+    #expect(
+        Health.moreSaid(findings)
+            == "7 more: 2 unsourced figure, 1 topic headline, 1 change let go, 1 broken slide, 1 big idea, 1 tone")
+    #expect(Health.kindSaid("arc") == "arc", "a kind with no words of its own is said as it is")
+}
