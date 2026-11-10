@@ -941,10 +941,12 @@ export interface HealthFinding {
   state: string;
   slide: number;
   severity: "error" | "warning" | "info";
-  kind: "title" | "empty" | "turn" | "arc" | "intensity" | "tone" | "drift" | "layout" | "claim" | "bigIdea" | "story" | "dense" | "notes" | "pacing" | "link" | "look" | "label";
+  kind: "title" | "empty" | "turn" | "arc" | "intensity" | "tone" | "drift" | "layout" | "claim" | "bigIdea" | "story" | "dense" | "notes" | "pacing" | "link" | "look" | "source" | "label";
   says: string;
   ask: string;
   fix?: { says: string; patch: unknown[] };
+  /** The figure a `source` finding found no source for, as the slide writes it. */
+  figure?: string;
 }
 
 /** The deck's narrative health (PLAN G.9), as `scaena health --json` gives it. */

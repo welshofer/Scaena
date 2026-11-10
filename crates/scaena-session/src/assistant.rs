@@ -772,6 +772,43 @@ impl Session {
     }
 }
 
+// After the rest, so what the browser's editor module carries of this file stands where it stood.
+#[cfg(feature = "slides")]
+impl Session {
+    /// What to ask a model for one slide (lift-up FUNC-1), as the Mac's and the iPad's Write This
+    /// Slide Again… and Add a Slide About… ask it: `place` `{ "replace": STATE }` or
+    /// `{ "after": STATE }`, `ask` the person's words, `{ system, prompt }` the request's two
+    /// halves, the bytes the browser's generator module sends (`scaena_ops::narrative::one_request`).
+    /// The editor's module carries none of it: the browser asks from the generator's.
+    pub fn slide_asked(&self, place: Value, ask: &str) -> Result<Value, Error> {
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct Named {
+            #[serde(default)]
+            after: Option<String>,
+            #[serde(default)]
+            replace: Option<String>,
+        }
+        let named: Named =
+            serde_json::from_value(place).map_err(|e| ops(format!("slideAsk: where the slide goes: {e}")))?;
+        let place = match (named.replace, named.after) {
+            (Some(_), Some(_)) => return Err(ops("slideAsk: give `after` or `replace`, not both")),
+            (Some(state), None) => scaena_ops::narrative::Place::Replace(state),
+            (None, Some(state)) => scaena_ops::narrative::Place::After(state),
+            (None, None) => scaena_ops::narrative::Place::End,
+        };
+        let asked = scaena_ops::narrative::slide_asking(&self.bundle(), &place, ask)?;
+        serde_json::to_value(asked).map_err(|e| ops(format!("slideAsk: {e}")))
+    }
+
+    /// The one slide a model's `answer` to [`Session::slide_asked`] holds, as Narrato writes a
+    /// slide: what `slide_write` takes as its `slide`; or why it is none.
+    pub fn slide_read(answer: &str) -> Result<Value, Error> {
+        let slide = scaena_narrato::one::answer(answer).map_err(|e| ops(format!("slideRead: {e}")))?;
+        serde_json::to_value(slide).map_err(|e| ops(format!("slideRead: {e}")))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -957,6 +994,32 @@ mod tests {
         assert!(read.result["deck"]["nodes"].get("bullets-background").is_none(), "{}", read.result);
         let lacks = s.tool("background_set", json!({ "state": "bullets", "preset": "nowhere" }), AGENT).unwrap_err();
         assert!(failure(&lacks)["message"].as_str().unwrap().contains("nowhere"), "{}", failure(&lacks));
+    }
+
+    /// One slide asked for and read, as the Mac's Write This Slide Again… and Add a Slide About…
+    /// send and take them (lift-up FUNC-1): the request ops makes for the deck as it stands, the
+    /// slide an answer holds, which `slide_write` writes, and an answer that holds none refused.
+    #[cfg(feature = "slides")]
+    #[test]
+    fn one_slide_is_asked_for_and_its_answer_read() {
+        let mut s = dusk();
+        let asked = s.slide_asked(json!({ "after": "start" }), "Why teams switch").unwrap();
+        let doc = s.bundle().deck.to_value().unwrap();
+        let files: BTreeMap<String, Vec<u8>> = BTreeMap::new();
+        let place = scaena_ops::narrative::Place::After("start".into());
+        let ops = scaena_ops::narrative::one_request(&doc, &place, "Why teams switch", &files).unwrap();
+        assert_eq!(asked, serde_json::to_value(&ops).unwrap());
+        assert!(asked["prompt"].as_str().unwrap().contains("Why teams switch"), "{asked}");
+        assert!(s.slide_asked(json!({ "after": "start", "replace": "start" }), "").is_err());
+        assert!(s.slide_asked(json!({ "after": "nowhere" }), "").is_err());
+        let answer = r#"Here it is: {"slideTitle": "Three reasons teams switch", "layoutSuggestion": "Bullet List",
+            "keyBullets": ["Fast: drafts in seconds", "Safe: never sends alone", "Yours: learns your voice"]}"#;
+        let slide = Session::slide_read(answer).unwrap();
+        assert_eq!(slide["slideTitle"], "Three reasons teams switch", "{slide}");
+        let written = call(&mut s, "slide_write", json!({ "slide": slide, "after": "start" }));
+        assert_eq!((written.result["applied"].clone(), written.edited), (json!(true), true), "{}", written.result);
+        let refused = Session::slide_read("I can't write that slide.").unwrap_err();
+        assert!(failure(&refused)["message"].as_str().unwrap().contains("slideRead"), "{}", failure(&refused));
     }
 
     /// One slide written as the deck's generator builds them (lift-up FUNC-1): after the first

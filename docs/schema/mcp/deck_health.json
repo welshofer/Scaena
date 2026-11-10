@@ -87,7 +87,11 @@
           "kind": { "$ref": "#/$defs/Kind" },
           "says": { "type": "string" },
           "ask": { "description": "The question an editor puts to the assistant for it.", "type": "string" },
-          "fix": { "anyOf": [{ "$ref": "#/$defs/Fix" }, { "type": "null" }] }
+          "fix": { "anyOf": [{ "$ref": "#/$defs/Fix" }, { "type": "null" }] },
+          "figure": {
+            "description": "The figure a `source` finding found no source for, as the slide writes it.",
+            "type": ["string", "null"]
+          }
         },
         "required": ["state", "slide", "severity", "kind", "says", "ask"]
       },
@@ -154,6 +158,11 @@
             "description": "A change the model asked once it saw the slide drawn was not kept, lint having found the\nslide worse for it (`meta.narrative.refused`, lift-up USE-4).",
             "type": "string",
             "const": "look"
+          },
+          {
+            "description": "A deck made from sources writes a figure on this slide that it names no source for: its\nbeat cites none, its words name none, and no slide before it sourced the figure (W1's\ndogfood 4 and 5). The finding says the figure.",
+            "type": "string",
+            "const": "source"
           },
           {
             "description": "Its headline names a topic (\"Q3 by product\") where a content slide states its point: in a\ndeck health reads in English, three to six words with no verb and no question\n(lift-up 10-25b FUNC-4).",

@@ -9,7 +9,8 @@
 //   slide's mark shows it.
 // - What to look at, what to do first open (every error a slide's lint finds, then the warnings
 //   whose measure scores lowest, five findings in all) and the rest folded under one "N more",
-//   counted by kind (lift-up S1); a row for each slide, its headline beside it: what health finds
+//   counted by kind (lift-up S1); a row for each slide, its headline as the deck reads now beside
+//   it, never its beat's claim, which health names it by (editor dogfood 4): what health finds
 //   there, in a person's words; Slide N shows it; each fix, where one is safe, is one change that
 //   ⌘Z takes back; a slide lint finds broken offers lint's fixes as its marks on the canvas do,
 //   and Show it, the slide with its problem's mark open (editor dogfood 4); and Ask puts its
@@ -31,6 +32,10 @@ export interface StoryEditor {
   /** Check `state`'s words against its beat's claim by the writing tools' model, which offers
    * the headline rewritten to carry it (narrative FUNC-4). */
   check(state: string): void;
+  /** The words that head the slide whose first state is `slide`, as the deck reads now, where a
+   * text heads it: what its row names it by, since health names a slide by its beat's claim
+   * (editor dogfood 4). */
+  headline(slide: string): string | undefined;
   /** What lint last found wrong on the slide whose first state is `slide`, any step of it: what
    * its marks on the canvas stand for (editor dogfood 4). */
   issues(slide: string): Finding[];
@@ -105,6 +110,7 @@ const KIND: Partial<Record<HealthFinding["kind"], string>> = {
   bigIdea: "big idea",
   layout: "broken slide",
   look: "change let go",
+  source: "unsourced figure",
   label: "topic headline",
 };
 
@@ -348,7 +354,9 @@ export function storyPanel(stage: Stage, into: HTMLElement, editor: StoryEditor)
     show.addEventListener("click", () => void editor.show(state));
     const title = document.createElement("span");
     title.className = "headline";
-    title.textContent = h.slides[slide - 1]?.title ?? "";
+    // The slide as it reads now: its headline, else health's title, its beat's claim, which an
+    // edit of the headline leaves as it was (editor dogfood 4).
+    title.textContent = editor.headline(state) ?? h.slides[slide - 1]?.title ?? "";
     head.append(show, title);
     li.append(head);
     // What its words came from, of the sources the deck was grounded in (narrative FUNC-3).

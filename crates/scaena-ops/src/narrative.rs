@@ -6925,6 +6925,9 @@ fn period(chart: &ChartData, said: [Option<&str>; 2]) -> Option<Value> {
     })
 }
 
+// After the rest, so what the browser's editor module carries of this file stands where it stood.
+pub use one::{OneRequest, one_request, slide_asking};
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -11787,6 +11790,26 @@ mod tests {
             d["states"].as_array().unwrap().iter().find(|s| s["id"] == state).unwrap()["layout"].clone()
         };
         assert_eq!(layout(&after, &written.states[0]), layout(&original, &before[1]));
+    }
+
+    /// The request for one slide is made in one place (lift-up FUNC-1): Narrato's one-slide
+    /// instructions and the prompt `one_asked` makes, its deck's words fenced, for the generator's
+    /// module and the session the Mac edits alike.
+    #[test]
+    fn the_request_for_one_slide_is_narratos_instructions_and_its_prompt() {
+        let (doc, _, _) = made_of(&[0, 8, 12, 55]);
+        let firsts = firsts(&doc);
+        let place = Place::Replace(firsts[1].clone());
+        let asked = one_request(&doc, &place, "Shorter", &no_files()).unwrap();
+        let one = one_asked(&doc, &place, "Shorter", &no_files()).unwrap();
+        assert_eq!(asked.system, scaena_narrato::one::ONE_SLIDE_SYSTEM);
+        assert_eq!(asked.prompt, scaena_narrato::one::prompt(&one));
+        let json = serde_json::to_value(&asked).unwrap();
+        assert_eq!(
+            json.as_object().unwrap().keys().collect::<Vec<_>>(),
+            ["system", "prompt"],
+            "as the page has read it"
+        );
     }
 
     #[test]
