@@ -971,6 +971,9 @@ function slideNavigator(
       if (!canvas || !thumb.pixels || !thumb.width || !thumb.height) return;
       canvas.width = thumb.width;
       canvas.height = thumb.height;
+      // Every slide is drawn as the deck's canvas, or its format's, stands: never stretched to 16:9
+      // (lift-up 20261031 ATTR-1). The slides still waiting for theirs take its shape too.
+      list.style.setProperty("--aspect", `${thumb.width} / ${thumb.height}`);
       canvas.getContext("2d")?.putImageData(new ImageData(new Uint8ClampedArray(thumb.pixels), thumb.width), 0, 0);
     });
   };

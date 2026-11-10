@@ -931,7 +931,9 @@ pub struct SlideWrite {
     pub replace: Option<String>,
     /// The id of a beat of the spine whose claim this slide tells, as `spine_update` planned it:
     /// the slide's states join it, and it keeps what it says, the slide giving only what it lacks
-    /// (its notes, Narrato's fields). Without it, the slide gets a beat of its own after the slide
+    /// (its notes, Narrato's fields); without `after`, the slide stands where the spine plans it,
+    /// after that beat's slides, else after the nearest earlier beat's, else before the nearest
+    /// later beat's. Without it, the slide gets a beat of its own after the slide
     /// before it, and a deck with no spine yet begins one. Not with `replace`, which keeps the
     /// beat of the slide it takes the place of.
     #[serde(default)]
@@ -1312,6 +1314,8 @@ impl Scaena {
             painter: a.painter,
             pace: a.pace,
             notes: a.notes,
+            // A master's chroma is the CLI's alone (`--chroma 444`).
+            chroma: None,
         };
         let bundle = a.bundle.clone();
         let b = blocking(move || open(&bundle)).await?;

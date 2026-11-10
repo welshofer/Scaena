@@ -212,6 +212,9 @@ fn write(deck: &Deck, pages: &[Page], assets: &Assets, settings: &PdfSettings) -
     let mut document = Document::new_with(SerializeSettings::default());
     let mut fonts = Fonts::default();
     let mut photos = HashMap::new();
+    // What draws a shadow or a color glyph as pixels, kept for the whole document with its
+    // glyph outlines (lift-up 20261031 PERF-1).
+    let mut painter = CpuPainter::default();
     let mut structure: Vec<Vec<Node>> = Vec::with_capacity(pages.len());
     // Each page's headline, which bookmarks it where no section's title or beat's claim does.
     let mut headlines: Vec<Option<String>> = Vec::with_capacity(pages.len());
@@ -245,6 +248,7 @@ fn write(deck: &Deck, pages: &[Page], assets: &Assets, settings: &PdfSettings) -
             page: KRect::from_xywh(0.0, 0.0, w, h),
             pixels: kurbo::Rect::new(0.0, 0.0, f64::from(dl.viewport[0] * scale), f64::from(dl.viewport[1] * scale)),
             photos: &mut photos,
+            painter: &mut painter,
             error: None,
         };
         let nodes = cx.read(&dl.ops, Affine::scale(f64::from(scale)));
@@ -403,6 +407,9 @@ struct Cx<'a, 's> {
     pixels: kurbo::Rect,
     /// Each photo as the document carries it, by its id and whether it is filtered: made once.
     photos: &'a mut HashMap<(String, bool), Image>,
+    /// The CPU painter that draws what the PDF carries as pixels, kept from op to op and page
+    /// to page.
+    painter: &'a mut CpuPainter,
     /// The first thing that did not draw. Drawing goes on past it, so that every push
     /// is popped and every tagged section ended.
     error: Option<ExportError>,
@@ -689,7 +696,7 @@ impl Cx<'_, '_> {
                 Op::Stroke { path: p, paint, width, cap, join, miter_limit, dash, dash_offset } => {
                     if let Some(p) = path(p) {
                         let (paint, opacity) = kpaint(paint);
-                        let dash = (!dash.is_empty()).then(|| StrokeDash { array: dash.clone(), offset: *dash_offset });
+                        let dash = stroke_dash(dash, *dash_offset, *width);
                         self.surface.set_fill(None);
                         self.surface.set_stroke(Some(Stroke {
                             paint,
@@ -848,8 +855,7 @@ impl Cx<'_, '_> {
             clip: None,
             ops: vec![op.clone()],
         });
-        let raster =
-            CpuPainter::default().paint(&list, self.assets, 1.0).map_err(|e| ExportError::Pdf(e.to_string()))?;
+        let raster = self.painter.paint(&list, self.assets, 1.0).map_err(|e| ExportError::Pdf(e.to_string()))?;
         let Some(size) = Size::from_wh(raster.width as f32, raster.height as f32) else { return Ok(()) };
         let pixels = Pixels::of_rgba(raster.rgba, raster.width, raster.height);
         let image = Image::from_custom(pixels, true).map_err(ExportError::Pdf)?;
@@ -1300,6 +1306,14 @@ fn by_case(shown: &str, written: &str) -> Option<String> {
     (shown != written && shown.to_uppercase() == written.to_uppercase()).then_some(written)
 }
 
+/// The dash a stroke `width` wide is written with: none for a solid one, or for a pattern whose
+/// period no reader could walk, which `scaena_core::displaylist::dashes` draws solid as every
+/// painter does (lift-up 20261031 REL-1).
+fn stroke_dash(dash: &[f32], offset: f32, width: f32) -> Option<StrokeDash> {
+    let dash = scaena_core::displaylist::dashes(dash, width);
+    (!dash.is_empty()).then(|| StrokeDash { array: dash.to_vec(), offset })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1330,5 +1344,15 @@ mod tests {
             let written = pdf(&deck, &[page], &Assets::default(), &PdfSettings::default());
             assert!(written.is_ok(), "{w} × {h}, a blur of {blur}: {written:?}");
         }
+    }
+
+    /// A line dashed with zeros, or with lengths too small to see, is written solid, not as a
+    /// pattern a reader walks a billion times (lift-up 20261031 REL-1).
+    #[test]
+    fn a_dash_of_no_length_is_written_solid() {
+        for dash in [&[0.0, 0.0][..], &[1e-6, 1e-6]] {
+            assert!(stroke_dash(dash, 0.0, 4.0).is_none(), "{dash:?}");
+        }
+        assert!(stroke_dash(&[4.0, 2.0], 1.0, 4.0).is_some_and(|d| d.array == [4.0, 2.0] && d.offset == 1.0));
     }
 }
