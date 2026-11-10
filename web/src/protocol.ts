@@ -299,6 +299,15 @@ export interface Outline {
 /** Where a caret stands in a text at rest (ADR-0013, PLAN 2.32): each character as written, as a
  * reader counts it, on its line, from the glyphs the engine set. Offsets are UTF-16 code units of
  * `text`, as the page counts a string; x and y are canvas units. */
+/** A figure typed over that quotes its data no more (dogfood-5 item 13): its text node, the
+ * figure as it was, and the source (by the name the deck gives it) and column it quoted. */
+export interface Unquoted {
+  node: string;
+  figure: string;
+  data: string;
+  column: string;
+}
+
 export interface Carets {
   /** The text as written: the node's `text`, or its runs' texts end to end. */
   text: string;
@@ -987,6 +996,9 @@ export interface Health {
   /** The big idea the settled outline names, the one sentence the audience should remember
    * (lift-up 10-24b FUNC-1). */
   bigIdea?: string;
+  /** Where slides lint finds an error on hold the score down (ADR-0032 item 1): those slides by
+   * number, the cap they set, and the score the deck would have had (W1's dogfood 5). */
+  capped?: { slides: number[]; cap: number; score: number };
 }
 
 /** A picture a person asks for in the editor (PLAN 2.107): what it shows, in their words; made as
@@ -2291,7 +2303,7 @@ export type FromWorker =
   /** The patch that fills a slot that waits for words, and the node's id. */
   | { type: "filling"; id: number; filled: { id: string; patch: unknown[] } }
   /** The text is typed: the deck's source now, what the edit came to, and the text's carets. */
-  | { type: "typed"; id: number; source: string; edited: Edited; carets: Carets | null }
+  | { type: "typed"; id: number; source: string; edited: Edited; carets: Carets | null; unquoted: Unquoted[] }
   /** The bundle is saved `where`, and the session goes on from it: the files the save
    * renamed, from and to, each a path the source may name; and how many files it wrote. */
   | {

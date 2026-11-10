@@ -546,9 +546,18 @@ try {
   check(noted?.prompt.startsWith("Write the speaker notes for the 5 slides of a talk"), `the notes are asked for the talk: ${noted?.prompt.slice(0, 80)}`);
   check(requests.findIndex((r) => r.asked === "notes") > requests.findIndex((r) => r.asked === "look"), "after the look");
   check((await lines()).some((l) => l === "1 slide's notes written for the talk"), `the progress says the notes were written: ${(await lines()).at(-3)}`);
+  // The slides whose notes were not taken say why, and what they keep (W1's dogfood 6): the
+  // scripted answer writes slide 1's alone, so the rest keep Narrato's drafts.
+  const unnoted = (await lines()).find((l) => l.startsWith("Notes not written for the talk"));
+  check(
+    unnoted === "Notes not written for the talk: Slides 2–5's notes not written by the model, Narrato's drafts kept",
+    `the progress says why the rest were not taken, and what they keep: ${unnoted}`,
+  );
   const source = await page.evaluate(() => window.scaena.source());
   const states = (source.match(/^state /gm) ?? []).length;
   check(states === 5, `the deck has the recorded answer's five slides: ${states}`);
+  const drafted = await page.evaluate(() => window.scaena.notes(window.scaena.last().states[1][0]).then((n) => n.text));
+  check(drafted.trim().length > 0, `and slide 2 keeps its draft, as the progress says: ${JSON.stringify(drafted.slice(0, 60))}`);
   check(source.includes("data/q3.csv"), "the CSV is a data source of the deck's");
   check(source.includes("Carbon-negative cargo, ready to scale"), "the cover's title as the model tightened it");
   check(source.includes("assets/picture-01.jpg") && source.includes("assets/picture-05.jpg"), "the pictures are the cover's and the ending's");
