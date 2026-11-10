@@ -316,9 +316,9 @@ final class KeysTests: XCTestCase {
         settle()
 
         try XCTContext.runActivity(named: "Make Code makes the subtitle code") { _ in
-            subtitle.press(forDuration: 1.2)
+            pressForMenu(subtitle, in: app)
             let make = app.descendants(matching: .any).matching(NSPredicate(format: "label == 'Make Code'")).firstMatch
-            guard paged(to: make, in: app, pressed: subtitle) else {
+            guard paged(to: make, in: app) else {
                 keep(app, as: "no-make-code")
                 // Copy and Duplicate come with a node selected: without them the menu was made for nothing.
                 let copy = app.descendants(matching: .any).matching(NSPredicate(format: "label == 'Copy'")).firstMatch
@@ -357,9 +357,9 @@ final class KeysTests: XCTestCase {
             try undoing(undo, in: app)
             XCTAssertEqual(undo.label, "Undo Make Code", "the typing was not one step: \(app.debugDescription)")
             try undoing(undo, in: app)
-            subtitle.press(forDuration: 1.2)
+            pressForMenu(subtitle, in: app)
             let make = app.descendants(matching: .any).matching(NSPredicate(format: "label == 'Make Code'")).firstMatch
-            XCTAssertTrue(paged(to: make, in: app, pressed: subtitle), "the subtitle is still code: \(app.debugDescription)")
+            XCTAssertTrue(paged(to: make, in: app), "the subtitle is still code: \(app.debugDescription)")
             app.typeKey(XCUIKeyboardKey.escape, modifierFlags: [])
         }
     }
@@ -382,9 +382,9 @@ final class KeysTests: XCTestCase {
             throw Unseen(description: "the cover reads no subtitle: \(app.debugDescription)")
         }
         settle()
-        subtitle.press(forDuration: 1.2)
+        pressForMenu(subtitle, in: app)
         let make = app.descendants(matching: .any).matching(NSPredicate(format: "label == 'Make Code'")).firstMatch
-        guard paged(to: make, in: app, pressed: subtitle) else {
+        guard paged(to: make, in: app) else {
             keep(app, as: "settles-no-make-code")
             throw Unseen(description: "the long press offered no Make Code: \(app.debugDescription)")
         }

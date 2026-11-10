@@ -178,7 +178,7 @@ final class OpeningTests: XCTestCase {
         let subtitle = canvas.descendants(matching: .any)
             .matching(NSPredicate(format: "label BEGINSWITH 'Why this exists'")).firstMatch
         XCTAssertTrue(subtitle.waitForExistence(timeout: 10), "no subtitle on the canvas: \(app.debugDescription)")
-        subtitle.press(forDuration: 1.2)
+        pressForMenu(subtitle, in: app)
         let listed = NSPredicate(
             format: "elementType == %lu OR elementType == %lu",
             XCUIElement.ElementType.button.rawValue, XCUIElement.ElementType.menuItem.rawValue)
@@ -187,7 +187,7 @@ final class OpeningTests: XCTestCase {
         }
         // The slide's own asks under Slide, the menu's next to last.
         let slide = offered("Slide").firstMatch
-        guard paged(to: slide, in: app, pressed: subtitle) else {
+        guard paged(to: slide, in: app) else {
             keep(app, as: "no-slide-menu")
             throw Unseen(description: "the long press offers no Slide: \(app.debugDescription)")
         }

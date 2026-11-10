@@ -175,26 +175,44 @@ extension XCTestCase {
 /// The edit menu a long press opens, paged as a person pages it: shared by the tests that look
 /// for an item past its first page.
 extension XCTestCase {
+    /// How many long presses the canvas has taken as long presses (its debug-only
+    /// `canvas-menu-asks`), each asking for its menu.
+    @MainActor
+    func menuAsks(in app: XCUIApplication) -> Int {
+        let asks = app.descendants(matching: .any).matching(identifier: "canvas-menu-asks").firstMatch
+        return asks.exists ? Int(asks.value as? String ?? "") ?? 0 : 0
+    }
+
+    /// `element` pressed long, as a person asks for its menu (lift-up 20261110). Where the canvas
+    /// took no long press from it, its count of them unchanged, the simulator's system gesture gate
+    /// held the press back until it had ended ("System gesture gate timed out" in `log.txt`), and
+    /// the app saw a tap: it is pressed once more, kept as `menu-pressed-again`. Where the canvas
+    /// took it, nothing is pressed again, so a menu that does not show for a long press it was asked
+    /// for fails the test that looks for it.
+    @MainActor
+    func pressForMenu(_ element: XCUIElement, in app: XCUIApplication) {
+        let before = menuAsks(in: app)
+        element.press(forDuration: 1.2)
+        guard !wait(3, { self.menuAsks(in: app) > before }) else { return }
+        XCTContext.runActivity(named: "The canvas took no long press: the press is made again") { _ in
+            keep(app, as: "menu-pressed-again")
+            element.press(forDuration: 1.2)
+        }
+    }
+
     /// Whether `item` comes to show in the edit menu a long press opened, the menu paged on as a
     /// person pages it. The menu sets its items in one row, a page at a time, and lists none of a
     /// page it does not show; the arrow to the next page stands just past the row's last item.
-    /// `pressed`, the element the long press was on, is pressed again once where no menu shows:
-    /// the simulator's system gesture gate can hold a press back until it has ended ("System
-    /// gesture gate timed out" in `log.txt`), and the app then sees a tap, which selects and
-    /// offers nothing (lift-up 20261110). The app's `menu` log says which it was.
     @MainActor
-    func paged(to item: XCUIElement, in app: XCUIApplication, pressed: XCUIElement? = nil) -> Bool {
+    func paged(to item: XCUIElement, in app: XCUIApplication) -> Bool {
         // What the menu lists: buttons, or menu items, by the system's version.
         let kinds = NSPredicate(
             format: "elementType == %lu OR elementType == %lu",
             XCUIElement.ElementType.button.rawValue, XCUIElement.ElementType.menuItem.rawValue)
         let listed = app.descendants(matching: .any).matching(kinds)
-        let shown = { listed.matching(NSPredicate(format: "label == 'Copy'")).firstMatch.isHittable }
-        if !wait(5, shown), let pressed {
-            keep(app, as: "menu-pressed-again")
-            pressed.press(forDuration: 1.2)
+        guard wait(5, { listed.matching(NSPredicate(format: "label == 'Copy'")).firstMatch.isHittable }) else {
+            return false
         }
-        guard wait(5, shown) else { return false }
         let row = listed.matching(NSPredicate(format: "label == 'Copy'")).firstMatch.frame.midY
         for _ in 0..<8 {
             if item.waitForExistence(timeout: 1), item.isHittable { return true }

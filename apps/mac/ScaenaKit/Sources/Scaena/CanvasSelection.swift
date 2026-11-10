@@ -441,6 +441,19 @@ struct CanvasSelection: View {
                         readable(
                             reads[i], order: reads.count - i, fit: fit, in: CGRect(origin: .zero, size: geometry.size))
                     }
+                    #if DEBUG && !os(macOS)
+                    // How many long presses the canvas has taken as long presses, each asking for
+                    // its menu (lift-up 20261110): what a UI test reads to tell a press the
+                    // simulator's gesture gate held back, never asked, from a menu that failed to
+                    // show for one that was. Debug builds only.
+                    Rectangle()
+                        .fill(.clear)
+                        .frame(width: 1, height: 1)
+                        .accessibilityElement()
+                        .accessibilityLabel("Long presses")
+                        .accessibilityIdentifier("canvas-menu-asks")
+                        .accessibilityValue("\(offering?.count ?? 0)")
+                    #endif
                 }
                 .frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading)
                 .allowsHitTesting(false)

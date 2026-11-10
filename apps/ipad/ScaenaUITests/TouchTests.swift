@@ -137,10 +137,10 @@ final class TouchTests: XCTestCase {
         }
 
         try XCTContext.runActivity(named: "A long press offers what is done to the title, Duplicate copies it, and Undo takes the copy away") { _ in
-            title.press(forDuration: 1.2)
+            pressForMenu(title, in: app)
             let duplicate = app.descendants(matching: .any).matching(NSPredicate(format: "label == 'Duplicate'")).firstMatch
             // Make Code stands before Duplicate for a text, so the menu is paged on to it.
-            guard paged(to: duplicate, in: app, pressed: title) else {
+            guard paged(to: duplicate, in: app) else {
                 keep(app, as: "no-duplicate")
                 throw Unseen(description: "a long press offered no Duplicate: \(app.debugDescription)")
             }
@@ -320,17 +320,17 @@ final class TouchTests: XCTestCase {
         }
 
         try XCTContext.runActivity(named: "A long press offers Only on This Slide, which a tap holds") { _ in
-            title.press(forDuration: 1.2)
+            pressForMenu(title, in: app)
             let only = all.matching(NSPredicate(format: "label == 'Only on This Slide'")).firstMatch
-            guard paged(to: only, in: app, pressed: title) else {
+            guard paged(to: only, in: app) else {
                 keep(app, as: "no-only-this-slide")
                 throw Unseen(description: "a long press offered no Only on This Slide: \(app.debugDescription)")
             }
             XCTAssertFalse(only.isSelected, "Only on This Slide is shown held before it was asked for")
             only.tap()
             settle(1)
-            title.press(forDuration: 1.2)
-            guard paged(to: only, in: app, pressed: title) else {
+            pressForMenu(title, in: app)
+            guard paged(to: only, in: app) else {
                 throw Unseen(description: "a second long press offered no Only on This Slide: \(app.debugDescription)")
             }
             keep(app, as: "only-this-slide")
