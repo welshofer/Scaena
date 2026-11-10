@@ -1034,11 +1034,33 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
     };
     // A turn the next slide's notes open by carrying the slide before it across is bridged: the
     // speaker says what the slides' words do not (narrative dogfood H4).
-    let bridged: Vec<&String> = (m.coherence.weak_transitions.iter())
+    // Where the talk turns, each pair of neighbouring slides by its own words alone (W1's dogfood
+    // 5 and 6): Vzestup reads a turn against the deck's mean overlap and its spread, so an edit
+    // to the close moved them and a turn appeared at slide 3. Read by words, a pair turns where
+    // its slides share no word the overlap counts; the cover's into the first slide is the talk
+    // opening, no turn. A turn at a beat's edge is soft. Embeddings, where every slide has one,
+    // read as Vzestup reads them. Coherence's figure is Vzestup's either way.
+    let turns: Vec<(String, bool)> = match m.coherence.method {
+        health::coherence::Method::Embedding => (m.coherence.breaks.iter())
+            .map(|b| (b.slide_id.clone(), b.severity == health::coherence::Severity::Soft))
+            .collect(),
+        health::coherence::Method::Keyword => {
+            let shown: Vec<usize> = (0..read.len()).filter(|&i| read[i].eligible()).collect();
+            (shown.windows(2).zip(&m.coherence.pair_similarities))
+                .filter(|(pair, sim)| pair[0] > 0 && **sim == 0.0)
+                .map(|(pair, _)| {
+                    let beat = |i: usize| read[i].narrative_meta.as_ref().and_then(|n| n.beat_index);
+                    let edge = matches!((beat(pair[0]), beat(pair[1])), (Some(a), Some(b)) if a != b);
+                    (read[pair[1]].id.clone(), edge)
+                })
+                .collect()
+        }
+    };
+    let bridged: Vec<&String> = (turns.iter().map(|(id, _)| id))
         .filter(|id| read.iter().position(|s| &s.id == *id).is_some_and(|i| i > 0 && bridges(&read[i - 1], &read[i])))
         .collect();
-    let hard = m.coherence.breaks.iter().filter(|b| b.severity == health::coherence::Severity::Hard).count();
-    let soft = m.coherence.breaks.len() - hard;
+    let soft = turns.iter().filter(|(_, edge)| *edge).count();
+    let hard = turns.len() - soft;
     // By words alone, neighbouring slides share few even where one follows from the other: no
     // number, only where the talk turns.
     let coherence = Measure {
@@ -1250,7 +1272,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
             .and_then(|&k| deck.states.get(k)?.layout.as_deref())
             .is_some_and(|l| l == "agenda" || l.starts_with("agenda-"))
     };
-    for id in m.coherence.weak_transitions.iter().filter(|id| !bridged.contains(id)) {
+    for id in turns.iter().map(|(id, _)| id).filter(|id| !bridged.contains(id)) {
         let Some(&i) = place.get(id.as_str()) else { continue };
         if i > 0 && agenda(i - 1) {
             continue;
@@ -2431,7 +2453,7 @@ mod tests {
         assert!(!found(&h), "{:#?}", h.findings);
         assert_eq!(opening("Rose 3.5% since then. Later."), "Rose 3.5% since then.");
         assert_eq!(opening("\n  - Up 2.1x!\nMore"), "- Up 2.1x!");
-        let h = noted(&mut deck, format!("We turn to what comes next. Later, {carried}."));
+        let h = noted(&mut deck, format!("Plainly onward. Later, {carried}."));
         assert!(found(&h), "a word past the notes' opening carries nothing over");
         if let Some(shared) = shared {
             let h = noted(&mut deck, format!("{shared} again, and onward."));
@@ -3061,6 +3083,40 @@ mod tests {
         };
         let both = says(&of(&dogfood("fleet", idea, joined)));
         assert!(both.starts_with("The close, slides 9\u{2013}10, never lands"), "{both}");
+    }
+
+    /// A turn is its own pair's (W1's dogfood 5 and 6): read by words, a pair of slides turns where
+    /// they share no word the overlap counts, so rewriting the close finds no new turn at the
+    /// start, as reading against the deck's mean and spread did. The cover's step into the first
+    /// slide is no turn, and coherence's figure is Vzestup's.
+    #[test]
+    fn a_turn_is_its_own_pairs() {
+        let turned = |h: &Health| -> Vec<usize> {
+            (h.findings.iter()).filter(|f| f.kind == Kind::Turn).map(|f| f.slide).collect()
+        };
+        // The pitch's close rewritten to say what the slide before it says: read against the
+        // deck's mean and spread, its turns at slides 5, 6, and 12 went, and one came at 14.
+        let before = of(&dogfood("pitch", "", |_| {}));
+        let closed = |slides: &mut Vec<answer::Slide>| {
+            let n = slides.len();
+            let prev = slides[n - 2].clone();
+            let last = &mut slides[n - 1];
+            last.slide_title = prev.slide_title.clone();
+            last.key_bullets = prev.key_bullets.clone();
+        };
+        let after = of(&dogfood("pitch", "", closed));
+        let far = |t: Vec<usize>| t.into_iter().filter(|&k| k < 14).collect::<Vec<_>>();
+        assert_eq!(far(turned(&before)), [5, 6, 12]);
+        assert_eq!(far(turned(&after)), far(turned(&before)), "an edit to the close turns nothing before it");
+        assert_eq!(after.coherence.score, before.coherence.score, "coherence's figure is Vzestup's");
+        // Every pair that shares no word turns, past the cover, and no other does.
+        let deck: Deck = serde_json::from_value(dogfood("fleet", "", |_| {})).unwrap();
+        let read = readings(&deck, &slides(&deck)).unwrap().0;
+        let sims = scaena_narrato::health::metrics(&read, None).coherence.pair_similarities;
+        let bare: Vec<usize> = (1..sims.len()).filter(|&j| sims[j] == 0.0).map(|j| j + 2).collect();
+        let found = turned(&of(&dogfood("fleet", "", |_| {})));
+        assert!(!bare.is_empty() && bare.iter().all(|k| found.contains(k)), "{bare:?} {found:?}");
+        assert!(!found.contains(&2), "the cover's step into the talk is no turn");
     }
 
     /// A close in another language is not read for the big idea (the coordinator's check on W1's
