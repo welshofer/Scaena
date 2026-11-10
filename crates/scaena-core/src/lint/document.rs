@@ -654,20 +654,56 @@ impl Rule for I400NoopState {
             .filter_map(|(i, w)| {
                 let (prev, cur) = (&w[0], &w[1]);
                 let st = &cx.deck.states[i + 1];
-                let same = prev.nodes == cur.nodes && st.choreography.is_empty() && prev.layout == cur.layout;
-                same.then(|| {
-                    Finding::new(
-                        self.code(),
-                        self.severity(),
-                        format!("state `{}` is identical to `{}`", cur.state_id, prev.state_id),
+                let still = st.choreography.is_empty() && prev.layout == cur.layout;
+                if !still || prev.nodes.len() != cur.nodes.len() {
+                    return None;
+                }
+                // Alike but for which paragraphs a text says it draws, drawing the same ones: a
+                // build by bullet with more steps than its text has paragraphs (editor dogfood 4).
+                let mut built = false;
+                for (id, pa) in &prev.nodes {
+                    let pb = cur.nodes.get(id)?;
+                    if pa != pb {
+                        if as_drawn(pa) != as_drawn(pb) {
+                            return None;
+                        }
+                        built = true;
+                    }
+                }
+                let (said, hint) = if built {
+                    (
+                        format!("state `{}` draws the same paragraphs as `{}`", cur.state_id, prev.state_id),
+                        "Remove the step: its text has fewer paragraphs than its build has steps.",
                     )
-                    .at(format!("/states/{}", i + 1))
-                    .state(cur.state_id.clone())
-                    .hint("Remove it, or give it a change worth a click.")
-                })
+                } else {
+                    (
+                        format!("state `{}` is identical to `{}`", cur.state_id, prev.state_id),
+                        "Remove it, or give it a change worth a click.",
+                    )
+                };
+                Some(
+                    Finding::new(self.code(), self.severity(), said)
+                        .at(format!("/states/{}", i + 1))
+                        .state(cur.state_id.clone())
+                        .hint(hint),
+                )
             })
             .collect()
     }
+}
+
+/// A node's props with a text's `paragraphs` as what it draws: none where it draws them all, else
+/// the first and the last drawn, counted from 1.
+fn as_drawn(props: &Props) -> Props {
+    let mut out = props.clone();
+    if let Some(said) = out.shift_remove("paragraphs") {
+        let count = crate::lists::paragraphs(&crate::reading::words(props)).len();
+        let drawn = crate::lists::drawn(Some(&said), count);
+        if drawn != (0..count) {
+            out.insert("paragraphs".into(), serde_json::json!([drawn.start + 1, drawn.end]));
+        }
+    }
+    out
 }
 
 struct I401NodeNeverVisible;

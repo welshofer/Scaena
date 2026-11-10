@@ -11,6 +11,8 @@
 // - Keep makes the holds one patch: each state reached holds what it kept, and ⌘Z takes them all
 //   back in one step; ⇧⌘Z makes them again.
 // - Discard keeps nothing.
+// - A slide gone on from within its animation keeps its advance, never one of no time: the results
+//   say so before Keep, its row too, and Keep leaves it and says so (editor dogfood 4).
 // - axe-core finds nothing against WCAG 2.1 AA with the bar shown, or the table.
 // Exits 1 on any failure.
 import { axeInto, launch, serve } from "./serve.mjs";
@@ -199,7 +201,7 @@ try {
   check(by.close.spent === 0 && by.close.keeps === undefined, "close was not reached, and keeps its hold");
   const holds = kept.filter((k) => k.keeps !== undefined);
   check(
-    holds.every((k) => k.keeps === Math.max(0, Math.round((k.spent - k.span) / 100) * 100)),
+    holds.every((k) => k.keeps === Math.round((k.spent - k.span) / 100) * 100 && k.keeps > 0),
     `each keeps its time less its cue, to a tenth of a second: ${holds.map((k) => `${k.state} ${k.keeps}`).join(", ")}`,
   );
   const rows = await page.locator("#rehearsed tbody tr").evaluateAll((trs) => trs.map((tr) => [...tr.children].map((c) => c.textContent)));
@@ -240,6 +242,35 @@ try {
   await page.keyboard.press("Control+Shift+z");
   await page.waitForFunction((k) => window.scaena.source() === k, keptSource, { timeout: 30000 }).catch(() => {});
   check((await source()) === keptSource, "⇧⌘Z makes them again");
+
+  // A slide gone on from within its animation (editor dogfood 4): it would keep an advance of no
+  // time, which plays it through at once. The results say so before Keep, and Keep leaves it.
+  const cued = slots.filter((s) => s.span >= 500).sort((a, b) => b.span - a.span)[0];
+  check(cued !== undefined, `a state with a cue of half a second or more: ${JSON.stringify(slots)}`);
+  const shownAt = slots.findIndex((s) => s.state === cued.state);
+  await page.selectOption("#state", slots[shownAt - 1]?.state ?? cued.state);
+  await page.waitForFunction((i) => window.scaena.at().index === i, Math.max(shownAt - 1, 0), { timeout: 5000 }).catch(() => {});
+  const before = await source();
+  const cuedHold = (await page.evaluate(() => window.scaena.last().slots.map((s) => s.hold)))[shownAt];
+  await rehearse();
+  if (shownAt > 0) await press("ArrowRight", 1500); // the state before it, at rest
+  await press("ArrowRight", 100); // the cued state, gone on from within its cue
+  await press("Escape", 1500);
+  await stopped();
+  const passed = (await page.evaluate(() => window.scaena.rehearsal.kept())).find((k) => k.state === cued.state);
+  check(passed?.spent > 0 && passed.spent < cued.span && passed.passed === true && passed.keeps === undefined, `gone on within its cue, it keeps its hold: ${JSON.stringify(passed)}`);
+  const warned = await page.evaluate(() => {
+    const p = document.querySelector("#rehearsed [data-passed]");
+    return p.hidden ? "" : p.textContent;
+  });
+  check(warned.includes(passed?.said) && /passed during its animation: Keep leaves its advance as it is/.test(warned), `the results say so before Keep: ${warned}`);
+  const passedRow = await page.locator(`#rehearsed tbody tr[data-state="${cued.state}"] td`).allTextContents();
+  check(passedRow.includes("As it is: passed in its animation"), `its row says it keeps its advance: ${JSON.stringify(passedRow)}`);
+  await page.click("#rehearsed-keep");
+  await page.waitForFunction((w) => window.scaena.source() !== w, before, { timeout: 15000 }).catch(() => {});
+  const after = await page.evaluate(() => window.scaena.last().slots.map((s) => s.hold));
+  check(after[shownAt] === cuedHold && after[shownAt] !== 0, `Keep leaves its advance, never one of no time: ${after[shownAt]} (was ${cuedHold})`);
+  check(/passed in its animation left as it was/.test(await page.textContent("#status")), `and says so: ${await page.textContent("#status")}`);
   await context.close();
 } catch (e) {
   failures.push(String(e));

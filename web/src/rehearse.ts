@@ -13,7 +13,9 @@
 // - At the end, what each state took: a state's cue plays, then its hold, so the hold the time
 //   keeps is the time less the cue's span, to a tenth of a second. A state shown twice keeps both
 //   times. Keep makes each state reached hold that long, one `set_state` of `hold` each, as one
-//   patch: one step to undo. A state not reached keeps its hold.
+//   patch: one step to undo. A state not reached keeps its hold, and so does one gone on from
+//   within its cue: an advance of no time would play it through at once, so the results say so
+//   before Keep, and Keep leaves it as it is (editor dogfood 4).
 // - Nothing the rehearsal does changes the deck until Keep.
 // - A rehearsal's timings are safe from a second Escape (lift-up USE-2): Escape is the reflex that
 //   ends a run-through, and it opens the results; Escape again is held off once, the status saying
@@ -44,6 +46,10 @@ export interface RehearsalEditor {
   say(text: string): void;
 }
 
+/** `a`, `a and b`, `a, b, and c`. */
+const listed = (items: string[]) =>
+  items.length < 3 ? items.join(" and ") : `${items.slice(0, -1).join(", ")}, and ${items[items.length - 1]}`;
+
 /** A state as the rehearsal kept it: how long it was shown, and the hold that keeps; `said` as a
  * person counts it. */
 export interface Rehearsed {
@@ -55,8 +61,11 @@ export interface Rehearsed {
   span: number;
   /** Its hold now, ms. */
   hold: number;
-  /** The hold the time spent keeps, ms: none for a state not reached. */
+  /** The hold the time spent keeps, ms: none for a state not reached, nor one passed. */
   keeps?: number;
+  /** Whether it was reached and gone on from within its cue, no time at rest (editor dogfood 4):
+   * it keeps its hold, since one of no time would play it through at once. */
+  passed?: boolean;
   /** The time the talk planned for it, ms, from its beat's duration paced over its states (lift-up
    * 20261110 FUNC-1): none where no beat plans it. */
   planned?: number;
@@ -124,6 +133,7 @@ export function rehearsal(
   const rows = dialog.querySelector<HTMLTableSectionElement>("tbody")!;
   const total = dialog.querySelector<HTMLElement>("[data-total]")!;
   const plan = dialog.querySelector<HTMLElement>("[data-plan]")!;
+  const passing = dialog.querySelector<HTMLElement>("[data-passed]")!;
   /** The states as the rehearsal began, and the time each was shown. */
   let slots: Slot[] = [];
   let spent: number[] = [];
@@ -234,15 +244,20 @@ export function rehearsal(
     bar.hidden = true;
     pane.hidden = true;
     const planned = plannedOf(slots);
-    kept = slots.map((slot, i) => ({
-      planned: planned[i],
-      state: slot.state,
-      said: slot.said ?? slot.state,
-      spent: spent[i],
-      span: slot.span,
-      hold: slot.hold,
-      keeps: spent[i] > 0 ? Math.max(0, Math.round((spent[i] - slot.span) / 100) * 100) : undefined,
-    }));
+    kept = slots.map((slot, i) => {
+      const rest = Math.round((spent[i] - slot.span) / 100) * 100;
+      const passed = spent[i] > 0 && rest <= 0;
+      return {
+        planned: planned[i],
+        state: slot.state,
+        said: slot.said ?? slot.state,
+        spent: spent[i],
+        span: slot.span,
+        hold: slot.hold,
+        keeps: spent[i] > 0 && !passed ? rest : undefined,
+        ...(passed ? { passed } : {}),
+      };
+    });
     if (quiet) return;
     const last = index;
     results();
@@ -282,6 +297,12 @@ export function rehearsal(
         ? `${clock(taken)} taken against a ${clock(of)} plan: ${against(taken - of)}.`
         : `${clock(taken)} taken against ${clock(of)} planned for the ${reached.length} reached: ${against(taken - of)}.`;
     }
+    // Those gone on from within their cue, said before Keep: it leaves each as it is.
+    const passed = kept.filter((k) => k.passed).map((k) => k.said);
+    passing.hidden = passed.length === 0;
+    passing.textContent = passed.length
+      ? `${listed(passed)} ${passed.length === 1 ? "was" : "were"} passed during ${passed.length === 1 ? "its" : "their"} animation: Keep leaves ${passed.length === 1 ? "its advance" : "their advances"} as ${passed.length === 1 ? "it is" : "they are"}, rather than one of no time that would go on at once.`
+      : "";
     rows.replaceChildren(
       ...kept.map((k) => {
         const tr = document.createElement("tr");
@@ -294,7 +315,7 @@ export function rehearsal(
           k.spent ? clock(k.spent) : "Not reached",
           ...(planning ? [plannedSaid, off] : []),
           clock(k.span),
-          k.keeps === undefined ? "As it is" : `After ${clock(k.keeps)}`,
+          k.keeps !== undefined ? `After ${clock(k.keeps)}` : k.passed ? "As it is: passed in its animation" : "As it is",
           k.hold ? `After ${clock(k.hold)}` : "On click",
         ];
         tr.append(Object.assign(document.createElement("th"), { scope: "row", textContent: k.said }));
@@ -338,8 +359,10 @@ export function rehearsal(
   listen(dialog, "close", async () => {
     if (dialog.returnValue !== "keep") return editor.say("Rehearsal: nothing kept · Rehearsal Results… shows what each slide took again, to keep");
     const ops = kept.filter((k) => k.keeps !== undefined && k.keeps !== k.hold).map((k) => ({ op: "set_state", id: k.state, prop: "hold", value: k.keeps }));
-    if (!ops.length) return editor.say("Rehearsal: every timing is as it was");
-    await editor.keep(ops, `${ops.length} timing${ops.length === 1 ? "" : "s"} from the rehearsal`);
+    const passed = kept.filter((k) => k.passed).length;
+    const left = passed ? `, ${passed} passed in ${passed === 1 ? "its" : "their"} animation left as ${passed === 1 ? "it was" : "they were"}` : "";
+    if (!ops.length) return editor.say(`Rehearsal: every timing is as it was${left}`);
+    await editor.keep(ops, `${ops.length} timing${ops.length === 1 ? "" : "s"} from the rehearsal${left}`);
   });
 
   return {

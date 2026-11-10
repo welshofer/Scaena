@@ -956,3 +956,39 @@ private final class Heard: @unchecked Sendable {
     let op = try #require(written.patch?.first)
     #expect(op["op"]?.string == "choose" && op["prop"]?.string == "alt" && op["node"]?.string == "adj-mono")
 }
+
+/// The Story's Ask keeps a question already drafted in the box, its own after it past a blank
+/// line, and puts in none already there, as the browser's Story asks (lift-up 20261110 deferred).
+@MainActor
+@Test func theStorysAskKeepsWhatWasDraftedInTheBox() {
+    #expect(Assistant.drafting("", with: "Shorter?") == "Shorter?")
+    #expect(Assistant.drafting(" \n", with: "Shorter?") == "Shorter?")
+    #expect(Assistant.drafting("Make slide 2 warmer.\n", with: "Shorter?") == "Make slide 2 warmer.\n\nShorter?")
+    let asked = "Make slide 2 warmer.\n\nShorter?"
+    #expect(Assistant.drafting(asked, with: "Shorter?") == asked, "a question already there is not put there again")
+}
+
+/// A Story row names its slide by the headline the deck reads now, not by health's title, its
+/// beat's claim, which a headline typed over leaves as it was; a slide no text heads keeps the
+/// claim (editor dogfood 4).
+@Test func aStoryRowNamesItsSlideByItsHeadlineAsItReadsNow() throws {
+    let measure = #"{"score": 70, "says": "fine"}"#
+    let json = """
+        {"score": 61, "pacing": \(measure), "balance": \(measure), "coherence": \(measure),
+         "fidelity": \(measure), "intensity": \(measure), "tone": \(measure),
+         "slides": [{"state": "one", "title": "The claim", "curve": 0.5, "standing": "ok"},
+                    {"state": "two", "title": "Its claim", "curve": 0.5, "standing": "ok"}],
+         "findings": []}
+        """
+    let health = try JSONDecoder().decode(Health.self, from: Data(json.utf8))
+    let slots = try JSONDecoder().decode(
+        [ScaenaSession.Slot].self,
+        from: Data(
+            #"""
+            [{"state": "one", "slide": "one", "start": 0, "span": 0, "hold": 0, "headline": "Typed over"},
+             {"state": "two", "slide": "two", "start": 0, "span": 0, "hold": 0}]
+            """#.utf8))
+    #expect(health.headline(of: 1, state: "one", in: slots) == "Typed over")
+    #expect(health.headline(of: 2, state: "two", in: slots) == "Its claim")
+    #expect(health.headline(of: 3, state: "three", in: slots) == "")
+}

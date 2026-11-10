@@ -363,6 +363,52 @@ final class KeysTests: XCTestCase {
         }
     }
 
+    /// Typing in code with the software keyboard up, the app settles: nothing on screen animates
+    /// on with nothing changing, so XCTest's wait for the app to go idle before an event, which
+    /// it makes before every key and tap, comes to an end at once. On #865's iPad run it never
+    /// did: each event waited out the quiescence timeout, some two minutes, and the test ran past
+    /// its ten (lift-up 20261110). The app is launched with `-reportAnimations YES`, which says in
+    /// `log.txt` every two seconds what animates while a text is typed in.
+    @MainActor
+    func testTypingInCodeSettles() throws {
+        let app = launched(arguments: ["-reportAnimations", "YES"])
+        try openB1(in: app)
+        let canvas = app.descendants(matching: .any).matching(NSPredicate(format: "identifier == 'canvas'")).firstMatch
+        XCTAssertTrue(canvas.waitForExistence(timeout: 10), "no canvas: \(app.debugDescription)")
+        let subtitle = canvas.descendants(matching: .any)
+            .matching(NSPredicate(format: "label BEGINSWITH 'Why this exists'")).firstMatch
+        guard subtitle.waitForExistence(timeout: 10) else {
+            throw Unseen(description: "the cover reads no subtitle: \(app.debugDescription)")
+        }
+        settle()
+        subtitle.press(forDuration: 1.2)
+        let make = app.descendants(matching: .any).matching(NSPredicate(format: "label == 'Make Code'")).firstMatch
+        guard paged(to: make, in: app) else {
+            keep(app, as: "settles-no-make-code")
+            throw Unseen(description: "the long press offered no Make Code: \(app.debugDescription)")
+        }
+        make.tap()
+        settle()
+        let typing = app.descendants(matching: .any).matching(NSPredicate(format: "identifier == 'typing'")).firstMatch
+        app.typeKey("\n", modifierFlags: [])
+        guard typing.waitForExistence(timeout: 5) else {
+            throw Unseen(description: "Return typed in nothing: \(app.debugDescription)")
+        }
+        app.typeKey(XCUIKeyboardKey.tab, modifierFlags: [])
+        // What a tab typed and the keyboard brought have had time to finish.
+        settle(3)
+        keep(app, as: "settles-typing")
+        // → at the end of the line moves nothing: what it takes is XCTest's wait for the app to
+        // settle before it, which is a moment where nothing animates on.
+        let began = Date()
+        app.typeKey(XCUIKeyboardKey.rightArrow, modifierFlags: [])
+        let waited = Date().timeIntervalSince(began)
+        print("a key typed in code waited \(String(format: "%.1f", waited)) s for the app to settle")
+        XCTAssertLessThan(waited, 30, "typing in code, the app did not settle: a key waited \(Int(waited)) s")
+        XCTAssertTrue(typing.exists, "→ at the end of the code left the text")
+        _ = cancel(app, until: { !typing.exists })
+    }
+
     /// ⌘Z, waited on until the toolbar's Undo names another step than the one it named: the key
     /// sent again once where the app did not hear it, as a loaded simulator drops one.
     @MainActor

@@ -668,7 +668,7 @@ impl<P: Painter> scaena_core::lint::Backdrop for Backdrop<'_, P> {
 /// painter keeps its raster in memory, and beside it an image of each shader the frame
 /// shows, as large as the frame for a background; in the browser an allocation that fails
 /// stops the worker. A larger raster is an error (SPEC §7.1).
-pub const MAX_PIXELS: u64 = 1 << 25;
+pub const MAX_PIXELS: u64 = scaena_core::displaylist::MAX_IMAGE_PIXELS;
 
 /// Output size in whole pixels for `dl` at `scale`.
 fn raster_size(dl: &DisplayList, scale: f32) -> Result<(u16, u16), PaintError> {

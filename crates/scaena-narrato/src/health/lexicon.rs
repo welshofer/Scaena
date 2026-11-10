@@ -57,6 +57,33 @@ pub fn word_weight(tokens: &[String], joined: &str, words: &Lexicon) -> f64 {
     sum
 }
 
+/// What `stems` and `words` find in `tokens`, each hit as written and its weight, in the order
+/// [`stem_weight`] and [`word_weight`] weigh them: what a reading was made of, for a person to
+/// see which words moved it. It weighs nothing itself, so a reading is as before.
+pub fn hits(tokens: &[String], joined: &str, stems: &Lexicon, words: &Lexicon) -> Vec<(String, f64)> {
+    let mut out = Vec::new();
+    for t in tokens {
+        if let Some((_, w)) = stems.iter().find(|(stem, _)| of_stem(t, stem)) {
+            out.push((t.clone(), *w));
+        }
+    }
+    for t in tokens {
+        if let Some((_, w)) = words.iter().find(|(word, _)| word == t) {
+            out.push((t.clone(), *w));
+        }
+    }
+    let hay = format!(" {joined} ");
+    for (phrase, w) in words.iter().filter(|(phrase, _)| phrase.contains(' ')) {
+        let needle = format!(" {phrase} ");
+        let mut from = 0;
+        while let Some(at) = hay[from..].find(&needle) {
+            out.push((phrase.to_string(), *w));
+            from += at + needle.len() - 1;
+        }
+    }
+    out
+}
+
 /// Whether the English lexicons can read `text` (`isEnglishLexiconApplicable`): not where the
 /// deck's `language` is another, by its name or its tag's first part; nor where, of eight
 /// letters or more, most are of a script that is not Latin.
