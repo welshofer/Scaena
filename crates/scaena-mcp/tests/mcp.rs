@@ -1200,3 +1200,66 @@ async fn an_agents_edits_are_its_own_in_a_bundles_history() {
         client.cancel().await.unwrap();
     }
 }
+
+/// A slide written into a beat that keeps notes of its own, or in place of a slide whose beat
+/// does, keeps its own notes on its first state, which a presenter reads, and a PDF with notes
+/// prints, before the beat's (agent dogfood): none the agent wrote is dropped.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_slide_written_into_a_beat_keeps_its_own_notes() {
+    let root = scratch("own-notes");
+    let client = connect_in(&root).await;
+    let slides: Value =
+        serde_json::from_str(&std::fs::read_to_string("../scaena-narrato/tests/answers/catalog.json").unwrap())
+            .unwrap();
+    let dir = root.join("deck");
+    let read = |dir: &Path| -> Value {
+        serde_json::from_str(&std::fs::read_to_string(dir.join("deck.json")).unwrap()).unwrap()
+    };
+    let five = json!({ "executiveSummary": "Tidewater", "slides": slides["slides"].as_array().unwrap()[..5] });
+    ok(&client, "deck_generate", json!({ "bundle": path(&dir), "slides": five, "theme": "ember" })).await;
+    let spine = |dir: &Path| read(dir)["spine"].clone();
+    let first_beat = spine(&dir)["sections"][0]["beats"][0].clone();
+    assert!(first_beat["notes"].as_str().is_some_and(|n| !n.is_empty()), "{first_beat:#}");
+    let reads = |exported: &Value, state: &str| -> String {
+        (exported["states"].as_array().unwrap().iter())
+            .find(|s| s["id"] == state)
+            .and_then(|s| s["notes"].as_str())
+            .unwrap_or_default()
+            .to_string()
+    };
+    // Into the first beat, which keeps its claim and its notes.
+    let mut quote = slides["slides"][1].clone();
+    quote["speakerNotes"] = json!("Dana has run the Ridge crew for eleven years.");
+    let beat = first_beat["id"].as_str().unwrap();
+    let w = ok(&client, "slide_write", json!({ "bundle": path(&dir), "slide": quote, "beat": beat })).await;
+    let into = w["slide"][0].as_str().unwrap().to_string();
+    // In place of the third slide, whose beat keeps its notes.
+    let third = read(&dir)["spine"]["sections"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|s| s["beats"].as_array().unwrap().clone())
+        .nth(2)
+        .unwrap();
+    let old = third["states"][0].as_str().unwrap().to_string();
+    let mut again = slides["slides"][2].clone();
+    again["speakerNotes"] = json!("Close them and the crowding moves everywhere else.");
+    let w = ok(&client, "slide_write", json!({ "bundle": path(&dir), "slide": again, "replace": old })).await;
+    let replaced = w["slide"][0].as_str().unwrap().to_string();
+    let exported = ok(&client, "deck_export", json!({ "bundle": path(&dir), "format": "spine" })).await;
+    let exported = exported.get("spine").cloned().unwrap_or(exported);
+    assert_eq!(reads(&exported, &into), "Dana has run the Ridge crew for eleven years.", "{exported:#}");
+    assert_eq!(reads(&exported, &replaced), "Close them and the crowding moves everywhere else.");
+    // The beats keep theirs, which their other slides read.
+    let after = spine(&dir);
+    assert_eq!(after["sections"][0]["beats"][0]["notes"], first_beat["notes"]);
+    // And the PDF with notes is made with them.
+    let pdf = ok(
+        &client,
+        "deck_export",
+        json!({ "bundle": path(&dir), "format": "pdf", "notes": true, "out": path(&dir.join("notes.pdf")) }),
+    )
+    .await;
+    assert!(pdf["pages"].as_array().is_some_and(|p| p.len() == 6), "{pdf:#}");
+    client.cancel().await.unwrap();
+}
