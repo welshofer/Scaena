@@ -2769,7 +2769,8 @@ pub fn icons_found(words: &[String]) -> BTreeMap<String, Icon> {
             return None;
         }
         let found = crate::icons::find(word, crate::icons::Weight::Regular, 1).icons.into_iter().next()?;
-        Some((word.clone(), Icon { name: found.name, path: found.icon.path, view: found.icon.view }))
+        let icon = found.icon?;
+        Some((word.clone(), Icon { name: found.name, path: icon.path, view: icon.view }))
     }))
 }
 
@@ -4432,6 +4433,14 @@ impl Slots<'_> {
         !self.items.is_empty() && self.items.iter().all(Item::figure_first)
     }
 
+    /// Whether a head-to-head's every answer, on both sides of each row, is a figure and nothing
+    /// else ("$46", "400", "18%"), so that its rows compare figures (dogfood pass 9).
+    fn compares_figures(&self) -> bool {
+        let only = |cell: Option<String>| cell.is_some_and(|c| figure(&c).is_some_and(|f| f == c.trim()));
+        let rows: Vec<_> = self.items.iter().skip(1).map(row).collect();
+        !rows.is_empty() && rows.into_iter().all(|(_, left, right)| only(left) && only(right))
+    }
+
     /// Whether the layout has a slot of this name.
     fn has(&self, slot: &str) -> bool {
         self.template().is_some_and(|l| l.slots.contains_key(slot))
@@ -4456,6 +4465,11 @@ impl Slots<'_> {
         match (ordinal(name), role) {
             // A card's or a step's own number keeps its size.
             (Some((_, "number")), _) => None,
+            // A head-to-head whose every answer is a figure ("$46" against "$11") compares figures:
+            // they lead its rows, toward a scorecard's size, the set held to one (dogfood pass 9).
+            (Some((_, "left" | "right")), "body") if self.layout == "head-to-head" && self.compares_figures() => {
+                at_least("numeral")
+            }
             (Some(_), "body") => at_least("lede"),
             // A card's statement, as large as three-quarters of the slide's headline; one of two
             // cards side by side, nine-tenths of it, so each fills its card and the slide's own
@@ -5399,11 +5413,9 @@ impl Builder {
                         }
                         // Of two figures, the one the slide is not about stands back.
                         ("two-figures", Some((k, "figure")))
-                            if s.slide
-                                .chart_data
-                                .as_ref()
-                                .and_then(|c| signal(c, s.item(0).map(|i| i.whole.as_str())))
-                                != Some(k) =>
+                            if s.slide.chart_data.as_ref().and_then(|c| {
+                                signal(c, Some(s.slide.slide_title.as_str()), s.item(0).map(|i| i.whole.as_str()))
+                            }) != Some(k) =>
                         {
                             node["style"] = json!({ "color": "onSurfaceMuted" })
                         }
@@ -6201,31 +6213,61 @@ fn decimals(chart: &ChartData) -> usize {
 }
 
 /// Which of a single series' categories the slide is about, by index: the one its takeaway
-/// names; else, where the categories are years, the latest; else the largest. A year the
-/// takeaway runs on from ("since 2022", "after", "from") is where the story starts, not where it
-/// lands: the latest is lit, as a line's band runs from that year to the last (dogfood pass 7).
-fn signal(chart: &ChartData, takeaway: Option<&str>) -> Option<usize> {
+/// names; else the one whose value its headline, then its takeaway, lands on: the figure after its
+/// last "to", else its first, that is one bar's alone ("p99 fell from 900 ms to 120 ms" lights
+/// 120, "Burn fell to $1.8M" lights 1.8, "$2T against $1.1T" lights 2, dogfood pass 9); else,
+/// where the categories are years, the latest; else
+/// the largest. A category the takeaway runs on from ("since 2022", "since Q3 FY25", "after",
+/// "from") is where the story starts, not where it lands, where the categories have an order of
+/// their own: the latest is lit, as a line's band runs from that year to the last (dogfood pass 7).
+fn signal(chart: &ChartData, title: Option<&str>, takeaway: Option<&str>) -> Option<usize> {
     let named: Vec<usize> = (0..chart.categories.len())
         .filter(|i| takeaway.is_some_and(|t| t.to_lowercase().contains(&chart.categories[*i].to_lowercase())))
         .collect();
     let years = chart.categories.iter().all(|c| c.len() == 4 && c.chars().all(|d| d.is_ascii_digit()));
     let values = chart.series.first().map(|s| s.values.as_slice()).unwrap_or_default();
-    let runs_on = |year: &str| {
-        let words: Vec<String> = (takeaway.unwrap_or_default().split(|c: char| !c.is_alphanumeric()))
-            .filter(|w| !w.is_empty())
-            .map(str::to_lowercase)
-            .collect();
-        words.windows(2).any(|w| matches!(w[0].as_str(), "since" | "after" | "from") && w[1] == year)
+    let words = |text: &str| -> Vec<String> {
+        (text.split(|c: char| !c.is_alphanumeric())).filter(|w| !w.is_empty()).map(str::to_lowercase).collect()
+    };
+    let runs_on = |category: &str| {
+        let said = words(takeaway.unwrap_or_default());
+        let named = words(category);
+        (1..said.len()).any(|i| {
+            matches!(said[i - 1].as_str(), "since" | "after" | "from") && said[i..].starts_with(named.as_slice())
+        })
     };
     match named.as_slice() {
-        [one] if years && runs_on(&chart.categories[*one]) => chart.categories.len().checked_sub(1),
-        [one] => Some(*one),
-        _ if years => chart.categories.len().checked_sub(1),
-        _ => (values.iter().enumerate())
-            .filter_map(|(i, v)| Some((i, (*v)?)))
-            .max_by(|a, b| a.1.total_cmp(&b.1))
-            .map(|(i, _)| i),
+        [one] if (years || ordered(&chart.categories)) && runs_on(&chart.categories[*one]) => {
+            return chart.categories.len().checked_sub(1);
+        }
+        [one] => return Some(*one),
+        _ => {}
     }
+    // The figure a sentence lands on: its last that is one bar's value alone, never a figure of a
+    // category's own name ("Q3", "FY25").
+    let places = decimals(chart);
+    let near = 0.5 * 10f64.powi(-(places as i32));
+    let in_names: Vec<f64> = chart.categories.iter().flat_map(|c| figures(c)).collect();
+    let bar = |n: f64| {
+        let mut at = values.iter().enumerate().filter(|(_, v)| v.is_some_and(|v| (v - n).abs() < near));
+        match (at.next(), at.next()) {
+            (Some((i, _)), None) if !in_names.contains(&n) => Some(i),
+            _ => None,
+        }
+    };
+    let lands = |text: &str| {
+        let after = text.as_bytes().windows(4).rposition(|w| w.eq_ignore_ascii_case(b" to ")).map(|at| &text[at + 4..]);
+        after
+            .and_then(|rest| figures(rest).into_iter().find_map(bar))
+            .or_else(|| figures(text).into_iter().find_map(bar))
+    };
+    if let Some(i) = [title, takeaway].into_iter().flatten().find_map(lands) {
+        return Some(i);
+    }
+    if years {
+        return chart.categories.len().checked_sub(1);
+    }
+    (values.iter().enumerate()).filter_map(|(i, v)| Some((i, (*v)?))).max_by(|a, b| a.1.total_cmp(&b.1)).map(|(i, _)| i)
 }
 
 /// The chart that plots `chart`'s source, `data`, in a layout's chart slot.
@@ -6290,7 +6332,8 @@ fn chart_node(
     // names; else, where the categories are years, the latest; else the largest bar.
     if kind == "bar"
         && !several
-        && let Some(x) = signal(chart, takeaway).and_then(|i| chart.categories.get(i))
+        && let Some(x) =
+            signal(chart, Some(title).filter(|t| !t.is_empty()), takeaway).and_then(|i| chart.categories.get(i))
     {
         node["annotations"] = json!([{ "kind": "highlight", "at": { "x": x } }]);
     }
@@ -6705,13 +6748,13 @@ mod tests {
             series: vec![answer::Series { name: None, values: vec![Some(11.0), Some(17.0), Some(26.0), Some(34.0)] }],
             ..Default::default()
         };
-        assert_eq!(signal(&wait, Some("The wait has tripled since 2022")), Some(3));
-        assert_eq!(signal(&wait, Some("From 2023, it climbed")), Some(3));
-        assert_eq!(signal(&wait, Some("2023 was the turn")), Some(1));
-        assert_eq!(signal(&wait, Some("Longer every year")), Some(3));
+        assert_eq!(signal(&wait, None, Some("The wait has tripled since 2022")), Some(3));
+        assert_eq!(signal(&wait, None, Some("From 2023, it climbed")), Some(3));
+        assert_eq!(signal(&wait, None, Some("2023 was the turn")), Some(1));
+        assert_eq!(signal(&wait, None, Some("Longer every year")), Some(3));
         // Categories that are no years keep the one named.
         let stages = ChartData { categories: ["Gateway", "Pricing"].map(String::from).to_vec(), ..wait.clone() };
-        assert_eq!(signal(&stages, Some("Since Pricing fell")), Some(1));
+        assert_eq!(signal(&stages, None, Some("Since Pricing fell")), Some(1));
     }
 
     fn typeset_en(text: &str) -> String {
@@ -7514,6 +7557,52 @@ mod tests {
         assert!(caps[0] == caps[1] && caps[0] < 48.0 && held[2].is_none(), "shrunk together: {held:?}");
     }
 
+    /// A bar the headline lands on is lit, never the tallest by default: the figure a falling
+    /// series reaches, the end of "from 900 ms to 120 ms", and the latest quarter where the words
+    /// run on from the first (dogfood pass 9).
+    #[test]
+    fn bars_light_the_figure_the_headline_lands_on() {
+        let quarters = ["Q3 FY25", "Q4 FY25", "Q1 FY26", "Q2 FY26", "Q3 FY26"].map(String::from).to_vec();
+        let burn = ChartData {
+            categories: quarters.clone(),
+            series: vec![answer::Series { name: None, values: [3.1, 2.9, 2.6, 2.2, 1.8].map(Some).to_vec() }],
+            ..Default::default()
+        };
+        // The takeaway runs on from the first quarter: the story lands on the last.
+        assert_eq!(signal(&burn, None, Some("Burn is down 42% since Q3 FY25")), Some(4));
+        // A quarter named bare is lit as named.
+        assert_eq!(signal(&burn, None, Some("Q1 FY26 was the turn")), Some(2));
+        // The headline's figure, not the tallest bar.
+        assert_eq!(signal(&burn, Some("Burn fell to $1.8M, the lowest in two years"), None), Some(4));
+        // Words whose lowercase is longer than they are: " to " is found where it stands, never
+        // a place in the lowercase that falls inside a letter or past the figure.
+        assert_eq!(signal(&burn, Some("İ ağır 2.9 düştü to ölçüde 1.8"), None), Some(4));
+        assert_eq!(signal(&burn, Some("İİİ fell from 2.9 to 1.8"), None), Some(4));
+        let p99 = ChartData {
+            categories: ["Before", "After batching", "After cache"].map(String::from).to_vec(),
+            series: vec![answer::Series { name: None, values: [900.0, 210.0, 120.0].map(Some).to_vec() }],
+            ..Default::default()
+        };
+        assert_eq!(signal(&p99, Some("p99 fell from 900 ms to 120 ms"), Some("An 87% cut")), Some(2));
+        // Two set against each other: the first, which the sentence is about.
+        assert_eq!(signal(&p99, None, Some("210 ms against 120 ms")), Some(1));
+        // No figure the bars hold, nor one two of them share: the largest, as before.
+        assert_eq!(signal(&p99, Some("Faster checkout"), Some("An 87% cut")), Some(0));
+        let tied = ChartData {
+            series: vec![answer::Series { name: None, values: [5.0, 5.0, 2.0].map(Some).to_vec() }],
+            ..p99.clone()
+        };
+        // Two bars at 5: the figure picks neither, and the largest is lit as before, the last of them.
+        assert_eq!(signal(&tied, Some("Down to 5 from 5"), None), Some(1));
+        // A figure in a category's own name is no figure of the bars.
+        let revenue = ChartData {
+            categories: quarters,
+            series: vec![answer::Series { name: None, values: [9.8, 10.6, 11.9, 3.0, 14.4].map(Some).to_vec() }],
+            ..Default::default()
+        };
+        assert_eq!(signal(&revenue, Some("Q3 FY26 grew"), None), Some(4));
+    }
+
     /// A team by name fills its place: its names grow toward three-quarters of the headline and
     /// what each person does to the lede, each set held to one size; a team of three or fewer
     /// takes Small Team by Name, each card down the slide, so it never sits in the slide's top
@@ -7678,6 +7767,53 @@ mod tests {
         assert!(node(&deck, &state, "first")["list"].is_null(), "one point is no list");
         assert_eq!(node(&deck, &state, "third-title")["text"], "Business");
         assert_eq!(node(&deck, &state, "third")["text"], "Adds SSO, audit log, and a 99.9% SLA");
+    }
+
+    /// A head-to-head whose every answer is a figure compares figures: they grow toward a
+    /// scorecard's size, the set held to one; one whose answers are words keeps them at the lede
+    /// (dogfood pass 9).
+    #[test]
+    fn a_head_to_head_of_figures_sets_them_as_figures() {
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let (summary, slides) = catalog();
+        let made = |bullets: &[&str]| {
+            let mut slide = slides.iter().find(|s| s.layout_suggestion == "VS").unwrap().clone();
+            slide.key_bullets = bullets.iter().map(|b| b.to_string()).collect();
+            let made = deck(
+                &narrative(&summary, vec![slides[0].clone(), slide, slides[55].clone()]),
+                &theme,
+                &Pictures::new(),
+            )
+            .unwrap();
+            let state = made.deck["states"][1]["id"].as_str().unwrap().to_string();
+            (made.layouts[1].clone(), made.deck.clone(), state)
+        };
+        let node = |deck: &Value, state: &str, slot: &str| deck["nodes"][format!("{state}-{slot}")].clone();
+        let lede = theme.typography.roles["lede"].size;
+        let (layout, deck, state) = made(&[
+            "Branch model: Laundromat model",
+            "Cost per new card: $46 | $11",
+            "New cardholders a month: 60 | 400",
+            "First-time cardholders: 18% | 71%",
+        ]);
+        assert_eq!(layout, "head-to-head");
+        let first = node(&deck, &state, "first-left");
+        assert_eq!(first["text"], "$46");
+        for slot in ["first-left", "first-right", "second-left", "third-right"] {
+            let n = node(&deck, &state, slot);
+            assert_eq!(n["fit"], "grow", "{slot}: {n:#}");
+            assert!(n["maxSize"].as_f64().unwrap() > lede, "{slot} grows past the lede: {n:#}");
+        }
+        // Words on either side keep every answer at the lede.
+        let (_, deck, state) = made(&[
+            "Branch model: Laundromat model",
+            "Speed: slow to open | open in a week",
+            "Cost per new card: $46 | $11",
+        ]);
+        for slot in ["first-left", "second-left"] {
+            let n = node(&deck, &state, slot);
+            assert!(n["maxSize"].as_f64().is_none_or(|most| most <= lede), "{slot}: {n:#}");
+        }
     }
 
     /// A few short lines of words alone in a large place grow toward three-quarters of the

@@ -425,6 +425,11 @@ fn counted(n: usize, noun: &str) -> String {
     format!("{n} {noun}{}", if n == 1 { "" } else { "s" })
 }
 
+/// A verb that agrees with `n` of something: "1 slide bends", "2 slides bend" (dogfood pass 9).
+fn agree<'a>(n: usize, one: &'a str, more: &'a str) -> &'a str {
+    if n == 1 { one } else { more }
+}
+
 /// A share of the scale, to two places: `0.35`.
 fn level(v: f64) -> String {
     format!("{v:.2}")
@@ -623,12 +628,15 @@ const THANKS: [&str; 16] = [
 ];
 
 /// The first states of the deck's closing slides: the last run of slides in a closing layout,
-/// or headed with thanks or questions (ADR-0032 item 6).
+/// next steps, or questions, or headed with thanks or questions (ADR-0032 item 6).
 fn closing(deck: &Deck, slides: &[Slide], read: &[SlideForHealth]) -> Vec<String> {
     let closes = |i: usize| {
         let layout = slides[i].states.iter().find_map(|&k| deck.states[k].layout.as_deref());
         let title = read[i].title.trim().to_lowercase();
-        layout.is_some_and(|l| CLOSING.contains(&l)) || THANKS.iter().any(|t| title.starts_with(t))
+        // Next steps and the floor opened belong to a close too, before or after its last word
+        // (dogfood pass 9).
+        layout.is_some_and(|l| CLOSING.contains(&l) || matches!(l, "next-steps" | "qa"))
+            || THANKS.iter().any(|t| title.starts_with(t))
     };
     let n = read.len().min(slides.len());
     (0..n).rev().take_while(|&i| closes(i)).map(|i| read[i].id.clone()).collect()
@@ -830,7 +838,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         score: Some(fidelity_score as u32),
         says: match bends.len() {
             0 => format!("The intensity the slides declare follows {curve_of}."),
-            k => format!("{} bend the intensity away from {curve_of}.", counted(k, "slide")),
+            k => format!("{} {} the intensity away from {curve_of}.", counted(k, "slide"), agree(k, "bends", "bend")),
         },
     };
     // Slides that declare what `of` reads, and of those, the ones read: a deck whose words the
@@ -882,10 +890,17 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         _ => Measure {
             score: Some(r.score as u32),
             says: match unread {
-                0 => format!("{} read far from the {what} they declare.", counted(gaps, "slide")),
-                _ => format!(
-                    "{} read far from the {what} they declare; on {} the lexicons read none.",
+                0 => format!(
+                    "{} {} far from the {what} {}.",
                     counted(gaps, "slide"),
+                    agree(gaps, "reads", "read"),
+                    agree(gaps, "it declares", "they declare")
+                ),
+                _ => format!(
+                    "{} {} far from the {what} {}; on {} the lexicons read none.",
+                    counted(gaps, "slide"),
+                    agree(gaps, "reads", "read"),
+                    agree(gaps, "it declares", "they declare"),
                     counted(unread, "slide")
                 ),
             },
@@ -2196,6 +2211,32 @@ mod tests {
             assert!(cooler(&open, &last), "the same plan away from a close bends: {:#?}", open.findings);
         }
         assert_eq!(closed.fidelity.score, open.fidelity.score, "no figure moves");
+        // Next steps before the Closing, planned at rest, are part of the close; the floor opened
+        // too (dogfood pass 9). A slide before them that closes nothing still bends.
+        let thanks = |i: usize| THANKS.iter().any(|t| before.slides[i].title.to_lowercase().starts_with(t));
+        let n = before.slides.len();
+        let k = (2..n - 1).rev().find(|&k| !thanks(k) && !thanks(k - 1)).unwrap();
+        let [steps, ask] = [k, k - 1].map(|i| before.slides[i].state.clone());
+        let layouts = |deck: &mut Value, step: &str| {
+            for (i, slide) in before.slides.iter().enumerate().skip(k - 1) {
+                let layout = match i {
+                    i if i == k - 1 => "statement",
+                    i if i == k => step,
+                    _ => "closing",
+                };
+                let at =
+                    (deck["states"].as_array().unwrap().iter()).position(|s| s["id"] == slide.state.as_str()).unwrap();
+                deck["states"][at]["layout"] = json!(layout);
+                declare(deck, &slide.state, "intensity", 0.0);
+            }
+        };
+        for step in ["next-steps", "qa"] {
+            let mut deck = climate();
+            layouts(&mut deck, step);
+            let h = of(&deck);
+            assert!(!cooler(&h, &steps), "{step} before the close is no bend: {:#?}", h.findings);
+            assert!(cooler(&h, &ask), "a slide before the close that closes nothing bends: {:#?}", h.findings);
+        }
     }
 
     /// A slide planned hotter than its place in the story is asked to change its plan, or its
@@ -2289,6 +2330,43 @@ mod tests {
         // The score capped by the slides that stand: 23 of 25, less ten for each of the two that
         // do not (ADR-0032 item 1).
         assert_eq!((plain.score, h.slides.len(), h.score), (84, 25, 72));
+    }
+
+    /// What a measure says of its slides agrees with how many it counts: "1 slide bends the
+    /// intensity", "2 slides bend it"; "1 slide reads far from the tone it declares" (dogfood
+    /// pass 9).
+    #[test]
+    fn a_measure_says_its_slides_as_many_as_it_counts() {
+        let climate = climate();
+        let before = of(&climate);
+        let mut decks = vec![before.clone()];
+        // Each slide that reads something planned at the far end of it, alone: one bend at a time.
+        for (i, plan) in heard(&before).into_iter().take(4) {
+            let mut deck = climate.clone();
+            planned(&mut deck, &before.slides[i].state, plan);
+            decks.push(of(&deck));
+        }
+        let (mut one, mut more) = (0, 0);
+        for h in &decks {
+            for says in [&h.fidelity.says, &h.intensity.says, &h.tone.says] {
+                let Some(n) = says.split(' ').next().and_then(|w| w.parse::<usize>().ok()) else { continue };
+                if n == 1 {
+                    one += 1;
+                    assert!(says.starts_with("1 slide ") && !says.starts_with("1 slides"), "{says}");
+                    assert!(!says.contains("slide bend ") && !says.contains("slide read far"), "{says}");
+                    assert!(!says.contains("they declare"), "{says}");
+                } else {
+                    more += 1;
+                    assert!(!says.contains("slides bends") && !says.contains("slides reads"), "{says}");
+                }
+            }
+        }
+        assert!(
+            one > 0,
+            "a measure counting one slide is said: {:#?}",
+            decks.iter().map(|h| &h.fidelity.says).collect::<Vec<_>>()
+        );
+        assert!(more > 0);
     }
 
     /// A slide that does not stand caps the score at the clean slides' share, less ten for each:

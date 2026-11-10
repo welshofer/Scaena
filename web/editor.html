@@ -300,6 +300,10 @@
       #writing { width: min(34em, 92vw); }
       #writing textarea { box-sizing: border-box; width: 100%; font: inherit; line-height: 1.4; }
       #writing-was, #writing-said { white-space: pre-wrap; }
+      /* Add a slide about… and Write this slide again…: the words typed in the page's face, as every other field's, never the browser's monospace, and no gap where nothing is said yet (editor dogfood 1). */
+      #slide-ask { width: min(34em, 92vw); }
+      #slide-ask textarea { box-sizing: border-box; width: 100%; font: inherit; line-height: 1.4; background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 4px; padding: 6px; resize: vertical; }
+      #slide-ask-thinking:empty { display: none; }
       #writing-was { max-height: 8em; overflow: auto; }
       #rehearsed table { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
       #rehearsed th, #rehearsed td { text-align: left; padding: 3px 8px 3px 0; border-bottom: 1px solid var(--line); }
@@ -558,6 +562,11 @@
       #story li p { margin: 4px 0 0; }
       #story li[data-severity="error"] [data-show] { color: var(--error); }
       #story li[data-severity="warning"] [data-show] { color: var(--warning); }
+      /* Each severity's shape before the slide's number, not its colour alone; its word is the button's name (lift-up 20261110 USE-1). */
+      #story li [data-show]::before { display: inline-block; width: 1.1em; margin-right: 4px; text-align: center; font-size: 0.85em; }
+      #story li[data-severity="error"] [data-show]::before { content: "\2715" / ""; }
+      #story li[data-severity="warning"] [data-show]::before { content: "\25B2" / ""; }
+      #story li[data-severity="info"] [data-show]::before { content: "\25CF" / ""; }
       #story li .actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 5px; }
       #story li[data-more] summary { cursor: pointer; color: var(--muted); }
       #story li[data-more] ol { margin-top: 4px; }
@@ -680,6 +689,8 @@
       #retheming .themes input { margin: 0; }
       #retheming .themes img { width: 96px; height: 54px; border-radius: 3px; background: #000; object-fit: cover; }
       #retheming .themes .now { margin-left: auto; color: var(--muted); font-size: 12px; }
+      /* On the row chosen, "Now" in the ink: muted, it reads under 4.5:1 on the row's tint (editor dogfood 1). */
+      #retheming .themes label:has(input:checked) .now { color: var(--ink); }
       /* Add Slide's gallery (PLAN 3.30): the theme's layouts, each a slide started in it, by section. */
       #starting { width: min(1000px, 96vw); }
       #starting .picker-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
@@ -1161,7 +1172,7 @@
           <label class="check"><input id="prompting-key-keep" type="checkbox" /> Keep it on this device, encrypted, rather than for this tab alone</label>
           <p class="note" id="prompting-key-said" aria-live="polite"></p>
         </fieldset>
-        <ol id="prompting-progress" aria-live="polite" aria-label="How far it has come"></ol>
+        <ol id="prompting-progress" tabindex="0" aria-live="polite" aria-label="How far it has come"></ol>
         <ol id="prompting-film" aria-label="The slides as drawn"></ol>
         <section id="prompting-outline" hidden aria-labelledby="prompting-outline-title">
           <h3 id="prompting-outline-title">The outline</h3>
@@ -1320,7 +1331,7 @@
         <p class="note">A slide's animation plays, then it waits, then the next slide comes: the wait it keeps is its time less its animation. Kept, the deck plays at the pace you rehearsed.</p>
         <menu>
           <button value="cancel">Discard</button>
-          <button value="keep" id="rehearsed-keep">Keep these timings</button>
+          <button value="keep" id="rehearsed-keep" autofocus>Keep these timings</button>
         </menu>
       </form>
     </dialog>

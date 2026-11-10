@@ -79,11 +79,13 @@ ipad-gate UDID="":
     apps/ipad/gate.sh {{UDID}}
 
 # The engine, both painters, and the WASM bindings must keep compiling for the browser (PLAN 0.1, 0.8):
-# with every feature, and as the player's engine alone, without the hyphenation patterns and the
-# code scanners' word tables the editor's module leaves out (ADR-0015, PLAN 2.132).
+# with every feature; as the player's engine alone, without the hyphenation patterns and the
+# code scanners' word tables the editor's module leaves out (ADR-0015, PLAN 2.132); and as
+# `just wasm` builds the editor's module, by its default features.
 wasm-check:
     cargo clippy -p scaena-engine -p scaena-paint -p scaena-session -p scaena-wasm -p scaena-subset -p scaena-history -p scaena-resources -p scaena-pdf -p scaena-generator --all-features --target wasm32-unknown-unknown --locked -- -D warnings
     cargo clippy -p scaena-wasm --no-default-features --features gpu,cpu --target wasm32-unknown-unknown --locked -- -D warnings
+    cargo clippy -p scaena-wasm --target wasm32-unknown-unknown --locked -- -D warnings
 
 # Validate examples and fixture bundles against docs/schema, and check torture-deck font coverage
 # (needs python3; `pip install jsonschema fonttools==4.66.1`).

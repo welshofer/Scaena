@@ -85,6 +85,9 @@ try {
   await press("Escape", 100);
   await stopped();
   check(await page.evaluate(() => document.querySelector("#rehearsed").open), "Escape stops it, and shows what each state took");
+  // Keep is the button in focus: Return keeps what was rehearsed, which ⌘Z takes back, where
+  // Discard, in focus before, lost it with no undo (editor dogfood 1).
+  check(await page.evaluate(() => document.activeElement?.id === "rehearsed-keep"), `Keep these timings is in focus: ${await page.evaluate(() => document.activeElement?.textContent)}`);
   check(await page.locator("#rehearsing").isHidden(), "the bar is gone");
   check(await page.locator("#rehearsal-notes").isHidden(), "and so are the notes");
   const inTable = await audit();

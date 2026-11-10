@@ -73,6 +73,21 @@ try {
     return { severity: row?.dataset.severity, kind: row?.querySelector("p[data-kind]")?.dataset.kind, slide: row?.dataset.slide };
   });
   check(lead.severity === "error" && lead.kind === "layout", `the broken slide's error leads: ${JSON.stringify(lead)}`);
+  // Its severity is said in a word and drawn as a shape, not by its colour alone (lift-up 20261110
+  // USE-1, WCAG 1.4.1): its button is named "Error: Slide N", and each severity's shape differs.
+  const marked = await page.evaluate(() =>
+    [...document.querySelectorAll("#story [data-findings] li[data-slide]")].map((li) => {
+      const show = li.querySelector("[data-show]");
+      return { severity: li.dataset.severity, name: show.ariaLabel, text: show.textContent, shape: getComputedStyle(show, "::before").content };
+    }),
+  );
+  const word = { error: "Error", warning: "Warning", info: "Note" };
+  check(
+    marked.every((m) => m.name === `${word[m.severity]}: ${m.text}` && m.shape !== "none" && m.shape !== "normal"),
+    `each finding's slide is named by its severity, and drawn with a shape: ${JSON.stringify(marked.slice(0, 3))}`,
+  );
+  const shapes = new Map(marked.map((m) => [m.severity, m.shape]));
+  check(new Set(shapes.values()).size === shapes.size && shapes.size >= 2, `each severity its own shape: ${JSON.stringify([...shapes])}`);
   check(await page.evaluate(() => document.querySelector("#story [data-more] details")?.open === true), "the disclosure stays open as it was left");
 
   // A claim a headline typed on the canvas leaves behind (lift-up FUNC-2), on the revenue
