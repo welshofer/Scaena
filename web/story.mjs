@@ -128,6 +128,10 @@ try {
   await page.waitForFunction((t) => window.scaena.notes(t.state).then((n) => n.text.startsWith(t.bridge)), { state: turn.state, bridge }, { timeout: 30000 }).catch(() => {});
   const after = await page.evaluate((s) => window.scaena.notes(s), turn.state);
   check(after.text === `${bridge}\n${read.text}`, `the presenter reads the bridge, then the beat's notes: ${after.text.slice(0, 60)}`);
+  // Notes draw on no slide: the status says the edit is this slide's, never "on 0 slides" (W1's
+  // dogfood 5).
+  const noted = await page.textContent("#status");
+  check(/on this slide/.test(noted) && !/on 0 /.test(noted), `the notes edit is said as this slide's: ${noted}`);
   await tab(page, "story");
   await page
     .waitForFunction((s) => !window.scaena.story.health()?.findings.some((f) => f.kind === "turn" && f.state === s), turn.state, { timeout: 60000 })
