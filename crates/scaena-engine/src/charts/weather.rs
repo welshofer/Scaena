@@ -212,11 +212,13 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
     };
 
     // Each part's text, at a scale `k` of its role's size.
+    let script = cx.script();
     let mut set = |text: String, role: &str, color: &str, k: f32| -> Result<TextLayout, EngineError> {
         let mut role = theme.text_role(role)?;
         role.size *= k;
         role.color = Some(color.to_string());
-        let spec = TextSpec { numeric: Some(Numeric::TabularLining), ..TextSpec::plain(role, text) };
+        let spec =
+            TextSpec { numeric: Some(Numeric::TabularLining), lang: script.clone(), ..TextSpec::plain(role, text) };
         cx.text.layout(cx.fonts, theme, &spec, f32::INFINITY)
     };
     let degrees = |v: f64| {

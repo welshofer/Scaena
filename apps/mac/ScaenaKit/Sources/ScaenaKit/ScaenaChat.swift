@@ -400,6 +400,15 @@ public final class ScaenaChat {
         self.base = base
     }
 
+    /// The question asked last taken back, where no answer to it joined the conversation: refused,
+    /// unreachable, or stopped before the model said anything (lift-up 20261110 STAB-3), so asked
+    /// again it is one question. Whether one was taken back.
+    @discardableResult
+    public func takeBack() -> Bool {
+        let back: Bool? = try? step("takeBack")
+        return back ?? false
+    }
+
     /// Start again: the next question is the first.
     public func forget() {
         let _: JSONValue? = try? step("forget")

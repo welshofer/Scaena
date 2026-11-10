@@ -32,6 +32,7 @@ import { within } from "./within";
 import { finding } from "./words";
 import type {
   SlideWritten,
+  Linted,
   Added,
   Asking,
   AssistantEvent,
@@ -48,6 +49,7 @@ import type {
   FromHelper,
   FromWorker,
   Generate,
+  Paid,
   Insert,
   Keyed,
   Layer,
@@ -197,6 +199,56 @@ let only: string[] | undefined;
 /** The words of the state last asked for (PLAN 2.99), kept while only reads come: the inspector,
  * the layers, and the canvas each ask for them after an edit. */
 let worded: { state: string; words: Lexicon } | undefined;
+/** The round of whole-deck lints: one asked for while another is laid out ends it. */
+let lintRound = 0;
+/** How long the whole-deck lint works before it lets the worker answer what waits, ms. */
+const LINT_SLICE = 8;
+
+/** A task's turn to go, at once: what the whole-deck lint waits for between its slices, so a
+ * message that came meanwhile is answered first. A timer nested this deep waits 4 ms more. */
+function turn(): Promise<void> {
+  return new Promise((go) => {
+    const channel = new MessageChannel();
+    channel.port1.onmessage = () => {
+      channel.port1.close();
+      go();
+    };
+    channel.port2.postMessage(null);
+  });
+}
+
+/** Lint every state of the deck compiled last (lift-up 20261110 PERF-1): laid out a slice at a
+ * time, each a few ms of states laid out or judged, the worker answering what came meanwhile
+ * between them, so typing after a pause is not held behind a large deck's lint. An edit that
+ * compiles another deck, a file handed over, or a newer lint drops it, as the Mac's lint on its
+ * own thread is dropped; what it found then stands for nothing. */
+async function lintEvery(): Promise<Linted> {
+  const start = performance.now();
+  const round = ++lintRound;
+  const laying = player.laying();
+  const dropped = (): Linted => ({ findings: [], laid: false, whole: true, ms: performance.now() - start, dropped: true });
+  // No deck that validates: the lint of what did not compile, at once.
+  if (!laying) {
+    const linted = JSON.parse(player.lint(undefined, Math.floor(Date.now() / 1000))) as Omit<Linted, "ms">;
+    return { ...linted, ms: performance.now() - start };
+  }
+  try {
+    for (;;) {
+      const slice = performance.now();
+      let laid = false;
+      while (!(laid = laying.step()) && performance.now() - slice < LINT_SLICE) {}
+      if (laid) break;
+      await turn();
+      if (round !== lintRound || stopped !== undefined || !player.holds(laying)) return dropped();
+    }
+    const linted = player.lintLaid(laying, Math.floor(Date.now() / 1000));
+    if (linted === undefined) return dropped();
+    return { ...(JSON.parse(linted) as Omit<Linted, "ms">), ms: performance.now() - start };
+  } finally {
+    laying.free();
+  }
+}
+
 /** What only reads the deck and its theme. Any other message may change either, and the words
  * kept go, before it and after it. */
 const READS = new Set<ToWorker["type"]>([
@@ -283,13 +335,23 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         deciding = undefined;
         return;
       case "outlineAgain":
-        deciding?.({ arc: data.arc });
+        deciding?.({ arc: data.arc, kept: data.kept });
         deciding = undefined;
         return;
       case "outlinePassed":
         deciding?.({ without: true });
         deciding = undefined;
         return;
+      case "claimAgain":
+        deciding?.({ again: { beat: data.beat, outline: data.outline } });
+        deciding = undefined;
+        return;
+      // A deck made that would not open, as a `.scaena` to download (lift-up 20261110 REL-1).
+      case "zipFiles": {
+        const { zipped } = await import("@scaena/generate");
+        const bytes = zipped(data.files).buffer as ArrayBuffer;
+        return post({ type: "filesZipped", id: data.id, bytes }, [bytes]);
+      }
       case "reload": {
         if (!("url" in from)) throw new Error("only a bundle read from a URL is read again");
         latest++;
@@ -354,12 +416,8 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         const source = stale(data.source) ? player.source() : data.source;
         return post({ type: "edited", id: data.id, ...(await edit(source, data.index, data.format)) });
       }
-      case "lint": {
-        const start = performance.now();
-        const now = Math.floor(Date.now() / 1000);
-        const linted = JSON.parse(player.lint(undefined, now)) as { findings: Finding[]; laid: boolean; whole: boolean };
-        return post({ type: "linted", id: data.id, ...linted, ms: performance.now() - start });
-      }
+      case "lint":
+        return post({ type: "linted", id: data.id, ...(await lintEvery()) });
       case "fix":
         return post({ type: "fixed", id: data.id, source: player.fix(JSON.stringify(data.patch)) });
       case "inspect":
@@ -439,8 +497,18 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         layOut(data.format);
         player.setMoving([], 0, 0);
         player.preview(undefined);
+        player.previewTheme(undefined);
         const start = performance.now();
         await paint(data.state, Infinity);
+        return answerShown(data.id, start);
+      }
+      case "previewTheme": {
+        latest++;
+        layOut(data.format);
+        player.previewTheme(data.ops?.length ? JSON.stringify(data.ops) : undefined);
+        const start = performance.now();
+        // The formats beside show the theme as it is: nothing is made.
+        await paint(data.state, Infinity, "keep");
         return answerShown(data.id, start);
       }
       case "make":
@@ -645,6 +713,17 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
             : data.type === "uncoding"
               ? player.uncoding(data.node)
               : player.tidying(data.state, data.node);
+        return post({ type: data.type, id: data.id, patch: JSON.parse(patch) as unknown[] });
+      }
+      // Lines in focus, and a walkthrough (PLAN 2.140): each the patch the page then makes.
+      case "focusing":
+      case "walking": {
+        const behind = !player.compiledFrom(data.source);
+        if (behind) saveable(data.source);
+        const patch =
+          data.type === "focusing"
+            ? player.focusing(data.state, data.node, data.said)
+            : player.walking(data.state, data.node, JSON.stringify(data.steps));
         return post({ type: data.type, id: data.id, patch: JSON.parse(patch) as unknown[] });
       }
       case "codeWords": {
@@ -898,6 +977,12 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         return asking?.abort();
       case "forget":
         return (await import("@scaena/assistant")).forget();
+      case "conversation":
+        return post({ type: "conversation", id: data.id, messages: (await import("@scaena/assistant")).kept() });
+      case "resume": {
+        const { resume } = await import("@scaena/assistant");
+        return resume(data.messages as Parameters<typeof resume>[0]);
+      }
       case "models": {
         const { providers } = await import("@scaena/assistant");
         return post({ type: "models", id: data.id, models: await providers[data.provider].models(data.key, data.base) });
@@ -937,8 +1022,8 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         const stop = new AbortController();
         writes.set(data.id, stop);
         try {
-          const { text, usage } = await write(data.call, stop.signal);
-          return post({ type: "wrote", id: data.id, text, usage });
+          const { text, stop: why, usage } = await write(data.call, stop.signal);
+          return post({ type: "wrote", id: data.id, text, stop: why, usage });
         } finally {
           writes.delete(data.id);
         }
@@ -1301,13 +1386,16 @@ async function generating(job: Generate, engine?: WebAssembly.Module) {
   const theme = await shipped(job.theme);
   // The outline shown to the person (narrative FUNC-1), the generation waiting on what they decide
   // of it: `settled` or `outlineAgain`, which the page sends.
-  const settle = (outlined: Outlined) => {
-    post({ type: "storyOutlined", ...outlined });
+  // Without `outlined`, the outline shown stays: a beat asked again waits on the next decision.
+  const settle = (outlined?: Outlined) => {
+    if (outlined) post({ type: "storyOutlined", ...outlined });
     return new Promise<Decision>((resolve) => {
       deciding = resolve;
     });
   };
-  const { files, made, title } = await generate(job, theme, (event) => post({ type: "generating", event }), settle);
+  // Each part paid for, kept by the page to go on from should a later step fail (lift-up 20261110 REL-1).
+  const keep = (paid: Paid) => post({ type: "paid", paid });
+  const { files, made, title } = await generate(job, theme, (event) => post({ type: "generating", event }), settle, keep);
   const out: Record<string, ArrayBuffer> = {};
   for (const [path, bytes] of files) out[path] = (bytes as Uint8Array).slice().buffer as ArrayBuffer;
   post({ type: "generated", files: out, name: nameFor(title), made }, Object.values(out));

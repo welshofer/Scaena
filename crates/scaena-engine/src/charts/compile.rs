@@ -278,13 +278,15 @@ fn facets(cx: &mut Ctx, props: &Props, facet: &Map<String, Value>, size: [f32; 2
     let role = theme.text_role(role)?;
     let locale = Locale::of(cx.deck.meta.as_ref().and_then(|m| m.lang.as_deref()));
     let gap = theme.tokens.space.unit as f32;
+    let lang = cx.script();
     let names: Vec<TextLayout> = (values.iter())
         .map(|(label, datum)| {
             let text = match datum {
                 Datum::Date(t) => DateLabels::of(&[*t]).map_or_else(|| label.clone(), |d| d.whole(*t, locale)),
                 _ => label.clone(),
             };
-            cx.text.layout(cx.fonts, theme, &TextSpec::plain(role.clone(), text), f32::INFINITY)
+            let spec = TextSpec { lang: lang.clone(), ..TextSpec::plain(role.clone(), text) };
+            cx.text.layout(cx.fonts, theme, &spec, f32::INFINITY)
         })
         .collect::<Result<_, _>>()?;
     let named = names.iter().map(|t| t.height).fold(0.0_f32, f32::max) + 0.5 * gap;
@@ -773,6 +775,7 @@ fn compile_in(
 
     // Text first: the plot is what the labels leave. Annotations speak in their own
     // role, in the annotation color.
+    let lang = cx.script();
     let note_texts: Vec<Option<TextLayout>> = notes
         .iter()
         .map(|n| {
@@ -780,11 +783,16 @@ fn compile_in(
             let role = n.role.as_deref().or_else(|| style.and_then(|a| a.role.as_deref())).unwrap_or(&label_role);
             let mut role = theme.text_role(role)?;
             role.color = Some(note_token.to_string());
-            cx.text.layout(cx.fonts, theme, &TextSpec::plain(role, text.clone()), f32::INFINITY).map(Some)
+            let spec = TextSpec { lang: lang.clone(), ..TextSpec::plain(role, text.clone()) };
+            cx.text.layout(cx.fonts, theme, &spec, f32::INFINITY).map(Some)
         })
         .collect::<Result<_, EngineError>>()?;
     let mut set = |text: String, role: &str| -> Result<TextLayout, EngineError> {
-        let spec = TextSpec { numeric: Some(Numeric::TabularLining), ..TextSpec::plain(theme.text_role(role)?, text) };
+        let spec = TextSpec {
+            numeric: Some(Numeric::TabularLining),
+            lang: lang.clone(),
+            ..TextSpec::plain(theme.text_role(role)?, text)
+        };
         cx.text.layout(cx.fonts, theme, &spec, f32::INFINITY)
     };
     // Which values print when the chart does not say: the theme's choice, else by kind
@@ -1054,7 +1062,11 @@ fn compile_in(
         .iter()
         .map(|(t, c)| {
             let role = theme.text_role(&legend_role)?;
-            let spec = TextSpec { numeric: Some(Numeric::TabularLining), ..TextSpec::plain(role, t.clone()) };
+            let spec = TextSpec {
+                numeric: Some(Numeric::TabularLining),
+                lang: lang.clone(),
+                ..TextSpec::plain(role, t.clone())
+            };
             Ok((t.clone(), *c, cx.text.layout(cx.fonts, theme, &spec, f32::INFINITY)?))
         })
         .collect::<Result<_, EngineError>>()?;

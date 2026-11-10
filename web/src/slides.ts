@@ -29,7 +29,7 @@ export const slidesKeys = (): Key[] => [
   { keys: `${MOD}D`, label: "Copy the slides selected, each just after itself", group: "Slides" },
   { keys: "Delete", label: "Take the slides selected out", group: "Slides" },
   { keys: "Enter", label: "Show the slide in the canvas", group: "Slides" },
-  { keys: "Escape", label: "Close the light table", group: "Slides" },
+  { keys: "Escape", label: "Close the light table, on the slide selected", group: "Slides" },
 ];
 
 /** What the light table asks of the editor around it. */
@@ -272,6 +272,16 @@ export function slides(stage: Stage, into: HTMLElement, button: HTMLButtonElemen
     editor.show(all.slice(0, all.indexOf(slide)).reduce((n, s) => n + s.states.length, 0));
   }
 
+  /** Close it, as a presentation app's light table closes (editor dogfood 2): onto the slide
+   * selected where one alone is, else the slide shown as it was. */
+  function close() {
+    const one = chosen.size === 1 ? [...chosen][0] : undefined;
+    const shown = editor.shown();
+    const showing = shown && all.find((s) => s.states.includes(shown.state));
+    if (one !== undefined && one !== showing?.id && all.some((s) => s.id === one)) return showSlide(one);
+    toggle(false);
+  }
+
   /** Make `ops` on the source as it stands: one change to undo. The deck after it shows the
    * state shown before it, where it has it still, else the first of the slides `keep` names;
    * then those are selected. */
@@ -386,7 +396,7 @@ export function slides(stage: Stage, into: HTMLElement, button: HTMLButtonElemen
   into.onkeydown = (e) => {
     if (e.key === "Escape") {
       e.preventDefault();
-      toggle(false);
+      close();
       return;
     }
     const li = item(e);
@@ -471,7 +481,7 @@ export function slides(stage: Stage, into: HTMLElement, button: HTMLButtonElemen
     dragging = undefined;
     unmark();
   };
-  button.onclick = () => toggle();
+  button.onclick = () => (open() ? close() : toggle(true));
   size.oninput = () => {
     into.style.setProperty("--slide", `${size.value}px`);
     try {

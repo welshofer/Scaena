@@ -1398,8 +1398,12 @@ fn set_state_writes_a_layout_where_it_lives_and_the_rest_in_the_state() {
     // Its hold and its notes.
     let (ops, _) = set("close", "hold", json!(4500));
     assert_eq!(ops, json!([{ "op": "add", "path": "/states/3/hold", "value": 4500 }]));
+    // Notes are written where the presenter reads them (SPEC §2.6, editor dogfood 3): `revenue`
+    // has none of its own and opens the beat `doubled`, so the beat's are; `mix` has its own.
     let (ops, _) = set("revenue", "notes", json!("Let the bars land."));
-    assert_eq!(ops, json!([{ "op": "add", "path": "/states/1/notes", "value": "Let the bars land." }]));
+    assert_eq!(ops, json!([{ "op": "add", "path": "/spine/sections/1/beats/0/notes", "value": "Let the bars land." }]));
+    let (ops, _) = set("mix", "notes", json!("Stacked."));
+    assert_eq!(ops, json!([{ "op": "add", "path": "/states/2/notes", "value": "Stacked." }]));
     let (ops, _) = set("intro", "notes", Value::Null);
     assert_eq!(ops, json!([{ "op": "remove", "path": "/states/0/notes" }]));
     // A duration the theme lacks is E102.

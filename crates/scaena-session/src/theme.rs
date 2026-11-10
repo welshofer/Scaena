@@ -33,6 +33,28 @@ impl Session {
         Ok((edited, rewritten))
     }
 
+    /// Show the theme the deck names as `ops` (RFC 6902 operations on it) would edit it, with
+    /// nothing made or written: frames at rest draw in it, laid out once a frame, until it is let
+    /// go (`None`), or the deck, its files, or the format shown change. What the Theme tab shows
+    /// while a color is held in its picker, before it is chosen (lift-up ATTR-5): the twin of
+    /// [`Session::theme_edit`] that writes nothing, validates nothing, and lints nothing, so a
+    /// drag across the picker draws as fast as a frame. Operations that leave no theme refused,
+    /// the theme shown as it was.
+    #[cfg(feature = "editor")]
+    pub fn theme_previewing(&mut self, ops: Option<&[Value]>) -> Result<(), Error> {
+        self.previewing_theme = None;
+        let Some(ops) = ops.filter(|ops| !ops.is_empty()) else { return Ok(()) };
+        let mut theme: Value = match &self.deck().theme {
+            Some(Value::Object(inline)) => Value::Object(inline.clone()),
+            _ => serde_json::from_str(&self.theme_json).map_err(|e| Error::Ops(format!("the theme: {e}")))?,
+        };
+        scaena_core::patch::apply(&mut theme, ops).map_err(|e| Error::Ops(e.to_string()))?;
+        let theme =
+            scaena_engine::theme::Theme::from_json(&theme.to_string()).map_err(|e| Error::Ops(e.to_string()))?;
+        self.previewing_theme = Some(theme);
+        Ok(())
+    }
+
     /// The layout library of `shipped`, the JSON of a theme that ships, brought into the theme the
     /// deck names where that is an older copy of it (PLAN 3.31, SPEC §3.6): what an editor does as
     /// it opens a deck, so Add Slide offers every layout the theme ships, by section, each drawn as
@@ -143,6 +165,46 @@ mod tests {
         assert!(e.contains("op 0"), "{e}");
     }
 
+    /// A theme edit previewed (lift-up ATTR-5): frames at rest are drawn in the theme as it would
+    /// be, the digest the strip paints by with them, and nothing is written; let go, or once the
+    /// deck changes, they are drawn as they were. Operations that leave no theme are refused, the
+    /// theme shown as it was.
+    #[test]
+    fn a_theme_edit_previewed_is_drawn_and_writes_nothing() {
+        let mut s = Session::open(revenue()).unwrap();
+        let shown = |s: &mut Session| s.frame("revenue", f64::INFINITY).unwrap();
+        let before = shown(&mut s);
+        let digest = s.digest("revenue").unwrap();
+        let was = s.file(THEME).unwrap().to_vec();
+        let paper = [json!({ "op": "replace", "path": "/tokens/color/paper", "value": "#0B0B10" })];
+        s.theme_previewing(Some(&paper)).unwrap();
+        let previewed = shown(&mut s);
+        assert_ne!(previewed, before, "the state is drawn in the theme previewed");
+        assert_ne!(s.digest("revenue").unwrap(), digest, "and its digest says so");
+        assert_eq!(s.file(THEME).unwrap(), was.as_slice(), "nothing is written");
+        // As the edit itself, made, draws it.
+        let mut made = Session::open(revenue()).unwrap();
+        made.theme_edit(&ops(json!(paper)), false, user()).unwrap();
+        assert_eq!(shown(&mut made), previewed, "as the edit made draws it");
+
+        s.theme_previewing(None).unwrap();
+        assert_eq!(shown(&mut s), before, "let go, it is drawn as it was");
+        assert_eq!(s.digest("revenue").unwrap(), digest);
+
+        // A deck changed lets it go.
+        s.theme_previewing(Some(&paper)).unwrap();
+        let source = s.source().replace("Reference deck:", "A reference deck:");
+        assert!(s.compile(&source).valid);
+        assert_eq!(shown(&mut s), before, "the deck changed: the preview is over");
+
+        // Operations that leave no theme are refused, and the theme is shown as it was.
+        let gone = [json!({ "op": "replace", "path": "/no/such", "value": 1 })];
+        assert!(s.theme_previewing(Some(&gone)).is_err());
+        let broken = [json!({ "op": "replace", "path": "/tokens/color", "value": 7 })];
+        assert!(s.theme_previewing(Some(&broken)).is_err());
+        assert_eq!(shown(&mut s), before);
+    }
+
     /// A photo the bundle holds gives the theme its colors (PLAN 2.94): one edit, drawn, and undone
     /// by writing the theme back, as any theme edit is.
     #[test]
@@ -200,7 +262,7 @@ mod tests {
         let shipped: Value = serde_json::from_str(DUSK).unwrap();
         let layouts = shipped["layouts"].as_object().unwrap().len();
         assert_eq!(s.starters().len(), layouts + 1, "every layout Dusk ships, and a blank slide");
-        assert_eq!(sections(&s).len(), 16, "{:?}", sections(&s));
+        assert_eq!(sections(&s).len(), 17, "{:?}", sections(&s));
         let after: Vec<Vec<u8>> = states.iter().map(|state| s.png(state, 320).unwrap()).collect();
         assert!(before == after, "every slide draws as it did");
         assert!(s.library(DUSK, user()).unwrap().is_none(), "taken once, it brings nothing more");

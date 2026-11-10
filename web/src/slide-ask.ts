@@ -8,7 +8,7 @@
 import type { Edited, SlidePlace } from "./protocol";
 import type { Stage } from "./stage";
 import type { Who } from "./writing";
-import { unasked } from "./words";
+import { unasked, unwritten } from "./words";
 
 /** What the dialog asks of the editor around it. */
 export interface SlideAskHost {
@@ -93,10 +93,11 @@ export function slideAsker(stage: Stage, host: SlideAskHost) {
       return;
     }
     let text: string;
+    let stop: string;
     try {
       stopping?.abort();
       stopping = new AbortController();
-      ({ text } = await stage.write(
+      ({ text, stop } = await stage.write(
         { provider: who.provider, model: who.model, key: who.key, base: who.base, instructions: asked.system, prompt: asked.prompt },
         stopping.signal,
       ));
@@ -108,6 +109,13 @@ export function slideAsker(stage: Stage, host: SlideAskHost) {
       return;
     }
     if (mine !== turn || !dialog.open) return;
+    // An answer cut off or declined writes no slide (lift-up 20261031 REL-5).
+    const why = unwritten(who.name, stop);
+    if (why) {
+      thinking.textContent = why;
+      go.disabled = false;
+      return;
+    }
     thinking.textContent = "Writing the slide…";
     try {
       const { written, source, edited } = await stage.slideWrite(where, text, `agent:${who.model}`, now.index, host.format());

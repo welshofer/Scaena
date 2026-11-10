@@ -3,10 +3,14 @@
 //
 //   node web/story.mjs     (after `just web`; from the repository's root)
 //
+// - The curve's legend keeps each mark with its words on one line (editor dogfood 2).
 // - At most five findings stand open, none of them an info: the warnings whose measure scores
 //   lowest. The rest, the infos among them, fold under one disclosure that counts them by kind
 //   ("20 more: 12 arc, …"), shut until it is opened, and opened it shows each of them, so every
 //   finding is there once.
+// - A turn's bridge written in the Format tab's Notes field, as its finding asks: the field shows
+//   the notes the presenter reads (the beat's, on this made deck), the presenter then reads the
+//   bridge before them, and the turn is answered (editor dogfood 3).
 // - A slide that lint finds broken leads: its support given more words than its place holds, the
 //   Story tab's first row is that slide's error, the disclosure left open as it was.
 // - On the revenue example: a new headline typed over the cover's, which says the opening beat's
@@ -35,6 +39,13 @@ try {
   await tab(page, "story");
   await page.waitForFunction(() => window.scaena.story.health() && document.querySelector("#story [data-findings] li"), null, { timeout: 120000 });
 
+  // The curve's legend: each mark with its words on one line, a narrow column wrapping between
+  // keys, never between a mark and what it means (editor dogfood 2).
+  const keys = await page.evaluate(() =>
+    [...document.querySelectorAll("#story [data-legend] > span")].map((k) => ({ words: k.textContent.trim(), lines: new Set([...k.getClientRects()].map((r) => Math.round(r.top))).size })),
+  );
+  check(keys.length === 9 && keys.every((k) => k.lines === 1), `the legend's keys each stand on one line: ${JSON.stringify(keys.filter((k) => k.lines !== 1).map((k) => k.words))} of ${keys.length}`);
+
   const findings = await page.evaluate(() => window.scaena.story.health().findings);
   check(findings.length > 5, `the deck has more to look at than five: ${findings.length}`);
   const opened = "#story [data-findings] > li[data-slide] p[data-kind]";
@@ -56,6 +67,33 @@ try {
   await page.click("#story [data-more] summary");
   check(await first.isVisible(), "and opened, it shows them");
 
+  // A turn's bridge, written in the Format tab's Notes field as its finding asks: the field shows
+  // the notes the presenter reads, the beat's on this made deck, and what is typed there is what
+  // the presenter reads and what health judges, so the turn is answered (editor dogfood 3).
+  const turn = findings.find((f) => f.kind === "turn");
+  check(!!turn, `a turn its words do not make: ${turn?.says}`);
+  const read = await page.evaluate((s) => window.scaena.notes(s), turn.state);
+  check(read.text.length > 0, `the presenter reads its beat's notes: ${read.text.slice(0, 40)}`);
+  const before = await page.evaluate((k) => window.scaena.story.health().slides[k - 2].title, turn.slide);
+  await page.click(`#story [data-findings] li[data-slide="${turn.slide}"] [data-show]`);
+  await page.waitForTimeout(1000);
+  await tab(page, "inspector");
+  const field = page.locator('textarea[data-prop="notes"]');
+  await field.waitFor({ timeout: 30000 });
+  check((await field.inputValue()) === read.text, `the Notes field shows what the presenter reads: ${JSON.stringify((await field.inputValue()).slice(0, 40))}`);
+  const bridge = `From ${before}, we turn.`;
+  await field.fill(`${bridge}\n${read.text}`);
+  await field.blur();
+  await page.waitForFunction((t) => window.scaena.notes(t.state).then((n) => n.text.startsWith(t.bridge)), { state: turn.state, bridge }, { timeout: 30000 }).catch(() => {});
+  const after = await page.evaluate((s) => window.scaena.notes(s), turn.state);
+  check(after.text === `${bridge}\n${read.text}`, `the presenter reads the bridge, then the beat's notes: ${after.text.slice(0, 60)}`);
+  await tab(page, "story");
+  await page
+    .waitForFunction((s) => !window.scaena.story.health()?.findings.some((f) => f.kind === "turn" && f.state === s), turn.state, { timeout: 60000 })
+    .catch(() => {});
+  const still = await page.evaluate((s) => window.scaena.story.health().findings.filter((f) => f.kind === "turn" && f.state === s), turn.state);
+  check(still.length === 0, `and the turn is answered: ${JSON.stringify(still.map((f) => f.says))}`);
+
   // A slide that lint finds broken leads.
   const source = await page.evaluate(() => window.scaena.source());
   const long = "Comprehensive was the aspiration, and every campus grew to meet it. ".repeat(12).trim();
@@ -73,6 +111,21 @@ try {
     return { severity: row?.dataset.severity, kind: row?.querySelector("p[data-kind]")?.dataset.kind, slide: row?.dataset.slide };
   });
   check(lead.severity === "error" && lead.kind === "layout", `the broken slide's error leads: ${JSON.stringify(lead)}`);
+  // Its severity is said in a word and drawn as a shape, not by its colour alone (lift-up 20261110
+  // USE-1, WCAG 1.4.1): its button is named "Error: Slide N", and each severity's shape differs.
+  const marked = await page.evaluate(() =>
+    [...document.querySelectorAll("#story [data-findings] li[data-slide]")].map((li) => {
+      const show = li.querySelector("[data-show]");
+      return { severity: li.dataset.severity, name: show.ariaLabel, text: show.textContent, shape: getComputedStyle(show, "::before").content };
+    }),
+  );
+  const word = { error: "Error", warning: "Warning", info: "Note" };
+  check(
+    marked.every((m) => m.name === `${word[m.severity]}: ${m.text}` && m.shape !== "none" && m.shape !== "normal"),
+    `each finding's slide is named by its severity, and drawn with a shape: ${JSON.stringify(marked.slice(0, 3))}`,
+  );
+  const shapes = new Map(marked.map((m) => [m.severity, m.shape]));
+  check(new Set(shapes.values()).size === shapes.size && shapes.size >= 2, `each severity its own shape: ${JSON.stringify([...shapes])}`);
   check(await page.evaluate(() => document.querySelector("#story [data-more] details")?.open === true), "the disclosure stays open as it was left");
 
   // A claim a headline typed on the canvas leaves behind (lift-up FUNC-2), on the revenue

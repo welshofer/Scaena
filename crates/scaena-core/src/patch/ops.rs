@@ -2670,6 +2670,24 @@ fn set_state(d: &Doc, id: &str, prop: &str, value: &Value, fork: bool) -> Result
     };
     let state = &d.states()[at];
     let old = state.as_object().ok_or_else(|| format!("state `{}` is not an object", id_of(state)))?;
+    // The notes a presenter reads are the state's own, else its beat's (SPEC §2.6): a state with
+    // none of its own that opens the first beat naming it has its beat's written, as a made deck
+    // writes them, so the notes edited are those the presenter reads (editor dogfood 3).
+    if name == "notes" && !old.contains_key("notes") {
+        let id = id_of(state);
+        let first = d.beats().find(|(_, _, b)| {
+            b.get("states").and_then(Value::as_array).is_some_and(|s| s.iter().any(|s| s.as_str() == Some(id)))
+        });
+        if let Some((s, b, beat)) = first.filter(|(_, _, b)| b["states"][0].as_str() == Some(id)) {
+            let old = beat.as_object().ok_or_else(|| format!("beat `{}` is not an object", id_of(beat)))?;
+            let mut new = old.clone();
+            match value {
+                Value::Null => drop(new.shift_remove("notes")),
+                v => drop(new.insert("notes".into(), v.clone())),
+            }
+            return Ok(diff(&format!("/spine/sections/{s}/beats/{b}"), old, &new));
+        }
+    }
     let set = match &key {
         Some(key) => transition_with(old.get("transition"), key, value),
         None => (!value.is_null()).then(|| value.clone()),

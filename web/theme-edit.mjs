@@ -11,6 +11,9 @@
 // - A value the theme's schema refuses is refused, with why, the theme as it was.
 // - Code's kinds are each in the color they are drawn in, derived from the accent; one named is one
 //   edit, which ⌘Z takes back (PLAN 2.144).
+// - A color held in its picker shows on the slide before it is chosen, each move the newest, and
+//   nothing is made; let go without a choice, the slide is as it was; chosen, it is the one edit,
+//   drawn as it showed held (lift-up ATTR-5).
 // - A save records each edit in the history, by the user, and nothing as changed outside Scaena.
 // - axe-core finds nothing against WCAG 2.1 AA with the tab shown.
 // Exits 1 on any failure.
@@ -124,6 +127,47 @@ try {
   const refused = await status();
   check(refused.startsWith("Theme not changed: The theme: ") && !/\b[EWI]\d{3}\b/.test(refused), `a color the theme cannot read is refused, with why, in a sentence: ${refused}`);
   check((await theme())?.tokens?.color?.paper === "#0B0B10" && (await paper.inputValue()) === "#0B0B10", "and the theme, and the tab, are as they were");
+
+  // A color held in its picker shows on the slide before it is chosen, nothing made (lift-up
+  // ATTR-5): let go without a choice, the slide is as it was; chosen, it is the one edit, drawn as
+  // it was previewed.
+  const swatch = page.locator('#theming [data-color="paper"] input[type="color"]');
+  const dark = await shot();
+  const hold = (value, kind) =>
+    swatch.evaluate((el, [v, k]) => {
+      el.value = v;
+      el.dispatchEvent(new Event(k, { bubbles: true }));
+    }, [value, kind]);
+  const until = async (test) => {
+    for (let i = 0; i < 40; i++) {
+      const now = await shot();
+      if (test(now)) return now;
+    }
+    return shot();
+  };
+  await swatch.focus();
+  await hold("#3a0000", "input");
+  const held = await until((now) => !now.equals(dark));
+  check(!held.equals(dark), "a color held in the picker shows on the slide");
+  check((await theme())?.tokens?.color?.paper === "#0B0B10" && (await source()) === was, "and nothing is made: the theme and the source are as they were");
+  await hold("#00203a", "input");
+  const again = await until((now) => !now.equals(held) && !now.equals(dark));
+  check(!again.equals(held) && !again.equals(dark), "moved, the slide shows the newest color");
+  await swatch.evaluate((el) => (el.value = "#0b0b10"));
+  await swatch.blur();
+  const back = await until((now) => now.equals(dark));
+  check(back.equals(dark), "let go without a choice, the slide is as it was");
+  check((await theme())?.tokens?.color?.paper === "#0B0B10", "and the theme too");
+  await swatch.focus();
+  await hold("#3a0000", "input");
+  await until((now) => now.equals(held));
+  await hold("#3a0000", "change");
+  await settled();
+  await page.waitForFunction(() => window.scaena.theme.theme()?.tokens?.color?.paper === "#3A0000", null, { timeout: 30000 }).catch(() => {});
+  check((await theme())?.tokens?.color?.paper === "#3A0000" && (await status()).startsWith("Theme: Paper #3A0000"), `chosen, it is one edit: ${await status()}`);
+  check((await until((now) => now.equals(held))).equals(held), "drawn as it was shown held");
+  await press("Control+z", () => window.scaena.theme.theme()?.tokens?.color?.paper === "#0B0B10");
+  check((await theme())?.tokens?.color?.paper === "#0B0B10" && (await shot()).equals(dark), "⌘Z takes it back");
 
   // Code (PLAN 2.144): each kind shown in the color it is drawn in, derived from the accent;
   // one named is one edit at /code/syntax/<kind>/color, which ⌘Z takes back.

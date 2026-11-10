@@ -697,7 +697,8 @@ impl SlotInset {
 }
 
 /// What a layout's picture shows in a slot that waits (PLAN 3.31): `{ "picture": "backdrop" }`,
-/// `{ "chart": "bar" }`, `{ "table": 3 }`, or `{ "map": "backdrop" }` (theme format 0.22).
+/// `{ "chart": "bar" }`, `{ "table": 3 }`, `{ "map": "backdrop" }` (theme format 0.22), or
+/// `{ "code": { "language": "go", "text": "…" } }` (theme format 0.29).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields, rename_all = "lowercase")]
 pub enum Example {
@@ -712,6 +713,22 @@ pub enum Example {
     /// draws, with a pin and a label over it, and no provider's map. Insert › Map… fills the
     /// place.
     Map(#[schemars(length(min = 1))] String),
+    /// Code in a code slot (PLAN 2.138, theme format 0.29): the text the slot starts with set to
+    /// this, in this language, so the layout's picture shows the card, its gutter, and the size code
+    /// stands at. A new slide in the layout keeps the slot's prompt.
+    Code(CodeExample),
+}
+
+/// The code a layout's picture shows in a code slot (theme format 0.29).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CodeExample {
+    /// Its language, as a code text names one (§3.5).
+    #[schemars(length(min = 1))]
+    pub language: String,
+    /// The code, its lines as written.
+    #[schemars(length(min = 1))]
+    pub text: String,
 }
 
 /// What goes in a slot (PLAN 3.30): words, a paragraph to each line; a list's items; or a shape.
