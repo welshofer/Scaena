@@ -117,8 +117,18 @@ final class ThemeTests: XCTestCase {
             XCTAssertEqual(size.value as? String, "37")
             keep(app, as: "size-typed")
             // Each ⌘Z and ⌘⇧Z waited on by what it shows, and sent once more where the app did not
-            // hear it, never sent blind (`pressed`).
-            guard pressed("z", .command, in: app, until: { says(32).exists }) else {
+            // hear it, never sent blind (`pressed`). The canvas has taken the keys back from the
+            // field: the app settles at once, nothing on screen animating on with nothing changing,
+            // so the first waits for no quiescence timeout, some two minutes (lift-up 20261110).
+            settle(3)
+            let began = Date()
+            let undone = pressed("z", .command, in: app, until: { says(32).exists })
+            let waited = Date().timeIntervalSince(began)
+            print("⌘Z after a field gave the keys back waited \(String(format: "%.1f", waited)) s")
+            // Two tries of ten seconds each where a key is dropped, and never the two minutes.
+            XCTAssertLessThan(
+                waited, 45, "the canvas holding the keys, the app did not settle: ⌘Z took \(Int(waited)) s")
+            guard undone else {
                 keep(app, as: "size-not-undone")
                 // Whether any key reaches the canvas now: with nothing selected, Tab selects the
                 // cover's title.
