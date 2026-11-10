@@ -739,6 +739,8 @@
       #exporting-rate { flex-direction: row; align-items: center; gap: 6px; }
       #exporting-rate[hidden] { display: none; }
       #exporting-width { width: 7em; }
+      /* An animation's times stay on one line, never its "s" alone under them (editor dogfood 2). */
+      #listing td.when { white-space: nowrap; }
       dialog input, dialog select { font: inherit; font-size: 14px; background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 4px; padding: 4px 6px; }
       /* The themes that ship, chosen by their title slides, each family a section, the sections
          side by side as they fit (lift-up 10-25b ATTR-1): one radio group, its radio drawn as the

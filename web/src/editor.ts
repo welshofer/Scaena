@@ -2253,7 +2253,7 @@ async function edit(source: Source, opened?: Stage, recovering = false) {
       return `<tr data-node="${html(id)}"${id === chosen || beside.includes(id) ? ' aria-selected="true"' : ""}><td>${html(object(words, id))}</td><td>${place}</td><td>${text}</td><td>${own || ""}</td></tr>`;
     });
     const motions = (cue?.motions ?? []).map(
-      (m) => `<tr><td>${html(object(words, m.node))}</td><td>${html(moving(words, m.motion, m.split))}</td><td>${seconds(m.start).replace(" s", "")}–${seconds(m.end)}</td></tr>`,
+      (m) => `<tr><td>${html(object(words, m.node))}</td><td>${html(moving(words, m.motion, m.split))}</td><td class="when">${seconds(m.start).replace(" s", "")}–${seconds(m.end)}</td></tr>`,
     );
     void look.show(chosen, beside);
     const advance = cue && cue.hold > 0 ? `advances after ${seconds(cue.hold)}` : "advances on a click";
