@@ -38,8 +38,8 @@
 //   brings it to the front as it is, its timer running. Its notes scroll, long or short, the next
 //   state's from their top, A+, A−, +, and - grow and shrink them, the size kept for the next view
 //   (lift-up USE-4), and its buttons and its timer's stay in its window. The player keeps its
-//   timer, so the view reloaded goes on from the time the talk has run, paused or not (lift-up
-//   20261110 REL-5). With no player
+//   timer, so the view reloaded goes on from the time the talk has run, paused or not, and a show
+//   ended and begun again from its first slide starts at 0:00 (lift-up 20261110 REL-5). With no player
 //   open, or once the player closes, even as the view opens, it says so, every word of it, and
 //   its buttons wait until one is.
 // - A link at rest shows a hand under the pointer.
@@ -562,6 +562,12 @@ try {
   await presenter.keyboard.press("Home");
   at = await until(player, () => window.scaena.at().index === 0, "the presenter view's Home", null, 2000);
   check(at.index === 0, `and its Home to ${states[0]}`);
+  // A show that ended, begun again from its first slide, is a new one (lift-up 20261110 REL-5): its
+  // timer stands at 0:00, and waits there until the deck goes on.
+  await presenter.waitForFunction(() => window.scaena.timer().shows === "0:00", null, { timeout: 5000 }).catch(() => {});
+  const anew = (await timer()).shows;
+  await presenter.waitForTimeout(1200);
+  check(anew === "0:00" && (await timer()).shows === "0:00", `a show ended and begun again from its first slide starts at 0:00: ${anew}, then ${(await timer()).shows}`);
   const fromStart = await nextShown(0);
   check(fromStart.name === `Next: ${slots[1].said}` && fromStart.shown, `back at the first, it shows the next again: ${JSON.stringify(fromStart)}`);
   // The player turned to another format, the view paints the next state in it, as it paints the

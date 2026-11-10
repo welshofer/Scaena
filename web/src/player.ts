@@ -132,7 +132,10 @@ type Steer =
   | { type: "on" | "back" | "first" | "last" | "hello" | "black" | "white" | "laser" }
   | { type: "slide"; number: number }
   | { type: "point"; at: Point | null }
-  | { type: "timer"; timer: Timer };
+  | { type: "timer"; timer: Timer }
+  /** Where the player is, from a presenter view opened anew rather than reloaded (lift-up 20261110
+   * REL-5). */
+  | { type: "hello"; fresh: true };
 
 /** Play the bundle at `deck`: the player, or, at `?view=presenter`, its presenter view. */
 export function start(deck: Source, how: Play): Promise<void> {
@@ -459,6 +462,20 @@ async function play(deck: Source, how: Play, channel: BroadcastChannel) {
   } catch {
     // None kept, or none readable: the show begins again.
   }
+  const forgetTimer = () => {
+    try {
+      sessionStorage.removeItem(timerKey);
+    } catch {
+      // Nothing was kept.
+    }
+  };
+  /** Whether the show has ended since it began: begun again from its first slide, it starts at
+   * 0:00. */
+  let showOver = false;
+  /** A new show, which keeps nothing of the one before but whether Pause holds the timer. */
+  const startOver = () => {
+    if (timer.begun || timer.counted) keepTimer({ counted: 0, held: timer.held, begun: false, n: timer.n + 1 });
+  };
   const keepTimer = (to: Timer) => {
     timer = to;
     try {
@@ -513,7 +530,13 @@ async function play(deck: Source, how: Play, channel: BroadcastChannel) {
     const valued = slots[at.index].said ?? `${at.index + 1} of ${slots.length}`;
     if (scrub.getAttribute("aria-valuetext") !== valued) scrub.setAttribute("aria-valuetext", valued);
     // The show begins the first time the deck plays or goes past its first slide (lift-up USE-2).
-    if (!timer.begun && !(at.index === 0 && !at.playing)) keepTimer({ ...timer, begun: true, since: timer.held ? undefined : Date.now(), n: timer.n + 1 });
+    // One that has ended begins again, at 0:00, once the deck stands on its first slide again
+    // (lift-up 20261110 REL-5).
+    const first = at.index === 0 && !at.playing;
+    if (showOver && first) {
+      showOver = false;
+      startOver();
+    } else if (!timer.begun && !first) keepTimer({ ...timer, begun: true, since: timer.held ? undefined : Date.now(), n: timer.n + 1 });
     tell({ type: "at", ...at, format: format(), blank, laser, ended, timer });
     void read?.(slots[at.index].state, format());
   };
@@ -585,6 +608,12 @@ async function play(deck: Source, how: Play, channel: BroadcastChannel) {
     if (ended === to) return;
     ended = to;
     end.hidden = !ended;
+    // A show that has ended is kept no longer: this tab reloaded begins a new one, at 0:00, while
+    // the views open go on showing how long this one ran.
+    if (ended) {
+      forgetTimer();
+      showOver = true;
+    }
     // The laser goes with the slide, and comes back with it.
     drawDot();
     report(stage.at);
@@ -926,6 +955,9 @@ async function play(deck: Source, how: Play, channel: BroadcastChannel) {
       if (data.timer.n >= timer.n) keepTimer(data.timer);
       report(stage.at);
     } else if (data.type === "hello") {
+      // A presenter view opened anew, not one reloaded, while the deck stands on its first slide is
+      // a new show, at 0:00; one opened again mid-talk takes up the talk's time.
+      if ("fresh" in data && data.fresh && stage.at.index === 0 && !stage.at.playing) startOver();
       report(stage.at);
       pointAt(point);
     }
@@ -1270,7 +1302,7 @@ async function presentView(deck: Source, how: Play, channel: BroadcastChannel) {
   /** Ask where the player is; with no answer in `ms`, say `words`. */
   const hello = (words: string, again: string, ms: number) => {
     heard = false;
-    steer({ type: "hello" });
+    steer(fresh ? { type: "hello", fresh } : { type: "hello" });
     clearTimeout(waiting);
     waiting = setTimeout(() => alone(words, again), ms);
   };
@@ -1307,6 +1339,16 @@ async function presentView(deck: Source, how: Play, channel: BroadcastChannel) {
    * talk ran, not how long this view was open, and a view reloaded or opened again takes it up
    * where it stands. None heard yet, it waits at 0:00. */
   let timer: Timer = { counted: 0, held: false, begun: false, n: -1 };
+  /** Whether this view was opened anew, not reloaded, and has not yet heard the player: its hello
+   * says so, and on the deck's first slide the player begins a new show (lift-up 20261110 REL-5). */
+  const viewed = `${how.channel} view`;
+  let fresh = true;
+  try {
+    fresh = sessionStorage.getItem(viewed) === null;
+    sessionStorage.setItem(viewed, "1");
+  } catch {
+    // A browser that keeps nothing: every load of this view is a new one.
+  }
   const elapsed = () => counted(timer);
   const minutes = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
   /** The state the room sees, by its index. */
@@ -1441,6 +1483,7 @@ async function presentView(deck: Source, how: Play, channel: BroadcastChannel) {
       heard = true;
       for (const button of buttons) button.disabled = false;
     }
+    fresh = false;
     // The timer as the player keeps it, where it is newer than the one shown here.
     if (data.timer && data.timer.n > timer.n) {
       timer = data.timer;
