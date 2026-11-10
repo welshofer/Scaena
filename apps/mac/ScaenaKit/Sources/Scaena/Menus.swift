@@ -30,10 +30,14 @@ struct WindowPanes {
     var newStep: (() -> Void)? = nil
     var duplicateSlide: (() -> Void)? = nil
     var deleteSlide: (() -> Void)? = nil
-    /// File › Export To (lift-up USE-5): the deck saved as a PDF, and every slide as PNGs in one
-    /// zip, as the toolbar's Share saves them; none with no slides.
+    /// File › Export To (lift-up USE-5): the deck saved as a PDF, with or without the presenter's
+    /// notes, every slide as PNGs in one zip at the canvas's size or twice it, as the toolbar's
+    /// Share saves them, and the deck as one HTML file (lift-up 20261031 FUNC-3); none with no
+    /// slides.
     var savePDF: (() -> Void)? = nil
-    var saveImages: (() -> Void)? = nil
+    var saveNotes: (() -> Void)? = nil
+    var saveImages: ((Int) -> Void)? = nil
+    var saveHTML: (() -> Void)? = nil
 }
 
 private struct WindowPanesKey: FocusedValueKey {
@@ -53,7 +57,8 @@ extension FocusedValues {
 /// the issues, and the source, each off until asked for; the assistant (⌥⌘A) and the inspector's
 /// tabs; then Play Slideshow (⌥⌘P) and Rehearse Slideshow (⌥⌘R); Remote…, which lets a remote play
 /// the deck, and on the iPad, Control a Presentation…, the remote itself (PLAN 4.10). In the File
-/// menu, Export To, as a presentation app's: PDF…, and Images…, every slide as PNGs (lift-up USE-5).
+/// menu, Export To, as a presentation app's: PDF…, PDF with Notes…, HTML…, and Images, every slide
+/// as PNGs at the canvas's size or twice it (lift-up USE-5, 20261031 FUNC-3).
 struct WindowCommands: Commands {
     @FocusedValue(\.panes) private var panes
     @Environment(\.openWindow) private var openWindow
@@ -63,8 +68,21 @@ struct WindowCommands: Commands {
             Menu("Export To") {
                 Button("PDF…") { panes?.savePDF?() }
                     .disabled(panes?.savePDF == nil)
-                Button("Images…") { panes?.saveImages?() }
-                    .disabled(panes?.saveImages == nil)
+                Button("PDF with Notes…") { panes?.saveNotes?() }
+                    .disabled(panes?.saveNotes == nil)
+                // One file that plays in a browser with no network, without the presenter's
+                // notes; only an engine built with the web player makes it.
+                Button("HTML…") { panes?.saveHTML?() }
+                    .disabled(panes?.saveHTML == nil || !ScaenaSession.carriesPlayer)
+                    .help(
+                        ScaenaSession.carriesPlayer
+                            ? "The deck as one web page that plays with no network"
+                            : "This Scaena was built without the web player a single HTML file carries")
+                Menu("Images") {
+                    Button("Actual Size…") { panes?.saveImages?(1) }
+                    Button("Double Size…") { panes?.saveImages?(2) }
+                }
+                .disabled(panes?.saveImages == nil)
             }
         }
         CommandGroup(before: .toolbar) {
