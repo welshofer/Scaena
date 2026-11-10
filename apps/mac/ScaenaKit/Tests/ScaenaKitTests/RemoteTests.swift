@@ -250,16 +250,20 @@ private func tried(_ endpoint: NWEndpoint, _ parameters: NWParameters, _ seconds
 @MainActor @Test func aJoinLeavesTheWrongCodesCounted() async throws {
     let (server, heard) = try await presenter("48210937", cooldown: 1.5)
     let port = try #require(server.port)
-    for wrong in ["00000000", "11111111", "22222222", "33333333"] {
-        let stranger = RemoteClient(here(port), code: wrong, seconds: 5)
-        #expect(await waited { lost(stranger) != nil }, "\(wrong) is never joined")
+    // Each stranger is given far longer than the presenter takes to refuse it, and each is counted
+    // before the next is sent: on a busy runner, a stranger's own give-up came before its proof
+    // reached the presenter, which counted three.
+    for (n, wrong) in ["00000000", "11111111", "22222222", "33333333"].enumerated() {
+        let stranger = RemoteClient(here(port), code: wrong, seconds: 20)
+        #expect(await waited(25) { lost(stranger) != nil }, "\(wrong) is never joined")
+        #expect(await waited(25) { heard.tried == n + 1 }, "\(wrong) is counted: \(heard.tried)")
     }
     #expect(await waited { heard.tried == 4 }, "four wrong codes are counted: \(heard.tried)")
     let remote = RemoteClient(here(port), code: "48210937")
     #expect(await waited { remote.status == .joined }, "the code joins: \(remote.status)")
     #expect(heard.recoded.isEmpty && server.code == "48210937")
-    let fifth = RemoteClient(here(port), code: "44444444", seconds: 5)
-    #expect(await waited { lost(fifth) != nil }, "the fifth is never joined")
+    let fifth = RemoteClient(here(port), code: "44444444", seconds: 20)
+    #expect(await waited(25) { lost(fifth) != nil }, "the fifth is never joined")
     #expect(await waited { heard.recoded.count == 1 }, "the fifth wrong code, after the join, makes the code anew")
     #expect(server.code != "48210937")
     remote.leave()
