@@ -242,6 +242,13 @@ try {
   await page.keyboard.press("Control+z");
   await page.waitForFunction((s) => window.scaena.source() === s, broken, { timeout: 30000 }).catch(() => {});
   await page.waitForFunction(() => document.querySelector("#story > p[data-stale]").hidden, null, { timeout: 60000 }).catch(() => {});
+  // Shown again once every state is linted: the Story's read may come before that lint, and is
+  // not read again after it (its own item).
+  await page
+    .waitForFunction(() => window.scaena.last()?.whole && window.scaena.last().findings.some((f) => f.severity === "error" && f.fixable), null, { timeout: 120000 })
+    .catch(() => {});
+  await tab(page, "inspector");
+  await tab(page, "story");
   await page
     .waitForFunction(() => document.querySelector("#story [data-findings] > li[data-slide] [data-lint-fix]")?.disabled === false, null, { timeout: 120000 })
     .catch(() => {});
