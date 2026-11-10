@@ -767,6 +767,7 @@
       #prompting-progress { margin: 0; padding-left: 2.2em; max-height: 9em; overflow: auto; font-size: 13px; }
       #prompting-progress:empty { display: none; }
       #prompting-progress .failed { color: var(--error); }
+      #prompting-total.over { color: var(--error); }
       #prompting-film { margin: 0; padding: 0 0 4px; list-style: none; display: flex; gap: 6px; overflow-x: auto; }
       #prompting-film:empty { display: none; }
       #prompting-film li { flex: none; height: 72px; aspect-ratio: 16 / 9; border-radius: 4px; background: var(--line); overflow: hidden; }
@@ -1169,6 +1170,7 @@
           <p class="note" id="prompting-outline-arc"></p>
           <label>Big idea <textarea id="prompting-big-idea" rows="2" aria-describedby="prompting-outline-title"></textarea></label>
           <ol id="prompting-beats" aria-label="The beats, in order"></ol>
+          <p class="note" id="prompting-total" aria-live="polite"></p>
           <div class="row">
             <button type="button" id="prompting-add-beat">Add a beat</button>
             <label>Arc <select id="prompting-outline-arcs" aria-label="Another arc to outline on"></select></label>

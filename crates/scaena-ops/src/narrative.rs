@@ -608,8 +608,8 @@ pub fn generate_drawn(
         let step = generation.step();
         say(match (step, generation.partial()) {
             (Step::Arc, _) => Progress::Choosing,
-            (Step::Rest, Some(written)) => Progress::Continuing { written, slides: generation.target() },
-            _ => Progress::Writing { slides: generation.target() },
+            (Step::Rest, Some(written)) => Progress::Continuing { written, slides: generation.slides_asked() },
+            _ => Progress::Writing { slides: generation.slides_asked() },
         });
         let reply = transport.send(&request);
         (generation.answer(reply.status, &reply.status_text, &reply.body, reply.after.as_deref()))

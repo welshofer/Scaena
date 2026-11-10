@@ -261,6 +261,8 @@ export interface Outlined {
   arc: string;
   reasoning: string;
   fallback?: string;
+  /** The fewest and the most slides the beats may take in all (lift-up 20261110 USE-3). */
+  range?: [number, number | null];
 }
 
 /** What the person decided of an outline: settled, so the slides are written to it; or another
@@ -386,7 +388,8 @@ export async function generate(
           if (!at.outline && !at.unread) continue;
           const outline = at.outline ?? { bigIdea: "", beats: [] };
           if (at.outline) hear({ kind: "outlined", beats: outline.beats.length });
-          const shown = { outline, arc: at.arc ?? "", reasoning: at.reasoning ?? "", fallback: at.fallback ?? undefined };
+          const range = JSON.parse(generation.range()) as [number, number | null];
+          const shown = { outline, arc: at.arc ?? "", reasoning: at.reasoning ?? "", fallback: at.fallback ?? undefined, range };
           let decided = await settle!(at.unread ? { ...shown, unread: at.unread } : shown);
           // One beat asked for again, the outline still shown: its claim, then the next decision
           // (lift-up 20261110 FUNC-2).

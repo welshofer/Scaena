@@ -197,6 +197,31 @@ fn an_outline_asked_again_keeps_the_claims_typed_and_one_beat_is_asked_alone() {
     assert!(g.claim_request("sk-test", &outline, 9).is_none(), "no beat past the outline's");
 }
 
+/// Once an outline is settled, the slides are asked for as many as its beats take in all, not the
+/// length's count (lift-up 20261110 USE-3): five settled under "5-10 slides" asks for five, and
+/// what the page holds the sum to is the length's range.
+#[test]
+fn the_slides_are_asked_for_as_many_as_the_outline_settled() {
+    let mut g = Generation::new(brief(), settings(Provider::Anthropic)).unwrap();
+    g.answer(200, "OK", &answer("anthropic-arc"), None).unwrap();
+    assert_eq!((g.target(), g.slides_asked(), g.slides_range()), (8, 8, (5, Some(10))));
+    let beats = g.plan().unwrap().into_iter().take(5);
+    let settled = scaena_narrato::Outline {
+        big_idea: "Cargo can pay for its carbon.".into(),
+        beats: beats
+            .map(|b| scaena_narrato::outline::Beat { claim: format!("{} matters.", b.name), slides: 1, ..b })
+            .collect(),
+    };
+    g.settle(&settled).unwrap();
+    assert_eq!(g.slides_asked(), 5, "the outline's five, not the length's eight");
+    let prompt = g.request("sk-test", &[]).unwrap().body.unwrap()["messages"][0]["content"][0]["text"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert!(prompt.contains("You MUST generate AT LEAST 5 slides"), "{}", &prompt[..400.min(prompt.len())]);
+    assert!(!prompt.contains("AT LEAST 8 slides"));
+}
+
 /// An outline that comes back but does not read is asked once more, at once; the second stands
 /// as `unread`, the arc paid for kept, and the person writes the slides without one (lift-up
 /// REL-3).
