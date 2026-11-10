@@ -634,6 +634,7 @@ impl<'a, B: Brush> BreakLines<'a, B> {
                                         before_before: char_at(2),
                                         before,
                                         after: cluster.info().source_char(),
+                                        at: cluster.text_range().start,
                                     };
                                                                         if preferred(cx) {
                                         self.state.mark_preferred_break_opportunity();
