@@ -98,10 +98,26 @@ pub struct XmlError {
 /// recurses past this, whatever a crafted file holds (the 20261024 plan's STAB-2).
 pub const MAX_DEPTH: usize = 256;
 
+/// How many elements and texts a part may hold, at most. A node is some hundred bytes in the
+/// tree for as few as four of the part (`<a/>`), so a part within the zip's bounds could
+/// otherwise grow to gigabytes; a sheet within `MOST_CELLS`, some three nodes a cell, still reads
+/// (lift-up 20261110 SEC-3).
+pub const MAX_NODES: usize = 8_000_000;
+
 /// The document element of `text`.
 pub fn parse(text: &str) -> Result<Element, XmlError> {
+    parse_within(text, MAX_NODES)
+}
+
+/// [`parse`], refusing a part of more than `most` elements and texts.
+fn parse_within(text: &str, most: usize) -> Result<Element, XmlError> {
     let mut p = Parser { s: text.as_bytes(), text, i: 0 };
     let mut stack: Vec<Element> = vec![Element::default()];
+    let mut nodes = 0usize;
+    let mut counted = |at: usize| {
+        nodes += 1;
+        if nodes > most { Err(XmlError { at, why: "more elements and texts than a part may hold" }) } else { Ok(()) }
+    };
     while p.i < p.s.len() {
         if p.s[p.i] != b'<' {
             let start = p.i;
@@ -110,6 +126,7 @@ pub fn parse(text: &str) -> Result<Element, XmlError> {
             }
             let raw = &text[start..p.i];
             if stack.len() > 1 && !raw.is_empty() {
+                counted(p.i)?;
                 stack.last_mut().expect("the root").children.push(Node::Text(decode(raw)));
             }
             continue;
@@ -122,6 +139,7 @@ pub fn parse(text: &str) -> Result<Element, XmlError> {
             let start = p.i + 9;
             p.skip_past("]]>")?;
             let data = text[start..p.i - 3].to_string();
+            counted(p.i)?;
             stack.last_mut().expect("the root").children.push(Node::Text(data));
         } else if p.starts("<!") {
             p.skip_past(">")?;
@@ -140,6 +158,7 @@ pub fn parse(text: &str) -> Result<Element, XmlError> {
             }
         } else {
             p.i += 1;
+            counted(p.i)?;
             let name = p.name()?.to_string();
             let mut attrs = Vec::new();
             loop {
@@ -290,6 +309,19 @@ fn decode(raw: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A part of more elements and texts than it may hold is refused before its tree grows past
+    /// them, however small each is in the part (lift-up 20261110 SEC-3).
+    #[test]
+    fn a_part_of_too_many_nodes_is_refused() {
+        let many = format!("<r>{}</r>", "<a/>".repeat(2_000));
+        let err = parse_within(&many, 1_000).unwrap_err();
+        assert_eq!(err.why, "more elements and texts than a part may hold");
+        let texts = format!("<r>{}</r>", "<a>t</a>".repeat(600));
+        assert!(parse_within(&texts, 1_000).is_err(), "each text counts too");
+        assert_eq!(parse_within(&many, 2_001).unwrap().children.len(), 2_000);
+        const { assert!(MAX_NODES > 3 * (1 << 21), "a sheet within MOST_CELLS still reads") };
+    }
 
     #[test]
     fn a_part_reads_by_local_names() {

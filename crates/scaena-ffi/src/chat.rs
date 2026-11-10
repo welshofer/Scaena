@@ -4,7 +4,7 @@
 //! the MCP server serves, and a frame sent back as a PNG. Swift makes each HTTP request with
 //! `URLSession`; the key it hands in builds one request's headers and is kept nowhere here.
 
-use crate::{Failure, guarded, said};
+use crate::{Failure, deep, guarded, said};
 use base64::Engine;
 use scaena_chat::{Call, Chat, Client, Facts, Message, Provider, RESOURCE_READ, Request, Seeing, Stream, ToolResult};
 use scaena_session::Session;
@@ -150,6 +150,13 @@ impl Asking {
                 self.chat.base = crate::base(args)?.map(str::to_string);
                 Value::Null
             }
+            // The question asked last taken back, where no answer to it joined the conversation:
+            // refused, unreachable, or stopped before the model said anything (lift-up 20261110
+            // STAB-3). Whether one was taken back.
+            "takeBack" => {
+                self.ran.clear();
+                json!(self.chat.take_back())
+            }
             "forget" => {
                 self.chat.forget();
                 self.ran.clear();
@@ -285,7 +292,11 @@ fn run(s: &mut Session, model: &str, call: &Call, at: Option<i64>) -> (ToolResul
     } else {
         let args = if call.args.is_null() { json!({}) } else { call.args.clone() };
         let author = format!("agent:{model}");
-        match guarded(|| s.tool(&call.name, args, Caller { author: &author, at }).map_err(|e| failure(&e))) {
+        // As `scaena_tool` runs a call: on the stack a deck takes to lay out and lint, before and
+        // after, whichever thread Swift calls from (lift-up 20261031 STAB-1, #533).
+        let called =
+            deep(|| guarded(|| s.tool(&call.name, args, Caller { author: &author, at }).map_err(|e| failure(&e))));
+        match called {
             Ok(called) => {
                 let png = (called.frame.as_ref())
                     .and_then(|frame| frame.to_png_fast().ok())

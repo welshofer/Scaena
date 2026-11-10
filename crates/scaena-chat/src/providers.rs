@@ -21,15 +21,20 @@ pub struct Request {
 }
 
 /// Why a model stopped: it waits for its calls' results, its answer is done, it ran out of
-/// room, or another reason.
+/// room, the model or its provider's safety system declined to answer (lift-up 20261031 REL-5),
+/// or another reason.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Stop {
     Tools,
     End,
     Length,
+    Refused,
     Other,
 }
+
+/// The reasons Gemini gives for an answer it withheld, as scaena-narrato reads them.
+const BLOCKED: [&str; 5] = ["SAFETY", "RECITATION", "BLOCKLIST", "PROHIBITED_CONTENT", "SPII"];
 
 /// Tokens in and out, as the provider counts them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -409,6 +414,7 @@ fn anthropic_turn(answer: &Value) -> Turn {
         Some("tool_use") => Stop::Tools,
         Some("end_turn") => Stop::End,
         Some("max_tokens") => Stop::Length,
+        Some("refusal") => Stop::Refused,
         _ => Stop::Other,
     };
     let usage =
@@ -445,7 +451,11 @@ fn openai(ask: &Ask) -> Request {
             }
             Message::Tool { results } => {
                 for r in results {
-                    messages.push(json!({ "role": "tool", "tool_call_id": r.id, "content": r.json }));
+                    // A call that failed says so, as Gemini's `error` and Anthropic's `is_error`
+                    // do: a refused patch never reads as done (lift-up 20261025c STAB-5).
+                    let content =
+                        if r.error { json!({ "error": parsed(&r.json) }).to_string() } else { r.json.clone() };
+                    messages.push(json!({ "role": "tool", "tool_call_id": r.id, "content": content }));
                 }
                 // A tool's message holds text alone: the frames it drew follow as the user's.
                 let frames: Vec<&ToolResult> = results.iter().filter(|r| r.png.is_some()).collect();
@@ -499,8 +509,12 @@ fn openai_turn(answer: &Value) -> Turn {
         })
         .collect();
     // An answer that ran out of room says so, its calls or not: the last may be cut off (REL-1).
+    // Declined, by the model or the content filter: its calls are not what it meant.
+    let refused = message.get("refusal").is_some_and(Value::is_string);
     let stop = match choice.get("finish_reason").and_then(Value::as_str) {
         Some("length") => Stop::Length,
+        Some("content_filter") => Stop::Refused,
+        _ if refused => Stop::Refused,
         _ if !calls.is_empty() => Stop::Tools,
         Some("stop") => Stop::End,
         _ => Stop::Other,
@@ -595,8 +609,11 @@ fn gemini_turn(answer: &Value) -> Turn {
         .filter(|p| p.get("thought").and_then(Value::as_bool) != Some(true))
         .filter_map(|p| p.get("text").and_then(Value::as_str))
         .collect();
+    let blocked = answer.pointer("/promptFeedback/blockReason").is_some_and(|r| !r.is_null());
     let stop = match candidate.get("finishReason").and_then(Value::as_str) {
         Some("MAX_TOKENS") => Stop::Length,
+        Some(reason) if BLOCKED.contains(&reason) => Stop::Refused,
+        _ if blocked => Stop::Refused,
         _ if !calls.is_empty() => Stop::Tools,
         Some("STOP") => Stop::End,
         _ => Stop::Other,

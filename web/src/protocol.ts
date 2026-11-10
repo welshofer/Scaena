@@ -52,12 +52,16 @@ export type SaveTo = { folder: FileSystemDirectoryHandle } | { opfs: string };
  *   worker loads the first time a PDF is asked for; with `notes`, each slide smaller with the
  *   presenter's notes under it, as `export --format pdf --notes` prints them;
  * - `html`: the deck as one file that plays offline, named `name`: `page`, the single-file
- *   player's page, filled in with the bundle, its fonts subset. */
+ *   player's page, filled in with the bundle, its fonts subset;
+ * - `movie`: the deck as it plays, as `scaena export --format webm` plays it, `fps` frames a
+ *   second, `width` pixels wide, in `format`, titled `name`: painted by the CPU painter and
+ *   encoded by the browser's own encoder, VP9 (else VP8) in WebM (lift-up 20261031 FUNC-2). */
 export type Export =
   | { kind: "png"; state: string; width: number; format?: string }
   | { kind: "slides"; width: number; format?: string; name: string }
   | { kind: "pdf"; notes?: boolean }
-  | { kind: "html"; page: string; name: string; /** The presenter's words kept, or left out of a file sent to the room, as they are by default (lift-up 20261025 SEC-3). */ notes: boolean };
+  | { kind: "html"; page: string; name: string; /** The presenter's words kept, or left out of a file sent to the room, as they are by default (lift-up 20261025 SEC-3). */ notes: boolean }
+  | { kind: "movie"; fps: number; width: number; format?: string; name: string };
 
 /** Where an open bundle is kept, and saves to: a folder on disk, the browser's storage, or the
  * folder `scaena serve` serves it from (PLAN 2.11), by name. A bundle read from any other URL is
@@ -550,7 +554,10 @@ export type Takes =
   | { kind: "text" }
   /** Fractions of an image, 0 to 1, one for each name: a point's `x` and `y`, a part's `x`, `y`,
    * `w`, and `h` (PLAN 2.45). */
-  | { kind: "fractions"; names: string[] };
+  | { kind: "fractions"; names: string[] }
+  /** A code text's lines, numbered `first` to `last` as its gutter numbers them: its lines in focus,
+   * typed as those numbers, "2–4, 7" (PLAN 2.140). The value is said under `words.said` by its JSON. */
+  | { kind: "lines"; first: number; last: number };
 
 /** Where a value a state shows lives: the deck's overrides, a state's delta, or the node. */
 export type Lives = "overrides" | "node" | { state: string };
@@ -896,6 +903,8 @@ export interface Measure {
 export interface HealthRead {
   state: string;
   beat?: string;
+  /** The beat of the arc it was written for, by its place in `Health.beats` (lift-up ATTR-4). */
+  part?: number;
   title: string;
   curve: number;
   declared?: number;
@@ -914,7 +923,7 @@ export interface HealthFinding {
   state: string;
   slide: number;
   severity: "error" | "warning" | "info";
-  kind: "title" | "empty" | "turn" | "arc" | "intensity" | "tone" | "drift" | "layout" | "claim" | "bigIdea" | "story" | "dense" | "notes" | "pacing";
+  kind: "title" | "empty" | "turn" | "arc" | "intensity" | "tone" | "drift" | "layout" | "claim" | "bigIdea" | "story" | "dense" | "notes" | "pacing" | "link";
   says: string;
   ask: string;
   fix?: { says: string; patch: unknown[] };
@@ -1032,7 +1041,16 @@ export type ToWorker =
   /** Open the bundle at `source`, and paint into `canvas` by `painter`, with the engine's
    * module `engine`, compiled, if the page carries it (PLAN 2.5); the worker loads its own
    * without it. */
-  | { type: "open"; source: Source; painter: Painter; canvas: OffscreenCanvas; engine?: WebAssembly.Module }
+  | {
+      type: "open";
+      source: Source;
+      painter: Painter;
+      canvas: OffscreenCanvas;
+      engine?: WebAssembly.Module;
+      /** The page goes on from a crash with the bundle's files as the worker held them, so the
+       * worker keeps a copy of them: the editor's alone (lift-up 20261031 PERF-3). */
+      recoverable?: boolean;
+    }
   /** Be the worker a deck is made from a prompt in (PLAN G.5), which holds no deck: say what a
    * brief may ask (`briefing`), loading the generator's module, then make the deck `generate`
    * asks for, saying how far it has come (`generating`) and handing back its files
@@ -1051,8 +1069,16 @@ export type ToWorker =
   | { type: "generate"; generate: Generate; engine?: WebAssembly.Module }
   /** The outline as the person settled it (narrative FUNC-1): the slides are written to it. */
   | { type: "storySettled"; outline: StoryOutline }
-  /** Another arc for the outline, by name, or the heuristic's where none: outlined again. */
-  | { type: "outlineAgain"; arc?: string }
+  /** Another arc for the outline, by name, or the heuristic's where none: outlined again, keeping
+   * the claims the person typed, each in the beat of its name (lift-up 20261110 FUNC-2). */
+  | { type: "outlineAgain"; arc?: string; kept?: StoryBeat[] }
+  /** Beat `beat` (from 0) of `outline`, as the pane holds it, asked for again alone, every other
+   * claim fixed (lift-up 20261110 FUNC-2): its claim comes back as a `claimed` event. */
+  | { type: "claimAgain"; beat: number; outline: StoryOutline }
+  /** The outline, twice unreadable, passed over: the slides written without one (lift-up REL-3). */
+  | { type: "outlinePassed" }
+  /** `files` as one `.scaena` zip, unchanged (lift-up 20261110 REL-1): `filesZipped`. */
+  | { type: "zipFiles"; id: number; files: Record<string, ArrayBuffer> }
   /** Paint `state` `t` ms into its cue, or at rest without `t`. */
   | { type: "show"; id: number; state: string; t?: number; format?: string }
   /** The deck's timeline. */
@@ -1179,6 +1205,10 @@ export type ToWorker =
   /** `state` painted at rest as the patch `ops` would make it, nothing made, until a `rest` lets
    * it go: a suggested layout pointed at (PLAN 2.92). */
   | { type: "preview"; id: number; state: string; ops: unknown[]; format?: string }
+  /** `state` painted at rest in the theme as `ops` (RFC 6902 operations on it) would edit it,
+   * nothing made or written; without `ops`, in the theme as it is: a color held in the Theme
+   * tab's picker before it is chosen (lift-up ATTR-5). A `rest`, or the deck changed, lets it go. */
+  | { type: "previewTheme"; id: number; state: string; ops?: unknown[]; format?: string }
   /** `node`'s look as `state` shows it, in the deck the editor's `source` compiles to (PLAN 2.58). */
   | { type: "look"; id: number; source: string; state: string; node: string }
   /** The patch that puts `look` on `nodes` in `state`, on the deck the editor's `source` compiles
@@ -1207,6 +1237,12 @@ export type ToWorker =
   | { type: "uncoding"; id: number; source: string; node: string }
   /** Tidy Code's patch of `node` as `state` shows it (PLAN 2.139). */
   | { type: "tidying"; id: number; source: string; state: string; node: string }
+  /** The patch that sets code text `node`'s lines in focus in `state` to those `said` names, in
+   * its gutter's numbers; nothing said clears it (PLAN 2.140). */
+  | { type: "focusing"; id: number; source: string; state: string; node: string; said: string }
+  /** Walk Through Lines…'s patch of code text `node` from `state`: the lines each step shows, in
+   * the gutter's numbers (PLAN 2.140). */
+  | { type: "walking"; id: number; source: string; state: string; node: string; steps: string[] }
   | { type: "italicizing"; id: number; source: string; state: string; node: string; from: number; to: number; format?: string }
   /** The theme the deck names, and the theme files the bundle holds (PLAN 2.39). */
   | { type: "themes"; id: number }
@@ -1392,6 +1428,10 @@ export type ToWorker =
   | { type: "stop" }
   /** Start a new conversation with the assistant. */
   | { type: "forget" }
+  /** The assistant's conversation as it may be kept (lift-up 20261110 FUNC-4). */
+  | { type: "conversation"; id: number }
+  /** Go on from a conversation kept: the next question follows it. */
+  | { type: "resume"; messages: unknown[] }
   /** The models `key` can use at `provider`. */
   | { type: "models"; id: number; provider: ProviderId; key: string; base?: string }
   /** Ask a model once, with the user's key and nothing to call (PLAN 2.101): its words. */
@@ -1468,6 +1508,20 @@ export interface Generate {
   /** Whether the outline is shown first (narrative FUNC-1): the arc, the big idea, and each beat's
    * claim, which the person settles before the slides are written; the slides at once where not. */
   outline?: boolean;
+  /** What a run that failed had paid for, which this one goes on from with no call made for it
+   * again (lift-up 20261110 REL-1). */
+  paid?: Paid;
+}
+
+/** What a deck being made from a prompt has paid for so far, kept by the page while the dialog
+ * is open, as the CLI keeps `.generating` (lift-up 20261110 REL-1): deep research's report, as
+ * the source it became; the arc chosen; the outline as the person settled it; and the slides as
+ * the model wrote them. A run given them asks for none of them again. */
+export interface Paid {
+  researched?: { name: string; text: string };
+  arc?: string;
+  settled?: StoryOutline;
+  slides?: string;
 }
 
 /** Narrato's brief (`scaena_narrato::Brief`): what the deck is about, in the user's words, and
@@ -1507,6 +1561,7 @@ export type GeneratingEvent =
   | { kind: "researching"; topic: string }
   | { kind: "researchingNow"; doing: string }
   | { kind: "researched"; sources: number; cut: boolean }
+  | { kind: "unresearched"; why: string }
   | { kind: "choosing" }
   | { kind: "chose"; arc: string; fallback?: string }
   /** The outline before the slides (narrative FUNC-1): asked, written with this many beats, and
@@ -1514,7 +1569,13 @@ export type GeneratingEvent =
   | { kind: "outlining" }
   | { kind: "outlined"; beats: number }
   | { kind: "settled"; beats: number }
+  /** One beat's claim asked for again (lift-up 20261110 FUNC-2): the claim, or why none came. */
+  | { kind: "claimed"; beat: number; claim?: string; why?: string }
+  /** The outline, twice unreadable, passed over: the slides written without one (lift-up REL-3). */
+  | { kind: "unoutlined" }
   | { kind: "writing"; slides: number }
+  | { kind: "continuing"; written: number; slides: number }
+  | { kind: "unrested"; why: string }
   | { kind: "retrying"; seconds: number; tried: number }
   | { kind: "wrote"; slides: number; truncated: boolean }
   /** The icon set could not be fetched: the slides that name icons are set without them. */
@@ -1561,6 +1622,8 @@ export interface Generated {
   /** What the model changed on the deck it saw drawn, slide by slide (PLAN G.13), or why not. */
   looked?: { slide: number; layout?: string; title?: string; subtitle?: string; bullets?: string[]; why: string }[];
   unlooked?: string;
+  /** Each address the deck links, with the slide that first shows it (lift-up 20261025 SEC-4). */
+  links?: { slide: number; href: string }[];
   /** Each change the model asked that lint found its slide worse for, let go (lift-up USE-4). */
   refused?: { slide: number; what: string; why: string }[];
   /** Each sheet given, kept as a data source, or why not. */
@@ -1656,6 +1719,10 @@ export interface Written {
 
 /** A question asked once of the model the assistant uses (PLAN 2.101): who answers it, with the
  * user's key, and what it is told and asked. */
+/** Why a writing tool's answer ended (lift-up 20261031 REL-5): `length`, cut off by its token
+ * limit, and `refused`, declined, are no answer to take. */
+export type WritingStop = "tools" | "end" | "length" | "refused" | "other";
+
 export interface WritingCall {
   provider: ProviderId;
   model: string;
@@ -1714,7 +1781,7 @@ export type AssistantEvent =
   | { kind: "usage"; input: number; output: number }
   /** It stopped: its answer is done (`end`), it ran out of room (`length`), it called tools
    * as many rounds as one question allows (`steps`), or the user stopped it (`stopped`). */
-  | { kind: "done"; stop: "tools" | "end" | "length" | "other" | "steps" | "stopped" }
+  | { kind: "done"; stop: "tools" | "end" | "length" | "refused" | "other" | "steps" | "stopped" }
   /** It failed: the provider refused, or the network did. */
   | { kind: "failed"; message: string };
 
@@ -1982,6 +2049,9 @@ export interface Linted {
   laid: boolean;
   whole: boolean;
   ms: number;
+  /** Dropped before it was done (lift-up 20261110 PERF-1): the deck changed while it was laid
+   * out, or a newer lint was asked for. It found nothing that stands. */
+  dropped?: boolean;
 }
 
 /** A state inspected (SPEC §7.1, `inspect --resolved --timeline`): its nodes resolved, each
@@ -2047,10 +2117,26 @@ export type FromWorker =
   | { type: "generating"; event: GeneratingEvent }
   /** The outline the model wrote (narrative FUNC-1), on `arc`, chosen for `reasoning`: shown for
    * the person to settle (`settled`) or to outline again on another arc (`outlineAgain`). */
-  | { type: "storyOutlined"; outline: StoryOutline; arc: string; reasoning: string; fallback?: string }
+  | {
+      type: "storyOutlined";
+      outline: StoryOutline;
+      arc: string;
+      reasoning: string;
+      fallback?: string;
+      unread?: string;
+      /** The fewest and the most slides the beats may take in all, the length's range (lift-up
+       * 20261110 USE-3): a sum outside it is scaled to its nearer end. */
+      range?: [number, number | null];
+    }
   /** The deck made from a prompt: the bundle's files by their paths, its name, and what it came
    * to. Kept nowhere until it is saved. */
   | { type: "generated"; files: Record<string, ArrayBuffer>; name: string; made: Generated }
+  /** What the deck being made has paid for, as each part arrives (lift-up 20261110 REL-1): what
+   * the page keeps to go on from should a later step fail. */
+  | { type: "paid"; paid: Paid }
+  /** A bundle's files as one `.scaena` zip, as `zipFiles` asked: a deck made that would not open,
+   * to download (lift-up 20261110 REL-1). */
+  | { type: "filesZipped"; id: number; bytes: ArrayBuffer }
   /** The bundle as `reload` read it again. */
   | ({ type: "reloaded"; id: number } & Opened)
   /** The frame request `id` asked for is on the canvas, `size` pixels, painted in `ms`. */
@@ -2116,7 +2202,7 @@ export type FromWorker =
   | { type: "codeWords"; id: number; words: string }
   | { type: "tidied"; id: number; text: string }
   | { type: "keyed"; id: number; keyed: Keyed | null }
-  | { type: "coding" | "uncoding" | "tidying"; id: number; patch: unknown[] }
+  | { type: "coding" | "uncoding" | "tidying" | "focusing" | "walking"; id: number; patch: unknown[] }
   | { type: "italicizing"; id: number; look: Record<string, unknown> }
   | { type: "themes"; id: number; themes: Themes }
   /** A theme chosen: what it did, as `theme --apply` says it, and unless it was refused, the
@@ -2163,7 +2249,19 @@ export type FromWorker =
   | { type: "typed"; id: number; source: string; edited: Edited; carets: Carets | null }
   /** The bundle is saved `where`, and the session goes on from it: the files the save
    * renamed, from and to, each a path the source may name; and how many files it wrote. */
-  | { type: "saved"; id: number; where: Where; renamed: [string, string][]; files: number; recorded: boolean }
+  | {
+      type: "saved";
+      id: number;
+      where: Where;
+      renamed: [string, string][];
+      files: number;
+      recorded: boolean;
+      /** Where a history that could not be read was kept aside, the history begun again beside it
+       * (lift-up 20261025b REL-1). */
+      again?: string;
+      /** Why the save is not recorded in the bundle's history, which a newer Scaena wrote. */
+      unrecorded?: string;
+    }
   /** A bundle the browser keeps is renamed or deleted, and the open bundle is kept `where`. */
   | { type: "rekept"; id: number; where?: Where }
   /** The bundle as a `.scaena` zip, and each font subset: its path, and its size before and
@@ -2171,6 +2269,8 @@ export type FromWorker =
   | { type: "zipped"; id: number; bytes: ArrayBuffer; subset: [string, number, number][] }
   /** What `export` made: a PNG, a zip of PNGs, a PDF, or an HTML file's bytes. */
   | { type: "exported"; id: number; bytes: ArrayBuffer }
+  /** How far an export has come (lift-up 20261031 FUNC-2): a movie's frames made, of how many. */
+  | { type: "exportProgress"; id: number; done: number; of: number }
   /** The dropped file is in the bundle at `path`. */
   | { type: "dropped"; id: number; path: string }
   | { type: "pictured"; id: number; picture: Picture }
@@ -2213,8 +2313,10 @@ export type FromWorker =
   /** A step of the assistant's answer to `ask` request `id`. */
   | { type: "assistant"; id: number; event: AssistantEvent }
   | { type: "models"; id: number; models: string[] }
+  /** The assistant's conversation as it may be kept (lift-up 20261110 FUNC-4). */
+  | { type: "conversation"; id: number; messages: unknown[] }
   /** What a model wrote, asked once (PLAN 2.101), and the tokens it took. */
-  | { type: "wrote"; id: number; text: string; usage?: { input: number; output: number } }
+  | { type: "wrote"; id: number; text: string; stop: WritingStop; usage?: { input: number; output: number } }
   /** The CPU painter met a shader whose rows `count` more workers could share (PLAN 2.28): the
    * page starts each as it started this one, and hands this one a port to each (`helpers`). */
   | { type: "helpers"; count: number }

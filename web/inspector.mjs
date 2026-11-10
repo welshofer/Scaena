@@ -3,6 +3,7 @@
 //
 //   node web/inspector.mjs     (after `just web`; from the repository's root)
 //
+// With nothing selected, the slide's animations give their times on one line (editor dogfood 2).
 // On the revenue example:
 // - Selecting the title shows what the theme offers for it: its role among the theme's roles, the
 //   value `revenue` shows, and where that value lives.
@@ -304,6 +305,22 @@ try {
   for (let i = 0; i < 6; i++) await undo();
   check(await back(original), "an undo a change takes the state back as it was");
   check(await page.evaluate(() => window.scaena.last().valid), "the source still compiles and validates");
+
+  // With nothing selected, the slide's animations each give their times on one line, never their
+  // "s" alone under them, in a window of 1600 (editor dogfood 2).
+  const slim = await browser.newContext({ viewport: { width: 1600, height: 1000 }, deviceScaleFactor: 1 });
+  const cover = await slim.newPage();
+  await cover.goto(url("/docs/examples/ridgeline.deck.json"));
+  await cover.waitForFunction(() => window.scaena?.last()?.valid && document.querySelector("#listing td.when"), null, { timeout: 120000 }).catch(() => {});
+  const times = await cover.evaluate(() =>
+    [...document.querySelectorAll("#listing td.when")].map((td) => {
+      const range = document.createRange();
+      range.selectNodeContents(td);
+      return { said: td.textContent, lines: new Set([...range.getClientRects()].map((r) => Math.round(r.top))).size };
+    }),
+  );
+  check(times.length > 0 && times.every((t) => t.lines <= 1), `each animation's times stand on one line: ${JSON.stringify(times)}`);
+  await slim.close();
 } finally {
   await browser.close();
   await server.close();

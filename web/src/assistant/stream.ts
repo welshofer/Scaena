@@ -29,7 +29,7 @@ export class Stream {
   private error: unknown;
   private anthropic: { message: Record<string, unknown>; blocks: Block[] } = { message: {}, blocks: [] };
   private openai: { id?: unknown; content?: string; calls: [string, string, string][]; finish?: unknown; usage?: unknown } = { calls: [] };
-  private gemini: { parts: Record<string, unknown>[]; finish?: unknown; usage?: unknown } = { parts: [] };
+  private gemini: { parts: Record<string, unknown>[]; finish?: unknown; usage?: unknown; feedback?: unknown } = { parts: [] };
 
   private readonly provider: ProviderId;
 
@@ -83,6 +83,8 @@ export class Stream {
         return {
           candidates: [{ content: { role: "model", parts: g.parts }, ...(g.finish !== undefined && { finishReason: g.finish }) }],
           ...(g.usage !== undefined && { usageMetadata: g.usage }),
+          // Why the request was blocked, where it was (lift-up 20261031 REL-5).
+          ...(g.feedback !== undefined && { promptFeedback: g.feedback }),
         };
       }
     }
@@ -208,6 +210,7 @@ export class Stream {
       this.error = { error: v.error };
       return "";
     }
+    if (v.promptFeedback != null) g.feedback = v.promptFeedback;
     const candidate = v.candidates?.[0];
     if (!candidate) return "";
     if (candidate.finishReason != null) g.finish = candidate.finishReason;

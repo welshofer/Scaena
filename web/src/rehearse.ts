@@ -1,9 +1,11 @@
 // Rehearsal (PLAN 2.63): the deck played as presented, with the time spent in each state kept.
 //
-// - Rehearse plays the deck from its first state, in the format the canvas shows: each state's cue
-//   as it comes, then the state at rest until the presenter goes on, as a presenter would play it.
-//   → ↓ PageDown Space Enter, a click on the canvas, or On go on; ← ↑ PageUp Backspace, or Back, go
-//   back; Escape, or End, stops, and so does going on from the last state.
+// - Rehearse plays the deck from the slide shown (lift-up 10-25b USE-2), in the format the canvas
+//   shows: each state's cue as it comes, then the state at rest until the presenter goes on, as a
+//   presenter would play it. → ↓ PageDown Space Enter, a click on the canvas, or On go on; ← ↑
+//   PageUp Backspace, or Back, go back; P, or Pause, pauses the clock, and again goes on with it;
+//   Escape, or End, stops, and so does going on from the last state. A pause counts toward no
+//   slide, nor the whole.
 // - The bar over the canvas says which state is shown, how long it has been shown, and how long the
 //   rehearsal has run. Under it, the state's notes as a speaker reads them and the next slide's
 //   name, as the presenter view shows them (SPEC §2.6, lift-up USE-3): a speaker rehearses the
@@ -20,7 +22,7 @@
 //   until the next rehearsal.
 import type { Key } from "./commands";
 import { listen } from "./life";
-import type { Slot, SpeakerNotes } from "./protocol";
+import type { Slot, SpeakerNotes, StoryPlace } from "./protocol";
 import { renderNotes } from "./speaker-notes";
 import type { Stage } from "./stage";
 
@@ -31,6 +33,8 @@ export interface RehearsalEditor {
   slots(): Promise<Slot[] | undefined>;
   /** The format the canvas shows, if not the deck's own. */
   format(): string | undefined;
+  /** The state shown, by its place in `slots()`: where the rehearsal begins. */
+  at(): number;
   /** The notes a presenter reads for `state` (SPEC §2.6). */
   notes(state: string): Promise<SpeakerNotes>;
   /** Show state `index` at rest again, the rehearsal over. */
@@ -53,7 +57,31 @@ export interface Rehearsed {
   hold: number;
   /** The hold the time spent keeps, ms: none for a state not reached. */
   keeps?: number;
+  /** The time the talk planned for it, ms, from its beat's duration paced over its states (lift-up
+   * 20261110 FUNC-1): none where no beat plans it. */
+  planned?: number;
 }
+
+/** The time the talk planned for each state, ms, from its place in the talk (`Slot.story`): the
+ * plan's seconds from it to the next state of its beat, or to its beat's end. None where its
+ * beat plans no duration. */
+export function plannedOf(slots: Slot[]): (number | undefined)[] {
+  const same = (a?: StoryPlace, b?: StoryPlace) => !!a && !!b && a.section === b.section && a.claim === b.claim;
+  return slots.map((slot, i) => {
+    const story = slot.story;
+    if (story?.planned === undefined) return undefined;
+    const next = slots[i + 1]?.story;
+    if (same(story, next)) return Math.max(0, (next!.before - story.before) * 1000);
+    // The last of its beat: to the beat's end, from where the beat began.
+    let first = i;
+    while (first > 0 && same(slots[first - 1].story, story)) first--;
+    const end = slots[first].story!.before + story.planned;
+    return Math.max(0, (end - story.before) * 1000);
+  });
+}
+
+/** `ms` signed, as the table says it against the plan: `+12.0 s`, `\u22121:05`. */
+const against = (ms: number) => `${ms < 0 ? "\u2212" : "+"}${clock(Math.abs(ms))}`;
 
 const ON = new Set(["ArrowRight", "ArrowDown", "PageDown", " ", "Enter"]);
 const BACK = new Set(["ArrowLeft", "ArrowUp", "PageUp", "Backspace"]);
@@ -67,6 +95,7 @@ export const rehearsalKeys = (): Key[] => [
   { keys: [...ON].map(shown).join(" "), label: "Rehearsing: go on; from the last slide, stop", group: "Rehearse" },
   { keys: "Click the canvas", label: "Go on", group: "Rehearse" },
   { keys: [...BACK].map(shown).join(" "), label: "Go back", group: "Rehearse" },
+  { keys: "P", label: "Pause, and go on with the clock", group: "Rehearse" },
   { keys: "Escape", label: "Stop, and see what each slide took", group: "Rehearse" },
 ];
 
@@ -89,18 +118,21 @@ export function rehearsal(
   editor: RehearsalEditor,
 ) {
   const where = bar.querySelector<HTMLElement>("[data-where]")!;
+  const pausing = bar.querySelector<HTMLButtonElement>("[data-pause]")!;
   const nextName = pane.querySelector<HTMLElement>("[data-next]")!;
   const notes = pane.querySelector<HTMLElement>("[data-notes]")!;
   const rows = dialog.querySelector<HTMLTableSectionElement>("tbody")!;
   const total = dialog.querySelector<HTMLElement>("[data-total]")!;
+  const plan = dialog.querySelector<HTMLElement>("[data-plan]")!;
   /** The states as the rehearsal began, and the time each was shown. */
   let slots: Slot[] = [];
   let spent: number[] = [];
   /** The state shown, and since when, by the page's clock. */
   let index = 0;
   let since = 0;
-  let began = 0;
   let running = false;
+  /** Whether the clock is paused: no time counts toward the state shown until it goes on. */
+  let paused = false;
   let ticking: ReturnType<typeof setInterval> | undefined;
   /** What the last rehearsal kept, for the table and a test; it stays until the next rehearsal,
    * so the results open again after a close (USE-2). */
@@ -111,15 +143,19 @@ export function rehearsal(
   /** Count the time since the state shown came up toward it. */
   function count() {
     const now = performance.now();
-    spent[index] += now - since;
+    if (!paused) spent[index] += now - since;
     since = now;
   }
 
   function tell() {
     const now = performance.now();
+    const counting = paused ? 0 : now - since;
     // The slide as a person counts it (PLAN 2.99).
     const said = slots[index]?.said ?? `${index + 1} of ${slots.length}`;
-    where.textContent = `Rehearsing ${said} · ${clock(spent[index] + now - since)} here · ${clock(now - began)} in all`;
+    const all = spent.reduce((n, s) => n + s, 0) + counting;
+    where.textContent = `${paused ? "Paused on" : "Rehearsing"} ${said} · ${clock(spent[index] + counting)} here · ${clock(all)} in all`;
+    pausing.textContent = paused ? "Go on" : "Pause";
+    pausing.setAttribute("aria-pressed", String(paused));
   }
 
   function play() {
@@ -150,22 +186,27 @@ export function rehearsal(
     if (running || !now?.length) return editor.say("Not rehearsed: the source has an error to fix first");
     slots = now;
     spent = slots.map(() => 0);
-    index = 0;
-    began = since = performance.now();
+    // From the slide shown: a person rehearses the section they just rewrote (lift-up 10-25b USE-2).
+    const at = editor.at();
+    index = at >= 0 && at < slots.length ? at : 0;
+    since = performance.now();
+    paused = false;
     running = true;
     bar.hidden = false;
     pane.hidden = false;
-    document.addEventListener("keydown", key, true);
-    preview.addEventListener("pointerdown", click, true);
+    // Also let go with the bundle, should its deck close without the rehearsal's stop.
+    listen(document, "keydown", key, { capture: true });
+    listen(preview, "pointerdown", click, { capture: true });
     ticking = setInterval(tell, 250);
     play();
-    editor.say("Rehearsing: → goes on, ← back, Escape stops");
+    editor.say("Rehearsing: → goes on, ← back, P pauses, Escape stops");
   }
 
   /** Go `by` states on, or back; on from the last, stop. */
   function go(by: number) {
     if (!running) return;
     count();
+    paused = false;
     const next = index + by;
     if (next >= slots.length) return stop();
     if (next < 0) return;
@@ -173,7 +214,16 @@ export function rehearsal(
     play();
   }
 
-  function stop() {
+  /** Pause the clock, or go on with it, on the state shown. */
+  function pause() {
+    if (!running) return;
+    count();
+    paused = !paused;
+    tell();
+  }
+
+  /** Stop rehearsing, and show what each slide took; `quiet`, as its deck closes, show nothing. */
+  function stop(quiet = false) {
     if (!running) return;
     count();
     running = false;
@@ -183,7 +233,9 @@ export function rehearsal(
     stage.pause();
     bar.hidden = true;
     pane.hidden = true;
+    const planned = plannedOf(slots);
     kept = slots.map((slot, i) => ({
+      planned: planned[i],
       state: slot.state,
       said: slot.said ?? slot.state,
       spent: spent[i],
@@ -191,6 +243,7 @@ export function rehearsal(
       hold: slot.hold,
       keeps: spent[i] > 0 ? Math.max(0, Math.round((spent[i] - slot.span) / 100) * 100) : undefined,
     }));
+    if (quiet) return;
     const last = index;
     results();
     editor.show(last);
@@ -209,16 +262,47 @@ export function rehearsal(
   function table() {
     const all = kept.reduce((n, k) => n + k.spent, 0);
     total.textContent = clock(all);
+    // Against the plan (lift-up 20261110 FUNC-1): each state reached beside the time its beat
+    // planned for it, the whole run beside the plan of what it reached, and the three that ran
+    // furthest over said so.
+    const planning = kept.some((k) => k.planned !== undefined);
+    const reached = kept.filter((k) => k.spent > 0 && k.planned !== undefined);
+    const over = reached
+      .map((k) => ({ state: k.state, by: k.spent - k.planned! }))
+      .filter((o) => o.by >= 500)
+      .sort((a, b) => b.by - a.by)
+      .slice(0, 3)
+      .map((o) => o.state);
+    if (!planning) plan.textContent = "The talk plans no time for its slides: its beats give no duration, so the times stand alone.";
+    else {
+      const of = reached.reduce((n, k) => n + k.planned!, 0);
+      const taken = reached.reduce((n, k) => n + k.spent, 0);
+      const every = kept.every((k) => k.planned === undefined || k.spent > 0);
+      plan.textContent = every
+        ? `${clock(taken)} taken against a ${clock(of)} plan: ${against(taken - of)}.`
+        : `${clock(taken)} taken against ${clock(of)} planned for the ${reached.length} reached: ${against(taken - of)}.`;
+    }
     rows.replaceChildren(
       ...kept.map((k) => {
         const tr = document.createElement("tr");
         tr.dataset.state = k.state;
-        const cells = [k.spent ? clock(k.spent) : "Not reached", clock(k.span), k.keeps === undefined ? "As it is" : `After ${clock(k.keeps)}`, k.hold ? `After ${clock(k.hold)}` : "On click"];
+        const most = over.includes(k.state);
+        if (most) tr.dataset.over = "";
+        const plannedSaid = k.planned === undefined ? "No plan" : clock(k.planned);
+        const off = k.spent && k.planned !== undefined ? `${against(k.spent - k.planned)}${most ? " · most over" : ""}` : "";
+        const cells = [
+          k.spent ? clock(k.spent) : "Not reached",
+          ...(planning ? [plannedSaid, off] : []),
+          clock(k.span),
+          k.keeps === undefined ? "As it is" : `After ${clock(k.keeps)}`,
+          k.hold ? `After ${clock(k.hold)}` : "On click",
+        ];
         tr.append(Object.assign(document.createElement("th"), { scope: "row", textContent: k.said }));
         for (const text of cells) tr.append(Object.assign(document.createElement("td"), { textContent: text }));
         return tr;
       }),
     );
+    for (const th of dialog.querySelectorAll<HTMLElement>("thead [data-planning]")) th.hidden = !planning;
   }
 
   function key(e: KeyboardEvent) {
@@ -226,6 +310,7 @@ export function rehearsal(
     if (ON.has(e.key)) go(1);
     else if (BACK.has(e.key)) go(-1);
     else if (e.key === "Escape") stop();
+    else if (e.key === "p" || e.key === "P") pause();
     else return;
     e.preventDefault();
     e.stopPropagation();
@@ -241,6 +326,7 @@ export function rehearsal(
 
   listen(bar.querySelector<HTMLElement>("[data-on]")!, "click", () => go(1));
   listen(bar.querySelector<HTMLElement>("[data-back]")!, "click", () => go(-1));
+  listen(pausing, "click", () => pause());
   listen(bar.querySelector<HTMLElement>("[data-end]")!, "click", () => stop());
   // Escape on the results (USE-2): held off once, then they close, and stay to open again.
   listen(dialog, "cancel", (e) => {
@@ -261,6 +347,8 @@ export function rehearsal(
     stop,
     /** Whether a rehearsal is running. */
     running: () => running,
+    /** Whether its clock is paused. */
+    paused: () => paused,
     /** The last rehearsal's results opened again (USE-2): whether there are any. */
     results,
     /** What the last rehearsal kept, for a test. */

@@ -356,19 +356,21 @@ mod tests {
 
     /// A slot's inset gives each side its own where it names them (theme format 0.27): words under
     /// a quote set on the foot of its cells stand clear of its descenders, their left edge on the
-    /// quote's.
+    /// quote's; and a side may be negative, reaching past its cells into the free row under them,
+    /// so the credit keeps every line it held (F4).
     #[test]
     fn a_slots_inset_may_give_each_side_its_own() {
         let dusk = Theme::from_json(include_str!("../../../docs/examples/themes/dusk.theme.json")).unwrap();
         let grid = Grid::from_theme(&dusk, [1920.0, 1080.0]).unwrap();
         let cells = grid.place(&dusk, None, Some(&json!({"col": [2, 11], "row": [9, 10]}))).unwrap();
         let who = grid.place(&dusk, Some("quote"), Some(&json!({"in": "who"}))).unwrap();
-        let top = match dusk.slots("quote").unwrap()["who"].inset {
-            Some(SlotInset::Sides(s)) => s.top.unwrap() as f32,
+        let (top, bottom) = match dusk.slots("quote").unwrap()["who"].inset {
+            Some(SlotInset::Sides(s)) => (s.top.unwrap() as f32, s.bottom.unwrap_or(0.0) as f32),
             ref other => panic!("Dusk's quote credit has no top of its own: {other:?}"),
         };
-        assert!(top > 0.0);
-        assert_eq!(who, [cells[0], cells[1] + top, cells[2], cells[3] - top]);
+        assert!(top > 0.0 && bottom < 0.0, "the credit stands clear at its top and reaches under its cells");
+        assert_eq!(who, [cells[0], cells[1] + top, cells[2], cells[3] - top - bottom]);
+        assert!(who[3] > cells[3] - top, "a negative side widens the box");
     }
 
     #[test]

@@ -110,6 +110,7 @@ pub const ALSO_CALLED: &[(&str, &[&str])] = &[
     ("closing", &["Thank You"]),
     ("chyron", &["Lower Third Lyrics"]),
     ("fine-print", &["Disclosures"]),
+    ("price-chart", &["Stock", "Ticker"]),
 ];
 
 /// The other names a layout is searched for by, as [`ALSO_CALLED`] gives them: none for most.
@@ -149,9 +150,13 @@ pub fn starting_as(
     }
     let i = deck.states.iter().position(|s| s.id == shown).ok_or_else(|| OpsError::unknown_state(deck, shown))?;
     let template = match layout {
-        Some(name) => {
-            Some(theme.layouts.get(name).ok_or_else(|| OpsError::new(format!("the theme has no layout `{name}`")))?)
-        }
+        Some(name) => Some(theme.layouts.get(name).ok_or_else(|| {
+            let known = theme.layouts.keys().map(String::as_str);
+            OpsError::new(format!(
+                "the theme has no layout `{name}`{}",
+                scaena_core::patch::nearest_in("the theme", "layouts", name, known)
+            ))
+        })?),
         None => None,
     };
     let slide = deck.states[i].slide.clone().unwrap_or_else(|| shown.to_string());

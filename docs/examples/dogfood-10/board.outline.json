@@ -1,0 +1,31 @@
+{
+ "arc": "Conflict → Struggle → Resolution",
+ "bigIdea": "Q3's decline came from broken onboarding, which we can fix, and a $4M retention plan returns us to growth by Q2 FY27.",
+ "beats": [
+  {
+   "name": "Opposition",
+   "claim": "Q3 was our worst quarter in three years.",
+   "slides": 2
+  },
+  {
+   "name": "Escalation",
+   "claim": "Revenue fell 11% as churn doubled, and margin and cash fell with it.",
+   "slides": 3
+  },
+  {
+   "name": "Turning Point",
+   "claim": "Customers left because onboarding broke, not because of the product.",
+   "slides": 2
+  },
+  {
+   "name": "Resolution",
+   "claim": "We have cut cost and a $4M retention plan fixes onboarding.",
+   "slides": 3
+  },
+  {
+   "name": "Aftermath",
+   "claim": "With the plan, we are back to growth by Q2 FY27.",
+   "slides": 2
+  }
+ ]
+}

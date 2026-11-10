@@ -136,6 +136,9 @@ pub enum Shape {
     /// The outline before the slides: the big idea and each beat's claim (Scaena's own call,
     /// [`crate::outline`], narrative FUNC-1).
     Outline,
+    /// One beat's claim asked again (Scaena's own call, [`crate::outline::claim_prompt`], lift-up
+    /// 20261110 FUNC-2).
+    Claim,
 }
 
 /// A document the model reads beside the prompt: a PDF, sent as itself (ADR-0026).
@@ -224,6 +227,7 @@ impl Provider {
             Shape::Fit => crate::fit::schema_gemini(),
             Shape::Look => crate::look::schema_gemini(),
             Shape::Outline => crate::outline::schema_gemini(),
+            Shape::Claim => crate::outline::claim_schema_gemini(),
         };
         let name = match call.shape {
             Shape::Arc => "arc",
@@ -231,6 +235,7 @@ impl Provider {
             Shape::Fit => "fit",
             Shape::Look => "look",
             Shape::Outline => "outline",
+            Shape::Claim => "claim",
         };
         match self {
             Provider::Anthropic => {
@@ -519,6 +524,10 @@ mod tests {
         assert_eq!(crate::retry_after(0, "", None, 2), Some(8.0));
         assert_eq!(crate::retry_after(401, "", None, 0), None);
         assert_eq!(crate::retry_after(529, "", None, crate::TRIES - 1), None);
+        // Out of credit is a 429 that waiting does not mend (lift-up 20261110 REL-2).
+        let broke = r#"{"error":{"type":"insufficient_quota","message":"You exceeded your current quota, please check your plan and billing details."}}"#;
+        assert_eq!(crate::retry_after(429, broke, Some("2"), 0), None);
+        assert!(crate::for_good(429, broke) && !crate::for_good(429, "") && !crate::for_good(200, broke));
     }
 
     fn call(shape: Shape, documents: &[Document]) -> Call<'_> {

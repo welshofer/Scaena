@@ -126,16 +126,22 @@ impl Sources {
     }
 
     /// Deep research's report and its sources, as a source of their own (PLAN G.8):
-    /// `{ name, kind }`.
+    /// `{ name, kind, text }`, `text` the source as kept, which a page keeps to go on from with
+    /// no research paid for again (`researched`, lift-up 20261110 REL-1).
     pub fn research(&mut self, research: &Research) -> Result<String, JsError> {
         let report = research.report.as_ref().ok_or_else(|| error("the research has written no report yet"))?;
-        let source = Source {
-            name: scaena_narrato::research::source_name(&research.topic),
-            kind: Kind::Research,
-            text: report.source_text(),
-            sheets: Vec::new(),
-            pdf: None,
-        };
+        let name = scaena_narrato::research::source_name(&research.topic);
+        let text = report.source_text();
+        self.researched(&name, &text)?;
+        Ok(json!({ "name": name, "kind": Kind::Research.name(), "text": text }).to_string())
+    }
+
+    /// Deep research's report as `research` kept it, `name` and `text` as it said them: the
+    /// source a run that failed after the research goes on from, packed first as the research
+    /// is (lift-up 20261110 REL-1). `{ name, kind }`.
+    pub fn researched(&mut self, name: &str, text: &str) -> Result<String, JsError> {
+        let source =
+            Source { name: name.into(), kind: Kind::Research, text: text.into(), sheets: Vec::new(), pdf: None };
         self.keep(source)
     }
 
@@ -322,6 +328,14 @@ impl Generation {
         self.inner.plan().map(|p| serde_json::to_string(&p).expect("a plan is JSON"))
     }
 
+    /// Write the slides without an outline, the arc chosen standing (lift-up REL-3): where the
+    /// outline was asked twice and did not read (`unread`), and the person passes it over.
+    #[wasm_bindgen(js_name = skipOutline)]
+    pub fn skip_outline(&mut self) -> Result<String, JsError> {
+        self.inner.skip_outline().map_err(error)?;
+        Ok(self.said())
+    }
+
     /// The outline as the person settled it, JSON as `outline` gives it: what the slides are
     /// written to (narrative FUNC-1). Refused with why where no beat keeps a claim.
     pub fn settle(&mut self, outline: &str) -> Result<String, JsError> {
@@ -331,20 +345,58 @@ impl Generation {
         Ok(self.said())
     }
 
+    /// The claims the person wrote in the outline shown, JSON `[{ name, claim, slides }]`, which
+    /// the next outline asked keeps word for word in the beats of their names (lift-up 20261110
+    /// FUNC-2).
+    #[wasm_bindgen(js_name = keepClaims)]
+    pub fn keep_claims(&mut self, kept: &str) -> Result<(), JsError> {
+        let kept: Vec<scaena_narrato::outline::Beat> =
+            serde_json::from_str(kept).map_err(|e| error(format!("the claims kept: {e}")))?;
+        self.inner.keep_claims(kept);
+        Ok(())
+    }
+
+    /// The request that asks for beat `beat` (from 0) of `outline`, JSON as `outline` gives it,
+    /// again, every other claim fixed (lift-up 20261110 FUNC-2); none for a beat it lacks.
+    #[wasm_bindgen(js_name = claimRequest)]
+    pub fn claim_request(&self, key: &str, outline: &str, beat: usize) -> Result<Option<String>, JsError> {
+        let outline: scaena_narrato::Outline =
+            serde_json::from_str(outline).map_err(|e| error(format!("the outline: {e}")))?;
+        let request = self.inner.claim_request(key, &outline, beat);
+        Ok(request.map(|r| serde_json::to_string(&r).expect("a request is JSON")))
+    }
+
+    /// The claim the answer to `claimRequest` gives, or an error that says why.
+    #[wasm_bindgen(js_name = claimAnswer)]
+    pub fn claim_answer(&self, status: u16, status_text: &str, body: &str) -> Result<String, JsError> {
+        self.inner.claim_answer(status, status_text, body).map_err(error)
+    }
+
     /// Where it stands, as `answer` says it, with no answer read: JSON `{ step, slides, arc?,
-    /// reasoning?, fallback?, written?, truncated?, outline? }`.
+    /// reasoning?, fallback?, written?, truncated?, outline?, unread?, partial?, unrested? }`,
+    /// `partial` the slides written so far where the rest is asked for (lift-up REL-2), and
+    /// `unrested` why it did not come back.
     pub fn standing(&self) -> String {
         self.said()
     }
 
-    /// Where it stands: `arc`, `outline`, `slides`, or `done`.
+    /// Where it stands: `arc`, `outline`, `slides`, `rest`, or `done`.
     pub fn step(&self) -> String {
         serde_json::to_value(self.inner.step()).ok().and_then(|v| v.as_str().map(str::to_string)).unwrap_or_default()
     }
 
-    /// The fewest slides the slides' prompt asks for.
+    /// The slides the slides' prompt asks for: the settled outline's in all, else the length's
+    /// (lift-up 20261110 USE-3).
     pub fn target(&self) -> usize {
-        self.inner.target()
+        self.inner.slides_asked()
+    }
+
+    /// The fewest and the most slides the brief's length allows, JSON `[least, most | null]`:
+    /// what the outline's slides in all are held to, scaled to the nearer end outside it (lift-up
+    /// 20261110 USE-3).
+    pub fn range(&self) -> String {
+        let (least, most) = self.inner.slides_range();
+        json!([least, most]).to_string()
     }
 
     /// The next request, `{ method, url, headers, body }` as JSON, the key in its headers; none
@@ -376,17 +428,28 @@ impl Generation {
         Ok(self.said())
     }
 
+    /// The slides as the model wrote them, once it has, the text `written` takes: what a page
+    /// keeps so a run that fails after them goes on from it with no call paid for again, as the
+    /// CLI's `--slides` does (lift-up 20261110 REL-1).
+    #[wasm_bindgen(js_name = writtenText)]
+    pub fn written_text(&self) -> Option<String> {
+        self.inner.written_text().map(str::to_string)
+    }
+
     fn said(&self) -> String {
         let narrative = self.inner.narrative();
         json!({
             "step": self.step(),
-            "slides": self.inner.target(),
+            "slides": self.inner.slides_asked(),
             "arc": self.inner.arc().map(|a| a.selection.clone()),
             "reasoning": self.inner.arc().map(|a| a.reasoning.clone()),
             "fallback": self.inner.fallback(),
             "written": narrative.map(|n| n.slides.len()),
             "truncated": narrative.map(|n| n.truncated),
+            "partial": self.inner.partial(),
+            "unrested": self.inner.unrested(),
             "outline": self.inner.outline(),
+            "unread": self.inner.unread(),
             "wait": self.inner.again(),
             "tried": self.inner.tried(),
         })
@@ -443,16 +506,23 @@ impl Generation {
 
     /// What the model is shown of the deck the narrative made in `theme` (the theme's JSON) with
     /// `pictures` (as `deck` takes them), each slide in the layout `layouts` (JSON `[id]`, as
-    /// `Making.report` says them) gives it (PLAN G.13): JSON `[{ slide, layout, options, title,
-    /// subtitle, bullets }]`, which `lookRequest` and `lookAnswer` take.
-    pub fn seeing(&self, theme: &str, pictures: &str, layouts: &str) -> Result<String, JsError> {
+    /// `Making.report` says them) gives it (PLAN G.13), each title's place holding what `rooms`
+    /// says (JSON `[n | null]`, as `Making.rooms` measures them, lift-up FUNC-2): JSON `[{ slide,
+    /// layout, options, title, subtitle, bullets, room? }]`, which `lookRequest` and `lookAnswer`
+    /// take.
+    pub fn seeing(&self, theme: &str, pictures: &str, layouts: &str, rooms: Option<String>) -> Result<String, JsError> {
         let narrative = self.inner.narrative().ok_or_else(|| error("the narrative is not written yet"))?;
         let model: scaena_core::model::theme::Theme =
             serde_json::from_str(theme).map_err(|e| error(format!("the theme: {e}")))?;
         let pictures: scaena_ops::narrative::Pictures =
             serde_json::from_str(pictures).map_err(|e| error(format!("the pictures: {e}")))?;
         let layouts: Vec<String> = serde_json::from_str(layouts).map_err(|e| error(format!("the layouts: {e}")))?;
-        let seen = scaena_ops::narrative::seeing(narrative, &model, &pictures, &layouts);
+        let mut seen = scaena_ops::narrative::seeing(narrative, &model, &pictures, &layouts);
+        if let Some(rooms) = rooms {
+            let rooms: Vec<Option<usize>> =
+                serde_json::from_str(&rooms).map_err(|e| error(format!("the rooms: {e}")))?;
+            scaena_ops::narrative::roomed(&mut seen, &rooms);
+        }
         Ok(serde_json::to_string(&seen).expect("what the model sees is JSON"))
     }
 
@@ -883,8 +953,9 @@ impl SlideWriting {
         let doc: Value = serde_json::from_str(deck).map_err(error)?;
         let theme: scaena_core::model::theme::Theme =
             serde_json::from_str(theme).map_err(|e| error(format!("the theme: {e}")))?;
-        let slide: scaena_ops::narrative::Slide =
-            serde_json::from_str(slide).map_err(|e| error(format!("the slide: {e}")))?;
+        let slide: Value = serde_json::from_str(slide).map_err(|e| error(format!("the slide: {e}")))?;
+        let slide =
+            scaena_ops::narrative::slide_from(&slide).map_err(|e| error(format!("the slide: {}", e.message)))?;
         let icons = serde_json::from_str(icons).map_err(|e| error(format!("the icons: {e}")))?;
         let (place, beat) = placed(place_json)?;
         let written =

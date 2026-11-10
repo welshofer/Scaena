@@ -14,6 +14,7 @@ import { isDeepStrictEqual } from "node:util";
 import { RULE, fenced, seen, system } from "./src/assistant/prompt.ts";
 import { CUT, owing } from "./src/assistant/cut.ts";
 import { providers, refusedBase } from "./src/assistant/providers.ts";
+import { MOST_ICONS, iconsFound } from "./src/assistant/icon-find.ts";
 import { MOST_BLOCKS, Stream } from "./src/assistant/stream.ts";
 
 const write = process.argv.includes("--write");
@@ -77,12 +78,16 @@ for (const [id, provider] of Object.entries(providers)) {
   const { picture } = conversation;
   const pictured = { ...once, system: picture.system, messages: [{ role: "user", text: picture.prompt, png: picture.png }] };
   const shown = await asking({ status: 200, body: conversation.answers[id] }, () => provider.turn(pictured));
+  // Each answer a model declined or a provider blocked, read as a refusal (lift-up 20261025c REL-1).
+  const refused = [];
+  for (const body of conversation.refusals[id]) refused.push((await asking({ status: 200, body }, () => provider.turn(ask))).result.value?.stop);
   record[id] = {
     turn: { request: turn.asked[0], read: turn.result.value, streamed: { read: streamed.result.value, said } },
     models: { request: models.asked[0], read: models.result.value },
     failure: { message: failure.result.error },
     once: { request: asked.asked[0] },
     picture: { request: shown.asked[0] },
+    refusals: refused,
   };
 }
 
@@ -147,6 +152,29 @@ for (const bad of bases.bad) check(refusedBase(bad) !== undefined, `a key never 
   const last = new Stream("anthropic");
   last.feed(huge.replace("4000000000", String(MOST_BLOCKS - 1)));
   check(last.finish()?.content?.length === MOST_BLOCKS, "the last block a provider may send still reads");
+}
+{
+  // An answer cut off or declined, read as scaena-chat reads it (lift-up 20261031 REL-5): a
+  // writing tool takes neither.
+  const { cases } = JSON.parse(await readFile("tests/assistant/stops.json", "utf8"));
+  for (const [i, c] of cases.entries()) {
+    const ask = { model: "m", key: "k", system: "", tools: [], messages: [{ role: "user", text: "Tighten this." }] };
+    const { result } = await asking({ status: 200, body: c.body }, () => providers[c.provider].turn(ask));
+    check(result.value?.stop === c.stop, `${c.provider} answer ${i + 1} stops as ${c.stop}: ${result.value?.stop ?? result.error}`);
+  }
+}
+{
+  // icon_find in the page answers as the MCP server does: 50 at most, whatever limit asks, and the
+  // paths only where asked for (lift-up 20261025c SEC-3).
+  const set = JSON.parse(await readFile(new URL("../docs/icons/phosphor.json", import.meta.url), "utf8"));
+  const [many, manyFailed] = iconsFound(set, { query: "", limit: 100000 });
+  const listed = JSON.parse(many);
+  check(!manyFailed && listed.icons.length === MOST_ICONS && listed.found > MOST_ICONS, `a limit past ${MOST_ICONS} is held to it: ${listed.icons.length} of ${listed.found}`);
+  check(listed.icons.every((i) => i.icon === undefined && typeof i.name === "string"), "without paths, the names alone");
+  const [one] = iconsFound(set, { query: "airplane", limit: 1, paths: true });
+  const icon = JSON.parse(one).icons[0]?.icon;
+  check(icon?.name === "airplane" && icon.path.length > 0 && icon.view.length === 4, `with paths, the path to draw: ${one.slice(0, 120)}`);
+  check(iconsFound(set, { paths: "yes" })[1], "paths is true or false");
 }
 if (failures.length) {
   console.log(`\n${failures.length} failed: the browser's assistant no longer says what is recorded. If the change is meant, write it again (--write), and hold scaena-chat to it.`);

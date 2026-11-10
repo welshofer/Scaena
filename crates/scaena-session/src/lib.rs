@@ -44,6 +44,8 @@ mod formats;
 #[cfg(feature = "generate")]
 pub mod making;
 #[cfg(feature = "editor")]
+pub mod movie;
+#[cfg(feature = "editor")]
 pub mod store;
 #[cfg(feature = "editor")]
 mod theme;
@@ -95,6 +97,10 @@ pub struct Session {
     /// state's digest key, so a font or an image handed over again with other bytes draws anew
     /// (lift-up PERF-4).
     files_edition: u64,
+    /// Each path written or taken out since the session began, by the edition it last changed
+    /// at: a client's copy of the files copies again only those changed since its own edition
+    /// (lift-up 20261031 PERF-3).
+    changed: BTreeMap<String, u64>,
     /// The data files the deck names, as the engine reads them.
     data: DataFiles,
     /// The layout engine, built on the first frame from the fonts and images the deck
@@ -134,6 +140,11 @@ pub struct Session {
     /// once a frame, as a resize does when it pauses (ADR-0013).
     #[cfg(feature = "editor")]
     previewing: Option<Deck>,
+    /// The theme an edit of it would make, shown before it is made: frames at rest draw in it,
+    /// laid out once a frame, as the Theme tab shows a color held in its picker
+    /// (`Session::theme_previewing`, lift-up ATTR-5).
+    #[cfg(feature = "editor")]
+    previewing_theme: Option<Theme>,
     /// The format frames are laid out in (SPEC §3.4); `None` for the deck's own canvas.
     format: Option<String>,
     /// What each format painted beside the canvas laid out, by the format (PLAN 2.62).
@@ -359,6 +370,7 @@ impl Session {
             theme,
             files: Arc::new(files),
             files_edition: 0,
+            changed: BTreeMap::new(),
             data: DataFiles::new(),
             engine: None,
             timed: scaena_engine::Timed::default(),
@@ -373,6 +385,8 @@ impl Session {
             view: None,
             #[cfg(feature = "editor")]
             previewing: None,
+            #[cfg(feature = "editor")]
+            previewing_theme: None,
             format: None,
             #[cfg(feature = "editor")]
             besides: BTreeMap::new(),
@@ -486,7 +500,7 @@ impl Session {
             self.data.insert(path, bytes.clone());
             self.forget();
         }
-        self.files_mut().insert(path.to_string(), bytes);
+        self.files_mut(path).insert(path.to_string(), bytes);
         // The theme the deck names, edited (ADR-0016): frames are drawn in it from now on.
         if self.deck.theme.as_ref().and_then(|t| t.as_str()) == Some(path) {
             self.follow_theme(&self.deck.clone());
@@ -593,6 +607,12 @@ impl Session {
         self.files_edition
     }
 
+    /// The paths written or taken out since the files were at `edition`, those taken out
+    /// included: what a client's copy made then copies again (lift-up 20261031 PERF-3).
+    pub fn files_changed_since(&self, edition: u64) -> Vec<String> {
+        self.changed.iter().filter(|(_, at)| **at > edition).map(|(path, _)| path.clone()).collect()
+    }
+
     /// Let go of what was laid out: the deck or its files changed. A drag, or a patch
     /// previewed, ends with it.
     fn forget(&mut self) {
@@ -614,6 +634,7 @@ impl Session {
         #[cfg(feature = "editor")]
         {
             self.previewing = None;
+            self.previewing_theme = None;
             self.suggesting = None;
         }
     }
@@ -626,13 +647,15 @@ impl Session {
         }
     }
 
-    /// The bundle's files, to change: what validation found in the deck shown no longer holds.
-    fn files_mut(&mut self) -> &mut BTreeMap<String, Vec<u8>> {
+    /// The bundle's files, to change the one at `path`: what validation found in the deck shown
+    /// no longer holds.
+    fn files_mut(&mut self, path: &str) -> &mut BTreeMap<String, Vec<u8>> {
         #[cfg(feature = "editor")]
         {
             self.validated = None;
         }
         self.files_edition += 1;
+        self.changed.insert(path.to_string(), self.files_edition);
         Arc::make_mut(&mut self.files)
     }
 
@@ -649,6 +672,12 @@ impl Session {
 
     pub fn states(&self) -> Vec<String> {
         self.deck.states.iter().map(|s| s.id.clone()).collect()
+    }
+
+    /// The deck's title, as its `meta` gives it: what an export's file is named by, read without
+    /// a whole `deck_read` (lift-up 10-25b ATTR-3).
+    pub fn title(&self) -> Option<String> {
+        self.deck.meta.as_ref().and_then(|m| m.title.clone())
     }
 
     /// The formats the deck is also laid out in, as it writes them (`9:16`).
@@ -761,11 +790,13 @@ impl Session {
         let (start, span) = (slot.start, slot.span);
         if t_ms.is_nan() || t_ms >= span {
             #[cfg(feature = "editor")]
-            if let Some(deck) = &self.previewing {
+            if self.previewing.is_some() || self.previewing_theme.is_some() {
+                let deck = self.previewing.as_ref().unwrap_or(&self.deck);
+                let theme = self.previewing_theme.as_ref().unwrap_or(&self.theme);
                 // The engine is built by now: the timeline took it.
                 let engine = self.engine.as_mut().expect("built for the timeline");
                 let format = self.format.as_deref();
-                let req = FrameRequest { deck, theme: &self.theme, data: &self.data, state, t_ms, format };
+                let req = FrameRequest { deck, theme, data: &self.data, state, t_ms, format };
                 return Ok(engine.frame(&req)?.display_list);
             }
             // Its shaders at the time it comes to rest, or `t_ms` into its hold.
@@ -845,7 +876,7 @@ impl Session {
         // A drag, or a patch previewed, draws the state otherwise than it is at rest and moves
         // with the pointer (ADR-0013): a frame of it, as before, with nothing kept.
         #[cfg(feature = "editor")]
-        let previewing = self.previewing.is_some();
+        let previewing = self.previewing.is_some() || self.previewing_theme.is_some();
         #[cfg(not(feature = "editor"))]
         let previewing = false;
         if self.moving.is_some() || previewing {
@@ -1072,6 +1103,37 @@ impl Session {
     #[cfg(feature = "editor")]
     pub fn uncoding(&self, node: &str) -> Result<Vec<serde_json::Value>, Error> {
         scaena_ops::coding::uncoding(&self.deck, &self.theme, node).map_err(|e| Error::Ops(e.to_string()))
+    }
+
+    /// The patch that sets code text `node`'s lines in focus in `state` to those `said` names in its
+    /// gutter's numbers, "2–4, 7" (PLAN 2.140, `scaena_core::code::focus::read`): Focus on These
+    /// Lines, the inspector's Lines in Focus, and, with nothing said, Clear Focus. Written into
+    /// `state`'s own props, the states after it as they were (`scaena_ops::coding::focusing`). An
+    /// error says, in a sentence, a line the code does not have.
+    #[cfg(feature = "editor")]
+    pub fn focusing(&self, state: &str, node: &str, said: &str) -> Result<Vec<serde_json::Value>, Error> {
+        let ops = |e: scaena_ops::OpsError| Error::Ops(e.to_string());
+        let (start, lines) = scaena_ops::coding::numbered(&self.deck, state, node).map_err(ops)?;
+        let focus = scaena_core::code::focus::read(said, start, lines).map_err(Error::Ops)?;
+        scaena_ops::coding::focusing(&self.deck, state, node, &focus).map_err(ops)
+    }
+
+    /// The patch Walk Through Lines… makes of code text `node` from `state` (PLAN 2.140): `state`
+    /// shows the lines the first of `steps` names, and a step after it each of the rest's, each in
+    /// its gutter's numbers as [`Session::focusing`] reads them, nothing or every line the whole
+    /// block; the states after them as they were (`scaena_ops::coding::walking`). An error names
+    /// the step, by its number, whose lines the code does not have.
+    #[cfg(feature = "editor")]
+    pub fn walking(&self, state: &str, node: &str, steps: &[String]) -> Result<Vec<serde_json::Value>, Error> {
+        let ops = |e: scaena_ops::OpsError| Error::Ops(e.to_string());
+        let (start, lines) = scaena_ops::coding::numbered(&self.deck, state, node).map_err(ops)?;
+        let read = (steps.iter().enumerate())
+            .map(|(k, said)| {
+                scaena_core::code::focus::read(said, start, lines)
+                    .map_err(|e| Error::Ops(format!("Step {}: {e}", k + 1)))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        scaena_ops::coding::walking(&self.deck, state, node, &read).map_err(ops)
     }
 
     /// The patch Tidy Code makes of `node` as `state` shows it (PLAN 2.139): a `replace_text` for
@@ -2829,6 +2891,34 @@ mod tests {
         assert_eq!(s.files_edition(), was + 3, "taken out");
     }
 
+    /// The paths changed since an edition are those written or taken out after it, and no
+    /// other (lift-up 20261031 PERF-3): what a worker's copy of the files copies again.
+    #[test]
+    fn the_files_changed_since_an_edition_are_those_written_or_taken_out_after_it() {
+        let mut s = revenue();
+        let was = s.files_edition();
+        assert!(s.files_changed_since(was).is_empty(), "nothing changed yet");
+        s.add_file("data/a.csv", b"a,b\n1,2\n".to_vec());
+        let then = s.files_edition();
+        s.add_file("data/b.csv", b"a,b\n3,4\n".to_vec());
+        assert_eq!(s.files_changed_since(was), ["data/a.csv", "data/b.csv"]);
+        assert_eq!(s.files_changed_since(then), ["data/b.csv"], "only what changed after it");
+        s.remove_file("data/a.csv").unwrap();
+        assert_eq!(s.files_changed_since(then), ["data/a.csv", "data/b.csv"], "a file taken out is changed");
+        assert!(s.files_changed_since(s.files_edition()).is_empty(), "nothing after the last");
+    }
+
+    /// The deck's title, read without a whole `deck_read`: what an export is named by (lift-up
+    /// 10-25b ATTR-3).
+    #[test]
+    fn the_title_is_the_decks_meta_title() {
+        let revenue = revenue();
+        let meta: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string("../../docs/examples/revenue.deck.json").unwrap()).unwrap();
+        assert_eq!(revenue.title().as_deref(), meta["meta"]["title"].as_str());
+        assert!(revenue.title().is_some());
+    }
+
     /// Each state's place in the talk (lift-up FUNC-2): its section, its beat's claim and planned
     /// seconds, and the seconds planned before it, the deck paced by its beats; what the slots say.
     #[test]
@@ -2848,6 +2938,37 @@ mod tests {
         let said = slots.as_array().unwrap().iter().find(|slot| slot["state"] == "mix").unwrap();
         assert_eq!(said["story"]["section"], "Growth");
         assert_eq!(said["story"]["planned"], 60.0);
+    }
+
+    /// The deck as a movie (lift-up 20261031 FUNC-2): the CLI's reel, its frames as long as the
+    /// paced timeline, a frame drawn as the one before it not painted again, and a frame past the
+    /// last refused.
+    #[cfg(feature = "editor")]
+    #[test]
+    fn the_deck_plays_as_a_movie_painting_each_frame_once() {
+        let mut s = revenue();
+        let plan = s.movie(10).unwrap();
+        let timeline = s.timeline().unwrap();
+        let paced = scaena_core::spine::paced(&s.deck, &timeline, scaena_core::spine::Pace::Beats);
+        let length: f64 = paced.slots.iter().map(|slot| slot.span + slot.hold).sum();
+        assert_eq!(plan["frames"], (length * 10.0 / 1000.0).ceil() as u64, "{plan}");
+        assert_eq!(plan["fps"], 10);
+        let first = s.movie_frame(10, 0, 160, None).unwrap();
+        let raster = first.raster.expect("the first frame is painted");
+        assert_eq!(raster.width, 160);
+        assert_eq!(raster.rgba.len(), (raster.width * raster.height * 4) as usize);
+        let again = s.movie_frame(10, 0, 160, Some(&first.digest)).unwrap();
+        assert!(again.raster.is_none(), "drawn as the frame before it: not painted again");
+        assert_eq!(again.digest, first.digest);
+        // Somewhere along it the deck moves on: a frame drawn otherwise is painted.
+        let frames = plan["frames"].as_u64().unwrap();
+        let moved = (1..frames)
+            .map(|k| s.movie_frame(10, k, 160, Some(&first.digest)).unwrap())
+            .find(|f| f.digest != first.digest);
+        assert!(moved.is_some_and(|f| f.raster.is_some()), "a frame drawn otherwise is painted");
+        let past = s.movie_frame(10, frames, 160, None).err().expect("no frame past the last");
+        assert!(past.to_string().contains("frames"), "{past}");
+        assert!(s.movie(0).is_err(), "no movie of 0 frames a second");
     }
 
     use super::*;
@@ -4730,6 +4851,84 @@ mod tests {
         assert!(s.carets("revenue", "note").unwrap().unwrap().code.is_none());
     }
 
+    /// A walkthrough (PLAN 2.140): Walk Through Lines… adds a step for each range after the first,
+    /// from the whole block to the whole block, in one patch, each gliding in at `slow`, and every
+    /// state after them resolving as before; Focus on These Lines and Clear Focus set the state
+    /// shown's alone, the step after it as it was; a line the code lacks is refused in a sentence;
+    /// and the deck before the patch is the deck again (the editor's undo).
+    #[cfg(feature = "editor")]
+    #[test]
+    fn a_walkthrough_adds_a_step_for_each_range_and_keeps_the_states_after_it() {
+        use serde_json::json;
+        let by = || assistant::Caller { author: "user", at: None };
+        let mut s = revenue();
+        let taken = |s: &mut Session, patch: &[serde_json::Value]| {
+            let called = s.tool("deck_patch", json!({ "ops": patch }), by());
+            assert!(called.as_ref().is_ok_and(|c| c.edited), "{patch:?}: {:?}", called.map(|c| c.result));
+        };
+        let made = s.coding("note", Some("plain")).unwrap();
+        taken(&mut s, &made);
+        taken(&mut s, &[json!({ "op": "replace", "path": "/nodes/note/text", "value": "a\nb\nc\nd\ne" })]);
+        let shown = |s: &Session| -> Vec<(String, Option<serde_json::Value>)> {
+            let snaps = scaena_core::resolve_states(&s.deck).unwrap();
+            snaps.iter().map(|snap| (snap.state_id.clone(), snap.nodes.get("note").map(|p| json!(p)))).collect()
+        };
+        let focus = |s: &Session, state: &str| -> serde_json::Value {
+            let snaps = scaena_core::resolve_states(&s.deck).unwrap();
+            let snap = snaps.iter().find(|x| x.state_id == state).unwrap();
+            snap.nodes["note"].get("code").and_then(|c| c.get("focus")).cloned().unwrap_or(json!(null))
+        };
+        let before = s.deck.clone();
+        let was = shown(&s);
+        // Walk Through Lines…: the whole block, 2–3, 5, the whole block again.
+        let steps: Vec<String> = ["1–5", "2–3", "5", "1–5"].map(String::from).to_vec();
+        let walk = s.walking("revenue", "note", &steps).unwrap();
+        let added: Vec<&serde_json::Value> = walk.iter().filter(|op| op["op"] == "add_state").collect();
+        assert_eq!(added.len(), 3, "a step for each range after the first: {walk:#?}");
+        assert!(added.iter().all(|op| op["state"]["transition"] == "slow" && op["state"]["slide"] == "revenue"));
+        taken(&mut s, &walk);
+        let ids: Vec<String> = added.iter().map(|op| op["state"]["id"].as_str().unwrap().to_string()).collect();
+        assert_eq!(focus(&s, "revenue"), json!(null), "the whole block first");
+        assert_eq!(focus(&s, &ids[0]), json!([[2, 3]]));
+        assert_eq!(focus(&s, &ids[1]), json!([5]));
+        assert_eq!(focus(&s, &ids[2]), json!(null), "and the whole block last");
+        let now = shown(&s);
+        for (id, props) in &was {
+            assert_eq!(now.iter().find(|(n, _)| n == id).map(|(_, p)| p), Some(props), "`{id}` as it was");
+        }
+        // The editor's undo: the deck before the patch.
+        s.set_deck(before.clone());
+        assert_eq!(serde_json::to_value(&s.deck).unwrap(), serde_json::to_value(&before).unwrap());
+        // Focus on These Lines: `revenue`'s alone; `mix`, a step that tracks it, as it was.
+        let focusing = s.focusing("revenue", "note", "2 – 4").unwrap();
+        taken(&mut s, &focusing);
+        assert_eq!(focus(&s, "revenue"), json!([[2, 4]]));
+        assert_eq!(
+            shown(&s),
+            was.iter()
+                .map(|(id, p)| {
+                    let mut p = p.clone();
+                    if id == "revenue" {
+                        p.as_mut().unwrap()["code"]["focus"] = json!([[2, 4]]);
+                    }
+                    (id.clone(), p)
+                })
+                .collect::<Vec<_>>()
+        );
+        assert!(s.focusing("revenue", "note", "2–4").unwrap().is_empty(), "shown so already");
+        // Clear Focus: every line again, and the states after it as they were.
+        let clear = s.focusing("revenue", "note", "").unwrap();
+        taken(&mut s, &clear);
+        assert_eq!(focus(&s, "revenue"), json!(null));
+        assert_eq!(shown(&s), was);
+        // What the code does not have is said in a sentence.
+        let lacks = s.focusing("revenue", "note", "9").unwrap_err().to_string();
+        assert!(lacks.contains("The code has no line 9: its lines are 1 to 5"), "{lacks}");
+        let lacks = s.walking("revenue", "note", &["1–5".into(), "6".into()]).unwrap_err().to_string();
+        assert!(lacks.contains("Step 2: The code has no line 6"), "{lacks}");
+        assert!(s.focusing("revenue", "title", "1").is_err(), "no code");
+    }
+
     /// A key in a code text (PLAN 2.139), by its UTF-16 offsets as a page and Swift count them.
     #[test]
     fn a_code_key_counts_utf16_as_a_page_does() {
@@ -6026,7 +6225,7 @@ mod tests {
         s.set_deck(rename(&s.deck, "assets/copy.png", "assets/absent.png"));
         let err = s.frame("images", f64::INFINITY).unwrap_err();
         assert!(matches!(&err, Error::Missing(p) if p == "assets/absent.png"), "{err}");
-        assert_eq!(s.states().len(), 71);
+        assert_eq!(s.states().len(), 72);
     }
 
     /// A pen's drawing and an icon are each a path on a view (PLAN 2.104, 2.114): the drawing,

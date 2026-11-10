@@ -47,6 +47,10 @@ pub struct ScaenaSession(Session);
 /// of its own (PLAN 4.13): [`scaena_laying_new`].
 pub struct ScaenaLaying(scaena_session::editor::Laying);
 
+/// A cue laid out ahead on a [`ScaenaLaying`] ([`scaena_laying_cue`]), until the session takes it
+/// ([`scaena_cue_laid`]).
+pub struct ScaenaCue(Option<scaena_session::editor::Cue>);
+
 /// A bundle's files, gathered to open it.
 pub struct ScaenaFiles(BTreeMap<String, Vec<u8>>);
 
@@ -113,7 +117,7 @@ const DEEP: usize = 16 << 20;
 /// the caller's own is left: a call of the session's has the room any deck takes to lay out,
 /// whichever thread Swift calls from, and stays on that thread, so what core keeps per thread
 /// (the theme checked, `validate::CHECKED`) is kept from call to call.
-fn deep<T>(f: impl FnOnce() -> T) -> T {
+pub(crate) fn deep<T>(f: impl FnOnce() -> T) -> T {
     stacker::maybe_grow(ROOM, DEEP, f)
 }
 
@@ -351,7 +355,9 @@ pub unsafe extern "C" fn scaena_laying_new(session: *mut ScaenaSession) -> *mut 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn scaena_laying_lay(laying: *mut ScaenaLaying) -> bool {
     guarded(|| {
-        unsafe { handle(laying, "laying") }?.0.lay();
+        // On the stack any deck takes to lay out, whichever thread calls (lift-up 20261031 STAB-1).
+        let laying = unsafe { handle(laying, "laying") }?;
+        deep(|| laying.0.lay());
         Ok(())
     })
     .is_ok()
@@ -428,6 +434,66 @@ pub unsafe extern "C" fn scaena_laying_pixels(
             unsafe { report(error, failure) };
             ScaenaPixels { bytes: ScaenaBytes::NONE, width: 0, height: 0 }
         }
+    }
+}
+
+/// The cue into `state` in `format`, one of the deck's formats, or its own canvas where null, laid
+/// out ahead from `laying`'s deck as `prepare` lays it out, on the thread that calls it, which
+/// touches no session: a show's next cue laid out while the state shown rests, away from the
+/// window, which [`scaena_cue_laid`] hands the session (lift-up 10-25b PERF-5). Null where it
+/// cannot be laid out, `*error` then saying why. Free with [`scaena_cue_free`].
+///
+/// # Safety
+/// `laying` is a live handle from [`scaena_laying_new`], used by one thread at a time; `format`
+/// null or a NUL-terminated string; `state` one; `error` null or writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn scaena_laying_cue(
+    laying: *mut ScaenaLaying,
+    format: *const c_char,
+    state: *const c_char,
+    error: *mut *mut c_char,
+) -> *mut ScaenaCue {
+    let laid = guarded(|| {
+        let laying = unsafe { handle(laying, "laying") }?;
+        let format = unsafe { maybe_text(format, "format") }?;
+        let state = unsafe { text(state, "state") }?;
+        deep(|| laying.0.cue(format, state)).map_err(said)
+    });
+    match laid {
+        Ok(cue) => Box::into_raw(Box::new(ScaenaCue(Some(cue)))),
+        Err(failure) => {
+            unsafe { report(error, failure) };
+            std::ptr::null_mut()
+        }
+    }
+}
+
+/// Hand `session` the cue `cue` holds, as the one its next frames into that state sample, laying
+/// nothing out: false where the deck shown or its format changed after it was laid out from it,
+/// that cue is kept already, or `cue` was handed over before. `cue` is still freed after.
+///
+/// # Safety
+/// `session` is a live handle, on the session's thread; `cue` a live one from
+/// [`scaena_laying_cue`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn scaena_cue_laid(session: *mut ScaenaSession, cue: *mut ScaenaCue) -> bool {
+    guarded(|| {
+        let session = unsafe { handle(session, "session") }?;
+        let cue = unsafe { handle(cue, "cue") }?;
+        Ok(cue.0.take().is_some_and(|cue| session.0.cue_laid(cue)))
+    })
+    .unwrap_or(false)
+}
+
+/// Free a cue.
+///
+/// # Safety
+/// `cue` is a live handle from [`scaena_laying_cue`], or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn scaena_cue_free(cue: *mut ScaenaCue) {
+    if !cue.is_null() {
+        // SAFETY: the caller gives a handle this library made and has not freed.
+        drop(unsafe { Box::from_raw(cue) });
     }
 }
 
@@ -1092,6 +1158,13 @@ pub struct ScaenaSurface {
     painter: scaena_paint::gpu::LayerPainter,
 }
 
+/// Whether this library carries the web player a single-file export is made from (`scaena_export`'s
+/// `html`): only one built after `just web` does, as only such a `scaena` exports `--format html`.
+#[unsafe(no_mangle)]
+pub extern "C" fn scaena_carries_player() -> bool {
+    scaena_export::html::player().is_some()
+}
+
 /// Make the GPU every surface paints with, if it is not made yet: what the app calls as it starts,
 /// off its main thread, so that the first deck it opens shows its first frame without waiting for
 /// it (gate 3). A surface made meanwhile waits for it. False where none can be made, as on any
@@ -1284,7 +1357,10 @@ pub unsafe extern "C" fn scaena_surface_free(surface: *mut ScaenaSurface) {
 /// painter that wide, as the editor's PNG export paints it; or `slides`, `args` `{width, name}`,
 /// every slide once its steps have played, as PNGs that wide in one zip, each `{name} - Slide
 /// 3.png` (PLAN 2.122); or `version`, the same as `png` of the version `viewVersion` shows (PLAN
-/// 3.15). Null bytes where it cannot be made, `*error` then saying why.
+/// 3.15); or `html`, `args` `{name, notes}`, the deck as one file that plays offline, named `name`,
+/// as `export --format html` writes it, the presenter's notes kept only with `notes: true`, made
+/// only by a library that carries the web player ([`scaena_carries_player`]). Null bytes where it
+/// cannot be made, `*error` then saying why.
 ///
 /// # Safety
 /// `session` is a live handle; `format` a NUL-terminated string; `args` one, or null; `error`
@@ -1345,7 +1421,24 @@ pub unsafe extern "C" fn scaena_export(
                     .ok_or_else(|| said("version: `width` is a number of pixels, 1 to 16384"))?;
                 session.0.version_png(state, width).map_err(said)
             }
-            _ => Err(said(format!("`{format}` is not an export this library makes: pdf, png, slides, or version"))),
+            // One file that plays offline (lift-up 20261031 FUNC-3), as `export --format html` writes it.
+            "html" => {
+                let page = scaena_export::html::player().ok_or_else(|| {
+                    said(
+                        "html: this Scaena was built without the web player a single file carries: build it after \
+                         `just web`",
+                    )
+                })?;
+                let name = args.get("name").and_then(Value::as_str).unwrap_or("Deck");
+                let notes = match args.get("notes").and_then(Value::as_bool).unwrap_or(false) {
+                    true => scaena_ops::export::Notes::Keep,
+                    false => scaena_ops::export::Notes::Drop,
+                };
+                session.0.standalone(page, name, notes).map(String::into_bytes).map_err(said)
+            }
+            _ => {
+                Err(said(format!("`{format}` is not an export this library makes: pdf, png, slides, html, or version")))
+            }
         }
     });
     match made {
@@ -1706,6 +1799,7 @@ fn call(s: &mut Session, method: &str, args: &Value) -> Result<Value, Failure> {
     };
     Ok(match method {
         "states" => json!(s.states()),
+        "title" => json!(s.title()),
         "formats" => json!(s.formats()),
         "sizes" => json!(s.sizes()),
         "setFormat" => {
@@ -1754,6 +1848,13 @@ fn call(s: &mut Session, method: &str, args: &Value) -> Result<Value, Failure> {
             let ops = patch_of(args.get("ops"), method)?.ok_or_else(|| said("typed: `ops` is a list it needs"))?;
             let at = optional("at").and_then(scaena_session::store::seconds);
             json!(s.typed(&Value::Array(ops), at).map_err(said)?)
+        }
+        // The same, and the deck's source and timeline after it, written out but not compiled: null
+        // where it changed nothing (lift-up 10-25b PERF-2).
+        "typing" => {
+            let ops = patch_of(args.get("ops"), method)?.ok_or_else(|| said("typing: `ops` is a list it needs"))?;
+            let at = optional("at").and_then(scaena_session::store::seconds);
+            json!(s.typing(&Value::Array(ops), at).map_err(said)?)
         }
         // The beats whose claim a slide said in the deck `before` (the source as a burst of
         // typing began) compiles to and says no longer now, each with its fix (lift-up FUNC-2).

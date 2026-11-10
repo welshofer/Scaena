@@ -48,6 +48,7 @@ mod css;
 mod detect;
 mod diff;
 mod dockerfile;
+pub mod focus;
 mod generic;
 mod graphql;
 mod hcl;
