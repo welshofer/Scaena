@@ -921,13 +921,14 @@ async function edit(source: Source, opened?: Stage, recovering = false) {
         describes,
         drawSelection(),
         highlightActiveLine(),
-        // With nothing left to undo or redo, the source pane says so, as the canvas does.
+        // With nothing left to undo or redo, the source pane says so, as the canvas does: the
+        // history's own keys, each as CodeMirror binds it, running `back` (editor dogfood 5).
         keymap.of([
-          { key: "Mod-z", run: () => (back(), true), preventDefault: true },
-          { key: "Mod-y", mac: "Mod-Shift-z", run: () => (back(true), true), preventDefault: true },
-          { linux: "Ctrl-Shift-z", run: () => (back(true), true), preventDefault: true },
+          ...defaultKeymap,
+          ...historyKeymap.map((b) => (b.run === undo ? { ...b, run: () => (back(), true) } : b.run === redo ? { ...b, run: () => (back(true), true) } : b)),
+          ...findingKeys,
+          indentWithTab,
         ]),
-        keymap.of([...defaultKeymap, ...historyKeymap, ...findingKeys, indentWithTab]),
         // Named for a screen reader, and in the tab order by its own attribute: Tab indents,
         // so Escape then Tab leaves it.
         EditorView.contentAttributes.of({ "aria-label": "The deck's source", tabindex: "0" }),

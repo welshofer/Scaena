@@ -141,6 +141,12 @@ try {
   check(await says("Nothing to redo"), `and with nothing left, a redo says so: ${await status()}`);
   await undo();
   check(await back(original), "an undo takes it back again");
+  // In the source, ⌘⇧Z makes it again, as the history binds it: never an undo said "Nothing to undo".
+  await page.locator(".cm-content").focus();
+  await page.keyboard.press("Control+Shift+z");
+  check(await says(`Made again: ${did}`), `in the source, ⌘⇧Z makes it again: ${await status()}`);
+  await undo();
+  check(await back(original), "and an undo takes it back");
 
   // Zoom.
   await palette("zoom in");
