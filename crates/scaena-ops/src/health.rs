@@ -1425,13 +1425,17 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
     }
     if let Some(idea) = &big_idea {
         // The close is the deck's last run of closing slides, as the calm close reads it, with the
-        // slide just before it, where a talk lands its idea before the thanks (its thesis, its ask,
-        // its steps); else its last slide. A beat that ends the deck may begin well before its
-        // close, and a word or two of the idea a slide says in passing lands nothing (W1's dogfood 3).
+        // slide just before it where that slide is in the run's beat, where a talk lands its idea
+        // before the thanks (its thesis, its ask, its steps); else its last slide. A beat that ends
+        // the deck may begin well before its close, and a word or two of the idea a slide says in
+        // passing lands nothing (W1's dogfood 3); a slide of an earlier beat is that beat's, not
+        // the close's (dogfood 4).
         let last = read.len().checked_sub(1);
+        let beat = |i: usize| read[i].narrative_meta.as_ref().and_then(|m| m.beat_index);
         let mut run: Vec<usize> = (0..read.len()).filter(|&i| closing.contains(&read[i].id)).collect();
         if let Some(&first) = run.first()
             && first > 0
+            && beat(first - 1) == beat(first)
         {
             run.insert(0, first - 1);
         }
@@ -2667,17 +2671,42 @@ mod tests {
         let steps = &weak.slides[n - 2];
         assert!(!content_words(&steps.title).is_disjoint(&content_words(idea)), "{}", steps.title);
 
-        // The thesis that stands just before the close lands it, the steps between them taken out.
+        // The thesis that stands just before the close, in its beat, lands it, the steps between
+        // them taken out; left in the beat before, it is that beat's (dogfood 4).
         let fine = "Resilience is built by neighbors, not delivered to them";
         let found = |h: &Health| h.findings.iter().filter(|f| f.kind == Kind::BigIdea).count();
         let stepless = |slides: &mut Vec<answer::Slide>| {
             let at = slides.len() - 2;
             slides.remove(at);
         };
-        assert_eq!(found(&of(&dogfood("keynote", fine, stepless))), 0, "the thesis before the close lands it");
+        let closed = |slides: &mut Vec<answer::Slide>| {
+            stepless(slides);
+            let at = slides.len() - 2;
+            slides[at].beat_index = slides[at + 1].beat_index;
+            slides[at].beat_name = slides[at + 1].beat_name.clone();
+        };
+        assert_eq!(found(&of(&dogfood("keynote", fine, closed))), 0, "the thesis before the close lands it");
+        assert_eq!(found(&of(&dogfood("keynote", fine, stepless))), 1, "a thesis of the beat before is not the close");
         assert_eq!(found(&of(&dogfood("keynote", fine, |_| {}))), 1, "steps between them, the thesis is not the close");
         let said = |slides: &mut Vec<answer::Slide>| slides.last_mut().unwrap().slide_title = idea.into();
         assert_eq!(found(&of(&dogfood("keynote", idea, said))), 0, "a close that says it lands it");
+    }
+
+    /// The close takes the slide before its run only where that slide is in the run's beat
+    /// (W1's dogfood 4): the fleet pitch's proof chart, beat 4, stands before its closing, beat 5,
+    /// and is not read as the close; moved into the closing beat, it is.
+    #[test]
+    fn the_close_takes_the_slide_before_it_only_in_its_beat() {
+        let idea = "Ridgefleet pays for itself in a quarter by planning Northline's routes overnight.";
+        let says = |h: &Health| h.findings.iter().find(|f| f.kind == Kind::BigIdea).expect("a bare close").says.clone();
+        let alone = says(&of(&dogfood("fleet", idea, |_| {})));
+        assert!(alone.starts_with("The close, slide 10, never lands"), "{alone}");
+        let joined = |slides: &mut Vec<answer::Slide>| {
+            slides[8].beat_index = slides[9].beat_index;
+            slides[8].beat_name = slides[9].beat_name.clone();
+        };
+        let both = says(&of(&dogfood("fleet", idea, joined)));
+        assert!(both.starts_with("The close, slides 9\u{2013}10, never lands"), "{both}");
     }
 
     /// A close in another language is not read for the big idea (the coordinator's check on W1's
