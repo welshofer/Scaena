@@ -61,6 +61,10 @@ try {
     [...document.querySelectorAll("#story [data-legend] > span")].map((k) => ({ words: k.textContent.trim(), lines: new Set([...k.getClientRects()].map((r) => Math.round(r.top))).size })),
   );
   check(keys.length === 9 && keys.every((k) => k.lines === 1), `the legend's keys each stand on one line: ${JSON.stringify(keys.filter((k) => k.lines !== 1).map((k) => k.words))} of ${keys.length}`);
+  // Each in a person's words: a slide off the arc's curve, and one outside its part of the talk
+  // (W2's editor dogfood).
+  const legend = keys.map((k) => k.words);
+  check(legend.includes("off the curve") && legend.includes("outside its part of the talk"), `the legend says what a mark means in a person's words: ${JSON.stringify(legend)}`);
 
   const findings = await page.evaluate(() => window.scaena.story.health().findings);
   check(findings.length > 5, `the deck has more to look at than five: ${findings.length}`);
@@ -573,6 +577,36 @@ try {
     await page.keyboard.press("Control+z");
     await page.waitForFunction((w) => window.scaena.source() === w, was, { timeout: 30000, polling: 50 }).catch(() => {});
     check((await page.evaluate(() => window.scaena.source())) === was, "⌘Z takes the citation back in one step");
+    await page.close();
+  })();
+
+  // B1's slide 4 builds its 97 words a step at a time: its Show opens the last step, where health
+  // counted them, not the first, which draws a headline alone; a finding about the notes opens
+  // the first (W2's editor dogfood).
+  await (async () => {
+    const page = await context.newPage();
+    page.on("pageerror", (e) => failures.push(`page: ${e.message}`));
+    await page.goto(`${server.origin}/web/dist/editor.html?painter=cpu&bundle=/tests/bench/b1.scaena`);
+    await page.waitForFunction(() => window.scaena?.last(), null, { timeout: 120000 });
+    await tab(page, "story");
+    await page.waitForFunction(() => window.scaena.story.health()?.findings.some((f) => f.kind === "dense"), null, { timeout: 120000 }).catch(() => {});
+    const dense = await page.evaluate(() => window.scaena.story.health()?.findings.find((f) => f.kind === "dense"));
+    check(/shows \d+ words/.test(dense?.says ?? ""), `a slide shows more words than a room reads: ${dense?.says}`);
+    const steps = await page.evaluate(
+      (first) => window.scaena.last().slots.filter((s) => (s.slide ?? s.state) === first).map((s) => window.scaena.last().states.findIndex(([id]) => id === s.state)),
+      dense.state,
+    );
+    check(steps.length > 1, `it builds in steps: ${JSON.stringify(steps)}`);
+    await page.click("#story [data-more] summary").catch(() => {});
+    await page.click(`#story [data-findings] li[data-slide="${dense.slide}"] [data-show]`);
+    await page.waitForFunction((k) => window.scaena.shown() === k, steps.at(-1), { timeout: 30000 }).catch(() => {});
+    check((await page.evaluate(() => window.scaena.shown())) === steps.at(-1), `Show opens its last step, where the words are: ${await page.evaluate(() => window.scaena.shown())} of ${JSON.stringify(steps)}`);
+    // A turn is answered in the slide's notes, which its first step opens.
+    const turn = await page.evaluate(() => window.scaena.story.health().findings.find((f) => f.kind === "turn" && f.slide === 12));
+    const first = await page.evaluate((id) => window.scaena.last().states.findIndex(([s]) => s === id), turn?.state);
+    await page.click(`#story [data-findings] li[data-slide="12"] [data-show]`);
+    await page.waitForFunction((k) => window.scaena.shown() === k, first, { timeout: 30000 }).catch(() => {});
+    check(first > 0 && (await page.evaluate(() => window.scaena.shown())) === first, `a turn's Show opens its slide's first step, where its notes are written: ${await page.evaluate(() => window.scaena.shown())}, ${first}`);
     await page.close();
   })();
 } catch (e) {

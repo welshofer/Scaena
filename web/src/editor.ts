@@ -1523,6 +1523,7 @@ async function edit(source: Source, opened?: Stage, recovering = false) {
       void writing.offer({ kind: "claim", state });
     },
     show: showState,
+    lastStep: (slide) => (taken?.edited ?? last)?.slots?.findLast((s) => (s.slide ?? s.state) === slide)?.state ?? slide,
     make: async (ops, done) => {
       // Held while the assistant has the deck, saying why, as the Mac's Story says it (lift-up
       // 20261110 deferred): the fix is not lost, only not made yet.
