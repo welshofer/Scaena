@@ -2414,7 +2414,8 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     if (!shown) return editor.say(WAITING);
     try {
       const text = offered[n]?.node.type === "text";
-      const added = await stage.inserting(editor.source(), shown.state, n, landing(), editor.format(), named, with_);
+      // With no pointer pressed, the session aims it at the slide's words (editor dogfood 5).
+      const added = await stage.inserting(editor.source(), shown.state, n, pointed ? landing() : null, editor.format(), named, with_);
       const made = await change(added.patch, "Inserting…", `${sentence(label)} inserted on this slide`, added.id);
       if (made && text && selected === added.id) await type(added.id, undefined, false, true);
     } catch (e) {

@@ -1683,7 +1683,14 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         if unspaced || claim.is_empty() || of.is_empty() || shares(claim, &of) != Some(false) {
             continue;
         }
-        let part = if name.is_empty() { format!("beat {}", k + 1) } else { name.clone() };
+        // The beat is named once, in what the finding says, as a part of the talk, so a beat
+        // named as a heading ("Call to Action") never reads as a title over its claim (W1's
+        // dogfood 6); the ask says "this part".
+        let part = if name.is_empty() {
+            format!("part {} of the talk", k + 1)
+        } else {
+            format!("the {name} part of the talk")
+        };
         let claim = unstopped(claim);
         let slides = spanned(&of);
         let (does, carry) = if of.len() > 1 { ("say", "they carry") } else { ("says", "it carries") };
@@ -1693,9 +1700,9 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
             &read[of[0]].id,
             Severity::Warning,
             Kind::Claim,
-            format!("{said} {does} nothing of the claim settled for {part}: \u{201c}{claim}\u{201d}"),
+            format!("{said} {does} nothing of the claim settled for {part}, \u{201c}{claim}\u{201d}."),
             format!(
-                "Check the claim: the outline settled that the {part} part of the talk leaves the audience believing \u{201c}{claim}\u{201d}. Rewrite {slides} so {carry} it, or tell me what to settle instead."
+                "Check the claim: the outline settled that this part of the talk leaves the audience believing \u{201c}{claim}\u{201d}. Rewrite {slides} so {carry} it, or tell me what to settle instead."
             ),
             None,
         );
@@ -3587,12 +3594,16 @@ mod tests {
             missed.findings
         );
         let claim = missed.findings.iter().find(|f| f.kind == Kind::Claim).unwrap();
+        // The beat named once, as a part of the talk, never as a heading over its claim.
         assert!(
-            claim.says.contains(&second) && claim.says.ends_with("\u{201c}Penguins juggle marmalade quietly\u{201d}"),
+            claim.says.ends_with(&format!(
+                "settled for the {second} part of the talk, \u{201c}Penguins juggle marmalade quietly\u{201d}."
+            )),
             "{}",
             claim.says
         );
-        assert!(claim.ask.starts_with("Check the claim:"), "{}", claim.ask);
+        assert!(claim.ask.starts_with("Check the claim: the outline settled that this part"), "{}", claim.ask);
+        assert!(!claim.ask.contains(&second), "{}", claim.ask);
         // A claim settled with its stop is quoted without it, so no sentence ends twice.
         assert!(claim.ask.contains("\u{201c}Penguins juggle marmalade quietly\u{201d}. Rewrite"), "{}", claim.ask);
         let big = missed.findings.iter().find(|f| f.kind == Kind::BigIdea).unwrap();
