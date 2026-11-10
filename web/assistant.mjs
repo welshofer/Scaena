@@ -304,8 +304,9 @@ try {
   /** The editor on the bundle, in a browser of its own: the page before it left the assistant's
    * edits not saved, and a page that opened the deck again beside it would be offered them first
    * (lift-up REL-4). */
-  const open = async () => {
+  const open = async (routed) => {
     const context = await browser.newContext({ viewport: { width: 1600, height: 1000 }, deviceScaleFactor: 1 });
+    if (routed) await routed(context);
     const page = await context.newPage();
     page.on("pageerror", (e) => failures.push(`page: ${e.message}`));
     page.on("console", (m) => m.type() === "error" && !/Failed to load resource/.test(m.text()) && failures.push(`console: ${m.text()}`));
@@ -337,7 +338,13 @@ try {
   for (const id of ["anthropic", "openai", "gemini"]) {
     const wire = WIRE[id];
     const scripted = await provider(wire);
-    const page = await open();
+    // With Gemini, the assistant's resources module fails to load the first time it is fetched, as a
+    // network gone for a moment does: that question fails, and the next loads it again.
+    let unloaded = 0;
+    const page = await open(
+      id === "gemini" &&
+        ((context) => context.route(/scaena_resources_bg[^/]*\.wasm$/, (route) => (unloaded++ === 0 ? route.abort() : route.continue()))),
+    );
     const before = await page.evaluate(() => window.scaena.source());
     const model = await choose(page, id, scripted.origin, `${id}-test-key`);
     check(model === "scripted", `${id}: the models the key can use are listed (${model})`);
@@ -354,8 +361,12 @@ try {
       offered.shown && offered.asks[0] === "Make this talk stronger" && offered.asks.at(-1) === "Check every slide says its claim",
       `${id}: an empty conversation offers ways to begin: ${JSON.stringify(offered)}`,
     );
+    if (id === "gemini") {
+      const unread = await page.evaluate(() => window.scaena.assistant.ask("Put the trail headline on the slide, fix what lint finds, and show me."));
+      check(unread.kind === "failed" && unloaded === 1, `${id}: a question asked while the resources do not load fails: ${JSON.stringify(unread)}, ${unloaded} fetched`);
+    }
     const done = await page.evaluate(() => window.scaena.assistant.ask("Put the trail headline on the slide, fix what lint finds, and show me."));
-    check(done.kind === "done" && done.stop === "end", `${id}: the question is answered (${JSON.stringify(done)})`);
+    check(done.kind === "done" && done.stop === "end", `${id}: the question is answered (${JSON.stringify(done)})${id === "gemini" ? ", the resources loaded again" : ""}`);
     check(!(await starters()).shown, `${id}: and once one is asked, the ways to begin go`);
     const { requests } = scripted;
     check(requests.length === SCRIPT.length + 1, `${id}: one request a turn: ${requests.length}`);

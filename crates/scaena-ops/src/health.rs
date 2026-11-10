@@ -1194,14 +1194,20 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         let Some(&i) = place.get(g.slide_id.as_str()) else { continue };
         let k = i + 1;
         let (declared, detected) = (signed(g.declared), signed(g.detected));
+        // The words the reading was made of (W1's dogfood 3): a writer warming a slide moves
+        // its tone only with words the lexicon reads, so the ask names them.
+        let heard = health::valence::heard(&read[i].text(), language).unwrap_or_default();
+        let named = toned(&heard);
         let (says, ask) = match g.gap > 0.0 {
             true => (
                 format!("Slide {k} reads graver than it was written to be."),
-                format!("Warm slide {k}'s words toward the tone it declares ({declared}); they read {detected}."),
+                format!(
+                    "Warm slide {k}'s words toward the tone it declares ({declared}); they read {detected}.{named}"
+                ),
             ),
             false => (
                 format!("Slide {k} reads more hopeful than it was written to be."),
-                format!("Ground slide {k}'s words in the tone it declares ({declared}); they read {detected}."),
+                format!("Ground slide {k}'s words in the tone it declares ({declared}); they read {detected}.{named}"),
             ),
         };
         // No fix: the plan's tone is the arc's, which the words are to carry, not follow.
@@ -1285,6 +1291,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
             continue;
         }
         let part = if name.is_empty() { format!("beat {}", k + 1) } else { name.clone() };
+        let claim = unstopped(claim);
         let slides = spanned(&of);
         let (does, carry) = if of.len() > 1 { ("say", "they carry") } else { ("says", "it carries") };
         let mut said = slides.clone();
@@ -1327,6 +1334,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         // not read for the big idea, and says so, rather than passing or failing on words split
         // where its letters leave ASCII ("schließt") and joining words counted as telling.
         let named = language.filter(|_| !english).map(|l| language_named(l).unwrap_or_else(|| l.to_string()));
+        let quoted = unstopped(idea);
         if let (Some(name), Some(of)) = (named, closes.as_ref()) {
             let slides = spanned(of);
             find(
@@ -1337,7 +1345,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
                     "The close, {slides}, is not read for the big idea: health reads it only in English, and this deck is in {name}."
                 ),
                 format!(
-                    "The big idea is \u{201c}{idea}\u{201d}. Read the closing {slides} against it: say whether they land it, and what to change if not."
+                    "The big idea is \u{201c}{quoted}\u{201d}. Read the closing {slides} against it: say whether they land it, and what to change if not."
                 ),
                 None,
             );
@@ -1347,9 +1355,9 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
                 &read[of[0]].id,
                 Severity::Warning,
                 Kind::BigIdea,
-                format!("The close, {slides}, never lands the big idea: \u{201c}{idea}\u{201d}"),
+                format!("The close, {slides}, never lands the big idea: \u{201c}{quoted}\u{201d}"),
                 format!(
-                    "The big idea is \u{201c}{idea}\u{201d}. Rewrite the closing {slides} so the talk ends by landing it."
+                    "The big idea is \u{201c}{quoted}\u{201d}. Rewrite the closing {slides} so the talk ends by landing it."
                 ),
                 None,
             );
@@ -1639,6 +1647,48 @@ fn content_words(text: &str) -> std::collections::BTreeSet<String> {
         .filter(|w| w.chars().count() > 3 && w.chars().any(char::is_alphabetic) && !w.chars().any(unspaced))
         .map(str::to_string)
         .collect()
+}
+
+/// `sentence` as a finding quotes it in the middle of one of its own: without its closing stop, so
+/// the sentence after the quote reads "…already are”. Rewrite", never "…already are.”. Rewrite"
+/// (W1's dogfood 3 and 4). A question or an exclamation keeps its mark, which says how it reads.
+fn unstopped(sentence: &str) -> &str {
+    sentence.trim_end().trim_end_matches('.').trim_end()
+}
+
+/// The most words a tone ask names on either side.
+const TONED: usize = 4;
+
+/// The words a tone was read from, as a sentence a tone ask ends with: those read as grave, the
+/// gravest first, and those read as hopeful, each at most [`TONED`] and named once, and which side
+/// reads none ("Health reads “missed” and “outage” as grave, and no word as hopeful."). Nothing
+/// where no word was read.
+fn toned(heard: &[(String, f64)]) -> String {
+    let side = |grave: bool| -> Vec<String> {
+        let mut words: Vec<&(String, f64)> = heard.iter().filter(|(_, w)| (*w < 0.0) == grave && *w != 0.0).collect();
+        // Weightiest first; the sort is stable, so a tie keeps the order the words stand in.
+        scaena_core::sort::by(&mut words, |a, b| b.1.abs().total_cmp(&a.1.abs()));
+        let mut out: Vec<String> = Vec::new();
+        for (w, _) in words {
+            let quoted = format!("\u{201c}{w}\u{201d}");
+            if !out.contains(&quoted) && out.len() < TONED {
+                out.push(quoted);
+            }
+        }
+        out
+    };
+    let list = |ws: &[String]| match ws {
+        [] => String::new(),
+        [one] => one.clone(),
+        [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
+    };
+    let (grave, hopeful) = (side(true), side(false));
+    match (grave.is_empty(), hopeful.is_empty()) {
+        (true, true) => String::new(),
+        (false, true) => format!(" Health reads {} as grave, and no word as hopeful.", list(&grave)),
+        (true, false) => format!(" Health reads {} as hopeful, and no word as grave.", list(&hopeful)),
+        (false, false) => format!(" Health reads {} as grave, and {} as hopeful.", list(&grave), list(&hopeful)),
+    }
 }
 
 /// A letter of a script that sets no space between its words, Han, kana, Hangul, or Thai: a
@@ -2271,6 +2321,26 @@ mod tests {
         deck
     }
 
+    /// A tone ask names the words the tone was read from (W1's dogfood 3): the keynote's eighth
+    /// slide, hopeful by plan, reads graver for its outages; its headline warmed with "love" and
+    /// "missed" reads graver still, since the lexicon reads "missed" as grave and not "love".
+    /// The ask says so, and the reading is the same as before it named them.
+    #[test]
+    fn a_tone_ask_names_the_words_the_tone_was_read_from() {
+        let warmed = |slides: &mut Vec<answer::Slide>| {
+            slides[7].slide_title = "We love the harbor we almost missed".into();
+        };
+        let h = of(&dogfood("keynote", "", warmed));
+        let tone = h.findings.iter().find(|f| f.kind == Kind::Tone && f.slide == 8).expect("slide 8 reads graver");
+        assert!(tone.ask.starts_with("Warm slide 8's words toward the tone it declares"), "{}", tone.ask);
+        assert!(tone.ask.contains(" Health reads \u{201c}outages\u{201d}"), "{}", tone.ask);
+        assert!(tone.ask.contains("\u{201c}missed\u{201d}") && tone.ask.contains(" as grave"), "{}", tone.ask);
+        assert!(!tone.ask.contains("\u{201c}love\u{201d}"), "the lexicon does not read \"love\": {}", tone.ask);
+        // Named or not, the reading is the lexicon's: slide 8's tone is what valence reads.
+        let read = h.slides[7].tone_read.unwrap();
+        assert!(tone.ask.contains(&signed(read)), "{} reads {read}", tone.ask);
+    }
+
     /// A close lands the big idea by what it is about, not by a word it says in passing (W1's
     /// dogfood 3): the keynote's close weakened to "Thank you" and "Questions?" is found never
     /// landing it, though the slide before it, and the rest of the last beat's, share words with
@@ -2287,6 +2357,12 @@ mod tests {
         let weak = of(&dogfood("keynote", idea, thanked));
         let n = weak.slides.len();
         let big = weak.findings.iter().find(|f| f.kind == Kind::BigIdea).expect("a close of thanks lands nothing");
+        // An idea that ends in a stop is quoted without it, so no sentence ends twice.
+        let stopped = of(&dogfood("keynote", &format!("{idea}."), thanked));
+        let ended = stopped.findings.iter().find(|f| f.kind == Kind::BigIdea).unwrap();
+        assert!(ended.says.ends_with(&format!("\u{201c}{idea}\u{201d}")), "{}", ended.says);
+        assert!(ended.ask.starts_with(&format!("The big idea is \u{201c}{idea}\u{201d}. Rewrite")), "{}", ended.ask);
+        assert_eq!(stopped.big_idea.as_deref(), Some(format!("{idea}.").as_str()), "the idea itself is as settled");
         let close = format!("The close, slides {}\u{2013}{n}, never lands", n - 1);
         assert!(big.says.starts_with(&close), "{}", big.says);
         // The last beat's slide before the close shares a word with it, which the rule before
@@ -2385,7 +2461,7 @@ mod tests {
         assert_eq!(carried.big_idea.as_deref(), Some(h.slides[close].title.as_str()));
 
         let second = h.beats[1].clone();
-        deck["meta"]["narrative"]["outline"]["beats"][1]["claim"] = json!("Penguins juggle marmalade quietly");
+        deck["meta"]["narrative"]["outline"]["beats"][1]["claim"] = json!("Penguins juggle marmalade quietly.");
         deck["meta"]["narrative"]["outline"]["bigIdea"] = json!("Zebras orchestrate symphonies underwater");
         let missed = of(&deck);
         assert_eq!(
@@ -2402,6 +2478,8 @@ mod tests {
             claim.says
         );
         assert!(claim.ask.starts_with("Check the claim:"), "{}", claim.ask);
+        // A claim settled with its stop is quoted without it, so no sentence ends twice.
+        assert!(claim.ask.contains("\u{201c}Penguins juggle marmalade quietly\u{201d}. Rewrite"), "{}", claim.ask);
         let big = missed.findings.iter().find(|f| f.kind == Kind::BigIdea).unwrap();
         assert!(big.says.starts_with("The close, slide") && big.ask.starts_with("The big idea is"), "{big:?}");
         // A big idea in another script has no words to read by: nothing is found of it.

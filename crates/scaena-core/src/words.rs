@@ -1135,6 +1135,11 @@ pub struct Lexicon {
     /// names a source by these wherever it offers one or speaks of it: Insert's charts and tables,
     /// the rows a mark is drawn from, the file a source reads.
     pub sources: BTreeMap<String, String>,
+    /// How a slide's planned intensity, 0 calm to 1 intense, and its tone, -1 grave to 1 hopeful,
+    /// are said, each word from the least it says ([`INTENSITIES`], [`TONES`]): what the Story tab
+    /// says a figure of health's in (editor dogfood 3).
+    pub intensities: Vec<(f64, String)>,
+    pub tones: Vec<(f64, String)>,
 }
 
 /// Every type of node, in the format's order.
@@ -1225,7 +1230,23 @@ pub fn lexicon(deck: &Deck, theme: &Theme, state: &str) -> Result<Lexicon, Strin
     for (name, data) in &deck.data {
         sources.insert(name.clone(), source(name, data.source.as_str()));
     }
-    Ok(Lexicon { objects, kinds, names, motions, splits, shapes, places, weights, types, issues, sources })
+    let ladder = |l: &[(f64, &str)]| l.iter().map(|(at, said)| (*at, said.to_string())).collect();
+    let (intensities, tones) = (ladder(INTENSITIES), ladder(TONES));
+    Ok(Lexicon {
+        objects,
+        kinds,
+        names,
+        motions,
+        splits,
+        shapes,
+        places,
+        weights,
+        types,
+        issues,
+        sources,
+        intensities,
+        tones,
+    })
 }
 
 #[cfg(test)]
@@ -1427,6 +1448,9 @@ mod tests {
         // tables of it, the rows a mark is drawn from, the file it reads.
         let said = lexicon(&deck, &theme, "revenue").unwrap();
         assert_eq!(said.sources, BTreeMap::from([("q3".to_string(), "Q3 Revenue".to_string())]));
+        // And how a plan's intensity and tone are said, as the Story tab says health's figures.
+        assert_eq!((said.intensities.len(), said.tones.len()), (INTENSITIES.len(), TONES.len()));
+        assert_eq!((said.intensities[4].1.as_str(), said.tones[0].1.as_str()), ("Peak", "Grave"));
     }
 
     /// A polygon of the shape library is named as Insert names it (PLAN 2.106), wherever an editor

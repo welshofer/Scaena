@@ -389,7 +389,7 @@ struct WaitingButton: View {
         .font(font)
         .padding(.horizontal, across)
         .padding(.vertical, down)
-        .background(.thinMaterial, in: shape)
+        .floating(in: shape)
         .foregroundStyle(.secondary)
         .contentShape(shape)
         .fixedSize()
@@ -402,7 +402,7 @@ struct WaitingButton: View {
         return Image(systemName: symbol)
             .font(font)
             .padding(padding)
-            .background(.thinMaterial, in: Circle())
+            .floating(in: Circle())
             .foregroundStyle(.secondary)
             .contentShape(Circle())
     }

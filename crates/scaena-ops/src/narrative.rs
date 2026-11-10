@@ -2367,6 +2367,7 @@ fn assemble(
                     theme,
                     pictures.contains_key(&i),
                     icons.is_some(),
+                    lang.unwrap_or("en"),
                 ),
             };
             Planned { beat, items, icons, layout }
@@ -2655,10 +2656,11 @@ pub fn asking(narrative: &Narrative, theme: &Theme, look: Look) -> Vec<Asked> {
     let varied = varied(narrative);
     let identities: Vec<&str> = varied.iter().map(|v| v.layout.identity()).collect();
     let style = pictures::style(look, &palette(theme));
+    let lang = deck_lang(&narrative.brief).unwrap_or("en");
     (pictures::wanted(&identities).into_iter())
         .filter_map(|i| {
             let slide = &narrative.slides[i];
-            let layout = layout_for(identities[i], slide, &items(slide, &varied[i]), i, theme, true, false);
+            let layout = layout_for(identities[i], slide, &items(slide, &varied[i]), i, theme, true, false, lang);
             let slot =
                 theme.layouts.get(&layout)?.slots.values().find(|s| matches!(s.example, Some(Example::Picture(_))))?;
             let frame = frame_of(theme, slot);
@@ -2820,10 +2822,12 @@ impl Item {
         self.label.as_deref().is_some_and(numeric)
     }
 
-    /// Its figure: the label that is one, else the first in its detail.
+    /// Its figure: the label that is one, else its detail where that is a figure alone, its unit
+    /// and magnitude with it ("34 M€", dogfood pass 11), else the first in its detail.
     fn figure(&self) -> Option<String> {
         match &self.label {
             Some(label) if numeric(label) => Some(label.clone()),
+            Some(_) if numeric(&self.detail) => Some(self.detail.trim().to_string()),
             _ => figure(&self.detail),
         }
     }
@@ -3311,6 +3315,7 @@ fn meaning(items: &[Item], lang: &str) -> Option<String> {
 /// to its items, else a list of its bullets, else the first the theme has. A slide with a
 /// picture made for it takes the layout that shows its picture beside its words, where the
 /// library has one; one with none takes a layout that waits for none.
+#[allow(clippy::too_many_arguments)]
 fn layout_for(
     identity: &str,
     slide: &Slide,
@@ -3319,6 +3324,7 @@ fn layout_for(
     theme: &Theme,
     pictured: bool,
     iconed: bool,
+    lang: &str,
 ) -> String {
     let n = items.len();
     let chart = slide.chart_data.is_some();
@@ -3342,17 +3348,11 @@ fn layout_for(
         "closing" | "thanks" if pictured => "title-split",
         // A bare "Thank you" or "Questions?" that carries an ask: the ask its words, its address
         // the button. A closing that says something stays as it is said.
-        "closing" | "thanks" if bare(&slide.slide_title) && calling(slide, items).is_some() => "call-to-action",
+        "closing" | "thanks" if bare(&slide.slide_title) && calling(slide, items, lang).is_some() => "call-to-action",
         "closing" | "thanks" => "closing",
-        "body" if pictured => "bullets-photo",
-        "body" => "bullets",
-        "numbered" => "numbered",
-        "quote" => "quote",
-        "statement" => "statement",
-        "definition" => "definition",
-        "metric" if pictured => "number-photo",
-        "metric" => "big-number",
-        "scorecard" | "kpi-grid" => match n {
+        // Three or more items each a name and its figure alone ("Fonds vert : 34 M€"), written as a
+        // list, are figures a room reads at a glance, not a muted list (dogfood pass 11).
+        "scorecard" | "kpi-grid" | "body" if identity != "body" || (!pictured && tallied(items)) => match n {
             0..=2 => "two-numbers",
             // Three prices, each with its tier: a pricing slide.
             3 if priced(items) && theme.layouts.contains_key("pricing") => "pricing",
@@ -3363,6 +3363,14 @@ fn layout_for(
             4 => "scorecard",
             _ => "number-grid",
         },
+        "body" if pictured => "bullets-photo",
+        "body" => "bullets",
+        "numbered" => "numbered",
+        "quote" => "quote",
+        "statement" => "statement",
+        "definition" => "definition",
+        "metric" if pictured => "number-photo",
+        "metric" => "big-number",
         // Two bars of one series are two figures, each as large as the slide takes.
         "bar-chart" if two(slide) && theme.layouts.contains_key("two-figures") => "two-figures",
         "bar-chart" if chart => "bar-chart",
@@ -3567,14 +3575,27 @@ fn bare(title: &str) -> bool {
     !t.is_empty() && BARE.contains(&t.as_str())
 }
 
+/// Whether `items` are three or more names each with its figure alone, its name first ("Fonds vert
+/// de l'État : 34 M€", "Churn: 4.2%"): a tally a scorecard sets, never a list of points.
+fn tallied(items: &[Item]) -> bool {
+    items.len() >= 3
+        && items.iter().all(|i| {
+            i.label.as_deref().is_some_and(|l| !numeric(l)) && !i.detail.is_empty() && numeric(i.detail.trim())
+        })
+}
+
 /// What a bare closing asks of the room, and where: its subtitle and its items, an ask that
 /// starts with an asking verb (book, contact, sign up, join, give, donate, call, …) and an address
 /// (a site and its page, an email, or a phone number), either in one line or each its own. None
 /// where it has not both. The address is its line whole where the line holds nothing else, so a
 /// site and its phone number stay together on the button ("harborhouse.org/winter · (555)
-/// 014-2200", dogfood pass 7). The verbs are English: another language keeps its closing (lift-up
-/// ATTR-3).
-fn calling(slide: &Slide, items: &[Item]) -> Option<(String, String)> {
+/// 014-2200", dogfood pass 7). The verbs are English: a deck in another language (`lang`) keeps
+/// its closing (lift-up ATTR-3), so a French "Merci" over "Contact : …" stays "Merci", "contact"
+/// there a noun and no verb (dogfood pass 11).
+fn calling(slide: &Slide, items: &[Item], lang: &str) -> Option<(String, String)> {
+    if lang.split('-').next().is_none_or(|l| !l.eq_ignore_ascii_case("en")) {
+        return None;
+    }
     const ASKING: [&str; 22] = [
         "book",
         "contact",
@@ -4912,7 +4933,7 @@ impl Slots<'_> {
                 self.idea.map(str::to_string).or_else(|| self.title())
             }
             // A call to action's words: a bare closing's ask, not its thanks (lift-up ATTR-3).
-            "statement" if layout == "call-to-action" => calling(self.slide, self.items).map(|(ask, _)| ask),
+            "statement" if layout == "call-to-action" => calling(self.slide, self.items, self.lang).map(|(ask, _)| ask),
             "header" | "title" | "statement" | "claim" | "ask" | "question" | "term" | "headline" | "point"
             | "name" | "thanks" | "top" => self.title(),
             "subtitle" | "support" | "dek" | "follow" | "talk" | "lede" | "role" => {
@@ -4921,7 +4942,7 @@ impl Slots<'_> {
             "hub" => self.subtitle().or_else(|| self.title()),
             // A call to action's button: what it asks, as the slide says it (lift-up ATTR-3).
             // A call to action's button: a bare closing's address (lift-up ATTR-3).
-            "button" => calling(self.slide, self.items).map(|(_, address)| address),
+            "button" => calling(self.slide, self.items, self.lang).map(|(_, address)| address),
             "number" if matches!(layout, "section" | "section-photo") => self.section.map(|n| format!("{n:02}")),
             // A figure with its unit is set whole: "11 days", not "11".
             "number" => self.item(0).map(|i| match numeric(&i.whole) {
@@ -9124,6 +9145,24 @@ mod tests {
         assert!(mixed.iter().any(|(_, w)| w == "Saved per household each year"), "{mixed:#?}");
         // German keeps every case as written already.
         assert_eq!(continued("der Eilbestellungen", "de"), "der Eilbestellungen");
+        // Three or more names each with its figure alone, written as a list, are set as figures,
+        // each figure with its unit as written (dogfood pass 11); two, or one item that is not a
+        // figure, stay a list.
+        let tally = |bullets: &[&str]| {
+            made(
+                serde_json::json!({ "slideTitle": "How we fund $86M", "layoutSuggestion": "Bullet List",
+                    "keyBullets": bullets }),
+                "en",
+            )
+        };
+        let (layout, said) = tally(&["Green fund: $34M", "Low-rate loan: $30M", "Own funds: $22M"]);
+        assert_eq!(layout, "numbers", "{said:#?}");
+        for (figure, name) in [("$34M", "Green fund"), ("$30M", "Low-rate loan"), ("$22M", "Own funds")] {
+            assert!(said.iter().any(|(_, w)| w == figure), "{figure}: {said:#?}");
+            assert!(said.iter().any(|(_, w)| w == name), "{name}: {said:#?}");
+        }
+        assert_eq!(tally(&["Green fund: $34M", "Low-rate loan: $30M"]).0, "bullets");
+        assert_eq!(tally(&["Green fund: $34M", "Low-rate loan: $30M", "Own funds: the rest"]).0, "bullets");
         // A quiz: one question, its answers under their letters.
         let (layout, said) = made(
             serde_json::json!({ "slideTitle": "Which is a root cause?", "layoutSuggestion": "Quiz",
@@ -9340,6 +9379,14 @@ mod tests {
         assert_eq!(layout, "call-to-action");
         has(&said, "statement", "Contact us");
         has(&said, "button", "hello@tidewater.io");
+        // The asking verbs are English: a French "Merci" over "Contact : …", "contact" there a
+        // noun, keeps its closing and its thanks (dogfood pass 11).
+        let mut merci = deck_of(closing("Merci", "Contact\u{a0}: transition@metropole.fr", &[]));
+        merci.brief.language = Some("French".into());
+        let (layout, said) = last(&merci, &Pictures::new(), &none);
+        assert_eq!(layout, "closing", "{said:#?}");
+        assert!(said.iter().any(|(_, w)| w == "Merci"), "{said:#?}");
+        assert!(!said.iter().any(|(_, w)| w == "Contact"), "{said:#?}");
         // A Q&A that ends the talk, its seeded questions under it, stays a Q&A (dogfood pass 10),
         // never a closing that lists them over its backdrop.
         let mut asked =

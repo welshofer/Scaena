@@ -26,7 +26,7 @@
 //! [`stripped`] is the file without what it says beyond its picture, for the exports that carry
 //! the file itself.
 
-use crate::MAX_IMAGE_SIDE;
+use crate::{MAX_IMAGE_PIXELS, MAX_IMAGE_SIDE};
 
 /// Why a JPEG cannot be read.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -641,6 +641,13 @@ impl<'a> Decoder<'a> {
                 "{width} × {height} px; images are at most {MAX_IMAGE_SIDE} px a side (SPEC §3.3)"
             )));
         }
+        // Nor is one of more pixels than a painter's raster holds, which its side alone allowed
+        // twice of (lift-up 20261110 SEC-1).
+        if !self.header && (width as u64) * (height as u64) > MAX_IMAGE_PIXELS {
+            return Err(JpegError(format!(
+                "{width} × {height} px; images are at most {MAX_IMAGE_PIXELS} pixels (SPEC §3.3)"
+            )));
+        }
         let n = usize::from(head[5]);
         if !matches!(n, 1 | 3 | 4) {
             return Err(JpegError::damaged(&format!("a frame of {n} components")));
@@ -684,6 +691,15 @@ impl<'a> Decoder<'a> {
             return Err(JpegError("a JPEG sampled at factors that do not divide the largest; save it again".into()));
         }
         let (mcux, mcuy) = (width.div_ceil(8 * hmax), height.div_ceil(8 * vmax));
+        // The samples its components keep, all told, at most four a pixel, as a CMYK photo at full
+        // resolution keeps: what a frame sampled oddly would ask past it is refused before any is
+        // allocated (lift-up 20261110 SEC-1).
+        let samples: u64 = components.iter().map(|c| (mcux * c.h * mcuy * c.v * 64) as u64).sum();
+        if !self.header && samples > 4 * MAX_IMAGE_PIXELS {
+            return Err(JpegError(format!(
+                "{width} × {height} px in samples past what a picture may keep (SPEC §3.3)"
+            )));
+        }
         for c in &mut components {
             c.bw = mcux * c.h;
             c.bh = mcuy * c.v;
@@ -1386,6 +1402,19 @@ mod tests {
         assert!(refused(&huge).contains("at most 8192 px a side"));
         // Its header says how large it is, which an editor offers a smaller copy of.
         assert_eq!(Header::read(&huge).unwrap().width, 9000);
+        // Within the side but past the pixels a raster holds: 8192 × 8192 is refused before its
+        // coefficients are allocated, as a CMYK frame of four components is (lift-up 20261110
+        // SEC-1).
+        let mut square = file.clone();
+        square[sof + 5..sof + 7].copy_from_slice(&8192u16.to_be_bytes());
+        square[sof + 7..sof + 9].copy_from_slice(&8192u16.to_be_bytes());
+        assert!(refused(&square).contains("at most 33554432 pixels"), "{}", refused(&square));
+        assert_eq!(Header::read(&square).unwrap().width, 8192);
+        // At the budget it is no longer refused for its size.
+        let mut wide = file.clone();
+        wide[sof + 5..sof + 7].copy_from_slice(&4096u16.to_be_bytes());
+        wide[sof + 7..sof + 9].copy_from_slice(&8192u16.to_be_bytes());
+        assert!(decode(&wide).map_or_else(|e| !e.to_string().contains("pixels"), |d| d.width == 8192));
     }
 
     /// A print workflow's photo, CMYK as Photoshop writes it, inverted under an Adobe marker, and

@@ -218,6 +218,21 @@ pub fn detected(text: &str, language: Option<&str>) -> Option<f64> {
     Some(js::clamp(js::tanh(TANH_SLOPE * net_per_tok), -1.0, 1.0))
 }
 
+/// The words `text`'s tone was read from (Scaena's, not Vzestup's): each hit of the hopeful
+/// lexicons and the grave, with its weight, hopeful ones above zero and grave ones below; none
+/// where [`detected`] reads nothing. It moves no reading: what a tone finding names, so the
+/// writer knows which words to change (W1's dogfood 3).
+pub fn heard(text: &str, language: Option<&str>) -> Option<Vec<(String, f64)>> {
+    let tokens = lexicon::tokens(text);
+    if tokens.len() < 3 || !lexicon::english(text, language) {
+        return None;
+    }
+    let joined = tokens.join(" ");
+    let mut out = lexicon::hits(&tokens, &joined, &POSITIVE_STEMS, &POSITIVE_WORDS);
+    out.extend(lexicon::hits(&tokens, &joined, &NEGATIVE_STEMS, &NEGATIVE_WORDS));
+    Some(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -235,6 +250,22 @@ mod tests {
         let v = read("disaster catastrophe collapse bankruptcy crisis doom losses layoffs breach");
         assert!((-1.0..=1.0).contains(&v));
         assert_eq!(DETECTED_VALENCE_VERSION, 2);
+    }
+
+    /// What a reading was made of sums to it: the hits `heard` names weigh what `detected`
+    /// read, word by word, and "missed" reads grave where "love" reads nothing (W1's dogfood 3).
+    #[test]
+    fn the_words_a_tone_was_read_from_are_the_reading() {
+        let text = "We missed the old harbor, and we love what the town built after the outage.";
+        let hits = heard(text, None).unwrap();
+        let words: Vec<&str> = hits.iter().map(|(w, _)| w.as_str()).collect();
+        assert!(words.contains(&"missed") && words.contains(&"outage"), "{words:?}");
+        assert!(!words.contains(&"love"), "the lexicon does not read \"love\": {words:?}");
+        let tokens = lexicon::tokens(text);
+        let net: f64 = hits.iter().map(|(_, w)| w).sum::<f64>() / tokens.len() as f64;
+        let read = js::clamp(js::tanh(TANH_SLOPE * net), -1.0, 1.0);
+        assert!((read - detected(text, None).unwrap()).abs() < 1e-12);
+        assert_eq!(heard("Hi all", None), None);
     }
 
     #[test]
